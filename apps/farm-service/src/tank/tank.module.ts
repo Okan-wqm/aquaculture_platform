@@ -26,6 +26,7 @@ import { Tank } from './entities/tank.entity';
 import { TankHandlers } from './handlers';
 import { TankResolver } from './resolvers/tank.resolver';
 import { TankCapacityService } from './services/tank-capacity.service';
+import { GetTankRegistryResponder } from './responders/get-tank-registry.responder';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { TankCapacityService } from './services/tank-capacity.service';
     ]),
     FarmStockModule,
   ],
+  controllers: [GetTankRegistryResponder],
   providers: [
     TankCapacityService,
     ...TankHandlers,

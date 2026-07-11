@@ -21,7 +21,7 @@ export class SearchMessagesInput {
   @IsString()
   @MinLength(2)
   @MaxLength(200)
-  query: string;
+  query!: string;
 
   @Field(() => ID, {
     nullable: true,
@@ -38,5 +38,5 @@ export class SearchMessagesInput {
   @IsInt()
   @Min(1)
   @Max(50)
-  limit: number;
+  limit!: number;
 }

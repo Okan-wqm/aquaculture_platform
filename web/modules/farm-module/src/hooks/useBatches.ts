@@ -31,6 +31,7 @@ export type BatchInputType =
   | 'FRY'
   | 'FINGERLINGS'
   | 'JUVENILES'
+  | 'SMOLT'
   | 'ADULTS'
   | 'BROODSTOCK';
 
@@ -67,7 +68,19 @@ export type CullReason =
   | 'quality'
   | 'other';
 
+/**
+ * DEPRECATED legacy display grade — the backend retired the stored grade in
+ * favour of the Norwegian quality class (RPT-007). It survives only as a
+ * read-only derived alias; harvest-record writes use {@link QualityClass}.
+ */
 export type QualityGrade = 'PREMIUM' | 'GRADE_A' | 'GRADE_B' | 'GRADE_C' | 'REJECT';
+
+/**
+ * Norwegian official slaughter quality class — the stored SSoT for harvest
+ * quality. Values are the GraphQL enum names (uppercase keys), matching the
+ * backend QualityClass registered type.
+ */
+export type QualityClass = 'SUPERIOR' | 'ORDINAER' | 'PRODUKSJONSFISK' | 'UTKAST';
 
 // Tank Operation Input Types
 export interface RecordMortalityInput {
@@ -164,7 +177,8 @@ export interface CreateHarvestRecordInput {
   quantityHarvested: number;
   averageWeight: number;
   totalBiomass?: number;
-  qualityGrade: QualityGrade;
+  /** Norwegian quality class — the stored SSoT (RPT-007). */
+  qualityClass: QualityClass;
   lotNumber?: string;
   harvestDate?: string;
   pricePerKg?: number;

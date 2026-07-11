@@ -29,6 +29,7 @@ import { AddFeedInventoryCommand } from '../commands/add-feed-inventory.command'
 import { FeedInventory } from '../entities/feed-inventory.entity';
 import { Feed } from '../../feed/entities/feed.entity';
 import { Site } from '../../site/entities/site.entity';
+import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 
 @Injectable()
 @CommandHandler(AddFeedInventoryCommand)
@@ -42,10 +43,16 @@ export class AddFeedInventoryHandler implements ICommandHandler<AddFeedInventory
     private readonly siteRepository: Repository<Site>,
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly financeSettings: FinanceSettingsService,
   ) {}
 
   async execute(command: AddFeedInventoryCommand): Promise<FeedInventory> {
     const { tenantId, payload, userId } = command;
+
+    // Currency SSoT (FARM-HIGH-151): feed-lot value books under the
+    // tenant default currency from finance_settings, never a hardcoded
+    // literal.
+    const defaultCurrency = await this.financeSettings.getDefaultCurrency(tenantId);
 
     // Feed'i doğrula (pre-transaction read — validation only)
     const feed = await this.feedRepository.findOne({
@@ -107,7 +114,7 @@ export class AddFeedInventoryHandler implements ICommandHandler<AddFeedInventory
 
           unitPricePerKg: payload.unitPricePerKg,
           totalValue,
-          currency: payload.currency || 'TRY',
+          currency: payload.currency || defaultCurrency,
 
           storageLocation: payload.storageLocation,
           storageTemperature: payload.storageTemperature,

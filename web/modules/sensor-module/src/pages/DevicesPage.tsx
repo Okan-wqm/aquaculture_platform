@@ -40,6 +40,14 @@ import { SensorRegistrationWizard } from '../components/registration/SensorRegis
 import { VfdRegistrationWizard } from '../components/vfd/VfdRegistrationWizard';
 import { EdgeDeviceWizard } from '../components/fleet/EdgeDeviceWizard';
 import { useSensorList, RegisteredSensor } from '../hooks/useSensorList';
+import { useAuth } from '@aquaculture/shared-ui';
+import { useVfdDevices, useVfdStats } from '../hooks/useVfdRegistration';
+import {
+  VfdDevice,
+  VfdDeviceStatus,
+  VFD_BRAND_NAMES,
+  VFD_PROTOCOL_NAMES,
+} from '../types/vfd.types';
 import {
   useEdgeDevices,
   useEdgeDeviceStats,
@@ -431,6 +439,13 @@ const DevicesPage: React.FC = () => {
   const [edgePage, setEdgePage] = useState(1);
   const edgeLimit = 12;
 
+  // SENSOR-LOW-003: defense-in-depth front-end gate for privileged device
+  // actions. The backend @Roles remain the source of truth (SUPER_ADMIN ⊃
+  // TENANT_ADMIN ⊃ MODULE_MANAGER); this hides affordances a MODULE_USER
+  // cannot complete instead of dead-ending them in a 403.
+  const { hasAnyRole } = useAuth();
+  const canManageDevices = hasAnyRole(['SUPER_ADMIN', 'TENANT_ADMIN', 'MODULE_MANAGER']);
+
   // Fetch real sensors from API
   const { sensors, loading, error, refetch } = useSensorList();
 
@@ -451,6 +466,47 @@ const DevicesPage: React.FC = () => {
   const { data: edgeStats, isLoading: edgeStatsLoading } = useEdgeDeviceStats();
   const { data: firmwareVersions = [] } = useAvailableFirmwareVersions();
   const bulkFirmwareMutation = useBulkUpdateEdgeDeviceFirmware();
+
+  // VFD devices state (SENSOR-CRITICAL-003) — the VFD tab now reads the real
+  // vfdDevices query with server-side search/pagination, mirroring the edge tab.
+  const [vfdSearchTerm, setVfdSearchTerm] = useState('');
+  const [vfdStatusFilter, setVfdStatusFilter] = useState('');
+  const [vfdPage, setVfdPage] = useState(1);
+  const vfdLimit = 12;
+
+  const {
+    data: vfdData,
+    isLoading: vfdLoading,
+    error: vfdError,
+    refetch: refetchVfd,
+  } = useVfdDevices(
+    {
+      search: vfdSearchTerm || undefined,
+      status: vfdStatusFilter ? (vfdStatusFilter as VfdDeviceStatus) : undefined,
+    },
+    { page: vfdPage, limit: vfdLimit },
+  );
+  const { data: vfdStats } = useVfdStats();
+
+  const vfdDevices = vfdData?.items || [];
+  const vfdTotal = vfdData?.total || 0;
+  const vfdTotalPages = Math.ceil(vfdTotal / vfdLimit);
+  const hasVfdFilters = Boolean(vfdSearchTerm || vfdStatusFilter);
+
+  const applyVfdFilter = (apply: () => void): void => {
+    apply();
+    setVfdPage(1);
+  };
+
+  const clearVfdFilters = (): void => {
+    setVfdSearchTerm('');
+    setVfdStatusFilter('');
+    setVfdPage(1);
+  };
+
+  const handleVfdDeviceClick = (device: VfdDevice): void => {
+    navigate(`/sensor/devices/vfd/${device.id}`);
+  };
 
   // Edge device filter options
   const edgeStateOptions = Object.values(DeviceLifecycleState).map((state) => ({
@@ -479,6 +535,14 @@ const DevicesPage: React.FC = () => {
     setEdgeStateFilter('');
     setEdgeModelFilter('');
     setEdgeOnlineFilter('');
+    setEdgePage(1);
+  };
+
+  // SENSOR-LOW-005: funnel every edge filter change through one helper that
+  // always resets pagination, so a stat-card click can never leave the query
+  // stranded on a page that no longer exists in the filtered result set.
+  const applyEdgeFilter = (apply: () => void): void => {
+    apply();
     setEdgePage(1);
   };
 
@@ -566,9 +630,10 @@ const DevicesPage: React.FC = () => {
     refetch();
   };
 
-  const handleVfdWizardSuccess = (vfdDeviceId: string) => {
-    console.log('VFD device registered successfully:', vfdDeviceId);
-    refetch();
+  const handleVfdWizardSuccess = (_vfdDeviceId: string) => {
+    // SENSOR-CRITICAL-003: refresh the VFD list (not the sensor list) so the
+    // newly registered drive appears immediately in the VFD tab.
+    refetchVfd();
   };
 
   const handleEdgeWizardSuccess = (deviceId: string) => {
@@ -612,6 +677,7 @@ const DevicesPage: React.FC = () => {
           </p>
         </div>
         <div className="relative">
+          {canManageDevices && (
           <button
             onClick={() => setShowDeviceTypeSelector(!showDeviceTypeSelector)}
             className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
@@ -619,6 +685,7 @@ const DevicesPage: React.FC = () => {
             <Plus className="w-4 h-4" />
             Yeni Cihaz Ekle
           </button>
+          )}
 
           {/* Device Type Selector Dropdown */}
           {showDeviceTypeSelector && (
@@ -746,14 +813,14 @@ const DevicesPage: React.FC = () => {
                 value={edgeStats.online}
                 icon={<Wifi size={24} className="text-green-600" />}
                 color="bg-green-100"
-                onClick={() => setEdgeOnlineFilter('online')}
+                onClick={() => applyEdgeFilter(() => setEdgeOnlineFilter('online'))}
               />
               <StatCard
                 label="Çevrimdışı"
                 value={edgeStats.offline}
                 icon={<WifiOff size={24} className="text-gray-500" />}
                 color="bg-gray-100"
-                onClick={() => setEdgeOnlineFilter('offline')}
+                onClick={() => applyEdgeFilter(() => setEdgeOnlineFilter('offline'))}
               />
               <StatCard
                 label="Uyarılar"
@@ -762,7 +829,7 @@ const DevicesPage: React.FC = () => {
                 }
                 icon={<AlertTriangle size={24} className="text-red-600" />}
                 color="bg-red-100"
-                onClick={() => setEdgeStateFilter(DeviceLifecycleState.ERROR)}
+                onClick={() => applyEdgeFilter(() => setEdgeStateFilter(DeviceLifecycleState.ERROR))}
               />
             </div>
           ) : null}
@@ -825,8 +892,8 @@ const DevicesPage: React.FC = () => {
                 )}
               </div>
 
-              {/* Bulk Firmware Update */}
-              {selectedDeviceIds.size > 0 && (
+              {/* Bulk Firmware Update (SENSOR-LOW-003: manage-gated) */}
+              {canManageDevices && selectedDeviceIds.size > 0 && (
                 <button
                   onClick={() => {
                     setBulkFirmwareVersion('');
@@ -899,6 +966,7 @@ const DevicesPage: React.FC = () => {
               <p className="text-sm mt-1 mb-4">
                 İlk Revolution Pi veya Industrial PC cihazınızı kaydedin
               </p>
+              {canManageDevices && (
               <button
                 onClick={() => handleAddDevice('edge')}
                 className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
@@ -906,6 +974,7 @@ const DevicesPage: React.FC = () => {
                 <Plus className="w-4 h-4" />
                 İlk Edge Controller'ı Kaydet
               </button>
+              )}
             </div>
           )}
 
@@ -1045,9 +1114,9 @@ const DevicesPage: React.FC = () => {
       )}
 
       {/* ========================================================================
-          SENSORS / VFD TAB CONTENT
+          SENSORS TAB CONTENT
           ======================================================================== */}
-      {(activeTab === 'sensors' || activeTab === 'vfd') && (
+      {activeTab === 'sensors' && (
         <>
           {/* Filters */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
@@ -1111,6 +1180,7 @@ const DevicesPage: React.FC = () => {
               <Cpu className="w-12 h-12 mb-3 opacity-50" />
               <p className="text-lg font-medium">Henüz cihaz kaydedilmemiş</p>
               <p className="text-sm mt-1 mb-4">Başlamak için yeni bir sensör veya VFD cihazı ekleyin</p>
+              {canManageDevices && (
               <button
                 onClick={() => setShowDeviceTypeSelector(true)}
                 className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
@@ -1118,6 +1188,7 @@ const DevicesPage: React.FC = () => {
                 <Plus className="w-4 h-4" />
                 İlk Cihazı Ekle
               </button>
+              )}
             </div>
           )}
 
@@ -1141,6 +1212,172 @@ const DevicesPage: React.FC = () => {
               <Search className="w-12 h-12 mb-3 opacity-50" />
               <p className="text-lg font-medium">Sonuç bulunamadı</p>
               <p className="text-sm mt-1">Arama kriterlerini değiştirmeyi deneyin</p>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ========================================================================
+          VFD TAB CONTENT (SENSOR-CRITICAL-003) — real vfdDevices data
+          ======================================================================== */}
+      {activeTab === 'vfd' && (
+        <>
+          {/* VFD stat summary */}
+          {vfdStats && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                <p className="text-sm text-gray-500">Toplam VFD</p>
+                <p className="text-2xl font-bold text-gray-900">{vfdStats.total ?? vfdTotal}</p>
+              </div>
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                <p className="text-sm text-gray-500">Aktif</p>
+                <p className="text-2xl font-bold text-green-600">{vfdStats.active ?? 0}</p>
+              </div>
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                <p className="text-sm text-gray-500">Arızalı</p>
+                <p className="text-2xl font-bold text-red-600">{vfdStats.faulted ?? 0}</p>
+              </div>
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                <p className="text-sm text-gray-500">Bakım</p>
+                <p className="text-2xl font-bold text-cyan-600">{vfdStats.maintenance ?? 0}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Filters */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+            <div className="flex flex-col md:flex-row gap-4">
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                <input
+                  type="text"
+                  placeholder="VFD adı veya seri numarası..."
+                  value={vfdSearchTerm}
+                  onChange={(e) => applyVfdFilter(() => setVfdSearchTerm(e.target.value))}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Filter className="w-5 h-5 text-gray-500" />
+                <select
+                  value={vfdStatusFilter}
+                  onChange={(e) => applyVfdFilter(() => setVfdStatusFilter(e.target.value))}
+                  className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                >
+                  <option value="">Tüm Durumlar</option>
+                  {Object.values(VfdDeviceStatus).map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+              {hasVfdFilters && (
+                <button
+                  onClick={clearVfdFilters}
+                  className="px-3 py-2 text-sm text-gray-600 hover:text-gray-900"
+                >
+                  Filtreleri Temizle
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Error */}
+          {vfdError && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 text-red-500" />
+              <div>
+                <p className="text-red-800 font-medium">VFD cihazları yüklenemedi</p>
+                <p className="text-red-600 text-sm">{(vfdError as Error).message}</p>
+              </div>
+              <button
+                onClick={() => refetchVfd()}
+                className="ml-auto px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200"
+              >
+                Tekrar Dene
+              </button>
+            </div>
+          )}
+
+          {/* Loading */}
+          {vfdLoading && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 flex flex-col items-center justify-center text-gray-500">
+              <Loader2 className="w-8 h-8 animate-spin mb-3" />
+              <p>VFD cihazları yükleniyor...</p>
+            </div>
+          )}
+
+          {/* Empty */}
+          {!vfdLoading && vfdDevices.length === 0 && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 flex flex-col items-center justify-center text-gray-500">
+              <Zap className="w-12 h-12 mb-3 opacity-50" />
+              <p className="text-lg font-medium">
+                {hasVfdFilters ? 'Sonuç bulunamadı' : 'Henüz VFD cihazı kaydedilmemiş'}
+              </p>
+              {!hasVfdFilters && canManageDevices && (
+                <button
+                  onClick={() => handleAddDevice('vfd')}
+                  className="mt-4 flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  VFD Cihazı Ekle
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* VFD list */}
+          {!vfdLoading && vfdDevices.length > 0 && (
+            <div className="space-y-3">
+              {vfdDevices.map((device) => (
+                <button
+                  key={device.id}
+                  onClick={() => handleVfdDeviceClick(device)}
+                  className="w-full text-left bg-white rounded-xl shadow-sm border border-gray-100 p-4 hover:border-cyan-300 transition-colors flex items-center gap-4"
+                >
+                  <div className="w-10 h-10 rounded-lg bg-cyan-50 flex items-center justify-center">
+                    <Zap className="w-5 h-5 text-cyan-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-gray-900 truncate">{device.name}</p>
+                    <p className="text-sm text-gray-500 truncate">
+                      {VFD_BRAND_NAMES[device.brand] ?? device.brand}
+                      {' · '}
+                      {VFD_PROTOCOL_NAMES[device.protocol] ?? device.protocol}
+                      {device.serialNumber ? ` · ${device.serialNumber}` : ''}
+                    </p>
+                  </div>
+                  <StatusBadge isConnected={device.connectionStatus?.isConnected} />
+                  <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-700">
+                    {device.status}
+                  </span>
+                  <ChevronRight className="w-5 h-5 text-gray-400" />
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Pagination */}
+          {!vfdLoading && vfdTotalPages > 1 && (
+            <div className="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-100 p-3">
+              <p className="text-sm text-gray-500">
+                {vfdTotal} cihaz · Sayfa {vfdPage}/{vfdTotalPages}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  disabled={vfdPage <= 1}
+                  onClick={() => setVfdPage((p) => Math.max(1, p - 1))}
+                  className="px-3 py-1 border border-gray-200 rounded disabled:opacity-40 hover:bg-gray-50"
+                >
+                  Önceki
+                </button>
+                <button
+                  disabled={vfdPage >= vfdTotalPages}
+                  onClick={() => setVfdPage((p) => Math.min(vfdTotalPages, p + 1))}
+                  className="px-3 py-1 border border-gray-200 rounded disabled:opacity-40 hover:bg-gray-50"
+                >
+                  Sonraki
+                </button>
+              </div>
             </div>
           )}
         </>

@@ -48,24 +48,24 @@ export interface LotContribution {
 export class StorageLotMix {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
   @Column('uuid')
-  storageLocationId: string;
+  storageLocationId!: string;
 
   @Field(() => StorageItemType)
   @Column({ type: 'enum', enum: StorageItemType })
-  itemType: StorageItemType;
+  itemType!: StorageItemType;
 
   @Field()
   @Column('uuid')
-  itemId: string;
+  itemId!: string;
 
   /**
    * Composite identifier of the form
@@ -75,19 +75,19 @@ export class StorageLotMix {
    */
   @Field()
   @Column({ length: 255 })
-  effectiveLotNumber: string;
+  effectiveLotNumber!: string;
 
   @Field(() => GraphQLJSON)
   @Column('jsonb')
-  contributingLots: LotContribution[];
+  contributingLots!: LotContribution[];
 
   @Field(() => Float)
   @Column('decimal', { precision: 14, scale: 2 })
-  totalQuantityKg: string;
+  totalQuantityKg!: string;
 
   @Field()
   @Column('timestamptz')
-  mixedAt: Date;
+  mixedAt!: Date;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -95,5 +95,5 @@ export class StorageLotMix {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 }

@@ -40,40 +40,96 @@
 -- the idempotent backfill for schemas that already exist.
 -- ============================================================================
 
--- Tenant-schema normalization (idempotent — GRANT is a set operation and
--- ALTER ... OWNER TO is a no-op when the owner already matches):
---   * messaging_schema_owner needs USAGE+CREATE on each tenant schema to
---     place new partition children there.
---   * messaging-domain parents AND their existing partition children move
---     to messaging_schema_owner (ALTER on the parent does NOT cascade to
---     existing children — both relation classes are enumerated).
+-- ---------------------------------------------------------------------------
+-- SSoT: the COMPLETE messaging-partition privilege recipe for ONE tenant
+-- schema. Both provisioning paths call this ONE function, so the recipe can
+-- never drift between "new tenant" (the TS provisioner forward path,
+-- grantTenantMessagingPartitionAuthority) and "existing tenant" (the backfill
+-- loop below) — and, critically, the runtime-DML grant travels with the
+-- re-own BY CONSTRUCTION. Tenant messaging broke precisely because that grant
+-- lived in NEITHER copy of a hand-mirrored recipe; collapsing to one function
+-- (mirroring how platform.create_messaging_partition centralises the partition
+-- DDL) makes that class of drift structurally impossible.
+--
+-- The recipe:
+--   * messaging_schema_owner gets USAGE+CREATE so the SECURITY DEFINER
+--     partition function can place new monthly children (pg16 needs schema
+--     CREATE + parent OWNERSHIP for PARTITION OF).
+--   * messaging-domain parents AND their existing children move to
+--     messaging_schema_owner (ALTER on the parent does NOT cascade to existing
+--     children — both relkinds are enumerated).
+--   * The runtime role (messaging_service) regains DML: an explicit GRANT on
+--     the parents + existing children, PLUS ALTER DEFAULT PRIVILEGES keyed to
+--     the definer role so every FUTURE monthly child is auto-granted (no
+--     per-partition ceremony, no blind spot). Same GRANT + ALTER DEFAULT
+--     PRIVILEGES idiom Stage 008 uses for source schemas; the runtime role
+--     keeps EXECUTE-only DDL (raw DDL stays structurally impossible).
+--
+-- SECURITY INVOKER (the default): runs with the CALLER's privileges — identical
+-- to the inline SQL it replaces. Both callers (the bootstrap superuser here and
+-- the db-migrate control connection in the TS provisioner) already hold the
+-- GRANT / ALTER OWNER / ALTER DEFAULT PRIVILEGES rights. Returns the relations
+-- it re-owned + granted so the TS caller keeps its structured result.
+-- Idempotent: GRANT is a set operation; ALTER ... OWNER / ALTER DEFAULT
+-- PRIVILEGES no-op when already applied.
+CREATE OR REPLACE FUNCTION platform.grant_messaging_partition_authority(
+  p_tenant_schema text
+) RETURNS text[]
+LANGUAGE plpgsql
+AS $grant_messaging_partition_authority$
+DECLARE
+  rel record;
+  reowned text[] := ARRAY[]::text[];
+BEGIN
+  IF p_tenant_schema !~ '^tenant_[a-f0-9]{16}$' THEN
+    RAISE EXCEPTION
+      'grant_messaging_partition_authority: "%" is not a tenant schema', p_tenant_schema;
+  END IF;
+
+  EXECUTE format(
+    'GRANT USAGE, CREATE ON SCHEMA %I TO messaging_schema_owner',
+    p_tenant_schema
+  );
+
+  EXECUTE format(
+    'ALTER DEFAULT PRIVILEGES FOR ROLE messaging_schema_owner IN SCHEMA %I '
+    || 'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO messaging_service',
+    p_tenant_schema
+  );
+
+  FOR rel IN
+    SELECT c.oid::regclass::text AS qualified_name
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = p_tenant_schema
+       AND c.relkind IN ('r', 'p')
+       AND c.relname ~ '^(messages|message_receipts)(_[0-9]{4}_[0-9]{2})?$'
+  LOOP
+    EXECUTE format('ALTER TABLE %s OWNER TO messaging_schema_owner', rel.qualified_name);
+    EXECUTE format(
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %s TO messaging_service',
+      rel.qualified_name
+    );
+    reowned := array_append(reowned, rel.qualified_name);
+  END LOOP;
+
+  RETURN reowned;
+END
+$grant_messaging_partition_authority$;
+
+-- Idempotent backfill for schemas that already exist (new tenants take the SAME
+-- function via the TS provisioner forward path). One call per tenant — the
+-- recipe lives ONLY in the function above, never inline.
 DO $messaging_partition_authority_backfill$
 DECLARE
   tenant_schema text;
-  rel record;
 BEGIN
   FOR tenant_schema IN
     SELECT nspname
       FROM pg_catalog.pg_namespace
      WHERE nspname ~ '^tenant_[a-f0-9]{16}$'
   LOOP
-    EXECUTE format(
-      'GRANT USAGE, CREATE ON SCHEMA %I TO messaging_schema_owner',
-      tenant_schema
-    );
-    FOR rel IN
-      SELECT c.oid::regclass::text AS qualified_name
-        FROM pg_catalog.pg_class c
-        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-       WHERE n.nspname = tenant_schema
-         AND c.relkind IN ('r', 'p')
-         AND c.relname ~ '^(messages|message_receipts)(_[0-9]{4}_[0-9]{2})?$'
-    LOOP
-      EXECUTE format(
-        'ALTER TABLE %s OWNER TO messaging_schema_owner',
-        rel.qualified_name
-      );
-    END LOOP;
+    PERFORM platform.grant_messaging_partition_authority(tenant_schema);
   END LOOP;
 END
 $messaging_partition_authority_backfill$;

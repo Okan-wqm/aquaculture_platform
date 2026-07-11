@@ -214,7 +214,12 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'sensor',
     sourceSchema: 'sensor', // Tables are in sensor schema, will be copied to tenant schema
-    infrastructureTables: ['migrations', 'sensor_audit_logs', 'sensor_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    // SENSOR-MEDIUM-009: vfd_register_mappings is GLOBAL vendor reference data
+    // (declares schema:'sensor'), a single cross-tenant table — NOT per-tenant
+    // cloned — so it belongs in the source-schema-only infrastructure set.
+    // SENSOR-MEDIUM-004: edge_device_directory is the cross-tenant O(1) index
+    // (public identifier -> tenant_id); one table in `sensor`, never cloned.
+    infrastructureTables: ['migrations', 'sensor_audit_logs', 'sensor_outbox', 'vfd_register_mappings', 'edge_device_directory', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: ['sensor_protocols', 'sensor_type_definitions', 'industry_templates'],
     tables: [
       // Core sensor entities
@@ -226,9 +231,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'processes',
 
       // VFD (Variable Frequency Drive) entities
+      // vfd_register_mappings is intentionally NOT here — it is global
+      // cross-tenant reference data pinned to `sensor` (see infrastructureTables
+      // above, SENSOR-MEDIUM-009), not a per-tenant clone.
       'vfd_devices',
       'vfd_readings',
-      'vfd_register_mappings',
       'vfd_parameter_definitions',
       'vfd_change_sets',
       'vfd_change_set_items',
@@ -283,6 +290,12 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'provisioning_records',
       'witnesses',
       'audit_archive_v1',
+
+      // Signed deploy pipeline (Faz 3/5) — per-tenant tables (their entities
+      // omit `schema:` per ADR-011): content-addressed artifact store +
+      // guarded release-bundle ledger. Must be cloned into every tenant schema.
+      'deploy_artifacts',
+      'release_bundles',
     ],
   },
   {
@@ -409,7 +422,13 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'water_quality_parameter_configs',
       'water_quality_param_equipment',
       'sensor_temperature_latest',
+      'sensor_temperature_daily',
       'health_events',
+      'lice_counts',
+      'treatment_applications',
+      'welfare_assessments',
+      'escape_incidents',
+      'slaughter_facilities',
       'harvest_plans',
       'harvest_records',
 
@@ -446,6 +465,8 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // Persisted Mattilsynet report submissions (FARM-HIGH-125) — the
       // legal record of what was reported; per-tenant like biomass_reports.
       'regulatory_reports',
+      // Scheduler-assembled report drafts awaiting review/approval (RPT-003).
+      'regulatory_report_drafts',
       'sentinel_hub_settings',
 
       // Weather & Marine observations
@@ -460,6 +481,15 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
 
       // Workers
       'farm_workers',
+
+      // Finance (farm OPEX/revenue ledger) — migration
+      // 1802500000000-CreateFinanceTables. Declared here in the SAME
+      // commit as the migration: farm has strictOwnership enabled, so
+      // an undeclared table would be DROPPED by
+      // SourceSchemaBootstrapService on the next startup.
+      'finance_categories',
+      'finance_expense_entries',
+      'finance_settings',
     ],
   },
   {
@@ -522,6 +552,14 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'work_rotations',
       'safety_training_records',
       'hr_mobile_command_receipts',
+
+      // HR Finance (labour-cost settings + manual HR expense ledger) —
+      // migration 1801700000000-CreateHrFinanceTables. `hr_` prefix is
+      // mandatory: farm and hr tables are cloned into the SAME
+      // tenant_<uuid> schema namespace (precedent: departments_hr).
+      'hr_finance_categories',
+      'hr_finance_entries',
+      'hr_payroll_cost_settings',
     ],
   },
   {
@@ -612,7 +650,6 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'retention_policies',
       'legal_holds',
       'compliance_audit_log',
-      'tenant_ai_settings',
       'user_ai_consents',
     ],
   },
@@ -788,6 +825,19 @@ export function getRlsExcludeTablesForService(moduleName: string): string[] {
   }
   return module.infrastructureTables ?? [];
 }
+
+/**
+ * Auth is the ONE service whose RLS exclusions include DOMAIN tables, not just
+ * infrastructure: auth resolves a tenant by reading `users`/`tenants` pre-auth
+ * (SUPER_ADMIN rows carry `tenantId=NULL`), so those tables cannot carry a
+ * tenant-RLS policy. `getRlsExcludeTablesForService('auth')` only knows the
+ * infrastructure tables, so auth's list is declared HERE as the single SSoT —
+ * imported by BOTH the runtime `RlsModule.forPoolService` (auth app.module) AND
+ * the db-migrate provisioner's SCHEMA_REGISTRY (schema-registry.ts) so the two
+ * hand-maintained copies can never drift. Add a new auth cross-tenant/identity
+ * table here and both sides pick it up.
+ */
+export const AUTH_RLS_EXCLUDE_TABLES: readonly string[] = ['auth_outbox', 'users', 'tenants'];
 
 /**
  * Provisioning status to distinguish total failure from partial success

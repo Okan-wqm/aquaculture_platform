@@ -283,6 +283,13 @@ export class RegisteredSensorType {
   @Field(() => SensorRole, { nullable: true })
   sensorRole?: SensorRole;
 
+  // SENSOR-HIGH-023: firmware + calibration read-back for the detail page.
+  @Field({ nullable: true })
+  firmwareVersion?: string;
+
+  @Field({ nullable: true })
+  lastCalibratedAt?: Date;
+
   @Field(() => [DataChannelType], { nullable: true })
   dataChannels?: DataChannelType[];
 

@@ -21,7 +21,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, QueryRunner } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as crypto from 'crypto';
 import { withTenantContext } from '@aquaculture/backend-common/context';
@@ -118,27 +118,59 @@ export class FeedingCronService {
   }
 
   /**
-   * Try to acquire PostgreSQL advisory lock (non-blocking)
-   * Returns true if lock was acquired, false if another instance holds it
+   * The dedicated connection holding each job's advisory lock. pg_try_advisory_lock
+   * is SESSION-scoped — it stays held on the exact connection that acquired it and
+   * is only released by pg_advisory_unlock on that SAME connection. DataSource.query()
+   * borrows an arbitrary pooled connection per call, so acquiring and releasing
+   * through the pool leaks the lock forever (unlock lands on a different connection,
+   * no-ops) and every later run of the cron then self-skips. We therefore hold one
+   * dedicated QueryRunner per acquired job for the lock's whole lifetime. Keyed by
+   * jobName; @Cron never overlaps a job with itself, so there is no collision.
+   */
+  private readonly advisoryLockRunners = new Map<string, QueryRunner>();
+
+  /**
+   * Try to acquire PostgreSQL advisory lock (non-blocking) on a dedicated
+   * connection that is held until releaseAdvisoryLock runs.
+   * Returns true if lock was acquired, false if another instance holds it.
    */
   private async tryAcquireAdvisoryLock(jobName: string): Promise<boolean> {
     const lockKey = this.getAdvisoryLockKey(jobName);
-    const result = await this.dataSource.query(`SELECT pg_try_advisory_lock($1, $2) as acquired`, [
-      ADVISORY_LOCK_NAMESPACE,
-      lockKey,
-    ]);
-    return result[0]?.acquired === true;
+    const runner = this.dataSource.createQueryRunner();
+    await runner.connect();
+    try {
+      const result = await runner.query(`SELECT pg_try_advisory_lock($1, $2) as acquired`, [
+        ADVISORY_LOCK_NAMESPACE,
+        lockKey,
+      ]);
+      if (result[0]?.acquired === true) {
+        this.advisoryLockRunners.set(jobName, runner);
+        return true;
+      }
+      // Not acquired — free the connection immediately (we hold nothing).
+      await runner.release();
+      return false;
+    } catch (error) {
+      await runner.release();
+      throw error;
+    }
   }
 
   /**
-   * Release PostgreSQL advisory lock
+   * Release PostgreSQL advisory lock on the SAME connection that acquired it,
+   * then return that connection to the pool. A no-op if this instance never held
+   * the lock (so it is safe to call unconditionally in a finally block).
    */
   private async releaseAdvisoryLock(jobName: string): Promise<void> {
+    const runner = this.advisoryLockRunners.get(jobName);
+    if (!runner) return;
+    this.advisoryLockRunners.delete(jobName);
     const lockKey = this.getAdvisoryLockKey(jobName);
-    await this.dataSource.query(`SELECT pg_advisory_unlock($1, $2)`, [
-      ADVISORY_LOCK_NAMESPACE,
-      lockKey,
-    ]);
+    try {
+      await runner.query(`SELECT pg_advisory_unlock($1, $2)`, [ADVISORY_LOCK_NAMESPACE, lockKey]);
+    } finally {
+      await runner.release();
+    }
   }
 
   // ==========================================================================

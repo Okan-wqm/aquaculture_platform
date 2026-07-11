@@ -20,7 +20,7 @@ import {
   Max,
   MaxLength,
 } from 'class-validator';
-import { HarvestRecordStatus, QualityGrade } from '../entities/harvest-record.entity';
+import { HarvestRecordStatus, QualityClass } from '../entities/harvest-record.entity';
 import { HarvestMethod, ProductForm } from '../entities/harvest-plan.entity';
 
 @InputType()
@@ -28,7 +28,7 @@ export class UpdateHarvestRecordInput {
   @Field(() => ID, { description: 'ID of the harvest record to update' })
   @IsNotEmpty()
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field(() => HarvestRecordStatus, { nullable: true, description: 'Update status' })
   @IsOptional()
@@ -57,10 +57,13 @@ export class UpdateHarvestRecordInput {
   @Max(100000)
   averageWeight?: number;
 
-  @Field(() => QualityGrade, { nullable: true, description: 'Update quality grade' })
+  @Field(() => QualityClass, {
+    nullable: true,
+    description: 'Update Norwegian quality class (kvalitetsklasse) — the stored SSoT.',
+  })
   @IsOptional()
-  @IsEnum(QualityGrade)
-  qualityGrade?: QualityGrade;
+  @IsEnum(QualityClass)
+  qualityClass?: QualityClass;
 
   @Field(() => HarvestMethod, { nullable: true, description: 'Update harvest method' })
   @IsOptional()

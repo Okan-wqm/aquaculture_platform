@@ -233,7 +233,7 @@ interface DiscoveredTable {
  * mismatch. This is the only thing standing between user input and SQL
  * interpolation, so the regex is intentionally strict.
  */
-function assertSafeIdentifier(identifier: string, label: string): void {
+export function assertSafeIdentifier(identifier: string, label: string): void {
   if (!identifier || !SAFE_IDENTIFIER_REGEX.test(identifier)) {
     throw new Error(
       `[apply-tenant-rls] Unsafe SQL identifier for ${label}: "${identifier}". ` +
@@ -242,7 +242,7 @@ function assertSafeIdentifier(identifier: string, label: string): void {
   }
 }
 
-async function queryRows<T>(
+export async function queryRows<T>(
   qr: QueryRunner,
   sql: string,
   params?: unknown[],
@@ -251,7 +251,7 @@ async function queryRows<T>(
   return Array.isArray(result) ? (result as T[]) : [];
 }
 
-function assertDbMigrateDdlAuthority(operation: string): void {
+export function assertDbMigrateDdlAuthority(operation: string): void {
   if (process.env[DB_MIGRATE_DDL_AUTHORITY_ENV] === '1') {
     return;
   }

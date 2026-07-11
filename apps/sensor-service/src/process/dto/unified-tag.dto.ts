@@ -3,7 +3,7 @@ import { IsString, IsOptional, IsEnum, IsUUID, IsNumber, MaxLength, IsObject, Va
 import { GraphQLJSON } from 'graphql-scalars';
 import { StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
 
-import { TagDirection, TagIoType, TagDataType } from '../entities/unified-tag.entity';
+import { TagDirection, TagIoType, TagDataType, TagStatus } from '../entities/unified-tag.entity';
 
 @ValidatorConstraint({ name: 'jsonMaxSize', async: false })
 class JsonMaxSizeConstraint implements ValidatorConstraintInterface {
@@ -304,6 +304,12 @@ export class UnifiedTagType {
   @Field(() => GraphQLJSON)
   hierarchy!: Record<string, unknown>;
 
+  @Field(() => TagStatus)
+  status!: TagStatus;
+
+  @Field(() => Int)
+  revision!: number;
+
   @Field()
   createdAt!: Date;
 
@@ -330,4 +336,54 @@ export class TagDiscoveryResultType {
 
   @Field(() => [UnifiedTagType])
   tags!: UnifiedTagType[];
+}
+
+// ============================================================================
+// Tag resolution (canonical TagRef → registry binding snapshot)
+// ============================================================================
+
+@ObjectType()
+export class ResolvedTagBindingType {
+  @Field()
+  ref!: string;
+
+  @Field(() => ID)
+  unifiedTagId!: string;
+
+  @Field(() => TagIoType)
+  ioType!: TagIoType;
+
+  @Field(() => TagDataType)
+  dataType!: TagDataType;
+
+  @Field(() => TagDirection)
+  direction!: TagDirection;
+
+  @Field({ nullable: true })
+  engUnit?: string;
+
+  @Field(() => GraphQLJSON)
+  source!: Record<string, unknown>;
+
+  @Field(() => Int)
+  revision!: number;
+}
+
+@ObjectType()
+export class UnresolvedTagRefType {
+  @Field()
+  ref!: string;
+
+  /** 'INVALID_GRAMMAR' | 'NOT_FOUND' */
+  @Field()
+  reason!: string;
+}
+
+@ObjectType()
+export class TagResolutionResultType {
+  @Field(() => [ResolvedTagBindingType])
+  resolved!: ResolvedTagBindingType[];
+
+  @Field(() => [UnresolvedTagRefType])
+  unresolved!: UnresolvedTagRefType[];
 }

@@ -159,6 +159,8 @@ export class UpdateTankHandler implements ICommandHandler<UpdateTankCommand, Tan
         existing.temperatureSensorId = updateData.temperatureSensorId;
       if (updateData.equipmentTypeCode !== undefined)
         existing.equipmentTypeCode = updateData.equipmentTypeCode;
+      if (updateData.regulatoryUnitId !== undefined)
+        existing.regulatoryUnitId = updateData.regulatoryUnitId;
       if (updateData.tankType !== undefined) existing.tankType = updateData.tankType;
       if (updateData.material !== undefined) existing.material = updateData.material;
       if (updateData.waterType !== undefined) existing.waterType = updateData.waterType;

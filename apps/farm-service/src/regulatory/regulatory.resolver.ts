@@ -10,11 +10,13 @@
  * @module Regulatory/Resolvers
  */
 import { Resolver, Mutation, Query, Args, Context } from '@nestjs/graphql';
-import { Logger, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { BadRequestException, Logger, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { Roles, Role } from '@aquaculture/backend-common/decorators';
+import { maskAndTruncatePii } from '@aquaculture/backend-common/utils';
 import {
   MattilsynetApiService,
+  MattilsynetBasePayload,
   SeaLicePayload,
   SmoltPayload,
   CleanerFishPayload,
@@ -33,6 +35,12 @@ import {
 import { MaskinportenService, MATTILSYNET_SCOPES } from './maskinporten.service';
 import { RegulatorySettingsService } from './regulatory-settings.service';
 import {
+  MattilsynetSchemaValidatorService,
+  MattilsynetSchemaValidationError,
+} from './services/mattilsynet-schema-validator.service';
+import { MattilsynetRestReportType } from './schemas';
+import type { ValidatedPayload } from './schemas';
+import {
   SubmitSeaLiceReportInput,
   SubmitCleanerFishReportInput,
   SubmitSmoltReportInput,
@@ -46,13 +54,9 @@ import {
   SubmitDiseaseOutbreakInput,
 } from './dto/regulatory-varsling-inputs.dto';
 import { RegulatoryVarslingService } from './services/regulatory-varsling.service';
-import {
-  RegulatoryReportStoreService,
-} from './services/regulatory-report-store.service';
-import {
-  RegulatoryReportPayload,
-  RegulatoryReportType,
-} from './entities/regulatory-report.entity';
+import { RegulatorySubmissionService } from './services/regulatory-submission.service';
+import { SlaughterFacilityService } from './services/slaughter-facility.service';
+import { RegulatoryReportType } from './entities/regulatory-report.entity';
 import {
   RegulatorySettingsOutput,
   UpdateRegulatorySettingsInput,
@@ -82,13 +86,13 @@ interface GraphQLContext {
 @ObjectType()
 class MaskinportenStatus {
   @Field()
-  configured: boolean;
+  configured!: boolean;
 
   @Field()
-  environment: string;
+  environment!: string;
 
   @Field(() => [String])
-  scopes: string[];
+  scopes!: string[];
 
   @Field({ nullable: true })
   tokenEndpoint?: string;
@@ -97,22 +101,22 @@ class MaskinportenStatus {
 @ObjectType()
 class MattilsynetStatus {
   @Field()
-  baseUrl: string;
+  baseUrl!: string;
 
   @Field()
-  environment: string;
+  environment!: string;
 
   @Field()
-  maskinportenConfigured: boolean;
+  maskinportenConfigured!: boolean;
 }
 
 @ObjectType()
 class RegulatoryHealthStatus {
   @Field()
-  maskinportenHealthy: boolean;
+  maskinportenHealthy!: boolean;
 
   @Field()
-  mattilsynetHealthy: boolean;
+  mattilsynetHealthy!: boolean;
 
   @Field({ nullable: true })
   message?: string;
@@ -132,8 +136,38 @@ export class RegulatoryResolver {
     private readonly maskinporten: MaskinportenService,
     private readonly settingsService: RegulatorySettingsService,
     private readonly varslingService: RegulatoryVarslingService,
-    private readonly reportStore: RegulatoryReportStoreService,
+    private readonly schemaValidator: MattilsynetSchemaValidatorService,
+    private readonly submissionService: RegulatorySubmissionService,
+    private readonly slaughterFacilityService: SlaughterFacilityService,
   ) {}
+
+  /**
+   * Validate a payload against the official Mattilsynet schema BEFORE the
+   * persist-first flow starts. A schema-invalid payload never creates a
+   * PENDING row — the report never existed as an attempt — and the field
+   * errors are returned in the regulator's own valideringsfeil shape.
+   */
+  private validateOfficialSchema<T extends MattilsynetBasePayload>(
+    reportType: MattilsynetRestReportType,
+    payload: T,
+  ): { ok: true; payload: ValidatedPayload<T> } | { ok: false; result: ReportSubmissionResult } {
+    try {
+      return { ok: true, payload: this.schemaValidator.validate(reportType, payload) };
+    } catch (error) {
+      if (error instanceof MattilsynetSchemaValidationError) {
+        return {
+          ok: false,
+          result: {
+            success: false,
+            klientReferanse: payload.klientReferanse,
+            feilmelding: 'Payload failed official Mattilsynet schema validation',
+            valideringsfeil: error.valideringsfeil,
+          },
+        };
+      }
+      throw error;
+    }
+  }
 
   // ==========================================================================
   // Helper Methods
@@ -163,99 +197,36 @@ export class RegulatoryResolver {
   }
 
   /**
-   * Resolve the internal siteId for a locality. The Mattilsynet payload
-   * only carries lokalitetsnummer; when the client did not supply an
-   * explicit siteId we reverse-map through the tenant's
-   * siteLocalityMappings so the persisted row stays site-filterable.
+   * SEC-HIGH-001: the direct REST submit path takes organisasjonsnummer +
+   * lokalitetsnummer from the client. Verify each declared (org, lokalitet) pair
+   * is a real tenant-owned site (the draft path already derives them server-side),
+   * so an operator cannot attribute a legally-binding government filing to an org
+   * or lokalitet that is not a configured site of their tenant. Fail closed.
    */
-  private async resolveSiteId(
+  private async assertTenantOwnsIdentity(
     tenantId: string,
-    explicitSiteId: string | undefined,
-    lokalitetsnummer: number,
-  ): Promise<string | undefined> {
-    if (explicitSiteId) return explicitSiteId;
-    const settings = await this.settingsService.getSettings(tenantId);
-    const mappings = settings?.siteLocalityMappings || {};
-    for (const [siteId, mappedLokalitet] of Object.entries(mappings)) {
-      if (mappedLokalitet === lokalitetsnummer) return siteId;
-    }
-    return undefined;
-  }
-
-  /**
-   * Persist-first submit flow shared by the five Mattilsynet REST report
-   * types (FARM-HIGH-125): record PENDING → call the API → mark
-   * SUBMITTED/FAILED. A failure to persist fails the submit — an
-   * unrecorded report must never reach the regulator.
-   */
-  private async submitWithRecord(
-    tenantId: string,
-    userId: string,
-    reportType: RegulatoryReportType,
-    input: {
-      klientReferanse: string;
-      siteId?: string;
-      lokalitetsnummer: number;
-    },
-    period: { year?: number; week?: number; month?: number },
-    payload: RegulatoryReportPayload,
-    submit: () => Promise<ReportSubmissionResult>,
-  ): Promise<ReportSubmissionResult> {
-    const siteId = await this.resolveSiteId(tenantId, input.siteId, input.lokalitetsnummer);
-    const row = await this.reportStore.recordPending(tenantId, {
-      reportType,
-      klientReferanse: input.klientReferanse,
-      siteId,
-      lokalitetsnummer: input.lokalitetsnummer,
-      reportYear: period.year,
-      reportWeek: period.week,
-      reportMonth: period.month,
-      payload,
-      submittedBy: userId,
-    });
-
-    // FARM-LOW-134: the submit() call and the outcome-persistence are separated.
-    // Only an ACTUAL submit() failure marks the row FAILED. A persistence error
-    // AFTER a successful regulator call must NOT relabel an accepted submission
-    // as FAILED — that would tell the operator to resubmit an already-accepted
-    // report (a genuine duplicate to Mattilsynet). The regulator's verdict is
-    // authoritative; persistence is best-effort after it.
-    let result: ReportSubmissionResult;
-    try {
-      result = await submit();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      await this.reportStore.markFailed(tenantId, row.id, message);
-      return {
-        success: false,
-        reportId: row.id,
-        klientReferanse: input.klientReferanse,
-        feilmelding: message,
-      };
-    }
-
-    try {
-      if (result.success) {
-        await this.reportStore.markSubmitted(tenantId, row.id, result.referanse);
-      } else {
-        await this.reportStore.markFailed(
-          tenantId,
-          row.id,
-          result.feilmelding ??
-            (result.valideringsfeil?.map((v) => `${v.felt}: ${v.melding}`).join('; ') ||
-              'Submission rejected'),
+    identities: Array<{ organisasjonsnummer: string; lokalitetsnummer: number }>,
+  ): Promise<void> {
+    const mappings = await this.settingsService.getEffectiveSiteLocalityMappings(tenantId);
+    for (const { organisasjonsnummer, lokalitetsnummer } of identities) {
+      const ownedSiteId = Object.entries(mappings).find(
+        ([, lokalitet]) => lokalitet === lokalitetsnummer,
+      )?.[0];
+      if (!ownedSiteId) {
+        throw new BadRequestException(
+          `lokalitetsnummer ${lokalitetsnummer} is not a configured site for this tenant`,
         );
       }
-    } catch (persistError) {
-      const message = persistError instanceof Error ? persistError.message : 'Unknown error';
-      // The submission result STANDS; the row is left PENDING for a later
-      // reconcile. Do not report FAILED for a submission the regulator accepted.
-      this.logger.error(
-        `Regulatory report ${row.id} was submitted (success=${result.success}) but persisting ` +
-          `the outcome failed: ${message}. Row left PENDING; the submission result is authoritative.`,
+      const expectedOrg = await this.settingsService.getEffectiveOrganisationNumber(
+        tenantId,
+        ownedSiteId,
       );
+      if (expectedOrg && organisasjonsnummer !== expectedOrg) {
+        throw new BadRequestException(
+          `organisasjonsnummer does not match the tenant configuration for lokalitet ${lokalitetsnummer}`,
+        );
+      }
     }
-    return { ...result, reportId: row.id };
   }
 
   /**
@@ -264,6 +235,7 @@ export class RegulatoryResolver {
   private async mapSettingsToOutput(tenantId: string): Promise<RegulatorySettingsOutput> {
     const settings = await this.settingsService.getSettings(tenantId);
     const maskedClientId = await this.settingsService.getMaskedClientId(tenantId);
+    const effectiveMappings = await this.settingsService.getEffectiveSiteLocalityMappings(tenantId);
 
     if (!settings) {
       return {
@@ -272,13 +244,14 @@ export class RegulatoryResolver {
       };
     }
 
-    // Transform siteLocalityMappings to array format
-    const mappingsArray: SiteLocalityMappingOutput[] = Object.entries(
-      settings.siteLocalityMappings || {},
-    ).map(([siteId, lokalitetsnummer]) => ({
-      siteId,
-      lokalitetsnummer,
-    }));
+    // Transform the EFFECTIVE mappings (sites-first SSoT, jsonb fallback)
+    // to array format — the frontend identity SSoT consumes this output.
+    const mappingsArray: SiteLocalityMappingOutput[] = Object.entries(effectiveMappings).map(
+      ([siteId, lokalitetsnummer]) => ({
+        siteId,
+        lokalitetsnummer,
+      }),
+    );
 
     return {
       id: settings.id,
@@ -286,8 +259,7 @@ export class RegulatoryResolver {
       organisationNumber: settings.organisationNumber,
       companyAddress: settings.companyAddress,
       maskinportenConfigured: !!(
-        settings.maskinportenClientId &&
-        settings.maskinportenPrivateKeyEncrypted
+        settings.maskinportenClientId && settings.maskinportenPrivateKeyEncrypted
       ),
       maskinportenEnvironment: settings.maskinportenEnvironment,
       maskinportenClientIdMasked: maskedClientId || undefined,
@@ -296,7 +268,9 @@ export class RegulatoryResolver {
       defaultContactEmail: settings.defaultContactEmail,
       defaultContactPhone: settings.defaultContactPhone,
       siteLocalityMappings: mappingsArray,
-      slaughterApprovalNumber: settings.slaughterApprovalNumber,
+      autoSubmitPolicies: Object.entries(settings.autoSubmitPolicies ?? {}).map(
+        ([reportType, enabled]) => ({ reportType, enabled }),
+      ),
       createdAt: settings.createdAt,
       updatedAt: settings.updatedAt,
     };
@@ -326,21 +300,25 @@ export class RegulatoryResolver {
   @Query(() => RegulatoryConfigurationStatus, {
     description: 'Get regulatory configuration status for the current tenant',
   })
-  async regulatoryConfigurationStatus(@Context() ctx: GraphQLContext): Promise<RegulatoryConfigurationStatus> {
+  async regulatoryConfigurationStatus(
+    @Context() ctx: GraphQLContext,
+  ): Promise<RegulatoryConfigurationStatus> {
     const tenantId = this.getTenantId(ctx);
     const settings = await this.settingsService.getSettings(tenantId);
 
     const hasCompanyInfo = !!(settings?.companyName && settings?.organisationNumber);
     const hasMaskinportenCredentials = !!(
-      settings?.maskinportenClientId &&
-      settings?.maskinportenPrivateKeyEncrypted
+      settings?.maskinportenClientId && settings?.maskinportenPrivateKeyEncrypted
     );
-    const hasDefaultContact = !!(
-      settings?.defaultContactName &&
-      settings?.defaultContactEmail
-    );
-    const siteMappingsCount = Object.keys(settings?.siteLocalityMappings || {}).length;
-    const hasSlaughterApproval = !!settings?.slaughterApprovalNumber;
+    const hasDefaultContact = !!(settings?.defaultContactName && settings?.defaultContactEmail);
+    const siteMappingsCount = Object.keys(
+      await this.settingsService.getEffectiveSiteLocalityMappings(tenantId),
+    ).length;
+    // The slaughter-facility catalog is the SSoT — a configured default facility
+    // is what makes the slakt godkjenningsnummer resolvable (Phase 4 dedup).
+    const hasSlaughterApproval = !!(await this.slaughterFacilityService.getDefaultFacility(
+      tenantId,
+    ));
 
     return {
       hasCompanyInfo,
@@ -349,10 +327,7 @@ export class RegulatoryResolver {
       siteMappingsCount,
       hasSlaughterApproval,
       isFullyConfigured:
-        hasCompanyInfo &&
-        hasMaskinportenCredentials &&
-        hasDefaultContact &&
-        siteMappingsCount > 0,
+        hasCompanyInfo && hasMaskinportenCredentials && hasDefaultContact && siteMappingsCount > 0,
     };
   }
 
@@ -398,7 +373,6 @@ export class RegulatoryResolver {
       defaultContactEmail: input.defaultContactEmail,
       defaultContactPhone: input.defaultContactPhone,
       siteLocalityMappings: mappings,
-      slaughterApprovalNumber: input.slaughterApprovalNumber,
     });
 
     return this.mapSettingsToOutput(tenantId);
@@ -423,14 +397,13 @@ export class RegulatoryResolver {
       if (!isConfigured) {
         return {
           success: false,
-          error: 'Maskinporten credentials not configured. Please configure client ID and private key first.',
+          error:
+            'Maskinporten credentials not configured. Please configure client ID and private key first.',
         };
       }
 
       // Try to get a token
-      const token = await this.maskinporten.getAccessToken(tenantId, [
-        MATTILSYNET_SCOPES.SEA_LICE,
-      ]);
+      const token = await this.maskinporten.getAccessToken(tenantId, [MATTILSYNET_SCOPES.SEA_LICE]);
 
       if (token) {
         return {
@@ -445,7 +418,12 @@ export class RegulatoryResolver {
         error: 'Failed to obtain access token',
       };
     } catch (error) {
-      this.logger.error(`Maskinporten connection test failed: ${error}`);
+      // SEC-MEDIUM-004: the error can carry the masked-but-still-sensitive
+      // Maskinporten token-endpoint body — mask + bound before logging.
+      const masked = maskAndTruncatePii(
+        error instanceof Error ? error.message : String(error),
+      );
+      this.logger.error(`Maskinporten connection test failed: ${masked ?? 'unknown error'}`);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Connection test failed',
@@ -510,105 +488,119 @@ export class RegulatoryResolver {
     const tenantId = this.getTenantId(ctx);
     const userId = this.getUserId(ctx);
     this.logger.log(`Submitting Sea Lice report: ${input.klientReferanse}`);
+    await this.assertTenantOwnsIdentity(tenantId, [
+      { organisasjonsnummer: input.organisasjonsnummer, lokalitetsnummer: input.lokalitetsnummer },
+    ]);
 
-    return this.submitWithRecord(
-      tenantId,
-      userId,
-      RegulatoryReportType.SEA_LICE,
-      input,
-      { year: input.rapporteringsaar, week: input.rapporteringsuke },
-      input,
-      async () => {
-      // Transform GraphQL input to API payload
-      const payload: SeaLicePayload = {
-        klientReferanse: input.klientReferanse,
-        organisasjonsnummer: input.organisasjonsnummer,
-        lokalitetsnummer: input.lokalitetsnummer,
-        kontaktperson: {
-          navn: input.kontaktperson.navn,
-          epost: input.kontaktperson.epost,
-          telefonnummer: input.kontaktperson.telefonnummer,
+    // Transform GraphQL input to API payload
+    const payload: SeaLicePayload = {
+      klientReferanse: input.klientReferanse,
+      organisasjonsnummer: input.organisasjonsnummer,
+      lokalitetsnummer: input.lokalitetsnummer,
+      kontaktperson: {
+        navn: input.kontaktperson.navn,
+        epost: input.kontaktperson.epost,
+        telefonnummer: input.kontaktperson.telefonnummer,
+      },
+      rapporteringsår: input.rapporteringsaar,
+      rapporteringsuke: input.rapporteringsuke,
+      sjøtemperatur: input.sjotemperatur,
+      lusetelling: {
+        voksneHunnlus: input.lusetelling.voksneHunnlus,
+        bevegeligeLus: input.lusetelling.bevegeligeLus,
+        fastsittendeLus: input.lusetelling.fastsittendeLus,
+      },
+      ikkeMedikamentelleBehandlinger: input.ikkeMedikamentelleBehandlinger?.map((b) => ({
+        type: b.type as IkkeMedikamentellTypePayload,
+        gjennomførtFørTelling: b.gjennomfortForTelling,
+        heleLokaliteten: b.heleLokaliteten,
+        antallMerder: b.antallMerder,
+        beskrivelse: b.beskrivelse,
+      })),
+      medikamentelleBehandlinger: input.medikamentelleBehandlinger?.map((b) => ({
+        type: b.type as MedikamentellTypePayload,
+        gjennomførtFørTelling: b.gjennomfortForTelling,
+        heleLokaliteten: b.heleLokaliteten,
+        antallMerder: b.antallMerder,
+        virkestoff: {
+          type: b.virkestoff.type as VirkestoffTypePayload,
+          styrke: b.virkestoff.styrke
+            ? {
+                verdi: b.virkestoff.styrke.verdi,
+                enhet: b.virkestoff.styrke.enhet as VirkestoffStyrkePayload['enhet'],
+              }
+            : undefined,
+          mengde: b.virkestoff.mengde
+            ? {
+                verdi: b.virkestoff.mengde.verdi,
+                enhet: b.virkestoff.mengde.enhet as VirkestoffMengdePayload['enhet'],
+              }
+            : undefined,
+          annetVirkestoff: b.virkestoff.annetVirkestoff,
         },
-        rapporteringsår: input.rapporteringsaar,
-        rapporteringsuke: input.rapporteringsuke,
-        sjøtemperatur: input.sjotemperatur,
-        lusetelling: {
-          voksneHunnlus: input.lusetelling.voksneHunnlus,
-          bevegeligeLus: input.lusetelling.bevegeligeLus,
-          fastsittendeLus: input.lusetelling.fastsittendeLus,
-        },
-        ikkeMedikamentelleBehandlinger: input.ikkeMedikamentelleBehandlinger?.map(b => ({
+        beskrivelse: b.beskrivelse,
+      })),
+      // Combination treatments - ALIGNED WITH OFFICIAL KombinasjonsbehandlingDto
+      kombinasjonsbehandlinger: input.kombinasjonsbehandlinger?.map((k) => ({
+        ikkeMedikamentelleBehandlinger: k.ikkeMedikamentelleBehandlinger?.map((b) => ({
           type: b.type as IkkeMedikamentellTypePayload,
           gjennomførtFørTelling: b.gjennomfortForTelling,
           heleLokaliteten: b.heleLokaliteten,
           antallMerder: b.antallMerder,
           beskrivelse: b.beskrivelse,
         })),
-        medikamentelleBehandlinger: input.medikamentelleBehandlinger?.map(b => ({
+        medikamentelleBehandlinger: k.medikamentelleBehandlinger?.map((b) => ({
           type: b.type as MedikamentellTypePayload,
           gjennomførtFørTelling: b.gjennomfortForTelling,
           heleLokaliteten: b.heleLokaliteten,
           antallMerder: b.antallMerder,
           virkestoff: {
             type: b.virkestoff.type as VirkestoffTypePayload,
-            styrke: b.virkestoff.styrke ? {
-              verdi: b.virkestoff.styrke.verdi,
-              enhet: b.virkestoff.styrke.enhet as VirkestoffStyrkePayload['enhet'],
-            } : undefined,
-            mengde: b.virkestoff.mengde ? {
-              verdi: b.virkestoff.mengde.verdi,
-              enhet: b.virkestoff.mengde.enhet as VirkestoffMengdePayload['enhet'],
-            } : undefined,
+            styrke: b.virkestoff.styrke
+              ? {
+                  verdi: b.virkestoff.styrke.verdi,
+                  enhet: b.virkestoff.styrke.enhet as VirkestoffStyrkePayload['enhet'],
+                }
+              : undefined,
+            mengde: b.virkestoff.mengde
+              ? {
+                  verdi: b.virkestoff.mengde.verdi,
+                  enhet: b.virkestoff.mengde.enhet as VirkestoffMengdePayload['enhet'],
+                }
+              : undefined,
             annetVirkestoff: b.virkestoff.annetVirkestoff,
           },
           beskrivelse: b.beskrivelse,
         })),
-        // Combination treatments - ALIGNED WITH OFFICIAL KombinasjonsbehandlingDto
-        kombinasjonsbehandlinger: input.kombinasjonsbehandlinger?.map(k => ({
-          ikkeMedikamentelleBehandlinger: k.ikkeMedikamentelleBehandlinger?.map(b => ({
-            type: b.type as IkkeMedikamentellTypePayload,
-            gjennomførtFørTelling: b.gjennomfortForTelling,
-            heleLokaliteten: b.heleLokaliteten,
-            antallMerder: b.antallMerder,
-            beskrivelse: b.beskrivelse,
-          })),
-          medikamentelleBehandlinger: k.medikamentelleBehandlinger?.map(b => ({
-            type: b.type as MedikamentellTypePayload,
-            gjennomførtFørTelling: b.gjennomfortForTelling,
-            heleLokaliteten: b.heleLokaliteten,
-            antallMerder: b.antallMerder,
-            virkestoff: {
-              type: b.virkestoff.type as VirkestoffTypePayload,
-              styrke: b.virkestoff.styrke ? {
-                verdi: b.virkestoff.styrke.verdi,
-                enhet: b.virkestoff.styrke.enhet as VirkestoffStyrkePayload['enhet'],
-              } : undefined,
-              mengde: b.virkestoff.mengde ? {
-                verdi: b.virkestoff.mengde.verdi,
-                enhet: b.virkestoff.mengde.enhet as VirkestoffMengdePayload['enhet'],
-              } : undefined,
-              annetVirkestoff: b.virkestoff.annetVirkestoff,
-            },
-            beskrivelse: b.beskrivelse,
-          })),
-        })),
-        // Resistance suspicions - ALIGNED WITH OFFICIAL MistankeOmResistensDto
-        resistensMistanker: input.resistensMistanker?.map(r => ({
-          resistens: r.resistens as ResistensTypePayload,
-          årsak: r.aarsak as ResistensAarsakTypePayload,
-          annenResistens: r.annenResistens,
-          annenÅrsak: r.annenAarsak,
-        })),
-        følsomhetsundersøkelser: input.folsomhetsundersokelser?.map(f => ({
-          utførtDato: f.utfortDato,
-          laboratorium: f.laboratorium,
-          resistens: f.resistens as ResistensTypePayload,
-          testresultat: f.testresultat as TestresultatPayload,
-        })),
-      };
+      })),
+      // Resistance suspicions - ALIGNED WITH OFFICIAL MistankeOmResistensDto
+      resistensMistanker: input.resistensMistanker?.map((r) => ({
+        resistens: r.resistens as ResistensTypePayload,
+        årsak: r.aarsak as ResistensAarsakTypePayload,
+        annenResistens: r.annenResistens,
+        annenÅrsak: r.annenAarsak,
+      })),
+      følsomhetsundersøkelser: input.folsomhetsundersokelser?.map((f) => ({
+        utførtDato: f.utfortDato,
+        laboratorium: f.laboratorium,
+        resistens: f.resistens as ResistensTypePayload,
+        testresultat: f.testresultat as TestresultatPayload,
+      })),
+    };
 
-      return this.mattilsynetApi.submitSeaLiceReport(tenantId, payload);
-      },
+    const validated = this.validateOfficialSchema(RegulatoryReportType.SEA_LICE, payload);
+    if (!validated.ok) {
+      return validated.result;
+    }
+
+    return this.submissionService.submitWithRecord(
+      tenantId,
+      userId,
+      RegulatoryReportType.SEA_LICE,
+      input,
+      { year: input.rapporteringsaar, week: input.rapporteringsuke },
+      validated.payload,
+      async () => this.mattilsynetApi.submitSeaLiceReport(tenantId, validated.payload),
     );
   }
 
@@ -617,7 +609,9 @@ export class RegulatoryResolver {
    * POST /api/rensefisk/v1/rensefisk
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  @Mutation(() => ReportSubmissionResult, { description: 'Submit Cleaner Fish report to Mattilsynet' })
+  @Mutation(() => ReportSubmissionResult, {
+    description: 'Submit Cleaner Fish report to Mattilsynet',
+  })
   async submitCleanerFishReport(
     @Args('input') input: SubmitCleanerFishReportInput,
     @Context() ctx: GraphQLContext,
@@ -625,58 +619,66 @@ export class RegulatoryResolver {
     const tenantId = this.getTenantId(ctx);
     const userId = this.getUserId(ctx);
     this.logger.log(`Submitting Cleaner Fish report: ${input.klientReferanse}`);
+    await this.assertTenantOwnsIdentity(tenantId, [
+      { organisasjonsnummer: input.organisasjonsnummer, lokalitetsnummer: input.lokalitetsnummer },
+    ]);
 
-    return this.submitWithRecord(
+    // Transform GraphQL input to API payload
+    const payload: CleanerFishPayload = {
+      klientReferanse: input.klientReferanse,
+      organisasjonsnummer: input.organisasjonsnummer,
+      lokalitetsnummer: input.lokalitetsnummer,
+      kontaktperson: {
+        navn: input.kontaktperson.navn,
+        epost: input.kontaktperson.epost,
+        telefonnummer: input.kontaktperson.telefonnummer,
+      },
+      rapporteringsmåned: input.rapporteringsmaaned,
+      rapporteringsår: input.rapporteringsaar,
+      samdriftOrganisasjonsnumre: input.samdriftOrganisasjonsnumre,
+      produksjonssyklusStart: input.produksjonssyklusStart,
+      tørrforKg: input.torrforKg,
+      våtforKg: input.vatforKg,
+      produksjonsenheter: input.produksjonsenheter.map((p) => ({
+        merdId: p.merdId,
+        arter: p.arter.map((a) => ({
+          artskode: a.artskode as 'USB' | 'BER' | 'GRO' | 'BNB',
+          opprinnelse: a.opprinnelse as RensefiskOpprinnelsePayload,
+          beholdningVedForrigeMånedsslutt: a.beholdningVedForrigeMaanedsslutt,
+          utsett: {
+            antallFlyttetInn: a.utsett.antallFlyttetInn,
+            antallNy: a.utsett.antallNy,
+          },
+          uttak: {
+            antallAvlivetSykdom: a.uttak.antallAvlivetSykdom,
+            antallAvlivetSkader: a.uttak.antallAvlivetSkader,
+            antallAvlivetAvmagret: a.uttak.antallAvlivetAvmagret,
+            antallAvlivetForeståendeHåndteringAvLaksen:
+              a.uttak.antallAvlivetForestaendeHaandteringAvLaksen,
+            antallAvlivetForeståendeUgunstigLevemiljø:
+              a.uttak.antallAvlivetForestaendeUgunstigLevemiljo,
+            antallAvlivetSkalIkkeBrukes: a.uttak.antallAvlivetSkalIkkeBrukes,
+            antallSelvdød: a.uttak.antallSelvdod,
+            antallFlyttetUt: a.uttak.antallFlyttetUt,
+            antallKanIkkeGjøresRedeFor: a.uttak.antallKanIkkeGjoresRedeFor,
+          },
+        })),
+      })),
+    };
+
+    const validated = this.validateOfficialSchema(RegulatoryReportType.CLEANER_FISH, payload);
+    if (!validated.ok) {
+      return validated.result;
+    }
+
+    return this.submissionService.submitWithRecord(
       tenantId,
       userId,
       RegulatoryReportType.CLEANER_FISH,
       input,
       { year: input.rapporteringsaar, month: input.rapporteringsmaaned },
-      input,
-      async () => {
-      // Transform GraphQL input to API payload
-      const payload: CleanerFishPayload = {
-        klientReferanse: input.klientReferanse,
-        organisasjonsnummer: input.organisasjonsnummer,
-        lokalitetsnummer: input.lokalitetsnummer,
-        kontaktperson: {
-          navn: input.kontaktperson.navn,
-          epost: input.kontaktperson.epost,
-          telefonnummer: input.kontaktperson.telefonnummer,
-        },
-        rapporteringsmåned: input.rapporteringsmaaned,
-        rapporteringsår: input.rapporteringsaar,
-        samdriftOrganisasjonsnumre: input.samdriftOrganisasjonsnumre,
-        produksjonssyklusStart: input.produksjonssyklusStart,
-        tørrforKg: input.torrforKg,
-        våtforKg: input.vatforKg,
-        produksjonsenheter: input.produksjonsenheter.map(p => ({
-          merdId: p.merdId,
-          arter: p.arter.map(a => ({
-            artskode: a.artskode as 'USB' | 'BER' | 'GRO' | 'BNB',
-            opprinnelse: a.opprinnelse as RensefiskOpprinnelsePayload,
-            beholdningVedForrigeMånedsslutt: a.beholdningVedForrigeMaanedsslutt,
-            utsett: {
-              antallFlyttetInn: a.utsett.antallFlyttetInn,
-              antallNy: a.utsett.antallNy,
-            },
-            uttak: {
-              antallAvlivetSykdom: a.uttak.antallAvlivetSykdom,
-              antallAvlivetSkader: a.uttak.antallAvlivetSkader,
-              antallAvlivetAvmagret: a.uttak.antallAvlivetAvmagret,
-              antallAvlivetForeståendeHåndteringAvLaksen: a.uttak.antallAvlivetForestaendeHaandteringAvLaksen,
-              antallAvlivetForeståendeUgunstigLevemiljø: a.uttak.antallAvlivetForestaendeUgunstigLevemiljo,
-              antallAvlivetSkalIkkeBrukes: a.uttak.antallAvlivetSkalIkkeBrukes,
-              antallSelvdød: a.uttak.antallSelvdod,
-              antallFlyttetUt: a.uttak.antallFlyttetUt,
-              antallKanIkkeGjøresRedeFor: a.uttak.antallKanIkkeGjoresRedeFor,
-            },
-          })),
-        })),
-      };
-
-      return this.mattilsynetApi.submitCleanerFishReport(tenantId, payload);
-      },
+      validated.payload,
+      async () => this.mattilsynetApi.submitCleanerFishReport(tenantId, validated.payload),
     );
   }
 
@@ -693,40 +695,46 @@ export class RegulatoryResolver {
     const tenantId = this.getTenantId(ctx);
     const userId = this.getUserId(ctx);
     this.logger.log(`Submitting Smolt report: ${input.klientReferanse}`);
+    await this.assertTenantOwnsIdentity(tenantId, [
+      { organisasjonsnummer: input.organisasjonsnummer, lokalitetsnummer: input.lokalitetsnummer },
+    ]);
 
-    return this.submitWithRecord(
+    // Transform GraphQL input to API payload
+    const payload: SmoltPayload = {
+      klientReferanse: input.klientReferanse,
+      organisasjonsnummer: input.organisasjonsnummer,
+      lokalitetsnummer: input.lokalitetsnummer,
+      kontaktperson: {
+        navn: input.kontaktperson.navn,
+        epost: input.kontaktperson.epost,
+        telefonnummer: input.kontaktperson.telefonnummer,
+      },
+      rapporteringsmåned: input.rapporteringsmaaned,
+      rapporteringsår: input.rapporteringsaar,
+      produksjonsenheter: input.produksjonsenheter.map((p) => ({
+        karId: p.karId,
+        artskode: p.artskode,
+        snittvektGram: p.snittvektGram,
+        beholdningVedMånedsslutt: p.beholdningVedMaanedsslutt,
+        antallAvlivet: p.antallAvlivet,
+        antallSelvdød: p.antallSelvdod,
+        antallFlyttetEksternt: p.antallFlyttetEksternt,
+      })),
+    };
+
+    const validated = this.validateOfficialSchema(RegulatoryReportType.SMOLT, payload);
+    if (!validated.ok) {
+      return validated.result;
+    }
+
+    return this.submissionService.submitWithRecord(
       tenantId,
       userId,
       RegulatoryReportType.SMOLT,
       input,
       { year: input.rapporteringsaar, month: input.rapporteringsmaaned },
-      input,
-      async () => {
-      // Transform GraphQL input to API payload
-      const payload: SmoltPayload = {
-        klientReferanse: input.klientReferanse,
-        organisasjonsnummer: input.organisasjonsnummer,
-        lokalitetsnummer: input.lokalitetsnummer,
-        kontaktperson: {
-          navn: input.kontaktperson.navn,
-          epost: input.kontaktperson.epost,
-          telefonnummer: input.kontaktperson.telefonnummer,
-        },
-        rapporteringsmåned: input.rapporteringsmaaned,
-        rapporteringsår: input.rapporteringsaar,
-        produksjonsenheter: input.produksjonsenheter.map(p => ({
-          karId: p.karId,
-          artskode: p.artskode,
-          snittvektGram: p.snittvektGram,
-          beholdningVedMånedsslutt: p.beholdningVedMaanedsslutt,
-          antallAvlivet: p.antallAvlivet,
-          antallSelvdød: p.antallSelvdod,
-          antallFlyttetEksternt: p.antallFlyttetEksternt,
-        })),
-      };
-
-      return this.mattilsynetApi.submitSmoltReport(tenantId, payload);
-      },
+      validated.payload,
+      async () => this.mattilsynetApi.submitSmoltReport(tenantId, validated.payload),
     );
   }
 
@@ -735,7 +743,9 @@ export class RegulatoryResolver {
    * POST /api/slakt/v1/planlagt
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  @Mutation(() => ReportSubmissionResult, { description: 'Submit Planned Slaughter report to Mattilsynet' })
+  @Mutation(() => ReportSubmissionResult, {
+    description: 'Submit Planned Slaughter report to Mattilsynet',
+  })
   async submitPlannedSlaughterReport(
     @Args('input') input: SubmitPlannedSlaughterInput,
     @Context() ctx: GraphQLContext,
@@ -743,46 +753,56 @@ export class RegulatoryResolver {
     const tenantId = this.getTenantId(ctx);
     const userId = this.getUserId(ctx);
     this.logger.log(`Submitting Planned Slaughter report: ${input.klientReferanse}`);
+    await this.assertTenantOwnsIdentity(tenantId, [
+      { organisasjonsnummer: input.organisasjonsnummer, lokalitetsnummer: input.lokalitetsnummer },
+      ...input.planlagteLokaliteter.map((l) => ({
+        organisasjonsnummer: l.organisasjonsnummer,
+        lokalitetsnummer: l.lokalitetsnummer,
+      })),
+    ]);
 
-    return this.submitWithRecord(
+    // Transform GraphQL input to API payload - ALIGNED WITH OFFICIAL SCHEMA
+    const payload: PlannedSlaughterPayload = {
+      klientReferanse: input.klientReferanse,
+      organisasjonsnummer: input.organisasjonsnummer,
+      lokalitetsnummer: input.lokalitetsnummer,
+      kontaktperson: {
+        navn: input.kontaktperson.navn,
+        epost: input.kontaktperson.epost,
+        telefonnummer: input.kontaktperson.telefonnummer,
+      },
+      uke: input.uke,
+      år: input.aar,
+      godkjenningsnummer: input.godkjenningsnummer,
+      planlagteLokaliteter: input.planlagteLokaliteter.map((l) => ({
+        organisasjonsnummer: l.organisasjonsnummer,
+        lokalitetsnummer: l.lokalitetsnummer,
+        ukeplanPerArt: l.ukeplanPerArt.map((u) => ({
+          artskode: u.artskode,
+          mandagKg: u.mandagKg,
+          tirsdagKg: u.tirsdagKg,
+          onsdagKg: u.onsdagKg,
+          torsdagKg: u.torsdagKg,
+          fredagKg: u.fredagKg,
+          lørdagKg: u.lordagKg,
+          søndagKg: u.sondagKg,
+        })),
+      })),
+    };
+
+    const validated = this.validateOfficialSchema(RegulatoryReportType.SLAUGHTER_PLANNED, payload);
+    if (!validated.ok) {
+      return validated.result;
+    }
+
+    return this.submissionService.submitWithRecord(
       tenantId,
       userId,
       RegulatoryReportType.SLAUGHTER_PLANNED,
       input,
       { year: input.aar, week: input.uke },
-      input,
-      async () => {
-      // Transform GraphQL input to API payload - ALIGNED WITH OFFICIAL SCHEMA
-      const payload: PlannedSlaughterPayload = {
-        klientReferanse: input.klientReferanse,
-        organisasjonsnummer: input.organisasjonsnummer,
-        lokalitetsnummer: input.lokalitetsnummer,
-        kontaktperson: {
-          navn: input.kontaktperson.navn,
-          epost: input.kontaktperson.epost,
-          telefonnummer: input.kontaktperson.telefonnummer,
-        },
-        uke: input.uke,
-        år: input.aar,
-        godkjenningsnummer: input.godkjenningsnummer,
-        planlagteLokaliteter: input.planlagteLokaliteter.map(l => ({
-          organisasjonsnummer: l.organisasjonsnummer,
-          lokalitetsnummer: l.lokalitetsnummer,
-          ukeplanPerArt: l.ukeplanPerArt.map(u => ({
-            artskode: u.artskode,
-            mandagKg: u.mandagKg,
-            tirsdagKg: u.tirsdagKg,
-            onsdagKg: u.onsdagKg,
-            torsdagKg: u.torsdagKg,
-            fredagKg: u.fredagKg,
-            lørdagKg: u.lordagKg,
-            søndagKg: u.sondagKg,
-          })),
-        })),
-      };
-
-      return this.mattilsynetApi.submitPlannedSlaughterReport(tenantId, payload);
-      },
+      validated.payload,
+      async () => this.mattilsynetApi.submitPlannedSlaughterReport(tenantId, validated.payload),
     );
   }
 
@@ -791,7 +811,9 @@ export class RegulatoryResolver {
    * POST /api/slakt/v1/utfort
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  @Mutation(() => ReportSubmissionResult, { description: 'Submit Executed Slaughter report to Mattilsynet' })
+  @Mutation(() => ReportSubmissionResult, {
+    description: 'Submit Executed Slaughter report to Mattilsynet',
+  })
   async submitExecutedSlaughterReport(
     @Args('input') input: SubmitExecutedSlaughterInput,
     @Context() ctx: GraphQLContext,
@@ -799,44 +821,74 @@ export class RegulatoryResolver {
     const tenantId = this.getTenantId(ctx);
     const userId = this.getUserId(ctx);
     this.logger.log(`Submitting Executed Slaughter report: ${input.klientReferanse}`);
+    await this.assertTenantOwnsIdentity(tenantId, [
+      { organisasjonsnummer: input.organisasjonsnummer, lokalitetsnummer: input.lokalitetsnummer },
+      ...input.utforteLokaliteter.map((l) => ({
+        organisasjonsnummer: l.organisasjonsnummer,
+        lokalitetsnummer: l.lokalitetsnummer,
+      })),
+    ]);
 
-    return this.submitWithRecord(
+    // Transform GraphQL input to API payload - ALIGNED WITH OFFICIAL SCHEMA
+    const payload: ExecutedSlaughterPayload = {
+      klientReferanse: input.klientReferanse,
+      organisasjonsnummer: input.organisasjonsnummer,
+      lokalitetsnummer: input.lokalitetsnummer,
+      kontaktperson: {
+        navn: input.kontaktperson.navn,
+        epost: input.kontaktperson.epost,
+        telefonnummer: input.kontaktperson.telefonnummer,
+      },
+      slakteuke: input.slakteuke,
+      slakteår: input.slakteaar,
+      godkjenningsnummer: input.godkjenningsnummer,
+      utførteLokaliteter: input.utforteLokaliteter.map((l) => ({
+        organisasjonsnummer: l.organisasjonsnummer,
+        lokalitetsnummer: l.lokalitetsnummer,
+        arter: l.arter.map((a) => ({
+          art: a.art,
+          superiorKg: a.superiorKg,
+          ordinærKg: a.ordinaerKg,
+          produksjonsfiskKg: a.produksjonsfiskKg,
+          utkastKg: a.utkastKg,
+        })),
+      })),
+    };
+
+    const validated = this.validateOfficialSchema(RegulatoryReportType.SLAUGHTER_EXECUTED, payload);
+    if (!validated.ok) {
+      return validated.result;
+    }
+
+    return this.submissionService.submitWithRecord(
       tenantId,
       userId,
       RegulatoryReportType.SLAUGHTER_EXECUTED,
       input,
       { year: input.slakteaar, week: input.slakteuke },
-      input,
-      async () => {
-      // Transform GraphQL input to API payload - ALIGNED WITH OFFICIAL SCHEMA
-      const payload: ExecutedSlaughterPayload = {
-        klientReferanse: input.klientReferanse,
-        organisasjonsnummer: input.organisasjonsnummer,
-        lokalitetsnummer: input.lokalitetsnummer,
-        kontaktperson: {
-          navn: input.kontaktperson.navn,
-          epost: input.kontaktperson.epost,
-          telefonnummer: input.kontaktperson.telefonnummer,
-        },
-        slakteuke: input.slakteuke,
-        slakteår: input.slakteaar,
-        godkjenningsnummer: input.godkjenningsnummer,
-        utførteLokaliteter: input.utforteLokaliteter.map(l => ({
-          organisasjonsnummer: l.organisasjonsnummer,
-          lokalitetsnummer: l.lokalitetsnummer,
-          arter: l.arter.map(a => ({
-            art: a.art,
-            superiorKg: a.superiorKg,
-            ordinærKg: a.ordinaerKg,
-            produksjonsfiskKg: a.produksjonsfiskKg,
-            utkastKg: a.utkastKg,
-          })),
-        })),
-      };
-
-      return this.mattilsynetApi.submitExecutedSlaughterReport(tenantId, payload);
-      },
+      validated.payload,
+      async () => this.mattilsynetApi.submitExecutedSlaughterReport(tenantId, validated.payload),
     );
+  }
+
+  /**
+   * Replay a persisted FAILED REST submission under the SAME klientReferanse
+   * (Mattilsynet idempotency). The stored payload is re-validated through the
+   * brand gate before it can reach the regulator, so a payload that has since
+   * become schema-invalid becomes a PERMANENT failure instead of a re-send.
+   * This is the manual counterpart to the 30-minute retry sweep.
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Mutation(() => ReportSubmissionResult, {
+    description: 'Replay a previously failed Mattilsynet REST report submission',
+  })
+  async resubmitRegulatoryReport(
+    @Args('reportId') reportId: string,
+    @Context() ctx: GraphQLContext,
+  ): Promise<ReportSubmissionResult> {
+    const tenantId = this.getTenantId(ctx);
+    this.logger.log(`Resubmitting regulatory report: ${reportId}`);
+    return this.submissionService.resubmit(tenantId, reportId);
   }
 
   // ==========================================================================
@@ -853,7 +905,9 @@ export class RegulatoryResolver {
    * Submit a Welfare Event report (varsling) to Mattilsynet.
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  @Mutation(() => ReportSubmissionResult, { description: 'Submit immediate Welfare Event report (varsling) to Mattilsynet' })
+  @Mutation(() => ReportSubmissionResult, {
+    description: 'Submit immediate Welfare Event report (varsling) to Mattilsynet',
+  })
   async submitWelfareEvent(
     @Args('input') input: SubmitWelfareEventInput,
     @Context() ctx: GraphQLContext,
@@ -868,7 +922,9 @@ export class RegulatoryResolver {
    * Submit a fish Escape report (varsling) to Mattilsynet + Fiskeridirektoratet.
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  @Mutation(() => ReportSubmissionResult, { description: 'Submit immediate Escape report (varsling) to Mattilsynet' })
+  @Mutation(() => ReportSubmissionResult, {
+    description: 'Submit immediate Escape report (varsling) to Mattilsynet',
+  })
   async submitEscapeReport(
     @Args('input') input: SubmitEscapeReportInput,
     @Context() ctx: GraphQLContext,
@@ -883,7 +939,9 @@ export class RegulatoryResolver {
    * Submit a notifiable Disease Outbreak report (varsling) to Mattilsynet.
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  @Mutation(() => ReportSubmissionResult, { description: 'Submit immediate Disease Outbreak report (varsling) to Mattilsynet' })
+  @Mutation(() => ReportSubmissionResult, {
+    description: 'Submit immediate Disease Outbreak report (varsling) to Mattilsynet',
+  })
   async submitDiseaseOutbreak(
     @Args('input') input: SubmitDiseaseOutbreakInput,
     @Context() ctx: GraphQLContext,

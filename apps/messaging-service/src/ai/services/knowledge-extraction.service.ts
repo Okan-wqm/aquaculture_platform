@@ -79,6 +79,14 @@ interface ProcessableMessage {
   senderId: string;
   content: string;
   createdAt: Date;
+  /**
+   * ORPHAN-MEDIUM-336: the authoritative tenant UUID, carried on every
+   * message row (Message entity `tenantId`, MSG-HIGH-010). All rows in a
+   * given tenant_<uuid> schema share it — it is the canonical tenant key the
+   * farm getTankRegistry responder requires, recovered here WITHOUT the lossy
+   * schema-name (tenant_<16hex> truncates the UUID and cannot be reversed).
+   */
+  tenantId: string;
 }
 
 @Injectable()
@@ -179,7 +187,7 @@ export class KnowledgeExtractionService {
       await pinTenantSchemaTransactionSearchPath(queryRunner, 'messaging', tenantSchema);
 
       const messages: ProcessableMessage[] = await queryRunner.query(
-        `SELECT m."id", m."channelId", m."senderId", m."content", m."createdAt"
+        `SELECT m."id", m."channelId", m."senderId", m."content", m."createdAt", m."tenantId"
          FROM "messages" m
          LEFT JOIN "message_entity_references" mer ON mer."messageId" = m."id"
          WHERE m."createdAt" > $1
@@ -201,8 +209,23 @@ export class KnowledgeExtractionService {
         `Processing ${messages.length} messages for schema ${tenantSchema}`,
       );
 
-      // Fetch tank registry for this tenant from farm-service
-      const tankRegistry = await this.fetchTankRegistry(tenantSchema);
+      // Fetch tank registry for this tenant from farm-service. All rows in this
+      // pinned tenant schema share one tenantId (ORPHAN-MEDIUM-336) — pass that
+      // canonical UUID so the responder's fail-closed, GUC-asserted
+      // runInTenantRead path returns the real registry (a tenant_<16hex> schema
+      // name cannot be mapped back to the UUID the responder requires).
+      const tenantId = messages[0]?.tenantId;
+      if (!tenantId) {
+        // messages.length > 0 is guaranteed above; a missing tenantId would mean
+        // a data-integrity break (Message.tenantId is NOT NULL). Fail safe:
+        // extraction without a tank registry rather than a bad NATS request.
+        this.logger.warn(
+          `Schema ${tenantSchema}: ${messages.length} message(s) but no tenantId — skipping tank-registry fetch`,
+        );
+        await queryRunner.commitTransaction();
+        return;
+      }
+      const tankRegistry = await this.fetchTankRegistry(tenantId);
 
       for (const msg of messages) {
         try {
@@ -340,24 +363,26 @@ export class KnowledgeExtractionService {
    * Fetch the tenant's tank registry from farm-service via NATS request-reply.
    * Returns an empty array if farm-service is unavailable (graceful degradation).
    *
-   * SECURITY (C-07): Sends the tenantSchema so farm-service can resolve the
-   * correct tenant's tank registry. The schema name is validated against
-   * TENANT_SCHEMA_REGEX before being sent.
+   * ORPHAN-MEDIUM-336: sends the canonical tenant UUID — the key the
+   * `request.farm.getTankRegistry` responder validates and feeds to its
+   * fail-closed, RLS-GUC-asserted `runInTenantRead`. (It previously sent the
+   * tenant SCHEMA name, which the responder rejects as a non-UUID and answers
+   * empty — the extraction was silently non-functional.)
    *
-   * @param tenantSchema - Validated tenant schema name
+   * @param tenantId - Authoritative tenant UUID (from the tenant's own message rows)
    */
-  private async fetchTankRegistry(tenantSchema: string): Promise<TankRegistryEntry[]> {
+  private async fetchTankRegistry(tenantId: string): Promise<TankRegistryEntry[]> {
     const response = await firstValueFrom(
       this.natsClient
         .send<TankRegistryEntry[]>('request.farm.getTankRegistry', {
-          tenantSchema,
+          tenantId,
         })
         .pipe(
           timeout(NATS_TIMEOUT_MS),
           catchError((err: unknown) => {
             const errMsg = err instanceof Error ? err.message : String(err);
             this.logger.warn(
-              `Failed to fetch tank registry for ${tenantSchema}: ${errMsg}`,
+              `Failed to fetch tank registry for tenant ${tenantId}: ${errMsg}`,
             );
             return of([]);
           }),

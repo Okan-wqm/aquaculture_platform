@@ -9,6 +9,7 @@ import SiteContactsSection from './SiteContactsSection';
 export interface SiteFormData {
   name: string;
   code: string;
+  lokalitetsnummer: number | '';
   description: string;
   status: string;
   country: string;
@@ -38,6 +39,7 @@ interface SiteFormModalProps {
     id: string;
     name: string;
     code: string;
+    lokalitetsnummer?: number;
     status: string;
     description?: string;
     country?: string;
@@ -81,6 +83,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
   const [formData, setFormData] = useState<SiteFormData>({
     name: '',
     code: '',
+    lokalitetsnummer: '',
     description: '',
     status: 'ACTIVE',
     country: '',
@@ -110,6 +113,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
       setFormData({
         name: site.name || '',
         code: site.code || '',
+        lokalitetsnummer: site.lokalitetsnummer ?? '',
         description: site.description || '',
         status: site.status || 'ACTIVE',
         country: site.country || '',
@@ -134,6 +138,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
       setFormData({
         name: '',
         code: '',
+        lokalitetsnummer: '',
         description: '',
         status: 'ACTIVE',
         country: '',
@@ -161,6 +166,12 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
       newErrors.code = 'Site code is required';
     } else if (formData.code.length < 2) {
       newErrors.code = 'Code must be at least 2 characters';
+    }
+    if (
+      formData.lokalitetsnummer !== '' &&
+      (formData.lokalitetsnummer < 10000 || formData.lokalitetsnummer > 99999)
+    ) {
+      newErrors.lokalitetsnummer = 'Lokalitetsnummer is a 5-digit number (10000–99999)';
     }
     if (formData.contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.contactEmail)) {
       newErrors.contactEmail = 'Invalid email address';
@@ -243,6 +254,35 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                     placeholder="e.g., MPS-001"
                   />
                   {errors.code && <p className="mt-1 text-sm text-red-500">{errors.code}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Lokalitetsnummer
+                  </label>
+                  <input
+                    type="number"
+                    min={10000}
+                    max={99999}
+                    value={formData.lokalitetsnummer}
+                    onChange={(e) =>
+                      handleInputChange(
+                        'lokalitetsnummer',
+                        e.target.value === '' ? '' : Number(e.target.value),
+                      )
+                    }
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                      errors.lokalitetsnummer ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                    placeholder="e.g., 12345"
+                  />
+                  {errors.lokalitetsnummer ? (
+                    <p className="mt-1 text-sm text-red-500">{errors.lokalitetsnummer}</p>
+                  ) : (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Akvakulturregisteret locality number (5 digits) — Norwegian regulatory reports
+                      fail closed without it.
+                    </p>
+                  )}
                 </div>
               </div>
 

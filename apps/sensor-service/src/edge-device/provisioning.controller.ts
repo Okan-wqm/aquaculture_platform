@@ -4,7 +4,7 @@ import {
   Get,
   Body,
   Param,
-  Query,
+  Headers,
   Res,
   HttpStatus,
   Logger,
@@ -50,23 +50,26 @@ export class ProvisioningController {
   constructor(private readonly provisioningService: ProvisioningService) {}
 
   /**
-   * GET /install/:deviceCode?token=<provisioningToken>
+   * GET /install/:deviceCode   (token in the X-Provisioning-Token header)
    *
    * Returns the installer script for a device.
-   * This is called by: curl -sSL "http://host/install/{deviceCode}?token={token}" | sudo sh
+   * This is called by:
+   *   curl -sSL -H "X-Provisioning-Token: {token}" "http://host/install/{deviceCode}" | sudo bash
    *
    * Returns: Shell script (text/x-shellscript)
    *
-   * SECURITY: The provisioning token must be supplied as a query parameter.
-   * Knowing the device code alone is insufficient — the token acts as the
-   * shared secret that authorises script retrieval.
-   * Also limited to 5 requests per minute per IP to prevent brute-force.
+   * SECURITY (SENSOR-MEDIUM-002): the provisioning token is read from a request
+   * header, never the URL query/path. A secret in the URL leaks into nginx /
+   * proxy access logs, shell history and Referer headers; a header does not.
+   * Knowing the device code alone is insufficient — the token is the shared
+   * secret that authorises script retrieval. Also limited to 5 requests per
+   * minute per IP to prevent brute-force.
    */
   @Get('install/:deviceCode')
   @RateLimit({ limit: 5, windowMs: 60000 })
   async getInstallerScript(
     @Param('deviceCode') deviceCode: string,
-    @Query('token') token: string | undefined,
+    @Headers('x-provisioning-token') token: string | undefined,
     @Res() res: Response,
   ): Promise<void> {
     // Validate device code format to prevent injection
@@ -132,16 +135,18 @@ export class ProvisioningController {
   }
 
   /**
-   * GET /install/:deviceCode/suderra-os?token=<provisioningToken>
+   * GET /install/:deviceCode/suderra-os   (token in the X-Provisioning-Token header)
    *
    * Returns a Suderra OS JSON manifest. This is consumed by the forced-command
    * provision user, not by curl|bash.
+   *
+   * SECURITY (SENSOR-MEDIUM-002): token is read from a header, never the URL.
    */
   @Get('install/:deviceCode/suderra-os')
   @RateLimit({ limit: 5, windowMs: 60000 })
   async getSuderraOsInstallManifest(
     @Param('deviceCode') deviceCode: string,
-    @Query('token') token: string | undefined,
+    @Headers('x-provisioning-token') token: string | undefined,
     @Res() res: Response,
   ): Promise<void> {
     if (!/^[A-Z]{2,5}-[0-9A-F]{8}$/.test(deviceCode)) {
@@ -368,21 +373,30 @@ export class ProvisioningController {
   }
 
   /**
-   * GET /install/t/:tenantToken
+   * GET /install/tenant   (token in the X-Tenant-Provisioning-Token header)
    *
    * Public endpoint that returns the tenant-level installer script.
-   * This is called by: curl -sSL http://localhost:3000/install/t/{tenantToken} | sudo bash
+   * This is called by:
+   *   curl -sSL -H "X-Tenant-Provisioning-Token: {token}" http://host/install/tenant | sudo bash
    *
    * Returns: Shell script (text/x-shellscript)
    *
-   * SECURITY: Limited to 5 requests per minute per IP
+   * SECURITY (SENSOR-MEDIUM-002): the tenant token is read from a header, never
+   * the URL path, so it cannot leak into nginx / proxy access logs. Limited to
+   * 5 requests per minute per IP.
    */
-  @Get('install/t/:tenantToken')
+  @Get('install/tenant')
   @RateLimit({ limit: 5, windowMs: 60000 })
   async getTenantInstallerScript(
-    @Param('tenantToken') tenantToken: string,
+    @Headers('x-tenant-provisioning-token') tenantToken: string | undefined,
     @Res() res: Response,
   ): Promise<void> {
+    // Require the token header to be present.
+    if (!tenantToken) {
+      res.status(HttpStatus.UNAUTHORIZED).contentType('text/plain').send('Provisioning token required');
+      return;
+    }
+
     // Validate tenant token format (64 char hex string)
     if (!/^[0-9a-f]{64}$/.test(tenantToken)) {
       res.status(HttpStatus.BAD_REQUEST).contentType('text/plain').send('Invalid token format');

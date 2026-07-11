@@ -19,6 +19,10 @@ import { AutomationService } from '../automation/automation.service';
 import { DeploymentLogService } from '../automation/services/deployment-log.service';
 import { ScadaDeployLogService } from '../process/services/scada-deploy-log.service';
 import { ScadaDeployStatus } from '../process/entities/scada-deploy-log.entity';
+import { ScadaPackageService } from '../process/services/scada-package.service';
+import { DeployArtifactType } from '../deploy-artifact/entities/deploy-artifact.entity';
+import { ReleaseBundle } from '../release-bundle/entities/release-bundle.entity';
+import { ReleaseBundleService } from '../release-bundle/release-bundle.service';
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
 import { QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
 import { SensorReading } from '../database/entities/sensor-reading.entity';
@@ -201,6 +205,12 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     @Optional()
     @Inject(ScadaDeployLogService)
     private readonly scadaDeployLogService: ScadaDeployLogService | null,
+    @Optional()
+    @Inject(ReleaseBundleService)
+    private readonly releaseBundleService: ReleaseBundleService | null,
+    @Optional()
+    @Inject(ScadaPackageService)
+    private readonly scadaPackageService: ScadaPackageService | null,
     // ADR-022 — when set, the profile service decides whether the
     // legacy MQTT data plane runs at boot. Optional to keep test
     // harnesses (which build the service via `new` instead of the DI
@@ -722,6 +732,15 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    // Route release-bundle acks (Faz 5): the edge publishes an
+    // intermediate `staged` ack and a final `confirmed`/`failed`
+    // command response, all carrying result.bundleId + result.phase
+    // under the bundle's commandId.
+    const bundleAck = this.extractBundleAck(payload);
+    if (bundleAck && payload.commandId && tenantId) {
+      await this.handleBundleAck(tenantId, payload.commandId, bundleAck, payload.error);
+    }
+
     // Publish response event for command tracking
     if (this.eventBus) {
       await this.eventBus.publish({
@@ -733,6 +752,138 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         data: payload.data,
         error: payload.error,
       });
+    }
+  }
+
+  /**
+   * The edge agent's CommandResponse carries the handler payload under
+   * `result`; bundle acks put `{ bundleId, phase }` there.
+   */
+  private extractBundleAck(
+    payload: EdgeResponsePayload,
+  ): { bundleId: string; phase: string } | null {
+    const raw = (payload as Record<string, unknown>).result ?? payload.data;
+    if (raw === null || typeof raw !== 'object') return null;
+    const candidate = raw as { bundleId?: unknown; phase?: unknown };
+    if (typeof candidate.bundleId !== 'string' || typeof candidate.phase !== 'string') {
+      return null;
+    }
+    return { bundleId: candidate.bundleId, phase: candidate.phase };
+  }
+
+  /**
+   * Drive the release-bundle state machine from edge acks and fan the
+   * terminal outcome out to the per-artifact deploy logs + source-entity
+   * lifecycles (program DEPLOYING→DEPLOYED, package →PUBLISHED). This is
+   * the CONFIRMED leg the SCADA path never had — the bundle is not "done"
+   * when the command leaves the broker, only when the device confirms the
+   * atomic apply.
+   */
+  private async handleBundleAck(
+    tenantId: string,
+    commandId: string,
+    ack: { bundleId: string; phase: string },
+    edgeError?: string,
+  ): Promise<void> {
+    if (!this.releaseBundleService) {
+      this.logger.warn(
+        `ReleaseBundleService not available — bundle ack for ${ack.bundleId} dropped`,
+      );
+      return;
+    }
+
+    try {
+      switch (ack.phase) {
+        case 'staged': {
+          await this.releaseBundleService.markStaged(tenantId, commandId);
+          this.logger.log(`Bundle ${ack.bundleId} STAGED by device (command ${commandId})`);
+          break;
+        }
+        case 'confirmed': {
+          const bundle = await this.releaseBundleService.markConfirmed(tenantId, commandId);
+          this.logger.log(`Bundle ${ack.bundleId} CONFIRMED by device (command ${commandId})`);
+          await this.fanOutBundleOutcome(tenantId, bundle, true, undefined);
+          break;
+        }
+        case 'failed': {
+          const message = edgeError || 'Bundle deploy failed on device';
+          const bundle = await this.releaseBundleService.markFailed(
+            tenantId,
+            commandId,
+            message,
+          );
+          this.logger.warn(
+            `Bundle ${ack.bundleId} FAILED on device (command ${commandId}): ${message}`,
+          );
+          await this.fanOutBundleOutcome(tenantId, bundle, false, message);
+          break;
+        }
+        default:
+          this.logger.warn(`Unknown bundle ack phase "${ack.phase}" for ${ack.bundleId}`);
+      }
+    } catch (error) {
+      // Illegal transitions here are duplicate/late acks — log, never throw
+      // (the state machine already refused to regress).
+      this.logger.warn(
+        `Bundle ack ${ack.phase} for ${ack.bundleId} not applied: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  /** Per-artifact deploy-log + lifecycle fan-out for a terminal bundle ack. */
+  private async fanOutBundleOutcome(
+    tenantId: string,
+    bundle: ReleaseBundle,
+    success: boolean,
+    errorMessage?: string,
+  ): Promise<void> {
+    for (const artifact of bundle.manifest.artifacts) {
+      try {
+        if (artifact.kind === DeployArtifactType.AUTOMATION_PROGRAM) {
+          if (artifact.logCommandId && this.deploymentLogService) {
+            await this.deploymentLogService.handleResponse(
+              artifact.logCommandId,
+              success,
+              errorMessage,
+            );
+          }
+          if (artifact.sourceEntityId && artifact.logCommandId && this.automationService) {
+            if (success) {
+              await this.automationService.confirmDeployment(
+                artifact.sourceEntityId,
+                tenantId,
+                artifact.logCommandId,
+              );
+            } else {
+              await this.automationService.failDeployment(
+                artifact.sourceEntityId,
+                tenantId,
+                artifact.logCommandId,
+                errorMessage || 'Bundle deploy failed on device',
+              );
+            }
+          }
+        } else if (artifact.kind === DeployArtifactType.SCADA_PACKAGE) {
+          if (artifact.logCommandId && this.scadaDeployLogService) {
+            await this.scadaDeployLogService.updateStatus(
+              artifact.logCommandId,
+              success ? ScadaDeployStatus.SUCCESS : ScadaDeployStatus.FAILED,
+              success ? undefined : { errorMessage },
+              tenantId,
+            );
+          }
+          if (success && artifact.sourceEntityId && this.scadaPackageService) {
+            await this.scadaPackageService.markPackagePublished(
+              artifact.sourceEntityId,
+              tenantId,
+            );
+          }
+        }
+      } catch (error) {
+        this.logger.error(
+          `Bundle outcome fan-out failed for artifact ${artifact.artifactId}: ${(error as Error).message}`,
+        );
+      }
     }
   }
 

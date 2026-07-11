@@ -39,13 +39,13 @@ import { WaterQualityParameterConfig } from './water-quality-parameter-config.en
 @ObjectType('EquipmentRef')
 class EquipmentRef {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  name: string;
+  name!: string;
 
   @Field()
-  code: string;
+  code!: string;
 
   @Field({ nullable: true })
   description?: string;
@@ -83,12 +83,12 @@ registerEnumType(MonitoringFrequency, {
 export class WaterQualityParamEquipment {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // FOREIGN KEYS
@@ -96,11 +96,11 @@ export class WaterQualityParamEquipment {
 
   @Field()
   @Column('uuid')
-  parameterConfigId: string;
+  parameterConfigId!: string;
 
   @Field()
   @Column('uuid')
-  equipmentId: string;
+  equipmentId!: string;
 
   // -------------------------------------------------------------------------
   // MONITORING SETTINGS
@@ -108,7 +108,7 @@ export class WaterQualityParamEquipment {
 
   @Field({ description: 'Whether this parameter-equipment mapping is active' })
   @Column({ default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field(() => MonitoringFrequency, { description: 'How often this parameter is monitored on the equipment' })
   @Column({
@@ -116,7 +116,7 @@ export class WaterQualityParamEquipment {
     enum: MonitoringFrequency,
     default: MonitoringFrequency.ON_DEMAND,
   })
-  monitoringFrequency: MonitoringFrequency;
+  monitoringFrequency!: MonitoringFrequency;
 
   @Field({ nullable: true, description: 'Linked sensor device UUID' })
   @Column({ type: 'uuid', nullable: true })
@@ -124,7 +124,7 @@ export class WaterQualityParamEquipment {
 
   @Field({ description: 'Whether alerts are enabled for this mapping' })
   @Column({ default: true })
-  alertEnabled: boolean;
+  alertEnabled!: boolean;
 
   @Field({ nullable: true, description: 'Free-text notes for this mapping' })
   @Column({ type: 'text', nullable: true })
@@ -137,7 +137,7 @@ export class WaterQualityParamEquipment {
   @Field(() => WaterQualityParameterConfig)
   @ManyToOne(() => WaterQualityParameterConfig)
   @JoinColumn({ name: 'parameterConfigId' })
-  parameterConfig: WaterQualityParameterConfig;
+  parameterConfig!: WaterQualityParameterConfig;
 
   @Field(() => EquipmentRef, { nullable: true })
   @ManyToOne('Equipment')
@@ -150,9 +150,9 @@ export class WaterQualityParamEquipment {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }

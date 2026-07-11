@@ -59,6 +59,8 @@ import { resolve } from 'node:path';
 import { bootInvariantSignalRecord } from '@aquaculture/backend-common/constants';
 import {
   applyTenantRlsToSchema,
+  applyInfrastructureLedgerRls,
+  getInfrastructureAuditLedgers,
   convertAuditColumnsToTimestamptz,
   getTenantSchemaName,
   grantTenantMigrationLedgerReadAccess,
@@ -79,6 +81,7 @@ import {
   type RunSchemaOptions,
   type RunSchemaResult,
 } from './migration-orchestrator';
+import { reclaimPostFanoutOrphanTypes } from './orphan-type-reclamation';
 import { runPlatformBootstrap, resolvePlatformBootstrapSqlDir } from './platform-bootstrap.service';
 import { SCHEMA_REGISTRY, type SchemaPostMigrationHardening } from './schema-registry';
 import { runTenantSchemaProvisioner } from './tenant-schema-provisioner';
@@ -227,12 +230,22 @@ async function runSchemaPostMigrationHardening(
 
     if (hardening.tenantRls !== undefined) {
       const rlsOptions = hardening.tenantRls === true ? {} : hardening.tenantRls;
+      // ORPHAN-MEDIUM-324: the cross-tenant infrastructure audit ledgers must
+      // NOT receive tenant_isolation_policy (category error — a no-tenant-context
+      // writer can never satisfy it, so the compliance-critical INSERT is
+      // silently denied). Exclude them from the column-driven tenant sweep here,
+      // then install the canonical append/system-read policy in the dedicated
+      // pass below. Merging the SSoT ledgers with any config excludes keeps the
+      // sweep from ever touching them.
+      const ledgerExcludes = getInfrastructureAuditLedgers(schema);
+      const mergedExcludes = [
+        ...(rlsOptions.excludeTables ?? []),
+        ...ledgerExcludes,
+      ];
       await applyTenantRlsToSchema(queryRunner, {
         schemaOverride: schema,
         logger: helperLogger,
-        ...(rlsOptions.excludeTables !== undefined
-          ? { excludeTables: rlsOptions.excludeTables }
-          : {}),
+        ...(mergedExcludes.length > 0 ? { excludeTables: mergedExcludes } : {}),
         ...(rlsOptions.tenantIdColumns !== undefined
           ? { tenantIdColumns: rlsOptions.tenantIdColumns }
           : {}),
@@ -250,6 +263,23 @@ async function runSchemaPostMigrationHardening(
         ...(auditOptions.auditColumns !== undefined
           ? { auditColumns: auditOptions.auditColumns }
           : {}),
+      });
+    }
+
+    // ORPHAN-MEDIUM-324 (+ ORPHAN-HIGH-308): install the canonical cross-tenant
+    // infrastructure audit-ledger policy (append-INSERT + system-aware SELECT,
+    // immutable, NO tenant_isolation_policy) on this schema's SSoT-declared
+    // ledgers. SSoT-DRIVEN (getInfrastructureAuditLedgers) rather than a
+    // per-registry-entry field, so the policy set cannot drift from the SSoT.
+    // Idempotent — self-heals a ledger that a prior deploy wrongly
+    // tenant-RLS'd. shared.audit_logs is NOT a registry-hardened schema and is
+    // handled in platform-bootstrap SQL (006-shared-schema-tables.sql).
+    const infraLedgers = getInfrastructureAuditLedgers(schema);
+    if (infraLedgers.length > 0) {
+      await applyInfrastructureLedgerRls(queryRunner, {
+        schema,
+        ledgers: infraLedgers,
+        logger: helperLogger,
       });
     }
 
@@ -484,6 +514,29 @@ async function grantTenantLedgerReadAccess(
       tenantSchema,
       sourceSchema,
     });
+  } finally {
+    await queryRunner.release();
+    await dataSource.destroy();
+  }
+}
+
+/**
+ * Reclaim shared types that a fan-out migration deliberately left orphaned
+ * (FARM-MEDIUM-170). Runs on its own control connection AFTER the whole
+ * per-service + tenant fan-out, the only point every dependent column across all
+ * schemas is guaranteed gone. Non-fatal: a still-referenced or absent orphan is
+ * logged, never a deploy-abort — a lingering harmless type is far cheaper than
+ * failing a green deploy.
+ */
+async function reclaimOrphanTypesAfterFanout(
+  database: RunSchemaOptions['database'],
+): Promise<void> {
+  const dataSource = createControlDataSource(database);
+  await dataSource.initialize();
+  const queryRunner = dataSource.createQueryRunner();
+  try {
+    await queryRunner.connect();
+    await reclaimPostFanoutOrphanTypes(queryRunner, log);
   } finally {
     await queryRunner.release();
     await dataSource.destroy();
@@ -1172,6 +1225,23 @@ async function main(): Promise<number> {
         });
         return 1;
       }
+    }
+
+    // ── Phase 1.5 — Post-fan-out orphan-type reclamation (FARM-MEDIUM-170) ──
+    // Every source + tenant pass above succeeded (a failure returns 1 before
+    // here), so every schema is at head and any shared type a source-only
+    // migration deferred dropping is now genuinely unreferenced. Reclaim it.
+    // Non-fatal: an unexpected error (e.g. lock contention) must not fail an
+    // otherwise-green migration run — the orphan is harmless.
+    try {
+      await reclaimOrphanTypesAfterFanout(database);
+    } catch (err: unknown) {
+      log({
+        level: 'warn',
+        message: 'Post-fan-out orphan-type reclamation failed (non-fatal) — orphan type left for a later release',
+        context: 'DbMigrateOrphanTypeReclamation',
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
 
     const { expectedHeads, appliedHeads } = buildHeadPayloads(sourceHeads, tenantHeads);

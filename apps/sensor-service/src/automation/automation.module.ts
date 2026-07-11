@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { DeployArtifactModule } from '../deploy-artifact/deploy-artifact.module';
 import { EdgeDeviceModule } from '../edge-device/edge-device.module';
 // SharedMqttModule is @Global, provides MqttClientService
 
@@ -53,6 +54,7 @@ import { DeploymentLogService } from './services/deployment-log.service';
       ProgramVariable,
       DeploymentLog,
     ]),
+    DeployArtifactModule, // Content-addressed deploy snapshots (Faz 3)
     EdgeDeviceModule, // For edge device service (no longer circular)
     CompilerModule, // ST language service, IntelliSense, NATS handlers
     // MqttClientService is available via @Global SharedMqttModule

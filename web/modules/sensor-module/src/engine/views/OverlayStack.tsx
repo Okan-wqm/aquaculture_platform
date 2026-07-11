@@ -6,12 +6,12 @@
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
-import { useScadaStore } from '../../store/scada';
+import { useScadaPackageStore } from '../../store/scada';
 import { PopupCard } from './PopupCard';
 import { ModalDialog } from './ModalDialog';
 
 export const OverlayStack: React.FC = () => {
-  const overlays = useScadaStore((s) => s.overlays);
+  const overlays = useScadaPackageStore((s) => s.overlays);
 
   if (overlays.length === 0) return null;
 

@@ -8,7 +8,7 @@
 import React, { useState, useCallback, useRef, useMemo } from 'react';
 import { Download, Upload, X, FileSpreadsheet, AlertCircle, CheckCircle } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
-import { useScadaPackageStore } from '../../store/scadaPackageStore';
+import { useScadaPackageStore } from '../../store/scada';
 
 interface CsvRow {
   widgetId: string;

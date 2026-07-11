@@ -193,39 +193,47 @@ export class InstallerScriptService {
   }
 
   /**
-   * Build installer URL for a specific device
+   * Build installer URL for a specific device.
+   * SENSOR-MEDIUM-002: the token is NEVER placed in the URL — it travels in the
+   * X-Provisioning-Token header (see buildInstallerCommand) so it cannot leak
+   * into access logs.
    */
-  async buildInstallerUrl(deviceCode: string, token?: string): Promise<string> {
+  async buildInstallerUrl(deviceCode: string): Promise<string> {
     const config = await this.getProvisioningConfig();
-    const base = `${config.apiBaseUrl}/install/${deviceCode}`;
-    return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+    return `${config.apiBaseUrl}/install/${deviceCode}`;
   }
 
   /**
-   * Build installer command for a specific device
+   * Build installer command for a specific device.
+   * The provisioning token is passed as a request header, not a URL query.
    */
   async buildInstallerCommand(deviceCode: string, token?: string): Promise<string> {
-    const url = await this.buildInstallerUrl(deviceCode, token);
-    return `curl -sSL "${url}" | sudo bash`;
+    const url = await this.buildInstallerUrl(deviceCode);
+    const header = token
+      ? `-H "X-Provisioning-Token: ${this.sanitizeForShell(token)}" `
+      : '';
+    return `curl -sSL ${header}"${url}" | sudo bash`;
   }
 
   /**
    * Build Suderra OS manifest URL for a specific device.
    * This is consumed by the forced-command provision user on Suderra OS.
+   * SENSOR-MEDIUM-002: token is sent via the X-Provisioning-Token header.
    */
-  async buildSuderraOsInstallerUrl(deviceCode: string, token: string): Promise<string> {
+  async buildSuderraOsInstallerUrl(deviceCode: string): Promise<string> {
     const config = await this.getProvisioningConfig();
-    return `${config.apiBaseUrl}/install/${deviceCode}/suderra-os?token=${encodeURIComponent(token)}`;
+    return `${config.apiBaseUrl}/install/${deviceCode}/suderra-os`;
   }
 
   /**
    * Build the command the tenant panel can run against a freshly booted
-   * Suderra OS target.
+   * Suderra OS target. The token is carried in the request header.
    */
   async buildSuderraOsInstallerCommand(deviceIp: string, deviceCode: string, token: string): Promise<string> {
-    const url = await this.buildSuderraOsInstallerUrl(deviceCode, token);
+    const url = await this.buildSuderraOsInstallerUrl(deviceCode);
     const safeDeviceIp = this.sanitizeForShell(deviceIp);
-    return `ssh provision@${safeDeviceIp} install-manifest-url ${url}`;
+    const safeToken = this.sanitizeForShell(token);
+    return `ssh provision@${safeDeviceIp} install-manifest-url ${url} X-Provisioning-Token:${safeToken}`;
   }
 
   /**
@@ -259,19 +267,24 @@ export class InstallerScriptService {
   }
 
   /**
-   * Build tenant installer URL
+   * Build tenant installer URL.
+   * SENSOR-MEDIUM-002: the tenant token is NEVER embedded in the path — it
+   * travels in the X-Tenant-Provisioning-Token header (see the command below),
+   * so it cannot leak into nginx / proxy access logs.
    */
-  async buildTenantInstallerUrl(tenantToken: string): Promise<string> {
+  async buildTenantInstallerUrl(): Promise<string> {
     const config = await this.getProvisioningConfig();
-    return `${config.apiBaseUrl}/install/t/${tenantToken}`;
+    return `${config.apiBaseUrl}/install/tenant`;
   }
 
   /**
-   * Build tenant installer command
+   * Build tenant installer command. The tenant token is passed as a request
+   * header, not a URL path segment.
    */
   async buildTenantInstallerCommand(tenantToken: string): Promise<string> {
-    const url = await this.buildTenantInstallerUrl(tenantToken);
-    return `curl -sSL ${url} | sudo bash`;
+    const url = await this.buildTenantInstallerUrl();
+    const safeToken = this.sanitizeForShell(tenantToken);
+    return `curl -sSL -H "X-Tenant-Provisioning-Token: ${safeToken}" ${url} | sudo bash`;
   }
 
   /**

@@ -830,16 +830,30 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
       globs: ['apps/ai-service/src/database/migrations/[0-9]*{.ts,.js}'],
       headPolicy: 'non-empty-glob',
     },
-    deploymentStatus: 'inactive',
-    deployTarget: 'unsupported',
-    criticality: 'ignored',
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    // AI down = the assistant + BYOK are unavailable, but no data loss and no
+    // life-safety impact — 'required', not 'critical' (messaging is 'critical'
+    // because it carries live comms).
+    criticality: 'required',
+    // A first-class federated Apollo subgraph like every other service — the AI
+    // settings CRUD is GraphQL (AgentConfigResolver) and chat streaming rides the
+    // gateway socket.io/NATS bridge (like messaging real-time). No hand-rolled
+    // REST proxy, no special-case.
     classification: 'subgraph',
-    gatewayParticipation: 'none',
-    // Inactive (not deployed to droplet) — nominal budget; the validator
-    // only enforces > 0 for active services.
+    // Matches compose start_period: 60s.
     startupBudgetSeconds: 60,
-    requiredSignals: [],
-    requiredEnv: ['AI_SERVICE_DB_PASS'],
+    // ai-service dials NATS over mTLS and owns the `ai` schema.
+    requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
+    // AI_TENANT_SECRET_ENCRYPTION_KEY (AES-256-GCM) decrypts the per-tenant BYOK
+    // credentials at rest — the service serves no tenant's AI without it.
+    requiredEnv: ['AI_SERVICE_DB_PASS', 'AI_TENANT_SECRET_ENCRYPTION_KEY'],
+    gatewaySubgraph: subgraph(
+      'ai',
+      'ai-service',
+      'AI_SERVICE_URL',
+      'http://ai-service:3000/graphql',
+    ),
   }),
   // ── Monitoring scraper stack (ORPHAN-090, PR #670) ─────────────────────────
   // WHAT: the four observability-infra containers added to
@@ -907,6 +921,7 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     'sensor-module',
     'hr-module',
     'hydroponics-module',
+    'messaging-module',
     'admin-panel',
     'tenant-admin',
     'aquamobil',

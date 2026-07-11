@@ -25,12 +25,11 @@ const SENSOR_TYPE_OPTIONS: { value: SensorType; label: string }[] = [
   { value: SensorType.TURBIDITY, label: 'Turbidity' },
   { value: SensorType.WATER_LEVEL, label: 'Water Level' },
   { value: SensorType.FLOW_RATE, label: 'Flow Rate' },
-  { value: SensorType.PRESSURE, label: 'Pressure' },
   { value: SensorType.CONDUCTIVITY, label: 'Conductivity' },
   { value: SensorType.ORP, label: 'ORP' },
   { value: SensorType.CO2, label: 'CO2' },
   { value: SensorType.CHLORINE, label: 'Chlorine' },
-  { value: SensorType.OTHER, label: 'Other' },
+  { value: SensorType.MULTI_PARAMETER, label: 'Other / Multi-parameter' },
 ];
 
 const WIDGET_TYPES = [
@@ -60,7 +59,7 @@ export function ChildSensorFormModal({
   const [formData, setFormData] = useState<ChildSensorConfig>({
     dataPath: '',
     name: '',
-    type: SensorType.OTHER,
+    type: SensorType.MULTI_PARAMETER,
     selected: true,
     isConfigured: false,
     calibrationEnabled: false,

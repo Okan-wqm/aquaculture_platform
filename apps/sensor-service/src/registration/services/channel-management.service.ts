@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, FindOptionsWhere, DataSource } from 'typeorm';
+import { Repository, In, FindOptionsWhere, DataSource, EntityManager } from 'typeorm';
 
 interface MaxOrderResult {
   max: number | null;
@@ -331,6 +331,7 @@ export class ChannelManagementService {
     sensorId: string,
     tenantId: string,
     channels: CreateChannelInput[],
+    manager?: EntityManager,
   ): Promise<SensorDataChannel[]> {
     // ── Duplicate channelKey validation ──
     // Detect duplicates before saving so callers get a clean validation error
@@ -381,7 +382,15 @@ export class ChannelManagementService {
       savedChannels.push(channel);
     }
 
-    const saved = await this.channelRepository.save(savedChannels);
+    // When a transactional manager is supplied (SENSOR-LOW-007 registration
+    // atomicity), save through it so channel creation joins the caller's
+    // transaction — a failure here rolls back the sensor row AND its outbox
+    // lifecycle event together, leaving no orphaned SensorRegistrationStarted.
+    // The channels carry an explicit tenantId (built above), so the manager save
+    // does not bypass tenant scoping.
+    const saved = manager
+      ? await manager.save(SensorDataChannel, savedChannels)
+      : await this.channelRepository.save(savedChannels);
     this.logger.log(`Created ${saved.length} channels for sensor ${sensorId}`);
 
     return saved;

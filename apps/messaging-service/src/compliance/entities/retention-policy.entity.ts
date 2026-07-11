@@ -26,15 +26,15 @@ import { ObjectType, Field, ID, Int } from '@nestjs/graphql';
 export class RetentionPolicy {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column({ type: 'uuid' })
-  tenantId: string;
+  tenantId!: string;
 
   @Field(() => String, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
-  channelId: string | null;
+  channelId!: string | null;
 
   /**
    * Number of days to retain messages.
@@ -43,17 +43,17 @@ export class RetentionPolicy {
    */
   @Field(() => Int)
   @Column({ type: 'integer', default: 365 })
-  retentionDays: number;
+  retentionDays!: number;
 
   @Field()
   @Column({ type: 'uuid' })
-  createdBy: string;
+  createdBy!: string;
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }

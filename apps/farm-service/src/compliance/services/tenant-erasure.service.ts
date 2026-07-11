@@ -54,7 +54,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { createHash, randomBytes, randomUUID } from 'crypto';
-import { DataSource, EntityManager, EntityMetadata } from 'typeorm';
+import {
+  DataSource,
+  EntityManager,
+  EntityMetadata,
+  ObjectLiteral,
+  QueryDeepPartialEntity,
+} from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 import {
   createBaseEvent,
@@ -91,6 +97,19 @@ export interface ErasureResult {
   matchedRecordCount: number;
   auditRowsAnonymised: number;
   /**
+   * Per-table count of rows RETAINED under the GDPR Art 17(3)(b)
+   * legal-obligation carve-out (COMPLIANCE-HIGH-003) — government-filed
+   * regulatory records kept, not deleted, with their PII columns
+   * anonymised in place. `matchedRecordCount` includes these rows;
+   * `deletedRowsByTable` / `totalDeleted` do NOT (they were never
+   * deleted). The gap between matched and deleted is exactly the
+   * retained set — the honest, auditable evidence that the controller
+   * kept the legally-required records.
+   */
+  retainedRowsByTable: Record<string, number>;
+  /** How many retained rows actually had a PII column hashed. */
+  retainedRowsAnonymised: number;
+  /**
    * Lifecycle state of the erasure (COMPLIANCE-MEDIUM-004).
    *
    *   - 'PURGED' — this confirm() call performed the cascade.
@@ -113,6 +132,42 @@ const FARM_ERASURE_PROOF_LEDGER_TABLE = 'tenant_erasure_target_proofs';
 const FARM_ERASURE_AUDIT_TABLE = 'tenant_erasure_audit';
 const FARM_OUTBOX_TABLE = 'outbox_events';
 
+/**
+ * The cross-tenant `farm.farm_audit_logs` ledger is RETAINED (never
+ * hard-deleted) and its identifying columns anonymised in place by the
+ * dedicated `anonymiseAuditLogs` path — it lives in the `farm` schema
+ * and additionally redacts `userName`, so it cannot share the per-tenant
+ * anonymise routine below. Naming it here keeps the complete
+ * "never hard-deleted" set in ONE place so no table is silently deleted
+ * (data lost) or silently skipped (PII left behind).
+ */
+const CROSS_TENANT_ANONYMISED_TABLE = 'farm_audit_logs';
+
+/**
+ * COMPLIANCE-HIGH-003 — GDPR Art 17(3)(b) legal-obligation carve-out.
+ *
+ * Government-filed regulatory records are RETAINED, never hard-deleted,
+ * when a tenant is erased: Norwegian aquaculture law (Mattilsynet REST
+ * filings, Fiskeridirektoratet FD-0001 biomass filings) mandates their
+ * retention independently of the tenant relationship, and the migrations
+ * that create them (`CreateRegulatoryReports`, biomass_reports) declare
+ * "never drop — this is the legal audit trail" in their `down()`.
+ *
+ * The row survives the cascade; only its operator-identifying UUID
+ * columns are anonymised in place (stable SHA-256 16-char prefix,
+ * byte-identical to the `farm_audit_logs` treatment) so no direct
+ * personal identifier remains — honouring Art 17 for the personal data
+ * while preserving the legally-required record. This map is the SSoT
+ * for that policy: per-tenant table name → the user-reference columns to
+ * hash. A table listed here is skipped by the DELETE pass and routed
+ * through `anonymiseRetainedRecords` instead.
+ */
+const STATUTORY_RETENTION_POLICY: ReadonlyMap<string, readonly string[]> =
+  new Map<string, readonly string[]>([
+    ['regulatory_reports', ['submittedBy']],
+    ['biomass_reports', ['generatedBy', 'submittedBy', 'confirmedBy']],
+  ]);
+
 interface TenantErasureStoredProofRow {
   readonly operationId: string;
   readonly tenantId: string;
@@ -134,6 +189,8 @@ interface TenantErasureAuditRow {
   readonly deletedRowsByTable: Record<string, number> | null;
   readonly totalDeleted: number | string;
   readonly auditRowsAnonymised: number | string;
+  readonly retainedRowsByTable: Record<string, number> | null;
+  readonly retainedRowsAnonymised: number | string;
 }
 
 @Injectable()
@@ -267,7 +324,10 @@ export class TenantErasureService {
       `Erasure COMPLETED for tenant ${tenantId.slice(0, 8)}... — ` +
         `${result.totalDeleted} rows deleted across ` +
         `${Object.keys(result.deletedRowsByTable).length} tables; ` +
-        `${result.auditRowsAnonymised} audit rows anonymised.`,
+        `${result.auditRowsAnonymised} audit rows anonymised; ` +
+        `${this.sumValues(result.retainedRowsByTable)} rows retained under ` +
+        `Art 17(3)(b) across ${Object.keys(result.retainedRowsByTable).length} ` +
+        `regulatory tables (${result.retainedRowsAnonymised} anonymised).`,
     );
     return result;
   }
@@ -387,21 +447,57 @@ export class TenantErasureService {
               'matchedRecordCount',
             ),
             auditRowsAnonymised: 0,
+            retainedRowsByTable: {},
+            retainedRowsAnonymised: 0,
             state: 'ALREADY_PURGED' as const,
           };
         }
 
         const deleted: Record<string, number> = {};
+        const retained: Record<string, number> = {};
         let matchedRecordCount = 0;
         let totalDeleted = 0;
+        let retainedRowsAnonymised = 0;
 
         for (const meta of sorted) {
-          if (meta.tableName === 'farm_audit_logs') {
+          if (meta.tableName === CROSS_TENANT_ANONYMISED_TABLE) {
             // Audit logs are NOT deleted — they are anonymised below
             // so the compliance trail survives an erasure without
             // identifying the data subject.
             continue;
           }
+
+          const retentionColumns = STATUTORY_RETENTION_POLICY.get(
+            meta.tableName,
+          );
+          if (retentionColumns) {
+            // GDPR Art 17(3)(b): government-filed regulatory record —
+            // retained, not deleted. Count it (it was matched), then
+            // anonymise its operator-identifying columns in place.
+            try {
+              const matched = await this.countTenantRows(mgr, meta, tenantId);
+              if (matched > 0) {
+                matchedRecordCount += matched;
+                retained[meta.tableName] = matched;
+                retainedRowsAnonymised += dryRun
+                  ? 0
+                  : await this.anonymiseRetainedRecords(
+                      mgr,
+                      meta,
+                      tenantId,
+                      retentionColumns,
+                    );
+              }
+            } catch (err) {
+              this.logger.error(
+                `Erasure retention-anonymise failed for ${meta.tableName}: ` +
+                  `${(err as Error).message}`,
+              );
+              throw err;
+            }
+            continue;
+          }
+
           try {
             const matched = await this.countTenantRows(mgr, meta, tenantId);
             matchedRecordCount += matched;
@@ -445,6 +541,8 @@ export class TenantErasureService {
             auditRowsAnonymised,
             tableCount,
             deletedRowsByTable: deleted,
+            retainedRowsByTable: retained,
+            retainedRowsAnonymised,
           });
         }
 
@@ -489,6 +587,8 @@ export class TenantErasureService {
           totalDeleted,
           matchedRecordCount,
           auditRowsAnonymised,
+          retainedRowsByTable: retained,
+          retainedRowsAnonymised,
           state: 'PURGED' as const,
         };
       },
@@ -607,6 +707,8 @@ export class TenantErasureService {
         totalDeleted: erasedRecordCount,
         matchedRecordCount,
         auditRowsAnonymised: 0,
+        retainedRowsByTable: {},
+        retainedRowsAnonymised: 0,
         state: 'ALREADY_PURGED' as const,
       };
     });
@@ -776,6 +878,8 @@ export class TenantErasureService {
       totalDeleted: 0,
       matchedRecordCount: 0,
       auditRowsAnonymised: 0,
+      retainedRowsByTable: {},
+      retainedRowsAnonymised: 0,
       state,
     };
   }
@@ -817,7 +921,9 @@ export class TenantErasureService {
             "confirmedAt",
             "deletedRowsByTable",
             "totalDeleted",
-            "auditRowsAnonymised"
+            "auditRowsAnonymised",
+            "retainedRowsByTable",
+            "retainedRowsAnonymised"
           FROM "${FARM_ERASURE_PROOF_LEDGER_SCHEMA}"."${FARM_ERASURE_AUDIT_TABLE}"
           WHERE "tenantId" = $1
           LIMIT 1
@@ -834,13 +940,23 @@ export class TenantErasureService {
       row.auditRowsAnonymised,
       'auditRowsAnonymised',
     );
+    const retainedRowsByTable = row.retainedRowsByTable ?? {};
+    const retainedRowsAnonymised = this.numberFromRow(
+      row.retainedRowsAnonymised,
+      'retainedRowsAnonymised',
+    );
     return {
       tenantId: row.tenantId,
       confirmedAt: this.isoFromRow(row.confirmedAt),
       deletedRowsByTable: row.deletedRowsByTable ?? {},
       totalDeleted,
-      matchedRecordCount: totalDeleted + auditRowsAnonymised,
+      // Reconstruct the original matched count byte-identically: deleted
+      // rows + anonymised audit rows + retained (matched-but-kept) rows.
+      matchedRecordCount:
+        totalDeleted + auditRowsAnonymised + this.sumValues(retainedRowsByTable),
       auditRowsAnonymised,
+      retainedRowsByTable,
+      retainedRowsAnonymised,
       state: 'ALREADY_PURGED' as const,
     };
   }
@@ -866,6 +982,50 @@ export class TenantErasureService {
       .where('"tenantId" = :tenantId AND "userId" IS NOT NULL', { tenantId })
       .execute();
     return result.affected ?? 0;
+  }
+
+  /**
+   * Anonymise the operator-identifying columns on a statutory-retention
+   * table in place (COMPLIANCE-HIGH-003). The row is RETAINED under the
+   * GDPR Art 17(3)(b) legal-obligation carve-out; only the direct
+   * personal identifiers (the user-reference UUID columns) are destroyed
+   * by overwriting them with a stable SHA-256 16-char prefix — the exact
+   * expression `anonymiseAuditLogs` uses, so a hashed id is byte-identical
+   * whichever table carried it.
+   *
+   * Runs UNqualified through `meta.target` so the transaction-pinned
+   * tenant search_path routes the UPDATE into `tenant_<uuid>` (these are
+   * per-tenant tables). Only rows that still carry at least one non-null
+   * identifier are touched, so the affected count reflects real PII
+   * removed rather than rows that were already clean.
+   */
+  private async anonymiseRetainedRecords(
+    mgr: EntityManager,
+    meta: EntityMetadata,
+    tenantId: string,
+    columns: readonly string[],
+  ): Promise<number> {
+    const assignments: Record<string, () => string> = {};
+    for (const column of columns) {
+      assignments[column] = () =>
+        `'hashed:' || left(encode(digest("${column}"::text, 'sha256'), 'hex'), 16)`;
+    }
+    const anyIdentifierPresent = columns
+      .map((column) => `"${column}" IS NOT NULL`)
+      .join(' OR ');
+    const result = await mgr
+      .createQueryBuilder()
+      .update(meta.target)
+      .set(assignments as QueryDeepPartialEntity<ObjectLiteral>)
+      .where(`"tenantId" = :tenantId AND (${anyIdentifierPresent})`, {
+        tenantId,
+      })
+      .execute();
+    return result.affected ?? 0;
+  }
+
+  private sumValues(counts: Record<string, number>): number {
+    return Object.values(counts).reduce((total, value) => total + value, 0);
   }
 
   private async countTenantRows(

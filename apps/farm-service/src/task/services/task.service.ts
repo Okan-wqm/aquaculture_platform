@@ -14,7 +14,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, EntityManager } from 'typeorm';
 import { listTenantSchemas } from '@aquaculture/backend-common/database';
 import { Cron } from '@nestjs/schedule';
 import {
@@ -124,6 +124,44 @@ export class TaskService {
   ): Promise<Task> {
     this.logger.log(`Creating task "${input.title}" for tenant ${tenantId}`);
 
+    // Atomic: save + TaskCreated outbox enqueue in one transaction. The
+    // event is durably persisted with the row (at-least-once), never
+    // fire-and-forget — a crash or NATS gap can no longer drop it.
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      const saved = await this.createWithManager(
+        queryRunner.manager,
+        tenantId,
+        input,
+        createdBy,
+      );
+      await queryRunner.commitTransaction();
+      return saved;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /**
+   * SSoT for the task row + TaskCreated outbox write, keyed to a caller-supplied
+   * EntityManager so it composes with either an owned transaction (the request
+   * path above) OR an ambient tenant-scoped transaction (the NATS
+   * request.farm.createTask responder, which sets the tenant search_path via
+   * runInTenantTransaction before delegating here). Keeping it manager-driven is
+   * why both entry points share ONE create-and-emit path rather than duplicating
+   * the entity shape + event contract.
+   */
+  async createWithManager(
+    manager: EntityManager,
+    tenantId: string,
+    input: CreateTaskInput,
+    createdBy: string,
+  ): Promise<Task> {
     const task = this.taskRepository.create({
       tenantId,
       title: input.title,
@@ -146,39 +184,25 @@ export class TaskService {
       recurringTemplateId: input.recurringTemplateId,
     });
 
-    // Atomic: save + TaskCreated outbox enqueue in one transaction. The
-    // event is durably persisted with the row (at-least-once), never
-    // fire-and-forget — a crash or NATS gap can no longer drop it.
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-    try {
-      const saved = await queryRunner.manager.save(task);
+    const saved = await manager.save(task);
 
-      await this.outboxPublisher.enqueue(
-        {
-          ...createBaseEvent('TaskCreated', tenantId, { userId: createdBy }),
-          taskId: saved.id,
-          title: saved.title,
-          category: saved.category,
-          priority: saved.priority,
-          assignedTo: saved.assignedTo,
-          assignedToName: saved.assignedToName,
-          dueDate: input.dueDate,
-          createdBy,
-        },
-        queryRunner.manager,
-      );
+    await this.outboxPublisher.enqueue(
+      {
+        ...createBaseEvent('TaskCreated', tenantId, { userId: createdBy }),
+        taskId: saved.id,
+        title: saved.title,
+        category: saved.category,
+        priority: saved.priority,
+        assignedTo: saved.assignedTo,
+        assignedToName: saved.assignedToName,
+        dueDate: input.dueDate,
+        createdBy,
+      },
+      manager,
+    );
 
-      await queryRunner.commitTransaction();
-      this.logger.log(`Task created: ${saved.id}`);
-      return saved;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    this.logger.log(`Task created: ${saved.id}`);
+    return saved;
   }
 
   /**

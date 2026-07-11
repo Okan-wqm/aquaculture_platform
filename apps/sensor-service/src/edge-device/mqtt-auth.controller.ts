@@ -71,11 +71,17 @@ export class MqttAuthController {
     // or nginx proxy misconfiguration), these endpoints accept unauthenticated auth
     // decisions from any caller.
     const nodeEnv = this.configService.get<string>('NODE_ENV');
-    if (nodeEnv === 'production' && !this.mqttAuthSecret) {
-      this.logger.error(
-        'SECURITY: MQTT auth endpoints are running in production WITHOUT shared secret ' +
-        'AND without verified network isolation. Set MQTT_AUTH_SECRET or ensure Docker ' +
-        'network is configured with internal:true to prevent unauthorized MQTT auth bypass.',
+    const isolationVerified =
+      this.configService.get<string>('MQTT_NETWORK_ISOLATION_VERIFIED') === 'true';
+    if (nodeEnv === 'production' && !this.mqttAuthSecret && !isolationVerified) {
+      // SENSOR-MEDIUM-003: fail closed at bootstrap instead of only logging.
+      // In production, either a shared secret must be set OR the operator must
+      // explicitly attest network isolation (MQTT_NETWORK_ISOLATION_VERIFIED=true)
+      // — otherwise these @Public MQTT auth endpoints could make unauthenticated
+      // auth decisions for any caller that reaches them.
+      throw new Error(
+        'SECURITY: MQTT auth endpoints require MQTT_AUTH_SECRET (or an explicit ' +
+        'MQTT_NETWORK_ISOLATION_VERIFIED=true attestation) in production. Refusing to start.',
       );
     }
   }

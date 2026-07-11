@@ -7,6 +7,7 @@ import { REDIS_CLIENT } from '../../shared/redis.provider';
 import { GdprService } from '../gdpr.service';
 import { LegalHoldService } from '../../compliance/services/legal-hold.service';
 import { ComplianceAuditService } from '../../compliance/services/compliance-audit.service';
+import { AttachmentObjectPurgeService } from '../../compliance/services/attachment-object-purge.service';
 import { MessagingMetricsService } from '../../metrics/messaging-metrics.service';
 import {
   createMockMessage,
@@ -30,6 +31,7 @@ describe('GdprService', () => {
   let redisClient: MockRedis;
   let natsClient: MockNatsClient;
   let outboxPublisher: { enqueue: jest.Mock };
+  let attachmentPurge: { purgeObjects: jest.Mock };
   let messageQb: jest.Mocked<SelectQueryBuilder<Message>>;
 
   const tenantId = '00000000-0000-4000-8000-000000000001';
@@ -43,6 +45,9 @@ describe('GdprService', () => {
     redisClient = createMockRedis();
     natsClient = createMockNatsClient();
     outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    attachmentPurge = {
+      purgeObjects: jest.fn().mockResolvedValue({ requested: 0, deleted: 0, skipped: 0, failed: 0 }),
+    };
     messageQb = createMockQueryBuilder<Message>();
     queryRunner.manager.createQueryBuilder.mockReturnValue(messageQb as unknown as SelectQueryBuilder<Message>);
     queryRunner.query.mockImplementation(async (sql: string) => {
@@ -62,6 +67,7 @@ describe('GdprService', () => {
         { provide: ComplianceAuditService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
         { provide: MessagingMetricsService, useValue: { incrementGdprErasure: jest.fn() } },
         { provide: OutboxPublisher, useValue: outboxPublisher },
+        { provide: AttachmentObjectPurgeService, useValue: attachmentPurge },
       ],
     }).compile();
 
@@ -136,6 +142,47 @@ describe('GdprService', () => {
       return sql.includes('[message deleted by user]');
     });
     expect(updateMsgCall).toBeDefined();
+  });
+
+  // -----------------------------------------------------------------------
+  // MSG-CRITICAL-058: attachment MinIO objects are purged after the erasure commits
+  // -----------------------------------------------------------------------
+  it('purges the attachment object + thumbnail keys after erasure commits', async () => {
+    natsClient.send.mockReturnValue(of(true));
+    queryRunner.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT id, "createdAt" FROM messages')) {
+        return [{ id: fakeUuid('msg'), createdAt: new Date('2026-03-10T12:00:00Z') }];
+      }
+      if (sql.includes('FROM message_attachments') && sql.includes('storageKey')) {
+        return [
+          {
+            storageKey: `messaging/${tenantId}/ch/img.png`,
+            thumbnailKey: `messaging/${tenantId}/ch/img_thumb.png`,
+          },
+          { storageKey: `messaging/${tenantId}/ch/doc.pdf`, thumbnailKey: null },
+        ];
+      }
+      return [];
+    });
+
+    await service.anonymizeMyData(userId, tenantId, 'correct-password');
+
+    expect(attachmentPurge.purgeObjects).toHaveBeenCalledTimes(1);
+    const [purgeTenant, keys] = attachmentPurge.purgeObjects.mock.calls[0] as [string, string[]];
+    expect(purgeTenant).toBe(tenantId);
+    // storageKey then thumbnailKey per row, in row order; null thumbnails omitted.
+    expect(keys).toEqual([
+      `messaging/${tenantId}/ch/img.png`,
+      `messaging/${tenantId}/ch/img_thumb.png`,
+      `messaging/${tenantId}/ch/doc.pdf`,
+    ]);
+  });
+
+  it('does not call the object purge when the user has no attachments', async () => {
+    natsClient.send.mockReturnValue(of(true));
+    // Default query mock returns a message id but no attachment rows.
+    await service.anonymizeMyData(userId, tenantId, 'correct-password');
+    expect(attachmentPurge.purgeObjects).not.toHaveBeenCalled();
   });
 
   // -----------------------------------------------------------------------

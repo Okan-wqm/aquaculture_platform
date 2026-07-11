@@ -86,9 +86,9 @@ import { ChannelMember, ChannelMemberRole } from '../../channel/entities/channel
  */
 @ObjectType()
 @Directive('@key(fields: "id")')
-export class User {
+export class PublicUserProfile {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   // Federation (MSG-MEDIUM-052): the display fields (firstName, lastName, email,
   // profileImageUrl) are NOT declared here — they are owned by auth-service's
@@ -100,11 +100,11 @@ export class User {
 
   /** Whether the user is currently online (messaging-owned, via PresenceService). */
   @Field(() => Boolean)
-  isOnline: boolean;
+  isOnline!: boolean;
 
   /** Last seen timestamp when user is offline. */
   @Field(() => Date, { nullable: true })
-  lastSeenAt: Date | null;
+  lastSeenAt!: Date | null;
 }
 
 /**
@@ -113,13 +113,13 @@ export class User {
 @ObjectType()
 export class MessagePageType {
   @Field(() => [Message])
-  items: Message[];
+  items!: Message[];
 
   @Field(() => Boolean)
-  hasMore: boolean;
+  hasMore!: boolean;
 
   @Field(() => String, { nullable: true })
-  cursor: string | null;
+  cursor!: string | null;
 }
 
 /**
@@ -128,13 +128,13 @@ export class MessagePageType {
 @ObjectType()
 export class AllMessagesSinceResponse {
   @Field(() => [Message])
-  messages: Message[];
+  messages!: Message[];
 
   @Field(() => String, { nullable: true, description: 'Opaque sync token for next request' })
-  syncToken: string | null;
+  syncToken!: string | null;
 
   @Field(() => Boolean)
-  hasMore: boolean;
+  hasMore!: boolean;
 }
 
 /**
@@ -143,13 +143,13 @@ export class AllMessagesSinceResponse {
 @ObjectType()
 export class MediaUploadResponse {
   @Field(() => String, { description: 'Presigned PUT URL' })
-  uploadUrl: string;
+  uploadUrl!: string;
 
   @Field(() => String, { description: 'Storage key to reference in sendMessage' })
-  storageKey: string;
+  storageKey!: string;
 
   @Field(() => Date, { description: 'URL expiration timestamp' })
-  expiresAt: Date;
+  expiresAt!: Date;
 }
 
 /**
@@ -160,19 +160,19 @@ export class MediaUploadResponse {
 export class ReactionSummary {
   /** The emoji string (e.g. thumbs-up unicode). */
   @Field(() => String)
-  emoji: string;
+  emoji!: string;
 
   /** Total number of users who reacted with this emoji. */
   @Field(() => Int)
-  count: number;
+  count!: number;
 
   /** User IDs who reacted with this emoji. */
   @Field(() => [String])
-  userIds: string[];
+  userIds!: string[];
 
   /** Whether the current requesting user has reacted with this emoji. */
   @Field(() => Boolean)
-  hasReacted: boolean;
+  hasReacted!: boolean;
 }
 
 // ============================================================================
@@ -292,14 +292,23 @@ export class MessageResolver {
         .leftJoinAndSelect('m.attachments', 'att')
         .where('m."tenantId" = :tenantId', { tenantId })
         .andWhere('m."channelId" IN (:...channelIds)', { channelIds })
-        .andWhere('m."isDeleted" = false')
-        .andWhere('m."createdAt" > :cursorDate', { cursorDate });
+        .andWhere('m."isDeleted" = false');
 
       if (cursorId) {
+        // MSG-HIGH-067: composite (createdAt, id) keyset — the ONLY cursor clause.
+        // The previous code ALSO applied an unconditional `createdAt > :cursorDate`,
+        // which subsumed the `createdAt = cursorDate AND id > cursorId` branch (the
+        // outer AND already required a strictly-greater timestamp), so every message
+        // sharing the cursor's exact timestamp was silently and permanently dropped
+        // from the sync delta. Mirrors the get-messages.handler keyset (no redundant
+        // strict clause).
         qb.andWhere(
           '(m."createdAt" > :cursorDate OR (m."createdAt" = :cursorDate AND m."id" > :cursorId))',
           { cursorDate, cursorId },
         );
+      } else {
+        // First page from the `since` watermark — the boundary is exclusive.
+        qb.andWhere('m."createdAt" > :cursorDate', { cursorDate });
       }
 
       qb.orderBy('m.createdAt', 'ASC')
@@ -377,13 +386,13 @@ export class MessageResolver {
   /**
    * Get presence info for a list of users.
    */
-  @Query(() => [User], { name: 'userPresence' })
+  @Query(() => [PublicUserProfile], { name: 'userPresence' })
   async getUserPresence(
     @Args('userIds', { type: () => [ID] }) userIds: string[],
     @Tenant() tenantId: string,
-  ): Promise<User[]> {
+  ): Promise<PublicUserProfile[]> {
     const onlineMap = await this.presenceService.getOnlineUsers(tenantId, userIds);
-    const results: User[] = [];
+    const results: PublicUserProfile[] = [];
     for (const id of userIds) {
       const isOnline = onlineMap.get(id) ?? false;
       const lastSeenAt = isOnline ? null : await this.presenceService.getLastSeen(tenantId, id);
@@ -401,11 +410,11 @@ export class MessageResolver {
    * (id + presence inline; display name/avatar stitched from auth, display-only),
    * so the picker shows real people without a profile-harvesting oracle.
    */
-  @Query(() => [User], { name: 'channelEligibleUsers' })
+  @Query(() => [PublicUserProfile], { name: 'channelEligibleUsers' })
   async channelEligibleUsers(
     @CurrentUser() user: CurrentUserPayload,
     @Tenant() tenantId: string,
-  ): Promise<User[]> {
+  ): Promise<PublicUserProfile[]> {
     let result: ListTenantUserIdsResult | undefined;
     try {
       result = await firstValueFrom(
@@ -460,12 +469,8 @@ export class MessageResolver {
       ),
     );
 
-    // Increment unread for other channel members (fire-and-forget)
-    this.messageService
-      .incrementUnreadForChannelMembers(input.channelId, user.sub, tenantId)
-      .catch((err: Error) => {
-        this.logger.warn(`Failed to increment unread: ${err.message}`);
-      });
+    // MSG-HIGH-066: unread is computed from the DB on read (single authority);
+    // no Redis HASH increment on send — the previous counter only ever grew.
 
     return message;
   }
@@ -790,12 +795,7 @@ export class MessageResolver {
       ),
     );
 
-    // Increment unread for target channel members (fire-and-forget)
-    this.messageService
-      .incrementUnreadForChannelMembers(targetChannelId, user.sub, tenantId)
-      .catch((err: Error) => {
-        this.logger.warn(`Failed to increment unread after forward: ${err.message}`);
-      });
+    // MSG-HIGH-066: unread is DB-authoritative on read; no HASH increment on forward.
 
     return message;
   }
@@ -841,14 +841,14 @@ export class MessageResolver {
    * Resolve the sender field for a Message via request-scoped batched DataLoader.
    * Creates the DataLoader lazily on first access per request context.
    */
-  @ResolveField(() => User, { name: 'sender', nullable: true })
+  @ResolveField(() => PublicUserProfile, { name: 'sender', nullable: true })
   async resolveSender(
     @Parent() message: Message,
     @Tenant() tenantId: string,
-    @Context() ctx: { userLoader?: DataLoader<string, User> },
-  ): Promise<User> {
+    @Context() ctx: { userLoader?: DataLoader<string, PublicUserProfile> },
+  ): Promise<PublicUserProfile> {
     if (!ctx.userLoader) {
-      ctx.userLoader = new DataLoader<string, User>(
+      ctx.userLoader = new DataLoader<string, PublicUserProfile>(
         async (userIds: readonly string[]) => {
           return this.batchLoadUsers([...userIds], tenantId);
         },
@@ -981,7 +981,7 @@ export class MessageResolver {
    * messaging contributes ONLY id + presence; the gateway stitches the display
    * fields (firstName/lastName/profileImageUrl) from auth-service's federated User.
    */
-  private async batchLoadUsers(userIds: string[], tenantId: string): Promise<User[]> {
+  private async batchLoadUsers(userIds: string[], tenantId: string): Promise<PublicUserProfile[]> {
     const onlineMap = await this.presenceService.getOnlineUsers(tenantId, userIds);
     return Promise.all(
       userIds.map(async (id) => {

@@ -88,55 +88,55 @@ export class WorkOrderListResponse extends StandardPaginatedResponse(WorkOrder) 
 @ObjectType()
 export class WorkOrderStatisticsResponse {
   @Field(() => Int)
-  total: number;
+  total!: number;
 
   @Field(() => Int)
-  overdue: number;
+  overdue!: number;
 
   @Field(() => Int)
-  completedOnTime: number;
+  completedOnTime!: number;
 
   @Field(() => Float)
-  avgCompletionTime: number;
+  avgCompletionTime!: number;
 
   @Field(() => Float)
-  totalCost: number;
+  totalCost!: number;
 
   @Field(() => Int)
-  draft: number;
+  draft!: number;
 
   @Field(() => Int)
-  pendingApproval: number;
+  pendingApproval!: number;
 
   @Field(() => Int)
-  approved: number;
+  approved!: number;
 
   @Field(() => Int)
-  scheduled: number;
+  scheduled!: number;
 
   @Field(() => Int)
-  inProgress: number;
+  inProgress!: number;
 
   @Field(() => Int)
-  onHold: number;
+  onHold!: number;
 
   @Field(() => Int)
-  completed: number;
+  completed!: number;
 
   @Field(() => Int)
-  verified: number;
+  verified!: number;
 
   @Field(() => Int)
-  cancelled: number;
+  cancelled!: number;
 }
 
 @ObjectType()
 export class DeleteWorkOrderResponse {
   @Field()
-  success: boolean;
+  success!: boolean;
 
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   message?: string;

@@ -30,12 +30,12 @@ export class AddTankToProgramInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  feedingProgramId: string;
+  feedingProgramId!: string;
 
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  equipmentId: string;
+  equipmentId!: string;
 
   @Field(() => ProgramEquipmentType, { defaultValue: ProgramEquipmentType.TANK })
   @IsOptional()
@@ -62,12 +62,12 @@ export class RemoveTankFromProgramInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  feedingProgramId: string;
+  feedingProgramId!: string;
 
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  equipmentId: string;
+  equipmentId!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -89,7 +89,7 @@ export class UpdateTankInProgramInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  feedingProgramTankId: string;
+  feedingProgramTankId!: string;
 
   @Field(() => ID, { nullable: true })
   @IsOptional()
@@ -120,7 +120,7 @@ export class TankItemInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  equipmentId: string;
+  equipmentId!: string;
 
   @Field(() => ProgramEquipmentType, { defaultValue: ProgramEquipmentType.TANK })
   @IsOptional()
@@ -147,7 +147,7 @@ export class AddTanksToProgramInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  feedingProgramId: string;
+  feedingProgramId!: string;
 
   @Field(() => [TankItemInput])
   @IsNotEmpty()
@@ -155,7 +155,7 @@ export class AddTanksToProgramInput {
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => TankItemInput)
-  tanks: TankItemInput[];
+  tanks!: TankItemInput[];
 }
 
 /**
@@ -166,14 +166,14 @@ export class RemoveTanksFromProgramInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  feedingProgramId: string;
+  feedingProgramId!: string;
 
   @Field(() => [ID])
   @IsNotEmpty()
   @IsArray()
   @ArrayMinSize(1)
   @IsUUID('4', { each: true })
-  equipmentIds: string[];
+  equipmentIds!: string[];
 
   @Field({ nullable: true })
   @IsOptional()
@@ -199,7 +199,7 @@ export class ReactivateTankInProgramInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  feedingProgramTankId: string;
+  feedingProgramTankId!: string;
 
   @Field(() => ID, { nullable: true })
   @IsOptional()

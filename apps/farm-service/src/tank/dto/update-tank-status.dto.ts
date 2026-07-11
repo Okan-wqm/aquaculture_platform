@@ -11,12 +11,12 @@ export class UpdateTankStatusInput {
   @Field(() => ID)
   @IsUUID()
   @IsNotEmpty()
-  id: string;
+  id!: string;
 
   @Field(() => TankStatus)
   @IsEnum(TankStatus)
   @IsNotEmpty()
-  status: TankStatus;
+  status!: TankStatus;
 
   @Field(() => String, { nullable: true })
   @IsOptional()

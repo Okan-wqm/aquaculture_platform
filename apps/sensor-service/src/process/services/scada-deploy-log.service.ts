@@ -24,26 +24,34 @@ export class ScadaDeployLogService {
    */
   async createLog(params: {
     tenantId: string;
-    packageId: string;
+    packageId?: string;
+    processId?: string;
     deviceId: string;
     commandId: string;
     version: number;
     deployedBy?: string;
+    artifactId?: string;
+    checksumSha256?: string;
+    rolledBackTo?: number;
   }): Promise<ScadaDeployLog> {
     const log = this.deployLogRepo.create({
       tenantId: params.tenantId,
       packageId: params.packageId,
+      processId: params.processId,
       deviceId: params.deviceId,
       commandId: params.commandId,
       version: params.version,
       status: ScadaDeployStatus.SENT,
       sentAt: new Date(),
       deployedBy: params.deployedBy,
+      artifactId: params.artifactId,
+      checksumSha256: params.checksumSha256,
+      rolledBackTo: params.rolledBackTo,
     });
 
     const saved = await this.deployLogRepo.save(log);
     this.logger.log(
-      `Created SCADA deploy log ${saved.id} for package ${params.packageId} -> device ${params.deviceId}`,
+      `Created SCADA deploy log ${saved.id} for ${params.packageId ? `package ${params.packageId}` : `process ${params.processId ?? 'unknown'}`} -> device ${params.deviceId}`,
     );
     return saved;
   }

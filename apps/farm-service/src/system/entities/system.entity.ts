@@ -84,12 +84,12 @@ registerEnumType(SystemStatus, {
 export class System {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // SITE İLİŞKİSİ
@@ -98,11 +98,11 @@ export class System {
   @Field()
   @Column('uuid')
   @Index()
-  siteId: string;
+  siteId!: string;
 
   @ManyToOne(() => Site, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'siteId' })
-  site: Site;
+  site!: Site;
 
   // -------------------------------------------------------------------------
   // DEPARTMENT İLİŞKİSİ
@@ -143,11 +143,11 @@ export class System {
 
   @Field()
   @Column({ length: 100 })
-  name: string;
+  name!: string;
 
   @Field()
   @Column({ length: 20 })
-  code: string;                        // "SYS-01", "RAS-A"
+  code!: string;                        // "SYS-01", "RAS-A"
 
   @Field(() => SystemType)
   @Column({
@@ -155,7 +155,7 @@ export class System {
     enum: SystemType,
     default: SystemType.OTHER,
   })
-  type: SystemType;
+  type!: SystemType;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -187,12 +187,12 @@ export class System {
     enum: SystemStatus,
     default: SystemStatus.OPERATIONAL,
   })
-  status: SystemStatus;
+  status!: SystemStatus;
 
   @Field()
   @Column({ default: true })
   @Index()
-  isActive: boolean;
+  isActive!: boolean;
 
   // -------------------------------------------------------------------------
   // AUDIT FIELDS
@@ -200,11 +200,11 @@ export class System {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -215,7 +215,7 @@ export class System {
   updatedBy?: string;
 
   @VersionColumn()
-  version: number;
+  version!: number;
 
   // -------------------------------------------------------------------------
   // SOFT DELETE
@@ -224,7 +224,7 @@ export class System {
   @Field()
   @Column({ default: false })
   @Index()
-  isDeleted: boolean;
+  isDeleted!: boolean;
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })

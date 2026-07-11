@@ -76,6 +76,7 @@ import { SpeciesSeederService } from '../../species/services/species-seeder.serv
 import { FeedingProtocolSeederService } from '../../feed/services/feeding-protocol-seeder.service';
 import { RegulatorySettingsSeederService } from '../../regulatory/services/regulatory-settings-seeder.service';
 import { EquipmentTypeCatalogCheckerService } from '../../equipment/services/equipment-type-catalog-checker.service';
+import { FinanceCategorySeedService } from '../../finance/services/finance-category-seed.service';
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -100,6 +101,7 @@ export class TenantOnboardingEventHandler
     private readonly feedingProtocolSeeder: FeedingProtocolSeederService,
     private readonly regulatorySettingsSeeder: RegulatorySettingsSeederService,
     private readonly equipmentTypeChecker: EquipmentTypeCatalogCheckerService,
+    private readonly financeCategorySeeder: FinanceCategorySeedService,
     @Optional() @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus | undefined,
   ) {}
@@ -180,6 +182,16 @@ export class TenantOnboardingEventHandler
       summaries.push(
         await this.runSeeder('equipment-types-global', () =>
           this.equipmentTypeChecker.seedDefaults(event.tenantId),
+        ),
+      );
+
+      // Finance category catalogue — the default farm OPEX/revenue
+      // taxonomy (electricity, feed, oxygen, insurance, the 5% computed
+      // rule, …) so the finance tab is populated on first open. Also
+      // seeded lazily on first finance query for pre-existing tenants.
+      summaries.push(
+        await this.runSeeder('finance-categories', () =>
+          this.financeCategorySeeder.seedDefaults(event.tenantId),
         ),
       );
     });

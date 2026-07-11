@@ -130,12 +130,12 @@ export interface ChemicalDocument {
 export class Chemical {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // TEMEL BİLGİLER
@@ -143,11 +143,11 @@ export class Chemical {
 
   @Field()
   @Column({ length: 255 })
-  name: string;
+  name!: string;
 
   @Field()
   @Column({ length: 50 })
-  code: string;
+  code!: string;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -159,7 +159,7 @@ export class Chemical {
     enum: ChemicalType,
     default: ChemicalType.OTHER,
   })
-  type: ChemicalType;
+  type!: ChemicalType;
 
   @Field({ nullable: true })
   @Column({ length: 255, nullable: true })
@@ -200,19 +200,19 @@ export class Chemical {
     enum: ChemicalStatus,
     default: ChemicalStatus.AVAILABLE,
   })
-  status: ChemicalStatus;
+  status!: ChemicalStatus;
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0, transformer: new DecimalTransformer() })
-  quantity: number;
+  quantity!: number;
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0, transformer: new DecimalTransformer() })
-  minStock: number;
+  minStock!: number;
 
   @Field()
   @Column({ length: 20, default: 'liter' })
-  unit: string; // liter, kg, gram, ml, piece
+  unit!: string; // liter, kg, gram, ml, piece
 
   // -------------------------------------------------------------------------
   // GÜVENLİK & KULLANIM
@@ -224,7 +224,7 @@ export class Chemical {
    */
   @Field()
   @Column({ default: false })
-  requiresApproval: boolean;
+  requiresApproval!: boolean;
 
   /**
    * Arındırma süresi (gün)
@@ -288,7 +288,7 @@ export class Chemical {
 
   @Field()
   @Column({ length: 3, default: 'TRY' })
-  currency: string;
+  currency!: string;
 
   // -------------------------------------------------------------------------
   // DURUM
@@ -301,7 +301,7 @@ export class Chemical {
   @Field()
   @Column({ default: true })
   @Index()
-  isActive: boolean;
+  isActive!: boolean;
 
   // -------------------------------------------------------------------------
   // AUDIT FIELDS
@@ -309,11 +309,11 @@ export class Chemical {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -324,7 +324,7 @@ export class Chemical {
   updatedBy?: string;
 
   @VersionColumn()
-  version: number;
+  version!: number;
 
   // -------------------------------------------------------------------------
   // SOFT DELETE
@@ -333,7 +333,7 @@ export class Chemical {
   @Field()
   @Column({ default: false })
   @Index()
-  isDeleted: boolean;
+  isDeleted!: boolean;
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })

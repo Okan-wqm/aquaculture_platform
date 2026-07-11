@@ -17,11 +17,11 @@ import { MonitoringFrequency } from '../entities/water-quality-param-equipment.e
 export class CreateParamEquipmentInput {
   @Field(() => ID, { description: 'Water quality parameter config to link' })
   @IsUUID()
-  parameterConfigId: string;
+  parameterConfigId!: string;
 
   @Field(() => ID, { description: 'Equipment to link' })
   @IsUUID()
-  equipmentId: string;
+  equipmentId!: string;
 
   @Field(() => MonitoringFrequency, { nullable: true, description: 'Monitoring frequency' })
   @IsOptional()

@@ -147,6 +147,35 @@ export class DeployScadaPackageResultType {
   deviceId?: string;
 }
 
+/**
+ * Result of the V2 packageData backfill (Faz 6 / 6d): rewrites legacy
+ * (pre-Faz2, schemaVersion ≠ 2) rows to the canonical ScadaPackageDocV2 so the
+ * read-path upcast eventually becomes a no-op. Idempotent — a second run
+ * reports `migrated = 0`.
+ */
+@ObjectType()
+export class ScadaBackfillResultType {
+  /** Rows examined for this tenant. */
+  @Field(() => Int)
+  scanned!: number;
+
+  /** Legacy rows rewritten to V2 (0 when `dryRun`). */
+  @Field(() => Int)
+  migrated!: number;
+
+  /** Rows already at V2, left untouched. */
+  @Field(() => Int)
+  skipped!: number;
+
+  /** Rows that failed V2 validation and were left as-is (never partially written). */
+  @Field(() => Int)
+  failed!: number;
+
+  /** True when no row was written (preview only). */
+  @Field()
+  dryRun!: boolean;
+}
+
 // ============================================================================
 // Unified Deploy (SCADA + Automation) DTOs
 // ============================================================================

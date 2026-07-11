@@ -25,7 +25,7 @@ import { Message } from './message.entity';
 export class MessageReaction {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   /**
    * Tenant identifier — backfilled from parent message in migration
@@ -33,30 +33,30 @@ export class MessageReaction {
    * tenant_isolation_policy RLS predicate (ADR-011).
    */
   @Column({ type: 'uuid' })
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ type: 'uuid' })
-  messageId: string;
+  messageId!: string;
 
   @Column({ type: 'timestamptz' })
-  messageCreatedAt: Date;
+  messageCreatedAt!: Date;
 
   @Field()
   @Column({ type: 'uuid' })
-  userId: string;
+  userId!: string;
 
   @Field()
   @Column({ type: 'varchar', length: 32 })
-  emoji: string;
+  emoji!: string;
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @ManyToOne(() => Message, (msg) => msg.reactions, { onDelete: 'CASCADE' })
   @JoinColumn([
     { name: 'messageId', referencedColumnName: 'id' },
     { name: 'messageCreatedAt', referencedColumnName: 'createdAt' },
   ])
-  message: Message;
+  message!: Message;
 }

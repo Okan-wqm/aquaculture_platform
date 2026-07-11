@@ -35,29 +35,29 @@ registerEnumType(MovementType, {
 @Index('idx_stock_movements_tenant_idempotency', ['tenantId', 'idempotencyKey'], { unique: true, where: '"idempotency_key" IS NOT NULL' })
 export class StockMovement {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid', name: 'tenant_id' })
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ type: 'varchar', length: 20, name: 'movement_type' })
-  movementType: MovementType;
+  movementType!: MovementType;
 
   @Column({ type: 'varchar', length: 20, name: 'item_type' })
-  itemType: string; // feed/chemical/consumable
+  itemType!: string; // feed/chemical/consumable
 
   @Column({ type: 'uuid', name: 'item_id' })
-  itemId: string;
+  itemId!: string;
 
   @Column({ type: 'varchar', length: 255, name: 'item_name' })
-  itemName: string;
+  itemName!: string;
 
   @Column({ type: 'decimal', precision: 15, scale: 2, transformer: new DecimalTransformer() })
-  quantity: number;
+  quantity!: number;
 
   @Column({ length: 20 })
-  unit: string;
+  unit!: string;
 
   @Column({ type: 'uuid', nullable: true, name: 'from_location_id' })
   @Index()
@@ -114,7 +114,7 @@ export class StockMovement {
   idempotencyKey?: string;
 
   @Column({ type: 'uuid', name: 'performed_by' })
-  performedBy: string;
+  performedBy!: string;
 
   /**
    * Denormalized display name of the user who performed this movement.
@@ -125,8 +125,8 @@ export class StockMovement {
   performedByName?: string;
 
   @Column({ type: 'timestamptz', default: () => 'NOW()', name: 'performed_at' })
-  performedAt: Date;
+  performedAt!: Date;
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
-  createdAt: Date;
+  createdAt!: Date;
 }

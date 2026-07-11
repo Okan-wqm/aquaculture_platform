@@ -96,6 +96,15 @@ function makeDs(opts: {
   entities: EntityMetadataDouble[];
   deleteResults?: Record<string, number>;
   auditAnonAffected?: number;
+  /**
+   * COMPLIANCE-HIGH-003: affected-row count returned by the
+   * retention-anonymise UPDATE per statutory-retention table
+   * (regulatory_reports, biomass_reports). The matched count for those
+   * tables comes from `deleteResults` (they route through the same
+   * COUNT(*) path); this map drives how many of those matched rows had a
+   * PII column hashed.
+   */
+  retentionAnonAffected?: Record<string, number>;
   deleteError?: Error;
   /**
    * COMPLIANCE-MEDIUM-004 / TASK-14: when defined, the
@@ -112,9 +121,14 @@ function makeDs(opts: {
     auditRowsAnonymised: number;
     requestedBy: string;
     tableCount: number;
+    retainedRowsByTable?: Record<string, number>;
+    retainedRowsAnonymised?: number;
   } | null;
 }) {
   const executed: string[] = [];
+  // COMPLIANCE-HIGH-003: statutory-retention tables that were routed
+  // through the retention-anonymise UPDATE (retained, NOT deleted).
+  const retentionAnonymised: string[] = [];
   const deleteAffected = (table: string): number =>
     opts.deleteResults?.[table] ?? 0;
   const auditQb = {
@@ -124,6 +138,17 @@ function makeDs(opts: {
     execute: jest.fn().mockResolvedValue({
       affected: opts.auditAnonAffected ?? 0,
     }),
+  };
+  // The retention-anonymise UPDATE builder (update(EntityClass) — a
+  // per-tenant statutory-retention table). Distinct from auditQb so its
+  // affected count is driven independently and the routing is asserted.
+  let retentionTargetTable: string | undefined;
+  const retentionQb = {
+    set: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    execute: jest.fn().mockImplementation(async () => ({
+      affected: opts.retentionAnonAffected?.[retentionTargetTable ?? ''] ?? 0,
+    })),
   };
   // The main query builder services both DELETE chains (delete().from(E))
   // AND the audit UPDATE chain (update('farm.farm_audit_logs')). TypeORM
@@ -169,9 +194,21 @@ function makeDs(opts: {
       const last = executed[executed.length - 1] ?? '';
       return { affected: deleteAffected(last) };
     }),
-    update: jest.fn().mockImplementation((table: string) => {
-      auditQb.update(table);
-      return auditQb;
+    update: jest.fn().mockImplementation((tableOrTarget: unknown) => {
+      // The audit anonymise path passes the schema-qualified string
+      // 'farm.farm_audit_logs'; the retention anonymise path passes the
+      // per-tenant EntityMetadata `target` (a class). Route each to its
+      // own builder so their affected counts stay independent.
+      if (typeof tableOrTarget === 'string') {
+        auditQb.update(tableOrTarget);
+        return auditQb;
+      }
+      const meta = opts.entities.find((e) => e.target === tableOrTarget);
+      retentionTargetTable = meta?.tableName;
+      if (meta) {
+        retentionAnonymised.push(meta.tableName);
+      }
+      return retentionQb;
     }),
   };
   const createQueryBuilder = jest.fn().mockImplementation(() => qb);
@@ -258,7 +295,12 @@ function makeDs(opts: {
   const existingRow = opts.existingErasureAuditRow ?? null;
   const dataSourceQuery = jest.fn().mockImplementation(async (sql: string) => {
     if (sql.includes('tenant_erasure_audit')) {
-      return existingRow ? [existingRow] : [];
+      if (!existingRow) return [];
+      // Production rows always carry the COMPLIANCE-HIGH-003 retention
+      // columns (migration DEFAULTs them). Default them here so fixtures
+      // that predate the columns still reconstruct without NaN, while a
+      // fixture may override them to exercise the retained-replay path.
+      return [{ retainedRowsByTable: {}, retainedRowsAnonymised: 0, ...existingRow }];
     }
     return [];
   });
@@ -272,8 +314,10 @@ function makeDs(opts: {
   return {
     dataSource: dataSourceDouble(dataSource),
     executed,
+    retentionAnonymised,
     qb,
     auditQb,
+    retentionQb,
     managerDouble,
     queryRunner,
     createQueryRunner,
@@ -437,6 +481,141 @@ describe('TenantErasureService DELETE cascade', () => {
     // Parent has 1 inbound FK (from child); child has 0.
     // Sort ascending by inbound count → child (0), parent (1).
     expect(executed).toEqual(['child', 'parent']);
+  });
+});
+
+/**
+ * COMPLIANCE-HIGH-003 — GDPR Art 17(3)(b) statutory-retention carve-out.
+ *
+ * Government-filed regulatory records (regulatory_reports,
+ * biomass_reports) are legally required records under Norwegian
+ * aquaculture law. The erasure cascade MUST NOT hard-delete them — it
+ * retains the row and anonymises its operator-identifying columns in
+ * place, exactly as farm_audit_logs is treated. These specs pin that
+ * contract: the tables are absent from the DELETE set, present in the
+ * retention-anonymise set, and the retained accounting flows into the
+ * ErasureResult + persisted audit row.
+ */
+describe('TenantErasureService statutory retention (COMPLIANCE-HIGH-003)', () => {
+  const RETENTION_ENTITIES: EntityMetadataDouble[] = [
+    {
+      tableName: 'regulatory_reports',
+      target: class RegulatoryReport {},
+      columns: [{ propertyName: 'tenantId' }],
+      foreignKeys: [],
+    },
+    {
+      tableName: 'biomass_reports',
+      target: class BiomassReport {},
+      columns: [{ propertyName: 'tenantId' }],
+      foreignKeys: [],
+    },
+    {
+      tableName: 'batches_v2',
+      target: class Batch {},
+      columns: [{ propertyName: 'tenantId' }],
+      foreignKeys: [],
+    },
+  ];
+
+  it('retains regulatory_reports + biomass_reports (never DELETEs them) and anonymises them instead', async () => {
+    const { dataSource, executed, retentionAnonymised, insertCalls } = makeDs({
+      entities: RETENTION_ENTITIES,
+      deleteResults: {
+        batches_v2: 9,
+        // matched (encountered) counts for the retained tables
+        regulatory_reports: 4,
+        biomass_reports: 2,
+      },
+      retentionAnonAffected: {
+        regulatory_reports: 4,
+        biomass_reports: 1,
+      },
+    });
+
+    const service = makeTenantErasureService(dataSource);
+    const ticket = service.initiate(TENANT, USER);
+    const result = await service.confirm(TENANT, ticket.token);
+
+    // The government-filed tables were NEVER hard-deleted.
+    expect(executed).toEqual(['batches_v2']);
+    expect(result.deletedRowsByTable).toEqual({ batches_v2: 9 });
+    expect(result.totalDeleted).toBe(9);
+
+    // …they were routed through the retention-anonymise UPDATE instead.
+    expect(retentionAnonymised.sort()).toEqual([
+      'biomass_reports',
+      'regulatory_reports',
+    ]);
+    expect(result.retainedRowsByTable).toEqual({
+      regulatory_reports: 4,
+      biomass_reports: 2,
+    });
+    expect(result.retainedRowsAnonymised).toBe(5); // 4 + 1
+
+    // matchedRecordCount includes the retained rows (they were matched)
+    // but NOT the erasedRecordCount — the gap IS the retained set.
+    expect(result.matchedRecordCount).toBe(9 + 4 + 2);
+
+    // The retention outcome is persisted on the durable audit row.
+    expect(insertCalls.length).toBe(1);
+    const row = insertCalls[0]!.row as {
+      retainedRowsByTable: Record<string, number>;
+      retainedRowsAnonymised: number;
+    };
+    expect(row.retainedRowsByTable).toEqual({
+      regulatory_reports: 4,
+      biomass_reports: 2,
+    });
+    expect(row.retainedRowsAnonymised).toBe(5);
+  });
+
+  it('skips the retention-anonymise UPDATE for a retained table with zero matched rows', async () => {
+    const { dataSource, executed, retentionAnonymised, retentionQb } = makeDs({
+      entities: RETENTION_ENTITIES,
+      deleteResults: { batches_v2: 3 }, // retained tables matched → 0
+    });
+
+    const service = makeTenantErasureService(dataSource);
+    const ticket = service.initiate(TENANT, USER);
+    const result = await service.confirm(TENANT, ticket.token);
+
+    expect(executed).toEqual(['batches_v2']);
+    // No matched rows → no anonymise UPDATE issued, no retained entry.
+    expect(retentionAnonymised).toEqual([]);
+    expect(retentionQb.execute).not.toHaveBeenCalled();
+    expect(result.retainedRowsByTable).toEqual({});
+    expect(result.retainedRowsAnonymised).toBe(0);
+  });
+
+  it('reconstructs the retained accounting on an ALREADY_PURGED replay', async () => {
+    const { dataSource, executed } = makeDs({
+      entities: [],
+      existingErasureAuditRow: {
+        tenantId: TENANT,
+        confirmedAt: new Date('2026-05-01T00:00:00.000Z'),
+        deletedRowsByTable: { batches_v2: 9 },
+        totalDeleted: 9,
+        auditRowsAnonymised: 3,
+        requestedBy: USER,
+        tableCount: 1,
+        retainedRowsByTable: { regulatory_reports: 4, biomass_reports: 2 },
+        retainedRowsAnonymised: 5,
+      },
+    });
+
+    const service = makeTenantErasureService(dataSource);
+    const result = await service.confirm(TENANT, 'irrelevant-token');
+
+    expect(result.state).toBe('ALREADY_PURGED');
+    expect(executed).toEqual([]);
+    expect(result.retainedRowsByTable).toEqual({
+      regulatory_reports: 4,
+      biomass_reports: 2,
+    });
+    expect(result.retainedRowsAnonymised).toBe(5);
+    // matched reconstructs byte-identically: 9 deleted + 3 audit + 6 retained.
+    expect(result.matchedRecordCount).toBe(9 + 3 + 6);
   });
 });
 

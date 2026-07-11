@@ -75,6 +75,10 @@ export class UnifiedTagService {
     if (input.source !== undefined) tag.source = input.source as TagSource;
     if (input.hierarchy !== undefined) tag.hierarchy = input.hierarchy as TagHierarchy;
 
+    // Every registry edit bumps the revision so binding snapshots can detect
+    // that they were resolved against an older registry state.
+    tag.revision += 1;
+
     return this.tagRepository.save(tag);
   }
 
@@ -245,16 +249,20 @@ export class UnifiedTagService {
       (n) => n.data?.equipmentId || n.data?.equipmentCode,
     );
 
-    // Update hierarchy on tags that match equipment codes
+    // Update hierarchy on tags whose local-name equipment segment EXACTLY
+    // matches the node's equipment code. The previous infix substring match
+    // (`fqn.includes(code)`) bound unrelated tags whenever one equipment code
+    // was a substring of another (e.g. "tank1" matched "tank10.temp").
     const modifiedTags: UnifiedTag[] = [];
     for (const node of equipmentNodes) {
       const code = node.data.equipmentCode;
       if (!code) continue;
 
-      // Find tags whose FQN contains this equipment code
-      const matchingTags = discovery.tags.filter((t) =>
-        t.fqn.toLowerCase().includes(code.toLowerCase()),
-      );
+      const codeLower = code.toLowerCase();
+      const matchingTags = discovery.tags.filter((t) => {
+        const local = t.localName.toLowerCase();
+        return local === codeLower || local.startsWith(`${codeLower}.`);
+      });
 
       for (const tag of matchingTags) {
         tag.hierarchy = {

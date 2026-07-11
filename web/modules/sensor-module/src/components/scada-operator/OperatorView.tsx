@@ -34,6 +34,7 @@ import { useRealtimeData } from '../../hooks/useRealtimeData';
 import { useTagWrite } from '../../hooks/useTagWrite';
 import { useWidgetEvents } from '../../hooks/useWidgetEvents';
 import { useOperatorPermission } from '../../hooks/useOperatorPermission';
+import { getWidgetTagBinding, localTagFromBindingValue } from '../../engine/tags';
 import type { Screen, ScreenWidget } from '../../types/scada-package.types';
 import type {
   WidgetPermission,
@@ -66,13 +67,20 @@ function extractTagIds(config: Record<string, unknown>): string[] {
     const record = obj as Record<string, unknown>;
     for (const key of Object.keys(record)) {
       const val = record[key];
-      // Heuristic: any string property whose key ends with 'tagId' / 'tag' is a tag reference.
+      // Heuristic: any string property whose key is a known binding key
+      // (canonical tagRef + legacy tagName/tag/tagId variants) is a tag
+      // reference. Full `deviceCode/localName` refs reduce to the local
+      // segment because the runtime subscribes by device-local names.
       if (
-        (key === 'tagId' || key.endsWith('TagId') || key === 'tag') &&
+        (key === 'tagRef' ||
+          key === 'tagName' ||
+          key === 'tagId' ||
+          key.endsWith('TagId') ||
+          key === 'tag') &&
         typeof val === 'string' &&
         val.trim()
       ) {
-        ids.push(val.trim());
+        ids.push(localTagFromBindingValue(val.trim()));
       }
       // Also recurse into nested objects / arrays (e.g. chart lines, alarm rules).
       if (val && typeof val === 'object') {
@@ -183,8 +191,9 @@ const RuntimeWidget = memo<RuntimeWidgetProps>(
     const permission = config.permission as WidgetPermission | undefined;
     const { visible, enabled } = useOperatorPermission(permission);
 
-    // Primary tag value (from config.tagId)
-    const primaryTagId = typeof config.tagId === 'string' ? config.tagId : '';
+    // Primary tag value — shared binding accessor (config.tagRef → legacy
+    // keys), the same resolution the builder/preview uses.
+    const primaryTagId = getWidgetTagBinding(config) ?? '';
     const primaryTagChange = primaryTagId ? tagValues[primaryTagId] : undefined;
     const primaryValue    = primaryTagChange?.value ?? null;
     const primaryTs       = primaryTagChange?.timestamp ?? 0;

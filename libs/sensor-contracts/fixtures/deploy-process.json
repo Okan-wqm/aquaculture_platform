@@ -1,0 +1,42 @@
+{
+  "commandId": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+  "command": "deploy_process",
+  "params": {
+    "processId": "7f6e5d4c-3b2a-4918-a7b6-c5d4e3f2a1b0",
+    "name": "Fish Tank Cooling Loop",
+    "nodes": [
+      {
+        "id": "node-1",
+        "type": "equipment",
+        "position": { "x": 100, "y": 200 },
+        "data": {
+          "equipmentId": "pump-01",
+          "label": "Circulation Pump",
+          "sensorMappings": [
+            {
+              "channelName": "water_temp",
+              "dataPath": "tank1.temp",
+              "dataType": "temperature",
+              "unit": "C"
+            }
+          ]
+        }
+      }
+    ],
+    "edges": [
+      { "id": "edge-1", "source": "node-1", "target": "node-2", "type": "pipe" }
+    ],
+    "tagMappings": [
+      {
+        "tagName": "water_temp",
+        "equipmentId": "pump-01",
+        "sensorType": "temperature",
+        "unit": "C"
+      }
+    ],
+    "version": 3,
+    "artifactSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "signature": "cf5e386d472b0d2af37a04093d670f75e96e46c548df9574c4dabb27ae605573b0e0de262f62fbbe5f947136b4ce300478a8247b9c1cfa9737fac2a16d79be06"
+  },
+  "timestamp": "2026-07-02T10:00:00.000Z"
+}

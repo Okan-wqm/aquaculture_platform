@@ -50,22 +50,22 @@ import { AiPersonasRegistryService } from '../services/ai-personas-registry.serv
 @ObjectType()
 export class SentimentTrendType {
   @Field(() => ID)
-  channelId: string;
+  channelId!: string;
 
   @Field()
-  channelName: string;
+  channelName!: string;
 
   @Field()
-  weekStart: string;
+  weekStart!: string;
 
   @Field(() => Float)
-  avgScore: number;
+  avgScore!: number;
 
   @Field(() => Int)
-  messageCount: number;
+  messageCount!: number;
 
   @Field()
-  trend: string;
+  trend!: string;
 }
 
 /**
@@ -74,10 +74,10 @@ export class SentimentTrendType {
 @ObjectType()
 export class SimilarMessageType {
   @Field(() => Message)
-  message: Message;
+  message!: Message;
 
   @Field(() => Float)
-  similarity: number;
+  similarity!: number;
 }
 
 /**
@@ -86,10 +86,10 @@ export class SimilarMessageType {
 @ObjectType()
 export class AiSettingsType {
   @Field(() => Boolean, { description: 'Tenant-level AI analysis master switch' })
-  tenantAiEnabled: boolean;
+  tenantAiEnabled!: boolean;
 
   @Field(() => Boolean, { description: 'User-level AI analysis consent' })
-  userAiConsent: boolean;
+  userAiConsent!: boolean;
 }
 
 /**
@@ -99,22 +99,22 @@ export class AiSettingsType {
 @ObjectType()
 export class AiPersonaType {
   @Field(() => String, { nullable: true, description: 'Persona ID (null = general assistant)' })
-  id: string | null;
+  id!: string | null;
 
   @Field(() => String, { description: 'Human-readable display name' })
-  name: string;
+  name!: string;
 
   @Field(() => String, { description: 'Short description of persona specialization' })
-  description: string;
+  description!: string;
 
   @Field(() => String, { description: 'Icon identifier (Lucide icon name)' })
-  icon: string;
+  icon!: string;
 
   @Field(() => String, { description: 'Theme color key for UI styling' })
-  color: string;
+  color!: string;
 
   @Field(() => [String], { description: 'List of capability labels' })
-  capabilities: string[];
+  capabilities!: string[];
 }
 
 // ============================================================================
@@ -225,22 +225,10 @@ export class AiResolver {
   // MUTATIONS
   // -------------------------------------------------------------------------
 
-  /**
-   * Update the tenant-level AI analysis setting.
-   * Only TENANT_ADMIN can toggle the master AI switch.
-   */
-  @Mutation(() => Boolean, {
-    name: 'updateTenantAiSetting',
-    description: 'Enable/disable AI analysis for the tenant (TENANT_ADMIN only)',
-  })
-  @Roles(Role.TENANT_ADMIN)
-  async updateTenantAiSetting(
-    @Args('enabled', { type: () => Boolean }) enabled: boolean,
-    @Tenant() tenantId: string,
-  ): Promise<boolean> {
-    await this.privacyService.setTenantAiEnabled(tenantId, enabled);
-    return true;
-  }
+  // updateTenantAiSetting removed — the tenant-level "AI on/off" master switch
+  // is owned by ai-service (updateAiProviderSettings.isEnabled, where the tenant
+  // also sets the provider key). Messaging no longer stores a duplicate flag;
+  // the aiSettings query's tenantAiEnabled now reflects ai-service's SSoT.
 
   /**
    * Update user-level AI analysis consent.

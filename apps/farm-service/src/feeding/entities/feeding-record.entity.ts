@@ -114,12 +114,12 @@ export interface FishBehavior {
 export class FeedingRecord {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // BATCH İLİŞKİSİ
@@ -128,7 +128,7 @@ export class FeedingRecord {
   @Field()
   @Column('uuid')
   @Index()
-  batchId: string;
+  batchId!: string;
 
   @ManyToOne('Batch', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'batchId' })
@@ -162,7 +162,7 @@ export class FeedingRecord {
   @Field()
   @Column({ type: 'date' })
   @Index()
-  feedingDate: Date;
+  feedingDate!: Date;
 
   // WHY VARCHAR(10) instead of PostgreSQL TIME: The feedingTime field stores
   // user-entered schedule labels like "08:00" and "12:00". It intentionally
@@ -173,15 +173,15 @@ export class FeedingRecord {
   // A future migration to TIME is possible if DB-level time comparisons become needed.
   @Field()
   @Column({ length: 10 })
-  feedingTime: string;
+  feedingTime!: string;
 
   @Field(() => Int)
   @Column({ type: 'int', default: 1 })
-  feedingSequence: number;         // Günün kaçıncı öğünü (1, 2, 3...)
+  feedingSequence!: number;         // Günün kaçıncı öğünü (1, 2, 3...)
 
   @Field(() => Int)
   @Column({ type: 'int', default: 1 })
-  totalMealsToday: number;         // Bugün toplam kaç öğün
+  totalMealsToday!: number;         // Bugün toplam kaç öğün
 
   // -------------------------------------------------------------------------
   // FEED İLİŞKİSİ
@@ -189,7 +189,7 @@ export class FeedingRecord {
 
   @Field()
   @Column('uuid')
-  feedId: string;
+  feedId!: string;
 
   @ManyToOne('Feed', { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'feedId' })
@@ -205,19 +205,19 @@ export class FeedingRecord {
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 10, scale: 3, transformer: new DecimalTransformer() })
-  plannedAmount: number;           // Planlanan miktar (kg)
+  plannedAmount!: number;           // Planlanan miktar (kg)
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 10, scale: 3, transformer: new DecimalTransformer() })
-  actualAmount: number;            // Gerçek verilen miktar (kg)
+  actualAmount!: number;            // Gerçek verilen miktar (kg)
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 10, scale: 3, default: 0, transformer: new DecimalTransformer() })
-  variance: number;                // Fark (actual - planned)
+  variance!: number;                // Fark (actual - planned)
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 5, scale: 2, default: 0, transformer: new DecimalTransformer() })
-  variancePercent: number;         // Fark yüzdesi
+  variancePercent!: number;         // Fark yüzdesi
 
   @Field(() => Float, { nullable: true })
   @Column({ type: 'decimal', precision: 10, scale: 3, nullable: true, transformer: new DecimalTransformer() })
@@ -249,7 +249,7 @@ export class FeedingRecord {
     enum: FeedingMethod,
     default: FeedingMethod.MANUAL,
   })
-  feedingMethod: FeedingMethod;
+  feedingMethod!: FeedingMethod;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -277,7 +277,7 @@ export class FeedingRecord {
 
   @Field()
   @Column('uuid')
-  fedBy: string;                   // Yemlemeyi yapan kullanıcı
+  fedBy!: string;                   // Yemlemeyi yapan kullanıcı
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -305,11 +305,11 @@ export class FeedingRecord {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // -------------------------------------------------------------------------
   // BUSINESS METHODS

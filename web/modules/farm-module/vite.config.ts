@@ -82,6 +82,11 @@ export default defineConfig(({ mode }) => {
     base: farmModuleBase,
     build: {
       target: 'esnext',
+      // PERF-HIGH-004: an explicit bundle budget. With every page-level route
+      // now React.lazy code-split (Module.tsx), no single async chunk should be
+      // large; a chunk over 600 kB (minified, pre-gzip) warns at build time so a
+      // regression that re-bundles a heavy page eagerly is caught in CI output.
+      chunkSizeWarningLimit: 600,
     },
     test: {
       globals: true,

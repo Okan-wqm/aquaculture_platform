@@ -42,7 +42,7 @@ registerEnumType(DomainEntityType, { name: 'DomainEntityType' });
 export class MessageEntityReference {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   /**
    * Tenant identifier — backfilled from parent message in migration
@@ -50,38 +50,38 @@ export class MessageEntityReference {
    * tenant_isolation_policy RLS predicate (ADR-011).
    */
   @Column({ type: 'uuid' })
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
   @Column({ type: 'uuid' })
-  messageId: string;
+  messageId!: string;
 
   @Field()
   @Column({ type: 'timestamptz' })
-  messageCreatedAt: Date;
+  messageCreatedAt!: Date;
 
   @Field(() => DomainEntityType)
   @Column({ type: 'varchar', length: 30 })
-  entityType: DomainEntityType;
+  entityType!: DomainEntityType;
 
   @Field()
   @Column({ type: 'uuid' })
-  entityId: string;
+  entityId!: string;
 
   @Field(() => Float)
   // DecimalTransformer: entity reference confidence score (0.00-1.00) used in AI relevance ranking.
   // String comparison of scores produces wrong ordering in entity disambiguation.
   @Column({ type: 'numeric', precision: 3, scale: 2, default: 1.0, transformer: new DecimalTransformer() })
-  confidence: number;
+  confidence!: number;
 
   @Field()
   @Column({ type: 'timestamptz', default: () => 'NOW()' })
-  extractedAt: Date;
+  extractedAt!: Date;
 
   @ManyToOne(() => Message, { onDelete: 'CASCADE' })
   @JoinColumn([
     { name: 'messageId', referencedColumnName: 'id' },
     { name: 'messageCreatedAt', referencedColumnName: 'createdAt' },
   ])
-  message: Message;
+  message!: Message;
 }

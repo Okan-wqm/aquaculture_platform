@@ -140,7 +140,16 @@ describe('BiomassReportAssembler', () => {
     });
 
     const assembler = makeAssembler(makeQueryBus(), makeCalculator(), rawQuery);
-    const { draftPayload, fields } = await assembler.assemble(tenantId, siteId, 2026, 6);
+    // Assemble the CURRENT month so the standing stock is a fresh RECORDS proxy
+    // regardless of wall-clock (FARM-HIGH-005 flips a stale period to
+    // MANUAL_REQUIRED); the mocked source rows are independent of the period.
+    const now = new Date();
+    const { draftPayload, fields } = await assembler.assemble(
+      tenantId,
+      siteId,
+      now.getUTCFullYear(),
+      now.getUTCMonth() + 1,
+    );
     const payload = draftPayload as BiomassReportPayload;
 
     // Standing stock comes from THE calculator (dedup verdict), avg weight derived.
@@ -180,6 +189,20 @@ describe('BiomassReportAssembler', () => {
     }
     expect(fields.every((f) => !f.blocking)).toBe(true);
     expect(fields.find((f) => f.path === '/mortality')?.sourceRecordCount).toBe(7);
+  });
+
+  it('fails the standing stock closed to blocking MANUAL_REQUIRED for a materially historical period (FARM-HIGH-005)', async () => {
+    // A report for a month before last: the live inventory no longer reflects
+    // that month-end, so the standing stock must NOT be stamped RECORDS —
+    // auto-submit is blocked until the operator supplies the real beholdning.
+    const assembler = makeAssembler(makeQueryBus(), makeCalculator());
+    const { fields } = await assembler.assemble(tenantId, siteId, 2020, 1);
+
+    const standingStock = fields.find((f) => f.path === '/currentBiomass');
+    expect(standingStock?.provenance).toBe(ReportFieldProvenance.MANUAL_REQUIRED);
+    expect(standingStock?.blocking).toBe(true);
+    expect(standingStock?.message).toContain('2020-01');
+    expect(standingStock?.message).toMatch(/live inventory|month-end/i);
   });
 
   it('flags an empty feed ledger as MANUAL_REQUIRED (non-blocking) with an actionable message', async () => {

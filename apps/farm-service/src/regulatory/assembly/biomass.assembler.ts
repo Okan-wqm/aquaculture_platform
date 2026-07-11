@@ -38,7 +38,7 @@ import {
 } from '../../feeding/queries/get-site-feed-consumption.query';
 import { BiomassReportPayload } from '../entities/biomass-report.entity';
 import { AssembledDraft, fromRecords, manualRequired } from './provenance.types';
-import { monthRange, round2 } from './period.util';
+import { isStandingStockStale, monthRange, round2 } from './period.util';
 
 interface StockingRow {
   date: string;
@@ -156,12 +156,32 @@ export class BiomassReportAssembler {
       },
     };
 
+    // FARM-HIGH-005: the standing stock is the CURRENT live inventory. For the
+    // current/just-closed period that is a faithful proxy for the closing
+    // beholdning and stays RECORDS. For a materially historical period the live
+    // stock no longer reflects that month-end, so we must NOT stamp today's
+    // number as RECORDS — fail closed to a blocking MANUAL_REQUIRED so the
+    // operator supplies the real period-end figure and auto-submit cannot file
+    // a stale number. (Deeper fix — a point-in-time stock ledger that
+    // reconstructs the exact month-end beholdning — is tracked as
+    // FARM-HIGH-182.)
+    const currentBiomassMeta = isStandingStockStale(toDate, new Date())
+      ? manualRequired(
+          '/currentBiomass',
+          `Standing stock is assembled from the CURRENT live inventory, which no longer ` +
+            `reflects the ${reportYear}-${String(reportMonth).padStart(2, '0')} month-end ` +
+            `(the period closed over a month ago). Verify and enter the actual closing ` +
+            `beholdning for the period.`,
+          true,
+        )
+      : fromRecords(
+          '/currentBiomass',
+          'BiomassCalculatorService.getSiteBiomassReport',
+          siteBiomass.batchCount,
+        );
+
     const fields = [
-      fromRecords(
-        '/currentBiomass',
-        'BiomassCalculatorService.getSiteBiomassReport',
-        siteBiomass.batchCount,
-      ),
+      currentBiomassMeta,
       fromRecords('/stockings', 'BiomassReportAssembler.queryStockings', stockingRows.length),
       fromRecords('/mortality', 'GetMortalityByCauseQuery', mortality.recordCount),
       fromRecords('/slaughter', 'BiomassReportAssembler.querySlaughter', slaughterRows.length),

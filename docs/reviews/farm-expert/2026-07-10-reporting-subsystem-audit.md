@@ -282,6 +282,30 @@ type-presence-guarded fan-out mirroring 1801300000000). The approval decision (d
 approver) and the resulting wire filing (report row) are distinct audited facts. Specs assert each
 action fires with the correct actor.
 
+### FARM-HIGH-181 (FARM-HIGH-005 / DATA-MEDIUM-004) — historical standing stock stamped RECORDS with today's number
+
+`getSiteBiomassReport` returns the CURRENT live inventory; the biomass assembler stamped it onto
+`/currentBiomass` as RECORDS regardless of the report period. Refreshing a report for an old month
+therefore filed *today's* stock as that month's closing beholdning to Fiskeridirektoratet — a
+truthfulness violation on a regulatory number.
+
+Fixed (truthfulness): a pure `isStandingStockStale(periodEnd, now)` helper (calendar-based, DST-safe
+— fresh iff the period end is in the current or immediately-preceding month) gates the provenance.
+For the current/just-closed period (the normal filing window — reports are due the 7th of the
+following month) the live stock is a fair proxy and stays RECORDS; for a materially historical
+period the assembler **fails closed** to a blocking `MANUAL_REQUIRED` with an actionable message, so
+auto-submit cannot file a stale number and the operator must supply the real closing beholdning.
+The suggested value is still shown for editing — only its provenance tells the truth.
+
+The **deeper architectural fix** — a point-in-time stock ledger that reconstructs the exact month-end
+beholdning for any past period — is tracked as **FARM-HIGH-182** (owner assigned, deadline
+2026-10-31). It was not attempted this session because complex reconstruction SQL cannot be verified
+without a live DB here, and there is a double-counting hazard between `mortality_records` and
+`tank_operations.'mortality'/'harvest'` that must be resolved before a forward replay is safe;
+shipping an unverified reconstruction of a regulatory number would be worse than the honest
+fail-closed. This is the CLAUDE.md-sanctioned pattern: fix the harm now, track the deeper fix with an
+owner + deadline + ID.
+
 ## OPEN — HIGH (tracked)
 
 - **Slaughter drafts can never be submitted** — `buildWirePayload` never wraps `arter`/`ukeplanPerArt`
@@ -301,9 +325,10 @@ action fires with the correct actor.
   surfaced to no operator (job-queue PRODUCT-JOB-HIGH-001, observability OBS-HIGH-002).
 - **Biomass draft in the "due" list has a broken Mattilsynet Approve & Submit** and is a duplicate of
   the `biomass_reports` Altinn state machine (farm-expert FARM-HIGH-004).
-- **Monthly standing-stock read "as of now", not period-end** — `refresh` on a historical month
-  stamps today's stock as that month's closing beholdning with RECORDS provenance (farm-expert
-  FARM-HIGH-005, data-expert DATA-MEDIUM-004).
+- **No point-in-time stock ledger** to reconstruct a historical month-end beholdning — the biomass
+  calculator exposes only the live mirror and the stock read-model is current-state-only, so any
+  biomass report older than last month fails closed to MANUAL_REQUIRED rather than auto-filling the
+  real period-end figure (FARM-HIGH-182, the deeper fix behind the now-resolved FARM-HIGH-005/181).
 - **Settefisk CTEs are not site-scoped** → whole-tenant mortality scans re-run once per site
   (performance PERF-HIGH-002).
 - **Daily deadline sweep + auto-submit load every draft ever created** then filter in JS

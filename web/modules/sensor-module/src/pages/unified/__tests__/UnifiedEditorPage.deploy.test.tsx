@@ -119,7 +119,9 @@ vi.mock('../../../components/scada-builder/ScreenCanvas', () => ({
   ),
 }));
 vi.mock('../../../components/scada-builder/StableModeProvider', () => ({
-  StableModeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  StableModeProvider: ({ mode, children }: { mode: string; children: React.ReactNode }) => (
+    <div data-testid="stable-mode-provider" data-mode={mode}>{children}</div>
+  ),
 }));
 vi.mock('../../../components/deploy/ScadaPackagePreview', () => ({
   ScadaPackagePreview: () => <div data-testid="scada-preview" />,
@@ -210,6 +212,20 @@ describe('UnifiedEditorPage — 6b consolidation', () => {
     act(() => useEditorModeStore.getState().setMode('hmi'));
     await waitFor(() => expect(screen.getByTestId('screen-canvas')).toBeTruthy());
     expect(screen.getByTestId('screen-canvas').getAttribute('data-preview')).toBe('false');
+    expect(screen.getByTitle('Process Editor Canvas').className).toContain('hidden');
+  });
+
+  it('(SENSOR-HIGH-047) Runtime mode mounts the LIVE read-only ScreenCanvas', async () => {
+    render(<UnifiedEditorPage />);
+    await waitFor(() => expect(spies.getProcess).toHaveBeenCalled());
+
+    act(() => useEditorModeStore.getState().setMode('runtime'));
+
+    // Live canvas: read-only preview on the LIVE data plane (provider mode
+    // "preview" → LiveDeviceDataProvider), P&ID iframe hidden.
+    await waitFor(() => expect(screen.getByTestId('screen-canvas')).toBeTruthy());
+    expect(screen.getByTestId('screen-canvas').getAttribute('data-preview')).toBe('true');
+    expect(screen.getByTestId('stable-mode-provider').getAttribute('data-mode')).toBe('preview');
     expect(screen.getByTitle('Process Editor Canvas').className).toContain('hidden');
   });
 

@@ -903,7 +903,7 @@ const UnifiedEditorPage: React.FC = () => {
               iframe stays mounted but hidden in HMI so its P&ID state survives
               mode switches; HMI widget drops are handled natively by ScreenCanvas. */}
           <div className="flex-1 bg-gray-50 relative">
-            {!isCanvasReady && mode !== 'hmi' && (
+            {!isCanvasReady && mode !== 'hmi' && mode !== 'runtime' && (
               <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
                 <div className="flex flex-col items-center gap-3">
                   <Loader2 className="w-8 h-8 text-cyan-600 animate-spin" />
@@ -914,7 +914,7 @@ const UnifiedEditorPage: React.FC = () => {
             <iframe
               ref={iframeRef}
               src={PROCESS_EDITOR_CANVAS_URL}
-              className={`w-full h-full border-0 ${mode === 'hmi' ? 'hidden' : ''}`}
+              className={`w-full h-full border-0 ${mode === 'hmi' || mode === 'runtime' ? 'hidden' : ''}`}
               title="Process Editor Canvas"
               sandbox="allow-scripts allow-same-origin"
             />
@@ -925,6 +925,20 @@ const UnifiedEditorPage: React.FC = () => {
                     isPreview locks editing + renders live sim values. */}
                 <StableModeProvider mode="edit">
                   <ScreenCanvas isPreview={simulationMode} />
+                </StableModeProvider>
+              </div>
+            )}
+            {mode === 'runtime' && (
+              <div className="absolute inset-0 flex flex-col">
+                {/* Runtime = the live operator view of THIS package: the same
+                    ScreenCanvas, read-only, on the live data plane. mode
+                    "preview" selects the LiveDeviceDataProvider, so widgets
+                    read real values from the tenant-fenced /scada socket —
+                    the same Layer-B chain the operator runtime uses
+                    (SENSOR-HIGH-047). Previously this mode showed only the
+                    frozen P&ID iframe and never a live value. */}
+                <StableModeProvider mode="preview">
+                  <ScreenCanvas isPreview />
                 </StableModeProvider>
               </div>
             )}

@@ -20,6 +20,7 @@ import { DataSource } from 'typeorm';
 import { ProduksjonsenhetSettefiskPayload } from '../../mattilsynet-api.service';
 import { AssembledDraft, fromRecords, manualRequired } from '../provenance.types';
 import { monthRange, round2 } from '../period.util';
+import { OFFICIAL_ARTSKODE_PATTERN } from '../../../species/data/official-species-codes';
 
 /** Data portion of the settefisk wire payload (identity is a form concern). */
 export interface SettefiskPrefillPayload {
@@ -39,7 +40,7 @@ interface UnitRow {
   flyttetEksternt: string | null;
 }
 
-const OFFICIAL_ARTSKODE = /^[A-Z]{2,5}$/;
+const OFFICIAL_ARTSKODE = OFFICIAL_ARTSKODE_PATTERN;
 
 @Injectable()
 export class SettefiskReportAssembler {

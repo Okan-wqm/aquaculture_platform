@@ -400,7 +400,7 @@ varsling QUEUED shown as "Submitted" with the internal event id as a fake "Matti
 (CONTRACT-MEDIUM-004); no DB CHECK constraints on welfare 0–3 / lice non-negative is FIXED (DATA-LOW-007 -> FARM-LOW-191: migration adds welfare score 0-3, lice non-negative, and positive fishSampled CHECKs, fanned out + presence/duplicate guarded);
 lossy relocation-before-drop migrations with no backup step (DATA-MEDIUM-005/006); duplicate parallel
 submission systems (manual wizard vs assembled draft) per report type (farm-expert FARM-MEDIUM-009);
-inconsistent artskode regex + COALESCE laundering (FARM-LOW-011, FARM-MEDIUM-158); non-atomic
+inconsistent artskode regex is FIXED (FARM-LOW-011/FARM-MEDIUM-158 -> FARM-MEDIUM-194: one OFFICIAL_ARTSKODE_PATTERN /^[A-Z]{3}$/ SSoT shared by escape + settefisk, dropping the loose {2,5} fork); non-atomic
 attemptCount RMW + operator/sweep race is FIXED (PRODUCT-JOB-MEDIUM-001 -> FARM-MEDIUM-192: applyFailure/markSubmitted take a pessimistic_write row lock so the RMW serialises); no span coverage / deterministic
 backoff without jitter / token single-flight + LRU (OBS-MEDIUM-001/002, CIRCUIT-MEDIUM-001/002/003);
 plus assorted LOWs (siteName never populated, sea-lice temperature not hydrated, tenant discovery keyed

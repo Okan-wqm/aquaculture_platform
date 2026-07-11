@@ -18,9 +18,10 @@ import { DataSource } from 'typeorm';
 
 import { AssembledDraft, ReportFieldMeta, fromRecords, manualRequired } from '../provenance.types';
 import { round2 } from '../period.util';
+import { OFFICIAL_ARTSKODE_PATTERN } from '../../../species/data/official-species-codes';
 
-/** Official FAO/artskode shape (mirrors the settefisk/slakt assemblers). */
-const OFFICIAL_ARTSKODE = /^[A-Z]{3}$/;
+/** Official artskode shape — the single SSoT shared by every assembler. */
+const OFFICIAL_ARTSKODE = OFFICIAL_ARTSKODE_PATTERN;
 
 /** Data portion of the escape varsling payload (identity is a form concern). */
 export interface EscapePrefillPayload {

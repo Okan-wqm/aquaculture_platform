@@ -36,16 +36,18 @@ interface ChartsTabProps {
 }
 
 function bucketLabel(iso: string, granularity: FinancePeriod['granularity']): string {
+  // bucketStart is a canonical UTC midnight (backend emits YYYY-MM-DD in UTC).
+  // Format in UTC so the label never shifts a day in negative-UTC locales.
   const date = new Date(iso);
   switch (granularity) {
     case 'DAY':
-      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
     case 'WEEK':
-      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
     case 'MONTH':
-      return date.toLocaleDateString(undefined, { year: '2-digit', month: 'short' });
+      return date.toLocaleDateString(undefined, { year: '2-digit', month: 'short', timeZone: 'UTC' });
     case 'YEAR':
-      return String(date.getFullYear());
+      return String(date.getUTCFullYear());
     default:
       return iso.slice(0, 10);
   }

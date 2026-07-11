@@ -160,6 +160,14 @@ silently mixing tenant-wide costs into one site's P&L), and applies a
 `siteIdExpr = :siteId` predicate for any source that can resolve one. The
 resolver's `siteId` arg documents this behavior.
 
+## Wave 5 — frontend correctness/UX (follow-up, implemented)
+
+### FE-MEDIUM-061 — chart date off-by-one + window.confirm deletes
+The chart `bucketLabel` now formats the (UTC-midnight) bucket start in `timeZone:
+'UTC'` (and uses `getUTCFullYear`), so labels never shift a day in negative-UTC
+locales. The Expenses tab delete now routes through the shared accessible
+`ConfirmModal` (danger variant) instead of `window.confirm`.
+
 ## Tracked debt (owner + deadline — NOT fixed this cycle)
 
 ### PERF-HIGH-004 — no rollup/cache; derived aggregation re-scans high-frequency source tables per load

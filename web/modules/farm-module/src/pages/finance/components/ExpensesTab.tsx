@@ -7,6 +7,7 @@
  * records, batch detail, maintenance, health, harvest), preserving the
  * single source of truth.
  */
+import { ConfirmModal } from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -58,6 +59,7 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
     offset,
   });
   const deleteEntry = useDeleteFinanceEntry();
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   const items = (ledgerQuery.data ?? []).filter(
     (item) => originFilter === 'ALL' || item.origin === originFilter,
@@ -171,11 +173,7 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
                             Edit
                           </button>
                           <button
-                            onClick={() => {
-                              if (window.confirm('Delete this finance entry?')) {
-                                deleteEntry.mutate(item.id);
-                              }
-                            }}
+                            onClick={() => setPendingDelete(item.id)}
                             className="font-medium text-red-600 hover:text-red-800"
                           >
                             Delete
@@ -225,6 +223,22 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
           onClose={() => setModalState({ open: false })}
         />
       )}
+
+      <ConfirmModal
+        isOpen={pendingDelete !== null}
+        onClose={() => setPendingDelete(null)}
+        onConfirm={() => {
+          if (pendingDelete !== null) {
+            deleteEntry.mutate(pendingDelete);
+          }
+          setPendingDelete(null);
+        }}
+        title="Delete finance entry"
+        message="Delete this finance entry? This cannot be undone."
+        variant="danger"
+        confirmText="Delete"
+        isLoading={deleteEntry.isPending}
+      />
     </div>
   );
 };

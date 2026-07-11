@@ -36,32 +36,22 @@ export class DropOrphanQualityGradeEnum1804400000000 implements MigrationInterfa
       return;
     }
 
-    // Clear the dependent column from the source schema AND every tenant clone so
-    // nothing references the shared enum. 1804300000000 already drops these via
-    // the fan-out, but its tenant passes run AFTER this farm pass inside the same
-    // db-migrate invocation, so clear any straggler here. Idempotent; format('%I')
-    // safely quotes the catalog-derived, regex-validated schema names.
-    await queryRunner.query(`
-      DO $$
-      DECLARE r record;
-      BEGIN
-        FOR r IN
-          SELECT n.nspname
-            FROM pg_catalog.pg_namespace n
-           WHERE n.nspname = 'farm' OR n.nspname ~ '^tenant_[a-f0-9]{16}$'
-        LOOP
-          EXECUTE format(
-            'ALTER TABLE IF EXISTS %I.%I DROP COLUMN IF EXISTS %I',
-            r.nspname, 'harvest_records', 'qualityGrade'
-          );
-        END LOOP;
-      END $$;
-    `);
+    // DATA-CRITICAL: do NOT clear the dependent column cross-schema here. The
+    // fan-out is source-first — the farm pass runs BEFORE every tenant pass — so a
+    // tenant that has not yet run the expand migration 1803100 (which backfills
+    // qualityClass FROM qualityGrade) still needs its qualityGrade column. Dropping
+    // it here would make that tenant's later 1803100 pass throw 42703 and abort the
+    // whole deploy. Each schema's own 1804300 pass drops qualityGrade in the correct
+    // order (after its 1803100 backfill); this migration only reclaims the SHARED
+    // orphan type, and only once it is genuinely unreferenced.
 
-    // Assert no column anywhere still depends on the shared type before dropping.
+    // Count columns anywhere (farm + every tenant clone) still depending on the
+    // shared type. On a first deploy the tenant passes have not run their 1804300
+    // yet, so their qualityGrade columns still reference it.
     const dependents: Array<{ n: number }> = await queryRunner.query(`
-      -- SHARED-ENUM-DROP-REVIEWED: every dependent column across farm + all tenant
-      -- clones is cleared above; this pg_depend probe fails closed if one remains.
+      -- SHARED-ENUM-DROP-REVIEWED: probe pg_depend across ALL schemas; a nonzero
+      -- count means a schema (e.g. a tenant not yet migrated to 1804300 in this
+      -- run) still legitimately uses the shared type.
       SELECT count(*)::int AS n
         FROM pg_catalog.pg_depend d
         JOIN pg_catalog.pg_type t ON t.oid = d.refobjid
@@ -70,10 +60,13 @@ export class DropOrphanQualityGradeEnum1804400000000 implements MigrationInterfa
        WHERE tn.nspname = 'farm' AND t.typname = 'harvest_records_qualitygrade_enum'
     `);
     if ((dependents[0]?.n ?? 0) > 0) {
-      throw new Error(
-        `harvest_records_qualitygrade_enum still has ${dependents[0]?.n} dependent column(s) ` +
-          `after the cross-schema clear; refusing DROP TYPE`,
+      // Defer, do NOT abort: a still-referenced type is not an error, it is a
+      // schema whose 1804300 has not run yet. Leave the harmless orphan type for a
+      // later reclamation once every schema has dropped its column (FARM-MEDIUM-170).
+      await queryRunner.query(
+        `DO $$ BEGIN RAISE NOTICE 'DropOrphanQualityGradeEnum: shared type still referenced; deferring DROP TYPE until all schemas have run 1804300'; END $$`,
       );
+      return;
     }
 
     await queryRunner.query(`DROP TYPE IF EXISTS "farm"."harvest_records_qualitygrade_enum"`);

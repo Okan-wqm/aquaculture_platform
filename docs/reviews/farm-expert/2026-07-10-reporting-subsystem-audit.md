@@ -39,6 +39,17 @@ Found while fixing FARM-CRITICAL-161: `FeedingCronService` uses the identical
 (dedicated per-job `QueryRunner`); tracked and fixed in the same remediation campaign so the pattern
 is corrected everywhere, not patched in one service.
 
+### FARM-CRITICAL-169 — migration `1804400` drop-before-backfill aborted the deploy
+
+`1804400` dropped `harvest_records.qualityGrade` from every tenant schema during the source-first
+farm pass, but a tenant not yet migrated to the expand migration `1803100` (which backfills
+`qualityClass` FROM `qualityGrade`) then hit `42703` when its tenant pass ran, aborting the whole
+deploy on any DB with pre-existing tenant schemas. Fixed: removed the aggressive cross-schema
+`DROP COLUMN` loop (each schema's own `1804300` drops the column in the correct order after its
+`1803100`), and the shared-type reclamation now **defers** (returns) when any schema still references
+the type instead of masking-then-dropping. The orphan-type reclamation is tracked as FARM-MEDIUM-170
+(post-fan-out step). `bootstrap-from-scratch` missed it (empty DB → zero tenant schemas).
+
 ### FARM-CRITICAL-168 — manual executed-slaughter wizard filed a fabricated government report
 
 The manual executed-slaughter form placed the quality-grade **percentages** straight into the

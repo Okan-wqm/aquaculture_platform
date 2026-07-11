@@ -334,12 +334,21 @@ interface VarslingBaseInput {
   reportedBy: string;
 }
 
+// GraphQL enum WIRE vocabularies — the SDL exposes the enum KEYS (NestJS
+// registerEnumType), NOT the lowercase internal values, so sending the lowercase
+// form fails enum coercion before the resolver and the varsling never files
+// (FARM-CRITICAL-165). These are named so the farm-graphql-enum-parity invariant
+// pins their casing to the backend WelfareEventTypeInput / WelfareSeverityInput /
+// DiseaseCategoryInput / DiseaseConfirmationInput enums at build time
+// (FARM-MEDIUM-166) — drift is a CI failure, not a review miss.
+export type WelfareEventTypeValue = 'MORTALITY_THRESHOLD' | 'EQUIPMENT_FAILURE' | 'WELFARE_IMPACT';
+export type WelfareSeverityValue = 'HIGH' | 'CRITICAL';
+export type DiseaseCategoryValue = 'A' | 'C' | 'F';
+export type DiseaseConfirmationValue = 'SUSPECTED' | 'CONFIRMED';
+
 export interface SubmitWelfareEventInput extends VarslingBaseInput {
-  // GraphQL enum WIRE names (the SDL exposes the enum KEYS, not the lowercase
-  // internal values) — sending the lowercase form fails enum coercion before the
-  // resolver, so the varsling never files.
-  welfareEventType: 'MORTALITY_THRESHOLD' | 'EQUIPMENT_FAILURE' | 'WELFARE_IMPACT';
-  severity: 'HIGH' | 'CRITICAL';
+  welfareEventType: WelfareEventTypeValue;
+  severity: WelfareSeverityValue;
   mortalityRate?: number;
   mortalityPeriod?: string;
   affectedBatches?: string[];
@@ -358,10 +367,9 @@ export interface SubmitEscapeReportInput extends VarslingBaseInput {
 }
 
 export interface SubmitDiseaseOutbreakInput extends VarslingBaseInput {
-  diseaseCategory: 'A' | 'C' | 'F';
+  diseaseCategory: DiseaseCategoryValue;
   diseaseName: string;
-  // GraphQL enum WIRE name (uppercase key), same reason as SubmitWelfareEventInput.
-  confirmation: 'SUSPECTED' | 'CONFIRMED';
+  confirmation: DiseaseConfirmationValue;
   affectedCount: number;
   affectedPercentage: number;
   clinicalSigns: string[];

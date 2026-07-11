@@ -98,8 +98,14 @@ Approve & Submit affordance never rendered for any scheduled draft. Fixed: the v
 retyped to the uppercase wire unions with domain→wire maps at the tab boundary; `ReportDraftStatusValue`
 + the `ReportsDueSection` comparisons are uppercased. A vitest guard asserts the mutation sends
 `WELFARE_IMPACT`/`HIGH`/`CONFIRMED`, and the `ReportsDueSection` fixtures now use the real uppercase
-wire status (both were false-greens on lowercase). The Tier-1 durable fix (codegen-backed FE types) is
-tracked as **FARM-MEDIUM-166**.
+wire status (both were false-greens on lowercase). **FARM-MEDIUM-166** is now FIXED with a build-time
+guard: `tests/invariants/farm-graphql-enum-parity.spec.ts` extracts each backend GraphQL enum's KEY set
+(the wire vocabulary NestJS `registerEnumType` exposes) and asserts it EQUALS, case-sensitively, the
+farm-module union that mirrors it — `ReportDraftStatus`/`ReportPrefillType`/`ReportFieldProvenance`/
+`RegulatoryReportType` plus the four varsling enums (welfare event/severity, disease category/
+confirmation, now named `WelfareEventTypeValue`/… in `useRegulatory.ts`). Casing/shape drift is a CI
+failure, not a review miss. A full codegen-backed FE remains the ultimate tier-1 goal but the vocabularies
+the FE actually sends are now pinned to the SDL.
 
 ### FARM-CRITICAL-163 — draft ↔ submission reconciliation (auto-submit re-filed accepted/rejected reports)
 

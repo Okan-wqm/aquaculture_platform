@@ -22,6 +22,7 @@
 
 import { Logger, UsePipes, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { JwtService } from '@nestjs/jwt';
 import {
   ConnectedSocket,
@@ -52,6 +53,10 @@ import {
 import { TagManagerService } from './services/tag-manager.service';
 import { TagResolutionService } from '../process/services/tag-resolution.service';
 import { TagDirection } from '../process/entities/unified-tag.entity';
+import {
+  SCADA_ALARM_ACK_EVENT,
+  SCADA_ALARM_ACK_ALL_EVENT,
+} from './services/alarm-ack.events';
 import { isTagRef } from '@platform/sensor-contracts';
 
 /* ------------------------------------------------------------------ */
@@ -153,6 +158,7 @@ export class ScadaRuntimeGateway
     private readonly tagManager: TagManagerService,
     private readonly configService: ConfigService,
     private readonly tagResolution: TagResolutionService,
+    private readonly eventEmitter: EventEmitter2,
   ) {
     this.isProduction = process.env['NODE_ENV'] === 'production';
   }
@@ -533,8 +539,15 @@ export class ScadaRuntimeGateway
         `[alarm-ack] ${client.id} — alarmInstanceId=${payload.alarmInstanceId} userId=${clientData.userId}`,
       );
 
-      // TODO: Forward to AlarmEngineService when available.
-      // The alarm engine will broadcast the updated AlarmStatusSummary once processed.
+      // Hand off to the alarm engine (which persists the ack and re-broadcasts
+      // the updated AlarmStatusSummary). The engine cannot be injected here —
+      // it already depends on this gateway — so acknowledgement crosses the
+      // boundary as an event.
+      this.eventEmitter.emit(SCADA_ALARM_ACK_EVENT, {
+        alarmInstanceId: payload.alarmInstanceId,
+        userId: clientData.userId,
+        tenantId: clientData.tenantId,
+      });
     } catch (error) {
       this.logger.error(`[alarm-ack] ${client.id} error: ${(error as Error).message}`);
       this.emitError(client, ScadaSocketEvent.ALARM_ACK, SCADA_ERROR_CODES.INTERNAL_ERROR, 'Alarm acknowledgement failed');
@@ -566,7 +579,10 @@ export class ScadaRuntimeGateway
         `[alarm-ack-all] ${client.id} — group=${payload?.group ?? 'all'} userId=${clientData.userId}`,
       );
 
-      // TODO: Forward to AlarmEngineService when available.
+      this.eventEmitter.emit(SCADA_ALARM_ACK_ALL_EVENT, {
+        userId: clientData.userId,
+        tenantId: clientData.tenantId,
+      });
     } catch (error) {
       this.logger.error(`[alarm-ack-all] ${client.id} error: ${(error as Error).message}`);
       this.emitError(client, ScadaSocketEvent.ALARM_ACK_ALL, SCADA_ERROR_CODES.INTERNAL_ERROR, 'Alarm acknowledgement failed');

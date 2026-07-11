@@ -40,13 +40,15 @@ function binding(direction: TagDirection): ResolvedBinding {
 function makeGateway(resolveResult: { resolved: ResolvedBinding[]; unresolved: unknown[] }) {
   const tagManager = { writeTagValue: jest.fn() };
   const tagResolution = { resolve: jest.fn().mockResolvedValue(resolveResult) };
+  const eventEmitter = { emit: jest.fn() };
   const gateway = new ScadaRuntimeGateway(
     {} as never,
     tagManager as never,
     { get: () => '' } as never,
     tagResolution as never,
+    eventEmitter as never,
   );
-  return { gateway, tagManager, tagResolution };
+  return { gateway, tagManager, tagResolution, eventEmitter };
 }
 
 function seedClient(gateway: ScadaRuntimeGateway, socket: { id: string; emit: jest.Mock }) {
@@ -99,6 +101,34 @@ describe('TAG_WRITE tenant + registry gate', () => {
     expect(socket.emit).toHaveBeenCalledWith(
       ScadaSocketEvent.TAG_WRITE_ACK,
       expect.objectContaining({ status: 'queued' }),
+    );
+  });
+});
+
+describe('ALARM_ACK forwards to the alarm engine (SENSOR-HIGH-039)', () => {
+  it('emits a tenant-scoped alarm-ack event instead of silently no-op', () => {
+    const { gateway, eventEmitter } = makeGateway({ resolved: [], unresolved: [] });
+    const socket = makeSocket();
+    seedClient(gateway, socket);
+
+    gateway.handleAlarmAck(socket as never, { alarmInstanceId: 'alm-1' } as never);
+
+    expect(eventEmitter.emit).toHaveBeenCalledWith(
+      'scada.alarm.ack',
+      expect.objectContaining({ alarmInstanceId: 'alm-1', userId: 'u1', tenantId: 'tenant-A' }),
+    );
+  });
+
+  it('emits an alarm-ack-all event carrying the tenant', () => {
+    const { gateway, eventEmitter } = makeGateway({ resolved: [], unresolved: [] });
+    const socket = makeSocket();
+    seedClient(gateway, socket);
+
+    gateway.handleAlarmAckAll(socket as never, {} as never);
+
+    expect(eventEmitter.emit).toHaveBeenCalledWith(
+      'scada.alarm.ack_all',
+      expect.objectContaining({ userId: 'u1', tenantId: 'tenant-A' }),
     );
   });
 });

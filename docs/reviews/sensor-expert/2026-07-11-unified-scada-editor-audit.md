@@ -118,3 +118,10 @@ record. Remediation is phased in
 - **Description:** The 35s liveness watchdog reset ONLY on a `HEARTBEAT` frame, which the server never pushes on its own (it only echoes a client heartbeat), and the client sent none. A healthy socket streaming `TAG_VALUES` still tripped `connectionState` to `error` after 35s; since `writeTagValue` rejects on `!isConnected`, every operator tag write was then blocked by a phantom disconnect.
 - **Impact:** Control writes silently blocked on a live connection; connection indicators lied.
 - **Recommendation:** Reset the watchdog on ANY inbound frame, and emit a periodic client heartbeat (15s) the server echoes so idle-but-connected sockets stay healthy. Guarded by a fake-timer test.
+
+### [SENSOR-HIGH-039] Alarm acknowledgement is a success-shaped no-op: the gateway logs but never forwards to the alarm engine
+- **File:** `apps/sensor-service/src/scada-runtime/scada-runtime.gateway.ts`, `apps/sensor-service/src/scada-runtime/services/alarm-engine.service.ts`
+- **Category:** Safety / false completion
+- **Description:** `handleAlarmAck` / `handleAlarmAckAll` validated + logged the ack, then `// TODO: Forward to AlarmEngineService` — nothing changed the authoritative alarm state, so the alarm stayed active on every client and in storage while the operator believed it was acknowledged.
+- **Impact:** Acknowledging a (potentially critical) alarm was a silent no-op — a false completion on a safety-relevant action.
+- **Recommendation:** Forward the ack to `AlarmEngineService.acknowledgeAlarm`/`acknowledgeAll` (which persist + re-broadcast the AlarmStatusSummary). Because the engine already depends on the gateway (circular), cross the boundary with a tenant-scoped `scada.alarm.ack[_all]` event the engine consumes via `@OnEvent`.

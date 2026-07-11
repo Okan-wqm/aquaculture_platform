@@ -226,10 +226,27 @@ reach them). Matches the backend MANAGER+ADMIN read gate.
 
 ### PERF-HIGH-004 — no rollup/cache; derived aggregation re-scans high-frequency source tables per load
 Owner: performance-expert. Deadline 2026-08-31. `financeSummary` re-aggregates the
-feeding/harvest/health/work-order tables every load; grows with tenant age. Needs a
-per-tenant outbox-refreshed rollup (or covering indexes + backend cache) with an
-EXPLAIN benchmark at 100k rows. Not fixed here: it is a self-contained caching
-subsystem, out of scope for the correctness/security pass.
+feeding/harvest/health/work-order tables every load; grows with tenant age. The
+contained per-load wins have now landed (single-UNION `PERF-MEDIUM-009`, bounded
+buckets/rows `PERF-MEDIUM-006/007`, the maintenance index `PERF-MEDIUM-005`, scoped
+FE invalidation `PERF-MEDIUM-008`) and a p99 SLO tripwire (`PERF-MEDIUM-010`,
+`SloFinanceQueryP99High`) now fires when a real tenant outgrows query-time derivation
+— so this is bounded and observable, not silent.
+
+**Why the cache is a genuine multi-domain subsystem, not a finance-local fix.** The
+only correct cache is event-driven (a TTL-only cache would serve stale financials for
+the TTL window right after a user records a cost, contradicting the scoped FE
+invalidation in `PERF-MEDIUM-008`). Event-driven invalidation needs a per-tenant
+finance-epoch bumped by an outbox consumer subscribed to every event that moves a
+derived cost. **Blocker (verified 2026-07-11):** the maintenance (`work_orders`) and
+fish-health (`health_events.estimatedCost`) write handlers emit **no** outbox events
+at all — so a finance cache built today would never invalidate on a work-order or
+treatment-cost change. Landing PERF-HIGH-004 correctly therefore first requires
+adding finance-relevant domain events to the maintenance + fish-health write paths
+(two OTHER bounded contexts — needs farm-expert), then the epoch consumer + Redis
+layer + an EXPLAIN benchmark at 100k rows. Shipping the cache without that event
+coverage would be a correctness regression (stale P&L) worse than the perf cost, so
+it stays tracked with this concrete prerequisite rather than half-implemented.
 
 ### DATA-MEDIUM-009 — money persisted/transported as IEEE-754 float (platform-wide)
 Owner: billing-expert. Deadline 2026-09-30. `DecimalTransformer` returns a JS number

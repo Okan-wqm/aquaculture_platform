@@ -13,6 +13,10 @@ import {
   MattilsynetRestReportType,
 } from '../../schemas/schema-registry';
 import {
+  reshapeForWire,
+  type WireHeader,
+} from '../../services/regulatory-draft-submission.service';
+import {
   seaLiceFixture,
   smoltFixture,
   cleanerFishFixture,
@@ -59,5 +63,72 @@ describe('Official Mattilsynet schema contract', () => {
   it.each(CASES)('$type schema rejects unknown top-level properties (strict wire format)', ({ type, fixture }) => {
     const validate = getOfficialSchemaValidator(type);
     expect(validate({ ...fixture, uventetFelt: 1 })).toBe(false);
+  });
+});
+
+/**
+ * FARM-HIGH-002 / CONTRACT-HIGH-003 — the slaughter assemblers emit a FLAT,
+ * review-friendly body (`arter` / `ukeplanPerArt` at the top level, plus the
+ * assembler-only `totalKgPerArt`), but the official schema requires the species
+ * arrays nested inside a single-locality wrapper and forbids unknown top-level
+ * keys (additionalProperties:false). `reshapeForWire` is the ONLY place that
+ * bridges the two; before it, every slaughter draft failed validation and could
+ * never be submitted. These tests validate the reshape OUTPUT against the REAL
+ * official schema (not a hand-written fixture), so a future assembler/reshape
+ * change that re-breaks the wire shape fails here in CI.
+ */
+describe('reshapeForWire → official schema (slaughter drafts, FARM-HIGH-002)', () => {
+  const header: WireHeader = {
+    klientReferanse: 'draft-1',
+    organisasjonsnummer: '987654321',
+    lokalitetsnummer: 12345,
+    kontaktperson: { navn: 'Kari Nordmann', epost: 'kari@oppdrett.no', telefonnummer: '+4791234567' },
+  };
+
+  it('wraps an assembled EXECUTED body into a schema-valid utførteLokaliteter payload', () => {
+    // Exactly what SlaktReportAssembler.assembleExecuted emits (flat + the
+    // assembler-only totalKgPerArt that MUST be dropped from the wire).
+    const assembledBody = {
+      slakteuke: 27,
+      slakteår: 2026,
+      godkjenningsnummer: 'S123',
+      arter: [
+        { art: 'SAL', superiorKg: 18000, ordinærKg: 2500, produksjonsfiskKg: 900, utkastKg: 40 },
+      ],
+      totalKgPerArt: [{ artskode: 'SAL', totalKg: 21440 }],
+    };
+
+    const wire = reshapeForWire(RegulatoryReportType.SLAUGHTER_EXECUTED, assembledBody, header);
+    // The actual wire bytes (JSON round-trip drops undefined keys); JSON.parse
+    // yields the plain object the validator and key checks both read.
+    const onWire: Record<string, unknown> = JSON.parse(JSON.stringify(wire));
+    // The flat arter + assembler-only totalKgPerArt are gone from the top level.
+    expect(onWire.arter).toBeUndefined();
+    expect(onWire.totalKgPerArt).toBeUndefined();
+    expect(onWire.utførteLokaliteter).toBeDefined();
+
+    const validate = getOfficialSchemaValidator(RegulatoryReportType.SLAUGHTER_EXECUTED);
+    const valid = validate(onWire);
+    expect(validate.errors ?? []).toEqual([]);
+    expect(valid).toBe(true);
+  });
+
+  it('wraps an assembled PLANNED body into a schema-valid planlagteLokaliteter payload', () => {
+    const assembledBody = {
+      uke: 29,
+      år: 2026,
+      godkjenningsnummer: 'S123',
+      ukeplanPerArt: [{ artskode: 'SAL', mandagKg: 12000, torsdagKg: 8000 }],
+    };
+
+    const wire = reshapeForWire(RegulatoryReportType.SLAUGHTER_PLANNED, assembledBody, header);
+    const onWire: Record<string, unknown> = JSON.parse(JSON.stringify(wire));
+    expect(onWire.ukeplanPerArt).toBeUndefined();
+    expect(onWire.planlagteLokaliteter).toBeDefined();
+
+    const validate = getOfficialSchemaValidator(RegulatoryReportType.SLAUGHTER_PLANNED);
+    const valid = validate(onWire);
+    expect(validate.errors ?? []).toEqual([]);
+    expect(valid).toBe(true);
   });
 });

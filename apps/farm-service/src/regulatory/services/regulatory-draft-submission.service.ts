@@ -225,7 +225,7 @@ export class RegulatoryDraftSubmissionService {
 }
 
 /** The submission header fields common to every REST wire payload. */
-interface WireHeader {
+export interface WireHeader {
   klientReferanse: string;
   organisasjonsnummer: string;
   lokalitetsnummer: number;
@@ -243,7 +243,7 @@ interface WireHeader {
  * same organisasjonsnummer + lokalitetsnummer as the header. Without this the
  * slaughter draft can never pass official-schema validation (FARM-HIGH-002).
  */
-function reshapeForWire(
+export function reshapeForWire(
   reportType: MattilsynetRestReportType,
   body: Record<string, unknown>,
   header: WireHeader,

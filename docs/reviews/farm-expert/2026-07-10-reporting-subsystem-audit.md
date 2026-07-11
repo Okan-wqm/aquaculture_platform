@@ -322,11 +322,24 @@ heartbeat on every run including the lock-skip so passive replicas don't false-a
 alerts were added to `farm-data-ssot-alerts.yml` — FailuresElevated, RetrySweepStalled (heartbeat),
 CronErrored — each with a `runbook_url` (the monitoring-alert-runbook-url invariant stays green).
 
+### FARM-HIGH-187 (FARM-HIGH-002 / CONTRACT-HIGH-003) — slaughter drafts failed official-schema validation
+
+The slaughter assemblers emit a flat, review-friendly body (`arter` / `ukeplanPerArt` at the top
+level, plus the assembler-only `totalKgPerArt`), but the official schema requires the species arrays
+nested in a single-locality wrapper and forbids unknown top-level keys — so every slaughter draft
+failed validation and could never be submitted.
+
+The fix (`reshapeForWire` in the draft-submission path — nest `arter` → `utførteLokaliteter` for
+EXECUTED, `ukeplanPerArt` → `planlagteLokaliteter` for PLANNED, drop `totalKgPerArt`, header spread
+last) landed earlier. This step **verifies and guards** it: `reshapeForWire` is now exported and a new
+contract test feeds a realistic assembled slaughter body through it and validates the output against
+the REAL official Ajv schema (`getOfficialSchemaValidator`) — asserting valid, zero errors, and that
+`arter`/`ukeplanPerArt`/`totalKgPerArt` are absent from the top level. The draft-submission spec had
+mocked the validator, so nothing previously proved schema validity; a future assembler/reshape change
+that re-breaks the wire shape now fails in CI.
+
 ## OPEN — HIGH (tracked)
 
-- **Slaughter drafts can never be submitted** — `buildWirePayload` never wraps `arter`/`ukeplanPerArt`
-  into the required `utførteLokaliteter`/`planlagteLokaliteter` locality wrapper, so every slaughter
-  draft fails official-schema validation (farm-expert FARM-HIGH-002, contract CONTRACT-HIGH-003).
 - **A SUBMITTED report can be silently overwritten** — `regulatory-report-store.upsert` resets an
   accepted row to PENDING and nulls the receipt with no terminal-state guard and no DB immutability
   trigger (compliance COMPLIANCE-HIGH-002, job-queue PRODUCT-JOB-MEDIUM-002).

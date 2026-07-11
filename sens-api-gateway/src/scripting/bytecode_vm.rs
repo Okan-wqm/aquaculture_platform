@@ -65,6 +65,32 @@
 
 use super::bytecode::{Bytecode, Opcode, StValue, StValueType};
 
+/// EDGE-HIGH-016 — absolute upper bound on per-tick gas, enforced
+/// INDEPENDENTLY of the operator/attacker-supplied,
+/// signature-covered `Bytecode.max_gas_per_tick`.
+///
+/// The per-opcode fuel check in `run_internal` already bounds iteration
+/// count (every jump backedge costs >= 1 gas), but the budget it counts
+/// down from was taken verbatim from the deploy request body with no
+/// clamp — a program declaring `max_gas_per_tick: u32::MAX` with a
+/// self-jump body runs ~4.29 billion synchronous dispatch iterations,
+/// blocking the tokio worker for tens of seconds. The async
+/// `tokio::time::timeout` watchdog cannot interrupt that: the VM loop has
+/// no `.await`, so the timeout future is never polled until the VM
+/// returns on its own, and the CPU-bound grind starves the very reactor
+/// that would fire the timer.
+///
+/// This ceiling makes the DoS structurally impossible (make-it-impossible,
+/// Tier-1): it caps the worst-case synchronous burst to ~10-50 ms on a
+/// 2-core ARM edge box (~100x headroom over the largest legitimate
+/// in-tree budget of 10_000 gas), so control always returns to the
+/// runtime well within one scan cycle and the timeout/shutdown selects
+/// can actually observe their deadlines. Operator config may LOWER the
+/// effective budget but can never RAISE it above this ceiling. The clamp
+/// is applied to the runtime `gas_remaining` field, NOT to the signed
+/// `max_gas_per_tick` field, so signatures stay valid.
+pub const MAX_GAS_CEIL: u32 = 1_000_000;
+
 /// VM runtime failure taxonomy.
 #[derive(Debug, Clone, PartialEq)]
 pub enum VmError {
@@ -486,7 +512,12 @@ impl ScriptVm {
         Self {
             stack: Vec::with_capacity(32),
             locals,
-            gas_remaining: bc.max_gas_per_tick,
+            // EDGE-HIGH-016: clamp the runtime budget to the hard ceiling.
+            // The signed `bc.max_gas_per_tick` field is left untouched; the
+            // VM simply refuses to honour a budget above MAX_GAS_CEIL, so an
+            // unbounded per-tick declaration cannot translate into an
+            // unbounded synchronous burst.
+            gas_remaining: bc.max_gas_per_tick.min(MAX_GAS_CEIL),
             ip: 0,
         }
     }
@@ -1316,6 +1347,49 @@ mod tests {
             0,
         );
         b.max_gas_per_tick = 2; // 3 opcodes at 1 gas each → exhaust
+        let mut vm = ScriptVm::new(&b);
+        assert!(matches!(
+            vm.run(&b),
+            VmOutcome::Error(VmError::GasExhausted { .. })
+        ));
+    }
+
+    // EDGE-HIGH-016: the runtime gas budget is clamped to MAX_GAS_CEIL so an
+    // attacker-declared unbounded budget cannot become an unbounded
+    // synchronous burst — regardless of async-watchdog behaviour.
+
+    #[test]
+    fn new_clamps_gas_to_ceiling() {
+        let mut b = bc(vec![Opcode::Return], 0);
+        b.max_gas_per_tick = u32::MAX;
+        let vm = ScriptVm::new(&b);
+        assert_eq!(
+            vm.gas_remaining(),
+            MAX_GAS_CEIL,
+            "an over-ceiling declared budget must be clamped to MAX_GAS_CEIL"
+        );
+    }
+
+    #[test]
+    fn new_preserves_gas_below_ceiling() {
+        let mut b = bc(vec![Opcode::Return], 0);
+        b.max_gas_per_tick = 1000;
+        let vm = ScriptVm::new(&b);
+        assert_eq!(
+            vm.gas_remaining(),
+            1000,
+            "a legitimate under-ceiling budget must be preserved verbatim"
+        );
+    }
+
+    #[test]
+    fn run_infinite_jump_loop_terminates_via_gas_ceiling() {
+        // A self-jump with an unbounded declared budget. Every backedge burns
+        // >= 1 gas, and the runtime budget is clamped to MAX_GAS_CEIL, so this
+        // MUST terminate with GasExhausted rather than hanging. The test
+        // returning at all is the proof of termination.
+        let mut b = bc(vec![Opcode::Jump { target: 0 }], 0);
+        b.max_gas_per_tick = u32::MAX;
         let mut vm = ScriptVm::new(&b);
         assert!(matches!(
             vm.run(&b),

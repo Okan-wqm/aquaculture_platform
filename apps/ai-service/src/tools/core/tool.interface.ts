@@ -77,6 +77,13 @@ export interface ToolResult<T = unknown> {
    * propose→confirm→execute round-trip is Faz 6; this flag is its seam.
    */
   requiresConfirmation?: boolean;
+  /**
+   * DB-PEOPLE-MEDIUM-003: set when an actuation-class tool executed but its
+   * safety-load-bearing audit row could NOT be durably written. The executor
+   * surfaces the failure here (instead of swallowing it) so the runner / safety
+   * layer can react — the actuation ran, but its audit trail is incomplete.
+   */
+  auditFailed?: boolean;
 }
 
 /** Core tool interface - every tool must implement this */

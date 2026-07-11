@@ -559,6 +559,11 @@ path = "src/main.rs"
 name = "app_state_wired"
 path = "tests/invariants/app_state_wired.rs"
 
+# EDGE-MEDIUM-011 — deploy/firmware ed25519 gates use verify_strict.
+[[test]]
+name = "deploy_verify_strict"
+path = "tests/invariants/deploy_verify_strict.rs"
+
 # Batch 24 Sprint 6.3 partial invariant — prctl + panic hook.
 [[test]]
 name = "process_hardening"

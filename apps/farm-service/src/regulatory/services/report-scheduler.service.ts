@@ -56,11 +56,6 @@ import {
   ReportDraftStatus,
 } from '../entities/regulatory-report-draft.entity';
 
-const TERMINAL_DRAFT_STATUSES: ReadonlySet<ReportDraftStatus> = new Set([
-  ReportDraftStatus.SUBMITTED,
-  ReportDraftStatus.DISMISSED,
-]);
-
 /** 'RPRT' in hex — the advisory-lock namespace for regulatory scheduling. */
 const ADVISORY_LOCK_NAMESPACE = 0x52505254;
 
@@ -268,10 +263,13 @@ export class ReportSchedulerService {
    * violation). Returns the number of reminders raised this run.
    */
   async notifyDeadlinesForTenant(tenantId: string, now: Date): Promise<number> {
-    const drafts = await this.draftService.listDrafts(tenantId);
+    // Only non-terminal drafts that carry a dueAt can breach a deadline; the
+    // predicate is applied in SQL (PERF-HIGH-003) so the daily sweep never loads
+    // the tenant's full terminal-draft history.
+    const drafts = await this.draftService.listDeadlineCandidates(tenantId);
     let notified = 0;
     for (const draft of drafts) {
-      if (TERMINAL_DRAFT_STATUSES.has(draft.status) || !draft.dueAt) continue;
+      if (!draft.dueAt) continue;
       const bucket = deadlineBucket(draft.dueAt, now);
       if (!bucket || bucket === draft.deadlineNotifiedBucket) continue;
 

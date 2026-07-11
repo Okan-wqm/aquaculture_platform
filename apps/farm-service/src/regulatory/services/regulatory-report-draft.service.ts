@@ -21,7 +21,7 @@
  */
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { FindOptionsWhere, Repository } from 'typeorm';
+import { FindOptionsWhere, In, IsNull, Not, Repository } from 'typeorm';
 
 import { ReportAssemblyService, ReportPrefillType } from '../assembly/report-assembly.service';
 import { ReportFieldMeta, ReportFieldProvenance } from '../assembly/provenance.types';
@@ -62,6 +62,24 @@ export class RegulatoryReportDraftService {
     return this.repo.find({ where, order: { dueAt: 'ASC', createdAt: 'DESC' } });
   }
 
+  /**
+   * Drafts that can still breach a deadline: non-terminal (not SUBMITTED/DISMISSED)
+   * AND carrying a dueAt. The predicate is pushed into SQL (PERF-HIGH-003) so the
+   * daily deadline sweep and the deadline view never load — and then discard in JS —
+   * the full, unbounded history of terminal drafts. The `(tenantId, status)` index
+   * covers the status filter.
+   */
+  async listDeadlineCandidates(tenantId: string): Promise<RegulatoryReportDraft[]> {
+    return this.repo.find({
+      where: {
+        tenantId,
+        status: Not(In([ReportDraftStatus.SUBMITTED, ReportDraftStatus.DISMISSED])),
+        dueAt: Not(IsNull()),
+      },
+      order: { dueAt: 'ASC' },
+    });
+  }
+
   async getDraftOrThrow(tenantId: string, id: string): Promise<RegulatoryReportDraft> {
     const draft = await this.repo.findOne({ where: { id, tenantId } });
     if (!draft) {
@@ -76,9 +94,8 @@ export class RegulatoryReportDraftService {
    * view / chips.
    */
   async listDeadlines(tenantId: string, now: Date): Promise<ReportDeadlineOutput[]> {
-    const drafts = await this.repo.find({ where: { tenantId }, order: { dueAt: 'ASC' } });
+    const drafts = await this.listDeadlineCandidates(tenantId);
     return drafts
-      .filter((d) => !TERMINAL_STATUSES.has(d.status) && d.dueAt)
       .map((d) => ({
         id: d.id,
         reportType: d.reportType,

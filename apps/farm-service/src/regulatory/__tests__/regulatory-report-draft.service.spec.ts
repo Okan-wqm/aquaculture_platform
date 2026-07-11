@@ -70,13 +70,12 @@ describe('RegulatoryReportDraftService', () => {
   });
 
   describe('listDeadlines', () => {
-    it('drops terminal + undated drafts and resolves overdue / days-until in Oslo', async () => {
+    it('resolves overdue / days-until in Oslo over the SQL-filtered candidate set', async () => {
+      // Terminal + undated drafts are now excluded in SQL (PERF-HIGH-003); the
+      // query returns only non-terminal dated drafts.
       find.mockResolvedValue([
         makeDraft({ id: 'd-open', dueAt: '2026-07-09', status: ReportDraftStatus.READY }),
         makeDraft({ id: 'd-overdue', dueAt: '2026-07-04', status: ReportDraftStatus.DRAFT }),
-        makeDraft({ id: 'd-submitted', dueAt: '2026-07-09', status: ReportDraftStatus.SUBMITTED }),
-        makeDraft({ id: 'd-dismissed', dueAt: '2026-07-09', status: ReportDraftStatus.DISMISSED }),
-        makeDraft({ id: 'd-undated', dueAt: undefined, status: ReportDraftStatus.DRAFT }),
       ]);
 
       const rows = await service.listDeadlines(TENANT, new Date('2026-07-06T09:00:00Z'));
@@ -86,6 +85,12 @@ describe('RegulatoryReportDraftService', () => {
       expect(open).toMatchObject({ overdue: false, daysUntilDue: 3 });
       const overdue = rows.find((r) => r.id === 'd-overdue');
       expect(overdue).toMatchObject({ overdue: true, daysUntilDue: -2 });
+
+      // The exclusion is pushed to SQL: non-terminal status + dueAt IS NOT NULL.
+      const where = find.mock.calls.at(-1)?.[0]?.where;
+      expect(where).toMatchObject({ tenantId: TENANT });
+      expect(where.status).toBeDefined(); // Not(In([SUBMITTED, DISMISSED]))
+      expect(where.dueAt).toBeDefined(); // Not(IsNull())
     });
   });
 

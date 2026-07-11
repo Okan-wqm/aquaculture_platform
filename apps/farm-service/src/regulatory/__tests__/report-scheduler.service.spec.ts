@@ -97,8 +97,12 @@ function makeService(options: {
   } as Partial<RegulatorySubmissionService> as RegulatorySubmissionService;
 
   const listDrafts = jest.fn().mockResolvedValue(options.drafts ?? []);
+  // The deadline sweep reads the SQL-filtered candidate set (non-terminal + dueAt);
+  // in the unit harness it returns the same fixture drafts.
+  const listDeadlineCandidates = jest.fn().mockResolvedValue(options.drafts ?? []);
   const draftService = {
     listDrafts,
+    listDeadlineCandidates,
   } as Partial<RegulatoryReportDraftService> as RegulatoryReportDraftService;
   const approveAndSubmit =
     options.approveAndSubmit ?? jest.fn().mockResolvedValue({ success: true });
@@ -261,14 +265,11 @@ describe('ReportSchedulerService.notifyDeadlinesForTenant', () => {
     expect(enqueue).not.toHaveBeenCalled();
   });
 
-  it('skips terminal and undated drafts, and drafts more than 3 days out', async () => {
+  it('does not notify a candidate draft more than 3 days out (no bucket yet)', async () => {
+    // Terminal + undated drafts are excluded by listDeadlineCandidates (SQL), so
+    // the sweep only sees dated non-terminal drafts; a >3-days-out one has no bucket.
     const { service, enqueue } = makeService({
-      drafts: [
-        draft({ id: 'd-submitted', dueAt: '2026-07-07', status: ReportDraftStatus.SUBMITTED }),
-        draft({ id: 'd-dismissed', dueAt: '2026-07-07', status: ReportDraftStatus.DISMISSED }),
-        draft({ id: 'd-undated', dueAt: undefined }),
-        draft({ id: 'd-far', dueAt: '2026-07-20' }), // >3 days → no bucket
-      ],
+      drafts: [draft({ id: 'd-far', dueAt: '2026-07-20' })],
     });
 
     const notified = await service.notifyDeadlinesForTenant(TENANT, NOW);

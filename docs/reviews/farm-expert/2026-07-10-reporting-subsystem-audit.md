@@ -201,6 +201,13 @@ the tenant credential could reach. Fixed: `assertTenantOwnsIdentity` verifies ev
 foreign lokalitet or mismatched org (BadRequestException) before any persistence or submission, on all
 five mutations (top-level + nested slakt localities).
 
+### FARM-HIGH-174 — deadline sweep + reportDeadlines loaded every draft ever created
+
+Both `notifyDeadlinesForTenant` (daily) and `listDeadlines` did `repo.find({ where:{ tenantId } })` and
+then discarded terminal/undated rows in JS, so the scans grew unbounded with history. Fixed:
+`listDeadlineCandidates` pushes `status NOT IN (SUBMITTED,DISMISSED) AND dueAt IS NOT NULL` into SQL
+(covered by the `(tenantId,status)` index); both callers use it. Specs assert the SQL where.
+
 ## OPEN — HIGH (tracked)
 
 - **Slaughter drafts can never be submitted** — `buildWirePayload` never wraps `arter`/`ukeplanPerArt`

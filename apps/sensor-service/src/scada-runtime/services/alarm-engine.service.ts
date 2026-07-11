@@ -88,8 +88,16 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
   /** Per-rule evaluation state. */
   private readonly evalState = new Map<string, RuleEvalState>();
 
-  /** Tenant ID used for gateway broadcasts. */
-  private tenantId: string = 'default';
+  /**
+   * Tenant this engine instance is bound to. Persistence and broadcast are
+   * tenant-scoped (DB-SENSOR-CRITICAL-001), so the engine starts UNBOUND
+   * (null) and refuses to persist or broadcast until an activation binds a
+   * real tenant via setTenantId(). This makes the cross-tenant leak
+   * structurally impossible: an unbound engine writes nothing and reads
+   * nothing rather than defaulting to a shared 'default' bucket every tenant
+   * would collide in.
+   */
+  private tenantId: string | null = null;
 
   private evalInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -157,9 +165,25 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
     this.notificationConfigs = configs;
   }
 
-  /** Set tenant context for gateway broadcasts. */
+  /** Bind this engine to a tenant. Required before any persistence/broadcast. */
   setTenantId(tenantId: string): void {
+    if (typeof tenantId !== 'string' || tenantId.trim().length === 0) {
+      throw new Error('AlarmEngineService.setTenantId: a non-empty tenantId is required');
+    }
     this.tenantId = tenantId;
+  }
+
+  /**
+   * Return the bound tenant or throw. Every storage write flows through here
+   * so an unbound engine fails closed instead of persisting cross-tenant.
+   */
+  private requireTenant(): string {
+    if (this.tenantId == null) {
+      throw new Error(
+        'AlarmEngineService: no tenant bound — call setTenantId() before evaluating alarms',
+      );
+    }
+    return this.tenantId;
   }
 
   /* ---------------------------------------------------------------- */
@@ -167,6 +191,11 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
   /* ---------------------------------------------------------------- */
 
   private evaluateTick(): void {
+    // Fail-closed: an engine with no bound tenant is not activated for anyone.
+    // Skipping the tick (rather than persisting to a shared bucket) is what
+    // keeps SCADA alarm state from ever crossing tenants.
+    if (this.tenantId == null) return;
+
     const now = Date.now();
 
     for (const rule of this.rules) {
@@ -230,7 +259,9 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
       // else: already ACTIVE — update current value
       else if (currentAlarm.status === 'active') {
         currentAlarm.currentValue = rawValue;
-        void this.storage.saveAlarm(this.instanceToEntity(currentAlarm)).catch(() => undefined);
+        void this.storage
+          .saveAlarm(this.requireTenant(), this.instanceToEntity(currentAlarm))
+          .catch(() => undefined);
       }
     } else {
       // Condition not met — reset delay timer
@@ -284,9 +315,11 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
     );
 
     // Persist
-    void this.storage.saveAlarm(this.instanceToEntity(alarm)).catch((err: Error) => {
-      this.logger.error(`activateAlarm: persist failed — ${err.message}`);
-    });
+    void this.storage
+      .saveAlarm(this.requireTenant(), this.instanceToEntity(alarm))
+      .catch((err: Error) => {
+        this.logger.error(`activateAlarm: persist failed — ${err.message}`);
+      });
 
     // Execute alarm actions
     if (rule.actions && rule.actions.length > 0 && !state.actionsExecuted) {
@@ -317,9 +350,11 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
 
     this.logger.log(`ALARM REACTIVATED: id=${alarm.id} rule=${alarm.ruleName}`);
 
-    void this.storage.saveAlarm(this.instanceToEntity(alarm)).catch((err: Error) => {
-      this.logger.error(`reactivateAlarm: persist failed — ${err.message}`);
-    });
+    void this.storage
+      .saveAlarm(this.requireTenant(), this.instanceToEntity(alarm))
+      .catch((err: Error) => {
+        this.logger.error(`reactivateAlarm: persist failed — ${err.message}`);
+      });
   }
 
   private clearAlarm(
@@ -338,9 +373,11 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
       this.resolveAlarm(alarm, state);
     } else {
       alarm.status = 'cleared';
-      void this.storage.saveAlarm(this.instanceToEntity(alarm)).catch((err: Error) => {
-        this.logger.error(`clearAlarm: persist failed — ${err.message}`);
-      });
+      void this.storage
+        .saveAlarm(this.requireTenant(), this.instanceToEntity(alarm))
+        .catch((err: Error) => {
+          this.logger.error(`clearAlarm: persist failed — ${err.message}`);
+        });
       this.logger.log(`ALARM CLEARED: id=${alarm.id} rule=${alarm.ruleName}`);
     }
   }
@@ -349,12 +386,15 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`ALARM RESOLVED: id=${alarm.id} rule=${alarm.ruleName}`);
 
     // Archive to chronicle
-    void this.storage.saveToChronicle(this.instanceToChronicle(alarm)).catch((err: Error) => {
-      this.logger.error(`resolveAlarm: chronicle failed — ${err.message}`);
-    });
+    const tenantId = this.requireTenant();
+    void this.storage
+      .saveToChronicle(tenantId, this.instanceToChronicle(alarm))
+      .catch((err: Error) => {
+        this.logger.error(`resolveAlarm: chronicle failed — ${err.message}`);
+      });
 
     // Remove from active table
-    void this.storage.deleteAlarm(alarm.id).catch((err: Error) => {
+    void this.storage.deleteAlarm(tenantId, alarm.id).catch((err: Error) => {
       this.logger.error(`resolveAlarm: delete failed — ${err.message}`);
     });
 
@@ -399,9 +439,11 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
         `ALARM ACKNOWLEDGED: id=${alarmId} userId=${userId} rule=${alarm.ruleName}`,
       );
 
-      await this.storage.saveAlarm(this.instanceToEntity(alarm)).catch((err: Error) => {
-        this.logger.error(`acknowledgeAlarm: persist failed — ${err.message}`);
-      });
+      await this.storage
+        .saveAlarm(this.requireTenant(), this.instanceToEntity(alarm))
+        .catch((err: Error) => {
+          this.logger.error(`acknowledgeAlarm: persist failed — ${err.message}`);
+        });
 
       // If condition is already clear, resolve immediately
       if (alarm.offTime != null) {
@@ -438,9 +480,11 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
       alarm.status = 'acknowledged';
       count++;
 
-      await this.storage.saveAlarm(this.instanceToEntity(alarm)).catch((err: Error) => {
-        this.logger.error(`acknowledgeAll: persist failed id=${alarm.id} — ${err.message}`);
-      });
+      await this.storage
+        .saveAlarm(this.requireTenant(), this.instanceToEntity(alarm))
+        .catch((err: Error) => {
+          this.logger.error(`acknowledgeAll: persist failed id=${alarm.id} — ${err.message}`);
+        });
 
       if (alarm.offTime != null) {
         this.resolveAlarm(alarm, state);
@@ -488,6 +532,7 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
       pendingActions: actions.length > 0 ? actions : undefined,
     };
 
+    if (this.tenantId == null) return; // unbound engine broadcasts to no tenant
     try {
       this.gateway.pushAlarmStatus(this.tenantId, summary);
     } catch (error) {

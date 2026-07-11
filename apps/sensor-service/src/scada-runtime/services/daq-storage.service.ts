@@ -129,22 +129,37 @@ export class DaqStorageService {
     private readonly dataSource: DataSource,
   ) {}
 
+  /**
+   * Fail-closed tenant guard. `scada_tag_history` is a cross-tenant
+   * infrastructure table in the shared `sensor` schema (DB-SENSOR-CRITICAL-001),
+   * so every read and write MUST carry a tenant discriminator — an unbound
+   * tenant would write rows no tenant owns, or read every tenant's history.
+   */
+  private assertTenant(tenantId: string): void {
+    if (typeof tenantId !== 'string' || tenantId.trim().length === 0) {
+      throw new Error(
+        'DaqStorageService: tenantId is required — SCADA tag history is tenant-scoped and refuses an unbound tenant context',
+      );
+    }
+  }
+
   /* ---------------------------------------------------------------- */
   /*  Write                                                            */
   /* ---------------------------------------------------------------- */
 
   /**
-   * Persist a batch of tag value changes.
+   * Persist a batch of tag value changes for a tenant.
    *
    * Uses a single parameterised INSERT with multiple value rows for
-   * efficiency.  On conflict (same tag_id + timestamp) the row is
+   * efficiency.  On conflict (same tenant_id + tag_id + timestamp) the row is
    * updated so re-ingestion is idempotent.
    */
-  async addValues(deviceId: string, values: TagValueChange[]): Promise<void> {
+  async addValues(tenantId: string, deviceId: string, values: TagValueChange[]): Promise<void> {
+    this.assertTenant(tenantId);
     if (values.length === 0) return;
 
     // Build a multi-row VALUES clause.
-    // Each row: (tag_id, timestamp, value, quality)
+    // Each row: (tenant_id, tag_id, timestamp, value, quality)
     const rows: string[] = [];
     const params: unknown[] = [];
     let pi = 1;
@@ -157,20 +172,21 @@ export class DaqStorageService {
           ? (change.value ? 1 : 0)
           : parseFloat(String(change.value));
 
-      rows.push(`($${pi}, $${pi + 1}, $${pi + 2}, $${pi + 3})`);
+      rows.push(`($${pi}, $${pi + 1}, $${pi + 2}, $${pi + 3}, $${pi + 4})`);
       params.push(
+        tenantId,
         change.tagId,
         new Date(change.timestamp),
         isNaN(numVal) ? null : numVal,
         change.quality ?? 'good',
       );
-      pi += 4;
+      pi += 5;
     }
 
     const sql = `
-      INSERT INTO ${TABLE_NAME} (tag_id, timestamp, value, quality)
+      INSERT INTO ${TABLE_NAME} (tenant_id, tag_id, timestamp, value, quality)
       VALUES ${rows.join(', ')}
-      ON CONFLICT (tag_id, timestamp)
+      ON CONFLICT (tenant_id, tag_id, timestamp)
       DO UPDATE SET
         value   = EXCLUDED.value,
         quality = EXCLUDED.quality
@@ -202,13 +218,16 @@ export class DaqStorageService {
    * Maximum 50 000 rows per tag to prevent runaway queries.
    */
   async queryValues(
+    tenantId: string,
     tagIds: string[],
     from: Date,
     to: Date,
   ): Promise<Record<string, HistoricalDataPoint[]>> {
+    this.assertTenant(tenantId);
     if (tagIds.length === 0) return {};
 
-    // Build a parameterised ANY($n) for the tagIds list.
+    // Tenant fence is the first predicate — a history read is confined to the
+    // caller's tenant before any tag/time filtering.
     const sql = `
       SELECT
         tag_id,
@@ -216,15 +235,17 @@ export class DaqStorageService {
         value,
         quality
       FROM ${TABLE_NAME}
-      WHERE tag_id = ANY($1)
-        AND timestamp >= $2
-        AND timestamp <  $3
+      WHERE tenant_id = $1
+        AND tag_id = ANY($2)
+        AND timestamp >= $3
+        AND timestamp <  $4
       ORDER BY tag_id, timestamp ASC
       LIMIT 50000
     `;
 
     try {
       const rows: RawHistoryRow[] = await this.dataSource.query(sql, [
+        tenantId,
         tagIds,
         from,
         to,
@@ -251,11 +272,13 @@ export class DaqStorageService {
    * Results are ordered ascending by bucket per tag.
    */
   async queryAggregated(
+    tenantId: string,
     tagIds: string[],
     from: Date,
     to: Date,
     aggregation: DaqAggregation,
   ): Promise<Record<string, HistoricalDataPoint[]>> {
+    this.assertTenant(tenantId);
     if (tagIds.length === 0) return {};
 
     const intervalSql = INTERVAL_SQL[aggregation.interval];
@@ -268,16 +291,18 @@ export class DaqStorageService {
     }
 
     // Use time_bucket (TimescaleDB). Wrap in try/catch and fall back to
-    // date_trunc if the function is not available.
+    // date_trunc if the function is not available. Tenant fence is applied
+    // in both variants so an aggregate can never span tenants.
     const sql = `
       SELECT
         tag_id,
         time_bucket($1::INTERVAL, timestamp) AS bucket,
         ${aggFnSql}(value)                   AS agg_value
       FROM ${TABLE_NAME}
-      WHERE tag_id = ANY($2)
-        AND timestamp >= $3
-        AND timestamp <  $4
+      WHERE tenant_id = $2
+        AND tag_id = ANY($3)
+        AND timestamp >= $4
+        AND timestamp <  $5
         AND quality = 'good'
       GROUP BY tag_id, bucket
       ORDER BY tag_id, bucket ASC
@@ -294,9 +319,10 @@ export class DaqStorageService {
         ${bucketExpr} AS bucket,
         ${aggFnSql}(value)        AS agg_value
       FROM ${TABLE_NAME}
-      WHERE tag_id = ANY($1)
-        AND timestamp >= $2
-        AND timestamp <  $3
+      WHERE tenant_id = $1
+        AND tag_id = ANY($2)
+        AND timestamp >= $3
+        AND timestamp <  $4
         AND quality = 'good'
       GROUP BY tag_id, bucket
       ORDER BY tag_id, bucket ASC
@@ -304,13 +330,13 @@ export class DaqStorageService {
 
     let rows: AggregatedRow[];
     try {
-      rows = await this.dataSource.query(sql, [intervalSql, tagIds, from, to]);
+      rows = await this.dataSource.query(sql, [intervalSql, tenantId, tagIds, from, to]);
     } catch {
       // time_bucket not available — use date_trunc fallback
       this.logger.warn(
         'DaqStorage: time_bucket unavailable, falling back to date_trunc',
       );
-      rows = await this.dataSource.query(fallbackSql, [tagIds, from, to]);
+      rows = await this.dataSource.query(fallbackSql, [tenantId, tagIds, from, to]);
     }
 
     return aggRowsToDataMap(tagIds, rows);
@@ -366,6 +392,7 @@ export class DaqStorageService {
    *   - chunkIndex: 0-based index of this chunk
    */
   async queryChunked(
+    tenantId: string,
     tagIds: string[],
     from: Date,
     to: Date,
@@ -373,6 +400,7 @@ export class DaqStorageService {
     queryId = crypto.randomUUID(),
     aggregation?: DaqAggregation,
   ): Promise<void> {
+    this.assertTenant(tenantId);
     if (tagIds.length === 0) {
       chunkCallback({ queryId, data: {}, hasMore: false, chunkIndex: 0 });
       return;
@@ -405,9 +433,9 @@ export class DaqStorageService {
 
       let data: Record<string, HistoricalDataPoint[]>;
       if (aggregation) {
-        data = await this.queryAggregated(tagIds, chunk.from, chunk.to, aggregation);
+        data = await this.queryAggregated(tenantId, tagIds, chunk.from, chunk.to, aggregation);
       } else {
-        data = await this.queryValues(tagIds, chunk.from, chunk.to);
+        data = await this.queryValues(tenantId, tagIds, chunk.from, chunk.to);
       }
 
       chunkCallback({

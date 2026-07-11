@@ -403,8 +403,10 @@ submission systems (manual wizard vs assembled draft) per report type (farm-expe
 inconsistent artskode regex is FIXED (FARM-LOW-011/FARM-MEDIUM-158 -> FARM-MEDIUM-194: one OFFICIAL_ARTSKODE_PATTERN /^[A-Z]{3}$/ SSoT shared by escape + settefisk, dropping the loose {2,5} fork); non-atomic
 attemptCount RMW + operator/sweep race is FIXED (PRODUCT-JOB-MEDIUM-001 -> FARM-MEDIUM-192: applyFailure/markSubmitted take a pessimistic_write row lock so the RMW serialises); no span coverage / deterministic
 backoff without jitter / token single-flight + LRU (OBS-MEDIUM-001/002, CIRCUIT-MEDIUM-001/002/003);
-plus assorted LOWs (siteName never populated, sea-lice temperature not hydrated, tenant discovery keyed
-off `sites`).
+plus assorted LOWs (siteName never populated, sea-lice temperature not hydrated); tenant discovery keyed
+off `sites` is FIXED (FARM-LOW-197: `discoverTenantIds` now anchors on `regulatory_settings` — the SSoT
+for a reporting-configured tenant — UNION `sites`, so a schema with settings but no sites row is still
+discovered and its deadline/retry sweeps run).
 
 ## Verified sound (no action)
 

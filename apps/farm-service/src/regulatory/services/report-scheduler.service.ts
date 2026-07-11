@@ -476,8 +476,18 @@ export class ReportSchedulerService {
       await runner.connect();
       try {
         await runner.query(`SET search_path TO "${schema}", farm, public`);
+        // A schema is exactly one tenant, so any row's tenantId identifies it.
+        // Anchor discovery on regulatory_settings (the SSoT for "this tenant
+        // does regulatory reporting", populated at setup) UNION sites, so a
+        // tenant that has configured reporting but has no sites row yet — or
+        // vice-versa after a site was removed — is still discovered. Keying only
+        // on `sites` silently skipped such tenants (their deadlines/retries never
+        // ran).
         const rows: Array<{ tenantId: string }> = await runner.query(
-          `SELECT DISTINCT "tenantId" FROM sites LIMIT 1`,
+          `SELECT "tenantId" FROM regulatory_settings WHERE "tenantId" IS NOT NULL
+             UNION
+           SELECT "tenantId" FROM sites WHERE "tenantId" IS NOT NULL
+           LIMIT 1`,
         );
         for (const row of rows) {
           if (row.tenantId) tenantIds.add(row.tenantId);

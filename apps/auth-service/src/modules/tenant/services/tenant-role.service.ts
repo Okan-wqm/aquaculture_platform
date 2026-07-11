@@ -856,24 +856,30 @@ export class TenantRoleService {
     await queryRunner.startTransaction('SERIALIZABLE');
 
     try {
-      // Check if roles already exist (with lock to prevent race condition).
-      // Repointed to auth.* (ORPHAN-CRITICAL-100): WHERE "tenantId" = $1 is
-      // load-bearing — without it a brand-new tenant is told roles already
-      // exist (skipping its seed) and takes a cross-tenant lock.
+      // RBAC-H10 / DATA-HIGH-002: seed PER-ROLE-idempotently, not all-or-nothing.
+      // The previous guard skipped the ENTIRE seed when ANY role already existed —
+      // but tenant provisioning always inserts a TENANT_ADMIN row first, so the
+      // count was always ≥1 and the operational default roles (Supervisor,
+      // Technician, Feed Manager, Operator, Viewer) were NEVER created for any
+      // real tenant. Lock the tenant's roles (FOR UPDATE serializes concurrent
+      // seeds; ORPHAN-CRITICAL-100 tenant filter is load-bearing) and read the
+      // existing names, then create only the named defaults that are ABSENT.
       const existingRoles = await queryRunner.query(
-        `SELECT COUNT(*)::int as count FROM "auth"."tenant_roles" WHERE "tenantId" = $1 FOR UPDATE`,
+        `SELECT LOWER(name) AS name FROM "auth"."tenant_roles" WHERE "tenantId" = $1 FOR UPDATE`,
         [tenantId],
       );
+      const existingNames = new Set(
+        (existingRoles as Array<{ name: string }>).map((r) => r.name),
+      );
 
-      if (existingRoles[0].count > 0) {
-        await queryRunner.commitTransaction();
-        this.logger.debug(`Roles already exist in tenant ${tenantId}, skipping seed`);
-        return this.getTenantRoles(tenantId);
-      }
-
-      this.logger.log(`Seeding default roles for tenant ${tenantId}`);
-
+      const createdNames: string[] = [];
       for (const roleTemplate of DEFAULT_TENANT_ROLES) {
+        // Idempotent: a default already present (by name, this tenant) is left as
+        // is. Re-running the seed only fills the gaps — it never duplicates.
+        if (existingNames.has(roleTemplate.name.toLowerCase())) {
+          continue;
+        }
+
         // "tenantId" prepended as $1 (ORPHAN-CRITICAL-100); template params shift +1.
         const roleResult = await queryRunner.query(
           `
@@ -909,30 +915,37 @@ export class TenantRoleService {
           [roleId, JSON.stringify(defaultPermissions), resourcePermissions],
         );
 
+        createdNames.push(roleTemplate.name);
         this.logger.debug(`Created default role: ${roleTemplate.name}`);
       }
 
-      // RBAC-C3: fail-CLOSED audit for the seed operation (a bulk privileged
-      // role creation), atomic with the inserts above.
-      await this.auditLogService.log(
-        {
-          tenantId,
-          performedBy: createdBy,
-          action: 'ROLES_SEEDED',
-          entityType: 'TenantRole',
-          details: {
-            count: DEFAULT_TENANT_ROLES.length,
-            roleNames: DEFAULT_TENANT_ROLES.map((r) => r.name),
-            timestamp: new Date().toISOString(),
+      // RBAC-C3: fail-CLOSED audit for the seed operation, atomic with the
+      // inserts. Only written when something was actually created, and it records
+      // the REAL names/count seeded (not the full template list).
+      if (createdNames.length > 0) {
+        await this.auditLogService.log(
+          {
+            tenantId,
+            performedBy: createdBy,
+            action: 'ROLES_SEEDED',
+            entityType: 'TenantRole',
+            details: {
+              count: createdNames.length,
+              roleNames: createdNames,
+              timestamp: new Date().toISOString(),
+            },
+            severity: AuditLogSeverity.WARNING,
           },
-          severity: AuditLogSeverity.WARNING,
-        },
-        queryRunner.manager,
-      );
+          queryRunner.manager,
+        );
+      }
 
       await queryRunner.commitTransaction();
 
-      this.logger.log(`Seeded ${DEFAULT_TENANT_ROLES.length} default roles for tenant ${tenantId}`);
+      this.logger.log(
+        `Seeded ${createdNames.length} default role(s) for tenant ${tenantId}` +
+          (createdNames.length === 0 ? ' (all defaults already present)' : ''),
+      );
 
       return this.getTenantRoles(tenantId);
     } catch (error) {

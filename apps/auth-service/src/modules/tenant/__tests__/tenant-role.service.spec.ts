@@ -255,9 +255,9 @@ describe('TenantRoleService', () => {
 
   describe('seedDefaultRoles', () => {
     it('should create 5 default roles with SERIALIZABLE transaction', async () => {
-      // First call: count existing = 0
+      // First call: existing role names for the tenant = none
       mockQueryRunner.query
-        .mockResolvedValueOnce([{ count: 0 }]); // COUNT check
+        .mockResolvedValueOnce([]); // existing-names SELECT
 
       // For each of 5 roles: INSERT RETURNING id + INSERT permissions
       for (let i = 0; i < 5; i++) {
@@ -284,7 +284,7 @@ describe('TenantRoleService', () => {
     });
 
     it('should scope the existence check to the tenant and prepend tenantId on INSERT', async () => {
-      mockQueryRunner.query.mockResolvedValueOnce([{ count: 0 }]);
+      mockQueryRunner.query.mockResolvedValueOnce([]);
       for (let i = 0; i < 5; i++) {
         mockQueryRunner.query
           .mockResolvedValueOnce([{ id: `default-role-${i}` }])
@@ -307,27 +307,50 @@ describe('TenantRoleService', () => {
       expect((insertCall[1] as unknown[])[0]).toBe(TENANT_ID);
     });
 
-    it('should skip seeding if roles already exist', async () => {
-      mockQueryRunner.query.mockResolvedValueOnce([{ count: 3 }]);
+    it('RBAC-H10: seeds the operational defaults even when a TENANT_ADMIN row already exists', async () => {
+      // Regression: provisioning inserts a "Tenant Administrator" role first, so
+      // the old count>0 guard skipped the ENTIRE seed and the 5 operational roles
+      // were never created. Now only the ABSENT named defaults are created.
+      mockQueryRunner.query.mockResolvedValueOnce([{ name: 'tenant administrator' }]); // existing names
+      for (let i = 0; i < 5; i++) {
+        mockQueryRunner.query
+          .mockResolvedValueOnce([{ id: `default-role-${i}` }]) // role INSERT
+          .mockResolvedValueOnce([]); // permission INSERT
+      }
+      mockDataSource.query.mockResolvedValue([]);
 
-      // After commit, getTenantRoles is called
-      mockDataSource.query.mockResolvedValue([
-        createMockRoleRow({ name: 'Existing1' }),
-        createMockRoleRow({ name: 'Existing2' }),
-        createMockRoleRow({ name: 'Existing3' }),
-      ]);
+      await service.seedDefaultRoles(TENANT_ID, ADMIN_USER_ID);
 
-      const result = await service.seedDefaultRoles(TENANT_ID, ADMIN_USER_ID);
-
-      expect(result).toHaveLength(3);
+      // All 5 operational roles were inserted (existence SELECT + 5×(role+perm) = 11 calls).
+      const roleInserts = mockQueryRunner.query.mock.calls.filter(
+        (call) => typeof call[0] === 'string' && call[0].includes('INSERT INTO "auth"."tenant_roles"'),
+      );
+      expect(roleInserts).toHaveLength(5);
       expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
-      // Should NOT have inserted any roles (only the COUNT query ran)
+    });
+
+    it('is idempotent: creates nothing when every default already exists (by name)', async () => {
+      mockQueryRunner.query.mockResolvedValueOnce([
+        { name: 'supervisor' },
+        { name: 'technician' },
+        { name: 'feed manager' },
+        { name: 'operator' },
+        { name: 'viewer' },
+      ]); // all defaults already present (lowercased)
+      mockDataSource.query.mockResolvedValue([]);
+
+      await service.seedDefaultRoles(TENANT_ID, ADMIN_USER_ID);
+
+      // No INSERT ran — only the existence SELECT.
       expect(mockQueryRunner.query).toHaveBeenCalledTimes(1);
+      expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
+      // No audit row when nothing was created.
+      expect(mockAuditLogService.log).not.toHaveBeenCalled();
     });
 
     it('should rollback transaction on error during seeding', async () => {
       mockQueryRunner.query
-        .mockResolvedValueOnce([{ count: 0 }]) // COUNT check
+        .mockResolvedValueOnce([]) // existing-names SELECT
         .mockRejectedValueOnce(new Error('DB connection lost')); // first role INSERT fails
 
       await expect(service.seedDefaultRoles(TENANT_ID, ADMIN_USER_ID)).rejects.toThrow(
@@ -338,8 +361,8 @@ describe('TenantRoleService', () => {
       expect(mockQueryRunner.release).toHaveBeenCalled();
     });
 
-    it('should use FOR UPDATE lock on COUNT query to prevent race conditions', async () => {
-      mockQueryRunner.query.mockResolvedValueOnce([{ count: 0 }]);
+    it('should use FOR UPDATE lock on the existence query to prevent race conditions', async () => {
+      mockQueryRunner.query.mockResolvedValueOnce([]);
 
       // Stub remaining calls for 5 roles
       for (let i = 0; i < 5; i++) {

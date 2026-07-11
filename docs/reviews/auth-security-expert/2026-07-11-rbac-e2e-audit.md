@@ -111,3 +111,16 @@ This file records the two write-time authority findings closed by the P0 remedia
 **Rule violated:** One deletion SSoT; a destructive lifecycle action must revoke ALL of the user's credentials (refresh AND access tokens), not silently skip a class of them.
 
 **Fix:** `deleteTenantUser` now delegates to `UserLifecycleService.deleteUser` (mirroring how `createTenantUser` delegates to `createUser`), and the duplicate body was deleted. `deleteUser` additionally revokes the user's live access token via the RBAC-HIGH-001 primitive, so a deleted user is locked out on their next request rather than at token expiry.
+
+## RBAC-HIGH-003
+
+**Title:** `seedDefaultRoles` was a permanent no-op for every provisioned tenant: it skipped the ENTIRE seed when any role already existed, but tenant provisioning always inserts a `TENANT_ADMIN` role first — so the count was always ≥1 and the 5 operational default roles (Supervisor, Technician, Feed Manager, Operator, Viewer, each with its `tenant_role_permissions`) were NEVER created.
+
+**Layer:** 2 (role seeding)
+**Evidence:**
+- `apps/auth-service/src/modules/tenant/services/tenant-role.service.ts`
+- `apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts`
+
+**Rule violated:** A per-tenant seed must be idempotent per item and fill the gaps, not skip the whole operation when any single item pre-exists.
+
+**Fix:** `seedDefaultRoles` now locks and reads the tenant's existing role names (`FOR UPDATE`, tenant-scoped) and creates only the named defaults that are ABSENT — so the operational roles get created even after provisioning inserted `TENANT_ADMIN`, and re-running only fills gaps (never duplicates). The seed audit records the real created count/names and is written only when something was created. (Auto-seeding at provisioning time — so tenants get the operational roles without the manual mutation — remains a separate provisioning-flow item.)

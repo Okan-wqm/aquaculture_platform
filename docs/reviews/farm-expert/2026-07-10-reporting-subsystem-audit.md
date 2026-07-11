@@ -496,3 +496,31 @@ and Oslo/DST-safe deadline computation; rollover `ON CONFLICT` idempotency; the 
 frontend tenant-scoped query-key cache hygiene; no `console.*`, no secrets logged; the authz matrix
 (global fail-closed RolesGuard + PermissionMatrixGuard) and `saveOverrides` RECORDS/SENSOR rejection;
 per-tenant exception isolation in the sweeps; MODULE_SCHEMAS registration + RLS on `regulatory_reports`.
+
+## Phase 6 — mobile field capture + report surface (2026-07-11)
+
+### FARM-HIGH-214 — AquaMobil had zero regulatory field-capture or report surface (RPT-019)
+
+The Mattilsynet source tables (`lice_counts`, `welfare_assessments`, `escape_incidents`) were
+desktop-only while the observations happen AT the pen, and report drafts due could not be
+reviewed/approved from the field. Remediated in this branch: offline-first capture pages
+(lice stage averages, 4×0–3 welfare score dials, escape with the "varsling is legally
+IMMEDIATE" banner + priority queue drain), the three inputs extended with the
+`MobileCommandEnvelopeInput` at-most-once envelope (welfare/escape dedup via
+`farm_mobile_command_receipts`; lice counts keep the stronger natural
+`(tenant, tank, countDate)` upsert idempotency), species/site enrichment of the inventory
+read model (`farm_stock_batch_snapshots.speciesId/speciesName`, migration `1805200000000`),
+the auth `liceCount`/`welfare`/`escape`/`reports` feature flags (+ column-default migration
+`1805300000000`), and the ONLINE-ONLY Reports Due / Report Review pages gated on a
+`MODULE_MANAGER` role floor mirroring the draft resolver's `@Roles` matrix.
+
+### FARM-MEDIUM-215 — tenant-admin MobileSettings toggle UI drifted from the feature vocabulary (tracked)
+
+Found while implementing FARM-HIGH-214: `web/modules/tenant-admin/src/components/settings/MobileSettings.tsx`
+renders/saves only 6 of the 16 `MobileAllowedFeatures` flags (transfer/schedule/attendance/
+leave/tasks/storage and the Phase-6 additions are not admin-toggleable) and its local
+`DEFAULT_ALLOWED_FEATURES` contradicts the auth-service `DEFAULT_MOBILE_FEATURES`
+(feeding/waterQuality false vs true). The API layer is fixed in this branch (the update DTOs
+now cover the full vocabulary via one abstract base); the admin UI rework is TRACKED with
+owner (admin-expert) + deadline (2026-09-30) — root-cause fix is deriving the toggle list +
+defaults from the shared vocabulary instead of a hand-maintained copy.

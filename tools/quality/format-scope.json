@@ -4373,6 +4373,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/migrations/1805300000000-AddMobileFeatureFlagDefaults.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/announcement/__tests__/announcement.service.spec.ts",
       "prettier_managed": true
     },
@@ -52470,10 +52476,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8599,
+  "file_count": 8600,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8424,
-  "managed_file_list_sha256": "0caa30e24ff3e4026653600c18ccd1c5cac2bdb3d0132aac7ac01c097dbcb4e8",
+  "managed_count": 8425,
+  "managed_file_list_sha256": "b5b6654837c8880f25ff45c391f76b452449bc18ed8d33292b513d1ff7639d89",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

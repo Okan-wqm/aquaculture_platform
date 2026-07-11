@@ -29,6 +29,7 @@
 
 pub mod codec;
 pub mod crypto;
+pub mod downlink_queue;
 pub mod mac;
 pub mod session;
 pub mod sx1302;
@@ -47,6 +48,7 @@ use crate::config::LoRaWanConfig;
 use crate::io_poll::{IoDataPayload, IoTagData};
 use crate::process_image::{TagQuality, TagSource};
 
+use self::downlink_queue::EnqueueOutcome;
 use self::mac::{DownlinkItem, LoRaMac, MacEvent};
 use self::session::SessionStore;
 use self::sx1302::Sx1302;
@@ -421,8 +423,21 @@ impl LoRaActor {
 
     fn handle_queue_downlink(&mut self, item: DownlinkItem) -> Result<()> {
         if let Some(ref mut mac) = self.mac {
-            mac.queue_downlink(item);
-            Ok(())
+            let dev_addr = item.dev_addr;
+            // Reddedilme (per-DevAddr derinlik siniri dolu) cagiran tarafa
+            // gorunur hata olarak yansitilir — sessizce dusurulmez. En eski
+            // girisin cikarilmasi (evict-oldest) icsel geri-basincdir ve
+            // cagirilan downlink kabul edildiginden Ok doner.
+            match mac.queue_downlink(item) {
+                EnqueueOutcome::Accepted | EnqueueOutcome::AcceptedEvictedOldest => Ok(()),
+                EnqueueOutcome::RejectedDevAddrFull => {
+                    anyhow::bail!(
+                        "Downlink kuyruga alinamadi: dev_addr={} icin bekleyen downlink \
+                         siniri dolu",
+                        dev_addr
+                    )
+                }
+            }
         } else {
             anyhow::bail!("LoRa MAC henuz baslatilmamis")
         }

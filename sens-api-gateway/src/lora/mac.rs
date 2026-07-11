@@ -21,7 +21,7 @@
 // in PHYPayload byte arrays. All index bounds are specified by LoRaWAN 1.0.x spec.
 #![allow(clippy::indexing_slicing)]
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::time::Instant;
 use tracing::{debug, error, info, warn};
 
@@ -30,6 +30,7 @@ use super::crypto::{
     build_b0, compute_mic, derive_session_keys, encrypt_frm_payload, encrypt_join_accept,
     verify_mic,
 };
+use super::downlink_queue::{BoundedDownlinkQueue, EnqueueOutcome};
 use super::session::SessionStore;
 use super::types::{DevAddr, DevEui, LoRaDeviceConfig, LoRaRegion, LoRaStats, RxPacket, TxPacket};
 
@@ -126,8 +127,9 @@ pub struct LoRaMac {
     sessions: SessionStore,
     /// Kayitli cihaz konfigurasyonlari — DevEUI bazli harita
     device_configs: HashMap<DevEui, LoRaDeviceConfig>,
-    /// Bekleyen downlink mesajlari — FIFO sirasi
-    downlink_queue: VecDeque<DownlinkItem>,
+    /// Bekleyen downlink mesajlari — sinirli kuyruk (per-DevAddr derinlik +
+    /// global sert sinir + TTL). Sinirsiz buyume yapisal olarak imkansizdir.
+    downlink_queue: BoundedDownlinkQueue,
     /// Istatistik sayaclari
     stats: LoRaStats,
     /// DevAddr atamasi icin sayac (basit artimli atama)
@@ -166,7 +168,7 @@ impl LoRaMac {
             net_id,
             sessions,
             device_configs: HashMap::new(),
-            downlink_queue: VecDeque::new(),
+            downlink_queue: BoundedDownlinkQueue::new(),
             stats: LoRaStats::default(),
             next_dev_addr_counter: 0x0001,
             rx1_delay,
@@ -236,15 +238,45 @@ impl LoRaMac {
     ///
     /// Mesaj, cihaz bir sonraki uplink gonderdikten sonra
     /// RX1/RX2 pencerelerinde iletilir (Class A).
-    pub fn queue_downlink(&mut self, item: DownlinkItem) {
-        debug!(
-            "Downlink kuyruga eklendi: dev_addr={}, f_port={}, {} byte, confirmed={}",
-            item.dev_addr,
-            item.f_port,
-            item.payload.len(),
-            item.confirmed
-        );
-        self.downlink_queue.push_back(item);
+    ///
+    /// Kuyruk sinirlidir: hedef DevAddr icin derinlik siniri dolu ise yeni
+    /// mesaj reddedilir (`RejectedDevAddrFull` doner); global sinir dolu ise
+    /// en eski bekleyen downlink cikarilir. Geri-basinc kararlari icin
+    /// `EnqueueOutcome` dondurulur.
+    pub fn queue_downlink(&mut self, item: DownlinkItem) -> EnqueueOutcome {
+        let dev_addr = item.dev_addr;
+        let f_port = item.f_port;
+        let payload_len = item.payload.len();
+        let confirmed = item.confirmed;
+
+        let outcome = self.downlink_queue.enqueue(item);
+        match outcome {
+            EnqueueOutcome::Accepted => {
+                debug!(
+                    "Downlink kuyruga eklendi: dev_addr={}, f_port={}, {} byte, confirmed={}",
+                    dev_addr, f_port, payload_len, confirmed
+                );
+            }
+            EnqueueOutcome::AcceptedEvictedOldest => {
+                warn!(
+                    "Downlink kuyruga eklendi ancak global sinir ({}) doluydu — en eski \
+                     bekleyen downlink cikarildi: dev_addr={}, f_port={}, {} byte",
+                    super::downlink_queue::MAX_DOWNLINK_QUEUE,
+                    dev_addr,
+                    f_port,
+                    payload_len
+                );
+            }
+            EnqueueOutcome::RejectedDevAddrFull => {
+                warn!(
+                    "Downlink reddedildi — dev_addr={} icin derinlik siniri ({}) dolu. \
+                     Cihaz uplink gondermiyor olabilir; yeni downlink kuyruga alinmadi.",
+                    dev_addr,
+                    super::downlink_queue::MAX_DOWNLINK_PER_DEV_ADDR
+                );
+            }
+        }
+        outcome
     }
 
     // ========================================================================
@@ -846,17 +878,10 @@ impl LoRaMac {
         rx_pkt: &RxPacket,
         ack_requested: bool,
     ) -> Option<MacEvent> {
-        // Bu DevAddr icin bekleyen downlink var mi?
-        let queue_idx = self
-            .downlink_queue
-            .iter()
-            .position(|item| item.dev_addr == *dev_addr);
-
-        let downlink = match queue_idx {
-            // SAFETY: idx was just obtained from .position() on the same VecDeque
-            // with no intervening mutation, so remove() always returns Some.
-            #[allow(clippy::unwrap_used)]
-            Some(idx) => self.downlink_queue.remove(idx).unwrap(),
+        // Bu DevAddr icin bekleyen downlink var mi? (FIFO; TTL suresi dolmus
+        // girisler alma aninda budanir — bayat downlink asla gonderilmez.)
+        let downlink = match self.downlink_queue.take_for_dev_addr(dev_addr) {
+            Some(item) => item,
             None => {
                 // Kuyrukta downlink yok — eger confirmed uplink ise bos ACK downlink gonder
                 // LoRaWAN 1.0.x spec: confirmed uplink'e MUTLAKA ACK gonderilmeli,

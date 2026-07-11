@@ -19,6 +19,7 @@ import {
   TagDataType,
   TagDirection,
   TagSource,
+  TagStatus,
   TagHierarchy,
 } from '../entities/unified-tag.entity';
 
@@ -94,6 +95,36 @@ export class UnifiedTagService {
 
   async getTag(id: string, tenantId: string): Promise<UnifiedTag | null> {
     return this.tagRepository.findOne({ where: { id, tenantId } });
+  }
+
+  /**
+   * Reverse lookup: which registry FQNs are fed by this sensor/channel?
+   *
+   * Live-data fan-out (SENSOR-HIGH-046) keys socket subscriptions by canonical
+   * TagRef (`deviceCode/localName` — the registry fqn), while the ingestion
+   * plane keys values by `sensorId/channelId`. `TagSource` carries the optional
+   * `sensorId`/`channelId` linkage, so this resolves an incoming metric to the
+   * fqn(s) subscribers actually listen under. A tag whose source names the
+   * sensor but no channel is a sensor-level tag and matches every channel.
+   * RETIRED tags never fan out.
+   */
+  async findFqnsBySensorSource(
+    tenantId: string,
+    sensorId: string,
+    channelId: string,
+  ): Promise<string[]> {
+    const rows = await this.tagRepository
+      .createQueryBuilder('tag')
+      .select('tag.fqn', 'fqn')
+      .where('tag.tenantId = :tenantId', { tenantId })
+      .andWhere(`tag.source ->> 'sensorId' = :sensorId`, { sensorId })
+      .andWhere(
+        `(tag.source ->> 'channelId' = :channelId OR tag.source ->> 'channelId' IS NULL)`,
+        { channelId },
+      )
+      .andWhere('tag.status != :retired', { retired: TagStatus.RETIRED })
+      .getRawMany<{ fqn: string }>();
+    return rows.map((r) => r.fqn);
   }
 
   async deleteTag(id: string, tenantId: string): Promise<boolean> {

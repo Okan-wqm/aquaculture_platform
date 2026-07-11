@@ -4,6 +4,7 @@
  * Chart discipline (dataviz): single y-axis, fixed series hues (payroll
  * = indigo, expenses = amber), legend present for the two-series trend.
  */
+import { parseMoney } from '@aquaculture/shared-ui';
 import React from 'react';
 import {
   Bar,
@@ -45,17 +46,22 @@ export const HrChartsTab: React.FC<HrChartsTabProps> = ({ period, canViewSalary 
       year: '2-digit',
       month: 'short',
     }),
-    // payrollGross is null when the caller lacks the salary permission — the
-    // Payroll series is hidden entirely in that case (not plotted as 0).
-    Payroll: bucket.payrollGross ?? 0,
-    Expenses: bucket.hrExpenses,
+    // Money crosses as an exact decimal string (Decimal scalar) — parse for the
+    // chart's numeric axis. payrollGross is null when the caller lacks the salary
+    // permission; the Payroll series is hidden entirely in that case (not 0-plotted).
+    Payroll: parseMoney(bucket.payrollGrossDecimal),
+    Expenses: parseMoney(bucket.hrExpensesDecimal),
   }));
 
   const departmentData = summary.byDepartment
     .slice(0, 15)
     // A suppressed department salary (HR-HIGH-001 small cell OR HR-MEDIUM-005 no
     // permission) arrives as null; the Salary bar is hidden rather than 0-plotted.
-    .map((d) => ({ name: d.departmentName, Salary: d.annualSalaryTotal ?? 0, Expenses: d.hrExpenses }));
+    .map((d) => ({
+      name: d.departmentName,
+      Salary: parseMoney(d.annualSalaryTotalDecimal),
+      Expenses: parseMoney(d.hrExpensesDecimal),
+    }));
 
   return (
     <div className="space-y-6">

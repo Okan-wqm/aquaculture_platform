@@ -52,7 +52,7 @@ export const SalariesTab: React.FC<SalariesTabProps> = ({ data, isLoading }) => 
                     : undefined
                 }
               >
-                {formatMoney(row.avgAnnualSalary, data.currency)}
+                {formatMoney(row.avgAnnualSalaryDecimal, data.currency)}
               </td>
               <td
                 className="px-5 py-3 text-right text-sm font-medium text-gray-900 dark:text-gray-100"
@@ -62,7 +62,7 @@ export const SalariesTab: React.FC<SalariesTabProps> = ({ data, isLoading }) => 
                     : undefined
                 }
               >
-                {formatMoney(row.annualSalaryTotal, data.currency)}
+                {formatMoney(row.annualSalaryTotalDecimal, data.currency)}
               </td>
             </tr>
           ))}
@@ -71,7 +71,7 @@ export const SalariesTab: React.FC<SalariesTabProps> = ({ data, isLoading }) => 
               Total annual salaries
             </td>
             <td className="px-5 py-3 text-right text-sm font-semibold text-gray-900 dark:text-gray-100">
-              {formatMoney(data.annualSalaryTotal, data.currency)}
+              {formatMoney(data.annualSalaryTotalDecimal, data.currency)}
             </td>
           </tr>
         </tbody>

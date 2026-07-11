@@ -38,13 +38,15 @@ export interface HrPersonnelTable {
   unclassifiedCount: number;
 }
 
+// Money fields cross the wire as exact decimal STRINGS via the Decimal scalar
+// (ADR-0004 / DATA-MEDIUM-009); parse with `parseMoney` at the display boundary.
 export interface HrLabourCostRow {
   category: LaborCategory | null;
   headcount: number;
   /** null when withheld for small-cell privacy (salarySuppressed = true). */
-  annualSalaryTotal: number | null;
+  annualSalaryTotalDecimal: string | null;
   /** null when withheld for small-cell privacy (salarySuppressed = true). */
-  avgAnnualSalary: number | null;
+  avgAnnualSalaryDecimal: string | null;
   salarySuppressed: boolean;
 }
 
@@ -53,21 +55,21 @@ export interface HrLabourCost {
   rows: HrLabourCostRow[];
   totalHeadcount: number;
   unclassifiedCount: number;
-  annualSalaryTotal: number;
-  pensionFund: number;
-  socialInsuranceFund: number;
-  medicalInsuranceFund: number;
-  otherCost: number;
-  totalPayroll: number;
-  actualGrossPayYtd: number;
-  hrExpensesYtd: number;
+  annualSalaryTotalDecimal: string;
+  pensionFundDecimal: string;
+  socialInsuranceFundDecimal: string;
+  medicalInsuranceFundDecimal: string;
+  otherCostDecimal: string;
+  totalPayrollDecimal: string;
+  actualGrossPayYtdDecimal: string;
+  hrExpensesYtdDecimal: string;
 }
 
 export interface HrFinanceTimeBucket {
   bucketStart: string;
   /** null when the caller lacks `hr_finance:view_salary` (HR-MEDIUM-005). */
-  payrollGross: number | null;
-  hrExpenses: number;
+  payrollGrossDecimal: string | null;
+  hrExpensesDecimal: string;
 }
 
 export interface HrDepartmentCost {
@@ -75,9 +77,9 @@ export interface HrDepartmentCost {
   departmentName: string;
   headcount: number;
   /** null when withheld for small-cell privacy (salarySuppressed = true). */
-  annualSalaryTotal: number | null;
+  annualSalaryTotalDecimal: string | null;
   salarySuppressed: boolean;
-  hrExpenses: number;
+  hrExpensesDecimal: string;
 }
 
 export interface HrFinanceSummary {

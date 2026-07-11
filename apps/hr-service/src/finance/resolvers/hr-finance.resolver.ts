@@ -55,6 +55,7 @@ import {
   GetPayrollCostSettingsQuery,
 } from '../queries/hr-finance.queries';
 import { HrFinanceGranularity } from '../query-handlers/get-hr-finance-summary.handler';
+import { withLabourCostDecimals, withSummaryDecimals } from './hr-finance-decimal.mapper';
 
 interface GraphQLContext {
   req: { user?: ({ sub: string; tenantId: string } & ResourcePermissionUser) | undefined };
@@ -123,7 +124,10 @@ export class HrFinanceResolver {
     @Args('year', { type: () => Int, nullable: true }) year?: number,
   ): Promise<HrLabourCost> {
     const resolvedYear = year ?? new Date().getUTCFullYear();
-    return this.queryBus.execute(new GetHrLabourCostQuery(this.getTenantId(ctx), resolvedYear));
+    const result = await this.queryBus.execute<GetHrLabourCostQuery, HrLabourCost>(
+      new GetHrLabourCostQuery(this.getTenantId(ctx), resolvedYear),
+    );
+    return withLabourCostDecimals(result);
   }
 
   @Query(() => HrFinanceSummary, { name: 'hrFinanceSummary' })
@@ -142,9 +146,10 @@ export class HrFinanceResolver {
     // Expenses + series are MANAGER-visible; per-department SALARY is withheld
     // unless the caller holds `hr_finance:view_salary` (HR-MEDIUM-005).
     const includeSalary = hasResourcePermission(ctx.req.user, VIEW_SALARY_PERMISSION);
-    return this.queryBus.execute(
+    const result = await this.queryBus.execute<GetHrFinanceSummaryQuery, HrFinanceSummary>(
       new GetHrFinanceSummaryQuery(this.getTenantId(ctx), from, to, granularity, includeSalary),
     );
+    return withSummaryDecimals(result);
   }
 
   @Query(() => [HrFinanceCategory], { name: 'hrFinanceCategories' })

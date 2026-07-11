@@ -64,20 +64,20 @@ export const GET_HR_LABOUR_COST = `
       rows {
         category
         headcount
-        annualSalaryTotal
-        avgAnnualSalary
+        annualSalaryTotalDecimal
+        avgAnnualSalaryDecimal
         salarySuppressed
       }
       totalHeadcount
       unclassifiedCount
-      annualSalaryTotal
-      pensionFund
-      socialInsuranceFund
-      medicalInsuranceFund
-      otherCost
-      totalPayroll
-      actualGrossPayYtd
-      hrExpensesYtd
+      annualSalaryTotalDecimal
+      pensionFundDecimal
+      socialInsuranceFundDecimal
+      medicalInsuranceFundDecimal
+      otherCostDecimal
+      totalPayrollDecimal
+      actualGrossPayYtdDecimal
+      hrExpensesYtdDecimal
     }
   }
 `;
@@ -88,16 +88,16 @@ export const GET_HR_FINANCE_SUMMARY = `
       currency
       series {
         bucketStart
-        payrollGross
-        hrExpenses
+        payrollGrossDecimal
+        hrExpensesDecimal
       }
       byDepartment {
         departmentHrId
         departmentName
         headcount
-        annualSalaryTotal
+        annualSalaryTotalDecimal
         salarySuppressed
-        hrExpenses
+        hrExpensesDecimal
       }
     }
   }

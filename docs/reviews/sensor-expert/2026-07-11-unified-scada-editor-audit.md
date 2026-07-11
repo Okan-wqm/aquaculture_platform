@@ -174,3 +174,10 @@ record. Remediation is phased in
 - **Description:** Tag discovery converted each numeric I/O limit with `io.engMin ? Number(io.engMin) : undefined` (and the same for engMax, alarmHH/H/L/LL, deadband). Because `0` is falsy, a legitimate zero — a 0-100% level sensor's `engMin=0`, or a low-low alarm at `0` — was silently mapped to `undefined`, so the discovered UnifiedTag lost limits the edge should enforce.
 - **Impact:** Zero-valued ranges/alarm thresholds vanished from discovered tags, weakening alarm/scaling behavior downstream.
 - **Recommendation:** Convert with a null-check that preserves zero (`value != null ? Number(value) : undefined`) via a shared `numberOrUndefined` helper. Regression spec pins that engMin/alarmL/deadband=0 survive and that null/undefined still map to undefined.
+
+### [SENSOR-MEDIUM-020] createTag/updateTag do not validate fqn against the TagRef grammar, allowing unresolvable "ghost" registry rows
+- **File:** `apps/sensor-service/src/process/dto/unified-tag.dto.ts`
+- **Category:** Data integrity / validation
+- **Description:** `CreateTagInput.fqn` and `UpdateTagInput.fqn` had only `@IsString()` + `@MaxLength`, with no check against the canonical TagRef grammar (`deviceCode/localName`, the SSoT `TAG_REF_PATTERN` in `@platform/sensor-contracts`). A caller could persist a tag whose fqn violates the grammar (no device segment, whitespace, a second slash), which `TagResolutionService.resolve` then classifies `INVALID_GRAMMAR` at every deploy/subscribe — a permanently unresolvable row.
+- **Impact:** The registry could hold ghost tags that never resolve, silently failing binding resolution wherever they are referenced.
+- **Recommendation:** Add `@Matches(new RegExp(TAG_REF_PATTERN))` to both fqn fields so the boundary rejects malformed FQNs at create/update. Regression spec pins accept-canonical and reject (no device segment, whitespace, double slash, trailing slash) on create, plus reject-on-update while still allowing fqn to be omitted.

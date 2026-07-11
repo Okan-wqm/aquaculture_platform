@@ -373,8 +373,8 @@ exercising the trigger behavior against real Postgres (runs in CI, not this sand
   (performance PERF-HIGH-002).
 - **Daily deadline sweep + auto-submit load every draft ever created** then filter in JS
   (performance PERF-HIGH-003, job-queue PRODUCT-JOB-MEDIUM-003).
-- **No farm-module code-splitting / bundle budget** — the whole reporting UI ships eagerly
-  (performance PERF-HIGH-004).
+- **No farm-module code-splitting / bundle budget** is FIXED (PERF-HIGH-004 -> FARM-HIGH-196: every
+  page-level route in Module.tsx is React.lazy code-split behind one Suspense boundary; vite gains a 600kB chunk budget).
 - **Each multi-read assembler sub-query opened its own tenant boundary** is FIXED (PERF-HIGH-005 -> FARM-HIGH-195: lakselus/rensefisk/biomass now share ONE runInTenantRead across their direct reads; single-read assemblers already did).
 
 ## OPEN — MEDIUM / LOW (tracked)

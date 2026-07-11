@@ -397,7 +397,7 @@ varsling QUEUED shown as "Submitted" with the internal event id as a fake "Matti
 (COMPLIANCE-MEDIUM-004, farm-expert FARM-LOW-012); settefisk mixed-batch attribution (FARM-MEDIUM-010);
 `EscapeIncidentRecordedEvent` has no consumer so the "varsling is immediate" reminder is dropped
 (contract CONTRACT-MEDIUM-005); stale codegen/subgraph SDL missing the prefill/draft surface
-(CONTRACT-MEDIUM-004); no DB CHECK constraints on welfare 0–3 / lice non-negative (data DATA-LOW-007);
+(CONTRACT-MEDIUM-004); no DB CHECK constraints on welfare 0–3 / lice non-negative is FIXED (DATA-LOW-007 -> FARM-LOW-191: migration adds welfare score 0-3, lice non-negative, and positive fishSampled CHECKs, fanned out + presence/duplicate guarded);
 lossy relocation-before-drop migrations with no backup step (DATA-MEDIUM-005/006); duplicate parallel
 submission systems (manual wizard vs assembled draft) per report type (farm-expert FARM-MEDIUM-009);
 inconsistent artskode regex + COALESCE laundering (FARM-LOW-011, FARM-MEDIUM-158); non-atomic

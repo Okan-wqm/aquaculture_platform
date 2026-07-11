@@ -47,6 +47,7 @@ import { ApplyRlsToRegulatoryReportDrafts1804500000000 } from './1804500000000-A
 import { AddTenantErasureRetainedColumns1804600000000 } from './1804600000000-AddTenantErasureRetainedColumns';
 import { AddRegulatoryAuditEnumValues1804700000000 } from './1804700000000-AddRegulatoryAuditEnumValues';
 import { AddRegulatoryReportImmutabilityTrigger1804800000000 } from './1804800000000-AddRegulatoryReportImmutabilityTrigger';
+import { AddWelfareLiceCheckConstraints1804900000000 } from './1804900000000-AddWelfareLiceCheckConstraints';
 
 /**
  * Canonical farm-service migration class list.
@@ -106,4 +107,5 @@ export const FARM_MIGRATIONS = [
   AddTenantErasureRetainedColumns1804600000000,
   AddRegulatoryAuditEnumValues1804700000000,
   AddRegulatoryReportImmutabilityTrigger1804800000000,
+  AddWelfareLiceCheckConstraints1804900000000,
 ] as const;

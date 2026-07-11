@@ -414,6 +414,8 @@ interface DeleteModalProps {
   role: TenantRole | null;
   onConfirm: () => void;
   isLoading?: boolean;
+  /** Server rejection surfaced in the dialog (RBAC-M8: no silent failures). */
+  errorMessage?: string;
 }
 
 const DeleteModal = memo<DeleteModalProps>(({
@@ -422,6 +424,7 @@ const DeleteModal = memo<DeleteModalProps>(({
   role,
   onConfirm,
   isLoading,
+  errorMessage,
 }) => {
   // Generate unique IDs for ARIA attributes
   const titleId = useId();
@@ -437,6 +440,12 @@ const DeleteModal = memo<DeleteModalProps>(({
   });
 
   if (!isOpen || !role) return null;
+
+  // RBAC-M8: the backend HARD-BLOCKS deleting a role while users still hold it
+  // (tenant-role.service delete guard). The UI must state that same rule and
+  // block confirm — not offer a "they will lose access" delete that the server
+  // will reject with a raw ForbiddenException.
+  const hasActiveHolders = (role.userCount ?? 0) > 0;
 
   return (
     <div
@@ -469,12 +478,22 @@ const DeleteModal = memo<DeleteModalProps>(({
           </div>
         </div>
 
-        {(role.userCount ?? 0) > 0 && (
+        {hasActiveHolders && (
           <div className="mt-4 p-3 bg-amber-50 rounded-lg border border-amber-100">
             <p className="text-sm text-amber-700">
               <AlertCircle className="w-4 h-4 inline mr-1" />
-              This role is assigned to {role.userCount ?? 0} user(s). They will lose
-              access to associated permissions.
+              This role cannot be deleted while it is assigned to{' '}
+              {role.userCount ?? 0} user(s). Reassign those users to another
+              role first.
+            </p>
+          </div>
+        )}
+
+        {errorMessage && (
+          <div className="mt-4 p-3 bg-red-50 rounded-lg border border-red-100">
+            <p className="text-sm text-red-700">
+              <AlertCircle className="w-4 h-4 inline mr-1" />
+              {errorMessage}
             </p>
           </div>
         )}
@@ -488,8 +507,8 @@ const DeleteModal = memo<DeleteModalProps>(({
           </button>
           <button
             onClick={onConfirm}
-            disabled={isLoading}
-            className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-2"
+            disabled={isLoading || hasActiveHolders}
+            className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {isLoading ? (
               <>
@@ -594,8 +613,11 @@ const TenantRolesPage: React.FC = () => {
   }, [seedMutation]);
 
   const handleDeleteRole = useCallback((role: TenantRole) => {
+    // Reset any error from a previous delete attempt so a fresh dialog
+    // never opens pre-populated with a stale server rejection (RBAC-M8).
+    deleteMutation.reset();
     setDeletingRole(role);
-  }, []);
+  }, [deleteMutation]);
 
   const handleCloseDeleteModal = useCallback(() => {
     setDeletingRole(null);
@@ -637,10 +659,13 @@ const TenantRolesPage: React.FC = () => {
           >
             <RefreshCw className="w-5 h-5 text-gray-500" />
           </button>
-          {/* RBAC-HIGH-004: seed + create require the roles:create capability. */}
+          {/* RBAC-HIGH-004: seed + create require the roles:create capability.
+              RBAC-M14: the seed offer only renders on a CONFIRMED empty list —
+              on a query error `roles` is just the [] default, and offering a
+              seed there invites a duplicate seed against unknown server state. */}
           {canCreateRoles && (
             <>
-              {roles.length === 0 && (
+              {!error && roles.length === 0 && (
                 <button
                   onClick={handleSeedRoles}
                   disabled={seedMutation.isPending}
@@ -685,7 +710,10 @@ const TenantRolesPage: React.FC = () => {
         </div>
       )}
 
-      {/* Roles Grid — PERF-009: use shared RoleCard component, no inline duplicate */}
+      {/* Roles Grid — PERF-009: use shared RoleCard component, no inline duplicate.
+          RBAC-M14: on a query error the empty state must NOT render — `roles`
+          is only the [] default, not a confirmed empty list; the error banner
+          above (with Retry) is the whole content. */}
       {roles.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {roles.map((role) => (
@@ -697,8 +725,8 @@ const TenantRolesPage: React.FC = () => {
             />
           ))}
         </div>
-      ) : (
-        // Empty State
+      ) : error ? null : (
+        // Empty State (confirmed empty — the query succeeded with zero roles)
         <div className="bg-white rounded-xl border border-gray-100 py-16 text-center">
           <Shield className="w-16 h-16 text-gray-200 mx-auto" />
           <h3 className="mt-4 text-lg font-semibold text-gray-900">
@@ -752,6 +780,7 @@ const TenantRolesPage: React.FC = () => {
         role={deletingRole}
         onConfirm={handleDelete}
         isLoading={deleteMutation.isPending}
+        errorMessage={deleteMutation.error?.message}
       />
     </div>
   );

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { UserPlus, Download, RefreshCw, AlertCircle } from 'lucide-react';
+import { UserPlus, RefreshCw, AlertCircle } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@aquaculture/shared-ui';
 import { AddEditUserModal, type UserFormData } from '../components/users/AddEditUserModal';
@@ -220,10 +220,10 @@ const TenantUsers: React.FC = () => {
           <button onClick={handleRefresh} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" title="Refresh">
             <RefreshCw className="w-5 h-5 text-gray-500" />
           </button>
-          <button className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-            <Download className="w-4 h-4" />
-            Export
-          </button>
+          {/* RBAC-L6: the previous "Export" button was UNWIRED (no onClick, no
+              export backend) yet rendered ungated to every users:view delegate —
+              a false affordance. Removed; reintroduce only together with a real
+              export path AND a capability gate. */}
           {canInviteUsers && (
             <button
               onClick={() => { setSaveError(null); setEditingUser(null); setIsModalOpen(true); }}

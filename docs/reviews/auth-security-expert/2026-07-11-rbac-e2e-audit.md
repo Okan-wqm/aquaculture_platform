@@ -205,3 +205,40 @@ This file records the two write-time authority findings closed by the P0 remedia
 **Rule violated:** A module must not carry a dead, misleadingly-documented duplicate of a security-relevant SSoT; non-tenant-scoped query keys violate the web/CLAUDE.md tenant-key invariant (FE-CRITICAL-014/015/016).
 
 **Fix:** Deleted the file. The real SSoT remains `createTenantQueryKey`/`createTenantInvalidationKey` (shared-ui) consumed via the module's `tenantKeys`/`roleKeys`/`auditLogKeys` factories.
+
+## RBAC-MEDIUM-005
+
+**Title:** TenantRolesPage rendered a false-empty state and TWO "Seed Default Roles" offers on query ERROR: `roles = []` is only the destructured default when the query fails, but both the header seed button (`roles.length === 0`) and the empty-state block rendered alongside the error banner — inviting an admin to seed against unknown server state (double-seed trap, compounding the RBAC-HIGH-006 invalidation no-op that already masked seed results).
+
+**Layer:** 3 (frontend state truthfulness)
+**Evidence:**
+- `web/modules/tenant-admin/src/pages/TenantRolesPage.tsx`
+
+**Rule violated:** An error state and a confirmed-empty state are different truths and must render differently; a mutation offer must never be derived from a default value that merely masks a failed read.
+
+**Fix:** The seed offer and the empty state render only on a CONFIRMED empty list (`!error && roles.length === 0`); on error the banner (with Retry) is the whole content. Pinned by `TenantRolesPage.spec.tsx` (error → banner only, no seed offer, no empty state; confirmed-empty → empty state + seed offer).
+
+## RBAC-MEDIUM-006
+
+**Title:** The delete-role dialog contradicted the backend contract: it stayed fully enabled with a "they will lose access" warning while the backend HARD-BLOCKS deleting a role with active holders, and the resulting ForbiddenException vanished into `logError` — the admin clicked Delete, nothing happened, no message appeared.
+
+**Layer:** 3 (FE↔BE contract truthfulness)
+**Evidence:**
+- `web/modules/tenant-admin/src/pages/TenantRolesPage.tsx`
+- `apps/auth-service/src/modules/tenant/services/tenant-role.service.ts` (the delete guard the UI contradicted)
+
+**Rule violated:** A UI affordance must state and enforce the same precondition the backend enforces; a server rejection must surface to the operator, not disappear into a log call.
+
+**Fix:** The dialog now states the backend rule ("cannot be deleted while it is assigned to N user(s) — reassign first") and disables confirm when `userCount > 0`; a server rejection renders inside the dialog via a new `errorMessage` prop (fed from `deleteMutation.error`), and reopening the dialog resets the stale rejection (`deleteMutation.reset()`). Pinned by `TenantRolesPage.spec.tsx` (holders → disabled + rule text; no holders → enabled; server rejection surfaces; reset on reopen).
+
+## RBAC-LOW-003
+
+**Title:** TenantUsers rendered an UNWIRED "Export" button (no onClick, no export backend) ungated to every `users:view` delegate — a false affordance that does nothing when clicked.
+
+**Layer:** 3 (dead control / false affordance)
+**Evidence:**
+- `web/modules/tenant-admin/src/pages/TenantUsers.tsx`
+
+**Rule violated:** A rendered control must perform its advertised action; dead controls are removed, not shipped.
+
+**Fix:** Removed the button (and the now-unused icon import), with an in-place note that reintroduction requires a real export path AND a capability gate.

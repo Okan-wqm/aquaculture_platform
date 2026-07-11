@@ -11,8 +11,10 @@ import {
   HttpCode,
   HttpStatus,
   UnauthorizedException,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { Type } from 'class-transformer';
 import { Request } from 'express';
 import { getAuthUserId, getAuthUser } from '../../shared/authenticated-request';
@@ -358,6 +360,13 @@ class InvalidateCachePatternDto {
 // ============================================================================
 
 @ApiTags('Impersonation')
+// SECURITY (ORPHAN-HIGH-341): the debug tooling surface (debug dashboard,
+// impersonation debug sessions, query inspector that echoes captured SQL,
+// cache inspection) exposes cross-tenant operational data and must be
+// SUPER_ADMIN-only — matching its sibling ImpersonationController. The guard
+// was absent, leaving every /debug/* endpoint reachable by any caller the
+// global pipeline let through.
+@UseGuards(PlatformAdminGuard)
 @Controller('debug')
 export class DebugToolsController {
   constructor(private readonly debugToolsService: DebugToolsService) {}

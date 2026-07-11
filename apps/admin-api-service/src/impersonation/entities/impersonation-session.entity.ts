@@ -145,6 +145,37 @@ export class ImpersonationSession {
   updatedAt!: Date;
 }
 
+/**
+ * Secret columns on ImpersonationSession that MUST NEVER be serialized onto a
+ * read response (DB-ADMIN-HIGH-002). `originalSessionToken` is stored plaintext
+ * and `impersonationToken` is a live credential hash; both are set once at
+ * creation and consumed internally (validateSession). admin-api registers no
+ * global ClassSerializerInterceptor, so `@Exclude()` would be inert — the
+ * boundary is enforced by returning the safe view below from every read path.
+ * This array is the single source of truth for what to strip.
+ */
+export const IMPERSONATION_SESSION_SECRET_FIELDS = [
+  'originalSessionToken',
+  'impersonationToken',
+] as const;
+
+/** ImpersonationSession without its secret token columns — the read-response shape. */
+export type SafeImpersonationSession = Omit<
+  ImpersonationSession,
+  (typeof IMPERSONATION_SESSION_SECRET_FIELDS)[number]
+>;
+
+/** Strip every secret column so a session can never carry a token onto a read response. */
+export function toSafeImpersonationSession(
+  session: ImpersonationSession,
+): SafeImpersonationSession {
+  const safe: Record<string, unknown> = { ...session };
+  for (const field of IMPERSONATION_SESSION_SECRET_FIELDS) {
+    delete safe[field];
+  }
+  return safe as SafeImpersonationSession;
+}
+
 @Entity('impersonation_permissions', { schema: 'admin' })
 @Index(['superAdminId', 'isActive'])
 export class ImpersonationPermission {

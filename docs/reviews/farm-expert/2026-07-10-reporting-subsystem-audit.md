@@ -231,6 +231,14 @@ tenant's entire history and discarding non-site rows in the final join — re-ru
 Fixed: each CTE joins site_tanks on the source tankId so it seeks the (tankId, date) index for the
 site's tanks instead of a whole-tenant scan.
 
+### FARM-HIGH-178 — regulatory_report_drafts had no row-level security
+
+The drafts table (fully-assembled Mattilsynet payloads — the richest per-tenant dataset) shipped
+without the FORCE RLS its sibling regulatory_reports has, so only search_path + the tenantId column
+filter protected it. Fixed: migration 1804500000000 applies the same tenant RLS policy (fanned out to
+farm + every tenant schema, postCondition asserts relforcerowsecurity), so the boundary holds at the
+row level regardless of query shape.
+
 ## OPEN — HIGH (tracked)
 
 - **Slaughter drafts can never be submitted** — `buildWirePayload` never wraps `arter`/`ukeplanPerArt`

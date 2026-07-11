@@ -149,8 +149,12 @@ export class RegulatoryReportStoreService {
 
   async markSubmitted(tenantId: string, id: string, referanse?: string): Promise<void> {
     await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      // PRODUCT-JOB-MEDIUM-001: lock the row so a success cannot race a
+      // concurrent failure write (operator vs retry sweep) and leave the row in
+      // a torn state.
       const row = await queryRunner.manager.findOneOrFail(RegulatoryReport, {
         where: { id, tenantId },
+        lock: { mode: 'pessimistic_write' },
       });
       row.status = RegulatoryReportSubmissionStatus.SUBMITTED;
       row.referanse = referanse;
@@ -214,7 +218,18 @@ export class RegulatoryReportStoreService {
     failureClass: RegulatoryFailureClass,
     nextAttemptAt: Date | null,
   ): Promise<RegulatoryReport> {
-    const row = await manager.findOneOrFail(RegulatoryReport, { where: { id, tenantId } });
+    // PRODUCT-JOB-MEDIUM-001: attemptCount is a read-modify-write, so two
+    // concurrent failures on the same row (an operator resubmit racing the
+    // retry sweep) would both read N and write N+1 — a lost increment, and a
+    // clobbered nextAttemptAt/status. Take a pessimistic row lock (SELECT … FOR
+    // UPDATE) so the transactions serialise; the second reads the committed
+    // attemptCount. Safe because applyFailure always runs inside a transaction
+    // (recordFailure's runInTenantTransaction, or the caller's for the
+    // PERMANENT+outbox path).
+    const row = await manager.findOneOrFail(RegulatoryReport, {
+      where: { id, tenantId },
+      lock: { mode: 'pessimistic_write' },
+    });
     row.status = RegulatoryReportSubmissionStatus.FAILED;
     row.feilmelding = feilmelding;
     // FARM-LOW-133: a failed submission has no valid receipt.

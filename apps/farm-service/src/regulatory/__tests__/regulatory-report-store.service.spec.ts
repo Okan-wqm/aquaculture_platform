@@ -178,6 +178,11 @@ describe('RegulatoryReportStoreService', () => {
       expect(row.failureClass).toBeNull();
       expect(row.submittedAt).toBeInstanceOf(Date);
       expect(mocks.mockManager.save).toHaveBeenCalledWith(RegulatoryReport, row);
+      // PRODUCT-JOB-MEDIUM-001: the row is locked before the transition.
+      expect(mocks.mockManager.findOneOrFail).toHaveBeenCalledWith(
+        RegulatoryReport,
+        expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
+      );
       // COMPLIANCE-HIGH-001: the acceptance is audited inside the same txn.
       expect(logWithManager).toHaveBeenCalledWith(
         expect.anything(),
@@ -248,6 +253,11 @@ describe('RegulatoryReportStoreService', () => {
       expect(saved.failureClass).toBe(RegulatoryFailureClass.PERMANENT);
       expect(saved.nextAttemptAt).toBeNull();
       expect(saved.attemptCount).toBe(1);
+      // PRODUCT-JOB-MEDIUM-001: the RMW is serialised by a pessimistic lock.
+      expect(mocks.mockManager.findOneOrFail).toHaveBeenCalledWith(
+        RegulatoryReport,
+        expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
+      );
       // COMPLIANCE-HIGH-001: the failure is audited on the caller's manager.
       expect(logWithManager).toHaveBeenCalledWith(
         mocks.mockManager,

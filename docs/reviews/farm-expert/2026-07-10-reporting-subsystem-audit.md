@@ -401,7 +401,7 @@ varsling QUEUED shown as "Submitted" with the internal event id as a fake "Matti
 lossy relocation-before-drop migrations with no backup step (DATA-MEDIUM-005/006); duplicate parallel
 submission systems (manual wizard vs assembled draft) per report type (farm-expert FARM-MEDIUM-009);
 inconsistent artskode regex + COALESCE laundering (FARM-LOW-011, FARM-MEDIUM-158); non-atomic
-attemptCount RMW + operator/sweep race (job-queue PRODUCT-JOB-MEDIUM-001); no span coverage / deterministic
+attemptCount RMW + operator/sweep race is FIXED (PRODUCT-JOB-MEDIUM-001 -> FARM-MEDIUM-192: applyFailure/markSubmitted take a pessimistic_write row lock so the RMW serialises); no span coverage / deterministic
 backoff without jitter / token single-flight + LRU (OBS-MEDIUM-001/002, CIRCUIT-MEDIUM-001/002/003);
 plus assorted LOWs (siteName never populated, sea-lice temperature not hydrated, tenant discovery keyed
 off `sites`).

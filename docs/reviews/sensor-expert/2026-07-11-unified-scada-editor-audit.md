@@ -48,3 +48,31 @@ record. Remediation is phased in
 - **Description:** The standalone builder has an Edit/Preview/Simulation sub-mode that runs a client-side IEC 61131-3 ST interpreter closed-loop, drives sim tag values, evaluates alarms, and animates HMI widgets — a FUXA-style in-app run with no device deploy. The unified editor (the default editor) never called `setSimulationMode`, hardcoded `ScreenCanvas isPreview={false}`, and had no run toggle, so the process could not be played/observed in-app without deploying to hardware.
 - **Impact:** Users of the default editor could not validate a process (P&ID + HMI + ST logic) by running it in simulation before deploying — the explicit "edit -> play -> observe, no deploy" workflow.
 - **Recommendation:** Add an HMI-scoped Run/Stop toggle that flips `simulationMode` (keeping `StableModeProvider mode="edit"` to avoid remount) + `ScreenCanvas isPreview={simulationMode}`, and swaps the right panel to `SimulationSidebar`. (P&ID equipment-node live animation during a run is tracked separately as the more expensive follow-on.)
+
+### [SENSOR-HIGH-033] Late-resolving linked-package query clobbers unsaved HMI edits
+- **File:** `web/modules/sensor-module/src/pages/unified/UnifiedEditorPage.tsx`
+- **Category:** Data loss
+- **Description:** The linked-package adoption effect guarded only on `scadaPackageId`. Because `useScadaPackages` resolves asynchronously, a user who started editing the HMI while the query was in flight had those edits silently overwritten by `loadFromJSON(pkg.packageData)` (which also resets `isDirty=false`) when the query resolved.
+- **Impact:** Silent loss of unsaved HMI widgets with no dirty warning.
+- **Recommendation:** Skip adoption when the store is not pristine (`scadaDirty`).
+
+### [SENSOR-HIGH-034] getState timeout silently persists a possibly-stale P&ID snapshot
+- **File:** `web/modules/sensor-module/src/pages/unified/UnifiedEditorPage.tsx`
+- **Category:** Data integrity
+- **Description:** On a `getState` round-trip timeout, `handleSave` resolved with the (possibly stale) `canvasNodesRef`/`canvasEdgesRef` mirror and proceeded to save, masking a non-responding canvas as a successful save.
+- **Impact:** A stale or empty P&ID could be persisted and reloaded later.
+- **Recommendation:** Fail the save with a surfaced error on timeout; the canvas is authoritative at save time.
+
+### [SENSOR-HIGH-035] Repeated saves on a new process spawn duplicate processes
+- **File:** `web/modules/sensor-module/src/pages/unified/UnifiedEditorPage.tsx`
+- **Category:** Data corruption
+- **Description:** After the first save of a new process, `window.history.replaceState` rewrote the URL without notifying React Router, so `useParams().processId` stayed `'new'`. Because `isNewProcess` was OR-ed with `id === 'new'`, every subsequent save re-ran `createProcess`, creating duplicate processes and re-pointing the single linked package to the newest one, orphaning the rest.
+- **Impact:** One logical process became many rows; only the newest carried the HMI package.
+- **Recommendation:** Drive create-vs-update off the persisted identity only (drop `id === 'new'` from the predicate); guarded by a regression test.
+
+### [SENSOR-HIGH-036] Non-atomic dual-target save marks the process clean while the package fails
+- **File:** `web/modules/sensor-module/src/pages/unified/UnifiedEditorPage.tsx`
+- **Category:** Data integrity
+- **Description:** `markClean()` for the process store ran inside the process leg, before the package leg — which can throw on the 1 MB `packageData` cap or validation. On a package-leg failure the process was persisted and marked clean while the package stayed dirty and unsaved, leaving the two artifacts out of sync.
+- **Impact:** Process/package divergence with a misleading clean state.
+- **Recommendation:** Defer all `markClean` calls until both legs succeed.

@@ -33,6 +33,7 @@ const spies = vi.hoisted(() => ({
   updateProcess: vi.fn(async () => ({ success: true })),
   getProcess: vi.fn(async () => ({ id: 'proc-1', name: 'Test Proc', nodes: [], edges: [] })),
   linkedPackages: [] as Array<{ id: string; processId?: string; packageData: unknown }>,
+  routeProcessId: 'proc-1',
 }));
 
 vi.mock('react-router-dom', () => {
@@ -48,7 +49,7 @@ vi.mock('react-router-dom', () => {
     // The real route is `unified-editor/:processId` — the mock MUST use the
     // same param name the page reads (SENSOR-CRITICAL-001 was masked by this
     // mock carrying a wrong name; routeParam.test.tsx pins it unmocked).
-    useParams: () => ({ processId: 'proc-1' }),
+    useParams: () => ({ processId: spies.routeProcessId }),
     useSearchParams: () => [searchParams, setSearchParams],
     Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
   };
@@ -194,6 +195,7 @@ describe('UnifiedEditorPage — 6b consolidation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     spies.linkedPackages = [];
+    spies.routeProcessId = 'proc-1';
     resetStores();
   });
 
@@ -360,5 +362,42 @@ describe('UnifiedEditorPage — 6b consolidation', () => {
         expect.objectContaining({ processId: 'proc-1' }),
       ),
     );
+  });
+
+  it('(SENSOR-HIGH-035) repeated saves on a NEW process update — never re-create duplicates', async () => {
+    // Route param is 'new' and stays 'new' (replaceState does not notify the
+    // router). Create-vs-update must be driven by the persisted id, so the
+    // second save updates instead of spawning a duplicate process.
+    spies.routeProcessId = 'new';
+    render(<UnifiedEditorPage />);
+    fireCanvasReady();
+
+    const dispatchState = () =>
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            origin: window.location.origin,
+            data: { type: 'state', source: 'process-editor-canvas', data: { nodes: [], edges: [] } },
+          }),
+        );
+      });
+
+    const nameInput = screen.getByPlaceholderText('Project Name') as HTMLInputElement;
+    const saveBtn = await screen.findByText('Save');
+
+    // First save → create (returns proc-1, which becomes the persisted id).
+    fireEvent.change(nameInput, { target: { value: 'Brand New Proc' } });
+    await waitFor(() => expect((saveBtn.closest('button') as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(saveBtn);
+    dispatchState();
+    await waitFor(() => expect(spies.createProcess).toHaveBeenCalledTimes(1));
+
+    // Re-dirty and save again → update, NOT a second create.
+    fireEvent.change(nameInput, { target: { value: 'Brand New Proc edited' } });
+    await waitFor(() => expect((saveBtn.closest('button') as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(saveBtn);
+    dispatchState();
+    await waitFor(() => expect(spies.updateProcess).toHaveBeenCalledTimes(1));
+    expect(spies.createProcess).toHaveBeenCalledTimes(1);
   });
 });

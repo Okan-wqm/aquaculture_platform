@@ -452,13 +452,18 @@ const UnifiedEditorPage: React.FC = () => {
   useEffect(() => {
     if (scadaPackageId) return;
     if (!hasRealProcessId) return;
+    // Never adopt over unsaved HMI work: the linked-package query resolves
+    // asynchronously, so if the user already started editing while it was in
+    // flight, loadFromJSON would silently wipe those edits and reset isDirty
+    // (SENSOR-HIGH-033). scadaDirty is the pristine signal.
+    if (scadaDirty) return;
     const pkg = linkedPackages[0];
     if (!pkg) return;
     if (pkg.processId !== id) return;
     setScadaPackageId(pkg.id);
     scadaSetPackageId(pkg.id);
     scadaLoadFromJSON(pkg.packageData);
-  }, [linkedPackages, scadaPackageId, hasRealProcessId, id, scadaSetPackageId, scadaLoadFromJSON]);
+  }, [linkedPackages, scadaPackageId, hasRealProcessId, id, scadaDirty, scadaSetPackageId, scadaLoadFromJSON]);
 
   // Sync editor mode to iframe canvas — when mode changes, send setEditorMode
   useEffect(() => {
@@ -505,7 +510,11 @@ const UnifiedEditorPage: React.FC = () => {
     setIsSaving(true);
     setSaveError(null);
     try {
-      const currentState = await new Promise<{ nodes: CanvasNode[]; edges: CanvasEdge[] }>((resolve) => {
+      // The P&ID canvas is the authoritative source at save time. On a
+      // getState timeout we FAIL the save rather than persisting the possibly
+      // stale ref mirror — a non-responding canvas masked as a successful save
+      // would silently ship an out-of-date P&ID (SENSOR-HIGH-034).
+      const currentState = await new Promise<{ nodes: CanvasNode[]; edges: CanvasEdge[] }>((resolve, reject) => {
         const controller = new AbortController();
         const handler = (event: MessageEvent) => {
           if (event.origin !== window.location.origin) return;
@@ -519,12 +528,18 @@ const UnifiedEditorPage: React.FC = () => {
         sendToCanvas('getState');
         const timeoutId = setTimeout(() => {
           controller.abort();
-          resolve({ nodes: canvasNodesRef.current, edges: canvasEdgesRef.current });
-        }, 2000);
+          reject(new Error('Canvas yanıt vermedi — kaydetme iptal edildi, lütfen tekrar deneyin'));
+        }, 3000);
         controller.signal.addEventListener('abort', () => clearTimeout(timeoutId));
       });
 
-      const isNewProcess = !storeProcessId || storeProcessId === 'new' || id === 'new';
+      // Create-vs-update is driven ONLY by the persisted identity. The route
+      // param `id` is NOT included: window.history.replaceState below rewrites
+      // the URL without notifying the router, so useParams().processId stays
+      // 'new' for the whole session — including it here made every save after
+      // the first re-run createProcess and spawn duplicate processes
+      // (SENSOR-HIGH-035).
+      const isNewProcess = !storeProcessId || storeProcessId === 'new';
 
       // 1. Persist the P&ID process — FAIL CLOSED: the mutations report
       // rejection via { success: false } without throwing, so an unchecked
@@ -543,7 +558,6 @@ const UnifiedEditorPage: React.FC = () => {
         }
         resolvedProcessId = result.process.id;
         setProcessId(result.process.id);
-        markClean();
         window.history.replaceState(null, '', `/sensor/unified-editor/${result.process.id}`);
       } else {
         const result = await updateProcess({
@@ -556,7 +570,6 @@ const UnifiedEditorPage: React.FC = () => {
           setSaveError(result.message || 'Proses güncellenemedi');
           return;
         }
-        markClean();
       }
 
       // 2. Persist the HMI SCADA package (6b — dual-target save). The unified
@@ -578,8 +591,12 @@ const UnifiedEditorPage: React.FC = () => {
           setScadaPackageId(created.id);
           scadaSetPackageId(created.id);
         }
-        // Both targets persisted — the HMI side is clean too (SENSOR-HIGH-003:
-        // scada-store dirtiness is tracked separately from the process store).
+        // Atomic dual-target: only NOW, with BOTH the process and the package
+        // persisted, do we mark either store clean. Marking the process clean
+        // inside its own leg (before the package leg, which can throw on the
+        // 1 MB cap or validation) left the process clean while the package
+        // stayed dirty and unsaved (SENSOR-HIGH-036).
+        markClean();
         scadaMarkClean();
       }
     } catch (error) {

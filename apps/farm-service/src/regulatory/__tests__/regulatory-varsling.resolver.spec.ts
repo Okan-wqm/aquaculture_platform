@@ -17,6 +17,7 @@ import type { BaseEvent } from '@platform/event-contracts';
 import { createMockDataSource } from '@aquaculture/testing';
 import { RegulatoryVarslingService } from '../services/regulatory-varsling.service';
 import { RegulatoryReportStoreService } from '../services/regulatory-report-store.service';
+import type { AuditLogService } from '../../database/services/audit-log.service';
 import { RegulatorySubmissionService } from '../services/regulatory-submission.service';
 import { SlaughterFacilityService } from '../services/slaughter-facility.service';
 import { MattilsynetSchemaValidatorService } from '../services/mattilsynet-schema-validator.service';
@@ -99,7 +100,9 @@ describe('RegulatoryResolver — immediate varsling reports', () => {
     mocks = createMockDataSource();
     outboxEnqueue = jest.fn().mockResolvedValue(undefined);
     const outbox: Pick<OutboxPublisher, 'enqueue'> = { enqueue: outboxEnqueue };
-    const reportStore = new RegulatoryReportStoreService(mocks.mockDataSource);
+    const reportStore = new RegulatoryReportStoreService(mocks.mockDataSource, {
+      logWithManager: jest.fn().mockResolvedValue(undefined),
+    } as Partial<AuditLogService> as AuditLogService);
     const service = new RegulatoryVarslingService(
       mocks.mockDataSource,
       outbox as OutboxPublisher,

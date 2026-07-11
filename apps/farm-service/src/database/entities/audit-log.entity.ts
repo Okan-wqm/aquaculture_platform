@@ -39,6 +39,39 @@ export enum AuditAction {
    * Written transactionally inside the RecordCullHandler txn.
    */
   CULL_RECORDED = 'CULL_RECORDED',
+  /**
+   * COMPLIANCE-HIGH-001: a regulatory report crossed the trust boundary to
+   * a Norwegian authority — a REST submission Mattilsynet accepted, or a
+   * varsling report committed with its urgent-notification outbox event.
+   * Written transactionally at the regulatory_reports persistence choke
+   * point so EVERY submission path (interactive, draft auto-submit, retry
+   * sweep replay) is attributed to the submitting operator.
+   */
+  REGULATORY_SUBMITTED = 'REGULATORY_SUBMITTED',
+  /**
+   * COMPLIANCE-HIGH-001: a regulatory submission attempt failed — the
+   * regulator rejected it (PERMANENT) or the transport/token failed
+   * (TRANSIENT). Records that a filing was attempted and did not land.
+   */
+  REGULATORY_FAILED = 'REGULATORY_FAILED',
+  /**
+   * COMPLIANCE-HIGH-001: an operator approved an assembled draft for
+   * submission to the regulator (the human decision to file). Distinct
+   * from REGULATORY_SUBMITTED, which records the resulting wire event.
+   */
+  REGULATORY_APPROVED = 'REGULATORY_APPROVED',
+  /**
+   * COMPLIANCE-HIGH-001: an operator dismissed a non-applicable assembled
+   * draft, opting the period out of a filing.
+   */
+  REGULATORY_DISMISSED = 'REGULATORY_DISMISSED',
+  /**
+   * COMPLIANCE-HIGH-001: an operator filled a blocking MANUAL_REQUIRED
+   * field on a draft (the only editable surface — RECORDS/SENSOR values
+   * are corrected at the source record). The changed pointers are the
+   * audited fact.
+   */
+  REGULATORY_OVERRIDDEN = 'REGULATORY_OVERRIDDEN',
 }
 
 export interface AuditChanges {

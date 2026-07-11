@@ -480,6 +480,11 @@ export class AuditLogService {
       [AuditAction.CAPACITY_BLOCKED]: 'over-capacity (admin override)',
       [AuditAction.MORTALITY_RECORDED]: 'mortality recorded',
       [AuditAction.CULL_RECORDED]: 'cull recorded',
+      [AuditAction.REGULATORY_SUBMITTED]: 'submitted to the regulator',
+      [AuditAction.REGULATORY_FAILED]: 'regulatory submission failed',
+      [AuditAction.REGULATORY_APPROVED]: 'regulatory draft approved',
+      [AuditAction.REGULATORY_DISMISSED]: 'regulatory draft dismissed',
+      [AuditAction.REGULATORY_OVERRIDDEN]: 'regulatory draft field overridden',
     };
 
     const changedFields = params.changes?.changedFields;

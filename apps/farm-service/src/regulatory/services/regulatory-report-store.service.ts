@@ -32,6 +32,8 @@ import { DataSource, EntityManager } from 'typeorm';
 
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 
+import { AuditAction } from '../../database/entities/audit-log.entity';
+import { AuditLogService } from '../../database/services/audit-log.service';
 import {
   RegulatoryFailureClass,
   RegulatoryReport,
@@ -59,7 +61,46 @@ export class RegulatoryReportStoreService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly auditLog: AuditLogService,
   ) {}
+
+  /**
+   * COMPLIANCE-HIGH-001 — write the actor-attributed audit row for a
+   * regulatory_reports state transition INSIDE the caller's transaction so
+   * it commits atomically with the row change. The submitting operator
+   * (`row.submittedBy`) is the actor; the wide `payload` is deliberately NOT
+   * dumped into `changes` (it can carry PII and is already persisted on the
+   * row). `farm_audit_logs` is cross-tenant farm-schema infrastructure, so
+   * the write lands in the `farm` schema regardless of the pinned tenant
+   * search_path.
+   */
+  private async auditTransition(
+    manager: EntityManager,
+    tenantId: string,
+    row: RegulatoryReport,
+    action: AuditAction,
+    summary: string,
+  ): Promise<void> {
+    await this.auditLog.logWithManager(manager, {
+      tenantId,
+      entityType: 'RegulatoryReport',
+      entityId: row.id,
+      action,
+      userId: row.submittedBy,
+      changes: {
+        after: {
+          reportType: row.reportType,
+          klientReferanse: row.klientReferanse,
+          lokalitetsnummer: row.lokalitetsnummer,
+          status: row.status,
+          referanse: row.referanse ?? null,
+          attemptCount: row.attemptCount,
+        },
+      },
+      metadata: { source: 'regulatory-reporting' },
+      summary,
+    });
+  }
 
   /**
    * Persist-first record for a REST report. Upserts on
@@ -91,7 +132,16 @@ export class RegulatoryReportStoreService {
     );
     row.referanse = referanse;
     row.submittedAt = new Date();
-    return manager.save(RegulatoryReport, row);
+    const saved = await manager.save(RegulatoryReport, row);
+    await this.auditTransition(
+      manager,
+      tenantId,
+      saved,
+      AuditAction.REGULATORY_SUBMITTED,
+      `Varsling ${saved.reportType} queued for lokalitet ${saved.lokalitetsnummer} ` +
+        `(klientReferanse ${saved.klientReferanse})`,
+    );
+    return saved;
   }
 
   async markSubmitted(tenantId: string, id: string, referanse?: string): Promise<void> {
@@ -106,7 +156,15 @@ export class RegulatoryReportStoreService {
       // A success closes the retry pipeline for this row.
       row.nextAttemptAt = null;
       row.failureClass = null;
-      await queryRunner.manager.save(RegulatoryReport, row);
+      const saved = await queryRunner.manager.save(RegulatoryReport, row);
+      await this.auditTransition(
+        queryRunner.manager,
+        tenantId,
+        saved,
+        AuditAction.REGULATORY_SUBMITTED,
+        `${saved.reportType} accepted by Mattilsynet (referanse ${referanse ?? 'n/a'}` +
+          `${saved.attemptCount > 1 ? `, after ${saved.attemptCount} attempts` : ''})`,
+      );
     });
     this.logger.log(`Regulatory report ${id} marked SUBMITTED (referanse=${referanse ?? 'n/a'})`);
   }
@@ -158,6 +216,14 @@ export class RegulatoryReportStoreService {
     row.failureClass = failureClass;
     row.nextAttemptAt = nextAttemptAt;
     const saved = await manager.save(RegulatoryReport, row);
+    await this.auditTransition(
+      manager,
+      tenantId,
+      saved,
+      AuditAction.REGULATORY_FAILED,
+      `${saved.reportType} submission FAILED (${failureClass}, attempt ${saved.attemptCount}` +
+        `${nextAttemptAt ? `, retry at ${nextAttemptAt.toISOString()}` : ''})`,
+    );
     this.logger.warn(
       `Regulatory report ${id} marked FAILED (${failureClass}` +
         `${nextAttemptAt ? `, retry at ${nextAttemptAt.toISOString()}` : ''})`,

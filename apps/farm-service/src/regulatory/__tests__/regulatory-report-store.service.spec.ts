@@ -14,6 +14,8 @@
  */
 import { createMockDataSource } from '@aquaculture/testing';
 
+import { AuditAction } from '../../database/entities/audit-log.entity';
+import type { AuditLogService } from '../../database/services/audit-log.service';
 import { RegulatoryReportStoreService } from '../services/regulatory-report-store.service';
 import {
   RegulatoryFailureClass,
@@ -52,10 +54,15 @@ const baseParams = {
 describe('RegulatoryReportStoreService', () => {
   let service: RegulatoryReportStoreService;
   let mocks: ReturnType<typeof createMockDataSource>;
+  let logWithManager: jest.Mock;
 
   beforeEach(() => {
     mocks = createMockDataSource();
-    service = new RegulatoryReportStoreService(mocks.mockDataSource);
+    logWithManager = jest.fn().mockResolvedValue(undefined);
+    const auditLog = {
+      logWithManager,
+    } as Partial<AuditLogService> as AuditLogService;
+    service = new RegulatoryReportStoreService(mocks.mockDataSource, auditLog);
   });
 
   describe('recordPending', () => {
@@ -165,6 +172,15 @@ describe('RegulatoryReportStoreService', () => {
       expect(row.failureClass).toBeNull();
       expect(row.submittedAt).toBeInstanceOf(Date);
       expect(mocks.mockManager.save).toHaveBeenCalledWith(RegulatoryReport, row);
+      // COMPLIANCE-HIGH-001: the acceptance is audited inside the same txn.
+      expect(logWithManager).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          action: AuditAction.REGULATORY_SUBMITTED,
+          entityType: 'RegulatoryReport',
+          entityId: 'row-1',
+        }),
+      );
     });
   });
 
@@ -222,6 +238,15 @@ describe('RegulatoryReportStoreService', () => {
       expect(saved.failureClass).toBe(RegulatoryFailureClass.PERMANENT);
       expect(saved.nextAttemptAt).toBeNull();
       expect(saved.attemptCount).toBe(1);
+      // COMPLIANCE-HIGH-001: the failure is audited on the caller's manager.
+      expect(logWithManager).toHaveBeenCalledWith(
+        mocks.mockManager,
+        expect.objectContaining({
+          action: AuditAction.REGULATORY_FAILED,
+          entityType: 'RegulatoryReport',
+          entityId: 'row-1',
+        }),
+      );
     });
   });
 
@@ -262,6 +287,16 @@ describe('RegulatoryReportStoreService', () => {
       expect(row.submittedAt).toBeInstanceOf(Date);
       expect(row.status).toBe(RegulatoryReportSubmissionStatus.QUEUED);
       expect(row.klientReferanse).toBe('ref-escape');
+      // COMPLIANCE-HIGH-001: the varsling filing is audited atomically with
+      // the outbox enqueue on the caller's manager.
+      expect(logWithManager).toHaveBeenCalledWith(
+        mocks.mockManager,
+        expect.objectContaining({
+          action: AuditAction.REGULATORY_SUBMITTED,
+          entityType: 'RegulatoryReport',
+          userId: 'user-001',
+        }),
+      );
     });
   });
 });

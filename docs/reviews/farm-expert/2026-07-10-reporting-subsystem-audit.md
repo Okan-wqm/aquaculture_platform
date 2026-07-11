@@ -262,13 +262,31 @@ deleted gap IS the auditable evidence of what was lawfully kept. Note by design:
 record's `payload` JSONB (the filed report itself) is preserved intact — scrubbing content out of a
 filed regulatory report would corrupt the legal artifact the carve-out exists to protect.
 
+### FARM-HIGH-180 (COMPLIANCE-HIGH-001) — no audit trail for regulator actions
+
+The regulatory-reporting module never wrote a `farm_audit_logs` row for any regulator action, so a
+filed Mattilsynet/Fiskeridirektoratet submission — and its approval, dismissal, field-override, and
+failure — left no immutable, actor-attributed trail (SOC 2 CC4 / GDPR Art 30 accountability gap on
+the government-submission pipeline).
+
+Fixed: audit is wired at the persistence choke points (tier-2 "make it automatic"), so every path is
+attributed without per-resolver duplication. The `regulatory_reports` store writes
+`REGULATORY_SUBMITTED` (on `markSubmitted` acceptance and `recordQueued` varsling) and
+`REGULATORY_FAILED` (on `applyFailure`) via `AuditLogService.logWithManager` inside the SAME tenant
+transaction as the row change — actor `row.submittedBy` — covering interactive submit, draft
+auto-submit, and retry-sweep replay in one place. The draft lifecycle writes `REGULATORY_APPROVED`
+(`markSubmitted`), `REGULATORY_DISMISSED` (`dismissDraft`), and `REGULATORY_OVERRIDDEN`
+(`saveOverrides`) via `repo.manager.transaction`, with the operator threaded from the resolver's
+`getUserId`. Five new `farm_audit_logs_action_enum` values (migration 1804700000000,
+type-presence-guarded fan-out mirroring 1801300000000). The approval decision (draft, keyed to the
+approver) and the resulting wire filing (report row) are distinct audited facts. Specs assert each
+action fires with the correct actor.
+
 ## OPEN — HIGH (tracked)
 
 - **Slaughter drafts can never be submitted** — `buildWirePayload` never wraps `arter`/`ukeplanPerArt`
   into the required `utførteLokaliteter`/`planlagteLokaliteter` locality wrapper, so every slaughter
   draft fails official-schema validation (farm-expert FARM-HIGH-002, contract CONTRACT-HIGH-003).
-- **No immutable, actor-attributed audit trail** for any regulator action (submit/approve/override/
-  dismiss/resubmit) — the module never writes `farm_audit_logs` (compliance COMPLIANCE-HIGH-001).
 - **A SUBMITTED report can be silently overwritten** — `regulatory-report-store.upsert` resets an
   accepted row to PENDING and nulls the receipt with no terminal-state guard and no DB immutability
   trigger (compliance COMPLIANCE-HIGH-002, job-queue PRODUCT-JOB-MEDIUM-002).

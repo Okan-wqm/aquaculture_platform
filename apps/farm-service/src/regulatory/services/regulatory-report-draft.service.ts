@@ -23,6 +23,8 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, In, IsNull, Not, Repository } from 'typeorm';
 
+import { AuditAction } from '../../database/entities/audit-log.entity';
+import { AuditLogService } from '../../database/services/audit-log.service';
 import { ReportAssemblyService, ReportPrefillType } from '../assembly/report-assembly.service';
 import { ReportFieldMeta, ReportFieldProvenance } from '../assembly/provenance.types';
 import {
@@ -45,7 +47,40 @@ export class RegulatoryReportDraftService {
     @InjectRepository(RegulatoryReportDraft)
     private readonly repo: Repository<RegulatoryReportDraft>,
     private readonly assemblyService: ReportAssemblyService,
+    private readonly auditLog: AuditLogService,
   ) {}
+
+  /**
+   * COMPLIANCE-HIGH-001 — persist the draft mutation AND its actor-attributed
+   * audit row in one transaction so the audit trail can never diverge from the
+   * draft state. The connection is tenant-routed from AsyncLocalStorage at
+   * checkout (TenantConnectionBootstrap), so the per-tenant draft save lands in
+   * `tenant_<uuid>` while the schema-qualified `farm.farm_audit_logs` write
+   * lands in `farm` — both committing atomically.
+   */
+  private async saveWithAudit(
+    tenantId: string,
+    draft: RegulatoryReportDraft,
+    actor: string,
+    action: AuditAction,
+    summary: string,
+    after: Record<string, unknown>,
+  ): Promise<RegulatoryReportDraft> {
+    return this.repo.manager.transaction(async (mgr) => {
+      const saved = await mgr.save(RegulatoryReportDraft, draft);
+      await this.auditLog.logWithManager(mgr, {
+        tenantId,
+        entityType: 'RegulatoryReportDraft',
+        entityId: saved.id,
+        action,
+        userId: actor,
+        changes: { after },
+        metadata: { source: 'regulatory-reporting' },
+        summary,
+      });
+      return saved;
+    });
+  }
 
   // ==========================================================================
   // READS
@@ -152,6 +187,7 @@ export class RegulatoryReportDraftService {
     tenantId: string,
     id: string,
     overrides: Record<string, unknown>,
+    actor: string,
   ): Promise<RegulatoryReportDraft> {
     const draft = await this.getDraftOrThrow(tenantId, id);
     this.assertMutable(draft, 'override');
@@ -172,16 +208,35 @@ export class RegulatoryReportDraftService {
       }
     }
 
+    const overriddenPointers = Object.keys(overrides);
     draft.manualOverrides = { ...(draft.manualOverrides ?? {}), ...overrides };
     this.applyValidity(draft);
-    return this.repo.save(draft);
+    return this.saveWithAudit(
+      tenantId,
+      draft,
+      actor,
+      AuditAction.REGULATORY_OVERRIDDEN,
+      `Overrode ${overriddenPointers.length} field(s) on ${draft.reportType} draft`,
+      { overriddenPointers, status: draft.status, schemaValid: draft.schemaValid },
+    );
   }
 
-  async dismissDraft(tenantId: string, id: string): Promise<RegulatoryReportDraft> {
+  async dismissDraft(
+    tenantId: string,
+    id: string,
+    actor: string,
+  ): Promise<RegulatoryReportDraft> {
     const draft = await this.getDraftOrThrow(tenantId, id);
     this.assertMutable(draft, 'dismiss');
     draft.status = ReportDraftStatus.DISMISSED;
-    return this.repo.save(draft);
+    return this.saveWithAudit(
+      tenantId,
+      draft,
+      actor,
+      AuditAction.REGULATORY_DISMISSED,
+      `Dismissed ${draft.reportType} draft for the period`,
+      { status: draft.status },
+    );
   }
 
   /**
@@ -201,7 +256,14 @@ export class RegulatoryReportDraftService {
     draft.submittedReportId = submittedReportId;
     draft.approvedBy = approvedBy;
     draft.approvedAt = new Date();
-    return this.repo.save(draft);
+    return this.saveWithAudit(
+      tenantId,
+      draft,
+      approvedBy,
+      AuditAction.REGULATORY_APPROVED,
+      `Approved ${draft.reportType} draft and filed it (report ${submittedReportId})`,
+      { status: draft.status, submittedReportId },
+    );
   }
 
   // ==========================================================================

@@ -34603,6 +34603,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/graphql/decimal.scalar.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/graphql/decimal.scalar.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/graphql/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/guards/__tests__/mobile-feature.guard.spec.ts",
       "prettier_managed": true
     },
@@ -52266,10 +52284,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8565,
+  "file_count": 8568,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8390,
-  "managed_file_list_sha256": "6980a4f4398086b175188fb0ee56d9e9c63a7b4c337eca8134f71cadc1ae99aa",
+  "managed_count": 8393,
+  "managed_file_list_sha256": "237b943d24a95cbe70254cf14205b553c6258885c3faa89015875f3cf6d4e090",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

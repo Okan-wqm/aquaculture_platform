@@ -84,6 +84,7 @@ export {
   formatNumber,
   formatCurrency,
   formatCompactCurrency,
+  parseMoney,
   formatPercent,
   formatFileSize,
   formatCompact,

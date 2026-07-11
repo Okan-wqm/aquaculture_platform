@@ -77,6 +77,7 @@
         "libs/backend-common/src/finding-registry/index.ts"
       ],
       "@aquaculture/backend-common/gdpr": ["libs/backend-common/src/security/gdpr/index.ts"],
+      "@aquaculture/backend-common/graphql": ["libs/backend-common/src/graphql/index.ts"],
       "@aquaculture/backend-common/guards": [
         "libs/backend-common/src/guards/index.ts"
       ],

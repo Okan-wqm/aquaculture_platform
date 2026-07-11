@@ -6235,6 +6235,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/db-migrate/src/__tests__/orphan-type-reclamation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/db-migrate/src/__tests__/platform-bootstrap.integration.spec.ts",
       "prettier_managed": true
     },
@@ -6266,6 +6272,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/db-migrate/src/migration-orchestrator.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/db-migrate/src/orphan-type-reclamation.ts",
       "prettier_managed": true
     },
     {
@@ -6688,7 +6700,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/__tests__/e2e/regulatory-report-immutability-trigger.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/site-tenant-isolation.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/__tests__/e2e/stock-reconstruction.postgres.spec.ts",
       "prettier_managed": true
     },
     {
@@ -6923,6 +6947,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/batch/__tests__/services/sgr-calculator.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/batch/__tests__/services/stock-reconstruction.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -7505,6 +7535,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/batch/services/sgr-calculator.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/batch/services/stock-reconstruction.service.ts",
       "prettier_managed": true
     },
     {
@@ -8998,6 +9034,36 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/database/migrations/1804600000000-CreateFinanceTables.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1804700000000-AddRegulatoryAuditEnumValues.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1804800000000-AddRegulatoryReportImmutabilityTrigger.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1804900000000-AddWelfareLiceCheckConstraints.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1805000000000-ApplyRlsToRegulatoryReportDrafts.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1805100000000-AddTenantErasureRetainedColumns.ts",
       "prettier_managed": true
     },
     {
@@ -12249,6 +12315,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/assembly/disease.assembler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/assembly/escape.assembler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/regulatory/__tests__/assembly/lakselus.assembler.spec.ts",
       "prettier_managed": true
     },
@@ -12285,6 +12363,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/assembly/welfare.assembler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/regulatory/__tests__/biomass-altinn-export.service.spec.ts",
       "prettier_managed": true
     },
@@ -12316,6 +12400,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/regulatory/__tests__/json-pointer.util.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/maskinporten-token-cache.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/mattilsynet-api-breaker.spec.ts",
       "prettier_managed": true
     },
     {
@@ -12417,6 +12513,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/regulatory/assembly/assemblers/disease.assembler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/assembly/assemblers/escape.assembler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/regulatory/assembly/assemblers/lakselus.assembler.ts",
       "prettier_managed": true
     },
@@ -12436,6 +12544,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/regulatory/assembly/assemblers/slakt.assembler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/assembly/assemblers/welfare.assembler.ts",
       "prettier_managed": true
     },
     {
@@ -30949,6 +31063,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/farm-expert/2026-07-10-reporting-subsystem-audit.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/farm-integration/2026-07-02-farm-full-integration.md",
       "prettier_managed": true
     },
@@ -35227,6 +35347,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/security/encryption/__tests__/encrypted-column.transformer.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/security/encryption/blind-index.ts",
       "prettier_managed": true
     },
@@ -39289,6 +39415,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/farm-event-handler-tenant-context-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/farm-graphql-enum-parity.spec.ts",
       "prettier_managed": true
     },
     {
@@ -44560,13 +44692,85 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/pages/reports/tabs/__tests__/biomassCurrentStockReview.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/reports/tabs/__tests__/biomassFeedReview.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/pages/reports/tabs/__tests__/biomassFormHydration.spec.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/pages/reports/tabs/__tests__/biomassMortalityReview.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/reports/tabs/__tests__/biomassStockingReview.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/reports/tabs/__tests__/biomassTransferReview.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/reports/tabs/__tests__/diseaseAssembledReview.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/reports/tabs/__tests__/escapeAssembledReview.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/pages/reports/tabs/__tests__/immediateReportSubmit.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/reports/tabs/__tests__/seaLiceCountsReview.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/reports/tabs/__tests__/seaLiceTemperatureReview.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/reports/tabs/__tests__/slaughterFacilityCatalog.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/reports/tabs/__tests__/smoltProduksjonsenheter.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/reports/tabs/__tests__/welfareAssembledReview.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -52206,10 +52410,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8555,
+  "file_count": 8589,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8380,
-  "managed_file_list_sha256": "b83a57e7f27a3b3684511a1f2e0b4cc2b33336627f99f0fc5be11175fe623501",
+  "managed_count": 8414,
+  "managed_file_list_sha256": "fe386601dde7580ad76049bc2322960c4f46c257eab35a42a302450d9cd5f364",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

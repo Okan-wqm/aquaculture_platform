@@ -144,17 +144,21 @@ describe('ReportSchedulerService period math', () => {
     ]);
   });
 
-  it('monthly jobs cover the previous calendar month, rolling the year at January', () => {
+  it('monthly jobs cover the previous calendar month (no BIOMASS — it is the Altinn channel)', () => {
     expect(ReportSchedulerService.monthlyJobs(new Date('2026-07-01T03:00:00Z'))).toEqual([
       { reportType: ReportPrefillType.SMOLT, year: 2026, month: 6 },
       { reportType: ReportPrefillType.CLEANER_FISH, year: 2026, month: 6 },
-      { reportType: ReportPrefillType.BIOMASS, year: 2026, month: 6 },
     ]);
     expect(ReportSchedulerService.monthlyJobs(new Date('2026-01-01T03:00:00Z'))).toEqual([
       { reportType: ReportPrefillType.SMOLT, year: 2025, month: 12 },
       { reportType: ReportPrefillType.CLEANER_FISH, year: 2025, month: 12 },
-      { reportType: ReportPrefillType.BIOMASS, year: 2025, month: 12 },
     ]);
+    // BIOMASS is filed via the FD-0001/Altinn manual channel (biomass_reports),
+    // never the Mattilsynet REST draft pipeline.
+    const types = ReportSchedulerService.monthlyJobs(new Date('2026-07-01T03:00:00Z')).map(
+      (j) => j.reportType,
+    );
+    expect(types).not.toContain(ReportPrefillType.BIOMASS);
   });
 });
 

@@ -151,7 +151,15 @@ export class ReportSchedulerService {
     ];
   }
 
-  /** Monthly jobs: previous calendar month (smolt + cleaner fish + biomass). */
+  /**
+   * Monthly jobs: previous calendar month (smolt + cleaner fish). BIOMASS is NOT
+   * a Mattilsynet REST report — it is the Fiskeridirektoratet FD-0001 / Altinn
+   * manual channel with its own `biomass_reports` table and READY → Altinn-confirm
+   * state machine. It must not flow through this REST draft pipeline: a BIOMASS
+   * draft here surfaced in "Scheduled reports due" with a Mattilsynet "Approve &
+   * Submit" that always errors, and duplicated the biomass_reports lifecycle
+   * (FARM-HIGH-004 — no duplicate structures).
+   */
   static monthlyJobs(now: Date): RolloverJob[] {
     let year = now.getUTCFullYear();
     let month = now.getUTCMonth(); // 0-based current → previous month is this value (1-based)
@@ -162,7 +170,6 @@ export class ReportSchedulerService {
     return [
       { reportType: ReportPrefillType.SMOLT, year, month },
       { reportType: ReportPrefillType.CLEANER_FISH, year, month },
-      { reportType: ReportPrefillType.BIOMASS, year, month },
     ];
   }
 

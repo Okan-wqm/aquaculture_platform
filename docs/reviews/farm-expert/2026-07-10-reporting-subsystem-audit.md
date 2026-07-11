@@ -216,6 +216,14 @@ silently missed its deadline. Fixed: a MAX_TRANSIENT_ATTEMPTS=12 ceiling escalat
 transient failure through the extracted markPermanentFailure (terminal PERMANENT + the operator
 outbox alert) so the sweep stops replaying it and the failure surfaces.
 
+### FARM-HIGH-176 — BIOMASS draft in the REST due-list with a broken Approve & Submit
+
+The scheduler assembled a BIOMASS draft into regulatory_report_drafts monthly; it surfaced in
+"Scheduled reports due" with a Mattilsynet "Approve & Submit" that always threw (biomass is the
+FD-0001/Altinn channel, not a REST report) and duplicated the biomass_reports lifecycle. Fixed:
+BIOMASS removed from monthlyJobs so it no longer flows through the REST pipeline; biomass keeps its
+own biomass_reports + Altinn confirm flow.
+
 ## OPEN — HIGH (tracked)
 
 - **Slaughter drafts can never be submitted** — `buildWirePayload` never wraps `arter`/`ukeplanPerArt`

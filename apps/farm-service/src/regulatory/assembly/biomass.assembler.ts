@@ -21,9 +21,13 @@ import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { QueryBus } from '@platform/cqrs';
-import { DataSource } from 'typeorm';
+import { DataSource, QueryRunner } from 'typeorm';
 
 import { BiomassCalculatorService } from '../../batch/services/biomass-calculator.service';
+import {
+  ReconstructedSiteStock,
+  StockReconstructionService,
+} from '../../batch/services/stock-reconstruction.service';
 import {
   GetMortalityByCauseQuery,
   MortalityByCauseResult,
@@ -38,7 +42,7 @@ import {
 } from '../../feeding/queries/get-site-feed-consumption.query';
 import { BiomassReportPayload } from '../entities/biomass-report.entity';
 import { AssembledDraft, fromRecords, manualRequired } from './provenance.types';
-import { monthRange, round2 } from './period.util';
+import { isStandingStockStale, monthRange, round2 } from './period.util';
 
 interface StockingRow {
   date: string;
@@ -64,6 +68,7 @@ export class BiomassReportAssembler {
     private readonly dataSource: DataSource,
     private readonly queryBus: QueryBus,
     private readonly biomassCalculator: BiomassCalculatorService,
+    private readonly stockReconstruction: StockReconstructionService,
   ) {}
 
   async assemble(
@@ -74,7 +79,18 @@ export class BiomassReportAssembler {
   ): Promise<AssembledDraft<BiomassReportPayload>> {
     const { fromDate, toDate } = monthRange(reportYear, reportMonth);
 
-    const [siteBiomass, mortality, transfers, feed, stockingRows, slaughterRows] =
+    // FARM-HIGH-182: for a materially historical period the live standing stock
+    // no longer reflects the month-end, so reconstruct the exact period-end
+    // beholdning from source records instead of stamping today's inventory. The
+    // reconstruction is only run when the period is stale; a fresh/just-closed
+    // period keeps the live calculator (cheaper, and identical at that point).
+    const now = new Date();
+    const stale = isStandingStockStale(toDate, now);
+
+    // PERF-HIGH-005: the two direct DB reads (stockings + slaughter) share ONE
+    // tenant-read boundary; the calculator, the three CQRS queries, and the
+    // period-end reconstruction own their own boundaries and run in parallel.
+    const [siteBiomass, mortality, transfers, feed, directReads, reconstructed] =
       await Promise.all([
         this.biomassCalculator.getSiteBiomassReport(siteId, tenantId),
         this.queryBus.execute<GetMortalityByCauseQuery, MortalityByCauseResult>(
@@ -86,34 +102,69 @@ export class BiomassReportAssembler {
         this.queryBus.execute<GetSiteFeedConsumptionQuery, SiteFeedConsumptionResult>(
           new GetSiteFeedConsumptionQuery(tenantId, siteId, fromDate, toDate),
         ),
-        this.queryStockings(tenantId, siteId, fromDate, toDate),
-        this.querySlaughter(tenantId, siteId, fromDate, toDate),
+        runInTenantRead(this.dataSource, 'farm', tenantId, async (qr) => ({
+          stockingRows: await this.queryStockings(qr, tenantId, siteId, fromDate, toDate),
+          slaughterRows: await this.querySlaughter(qr, tenantId, siteId, fromDate, toDate),
+        })),
+        stale
+          ? this.stockReconstruction.reconstructSiteStockAtPeriodEnd(tenantId, siteId, toDate)
+          : Promise.resolve<ReconstructedSiteStock | null>(null),
       ]);
+    const { stockingRows, slaughterRows } = directReads;
+
+    // A stale period uses the reconstructed period-end stock ONLY when the replay
+    // was complete (every in-stock batch had a baseline + weight and never went
+    // negative); otherwise it falls back to the honest MANUAL_REQUIRED below.
+    const useReconstruction = stale && reconstructed?.complete === true;
+    const currentBiomass = useReconstruction
+      ? {
+          totalKg: round2(reconstructed.totalBiomassKg),
+          bySpecies: reconstructed.speciesBreakdown.map((entry) => ({
+            speciesId: entry.speciesId,
+            speciesName: entry.speciesName,
+            fishCount: entry.quantity,
+            biomassKg: round2(entry.biomassKg),
+            avgWeightG: round2(entry.avgWeightG),
+          })),
+        }
+      : {
+          totalKg: round2(siteBiomass.totalBiomassKg),
+          bySpecies: siteBiomass.speciesBreakdown.map((entry) => ({
+            speciesId: entry.speciesId,
+            speciesName: entry.speciesName,
+            fishCount: entry.quantity,
+            biomassKg: round2(entry.biomassKg),
+            avgWeightG:
+              entry.quantity > 0 ? round2((entry.biomassKg * 1000) / entry.quantity) : 0,
+          })),
+        };
+
+    // COMPLIANCE-MEDIUM-005: a stocking whose batch has no recorded avg weight
+    // must NOT be silently rendered as 0 kg tagged RECORDS — the biomass is
+    // unknown, not zero. Track the affected batches so `/stockings` is flagged
+    // MANUAL_REQUIRED (non-blocking) rather than claiming a fabricated zero.
+    const stockingsWithMissingWeight: string[] = [];
+    const stockings = stockingRows.map((row) => {
+      const fishCount = Number(row.fishCount);
+      const hasWeight = row.avgWeightG != null;
+      if (!hasWeight) {
+        stockingsWithMissingWeight.push(row.batchNumber);
+      }
+      const avgWeightG = hasWeight ? Number(row.avgWeightG) : 0;
+      return {
+        date: row.date,
+        speciesCode: row.speciesCode,
+        supplier: row.supplier ?? undefined,
+        fishCount,
+        avgWeightG: round2(avgWeightG),
+        biomassKg: round2((fishCount * avgWeightG) / 1000),
+        notes: row.batchNumber,
+      };
+    });
 
     const draftPayload: BiomassReportPayload = {
-      currentBiomass: {
-        totalKg: round2(siteBiomass.totalBiomassKg),
-        bySpecies: siteBiomass.speciesBreakdown.map((entry) => ({
-          speciesId: entry.speciesId,
-          speciesName: entry.speciesName,
-          fishCount: entry.quantity,
-          biomassKg: round2(entry.biomassKg),
-          avgWeightG: entry.quantity > 0 ? round2((entry.biomassKg * 1000) / entry.quantity) : 0,
-        })),
-      },
-      stockings: stockingRows.map((row) => {
-        const fishCount = Number(row.fishCount);
-        const avgWeightG = row.avgWeightG == null ? 0 : Number(row.avgWeightG);
-        return {
-          date: row.date,
-          speciesCode: row.speciesCode,
-          supplier: row.supplier ?? undefined,
-          fishCount,
-          avgWeightG: round2(avgWeightG),
-          biomassKg: round2((fishCount * avgWeightG) / 1000),
-          notes: row.batchNumber,
-        };
-      }),
+      currentBiomass,
+      stockings,
       mortality: {
         totalCount: mortality.totalCount,
         byCause: mortality.byCause,
@@ -156,13 +207,45 @@ export class BiomassReportAssembler {
       },
     };
 
+    // Standing-stock provenance, three ways:
+    //  - fresh/just-closed period → the live inventory IS the closing beholdning
+    //    (RECORDS, from the calculator);
+    //  - stale period, reconstruction complete → the exact month-end beholdning
+    //    replayed from source records (RECORDS, FARM-HIGH-182);
+    //  - stale period, reconstruction incomplete (a batch missing a baseline /
+    //    weight, or a negative replay signalling a ledger gap) → fail closed to a
+    //    blocking MANUAL_REQUIRED so no unverifiable number is filed.
+    const currentBiomassMeta = !stale
+      ? fromRecords(
+          '/currentBiomass',
+          'BiomassCalculatorService.getSiteBiomassReport',
+          siteBiomass.batchCount,
+        )
+      : useReconstruction
+        ? fromRecords(
+            '/currentBiomass',
+            'StockReconstructionService.reconstructSiteStockAtPeriodEnd (period-end replay)',
+            reconstructed.batchCount,
+          )
+        : manualRequired(
+            '/currentBiomass',
+            `The ${reportYear}-${String(reportMonth).padStart(2, '0')} month-end standing stock ` +
+              `could not be reconstructed from source records (${reconstructed?.incompleteReason ?? 'the source ledger is incomplete for this period'}). ` +
+              `Verify and enter the actual closing beholdning for the period.`,
+            true,
+          );
+
     const fields = [
-      fromRecords(
-        '/currentBiomass',
-        'BiomassCalculatorService.getSiteBiomassReport',
-        siteBiomass.batchCount,
-      ),
-      fromRecords('/stockings', 'BiomassReportAssembler.queryStockings', stockingRows.length),
+      currentBiomassMeta,
+      stockingsWithMissingWeight.length > 0
+        ? manualRequired(
+            '/stockings',
+            `Stocking batch(es) ${stockingsWithMissingWeight.join(', ')} have no recorded ` +
+              `avg weight — their biomass is shown as 0. Enter the stocking weight on the batch ` +
+              `so the value comes from records.`,
+            false,
+          )
+        : fromRecords('/stockings', 'BiomassReportAssembler.queryStockings', stockingRows.length),
       fromRecords('/mortality', 'GetMortalityByCauseQuery', mortality.recordCount),
       fromRecords('/slaughter', 'BiomassReportAssembler.querySlaughter', slaughterRows.length),
       fromRecords('/transfers', 'GetTransfersSummaryQuery', transfers.recordCount),
@@ -186,16 +269,16 @@ export class BiomassReportAssembler {
   }
 
   private async queryStockings(
+    qr: QueryRunner,
     tenantId: string,
     siteId: string,
     fromDate: string,
     toDate: string,
   ): Promise<StockingRow[]> {
-    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      // A batch counts as stocked into the site when any tank allocation
-      // (primary or combined-batch detail) points at a tank under the site.
-      return queryRunner.query(
-        `SELECT DISTINCT b."stockedAt"::date::text AS date,
+    // A batch counts as stocked into the site when any tank allocation
+    // (primary or combined-batch detail) points at a tank under the site.
+    return qr.query(
+      `SELECT DISTINCT b."stockedAt"::date::text AS date,
                 COALESCE(s."officialCode", s.code) AS "speciesCode",
                 b."supplierBatchNumber" AS supplier,
                 b."initialQuantity"::bigint AS "fishCount",
@@ -225,20 +308,19 @@ export class BiomassReportAssembler {
               )
             )
           ORDER BY date`,
-        [tenantId, siteId, fromDate, toDate],
-      );
-    });
+      [tenantId, siteId, fromDate, toDate],
+    );
   }
 
   private async querySlaughter(
+    qr: QueryRunner,
     tenantId: string,
     siteId: string,
     fromDate: string,
     toDate: string,
   ): Promise<SlaughterRow[]> {
-    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      return queryRunner.query(
-        `SELECT hr."harvestDate"::date::text AS date,
+    return qr.query(
+      `SELECT hr."harvestDate"::date::text AS date,
                 COALESCE(s."officialCode", s.code) AS "speciesCode",
                 SUM(hr."quantityHarvested")::bigint AS quantity,
                 SUM(hr."totalBiomass")::numeric AS "biomassKg",
@@ -250,10 +332,13 @@ export class BiomassReportAssembler {
            JOIN species s ON s.id = b."speciesId"
           WHERE hr."tenantId" = $1
             AND hr."harvestDate"::date BETWEEN $3 AND $4
-          GROUP BY hr."harvestDate"::date, s.code
+            -- FARM-HIGH-182: a cancelled harvest reverses the live stock but is
+            -- NOT a slaughter that happened — exclude it so the regulatory
+            -- slaughter section never over-reports (matches the reconstruction).
+            AND hr.status <> 'cancelled'
+          GROUP BY hr."harvestDate"::date, s.code, s."officialCode"
           ORDER BY date`,
-        [tenantId, siteId, fromDate, toDate],
-      );
-    });
+      [tenantId, siteId, fromDate, toDate],
+    );
   }
 }

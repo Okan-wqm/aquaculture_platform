@@ -18,7 +18,7 @@ import { SubmissionHistorySection } from '../components/SubmissionHistorySection
 import { useStableClientReference } from '../../../hooks/useStableClientReference';
 import { useEffectiveReportSite } from '../hooks/useEffectiveReportSite';
 import { useReportPrefill, findFieldMeta, ReportFieldMeta } from '../../../hooks/useReportPrefill';
-import { ProvenanceBadge } from '../components/common/ProvenanceBadge';
+import { ProvenanceBadge } from '../components/common';
 import { SiteLocalitySelector } from '../components/SiteLocalitySelector';
 import { buildRegulatoryIdentity } from '../utils/regulatoryIdentity';
 import { toBackendReportMonth } from '../utils/reportPeriod';
@@ -51,6 +51,13 @@ interface SmoltMortalityUnitExtended extends SmoltMortalityUnit {
 /** Extended unit count with species code */
 interface SmoltUnitCountExtended extends SmoltUnitCount {
   speciesCode: string; // artskode
+  /**
+   * Mattilsynet regulatory unit id (karId) carried from the server-assembled
+   * draft — SettefiskReportAssembler derives it from Tank.regulatoryUnitId /
+   * tank code, so the report matches the catalog the assembler read instead of
+   * re-deriving it from the display name at submission.
+   */
+  karId?: string;
 }
 
 /** Per-unit shape of the server-assembled settefisk draft (see SettefiskReportAssembler). */
@@ -62,6 +69,32 @@ interface SmoltPrefillUnit {
   antallAvlivet: number;
   antallSelvdød: number;
   antallFlyttetEksternt: number;
+}
+
+/**
+ * Map the form's per-unit rows to the Mattilsynet settefisk `produksjonsenheter`
+ * wire shape. The values come from the server-assembled draft (loaded via
+ * "Load from System"): the regulatory karId and per-unit average weight are the
+ * assembler's SSoT — a single overall weight and the display name are only
+ * fallbacks for units the operator adds by hand.
+ */
+export function buildSmoltProduksjonsenheter(
+  byUnit: SmoltUnitCountExtended[],
+  mortalityByUnit: SmoltMortalityUnitExtended[],
+  overallWeightGram: number,
+): SubmitSmoltReportInput['produksjonsenheter'] {
+  return byUnit.map((unit) => {
+    const mortalityUnit = mortalityByUnit.find((m) => m.unitId === unit.unitId);
+    return {
+      karId: unit.karId || unit.unitName || unit.unitId,
+      artskode: unit.speciesCode || 'SAL',
+      snittvektGram: unit.avgWeightG || overallWeightGram || 0,
+      beholdningVedMaanedsslutt: unit.quantity,
+      antallAvlivet: mortalityUnit?.euthanized || 0,
+      antallSelvdod: mortalityUnit?.naturalDeaths || 0,
+      antallFlyttetEksternt: mortalityUnit?.externalTransfers || 0,
+    };
+  });
 }
 
 interface SmoltFormData {
@@ -263,6 +296,9 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({
         avgWeightG: unit.snittvektGram,
         stage: tank ? deriveStage(tank) : undefined,
         speciesCode: unit.artskode || 'SAL',
+        // Preserve the assembler's regulatory karId (do not re-derive from the
+        // resolved tank display name at submission).
+        karId: unit.karId,
       };
     });
 
@@ -980,21 +1016,11 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
         kontaktperson: identity.kontaktperson,
         rapporteringsmaaned: toBackendReportMonth(formData.month),
         rapporteringsaar: formData.year,
-        produksjonsenheter: formData.fishCounts.byUnit.map((unit) => {
-          const mortalityUnit = formData.mortalityRates.byUnit.find(
-            (m) => m.unitId === unit.unitId,
-          );
-          return {
-            karId: unit.unitName || unit.unitId,
-            artskode: (unit as SmoltUnitCountExtended).speciesCode || 'SAL',
-            snittvektGram: formData.averageWeights.overall || 0,
-            beholdningVedMaanedsslutt: unit.quantity,
-            antallAvlivet: (mortalityUnit as SmoltMortalityUnitExtended)?.euthanized || 0,
-            antallSelvdod: (mortalityUnit as SmoltMortalityUnitExtended)?.naturalDeaths || 0,
-            antallFlyttetEksternt:
-              (mortalityUnit as SmoltMortalityUnitExtended)?.externalTransfers || 0,
-          };
-        }),
+        produksjonsenheter: buildSmoltProduksjonsenheter(
+          formData.fishCounts.byUnit,
+          formData.mortalityRates.byUnit,
+          formData.averageWeights.overall || 0,
+        ),
       };
 
       const result = await submitSmoltMutation.mutateAsync(input);

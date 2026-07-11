@@ -11,16 +11,24 @@
  */
 import { BadRequestException } from '@nestjs/common';
 
-import { RegulatoryDraftSubmissionService } from '../services/regulatory-draft-submission.service';
+import {
+  RegulatoryDraftSubmissionService,
+  AUTO_SUBMIT_ACTOR_ID,
+} from '../services/regulatory-draft-submission.service';
 import { RegulatoryReportDraftService } from '../services/regulatory-report-draft.service';
 import { RegulatorySubmissionService } from '../services/regulatory-submission.service';
+import { RegulatoryReportStoreService } from '../services/regulatory-report-store.service';
 import { RegulatorySettingsService } from '../regulatory-settings.service';
 import { MattilsynetApiService } from '../mattilsynet-api.service';
 import {
   MattilsynetSchemaValidatorService,
   MattilsynetSchemaValidationError,
 } from '../services/mattilsynet-schema-validator.service';
-import { RegulatoryReportType } from '../entities/regulatory-report.entity';
+import {
+  RegulatoryReport,
+  RegulatoryReportSubmissionStatus,
+  RegulatoryReportType,
+} from '../entities/regulatory-report.entity';
 import {
   RegulatoryReportDraft,
   ReportDraftStatus,
@@ -54,6 +62,7 @@ describe('RegulatoryDraftSubmissionService', () => {
   let getDraftOrThrow: jest.Mock;
   let markSubmitted: jest.Mock;
   let submitWithRecord: jest.Mock;
+  let findByKlientReferanse: jest.Mock;
   let submitByType: jest.Mock;
   let validate: jest.Mock;
   let getSettings: jest.Mock;
@@ -68,6 +77,8 @@ describe('RegulatoryDraftSubmissionService', () => {
     submitWithRecord = jest
       .fn()
       .mockResolvedValue({ success: true, reportId: 'row-1', referanse: 'MT-1' });
+    // No existing submission row by default → the normal file path runs.
+    findByKlientReferanse = jest.fn().mockResolvedValue(null);
     validate = jest.fn().mockImplementation((_t, payload) => payload);
     getSettings = jest.fn().mockResolvedValue({
       defaultContactName: 'Ola',
@@ -84,6 +95,9 @@ describe('RegulatoryDraftSubmissionService', () => {
     const submissionService: Pick<RegulatorySubmissionService, 'submitWithRecord'> = {
       submitWithRecord,
     };
+    const reportStore: Pick<RegulatoryReportStoreService, 'findByKlientReferanse'> = {
+      findByKlientReferanse,
+    };
     const api: Pick<MattilsynetApiService, 'submitByType'> = { submitByType };
     const validator: Pick<MattilsynetSchemaValidatorService, 'validate'> = { validate };
     const settings: Pick<
@@ -94,11 +108,25 @@ describe('RegulatoryDraftSubmissionService', () => {
     service = new RegulatoryDraftSubmissionService(
       draftService as RegulatoryReportDraftService,
       submissionService as RegulatorySubmissionService,
+      reportStore as RegulatoryReportStoreService,
       api as MattilsynetApiService,
       validator as MattilsynetSchemaValidatorService,
       settings as RegulatorySettingsService,
     );
   });
+
+  function existingReport(over: Partial<RegulatoryReport> = {}): RegulatoryReport {
+    const row = new RegulatoryReport();
+    row.id = 'row-existing';
+    row.tenantId = TENANT;
+    row.reportType = RegulatoryReportType.SEA_LICE;
+    row.klientReferanse = DRAFT_ID;
+    row.status = RegulatoryReportSubmissionStatus.SUBMITTED;
+    row.referanse = 'MT-existing';
+    row.attemptCount = 1;
+    Object.assign(row, over);
+    return row;
+  }
 
   it('builds the wire payload = body + header and submits, linking the receipt', async () => {
     const result = await service.approveAndSubmit(TENANT, USER, DRAFT_ID);
@@ -204,5 +232,123 @@ describe('RegulatoryDraftSubmissionService', () => {
     const result = await service.approveAndSubmit(TENANT, USER, DRAFT_ID);
     expect(result.success).toBe(false);
     expect(markSubmitted).not.toHaveBeenCalled();
+  });
+
+  describe('slaughter wire reshape (FARM-HIGH-002 — official locality wrapper)', () => {
+    it('wraps executed-slaughter arter into utførteLokaliteter and drops the assembler-only fields', async () => {
+      getDraftOrThrow.mockResolvedValue(
+        makeDraft({
+          reportType: ReportPrefillType.SLAUGHTER_EXECUTED,
+          periodWeek: 27,
+          assembledPayload: {
+            slakteuke: 27,
+            slakteår: 2026,
+            godkjenningsnummer: 'M1234',
+            arter: [{ art: 'SAL', superiorKg: 40000, ordinærKg: 8000 }],
+            totalKgPerArt: [{ artskode: 'SAL', totalKg: 48000 }],
+          },
+        }),
+      );
+
+      await service.approveAndSubmit(TENANT, USER, DRAFT_ID);
+
+      const [, wire] = validate.mock.calls[0];
+      // nested official wrapper, one locality carrying the header identity
+      expect(wire.utførteLokaliteter).toEqual([
+        {
+          organisasjonsnummer: '987654321',
+          lokalitetsnummer: 12345,
+          arter: [{ art: 'SAL', superiorKg: 40000, ordinærKg: 8000 }],
+        },
+      ]);
+      // the flat assembler-only fields must NOT leak to the top level
+      // (schema is additionalProperties:false)
+      expect(wire.arter).toBeUndefined();
+      expect(wire.totalKgPerArt).toBeUndefined();
+      // top-level scalars survive
+      expect(wire).toMatchObject({ slakteuke: 27, slakteår: 2026, godkjenningsnummer: 'M1234' });
+    });
+
+    it('wraps planned-slaughter ukeplanPerArt into planlagteLokaliteter', async () => {
+      getDraftOrThrow.mockResolvedValue(
+        makeDraft({
+          reportType: ReportPrefillType.SLAUGHTER_PLANNED,
+          periodWeek: 30,
+          assembledPayload: {
+            uke: 30,
+            år: 2026,
+            godkjenningsnummer: 'M1234',
+            ukeplanPerArt: [{ artskode: 'SAL', mandagKg: 1000 }],
+          },
+        }),
+      );
+
+      await service.approveAndSubmit(TENANT, USER, DRAFT_ID);
+
+      const [, wire] = validate.mock.calls[0];
+      expect(wire.planlagteLokaliteter).toEqual([
+        {
+          organisasjonsnummer: '987654321',
+          lokalitetsnummer: 12345,
+          ukeplanPerArt: [{ artskode: 'SAL', mandagKg: 1000 }],
+        },
+      ]);
+      expect(wire.ukeplanPerArt).toBeUndefined();
+    });
+  });
+
+  describe('reconciliation against the submission SSoT (PRODUCT-JOB-CRITICAL-002)', () => {
+    it('reconciles + returns the receipt WITHOUT re-filing when the report is already SUBMITTED', async () => {
+      // The retry sweep accepted the report out-of-band; the draft is still READY.
+      findByKlientReferanse.mockResolvedValue(
+        existingReport({ status: RegulatoryReportSubmissionStatus.SUBMITTED, referanse: 'MT-9' }),
+      );
+
+      const result = await service.approveAndSubmit(TENANT, USER, DRAFT_ID);
+
+      expect(result).toEqual({
+        success: true,
+        reportId: 'row-existing',
+        referanse: 'MT-9',
+        klientReferanse: DRAFT_ID,
+      });
+      // No re-POST, no duplicate persist — just draft reconciliation to the receipt.
+      expect(submitWithRecord).not.toHaveBeenCalled();
+      expect(markSubmitted).toHaveBeenCalledWith(TENANT, DRAFT_ID, 'row-existing', USER);
+    });
+
+    it('treats a QUEUED varsling-style row as already filed (idempotent, no re-POST)', async () => {
+      findByKlientReferanse.mockResolvedValue(
+        existingReport({ status: RegulatoryReportSubmissionStatus.QUEUED }),
+      );
+      const result = await service.approveAndSubmit(TENANT, USER, DRAFT_ID);
+      expect(result.success).toBe(true);
+      expect(submitWithRecord).not.toHaveBeenCalled();
+    });
+
+    it('auto-submit does NOT re-file a report that is FAILED (owned by the retry sweep / operator)', async () => {
+      findByKlientReferanse.mockResolvedValue(
+        existingReport({ status: RegulatoryReportSubmissionStatus.FAILED, attemptCount: 3 }),
+      );
+
+      const result = await service.approveAndSubmit(TENANT, AUTO_SUBMIT_ACTOR_ID, DRAFT_ID);
+
+      expect(result.success).toBe(false);
+      expect(result.feilmelding).toMatch(/auto-submit does not re-file/i);
+      expect(submitWithRecord).not.toHaveBeenCalled();
+      expect(markSubmitted).not.toHaveBeenCalled();
+    });
+
+    it('an EXPLICIT operator re-approval of a FAILED report is allowed to retry (files again)', async () => {
+      findByKlientReferanse.mockResolvedValue(
+        existingReport({ status: RegulatoryReportSubmissionStatus.FAILED, attemptCount: 3 }),
+      );
+
+      const result = await service.approveAndSubmit(TENANT, USER, DRAFT_ID);
+
+      // operator (not AUTO_SUBMIT_ACTOR_ID) falls through to the normal submit path
+      expect(result.success).toBe(true);
+      expect(submitWithRecord).toHaveBeenCalledTimes(1);
+    });
   });
 });

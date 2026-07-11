@@ -60,6 +60,7 @@ import { BatchDomainService } from './services/batch-domain.service';
 import { BatchLifecyclePolicyService } from './services/batch-lifecycle-policy.service';
 import { BatchService } from './services/batch.service';
 import { BiomassCalculatorService } from './services/biomass-calculator.service';
+import { StockReconstructionService } from './services/stock-reconstruction.service';
 import { TankCountReconcileService } from './services/tank-count-reconcile.service';
 import { TankBatchModule } from './tank-batch.module';
 import { MortalityCullPolicyService } from './services/mortality-cull-policy.service';
@@ -125,6 +126,7 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
     MortalityCullPolicyService,
     SGRCalculatorService,
     BiomassCalculatorService,
+    StockReconstructionService,
     BatchCostCalculatorService,
     BatchDocumentDataLoader,  // REQUEST-scoped: one instance per GraphQL request
     BatchLocationDataLoader,  // REQUEST-scoped: eliminates N+1 for batch.locations
@@ -148,6 +150,7 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
     BatchDomainService,
     SGRCalculatorService,
     BiomassCalculatorService,
+    StockReconstructionService,
     BatchCostCalculatorService,
   ],
 })

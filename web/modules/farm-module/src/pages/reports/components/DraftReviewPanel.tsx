@@ -15,7 +15,7 @@ import {
   useSaveReportDraftOverrides,
 } from '../../../hooks/useReportDeadlines';
 import type { ReportFieldMeta } from '../../../hooks/useReportPrefill';
-import { PrefilledField } from './common/PrefilledField';
+import { PrefilledField } from './common';
 
 interface DraftReviewPanelProps {
   draftId: string;

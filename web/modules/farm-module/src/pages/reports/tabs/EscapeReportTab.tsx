@@ -3,14 +3,17 @@
  * Lists fish escape incidents and provides quick-entry modal for immediate reporting
  * Shows urgency indicator for large-scale escapes per Norwegian regulatory requirements
  */
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useRegulatorySettings, useSubmitEscapeReport } from '../../../hooks/useRegulatory';
+import { useReportPrefill, findFieldMeta, ReportPrefill } from '../../../hooks/useReportPrefill';
 import { buildRegulatoryIdentity } from '../utils/regulatoryIdentity';
 import { useStableClientReference } from '../../../hooks/useStableClientReference';
+import { useEffectiveReportSite } from '../hooks/useEffectiveReportSite';
 import { EscapeReport } from '../types/reports.types';
 import { REGULATORY_CONTACTS } from '../utils/thresholds';
 import { EscapeReportModal } from '../components/modals';
 import { SubmissionHistorySection } from '../components/SubmissionHistorySection';
+import { ProvenanceBadge } from '../components/common';
 
 // ============================================================================
 // Types
@@ -19,6 +22,82 @@ import { SubmissionHistorySection } from '../components/SubmissionHistorySection
 interface EscapeReportTabProps {
   siteId?: string;
 }
+
+/** Data portion of the server-assembled escape varsling (see EscapeReportAssembler). */
+interface EscapePrefillPayload {
+  incidentId: string | null;
+  detectedAt: string | null;
+  estimatedCount: number;
+  species: string;
+  avgWeightG: number | null;
+  totalBiomassKg: number | null;
+  cause: string;
+  affectedUnits: string[];
+  recoveryOngoing: boolean;
+}
+
+/**
+ * Review-and-approve card (RPT-009): the escape varsling assembles from the
+ * recorded escape_incident. The facts render READ-ONLY with provenance —
+ * corrections flow to the incident in Fish Health, never the report. Blocking
+ * MANUAL_REQUIRED fields (unmapped species, missing weight) surface here so the
+ * operator fixes the source before filing.
+ */
+export const EscapeAssembledReview: React.FC<{
+  prefill?: ReportPrefill<EscapePrefillPayload>;
+}> = ({ prefill }) => {
+  if (!prefill) return null;
+  const p = prefill.draftPayload;
+  const meta = (path: string) => findFieldMeta(prefill.fields, path);
+
+  if (!p.incidentId) {
+    return (
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+        No open, unreported escape incident on record for this site. Record the rømming in Fish
+        Health (or the mobile app) before filing the varsling — the report assembles from the
+        incident, it does not invent escape facts.
+      </div>
+    );
+  }
+
+  const rows: Array<{ label: string; path: string; value: React.ReactNode }> = [
+    { label: 'Detected at', path: '/detectedAt', value: p.detectedAt },
+    { label: 'Estimated escaped count', path: '/estimatedCount', value: p.estimatedCount },
+    { label: 'Species (FAO code)', path: '/species', value: p.species || '—' },
+    { label: 'Average weight (g)', path: '/avgWeightG', value: p.avgWeightG ?? '—' },
+    { label: 'Escaped biomass (kg)', path: '/totalBiomassKg', value: p.totalBiomassKg ?? '—' },
+    { label: 'Cause', path: '/cause', value: p.cause || '—' },
+    {
+      label: 'Affected units',
+      path: '/affectedUnits',
+      value: p.affectedUnits.length > 0 ? p.affectedUnits.join(', ') : '—',
+    },
+  ];
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <h3 className="text-sm font-medium text-gray-900 mb-1">Assembled from the recorded incident</h3>
+      <p className="text-xs text-gray-500 mb-3">
+        These escape facts come from the escape_incident record — read-only here; corrections go to
+        Fish Health.
+      </p>
+      <dl className="divide-y divide-gray-100">
+        {rows.map((row) => {
+          const m = meta(row.path);
+          return (
+            <div key={row.path} className="py-2 flex items-center justify-between gap-2">
+              <dt className="flex items-center gap-2 text-sm text-gray-700">
+                <span>{row.label}</span>
+                {m && <ProvenanceBadge meta={m} />}
+              </dt>
+              <dd className="text-sm font-medium text-gray-900 text-right">{row.value}</dd>
+            </div>
+          );
+        })}
+      </dl>
+    </div>
+  );
+};
 
 // ============================================================================
 // Escape Info Component
@@ -74,6 +153,16 @@ export const EscapeReportTab: React.FC<EscapeReportTabProps> = ({ siteId }) => {
   const { data: regulatorySettings } = useRegulatorySettings();
   const submitEscapeReport = useSubmitEscapeReport();
   const clientRef = useStableClientReference();
+
+  // The escape varsling is incident-triggered; the period is nominal (the
+  // assembler reads the latest open, unreported incident for the site).
+  const { effectiveSiteId } = useEffectiveReportSite(siteId);
+  const prefillPeriod = useMemo(() => ({ year: new Date().getFullYear() }), []);
+  const { data: prefill } = useReportPrefill<EscapePrefillPayload>(
+    'ESCAPE',
+    effectiveSiteId,
+    prefillPeriod,
+  );
 
   const handleCreateReport = () => {
     setIsModalOpen(true);
@@ -142,6 +231,9 @@ export const EscapeReportTab: React.FC<EscapeReportTabProps> = ({ siteId }) => {
 
       {/* Escape Info */}
       <EscapeInfoPanel onCreateReport={handleCreateReport} />
+
+      {/* Server-assembled incident (review-and-approve) */}
+      <EscapeAssembledReview prefill={prefill} />
 
       {/* Submission History */}
       <SubmissionHistorySection reportType="ESCAPE" siteId={siteId} />

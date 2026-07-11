@@ -58,7 +58,7 @@ describe('RegulatoryReportDraftResolver', () => {
 
   it('saveReportDraftOverrides forwards draftId + overrides', async () => {
     await resolver.saveReportDraftOverrides({ draftId: 'draft-1', overrides: { '/x': 1 } }, ctx());
-    expect(saveOverrides).toHaveBeenCalledWith(TENANT, 'draft-1', { '/x': 1 });
+    expect(saveOverrides).toHaveBeenCalledWith(TENANT, 'draft-1', { '/x': 1 }, 'user-9');
   });
 
   it('approveAndSubmitReportDraft forwards tenant + user + draftId', async () => {

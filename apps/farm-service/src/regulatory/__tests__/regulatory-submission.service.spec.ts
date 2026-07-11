@@ -246,6 +246,35 @@ describe('RegulatorySubmissionService', () => {
       expect(enqueue).not.toHaveBeenCalled();
     });
 
+    it('dead-letters a transient failure once the retry budget is exhausted (PRODUCT-JOB-HIGH-001)', async () => {
+      // attemptCount 11 → this failure is attempt 12 = MAX_TRANSIENT_ATTEMPTS.
+      recordPending.mockResolvedValue(makeRow({ attemptCount: 11 }));
+      const submit = jest.fn().mockRejectedValue(new Error('ECONNRESET'));
+
+      const result = await service.submitWithRecord(
+        TENANT_ID,
+        USER_ID,
+        RegulatoryReportType.SEA_LICE,
+        submitInput,
+        { year: 2026, week: 26 },
+        rawPayload,
+        submit,
+      );
+
+      expect(result.success).toBe(false);
+      // Escalated to a terminal PERMANENT failure + operator alert, NOT rescheduled.
+      expect(recordFailure).not.toHaveBeenCalled();
+      expect(applyFailure).toHaveBeenCalledWith(
+        mocks.mockManager,
+        TENANT_ID,
+        'row-777',
+        expect.stringContaining('gave up after 12 transient attempts'),
+        RegulatoryFailureClass.PERMANENT,
+        null,
+      );
+      expect(enqueue).toHaveBeenCalledTimes(1);
+    });
+
     it('marks a PERMANENT failure terminal and raises the outbox event in one txn', async () => {
       const submit = jest.fn().mockResolvedValue({
         success: false,

@@ -208,6 +208,14 @@ then discarded terminal/undated rows in JS, so the scans grew unbounded with his
 `listDeadlineCandidates` pushes `status NOT IN (SUBMITTED,DISMISSED) AND dueAt IS NOT NULL` into SQL
 (covered by the `(tenantId,status)` index); both callers use it. Specs assert the SQL where.
 
+### FARM-HIGH-175 — retry pipeline had no max-attempt / dead-letter
+
+A chronically-failing TRANSIENT report (persistent 403 auth misconfig, or a multi-day outage)
+rescheduled every 6h forever, and the operator alert fires only on PERMANENT — so a stuck report
+silently missed its deadline. Fixed: a MAX_TRANSIENT_ATTEMPTS=12 ceiling escalates an exhausted
+transient failure through the extracted markPermanentFailure (terminal PERMANENT + the operator
+outbox alert) so the sweep stops replaying it and the failure surfaces.
+
 ## OPEN — HIGH (tracked)
 
 - **Slaughter drafts can never be submitted** — `buildWirePayload` never wraps `arter`/`ukeplanPerArt`

@@ -46,6 +46,14 @@ import { ReportSubmissionResult } from '../dto/regulatory-inputs.dto';
 const RETRY_BASE_MS = 15 * 60_000;
 const RETRY_MAX_MS = 6 * 60 * 60_000;
 
+/**
+ * Transient-retry ceiling. With the capped backoff this spans several days; a
+ * report that still fails after this many attempts is dead-lettered (marked
+ * PERMANENT + operator alert) instead of retrying forever — a persistent auth
+ * misconfig (403) or a prolonged outage must surface, not loop silently.
+ */
+const MAX_TRANSIENT_ATTEMPTS = 12;
+
 /** A persisted report whose type + payload are both narrowed to the REST wire shape. */
 type PersistedRestReport = RegulatoryReport & {
   reportType: MattilsynetRestReportType;
@@ -213,45 +221,30 @@ export class RegulatorySubmissionService {
         'Submission rejected');
 
     if (failureClass === RegulatoryFailureClass.TRANSIENT) {
-      const nextAttemptAt = RegulatorySubmissionService.computeNextAttempt(row.attemptCount + 1);
-      await this.reportStore.recordFailure(
-        tenantId,
-        row.id,
-        feilmelding,
-        RegulatoryFailureClass.TRANSIENT,
-        nextAttemptAt,
-      );
-    } else {
-      // PERMANENT: mark the row and raise the operator-notification event in ONE
-      // transaction so the alert fires iff the row is terminally failed.
-      await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-        const failed = await this.reportStore.applyFailure(
-          queryRunner.manager,
+      const nextAttempt = row.attemptCount + 1;
+      if (nextAttempt >= MAX_TRANSIENT_ATTEMPTS) {
+        // Dead-letter (PRODUCT-JOB-HIGH-001): a report that has exhausted its
+        // transient-retry budget (a persistent 403 auth misconfig, or a multi-day
+        // outage) must stop looping every 6h forever and surface to the operator.
+        // Escalate to the terminal PERMANENT path so the retry sweep ignores it and
+        // the failure event fires.
+        await this.markPermanentFailure(
+          tenantId,
+          row,
+          `${feilmelding} (gave up after ${MAX_TRANSIENT_ATTEMPTS} transient attempts)`,
+        );
+      } else {
+        const nextAttemptAt = RegulatorySubmissionService.computeNextAttempt(nextAttempt);
+        await this.reportStore.recordFailure(
           tenantId,
           row.id,
           feilmelding,
-          RegulatoryFailureClass.PERMANENT,
-          null,
+          RegulatoryFailureClass.TRANSIENT,
+          nextAttemptAt,
         );
-        const event: RegulatoryReportSubmissionFailedEvent = {
-          ...createBaseEvent<RegulatoryReportSubmissionFailedEvent>(
-            'RegulatoryReportSubmissionFailed',
-            tenantId,
-            { aggregateId: row.id, aggregateType: 'RegulatoryReport' },
-          ),
-          reportId: row.id,
-          reportType: failed.reportType,
-          klientReferanse: failed.klientReferanse,
-          siteId: failed.siteId,
-          lokalitetsnummer: failed.lokalitetsnummer,
-          feilmelding,
-          attemptCount: failed.attemptCount,
-        };
-        await this.outboxPublisher.enqueue(event, queryRunner.manager, {
-          idempotencyKey: `regreport-failed:${row.id}:${failed.attemptCount}`,
-          aggregateId: row.id,
-        });
-      });
+      }
+    } else {
+      await this.markPermanentFailure(tenantId, row, feilmelding);
     }
 
     return {
@@ -261,6 +254,46 @@ export class RegulatorySubmissionService {
       feilmelding,
       valideringsfeil: result.valideringsfeil,
     };
+  }
+
+  /**
+   * Terminal failure: mark the row PERMANENT and raise the operator-notification
+   * event in ONE transaction so the alert fires iff the row is terminally failed.
+   * Used both by a natural PERMANENT rejection and by transient-retry exhaustion.
+   */
+  private async markPermanentFailure(
+    tenantId: string,
+    row: RegulatoryReport,
+    feilmelding: string,
+  ): Promise<void> {
+    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const failed = await this.reportStore.applyFailure(
+        queryRunner.manager,
+        tenantId,
+        row.id,
+        feilmelding,
+        RegulatoryFailureClass.PERMANENT,
+        null,
+      );
+      const event: RegulatoryReportSubmissionFailedEvent = {
+        ...createBaseEvent<RegulatoryReportSubmissionFailedEvent>(
+          'RegulatoryReportSubmissionFailed',
+          tenantId,
+          { aggregateId: row.id, aggregateType: 'RegulatoryReport' },
+        ),
+        reportId: row.id,
+        reportType: failed.reportType,
+        klientReferanse: failed.klientReferanse,
+        siteId: failed.siteId,
+        lokalitetsnummer: failed.lokalitetsnummer,
+        feilmelding,
+        attemptCount: failed.attemptCount,
+      };
+      await this.outboxPublisher.enqueue(event, queryRunner.manager, {
+        idempotencyKey: `regreport-failed:${row.id}:${failed.attemptCount}`,
+        aggregateId: row.id,
+      });
+    });
   }
 
   /** Transient (retryable) vs permanent (terminal) — the retry-decision SSoT. */

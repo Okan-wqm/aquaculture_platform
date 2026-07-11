@@ -1,4 +1,8 @@
-import { Injectable, Logger, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException, ForbiddenException, Inject } from '@nestjs/common';
+import {
+  USER_TOKEN_REVOCATION,
+  IUserTokenRevocation,
+} from '@aquaculture/backend-common/security';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, QueryRunner } from 'typeorm';
 
@@ -271,6 +275,11 @@ export class TenantRoleService {
     // audit row on its own transaction (fail-CLOSED: a throwing audit rolls the
     // mutation back), mirroring the tenant-user-management assignment paths.
     private readonly auditLogService: AuditLogService,
+    // SECURITY (RBAC-HIGH-001): editing a role's permissions changes the
+    // effective set of EVERY active holder — revoke their live tokens so the new
+    // (possibly reduced) permissions take effect on the next request.
+    @Inject(USER_TOKEN_REVOCATION)
+    private readonly userTokenRevocation: IUserTokenRevocation,
   ) {}
 
   /**
@@ -701,6 +710,15 @@ export class TenantRoleService {
 
       this.logger.log(`Updated role "${existing.name}" (${roleId}) in tenant ${tenantId}`);
 
+      // RBAC-HIGH-001: if the permission set changed, every active holder's
+      // effective permissions changed — revoke their live tokens (fleet-wide via
+      // the shared user_blacklist key) so the new set is enforced on their next
+      // request rather than after the access-token TTL. Runs AFTER commit so a
+      // revoke is never issued for a change that rolled back.
+      if (grantableResourcePermissions) {
+        await this.revokeTokensForRoleHolders(tenantId, roleId);
+      }
+
       const updatedRole = await this.getRoleById(tenantId, roleId);
       if (!updatedRole) {
         throw new Error('Failed to retrieve updated role');
@@ -934,6 +952,34 @@ export class TenantRoleService {
    */
   getPermissionCategories(): typeof PERMISSION_CATEGORIES {
     return PERMISSION_CATEGORIES;
+  }
+
+  /**
+   * RBAC-HIGH-001: revoke the live tokens of every ACTIVE holder of a role after
+   * its permission set changed. Tenant-scoped via the tenant_roles join
+   * (ORPHAN-CRITICAL-100). Best-effort per user — one Redis hiccup must not undo
+   * the committed role edit — but each failure is logged.
+   */
+  private async revokeTokensForRoleHolders(tenantId: string, roleId: string): Promise<void> {
+    const holders = await this.dataSource.query<Array<{ user_id: string }>>(
+      `
+      SELECT ura.user_id
+      FROM "auth"."user_role_assignments" ura
+      JOIN "auth"."tenant_roles" tr ON tr.id = ura.role_id
+      WHERE ura.role_id = $1 AND ura.is_active = true AND tr."tenantId" = $2
+      `,
+      [roleId, tenantId],
+    );
+
+    for (const { user_id: userId } of holders) {
+      try {
+        await this.userTokenRevocation.revokeUserTokens(userId);
+      } catch (error) {
+        this.logger.error(
+          `Failed to revoke tokens for role holder ${userId} after role ${roleId} edit: ${(error as Error).message}`,
+        );
+      }
+    }
   }
 
   private mapRowToRole(row: Record<string, unknown>): TenantRoleWithDetails {

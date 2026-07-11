@@ -8,7 +8,12 @@ import {
   ConflictException,
   ForbiddenException,
   BadRequestException,
+  Inject,
 } from '@nestjs/common';
+import {
+  USER_TOKEN_REVOCATION,
+  IUserTokenRevocation,
+} from '@aquaculture/backend-common/security';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { UserInvitedEvent, createBaseEvent } from '@platform/event-contracts';
 import { Repository, DataSource } from 'typeorm';
@@ -141,6 +146,12 @@ export class TenantUserManagementService {
     // catalogue. The branded ValidatedOverrideSet it returns is the only value
     // createRoleAssignment accepts.
     private readonly capabilityAuthority: CapabilityAuthorityService,
+    // SECURITY (RBAC-HIGH-001): canonical user-token-revocation. When a user's
+    // effective permissions change, their live access tokens must stop carrying
+    // the stale set — revoke here so the gateway rejects them on the next request
+    // and the refresh re-mints with current permissions.
+    @Inject(USER_TOKEN_REVOCATION)
+    private readonly userTokenRevocation: IUserTokenRevocation,
   ) {}
 
   /**
@@ -347,6 +358,8 @@ export class TenantUserManagementService {
             );
           });
           this.logger.log(`Updated role assignment for user ${userId} to role ${newRole.name} in tenant ${tenantId}`);
+          // RBAC-HIGH-001: role changed — revoke live tokens (enforced next request).
+          await this.userTokenRevocation.revokeUserTokens(userId);
         }
       } else {
         // No existing assignment — create one through the shared
@@ -367,6 +380,8 @@ export class TenantUserManagementService {
           undefined,
         );
         this.logger.log(`Created role assignment for user ${userId} with role ${newRole.name} in tenant ${tenantId}`);
+        // RBAC-HIGH-001: new assignment grants capabilities — revoke stale tokens.
+        await this.userTokenRevocation.revokeUserTokens(userId);
       }
     }
 
@@ -609,6 +624,10 @@ export class TenantUserManagementService {
 
     this.logger.log(`Assigned role "${role.name}" to user ${userId} in tenant ${tenantId}`);
 
+    // RBAC-HIGH-001: a fresh assignment changes the user's effective set — revoke
+    // any live tokens so the new capabilities (and no stale ones) take effect now.
+    await this.userTokenRevocation.revokeUserTokens(userId);
+
     return roleAssignment;
   }
 
@@ -780,6 +799,11 @@ export class TenantUserManagementService {
 
     this.logger.log(`Updated role assignment for user ${userId} in tenant ${tenantId}`);
 
+    // RBAC-HIGH-001: the user's effective permissions just changed — revoke their
+    // live tokens so the change is enforced on the next request, not after the
+    // access-token TTL. Fleet-wide via the shared user_blacklist Redis key.
+    await this.userTokenRevocation.revokeUserTokens(userId);
+
     // Return updated assignment
     return this.getUserRoleAssignment(tenantId, userId);
   }
@@ -870,6 +894,10 @@ export class TenantUserManagementService {
         manager,
       );
     });
+
+    // RBAC-HIGH-001: role removed — revoke the user's live tokens so the loss of
+    // access is enforced on the next request, not after the token TTL.
+    await this.userTokenRevocation.revokeUserTokens(userId);
 
     return true;
   }

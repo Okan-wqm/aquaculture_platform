@@ -1,5 +1,8 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { RedisService } from '@aquaculture/backend-common/redis';
+// Canonical user-blacklist key (RBAC-HIGH-001): the SSoT builder shared with the
+// auth-service writer, so the read (here) and the write agree on ONE contract.
+import { userBlacklistKey } from '@aquaculture/backend-common/security';
 
 /**
  * Token blacklist store interface (gateway-local).
@@ -133,7 +136,7 @@ export class RedisTokenBlacklistStore implements TokenBlacklistStore {
       // load-bearing — see redis-token-blacklist.store.spec.ts.
       const [jtiRaw, userRaw] = await this.redisService.mget(
         this.keyPrefix + jti,
-        `user_blacklist:${userId}`,
+        userBlacklistKey(userId),
       );
       // mget positions are string | null at runtime; ?? null collapses the
       // index-access `undefined` the type system adds so the narrowing is clean.
@@ -165,7 +168,7 @@ export class RedisTokenBlacklistStore implements TokenBlacklistStore {
     // JWT max lifetime: 24 hours
     const ttlSeconds = 24 * 60 * 60;
     await this.redisService.set(
-      `user_blacklist:${userId}`,
+      userBlacklistKey(userId),
       String(invalidatedAt),
       ttlSeconds,
     );

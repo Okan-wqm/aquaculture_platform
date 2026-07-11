@@ -5,6 +5,7 @@
  
  
  
+import { USER_TOKEN_REVOCATION } from '@aquaculture/backend-common/security';
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { DataSource, QueryRunner } from 'typeorm';
@@ -74,6 +75,7 @@ describe('TenantRoleService', () => {
   let mockDataSource: jest.Mocked<Pick<DataSource, 'query' | 'createQueryRunner'>>;
   let mockQueryRunner: ReturnType<typeof createMockQueryRunner>;
   let mockAuditLogService: { log: jest.Mock };
+  let mockUserTokenRevocation: { revokeUserTokens: jest.Mock; isTokenValid: jest.Mock };
 
   beforeEach(async () => {
     mockQueryRunner = createMockQueryRunner();
@@ -84,12 +86,17 @@ describe('TenantRoleService', () => {
     };
 
     mockAuditLogService = { log: jest.fn().mockResolvedValue(undefined) };
+    mockUserTokenRevocation = {
+      revokeUserTokens: jest.fn().mockResolvedValue(undefined),
+      isTokenValid: jest.fn().mockResolvedValue(true),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TenantRoleService,
         { provide: DataSource, useValue: mockDataSource },
         { provide: AuditLogService, useValue: mockAuditLogService },
+        { provide: USER_TOKEN_REVOCATION, useValue: mockUserTokenRevocation },
         {
           // Default: an admin author who may grant any catalogue capability;
           // the validator passes the derived resource permissions through. Tests
@@ -696,6 +703,40 @@ describe('TenantRoleService', () => {
         ROLE_ID,
         TENANT_ID,
       ]);
+    });
+
+    it('RBAC-HIGH-001: revokes the live tokens of every active holder after a permission edit', async () => {
+      const newPerms = { operations: { sensors: { view: true } } };
+      mockQueryRunner.query
+        .mockResolvedValueOnce([createMockRoleRow()]) // existing
+        .mockResolvedValueOnce([]) // UPDATE role fields
+        .mockResolvedValueOnce([]); // UPDATE permissions
+      // After commit: (1) the holders SELECT, then (2) getRoleById.
+      mockDataSource.query
+        .mockResolvedValueOnce([{ user_id: 'holder-1' }, { user_id: 'holder-2' }]) // holders
+        .mockResolvedValueOnce([createMockRoleRow()]); // getRoleById
+
+      await service.updateRole(TENANT_ID, ROLE_ID, { panelPermissions: newPerms }, ADMIN_USER_ID);
+
+      expect(mockUserTokenRevocation.revokeUserTokens).toHaveBeenCalledWith('holder-1');
+      expect(mockUserTokenRevocation.revokeUserTokens).toHaveBeenCalledWith('holder-2');
+      // The holders query is tenant-scoped via the tenant_roles join.
+      const holdersCall = mockDataSource.query.mock.calls.find(
+        (call) => typeof call[0] === 'string' && call[0].includes('SELECT ura.user_id'),
+      );
+      expect(holdersCall).toBeDefined();
+      expect(holdersCall![0]).toContain('tr."tenantId" = $2');
+    });
+
+    it('does NOT revoke holders when only metadata (no panelPermissions) changed', async () => {
+      mockQueryRunner.query
+        .mockResolvedValueOnce([createMockRoleRow()]) // existing
+        .mockResolvedValueOnce([]); // UPDATE role fields
+      mockDataSource.query.mockResolvedValue([createMockRoleRow()]); // getRoleById
+
+      await service.updateRole(TENANT_ID, ROLE_ID, { description: 'new desc' }, ADMIN_USER_ID);
+
+      expect(mockUserTokenRevocation.revokeUserTokens).not.toHaveBeenCalled();
     });
   });
 

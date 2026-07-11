@@ -6,6 +6,7 @@
  
  
 import { Role } from '@aquaculture/backend-common/decorators';
+import { USER_TOKEN_REVOCATION } from '@aquaculture/backend-common/security';
 import {
   BadRequestException,
   ConflictException,
@@ -21,6 +22,7 @@ import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publ
 import { User } from '../../authentication/entities/user.entity';
 import { MobileUserSettings } from '../entities/mobile-user-settings.entity';
 import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
+
 import { CapabilityAuthorityService, ActorAuthority } from '../services/capability-authority';
 import { TenantRoleService, TenantRoleWithDetails } from '../services/tenant-role.service';
 import { TenantUserManagementService } from '../services/tenant-user-management.service';
@@ -145,6 +147,8 @@ describe('TenantUserManagementService', () => {
     assertGrantableResourcePermissions: jest.Mock;
     emptyOverrides: jest.Mock;
   };
+  // RBAC-HIGH-001: canonical user-token-revocation mock.
+  let mockUserTokenRevocation: { revokeUserTokens: jest.Mock; isTokenValid: jest.Mock };
 
   beforeEach(async () => {
     const mockUserRepo = createMockRepository();
@@ -222,6 +226,11 @@ describe('TenantUserManagementService', () => {
       emptyOverrides: jest.fn(() => ({ grants: [], revokes: [] })),
     };
 
+    mockUserTokenRevocation = {
+      revokeUserTokens: jest.fn().mockResolvedValue(undefined),
+      isTokenValid: jest.fn().mockResolvedValue(true),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TenantUserManagementService,
@@ -241,6 +250,7 @@ describe('TenantUserManagementService', () => {
         { provide: AuditLogService, useValue: mockAuditLogService },
         { provide: UserLifecycleService, useValue: mockUserLifecycleService },
         { provide: CapabilityAuthorityService, useValue: mockCapabilityAuthority },
+        { provide: USER_TOKEN_REVOCATION, useValue: mockUserTokenRevocation },
       ],
     }).compile();
 
@@ -559,6 +569,9 @@ describe('TenantUserManagementService', () => {
         }),
         expect.anything(),
       );
+      // RBAC-HIGH-001: the change revokes the user's live tokens so the new
+      // effective set is enforced on the next request (fleet-wide).
+      expect(mockUserTokenRevocation.revokeUserTokens).toHaveBeenCalledWith(USER_ID);
     });
 
     it('SEC-MEDIUM-002: an audit failure ROLLS BACK the role change (fail-closed)', async () => {

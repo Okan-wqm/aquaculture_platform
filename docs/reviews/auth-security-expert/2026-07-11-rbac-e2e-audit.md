@@ -83,3 +83,18 @@ This file records the two write-time authority findings closed by the P0 remedia
 **Rule violated:** Untrusted array/string inputs must be size-bounded at the validation boundary, independent of downstream semantic checks.
 
 **Fix:** Added `@ArrayMaxSize(256)` and per-item `@MaxLength(128)` to both override arrays. `CapabilityAuthorityService` already rejects any capability outside the finite catalogue (which structurally bounds the number of DISTINCT stored capabilities); these bounds are defense-in-depth that reject an oversized payload before it reaches the authority check.
+
+## RBAC-HIGH-001
+
+**Title:** A permission REVOKE (role change, override change, role-permission edit) did not take effect until the access-token TTL: nothing invalidated a user's live tokens on an authorization change. The gateway already enforced user-level invalidation on every request via the Redis key `user_blacklist:{userId}`, but that key had exactly one accessor (the gateway read) and no writer.
+
+**Layer:** 2 (RBAC enforcement / token lifecycle)
+**Evidence:**
+- `libs/backend-common/src/security/user-token-revocation/user-token-revocation.service.ts`
+- `apps/auth-service/src/modules/tenant/services/tenant-user-management.service.ts`
+- `apps/auth-service/src/modules/tenant/services/tenant-role.service.ts`
+- `apps/gateway-api/src/guards/redis-token-blacklist.store.ts`
+
+**Rule violated:** A reduction of a user's effective permissions must be enforceable promptly and fleet-wide, not deferred to natural token expiry; the key contract for user-level revocation must be a single SSoT shared by writer and reader.
+
+**Fix (architectural SSoT):** Introduced a canonical `UserTokenRevocationService` in backend-common that OWNS the `user_blacklist:{userId}` key contract (`userBlacklistKey` builder + `revokeUserTokens`/`isTokenValid`, Redis-backed with in-memory fallback). The auth-service RBAC write paths (`assignUserRole`/`updateUserRole`/`revokeUserRole`/`updateTenantUser` role change, and `updateRole` fanned out to every active holder) call `revokeUserTokens` after a committed change, so the user's live tokens are rejected by the gateway's EXISTING enforcement on their next request — forcing a refresh that re-mints with current permissions, fleet-wide via Redis. The gateway reader now uses the same `userBlacklistKey` builder, eliminating the duplicated key string (partial SEC-LOW-001 consolidation).

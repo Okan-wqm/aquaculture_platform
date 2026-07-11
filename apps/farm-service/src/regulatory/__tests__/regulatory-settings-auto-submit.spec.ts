@@ -3,6 +3,7 @@
  * the effective organisation number (site override -> tenant default) used by
  * the draft submission path.
  */
+import { BadRequestException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 
 import { RegulatorySettingsService } from '../regulatory-settings.service';
@@ -67,6 +68,26 @@ describe('RegulatorySettingsService.updateAutoSubmitPolicy', () => {
 
     expect(saved.autoSubmitPolicies).toEqual({ SEA_LICE: false });
   });
+
+  it.each(['BIOMASS', 'WELFARE_EVENT', 'ESCAPE', 'DISEASE_OUTBREAK', 'NONSENSE'])(
+    'rejects the non-auto-submittable report type %s (COMPLIANCE-MEDIUM-006)',
+    async (badType) => {
+      await expect(service.updateAutoSubmitPolicy(TENANT, badType, true)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      // The settings jsonb is never polluted with a dead/false-affordance key.
+      expect(save).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['SEA_LICE', 'CLEANER_FISH', 'SMOLT', 'SLAUGHTER_PLANNED', 'SLAUGHTER_EXECUTED'])(
+    'accepts the auto-submittable REST type %s',
+    async (goodType) => {
+      findOne.mockResolvedValue(null);
+      const saved = await service.updateAutoSubmitPolicy(TENANT, goodType, true);
+      expect(saved.autoSubmitPolicies).toEqual({ [goodType]: true });
+    },
+  );
 });
 
 describe('RegulatorySettingsService.getEffectiveOrganisationNumber', () => {

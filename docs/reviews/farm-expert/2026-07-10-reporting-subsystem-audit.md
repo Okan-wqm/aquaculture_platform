@@ -349,7 +349,9 @@ KEK dev-fallback gated only on `NODE_ENV==='production'` (SEC-MEDIUM-003); regul
 PII logged via string interpolation that bypasses `maskPii` is FIXED (SEC-MEDIUM-004 / OBS-MEDIUM-003
 → FARM-MEDIUM-184: Mattilsynet submit + Maskinporten token/discovery + resolver-test paths route
 every error body / thrown error through `maskAndTruncatePii` before logging, including the thrown
-token-error message it propagates upstream); `updateAutoSubmitPolicy` accepts arbitrary report types (COMPLIANCE-MEDIUM-006);
+token-error message it propagates upstream); `updateAutoSubmitPolicy` accepting arbitrary report types is FIXED (COMPLIANCE-MEDIUM-006 →
+FARM-MEDIUM-185: an AUTO_SUBMITTABLE_REPORT_TYPES SSoT drives an `@IsIn` at the API boundary + a
+BadRequestException service guard, so only the 5 REST draft types can become a policy key);
 varsling QUEUED shown as "Submitted" with the internal event id as a fake "Mattilsynet receipt"
 (COMPLIANCE-MEDIUM-004, farm-expert FARM-LOW-012); settefisk mixed-batch attribution (FARM-MEDIUM-010);
 `EscapeIncidentRecordedEvent` has no consumer so the "varsling is immediate" reminder is dropped

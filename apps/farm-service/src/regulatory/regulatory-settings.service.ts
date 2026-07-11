@@ -16,13 +16,17 @@
  * unauthenticated AES-256-CBC scheme (malleability / padding-oracle class).
  * @see HIGH sentinel-cbc
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Not, Repository } from 'typeorm';
 
 import { Site } from '../site/entities/site.entity';
 import { TenantContextError } from '@aquaculture/backend-common/database';
 import { RegulatorySettings, CompanyAddress } from './entities/regulatory-settings.entity';
+import {
+  AUTO_SUBMITTABLE_REPORT_TYPES,
+  type AutoSubmittableReportType,
+} from './dto/regulatory-report-draft.dto';
 
 /**
  * Input for updating regulatory settings
@@ -256,11 +260,22 @@ export class RegulatorySettingsService {
     reportType: string,
     enabled: boolean,
   ): Promise<RegulatorySettings> {
+    // COMPLIANCE-MEDIUM-006 — defence in depth behind the DTO @IsIn: only the
+    // five auto-submittable REST types may ever become a policy key, so a
+    // non-resolver caller (or a future one) cannot pollute the settings jsonb
+    // with a dead/false-affordance key for BIOMASS or a varsling type.
+    if (!(AUTO_SUBMITTABLE_REPORT_TYPES as readonly string[]).includes(reportType)) {
+      throw new BadRequestException(
+        `reportType "${reportType}" is not auto-submittable — allowed: ` +
+          AUTO_SUBMITTABLE_REPORT_TYPES.join(', '),
+      );
+    }
+    const policyKey: AutoSubmittableReportType = reportType as AutoSubmittableReportType;
     let settings = await this.getSettings(tenantId);
     if (!settings) {
       settings = this.repo.create({ tenantId });
     }
-    settings.autoSubmitPolicies = { ...(settings.autoSubmitPolicies ?? {}), [reportType]: enabled };
+    settings.autoSubmitPolicies = { ...(settings.autoSubmitPolicies ?? {}), [policyKey]: enabled };
     const saved = await this.repo.save(settings);
     this.logger.log(
       `Auto-submit policy for ${reportType} set to ${enabled} (tenant ${tenantId.slice(0, 8)}…)`,

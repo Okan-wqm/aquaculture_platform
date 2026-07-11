@@ -23,6 +23,29 @@ import { RegulatorySettingsService } from './regulatory-settings.service';
 import type { ValidatedPayload } from './schemas';
 import { MattilsynetRestReportType } from './schemas';
 import { RegulatoryReportType } from './entities/regulatory-report.entity';
+import {
+  CircuitBreakerService,
+  DEFAULT_BREAKER_OPTIONS,
+  type CircuitBreakerOptions,
+} from '@aquaculture/backend-common/resilience';
+
+/**
+ * Hard deadline for the outbound Mattilsynet submission POST. A hung government
+ * gateway must not tie up a request thread or stall the lock-held retry sweep.
+ */
+const MATTILSYNET_HTTP_TIMEOUT_MS = 20_000;
+
+/**
+ * Fail-closed, PER-TENANT breaker for the Mattilsynet submission endpoint. On trip
+ * the POST is short-circuited with a CircuitOpenError that the submit path treats
+ * as a transient network failure (scheduled for retry) — never a fabricated
+ * acceptance. Per-tenant keying prevents one tenant's failing integration from
+ * denying submission to every other tenant.
+ */
+const MATTILSYNET_BREAKER_OPTIONS: CircuitBreakerOptions = {
+  ...DEFAULT_BREAKER_OPTIONS,
+  failureMode: 'fail-closed',
+};
 
 /**
  * Endpoint + scope + label per REST report type — the SSoT the typed submit
@@ -455,6 +478,7 @@ export class MattilsynetApiService {
     private readonly maskinporten: MaskinportenService,
     @Inject(RegulatorySettingsService)
     private readonly settingsService: RegulatorySettingsService,
+    private readonly circuitBreaker: CircuitBreakerService,
   ) {
     // Default to test environment
     const environment = this.configService.get<string>('MATTILSYNET_ENV', 'TEST');
@@ -572,10 +596,23 @@ export class MattilsynetApiService {
     try {
       const headers = await this.getHeaders(tenantId, scope);
 
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
+      // Bounded deadline + per-tenant circuit breaker: a hung government API must
+      // never hang a request thread or the lock-held retry sweep, and a sustained
+      // outage/slow-call streak trips the breaker so the sweep fast-fails that
+      // tenant instead of hammering a struggling regulator. On trip the breaker
+      // throws CircuitOpenError, caught below and classified as a transient network
+      // error the sweep replays — never a fabricated acceptance.
+      const response = await this.circuitBreaker.execute({
+        serviceName: 'mattilsynet-submit',
+        tenantId,
+        fn: () =>
+          fetch(endpoint, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(MATTILSYNET_HTTP_TIMEOUT_MS),
+          }),
+        options: MATTILSYNET_BREAKER_OPTIONS,
       });
 
       const responseData = await response.json();

@@ -12,6 +12,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 
 import { BatchModule } from '../batch/batch.module';
 import { Site } from '../site/entities/site.entity';
@@ -67,6 +68,10 @@ import { GetRegulatoryReportSummaryHandler } from './handlers/get-regulatory-rep
 @Module({
   imports: [
     ConfigModule,
+    // The Maskinporten + Mattilsynet clients wrap their outbound calls in the
+    // canonical per-tenant circuit breaker (fail-closed) so one tenant's failing
+    // government integration cannot cascade to others.
+    CircuitBreakerModule,
     TypeOrmModule.forFeature([
       RegulatorySettings,
       BiomassReport,

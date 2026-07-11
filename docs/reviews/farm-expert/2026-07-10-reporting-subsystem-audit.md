@@ -39,6 +39,19 @@ Found while fixing FARM-CRITICAL-161: `FeedingCronService` uses the identical
 (dedicated per-job `QueryRunner`); tracked and fixed in the same remediation campaign so the pattern
 is corrected everywhere, not patched in one service.
 
+### FARM-CRITICAL-171 — no circuit breaker + no timeout on the government-API calls
+
+The three regulatory external calls (Maskinporten discovery, Maskinporten token, Mattilsynet submit)
+were raw `fetch()` with no circuit breaker and no timeout, despite a CI-mandated canonical
+`CircuitBreakerService`. A hung/slow government API had zero backpressure and no bounded wait, and
+under the serial lock-held sweep one slow downstream stalled the whole cron. Fixed: `AbortSignal.timeout`
+on all three fetches (5 s auth, 20 s submit); `CircuitBreakerModule` registered in `RegulatoryModule`;
+Maskinporten discovery wrapped (global key) + token wrapped (per-tenant), both fail-closed and
+throwing on failure so the breaker counts them; Mattilsynet submit wrapped per-tenant fail-closed
+(counts network/timeout + slow-call; on open → `CircuitOpenError` → caught → transient replay, never a
+fabricated acceptance). Remaining refinements (jitter, single-flight token, LRU cache, 5xx-in-breaker)
+tracked as FARM-MEDIUM-172.
+
 ### FARM-CRITICAL-169 — migration `1804400` drop-before-backfill aborted the deploy
 
 `1804400` dropped `harvest_records.qualityGrade` from every tenant schema during the source-first

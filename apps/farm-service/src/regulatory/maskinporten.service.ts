@@ -25,7 +25,31 @@ import {
   createManagedInterval,
   type ManagedInterval,
 } from '@aquaculture/backend-common/utils';
+import {
+  CircuitBreakerService,
+  DEFAULT_BREAKER_OPTIONS,
+  type CircuitBreakerOptions,
+} from '@aquaculture/backend-common/resilience';
+
 import { RegulatorySettingsService } from './regulatory-settings.service';
+
+/**
+ * Hard deadline for every outbound Maskinporten HTTP call (discovery + token). An
+ * auth server that accepts the TCP/TLS connection but never responds must not hang
+ * a request thread or a lock-held cron sweep indefinitely.
+ */
+const MASKINPORTEN_HTTP_TIMEOUT_MS = 5000;
+
+/**
+ * Fail-closed breaker for the Maskinporten auth server: on trip the token/discovery
+ * call throws (never fabricates a token), which the submission pipeline classifies
+ * as a transient failure and replays. The token breaker is keyed PER TENANT so one
+ * tenant's revoked client / wrong key cannot open the breaker for everyone.
+ */
+const MASKINPORTEN_BREAKER_OPTIONS: CircuitBreakerOptions = {
+  ...DEFAULT_BREAKER_OPTIONS,
+  failureMode: 'fail-closed',
+};
 
 // ============================================================================
 // Types
@@ -131,6 +155,7 @@ export class MaskinportenService implements OnModuleDestroy {
     private readonly configService: ConfigService,
     @Inject(RegulatorySettingsService)
     private readonly settingsService: RegulatorySettingsService,
+    private readonly circuitBreaker: CircuitBreakerService,
   ) {
     // Start periodic cleanup to prevent memory leaks
     this.cleanupInterval = createManagedInterval(
@@ -242,7 +267,12 @@ export class MaskinportenService implements OnModuleDestroy {
 
     try {
       this.logger.debug(`Discovering Maskinporten endpoints for environment: ${environment}`);
-      const response = await fetch(envConfig.wellKnownUrl);
+      // Bounded deadline: a hung auth server must never hang the caller (or, via a
+      // submission, the lock-held cron sweep). A timeout aborts into the catch and
+      // surfaces as a transient failure the retry sweep replays.
+      const response = await fetch(envConfig.wellKnownUrl, {
+        signal: AbortSignal.timeout(MASKINPORTEN_HTTP_TIMEOUT_MS),
+      });
       if (!response.ok) {
         throw new Error(`Failed to fetch well-known config: ${response.status}`);
       }
@@ -294,20 +324,33 @@ export class MaskinportenService implements OnModuleDestroy {
       return cached.accessToken;
     }
 
-    // Discover endpoints for this environment
-    const discovery = await this.discoverEndpoints(environment);
+    // Discover endpoints for this environment. Discovery is env-shared (cached
+    // 24h), so its breaker uses the global key; a discovery outage is not tenant-
+    // specific.
+    const discovery = await this.circuitBreaker.execute({
+      serviceName: 'maskinporten-discovery',
+      fn: () => this.discoverEndpoints(environment),
+      options: MASKINPORTEN_BREAKER_OPTIONS,
+    });
 
-    // Request new token
+    // Request new token — PER-TENANT breaker so one tenant's bad credentials
+    // (steady 401/403) cannot trip the auth breaker for every other tenant.
     this.logger.debug(
       `Requesting new Maskinporten token for tenant ${tenantId}, scopes: ${requestedScopes.join(', ')}`,
     );
-    const token = await this.requestTokenWithCredentials(
-      clientId,
-      this.normalizePrivateKey(privateKey),
-      config?.keyId || undefined,
-      discovery,
-      requestedScopes,
-    );
+    const token = await this.circuitBreaker.execute({
+      serviceName: 'maskinporten-token',
+      tenantId,
+      fn: () =>
+        this.requestTokenWithCredentials(
+          clientId,
+          this.normalizePrivateKey(privateKey),
+          config?.keyId || undefined,
+          discovery,
+          requestedScopes,
+        ),
+      options: MASKINPORTEN_BREAKER_OPTIONS,
+    });
 
     // Cache the token with TTL based on token expiration (with 1 min buffer)
     const tokenTtl = Math.min((token.expires_in - 60) * 1000, this.TOKEN_CACHE_TTL);
@@ -348,7 +391,7 @@ export class MaskinportenService implements OnModuleDestroy {
       scopes,
     );
 
-    // Request token
+    // Request token — bounded deadline (see discoverEndpoints).
     const response = await fetch(discovery.tokenEndpoint, {
       method: 'POST',
       headers: {
@@ -358,6 +401,7 @@ export class MaskinportenService implements OnModuleDestroy {
         grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
         assertion,
       }),
+      signal: AbortSignal.timeout(MASKINPORTEN_HTTP_TIMEOUT_MS),
     });
 
     if (!response.ok) {

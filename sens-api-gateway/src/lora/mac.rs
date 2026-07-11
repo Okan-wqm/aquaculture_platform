@@ -189,12 +189,6 @@ impl LoRaMac {
         self.stats.clone()
     }
 
-    /// Bellekteki frame counter cache'ini SQLite'a flush eder
-    /// Periyodik olarak (her 10sn) ve shutdown sirasinda cagrilmali
-    pub fn flush_frame_counters(&self) -> Result<usize, Box<dyn std::error::Error>> {
-        self.sessions.flush_frame_counters().map_err(|e| e.into())
-    }
-
     /// Bilinmeyen cihaz izleyicisini temizler (suresi dolmus entry'leri kaldirir)
     /// Memory leak onleme icin periyodik olarak cagrilmali (ornegin her 10 dakikada)
     pub fn cleanup_unknown_device_tracker(&mut self) {
@@ -730,10 +724,14 @@ impl LoRaMac {
             f_cnt = (f_cnt_msb.wrapping_add(0x10000)) | f_cnt_16;
         }
 
-        // Frame counter replay korumasi — ayni veya eski f_cnt reddedilir
-        if f_cnt <= session.keys.f_cnt_up && session.keys.f_cnt_up != 0 {
+        // Ucuz, OTORİTE-OLMAYAN erken reddetme (EDGE-HIGH-017): reconstrue
+        // edilen f_cnt beklenen sonraki sayactan (f_cnt_up) kucukse bariz bir
+        // replay'dir — MIC hesaplamadan reddet. Otorite kapisi asagida,
+        // MIC dogrulamasindan SONRA gelen atomik check_and_advance'tir.
+        if f_cnt < session.keys.f_cnt_up {
+            self.stats.replay_rejects += 1;
             warn!(
-                "Replay korumasi: paket reddedildi, dev_addr={}, kayitli_f_cnt={}, gelen_f_cnt={}",
+                "Replay korumasi (erken): paket reddedildi, dev_addr={}, beklenen_f_cnt={}, gelen_f_cnt={}",
                 dev_addr, session.keys.f_cnt_up, f_cnt
             );
             return vec![];
@@ -755,18 +753,39 @@ impl LoRaMac {
             return vec![];
         }
 
-        let mut events = Vec::new();
-
-        // Frame counter'i guncelle
-        if let Err(e) = self
+        // OTORİTE replay kapisi (EDGE-HIGH-017): MIC dogrulandiktan SONRA
+        // (boylece sahte yuksek-f_cnt bir cerceve sayaci ilerletip cihazi
+        // DoS edemez) ve herhangi bir olay uretilmeden ÖNCE, sayaci atomik
+        // olarak dogrula-ve-ilerlet. Yaziya-gecirme (write-through) tek
+        // dayanikli islemdir; oku-stale/yaz-elsewhere penceresi yoktur.
+        match self
             .sessions
-            .update_frame_counter(&session.dev_eui, f_cnt + 1)
+            .check_and_advance_f_cnt_up(&session.dev_eui, f_cnt)
         {
-            error!(
-                "Frame counter guncellenemedi: dev_eui={}, hata={}",
-                session.dev_eui, e
-            );
+            Ok(true) => {
+                // Taze — devam et.
+            }
+            Ok(false) => {
+                // Replay / bayat — hicbir satir ilerletilmedi.
+                self.stats.replay_rejects += 1;
+                warn!(
+                    "Replay korumasi (otorite): paket reddedildi, dev_addr={}, gelen_f_cnt={}",
+                    dev_addr, f_cnt
+                );
+                return vec![];
+            }
+            Err(e) => {
+                // Sayac kalici olarak yazilamadi — FAIL-CLOSED: kabul etme.
+                // Aksi halde cokme sonrasi replay penceresi acilirdi.
+                error!(
+                    "Frame counter ilerletilemedi (fail-closed reddet): dev_eui={}, hata={}",
+                    session.dev_eui, e
+                );
+                return vec![];
+            }
         }
+
+        let mut events = Vec::new();
 
         // FRMPayload'i cikart ve sifresini coz
         // FOpts'tan sonra FPort(1 byte), ardindan FRMPayload gelir

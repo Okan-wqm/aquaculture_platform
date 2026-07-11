@@ -256,9 +256,9 @@ impl LoRaActor {
         let mut batch_interval = tokio::time::interval(tokio::time::Duration::from_millis(100));
         batch_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-        // Frame counter flush araligi — bellekteki counter cache'ini SQLite'a yaz
-        let mut flush_interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
-        flush_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // EDGE-HIGH-017: frame counter artik her uplink'te write-through
+        // olarak SQLite'a yazilir (check_and_advance_f_cnt_up), periyodik
+        // flush kaldirildi — bellekte biriken bir cache yoktur.
 
         // Periyodik temizlik araligi — unknown_device_tracker memory leak onleme
         let mut cleanup_interval = tokio::time::interval(tokio::time::Duration::from_secs(600)); // 10 dakika
@@ -277,15 +277,6 @@ impl LoRaActor {
                 _ = batch_interval.tick() => {
                     if !self.pending_io_data.is_empty() {
                         self.flush_pending_io_data().await;
-                    }
-                }
-
-                // Frame counter flush — bellekteki counter'lari SQLite'a batch yaz
-                _ = flush_interval.tick() => {
-                    if let Some(ref mac) = self.mac {
-                        if let Err(e) = mac.flush_frame_counters() {
-                            warn!("Frame counter flush hatasi: {}", e);
-                        }
                     }
                 }
 
@@ -325,14 +316,9 @@ impl LoRaActor {
                             if !self.pending_io_data.is_empty() {
                                 self.flush_pending_io_data().await;
                             }
-                            // Frame counter cache'ini SQLite'a yaz — veri kaybi onleme
-                            if let Some(ref mac) = self.mac {
-                                if let Err(e) = mac.flush_frame_counters() {
-                                    warn!("Shutdown frame counter flush hatasi: {}", e);
-                                } else {
-                                    info!("Frame counter'lar SQLite'a flush edildi");
-                                }
-                            }
+                            // EDGE-HIGH-017: frame counter'lar write-through
+                            // yazildigindan shutdown flush'i gerekmez — DB
+                            // daima guncel.
                             break;
                         }
                     }

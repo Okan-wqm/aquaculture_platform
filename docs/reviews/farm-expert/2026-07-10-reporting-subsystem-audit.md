@@ -224,6 +224,13 @@ FD-0001/Altinn channel, not a REST report) and duplicated the biomass_reports li
 BIOMASS removed from monthlyJobs so it no longer flows through the REST pipeline; biomass keeps its
 own biomass_reports + Altinn confirm flow.
 
+### FARM-HIGH-177 — settefisk assembler CTEs whole-tenant scanned per site
+
+The mortality/culls/external_out CTEs filtered only by tenantId + date (not site), aggregating the
+tenant's entire history and discarding non-site rows in the final join — re-run once per site.
+Fixed: each CTE joins site_tanks on the source tankId so it seeks the (tankId, date) index for the
+site's tanks instead of a whole-tenant scan.
+
 ## OPEN — HIGH (tracked)
 
 - **Slaughter drafts can never be submitted** — `buildWirePayload` never wraps `arter`/`ukeplanPerArt`

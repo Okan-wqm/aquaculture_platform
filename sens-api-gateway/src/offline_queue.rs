@@ -164,35 +164,11 @@ fn load_or_create_db_secret() -> Result<Vec<u8>> {
     crate::db_secret::read_or_create_v1_secret()
 }
 
-/// Apply SQLCipher encryption key to a newly opened database connection.
-///
-/// Uses HMAC-SHA256(machine_id, secret_key) as the encryption key.
-/// The hex-encoded PRAGMA key format prevents SQL injection.
-///
-/// **Legacy v1-only path.** The manifest-aware variant
-/// is `apply_pragma_key_hex` below, called by
-/// `OfflineQueue::with_keystore_derivation` (PR-195
-/// Batch #13). This function stays in place for the
-/// legacy `with_disk_limit` constructor — operators on
-/// agents that haven't migrated to v2 still rely on
-/// the cached v1 derivation.
-fn apply_db_encryption_key(conn: &Connection) -> Result<()> {
-    let hex_key = derive_db_encryption_key()?;
-    apply_pragma_key_hex(conn, &hex_key)
-}
-
-/// Apply a pre-derived SQLCipher PRAGMA key (lower-hex
-/// 64 chars) to a newly-opened connection. Extracted
-/// so both the legacy v1-only path and the
-/// manifest-aware path (PR-195 Batch #13
-/// `with_keystore_derivation`) share the same
-/// PRAGMA-emit logic — no drift between the two
-/// callers in how the key statement is constructed.
-fn apply_pragma_key_hex(conn: &Connection, hex: &str) -> Result<()> {
-    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex))
-        .context("Failed to apply SQLCipher database encryption key")?;
-    Ok(())
-}
+// EDGE-HIGH-026: the former `apply_db_encryption_key` / `apply_pragma_key_hex`
+// helpers were deleted — the SQLCipher PRAGMA-key ceremony (raw key +
+// journal/synchronous/busy_timeout/auto_vacuum) now lives ONLY in
+// `crate::db::sqlcipher_factory`. `derive_db_encryption_key` (above) stays
+// here as the v1 key-material SSoT the factory delegates to.
 
 /// 2026-04-29 enterprise shutdown fsync helper.
 ///
@@ -445,13 +421,16 @@ impl OfflineQueue {
         max_age_secs: u64,
         max_disk_bytes: u64,
     ) -> Result<Self> {
-        let conn = Connection::open(db_path)
-            .with_context(|| format!("Failed to open queue database: {}", db_path.display()))?;
-
-        // Apply SQLCipher database key derived from the device machine-id (IEC 62443 FR4).
-        // This encrypts the database at rest so physical access to the device does not
-        // expose queued telemetry or PLC state.
-        apply_db_encryption_key(&conn)?;
+        // EDGE-HIGH-026: open + key via the canonical SQLCipher factory
+        // (v1 device-secret key). Encrypts the database at rest (IEC 62443
+        // FR4) so physical access to the device does not expose queued
+        // telemetry or PLC state; the factory owns the PRAGMA key + WAL /
+        // synchronous / busy_timeout / auto_vacuum sequence.
+        let conn = crate::db::sqlcipher_factory::open_device_secret(
+            db_path,
+            "offline_queue",
+            crate::db::sqlcipher_factory::PragmaProfile::DEFAULT,
+        )?;
 
         let queue = Self {
             conn: Mutex::new(conn),
@@ -518,46 +497,26 @@ impl OfflineQueue {
         keystore: std::sync::Arc<dyn crate::keystore::Keystore>,
         deployment_uuid: Vec<u8>,
     ) -> Result<Self> {
-        // Read the v1 inputs the resolver may need (the
-        // resolver only uses them on the v1 / missing-
-        // manifest path; v2 path ignores them — but we
-        // populate unconditionally so the resolver
-        // always has the option, mirroring the v2
-        // shim's caller contract).
-        let machine_id = crate::machine_id::read()
-            .context("OfflineQueue with_keystore_derivation: machine_id read failed")?;
-        let secret_key = load_or_create_db_secret()?;
-        let v1_inputs = crate::db_migration::consumer_key_resolver::V1Inputs {
-            machine_id: machine_id.into_bytes(),
-            secret_key,
-        };
-
-        // ConsumerContext for OfflineQueue (device-
-        // bound per ADR-031): deployment_uuid required;
-        // program_artifact_sha256 None.
+        // EDGE-HIGH-026: open + key via the canonical SQLCipher factory's
+        // resolver path. The factory assembles the v1 inputs (machine-id +
+        // device secret) internally and owns the PRAGMA key + durability
+        // sequence. ConsumerContext for OfflineQueue is device-bound per
+        // ADR-031: deployment_uuid required; program_artifact_sha256 None.
         let ctx = crate::db_migration::consumer_context::ConsumerContext {
             deployment_uuid,
             program_artifact_sha256: None,
         };
-
-        let resolved = crate::db_migration::consumer_key_resolver::resolve_consumer_pragma_key(
+        let opened = crate::db::sqlcipher_factory::open_resolved(
             db_path,
             crate::keystore::purpose::KeyPurpose::SqlCipherOfflineQueue,
             &ctx,
             keystore.as_ref(),
-            &v1_inputs,
+            crate::db::sqlcipher_factory::PragmaProfile::DEFAULT,
         )
-        .await
-        .map_err(|e| {
-            anyhow::anyhow!("OfflineQueue with_keystore_derivation: resolver failed: {e}")
-        })?;
-
-        let conn = Connection::open(db_path)
-            .with_context(|| format!("Failed to open queue database: {}", db_path.display()))?;
-        apply_pragma_key_hex(&conn, resolved.pragma_key_hex.as_str())?;
+        .await?;
 
         let queue = Self {
-            conn: Mutex::new(conn),
+            conn: Mutex::new(opened.conn),
             db_path: Some(db_path.to_path_buf()),
             max_size,
             max_age_secs,
@@ -572,7 +531,7 @@ impl OfflineQueue {
             max_size,
             max_age_secs,
             max_disk_bytes / (1024 * 1024),
-            resolved.current_version,
+            opened.key_version,
         );
 
         Ok(queue)
@@ -2164,7 +2123,10 @@ mod tests {
         // Seed the DB encrypted under v2.
         {
             let conn = Connection::open(&db_path).expect("open");
-            apply_pragma_key_hex(&conn, &v2_hex).expect("apply v2 key");
+            // Seeds a v2-encrypted DB fixture directly, not via a production opener.
+            // INVARIANT-ALLOW: sqlcipher-test-seed
+            conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", v2_hex))
+                .expect("apply v2 key");
             conn.execute_batch(
                 "CREATE TABLE seed (id INTEGER PRIMARY KEY); \
                  INSERT INTO seed VALUES (1);",

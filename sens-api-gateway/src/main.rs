@@ -106,6 +106,9 @@ mod keystore;
 // db-migrate-cli + per-consumer migration follow in subsequent D-3 batches.
 #[allow(dead_code)] // D-3 boot-detector + migration binary wire consumers; primitives pre-staged.
 mod db_migration;
+// EDGE-HIGH-026: canonical SQLCipher connection factory (steady-state open
+// ceremony SSoT). Stores route their open + PRAGMA key through db::sqlcipher_factory.
+mod db;
 // Batch #338 — cross-cutting IO primitives shared by sidecar-persisting
 // modules (closes audit MEDIUM-004 finding). The first primitive is
 // `atomic_json_sidecar::write_atomic_json` which does the full 6-step

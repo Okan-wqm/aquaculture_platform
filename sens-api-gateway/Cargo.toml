@@ -732,6 +732,13 @@ path = "tests/invariants/db_migration_v1_legacy_key.rs"
 name = "db_migration_wire_status"
 path = "tests/invariants/db_migration_wire_status.rs"
 
+# EDGE-HIGH-026 — SQLCipher PRAGMA-key ceremony SSoT. Source-grep Tier-3
+# gate: only db::sqlcipher_factory (+ the sanctioned migration internals /
+# scada_db migration-opener / marked test seeds) may emit a raw PRAGMA key.
+[[test]]
+name = "sqlcipher_factory_ssot"
+path = "tests/invariants/sqlcipher_factory_ssot.rs"
+
 # Batch #354 — Faz 5 Core Gap E-4 (UM-001) AuditActorLabel
 # invariant seal. Tier-3 grep gate banning the legacy
 # `"opc-ua-anonymous"` literal from the src/ tree. The

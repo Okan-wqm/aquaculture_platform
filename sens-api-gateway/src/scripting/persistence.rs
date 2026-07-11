@@ -580,25 +580,16 @@ impl SqlitePersistence {
             }
         }
 
-        let conn = Connection::open(&db_path).map_err(|e| {
-            PersistenceError::ConnectionFailed(format!("Cannot open database: {}", e))
-        })?;
-
-        // Apply SQLCipher encryption key using HMAC-SHA256(machine_id, secret_key).
-        // Delegates to the shared key derivation in offline_queue module.
-        let hex_key = crate::offline_queue::derive_db_encryption_key().map_err(|e| {
-            PersistenceError::ConnectionFailed(format!(
-                "Failed to derive database encryption key: {}",
-                e
-            ))
-        })?;
-        conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
-            .map_err(|e| {
-                PersistenceError::ConnectionFailed(format!(
-                    "Failed to apply database encryption key: {}",
-                    e
-                ))
-            })?;
+        // EDGE-HIGH-026: open + key via the canonical SQLCipher factory
+        // (v1 device-secret key). The factory owns the PRAGMA key +
+        // WAL/synchronous/busy_timeout/auto_vacuum sequence; finalize_open
+        // then applies this store's performance pragmas + schema.
+        let conn = crate::db::sqlcipher_factory::open_device_secret(
+            db_path.as_ref(),
+            "scripting_persistence",
+            crate::db::sqlcipher_factory::PragmaProfile::DEFAULT,
+        )
+        .map_err(|e| PersistenceError::ConnectionFailed(format!("Cannot open database: {}", e)))?;
 
         Self::finalize_open(conn, path_str)
     }
@@ -659,52 +650,26 @@ impl SqlitePersistence {
             }
         }
 
-        // Pull v1 inputs — the resolver only USES them
-        // on the v1 / missing-manifest path; v2 path
-        // ignores. SSoT module
-        // `crate::db_secret::read_or_create_v1_secret`
-        // (Batch #14 extraction) is the single read
-        // point.
-        let machine_id = crate::machine_id::read()
-            .map_err(|e| PersistenceError::ConnectionFailed(format!("machine_id read: {}", e)))?;
-        let secret_key = crate::db_secret::read_or_create_v1_secret()
-            .map_err(|e| PersistenceError::ConnectionFailed(format!("secret_key read: {}", e)))?;
-        let v1_inputs = crate::db_migration::consumer_key_resolver::V1Inputs {
-            machine_id: machine_id.into_bytes(),
-            secret_key,
-        };
-
-        // Program-bound ConsumerContext per ADR-031:
-        // deployment_uuid empty; program_artifact_sha256
-        // carries the binding bytes.
+        // EDGE-HIGH-026: open + key via the canonical SQLCipher factory's
+        // resolver path. Program-bound ConsumerContext per ADR-031:
+        // deployment_uuid empty; program_artifact_sha256 carries the binding.
+        // The factory assembles v1 inputs internally + owns the PRAGMA key
+        // sequence; finalize_open applies perf pragmas + schema.
         let ctx = crate::db_migration::consumer_context::ConsumerContext {
             deployment_uuid: Vec::new(),
             program_artifact_sha256: Some(program_artifact_sha256),
         };
 
-        let resolved = crate::db_migration::consumer_key_resolver::resolve_consumer_pragma_key(
+        let conn = crate::db::sqlcipher_factory::open_resolved(
             db_path.as_ref(),
             crate::keystore::purpose::KeyPurpose::SqlCipherRetainPersistence,
             &ctx,
             keystore.as_ref(),
-            &v1_inputs,
+            crate::db::sqlcipher_factory::PragmaProfile::DEFAULT,
         )
         .await
-        .map_err(|e| PersistenceError::ConnectionFailed(format!("resolver: {}", e)))?;
-
-        let conn = Connection::open(&db_path).map_err(|e| {
-            PersistenceError::ConnectionFailed(format!("Cannot open database: {}", e))
-        })?;
-        conn.execute_batch(&format!(
-            "PRAGMA key = \"x'{}'\";",
-            resolved.pragma_key_hex.as_str()
-        ))
-        .map_err(|e| {
-            PersistenceError::ConnectionFailed(format!(
-                "Failed to apply database encryption key: {}",
-                e
-            ))
-        })?;
+        .map_err(|e| PersistenceError::ConnectionFailed(format!("factory open_resolved: {}", e)))?
+        .conn;
 
         Self::finalize_open(conn, path_str)
     }
@@ -1481,6 +1446,7 @@ mod tests {
         // Pre-seed DB encrypted under v2.
         {
             let conn = Connection::open(&db_path).expect("seed");
+            // INVARIANT-ALLOW: sqlcipher-test-seed — seeds a v2-encrypted fixture.
             conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", v2_hex))
                 .expect("apply v2");
             conn.execute_batch(

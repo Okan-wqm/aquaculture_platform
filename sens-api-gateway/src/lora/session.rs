@@ -90,21 +90,15 @@ impl SessionStore {
     /// # Parametreler
     /// - `db_path`: SQLite veritabani dosya yolu
     pub fn new(db_path: &Path) -> Result<Self> {
-        let conn = Connection::open(db_path)
-            .with_context(|| format!("LoRa session DB acilamadi: {}", db_path.display()))?;
-
-        // SQLCipher sifreleme anahtarini uygula (offline_queue.rs ile ayni yontem)
-        let hex_key = crate::offline_queue::derive_db_encryption_key()?;
-        conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
-            .context("SQLCipher anahtar uygulanamadi")?;
-
-        // WAL modu ve performans PRAGMA'lari — esanli okuma/yazma icin
-        conn.execute_batch(
-            "PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=NORMAL;
-             PRAGMA cache_size=-2000;",
-        )
-        .context("SQLite performans PRAGMA'lari uygulanamadi")?;
+        // EDGE-HIGH-026: open + key via the canonical SQLCipher factory
+        // (v1 device-secret key). This also corrects the former outlier
+        // pragma profile (cache_size=-2000, no busy_timeout/auto_vacuum) to
+        // the canonical durability sequence the factory owns.
+        let conn = crate::db::sqlcipher_factory::open_device_secret(
+            db_path,
+            "lora_session",
+            crate::db::sqlcipher_factory::PragmaProfile::DEFAULT,
+        )?;
 
         let store = Self {
             db: Mutex::new(conn),

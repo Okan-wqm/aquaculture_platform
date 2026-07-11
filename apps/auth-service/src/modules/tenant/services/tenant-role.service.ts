@@ -2,6 +2,9 @@ import { Injectable, Logger, NotFoundException, ConflictException, ForbiddenExce
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, QueryRunner } from 'typeorm';
 
+import { AuditLogSeverity } from '../../../audit/audit-log.entity';
+import { AuditLogService } from '../../../audit/audit-log.service';
+
 import { CapabilityAuthorityService } from './capability-authority';
 import { PERMISSION_CATEGORIES, panelPermissionsToResourceArray } from './permission-catalogue';
 
@@ -261,6 +264,13 @@ export class TenantRoleService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly capabilityAuthority: CapabilityAuthorityService,
+    // SECURITY (RBAC-C3): role-definition mutations (create/edit/delete/
+    // set-default/seed) previously wrote ZERO audit rows — a privileged
+    // permission rewrite that re-scopes every holder of a role was forensically
+    // invisible (SOC 2 CC6.1/CC7.2, GDPR Art 30). Every mutation now writes an
+    // audit row on its own transaction (fail-CLOSED: a throwing audit rolls the
+    // mutation back), mirroring the tenant-user-management assignment paths.
+    private readonly auditLogService: AuditLogService,
   ) {}
 
   /**
@@ -465,6 +475,27 @@ export class TenantRoleService {
         [roleId, JSON.stringify(input.panelPermissions), [...grantableResourcePermissions]],
       );
 
+      // RBAC-C3: fail-CLOSED audit on the SAME transaction (queryRunner.manager)
+      // — a throwing audit rolls the role creation back.
+      await this.auditLogService.log(
+        {
+          tenantId,
+          performedBy: createdBy,
+          action: 'ROLE_CREATED',
+          entityType: 'TenantRole',
+          entityId: roleId,
+          newValue: {
+            name: input.name,
+            level: input.level ?? 50,
+            isDefault: input.isDefault ?? false,
+            resourcePermissions: [...grantableResourcePermissions],
+          },
+          details: { timestamp: new Date().toISOString() },
+          severity: AuditLogSeverity.WARNING,
+        },
+        queryRunner.manager,
+      );
+
       await queryRunner.commitTransaction();
 
       this.logger.log(`Created role "${input.name}" in tenant ${tenantId}`);
@@ -637,6 +668,35 @@ export class TenantRoleService {
         );
       }
 
+      // RBAC-C3: fail-CLOSED audit with the before/after permission set, so a
+      // privileged rewrite that re-scopes every holder of the role is traceable.
+      await this.auditLogService.log(
+        {
+          tenantId,
+          performedBy: updatedBy,
+          action: 'ROLE_UPDATED',
+          entityType: 'TenantRole',
+          entityId: roleId,
+          previousValue: {
+            name: existing.name,
+            level: existing.level,
+            isDefault: existing.isDefault,
+            resourcePermissions: existing.permissions?.resourcePermissions ?? [],
+          },
+          newValue: {
+            name: input.name ?? existing.name,
+            level: input.level ?? existing.level,
+            isDefault: input.isDefault ?? existing.isDefault,
+            resourcePermissions: grantableResourcePermissions
+              ? [...grantableResourcePermissions]
+              : (existing.permissions?.resourcePermissions ?? []),
+          },
+          details: { timestamp: new Date().toISOString() },
+          severity: AuditLogSeverity.WARNING,
+        },
+        queryRunner.manager,
+      );
+
       await queryRunner.commitTransaction();
 
       this.logger.log(`Updated role "${existing.name}" (${roleId}) in tenant ${tenantId}`);
@@ -666,7 +726,7 @@ export class TenantRoleService {
    * - Accurate user count check (prevents race with role assignment)
    * - Prevents deletion while users are being assigned
    */
-  async deleteRole(tenantId: string, roleId: string, _deletedBy: string): Promise<boolean> {
+  async deleteRole(tenantId: string, roleId: string, deletedBy: string): Promise<boolean> {
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
 
     await queryRunner.connect();
@@ -723,6 +783,27 @@ export class TenantRoleService {
       await queryRunner.query(
         `DELETE FROM "auth"."tenant_roles" WHERE id = $1 AND "tenantId" = $2`,
         [roleId, tenantId],
+      );
+
+      // RBAC-C3: fail-CLOSED audit snapshotting the deleted role (the CASCADE
+      // erases the row, so this is the only durable record of what existed).
+      await this.auditLogService.log(
+        {
+          tenantId,
+          performedBy: deletedBy,
+          action: 'ROLE_DELETED',
+          entityType: 'TenantRole',
+          entityId: roleId,
+          previousValue: {
+            name: existing.name as string,
+            level: existing.level as number,
+            isSystem: existing.is_system as boolean,
+            isDefault: existing.is_default as boolean,
+          },
+          details: { timestamp: new Date().toISOString() },
+          severity: AuditLogSeverity.WARNING,
+        },
+        queryRunner.manager,
       );
 
       await queryRunner.commitTransaction();
@@ -812,6 +893,24 @@ export class TenantRoleService {
 
         this.logger.debug(`Created default role: ${roleTemplate.name}`);
       }
+
+      // RBAC-C3: fail-CLOSED audit for the seed operation (a bulk privileged
+      // role creation), atomic with the inserts above.
+      await this.auditLogService.log(
+        {
+          tenantId,
+          performedBy: createdBy,
+          action: 'ROLES_SEEDED',
+          entityType: 'TenantRole',
+          details: {
+            count: DEFAULT_TENANT_ROLES.length,
+            roleNames: DEFAULT_TENANT_ROLES.map((r) => r.name),
+            timestamp: new Date().toISOString(),
+          },
+          severity: AuditLogSeverity.WARNING,
+        },
+        queryRunner.manager,
+      );
 
       await queryRunner.commitTransaction();
 
@@ -1085,6 +1184,22 @@ export class TenantRoleService {
         WHERE id = $1 AND "tenantId" = $2
         `,
         [roleId, tenantId],
+      );
+
+      // RBAC-C3: fail-CLOSED audit — changing the tenant default role governs
+      // which capabilities every future auto-assigned user inherits.
+      await this.auditLogService.log(
+        {
+          tenantId,
+          performedBy: updatedBy,
+          action: 'ROLE_SET_DEFAULT',
+          entityType: 'TenantRole',
+          entityId: roleId,
+          newValue: { name: roleResult[0].name as string, isDefault: true },
+          details: { timestamp: new Date().toISOString() },
+          severity: AuditLogSeverity.WARNING,
+        },
+        queryRunner.manager,
       );
 
       await queryRunner.commitTransaction();

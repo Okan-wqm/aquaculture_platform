@@ -34,3 +34,16 @@ This file records the two write-time authority findings closed by the P0 remedia
 **Rule violated:** The permission catalogue is the single source of truth for storable capabilities; a non-admin actor may grant only a subset of their own effective permissions.
 
 **Fix (architectural, tier-1 make-it-impossible):** A single `CapabilityAuthorityService` is the sole producer of the branded `GrantablePermissionSet` / `ValidatedOverrideSet` the persistence helpers require, so a capability write that skipped the catalogue-whitelist + subset-of-actor checks is a compile error. The catalogue was extracted to `permission-catalogue.ts` as a shared SSoT (with `CATALOGUE_CAPABILITIES` as the write-time whitelist), which also structurally bounds stored capability-set size.
+
+## RBAC-CRITICAL-003
+
+**Title:** Role-definition mutations in `TenantRoleService` (create / edit / delete / set-default / seed) wrote ZERO audit rows — a privileged permission rewrite that re-scopes every holder of a role was forensically invisible (SOC 2 CC6.1/CC7.2, GDPR Art 30).
+
+**Layer:** 2 (audit / side-effect discipline)
+**Evidence:**
+- `apps/auth-service/src/modules/tenant/services/tenant-role.service.ts`
+- `apps/auth-service/src/audit/audit-log.service.ts`
+
+**Rule violated:** Every privileged, state-mutating RBAC action must write an audit row atomically with the mutation (fail-closed), never after a committed change and never omitted.
+
+**Fix:** `TenantRoleService` now injects `AuditLogService` and writes `ROLE_CREATED` / `ROLE_UPDATED` (with before/after permission sets) / `ROLE_DELETED` (row snapshot) / `ROLE_SET_DEFAULT` / `ROLES_SEEDED` rows on the same SERIALIZABLE transaction (`queryRunner.manager`), mirroring the tenant-user-management assignment paths — a throwing audit rolls the mutation back.

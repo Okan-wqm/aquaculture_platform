@@ -9,6 +9,7 @@ import { ConflictException, ForbiddenException, NotFoundException } from '@nestj
 import { Test, TestingModule } from '@nestjs/testing';
 import { DataSource, QueryRunner } from 'typeorm';
 
+import { AuditLogService } from '../../../audit/audit-log.service';
 import { CapabilityAuthorityService } from '../services/capability-authority';
 import { TenantRoleService } from '../services/tenant-role.service';
 
@@ -27,13 +28,19 @@ const ADMIN_USER_ID = 'admin-uuid-001';
 
 const createMockQueryRunner = (): jest.Mocked<
   Pick<QueryRunner, 'connect' | 'startTransaction' | 'commitTransaction' | 'rollbackTransaction' | 'release' | 'query'>
-> => ({
+> & { manager: { create: jest.Mock; save: jest.Mock } } => ({
   connect: jest.fn().mockResolvedValue(undefined),
   startTransaction: jest.fn().mockResolvedValue(undefined),
   commitTransaction: jest.fn().mockResolvedValue(undefined),
   rollbackTransaction: jest.fn().mockResolvedValue(undefined),
   release: jest.fn().mockResolvedValue(undefined),
   query: jest.fn().mockResolvedValue([]),
+  // A real QueryRunner exposes `.manager` (the transaction-bound EntityManager)
+  // that RBAC-C3 threads into AuditLogService.log for an atomic audit write.
+  manager: {
+    create: jest.fn((_entity: unknown, data: unknown) => data),
+    save: jest.fn((entity: unknown) => Promise.resolve(entity)),
+  },
 });
 
 // ============================================================================
@@ -66,6 +73,7 @@ describe('TenantRoleService', () => {
   let service: TenantRoleService;
   let mockDataSource: jest.Mocked<Pick<DataSource, 'query' | 'createQueryRunner'>>;
   let mockQueryRunner: ReturnType<typeof createMockQueryRunner>;
+  let mockAuditLogService: { log: jest.Mock };
 
   beforeEach(async () => {
     mockQueryRunner = createMockQueryRunner();
@@ -75,10 +83,13 @@ describe('TenantRoleService', () => {
       createQueryRunner: jest.fn().mockReturnValue(mockQueryRunner),
     };
 
+    mockAuditLogService = { log: jest.fn().mockResolvedValue(undefined) };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TenantRoleService,
         { provide: DataSource, useValue: mockDataSource },
+        { provide: AuditLogService, useValue: mockAuditLogService },
         {
           // Default: an admin author who may grant any catalogue capability;
           // the validator passes the derived resource permissions through. Tests
@@ -374,6 +385,40 @@ describe('TenantRoleService', () => {
       expect(result.name).toBe('Custom Role');
       expect(mockQueryRunner.startTransaction).toHaveBeenCalledWith('SERIALIZABLE');
       expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
+    });
+
+    it('RBAC-C3: writes a ROLE_CREATED audit row on the transaction manager (fail-closed)', async () => {
+      mockQueryRunner.query
+        .mockResolvedValueOnce([]) // no duplicate
+        .mockResolvedValueOnce([{ id: 'new-role-id' }]) // INSERT role
+        .mockResolvedValueOnce([]); // INSERT permissions
+      mockDataSource.query.mockResolvedValue([createMockRoleRow({ id: 'new-role-id', name: 'Custom Role' })]);
+
+      await service.createRole(TENANT_ID, createInput, ADMIN_USER_ID);
+
+      expect(mockAuditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: TENANT_ID,
+          performedBy: ADMIN_USER_ID,
+          action: 'ROLE_CREATED',
+          entityType: 'TenantRole',
+          entityId: 'new-role-id',
+        }),
+        // manager-threaded (2nd arg) so the audit is atomic with the insert.
+        expect.anything(),
+      );
+    });
+
+    it('RBAC-C3: an audit failure ROLLS BACK the role creation (fail-closed)', async () => {
+      mockQueryRunner.query
+        .mockResolvedValueOnce([]) // no duplicate
+        .mockResolvedValueOnce([{ id: 'new-role-id' }]) // INSERT role
+        .mockResolvedValueOnce([]); // INSERT permissions
+      mockAuditLogService.log.mockRejectedValueOnce(new Error('audit DB down'));
+
+      await expect(service.createRole(TENANT_ID, createInput, ADMIN_USER_ID)).rejects.toThrow('audit DB down');
+      expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
+      expect(mockQueryRunner.commitTransaction).not.toHaveBeenCalled();
     });
 
     it('should throw ConflictException for duplicate role name', async () => {
@@ -675,6 +720,26 @@ describe('TenantRoleService', () => {
         3,
         expect.stringContaining('DELETE FROM "auth"."tenant_roles" WHERE id = $1 AND "tenantId" = $2'),
         [ROLE_ID, TENANT_ID],
+      );
+    });
+
+    it('RBAC-C3: writes a ROLE_DELETED audit row snapshotting the role (fail-closed)', async () => {
+      mockQueryRunner.query
+        .mockResolvedValueOnce([{ id: ROLE_ID, name: 'Custom', is_system: false, is_default: false, level: 40, user_count: 0 }])
+        .mockResolvedValueOnce([]) // DELETE permissions
+        .mockResolvedValueOnce([]); // DELETE role
+
+      await service.deleteRole(TENANT_ID, ROLE_ID, ADMIN_USER_ID);
+
+      expect(mockAuditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'ROLE_DELETED',
+          entityType: 'TenantRole',
+          entityId: ROLE_ID,
+          performedBy: ADMIN_USER_ID,
+          previousValue: expect.objectContaining({ name: 'Custom' }),
+        }),
+        expect.anything(),
       );
     });
 

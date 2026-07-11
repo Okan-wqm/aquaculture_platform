@@ -366,6 +366,14 @@ on the service guard. Verified by migration-sql-lint, the migration postConditio
 CI migration-harness), the existing upsert-immutability service spec, and a new `.postgres.spec.ts`
 exercising the trigger behavior against real Postgres (runs in CI, not this sandbox).
 
+## Post-merge re-review (2026-07-11)
+
+- **data-expert** re-reviewed the FARM-HIGH-182 reconstruction SQL + the db-migrate orphan-type
+  reclamation: reclamation clean; the replay is correct on every load-bearing axis (no double-count, no
+  cross-tenant leak, columns match, casts fold safely) with one determinism LOW — **FARM-LOW-199** is
+  FIXED: `latest_meas`'s `DISTINCT ON` tie-break over the day-granular `measurementDate` now appends
+  `createdAt DESC, id DESC`, so the picked weight (and reported biomass) is reproducible.
+
 ## OPEN — HIGH (tracked)
 
 - **Harvest cancel/update leaves the `tank_operations('harvest')` mirror un-reversed** (FARM-HIGH-198,

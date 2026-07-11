@@ -65,7 +65,10 @@ interface BatchReconstructionRow {
   speciesId: string;
   speciesName: string;
   speciesCode: string;
-  initialQuantity: string | null;
+  // int4 comes back from node-postgres as a JS number; the removal SUMs and the
+  // weight are ::text-cast in SQL so they arrive as strings. `fold` handles both
+  // via `== null` + `Number(...)`.
+  initialQuantity: number | string | null;
   mortality: string;
   cull: string;
   harvest: string;
@@ -154,10 +157,14 @@ export const BATCH_RECONSTRUCTION_SQL = `WITH site_tanks AS (
      GROUP BY hr."batchId"
   ),
   latest_meas AS (
+    -- DATA-LOW-001: measurementDate is day-granular, so two same-day samplings
+    -- tie on it. createdAt (timestamptz) breaks the tie by true recency and id
+    -- makes it fully deterministic, so the picked weight — and thus the reported
+    -- biomass — is reproducible across replicas / after a VACUUM.
     SELECT DISTINCT ON (m."batchId") m."batchId" AS batch_id, m."averageWeight" AS avg_w
       FROM growth_measurements m
      WHERE m."tenantId" = $1 AND m."measurementDate"::date <= $3
-     ORDER BY m."batchId", m."measurementDate" DESC
+     ORDER BY m."batchId", m."measurementDate" DESC, m."createdAt" DESC, m.id DESC
   )
   SELECT b.id AS "batchId",
          b."speciesId" AS "speciesId",

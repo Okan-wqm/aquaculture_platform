@@ -16,6 +16,11 @@ import { CommandBus, QueryBus } from '@platform/cqrs';
 
 import { Cacheable } from '../../common/cache/cacheable.decorator';
 import { CacheEvict } from '../../common/cache/cache-evict.decorator';
+import {
+  withBatchTotalDecimals,
+  withLineItemDecimals,
+  withSummaryDecimals,
+} from './finance-decimal.mapper';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import {
   ArchiveFinanceCategoryCommand,
@@ -126,7 +131,7 @@ export class FinanceResolver {
     @Args('limit', { type: () => Int, defaultValue: 50 }) limit?: number,
     @Args('offset', { type: () => Int, defaultValue: 0 }) offset?: number,
   ): Promise<FinanceLineItem[]> {
-    return this.queryBus.execute(
+    const items = await this.queryBus.execute<GetFinanceLedgerQuery, FinanceLineItem[]>(
       new GetFinanceLedgerQuery(tenantId, {
         from,
         to,
@@ -139,6 +144,7 @@ export class FinanceResolver {
         offset: Math.min(Math.max(offset ?? 0, 0), MAX_LEDGER_OFFSET),
       }),
     );
+    return withLineItemDecimals(items);
   }
 
   @Query(() => FinanceSummary, {
@@ -155,9 +161,10 @@ export class FinanceResolver {
     @Args('granularity', { type: () => FinanceGranularity, defaultValue: FinanceGranularity.MONTH })
     granularity?: FinanceGranularity,
   ): Promise<FinanceSummary> {
-    return this.queryBus.execute(
+    const summary = await this.queryBus.execute<GetFinanceSummaryQuery, FinanceSummary>(
       new GetFinanceSummaryQuery(tenantId, from, to, granularity ?? FinanceGranularity.MONTH),
     );
+    return withSummaryDecimals(summary);
   }
 
   @Query(() => [FinanceBatchTotal], {
@@ -170,7 +177,10 @@ export class FinanceResolver {
     @Args('from') from: Date,
     @Args('to') to: Date,
   ): Promise<FinanceBatchTotal[]> {
-    return this.queryBus.execute(new GetFinanceBatchTotalsQuery(tenantId, from, to));
+    const totals = await this.queryBus.execute<GetFinanceBatchTotalsQuery, FinanceBatchTotal[]>(
+      new GetFinanceBatchTotalsQuery(tenantId, from, to),
+    );
+    return withBatchTotalDecimals(totals);
   }
 
   @Query(() => FinanceSettings, {

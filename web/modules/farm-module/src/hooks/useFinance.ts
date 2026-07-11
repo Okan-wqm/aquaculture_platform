@@ -52,7 +52,10 @@ export interface FinanceEntry {
   entryDate: string;
   periodStart?: string | null;
   periodEnd?: string | null;
+  /** @deprecated Float — use `amountDecimal` (exact decimal string, ADR-0004). */
   amount: number;
+  /** Exact-decimal amount as a string (Decimal scalar). Parse with `parseMoney`. */
+  amountDecimal: string;
   currency: string;
   description?: string | null;
   siteId?: string | null;
@@ -68,7 +71,10 @@ export interface FinanceLineItem {
   categoryCode?: string | null;
   categoryName: string;
   kind: FinanceCategoryKind;
+  /** @deprecated Float — use `amountDecimal` (exact decimal string, ADR-0004). */
   amount: number;
+  /** Exact-decimal amount as a string (Decimal scalar). Parse with `parseMoney`. */
+  amountDecimal: string;
   currency: string;
   entryDate: string;
   batchId?: string | null;
@@ -88,28 +94,30 @@ export interface FinanceCategoryTotal {
   kind: FinanceCategoryKind;
   isComputed: boolean;
   isDerived: boolean;
-  total: number;
+  // Money crosses as exact decimal STRINGS via the Decimal scalar (ADR-0004);
+  // parse with `parseMoney` at the display/arithmetic boundary.
+  totalDecimal: string;
 }
 
 export interface FinanceTimeBucket {
   bucketStart: string;
-  totalExpense: number;
-  totalRevenue: number;
+  totalExpenseDecimal: string;
+  totalRevenueDecimal: string;
 }
 
 export interface FinanceSummary {
   currency: string;
-  totalExpense: number;
-  totalRevenue: number;
-  netResult: number;
+  totalExpenseDecimal: string;
+  totalRevenueDecimal: string;
+  netResultDecimal: string;
   byCategory: FinanceCategoryTotal[];
   series: FinanceTimeBucket[];
 }
 
 export interface FinanceBatchTotal {
   batchId: string;
-  totalExpense: number;
-  totalRevenue: number;
+  totalExpenseDecimal: string;
+  totalRevenueDecimal: string;
 }
 
 export interface FinanceSettings {

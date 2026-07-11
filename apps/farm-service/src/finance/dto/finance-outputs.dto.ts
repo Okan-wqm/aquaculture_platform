@@ -7,11 +7,17 @@
  * `sourceRecordId` drive the "edit at source" deep link).
  */
 import { Field, Float, ID, ObjectType, registerEnumType } from '@nestjs/graphql';
+import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 
 import {
   FinanceCategoryKind,
   FinanceCategoryScope,
 } from '../entities/finance-category.entity';
+
+// ADR-0004 / DATA-MEDIUM-009 additive coexistence: each money `Float` field gains
+// a parallel `*Decimal` field (exact decimal string via the Decimal scalar),
+// populated by a resolver-boundary mapper (finance-decimal.mapper). The `Float`
+// fields are deprecated and stay through the window.
 import {
   FinanceGranularity,
   FinanceLineOrigin,
@@ -47,8 +53,11 @@ export class FinanceLineItem {
   @Field(() => FinanceCategoryKind)
   kind!: FinanceCategoryKind;
 
-  @Field(() => Float)
+  @Field(() => Float, { deprecationReason: 'Use amountDecimal (exact decimal string, ADR-0004).' })
   amount!: number;
+
+  @Field(() => DecimalScalar)
+  amountDecimal?: number;
 
   @Field()
   currency!: string;
@@ -103,8 +112,11 @@ export class FinanceCategoryTotal {
   @Field()
   isDerived!: boolean;
 
-  @Field(() => Float)
+  @Field(() => Float, { deprecationReason: 'Use totalDecimal (exact decimal string, ADR-0004).' })
   total!: number;
+
+  @Field(() => DecimalScalar)
+  totalDecimal?: number;
 }
 
 @ObjectType()
@@ -112,11 +124,17 @@ export class FinanceTimeBucket {
   @Field()
   bucketStart!: Date;
 
-  @Field(() => Float)
+  @Field(() => Float, { deprecationReason: 'Use totalExpenseDecimal (ADR-0004).' })
   totalExpense!: number;
 
-  @Field(() => Float)
+  @Field(() => DecimalScalar)
+  totalExpenseDecimal?: number;
+
+  @Field(() => Float, { deprecationReason: 'Use totalRevenueDecimal (ADR-0004).' })
   totalRevenue!: number;
+
+  @Field(() => DecimalScalar)
+  totalRevenueDecimal?: number;
 }
 
 @ObjectType()
@@ -124,11 +142,17 @@ export class FinanceBatchTotal {
   @Field(() => ID)
   batchId!: string;
 
-  @Field(() => Float)
+  @Field(() => Float, { deprecationReason: 'Use totalExpenseDecimal (ADR-0004).' })
   totalExpense!: number;
 
-  @Field(() => Float)
+  @Field(() => DecimalScalar)
+  totalExpenseDecimal?: number;
+
+  @Field(() => Float, { deprecationReason: 'Use totalRevenueDecimal (ADR-0004).' })
   totalRevenue!: number;
+
+  @Field(() => DecimalScalar)
+  totalRevenueDecimal?: number;
 }
 
 @ObjectType()
@@ -136,14 +160,23 @@ export class FinanceSummary {
   @Field()
   currency!: string;
 
-  @Field(() => Float)
+  @Field(() => Float, { deprecationReason: 'Use totalExpenseDecimal (ADR-0004).' })
   totalExpense!: number;
 
-  @Field(() => Float)
+  @Field(() => DecimalScalar)
+  totalExpenseDecimal?: number;
+
+  @Field(() => Float, { deprecationReason: 'Use totalRevenueDecimal (ADR-0004).' })
   totalRevenue!: number;
 
-  @Field(() => Float)
+  @Field(() => DecimalScalar)
+  totalRevenueDecimal?: number;
+
+  @Field(() => Float, { deprecationReason: 'Use netResultDecimal (ADR-0004).' })
   netResult!: number;
+
+  @Field(() => DecimalScalar)
+  netResultDecimal?: number;
 
   @Field(() => [FinanceCategoryTotal])
   byCategory!: FinanceCategoryTotal[];

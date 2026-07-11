@@ -7,6 +7,7 @@
  * its color regardless of filtering), magnitude breakdowns use one hue,
  * legends present for two-series charts.
  */
+import { parseMoney } from '@aquaculture/shared-ui';
 import React from 'react';
 import {
   Bar,
@@ -66,13 +67,13 @@ export const ChartsTab: React.FC<ChartsTabProps> = ({ summary, isLoading, period
 
   const trendData = summary.series.map((bucket) => ({
     bucket: bucketLabel(bucket.bucketStart, period.granularity),
-    Expense: bucket.totalExpense,
-    Revenue: bucket.totalRevenue,
+    Expense: parseMoney(bucket.totalExpenseDecimal),
+    Revenue: parseMoney(bucket.totalRevenueDecimal),
   }));
 
   const categoryData = summary.byCategory
-    .filter((c) => c.kind === 'EXPENSE' && c.total > 0)
-    .map((c) => ({ name: c.categoryName, Expense: c.total }));
+    .filter((c) => c.kind === 'EXPENSE' && parseMoney(c.totalDecimal) > 0)
+    .map((c) => ({ name: c.categoryName, Expense: parseMoney(c.totalDecimal) }));
 
   const batchNameById = new Map(
     (batchesQuery.data?.items ?? []).map((b: { id: string; batchNumber?: string; name?: string }) => [
@@ -82,8 +83,8 @@ export const ChartsTab: React.FC<ChartsTabProps> = ({ summary, isLoading, period
   );
   const batchData = (batchTotalsQuery.data ?? []).slice(0, 15).map((row) => ({
     name: batchNameById.get(row.batchId) ?? row.batchId.slice(0, 8),
-    Expense: row.totalExpense,
-    Revenue: row.totalRevenue,
+    Expense: parseMoney(row.totalExpenseDecimal),
+    Revenue: parseMoney(row.totalRevenueDecimal),
   }));
 
   return (

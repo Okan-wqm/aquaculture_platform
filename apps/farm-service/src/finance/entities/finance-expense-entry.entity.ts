@@ -13,6 +13,7 @@
  * mode documented on the feed_inventory/storage_inventory reconciliation.
  */
 import { Field, Float, ID, ObjectType } from '@nestjs/graphql';
+import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import {
   Column,
   CreateDateColumn,
@@ -67,7 +68,9 @@ export class FinanceExpenseEntry {
   @Column('date', { nullable: true })
   periodEnd?: Date;
 
-  @Field(() => Float)
+  @Field(() => Float, {
+    deprecationReason: 'Use amountDecimal (exact decimal string, ADR-0004).',
+  })
   @Column({
     type: 'decimal',
     precision: 15,
@@ -75,6 +78,13 @@ export class FinanceExpenseEntry {
     transformer: new DecimalTransformer(),
   })
   amount!: number;
+
+  /** Same value as `amount`, on the wire as an exact decimal string (ADR-0004 /
+   *  DATA-MEDIUM-009). A getter (not a column) so TypeORM ignores it. */
+  @Field(() => DecimalScalar)
+  get amountDecimal(): number {
+    return this.amount;
+  }
 
   /** ISO 4217 — defaulted from the tenant finance settings at write time. */
   @Field()

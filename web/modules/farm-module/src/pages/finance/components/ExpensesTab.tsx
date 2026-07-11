@@ -155,7 +155,7 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
                       {item.description ?? '—'}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-gray-900">
-                      {formatMoney(item.amount, item.currency)}
+                      {formatMoney(item.amountDecimal, item.currency)}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-sm">
                       {item.origin === 'MANUAL' ? (

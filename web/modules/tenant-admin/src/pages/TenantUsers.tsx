@@ -183,7 +183,7 @@ const TenantUsers: React.FC = () => {
     [deactivateUserMutation],
   );
 
-  const handleRefresh = () => queryClient.invalidateQueries({ queryKey: tenantKeys.users() });
+  const handleRefresh = () => queryClient.invalidateQueries({ queryKey: tenantKeys.invalidateUsers() });
 
   const toggleUserSelection = useCallback((userId: string) => {
     setSelectedUsers((prev) =>

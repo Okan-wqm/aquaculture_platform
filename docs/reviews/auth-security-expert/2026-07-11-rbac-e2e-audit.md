@@ -176,3 +176,32 @@ This file records the two write-time authority findings closed by the P0 remedia
 **Rule violated:** A DI-resolution smoke test must supply every token the real object graph requires; when the production dependency set grows, the test's provided set must grow with it, or the guard is inert.
 
 **Fix:** The smoke now supplies `DataSource` through a `@Global` stub module (`providers: [{ provide: DataSource, useValue: { transaction: jest.fn() } }]`, `exports: [DataSource]`), mirroring how the existing `ConfigModule.forRoot({ isGlobal: true })` supplies `ConfigService` to the imported `@Global` `AuditModule`. (A `.overrideProvider(DataSource)` does not work here: NestJS `overrideProvider` only replaces an already-registered provider, and this graph deliberately boots no `TypeOrmModule.forRoot`, so the token has no base provider to override.) The DI smoke resolves the handler against the real `AuditModule`-provided `AuditLogService` again, restoring the boot-time regression guard; all 41 auth-service suites (492 tests) pass.
+
+## RBAC-HIGH-006
+
+**Title:** Tenant-admin cache invalidations silently no-oped because epoch'd/args'd `createTenantQueryKey` keys were used as TanStack invalidation FILTERS: the seed-roles mutation invalidated `roleKeys.all()` (`{__sessionEpoch}` at the index where every stored key holds `'list'`/`'detail'`), so a successful seed left the page showing "No roles defined" (H9, invites double-seed); role update/delete invalidated a `tenant-users` key domain that no query ever stored under (a duplicate `userKeys` factory — the real users list lives under the `tenantKeys` `users` domain, M13); and the no-arg `tenantKeys.users()` / `tenantKeys.devices()` / epoch'd `auditLogKeys.all()` filters (user CRUD mutations, both Refresh buttons, audit-log refresh) matched zero stored keys because `undefined`/`{epoch}` at the args position never partial-matches. All verified empirically against the installed TanStack 5.90.10 matcher (each filter matched 0 stored queries; the epoch-less prefixes matched).
+
+**Layer:** 3 (frontend cache coherence / query-key SSoT)
+**Evidence:**
+- `web/modules/tenant-admin/src/hooks/useTenantRoles.ts`
+- `web/modules/tenant-admin/src/hooks/useTenantData.ts`
+- `web/modules/tenant-admin/src/hooks/useTenantAuditLog.ts`
+- `web/modules/tenant-admin/src/pages/TenantUsers.tsx`
+- `web/modules/tenant-admin/src/pages/EdgeDevicesPage.tsx`
+- `web/shared-ui/src/utils/tenant-query-keys.ts` (the RULE the callsites violated)
+
+**Rule violated:** The tenant-query-keys SSoT RULE: `useQuery`/`setQueryData` use the epoch'd `createTenantQueryKey`; `invalidate/remove/cancelQueries` use the epoch-less `createTenantInvalidationKey` prefix. A mutation's invalidation filter must demonstrably match the stored query keys it targets; a duplicate key factory for another hook's domain is forbidden.
+
+**Fix (root-cause):** The key factories now own paired invalidation builders so callers cannot hand-roll filters: `roleKeys.invalidateAll/invalidateLists/invalidateDetail/invalidateDefault`, `tenantKeys.invalidateUsers/invalidateDevices`, and `auditLogKeys.all` rebuilt on `createTenantInvalidationKey`. Every `invalidate/remove/cancelQueries` callsite in the module now goes through them; the wrong-domain `userKeys` duplicate was deleted and role mutations invalidate the real `tenantKeys` users domain. Guarded by new behavioral specs that pin filter↔stored-key matching through the real QueryClient matcher (seed→list invalidated; role update/delete→users list invalidated; prefix matches all four role key kinds; the epoch'd no-arg `users()` filter documented as matching nothing) — key-shape drift that breaks matching now fails the suite instead of shipping as silent staleness. Covers plan items RBAC-H9 and RBAC-M13 plus the same-class no-ops found during the fix (user CRUD invalidations, users/devices Refresh buttons, audit-log refresh).
+
+## RBAC-LOW-002
+
+**Title:** Dead `web/modules/tenant-admin/src/lib/query-keys.ts` exported a NON-tenant-scoped `tenantKeys` factory labeled "Single source of truth" — keys like `['tenant', 'users', …]` omit the tenantId entirely, alias the real `['tenant', tenantId, …]` prefix space, and shadow the genuine `tenantKeys` in `useTenantData` — a cross-tenant cache-bleed landmine for any future importer (zero current importers).
+
+**Layer:** 3 (dead code / latent trap)
+**Evidence:**
+- `web/modules/tenant-admin/src/lib/query-keys.ts` (deleted)
+
+**Rule violated:** A module must not carry a dead, misleadingly-documented duplicate of a security-relevant SSoT; non-tenant-scoped query keys violate the web/CLAUDE.md tenant-key invariant (FE-CRITICAL-014/015/016).
+
+**Fix:** Deleted the file. The real SSoT remains `createTenantQueryKey`/`createTenantInvalidationKey` (shared-ui) consumed via the module's `tenantKeys`/`roleKeys`/`auditLogKeys` factories.

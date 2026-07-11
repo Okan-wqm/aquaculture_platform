@@ -76,7 +76,7 @@ const EdgeDevicesPage: React.FC = () => {
     stats?.byState?.find((s: { state: string; count: number }) => s.state === state)?.count || 0;
 
   const handleRefresh = () => {
-    queryClient.invalidateQueries({ queryKey: tenantKeys.devices() });
+    queryClient.invalidateQueries({ queryKey: tenantKeys.invalidateDevices() });
   };
 
   return (

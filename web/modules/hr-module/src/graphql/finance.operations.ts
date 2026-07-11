@@ -21,6 +21,7 @@ const HR_FINANCE_ENTRY_FIELDS = `
   categoryId
   entryDate
   amount
+  amountDecimal
   currency
   description
   departmentHrId

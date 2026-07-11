@@ -102,7 +102,10 @@ export interface HrFinanceEntry {
   id: string;
   categoryId: string;
   entryDate: string;
+  /** @deprecated Float — use `amountDecimal` (exact decimal string, ADR-0004). */
   amount: number;
+  /** Exact-decimal amount as a string (Decimal scalar). Parse with `parseMoney`. */
+  amountDecimal: string;
   currency: string;
   description?: string | null;
   departmentHrId?: string | null;

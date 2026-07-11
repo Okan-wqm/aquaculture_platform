@@ -45,7 +45,7 @@ export const DecimalScalar = new GraphQLScalarType<string | null, string | null>
     try {
       return toDecimalString(value);
     } catch {
-      throw new TypeError(`Decimal cannot serialize a non-numeric value: ${String(value)}`);
+      throw new TypeError(`Decimal cannot serialize a non-numeric value (type ${typeof value})`);
     }
   },
 
@@ -60,7 +60,8 @@ export const DecimalScalar = new GraphQLScalarType<string | null, string | null>
     try {
       return toDecimalString(value);
     } catch {
-      throw new TypeError(`Decimal received a non-numeric value: ${String(value)}`);
+      // value is narrowed to string | number here, so interpolation is safe.
+      throw new TypeError(`Decimal received a non-numeric value: ${value}`);
     }
   },
 

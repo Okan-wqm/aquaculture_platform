@@ -579,4 +579,35 @@ alerts/oceanfarm/tank01/oxygen_low
 5. Connection Profiles
 6. Message History/Log
 
+---
+
+## Edge → Cloud Telemetri Zarfı — İdempotenlik Anahtarı (EDGE-CRITICAL-004)
+
+Edge agent, telemetri sınıfı her yayını (`io_data`, `telemetry`, `alarms`,
+`status`) tek yayın noktasından geçirir ve her zarfa iki üst-seviye alan
+ekler:
+
+| Alan | Tip | Anlam |
+|---|---|---|
+| `device_id` | string (UUID) | Cihaz kimliği. Zarfı topic ayrıştırmasına bağlı olmaktan çıkarır; kendi kendine yeterli kılar. |
+| `edge_seq` | u64 | Cihaz başına **kesin monoton, yeniden-kullanılmayan** dizi. Kalıcı (SQLite yüksek-su-işareti) olduğundan yeniden başlatmaya dayanır. |
+
+`(device_id, edge_seq)` çifti **global olarak benzersiz idempotenlik
+anahtarıdır**. Store-and-forward kuyruğu bağlantı koptuğunda mesajı
+diske alır ve yeniden bağlanınca **aynı baytları** tekrar yayınlar —
+bu yüzden bir tekrar (replay) ilk teslimatla **aynı `edge_seq`'i** taşır.
+
+### Tüketici (backend) sözleşmesi
+
+Backend tüketici, `io_data` ve `alarms` mesajlarını kalıcılaştırmadan
+**önce** `(device_id, edge_seq)` ile deduplike ETMELİDİR: daha önce
+görülmüş bir çift atlanmalıdır. Aksi halde bir drain-replay yeni bir
+satır olarak ingest edilir (çift-sayım / tekrar-tetiklenen alarm).
+
+> **Uyum notu:** Alanlar tamamen eklemeli (additive) üst-seviye JSON
+> anahtarlarıdır; mevcut tüketiciler bilinmeyen anahtarları yok sayar,
+> dolayısıyla edge tarafı geriye dönük uyumlu şekilde bağımsız
+> yayınlanabilir. Duplicate akışı yalnızca backend dedup'ı eklendiğinde
+> kapanır (sensor-service — ayrı, izlenen iş).
+
 İyi çalışmalar! 🚀

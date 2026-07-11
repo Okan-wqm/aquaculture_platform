@@ -521,6 +521,79 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
     });
   });
 
+  describe('erasure-target proof-event publish coverage (systemic grant gap — 2026-07-11 Lane-D db-audit)', () => {
+    // The per-service OutboxWorker publishes the TenantErasureTargetExecutor's
+    // proof events (TenantDataErased/…Failed/…Blocked) under the target
+    // service's OWN cert. Those event literals live in libs/backend-common (the
+    // shared executor), NOT the app src — so the publish-coverage scan above
+    // MISSES them, and every forService target except farm shipped with no
+    // grant (the broker would reject the proof publish → the GDPR-erasure
+    // cascade could never confirm completion). This guard closes that blind
+    // spot by keying off the forService wiring instead of app-src literals.
+    const appsDir = join(REPO_ROOT, 'apps');
+    const PROOF_EVENTS = ['TenantDataErased', 'TenantDataErasureFailed', 'TenantErasureBlocked'];
+
+    const wiresErasureTarget = (app: string): boolean => {
+      const srcDir = join(appsDir, app, 'src');
+      try {
+        statSync(srcDir);
+      } catch {
+        return false;
+      }
+      const stack = [srcDir];
+      while (stack.length > 0) {
+        const dir = stack.pop() as string;
+        for (const entry of readdirSync(dir)) {
+          const full = join(dir, entry);
+          if (statSync(full).isDirectory()) {
+            stack.push(full);
+            continue;
+          }
+          if (!entry.endsWith('.ts')) continue;
+          if (readFileSync(full, 'utf8').includes('TenantErasureTargetModule.forService')) {
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+
+    const targetApps = readdirSync(appsDir)
+      .filter(
+        (d) =>
+          statSync(join(appsDir, d)).isDirectory() &&
+          APP_TO_SERVICE[d] &&
+          wiresErasureTarget(d),
+      )
+      .map((d) => [d, APP_TO_SERVICE[d]] as [string, string]);
+
+    it('discovers at least one erasure-target app (regression guard)', () => {
+      expect(targetApps.length).toBeGreaterThan(0);
+    });
+
+    it.each(targetApps)(
+      '%s (%s) grants the 3 tenant-erasure proof events it publishes via its own outbox',
+      (app, serviceName) => {
+        const svc = serviceByName.get(serviceName);
+        if (!svc) throw new Error(`APP_TO_SERVICE maps ${app} → unknown service ${serviceName}`);
+        const missing = PROOF_EVENTS.filter(
+          (e) => !isCovered(`events.system.${e}`, svc.publish),
+        );
+        if (missing.length > 0) {
+          throw new Error(
+            `apps/${app} wires TenantErasureTargetModule.forService but "${serviceName}" ` +
+              `lacks publish grants for the proof events its OWN outbox worker emits: ` +
+              `${missing.map((e) => `events.*.${e}`).join(', ')}. The publish-coverage scan ` +
+              'misses these (the literal lives in libs/backend-common, not the app src). ' +
+              'Add the grants + regenerate nats.conf, else the broker refuses the proof ' +
+              'publish (Permissions Violation) and the GDPR-erasure cascade cannot confirm ' +
+              'completion for this service.',
+          );
+        }
+      },
+    );
+  });
+
   describe('RPC coverage — handled patterns have subscribe grants, sent subjects have publish grants', () => {
     const appsDir = join(REPO_ROOT, 'apps');
     const constants = loadContractSubjectConstants();

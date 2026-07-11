@@ -9069,6 +9069,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1805200000000-AddFarmStockBatchSnapshotSpecies.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -10978,6 +10984,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/fish-health/__tests__/treatment-application.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/__tests__/welfare-assessment.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -41590,7 +41602,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "bd9b4851cc04864126033e10c2e37b9e670e3d52d3dd9955e7e28f54896e9450",
+      "content_sha256": "eddcea265346d79bcba1f785636465251d509f5576f7ffbef19162ec2d25efd6",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/apps/aquamobil/src/generated/graphql.ts",
@@ -42046,6 +42058,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/escape/__tests__/EscapeIncidentPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/escape/EscapeIncidentPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/pages/feeding/__tests__/RecordFeedingPage.spec.tsx",
       "prettier_managed": true
     },
@@ -42089,6 +42113,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/pages/leave/MyLeavesPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/lice/__tests__/LiceCountPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/lice/LiceCountPage.tsx",
       "prettier_managed": true
     },
     {
@@ -42196,6 +42232,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/reports/__tests__/ReportsDuePage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/reports/ReportReviewPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/reports/ReportsDuePage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/pages/schedule/MySchedulePage.tsx",
       "prettier_managed": true
     },
@@ -42263,6 +42317,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/pages/water-quality/WaterQualityRecordPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/welfare/WelfareScorePage.tsx",
       "prettier_managed": true
     },
     {
@@ -51740,7 +51800,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "cfeda1d56cac599edffcdc795db7fc2ddecb24058c0bfeedcabc5a46767dc907",
+      "content_sha256": "c44a3bad7c790430aaaa64417908091c3b96bab1b8cbe9b04637c773d8437876",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",
@@ -52410,10 +52470,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8589,
+  "file_count": 8599,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8414,
-  "managed_file_list_sha256": "fe386601dde7580ad76049bc2322960c4f46c257eab35a42a302450d9cd5f364",
+  "managed_count": 8424,
+  "managed_file_list_sha256": "0caa30e24ff3e4026653600c18ccd1c5cac2bdb3d0132aac7ac01c097dbcb4e8",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -212,6 +212,7 @@ export class FarmStockProjectionService {
         )
         INSERT INTO farm_stock_batch_snapshots (
           "tenantId", "containerId", "batchId", "batchNumber", "batchStatus",
+          "speciesId", "speciesName",
           "quantity", "biomassKg", "avgWeightG", "densityKgM3",
           "totalMortality", "totalCull", "harvestedQuantity",
           "isPrimary", "lastMortalityAt", "createdAt", "updatedAt"
@@ -222,6 +223,8 @@ export class FarmStockProjectionService {
           p."batchId",
           COALESCE(p."batchNumber", b."batchNumber"),
           b."status"::text,
+          b."speciesId",
+          sp."commonName",
           p."quantity",
           p."biomassKg",
           p."avgWeightG",
@@ -235,6 +238,7 @@ export class FarmStockProjectionService {
           now()
         FROM projected p
         LEFT JOIN batches_v2 b ON b."tenantId" = p."tenantId" AND b."id" = p."batchId"
+        LEFT JOIN species sp ON sp."tenantId" = b."tenantId" AND sp."id" = b."speciesId"
       `,
       [tenantId, containerIds],
     );

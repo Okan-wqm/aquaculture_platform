@@ -600,23 +600,12 @@ export const PAYROLL_FRAGMENT = gql`
       sickLeaveHours
       vacationHours
     }
-    earnings {
-      baseSalary
-      overtime
-      bonus
-      commission
-      allowances
-      grossPay
-    }
-    deductions {
-      tax
-      socialSecurity
-      healthInsurance
-      retirement
-      otherDeductions
-      totalDeductions
-    }
+    earningsGrossPay
+    earningsGrossPayDecimal
+    deductionsTotal
+    deductionsTotalDecimal
     netPay
+    netPayDecimal
     currency
     status
     approvedBy

@@ -45,3 +45,21 @@ fn legacy_dispatch_arms_enforce_signature_policy() {
         call_count
     );
 }
+
+/// EDGE-HIGH-009: the verified (signed) command path MUST run the
+/// RBAC authorization gate before dispatch. The signature proves
+/// authN; `authorize_adapted` proves the actor's manifest role holds
+/// the required permission (authZ). Before this wiring the permission
+/// was computed and only logged, so any enrolled operator could run
+/// any command.
+#[test]
+fn verified_dispatch_path_enforces_rbac_authorization() {
+    let src = read_dispatch();
+    assert!(
+        src.contains("authorize_adapted("),
+        "EDGE-HIGH-009 regression: {} no longer calls `authorize_adapted` on the \
+         verified command path — RBAC role->permission enforcement was dropped, so \
+         any enrolled operator could execute any command.",
+        DISPATCH_PATH
+    );
+}

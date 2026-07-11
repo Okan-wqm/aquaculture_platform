@@ -40,11 +40,19 @@
 //! (Permissive ≠ "accept forged", Permissive = "unsigned OK
 //! during rollout").
 
+use std::sync::Arc;
+use std::time::SystemTime;
+
 use serde_json::Value;
 use tracing::{info, warn};
 
+use crate::authz::context::{ActorIdentity, AuthorizationDecision};
+use crate::authz::in_memory_engine::InMemoryPolicyEngine;
 use crate::authz::manifest_runtime::RbacManifestStore;
-use crate::authz::permission::OperatorId;
+use crate::authz::permission::{OperatorId, TenantId};
+use crate::authz::policy::{
+    AuthorizationRequest, CoApproverEvidence, Ed25519SignatureBytes, PolicyEngine,
+};
 use crate::command_envelope::envelope::SignatureMode;
 use crate::command_envelope::{CommandEnvelope, EnvelopeVerifyError};
 
@@ -71,6 +79,21 @@ pub(super) struct AdaptedCommand {
     /// that return `requires_two_person_integrity() == true`
     /// reject when this flag is false.
     pub verified_co_approver: bool,
+    /// **EDGE-HIGH-009 authZ inputs.** The verified primary actor
+    /// (envelope `actor` bytes) and the policy version the operator's
+    /// signing UI claimed, threaded through so `authorize_adapted` can
+    /// run `PolicyEngine::authorize` — the signature proved *who*
+    /// signed (authN); the engine proves the actor's manifest role
+    /// *holds* the required permission (authZ).
+    pub actor: [u8; 16],
+    pub claimed_policy_version: u64,
+    /// Co-approver identity + signature (when present), passed to the
+    /// engine's two-person-integrity gate so it checks the co-approver
+    /// holds the co-approve role and is bound to the tenant — the
+    /// engine, not just the handler-side `verified_co_approver` flag,
+    /// becomes the single authorization authority.
+    pub co_approver_actor: Option<[u8; 16]>,
+    pub co_approver_signature: Option<Ed25519SignatureBytes>,
 }
 
 /// Decision from `try_parse_and_verify`.
@@ -225,9 +248,72 @@ pub(super) fn try_parse_and_verify(
                     .map(|dt| dt.to_rfc3339())
                     .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
                 verified_co_approver,
+                actor: env.actor,
+                claimed_policy_version: env.claimed_policy_version,
+                co_approver_actor: env.co_approver_actor,
+                co_approver_signature: env.co_approver_signature.clone(),
             })
         }
         Err(e) => AdapterOutcome::VerifyFailed(e),
+    }
+}
+
+/// **EDGE-HIGH-009 — RBAC authorization gate for the signed command path.**
+///
+/// `try_parse_and_verify` proves *authentication* (the envelope was
+/// signed by the operator whose pubkey is enrolled in the RBAC
+/// manifest). This runs *authorization*: it asks the `PolicyEngine`
+/// whether that actor's manifest role actually holds the permission
+/// the command requires. Before this wiring the required permission
+/// was computed and only logged (`RBAC-gate-preview`), so any enrolled
+/// operator could execute any command (a read-only operator could
+/// `rotate_master` / `set_output`).
+///
+/// - Anonymous commands (`permission_for_command` → `None`, e.g.
+///   ping/get_info) need no role and are permitted.
+/// - Two-person-integrity commands thread the co-approver evidence to
+///   the engine so it verifies the co-approver holds the co-approve
+///   role and is tenant-bound — making the engine the single
+///   authorization authority rather than relying on the handler-side
+///   `verified_co_approver` flag alone.
+///
+/// Returns `Err(reason)` when the command must be rejected (deny or
+/// engine error → fail closed).
+pub(super) async fn authorize_adapted(
+    adapted: &AdaptedCommand,
+    tenant_bytes: [u8; 16],
+    rbac_store: Arc<RbacManifestStore>,
+) -> Result<(), String> {
+    // Anonymous commands carry no permission → no role check.
+    let required = match super::catalog::permission_for_command(&adapted.command, &adapted.params) {
+        Some(p) => p,
+        None => return Ok(()),
+    };
+
+    let actor = ActorIdentity::Operator(OperatorId::new_from_verified(adapted.actor));
+    let tenant = TenantId::new_from_verified(tenant_bytes);
+    let mut request = AuthorizationRequest::new(
+        actor,
+        required,
+        tenant,
+        adapted.claimed_policy_version,
+        SystemTime::now(),
+    );
+    if let (Some(ca_actor), Some(ca_sig)) = (
+        adapted.co_approver_actor,
+        adapted.co_approver_signature.clone(),
+    ) {
+        request = request.with_co_approver(CoApproverEvidence {
+            actor: ActorIdentity::Operator(OperatorId::new_from_verified(ca_actor)),
+            signature: ca_sig,
+        });
+    }
+
+    let engine = InMemoryPolicyEngine::new(rbac_store);
+    match engine.authorize(request).await {
+        Ok(AuthorizationDecision::Allow(_ctx)) => Ok(()),
+        Ok(AuthorizationDecision::Deny(reason)) => Err(format!("authorization denied: {:?}", reason)),
+        Err(e) => Err(format!("policy engine error: {}", e)),
     }
 }
 
@@ -365,6 +451,54 @@ mod tests {
     #[test]
     fn tenant_id_bytes_none_when_absent() {
         assert!(tenant_id_bytes_or_none(None).is_none());
+    }
+
+    // =========================================================
+    // EDGE-HIGH-009 — RBAC authorization gate (authorize_adapted)
+    // =========================================================
+    // The InMemoryPolicyEngine deny/allow role matrix is exercised
+    // in src/authz/in_memory_engine.rs; these tests pin the two
+    // dispatch-layer behaviors the wiring adds: anonymous commands
+    // skip the engine, and a permissioned command fails closed when
+    // no signed manifest grants the actor's role.
+
+    fn make_adapted(cmd: &str) -> AdaptedCommand {
+        AdaptedCommand {
+            command_id: "jti-test".to_string(),
+            command: cmd.to_string(),
+            params: serde_json::json!({}),
+            timestamp: "2026-07-11T00:00:00Z".to_string(),
+            verified_co_approver: false,
+            actor: [0x07u8; 16],
+            claimed_policy_version: 0,
+            co_approver_actor: None,
+            co_approver_signature: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn authorize_adapted_permits_anonymous_command() {
+        // ping/get_info are catalog-anonymous (permission None) — no
+        // role required, so authorize short-circuits to Ok even with
+        // an empty (no-manifest) store.
+        let store = Arc::new(RbacManifestStore::new());
+        let res = authorize_adapted(&make_adapted("ping"), [0u8; 16], store).await;
+        assert!(res.is_ok(), "anonymous command must be permitted: {:?}", res);
+    }
+
+    #[tokio::test]
+    async fn authorize_adapted_denies_permissioned_command_without_manifest() {
+        // Core EDGE-HIGH-009: a permissioned command cannot be
+        // authorized when no signed RBAC manifest grants the actor's
+        // role — fail closed (deny or engine-unavailable both reject).
+        // Before this wiring it dispatched with no role check at all.
+        let store = Arc::new(RbacManifestStore::new()); // empty — no manifest
+        let res = authorize_adapted(&make_adapted("rotate_master"), [0u8; 16], store).await;
+        assert!(
+            res.is_err(),
+            "permissioned command must be denied without a manifest, got {:?}",
+            res
+        );
     }
 
     // =========================================================

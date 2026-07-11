@@ -164,14 +164,30 @@ impl super::CommandHandler {
                         }
                     }
                     envelope_adapter::AdapterOutcome::Verified(adapted) => {
-                        // Envelope parsed + all 7 gates
-                        // passed. Project into CommandMessage
-                        // shape so the existing execute_command
-                        // dispatch path stays unchanged.
-                        // Batch #307: propagate the verified-
-                        // co-approver flag so cmd_force_value
-                        // (and other two-person-integrity
-                        // handlers) can gate on it.
+                        // EDGE-HIGH-009: the signature proved WHO signed
+                        // (authN); now enforce that the actor's manifest
+                        // role HOLDS the required permission (authZ).
+                        // Previously the permission was computed and only
+                        // logged, so any enrolled operator could run any
+                        // command. Deny / engine error → fail closed.
+                        if let Err(reason) = envelope_adapter::authorize_adapted(
+                            &adapted,
+                            tenant_bytes,
+                            rbac_store.clone(),
+                        )
+                        .await
+                        {
+                            warn!(
+                                "Rejecting command '{}' (id {}): RBAC {}",
+                                adapted.command, adapted.command_id, reason
+                            );
+                            return Ok(());
+                        }
+                        // Authorized. Project into CommandMessage shape so
+                        // the existing execute_command dispatch path stays
+                        // unchanged. Batch #307: propagate the verified-
+                        // co-approver flag so cmd_force_value (and other
+                        // two-person-integrity handlers) can gate on it.
                         CommandMessage {
                             command_id: adapted.command_id,
                             command: adapted.command,

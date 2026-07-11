@@ -152,3 +152,27 @@ This file records the two write-time authority findings closed by the P0 remedia
 **Rule violated:** FE control visibility must gate on the SAME capability the backend enforces, via the shared capability SSoT (`hasResourcePermission`) — not a divergent role check.
 
 **Fix:** `TenantRolesPage` now gates seed/create on `roles:create`, edit on `roles:edit`, delete on `roles:delete`; `TenantUsers` gates Add on `users:invite`, row-edit on `users:edit_permissions`, and bulk/row-delete on `users:deactivate` (threaded into `UserListSection`/`BulkActions` as per-action props). All via `useAuth().hasPermission`, whose `hasResourcePermission` bypasses for SUPER_ADMIN/TENANT_ADMIN exactly like the backend — so admins are unaffected and delegates now see precisely the controls their capabilities authorize. (The backend shared read-queries `tenantUsers`/`myTenant`/`tenantStats` still carry `@TenantAdminOrHigher()`; migrating those to capability gates — so a delegate can also LOAD the data — is tracked as the FE-delegatable-vs-backend-query parity item, separate from this control-gating fix.)
+
+## RBAC-HIGH-005
+
+**Title:** The `tenantUsers` GraphQL query (the user-list read backing the tenant-admin Users page) was gated on the coarse `@TenantAdminOrHigher()` role, so the RBAC-HIGH-004 frontend fix was still end-to-end inert for a delegate: a user holding `users:view` saw the (now capability-gated) page shell but the query that loads the actual user rows returned Forbidden. The backend read guard and the FE control gate disagreed on the authority model.
+
+**Layer:** 3 (capability SSoT / backend query gating)
+**Evidence:**
+- `apps/auth-service/src/modules/tenant/resolvers/tenant.resolver.ts`
+
+**Rule violated:** A backend read guard must gate on the SAME granular capability the frontend and the sibling queries enforce; a page whose controls are capability-gated must have its data query capability-gated too, or the delegation feature is inert end-to-end.
+
+**Fix:** `tenantUsers` now carries `@RequireTenantPermission('users:view')` instead of `@TenantAdminOrHigher()`, matching the sibling `getUserEffectivePermissions` query and the `TenantRoleResolver` reads. The globally-registered `TenantPermissionGuard` (APP_GUARD) enforces it: SUPER_ADMIN/TENANT_ADMIN still bypass via `hasAllResourcePermissions`, a delegate holding `users:view` is now admitted, and everyone else is denied — a strict superset of the previous authority. `tenantId` is still sourced from the caller's JWT claim, so a delegate can only ever read their own tenant's users; tenant isolation is unchanged. The other queries on `TenantResolver` (tenant DB/schema introspection, module-manager, audit-log and activity views, `myTenant`/`tenantStats`/`myTenantModules`) legitimately remain `@TenantAdminOrHigher()` — those are administrative surfaces with no `users:*`-style delegatable capability, so role gating is correct for them.
+
+## RBAC-MEDIUM-004
+
+**Title:** The `AuthUserQueryNatsHandler` DI-resolution smoke test — the guard that fails at boot (not in production) if the handler regresses to the wrong `AuditLogService` import (the 2026-06-12 crash-loop) — had itself been silently red since #845: `AuditLogService` gained a `DataSource` constructor dependency (standalone audit writes run in an RLS system-context transaction), but the test's `TestingModule` never bound the `DataSource` token, so the smoke threw `Nest can't resolve dependencies of the AuditLogService … argument DataSource at index [2]` instead of asserting the wiring. A regression-detector that no longer compiles detects nothing.
+
+**Layer:** 3 (test integrity / DI smoke)
+**Evidence:**
+- `apps/auth-service/src/modules/tenant/handlers/__tests__/auth-user-query-nats.handler.spec.ts`
+
+**Rule violated:** A DI-resolution smoke test must supply every token the real object graph requires; when the production dependency set grows, the test's provided set must grow with it, or the guard is inert.
+
+**Fix:** The smoke now supplies `DataSource` through a `@Global` stub module (`providers: [{ provide: DataSource, useValue: { transaction: jest.fn() } }]`, `exports: [DataSource]`), mirroring how the existing `ConfigModule.forRoot({ isGlobal: true })` supplies `ConfigService` to the imported `@Global` `AuditModule`. (A `.overrideProvider(DataSource)` does not work here: NestJS `overrideProvider` only replaces an already-registered provider, and this graph deliberately boots no `TypeOrmModule.forRoot`, so the token has no base provider to override.) The DI smoke resolves the handler against the real `AuditModule`-provided `AuditLogService` again, restoring the boot-time regression guard; all 41 auth-service suites (492 tests) pass.

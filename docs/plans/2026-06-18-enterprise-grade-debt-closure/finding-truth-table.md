@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `61ff33cc74fd000693c5041866b44bac3f8a5ae47a1df998270726055d2dce84`
+Registry tip: `b1035d00d183e074424a03def10b4fc2a3d31b0185388919e0c9f1261fc5230e`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -26,6 +26,16 @@ post-merge close ceremony records a main-reachable closing commit (PROC-HIGH-001
 `close` refuses branch-local SHAs): `SENSOR-CRITICAL-002` (HTTP-REST SSRF, closed
 by the W1 network-security workstream) and `SENSOR-CRITICAL-003` (VFD tab
 visibility, closed by the W5 frontend workstream). Both are `already-fixed-needs-close`.
+
+Updated 2026-07-11: the tenant/superadmin RBAC end-to-end audit
+(`2026-07-11-rbac-e2e-audit`) registered three new active CRITICALs whose
+architectural fixes landed on this branch but whose registry rows stay OPEN
+until the post-merge close ceremony records a main-reachable closing commit
+(PROC-HIGH-001, `close` refuses branch-local SHAs): `RBAC-CRITICAL-001`
+(override-only role update skipped the grant-authority guard),
+`RBAC-CRITICAL-002` (no "cannot grant more than you have" invariant / catalogue
+whitelist on tenant-role write paths), and `RBAC-CRITICAL-003` (role-definition
+mutations wrote zero audit rows). All three are `already-fixed-needs-close`.
 
 Allowed truth buckets:
 
@@ -52,6 +62,9 @@ Allowed truth buckets:
 | `FARM-CRITICAL-169`  | OPEN           | —            | data-expert  | already-fixed-needs-close |
 | `FARM-CRITICAL-171`  | OPEN           | —            | infra-expert | already-fixed-needs-close |
 | `INFRA-CRITICAL-039` | OPEN           | —            | infra-expert | already-fixed-needs-close |
+| `RBAC-CRITICAL-001`  | OPEN           | —            | auth-security-expert | already-fixed-needs-close |
+| `RBAC-CRITICAL-002`  | OPEN           | —            | auth-security-expert | already-fixed-needs-close |
+| `RBAC-CRITICAL-003`  | OPEN           | —            | auth-security-expert | already-fixed-needs-close |
 
 ## Mutation Rules
 
@@ -86,6 +99,27 @@ Allowed truth buckets:
   `createTenantQueryKey` pattern and wired the DevicesPage VFD tab and detail route
   to VFD data, so registered drives are visible. The registry row stays OPEN only
   until the post-merge close ceremony records a main-reachable closing commit.
+
+- `RBAC-CRITICAL-001` (updateUserRole ran the grant-authority guard only inside
+  `if (roleId changed)`, so an override-only update escalated unchecked): the
+  self-target + level-ceiling guard now runs unconditionally on `updateUserRole`
+  and override grants are validated through `CapabilityAuthorityService`
+  (`apps/auth-service/src/modules/tenant/services/tenant-user-management.service.ts`,
+  `capability-authority.ts`). The registry row stays OPEN only until the
+  post-merge close ceremony records a main-reachable closing commit.
+- `RBAC-CRITICAL-002` (no "cannot grant more than you have" invariant and no
+  catalogue whitelist on any tenant-role write path): `CapabilityAuthorityService`
+  is the sole producer of the branded `GrantablePermissionSet`/`ValidatedOverrideSet`
+  the persistence helpers require (tier-1 make-it-impossible), and the catalogue
+  whitelist lives in `permission-catalogue.ts` (`CATALOGUE_CAPABILITIES`). The
+  registry row stays OPEN only until the post-merge close ceremony records a
+  main-reachable closing commit.
+- `RBAC-CRITICAL-003` (role-definition mutations wrote zero audit rows):
+  `TenantRoleService` injects `AuditLogService` and writes
+  `ROLE_CREATED/ROLE_UPDATED/ROLE_DELETED/ROLE_SET_DEFAULT/ROLES_SEEDED` on the
+  same SERIALIZABLE transaction via `queryRunner.manager` (fail-closed). The
+  registry row stays OPEN only until the post-merge close ceremony records a
+  main-reachable closing commit.
 
 The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
 `already-fixed-needs-close`; reconciled items moved to `Resolved Evidence`.

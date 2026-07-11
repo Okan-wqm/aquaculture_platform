@@ -22,7 +22,7 @@ import {
   hasResourcePermission,
   type ResourcePermissionUser,
 } from '@aquaculture/backend-common/decorators';
-import { RolesGuard, TenantPermissionGuard } from '@aquaculture/backend-common/guards';
+import { RolesGuard } from '@aquaculture/backend-common/guards';
 
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import {
@@ -115,7 +115,7 @@ export class HrFinanceResolver {
    * admin granted the capability; TENANT_ADMIN / SUPER_ADMIN bypass.
    */
   @Query(() => HrLabourCost, { name: 'hrLabourCost' })
-  @UseGuards(RolesGuard, TenantPermissionGuard)
+  @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @RequireTenantPermission(VIEW_SALARY_PERMISSION)
   async hrLabourCost(

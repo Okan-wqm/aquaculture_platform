@@ -29,8 +29,11 @@ export type HrFinanceGranularity = 'DAY' | 'WEEK' | 'MONTH' | 'YEAR';
 export interface HrLabourCostRow {
   category: LaborCategory | null;
   headcount: number;
-  annualSalaryTotal: number;
-  avgAnnualSalary: number;
+  /** null when withheld for small-cell privacy (salarySuppressed = true). */
+  annualSalaryTotal: number | null;
+  /** null when withheld for small-cell privacy (salarySuppressed = true). */
+  avgAnnualSalary: number | null;
+  salarySuppressed: boolean;
 }
 
 export interface HrLabourCost {
@@ -58,7 +61,9 @@ export interface HrDepartmentCost {
   departmentHrId?: string | null;
   departmentName: string;
   headcount: number;
-  annualSalaryTotal: number;
+  /** null when withheld for small-cell privacy (salarySuppressed = true). */
+  annualSalaryTotal: number | null;
+  salarySuppressed: boolean;
   hrExpenses: number;
 }
 

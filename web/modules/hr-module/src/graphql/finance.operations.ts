@@ -52,6 +52,7 @@ export const GET_HR_LABOUR_COST = `
         headcount
         annualSalaryTotal
         avgAnnualSalary
+        salarySuppressed
       }
       totalHeadcount
       unclassifiedCount
@@ -81,6 +82,7 @@ export const GET_HR_FINANCE_SUMMARY = `
         departmentName
         headcount
         annualSalaryTotal
+        salarySuppressed
         hrExpenses
       }
     }

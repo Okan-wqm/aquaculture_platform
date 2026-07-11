@@ -19,11 +19,18 @@ export class HrLabourCostRow {
   @Field(() => Int)
   headcount!: number;
 
-  @Field(() => Float)
-  annualSalaryTotal!: number;
+  /** Null when withheld for small-cell privacy (salarySuppressed = true). */
+  @Field(() => Float, { nullable: true })
+  annualSalaryTotal!: number | null;
 
-  @Field(() => Float)
-  avgAnnualSalary!: number;
+  /** Null when withheld for small-cell privacy (salarySuppressed = true). */
+  @Field(() => Float, { nullable: true })
+  avgAnnualSalary!: number | null;
+
+  /** True when the per-category salary is withheld because the cell is too
+   *  small to disclose without revealing an individual's pay (HR-HIGH-001). */
+  @Field()
+  salarySuppressed!: boolean;
 }
 
 @ObjectType()
@@ -94,8 +101,14 @@ export class HrDepartmentCost {
   @Field(() => Int)
   headcount!: number;
 
-  @Field(() => Float)
-  annualSalaryTotal!: number;
+  /** Null when withheld for small-cell privacy (salarySuppressed = true). */
+  @Field(() => Float, { nullable: true })
+  annualSalaryTotal!: number | null;
+
+  /** True when the department salary is withheld because the department has
+   *  too few active employees to disclose without revealing individual pay. */
+  @Field()
+  salarySuppressed!: boolean;
 
   @Field(() => Float)
   hrExpenses!: number;

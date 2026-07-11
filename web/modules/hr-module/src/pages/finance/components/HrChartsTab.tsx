@@ -49,7 +49,9 @@ export const HrChartsTab: React.FC<HrChartsTabProps> = ({ period }) => {
 
   const departmentData = summary.byDepartment
     .slice(0, 15)
-    .map((d) => ({ name: d.departmentName, Salary: d.annualSalaryTotal, Expenses: d.hrExpenses }));
+    // A small-cell-suppressed department salary (HR-HIGH-001) arrives as null;
+    // the bar chart plots 0 for it (no salary bar) rather than a fabricated value.
+    .map((d) => ({ name: d.departmentName, Salary: d.annualSalaryTotal ?? 0, Expenses: d.hrExpenses }));
 
   return (
     <div className="space-y-6">

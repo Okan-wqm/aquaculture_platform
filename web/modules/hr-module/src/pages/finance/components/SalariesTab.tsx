@@ -44,10 +44,24 @@ export const SalariesTab: React.FC<SalariesTabProps> = ({ data, isLoading }) => 
                 {laborCategoryLabel(row.category)}
               </td>
               <td className="px-5 py-3 text-sm text-gray-700 dark:text-gray-300">{row.headcount}</td>
-              <td className="px-5 py-3 text-sm text-gray-700 dark:text-gray-300">
+              <td
+                className="px-5 py-3 text-sm text-gray-700 dark:text-gray-300"
+                title={
+                  row.salarySuppressed
+                    ? 'Withheld — too few people in this category to show salary without identifying an individual'
+                    : undefined
+                }
+              >
                 {formatMoney(row.avgAnnualSalary, data.currency)}
               </td>
-              <td className="px-5 py-3 text-right text-sm font-medium text-gray-900 dark:text-gray-100">
+              <td
+                className="px-5 py-3 text-right text-sm font-medium text-gray-900 dark:text-gray-100"
+                title={
+                  row.salarySuppressed
+                    ? 'Withheld — too few people in this category to show salary without identifying an individual'
+                    : undefined
+                }
+              >
                 {formatMoney(row.annualSalaryTotal, data.currency)}
               </td>
             </tr>

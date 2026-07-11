@@ -222,6 +222,46 @@ Both the farm `FinancePage` and hr `HRFinancePage` guard the whole route with
 URL visit — which also gates every HR finance button (unauthorized users never
 reach them). Matches the backend MANAGER+ADMIN read gate.
 
+## Wave 4b — HR read-model correctness & salary privacy (follow-up, implemented)
+
+### HR-HIGH-003 — small-cell salary disclosure
+A `laborCategory`/department with headcount 1–2 exposed an individual's exact (or
+pair-average) annual salary — `employee.baseSalary` is `@HideField()` precisely so
+individual pay is never queryable, but the aggregate re-derived it through a tiny
+cell. Fix (tier-1): a k-anonymity threshold (`SMALL_CELL_MIN_HEADCOUNT = 3`) in the
+pure `LabourCostCalculator` and the department merge. A cell with `0 < headcount < k`
+returns `null` salary + `salarySuppressed: true` (headcount is always kept);
+**complementary suppression** blanks the smallest remaining disclosed cell when only
+one is small, so the suppressed value can't be recovered from the published grand
+total. The UI renders "—" with an explanatory tooltip. Covered by the calculator +
+`merge-department-costs` specs.
+
+### HR-HIGH-004 — per-department expense double-count (NULL-`departmentHrId` fan-out)
+`hrFinanceSummary` grouped employees by `(departmentHrId, department-enum)`, so
+employees with a NULL FK but different enum values fanned out into several rows that
+**each** read the single `'none'` expense bucket — attributing the whole
+unassigned-expense pool to every enum-department row; expenses for a `departmentHrId`
+with no active employees were silently dropped. Fix (tier-1): employees are grouped by
+`departmentHrId` only (one null "Unassigned" row), and a pure `mergeDepartmentCosts`
+joins salaries and expenses on the single key, so each expense is attributed exactly
+once and an expense-only department surfaces instead of vanishing. Unit-tested.
+
+### HR-MEDIUM-005 — no aggregate-only tier (MODULE_MANAGER sees salary, not just headcount)
+The MANAGER+ADMIN finance gate is the **established, documented** design (managers run
+payroll), so this is intent-dependent, not a matrix violation. The actual disclosure
+risk it implied — small cells leaking individuals — is closed by HR-HIGH-003. Splitting
+the read model into a headcount-only tier (MANAGER) and a salary tier (TENANT_ADMIN) is
+a product decision, tracked below rather than guessed at.
+
+### HR-LOW-001 — backfill `lead`/`chief` precedence misclassifies technical leads
+The `laborCategory` backfill ran the MANAGER pattern (`…|lead|chief|…`) before the
+TECHNICAL pattern, so a "Lead Technician"/"Chief Engineer" (a craft role) was locked to
+MANAGER. The `senior`-token mechanism the review hypothesised does not exist. The
+migration already ran in production (immutable), so the fix is a conservative,
+idempotent corrective migration that reclassifies `manager` rows whose position matches
+a craft noun but **no** genuine management token → `technical`; the shared classifier
+ordering is corrected so any future use is right. Analytics-only, no payroll/tax effect.
+
 ## Tracked debt (owner + deadline — NOT fixed this cycle)
 
 ### PERF-HIGH-004 — no rollup/cache; derived aggregation re-scans high-frequency source tables per load

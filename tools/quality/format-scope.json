@@ -17385,6 +17385,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/hr-service/src/finance/__tests__/merge-department-costs.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/hr-service/src/finance/commands/hr-finance.commands.ts",
       "prettier_managed": true
     },
@@ -52242,10 +52248,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8561,
+  "file_count": 8562,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8386,
-  "managed_file_list_sha256": "7b05ced2b7e93421df5ccbcd6f787770623af1bf54dd198c9c322347a585c0d6",
+  "managed_count": 8387,
+  "managed_file_list_sha256": "f4675cf8bb49d272acc69fb9c4715cd69bd6f87486a1a3d7a41ae89f30d2cbb1",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

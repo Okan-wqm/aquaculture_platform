@@ -5549,25 +5549,22 @@ async fn run_agent(
             let s = state.read().await;
             (s.keystore.clone(), s.config.device_id.clone().into_bytes())
         };
-        let scada_db = match scada_db::ScadaDb::new(
-            &scada_db_path,
-            scada_keystore,
-            scada_deployment_uuid,
-        )
-        .await
-        {
-            Ok(db) => {
-                info!("SCADA database initialized: {}", scada_db_path);
-                Some(Arc::new(db))
-            }
-            Err(e) => {
-                warn!(
-                    "Failed to initialize SCADA database: {}. Runtime features degraded.",
-                    e
-                );
-                None
-            }
-        };
+        let scada_db =
+            match scada_db::ScadaDb::new(&scada_db_path, scada_keystore, scada_deployment_uuid)
+                .await
+            {
+                Ok(db) => {
+                    info!("SCADA database initialized: {}", scada_db_path);
+                    Some(Arc::new(db))
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to initialize SCADA database: {}. Runtime features degraded.",
+                        e
+                    );
+                    None
+                }
+            };
 
         // Create command channel for WS → I/O routing
         let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::channel::<scada_types::ScadaCommand>(64);

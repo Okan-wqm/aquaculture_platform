@@ -216,10 +216,9 @@ impl super::CommandHandler {
                         // not run unsigned mutating commands in
                         // Enforcing. Bootstrap commands (ping/get_info =
                         // AllowUnsignedInEnforcing) still pass.
-                        if let Err(reason) = super::catalog::legacy_command_permitted(
-                            &cmd.command,
-                            signature_mode,
-                        ) {
+                        if let Err(reason) =
+                            super::catalog::legacy_command_permitted(&cmd.command, signature_mode)
+                        {
                             warn!(
                                 "Rejecting unsigned legacy command '{}' (pre-provisioning): {}",
                                 cmd.command, reason

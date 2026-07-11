@@ -312,7 +312,9 @@ pub(super) async fn authorize_adapted(
     let engine = InMemoryPolicyEngine::new(rbac_store);
     match engine.authorize(request).await {
         Ok(AuthorizationDecision::Allow(_ctx)) => Ok(()),
-        Ok(AuthorizationDecision::Deny(reason)) => Err(format!("authorization denied: {:?}", reason)),
+        Ok(AuthorizationDecision::Deny(reason)) => {
+            Err(format!("authorization denied: {:?}", reason))
+        }
         Err(e) => Err(format!("policy engine error: {}", e)),
     }
 }
@@ -483,7 +485,11 @@ mod tests {
         // an empty (no-manifest) store.
         let store = Arc::new(RbacManifestStore::new());
         let res = authorize_adapted(&make_adapted("ping"), [0u8; 16], store).await;
-        assert!(res.is_ok(), "anonymous command must be permitted: {:?}", res);
+        assert!(
+            res.is_ok(),
+            "anonymous command must be permitted: {:?}",
+            res
+        );
     }
 
     #[tokio::test]

@@ -92,12 +92,8 @@ ignore = [
     #   atomic-polyfill. No active vulnerability.
     "RUSTSEC-2023-0089",
 
-    # Finding: EDGE-CI-007 — proc-macro-error2 2.0.1 unmaintained
-    # Owner: platform-team; Deadline: 2026-10-01
-    # Why: Build-time-only transitive (proc-macro-error2 <- defmt-macros <-
-    #   defmt <- lorawan stack); never reaches the shipped binary. This
-    #   entry was present in deny.toml + sens-api-gateway-ci.yml but had
-    #   never been mirrored here — drift caught 2026-06-11 by
-    #   scripts/ci/check-advisory-ignore-sync.ts on its first run.
-    "RUSTSEC-2026-0173",
+    # EDGE-CI-007 (RUSTSEC-2026-0173, proc-macro-error2 unmaintained)
+    # REMOVED 2026-07-11: stale — the crate no longer resolves in the
+    # tree. Mirrored removal in deny.toml per the advisory-ignore-sync
+    # contract.
 ]

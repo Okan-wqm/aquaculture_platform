@@ -431,7 +431,9 @@ registers:
         for tag in &mgr.outputs {
             match tag {
                 OutputTag::ModbusCoil {
-                    address, safe_value, ..
+                    address,
+                    safe_value,
+                    ..
                 } => {
                     if *address == 100 {
                         aerator_on = *safe_value;
@@ -441,7 +443,9 @@ registers:
                     }
                 }
                 OutputTag::ModbusRegister {
-                    address, safe_value, ..
+                    address,
+                    safe_value,
+                    ..
                 } => {
                     if *address == 200 {
                         holding_val = Some(*safe_value);
@@ -455,7 +459,10 @@ registers:
                 _ => {}
             }
         }
-        assert!(aerator_on, "life-support coil must fail-ON (safe_state_value=1)");
+        assert!(
+            aerator_on,
+            "life-support coil must fail-ON (safe_state_value=1)"
+        );
         assert!(
             unclassified_off,
             "unclassified coil must default to de-energise (OFF)"

@@ -203,7 +203,9 @@ pub async fn build_production_keystore_from_config(
                 Err(_) => return false,
             };
             let signature = ed25519_dalek::Signature::from_bytes(&sig_arr);
-            acceptance_pubkey.verify_strict(canonical, &signature).is_ok()
+            acceptance_pubkey
+                .verify_strict(canonical, &signature)
+                .is_ok()
         },
     )
     .map_err(|e| format!("Keystore init: acceptance token invalid: {:?}", e))?;

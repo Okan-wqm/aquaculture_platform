@@ -800,7 +800,9 @@ mod tests {
         reopen
             .execute_batch(&format!("PRAGMA key = \"x'{}'\";", new_hex))
             .unwrap();
-        let v2: i64 = reopen.query_row("SELECT v FROM t", [], |r| r.get(0)).unwrap();
+        let v2: i64 = reopen
+            .query_row("SELECT v FROM t", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(v2, 42);
 
         let stale = rusqlite::Connection::open(&path).unwrap();

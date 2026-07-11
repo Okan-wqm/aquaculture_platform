@@ -215,16 +215,14 @@ jobs:
           # Ignore list mirrors sens-api-gateway/.cargo/audit.toml — lock-step
           # enforced by scripts/ci/check-advisory-ignore-sync.ts.
           # 2026-06-11 (RUST-CVE-001): rumqttc-chain ignores removed (vendored
-          # fork at crates/local-rumqttc). RUSTSEC-2026-0173 (EDGE-CI-007,
-          # proc-macro-error2 via defmt/lorawan, deadline 2026-10-01) was
-          # MISSING here while present in sens-api-gateway-ci.yml — that
-          # latent drift would have failed the next agent-v* release audit.
+          # fork at crates/local-rumqttc). 2026-07-11 (EDGE-CI-007):
+          # RUSTSEC-2026-0173 (proc-macro-error2) removed — the crate no
+          # longer resolves in the tree, so the ignore is stale.
           cargo audit --deny warnings \
             --ignore RUSTSEC-2023-0071 \
             --ignore RUSTSEC-2025-0141 \
             --ignore RUSTSEC-2024-0388 \
-            --ignore RUSTSEC-2023-0089 \
-            --ignore RUSTSEC-2026-0173
+            --ignore RUSTSEC-2023-0089
           echo "=== cargo deny (license + advisory + ban policy) ==="
           cargo deny check advisories bans licenses sources
 

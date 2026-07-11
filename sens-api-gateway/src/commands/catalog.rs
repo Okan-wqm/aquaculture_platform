@@ -1043,8 +1043,7 @@ mod tests {
         let mut anon = "";
         let mut mutating = "";
         for e in COMMAND_CATALOG {
-            if anon.is_empty()
-                && matches!(e.legacy_policy, LegacyPolicy::AllowUnsignedInEnforcing)
+            if anon.is_empty() && matches!(e.legacy_policy, LegacyPolicy::AllowUnsignedInEnforcing)
             {
                 anon = e.wire_name;
             }
@@ -1084,7 +1083,9 @@ mod tests {
 
         // Unknown commands fail closed (DenyUnsignedInEnforcing
         // default) → rejected in Enforcing.
-        assert!(legacy_command_permitted("totally_unknown_cmd_xyz", SignatureMode::Enforcing).is_err());
+        assert!(
+            legacy_command_permitted("totally_unknown_cmd_xyz", SignatureMode::Enforcing).is_err()
+        );
     }
 
     #[test]

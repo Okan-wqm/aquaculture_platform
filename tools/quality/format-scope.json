@@ -17367,6 +17367,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/hr-service/src/database/migrations/1802000000000-ReclassifyTechnicalLeads.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/hr-service/src/database/migrations/hr-owned-entities.ts",
       "prettier_managed": true
     },
@@ -52248,10 +52254,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8562,
+  "file_count": 8563,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8387,
-  "managed_file_list_sha256": "f4675cf8bb49d272acc69fb9c4715cd69bd6f87486a1a3d7a41ae89f30d2cbb1",
+  "managed_count": 8388,
+  "managed_file_list_sha256": "a08966b2d32c467090fc8f9b66582b6bd7bed2d3ea9cfd02169ee1569912fab7",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

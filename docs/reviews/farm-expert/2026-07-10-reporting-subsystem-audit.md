@@ -338,11 +338,25 @@ the REAL official Ajv schema (`getOfficialSchemaValidator`) — asserting valid,
 mocked the validator, so nothing previously proved schema validity; a future assembler/reshape change
 that re-breaks the wire shape now fails in CI.
 
+### FARM-HIGH-188 (COMPLIANCE-HIGH-002) — a SUBMITTED report could be silently overwritten
+
+A SUBMITTED regulatory report is the legal record of what was filed to Mattilsynet. `upsert` had no
+terminal-state guard and there was no DB immutability trigger, so a bug or a raw path could reset an
+accepted row to PENDING and null its receipt.
+
+Fixed in two tiers. Tier-2/3 (landed earlier): `upsert` refuses to reset a SUBMITTED/QUEUED row and
+returns it unchanged. Tier-1 (this step, make-it-impossible): migration 1804800000000 installs a
+BEFORE UPDATE trigger (current_schema-relative, fans out to farm + every tenant schema, table-presence
+guarded) that RAISEs if a SUBMITTED row's filing-identity fields (status, klientReferanse, reportType,
+payload, referanse) change; benign `updatedAt`-only writes and the transition INTO SUBMITTED stay
+allowed. QUEUED is deliberately excluded — `recordQueued` inserts a QUEUED row then attaches the
+outbox referanse in a second write, so a QUEUED trigger would fire on a legitimate flow; QUEUED stays
+on the service guard. Verified by migration-sql-lint, the migration postCondition (installation,
+CI migration-harness), the existing upsert-immutability service spec, and a new `.postgres.spec.ts`
+exercising the trigger behavior against real Postgres (runs in CI, not this sandbox).
+
 ## OPEN — HIGH (tracked)
 
-- **A SUBMITTED report can be silently overwritten** — `regulatory-report-store.upsert` resets an
-  accepted row to PENDING and nulls the receipt with no terminal-state guard and no DB immutability
-  trigger (compliance COMPLIANCE-HIGH-002, job-queue PRODUCT-JOB-MEDIUM-002).
 - **Direct REST submit trusts client-supplied org/lokalitet** instead of deriving them server-side
   like the draft path does (auth-security SEC-HIGH-001).
 - **`regulatory_report_drafts` has no RLS** (its sibling `regulatory_reports` does) and the draft

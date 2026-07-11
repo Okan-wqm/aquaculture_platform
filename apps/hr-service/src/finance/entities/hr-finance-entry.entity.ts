@@ -87,6 +87,10 @@ export class HrFinanceEntry {
   @Column('timestamptz', { nullable: true })
   deletedAt?: Date | null;
 
+  /** Actor who soft-deleted the row — required for financial audit attribution. */
+  @Column('uuid', { nullable: true })
+  deletedBy?: string | null;
+
   @VersionColumn()
   version!: number;
 

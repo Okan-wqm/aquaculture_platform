@@ -86,6 +86,31 @@ An out-of-order NATS redelivery could regress the tenant currency.
 event only when its source timestamp is newer, making the projection idempotent and
 order-insensitive.
 
+## Wave 1 — integrity & audit SSoT (follow-up, implemented)
+
+Per the directive to implement every finding (no deferral), the remaining
+review tail is being closed in enterprise-grade waves rather than tracked as
+debt. Wave 1:
+
+### AUDIT-HIGH-016 — soft-delete had no `deletedBy` attribution
+`finance_expense_entries` + `hr_finance_entries` recorded `isDeleted`/`deletedAt`
+but not the acting user. Added a nullable `deletedBy` uuid column (blue-green
+migrations `1804700000000` / `1801900000000`) and set it in the delete handlers.
+
+### FARM-MEDIUM-163 — manual entry `batchId`/`siteId` not tenant-validated
+`validateEntryDimensions` now rejects a finance entry whose `batchId`/`siteId`
+does not reference an existing tenant-owned `batches_v2` / `sites` row, inside
+the handler transaction (create + update).
+
+### FARM-MEDIUM-164 — `computedRule` percent not bounds-validated
+`ComputedRuleEvaluator` drops any computed category whose `percent` is outside
+`(0,100]` instead of emitting a nonsensical cost line.
+
+### HR-MEDIUM-004 — HR finance mutations missing `@AuditLog`
+Every HR finance mutation (entry/category CRUD, restore, payroll cost settings)
+now carries `@AuditLog`, so the platform audit interceptor captures them like the
+rest of hr-service.
+
 ## Tracked debt (owner + deadline — NOT fixed this cycle)
 
 ### PERF-HIGH-004 — no rollup/cache; derived aggregation re-scans high-frequency source tables per load

@@ -29,6 +29,11 @@ export interface ComputedCategoryValue {
   value: number;
 }
 
+/** A computed-rule percentage is only meaningful in the half-open range (0, 100]. */
+function isValidPercent(percent: number): boolean {
+  return Number.isFinite(percent) && percent > 0 && percent <= 100;
+}
+
 @Injectable()
 export class ComputedRuleEvaluator {
   /**
@@ -63,6 +68,9 @@ export class ComputedRuleEvaluator {
       .filter((c): c is FinanceCategory & { computedRule: NonNullable<FinanceCategory['computedRule']> } =>
         Boolean(c.computedRule),
       )
+      // Defense-in-depth: a percent outside (0,100] is a corrupted rule and
+      // would emit a nonsensical cost line — drop it rather than surface it.
+      .filter((c) => isValidPercent(c.computedRule.percent))
       .map((category) => {
         const { percent } = category.computedRule;
         const raw = (nonComputedTotal * percent) / 100;

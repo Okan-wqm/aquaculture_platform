@@ -9003,6 +9003,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1804700000000-AddFinanceEntryDeletedBy.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -10774,6 +10780,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/finance/handlers/update-finance-settings.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/finance/handlers/validate-entry-dimensions.ts",
       "prettier_managed": true
     },
     {
@@ -17332,6 +17344,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/hr-service/src/database/migrations/1801800000000-AddPayrollCurrencyProjectionWatermark.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/hr-service/src/database/migrations/1801900000000-AddHrFinanceEntryDeletedBy.ts",
       "prettier_managed": true
     },
     {
@@ -52206,10 +52224,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8555,
+  "file_count": 8558,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8380,
-  "managed_file_list_sha256": "b83a57e7f27a3b3684511a1f2e0b4cc2b33336627f99f0fc5be11175fe623501",
+  "managed_count": 8383,
+  "managed_file_list_sha256": "ff78fa2e6ca63a54090ad6b6f71b3f557e19dfb07947ea9252e2bd456e4b4147",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

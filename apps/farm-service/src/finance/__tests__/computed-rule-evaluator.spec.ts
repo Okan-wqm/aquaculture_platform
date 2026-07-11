@@ -125,6 +125,24 @@ describe('ComputedRuleEvaluator', () => {
     ]);
   });
 
+  it('drops a computed category whose percent is outside (0,100] (FARM-MEDIUM-164)', () => {
+    const feed = makeCategory('feed');
+    const bogus = makeCategory('bogus', {
+      computedRule: { type: 'PERCENT_OF_SCOPE_TOTAL', percent: 150, base: 'NON_COMPUTED' },
+    });
+    const zero = makeCategory('zero', {
+      computedRule: { type: 'PERCENT_OF_SCOPE_TOTAL', percent: 0, base: 'NON_COMPUTED' },
+    });
+
+    const result = evaluator.evaluate(
+      [feed, bogus, zero],
+      new Map([['feed', 1000]]),
+      FinanceCategoryScope.FARM_OPEX,
+    );
+
+    expect(result).toEqual([]);
+  });
+
   it('returns an empty list when no computed categories exist', () => {
     expect(
       evaluator.evaluate(

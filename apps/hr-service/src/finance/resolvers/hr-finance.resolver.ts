@@ -14,7 +14,7 @@ import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { Args, Context, ID, Int, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 
-import { Role, Roles } from '@aquaculture/backend-common/decorators';
+import { AuditLog, Role, Roles } from '@aquaculture/backend-common/decorators';
 import { RolesGuard } from '@aquaculture/backend-common/guards';
 
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
@@ -161,6 +161,7 @@ export class HrFinanceResolver {
   @Mutation(() => HrFinanceEntry)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'CREATE_HR_FINANCE_ENTRY', resource: 'HrFinanceEntry', description: 'Book an HR finance entry' })
   async createHrFinanceEntry(
     @Context() ctx: GraphQLContext,
     @Args('input') input: CreateHrFinanceEntryInput,
@@ -173,6 +174,7 @@ export class HrFinanceResolver {
   @Mutation(() => HrFinanceEntry)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'UPDATE_HR_FINANCE_ENTRY', resource: 'HrFinanceEntry', description: 'Update an HR finance entry' })
   async updateHrFinanceEntry(
     @Context() ctx: GraphQLContext,
     @Args('id', { type: () => ID }) id: string,
@@ -186,6 +188,7 @@ export class HrFinanceResolver {
   @Mutation(() => Boolean)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'DELETE_HR_FINANCE_ENTRY', resource: 'HrFinanceEntry', description: 'Soft-delete an HR finance entry' })
   async deleteHrFinanceEntry(
     @Context() ctx: GraphQLContext,
     @Args('id', { type: () => ID }) id: string,
@@ -198,6 +201,7 @@ export class HrFinanceResolver {
   @Mutation(() => HrFinanceCategory)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'CREATE_HR_FINANCE_CATEGORY', resource: 'HrFinanceCategory', description: 'Create an HR finance category' })
   async createHrFinanceCategory(
     @Context() ctx: GraphQLContext,
     @Args('input') input: CreateHrFinanceCategoryInput,
@@ -210,6 +214,7 @@ export class HrFinanceResolver {
   @Mutation(() => HrFinanceCategory)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'UPDATE_HR_FINANCE_CATEGORY', resource: 'HrFinanceCategory', description: 'Update an HR finance category' })
   async updateHrFinanceCategory(
     @Context() ctx: GraphQLContext,
     @Args('id', { type: () => ID }) id: string,
@@ -223,6 +228,7 @@ export class HrFinanceResolver {
   @Mutation(() => HrFinanceCategory)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN)
+  @AuditLog({ action: 'ARCHIVE_HR_FINANCE_CATEGORY', resource: 'HrFinanceCategory', description: 'Archive an HR finance category' })
   async archiveHrFinanceCategory(
     @Context() ctx: GraphQLContext,
     @Args('id', { type: () => ID }) id: string,
@@ -235,6 +241,7 @@ export class HrFinanceResolver {
   @Mutation(() => HrFinanceCategory)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN)
+  @AuditLog({ action: 'RESTORE_HR_FINANCE_CATEGORY', resource: 'HrFinanceCategory', description: 'Restore an HR finance category' })
   async restoreHrFinanceCategory(
     @Context() ctx: GraphQLContext,
     @Args('id', { type: () => ID }) id: string,
@@ -247,6 +254,7 @@ export class HrFinanceResolver {
   @Mutation(() => PayrollCostSettings)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN)
+  @AuditLog({ action: 'UPDATE_PAYROLL_COST_SETTINGS', resource: 'PayrollCostSettings', description: 'Update payroll cost settings' })
   async updatePayrollCostSettings(
     @Context() ctx: GraphQLContext,
     @Args('input') input: UpdatePayrollCostSettingsInput,

@@ -1,42 +1,58 @@
-import { Resolver, ResolveReference } from '@nestjs/graphql';
+import { Args, ID, Query, Resolver, ResolveReference } from '@nestjs/graphql';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import { PublicUserProfile } from '../entities/public-user-profile.type';
 import { User } from '../entities/user.entity';
 
 /**
- * Apollo Federation reference resolver for the `User` entity (MSG-MEDIUM-052).
+ * Apollo Federation reference resolver for `PublicUserProfile` (SSoT split,
+ * supersedes MSG-MEDIUM-052's null-over-non-nullable design).
  *
- * WHY: messaging-service (and other subgraphs) carry a `User` reference (e.g.
- * `Message.sender`) keyed by `id`; the gateway resolves the display fields here.
- * Previously messaging returned placeholder nulls for sender names, so the chat
- * UI showed blank senders/avatars everywhere.
+ * WHY: messaging-service (and any other subgraph) reference a user for DISPLAY
+ * (`Message.sender`, `ChannelMember.user`, userPresence) keyed by `id`. They now
+ * reference the display-only `PublicUserProfile` type — which structurally has NO
+ * email/role/tenantId — instead of the authenticated `User`. So the privacy
+ * boundary is enforced by the type system: a federated `sender { email }` is a
+ * schema error, not a runtime null. auth's own admin-gated queries still resolve
+ * the full `User` (with email) directly, never through this reference resolver.
  *
- * SECURITY (display-only boundary): the reference resolver loads and returns ONLY
- * display-safe fields (`id`, `firstName`, `lastName`, `profileImageUrl`). Because
- * `email`/`role`/`tenantId` are NOT selected, they are `undefined` on the resolved
- * object and a federated `sender { email }` query resolves to null — a channel
- * member cannot harvest another member's email through the messaging path. auth's
- * own admin-gated queries (e.g. `tenantUsers`) still return `email` because they
- * resolve `User` directly, not via this reference resolver. The userId in the
+ * The projection loads ONLY the PublicUserProfile fields. The userId in the
  * reference is already authorized upstream (the caller is a member of the channel
  * whose sender/member this is), so a bare id lookup is the correct scope.
  */
-@Resolver(() => User)
-export class UserFederationResolver {
+@Resolver(() => PublicUserProfile)
+export class PublicUserProfileFederationResolver {
   constructor(
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
   ) {}
 
+  /**
+   * Public (display-only, no-PII) profile of any user by id. Two jobs: (1) it is a
+   * genuine lookup the client uses for @mentions / member displays, and (2) it
+   * makes PublicUserProfile a REACHABLE root type so it emits into the subgraph
+   * SDL — the code-first SDL emitter (tools/scripts/emit-subgraph-sdl.ts) builds
+   * with orphanedTypes:[] and would otherwise drop a reference-only entity, so the
+   * composed supergraph would carry PublicUserProfile without its display fields.
+   * Authenticated by auth's global JwtAuthGuard; returns ONLY display fields —
+   * never email/role/tenantId.
+   */
+  @Query(() => PublicUserProfile, { nullable: true, name: 'publicUserProfile' })
+  async publicUserProfile(
+    @Args('id', { type: () => ID }) id: string,
+  ): Promise<PublicUserProfile | null> {
+    return this.resolveReference({ __typename: 'PublicUserProfile', id });
+  }
+
   @ResolveReference()
   async resolveReference(reference: {
     __typename: string;
     id: string;
-  }): Promise<User | null> {
-    return this.userRepo.findOne({
+  }): Promise<PublicUserProfile | null> {
+    const user = await this.userRepo.findOne({
       where: { id: reference.id },
-      // Display-only projection — email/role/tenantId are intentionally NOT loaded.
+      // Display-only projection — email/role/tenantId are never loaded here.
       select: {
         id: true,
         firstName: true,
@@ -44,5 +60,14 @@ export class UserFederationResolver {
         profileImageUrl: true,
       },
     });
+    if (!user) {
+      return null;
+    }
+    return {
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      profileImageUrl: user.profileImageUrl,
+    };
   }
 }

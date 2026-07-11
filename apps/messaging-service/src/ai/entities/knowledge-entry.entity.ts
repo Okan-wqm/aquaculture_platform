@@ -47,7 +47,7 @@ export interface KnowledgeEntityRef {
 export class KnowledgeEntry {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   /**
    * Tenant identifier — backfilled from sourceMessageId → messages.tenantId
@@ -57,45 +57,45 @@ export class KnowledgeEntry {
    * Required for tenant_isolation_policy RLS predicate (ADR-011).
    */
   @Column({ type: 'uuid' })
-  tenantId: string;
+  tenantId!: string;
 
   @Field(() => String, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
-  sourceMessageId: string | null;
+  sourceMessageId!: string | null;
 
   @Column({ type: 'timestamptz', nullable: true })
-  sourceMessageCreatedAt: Date | null;
+  sourceMessageCreatedAt!: Date | null;
 
   @Field(() => KnowledgeCategory)
   @Column({ type: 'varchar', length: 50 })
-  category: KnowledgeCategory;
+  category!: KnowledgeCategory;
 
   @Field()
   @Column({ type: 'text' })
-  content: string;
+  content!: string;
 
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })
-  entities: KnowledgeEntityRef[] | null;
+  entities!: KnowledgeEntityRef[] | null;
 
   @Field(() => Float)
   // DecimalTransformer: confidence score (0.00-1.00) is used in AI relevance ranking.
   // String comparison of scores produces wrong ordering in knowledge retrieval.
   @Column({ type: 'numeric', precision: 3, scale: 2, default: 1.0, transformer: new DecimalTransformer() })
-  confidence: number;
+  confidence!: number;
 
   @Field(() => String, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
-  verifiedBy: string | null;
+  verifiedBy!: string | null;
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @ManyToOne(() => Message, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn([
     { name: 'sourceMessageId', referencedColumnName: 'id' },
     { name: 'sourceMessageCreatedAt', referencedColumnName: 'createdAt' },
   ])
-  sourceMessage: Message | null;
+  sourceMessage!: Message | null;
 }

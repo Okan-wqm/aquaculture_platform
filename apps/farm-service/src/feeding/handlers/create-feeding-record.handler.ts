@@ -53,6 +53,7 @@ import { StockMovementService } from '../../storage/services/stock-movement.serv
 import { MovementType } from '../../storage/entities/stock-movement.entity';
 import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
 import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
+import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 
 @Injectable()
 @CommandHandler(CreateFeedingRecordCommand)
@@ -73,6 +74,7 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
     private readonly backdatePolicy: BackdatePolicyService,
     private readonly batchDomainService: BatchDomainService,
     private readonly stockMovementService: StockMovementService,
+    private readonly financeSettings: FinanceSettingsService,
   ) {}
 
   async execute(command: CreateFeedingRecordCommand): Promise<FeedingRecord> {
@@ -155,7 +157,12 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
         feedingDurationMinutes: payload.feedingDurationMinutes,
 
         feedCost: payload.feedCost || this.calculateFeedCost(feed, payload.actualAmount),
-        currency: payload.currency || 'NOK',
+        // Currency SSoT: the tenant's finance settings resolve the default —
+        // never a hardcoded literal. The previous NOK fallback here is what
+        // drifted against the farm entities' TRY defaults and HR's USD.
+        currency:
+          payload.currency ||
+          (await this.financeSettings.getDefaultCurrencyInTx(queryRunner.manager, tenantId)),
 
         fedBy: payload.fedBy || userId,
         notes: payload.notes,
@@ -221,6 +228,11 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
         feedingDate: toEventIso(payload.feedingDate),
         feedingTime: payload.feedingTime || '',
         variance: (payload.actualAmount - (payload.plannedAmount ?? 0)),
+        // Additive money fields (finance capability): string-encoded decimal
+        // per HR-MEDIUM-001 so downstream finance projections never touch
+        // IEEE 754 arithmetic.
+        feedCost: saved.feedCost != null ? Number(saved.feedCost).toFixed(2) : undefined,
+        currency: saved.feedCost != null ? saved.currency : undefined,
       };
       await this.outboxPublisher.enqueue(feedingEvent, queryRunner.manager);
 

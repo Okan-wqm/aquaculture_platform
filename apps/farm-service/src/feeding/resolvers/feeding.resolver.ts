@@ -107,12 +107,12 @@ export class FeedingEnvironmentInput {
 export class FishBehaviorInput {
   @Field(() => FishAppetite)
   @IsEnum(FishAppetite)
-  appetite: FishAppetite;
+  appetite!: FishAppetite;
 
   @Field(() => Int)
   @IsInt()
   @Min(0)
-  feedingIntensity: number;
+  feedingIntensity!: number;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -136,7 +136,7 @@ export class FishBehaviorInput {
 export class CreateFeedingRecordInput {
   @Field(() => ID)
   @IsUUID()
-  batchId: string;
+  batchId!: string;
 
   @Field(() => ID, { nullable: true })
   @IsOptional()
@@ -145,28 +145,28 @@ export class CreateFeedingRecordInput {
 
   @Field()
   @IsDate()
-  feedingDate: Date;
+  feedingDate!: Date;
 
   @Field()
   @IsNotEmpty()
   @IsString()
-  feedingTime: string;
+  feedingTime!: string;
 
   @Field(() => Int, { defaultValue: 1 })
   @IsOptional()
   @IsInt()
   @Min(1)
-  feedingSequence: number;
+  feedingSequence!: number;
 
   @Field(() => Int, { defaultValue: 1 })
   @IsOptional()
   @IsInt()
   @Min(1)
-  totalMealsToday: number;
+  totalMealsToday!: number;
 
   @Field(() => ID)
   @IsUUID()
-  feedId: string;
+  feedId!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -175,12 +175,12 @@ export class CreateFeedingRecordInput {
   @Field(() => Float)
   @IsNumber()
   @Min(0)
-  plannedAmount: number;
+  plannedAmount!: number;
 
   @Field(() => Float)
   @IsNumber()
   @Min(0)
-  actualAmount: number;
+  actualAmount!: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -198,7 +198,7 @@ export class CreateFeedingRecordInput {
   @Field(() => FeedingMethod, { defaultValue: FeedingMethod.MANUAL })
   @IsOptional()
   @IsEnum(FeedingMethod)
-  feedingMethod: FeedingMethod;
+  feedingMethod!: FeedingMethod;
 
   @Field(() => ID, { nullable: true })
   @IsOptional()
@@ -222,7 +222,7 @@ export class CreateFeedingRecordInput {
 
   @Field(() => ID)
   @IsUUID()
-  fedBy: string;
+  fedBy!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -275,11 +275,11 @@ export class UpdateFeedingRecordInput {
 export class AddFeedInventoryInput {
   @Field(() => ID)
   @IsUUID()
-  feedId: string;
+  feedId!: string;
 
   @Field(() => ID)
   @IsUUID()
-  siteId: string;
+  siteId!: string;
 
   @Field(() => ID, { nullable: true })
   @IsOptional()
@@ -289,7 +289,7 @@ export class AddFeedInventoryInput {
   @Field(() => Float)
   @IsNumber()
   @Min(0.001)
-  quantityKg: number;
+  quantityKg!: number;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -330,7 +330,7 @@ export class AddFeedInventoryInput {
 
   @Field(() => ID)
   @IsUUID()
-  createdBy: string;
+  createdBy!: string;
 }
 
 /**
@@ -340,17 +340,17 @@ export class AddFeedInventoryInput {
 export class ConsumeFeedInventoryInput {
   @Field(() => ID)
   @IsUUID()
-  inventoryId: string;
+  inventoryId!: string;
 
   @Field(() => Float)
   @IsNumber()
   @Min(0.001)
-  quantityKg: number;
+  quantityKg!: number;
 
   @Field(() => ConsumptionReason, { defaultValue: ConsumptionReason.FEEDING })
   @IsOptional()
   @IsEnum(ConsumptionReason)
-  reason: ConsumptionReason;
+  reason!: ConsumptionReason;
 
   @Field(() => ID, { nullable: true })
   @IsOptional()
@@ -369,22 +369,22 @@ export class ConsumeFeedInventoryInput {
 export class AdjustFeedInventoryInput {
   @Field(() => ID)
   @IsUUID()
-  inventoryId: string;
+  inventoryId!: string;
 
   @Field(() => AdjustmentType)
   @IsEnum(AdjustmentType)
-  adjustmentType: AdjustmentType;
+  adjustmentType!: AdjustmentType;
 
   @Field(() => Float)
   @IsNumber()
   @IsPositive()
-  quantity: number;
+  quantity!: number;
 
   /** Human-readable reason for the adjustment. */
   @Field(() => String)
   @IsNotEmpty()
   @IsString()
-  reason: string;
+  reason!: string;
 
   @Field(() => String, { nullable: true })
   @IsOptional()
@@ -483,31 +483,31 @@ export class FeedingPaginationInput extends StandardPaginationInput {}
 @ObjectType()
 export class DailyFeedingPlanResponse {
   @Field()
-  date: Date;
+  date!: Date;
 
   @Field(() => ID)
-  siteId: string;
+  siteId!: string;
 
   @Field(() => [PlannedFeeding])
-  plannedFeedings: PlannedFeeding[];
+  plannedFeedings!: PlannedFeeding[];
 
   @Field(() => Float)
-  totalPlannedKg: number;
+  totalPlannedKg!: number;
 
   @Field(() => Float)
-  totalActualKg: number;
+  totalActualKg!: number;
 
   @Field(() => Float)
-  completionPercent: number;
+  completionPercent!: number;
 }
 
 @ObjectType()
 export class PlannedFeeding {
   @Field(() => ID)
-  batchId: string;
+  batchId!: string;
 
   @Field()
-  batchCode: string;
+  batchCode!: string;
 
   @Field(() => ID, { nullable: true })
   tankId?: string;
@@ -516,25 +516,25 @@ export class PlannedFeeding {
   tankCode?: string;
 
   @Field(() => ID)
-  feedId: string;
+  feedId!: string;
 
   @Field()
-  feedName: string;
+  feedName!: string;
 
   @Field(() => Float)
-  plannedAmountKg: number;
+  plannedAmountKg!: number;
 
   @Field(() => Float)
-  actualAmountKg: number;
+  actualAmountKg!: number;
 
   @Field(() => Int)
-  mealsPlanned: number;
+  mealsPlanned!: number;
 
   @Field(() => Int)
-  mealsCompleted: number;
+  mealsCompleted!: number;
 
   @Field()
-  isComplete: boolean;
+  isComplete!: boolean;
 }
 
 @ObjectType()
@@ -546,55 +546,55 @@ export class FeedingSummaryResponse {
   siteId?: string;
 
   @Field()
-  startDate: Date;
+  startDate!: Date;
 
   @Field()
-  endDate: Date;
+  endDate!: Date;
 
   @Field(() => Float)
-  totalFeedGivenKg: number;
+  totalFeedGivenKg!: number;
 
   @Field(() => Float)
-  totalPlannedKg: number;
+  totalPlannedKg!: number;
 
   @Field(() => Float)
-  varianceKg: number;
+  varianceKg!: number;
 
   @Field(() => Float)
-  variancePercent: number;
+  variancePercent!: number;
 
   @Field(() => Int)
-  totalFeedings: number;
+  totalFeedings!: number;
 
   @Field(() => Float)
-  avgFeedingKg: number;
+  avgFeedingKg!: number;
 
   @Field(() => Float)
-  totalCost: number;
+  totalCost!: number;
 
   @Field({ nullable: true })
   currency?: string;
 
   @Field(() => [FeedTypeSummary])
-  byFeedType: FeedTypeSummary[];
+  byFeedType!: FeedTypeSummary[];
 }
 
 @ObjectType()
 export class FeedTypeSummary {
   @Field(() => ID)
-  feedId: string;
+  feedId!: string;
 
   @Field()
-  feedName: string;
+  feedName!: string;
 
   @Field(() => Float)
-  totalKg: number;
+  totalKg!: number;
 
   @Field(() => Float)
-  percentage: number;
+  percentage!: number;
 
   @Field(() => Float)
-  cost: number;
+  cost!: number;
 }
 
 @ObjectType()
@@ -622,22 +622,22 @@ export class GrowthSimulationInput {
   @Field(() => Float, { description: 'Current average weight in grams' })
   @IsNumber()
   @IsPositive()
-  currentWeightG: number;
+  currentWeightG!: number;
 
   @Field(() => Int, { description: 'Current fish count' })
   @IsInt()
   @Min(1)
-  currentCount: number;
+  currentCount!: number;
 
   @Field(() => Float, { description: 'Daily Specific Growth Rate (%)' })
   @IsNumber()
   @IsPositive()
-  sgr: number;
+  sgr!: number;
 
   @Field(() => Int, { description: 'Number of days to project' })
   @IsInt()
   @Min(1)
-  projectionDays: number;
+  projectionDays!: number;
 
   @Field(() => Float, { nullable: true, description: 'Daily mortality rate (default 0.01%)' })
   @IsOptional()
@@ -657,22 +657,22 @@ export class GrowthSimulationInput {
 @ObjectType()
 export class GrowthProjectionResponse {
   @Field(() => Int)
-  day: number;
+  day!: number;
 
   @Field()
-  date: Date;
+  date!: Date;
 
   @Field(() => Float)
-  avgWeightG: number;
+  avgWeightG!: number;
 
   @Field(() => Int)
-  fishCount: number;
+  fishCount!: number;
 
   @Field(() => Float)
-  biomassKg: number;
+  biomassKg!: number;
 
   @Field(() => Float)
-  sgr: number;
+  sgr!: number;
 
   @Field({ nullable: true })
   feedCode?: string;
@@ -681,13 +681,13 @@ export class GrowthProjectionResponse {
   feedName?: string;
 
   @Field(() => Float)
-  feedingRatePercent: number;
+  feedingRatePercent!: number;
 
   @Field(() => Float)
-  dailyFeedKg: number;
+  dailyFeedKg!: number;
 
   @Field(() => Float)
-  cumulativeFeedKg: number;
+  cumulativeFeedKg!: number;
 
   @Field(() => Float, { nullable: true })
   fcr?: number;
@@ -696,34 +696,34 @@ export class GrowthProjectionResponse {
   temperature?: number;
 
   @Field(() => Int)
-  mortality: number;
+  mortality!: number;
 
   @Field(() => Int)
-  cumulativeMortality: number;
+  cumulativeMortality!: number;
 }
 
 @ObjectType()
 export class GrowthSimulationSummary {
   @Field(() => Float)
-  startWeight: number;
+  startWeight!: number;
 
   @Field(() => Float)
-  endWeight: number;
+  endWeight!: number;
 
   @Field(() => Float)
-  startBiomass: number;
+  startBiomass!: number;
 
   @Field(() => Float)
-  endBiomass: number;
+  endBiomass!: number;
 
   @Field(() => Float)
-  totalFeedKg: number;
+  totalFeedKg!: number;
 
   @Field(() => Float)
-  avgFCR: number;
+  avgFCR!: number;
 
   @Field(() => Int)
-  totalMortality: number;
+  totalMortality!: number;
 
   @Field({ nullable: true })
   harvestDate?: Date;
@@ -735,34 +735,34 @@ export class GrowthSimulationSummary {
 @ObjectType()
 export class FeedRequirementResponse {
   @Field()
-  feedCode: string;
+  feedCode!: string;
 
   @Field()
-  feedName: string;
+  feedName!: string;
 
   @Field(() => Float)
-  totalKg: number;
+  totalKg!: number;
 
   @Field(() => Int)
-  daysUsed: number;
+  daysUsed!: number;
 
   @Field(() => Int)
-  startDay: number;
+  startDay!: number;
 
   @Field(() => Int)
-  endDay: number;
+  endDay!: number;
 }
 
 @ObjectType()
 export class GrowthSimulationResponse {
   @Field(() => [GrowthProjectionResponse])
-  projections: GrowthProjectionResponse[];
+  projections!: GrowthProjectionResponse[];
 
   @Field(() => GrowthSimulationSummary)
-  summary: GrowthSimulationSummary;
+  summary!: GrowthSimulationSummary;
 
   @Field(() => [FeedRequirementResponse])
-  feedRequirements: FeedRequirementResponse[];
+  feedRequirements!: FeedRequirementResponse[];
 }
 
 // ============================================================================
@@ -775,7 +775,7 @@ export class FeedForecastInput {
   siteId?: string;
 
   @Field(() => Int, { defaultValue: 30, description: 'Number of days to forecast' })
-  forecastDays: number;
+  forecastDays!: number;
 
   @Field(() => Int, { nullable: true, description: 'Lead time before stockout to recommend reorder' })
   leadTimeDays?: number;
@@ -787,37 +787,37 @@ export class FeedForecastInput {
 @ObjectType()
 export class FeedConsumptionBatchInfo {
   @Field(() => ID)
-  batchId: string;
+  batchId!: string;
 
   @Field()
-  batchCode: string;
+  batchCode!: string;
 
   @Field(() => Float)
-  consumption: number;
+  consumption!: number;
 }
 
 @ObjectType()
 export class FeedConsumptionByTypeResponse {
   @Field(() => ID)
-  feedId: string;
+  feedId!: string;
 
   @Field()
-  feedCode: string;
+  feedCode!: string;
 
   @Field()
-  feedName: string;
+  feedName!: string;
 
   @Field(() => [Float])
-  dailyConsumption: number[];
+  dailyConsumption!: number[];
 
   @Field(() => Float)
-  totalConsumption: number;
+  totalConsumption!: number;
 
   @Field(() => Float)
-  currentStock: number;
+  currentStock!: number;
 
   @Field(() => Int)
-  daysUntilStockout: number;
+  daysUntilStockout!: number;
 
   @Field({ nullable: true })
   stockoutDate?: Date;
@@ -826,52 +826,52 @@ export class FeedConsumptionByTypeResponse {
   reorderDate?: Date;
 
   @Field(() => Float)
-  reorderQuantity: number;
+  reorderQuantity!: number;
 
   @Field(() => [FeedConsumptionBatchInfo])
-  batches: FeedConsumptionBatchInfo[];
+  batches!: FeedConsumptionBatchInfo[];
 }
 
 @ObjectType()
 export class FeedForecastAlert {
   @Field(() => ID)
-  feedId: string;
+  feedId!: string;
 
   @Field()
-  feedCode: string;
+  feedCode!: string;
 
   @Field()
-  type: string;
+  type!: string;
 
   @Field()
-  message: string;
+  message!: string;
 
   @Field(() => Int)
-  daysUntilStockout: number;
+  daysUntilStockout!: number;
 }
 
 @ObjectType()
 export class FeedForecastResponse {
   @Field(() => Int)
-  forecastDays: number;
+  forecastDays!: number;
 
   @Field()
-  startDate: Date;
+  startDate!: Date;
 
   @Field()
-  endDate: Date;
+  endDate!: Date;
 
   @Field(() => [FeedConsumptionByTypeResponse])
-  byFeedType: FeedConsumptionByTypeResponse[];
+  byFeedType!: FeedConsumptionByTypeResponse[];
 
   @Field(() => [FeedForecastAlert])
-  alerts: FeedForecastAlert[];
+  alerts!: FeedForecastAlert[];
 
   @Field(() => Float)
-  totalConsumption: number;
+  totalConsumption!: number;
 
   @Field(() => Float)
-  totalCurrentStock: number;
+  totalCurrentStock!: number;
 }
 
 // ============================================================================
@@ -881,7 +881,7 @@ export class FeedForecastResponse {
 @ObjectType()
 export class ActiveTankResponse {
   @Field(() => ID)
-  tankId: string;
+  tankId!: string;
 
   @Field({ nullable: true })
   tankName?: string;
@@ -896,13 +896,13 @@ export class ActiveTankResponse {
   batchNumber?: string;
 
   @Field(() => Int)
-  fishCount: number;
+  fishCount!: number;
 
   @Field(() => Float)
-  avgWeightG: number;
+  avgWeightG!: number;
 
   @Field(() => Float)
-  biomassKg: number;
+  biomassKg!: number;
 }
 
 // ============================================================================

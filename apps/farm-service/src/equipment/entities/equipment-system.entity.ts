@@ -25,21 +25,21 @@ import type { System } from '../../system/entities/system.entity';
 @Index(['tenantId', 'systemId'])
 export class EquipmentSystem {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Column('uuid')
-  equipmentId: string;
+  equipmentId!: string;
 
   @ManyToOne('Equipment', 'equipmentSystems', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'equipmentId' })
   equipment?: Equipment;
 
   @Column('uuid')
-  systemId: string;
+  systemId!: string;
 
   @ManyToOne('System', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'systemId' })
@@ -50,7 +50,7 @@ export class EquipmentSystem {
    * Useful for UI display and default selection
    */
   @Column({ default: false })
-  isPrimary: boolean;
+  isPrimary!: boolean;
 
   /**
    * Role/function of equipment in this system
@@ -64,7 +64,7 @@ export class EquipmentSystem {
    * Used for risk assessment
    */
   @Column({ type: 'int', default: 3 })
-  criticalityLevel: number;
+  criticalityLevel!: number;
 
   /**
    * Notes about this equipment-system relationship
@@ -73,7 +73,7 @@ export class EquipmentSystem {
   notes?: string;
 
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Column('uuid', { nullable: true })
   createdBy?: string;

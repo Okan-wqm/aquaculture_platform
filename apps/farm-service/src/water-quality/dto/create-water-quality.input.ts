@@ -48,11 +48,11 @@ export class CreateWaterQualityInput extends MobileCommandEnvelopeInput {
   @Field({ description: 'Ölçüm tarihi' })
   @IsDate()
   @Type(() => Date)
-  measuredAt: Date;
+  measuredAt!: Date;
 
   @Field(() => MeasurementSource, { description: 'Ölçüm kaynağı' })
   @IsEnum(MeasurementSource)
-  source: MeasurementSource;
+  source!: MeasurementSource;
 
   @Field(() => ID, { nullable: true, description: 'Ölçümü yapan kullanıcı' })
   @IsOptional()
@@ -66,7 +66,7 @@ export class CreateWaterQualityInput extends MobileCommandEnvelopeInput {
    */
   @Field(() => ID, { description: 'Equipment ID' })
   @IsUUID()
-  equipmentId: string;
+  equipmentId!: string;
 
   /**
    * SOLE parameter channel. REQUIRED. Every key is a tenant-configured
@@ -79,7 +79,7 @@ export class CreateWaterQualityInput extends MobileCommandEnvelopeInput {
   @IsObject()
   @IsNotEmpty()
   @ValidateDynamicParameters()
-  dynamicParameters: Record<string, number | string | boolean>;
+  dynamicParameters!: Record<string, number | string | boolean>;
 
   @Field(() => ID, { nullable: true, description: 'Idempotency key for offline retry safety' })
   @IsOptional()

@@ -9,28 +9,28 @@ import { PurchaseOrder } from './purchase-order.entity';
 @Index(['tenantId', 'purchaseOrderId'])
 export class PurchaseOrderItem {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid', name: 'tenant_id' })
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ type: 'uuid', name: 'purchase_order_id' })
-  purchaseOrderId: string;
+  purchaseOrderId!: string;
 
   @Column({ type: 'uuid', name: 'item_id' })
-  itemId: string;
+  itemId!: string;
 
   @Column({ type: 'varchar', length: 255, name: 'item_name' })
-  itemName: string;
+  itemName!: string;
 
   @Column({ type: 'varchar', length: 50, nullable: true, name: 'item_code' })
   itemCode?: string;
 
   @Column({ type: 'decimal', precision: 15, scale: 2, transformer: new DecimalTransformer() })
-  quantity: number;
+  quantity!: number;
 
   @Column({ type: 'varchar', length: 20 })
-  unit: string;
+  unit!: string;
 
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, name: 'unit_price', transformer: new DecimalTransformer() })
   unitPrice?: number;
@@ -39,21 +39,21 @@ export class PurchaseOrderItem {
   totalPrice?: number;
 
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, name: 'quantity_received', transformer: new DecimalTransformer() })
-  quantityReceived: number;
+  quantityReceived!: number;
 
   @Column({ type: 'boolean', default: false, name: 'is_fully_received' })
-  isFullyReceived: boolean;
+  isFullyReceived!: boolean;
 
   @Column({ type: 'text', nullable: true })
   notes?: string;
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn({ type: 'timestamptz', name: 'updated_at' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @ManyToOne(() => PurchaseOrder, (po) => po.items)
   @JoinColumn({ name: 'purchase_order_id' })
-  purchaseOrder: PurchaseOrder;
+  purchaseOrder!: PurchaseOrder;
 }

@@ -422,7 +422,13 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'water_quality_parameter_configs',
       'water_quality_param_equipment',
       'sensor_temperature_latest',
+      'sensor_temperature_daily',
       'health_events',
+      'lice_counts',
+      'treatment_applications',
+      'welfare_assessments',
+      'escape_incidents',
+      'slaughter_facilities',
       'harvest_plans',
       'harvest_records',
 
@@ -459,6 +465,8 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // Persisted Mattilsynet report submissions (FARM-HIGH-125) — the
       // legal record of what was reported; per-tenant like biomass_reports.
       'regulatory_reports',
+      // Scheduler-assembled report drafts awaiting review/approval (RPT-003).
+      'regulatory_report_drafts',
       'sentinel_hub_settings',
 
       // Weather & Marine observations
@@ -473,6 +481,15 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
 
       // Workers
       'farm_workers',
+
+      // Finance (farm OPEX/revenue ledger) — migration
+      // 1802500000000-CreateFinanceTables. Declared here in the SAME
+      // commit as the migration: farm has strictOwnership enabled, so
+      // an undeclared table would be DROPPED by
+      // SourceSchemaBootstrapService on the next startup.
+      'finance_categories',
+      'finance_expense_entries',
+      'finance_settings',
     ],
   },
   {
@@ -535,6 +552,14 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'work_rotations',
       'safety_training_records',
       'hr_mobile_command_receipts',
+
+      // HR Finance (labour-cost settings + manual HR expense ledger) —
+      // migration 1801700000000-CreateHrFinanceTables. `hr_` prefix is
+      // mandatory: farm and hr tables are cloned into the SAME
+      // tenant_<uuid> schema namespace (precedent: departments_hr).
+      'hr_finance_categories',
+      'hr_finance_entries',
+      'hr_payroll_cost_settings',
     ],
   },
   {
@@ -800,6 +825,19 @@ export function getRlsExcludeTablesForService(moduleName: string): string[] {
   }
   return module.infrastructureTables ?? [];
 }
+
+/**
+ * Auth is the ONE service whose RLS exclusions include DOMAIN tables, not just
+ * infrastructure: auth resolves a tenant by reading `users`/`tenants` pre-auth
+ * (SUPER_ADMIN rows carry `tenantId=NULL`), so those tables cannot carry a
+ * tenant-RLS policy. `getRlsExcludeTablesForService('auth')` only knows the
+ * infrastructure tables, so auth's list is declared HERE as the single SSoT —
+ * imported by BOTH the runtime `RlsModule.forPoolService` (auth app.module) AND
+ * the db-migrate provisioner's SCHEMA_REGISTRY (schema-registry.ts) so the two
+ * hand-maintained copies can never drift. Add a new auth cross-tenant/identity
+ * table here and both sides pick it up.
+ */
+export const AUTH_RLS_EXCLUDE_TABLES: readonly string[] = ['auth_outbox', 'users', 'tenants'];
 
 /**
  * Provisioning status to distinguish total failure from partial success

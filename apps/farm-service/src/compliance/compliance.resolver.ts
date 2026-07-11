@@ -43,58 +43,58 @@ import { TenantErasureService } from './services/tenant-erasure.service';
 @ObjectType()
 class TenantExportSummary {
   @Field(() => Int)
-  tableCount: number;
+  tableCount!: number;
 
   @Field(() => Int)
-  totalRows: number;
+  totalRows!: number;
 
   @Field(() => [String])
-  skippedTables: string[];
+  skippedTables!: string[];
 }
 
 @ObjectType()
 class TenantExportBundleResponse {
   @Field(() => ID)
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
-  exportedAt: string;
+  exportedAt!: string;
 
   @Field(() => GraphQLJSON)
-  tables: Record<string, unknown[]>;
+  tables!: Record<string, unknown[]>;
 
   @Field(() => TenantExportSummary)
-  summary: TenantExportSummary;
+  summary!: TenantExportSummary;
 }
 
 @ObjectType()
 class ErasureTicketResponse {
   @Field(() => ID)
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
-  token: string;
+  token!: string;
 
   @Field()
-  expiresAt: string;
+  expiresAt!: string;
 }
 
 @ObjectType()
 class ErasureResultResponse {
   @Field(() => ID)
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
-  confirmedAt: string;
+  confirmedAt!: string;
 
   @Field(() => GraphQLJSON)
-  deletedRowsByTable: Record<string, number>;
+  deletedRowsByTable!: Record<string, number>;
 
   @Field(() => Int)
-  totalDeleted: number;
+  totalDeleted!: number;
 
   @Field(() => Int)
-  auditRowsAnonymised: number;
+  auditRowsAnonymised!: number;
 }
 
 @Resolver()

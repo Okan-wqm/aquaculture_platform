@@ -20,6 +20,86 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MaskinportenService, MATTILSYNET_SCOPES } from './maskinporten.service';
 import { RegulatorySettingsService } from './regulatory-settings.service';
+import type { ValidatedPayload } from './schemas';
+import { MattilsynetRestReportType } from './schemas';
+import { RegulatoryReportType } from './entities/regulatory-report.entity';
+import {
+  CircuitBreakerService,
+  DEFAULT_BREAKER_OPTIONS,
+  type CircuitBreakerOptions,
+} from '@aquaculture/backend-common/resilience';
+import { maskAndTruncatePii } from '@aquaculture/backend-common/utils';
+
+/**
+ * Hard deadline for the outbound Mattilsynet submission POST. A hung government
+ * gateway must not tie up a request thread or stall the lock-held retry sweep.
+ */
+const MATTILSYNET_HTTP_TIMEOUT_MS = 20_000;
+
+/**
+ * Fail-closed, PER-TENANT breaker for the Mattilsynet submission endpoint. On trip
+ * the POST is short-circuited with a CircuitOpenError that the submit path treats
+ * as a transient network failure (scheduled for retry) — never a fabricated
+ * acceptance. Per-tenant keying prevents one tenant's failing integration from
+ * denying submission to every other tenant.
+ */
+const MATTILSYNET_BREAKER_OPTIONS: CircuitBreakerOptions = {
+  ...DEFAULT_BREAKER_OPTIONS,
+  failureMode: 'fail-closed',
+};
+
+/**
+ * A Mattilsynet 5xx response — the regulator server itself is failing. It is
+ * thrown from INSIDE the breaker fn so the breaker counts it (FARM-MEDIUM-172):
+ * `fetch` resolves normally on a 5xx (it only rejects on transport errors), so
+ * without this a sustained server outage would never trip the breaker and the
+ * sweep would keep hammering a struggling regulator. A 4xx is the server WORKING
+ * and rejecting our request (validation/auth) — it is NOT thrown here, so it does
+ * not trip the breaker and flows to normal per-status classification. Carries only
+ * the status code (never the response body, which can echo submitted PII).
+ */
+class MattilsynetServerError extends Error {
+  constructor(readonly httpStatus: number) {
+    super(`Mattilsynet server error: HTTP ${httpStatus}`);
+    this.name = 'MattilsynetServerError';
+  }
+}
+
+/**
+ * Endpoint + scope + label per REST report type — the SSoT the typed submit
+ * methods and the by-type replay path both key off, so an endpoint path lives
+ * in exactly one place. `path` is appended to the configured base URL.
+ */
+export const MATTILSYNET_REST_ROUTES: Record<
+  MattilsynetRestReportType,
+  { path: string; scope: string; label: string }
+> = {
+  [RegulatoryReportType.SEA_LICE]: {
+    path: '/api/lakselus/v1/lakselus',
+    scope: MATTILSYNET_SCOPES.SEA_LICE,
+    label: 'Sea Lice',
+  },
+  [RegulatoryReportType.CLEANER_FISH]: {
+    path: '/api/rensefisk/v1/rensefisk',
+    scope: MATTILSYNET_SCOPES.CLEANER_FISH,
+    label: 'Cleaner Fish',
+  },
+  [RegulatoryReportType.SMOLT]: {
+    path: '/api/settefisk/v1/settefisk',
+    scope: MATTILSYNET_SCOPES.SMOLT,
+    label: 'Smolt',
+  },
+  [RegulatoryReportType.SLAUGHTER_PLANNED]: {
+    path: '/api/slakt/v1/planlagt',
+    scope: MATTILSYNET_SCOPES.SLAUGHTER,
+    label: 'Planned Slaughter',
+  },
+  [RegulatoryReportType.SLAUGHTER_EXECUTED]: {
+    path: '/api/slakt/v1/utfort',
+    scope: MATTILSYNET_SCOPES.SLAUGHTER,
+    label: 'Executed Slaughter',
+  },
+};
 
 // ============================================================================
 // Types - Common
@@ -59,37 +139,72 @@ export interface LusetellingPayload {
   fastsittendeLus: number;
 }
 
+export const STYRKE_ENHETER = [
+  'MILLIGRAM_PER_GRAM',
+  'MILLIGRAM_PER_MILLILITER',
+  'GRAM_PER_KILO',
+  'MILLIGRAM_PER_KILO',
+  'PROSENT',
+] as const;
+export type StyrkeEnhetPayload = (typeof STYRKE_ENHETER)[number];
+
 export interface VirkestoffStyrkePayload {
   verdi: number;
-  enhet: 'MILLIGRAM_PER_GRAM' | 'MILLIGRAM_PER_MILLILITER' | 'GRAM_PER_KILO' | 'MILLIGRAM_PER_KILO' | 'PROSENT';
+  enhet: StyrkeEnhetPayload;
 }
+
+export const MENGDE_ENHETER = ['GRAM', 'KILO', 'TONN', 'LITER'] as const;
+export type MengdeEnhetPayload = (typeof MENGDE_ENHETER)[number];
 
 export interface VirkestoffMengdePayload {
   verdi: number;
-  enhet: 'GRAM' | 'KILO' | 'TONN' | 'LITER';
+  enhet: MengdeEnhetPayload;
 }
 
-// Enum types aligned with official API
-export type VirkestoffTypePayload =
-  | 'AZAMETHIPHOS' | 'CYPERMETHRIN' | 'DELTAMETHRIN' | 'IMIDAKLOPRID'
-  | 'HYDROGENPEROKSID' | 'DIFLUBENZURON' | 'EMAMECTIN_BENZOAT'
-  | 'TEFLUBENZURON' | 'ANNET_VIRKESTOFF';
+// Enum types aligned with official API. The runtime const arrays are the
+// SSoT — write-time validation (TreatmentApplicationService) and the wire
+// types derive from the SAME list, so they structurally cannot drift.
+export const VIRKESTOFF_TYPES = [
+  'AZAMETHIPHOS',
+  'CYPERMETHRIN',
+  'DELTAMETHRIN',
+  'IMIDAKLOPRID',
+  'HYDROGENPEROKSID',
+  'DIFLUBENZURON',
+  'EMAMECTIN_BENZOAT',
+  'TEFLUBENZURON',
+  'ANNET_VIRKESTOFF',
+] as const;
+export type VirkestoffTypePayload = (typeof VIRKESTOFF_TYPES)[number];
 
-export type IkkeMedikamentellTypePayload =
-  | 'TERMISK_BEHANDLING' | 'MEKANISK_BEHANDLING'
-  | 'FERSKVANNSBEHANDLING' | 'ANNEN_BEHANDLING';
+export const IKKE_MEDIKAMENTELL_TYPES = [
+  'TERMISK_BEHANDLING',
+  'MEKANISK_BEHANDLING',
+  'FERSKVANNSBEHANDLING',
+  'ANNEN_BEHANDLING',
+] as const;
+export type IkkeMedikamentellTypePayload = (typeof IKKE_MEDIKAMENTELL_TYPES)[number];
 
-export type MedikamentellTypePayload =
-  | 'FORBEHANDLING' | 'BADEBEHANDLING' | 'ANNEN_BEHANDLING';
+export const MEDIKAMENTELL_TYPES = ['FORBEHANDLING', 'BADEBEHANDLING', 'ANNEN_BEHANDLING'] as const;
+export type MedikamentellTypePayload = (typeof MEDIKAMENTELL_TYPES)[number];
 
 export type ResistensTypePayload =
-  | 'AZAMETHIPHOS' | 'CYPERMETHRIN' | 'DELTAMETHRIN' | 'IMIDAKLOPRID'
-  | 'HYDROGENPEROKSID' | 'DIFLUBENZURON' | 'EMAMECTIN_BENZOAT'
-  | 'TEFLUBENZURON' | 'FERSKVANNSBEHANDLING' | 'ANNEN_RESISTENS';
+  | 'AZAMETHIPHOS'
+  | 'CYPERMETHRIN'
+  | 'DELTAMETHRIN'
+  | 'IMIDAKLOPRID'
+  | 'HYDROGENPEROKSID'
+  | 'DIFLUBENZURON'
+  | 'EMAMECTIN_BENZOAT'
+  | 'TEFLUBENZURON'
+  | 'FERSKVANNSBEHANDLING'
+  | 'ANNEN_RESISTENS';
 
 export type ResistensAarsakTypePayload =
-  | 'BIOESSAY' | 'NEDSATT_BEHANDLINGSEFFEKT'
-  | 'SITUASJONEN_I_OMRÅDET' | 'ANNEN_ÅRSAK';
+  | 'BIOESSAY'
+  | 'NEDSATT_BEHANDLINGSEFFEKT'
+  | 'SITUASJONEN_I_OMRÅDET'
+  | 'ANNEN_ÅRSAK';
 
 export type TestresultatPayload = 'FØLSOM' | 'NEDSATT_FØLSOMHET' | 'RESISTENS';
 
@@ -224,7 +339,10 @@ export interface RensefiskUttakPayload {
 
 // Cleaner fish origin - ALIGNED WITH OFFICIAL RensefiskOpprinnelse
 export type RensefiskOpprinnelsePayload =
-  | 'UKJENT' | 'VILLFANGET' | 'OPPDRETTET' | 'VILLFANGET_OG_OPPDRETTET';
+  | 'UKJENT'
+  | 'VILLFANGET'
+  | 'OPPDRETTET'
+  | 'VILLFANGET_OG_OPPDRETTET';
 
 export interface RensefiskArtPayload {
   artskode: 'USB' | 'BER' | 'GRO' | 'BNB';
@@ -353,6 +471,15 @@ export interface MattilsynetApiResponse {
     felt: string;
     melding: string;
   }[];
+  /**
+   * HTTP status of the Mattilsynet response (absent on a network/transport
+   * failure). The submission service classifies transient-vs-permanent from
+   * this + `isNetworkError`, so the status is surfaced structurally rather
+   * than buried in `feilmelding` (RPT-018 retry classification SSoT).
+   */
+  httpStatus?: number;
+  /** True when the call never reached the regulator (DNS/TCP/TLS/timeout). */
+  isNetworkError?: boolean;
 }
 
 // ============================================================================
@@ -369,12 +496,14 @@ export class MattilsynetApiService {
     private readonly maskinporten: MaskinportenService,
     @Inject(RegulatorySettingsService)
     private readonly settingsService: RegulatorySettingsService,
+    private readonly circuitBreaker: CircuitBreakerService,
   ) {
     // Default to test environment
     const environment = this.configService.get<string>('MATTILSYNET_ENV', 'TEST');
-    this.baseUrl = environment === 'PRODUCTION'
-      ? 'https://innrapportering-api.fisk.mattilsynet.io'
-      : 'https://innrapportering-api.fisk-dev.mattilsynet.io';
+    this.baseUrl =
+      environment === 'PRODUCTION'
+        ? 'https://innrapportering-api.fisk.mattilsynet.io'
+        : 'https://innrapportering-api.fisk-dev.mattilsynet.io';
 
     this.logger.log(`Mattilsynet API configured for: ${this.baseUrl}`);
   }
@@ -384,13 +513,13 @@ export class MattilsynetApiService {
    */
   private async getHeaders(tenantId: string, scope: string): Promise<Record<string, string>> {
     const token = await this.maskinporten.getAccessToken(tenantId, [scope]);
-    const clientId = await this.settingsService.getDecryptedClientId(tenantId) || '';
+    const clientId = (await this.settingsService.getDecryptedClientId(tenantId)) || '';
 
     return {
-      'Authorization': `Bearer ${token}`,
+      Authorization: `Bearer ${token}`,
       'Client-Id': clientId,
       'Content-Type': 'application/json',
-      'Accept': 'application/json',
+      Accept: 'application/json',
     };
   }
 
@@ -398,45 +527,76 @@ export class MattilsynetApiService {
    * Submit a Sea Lice report
    * POST /api/lakselus/v1/lakselus
    */
-  async submitSeaLiceReport(tenantId: string, payload: SeaLicePayload): Promise<MattilsynetApiResponse> {
-    const endpoint = `${this.baseUrl}/api/lakselus/v1/lakselus`;
-    return this.submitReport(tenantId, endpoint, payload, MATTILSYNET_SCOPES.SEA_LICE, 'Sea Lice');
+  async submitSeaLiceReport(
+    tenantId: string,
+    payload: ValidatedPayload<SeaLicePayload>,
+  ): Promise<MattilsynetApiResponse> {
+    return this.submitByType(tenantId, RegulatoryReportType.SEA_LICE, payload);
   }
 
   /**
    * Submit a Cleaner Fish report
    * POST /api/rensefisk/v1/rensefisk
    */
-  async submitCleanerFishReport(tenantId: string, payload: CleanerFishPayload): Promise<MattilsynetApiResponse> {
-    const endpoint = `${this.baseUrl}/api/rensefisk/v1/rensefisk`;
-    return this.submitReport(tenantId, endpoint, payload, MATTILSYNET_SCOPES.CLEANER_FISH, 'Cleaner Fish');
+  async submitCleanerFishReport(
+    tenantId: string,
+    payload: ValidatedPayload<CleanerFishPayload>,
+  ): Promise<MattilsynetApiResponse> {
+    return this.submitByType(tenantId, RegulatoryReportType.CLEANER_FISH, payload);
   }
 
   /**
    * Submit a Smolt report
    * POST /api/settefisk/v1/settefisk
    */
-  async submitSmoltReport(tenantId: string, payload: SmoltPayload): Promise<MattilsynetApiResponse> {
-    const endpoint = `${this.baseUrl}/api/settefisk/v1/settefisk`;
-    return this.submitReport(tenantId, endpoint, payload, MATTILSYNET_SCOPES.SMOLT, 'Smolt');
+  async submitSmoltReport(
+    tenantId: string,
+    payload: ValidatedPayload<SmoltPayload>,
+  ): Promise<MattilsynetApiResponse> {
+    return this.submitByType(tenantId, RegulatoryReportType.SMOLT, payload);
   }
 
   /**
    * Submit a Planned Slaughter report
    * POST /api/slakt/v1/planlagt
    */
-  async submitPlannedSlaughterReport(tenantId: string, payload: PlannedSlaughterPayload): Promise<MattilsynetApiResponse> {
-    const endpoint = `${this.baseUrl}/api/slakt/v1/planlagt`;
-    return this.submitReport(tenantId, endpoint, payload, MATTILSYNET_SCOPES.SLAUGHTER, 'Planned Slaughter');
+  async submitPlannedSlaughterReport(
+    tenantId: string,
+    payload: ValidatedPayload<PlannedSlaughterPayload>,
+  ): Promise<MattilsynetApiResponse> {
+    return this.submitByType(tenantId, RegulatoryReportType.SLAUGHTER_PLANNED, payload);
   }
 
   /**
    * Submit an Executed Slaughter report
    * POST /api/slakt/v1/utfort
    */
-  async submitExecutedSlaughterReport(tenantId: string, payload: ExecutedSlaughterPayload): Promise<MattilsynetApiResponse> {
-    const endpoint = `${this.baseUrl}/api/slakt/v1/utfort`;
-    return this.submitReport(tenantId, endpoint, payload, MATTILSYNET_SCOPES.SLAUGHTER, 'Executed Slaughter');
+  async submitExecutedSlaughterReport(
+    tenantId: string,
+    payload: ValidatedPayload<ExecutedSlaughterPayload>,
+  ): Promise<MattilsynetApiResponse> {
+    return this.submitByType(tenantId, RegulatoryReportType.SLAUGHTER_EXECUTED, payload);
+  }
+
+  /**
+   * By-report-type submission — the endpoint/scope SSoT keyed by report type,
+   * so the typed methods above AND the retry sweep's replay path (which holds a
+   * re-validated base payload) share one endpoint table with no duplication.
+   * The brand still gates this: only a ValidatedPayload can reach it.
+   */
+  async submitByType(
+    tenantId: string,
+    reportType: MattilsynetRestReportType,
+    payload: ValidatedPayload<MattilsynetBasePayload>,
+  ): Promise<MattilsynetApiResponse> {
+    const route = MATTILSYNET_REST_ROUTES[reportType];
+    return this.submitReport(
+      tenantId,
+      `${this.baseUrl}${route.path}`,
+      payload,
+      route.scope,
+      route.label,
+    );
   }
 
   /**
@@ -454,18 +614,44 @@ export class MattilsynetApiService {
     try {
       const headers = await this.getHeaders(tenantId, scope);
 
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
+      // Bounded deadline + per-tenant circuit breaker: a hung government API must
+      // never hang a request thread or the lock-held retry sweep, and a sustained
+      // outage/slow-call streak trips the breaker so the sweep fast-fails that
+      // tenant instead of hammering a struggling regulator. On trip the breaker
+      // throws CircuitOpenError, caught below and classified as a transient network
+      // error the sweep replays — never a fabricated acceptance.
+      const response = await this.circuitBreaker.execute({
+        serviceName: 'mattilsynet-submit',
+        tenantId,
+        fn: async () => {
+          const res = await fetch(endpoint, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(MATTILSYNET_HTTP_TIMEOUT_MS),
+          });
+          // FARM-MEDIUM-172: a 5xx is the regulator server failing — throw so the
+          // breaker records the HTTP failure (fetch itself never rejects on a 5xx).
+          // A 4xx (validation/auth rejection) is the server working and is returned
+          // for normal classification below, so it never trips the breaker.
+          if (res.status >= 500) {
+            throw new MattilsynetServerError(res.status);
+          }
+          return res;
+        },
+        options: MATTILSYNET_BREAKER_OPTIONS,
       });
 
       const responseData = await response.json();
 
       if (!response.ok) {
+        // SEC-MEDIUM-004 / OBS-MEDIUM-003: the regulator error body echoes the
+        // submitted payload (kontaktperson name/e-mail/phone, org numbers), so
+        // it must be PII-masked AND length-bounded before it reaches the log
+        // stream — never dumped raw as a second Logger argument.
         this.logger.error(
           `${reportType} report submission failed: ${response.status}`,
-          responseData,
+          maskAndTruncatePii(JSON.stringify(responseData)) ?? undefined,
         );
 
         return {
@@ -473,6 +659,7 @@ export class MattilsynetApiService {
           klientReferanse: payload.klientReferanse,
           feilmelding: responseData.message || `HTTP ${response.status}`,
           valideringsfeil: responseData.errors || responseData.validationErrors,
+          httpStatus: response.status,
         };
       }
 
@@ -486,12 +673,19 @@ export class MattilsynetApiService {
         klientReferanse: payload.klientReferanse,
       };
     } catch (error) {
-      this.logger.error(`Failed to submit ${reportType} report: ${error}`);
+      // SEC-MEDIUM-004: the thrown error (fetch/abort/parse) can carry the
+      // regulator response text or endpoint URL — mask + bound it, and never
+      // interpolate the raw error object.
+      const masked = maskAndTruncatePii(
+        error instanceof Error ? error.message : String(error),
+      );
+      this.logger.error(`Failed to submit ${reportType} report: ${masked ?? 'unknown error'}`);
 
       return {
         success: false,
         klientReferanse: payload.klientReferanse,
         feilmelding: error instanceof Error ? error.message : 'Unknown error',
+        isNetworkError: true,
       };
     }
   }
@@ -502,7 +696,7 @@ export class MattilsynetApiService {
   async healthCheck(tenantId: string): Promise<{ healthy: boolean; message: string }> {
     try {
       // Try to get a token (validates Maskinporten connection)
-      if (!await this.maskinporten.isConfiguredForTenant(tenantId)) {
+      if (!(await this.maskinporten.isConfiguredForTenant(tenantId))) {
         return {
           healthy: false,
           message: 'Maskinporten not configured',

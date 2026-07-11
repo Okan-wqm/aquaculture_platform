@@ -30,27 +30,27 @@ registerEnumType(StorageItemType, {
 @Index(['itemType', 'itemId'])
 export class StorageInventory {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid', name: 'tenant_id' })
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ type: 'uuid', name: 'storage_location_id' })
   @Index()
-  storageLocationId: string;
+  storageLocationId!: string;
 
   @Column({ type: 'varchar', length: 20, name: 'item_type' })
-  itemType: StorageItemType;
+  itemType!: StorageItemType;
 
   @Column({ type: 'uuid', name: 'item_id' })
-  itemId: string;
+  itemId!: string;
 
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
-  quantity: number;
+  quantity!: number;
 
   @Column({ length: 20 })
-  unit: string;
+  unit!: string;
 
   @Column({ type: 'varchar', length: 100, nullable: true, name: 'lot_number' })
   lotNumber?: string;
@@ -88,13 +88,13 @@ export class StorageInventory {
    * waste write-offs can all target the same row within seconds.
    */
   @VersionColumn()
-  version: number;
+  version!: number;
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn({ type: 'timestamptz', name: 'updated_at' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Column({ type: 'uuid', nullable: true, name: 'created_by' })
   createdBy?: string;

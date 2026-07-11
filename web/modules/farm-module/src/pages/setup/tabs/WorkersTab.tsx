@@ -33,6 +33,8 @@ interface WorkerFormData {
   email: string;
   phone: string;
   position: string;
+  isVeterinarian: boolean;
+  veterinaryLicenseNumber: string;
 }
 
 const initialFormData: WorkerFormData = {
@@ -41,6 +43,8 @@ const initialFormData: WorkerFormData = {
   email: '',
   phone: '',
   position: '',
+  isVeterinarian: false,
+  veterinaryLicenseNumber: '',
 };
 
 export const WorkersTab: React.FC = () => {
@@ -81,6 +85,8 @@ export const WorkersTab: React.FC = () => {
       email: item.email,
       phone: item.phone || '',
       position: item.position,
+      isVeterinarian: item.isVeterinarian ?? false,
+      veterinaryLicenseNumber: item.veterinaryLicenseNumber || '',
     });
     setIsModalOpen(true);
   };
@@ -113,6 +119,8 @@ export const WorkersTab: React.FC = () => {
           email: formData.email,
           phone: formData.phone || undefined,
           position: formData.position,
+          isVeterinarian: formData.isVeterinarian,
+          veterinaryLicenseNumber: formData.veterinaryLicenseNumber || undefined,
         });
       } else {
         await createWorker.mutateAsync({
@@ -121,6 +129,8 @@ export const WorkersTab: React.FC = () => {
           email: formData.email,
           phone: formData.phone || undefined,
           position: formData.position,
+          isVeterinarian: formData.isVeterinarian,
+          veterinaryLicenseNumber: formData.veterinaryLicenseNumber || undefined,
         } as CreateWorkerInput);
       }
       setIsModalOpen(false);
@@ -347,6 +357,41 @@ export const WorkersTab: React.FC = () => {
                 className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
+            <div>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={formData.isVeterinarian}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, isVeterinarian: e.target.checked }))
+                  }
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                />
+                <span className="text-sm font-medium text-gray-700">
+                  Veterinarian (can be attributed to treatments)
+                </span>
+              </label>
+            </div>
+            {formData.isVeterinarian && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Veterinary licence number
+                </label>
+                <input
+                  type="text"
+                  maxLength={50}
+                  value={formData.veterinaryLicenseNumber}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      veterinaryLicenseNumber: e.target.value,
+                    }))
+                  }
+                  placeholder="Professional licence / registration number"
+                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+            )}
           </div>
           <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end gap-3">
             <button

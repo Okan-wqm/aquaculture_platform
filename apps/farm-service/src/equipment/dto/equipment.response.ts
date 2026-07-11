@@ -22,13 +22,13 @@ registerEnumType(EquipmentCategory, {
 @ObjectType()
 export class SpecificationFieldResponse {
   @Field()
-  name: string;
+  name!: string;
 
   @Field()
-  label: string;
+  label!: string;
 
   @Field()
-  type: string;
+  type!: string;
 
   @Field({ nullable: true })
   required?: boolean;
@@ -58,16 +58,16 @@ export class SpecificationFieldResponse {
 @ObjectType()
 export class EquipmentTypeResponse {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  name: string;
+  name!: string;
 
   @Field()
-  code: string;
+  code!: string;
 
   @Field(() => EquipmentCategory)
-  category: EquipmentCategory;
+  category!: EquipmentCategory;
 
   @Field({ nullable: true })
   description?: string;
@@ -85,22 +85,22 @@ export class EquipmentTypeResponse {
   sortOrder?: number;
 
   @Field()
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 @ObjectType()
 export class EquipmentSystemResponse {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field(() => ID)
-  systemId: string;
+  systemId!: string;
 
   @Field({ nullable: true })
   systemName?: string;
@@ -130,22 +130,22 @@ export class EquipmentSystemResponse {
 @ObjectType()
 export class BatchDetailMetric {
   @Field(() => ID)
-  batchId: string;
+  batchId!: string;
 
   @Field()
-  batchNumber: string;
+  batchNumber!: string;
 
   @Field(() => Int)
-  quantity: number;
+  quantity!: number;
 
   @Field(() => Float)
-  avgWeightG: number;
+  avgWeightG!: number;
 
   @Field(() => Float)
-  biomassKg: number;
+  biomassKg!: number;
 
   @Field(() => Float, { description: 'Share of the tank stock, percent' })
-  percentageOfTank: number;
+  percentageOfTank!: number;
 }
 
 /**
@@ -251,10 +251,10 @@ export class EquipmentBatchMetrics {
 @ObjectType()
 export class EquipmentResponse {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field(() => ID)
-  tenantId: string;
+  tenantId!: string;
 
   @Field(() => ID, { nullable: true })
   departmentId?: string;
@@ -293,10 +293,10 @@ export class EquipmentResponse {
   equipmentType?: EquipmentTypeResponse;
 
   @Field()
-  name: string;
+  name!: string;
 
   @Field()
-  code: string;
+  code!: string;
 
   @Field({ nullable: true })
   description?: string;
@@ -326,7 +326,7 @@ export class EquipmentResponse {
   purchasePrice?: number;
 
   @Field(() => EquipmentStatus)
-  status: EquipmentStatus;
+  status!: EquipmentStatus;
 
   @Field({ nullable: true })
   notes?: string;
@@ -351,7 +351,7 @@ export class EquipmentResponse {
   supplierId?: string;
 
   @Field()
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field({ nullable: true })
   isVisibleInSensor?: boolean;
@@ -372,10 +372,10 @@ export class EquipmentResponse {
   updatedBy?: string;
 
   @Field()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 @ObjectType()

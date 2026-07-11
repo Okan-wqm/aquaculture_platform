@@ -47,6 +47,7 @@ import {
   FishAppetite,
 } from '../../feeding/entities/feeding-record.entity';
 import { CreateFeedingRecordHandler } from '../../feeding/handlers/create-feeding-record.handler';
+import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 import { GetFeedingRecordsHandler } from '../../feeding/query-handlers/get-feeding-records.handler';
 import { GetFeedingSummaryHandler } from '../../feeding/query-handlers/get-feeding-summary.handler';
 import { GetFeedingRecordsQuery } from '../../feeding/queries/get-feeding-records.query';
@@ -195,6 +196,7 @@ describe('Feeding record tenant isolation on real Postgres', () => {
       backdatePolicy as never,
       batchDomainService,
       stockMovementService,
+      new FinanceSettingsService(dataSource),
     );
     getFeedingRecords = new GetFeedingRecordsHandler(dataSource);
     getFeedingSummary = new GetFeedingSummaryHandler(dataSource);

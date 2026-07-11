@@ -173,6 +173,8 @@ export const SitesTab: React.FC = () => {
       const siteData: CreateSiteInput = {
         name: formData.name,
         code: formData.code,
+        lokalitetsnummer:
+          typeof formData.lokalitetsnummer === 'number' ? formData.lokalitetsnummer : undefined,
         status: emptyToUndefined(formData.status),
         country: emptyToUndefined(formData.country),
         region: emptyToUndefined(formData.region),

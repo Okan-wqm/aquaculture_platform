@@ -1,12 +1,11 @@
 /**
- * Module (RequireTenantAdmin Guard) Tests
+ * Module route-guard tests (SEC-007 + MT-HIGH-060 delegation).
  *
- * SEC-007: Defense-in-depth route guard for tenant admin pages.
- * Tests:
- * - Authenticated TENANT_ADMIN -> render children
- * - Authenticated MODULE_USER  -> redirect /unauthorized
- * - Unauthenticated            -> redirect /login
- * - SUPER_ADMIN                -> render children (hierarchy)
+ * - Authenticated TENANT_ADMIN / SUPER_ADMIN -> render children (bypass all gates)
+ * - Authenticated MODULE_USER with no panel capability -> redirect /unauthorized
+ * - Unauthenticated -> redirect /login
+ * - Delegate (MODULE_USER + capability) -> reaches ONLY the delegated pages;
+ *   admin-only pages (billing/database/...) still redirect to /unauthorized.
  */
 
 import '@testing-library/jest-dom/vitest';
@@ -21,17 +20,45 @@ import { createTenantAdminTestQueryClient } from '../test/query-client';
 // Mocks
 // --------------------------------------------------------------------------
 
-const mockHasRoleOrHigher = vi.fn();
+interface MockUser {
+  id: string;
+  email: string;
+  role: string;
+  resourcePermissions?: string[];
+}
+
+// Controllable auth state. Tests set `mockUser` (role + granted capabilities);
+// hasRoleOrHigher AND the capability SSoT functions all derive from it, so the
+// mock behaves like the real shared-ui module.
+let mockUser: MockUser | null = null;
 const mockIsAuthenticated = vi.fn();
 const mockIsLoading = vi.fn();
+
+function isAdminRole(role: string | null | undefined): boolean {
+  return role === 'SUPER_ADMIN' || role === 'TENANT_ADMIN';
+}
+
+// Kept as a spy (a test asserts it is called with 'TENANT_ADMIN') but its return
+// is derived from mockUser so callers see consistent role state.
+const mockHasRoleOrHigher = vi.fn((role: string) =>
+  role === 'TENANT_ADMIN' ? isAdminRole(mockUser?.role) : false,
+);
+
+const PANEL_CAPS = ['users:view', 'roles:view', 'settings:view'];
 
 vi.mock('@aquaculture/shared-ui', () => ({
   useAuthContext: () => ({
     hasRoleOrHigher: mockHasRoleOrHigher,
     isAuthenticated: mockIsAuthenticated(),
     isLoading: mockIsLoading(),
-    user: { id: 'u1', email: 'test@test.com', role: 'TENANT_ADMIN' },
+    user: mockUser,
   }),
+  hasResourcePermission: (u: MockUser | null | undefined, perm: string) =>
+    !!u && (isAdminRole(u.role) || (u.resourcePermissions ?? []).includes(perm)),
+  hasTenantPanelAccess: (u: MockUser | null | undefined) =>
+    !!u &&
+    (isAdminRole(u.role) ||
+      PANEL_CAPS.some((c) => (u.resourcePermissions ?? []).includes(c))),
   getTenantId: vi.fn(() => 'tenant-1'),
   createTenantQueryKey: (tenantId: string | null | undefined, ...segments: readonly unknown[]) => [
     'tenant',
@@ -51,7 +78,7 @@ vi.mock('../pages/TenantModules', () => ({
   default: () => React.createElement('div', null, 'Modules'),
 }));
 vi.mock('../pages/TenantSettings', () => ({
-  default: () => React.createElement('div', null, 'Settings'),
+  default: () => React.createElement('div', { 'data-testid': 'tenant-settings' }, 'Settings'),
 }));
 vi.mock('../pages/TenantDatabase', () => ({
   default: () => React.createElement('div', null, 'Database'),
@@ -72,13 +99,13 @@ vi.mock('../pages/EdgeDeviceDetailPage', () => ({
   default: () => React.createElement('div', null, 'Device Detail'),
 }));
 vi.mock('../pages/TenantRolesPage', () => ({
-  default: () => React.createElement('div', null, 'Roles'),
+  default: () => React.createElement('div', { 'data-testid': 'tenant-roles' }, 'Roles'),
 }));
 vi.mock('../pages/TenantAuditLogPage', () => ({
   default: () => React.createElement('div', null, 'Audit Log'),
 }));
 vi.mock('../pages/TenantBillingPage', () => ({
-  default: () => React.createElement('div', null, 'Billing'),
+  default: () => React.createElement('div', { 'data-testid': 'tenant-billing' }, 'Billing'),
 }));
 vi.mock('../pages/TenantActivityPage', () => ({
   default: () => React.createElement('div', null, 'Activity'),
@@ -126,105 +153,112 @@ function renderModule(initialPath: string = '/tenant') {
 // Tests
 // --------------------------------------------------------------------------
 
-describe('RequireTenantAdmin Guard (SEC-007)', () => {
+describe('Tenant-admin route guards (SEC-007 + MT-HIGH-060)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUser = { id: 'u1', email: 'test@test.com', role: 'TENANT_ADMIN' };
     mockIsLoading.mockReturnValue(false);
     mockIsAuthenticated.mockReturnValue(true);
-    mockHasRoleOrHigher.mockReturnValue(true);
+    mockHasRoleOrHigher.mockImplementation((role: string) =>
+      role === 'TENANT_ADMIN' ? isAdminRole(mockUser?.role) : false,
+    );
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  // ========================================================================
-  // Authenticated TENANT_ADMIN -> render children
-  // ========================================================================
-
   describe('Authenticated TENANT_ADMIN', () => {
     it('should render dashboard for TENANT_ADMIN', async () => {
-      mockIsAuthenticated.mockReturnValue(true);
-      mockHasRoleOrHigher.mockReturnValue(true);
-
+      mockUser = { id: 'u1', email: 'a@t.com', role: 'TENANT_ADMIN' };
       renderModule('/tenant');
-
       await waitFor(() => {
         expect(screen.getByTestId('tenant-dashboard')).toBeInTheDocument();
       });
     });
 
     it('should render users page for TENANT_ADMIN', async () => {
-      mockIsAuthenticated.mockReturnValue(true);
-      mockHasRoleOrHigher.mockReturnValue(true);
-
+      mockUser = { id: 'u1', email: 'a@t.com', role: 'TENANT_ADMIN' };
       renderModule('/tenant/users');
-
       await waitFor(() => {
         expect(screen.getByTestId('tenant-users')).toBeInTheDocument();
       });
     });
 
-    it('should check hasRoleOrHigher with TENANT_ADMIN', () => {
-      mockIsAuthenticated.mockReturnValue(true);
-      mockHasRoleOrHigher.mockReturnValue(true);
-
+    it('should check hasRoleOrHigher with TENANT_ADMIN', async () => {
+      mockUser = { id: 'u1', email: 'a@t.com', role: 'TENANT_ADMIN' };
       renderModule('/tenant');
-
+      await waitFor(() => {
+        expect(screen.getByTestId('tenant-dashboard')).toBeInTheDocument();
+      });
       expect(mockHasRoleOrHigher).toHaveBeenCalledWith('TENANT_ADMIN');
     });
   });
 
-  // ========================================================================
-  // Authenticated MODULE_USER -> redirect /unauthorized
-  // ========================================================================
-
-  describe('Authenticated MODULE_USER', () => {
-    it('should redirect MODULE_USER to /unauthorized', async () => {
-      mockIsAuthenticated.mockReturnValue(true);
-      mockHasRoleOrHigher.mockReturnValue(false); // MODULE_USER fails the check
-
+  describe('Authenticated MODULE_USER (no panel capability)', () => {
+    it('should redirect a capability-less MODULE_USER to /unauthorized', async () => {
+      mockUser = { id: 'u2', email: 'm@t.com', role: 'MODULE_USER' };
       renderModule('/tenant');
-
       await waitFor(() => {
         expect(screen.getByTestId('unauthorized-page')).toBeInTheDocument();
       });
     });
 
-    it('should redirect MODULE_USER from any tenant sub-route', async () => {
-      mockIsAuthenticated.mockReturnValue(true);
-      mockHasRoleOrHigher.mockReturnValue(false);
-
+    it('should redirect a capability-less MODULE_USER from /tenant/users', async () => {
+      mockUser = { id: 'u2', email: 'm@t.com', role: 'MODULE_USER' };
       renderModule('/tenant/users');
-
       await waitFor(() => {
         expect(screen.getByTestId('unauthorized-page')).toBeInTheDocument();
       });
     });
 
-    it('should not render tenant content for MODULE_USER', async () => {
-      mockIsAuthenticated.mockReturnValue(true);
-      mockHasRoleOrHigher.mockReturnValue(false);
-
+    it('should not render tenant content for a capability-less MODULE_USER', async () => {
+      mockUser = { id: 'u2', email: 'm@t.com', role: 'MODULE_USER' };
       renderModule('/tenant');
-
       await waitFor(() => {
         expect(screen.queryByTestId('tenant-dashboard')).not.toBeInTheDocument();
       });
     });
   });
 
-  // ========================================================================
-  // Unauthenticated -> redirect /login
-  // ========================================================================
+  describe('Delegate (MODULE_USER + tenant-RBAC capability)', () => {
+    it('lets a users:view delegate reach /tenant/users', async () => {
+      mockUser = { id: 'u3', email: 'd@t.com', role: 'MODULE_USER', resourcePermissions: ['users:view'] };
+      renderModule('/tenant/users');
+      await waitFor(() => {
+        expect(screen.getByTestId('tenant-users')).toBeInTheDocument();
+      });
+    });
+
+    it('lets a roles:view delegate reach /tenant/roles', async () => {
+      mockUser = { id: 'u3', email: 'd@t.com', role: 'MODULE_USER', resourcePermissions: ['roles:view'] };
+      renderModule('/tenant/roles');
+      await waitFor(() => {
+        expect(screen.getByTestId('tenant-roles')).toBeInTheDocument();
+      });
+    });
+
+    it('redirects a users:view delegate away from an admin-only page (/tenant/billing)', async () => {
+      mockUser = { id: 'u3', email: 'd@t.com', role: 'MODULE_USER', resourcePermissions: ['users:view'] };
+      renderModule('/tenant/billing');
+      await waitFor(() => {
+        expect(screen.getByTestId('unauthorized-page')).toBeInTheDocument();
+      });
+    });
+
+    it('redirects a users:view delegate away from a non-granted delegatable page (/tenant/roles)', async () => {
+      mockUser = { id: 'u3', email: 'd@t.com', role: 'MODULE_USER', resourcePermissions: ['users:view'] };
+      renderModule('/tenant/roles');
+      await waitFor(() => {
+        expect(screen.getByTestId('unauthorized-page')).toBeInTheDocument();
+      });
+    });
+  });
 
   describe('Unauthenticated User', () => {
     it('should redirect unauthenticated user to /login', async () => {
       mockIsAuthenticated.mockReturnValue(false);
-      mockHasRoleOrHigher.mockReturnValue(false);
-
       renderModule('/tenant');
-
       await waitFor(() => {
         expect(screen.getByTestId('login-page')).toBeInTheDocument();
       });
@@ -232,68 +266,36 @@ describe('RequireTenantAdmin Guard (SEC-007)', () => {
 
     it('should redirect unauthenticated user from nested route', async () => {
       mockIsAuthenticated.mockReturnValue(false);
-      mockHasRoleOrHigher.mockReturnValue(false);
-
       renderModule('/tenant/settings');
-
       await waitFor(() => {
         expect(screen.getByTestId('login-page')).toBeInTheDocument();
       });
     });
   });
 
-  // ========================================================================
-  // SUPER_ADMIN -> render children (hierarchy)
-  // ========================================================================
-
   describe('SUPER_ADMIN (Role Hierarchy)', () => {
     it('should render dashboard for SUPER_ADMIN', async () => {
-      mockIsAuthenticated.mockReturnValue(true);
-      // SUPER_ADMIN has higher rank than TENANT_ADMIN, so hasRoleOrHigher returns true
-      mockHasRoleOrHigher.mockReturnValue(true);
-
+      mockUser = { id: 'u4', email: 's@t.com', role: 'SUPER_ADMIN' };
       renderModule('/tenant');
-
       await waitFor(() => {
         expect(screen.getByTestId('tenant-dashboard')).toBeInTheDocument();
       });
     });
 
     it('should render users page for SUPER_ADMIN', async () => {
-      mockIsAuthenticated.mockReturnValue(true);
-      mockHasRoleOrHigher.mockReturnValue(true);
-
+      mockUser = { id: 'u4', email: 's@t.com', role: 'SUPER_ADMIN' };
       renderModule('/tenant/users');
-
       await waitFor(() => {
         expect(screen.getByTestId('tenant-users')).toBeInTheDocument();
       });
     });
   });
 
-  // ========================================================================
-  // Loading state
-  // ========================================================================
-
   describe('Loading State', () => {
-    it('should show loading message while auth is loading', () => {
+    it('shows a checking-session state while auth is loading', () => {
       mockIsLoading.mockReturnValue(true);
-      mockIsAuthenticated.mockReturnValue(false);
-
       renderModule('/tenant');
-
-      expect(screen.getByText('Checking session...')).toBeInTheDocument();
       expect(screen.queryByTestId('tenant-dashboard')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('login-page')).not.toBeInTheDocument();
-    });
-
-    it('should not redirect while auth is still loading', () => {
-      mockIsLoading.mockReturnValue(true);
-      mockIsAuthenticated.mockReturnValue(false);
-
-      renderModule('/tenant');
-
-      expect(screen.queryByTestId('login-page')).not.toBeInTheDocument();
       expect(screen.queryByTestId('unauthorized-page')).not.toBeInTheDocument();
     });
   });

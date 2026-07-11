@@ -43,10 +43,10 @@ export class SpeciesListResponse extends StandardPaginatedResponse(Species) {}
 @ObjectType()
 export class DeleteSpeciesResponse {
   @Field()
-  success: boolean;
+  success!: boolean;
 
   @Field()
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   message?: string;

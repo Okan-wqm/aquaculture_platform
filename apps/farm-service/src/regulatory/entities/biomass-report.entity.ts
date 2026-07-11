@@ -40,6 +40,14 @@ import GraphQLJSON from 'graphql-type-json';
 
 export enum BiomassReportStatus {
   DRAFT = 'DRAFT',
+  /** Reviewed, ready to export for the manual Altinn FD-0001 submission. */
+  READY = 'READY',
+  /** Operator confirmed the report was submitted via Altinn (altinnReference set). */
+  CONFIRMED_SUBMITTED = 'CONFIRMED_SUBMITTED',
+  /**
+   * Legacy terminal state from before the Altinn honesty fix (RPT-001). No new
+   * row reaches it; the immutability guard treats it as CONFIRMED_SUBMITTED.
+   */
   SUBMITTED = 'SUBMITTED',
 }
 
@@ -47,6 +55,12 @@ registerEnumType(BiomassReportStatus, {
   name: 'BiomassReportStatus',
   description: 'Lifecycle of a biomass report snapshot',
 });
+
+/** The terminal, immutable biomass states (confirmed Altinn submission + legacy). */
+export const TERMINAL_BIOMASS_STATUSES: ReadonlySet<BiomassReportStatus> = new Set([
+  BiomassReportStatus.CONFIRMED_SUBMITTED,
+  BiomassReportStatus.SUBMITTED,
+]);
 
 // ============================================================================
 // PAYLOAD SHAPES — mirror the BiomassReportTab.tsx BiomassFormData
@@ -150,25 +164,25 @@ export interface BiomassReportPayload {
 export class BiomassReport {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
   @Column('uuid')
-  siteId: string;
+  siteId!: string;
 
   /** Calendar month, 1–12 (not zero-based — matches the frontend form). */
   @Field(() => Int)
   @Column('int')
-  reportMonth: number;
+  reportMonth!: number;
 
   @Field(() => Int)
   @Column('int')
-  reportYear: number;
+  reportYear!: number;
 
   @Field(() => BiomassReportStatus)
   @Column({
@@ -176,7 +190,7 @@ export class BiomassReport {
     enum: BiomassReportStatus,
     default: BiomassReportStatus.DRAFT,
   })
-  status: BiomassReportStatus;
+  status!: BiomassReportStatus;
 
   /**
    * Full form snapshot. Typed as `BiomassReportPayload` at the
@@ -186,12 +200,12 @@ export class BiomassReport {
    */
   @Field(() => GraphQLJSON)
   @Column('jsonb')
-  reportData: BiomassReportPayload;
+  reportData!: BiomassReportPayload;
 
   /** Denormalised for fast list queries (sum of bySpecies.biomassKg). */
   @Field()
   @Column('decimal', { precision: 14, scale: 2, default: 0 })
-  totalBiomassKg: string;
+  totalBiomassKg!: string;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -205,11 +219,26 @@ export class BiomassReport {
   @Column('uuid', { nullable: true })
   submittedBy?: string;
 
+  /** When the report was marked READY for the Altinn export (RPT-001). */
+  @Field({ nullable: true })
+  @Column('timestamptz', { nullable: true })
+  readyAt?: Date;
+
+  /** Altinn/Fiskeridirektoratet receipt reference the operator confirmed. */
+  @Field(() => String, { nullable: true })
+  @Column('varchar', { length: 64, nullable: true })
+  altinnReference?: string | null;
+
+  /** Operator who confirmed the Altinn submission. */
+  @Field({ nullable: true })
+  @Column('uuid', { nullable: true })
+  confirmedBy?: string;
+
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }

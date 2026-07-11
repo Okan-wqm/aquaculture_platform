@@ -137,7 +137,6 @@ export function useSendMessage(channelId: string | undefined): UseSendMessageRet
               id: user.id,
               firstName: user.name?.split(' ')[0] ?? null,
               lastName: user.name?.split(' ').slice(1).join(' ') ?? null,
-              email: user.email,
             }
           : undefined,
         _status: 'pending',

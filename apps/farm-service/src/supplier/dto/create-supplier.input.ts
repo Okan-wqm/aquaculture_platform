@@ -12,7 +12,7 @@ export class SupplierContactInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(255)
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -55,7 +55,7 @@ export class SupplierAddressInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(100)
-  city: string;
+  city!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -73,14 +73,14 @@ export class SupplierAddressInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(100)
-  country: string;
+  country!: string;
 }
 
 @InputType()
 export class PaymentTermsInput {
   @Field(() => Int)
   @IsNumber()
-  paymentDays: number;
+  paymentDays!: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -90,7 +90,7 @@ export class PaymentTermsInput {
   @Field({ defaultValue: 'TRY' })
   @IsString()
   @MaxLength(3)
-  currency: string;
+  currency!: string;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -116,18 +116,18 @@ export class CreateSupplierInput {
   @IsString()
   @MinLength(2)
   @MaxLength(255)
-  name: string;
+  name!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MinLength(2)
   @MaxLength(50)
-  code: string;
+  code!: string;
 
   @Field(() => SupplierType)
   @IsEnum(SupplierType)
-  type: SupplierType;
+  type!: SupplierType;
 
   @Field({ nullable: true })
   @IsOptional()

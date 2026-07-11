@@ -93,6 +93,66 @@ registerEnumType(QualityGrade, {
   description: 'Kalite sınıfı',
 });
 
+/**
+ * Norwegian official slaughter quality class (kvalitetsklasse) — the taxonomy
+ * the Mattilsynet slakt report requires and, since Phase 4 (RPT-007), the SOLE
+ * stored quality taxonomy on harvest_records.
+ *
+ * The retired 5-level `qualityGrade` column was dropped
+ * (DropHarvestQualityGrade1804300000000); `qualityGrade` survives only as a
+ * DERIVED read alias (classToDisplayGrade). The grade→class map is lossy
+ * (PREMIUM and GRADE_A both collapse to SUPERIOR), so the historical
+ * Premium/Grade-A distinction is not recoverable — this was the accepted
+ * tradeoff of the operator decision to make the regulator format the SSoT.
+ */
+export enum QualityClass {
+  SUPERIOR = 'superior',
+  ORDINAER = 'ordinaer',
+  PRODUKSJONSFISK = 'produksjonsfisk',
+  UTKAST = 'utkast',
+}
+
+registerEnumType(QualityClass, {
+  name: 'QualityClass',
+  description: 'Norwegian official slaughter quality class (kvalitetsklasse)',
+});
+
+/**
+ * Deterministic map from the platform's display grade to the official quality
+ * class — the SSoT shared by the create handler and the migration backfill
+ * (the migration mirrors this exact mapping in SQL). The 5→4 collapse is
+ * intentional: Superior is the premium export grade, Utkast the reject.
+ */
+export const QUALITY_GRADE_TO_CLASS: Readonly<Record<QualityGrade, QualityClass>> = Object.freeze({
+  [QualityGrade.PREMIUM]: QualityClass.SUPERIOR,
+  [QualityGrade.GRADE_A]: QualityClass.SUPERIOR,
+  [QualityGrade.GRADE_B]: QualityClass.ORDINAER,
+  [QualityGrade.GRADE_C]: QualityClass.PRODUKSJONSFISK,
+  [QualityGrade.REJECT]: QualityClass.UTKAST,
+});
+
+export function qualityGradeToClass(grade: QualityGrade): QualityClass {
+  return QUALITY_GRADE_TO_CLASS[grade] ?? QualityClass.ORDINAER;
+}
+
+/**
+ * Representative display grade per quality class — the lossy inverse used to
+ * render the retired 5-level `qualityGrade` as a DERIVED display alias now that
+ * `quality_class` is the sole stored taxonomy (RPT-007, Phase 4). PREMIUM is
+ * unreachable by construction (SUPERIOR maps back to GRADE_A) — accepted, since
+ * the class cannot distinguish premium from A.
+ */
+export const CLASS_TO_DISPLAY_GRADE: Readonly<Record<QualityClass, QualityGrade>> = Object.freeze({
+  [QualityClass.SUPERIOR]: QualityGrade.GRADE_A,
+  [QualityClass.ORDINAER]: QualityGrade.GRADE_B,
+  [QualityClass.PRODUKSJONSFISK]: QualityGrade.GRADE_C,
+  [QualityClass.UTKAST]: QualityGrade.REJECT,
+});
+
+export function classToDisplayGrade(qualityClass: QualityClass): QualityGrade {
+  return CLASS_TO_DISPLAY_GRADE[qualityClass] ?? QualityGrade.GRADE_B;
+}
+
 // ============================================================================
 // INTERFACES
 // ============================================================================
@@ -241,12 +301,12 @@ export interface YieldCalculation {
 export class HarvestRecord {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // TEMEL BİLGİLER
@@ -255,12 +315,12 @@ export class HarvestRecord {
   @Field()
   @Column({ length: 50 })
   @Index()
-  recordCode: string;                // HR-2024-00001
+  recordCode!: string;                // HR-2024-00001
 
   @Field()
   @Column({ length: 50 })
   @Index()
-  lotNumber: string;                 // LOT-2024-00001
+  lotNumber!: string;                 // LOT-2024-00001
 
   // -------------------------------------------------------------------------
   // BATCH & PLAN İLİŞKİSİ
@@ -269,7 +329,7 @@ export class HarvestRecord {
   @Field()
   @Column('uuid')
   @Index()
-  batchId: string;
+  batchId!: string;
 
   @ManyToOne('Batch', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'batchId' })
@@ -310,7 +370,7 @@ export class HarvestRecord {
     default: HarvestRecordStatus.IN_PROGRESS,
   })
   @Index()
-  status: HarvestRecordStatus;
+  status!: HarvestRecordStatus;
 
   // -------------------------------------------------------------------------
   // HASAT TARİHİ VE OPERASYON
@@ -319,11 +379,11 @@ export class HarvestRecord {
   @Field()
   @Column({ type: 'date' })
   @Index()
-  harvestDate: Date;
+  harvestDate!: Date;
 
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  operation: HarvestOperation;
+  operation!: HarvestOperation;
 
   @Field(() => HarvestMethod)
   @Column({
@@ -331,7 +391,7 @@ export class HarvestRecord {
     enum: HarvestMethod,
     default: HarvestMethod.NET,
   })
-  method: HarvestMethod;
+  method!: HarvestMethod;
 
   // -------------------------------------------------------------------------
   // MİKTAR BİLGİLERİ
@@ -339,15 +399,15 @@ export class HarvestRecord {
 
   @Field(() => Int)
   @Column({ type: 'int' })
-  quantityHarvested: number;         // Adet
+  quantityHarvested!: number;         // Adet
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
-  totalBiomass: number;              // kg (brüt)
+  totalBiomass!: number;              // kg (brüt)
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 10, scale: 2, transformer: new DecimalTransformer() })
-  averageWeight: number;             // gram
+  averageWeight!: number;             // gram
 
   @Field(() => Float, { nullable: true })
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
@@ -375,15 +435,34 @@ export class HarvestRecord {
     enum: ProductForm,
     default: ProductForm.FRESH_WHOLE,
   })
-  productForm: ProductForm;
+  productForm!: ProductForm;
 
-  @Field(() => QualityGrade)
+  /**
+   * Official Norwegian quality class (kvalitetsklasse) — the sole stored quality
+   * taxonomy and the slakt-report truth (RPT-007). The retired 5-level
+   * `qualityGrade` column was dropped in Phase 4
+   * (DropHarvestQualityGrade1804300000000); operators now select the class
+   * directly.
+   */
+  @Field(() => QualityClass)
   @Column({
     type: 'enum',
-    enum: QualityGrade,
-    default: QualityGrade.GRADE_A,
+    enum: QualityClass,
+    default: QualityClass.ORDINAER,
   })
-  qualityGrade: QualityGrade;
+  qualityClass!: QualityClass;
+
+  /**
+   * Retired 5-level display grade, now DERIVED (not stored) from qualityClass
+   * so existing read clients keep a `qualityGrade` field. Lossy alias: SUPERIOR
+   * renders as GRADE_A (PREMIUM is unreachable). No @Column — never persisted.
+   */
+  @Field(() => QualityGrade, {
+    description: 'DEPRECATED display alias derived from qualityClass; use qualityClass.',
+  })
+  get qualityGrade(): QualityGrade {
+    return classToDisplayGrade(this.qualityClass);
+  }
 
   // -------------------------------------------------------------------------
   // KALİTE KONTROL
@@ -395,7 +474,7 @@ export class HarvestRecord {
 
   @Field()
   @Column({ default: false })
-  qualityApproved: boolean;
+  qualityApproved!: boolean;
 
   // -------------------------------------------------------------------------
   // LOT BİLGİLERİ
@@ -403,7 +482,7 @@ export class HarvestRecord {
 
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  lotInfo: LotInfo;
+  lotInfo!: LotInfo;
 
   // -------------------------------------------------------------------------
   // VERİM
@@ -463,7 +542,7 @@ export class HarvestRecord {
 
   @Field()
   @Column('uuid')
-  supervisorId: string;              // Hasat sorumlusu
+  supervisorId!: string;              // Hasat sorumlusu
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -491,11 +570,11 @@ export class HarvestRecord {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // -------------------------------------------------------------------------
   // BUSINESS METHODS

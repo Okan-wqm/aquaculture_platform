@@ -23,6 +23,39 @@ import { AddEquipmentTemperatureSensorId1802100000000 } from './1802100000000-Ad
 import { CreateSensorTemperatureLatest1802200000000 } from './1802200000000-CreateSensorTemperatureLatest';
 import { AddTankTemperatureSensorId1802300000000 } from './1802300000000-AddTankTemperatureSensorId';
 import { AddExecutionGrowthAppliedAt1802400000000 } from './1802400000000-AddExecutionGrowthAppliedAt';
+import { AddSpeciesOfficialCode1802500000000 } from './1802500000000-AddSpeciesOfficialCode';
+import { AddSiteRegulatoryIdentity1802600000000 } from './1802600000000-AddSiteRegulatoryIdentity';
+import { CreateLiceCounts1802700000000 } from './1802700000000-CreateLiceCounts';
+import { CreateTreatmentApplications1802800000000 } from './1802800000000-CreateTreatmentApplications';
+import { CreateWelfareAssessments1802900000000 } from './1802900000000-CreateWelfareAssessments';
+import { CreateEscapeIncidents1803000000000 } from './1803000000000-CreateEscapeIncidents';
+import { AddHarvestNorwegianQualityClass1803100000000 } from './1803100000000-AddHarvestNorwegianQualityClass';
+import { AddTankRegulatoryUnitId1803200000000 } from './1803200000000-AddTankRegulatoryUnitId';
+import { AddBatchInputTypeSmolt1803300000000 } from './1803300000000-AddBatchInputTypeSmolt';
+import { AddWorkerVeterinaryFields1803400000000 } from './1803400000000-AddWorkerVeterinaryFields';
+import { CreateSlaughterFacilities1803450000000 } from './1803450000000-CreateSlaughterFacilities';
+import { CreateSensorTemperatureDaily1803500000000 } from './1803500000000-CreateSensorTemperatureDaily';
+import { CreateRegulatoryReportDrafts1803600000000 } from './1803600000000-CreateRegulatoryReportDrafts';
+import { AddRegulatoryReportRetryColumns1803700000000 } from './1803700000000-AddRegulatoryReportRetryColumns';
+import { AddReportDraftDeadlineNotifiedBucket1803750000000 } from './1803750000000-AddReportDraftDeadlineNotifiedBucket';
+import { ExtendBiomassReportStatusAltinnManual1804000000000 } from './1804000000000-ExtendBiomassReportStatusAltinnManual';
+import { DropRegulatorySettingsSlaughterApprovalNumber1804100000000 } from './1804100000000-DropRegulatorySettingsSlaughterApprovalNumber';
+import { DropSiteLocalityMappingsJsonb1804200000000 } from './1804200000000-DropSiteLocalityMappingsJsonb';
+import { DropHarvestQualityGrade1804300000000 } from './1804300000000-DropHarvestQualityGrade';
+import { DropOrphanQualityGradeEnum1804400000000 } from './1804400000000-DropOrphanQualityGradeEnum';
+// From main: heal-behind-tenant quality grade + finance tables (finance was
+// renumbered on main's own merge from 1802500000000 → 1804600000000).
+import { HealBehindTenantQualityGrade1804500000000 } from './1804500000000-HealBehindTenantQualityGrade';
+import { CreateFinanceTables1804600000000 } from './1804600000000-CreateFinanceTables';
+import { AddRegulatoryAuditEnumValues1804700000000 } from './1804700000000-AddRegulatoryAuditEnumValues';
+import { AddRegulatoryReportImmutabilityTrigger1804800000000 } from './1804800000000-AddRegulatoryReportImmutabilityTrigger';
+import { AddWelfareLiceCheckConstraints1804900000000 } from './1804900000000-AddWelfareLiceCheckConstraints';
+// Renumbered from 1804500000000/1804600000000 → 1805000000000/1805100000000 on
+// this main merge to resolve a timestamp collision with main's
+// HealBehindTenantQualityGrade1804500000000 + CreateFinanceTables1804600000000
+// (migrations are append-only + ordered).
+import { ApplyRlsToRegulatoryReportDrafts1805000000000 } from './1805000000000-ApplyRlsToRegulatoryReportDrafts';
+import { AddTenantErasureRetainedColumns1805100000000 } from './1805100000000-AddTenantErasureRetainedColumns';
 
 /**
  * Canonical farm-service migration class list.
@@ -58,4 +91,31 @@ export const FARM_MIGRATIONS = [
   CreateSensorTemperatureLatest1802200000000,
   AddTankTemperatureSensorId1802300000000,
   AddExecutionGrowthAppliedAt1802400000000,
+  AddSpeciesOfficialCode1802500000000,
+  AddSiteRegulatoryIdentity1802600000000,
+  CreateLiceCounts1802700000000,
+  CreateTreatmentApplications1802800000000,
+  CreateWelfareAssessments1802900000000,
+  CreateEscapeIncidents1803000000000,
+  AddHarvestNorwegianQualityClass1803100000000,
+  AddTankRegulatoryUnitId1803200000000,
+  AddBatchInputTypeSmolt1803300000000,
+  AddWorkerVeterinaryFields1803400000000,
+  CreateSlaughterFacilities1803450000000,
+  CreateSensorTemperatureDaily1803500000000,
+  CreateRegulatoryReportDrafts1803600000000,
+  AddRegulatoryReportRetryColumns1803700000000,
+  AddReportDraftDeadlineNotifiedBucket1803750000000,
+  ExtendBiomassReportStatusAltinnManual1804000000000,
+  DropRegulatorySettingsSlaughterApprovalNumber1804100000000,
+  DropSiteLocalityMappingsJsonb1804200000000,
+  DropHarvestQualityGrade1804300000000,
+  DropOrphanQualityGradeEnum1804400000000,
+  HealBehindTenantQualityGrade1804500000000,
+  CreateFinanceTables1804600000000,
+  AddRegulatoryAuditEnumValues1804700000000,
+  AddRegulatoryReportImmutabilityTrigger1804800000000,
+  AddWelfareLiceCheckConstraints1804900000000,
+  ApplyRlsToRegulatoryReportDrafts1805000000000,
+  AddTenantErasureRetainedColumns1805100000000,
 ] as const;

@@ -11,6 +11,8 @@ export {
   type AuthEventValidationResult,
   validateIngestBackendPolicyEvent,
   type IngestBackendPolicyEventValidationResult,
+  validateFinanceEvent,
+  type FinanceEventValidationResult,
 } from './validator';
 export { FARM_EVENT_SCHEMAS, type FarmEventType } from './farm-events.schema';
 export {
@@ -33,6 +35,10 @@ export {
   AUTH_EVENT_SCHEMAS,
   type AuthEventType,
 } from './auth-events.schema';
+export {
+  FINANCE_EVENT_SCHEMAS,
+  type FinanceEventType,
+} from './finance-events.schema';
 export {
   UUID_PATTERN,
   MAX_FREE_TEXT_LENGTH,

@@ -6,12 +6,12 @@ import { Type } from 'class-transformer';
 export class ReceiveDeliveryItemInput {
   @Field(() => ID)
   @IsUUID()
-  itemId: string;
+  itemId!: string;
 
   @Field(() => Float)
   @IsNumber()
   @Min(0.01)
-  quantityReceived: number;
+  quantityReceived!: number;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -28,15 +28,15 @@ export class ReceiveDeliveryItemInput {
 export class ReceiveDeliveryInput {
   @Field(() => ID)
   @IsUUID()
-  purchaseOrderId: string;
+  purchaseOrderId!: string;
 
   @Field(() => ID)
   @IsUUID()
-  storageLocationId: string;
+  storageLocationId!: string;
 
   @Field(() => [ReceiveDeliveryItemInput])
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ReceiveDeliveryItemInput)
-  items: ReceiveDeliveryItemInput[];
+  items!: ReceiveDeliveryItemInput[];
 }

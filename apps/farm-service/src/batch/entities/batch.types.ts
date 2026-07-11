@@ -49,6 +49,9 @@ export enum BatchInputType {
   FRY = 'FRY',
   FINGERLINGS = 'FINGERLINGS',
   JUVENILES = 'JUVENILES',
+  // Smolt is a distinct regulatory lifecycle stage for the settefisk report
+  // (RPT-016a) — sea-transfer-ready salmonids, between fingerling and adult.
+  SMOLT = 'SMOLT',
   ADULTS = 'ADULTS',
   BROODSTOCK = 'BROODSTOCK',
 }

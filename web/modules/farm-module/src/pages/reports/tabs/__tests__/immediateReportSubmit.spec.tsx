@@ -239,4 +239,34 @@ describe('immediate-report tabs — real submission + success/failure handling',
       await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Mattilsynet rejected'));
     });
   });
+
+  // Guards CONTRACT-CRITICAL-001: the varsling enum inputs must be sent as the
+  // GraphQL enum WIRE names (uppercase keys), or enum coercion rejects them before
+  // the resolver and the legally-immediate report never files.
+  describe('varsling enum inputs are sent as uppercase GraphQL wire names', () => {
+    it('Welfare sends WELFARE_IMPACT + HIGH, not the lowercase domain values', async () => {
+      requestMock.mockResolvedValue({ submitWelfareEvent: { success: true } });
+      const user = userEvent.setup();
+      renderTab(<WelfareEventTab siteId="site-001" />);
+      await openModalViaHeaderButton(/report event/i);
+      await user.click(screen.getByRole('button', { name: /submit report/i }));
+
+      await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+      const [, variables] = requestMock.mock.calls[0];
+      expect(variables.input.welfareEventType).toBe('WELFARE_IMPACT');
+      expect(variables.input.severity).toBe('HIGH');
+    });
+
+    it('Disease sends CONFIRMED, not the lowercase domain value', async () => {
+      requestMock.mockResolvedValue({ submitDiseaseOutbreak: { success: true } });
+      const user = userEvent.setup();
+      renderTab(<DiseaseOutbreakTab siteId="site-001" />);
+      await openModalViaHeaderButton(/report outbreak/i);
+      await user.click(screen.getByRole('button', { name: /submit report/i }));
+
+      await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+      const [, variables] = requestMock.mock.calls[0];
+      expect(variables.input.confirmation).toBe('CONFIRMED');
+    });
+  });
 });

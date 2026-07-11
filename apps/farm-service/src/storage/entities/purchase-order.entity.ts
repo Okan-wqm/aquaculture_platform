@@ -45,26 +45,26 @@ registerEnumType(PurchaseOrderStatus, {
 @Index(['tenantId', 'category'])
 export class PurchaseOrder {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid', name: 'tenant_id' })
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ type: 'varchar', length: 20, name: 'order_number' })
-  orderNumber: string;
+  orderNumber!: string;
 
   @Column({ type: 'varchar', length: 20 })
-  category: PurchaseOrderCategory;
+  category!: PurchaseOrderCategory;
 
   @Column({ type: 'varchar', length: 255, name: 'supplier_name' })
-  supplierName: string;
+  supplierName!: string;
 
   @Column({ type: 'varchar', length: 255, nullable: true, name: 'supplier_contact' })
   supplierContact?: string;
 
   @Column({ type: 'varchar', length: 30, default: 'DRAFT' })
-  status: PurchaseOrderStatus;
+  status!: PurchaseOrderStatus;
 
   @Column({ type: 'date', nullable: true, name: 'expected_delivery_date' })
   expectedDeliveryDate?: Date;
@@ -79,10 +79,10 @@ export class PurchaseOrder {
   totalAmount?: number;
 
   @Column({ type: 'varchar', length: 3, default: 'NOK' })
-  currency: string;
+  currency!: string;
 
   @Column({ type: 'uuid', name: 'created_by' })
-  createdBy: string;
+  createdBy!: string;
 
   @Column({ type: 'uuid', nullable: true, name: 'approved_by' })
   approvedBy?: string;
@@ -98,17 +98,17 @@ export class PurchaseOrder {
   approvedAt?: Date;
 
   @Column({ type: 'boolean', default: false, name: 'is_deleted' })
-  isDeleted: boolean;
+  isDeleted!: boolean;
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn({ type: 'timestamptz', name: 'updated_at' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @VersionColumn()
-  version: number;
+  version!: number;
 
   @OneToMany(() => PurchaseOrderItem, (item) => item.purchaseOrder, { cascade: true })
-  items: PurchaseOrderItem[];
+  items!: PurchaseOrderItem[];
 }

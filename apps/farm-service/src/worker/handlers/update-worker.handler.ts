@@ -49,6 +49,9 @@ export class UpdateWorkerHandler implements ICommandHandler<UpdateWorkerCommand,
         worker.contactInfo = { ...worker.contactInfo, phone: input.phone };
       }
       if (input.position !== undefined) worker.position = input.position;
+      if (input.isVeterinarian !== undefined) worker.isVeterinarian = input.isVeterinarian;
+      if (input.veterinaryLicenseNumber !== undefined)
+        worker.veterinaryLicenseNumber = input.veterinaryLicenseNumber;
 
       const updated = await workerRepo.save(worker);
 

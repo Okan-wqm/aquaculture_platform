@@ -40,13 +40,13 @@ export class IndividualMeasurementInput {
   @Field(() => Int, { description: 'Sample number (1, 2, 3...)' })
   @IsInt()
   @Min(1)
-  sampleNumber: number;
+  sampleNumber!: number;
 
   @Field(() => Float, { description: 'Weight in grams' })
   @IsNumber()
   @Min(0.01)
   @Max(100000)
-  weight: number;
+  weight!: number;
 
   @Field(() => Float, { nullable: true, description: 'Total length in cm' })
   @IsOptional()
@@ -90,13 +90,13 @@ export class MeasurementConditionsInput {
 
   @Field({ description: 'Feeding status before measurement' })
   @IsString()
-  feedingStatus: 'fed' | 'fasted_12h' | 'fasted_24h' | 'unknown';
+  feedingStatus!: 'fed' | 'fasted_12h' | 'fasted_24h' | 'unknown';
 
   @Field({ description: 'Time of day (HH:mm format)' })
   @IsString()
   @MinLength(5)
   @MaxLength(5)
-  timeOfDay: string;
+  timeOfDay!: string;
 
   @Field({ nullable: true, description: 'Weather conditions' })
   @IsOptional()
@@ -117,7 +117,7 @@ export class CreateGrowthMeasurementInput {
 
   @Field(() => ID, { description: 'Batch ID' })
   @IsUUID()
-  batchId: string;
+  batchId!: string;
 
   @Field(() => ID, { nullable: true, description: 'Tank ID where measurement was taken' })
   @IsOptional()
@@ -136,21 +136,21 @@ export class CreateGrowthMeasurementInput {
   @Field({ description: 'Measurement date' })
   @IsDate()
   @Type(() => Date)
-  measurementDate: Date;
+  measurementDate!: Date;
 
   @Field(() => MeasurementType, {
     defaultValue: MeasurementType.ROUTINE,
     description: 'Type of measurement',
   })
   @IsEnum(MeasurementType)
-  measurementType: MeasurementType;
+  measurementType!: MeasurementType;
 
   @Field(() => MeasurementMethod, {
     defaultValue: MeasurementMethod.MANUAL_SCALE,
     description: 'Method used for measurement',
   })
   @IsEnum(MeasurementMethod)
-  measurementMethod: MeasurementMethod;
+  measurementMethod!: MeasurementMethod;
 
   // -------------------------------------------------------------------------
   // SAMPLE INFO
@@ -160,12 +160,12 @@ export class CreateGrowthMeasurementInput {
   @IsInt()
   @Min(1)
   @Max(10000)
-  sampleSize: number;
+  sampleSize!: number;
 
   @Field(() => Int, { description: 'Total population size of batch' })
   @IsInt()
   @Min(1)
-  populationSize: number;
+  populationSize!: number;
 
   // -------------------------------------------------------------------------
   // INDIVIDUAL MEASUREMENTS
@@ -177,7 +177,7 @@ export class CreateGrowthMeasurementInput {
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => IndividualMeasurementInput)
-  individualMeasurements: IndividualMeasurementInput[];
+  individualMeasurements!: IndividualMeasurementInput[];
 
   // -------------------------------------------------------------------------
   // QUICK ACCESS METRICS (optional - can be auto-calculated)
@@ -252,11 +252,11 @@ export class CreateGrowthMeasurementInput {
   @Field({ description: 'Measurement date and time' })
   @IsDate()
   @Type(() => Date)
-  measuredAt: Date;
+  measuredAt!: Date;
 
   @Field(() => ID, { description: 'User ID who performed the measurement' })
   @IsUUID()
-  measuredBy: string;
+  measuredBy!: string;
 
   @Field({ nullable: true, description: 'Additional notes' })
   @IsOptional()

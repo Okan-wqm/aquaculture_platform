@@ -83,12 +83,12 @@ registerEnumType(DepartmentStatus, {
 export class Department {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // SITE İLİŞKİSİ (nullable - orphaned departments when site is deleted)
@@ -109,11 +109,11 @@ export class Department {
 
   @Field()
   @Column({ length: 100 })
-  name: string;
+  name!: string;
 
   @Field()
   @Column({ length: 20 })
-  code: string;                        // Kısa kod: "PROD", "MAINT"
+  code!: string;                        // Kısa kod: "PROD", "MAINT"
 
   @Field(() => DepartmentType)
   @Column({
@@ -121,7 +121,7 @@ export class Department {
     enum: DepartmentType,
     default: DepartmentType.PRODUCTION,
   })
-  type: DepartmentType;
+  type!: DepartmentType;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -157,12 +157,12 @@ export class Department {
     enum: DepartmentStatus,
     default: DepartmentStatus.ACTIVE,
   })
-  status: DepartmentStatus;
+  status!: DepartmentStatus;
 
   @Field()
   @Column({ default: true })
   @Index()
-  isActive: boolean;
+  isActive!: boolean;
 
   // -------------------------------------------------------------------------
   // AUDIT FIELDS
@@ -170,11 +170,11 @@ export class Department {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -185,7 +185,7 @@ export class Department {
   updatedBy?: string;
 
   @VersionColumn()
-  version: number;
+  version!: number;
 
   // -------------------------------------------------------------------------
   // SOFT DELETE
@@ -194,7 +194,7 @@ export class Department {
   @Field()
   @Column({ default: false })
   @Index()
-  isDeleted: boolean;
+  isDeleted!: boolean;
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })

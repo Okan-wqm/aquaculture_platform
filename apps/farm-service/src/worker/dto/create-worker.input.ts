@@ -1,5 +1,5 @@
 import { InputType, Field } from '@nestjs/graphql';
-import { IsNotEmpty, IsString, IsOptional, IsEmail, MaxLength } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsString, IsOptional, IsEmail, MaxLength } from 'class-validator';
 
 @InputType()
 export class CreateWorkerInput {
@@ -7,18 +7,18 @@ export class CreateWorkerInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(100)
-  firstName: string;
+  firstName!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MaxLength(100)
-  lastName: string;
+  lastName!: string;
 
   @Field()
   @IsNotEmpty()
   @IsEmail()
-  email: string;
+  email!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -30,5 +30,16 @@ export class CreateWorkerInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(100)
-  position: string;
+  position!: string;
+
+  @Field({ defaultValue: false })
+  @IsOptional()
+  @IsBoolean()
+  isVeterinarian?: boolean;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  veterinaryLicenseNumber?: string;
 }

@@ -59,7 +59,7 @@ export class DetailedMortalityInput {
   @Field()
   @IsNotEmpty()
   @IsUUID()
-  batchId: string;
+  batchId!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -74,13 +74,13 @@ export class DetailedMortalityInput {
   @Field()
   @IsNotEmpty()
   @IsDateString()
-  recordDate: string;
+  recordDate!: string;
 
   @Field(() => Int)
   @IsNotEmpty()
   @IsNumber()
   @Min(1)
-  count: number;
+  count!: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -90,7 +90,7 @@ export class DetailedMortalityInput {
 
   @Field(() => MortalityCause, { defaultValue: MortalityCause.UNKNOWN })
   @IsEnum(MortalityCause)
-  cause: MortalityCause;
+  cause!: MortalityCause;
 
   @Field({ nullable: true })
   @IsOptional()

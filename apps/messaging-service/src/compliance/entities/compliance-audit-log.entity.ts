@@ -76,43 +76,43 @@ export class ComplianceAuditLog {
   // @see DB-CRITICAL-003, MSG-CRITICAL-009
   @Field(() => ID)
   @PrimaryColumn({ type: 'uuid', default: () => 'gen_random_uuid()' })
-  id: string;
+  id!: string;
 
   @Field()
   @Column({ type: 'uuid' })
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
   @Column({ type: 'uuid' })
-  userId: string;
+  userId!: string;
 
   @Field(() => ComplianceAction)
   @Column({ type: 'varchar', length: 30 })
-  action: ComplianceAction;
+  action!: ComplianceAction;
 
   @Field()
   @Column({ type: 'varchar', length: 50 })
-  resourceType: string;
+  resourceType!: string;
 
   @Field()
   @Column({ type: 'uuid' })
-  resourceId: string;
+  resourceId!: string;
 
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })
-  details: Record<string, unknown> | null;
+  details!: Record<string, unknown> | null;
 
   @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 45, nullable: true })
-  ipAddress: string | null;
+  ipAddress!: string | null;
 
   @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 512, nullable: true })
-  userAgent: string | null;
+  userAgent!: string | null;
 
   // IMPORTANT: createdAt is part of the composite PK so future audited
   // partitioning can keep entity identity stable without runtime DDL.
   @Field()
   @PrimaryColumn({ type: 'timestamptz', default: () => 'now()' })
-  createdAt: Date;
+  createdAt!: Date;
 }

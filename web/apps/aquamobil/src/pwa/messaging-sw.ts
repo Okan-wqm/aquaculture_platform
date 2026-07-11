@@ -261,7 +261,21 @@ function handleFetchEvent(event: FetchEvent): void {
   // Caching GraphQL responses risks leaking authenticated data to the next user
   // on shared devices. All GraphQL requests go straight to the network.
   if (GRAPHQL_PATTERN.test(url.pathname) && event.request.method === 'POST') {
-    event.respondWith(fetch(event.request));
+    // Pass through to the network WITHOUT caching — this respondWith preempts
+    // the workbox router for GraphQL POSTs so authenticated responses are never
+    // cached. A genuine network failure (offline, dropped connection, Safari's
+    // "Load failed") must surface to the app's fetch client exactly as it would
+    // with no SW, so its offline queue / retry fires — but as a RESOLVED
+    // network-error Response, NOT a rejected promise. Without the catch, a
+    // failed fetch rejects respondWith and the browser logs the noisy
+    // "FetchEvent.respondWith received an error: TypeError: Load failed" on
+    // every transient network blip (MSG bug).
+    event.respondWith(
+      fetch(event.request).catch((error: unknown) => {
+        logger.error('[sw-fetch] GraphQL network passthrough failed', error);
+        return Response.error();
+      }),
+    );
     return;
   }
 

@@ -10,13 +10,13 @@ import { EquipmentResponse } from './equipment.response';
 @ObjectType()
 export class SubEquipmentTypeResponse {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  name: string;
+  name!: string;
 
   @Field()
-  code: string;
+  code!: string;
 
   @Field({ nullable: true })
   description?: string;
@@ -25,52 +25,52 @@ export class SubEquipmentTypeResponse {
   icon?: string;
 
   @Field(() => [String], { description: 'Compatible equipment type codes' })
-  compatibleEquipmentTypes: string[];
+  compatibleEquipmentTypes!: string[];
 
   @Field(() => GraphQLJSON, { nullable: true })
   specificationSchema?: Record<string, unknown>;
 
   @Field()
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field()
-  isSystem: boolean;
+  isSystem!: boolean;
 
   @Field(() => Int)
-  sortOrder: number;
+  sortOrder!: number;
 
   @Field()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 @ObjectType()
 export class SubEquipmentResponse {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field(() => ID)
-  tenantId: string;
+  tenantId!: string;
 
   @Field(() => ID)
-  parentEquipmentId: string;
+  parentEquipmentId!: string;
 
   @Field(() => EquipmentResponse, { nullable: true })
   parentEquipment?: EquipmentResponse;
 
   @Field(() => ID)
-  subEquipmentTypeId: string;
+  subEquipmentTypeId!: string;
 
   @Field(() => SubEquipmentTypeResponse, { nullable: true })
   subEquipmentType?: SubEquipmentTypeResponse;
 
   @Field()
-  name: string;
+  name!: string;
 
   @Field()
-  code: string;
+  code!: string;
 
   @Field({ nullable: true })
   description?: string;
@@ -85,7 +85,7 @@ export class SubEquipmentResponse {
   serialNumber?: string;
 
   @Field(() => EquipmentStatus)
-  status: EquipmentStatus;
+  status!: EquipmentStatus;
 
   @Field(() => GraphQLJSON, { nullable: true })
   specifications?: Record<string, unknown>;
@@ -97,7 +97,7 @@ export class SubEquipmentResponse {
   notes?: string;
 
   @Field()
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field(() => ID, { nullable: true })
   createdBy?: string;
@@ -106,13 +106,13 @@ export class SubEquipmentResponse {
   updatedBy?: string;
 
   @Field()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field(() => Int)
-  version: number;
+  version!: number;
 }
 
 @ObjectType()

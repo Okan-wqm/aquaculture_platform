@@ -26,6 +26,9 @@ import { EquipmentType } from '../equipment/entities/equipment-type.entity';
 import { Equipment } from '../equipment/entities/equipment.entity';
 import { FarmStockModule } from '../farm-stock/farm-stock.module';
 import { Feed } from '../feed/entities/feed.entity';
+// FinanceModule exports the currency SSoT resolver (FARM-HIGH-151). No
+// cycle: FinanceModule imports no domain module.
+import { FinanceModule } from '../finance/finance.module';
 import { HealthEvent } from '../fish-health/entities/health-event.entity';
 import { FishHealthModule } from '../fish-health/fish-health.module';
 import { GrowthMeasurement } from '../growth/entities/growth-measurement.entity';
@@ -57,6 +60,7 @@ import { BatchDomainService } from './services/batch-domain.service';
 import { BatchLifecyclePolicyService } from './services/batch-lifecycle-policy.service';
 import { BatchService } from './services/batch.service';
 import { BiomassCalculatorService } from './services/biomass-calculator.service';
+import { StockReconstructionService } from './services/stock-reconstruction.service';
 import { TankCountReconcileService } from './services/tank-count-reconcile.service';
 import { TankBatchModule } from './tank-batch.module';
 import { MortalityCullPolicyService } from './services/mortality-cull-policy.service';
@@ -101,6 +105,7 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
     // handlers in HarvestModule resolve the same instance (never a per-module copy).
     TankBatchModule,
     FarmStockModule,
+    FinanceModule,
     ConfigModule,
     // WHY: CloseBatchHandler + GetBatchPerformanceHandler now inject
     // FCRCalculationService (the single FCR authority, Tier-1 SSoT consolidation),
@@ -121,6 +126,7 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
     MortalityCullPolicyService,
     SGRCalculatorService,
     BiomassCalculatorService,
+    StockReconstructionService,
     BatchCostCalculatorService,
     BatchDocumentDataLoader,  // REQUEST-scoped: one instance per GraphQL request
     BatchLocationDataLoader,  // REQUEST-scoped: eliminates N+1 for batch.locations
@@ -144,6 +150,7 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
     BatchDomainService,
     SGRCalculatorService,
     BiomassCalculatorService,
+    StockReconstructionService,
     BatchCostCalculatorService,
   ],
 })

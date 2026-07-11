@@ -89,7 +89,7 @@ registerEnumType(NotificationPreference, {
 export class ChannelMember {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   /**
    * Tenant identifier for multi-tenant isolation.
@@ -97,19 +97,19 @@ export class ChannelMember {
    */
   @Field()
   @Column({ type: 'uuid' })
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
   @Column({ type: 'uuid' })
-  channelId: string;
+  channelId!: string;
 
   @Field()
   @Column({ type: 'uuid' })
-  userId: string;
+  userId!: string;
 
   @Field(() => ChannelMemberRole)
   @Column({ type: 'varchar', length: 20, default: ChannelMemberRole.MEMBER })
-  role: ChannelMemberRole;
+  role!: ChannelMemberRole;
 
   @Field(() => NotificationPreference)
   @Column({
@@ -117,21 +117,21 @@ export class ChannelMember {
     length: 20,
     default: NotificationPreference.ALL,
   })
-  notificationPreference: NotificationPreference;
+  notificationPreference!: NotificationPreference;
 
   @Field(() => Date, { nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
-  lastReadAt: Date | null;
+  lastReadAt!: Date | null;
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  joinedAt: Date;
+  joinedAt!: Date;
 
   @Field(() => Date, { nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
-  leftAt: Date | null;
+  leftAt!: Date | null;
 
   @ManyToOne(() => Channel, (channel) => channel.members, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'channelId' })
-  channel: Channel;
+  channel!: Channel;
 }

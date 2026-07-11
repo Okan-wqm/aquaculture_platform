@@ -169,7 +169,11 @@ export class FarmStockProjectionService {
             CASE WHEN NULLIF(trim(detail ->> 'avgWeightG'), '') ~ '${SAFE_NUMERIC}'
               THEN NULLIF(trim(detail ->> 'avgWeightG'), '')::numeric ELSE 0 END AS "avgWeightG",
             tb."densityKgM3",
-            false AS "isPrimary",
+            -- FARM-LOW-216: a mixed-batch container's detail rows previously all
+            -- carried isPrimary=false, leaving consumers no deterministic primary.
+            -- The tank-composition ledger's primaryBatchId IS the primary marker,
+            -- so project it truthfully per detail row.
+            COALESCE((detail ->> 'batchId')::uuid = tb."primaryBatchId", false) AS "isPrimary",
             tb."lastMortalityAt"
           FROM tank_batches tb
           CROSS JOIN LATERAL jsonb_array_elements(

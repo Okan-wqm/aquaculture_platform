@@ -14,8 +14,6 @@ import { gql } from 'graphql-tag';
 
 
 import type {
-  GetTanksWithBatchesQuery,
-  GetTanksWithBatchesQueryVariables,
   RecordMortalityMutation,
   RecordMortalityMutationVariables,
   RecordCullMutation,
@@ -94,34 +92,9 @@ import type {
 // `TypedDocumentNode<XQuery, XQueryVariables>` (no cast — gql DocumentNode is
 // structurally assignable). The gql template stays the codegen pluck source.
 
-// Queries - tenantId comes from X-Tenant-Id header (set from JWT)
-export const GET_TANKS_WITH_BATCHES: TypedDocumentNode<GetTanksWithBatchesQuery, GetTanksWithBatchesQueryVariables> = gql`
-  query GetTanksWithBatches {
-    tanks {
-      items {
-        id
-        name
-        code
-        volume
-        status
-        currentBiomass
-        maxBiomass
-        batchMetrics {
-          batchId
-          batchNumber
-          pieces
-          avgWeight
-          biomass
-          density
-          capacityUsedPercent
-          isOverCapacity
-          daysSinceStocking
-        }
-      }
-      total
-    }
-  }
-`;
+// FARM-LOW-217: the legacy GetTanksWithBatches document was deleted — the live
+// tank source is FARM_STOCK_INVENTORY_QUERY (hooks/useTanks.ts); the dead doc
+// had no importer and silently desynced from the Tank type's newer fields.
 
 // Mutations - tenantId/userId extracted from JWT by backend decorators
 export const RECORD_MORTALITY: TypedDocumentNode<RecordMortalityMutation, RecordMortalityMutationVariables> = gql`

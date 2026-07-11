@@ -524,3 +524,24 @@ leave/tasks/storage and the Phase-6 additions are not admin-toggleable) and its 
 now cover the full vocabulary via one abstract base); the admin UI rework is TRACKED with
 owner (admin-expert) + deadline (2026-09-30) — root-cause fix is deriving the toggle list +
 defaults from the shared vocabulary instead of a hand-maintained copy.
+
+### Phase-6 pre-merge re-review (2026-07-11) — MERGE-READY, two LOWs fixed in-branch
+
+The farm-expert adversarial re-review of the Phase-6 diff confirmed the receipt-ledger
+transaction boundaries (no double-write, no event re-enqueue on replay), projection UNION
+alignment, tenant scoping on every new path, and payload↔input contract parity. Two LOW
+findings were raised and fixed in the same branch:
+
+- **FARM-LOW-216** — mixed-batch containers had no deterministic primary batch on the mobile
+  read path (projection wrote isPrimary=false for all detail rows; handler ordered
+  batchNumber-only; the mobile mapper took batches[0]). Fixed: the projection derives
+  isPrimary from the ledger's primaryBatchId per detail row, the inventory handler orders
+  isPrimary DESC first, and the mobile mapper prefers the explicit isPrimary row.
+- **FARM-LOW-217** — a dead GetTanksWithBatches document (zero importers) had silently
+  desynced from the Tank type's newer fields. Fixed: deleted with its unused generated-type
+  imports; the live tank source is farmStockInventory.
+
+Informational (accepted, no change): escape capture's millisecond detectedAt makes the 5s
+offline content-dedup window inert for escapes — the isSubmitting guard + server receipt
+dedup are the real double-submit protections, and a genuine re-entry is legitimately a new
+observation.

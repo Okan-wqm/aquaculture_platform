@@ -37,6 +37,7 @@ const FARM_STOCK_INVENTORY_QUERY = gql`
           avgWeightG
           biomassKg
           densityKgM3
+          isPrimary
         }
       }
       total
@@ -69,6 +70,7 @@ interface FarmStockInventoryResult {
         avgWeightG: number;
         biomassKg: number;
         densityKgM3: number | null;
+        isPrimary: boolean;
       }>;
     }>;
     total: number;
@@ -76,7 +78,12 @@ interface FarmStockInventoryResult {
 }
 
 function mapInventoryItemToTank(item: FarmStockInventoryResult['farmStockInventory']['items'][number]): Tank {
-  const primaryBatch = item.batches[0];
+  // FARM-LOW-216: the container's PRIMARY batch drives species/batch
+  // attribution for field capture. Prefer the explicit isPrimary row (the
+  // tank-composition ledger's primaryBatchId, projected into the snapshot);
+  // the [0] fallback covers pre-migration snapshots, where the handler's
+  // isPrimary-first ordering already puts the primary at the head.
+  const primaryBatch = item.batches.find((b) => b.isPrimary) ?? item.batches[0];
   return {
     id: item.container.containerId,
     name: item.container.name,

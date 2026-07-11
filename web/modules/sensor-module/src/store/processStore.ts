@@ -4,6 +4,7 @@
 
 import { HOST_SOURCE } from '../canvas-contract';
 import { create } from 'zustand';
+import { registerLogoutCleanup, onTenantChange } from '@aquaculture/shared-ui';
 import {
   Node,
   Edge,
@@ -848,3 +849,11 @@ export const useProcessMetadata = () =>
     status: state.processStatus,
   }));
 export const useIsDirty = () => useProcessStore((state) => state.isDirty);
+
+// SECURITY (SENSOR-HIGH-041): the process store holds a single active,
+// tenant-owned P&ID (nodes, edges, equipment/sensor node maps). Fully reset it
+// on logout and on any tenant switch so tenant A's diagram can never surface in
+// — or be saved into — tenant B's session. onTenantChange fires only on an
+// actual A->B change, never on first login.
+registerLogoutCleanup(() => useProcessStore.getState().resetStore());
+onTenantChange(() => useProcessStore.getState().resetStore());

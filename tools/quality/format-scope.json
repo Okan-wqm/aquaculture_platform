@@ -10881,6 +10881,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/finance/resolvers/finance-decimal.mapper.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/finance/resolvers/finance.resolver.ts",
       "prettier_managed": true
     },
@@ -17488,6 +17494,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/hr-service/src/finance/query-handlers/get-hr-personnel-table.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/hr-service/src/finance/resolvers/hr-finance-decimal.mapper.ts",
       "prettier_managed": true
     },
     {
@@ -52284,10 +52296,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8568,
+  "file_count": 8570,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8393,
-  "managed_file_list_sha256": "237b943d24a95cbe70254cf14205b553c6258885c3faa89015875f3cf6d4e090",
+  "managed_count": 8395,
+  "managed_file_list_sha256": "2f86fe691e6cc27f0a7ef4207d398dfd7cebc8c8fdb13626b8070049103cea9f",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

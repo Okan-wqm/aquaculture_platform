@@ -19,6 +19,7 @@ jest.mock('@aquaculture/backend-common/database', () => ({
 }));
 
 import { ReportSchedulerService } from '../services/report-scheduler.service';
+import type { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
 import { ReportAssemblyService, ReportPrefillType } from '../assembly/report-assembly.service';
 import { RegulatorySettingsService } from '../regulatory-settings.service';
 import { RegulatoryReportStoreService } from '../services/regulatory-report-store.service';
@@ -54,6 +55,7 @@ function makeService(options: {
   resubmit: jest.Mock;
   listDrafts: jest.Mock;
   approveAndSubmit: jest.Mock;
+  recordRegulatoryCronRun: jest.Mock;
 } {
   const assemble = jest.fn().mockResolvedValue({
     draftPayload: { ok: true },
@@ -110,6 +112,11 @@ function makeService(options: {
     approveAndSubmit,
   } as Partial<RegulatoryDraftSubmissionService> as RegulatoryDraftSubmissionService;
 
+  const recordRegulatoryCronRun = jest.fn();
+  const metrics = {
+    recordRegulatoryCronRun,
+  } as Partial<FarmDomainMetricsService> as FarmDomainMetricsService;
+
   const service = new ReportSchedulerService(
     options.dataSource ?? ({} as Partial<DataSource> as DataSource),
     assemblyService,
@@ -119,6 +126,7 @@ function makeService(options: {
     draftService,
     draftSubmissionService,
     outboxPublisher,
+    metrics,
   );
   return {
     service,
@@ -130,6 +138,7 @@ function makeService(options: {
     resubmit,
     listDrafts,
     approveAndSubmit,
+    recordRegulatoryCronRun,
   };
 }
 
@@ -362,28 +371,29 @@ describe('ReportSchedulerService advisory-lock discipline', () => {
     listTenantSchemas.mockResolvedValue([]);
   });
 
-  function makeLockService(): {
+  function makeLockService(acquired = true): {
     service: ReportSchedulerService;
     lockRunner: { query: jest.Mock; connect: jest.Mock; release: jest.Mock };
     createQueryRunner: jest.Mock;
+    recordRegulatoryCronRun: jest.Mock;
   } {
     const lockRunner: { connect: jest.Mock; release: jest.Mock; query: jest.Mock } = {
       connect: jest.fn().mockResolvedValue(undefined),
       release: jest.fn().mockResolvedValue(undefined),
       query: jest.fn((sql: string) => {
-        if (sql.includes('pg_try_advisory_lock')) return Promise.resolve([{ acquired: true }]);
+        if (sql.includes('pg_try_advisory_lock')) return Promise.resolve([{ acquired }]);
         return Promise.resolve([]);
       }),
     };
     const createQueryRunner = jest.fn(() => lockRunner as Partial<QueryRunner> as QueryRunner);
     const dataSource = { createQueryRunner } as Partial<DataSource> as DataSource;
-    const { service } = makeService({ dataSource });
-    return { service, lockRunner, createQueryRunner };
+    const { service, recordRegulatoryCronRun } = makeService({ dataSource });
+    return { service, lockRunner, createQueryRunner, recordRegulatoryCronRun };
   }
 
   it('acquires and releases the advisory lock on the same dedicated connection', async () => {
     listTenantSchemas.mockResolvedValueOnce([]); // no tenants → body is a no-op
-    const { service, lockRunner, createQueryRunner } = makeLockService();
+    const { service, lockRunner, createQueryRunner, recordRegulatoryCronRun } = makeLockService();
 
     await service.deadlineSweep(new Date('2026-07-06T05:00:00Z'));
 
@@ -395,11 +405,16 @@ describe('ReportSchedulerService advisory-lock discipline', () => {
     const sqls = lockRunner.query.mock.calls.map((c) => c[0] as string);
     expect(sqls.some((s) => s.includes('pg_try_advisory_lock'))).toBe(true);
     expect(sqls.some((s) => s.includes('pg_advisory_unlock'))).toBe(true);
+    // OBS-HIGH-002: a completed run stamps its cron heartbeat as success.
+    expect(recordRegulatoryCronRun).toHaveBeenCalledWith({
+      job: 'regulatory-deadline-sweep',
+      outcome: 'success',
+    });
   });
 
   it('releases the lock (and the connection) even when the job body throws', async () => {
     listTenantSchemas.mockRejectedValueOnce(new Error('discovery boom'));
-    const { service, lockRunner } = makeLockService();
+    const { service, lockRunner, recordRegulatoryCronRun } = makeLockService();
 
     // the error still propagates (the cron logs it) — but the lock+connection
     // are released in finally regardless.
@@ -410,6 +425,12 @@ describe('ReportSchedulerService advisory-lock discipline', () => {
     const sqls = lockRunner.query.mock.calls.map((c) => c[0] as string);
     expect(sqls.some((s) => s.includes('pg_advisory_unlock'))).toBe(true);
     expect(lockRunner.release).toHaveBeenCalledTimes(1);
+    // OBS-HIGH-002: an aborted run records outcome=error so the operator alert
+    // distinguishes it from a quiet run.
+    expect(recordRegulatoryCronRun).toHaveBeenCalledWith({
+      job: 'regulatory-retry-sweep',
+      outcome: 'error',
+    });
   });
 
   it('does not run the job body (nor unlock without acquire) when the lock is held elsewhere', async () => {
@@ -424,7 +445,7 @@ describe('ReportSchedulerService advisory-lock discipline', () => {
     const dataSource = {
       createQueryRunner: jest.fn(() => lockRunner as Partial<QueryRunner> as QueryRunner),
     } as Partial<DataSource> as DataSource;
-    const { service } = makeService({ dataSource });
+    const { service, recordRegulatoryCronRun } = makeService({ dataSource });
 
     await service.deadlineSweep(new Date('2026-07-06T05:00:00Z'));
 
@@ -433,6 +454,12 @@ describe('ReportSchedulerService advisory-lock discipline', () => {
     expect(sqls.some((s) => s.includes('pg_advisory_unlock'))).toBe(false);
     expect(lockRunner.release).toHaveBeenCalledTimes(1);
     expect(listTenantSchemas).not.toHaveBeenCalled();
+    // OBS-HIGH-002: a lock-skip is still a heartbeat (a passive replica), so the
+    // "cron stalled" alert never fires on the replica that didn't win the lock.
+    expect(recordRegulatoryCronRun).toHaveBeenCalledWith({
+      job: 'regulatory-deadline-sweep',
+      outcome: 'skipped_locked',
+    });
   });
 });
 

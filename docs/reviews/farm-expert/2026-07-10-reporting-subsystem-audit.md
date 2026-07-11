@@ -306,6 +306,22 @@ shipping an unverified reconstruction of a regulatory number would be worse than
 fail-closed. This is the CLAUDE.md-sanctioned pattern: fix the harm now, track the deeper fix with an
 owner + deadline + ID.
 
+### FARM-HIGH-186 (OBS-HIGH-001/002/003) — no metrics/heartbeat/alerts on the submission pipeline
+
+The government-submission pipeline emitted no RED metrics, no cron heartbeat, and carried no operator
+alerts, so a Mattilsynet rejection returned GraphQL-200 and counted as success everywhere, a
+chronically-failing report was invisible, and a wedged regulatory scheduler went unnoticed.
+
+Fixed: `FarmDomainMetricsService` gains three series on its existing private registry (no tenant
+label, per the class label discipline): `farm_regulatory_submission_total{report_type,outcome}` (the
+RED rate+errors — submitted/failed/queued), `farm_regulatory_cron_runs_total{job,outcome}`, and a
+`farm_regulatory_cron_last_run_timestamp_seconds{job}` heartbeat gauge. The submission counter is
+emitted at the store choke points (`markSubmitted`/`applyFailure`/`recordQueued`) so every path is
+covered; the cron metrics are emitted in the scheduler `runJob` wrapper (success/error/skipped_locked,
+heartbeat on every run including the lock-skip so passive replicas don't false-alarm). Three operator
+alerts were added to `farm-data-ssot-alerts.yml` — FailuresElevated, RetrySweepStalled (heartbeat),
+CronErrored — each with a `runbook_url` (the monitoring-alert-runbook-url invariant stays green).
+
 ## OPEN — HIGH (tracked)
 
 - **Slaughter drafts can never be submitted** — `buildWirePayload` never wraps `arter`/`ukeplanPerArt`
@@ -318,9 +334,6 @@ owner + deadline + ID.
   like the draft path does (auth-security SEC-HIGH-001).
 - **`regulatory_report_drafts` has no RLS** (its sibling `regulatory_reports` does) and the draft
   service reads via a plain repository outside `runInTenantRead` (multi-tenant REG-HIGH-002).
-- **No RED metrics / cron heartbeat / operator alerts** on the government-submission pipeline — a
-  Mattilsynet rejection returns GraphQL-200 and counts as success everywhere (observability
-  OBS-HIGH-001/002/003).
 - **No max-attempt / dead-letter** — chronic TRANSIENT failures (incl. 401/403) retry forever,
   surfaced to no operator (job-queue PRODUCT-JOB-HIGH-001, observability OBS-HIGH-002).
 - **Biomass draft in the "due" list has a broken Mattilsynet Approve & Submit** and is a duplicate of

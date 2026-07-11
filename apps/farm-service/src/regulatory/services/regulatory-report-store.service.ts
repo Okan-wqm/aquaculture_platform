@@ -34,6 +34,7 @@ import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
+import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
 import {
   RegulatoryFailureClass,
   RegulatoryReport,
@@ -62,6 +63,7 @@ export class RegulatoryReportStoreService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly auditLog: AuditLogService,
+    private readonly metrics: FarmDomainMetricsService,
   ) {}
 
   /**
@@ -141,6 +143,7 @@ export class RegulatoryReportStoreService {
       `Varsling ${saved.reportType} queued for lokalitet ${saved.lokalitetsnummer} ` +
         `(klientReferanse ${saved.klientReferanse})`,
     );
+    this.metrics.incRegulatorySubmission({ reportType: saved.reportType, outcome: 'queued' });
     return saved;
   }
 
@@ -165,6 +168,10 @@ export class RegulatoryReportStoreService {
         `${saved.reportType} accepted by Mattilsynet (referanse ${referanse ?? 'n/a'}` +
           `${saved.attemptCount > 1 ? `, after ${saved.attemptCount} attempts` : ''})`,
       );
+      this.metrics.incRegulatorySubmission({
+        reportType: saved.reportType,
+        outcome: 'submitted',
+      });
     });
     this.logger.log(`Regulatory report ${id} marked SUBMITTED (referanse=${referanse ?? 'n/a'})`);
   }
@@ -224,6 +231,7 @@ export class RegulatoryReportStoreService {
       `${saved.reportType} submission FAILED (${failureClass}, attempt ${saved.attemptCount}` +
         `${nextAttemptAt ? `, retry at ${nextAttemptAt.toISOString()}` : ''})`,
     );
+    this.metrics.incRegulatorySubmission({ reportType: saved.reportType, outcome: 'failed' });
     this.logger.warn(
       `Regulatory report ${id} marked FAILED (${failureClass}` +
         `${nextAttemptAt ? `, retry at ${nextAttemptAt.toISOString()}` : ''})`,

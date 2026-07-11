@@ -16,6 +16,7 @@ import { createMockDataSource } from '@aquaculture/testing';
 
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import type { AuditLogService } from '../../database/services/audit-log.service';
+import type { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
 import { RegulatoryReportStoreService } from '../services/regulatory-report-store.service';
 import {
   RegulatoryFailureClass,
@@ -55,6 +56,7 @@ describe('RegulatoryReportStoreService', () => {
   let service: RegulatoryReportStoreService;
   let mocks: ReturnType<typeof createMockDataSource>;
   let logWithManager: jest.Mock;
+  let incRegulatorySubmission: jest.Mock;
 
   beforeEach(() => {
     mocks = createMockDataSource();
@@ -62,7 +64,11 @@ describe('RegulatoryReportStoreService', () => {
     const auditLog = {
       logWithManager,
     } as Partial<AuditLogService> as AuditLogService;
-    service = new RegulatoryReportStoreService(mocks.mockDataSource, auditLog);
+    incRegulatorySubmission = jest.fn();
+    const metrics = {
+      incRegulatorySubmission,
+    } as Partial<FarmDomainMetricsService> as FarmDomainMetricsService;
+    service = new RegulatoryReportStoreService(mocks.mockDataSource, auditLog, metrics);
   });
 
   describe('recordPending', () => {
@@ -181,6 +187,10 @@ describe('RegulatoryReportStoreService', () => {
           entityId: 'row-1',
         }),
       );
+      // OBS-HIGH-001: the acceptance increments the RED submission counter.
+      expect(incRegulatorySubmission).toHaveBeenCalledWith(
+        expect.objectContaining({ outcome: 'submitted' }),
+      );
     });
   });
 
@@ -247,6 +257,10 @@ describe('RegulatoryReportStoreService', () => {
           entityId: 'row-1',
         }),
       );
+      // OBS-HIGH-001: a failed submission increments the counter as failed.
+      expect(incRegulatorySubmission).toHaveBeenCalledWith(
+        expect.objectContaining({ outcome: 'failed' }),
+      );
     });
   });
 
@@ -296,6 +310,10 @@ describe('RegulatoryReportStoreService', () => {
           entityType: 'RegulatoryReport',
           userId: 'user-001',
         }),
+      );
+      // OBS-HIGH-001: a queued varsling increments the counter as queued.
+      expect(incRegulatorySubmission).toHaveBeenCalledWith(
+        expect.objectContaining({ outcome: 'queued' }),
       );
     });
   });

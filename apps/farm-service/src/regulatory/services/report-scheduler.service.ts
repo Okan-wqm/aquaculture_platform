@@ -45,6 +45,7 @@ import { RegulatorySettingsService } from '../regulatory-settings.service';
 import { RegulatoryReportStoreService } from './regulatory-report-store.service';
 import { RegulatorySubmissionService } from './regulatory-submission.service';
 import { RegulatoryReportDraftService } from './regulatory-report-draft.service';
+import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
 import {
   AUTO_SUBMIT_ACTOR_ID,
   RegulatoryDraftSubmissionService,
@@ -88,6 +89,7 @@ export class ReportSchedulerService {
     private readonly draftService: RegulatoryReportDraftService,
     private readonly draftSubmissionService: RegulatoryDraftSubmissionService,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly metrics: FarmDomainMetricsService,
   ) {}
 
   // ==========================================================================
@@ -412,6 +414,10 @@ export class ReportSchedulerService {
     try {
       if (!(await this.tryAcquireAdvisoryLock(lockRunner, jobName))) {
         this.logger.log(`${jobName}: another instance holds the lock, skipping`);
+        // OBS-HIGH-002: a lock-skip is a legitimate run (another replica owns
+        // the job) — still a heartbeat, so the "cron stalled" alert never fires
+        // on the passive replicas.
+        this.metrics.recordRegulatoryCronRun({ job: jobName, outcome: 'skipped_locked' });
         return;
       }
       const startedAt = Date.now();
@@ -437,6 +443,18 @@ export class ReportSchedulerService {
         this.logger.log(
           `${jobName}: processed ${tenants} tenant(s), ${total} unit(s) in ${Date.now() - startedAt}ms`,
         );
+        // OBS-HIGH-002: the job completed and stamped its heartbeat. Per-tenant
+        // failures are absorbed above (one tenant must not fail the whole run);
+        // an outcome=error below means the run itself broke (e.g. tenant
+        // discovery), which the operator alert distinguishes from a quiet run.
+        this.metrics.recordRegulatoryCronRun({ job: jobName, outcome: 'success' });
+      } catch (error) {
+        this.metrics.recordRegulatoryCronRun({ job: jobName, outcome: 'error' });
+        this.logger.error(
+          `${jobName}: run aborted — ${(error as Error).message}`,
+          (error as Error).stack,
+        );
+        throw error;
       } finally {
         await this.releaseAdvisoryLock(lockRunner, jobName);
       }

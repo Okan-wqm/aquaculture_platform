@@ -27,6 +27,13 @@ post-merge close ceremony records a main-reachable closing commit (PROC-HIGH-001
 by the W1 network-security workstream) and `SENSOR-CRITICAL-003` (VFD tab
 visibility, closed by the W5 frontend workstream). Both are `already-fixed-needs-close`.
 
+Updated 2026-07-11: the reporting-line post-merge close ceremony (PRs #929/#937
+merged; ceremony commit records main-reachable closing commits) RESOLVED six of
+the audit-era criticals that sat in `already-fixed-needs-close` —
+`FARM-CRITICAL-161`, `-163`, `-165`, `-168`, `-169`, `-171` — so their rows leave
+the active table below (the table mirrors `active_critical_ids` exactly; the
+contract invariant enforces the bijection). 8 active CRITICALs remain.
+
 Allowed truth buckets:
 
 - `real-open`
@@ -45,12 +52,6 @@ Allowed truth buckets:
 | `SENSOR-CRITICAL-003` | OPEN           | —            | sensor-expert | already-fixed-needs-close |
 | `DATA-CRITICAL-001`  | OPEN           | —            | data-expert  | real-open    |
 | `FARM-CRITICAL-153`  | OPEN           | 4.1          | farm-expert  | already-fixed-needs-close |
-| `FARM-CRITICAL-161`  | OPEN           | —            | farm-expert  | already-fixed-needs-close |
-| `FARM-CRITICAL-163`  | OPEN           | —            | farm-expert  | already-fixed-needs-close |
-| `FARM-CRITICAL-165`  | OPEN           | —            | frontend-expert | already-fixed-needs-close |
-| `FARM-CRITICAL-168`  | OPEN           | —            | farm-expert  | already-fixed-needs-close |
-| `FARM-CRITICAL-169`  | OPEN           | —            | data-expert  | already-fixed-needs-close |
-| `FARM-CRITICAL-171`  | OPEN           | —            | infra-expert | already-fixed-needs-close |
 | `INFRA-CRITICAL-039` | OPEN           | —            | infra-expert | already-fixed-needs-close |
 
 ## Mutation Rules

@@ -146,10 +146,10 @@ carry their `(tenantId, dateColumn)` indexes.
 `financeBatchTotals` returns the top-N batches by cost (`MAX_BATCH_ROWS` = 25) and
 rolls the remainder into an "Other" row.
 
-> The per-tenant materialized rollup / query cache (`PERF-HIGH-004`) and finance
-> p99 SLO (`PERF-008`) remain in progress on the hardening branch. Scoped FE
-> invalidation landed in Wave 3b (`PERF-MEDIUM-008`); the single-UNION
-> aggregation landed in Wave 3c (`PERF-MEDIUM-009`).
+> The per-tenant materialized rollup / query cache (`PERF-HIGH-004`) remains in
+> progress on the hardening branch. Scoped FE invalidation landed in Wave 3b
+> (`PERF-MEDIUM-008`); the single-UNION aggregation landed in Wave 3c
+> (`PERF-MEDIUM-009`); the finance p99 SLO landed in Wave 3d (`PERF-MEDIUM-010`).
 
 ### PERF-MEDIUM-008 — mutations invalidated the whole finance surface (Wave 3b)
 Root cause: every finance mutation invalidated the tenant-scoped `['finance']`
@@ -171,6 +171,19 @@ branch appends its resolved category id as a bound param; the `date_trunc` unit 
 asserted against the enum whitelist, so no API input ever reaches the SQL. The
 per-source `await` loop and `aggregateDerivedSource` are removed. Result is identical
 (same grouping keys, same Decimal accumulation), one round-trip instead of N.
+
+### PERF-MEDIUM-010 — finance read path had no p99 SLO/alert (Wave 3d)
+The finance read path (`financeSummary` / `financeLedger` / `financeBatchTotals`)
+is the heaviest farm-service aggregation, yet no SLO watched its latency — a
+regression would be silent. The `FarmMetricsInterceptor` already times queries
+*and* mutations into `farm_mutation_duration_seconds{operation}`, so the finance
+query series exist without new instrumentation. Added (tier-3, detectable): a
+recording rule `aquaculture:farm_finance_query_latency_p99:5m`, the alert
+`SloFinanceQueryP99High` (p99 > 1.5s for 10m, warning), and SLI #10 + the
+`farm_mutation_duration_seconds` metric dependency + the rationale note in
+`docs/slo/platform-slo.md`. The 1.5s target sits under the generic 2s API p99, so
+a finance breach points at aggregation regression or a tenant that has outgrown
+query-time derivation and needs the `PERF-HIGH-004` rollup/cache.
 
 ## Wave 4 — derived site attribution (follow-up, implemented)
 

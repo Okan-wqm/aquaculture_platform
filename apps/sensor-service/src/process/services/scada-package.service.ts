@@ -259,7 +259,8 @@ export class ScadaPackageService {
     if (input.name !== undefined) pkg.name = input.name;
     if (input.description !== undefined) pkg.description = input.description;
     if (input.processId !== undefined) pkg.processId = input.processId;
-    if (input.status !== undefined) pkg.status = input.status;
+    // `status` is intentionally not applied here — it is owned by the lifecycle
+    // methods (create/deploy/delete), not by a client update (see DTO comment).
 
     pkg.version = pkg.version + 1;
     pkg.updatedBy = userId;

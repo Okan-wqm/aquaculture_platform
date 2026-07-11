@@ -59,10 +59,12 @@ export class UpdateScadaPackageInput {
   @IsObject()
   packageData?: Record<string, unknown>;
 
-  @Field(() => ScadaPackageStatus, { nullable: true })
-  @IsOptional()
-  @IsEnum(ScadaPackageStatus)
-  status?: ScadaPackageStatus;
+  // `status` is deliberately NOT client-writable. Lifecycle transitions are
+  // owned by dedicated service methods — DRAFT on create, PUBLISHED via the
+  // deploy path (`markPackagePublished`, or edge confirmation on the bundle
+  // path), ARCHIVED via `deleteScadaPackage`. A client-settable `status` let a
+  // caller forge PUBLISHED (deploy-state fakery) or un-archive a deleted
+  // package back to DRAFT, bypassing the deploy state machine entirely.
 }
 
 @InputType()

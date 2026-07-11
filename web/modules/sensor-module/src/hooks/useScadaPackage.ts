@@ -182,7 +182,8 @@ export function useUpdateScadaPackage() {
         description?: string;
         processId?: string;
         packageData?: ScadaPackageJSON;
-        status?: ScadaPackageStatus;
+        // `status` is intentionally not here — package lifecycle (PUBLISHED /
+        // ARCHIVED) is server-owned via deploy/delete, never a client update.
       };
     }) => {
       const data = await graphqlFetch<{ updateScadaPackage: ScadaPackage }>(

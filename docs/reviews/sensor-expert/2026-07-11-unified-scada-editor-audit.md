@@ -76,3 +76,10 @@ record. Remediation is phased in
 - **Description:** `markClean()` for the process store ran inside the process leg, before the package leg — which can throw on the 1 MB `packageData` cap or validation. On a package-leg failure the process was persisted and marked clean while the package stayed dirty and unsaved, leaving the two artifacts out of sync.
 - **Impact:** Process/package divergence with a misleading clean state.
 - **Recommendation:** Defer all `markClean` calls until both legs succeed.
+
+### [SENSOR-CRITICAL-004] SCADA WebSocket control-plane JWT accepts HS256-forged tokens (RS256->HS256 algorithm confusion)
+- **File:** `apps/sensor-service/src/scada-runtime/scada-runtime.gateway.ts`
+- **Category:** Security / authentication (physical actuation)
+- **Description:** The `/scada` gateway's hand-rolled `validateToken` verified with `algorithms: [configService.get('JWT_ALGORITHM', 'HS256')]` against the injected RS256 `JwtService`, whose verification key is the RSA public key. The per-call `algorithms` override forced HS256 verification against a public key — the textbook RS256->HS256 confusion attack. An attacker who knows the (public) JWKS key could mint an `HS256` token with any `tenantId`/`role`, connect, and issue `TAG_WRITE`/`ALARM_ACK` on any tenant's physical devices. The `jwt-rs256-only` invariant's literal-only matcher did not catch the variable-sourced allowlist.
+- **Impact:** Full authentication + tenant + role bypass on the physical-actuation control plane.
+- **Recommendation:** Delete `validateToken` and verify via the shared `getJwtVerifyOptions(configService)` + `enforceAccessTokenType` (RS256 + issuer + audience + token-type enforced at the library level, mirroring `sensor-readings.gateway.ts`). Broaden the invariant to ban any `JWT_ALGORITHM` verify-allowlist key.

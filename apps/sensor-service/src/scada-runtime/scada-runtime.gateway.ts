@@ -34,7 +34,7 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import type { Algorithm } from 'jsonwebtoken';
+import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
 
 // TODO: Replace with '@aquaculture/scada-types' path alias when monorepo build supports it.
 import type { AlarmStatusSummary, HmiRole, TagValueChange } from './scada-types';
@@ -185,7 +185,7 @@ export class ScadaRuntimeGateway
         return;
       }
 
-      const payload = this.validateToken(token);
+      const payload = await this.validateToken(token);
       if (!payload?.tenantId) {
         this.logger.warn(`[connect] ${client.id} — invalid or expired token`);
         this.emitError(client, ScadaSocketEvent.AUTH, SCADA_ERROR_CODES.AUTH_REQUIRED, 'Invalid or expired token');
@@ -719,17 +719,41 @@ export class ScadaRuntimeGateway
   }
 
   /**
-   * Verify the JWT signature and return the decoded payload.
-   * Returns null if the token is invalid or expired.
+   * Verify the JWT via the shared platform verification helpers — identical
+   * policy to every HTTP guard and the sensor-readings/farm WS gateways.
+   *
+   * `getJwtVerifyOptions` enforces RS256 + issuer + audience at the
+   * jsonwebtoken library level (not a per-call `algorithms` override), which
+   * closes the RS256->HS256 algorithm-confusion hole the old hand-rolled
+   * `JWT_ALGORITHM='HS256'` default opened on the physical-actuation control
+   * plane. `enforceAccessTokenType` then rejects refresh / MFA-challenge
+   * tokens at the handshake. Returns null on any failure.
    */
-  private validateToken(token: string): TokenPayload | null {
+  private async validateToken(token: string): Promise<TokenPayload | null> {
     try {
-      // Algorithm is configurable via JWT_ALGORITHM env var to support
-      // future migration from HS256 to RS256 without code changes.
-      const jwtAlgorithm = this.configService.get<string>('JWT_ALGORITHM', 'HS256');
-      const result: unknown = this.jwtService.verify(token, {
-        algorithms: [jwtAlgorithm as Algorithm],
-      });
+      const result = await this.jwtService.verifyAsync<Record<string, unknown>>(
+        token,
+        getJwtVerifyOptions(this.configService),
+      );
+
+      if (typeof result !== 'object' || result === null) return null;
+      if (typeof result['tenantId'] !== 'string' || result['tenantId'].length === 0) {
+        return null;
+      }
+      if (typeof result['sub'] !== 'string' || result['sub'].length === 0) {
+        return null;
+      }
+
+      enforceAccessTokenType(
+        {
+          type: typeof result['type'] === 'string' ? result['type'] : undefined,
+          sub: result['sub'],
+          jti: typeof result['jti'] === 'string' ? result['jti'] : undefined,
+        },
+        this.logger,
+        this.isProduction,
+      );
+
       return result as TokenPayload;
     } catch (error) {
       this.logger.debug(`Token validation failed: ${(error as Error).message}`);

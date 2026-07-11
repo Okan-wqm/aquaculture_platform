@@ -86,6 +86,29 @@ describe('BiomassAltinnExportService', () => {
     expect(out.csv).toContain('"Salmon, Atlantic — biomassKg"');
   });
 
+  it('neutralises CSV formula injection in a tenant-controlled cell (SEC-MEDIUM-002)', () => {
+    const rep = fixture();
+    const first = rep.reportData.currentBiomass.bySpecies[0];
+    // A malicious species name a spreadsheet would evaluate as a formula.
+    if (first) first.speciesName = '=cmd|"/c calc"!A1';
+    const out = service.build(rep);
+
+    // The dangerous cell opens as literal text: prefixed with a single quote,
+    // and (because it also contains a comma) RFC-4180 quoted. It is NEVER
+    // emitted with a bare leading '='.
+    expect(out.csv).toContain(`"'=cmd|""/c calc""!A1 — biomassKg"`);
+    expect(out.csv).not.toMatch(/(^|\n)=cmd/);
+    expect(out.csv).not.toContain(',=cmd');
+  });
+
+  it('leaves negative numeric values numeric (no formula-guard on numbers)', () => {
+    const rep = fixture();
+    // Numeric cells are our own formatted values and must not be quoted/prefixed.
+    rep.reportData.mortality.totalCount = 5;
+    const out = service.build(rep);
+    expect(out.csv).toContain('Mortality,TotalCount,5');
+  });
+
   it('renders a printable transcription block with the Altinn instruction', () => {
     const out = service.build(fixture());
     expect(out.printable).toContain('Fiskeridirektoratet FD-0001');

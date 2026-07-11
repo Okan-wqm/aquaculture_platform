@@ -21,10 +21,16 @@ const HEADER = [
 ] as const;
 
 function csvEscape(value: string): string {
-  if (/[",\n\r]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`;
+  // SEC-MEDIUM-002 — CSV formula/injection neutralisation. A cell whose value
+  // (e.g. a Mattilsynet `feilmelding` echoed back) begins with a character a
+  // spreadsheet would evaluate as a formula — '=', '+', '-', '@', tab, or CR —
+  // is prefixed with a single quote so it opens as literal text and never
+  // executes (OWASP CSV Injection). RFC-4180 quoting still applies.
+  const guarded = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  if (/[",\n\r]/.test(guarded)) {
+    return `"${guarded.replace(/"/g, '""')}"`;
   }
-  return value;
+  return guarded;
 }
 
 export function periodLabelForCsv(row: RegulatoryReportRow): string {

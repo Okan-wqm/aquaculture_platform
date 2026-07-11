@@ -61,4 +61,25 @@ describe('buildSubmissionsCsv', () => {
     const csv = buildSubmissionsCsv([]);
     expect(csv.trimEnd().split('\n')).toHaveLength(1);
   });
+
+  it('neutralises CSV formula injection in a regulator-echoed failure message (SEC-MEDIUM-002)', () => {
+    const csv = buildSubmissionsCsv([
+      row({ status: 'FAILED', referanse: null, feilmelding: '=HYPERLINK("http://evil","x")' }),
+    ]);
+    // The cell opens as literal text (single-quote prefixed + RFC-4180 quoted),
+    // never as a bare formula.
+    expect(csv).toContain(`"'=HYPERLINK(""http://evil"",""x"")"`);
+    expect(csv).not.toContain(',=HYPERLINK');
+  });
+
+  it('guards the +, -, @ formula triggers too', () => {
+    const csv = buildSubmissionsCsv([
+      row({ id: 'a', feilmelding: '+1' }),
+      row({ id: 'b', feilmelding: '-2+3' }),
+      row({ id: 'c', feilmelding: '@x' }),
+    ]);
+    expect(csv).toContain(",'+1,");
+    expect(csv).toContain(",'-2+3,");
+    expect(csv).toContain(",'@x,");
+  });
 });

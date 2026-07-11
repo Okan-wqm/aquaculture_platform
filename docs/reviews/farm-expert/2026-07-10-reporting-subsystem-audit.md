@@ -342,7 +342,9 @@ owner + deadline + ID.
 Biomass assembler defaults a missing stocking avg-weight to `0` tagged RECORDS (compliance
 COMPLIANCE-MEDIUM-005); manual overrides stored/injected as strings fail numeric schema validation
 (farm-expert FARM-MEDIUM-006); executed-slaughter uses round weight where the regulator may expect
-gutted (FARM-MEDIUM-007); CSV/formula injection in both CSV exporters (auth-security SEC-MEDIUM-002);
+gutted (FARM-MEDIUM-007); CSV/formula injection in both CSV exporters is FIXED (SEC-MEDIUM-002 →
+FARM-MEDIUM-183: backend csvCell + frontend csvEscape single-quote-prefix a cell whose first char is
+a `= + - @` / tab / CR formula trigger, numbers excepted, RFC-4180 quoting preserved);
 KEK dev-fallback gated only on `NODE_ENV==='production'` (SEC-MEDIUM-003); regulator error bodies +
 PII logged via string interpolation that bypasses `maskPii` (SEC-MEDIUM-004, observability
 OBS-MEDIUM-003); `updateAutoSubmitPolicy` accepts arbitrary report types (COMPLIANCE-MEDIUM-006);

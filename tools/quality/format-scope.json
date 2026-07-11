@@ -29197,6 +29197,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/manifest.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/manifest.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/README.md",
       "prettier_managed": true
     },
@@ -31346,6 +31358,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/infra-expert/2026-07-02-ci-unit-test-quarantine.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/infra-expert/2026-07-06-tenant-schema-grant-incident.md",
       "prettier_managed": true
     },
     {
@@ -34490,6 +34508,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/database/tenant-schema-cache/tenant-schema-cache.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/tenant-schema-privileges.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/tenant-schema-privileges.ts",
       "prettier_managed": true
     },
     {
@@ -40975,6 +41005,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/quality/closure-manifest.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
       "prettier_managed": true
     },
     {
@@ -52476,10 +52518,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8600,
+  "file_count": 8607,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8425,
-  "managed_file_list_sha256": "b5b6654837c8880f25ff45c391f76b452449bc18ed8d33292b513d1ff7639d89",
+  "managed_count": 8432,
+  "managed_file_list_sha256": "04a718b5cbfa54bbfe8ca27d5109de346760e58981dbd81ae922ad5e1490d7a7",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

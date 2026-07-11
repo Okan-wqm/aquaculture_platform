@@ -76,6 +76,23 @@ export type {
   TenantMigrationLedgerReadGrant,
   TenantMigrationLedgerReadGrantOptions,
 } from './tenant-migration-ledger-privileges';
+// Tenant-schema table privilege SSoT (2026-07-06 grant incident): per-tenant
+// table clones must carry <source>_schema_owner ownership + <source>_service
+// DML regardless of which connection created them. assert = idempotent align;
+// verify = deploy/job-blocking drift detection.
+export {
+  assertTenantSchemaPrivileges,
+  verifyTenantSchemaPrivileges,
+  ownerRoleForTenantAwareSchema,
+  tenantTablesForSourceSchema,
+} from './tenant-schema-privileges';
+export type {
+  TenantSchemaPrivilegeExecutor,
+  TenantSchemaPrivilegeOptions,
+  TenantSchemaPrivilegeReport,
+  TenantSchemaPrivilegeVerification,
+  TenantSchemaPrivilegeViolation,
+} from './tenant-schema-privileges';
 export { grantTenantMessagingPartitionAuthority } from './messaging-partition-privileges';
 export type {
   MessagingPartitionAuthorityGrant,

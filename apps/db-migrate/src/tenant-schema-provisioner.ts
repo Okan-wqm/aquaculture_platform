@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 
 import {
   applyTenantRlsToSchema,
+  assertTenantSchemaPrivileges,
   convertAuditColumnsToTimestamptz,
   getTenantSchemaName,
   grantTenantMessagingPartitionAuthority,
@@ -12,6 +13,7 @@ import {
   TENANT_SCHEMA_NAME_RE,
   queryRowsNormalized,
   queryRowCountNormalized,
+  verifyTenantSchemaPrivileges,
 } from '@aquaculture/backend-common/database';
 import { DataSource, QueryRunner } from 'typeorm';
 
@@ -298,6 +300,42 @@ async function applyProvisionerHardening(
         ? { auditColumns: auditOptions.auditColumns }
         : {}),
     });
+  }
+}
+
+/**
+ * Job-blocking privilege gate (2026-07-06 grant incident): before a PROVISION
+ * or RECONCILE job may COMMIT, every registered-and-present per-tenant table
+ * must carry its <source>_schema_owner ownership + <source>_service DML.
+ * Unknown (unregistered) tenant tables are logged loudly — they carry no
+ * managed grants and their owning service WILL fail at runtime.
+ */
+async function assertTenantPrivilegesVerified(
+  queryRunner: QueryRunner,
+  tenantSchema: string,
+  log: (record: Record<string, unknown>) => void,
+): Promise<void> {
+  const verification = await verifyTenantSchemaPrivileges(queryRunner, tenantSchema, [
+    ...TENANT_AWARE_SCHEMAS,
+  ]);
+  if (verification.unknownTables.length > 0) {
+    log({
+      level: 'warn',
+      message:
+        'Tenant schema contains tables registered by NO module — register them in ' +
+        'MODULE_SCHEMAS or drop them; they carry no managed grants.',
+      context: 'TenantSchemaProvisioner',
+      tenantSchema,
+      unknownTables: verification.unknownTables,
+    });
+  }
+  if (verification.violations.length > 0) {
+    throw new Error(
+      `[tenant-schema-provisioner] Tenant-schema privilege drift in ${tenantSchema}: ` +
+        verification.violations
+          .map((v) => `${v.sourceSchema}.${v.table} (${v.kind}: ${v.detail})`)
+          .join('; '),
+    );
   }
 }
 
@@ -617,11 +655,21 @@ async function processReconcileJob(
         tenantSchema: job.schemaName,
         sourceSchema: entry.schema,
       });
+      // 2026-07-06 grant incident: fan-out-created tables are born
+      // owner=superuser with an empty ACL — align owner + service DML from
+      // the MODULE_SCHEMAS registry (idempotent) so reconcile also repairs
+      // pre-existing drift.
+      await assertTenantSchemaPrivileges(queryRunner, {
+        tenantSchema: job.schemaName,
+        sourceSchema: entry.schema,
+      });
     }
 
     await grantTenantMessagingPartitionAuthority(queryRunner, {
       tenantSchema: job.schemaName,
     });
+
+    await assertTenantPrivilegesVerified(queryRunner, job.schemaName, options.log);
 
     await commitTenantSchemaRecord(queryRunner, job, tableCount, sourceHeads, tenantHeads);
     await writeJobEvidence(queryRunner, job, lease, {
@@ -730,6 +778,13 @@ async function processJob(
         tenantSchema: job.schemaName,
         sourceSchema: entry.schema,
       });
+      // 2026-07-06 grant incident: without this, EVERY table of a freshly
+      // provisioned tenant is owner=superuser with an empty ACL and the
+      // owning services fail their first tenant query at runtime.
+      await assertTenantSchemaPrivileges(queryRunner, {
+        tenantSchema: job.schemaName,
+        sourceSchema: entry.schema,
+      });
 
       if (entry.postMigrationHardening !== undefined) {
         await setJobStatus(queryRunner, job, 'HARDENING_RLS', lease);
@@ -758,6 +813,8 @@ async function processJob(
         `[tenant-schema-provisioner] Tenant schema ${job.schemaName} has no base tables after fan-out`,
       );
     }
+
+    await assertTenantPrivilegesVerified(queryRunner, job.schemaName, options.log);
 
     await commitTenantSchemaRecord(queryRunner, job, tableCount, sourceHeads, tenantHeads);
     await writeJobEvidence(queryRunner, job, lease, {

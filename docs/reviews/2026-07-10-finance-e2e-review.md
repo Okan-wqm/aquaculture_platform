@@ -315,12 +315,32 @@ tenant age). Fix: read-through Redis caching via the platform `@Cacheable` /
 > cache is never wrong, only bounded-stale for cross-domain writes — so it is noted, not
 > blocking.
 
-## Tracked debt (owner + deadline — NOT fixed this cycle)
+## Wave 9 — platform Decimal money wire scalar (DATA-MEDIUM-009, additive coexistence — in progress)
 
-### DATA-MEDIUM-009 — money persisted/transported as IEEE-754 float (platform-wide)
-Owner: billing-expert. Deadline 2026-09-30. `DecimalTransformer` returns a JS number
-and money crosses GraphQL as `Float`. The exact aggregation / string-decimal-scalar
-change is platform-wide (billing-expert primary) and larger than the finance domain.
+Per ADR-0004 this is a platform-wide Shared-Kernel change executed as an **additive
+coexistence** migration (add a `Decimal`-scalar field alongside each `Float` money
+field → migrate consumers → remove `Float` after the window), co-owned by
+billing-expert + data-expert.
+
+**Wave 9a — foundation (landed).** The ADR-named deliverable
+`libs/backend-common/src/graphql/decimal.scalar.ts`: the Shared-Kernel `Decimal`
+scalar that serialises a resolver's number / `Decimal.js` / string to an EXACT decimal
+STRING (no IEEE-754 loss), wire-only (the DB axis is untouched). Unit-tested (10 cases
+incl. exact fixed-scale money). Subpath alias `@aquaculture/backend-common/graphql`. FE
+`formatCurrency` now accepts `number | string` via a new `parseMoney()` helper, so a
+call site can migrate to a Decimal-scalar field without breaking display/arithmetic
+during the window.
+
+**Wave 9b+ — per-field rollout (continuing).** Add the parallel `Decimal` fields
+alongside the ~65 `Float` money fields (billing ~35, farm finance + operational,
+hr finance + payroll) and migrate the ~115 FE consumers, domain by domain; `Float`
+removal is the post-coexistence step. This is the large mechanical sweep ADR-0004
+scopes to billing-expert + data-expert; the billing portion touches **live** invoices /
+payments, so it is migrated with the same additive-then-remove discipline rather than a
+one-shot flip. The finance-domain adoption is the reference implementation for that
+rollout.
+
+## Tracked debt (owner + deadline — NOT fixed this cycle)
 
 ### FARM-MEDIUM-162 — derived ledger lines ignore the `siteId` filter
 Owner: farm-expert. Deadline 2026-08-31. Derived sources have no `siteIdExpr`, so a

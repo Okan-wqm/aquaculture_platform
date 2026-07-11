@@ -38,13 +38,19 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'cycle = one standard-profile cycle; burn-in-observe = REAL observe burn-in + L1 ladder bridge'
+        description: 'cycle = one standard-profile cycle; burn-in-observe = REAL observe burn-in + L1 ladder bridge; autonomous-cycle = operator-gated autonomous profile (implementation phase live, merge stays ladder-gated)'
         required: false
         default: 'cycle'
         type: choice
         options:
           - 'cycle'
           - 'burn-in-observe'
+          - 'autonomous-cycle'
+      operator_approval_ref:
+        description: 'REQUIRED for mode=autonomous-cycle — signed-ref string identifying the operator gesture (e.g. operator:okan:autonomous:2026-07-11)'
+        required: false
+        default: ''
+        type: string
       max_cycles:
         description: 'Cycles per invocation (mode=cycle only)'
         required: false
@@ -78,7 +84,11 @@ jobs:
     # the acceptance verdict is all-or-nothing). Schedule/cycle runs keep 50.
     # The 150/120 floor is enforced by the workflow contract
     # (burn_in_timeout_floor_minutes in workflow_contract_registry.py).
-    timeout-minutes: ${{ github.event.inputs.mode == 'burn-in-observe' && 150 || 50 }}
+    # autonomous-cycle gets the same 150 ceiling: multi-pass bridge
+    # replay + opus-latency convergence dispatches measured 60-90 min.
+    # (Nested ternary keeps the burn-in-observe && 150 literal the
+    # contract's _BURN_IN_TIMEOUT_EXPR floor-parser anchors on.)
+    timeout-minutes: ${{ github.event.inputs.mode == 'burn-in-observe' && 150 || (github.event.inputs.mode == 'autonomous-cycle' && 150 || 50) }}
     env:
       # Kernel-workflow parity: no .pyc litter in the checkout — the
       # burn-in pre-clean guard treats any untracked path as dirty.
@@ -168,6 +178,10 @@ jobs:
       - name: Persist enterprise workflow preflight
         env:
           PYTHONPATH: aria-kernel
+          # autonomous-cycle persists its REAL profile in the preflight
+          # verdict — the audit artifact must never claim standard while
+          # the cycle runs autonomous.
+          ARIA_CYCLE_PROFILE: ${{ github.event.inputs.mode == 'autonomous-cycle' && 'autonomous' || 'standard' }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -180,12 +194,13 @@ jobs:
           # tree (cycles, autonomy_state, pressure, budget, cost
           # attribution, governance, handoffs, locks, burn-in evidence,
           # agent-invocations) — the allowed root is the tree itself;
-          # everything outside it stays read-only.
-          allowed = ["aria-tools", "aria-findings"]
+          # everything outside it stays read-only. aria-debts/keys is the
+          # autonomous-cycle signing-key/token surface (gitignored).
+          allowed = ["aria-tools", "aria-findings", "aria-debts/keys"]
           verdict = verify_workflow_preflight(
               workflow_id="aria-auto-cycle",
               job_id="cycle",
-              profile="standard",
+              profile=os.environ.get("ARIA_CYCLE_PROFILE", "standard"),
               workspace_root=os.environ["GITHUB_WORKSPACE"],
               allowed_write_roots=allowed,
               path_allowlist=allowed,
@@ -320,7 +335,7 @@ jobs:
             --trigger session_start
 
       - name: Seed drift findings from fresh scan
-        if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
+        if: steps.lease_check.outputs.blocked != 'true' && contains(fromJSON('["cycle", "autonomous-cycle"]'), github.event.inputs.mode || 'cycle')
         run: |
           set -euo pipefail
           # aria-findings/ is gitignored BY DESIGN (runtime cycle writes
@@ -332,7 +347,7 @@ jobs:
           python3 tools/aria-poc/seed_drift_findings.py --repo-root "$GITHUB_WORKSPACE" | tail -12
 
       - name: Cycle guard (advisory)
-        if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
+        if: steps.lease_check.outputs.blocked != 'true' && contains(fromJSON('["cycle", "autonomous-cycle"]'), github.event.inputs.mode || 'cycle')
         run: |
           set -euo pipefail
           PYTHONPATH=aria-kernel python3 -m aria_kernel cycle-guard evaluate \
@@ -377,6 +392,107 @@ jobs:
             tail -40 /tmp/cycle-summary.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Plan ARIA autonomous enablement (Stage D) — operator-dispatched
+      # ONLY (never scheduled: the cron branch resolves mode='cycle').
+      # Runs the full producer pipeline (state restore → seeder → guard)
+      # then the kernel autonomous profile, which activates
+      # AutonomousV9ImplementationRunner (implementation phase live:
+      # signed commits + a real PR on CONVERGED plans). Auto-MERGE stays
+      # separately gated by the autonomy ladder + merge authority — this
+      # mode can open a PR, it cannot merge one. Fail-closed: the
+      # kernel's autonomous preconditions gate (GH token, signing-key
+      # dir, required_signatures on main, immutable-paths, bash
+      # allowlist) refuses BEFORE any dispatch when unmet.
+      - name: Run operator-gated autonomous cycle
+        if: steps.lease_check.outputs.blocked != 'true' && github.event.inputs.mode == 'autonomous-cycle'
+        env:
+          CLAUDE_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
+          CLAUDE_CLI_MOCK_SOURCE: ${{ steps.preflight.outputs.mock_source }}
+          ARIA_CLAUDE_REQUIRE_USAGE: '1'
+          MAX_TURNS_PER_RUN: '12'
+          MAX_REQUESTS_PER_RUN: '30'
+          MAX_TIMEOUT_SECONDS: '1800'
+          # Branch-protection read + Mode-B PR token. ARIA_OPERATOR_TOKEN
+          # is an operator-added repo secret (PAT with repo scope); the
+          # workflow token fallback lets the kernel preflight surface a
+          # precise gh_api failure instead of a missing-env crash.
+          GH_TOKEN: ${{ secrets.ARIA_OPERATOR_TOKEN || github.token }}
+          OPERATOR_APPROVAL_REF: ${{ github.event.inputs.operator_approval_ref }}
+        run: |
+          set -euo pipefail
+          if [ -z "${OPERATOR_APPROVAL_REF// /}" ]; then
+            echo "::error::mode=autonomous-cycle requires operator_approval_ref (signed-ref string identifying the operator gesture)" >&2
+            exit 2
+          fi
+          # Signing-key surface expected by the kernel autonomous
+          # preconditions gate (gitignored; never staged).
+          mkdir -p aria-debts/keys
+          # The orchestrator is async by design: a pass that mints agent
+          # requests exits with bridge_replay_required and must be
+          # re-invoked to fold results (planner/bridge/worker drains).
+          # Bounded replay loop; the job timeout is the hard wall.
+          PASS=1
+          MAX_PASSES=6
+          while :; do
+            echo "===== autonomous pass ${PASS}/${MAX_PASSES} ====="
+            rc=0
+            PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy run \
+              --workspace-root "$GITHUB_WORKSPACE" \
+              --tools-dir aria-tools \
+              --profile autonomous \
+              --operator-approval-ref "$OPERATOR_APPROVAL_REF" \
+              --max-cycles 1 \
+              --max-rounds 2 \
+              --challenger-timeout-seconds 600 \
+              --cycle-deadline-seconds 3600 \
+              --max-budget-usd-per-run 40.00 \
+              --max-budget-usd-per-cycle 15.00 | tee /tmp/autonomous-summary.txt || rc=$?
+            if [ "$rc" -ne 0 ]; then
+              echo "::error::autonomous pass ${PASS} failed (rc=${rc}). If the kernel refused with autonomous_profile_preconditions_not_met: enable required_signatures on main and/or add the ARIA_OPERATOR_TOKEN secret, then re-dispatch." >&2
+              exit "$rc"
+            fi
+            EXIT_REASON="$(python3 - <<'PY'
+          import json
+          text = open("/tmp/autonomous-summary.txt", encoding="utf-8").read()
+          start = text.rfind("{")
+          try:
+              print(json.loads(text[start:]).get("exit_reason", "unparsed"))
+          except Exception:
+              print("unparsed")
+          PY
+          )"
+            echo "pass ${PASS} exit_reason=${EXIT_REASON}"
+            if [ "$EXIT_REASON" != "bridge_replay_required" ]; then
+              break
+            fi
+            if [ "$PASS" -ge "$MAX_PASSES" ]; then
+              echo "::warning::bridge still pending after ${MAX_PASSES} passes; state persists to the artifact for the next dispatch." >&2
+              break
+            fi
+            PASS=$((PASS + 1))
+          done
+          {
+            echo '### Autonomous cycle summary'
+            echo "passes: ${PASS} (last exit_reason: ${EXIT_REASON})"
+            echo '```'
+            tail -40 /tmp/autonomous-summary.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The implementer works on an unpredictable aria-impl-<hex> branch
+      # and PUSHES it before the PR opens; anything left in the checkout
+      # is residue. Restore the pristine tree so the post-run
+      # clean-worktree policy holds (aria state dirs are gitignored and
+      # survive for the artifact upload).
+      - name: Restore pristine workspace after autonomous cycle
+        if: always() && steps.lease_check.outputs.blocked != 'true' && github.event.inputs.mode == 'autonomous-cycle'
+        run: |
+          set -euo pipefail
+          git switch --detach "$GITHUB_SHA" 2>/dev/null || git checkout --detach "$GITHUB_SHA" || true
+          git checkout -- . || true
+          git clean -fd -e aria-tools -e aria-findings -e aria-debts || true
+          echo "post-autonomous worktree status:"; git status --porcelain | head -10
 
       - name: Run REAL observe burn-in + L1 ladder bridge
         if: steps.lease_check.outputs.blocked != 'true' && github.event.inputs.mode == 'burn-in-observe'

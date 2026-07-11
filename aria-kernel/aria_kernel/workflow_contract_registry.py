@@ -183,6 +183,13 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 allowed_write_path_patterns=(
                     r"^aria-tools(/.*)?$",
                     r"^aria-findings(/.*)?$",
+                    # mode=autonomous-cycle only — the kernel's per-cycle
+                    # ed25519 signing keys + scoped token files live under
+                    # aria-debts/keys/ (gh_token_factory.mint_signing_key /
+                    # mint_installation_token). Narrow on purpose: the
+                    # tracked debt JSONs in aria-debts/ itself stay
+                    # read-only for this workflow.
+                    r"^aria-debts/keys(/.*)?$",
                 ),
                 preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-auto-cycle-preflight\.json$",
                 upload_artifact_name_pattern=r"^aria-tools-state$",

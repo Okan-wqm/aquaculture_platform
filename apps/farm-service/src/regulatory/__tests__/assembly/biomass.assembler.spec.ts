@@ -205,6 +205,42 @@ describe('BiomassReportAssembler', () => {
     expect(standingStock?.message).toMatch(/live inventory|month-end/i);
   });
 
+  it('flags a stocking with no recorded avg weight instead of tagging a fabricated 0 as RECORDS (COMPLIANCE-MEDIUM-005)', async () => {
+    const rawQuery = jest.fn().mockImplementation((sql: string) => {
+      if (sql.includes('FROM batches_v2')) {
+        return Promise.resolve([
+          {
+            date: '2026-06-02',
+            speciesCode: 'SEABASS',
+            supplier: 'SUP-778',
+            fishCount: '40000',
+            avgWeightG: null, // no recorded weight
+            batchNumber: 'B-2026-00031',
+          },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+
+    const assembler = makeAssembler(makeQueryBus(), makeCalculator(), rawQuery);
+    const now = new Date();
+    const { draftPayload, fields } = await assembler.assemble(
+      tenantId,
+      siteId,
+      now.getUTCFullYear(),
+      now.getUTCMonth() + 1,
+    );
+    const payload = draftPayload as BiomassReportPayload;
+
+    // The row is still emitted (0 as a placeholder) but its provenance tells the
+    // truth: MANUAL_REQUIRED, non-blocking, naming the batch to fix.
+    expect(payload.stockings[0]?.biomassKg).toBe(0);
+    const stockingMeta = fields.find((f) => f.path === '/stockings');
+    expect(stockingMeta?.provenance).toBe(ReportFieldProvenance.MANUAL_REQUIRED);
+    expect(stockingMeta?.blocking).toBe(false);
+    expect(stockingMeta?.message).toContain('B-2026-00031');
+  });
+
   it('flags an empty feed ledger as MANUAL_REQUIRED (non-blocking) with an actionable message', async () => {
     const assembler = makeAssembler(makeQueryBus({ feedRecordCount: 0 }), makeCalculator());
     const { fields } = await assembler.assemble(tenantId, siteId, 2026, 6);

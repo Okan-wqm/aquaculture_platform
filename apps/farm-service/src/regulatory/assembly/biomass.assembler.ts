@@ -90,6 +90,29 @@ export class BiomassReportAssembler {
         this.querySlaughter(tenantId, siteId, fromDate, toDate),
       ]);
 
+    // COMPLIANCE-MEDIUM-005: a stocking whose batch has no recorded avg weight
+    // must NOT be silently rendered as 0 kg tagged RECORDS — the biomass is
+    // unknown, not zero. Track the affected batches so `/stockings` is flagged
+    // MANUAL_REQUIRED (non-blocking) rather than claiming a fabricated zero.
+    const stockingsWithMissingWeight: string[] = [];
+    const stockings = stockingRows.map((row) => {
+      const fishCount = Number(row.fishCount);
+      const hasWeight = row.avgWeightG != null;
+      if (!hasWeight) {
+        stockingsWithMissingWeight.push(row.batchNumber);
+      }
+      const avgWeightG = hasWeight ? Number(row.avgWeightG) : 0;
+      return {
+        date: row.date,
+        speciesCode: row.speciesCode,
+        supplier: row.supplier ?? undefined,
+        fishCount,
+        avgWeightG: round2(avgWeightG),
+        biomassKg: round2((fishCount * avgWeightG) / 1000),
+        notes: row.batchNumber,
+      };
+    });
+
     const draftPayload: BiomassReportPayload = {
       currentBiomass: {
         totalKg: round2(siteBiomass.totalBiomassKg),
@@ -101,19 +124,7 @@ export class BiomassReportAssembler {
           avgWeightG: entry.quantity > 0 ? round2((entry.biomassKg * 1000) / entry.quantity) : 0,
         })),
       },
-      stockings: stockingRows.map((row) => {
-        const fishCount = Number(row.fishCount);
-        const avgWeightG = row.avgWeightG == null ? 0 : Number(row.avgWeightG);
-        return {
-          date: row.date,
-          speciesCode: row.speciesCode,
-          supplier: row.supplier ?? undefined,
-          fishCount,
-          avgWeightG: round2(avgWeightG),
-          biomassKg: round2((fishCount * avgWeightG) / 1000),
-          notes: row.batchNumber,
-        };
-      }),
+      stockings,
       mortality: {
         totalCount: mortality.totalCount,
         byCause: mortality.byCause,
@@ -182,7 +193,15 @@ export class BiomassReportAssembler {
 
     const fields = [
       currentBiomassMeta,
-      fromRecords('/stockings', 'BiomassReportAssembler.queryStockings', stockingRows.length),
+      stockingsWithMissingWeight.length > 0
+        ? manualRequired(
+            '/stockings',
+            `Stocking batch(es) ${stockingsWithMissingWeight.join(', ')} have no recorded ` +
+              `avg weight — their biomass is shown as 0. Enter the stocking weight on the batch ` +
+              `so the value comes from records.`,
+            false,
+          )
+        : fromRecords('/stockings', 'BiomassReportAssembler.queryStockings', stockingRows.length),
       fromRecords('/mortality', 'GetMortalityByCauseQuery', mortality.recordCount),
       fromRecords('/slaughter', 'BiomassReportAssembler.querySlaughter', slaughterRows.length),
       fromRecords('/transfers', 'GetTransfersSummaryQuery', transfers.recordCount),

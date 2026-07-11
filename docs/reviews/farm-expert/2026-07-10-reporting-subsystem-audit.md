@@ -379,8 +379,9 @@ exercising the trigger behavior against real Postgres (runs in CI, not this sand
 
 ## OPEN — MEDIUM / LOW (tracked)
 
-Biomass assembler defaults a missing stocking avg-weight to `0` tagged RECORDS (compliance
-COMPLIANCE-MEDIUM-005); manual overrides stored/injected as strings fail numeric schema validation
+Biomass assembler defaulting a missing stocking avg-weight to `0` tagged RECORDS is FIXED
+(COMPLIANCE-MEDIUM-005 → FARM-MEDIUM-189: `/stockings` flips to non-blocking MANUAL_REQUIRED naming
+the batch when any stocking has no recorded weight, instead of claiming a fabricated zero as RECORDS); manual overrides stored/injected as strings fail numeric schema validation
 (farm-expert FARM-MEDIUM-006); executed-slaughter uses round weight where the regulator may expect
 gutted (FARM-MEDIUM-007); CSV/formula injection in both CSV exporters is FIXED (SEC-MEDIUM-002 →
 FARM-MEDIUM-183: backend csvCell + frontend csvEscape single-quote-prefix a cell whose first char is

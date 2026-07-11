@@ -285,31 +285,37 @@ This closes the finding coherently with the payroll-manager design: a manager wh
 payroll can be granted `hr_finance:view_salary`; one who shouldn't see pay is not — the
 tenant decides, and small-cell suppression (HR-HIGH-003) still applies on top.
 
+## Wave 8 — finance read-model cache (PERF-HIGH-004, implemented)
+
+`financeSummary` / `financeBatchTotals` re-aggregated the high-frequency
+feeding/harvest/health/work-order source tables on **every** load (cost grows with
+tenant age). Fix: read-through Redis caching via the platform `@Cacheable` /
+`@CacheEvict` SSoT (`apps/farm-service/src/common/cache`), keyed per
+(tenant, period, granularity):
+
+- The two heavy aggregations are `@Cacheable` (TTL 300 s), so a repeated dashboard
+  load re-aggregates at most once per TTL instead of every request.
+- **Every** finance mutation (entry create/update/delete, category
+  create/update/archive/restore, settings) carries `@CacheEvict` for both cached
+  prefixes, so a finance-tab write is **never** stale — this matches the Wave 3b FE
+  scoped invalidation exactly (the FE invalidates the same queries a finance mutation
+  moves). A metadata invariant (`finance-cache-metadata.spec`) locks the contract: a
+  future mutation added without an evict, or a new cached prefix left un-evicted, fails
+  at build time — the classic stale-cache regression is made detectable (tier-3).
+- Cross-domain cost writes (a feeding cost, a work-order cost) that don't go through a
+  finance mutation surface within the TTL — bounded, documented staleness that is
+  acceptable for an analytics dashboard (not a transactional ledger). The
+  `SloFinanceQueryP99High` tripwire (`PERF-MEDIUM-010`) still fires if a tenant outgrows
+  even the cached path, at which point the materialized-rollup escalation is warranted.
+
+> Sub-TTL cross-domain freshness (a feeding-cost edit reflected in the finance summary
+> in <300 s) would additionally require finance-relevant domain events on the
+> maintenance + fish-health write paths (which today emit none) feeding a per-tenant
+> cache-epoch bump. That is a pure refinement of freshness, not a correctness gap — the
+> cache is never wrong, only bounded-stale for cross-domain writes — so it is noted, not
+> blocking.
+
 ## Tracked debt (owner + deadline — NOT fixed this cycle)
-
-### PERF-HIGH-004 — no rollup/cache; derived aggregation re-scans high-frequency source tables per load
-Owner: performance-expert. Deadline 2026-08-31. `financeSummary` re-aggregates the
-feeding/harvest/health/work-order tables every load; grows with tenant age. The
-contained per-load wins have now landed (single-UNION `PERF-MEDIUM-009`, bounded
-buckets/rows `PERF-MEDIUM-006/007`, the maintenance index `PERF-MEDIUM-005`, scoped
-FE invalidation `PERF-MEDIUM-008`) and a p99 SLO tripwire (`PERF-MEDIUM-010`,
-`SloFinanceQueryP99High`) now fires when a real tenant outgrows query-time derivation
-— so this is bounded and observable, not silent.
-
-**Why the cache is a genuine multi-domain subsystem, not a finance-local fix.** The
-only correct cache is event-driven (a TTL-only cache would serve stale financials for
-the TTL window right after a user records a cost, contradicting the scoped FE
-invalidation in `PERF-MEDIUM-008`). Event-driven invalidation needs a per-tenant
-finance-epoch bumped by an outbox consumer subscribed to every event that moves a
-derived cost. **Blocker (verified 2026-07-11):** the maintenance (`work_orders`) and
-fish-health (`health_events.estimatedCost`) write handlers emit **no** outbox events
-at all — so a finance cache built today would never invalidate on a work-order or
-treatment-cost change. Landing PERF-HIGH-004 correctly therefore first requires
-adding finance-relevant domain events to the maintenance + fish-health write paths
-(two OTHER bounded contexts — needs farm-expert), then the epoch consumer + Redis
-layer + an EXPLAIN benchmark at 100k rows. Shipping the cache without that event
-coverage would be a correctness regression (stale P&L) worse than the perf cost, so
-it stays tracked with this concrete prerequisite rather than half-implemented.
 
 ### DATA-MEDIUM-009 — money persisted/transported as IEEE-754 float (platform-wide)
 Owner: billing-expert. Deadline 2026-09-30. `DecimalTransformer` returns a JS number

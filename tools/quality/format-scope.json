@@ -10635,6 +10635,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/finance/__tests__/finance-cache-metadata.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/finance/__tests__/finance-category-seed.service.spec.ts",
       "prettier_managed": true
     },
@@ -52260,10 +52266,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8564,
+  "file_count": 8565,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8389,
-  "managed_file_list_sha256": "6db53551a5ade392b00b04d16c000a5ac657cdbd9c3d709495cf7c363cba8fdc",
+  "managed_count": 8390,
+  "managed_file_list_sha256": "6980a4f4398086b175188fb0ee56d9e9c63a7b4c337eca8134f71cadc1ae99aa",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

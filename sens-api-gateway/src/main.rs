@@ -4847,8 +4847,16 @@ async fn run_agent(
     });
     shutdown_coordinator.register_task("telemetry", telemetry_handle);
 
-    // Step 6b: Start I/O poll loop
-    tokio::spawn(io_poll::io_poll_loop(state.clone()));
+    // Step 6b: Start I/O poll loop (EDGE-HIGH-015: shutdown-
+    // coordinated so the always-on sensor/actuator poll loop stops
+    // BEFORE the safe-state phase instead of racing it, and releases
+    // its Arc<AppState> so the graph can Drop deterministically).
+    let io_poll_shutdown = shutdown_coordinator.subscribe();
+    let io_poll_handle = tokio::spawn(shutdown::run_until_shutdown(
+        io_poll::io_poll_loop(state.clone()),
+        io_poll_shutdown,
+    ));
+    shutdown_coordinator.register_task("io_poll", io_poll_handle);
 
     // Batch 206 Faz 6 wire + Batch 225 E-1 closure: spawn
     // the watch publisher task ONLY when the agent has a
@@ -5589,12 +5597,35 @@ async fn run_agent(
             state_guard.scada_db = None;
         }
 
-        // Spawn command executor task
+        // Spawn command executor task (EDGE-HIGH-015: shutdown-
+        // coordinated — it exits on the shutdown broadcast and refuses
+        // to drive an actuator once shutdown has begun, so an HMI write
+        // can never overwrite the safe-state value in the
+        // safe-state→disconnect window).
         let cmd_state = state.clone();
-        tokio::spawn(async move {
+        let mut exec_shutdown = shutdown_coordinator.subscribe();
+        let exec_handle = tokio::spawn(async move {
             use crate::process_image::{ProtocolConfig, TagQuality};
 
-            while let Some(cmd) = cmd_rx.recv().await {
+            loop {
+                let cmd = tokio::select! {
+                    biased;
+                    _ = exec_shutdown.recv() => break,
+                    maybe = cmd_rx.recv() => match maybe {
+                        Some(c) => c,
+                        None => break,
+                    },
+                };
+                // Never drive an actuator once shutdown has begun —
+                // mirrors the MQTT command gate (dispatch_lifecycle).
+                if cmd_state
+                    .read()
+                    .await
+                    .is_shutting_down
+                    .load(std::sync::atomic::Ordering::Acquire)
+                {
+                    continue;
+                }
                 let result = async {
                     let s = cmd_state.read().await;
                     let config = s
@@ -5678,6 +5709,7 @@ async fn run_agent(
                 let _ = cmd.response_tx.send(result);
             }
         });
+        shutdown_coordinator.register_task("scada_cmd_executor", exec_handle);
 
         info!("SCADA display server started with full HMI runtime");
     }
@@ -5841,6 +5873,28 @@ async fn run_agent(
             .store(true, std::sync::atomic::Ordering::Release);
     }
     info!("Shutdown race gate flipped: new commands will be rejected with ServiceShuttingDown");
+
+    // EDGE-HIGH-015: whole-sequence shutdown deadline. The coordinator
+    // bounds each task individually but nothing bounds the full sequence
+    // (drain → safe-state → flush → disconnect); a wedged step could
+    // otherwise run until systemd's TimeoutStopSec SIGKILLs the process
+    // mid-operation. A detached watchdog force-exits at a hard ceiling
+    // (kept below TimeoutStopSec) so we terminate on our own terms. In
+    // the normal path the sequence finishes in well under this ceiling
+    // and the watchdog never fires; the process exits when run_agent
+    // returns and this task is abandoned with the runtime.
+    let hard_deadline_secs = shutdown_timeout_secs
+        .saturating_mul(2)
+        .saturating_add(10)
+        .min(80);
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(hard_deadline_secs)).await;
+        tracing::error!(
+            "Graceful shutdown exceeded {}s hard deadline — forcing process exit",
+            hard_deadline_secs
+        );
+        std::process::exit(0);
+    });
 
     shutdown_coordinator
         .shutdown(Duration::from_secs(shutdown_timeout_secs))

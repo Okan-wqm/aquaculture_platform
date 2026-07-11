@@ -574,6 +574,11 @@ path = "tests/invariants/legacy_command_signature_gate.rs"
 name = "keystore_acceptance_verify"
 path = "tests/invariants/keystore_acceptance_verify.rs"
 
+# EDGE-HIGH-015 — control loops registered with shutdown coordinator.
+[[test]]
+name = "shutdown_task_registration"
+path = "tests/invariants/shutdown_task_registration.rs"
+
 # Batch 24 Sprint 6.3 partial invariant — prctl + panic hook.
 [[test]]
 name = "process_hardening"

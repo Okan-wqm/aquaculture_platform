@@ -836,6 +836,36 @@ describe('Offline Queue', () => {
       expect(remaining).toHaveLength(1);
     });
 
+    it('drains escape incidents FIRST regardless of enqueue order (FARM-HIGH-214 priority drain)', async () => {
+      // Enqueue mortality → escape → feeding. The rømming varsling is legally
+      // immediate, so on reconnect the escape record must reach the server
+      // before the rest of the backlog — while everything else keeps FIFO.
+      const mortality = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const escape = {
+        siteId: 's1',
+        tankId: 't1',
+        detectedAt: '2026-07-11T10:00:00.000Z',
+        speciesId: 'sp1',
+        estimatedCount: 250,
+        cause: 'HOLE_IN_NET' as const,
+      };
+      const feeding = { executionId: 'exec-1', actualKg: 12 };
+      await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', mortality);
+      await queueOperation(TEST_QUEUE_TENANT, 'recordEscapeIncident', escape);
+      await queueOperation(TEST_QUEUE_TENANT, 'recordFeeding', feeding);
+
+      const callOrder: string[] = [];
+      const mockExecutor = vi.fn().mockImplementation((type: string) => {
+        callOrder.push(type);
+        return Promise.resolve({ success: true });
+      });
+
+      const result = await syncAllOperations(TEST_QUEUE_TENANT, mockExecutor);
+
+      expect(result.success).toBe(3);
+      expect(callOrder).toEqual(['recordEscapeIncident', 'recordMortality', 'recordFeeding']);
+    });
+
     it('should count failed operations', async () => {
       const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
       await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);

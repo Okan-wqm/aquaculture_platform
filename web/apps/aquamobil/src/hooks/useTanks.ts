@@ -21,6 +21,7 @@ const FARM_STOCK_INVENTORY_QUERY = gql`
           code
           volume
           status
+          siteId
           currentQuantity
           currentBiomassKg
           maxBiomassKg
@@ -30,10 +31,13 @@ const FARM_STOCK_INVENTORY_QUERY = gql`
         batches {
           batchId
           batchNumber
+          speciesId
+          speciesName
           quantity
           avgWeightG
           biomassKg
           densityKgM3
+          isPrimary
         }
       }
       total
@@ -50,6 +54,7 @@ interface FarmStockInventoryResult {
         code: string;
         volume: number | null;
         status: string | null;
+        siteId: string | null;
         currentQuantity: number | null;
         currentBiomassKg: number | null;
         maxBiomassKg: number | null;
@@ -59,10 +64,13 @@ interface FarmStockInventoryResult {
       batches: Array<{
         batchId: string;
         batchNumber: string | null;
+        speciesId: string | null;
+        speciesName: string | null;
         quantity: number;
         avgWeightG: number;
         biomassKg: number;
         densityKgM3: number | null;
+        isPrimary: boolean;
       }>;
     }>;
     total: number;
@@ -70,7 +78,12 @@ interface FarmStockInventoryResult {
 }
 
 function mapInventoryItemToTank(item: FarmStockInventoryResult['farmStockInventory']['items'][number]): Tank {
-  const primaryBatch = item.batches[0];
+  // FARM-LOW-216: the container's PRIMARY batch drives species/batch
+  // attribution for field capture. Prefer the explicit isPrimary row (the
+  // tank-composition ledger's primaryBatchId, projected into the snapshot);
+  // the [0] fallback covers pre-migration snapshots, where the handler's
+  // isPrimary-first ordering already puts the primary at the head.
+  const primaryBatch = item.batches.find((b) => b.isPrimary) ?? item.batches[0];
   return {
     id: item.container.containerId,
     name: item.container.name,
@@ -79,10 +92,13 @@ function mapInventoryItemToTank(item: FarmStockInventoryResult['farmStockInvento
     status: (item.container.status?.toUpperCase() ?? 'ACTIVE') as Tank['status'],
     currentBiomass: item.container.currentBiomassKg ?? 0,
     maxBiomass: item.container.maxBiomassKg ?? 0,
+    siteId: item.container.siteId,
     batchMetrics: primaryBatch
       ? {
           batchId: primaryBatch.batchId,
           batchNumber: primaryBatch.batchNumber,
+          speciesId: primaryBatch.speciesId,
+          speciesName: primaryBatch.speciesName,
           pieces: primaryBatch.quantity,
           avgWeight: primaryBatch.avgWeightG,
           biomass: primaryBatch.biomassKg,

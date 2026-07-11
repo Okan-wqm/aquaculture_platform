@@ -4373,6 +4373,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/migrations/1805300000000-AddMobileFeatureFlagDefaults.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/announcement/__tests__/announcement.service.spec.ts",
       "prettier_managed": true
     },
@@ -9069,6 +9075,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1805200000000-AddFarmStockBatchSnapshotSpecies.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -10978,6 +10990,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/fish-health/__tests__/treatment-application.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/__tests__/welfare-assessment.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -41608,7 +41626,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "bd9b4851cc04864126033e10c2e37b9e670e3d52d3dd9955e7e28f54896e9450",
+      "content_sha256": "7976e50ab44a049f65010f5e080282e0332d1580879ad54c95de29f37dbce165",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/apps/aquamobil/src/generated/graphql.ts",
@@ -42064,6 +42082,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/escape/__tests__/EscapeIncidentPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/escape/EscapeIncidentPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/pages/feeding/__tests__/RecordFeedingPage.spec.tsx",
       "prettier_managed": true
     },
@@ -42107,6 +42137,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/pages/leave/MyLeavesPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/lice/__tests__/LiceCountPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/lice/LiceCountPage.tsx",
       "prettier_managed": true
     },
     {
@@ -42214,6 +42256,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/reports/__tests__/ReportsDuePage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/reports/ReportReviewPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/reports/ReportsDuePage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/pages/schedule/MySchedulePage.tsx",
       "prettier_managed": true
     },
@@ -42281,6 +42341,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/pages/water-quality/WaterQualityRecordPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/welfare/WelfareScorePage.tsx",
       "prettier_managed": true
     },
     {
@@ -51758,7 +51824,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "cfeda1d56cac599edffcdc795db7fc2ddecb24058c0bfeedcabc5a46767dc907",
+      "content_sha256": "c44a3bad7c790430aaaa64417908091c3b96bab1b8cbe9b04637c773d8437876",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",
@@ -52428,10 +52494,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8592,
+  "file_count": 8603,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8417,
-  "managed_file_list_sha256": "a5ebd6eeaeb1b6ff1641087098025bc0ba485e63ec2b925bd7bf2cdbbd49079e",
+  "managed_count": 8428,
+  "managed_file_list_sha256": "4f4749e2919ffd085067d42d28f2bb3c876c67f887835ceabfeb5af029413134",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

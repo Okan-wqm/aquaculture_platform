@@ -130,8 +130,29 @@ export const MASKINPORTEN_ENVIRONMENTS = {
 export class MaskinportenService implements OnModuleDestroy {
   private readonly logger = new Logger(MaskinportenService.name);
 
-  /** Maximum number of entries in each cache */
+  /** Baseline cap for the discovery cache and the token-cache floor. */
   private readonly MAX_CACHE_SIZE = 100;
+
+  /**
+   * Distinct token cacheKeys a single tenant can hold (4 single-scope tokens +
+   * the all-scopes token, plus headroom for bespoke scope arrays). The token
+   * cache is sized to the observed tenant population × this, so a deployment with
+   * many tenants never FIFO-thrashes a still-valid token out of the cache
+   * (FARM-MEDIUM-172).
+   */
+  private readonly TOKEN_SCOPE_COMBINATIONS = 8;
+
+  /** Tenants that have requested a token this process — drives token-cache sizing. */
+  private readonly seenTenants = new Set<string>();
+
+  /**
+   * In-flight token acquisitions keyed by cacheKey. Single-flight (FARM-MEDIUM-172):
+   * when N concurrent callers miss the cache for the same tenant+scopes (e.g. a
+   * rollover auto-submitting several drafts at once, or a cold cache under load),
+   * only the FIRST performs the Maskinporten round-trip; the rest await the same
+   * promise instead of stampeding the auth server with duplicate JWT-bearer grants.
+   */
+  private readonly inFlightTokens = new Map<string, Promise<string>>();
 
   /** TTL for token cache entries in milliseconds (1 hour) */
   private readonly TOKEN_CACHE_TTL = 3600000;
@@ -176,6 +197,7 @@ export class MaskinportenService implements OnModuleDestroy {
     }
     this.tokenCache.clear();
     this.discoveryCache.clear();
+    this.inFlightTokens.clear();
   }
 
   /**
@@ -208,27 +230,35 @@ export class MaskinportenService implements OnModuleDestroy {
   }
 
   /**
-   * Set a cache entry with TTL and size limit enforcement
+   * Set a cache entry with TTL and LRU size-limit enforcement. Eviction removes
+   * the LEAST-RECENTLY-USED entry (the first key in insertion order, which
+   * getCacheEntry re-inserts to the end on every hit), not merely the oldest
+   * inserted — so an actively-used token is never thrown out from under a busy
+   * tenant (FARM-MEDIUM-172). `maxSize` lets the token cache scale with the
+   * tenant population while the discovery cache keeps the fixed baseline.
    */
   private setCacheEntry<T>(
     cache: Map<string, CacheEntry<T>>,
     key: string,
     data: T,
     ttl: number,
+    maxSize: number = this.MAX_CACHE_SIZE,
   ): void {
-    // Enforce maximum cache size by removing oldest entry (first inserted)
-    if (cache.size >= this.MAX_CACHE_SIZE) {
-      const firstKey = cache.keys().next().value;
-      if (firstKey !== undefined) {
-        cache.delete(firstKey);
-        this.logger.debug(`Cache size limit reached, evicted oldest entry: ${firstKey}`);
-      }
+    // Re-inserting an existing key must not count against the size check.
+    cache.delete(key);
+    while (cache.size >= maxSize) {
+      const lruKey = cache.keys().next().value;
+      if (lruKey === undefined) break;
+      cache.delete(lruKey);
+      this.logger.debug(`Cache size limit reached, evicted least-recently-used entry: ${lruKey}`);
     }
     cache.set(key, { data, expiresAt: Date.now() + ttl });
   }
 
   /**
-   * Get a cache entry if it exists and is not expired
+   * Get a cache entry if it exists and is not expired. On a hit the entry is
+   * re-inserted at the end of the Map so it becomes most-recently-used — this is
+   * what makes eviction in setCacheEntry a true LRU rather than FIFO.
    */
   private getCacheEntry<T>(cache: Map<string, CacheEntry<T>>, key: string): T | null {
     const entry = cache.get(key);
@@ -239,7 +269,19 @@ export class MaskinportenService implements OnModuleDestroy {
       cache.delete(key);
       return null;
     }
+    // Mark most-recently-used: delete + re-set moves the key to the Map's tail.
+    cache.delete(key);
+    cache.set(key, entry);
     return entry.data;
+  }
+
+  /**
+   * Current token-cache ceiling: the observed tenant population × the per-tenant
+   * scope-combination count, floored at the baseline. Grows as new tenants appear
+   * so a large fleet never evicts a valid token that is still in active rotation.
+   */
+  private tokenCacheMaxSize(): number {
+    return Math.max(this.MAX_CACHE_SIZE, this.seenTenants.size * this.TOKEN_SCOPE_COMBINATIONS);
   }
 
   /**
@@ -306,6 +348,46 @@ export class MaskinportenService implements OnModuleDestroy {
    * @param scopes - OAuth2 scopes to request (defaults to all Mattilsynet scopes)
    */
   async getAccessToken(tenantId: string, scopes?: string[]): Promise<string> {
+    const requestedScopes = scopes || ALL_MATTILSYNET_SCOPES;
+    // Sort a COPY — sorting `scopes` in place would mutate the caller's array.
+    const cacheKey = `${tenantId}:${[...requestedScopes].sort().join(' ')}`;
+
+    // Fast path: a valid cached token, no round-trip, no single-flight.
+    const cached = this.getCacheEntry(this.tokenCache, cacheKey);
+    if (cached && this.isTokenValid(cached)) {
+      this.logger.debug(`Using cached Maskinporten token for tenant: ${tenantId}`);
+      return cached.accessToken;
+    }
+
+    // Single-flight: collapse concurrent misses for the same tenant+scopes onto
+    // one acquisition so a burst never stampedes the Maskinporten token endpoint.
+    const existing = this.inFlightTokens.get(cacheKey);
+    if (existing) {
+      this.logger.debug(`Joining in-flight Maskinporten token acquisition for tenant: ${tenantId}`);
+      return existing;
+    }
+
+    const acquisition = this.acquireAndCacheToken(tenantId, requestedScopes, cacheKey).finally(
+      () => {
+        this.inFlightTokens.delete(cacheKey);
+      },
+    );
+    this.inFlightTokens.set(cacheKey, acquisition);
+    return acquisition;
+  }
+
+  /**
+   * Perform the actual Maskinporten acquisition (credentials → discovery → token)
+   * and cache the result. Serialised per cacheKey by getAccessToken's
+   * single-flight map, so at most one of these runs concurrently per tenant+scope.
+   */
+  private async acquireAndCacheToken(
+    tenantId: string,
+    requestedScopes: string[],
+    cacheKey: string,
+  ): Promise<string> {
+    this.seenTenants.add(tenantId);
+
     // Get tenant credentials
     const clientId = await this.settingsService.getDecryptedClientId(tenantId);
     const privateKey = await this.settingsService.getDecryptedPrivateKey(tenantId);
@@ -317,16 +399,7 @@ export class MaskinportenService implements OnModuleDestroy {
       );
     }
 
-    const requestedScopes = scopes || ALL_MATTILSYNET_SCOPES;
     const environment = config?.environment || 'TEST';
-    const cacheKey = `${tenantId}:${requestedScopes.sort().join(' ')}`;
-
-    // Check cache
-    const cached = this.getCacheEntry(this.tokenCache, cacheKey);
-    if (cached && this.isTokenValid(cached)) {
-      this.logger.debug(`Using cached Maskinporten token for tenant: ${tenantId}`);
-      return cached.accessToken;
-    }
 
     // Discover endpoints for this environment. Discovery is env-shared (cached
     // 24h), so its breaker uses the global key; a discovery outage is not tenant-
@@ -356,7 +429,9 @@ export class MaskinportenService implements OnModuleDestroy {
       options: MASKINPORTEN_BREAKER_OPTIONS,
     });
 
-    // Cache the token with TTL based on token expiration (with 1 min buffer)
+    // Cache the token with TTL based on token expiration (with 1 min buffer).
+    // The token cache is LRU and sized to the tenant population so a large fleet
+    // never evicts a still-valid token that is in active rotation.
     const tokenTtl = Math.min((token.expires_in - 60) * 1000, this.TOKEN_CACHE_TTL);
     const expiresAt = new Date(Date.now() + tokenTtl);
     const cachedToken: CachedToken = {
@@ -364,7 +439,7 @@ export class MaskinportenService implements OnModuleDestroy {
       expiresAt,
       scopes: requestedScopes,
     };
-    this.setCacheEntry(this.tokenCache, cacheKey, cachedToken, tokenTtl);
+    this.setCacheEntry(this.tokenCache, cacheKey, cachedToken, tokenTtl, this.tokenCacheMaxSize());
 
     return token.access_token;
   }

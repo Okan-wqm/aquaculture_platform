@@ -42,7 +42,7 @@ import {
 import { isMattilsynetRestReportType, MattilsynetRestReportType } from '../schemas';
 import { ReportSubmissionResult } from '../dto/regulatory-inputs.dto';
 
-/** Retry backoff: min(2^(attempt-1) × 15 min, 6 h). */
+/** Retry backoff cap: min(2^(attempt-1) × 15 min, 6 h). Full jitter samples within it. */
 const RETRY_BASE_MS = 15 * 60_000;
 const RETRY_MAX_MS = 6 * 60 * 60_000;
 
@@ -312,9 +312,22 @@ export class RegulatorySubmissionService {
     return RegulatoryFailureClass.PERMANENT;
   }
 
-  /** nextAttemptAt for a given (post-increment) attempt number. */
-  static computeNextAttempt(attempt: number, now: Date = new Date()): Date {
-    const backoff = Math.min(RETRY_BASE_MS * 2 ** (attempt - 1), RETRY_MAX_MS);
+  /**
+   * nextAttemptAt for a given (post-increment) attempt number, with FULL JITTER
+   * (FARM-MEDIUM-172). Without jitter, every report that failed in the same
+   * outage shares an identical deterministic backoff and the whole cohort
+   * replays on the exact same sweep tick — a synchronised retry herd that
+   * re-hammers a just-recovering government API. Full jitter samples the delay
+   * uniformly in [0, cap] so the cohort spreads across sweep ticks. `random` is
+   * injectable so the spread is asserted deterministically in tests.
+   */
+  static computeNextAttempt(
+    attempt: number,
+    now: Date = new Date(),
+    random: () => number = Math.random,
+  ): Date {
+    const cap = Math.min(RETRY_BASE_MS * 2 ** (attempt - 1), RETRY_MAX_MS);
+    const backoff = Math.round(random() * cap);
     return new Date(now.getTime() + backoff);
   }
 

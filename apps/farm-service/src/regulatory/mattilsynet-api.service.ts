@@ -49,6 +49,23 @@ const MATTILSYNET_BREAKER_OPTIONS: CircuitBreakerOptions = {
 };
 
 /**
+ * A Mattilsynet 5xx response — the regulator server itself is failing. It is
+ * thrown from INSIDE the breaker fn so the breaker counts it (FARM-MEDIUM-172):
+ * `fetch` resolves normally on a 5xx (it only rejects on transport errors), so
+ * without this a sustained server outage would never trip the breaker and the
+ * sweep would keep hammering a struggling regulator. A 4xx is the server WORKING
+ * and rejecting our request (validation/auth) — it is NOT thrown here, so it does
+ * not trip the breaker and flows to normal per-status classification. Carries only
+ * the status code (never the response body, which can echo submitted PII).
+ */
+class MattilsynetServerError extends Error {
+  constructor(readonly httpStatus: number) {
+    super(`Mattilsynet server error: HTTP ${httpStatus}`);
+    this.name = 'MattilsynetServerError';
+  }
+}
+
+/**
  * Endpoint + scope + label per REST report type — the SSoT the typed submit
  * methods and the by-type replay path both key off, so an endpoint path lives
  * in exactly one place. `path` is appended to the configured base URL.
@@ -606,13 +623,22 @@ export class MattilsynetApiService {
       const response = await this.circuitBreaker.execute({
         serviceName: 'mattilsynet-submit',
         tenantId,
-        fn: () =>
-          fetch(endpoint, {
+        fn: async () => {
+          const res = await fetch(endpoint, {
             method: 'POST',
             headers,
             body: JSON.stringify(payload),
             signal: AbortSignal.timeout(MATTILSYNET_HTTP_TIMEOUT_MS),
-          }),
+          });
+          // FARM-MEDIUM-172: a 5xx is the regulator server failing — throw so the
+          // breaker records the HTTP failure (fetch itself never rejects on a 5xx).
+          // A 4xx (validation/auth rejection) is the server working and is returned
+          // for normal classification below, so it never trips the breaker.
+          if (res.status >= 500) {
+            throw new MattilsynetServerError(res.status);
+          }
+          return res;
+        },
         options: MATTILSYNET_BREAKER_OPTIONS,
       });
 

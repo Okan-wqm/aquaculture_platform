@@ -406,8 +406,14 @@ varsling QUEUED shown as "Submitted" with the internal event id as a fake "Matti
 lossy relocation-before-drop migrations with no backup step (DATA-MEDIUM-005/006); duplicate parallel
 submission systems (manual wizard vs assembled draft) per report type (farm-expert FARM-MEDIUM-009);
 inconsistent artskode regex is FIXED (FARM-LOW-011/FARM-MEDIUM-158 -> FARM-MEDIUM-194: one OFFICIAL_ARTSKODE_PATTERN /^[A-Z]{3}$/ SSoT shared by escape + settefisk, dropping the loose {2,5} fork); non-atomic
-attemptCount RMW + operator/sweep race is FIXED (PRODUCT-JOB-MEDIUM-001 -> FARM-MEDIUM-192: applyFailure/markSubmitted take a pessimistic_write row lock so the RMW serialises); no span coverage / deterministic
-backoff without jitter / token single-flight + LRU (OBS-MEDIUM-001/002, CIRCUIT-MEDIUM-001/002/003);
+attemptCount RMW + operator/sweep race is FIXED (PRODUCT-JOB-MEDIUM-001 -> FARM-MEDIUM-192: applyFailure/markSubmitted take a pessimistic_write row lock so the RMW serialises); deterministic
+backoff without jitter / token single-flight + LRU / breaker-blind-to-5xx is FIXED (FARM-MEDIUM-172:
+`computeNextAttempt` now full-jitters the delay uniformly in [0, cap] so a failure cohort decorrelates
+across sweep ticks; `MaskinportenService` collapses concurrent token misses onto one in-flight
+acquisition per tenant+scope and the token cache is LRU sized to the tenant population, ending FIFO
+thrash past ~20 tenants; the Mattilsynet submit breaker fn now throws on a 5xx so HTTP server failures
+trip it, while a 4xx validation rejection flows through untouched — all covered by new London specs);
+span coverage remains (OBS-MEDIUM-001/002, CIRCUIT-MEDIUM-001/002/003 residuals);
 plus assorted LOWs (siteName never populated, sea-lice temperature not hydrated); tenant discovery keyed
 off `sites` is FIXED (FARM-LOW-197: `discoverTenantIds` now anchors on `regulatory_settings` — the SSoT
 for a reporting-configured tenant — UNION `sites`, so a schema with settings but no sites row is still

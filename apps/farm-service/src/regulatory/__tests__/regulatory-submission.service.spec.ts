@@ -149,29 +149,53 @@ describe('RegulatorySubmissionService', () => {
   // computeNextAttempt backoff
   // ==========================================================================
 
-  describe('computeNextAttempt', () => {
+  describe('computeNextAttempt (full jitter)', () => {
     const NOW = new Date('2026-07-06T00:00:00Z');
+    // random()=1 samples the top of the [0, cap] window, so the cap per attempt
+    // is asserted deterministically without depending on Math.random.
+    const maxJitter = (): number => 1;
+    const minJitter = (): number => 0;
 
-    it('doubles each attempt: 15m, 30m, 60m …', () => {
-      expect(RegulatorySubmissionService.computeNextAttempt(1, NOW).getTime()).toBe(
+    it('caps grow exponentially per attempt: 15m, 30m, 60m …', () => {
+      expect(RegulatorySubmissionService.computeNextAttempt(1, NOW, maxJitter).getTime()).toBe(
         NOW.getTime() + 15 * 60_000,
       );
-      expect(RegulatorySubmissionService.computeNextAttempt(2, NOW).getTime()).toBe(
+      expect(RegulatorySubmissionService.computeNextAttempt(2, NOW, maxJitter).getTime()).toBe(
         NOW.getTime() + 30 * 60_000,
       );
-      expect(RegulatorySubmissionService.computeNextAttempt(3, NOW).getTime()).toBe(
+      expect(RegulatorySubmissionService.computeNextAttempt(3, NOW, maxJitter).getTime()).toBe(
         NOW.getTime() + 60 * 60_000,
       );
     });
 
-    it('caps the backoff at 6 hours', () => {
+    it('caps the backoff window at 6 hours', () => {
       // attempt 6 would be 15m×32 = 8h uncapped → clamped to 6h.
-      expect(RegulatorySubmissionService.computeNextAttempt(6, NOW).getTime()).toBe(
+      expect(RegulatorySubmissionService.computeNextAttempt(6, NOW, maxJitter).getTime()).toBe(
         NOW.getTime() + 6 * 60 * 60_000,
       );
-      expect(RegulatorySubmissionService.computeNextAttempt(20, NOW).getTime()).toBe(
+      expect(RegulatorySubmissionService.computeNextAttempt(20, NOW, maxJitter).getTime()).toBe(
         NOW.getTime() + 6 * 60 * 60_000,
       );
+    });
+
+    it('samples the FULL window [0, cap] so a failure cohort decorrelates', () => {
+      // random()=0 is the floor (immediate), random()=1 is the cap — proving the
+      // delay is jittered across the window rather than a fixed deterministic value.
+      expect(RegulatorySubmissionService.computeNextAttempt(3, NOW, minJitter).getTime()).toBe(
+        NOW.getTime(),
+      );
+      expect(RegulatorySubmissionService.computeNextAttempt(3, NOW, () => 0.5).getTime()).toBe(
+        NOW.getTime() + 30 * 60_000,
+      );
+    });
+
+    it('keeps the real (Math.random-backed) delay within [0, cap]', () => {
+      const cap = 6 * 60 * 60_000;
+      for (let i = 0; i < 50; i++) {
+        const delay = RegulatorySubmissionService.computeNextAttempt(10, NOW).getTime() - NOW.getTime();
+        expect(delay).toBeGreaterThanOrEqual(0);
+        expect(delay).toBeLessThanOrEqual(cap);
+      }
     });
   });
 

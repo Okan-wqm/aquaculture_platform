@@ -102,6 +102,9 @@ export class FinanceResolver {
     scope?: FinanceCategoryScope,
     @Args('categoryId', { type: () => ID, nullable: true }) categoryId?: string,
     @Args('batchId', { type: () => ID, nullable: true }) batchId?: string,
+    // A siteId filter returns manual entries for that site plus only the
+    // derived costs that can be attributed to it; site-less derived costs
+    // (maintenance, fingerlings) are excluded, never mixed in.
     @Args('siteId', { type: () => ID, nullable: true }) siteId?: string,
     @Args('includeDerived', { defaultValue: true }) includeDerived?: boolean,
     @Args('limit', { type: () => Int, defaultValue: 50 }) limit?: number,

@@ -530,6 +530,11 @@ export class FinanceLedgerQueryService {
       if (!category) continue;
       if (filter.scope && category.scope !== filter.scope) continue;
       if (filter.batchId && !source.batchIdExpr) continue;
+      // A site-scoped ledger must NEVER show a derived cost that cannot be
+      // attributed to that site (maintenance/fingerling costs have no site
+      // dimension). Exclude unattributable sources rather than silently
+      // mixing tenant-wide costs into one site's P&L (FARM-MEDIUM-162).
+      if (filter.siteId && !source.siteIdExpr) continue;
 
       const qb = manager
         .createQueryBuilder(source.entity, source.alias)
@@ -549,6 +554,9 @@ export class FinanceLedgerQueryService {
       if (filter.to) qb.andWhere(`${source.dateExpr} <= :to`, { to: filter.to });
       if (filter.batchId && source.batchIdExpr) {
         qb.andWhere(`${source.batchIdExpr} = :batchId`, { batchId: filter.batchId });
+      }
+      if (filter.siteId && source.siteIdExpr) {
+        qb.andWhere(`${source.siteIdExpr} = :siteId`, { siteId: filter.siteId });
       }
 
       const rows = await qb.getRawMany<{

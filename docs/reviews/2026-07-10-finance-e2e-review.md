@@ -150,6 +150,16 @@ rolls the remainder into an "Other" row.
 > invalidation (`PERF-005`), single-UNION aggregation (`PERF-009`) and finance p99
 > SLO (`PERF-008`) remain in progress on the hardening branch.
 
+## Wave 4 — derived site attribution (follow-up, implemented)
+
+### FARM-MEDIUM-162 — derived ledger lines ignored the `siteId` filter
+Root cause: `DerivedCostSource` has no `siteIdExpr`, and maintenance/fingerling
+costs have no site dimension at all. Tier-1 fix: a site-filtered ledger now
+**excludes** any derived source that cannot be attributed to the site (rather than
+silently mixing tenant-wide costs into one site's P&L), and applies a
+`siteIdExpr = :siteId` predicate for any source that can resolve one. The
+resolver's `siteId` arg documents this behavior.
+
 ## Tracked debt (owner + deadline — NOT fixed this cycle)
 
 ### PERF-HIGH-004 — no rollup/cache; derived aggregation re-scans high-frequency source tables per load

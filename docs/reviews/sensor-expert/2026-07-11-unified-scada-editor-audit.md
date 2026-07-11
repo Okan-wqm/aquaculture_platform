@@ -111,3 +111,10 @@ record. Remediation is phased in
 - **Description:** The toolbar device selector wrote a local `useState`, never the scada store, so `meta.edgeDeviceId` serialized as null and the choice was lost on save; the tag browser and ST autocomplete saw no device.
 - **Impact:** The chosen deploy/target device was not persisted and did not rehydrate on reload.
 - **Recommendation:** Bind the selector to the store's `targetDeviceId`/`setTargetDeviceId` (which round-trips via `meta.edgeDeviceId`) and mark the store dirty on change.
+
+### [SENSOR-HIGH-038] SCADA socket heartbeat watchdog falsely trips after 35s and blocks tag writes
+- **File:** `web/modules/sensor-module/src/services/ScadaSocketService.ts`
+- **Category:** Connection reliability / control path
+- **Description:** The 35s liveness watchdog reset ONLY on a `HEARTBEAT` frame, which the server never pushes on its own (it only echoes a client heartbeat), and the client sent none. A healthy socket streaming `TAG_VALUES` still tripped `connectionState` to `error` after 35s; since `writeTagValue` rejects on `!isConnected`, every operator tag write was then blocked by a phantom disconnect.
+- **Impact:** Control writes silently blocked on a live connection; connection indicators lied.
+- **Recommendation:** Reset the watchdog on ANY inbound frame, and emit a periodic client heartbeat (15s) the server echoes so idle-but-connected sockets stay healthy. Guarded by a fake-timer test.

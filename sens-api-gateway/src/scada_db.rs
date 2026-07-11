@@ -64,17 +64,27 @@ pub struct AuditEntry {
 }
 
 // ---------------------------------------------------------------------------
-// Encryption key derivation
+// Encryption key derivation (EDGE-CRITICAL-002)
 // ---------------------------------------------------------------------------
+//
+// The prior `derive_db_key` used `SHA256("suderra-scada-" + machine_uid)`
+// with a universal `"default-machine-id"` fallback — a key readable off a
+// stolen SD card, and (on machine-id failure) an offline-computable key
+// identical on every device. It protected the entire SCADA store including
+// the `audit_log` tamper-evidence record. It is replaced by the same
+// keystore/TPM-aware consumer-key resolver the offline queue uses.
 
-fn derive_db_key() -> String {
+/// DEPRECATED, migration-only: the pre-EDGE-CRITICAL-002 machine-id
+/// SQLCipher passphrase. Retained SOLELY to open an existing `scada.db`
+/// so it can be rekeyed to the hardened key — never used to create or
+/// protect a database going forward.
+fn legacy_machine_id_passphrase() -> String {
     let machine_id = machine_uid::get().unwrap_or_else(|_| "default-machine-id".to_string());
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(b"suderra-scada-");
     hasher.update(machine_id.as_bytes());
-    let result = hasher.finalize();
-    format!("{:x}", result)
+    format!("{:x}", hasher.finalize())
 }
 
 // ---------------------------------------------------------------------------
@@ -86,16 +96,67 @@ pub struct ScadaDb {
 }
 
 impl ScadaDb {
-    pub fn new(path: &str) -> Result<Self, String> {
+    /// Open the SCADA-display store with a keystore/TPM-aware SQLCipher
+    /// key (EDGE-CRITICAL-002).
+    ///
+    /// - `keystore: Some` → the consumer-key resolver derives the key via
+    ///   the keystore (TPM-sealed where available), matching
+    ///   `OfflineQueue::with_keystore_derivation`.
+    /// - `keystore: None` (keystore disabled) → the device-secret legacy
+    ///   derivation `HMAC-SHA256(machine_id, /etc/suderra/db.key)` — the
+    ///   same fallback the offline queue uses: device-bound, fail-closed
+    ///   on machine-id read error, and with NO universal constant.
+    ///
+    /// An existing `scada.db` still under the deprecated machine-id key is
+    /// transparently rekeyed to the hardened key (data preserved); a file
+    /// that opens with neither key fails closed without deletion.
+    pub async fn new(
+        path: &str,
+        keystore: Option<std::sync::Arc<dyn crate::keystore::Keystore>>,
+        deployment_uuid: Vec<u8>,
+    ) -> Result<Self, String> {
         if let Some(parent) = std::path::Path::new(path).parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create dir: {}", e))?;
         }
 
-        let conn = rusqlite::Connection::open(path).map_err(|e| format!("DB open: {}", e))?;
+        let new_key: zeroize::Zeroizing<String> = match keystore {
+            Some(ks) => {
+                let machine_id = crate::machine_id::read()
+                    .map_err(|e| format!("ScadaDb: machine_id read failed (fail-closed): {e}"))?;
+                let secret_key = crate::db_secret::read_or_create_v1_secret()
+                    .map_err(|e| format!("ScadaDb: db_secret load failed: {e}"))?;
+                let v1_inputs = crate::db_migration::consumer_key_resolver::V1Inputs {
+                    machine_id: machine_id.into_bytes(),
+                    secret_key,
+                };
+                let ctx = crate::db_migration::consumer_context::ConsumerContext {
+                    deployment_uuid,
+                    program_artifact_sha256: None,
+                };
+                crate::db_migration::consumer_key_resolver::resolve_consumer_pragma_key(
+                    std::path::Path::new(path),
+                    crate::keystore::purpose::KeyPurpose::SqlCipherScadaDisplay,
+                    &ctx,
+                    ks.as_ref(),
+                    &v1_inputs,
+                )
+                .await
+                .map_err(|e| format!("ScadaDb key resolver failed (fail-closed): {e}"))?
+                .pragma_key_hex
+            }
+            None => {
+                warn!(
+                    "SECURITY: SCADA store opening on a non-keystore-sealed device-secret key \
+                     (keystore disabled) — provision a keystore/TPM to seal the SCADA at-rest key"
+                );
+                zeroize::Zeroizing::new(
+                    crate::offline_queue::derive_db_encryption_key()
+                        .map_err(|e| format!("ScadaDb device-secret key derivation failed: {e}"))?,
+                )
+            }
+        };
 
-        let key = derive_db_key();
-        conn.pragma_update(None, "key", &key)
-            .map_err(|e| format!("DB key: {}", e))?;
+        let conn = Self::open_with_key_or_migrate(path, new_key.as_str())?;
 
         conn.execute_batch(
             "
@@ -112,6 +173,54 @@ impl ScadaDb {
         db.init_schema()?;
         debug!("SCADA database initialized at {}", path);
         Ok(db)
+    }
+
+    /// Open `path` under `new_key_hex` (SQLCipher raw-key form). A fresh
+    /// or already-hardened DB opens directly; an existing DB still under
+    /// the deprecated machine-id passphrase is rekeyed in place to the
+    /// hardened key (EDGE-CRITICAL-002 one-shot migration). A file that
+    /// opens with neither key fails closed — it is never deleted.
+    fn open_with_key_or_migrate(
+        path: &str,
+        new_key_hex: &str,
+    ) -> Result<rusqlite::Connection, String> {
+        let conn = rusqlite::Connection::open(path).map_err(|e| format!("DB open: {}", e))?;
+        conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", new_key_hex))
+            .map_err(|e| format!("DB key: {}", e))?;
+        // Probe: does the hardened key decrypt this file?
+        if conn
+            .query_row("SELECT count(*) FROM sqlite_master", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .is_ok()
+        {
+            return Ok(conn);
+        }
+
+        // Existing DB under the deprecated machine-id key — open with it
+        // and rekey to the hardened key, preserving trends/alarms/audit.
+        drop(conn);
+        let conn = rusqlite::Connection::open(path).map_err(|e| format!("DB reopen: {}", e))?;
+        let legacy = legacy_machine_id_passphrase();
+        conn.pragma_update(None, "key", &legacy)
+            .map_err(|e| format!("DB legacy key: {}", e))?;
+        conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| {
+            r.get::<_, i64>(0)
+        })
+        .map_err(|e| {
+            format!(
+                "ScadaDb: existing database opens with neither the hardened key nor the \
+                 deprecated machine-id key (corrupt or foreign) — failing closed without \
+                 deletion: {e}"
+            )
+        })?;
+        conn.execute_batch(&format!("PRAGMA rekey = \"x'{}'\";", new_key_hex))
+            .map_err(|e| format!("ScadaDb: rekey to hardened key failed: {}", e))?;
+        warn!(
+            "SCADA store migrated from the deprecated machine-id key to the hardened \
+             keystore/device key (EDGE-CRITICAL-002)"
+        );
+        Ok(conn)
     }
 
     fn init_schema(&self) -> Result<(), String> {
@@ -648,5 +757,74 @@ impl ScadaDb {
         conn.execute(&sql, rusqlite::params![id])
             .map_err(|e| format!("Mark synced: {}", e))?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_db(tag: &str) -> (std::path::PathBuf, String) {
+        let dir = std::env::temp_dir().join(format!("scada_{}_{}", tag, std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("scada.db");
+        let s = path.to_string_lossy().to_string();
+        (dir, s)
+    }
+
+    /// EDGE-CRITICAL-002: an existing scada.db under the deprecated
+    /// machine-id passphrase is rekeyed to the hardened key in place,
+    /// preserving its rows; afterwards only the hardened key opens it.
+    #[test]
+    fn migrates_legacy_machine_id_db_to_hardened_key() {
+        let (dir, path) = temp_db("mig");
+
+        // Seed a DB under the deprecated machine-id passphrase.
+        let legacy = legacy_machine_id_passphrase();
+        {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.pragma_update(None, "key", &legacy).unwrap();
+            conn.execute_batch("CREATE TABLE t (v INTEGER); INSERT INTO t VALUES (42);")
+                .unwrap();
+        }
+
+        let new_hex = "aa".repeat(32);
+        let conn = ScadaDb::open_with_key_or_migrate(&path, &new_hex).unwrap();
+        let v: i64 = conn.query_row("SELECT v FROM t", [], |r| r.get(0)).unwrap();
+        assert_eq!(v, 42, "row must survive the rekey migration");
+        drop(conn);
+
+        // The hardened key now opens it; the legacy passphrase must not.
+        let reopen = rusqlite::Connection::open(&path).unwrap();
+        reopen
+            .execute_batch(&format!("PRAGMA key = \"x'{}'\";", new_hex))
+            .unwrap();
+        let v2: i64 = reopen.query_row("SELECT v FROM t", [], |r| r.get(0)).unwrap();
+        assert_eq!(v2, 42);
+
+        let stale = rusqlite::Connection::open(&path).unwrap();
+        stale.pragma_update(None, "key", &legacy).unwrap();
+        assert!(
+            stale
+                .query_row("SELECT v FROM t", [], |r| r.get::<_, i64>(0))
+                .is_err(),
+            "deprecated machine-id key must no longer open the rekeyed store"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A fresh store opens directly under the hardened key (no migration).
+    #[test]
+    fn fresh_db_opens_with_hardened_key() {
+        let (dir, path) = temp_db("fresh");
+        let new_hex = "bb".repeat(32);
+        let conn = ScadaDb::open_with_key_or_migrate(&path, &new_hex).unwrap();
+        conn.execute_batch("CREATE TABLE t (v INTEGER); INSERT INTO t VALUES (7);")
+            .unwrap();
+        let v: i64 = conn.query_row("SELECT v FROM t", [], |r| r.get(0)).unwrap();
+        assert_eq!(v, 7);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

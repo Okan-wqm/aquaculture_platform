@@ -5534,7 +5534,20 @@ async fn run_agent(
             .join("scada.db")
             .to_string_lossy()
             .to_string();
-        let scada_db = match scada_db::ScadaDb::new(&scada_db_path) {
+        // EDGE-CRITICAL-002: the SCADA store's at-rest key is derived via
+        // the keystore/TPM-aware consumer-key resolver (device-bound),
+        // replacing the machine-id-only key + universal fallback.
+        let (scada_keystore, scada_deployment_uuid) = {
+            let s = state.read().await;
+            (s.keystore.clone(), s.config.device_id.clone().into_bytes())
+        };
+        let scada_db = match scada_db::ScadaDb::new(
+            &scada_db_path,
+            scada_keystore,
+            scada_deployment_uuid,
+        )
+        .await
+        {
             Ok(db) => {
                 info!("SCADA database initialized: {}", scada_db_path);
                 Some(Arc::new(db))

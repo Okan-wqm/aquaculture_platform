@@ -35,6 +35,7 @@ import { StockMovementService } from '../../../storage/services/stock-movement.s
 import { StockMovement } from '../../../storage/entities/stock-movement.entity';
 import { RecordMovementResult } from '../../../storage/services/stock-movement.service';
 import { BackdatePolicyService } from '../../../common/services/backdate-policy.service';
+import { FinanceSettingsService } from '../../../finance/services/finance-settings.service';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const BATCH = '22222222-2222-4222-8222-222222222222';
@@ -179,6 +180,12 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
 
   const repo = <T extends ObjectLiteral>(): Repository<T> => mock<Repository<T>>({});
 
+  // Currency SSoT double — the handler resolves the tenant default
+  // currency through FinanceSettingsService when the payload omits it.
+  const financeSettings = mock<FinanceSettingsService>({
+    getDefaultCurrencyInTx: jest.fn().mockResolvedValue('NOK'),
+  });
+
   const handler = new CreateFeedingRecordHandler(
     repo<FeedingRecord>(),
     repo<Batch>(),
@@ -189,6 +196,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     backdatePolicy,
     batchDomainService,
     stockMovementService,
+    financeSettings,
   );
 
   return { handler, feedHasStoragePresence, resolveFeedDeductionLocation, recordMovement, commit, rollback };

@@ -249,6 +249,8 @@ export default {
         '<rootDir>/entity-schema-declaration.spec.ts',
         '<rootDir>/entity-diff-implies-migration.spec.ts',
         '<rootDir>/tenant-fanout-entity-parity.spec.ts',
+        '<rootDir>/finance-currency-ssot.spec.ts',
+        '<rootDir>/finance-derived-source-category-parity.spec.ts',
         '<rootDir>/tenant-aware-migration-ddl-guard.spec.ts',
         '<rootDir>/critical-infra-ssot.spec.ts',
         '<rootDir>/infrastructure-ledger-ssot.spec.ts',

@@ -8,6 +8,10 @@ import addFormats from 'ajv-formats';
 import { AUTH_EVENT_SCHEMAS, type AuthEventType } from './auth-events.schema';
 import { FARM_EVENT_SCHEMAS, type FarmEventType } from './farm-events.schema';
 import {
+  FINANCE_EVENT_SCHEMAS,
+  type FinanceEventType,
+} from './finance-events.schema';
+import {
   INGEST_BACKEND_POLICY_EVENT_SCHEMAS,
   type IngestBackendPolicyEventType,
 } from './ingest-backend-policy.schema';
@@ -139,6 +143,20 @@ const authValidators = new Map<AuthEventType, ValidateFunction>();
 for (const [eventType, schema] of Object.entries(AUTH_EVENT_SCHEMAS)) {
   const validator = ajv.compile(schema as AnySchema);
   authValidators.set(eventType as AuthEventType, validator);
+}
+
+/**
+ * Finance-domain validator cache. Validates tenant-finance events
+ * crossing the NATS trust boundary — today the hr-service consumer of
+ * `FinanceSettingsUpdated` (currency SSoT projection); tomorrow the
+ * standalone finance-service projections. Same compile-once posture
+ * as the farm validators above.
+ */
+const financeValidators = new Map<FinanceEventType, ValidateFunction>();
+
+for (const [eventType, schema] of Object.entries(FINANCE_EVENT_SCHEMAS)) {
+  const validator = ajv.compile(schema as AnySchema);
+  financeValidators.set(eventType as FinanceEventType, validator);
 }
 
 /**
@@ -346,6 +364,43 @@ export function validateTenantEvent(
     return {
       valid: false,
       errors: `Unknown tenant event type: ${eventType}`,
+    };
+  }
+  if (typeof payload !== 'object' || payload === null) {
+    return {
+      valid: false,
+      errors: `Payload must be a JSON object (got ${typeof payload})`,
+    };
+  }
+  const isValid = validator(payload);
+  if (!isValid) {
+    return {
+      valid: false,
+      errors: formatFirstError(validator.errors),
+    };
+  }
+  return { valid: true };
+}
+
+export type FinanceEventValidationResult =
+  | { valid: true }
+  | { valid: false; errors: string };
+
+/**
+ * Validate a decoded finance-domain event against its schema. Mirrors
+ * [`validateTenantEvent`]; use at trust boundaries that decode untrusted
+ * finance-event JSON (the hr-service `FinanceSettingsUpdated` consumer,
+ * future finance-service projections) before acting on it.
+ */
+export function validateFinanceEvent(
+  eventType: string,
+  payload: unknown,
+): FinanceEventValidationResult {
+  const validator = financeValidators.get(eventType as FinanceEventType);
+  if (!validator) {
+    return {
+      valid: false,
+      errors: `Unknown finance event type: ${eventType}`,
     };
   }
   if (typeof payload !== 'object' || payload === null) {

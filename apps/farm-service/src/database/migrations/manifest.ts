@@ -43,11 +43,19 @@ import { DropRegulatorySettingsSlaughterApprovalNumber1804100000000 } from './18
 import { DropSiteLocalityMappingsJsonb1804200000000 } from './1804200000000-DropSiteLocalityMappingsJsonb';
 import { DropHarvestQualityGrade1804300000000 } from './1804300000000-DropHarvestQualityGrade';
 import { DropOrphanQualityGradeEnum1804400000000 } from './1804400000000-DropOrphanQualityGradeEnum';
-import { ApplyRlsToRegulatoryReportDrafts1804500000000 } from './1804500000000-ApplyRlsToRegulatoryReportDrafts';
-import { AddTenantErasureRetainedColumns1804600000000 } from './1804600000000-AddTenantErasureRetainedColumns';
+// From main: heal-behind-tenant quality grade + finance tables (finance was
+// renumbered on main's own merge from 1802500000000 → 1804600000000).
+import { HealBehindTenantQualityGrade1804500000000 } from './1804500000000-HealBehindTenantQualityGrade';
+import { CreateFinanceTables1804600000000 } from './1804600000000-CreateFinanceTables';
 import { AddRegulatoryAuditEnumValues1804700000000 } from './1804700000000-AddRegulatoryAuditEnumValues';
 import { AddRegulatoryReportImmutabilityTrigger1804800000000 } from './1804800000000-AddRegulatoryReportImmutabilityTrigger';
 import { AddWelfareLiceCheckConstraints1804900000000 } from './1804900000000-AddWelfareLiceCheckConstraints';
+// Renumbered from 1804500000000/1804600000000 → 1805000000000/1805100000000 on
+// this main merge to resolve a timestamp collision with main's
+// HealBehindTenantQualityGrade1804500000000 + CreateFinanceTables1804600000000
+// (migrations are append-only + ordered).
+import { ApplyRlsToRegulatoryReportDrafts1805000000000 } from './1805000000000-ApplyRlsToRegulatoryReportDrafts';
+import { AddTenantErasureRetainedColumns1805100000000 } from './1805100000000-AddTenantErasureRetainedColumns';
 
 /**
  * Canonical farm-service migration class list.
@@ -103,9 +111,11 @@ export const FARM_MIGRATIONS = [
   DropSiteLocalityMappingsJsonb1804200000000,
   DropHarvestQualityGrade1804300000000,
   DropOrphanQualityGradeEnum1804400000000,
-  ApplyRlsToRegulatoryReportDrafts1804500000000,
-  AddTenantErasureRetainedColumns1804600000000,
+  HealBehindTenantQualityGrade1804500000000,
+  CreateFinanceTables1804600000000,
   AddRegulatoryAuditEnumValues1804700000000,
   AddRegulatoryReportImmutabilityTrigger1804800000000,
   AddWelfareLiceCheckConstraints1804900000000,
+  ApplyRlsToRegulatoryReportDrafts1805000000000,
+  AddTenantErasureRetainedColumns1805100000000,
 ] as const;

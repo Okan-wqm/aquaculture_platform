@@ -26,6 +26,9 @@ import { EquipmentType } from '../equipment/entities/equipment-type.entity';
 import { Equipment } from '../equipment/entities/equipment.entity';
 import { FarmStockModule } from '../farm-stock/farm-stock.module';
 import { Feed } from '../feed/entities/feed.entity';
+// FinanceModule exports the currency SSoT resolver (FARM-HIGH-151). No
+// cycle: FinanceModule imports no domain module.
+import { FinanceModule } from '../finance/finance.module';
 import { HealthEvent } from '../fish-health/entities/health-event.entity';
 import { FishHealthModule } from '../fish-health/fish-health.module';
 import { GrowthMeasurement } from '../growth/entities/growth-measurement.entity';
@@ -102,6 +105,7 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
     // handlers in HarvestModule resolve the same instance (never a per-module copy).
     TankBatchModule,
     FarmStockModule,
+    FinanceModule,
     ConfigModule,
     // WHY: CloseBatchHandler + GetBatchPerformanceHandler now inject
     // FCRCalculationService (the single FCR authority, Tier-1 SSoT consolidation),

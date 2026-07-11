@@ -52,7 +52,6 @@ export function MemberRow({ member }: MemberRowProps): ReactElement {
   const roleBadge = ROLE_BADGES[member.role];
   const RoleIcon = roleBadge.icon;
   const memberName = member.user ? getUserDisplayName(member.user) : 'Unknown User';
-  const memberEmail = member.user?.email ?? '';
   const memberAvatar = member.user?.profileImageUrl ?? member.user?.avatarUrl ?? null;
   const memberOnline = member.user?.isOnline ?? false;
 
@@ -79,9 +78,6 @@ export function MemberRow({ member }: MemberRowProps): ReactElement {
         <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">
           {memberName}
         </h3>
-        <p className="text-xs text-gray-400 dark:text-gray-500 truncate">
-          {memberEmail}
-        </p>
       </div>
 
       {member.role !== 'MEMBER' && (

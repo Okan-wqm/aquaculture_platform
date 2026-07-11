@@ -494,6 +494,12 @@ export interface GrowthSampleRecordedEvent extends BaseEvent {
 
 /**
  * Feeding Recorded Event
+ *
+ * `feedCost`/`currency` (additive, v1-compatible) carry the monetary
+ * cost of the feeding so finance projections (future finance-service)
+ * can aggregate feed spend without querying farm-service. Monetary
+ * value is a string-encoded decimal per HR-MEDIUM-001 — NEVER a
+ * JavaScript `number`.
  */
 export interface FeedingRecordedEvent extends BaseEvent {
   eventType: 'FeedingRecorded';
@@ -505,6 +511,10 @@ export interface FeedingRecordedEvent extends BaseEvent {
   feedingDate: string;
   feedingTime: string;
   variance: number;
+  /** String-encoded decimal cost of this feeding (e.g. "123.45"). */
+  feedCost?: string;
+  /** ISO 4217 currency code for feedCost. */
+  currency?: string;
 }
 
 /**

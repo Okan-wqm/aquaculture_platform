@@ -77,6 +77,7 @@ import { FeedSite } from '../../feed/entities/feed-site.entity';
 import { FeedTypeSpecies } from '../../feed/entities/feed-type-species.entity';
 import { Feed, FeedStatus, FeedType } from '../../feed/entities/feed.entity';
 import { CreateFeedHandler } from '../../feed/handlers/create-feed.handler';
+import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 import { DeleteFeedHandler } from '../../feed/handlers/delete-feed.handler';
 import { GetFeedHandler } from '../../feed/handlers/get-feed.handler';
 import { ListFeedsHandler } from '../../feed/handlers/list-feeds.handler';
@@ -443,6 +444,7 @@ describe('Site tenant isolation on real Postgres', () => {
         auditLogService,
         new OutboxPublisher(FarmOutbox),
         tankEquipmentAdapter,
+        new FinanceSettingsService(dataSource),
       ),
       getEquipment: new GetEquipmentHandler(dataSource, tankEquipmentAdapter),
       listEquipment: new ListEquipmentHandler(dataSource),
@@ -474,7 +476,7 @@ describe('Site tenant isolation on real Postgres', () => {
         farmStockProjection,
       ),
       deleteTank: deleteTankHandler,
-      createFeed: new CreateFeedHandler(dataSource),
+      createFeed: new CreateFeedHandler(dataSource, new FinanceSettingsService(dataSource)),
       getFeed: new GetFeedHandler(dataSource),
       listFeeds: new ListFeedsHandler(dataSource),
       updateFeed: new UpdateFeedHandler(dataSource),
@@ -485,6 +487,7 @@ describe('Site tenant isolation on real Postgres', () => {
         siteRepository,
         dataSource,
         new OutboxPublisher(FarmOutbox),
+        new FinanceSettingsService(dataSource),
       ),
       adjustFeedInventory: new AdjustFeedInventoryHandler(
         inventoryRepository,

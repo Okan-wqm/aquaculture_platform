@@ -153,6 +153,11 @@ function makeHarness(opts: HarnessOpts = {}) {
   const tankBatchService = {
     applyBatchDelta: jest.fn().mockResolvedValue(undefined),
   };
+  // Currency SSoT resolver (FARM-HIGH-151) — harvest revenue books under
+  // the tenant default resolved through this, not a hardcoded literal.
+  const financeSettings = {
+    getDefaultCurrency: jest.fn().mockResolvedValue('NOK'),
+  };
 
   const handler = new CreateHarvestRecordHandler(
     dataSource,
@@ -167,6 +172,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     createMockRepository<TankBatch>(),
     createMockRepository<Tank>(),
     tankBatchService as never,
+    financeSettings as never,
     // SEC-HIGH-051: the real fail-closed SSoT; commands below pass MODULE_MANAGER
     // so site authz bypasses for these final-harvest-chain domain tests.
     new SiteAuthorizationService(),

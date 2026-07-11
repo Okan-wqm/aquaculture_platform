@@ -7,6 +7,7 @@
 import { useCallback, useMemo } from 'react';
 import { useAuthContext } from '../contexts/AuthContext';
 import { getAccessToken, getTenantId } from '../utils/api-client';
+import { hasResourcePermission } from '../utils/tenant-capabilities';
 import type { User, UserRole } from '../types';
 
 // ============================================================================
@@ -120,21 +121,13 @@ export function useAuth(): UseAuthReturn {
     [user]
   );
 
-  // İzin kontrolü - rol hiyerarşisine göre
+  // İzin kontrolü — tenant-RBAC capability check. Delegates to the shared SSoT
+  // (utils/tenant-capabilities) so this hook and the shell/module route guards
+  // apply one capability rule: SUPER_ADMIN/TENANT_ADMIN bypass; every other user
+  // is checked against the resourcePermissions claim (fail-closed). The backend
+  // (@RequireTenantPermission) enforces every action independently.
   const hasPermission = useCallback(
-    (permission: string): boolean => {
-      if (!user) return false;
-      // SUPER_ADMIN and TENANT_ADMIN have full access — mirrors the backend
-      // TenantPermissionGuard, which bypasses both (their tokens carry no
-      // resourcePermissions precisely because they need none).
-      if (user.role === 'SUPER_ADMIN' || user.role === 'TENANT_ADMIN') {
-        return true;
-      }
-      // Tenant-RBAC capability check against the granted set decoded from the
-      // access token. Fail-closed: no grant → hidden. The backend still
-      // enforces every action independently (this only drives UI visibility).
-      return user.resourcePermissions?.includes(permission) ?? false;
-    },
+    (permission: string): boolean => hasResourcePermission(user, permission),
     [user]
   );
 

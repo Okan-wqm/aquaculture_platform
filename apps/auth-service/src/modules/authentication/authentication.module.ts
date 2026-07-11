@@ -21,7 +21,7 @@ import { AuthResolver } from './resolvers/auth.resolver';
 import { MfaResolver } from './resolvers/mfa.resolver';
 import { NotificationPreferencesResolver } from './resolvers/notification-preferences.resolver';
 import { WebAuthnResolver } from './resolvers/webauthn.resolver';
-import { UserFederationResolver } from './resolvers/user-federation.resolver';
+import { PublicUserProfileFederationResolver } from './resolvers/user-federation.resolver';
 import { AccountService } from './services/account.service';
 import { AuthenticationService } from './services/authentication.service';
 import { MfaService } from './services/mfa.service';
@@ -57,7 +57,7 @@ import { WebAuthnService } from './services/webauthn.service';
     MfaResolver,
     NotificationPreferencesResolver,
     WebAuthnResolver,
-    UserFederationResolver,
+    PublicUserProfileFederationResolver,
     JwtAuthGuard,
   ],
   exports: [AccountService, AuthenticationService, TokenService, MfaService, WebAuthnService, JwtAuthGuard, TypeOrmModule],

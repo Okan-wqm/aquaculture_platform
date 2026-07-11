@@ -33,6 +33,8 @@ const WaterChemistryPage = React.lazy(() => import('./pages/water-chemistry/Wate
 const AnalyticsPage = React.lazy(() => import('./pages/analytics/AnalyticsPage'));
 const BatchDetailPage = React.lazy(() => import('./pages/production/BatchDetailPage'));
 const MaintenancePage = React.lazy(() => import('./pages/maintenance/MaintenancePage'));
+// From main: the finance page, also code-split to keep the PERF-HIGH-004 budget.
+const FinancePage = React.lazy(() => import('./pages/finance/FinancePage'));
 
 // ============================================================================
 // Sites Module
@@ -144,6 +146,9 @@ const FarmModule: React.FC = () => {
 
       {/* Ayarlar - Sentinel Hub */}
       <Route path="settings/sentinel-hub" element={<SentinelHubSettingsPage />} />
+
+      {/* Finance - Operational cost/revenue ledger, categories, charts */}
+      <Route path="finance/*" element={<FinancePage />} />
 
       {/* Analytics - Performance metrics and insights */}
       <Route path="analytics/*" element={<AnalyticsPage />} />

@@ -481,6 +481,15 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
 
       // Workers
       'farm_workers',
+
+      // Finance (farm OPEX/revenue ledger) — migration
+      // 1802500000000-CreateFinanceTables. Declared here in the SAME
+      // commit as the migration: farm has strictOwnership enabled, so
+      // an undeclared table would be DROPPED by
+      // SourceSchemaBootstrapService on the next startup.
+      'finance_categories',
+      'finance_expense_entries',
+      'finance_settings',
     ],
   },
   {
@@ -543,6 +552,14 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'work_rotations',
       'safety_training_records',
       'hr_mobile_command_receipts',
+
+      // HR Finance (labour-cost settings + manual HR expense ledger) —
+      // migration 1801700000000-CreateHrFinanceTables. `hr_` prefix is
+      // mandatory: farm and hr tables are cloned into the SAME
+      // tenant_<uuid> schema namespace (precedent: departments_hr).
+      'hr_finance_categories',
+      'hr_finance_entries',
+      'hr_payroll_cost_settings',
     ],
   },
   {

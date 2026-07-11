@@ -177,6 +177,19 @@ const tenantAdminBaseNavigation: NavigationItem[] = [
     icon: 'users',
   },
   {
+    // Tenant-configurable RBAC entry point. WHY: the /tenant/roles page + the
+    // TenantRoleService role CRUD already exist end-to-end, but no rendered
+    // sidebar linked to them — a tenant admin could only reach role management
+    // by typing the URL. (The one sidebar that DID list it,
+    // tenant-admin/components/TenantAdminSidebar.tsx, was dead code never
+    // mounted, and has been removed.) This makes "tenants create their own
+    // roles" actually discoverable.
+    id: 'tenant-roles',
+    label: 'Roles & Permissions',
+    path: '/tenant/roles',
+    icon: 'shield',
+  },
+  {
     id: 'tenant-modules',
     label: 'Modules',
     path: '/tenant/modules',
@@ -225,6 +238,19 @@ const tenantAdminBaseNavigation: NavigationItem[] = [
 ];
 
 /**
+ * Tenant-admin nav items a tenant admin may DELEGATE to a custom role
+ * (MT-HIGH-060), keyed to the capability that reveals each to a non-admin. Items
+ * NOT listed here are admin-only and never render for a delegate. Mirrors the
+ * per-route guards in tenant-admin Module.tsx + the delegatable set gated by
+ * TenantPermissionGuard on the backend.
+ */
+const DELEGATABLE_TENANT_NAV: Record<string, string> = {
+  'tenant-users': 'users:view',
+  'tenant-roles': 'roles:view',
+  'tenant-settings': 'settings:view',
+};
+
+/**
  * Module navigation configuration by module code
  */
 const MODULE_NAV_CONFIG: Record<string, NavigationItem> = {
@@ -245,6 +271,7 @@ const MODULE_NAV_CONFIG: Record<string, NavigationItem> = {
       { id: 'sites-maintenance', label: 'Maintenance', path: '/sites/maintenance', icon: 'settings' },
       { id: 'sites-harvest', label: 'Harvest', path: '/sites/harvest' },
       { id: 'sites-reports', label: 'Reports', path: '/sites/reports' },
+      { id: 'sites-finance', label: 'Finance', path: '/sites/finance', icon: 'analytics' },
       { id: 'sites-analytics', label: 'Analytics', path: '/sites/analytics', icon: 'analytics' },
     ],
   },
@@ -281,6 +308,7 @@ const MODULE_NAV_CONFIG: Record<string, NavigationItem> = {
       { id: 'hr-leaves', label: 'Leaves', path: '/hr/leaves', icon: 'calendar-off' },
       { id: 'hr-training', label: 'Training', path: '/hr/training', icon: 'graduation-cap' },
       { id: 'hr-payroll', label: 'Payroll', path: '/hr/payroll' },
+      { id: 'hr-finance', label: 'Finance', path: '/hr/finance', icon: 'analytics' },
     ],
   },
   hydroponics: {
@@ -396,8 +424,16 @@ const MainLayout: React.FC = () => {
     if (userRole === 'TENANT_ADMIN') {
       return [...tenantAdminBaseNavigation, ...moduleNavigationItems];
     }
-    return [...moduleUserBaseNavigation, ...moduleNavigationItems];
-  }, [userRole, moduleNavigationItems]);
+    // MT-HIGH-060 delegation: a non-admin tenant user whose custom role grants a
+    // delegatable panel capability sees just those tenant items (Users/Roles/
+    // Settings) appended to their normal module nav. hasPermission bypasses
+    // admins (handled above) and is fail-closed for everyone else.
+    const delegatedTenantItems = tenantAdminBaseNavigation.filter((item) => {
+      const cap = DELEGATABLE_TENANT_NAV[item.id];
+      return cap !== undefined && hasPermission(cap);
+    });
+    return [...moduleUserBaseNavigation, ...delegatedTenantItems, ...moduleNavigationItems];
+  }, [userRole, moduleNavigationItems, hasPermission]);
 
   /**
    * Logo text based on role

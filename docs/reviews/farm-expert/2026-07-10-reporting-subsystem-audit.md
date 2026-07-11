@@ -388,6 +388,16 @@ exercising the trigger behavior against real Postgres (runs in CI, not this sand
   `tank_operations('harvest')` mirror (avoids the FARM-HIGH-198 divergence), and fails closed on a
   missing stocking allocation, a negative net, or an un-attributable (NULL-tank) removal. The CI
   postgres spec asserts the cross-site, cleaner-fish, and each fail-closed case.
+- **farm-expert** confirmation pass on the rewrite: FARM-HIGH-200 + FARM-HIGH-201 CONFIRMED RESOLVED,
+  no new HIGH/CRITICAL introduced, file **merge-ready**. Two follow-ups raised:
+  - **FARM-MEDIUM-210** is FIXED: a pre-FARM-HIGH-112 production batch currently resident in a site
+    tank but with zero allocations AND zero removals would be silently omitted (a wrong "0 kg" RECORDS).
+    A `resident` CTE now surfaces such batches into the replay so they hit the `inflowRows=0` guard and
+    fail the site closed; CI postgres spec asserts it.
+  - **FARM-LOW-211** is TRACKED (owner + deadline): dead legacy `batch.service.ts`
+    `allocateBatchToTank`/`transferBatch` mutate allocation rows in place (incompatible with the
+    signed-immutable-leg model) — test-only-referenced dead code, tangential to this PR, kept out of
+    the reporting diff.
 
 ## OPEN — HIGH (tracked)
 

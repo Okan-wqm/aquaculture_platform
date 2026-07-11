@@ -34,6 +34,7 @@ const SC = 'c1111111-1111-4111-8111-111111111111';
 const S3 = '33333333-3333-4333-8333-333333333333';
 const S4 = '44444444-4444-4444-8444-444444444444';
 const S5 = '55555555-5555-4555-8555-555555555555';
+const S6 = '66666666-6666-4666-8666-666666666666';
 
 const D1 = 'd1111111-1111-4111-8111-111111111111';
 const DA = 'daaaaaaa-1111-4111-8111-111111111111';
@@ -42,6 +43,7 @@ const DC = 'dccccccc-1111-4111-8111-111111111111';
 const D3 = 'd3333333-3333-4333-8333-333333333333';
 const D4 = 'd4444444-4444-4444-8444-444444444444';
 const D5 = 'd5555555-5555-4555-8555-555555555555';
+const D6 = 'd6666666-6666-4666-8666-666666666666';
 
 const T1 = 'e1111111-1111-4111-8111-111111111111';
 const TA = 'eaaaaaaa-1111-4111-8111-111111111111';
@@ -50,6 +52,7 @@ const TC = 'eccccccc-1111-4111-8111-111111111111';
 const T3 = 'e3333333-3333-4333-8333-333333333333';
 const T4 = 'e4444444-4444-4444-8444-444444444444';
 const T5 = 'e5555555-5555-4555-8555-555555555555';
+const T6 = 'e6666666-6666-4666-8666-666666666666';
 
 const SP = 'f0000000-0000-4000-8000-000000000001';
 const B = 'ba000000-0000-4000-8000-00000000000b';
@@ -59,6 +62,7 @@ const BC = 'ba000000-0000-4000-8000-0000000000c9';
 const B4 = 'ba000000-0000-4000-8000-000000000004';
 const B5 = 'ba000000-0000-4000-8000-000000000005';
 const B6 = 'ba000000-0000-4000-8000-000000000006';
+const B7 = 'ba000000-0000-4000-8000-000000000007';
 
 describe('StockReconstructionService period-end replay (FARM-HIGH-182)', () => {
   let pg: HarnessContext | undefined;
@@ -84,7 +88,12 @@ describe('StockReconstructionService period-end replay (FARM-HIGH-182)', () => {
       CREATE TABLE farm.batches_v2 (
         "id" uuid PRIMARY KEY, "tenantId" uuid NOT NULL, "speciesId" uuid NOT NULL,
         "batchType" text NOT NULL DEFAULT 'production',
+        "stockedAt" date NOT NULL DEFAULT '2026-01-01',
         "weight" jsonb NOT NULL DEFAULT '{}'::jsonb
+      );
+      CREATE TABLE farm.tank_batches (
+        "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "tankId" uuid NOT NULL,
+        "primaryBatchId" uuid, "batchDetails" jsonb
       );
       CREATE TABLE farm.tank_allocations (
         "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "tankId" uuid NOT NULL,
@@ -122,7 +131,8 @@ describe('StockReconstructionService period-end replay (FARM-HIGH-182)', () => {
 
     const prodBatch = (id: string, w: number): Promise<unknown> =>
       pg!.dataSource.query(
-        `INSERT INTO farm.batches_v2 VALUES ($1,$2,$3,'production',$4::jsonb)`,
+        `INSERT INTO farm.batches_v2 ("id","tenantId","speciesId","batchType","weight")
+         VALUES ($1,$2,$3,'production',$4::jsonb)`,
         [id, TENANT, SP, JSON.stringify({ initial: { avgWeight: w } })],
       );
 
@@ -177,7 +187,8 @@ describe('StockReconstructionService period-end replay (FARM-HIGH-182)', () => {
     // BC is a cleaner-fish batch; even given a production-shaped allocation + mortality
     // it must be excluded by the batchType='production' filter.
     await pg.dataSource.query(
-      `INSERT INTO farm.batches_v2 VALUES ($1,$2,$3,'cleaner_fish','{"initial":{"avgWeight":30}}'::jsonb)`,
+      `INSERT INTO farm.batches_v2 ("id","tenantId","speciesId","batchType","weight")
+       VALUES ($1,$2,$3,'cleaner_fish','{"initial":{"avgWeight":30}}'::jsonb)`,
       [BC, TENANT, SP],
     );
     await pg.dataSource.query(
@@ -227,6 +238,17 @@ describe('StockReconstructionService period-end replay (FARM-HIGH-182)', () => {
       `INSERT INTO farm.harvest_records ("tenantId","batchId","tankId","quantityHarvested","harvestDate","status")
        VALUES ($1,$2,NULL,500,'2026-02-10','completed')`,
       [TENANT, B6],
+    );
+
+    // S6 (FARM-MEDIUM-210): a production batch currently resident in a site tank
+    // (tank_batches), stocked before T, but with NO tank_allocations at all
+    // (pre-FARM-HIGH-112 stocking) and no removals — the silent-omission case.
+    await pg.dataSource.query(`INSERT INTO farm.departments VALUES ($1,$2)`, [D6, S6]);
+    await pg.dataSource.query(`INSERT INTO farm.tanks VALUES ($1,$2,$3)`, [T6, TENANT, D6]);
+    await prodBatch(B7, 100);
+    await pg.dataSource.query(
+      `INSERT INTO farm.tank_batches ("tenantId","tankId","primaryBatchId") VALUES ($1,$2,$3)`,
+      [TENANT, T6, B7],
     );
   });
 
@@ -296,5 +318,11 @@ describe('StockReconstructionService period-end replay (FARM-HIGH-182)', () => {
     const r = await reconstruct(S5, '2026-02-28');
     expect(r.complete).toBe(false);
     expect(r.incompleteReason).toMatch(/no tank/);
+  });
+
+  it('FAILS CLOSED (not a silent 0 kg) for a resident production batch with no allocation ledger (FARM-MEDIUM-210)', async () => {
+    const r = await reconstruct(S6, '2026-02-28');
+    expect(r.complete).toBe(false);
+    expect(r.incompleteReason).toMatch(/no stocking\/transfer-in allocation/);
   });
 });

@@ -180,11 +180,39 @@ export const BATCH_RECONSTRUCTION_SQL = `WITH site_tanks AS (
     ) u
     GROUP BY batch_id
   ),
+  resident AS (
+    -- FARM-MEDIUM-210: a production batch currently resident in a site tank,
+    -- stocked by T, but carrying NO tank_allocations at all (a pre-FARM-HIGH-112
+    -- stocking that predates the allocation ledger) would otherwise never enter
+    -- 'pairs' — a silent omission that could file a wrong "0 kg" for a site whose
+    -- only stock is such a batch. Surfacing it here routes it through the
+    -- inflowRows=0 guard so the whole site fails closed instead. A batch that
+    -- arrived after T has a transfer_in allocation, so it is excluded here.
+    SELECT DISTINCT st.tank_id AS tank_id, b.id AS batch_id
+      FROM tank_batches tb
+      JOIN site_tanks st ON st.tank_id = tb."tankId"
+      JOIN batches_v2 b
+        ON b."batchType" = 'production'
+       AND b."tenantId" = $1
+       AND b."stockedAt"::date <= $3
+       AND (
+         tb."primaryBatchId" = b.id
+         OR EXISTS (
+           SELECT 1 FROM jsonb_array_elements(COALESCE(tb."batchDetails", '[]'::jsonb)) bd
+            WHERE bd->>'batchId' = b.id::text
+         )
+       )
+     WHERE tb."tenantId" = $1
+       AND NOT EXISTS (
+         SELECT 1 FROM tank_allocations ta WHERE ta."tenantId" = $1 AND ta."batchId" = b.id
+       )
+  ),
   pairs AS (
     SELECT tank_id, batch_id FROM alloc
     UNION SELECT tank_id, batch_id FROM mort
     UNION SELECT tank_id, batch_id FROM cull
     UNION SELECT tank_id, batch_id FROM harv
+    UNION SELECT tank_id, batch_id FROM resident
   ),
   latest_meas AS (
     -- FARM-LOW-199: measurementDate is day-granular, so two same-day samplings

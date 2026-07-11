@@ -167,3 +167,10 @@ record. Remediation is phased in
 - **Description:** The `resolveTagRefs` GraphQL query took `refs: [String]` with no size limit and passed it straight into `TagResolutionService.resolve`, which builds a single `IN (...)` lookup. Because `@Args` scalar-list arguments are not covered by the class-validator ValidationPipe, a caller could submit 100k+ refs in one query and force one enormous DB query — a cheap amplification vector at the tenant trust boundary.
 - **Impact:** A single crafted query could pin a DB connection with an oversized `IN (...)` scan.
 - **Recommendation:** Cap the list at `MAX_TAG_REFS_PER_QUERY` (1000 — far above a real screen/package's few hundred) and reject anything larger with a `BadRequestException` before hitting the resolution service. Regression spec pins reject-over-cap (service not called) and pass-at-cap.
+
+### [SENSOR-MEDIUM-019] discoverTags drops zero-valued engineering ranges and alarm limits via a truthiness guard
+- **File:** `apps/sensor-service/src/process/services/unified-tag.service.ts`
+- **Category:** Correctness / data loss
+- **Description:** Tag discovery converted each numeric I/O limit with `io.engMin ? Number(io.engMin) : undefined` (and the same for engMax, alarmHH/H/L/LL, deadband). Because `0` is falsy, a legitimate zero — a 0-100% level sensor's `engMin=0`, or a low-low alarm at `0` — was silently mapped to `undefined`, so the discovered UnifiedTag lost limits the edge should enforce.
+- **Impact:** Zero-valued ranges/alarm thresholds vanished from discovered tags, weakening alarm/scaling behavior downstream.
+- **Recommendation:** Convert with a null-check that preserves zero (`value != null ? Number(value) : undefined`) via a shared `numberOrUndefined` helper. Regression spec pins that engMin/alarmL/deadband=0 survive and that null/undefined still map to undefined.

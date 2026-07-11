@@ -22,6 +22,16 @@ import {
   TagHierarchy,
 } from '../entities/unified-tag.entity';
 
+/**
+ * Convert an optional numeric column to `number | undefined`, PRESERVING zero.
+ * A truthiness guard (`v ? Number(v) : undefined`) silently drops legitimate
+ * zero-valued engineering ranges and alarm limits (e.g. a 0-100% level sensor's
+ * engMin=0, or a low-low alarm at 0), which the edge then never enforces.
+ */
+function numberOrUndefined(value: number | null | undefined): number | undefined {
+  return value != null ? Number(value) : undefined;
+}
+
 @Injectable()
 export class UnifiedTagService {
   private readonly logger = new Logger(UnifiedTagService.name);
@@ -199,13 +209,13 @@ export class UnifiedTagService {
         dataType: this.mapDataType(io.dataType),
         direction: this.inferDirection(io.ioType),
         engUnit: io.engUnit,
-        engMin: io.engMin ? Number(io.engMin) : undefined,
-        engMax: io.engMax ? Number(io.engMax) : undefined,
-        alarmHH: io.alarmHH ? Number(io.alarmHH) : undefined,
-        alarmH: io.alarmH ? Number(io.alarmH) : undefined,
-        alarmL: io.alarmL ? Number(io.alarmL) : undefined,
-        alarmLL: io.alarmLL ? Number(io.alarmLL) : undefined,
-        deadband: io.deadband ? Number(io.deadband) : undefined,
+        engMin: numberOrUndefined(io.engMin),
+        engMax: numberOrUndefined(io.engMax),
+        alarmHH: numberOrUndefined(io.alarmHH),
+        alarmH: numberOrUndefined(io.alarmH),
+        alarmL: numberOrUndefined(io.alarmL),
+        alarmLL: numberOrUndefined(io.alarmLL),
+        deadband: numberOrUndefined(io.deadband),
         source: {
           type: 'edge_device',
           edgeDeviceId: deviceId,

@@ -39558,6 +39558,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/hr-graphql-fe-be-parity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/infrastructure-ledger-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -52320,10 +52326,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8574,
+  "file_count": 8575,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8399,
-  "managed_file_list_sha256": "9f55dda84dba4e50442e38fcfd02ecb64f4e2af003f02d0068b03ab3f3782423",
+  "managed_count": 8400,
+  "managed_file_list_sha256": "0e56978e4057f1df6a5000bf36188fab7e1a1fe3ccf294a101faaec2cdd778a9",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

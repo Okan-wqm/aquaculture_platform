@@ -47,6 +47,7 @@ Allowed truth buckets:
 | `FARM-CRITICAL-161`  | OPEN           | —            | farm-expert  | already-fixed-needs-close |
 | `FARM-CRITICAL-163`  | OPEN           | —            | farm-expert  | already-fixed-needs-close |
 | `FARM-CRITICAL-165`  | OPEN           | —            | frontend-expert | already-fixed-needs-close |
+| `FARM-CRITICAL-168`  | OPEN           | —            | farm-expert  | already-fixed-needs-close |
 
 ## Mutation Rules
 

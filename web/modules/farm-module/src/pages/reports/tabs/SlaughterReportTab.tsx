@@ -12,11 +12,9 @@ import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   useRegulatorySettings,
   useSubmitPlannedSlaughterReport,
-  useSubmitExecutedSlaughterReport,
 } from '../../../hooks/useRegulatory';
 import type {
   SubmitPlannedSlaughterInput,
-  SubmitExecutedSlaughterInput,
   ReportSubmissionResult,
 } from '../../../hooks/useRegulatory';
 import { PlannedSlaughter, CompletedSlaughter, SlaughterReportType } from '../types/reports.types';
@@ -357,18 +355,18 @@ const ReportTypeStep: React.FC<ReportTypeStepProps> = ({ formData, onChange, sit
             <div className="text-xs text-gray-500">Planlagt Slakt</div>
             <div className="text-xs text-gray-400 mt-1">Weekly schedule by day</div>
           </button>
-          <button
-            type="button"
-            onClick={() => onChange({ reportType: 'completed' })}
-            className={`p-4 border-2 rounded-lg text-center ${
-              formData.reportType === 'completed'
-                ? 'border-green-500 bg-green-50'
-                : 'border-gray-200 hover:border-gray-300'
-            }`}
+          {/* Executed (utført) slaughter is filed from harvest records via the
+              records-based "Scheduled reports due" review-and-approve draft — the
+              manual grade-percentage form cannot compute per-species gutted kg, so
+              it is disabled here to prevent a fabricated filing. */}
+          <div
+            className="p-4 border-2 border-gray-200 rounded-lg text-center opacity-60 cursor-not-allowed"
+            aria-disabled="true"
+            title="Executed slaughter is filed from harvest records — see “Scheduled reports due”."
           >
-            <div className="p-3 bg-green-100 rounded-lg inline-block mb-2">
+            <div className="p-3 bg-gray-100 rounded-lg inline-block mb-2">
               <svg
-                className="w-6 h-6 text-green-600"
+                className="w-6 h-6 text-gray-500"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -382,9 +380,11 @@ const ReportTypeStep: React.FC<ReportTypeStepProps> = ({ formData, onChange, sit
               </svg>
             </div>
             <div className="font-medium text-gray-900">Executed Slaughter</div>
-            <div className="text-xs text-gray-500">Utfort Slakt</div>
-            <div className="text-xs text-gray-400 mt-1">Record actual harvests</div>
-          </button>
+            <div className="text-xs text-gray-500">Utført Slakt</div>
+            <div className="text-xs text-gray-400 mt-1">
+              Filed from records — see “Scheduled reports due”
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1529,7 +1529,6 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
   // Regulatory settings & submit mutations
   const { data: regulatorySettings } = useRegulatorySettings();
   const submitPlannedMutation = useSubmitPlannedSlaughterReport();
-  const submitExecutedMutation = useSubmitExecutedSlaughterReport();
   const clientRef = useStableClientReference();
   const [submissionResult, setSubmissionResult] = useState<ReportSubmissionResult | null>(null);
 
@@ -1613,37 +1612,20 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
       }
 
       if (formData.reportType === 'completed') {
-        const executedInput: SubmitExecutedSlaughterInput = {
-          klientReferanse: clientRef.get(),
-          organisasjonsnummer: orgNr,
-          lokalitetsnummer: lokNr,
-          kontaktperson: kontakt,
-          slakteuke: formData.weekNumber,
-          slakteaar: formData.year,
-          godkjenningsnummer: formData.facility.approvalNumber,
-          utforteLokaliteter: [
-            {
-              organisasjonsnummer: orgNr,
-              lokalitetsnummer: lokNr,
-              arter: [
-                {
-                  art: 'SAL',
-                  superiorKg: formData.gradeDistribution.superior,
-                  ordinaerKg: formData.gradeDistribution.ordinary,
-                  produksjonsfiskKg: formData.gradeDistribution.production,
-                  utkastKg: formData.gradeDistribution.discard,
-                },
-              ],
-            },
-          ],
-        };
-        const result = await submitExecutedMutation.mutateAsync(executedInput);
-        setSubmissionResult(result);
-        if (!result.success) {
-          setError(result.feilmelding || 'Executed slaughter submission failed');
-          setIsSubmitting(false);
-          return;
-        }
+        // FARM-CRITICAL: executed slaughter is filed from harvest records
+        // (per-species gutted kg) via the records-based "Scheduled reports due"
+        // review-and-approve draft. This manual grade-percentage form cannot
+        // produce a correct per-species absolute-kg filing — it has no species
+        // breakdown and its grade values are PERCENTAGES — so it must NEVER submit
+        // fabricated figures (percentages-as-kg under a hard-coded species) to
+        // Mattilsynet. Fail closed and route the operator to the correct path.
+        setError(
+          'Executed slaughter is now filed from harvest records. Open “Scheduled reports due” ' +
+            'above to review and submit the assembled weekly report — this manual form no longer ' +
+            'submits executed slaughter because it cannot compute per-species gutted weights.',
+        );
+        setIsSubmitting(false);
+        return;
       }
 
       // FARM-HIGH-126: rotate the stable client reference only on success.
@@ -1662,7 +1644,6 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
     siteId,
     clientRef,
     submitPlannedMutation,
-    submitExecutedMutation,
   ]);
 
   // Wizard steps

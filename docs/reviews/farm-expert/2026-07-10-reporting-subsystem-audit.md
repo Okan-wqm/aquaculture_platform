@@ -39,6 +39,17 @@ Found while fixing FARM-CRITICAL-161: `FeedingCronService` uses the identical
 (dedicated per-job `QueryRunner`); tracked and fixed in the same remediation campaign so the pattern
 is corrected everywhere, not patched in one service.
 
+### FARM-CRITICAL-168 — manual executed-slaughter wizard filed a fabricated government report
+
+The manual executed-slaughter form placed the quality-grade **percentages** straight into the
+Mattilsynet `superiorKg`/`ordinaerKg`/`produksjonsfiskKg`/`utkastKg` weight fields and hard-coded
+`art:'SAL'`, so "50 000 kg of 80% Superior trout" was filed as "80 kg of salmon" — structurally
+schema-valid, fully falsified. Fixed by making the fabrication impossible: the tab no longer imports
+`useSubmitExecutedSlaughterReport`, the executed submit fails closed with guidance, and the Executed
+Slaughter selector is a disabled affordance pointing to the records-based "Scheduled reports due"
+draft (now submittable, FARM-HIGH-167). The now-unreachable `completed` wizard steps are dead code
+to remove with the FARM-MEDIUM-009 parallel-systems cleanup.
+
 ### FARM-HIGH-167 — slaughter drafts were un-submittable (missing official locality wrapper)
 
 `buildWirePayload` spread the flat assembled slakt body verbatim, but the official slakt schemas

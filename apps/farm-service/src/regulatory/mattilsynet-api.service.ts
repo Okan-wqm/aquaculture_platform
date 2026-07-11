@@ -28,6 +28,7 @@ import {
   DEFAULT_BREAKER_OPTIONS,
   type CircuitBreakerOptions,
 } from '@aquaculture/backend-common/resilience';
+import { maskAndTruncatePii } from '@aquaculture/backend-common/utils';
 
 /**
  * Hard deadline for the outbound Mattilsynet submission POST. A hung government
@@ -618,9 +619,13 @@ export class MattilsynetApiService {
       const responseData = await response.json();
 
       if (!response.ok) {
+        // SEC-MEDIUM-004 / OBS-MEDIUM-003: the regulator error body echoes the
+        // submitted payload (kontaktperson name/e-mail/phone, org numbers), so
+        // it must be PII-masked AND length-bounded before it reaches the log
+        // stream — never dumped raw as a second Logger argument.
         this.logger.error(
           `${reportType} report submission failed: ${response.status}`,
-          responseData,
+          maskAndTruncatePii(JSON.stringify(responseData)) ?? undefined,
         );
 
         return {
@@ -642,7 +647,13 @@ export class MattilsynetApiService {
         klientReferanse: payload.klientReferanse,
       };
     } catch (error) {
-      this.logger.error(`Failed to submit ${reportType} report: ${error}`);
+      // SEC-MEDIUM-004: the thrown error (fetch/abort/parse) can carry the
+      // regulator response text or endpoint URL — mask + bound it, and never
+      // interpolate the raw error object.
+      const masked = maskAndTruncatePii(
+        error instanceof Error ? error.message : String(error),
+      );
+      this.logger.error(`Failed to submit ${reportType} report: ${masked ?? 'unknown error'}`);
 
       return {
         success: false,

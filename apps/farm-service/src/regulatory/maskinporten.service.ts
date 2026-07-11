@@ -23,6 +23,7 @@ import * as crypto from 'crypto';
 import {
   clearManagedTimer,
   createManagedInterval,
+  maskAndTruncatePii,
   type ManagedInterval,
 } from '@aquaculture/backend-common/utils';
 import {
@@ -289,7 +290,10 @@ export class MaskinportenService implements OnModuleDestroy {
 
       return result;
     } catch (error) {
-      this.logger.error(`Failed to discover Maskinporten endpoints: ${error}`);
+      const masked = maskAndTruncatePii(
+        error instanceof Error ? error.message : String(error),
+      );
+      this.logger.error(`Failed to discover Maskinporten endpoints: ${masked ?? 'unknown error'}`);
       throw error;
     }
   }
@@ -405,7 +409,10 @@ export class MaskinportenService implements OnModuleDestroy {
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
+      // SEC-MEDIUM-004: the Maskinporten token-endpoint error body can carry
+      // sensitive OAuth detail — mask + bound it before it reaches the log
+      // stream OR the thrown message (which is re-logged upstream).
+      const errorText = maskAndTruncatePii(await response.text()) ?? '';
       this.logger.error(`Token request failed: ${response.status} - ${errorText}`);
       throw new Error(`Maskinporten token request failed: ${response.status} - ${errorText}`);
     }

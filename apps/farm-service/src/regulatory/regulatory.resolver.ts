@@ -13,6 +13,7 @@ import { Resolver, Mutation, Query, Args, Context } from '@nestjs/graphql';
 import { BadRequestException, Logger, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { Roles, Role } from '@aquaculture/backend-common/decorators';
+import { maskAndTruncatePii } from '@aquaculture/backend-common/utils';
 import {
   MattilsynetApiService,
   MattilsynetBasePayload,
@@ -417,7 +418,12 @@ export class RegulatoryResolver {
         error: 'Failed to obtain access token',
       };
     } catch (error) {
-      this.logger.error(`Maskinporten connection test failed: ${error}`);
+      // SEC-MEDIUM-004: the error can carry the masked-but-still-sensitive
+      // Maskinporten token-endpoint body — mask + bound before logging.
+      const masked = maskAndTruncatePii(
+        error instanceof Error ? error.message : String(error),
+      );
+      this.logger.error(`Maskinporten connection test failed: ${masked ?? 'unknown error'}`);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Connection test failed',

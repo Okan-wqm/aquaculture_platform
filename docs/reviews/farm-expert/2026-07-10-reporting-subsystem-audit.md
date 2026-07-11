@@ -346,8 +346,10 @@ gutted (FARM-MEDIUM-007); CSV/formula injection in both CSV exporters is FIXED (
 FARM-MEDIUM-183: backend csvCell + frontend csvEscape single-quote-prefix a cell whose first char is
 a `= + - @` / tab / CR formula trigger, numbers excepted, RFC-4180 quoting preserved);
 KEK dev-fallback gated only on `NODE_ENV==='production'` (SEC-MEDIUM-003); regulator error bodies +
-PII logged via string interpolation that bypasses `maskPii` (SEC-MEDIUM-004, observability
-OBS-MEDIUM-003); `updateAutoSubmitPolicy` accepts arbitrary report types (COMPLIANCE-MEDIUM-006);
+PII logged via string interpolation that bypasses `maskPii` is FIXED (SEC-MEDIUM-004 / OBS-MEDIUM-003
+→ FARM-MEDIUM-184: Mattilsynet submit + Maskinporten token/discovery + resolver-test paths route
+every error body / thrown error through `maskAndTruncatePii` before logging, including the thrown
+token-error message it propagates upstream); `updateAutoSubmitPolicy` accepts arbitrary report types (COMPLIANCE-MEDIUM-006);
 varsling QUEUED shown as "Submitted" with the internal event id as a fake "Mattilsynet receipt"
 (COMPLIANCE-MEDIUM-004, farm-expert FARM-LOW-012); settefisk mixed-batch attribution (FARM-MEDIUM-010);
 `EscapeIncidentRecordedEvent` has no consumer so the "varsling is immediate" reminder is dropped

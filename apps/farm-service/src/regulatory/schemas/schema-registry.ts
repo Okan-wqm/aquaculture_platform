@@ -26,7 +26,14 @@ export type MattilsynetRestReportType =
   | RegulatoryReportType.SLAUGHTER_PLANNED
   | RegulatoryReportType.SLAUGHTER_EXECUTED;
 
-const ajv = new Ajv({ allErrors: true, strict: true });
+// FARM-MEDIUM-006: coerceTypes is schema-directed — it coerces a scalar to the
+// type the schema declares (a numeric-string operator override like "12.5" for
+// `sjøtemperatur` becomes 12.5; a non-numeric string for a number field still
+// fails). It does NOT relax `required`, `additionalProperties:false`, `enum`, or
+// `format`, so the trust-boundary gate stays strict. Ajv coerces in place, and
+// the validator returns that same object, so the wire payload carries the
+// correct types. Correctly-typed interactive DTOs are unaffected (a no-op).
+const ajv = new Ajv({ allErrors: true, strict: true, coerceTypes: true });
 addFormats(ajv);
 // Vendor-extension marker: false until the schema has been diffed against the
 // live Mattilsynet swagger (RPT-017). Metadata only — no validation semantics.

@@ -381,8 +381,8 @@ exercising the trigger behavior against real Postgres (runs in CI, not this sand
 
 Biomass assembler defaulting a missing stocking avg-weight to `0` tagged RECORDS is FIXED
 (COMPLIANCE-MEDIUM-005 → FARM-MEDIUM-189: `/stockings` flips to non-blocking MANUAL_REQUIRED naming
-the batch when any stocking has no recorded weight, instead of claiming a fabricated zero as RECORDS); manual overrides stored/injected as strings fail numeric schema validation
-(farm-expert FARM-MEDIUM-006); executed-slaughter uses round weight where the regulator may expect
+the batch when any stocking has no recorded weight, instead of claiming a fabricated zero as RECORDS); manual overrides stored/injected as strings failing numeric schema validation is FIXED
+(FARM-MEDIUM-006 -> FARM-MEDIUM-193: the official Ajv instance uses coerceTypes so a numeric-string override coerces to the declared type; non-numeric strings still reject); executed-slaughter uses round weight where the regulator may expect
 gutted (FARM-MEDIUM-007); CSV/formula injection in both CSV exporters is FIXED (SEC-MEDIUM-002 →
 FARM-MEDIUM-183: backend csvCell + frontend csvEscape single-quote-prefix a cell whose first char is
 a `= + - @` / tab / CR formula trigger, numbers excepted, RFC-4180 quoting preserved);

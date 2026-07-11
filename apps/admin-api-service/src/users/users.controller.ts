@@ -34,7 +34,7 @@ import {
   Matches,
 } from 'class-validator';
 
-import { AllowTenantAdmin } from '../decorators/roles.decorator';
+import { PlatformAdminOnly } from '../decorators/roles.decorator';
 
 import { InviteUserDto, UpdateUserPermissionsDto, UserWithPermissionsDto } from './dto/invite-user.dto';
 import { ResetPasswordByAdminDto } from './dto/reset-password.dto';
@@ -479,16 +479,15 @@ export class UsersController {
 
   // ============================================
   // User Permission Management Endpoints
-  // (TENANT_ADMIN can manage user permissions)
+  // (platform-admin only — SUPER_ADMIN; see PlatformAdminOnly / RBAC-LOW-001)
   // ============================================
 
   /**
-   * Invite a new user with specific permissions (TENANT_ADMIN)
-   * This endpoint is for tenant admins to invite users with checkbox permissions
+   * Invite a new user with specific permissions (platform-admin / SUPER_ADMIN).
    */
   @ThrottleSensitive()
   @Post('tenant/invite')
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
   async inviteUserWithPermissions(
     @Body() dto: InviteUserDto,
@@ -574,7 +573,7 @@ export class UsersController {
    * Returns structured permission categories with labels
    */
   @Get('permission-categories')
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   getPermissionCategories(): { category: string; permissions: string[]; label: string }[] {
     return this.userPermissionsService.getPermissionCategories();
   }
@@ -583,7 +582,7 @@ export class UsersController {
    * Get user permissions by user ID (TENANT_ADMIN)
    */
   @Get(':id/permissions')
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   async getUserPermissions(
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req: { user: { tenantId?: string } },
@@ -614,7 +613,7 @@ export class UsersController {
    * Allows tenant admin to toggle individual permission checkboxes
    */
   @Put(':id/permissions')
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   async updateUserPermissions(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateUserPermissionsDto,
@@ -663,7 +662,7 @@ export class UsersController {
    * Get all users with their permissions for a tenant (TENANT_ADMIN)
    */
   @Get('tenant/users-with-permissions')
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   async getTenantUsersWithPermissions(
     @Req() req: { user: { tenantId?: string } },
     @Query('page') page?: string,

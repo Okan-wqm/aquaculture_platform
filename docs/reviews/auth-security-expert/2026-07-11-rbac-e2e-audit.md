@@ -124,3 +124,16 @@ This file records the two write-time authority findings closed by the P0 remedia
 **Rule violated:** A per-tenant seed must be idempotent per item and fill the gaps, not skip the whole operation when any single item pre-exists.
 
 **Fix:** `seedDefaultRoles` now locks and reads the tenant's existing role names (`FOR UPDATE`, tenant-scoped) and creates only the named defaults that are ABSENT — so the operational roles get created even after provisioning inserted `TENANT_ADMIN`, and re-running only fills gaps (never duplicates). The seed audit records the real created count/names and is written only when something was created. (Auto-seeding at provisioning time — so tenants get the operational roles without the manual mutation — remains a separate provisioning-flow item.)
+
+## RBAC-LOW-001
+
+**Title:** The admin-api `AllowTenantAdmin()` decorator resolved to `Roles('SUPER_ADMIN')` but its name (and nearby "TENANT_ADMIN can…" comments) advertised tenant-admin access — a latent trap: a maintainer "fixing" the name toward real TENANT_ADMIN access, combined with the tenant-scoped `req.user.tenantId` reads on some admin endpoints, could open cross-tenant writes.
+
+**Layer:** 3 (naming / latent-trap)
+**Evidence:**
+- `apps/admin-api-service/src/decorators/roles.decorator.ts`
+- `apps/admin-api-service/src/users/users.controller.ts`
+
+**Rule violated:** An authorization decorator's name must reflect what it actually enforces; a misleading name is a latent authorization defect.
+
+**Fix:** Replaced all 30 `@AllowTenantAdmin()` usages (users/messaging/announcement/ticket controllers) with the existing, behaviorally-identical `@PlatformAdminOnly()`, deleted the `AllowTenantAdmin` alias, and corrected the stale "TENANT_ADMIN can…" comments. Pure behavior-preserving rename — the admin-api boundary is platform-admin (SUPER_ADMIN) only, and the name now says so.

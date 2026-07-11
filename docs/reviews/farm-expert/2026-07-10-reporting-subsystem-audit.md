@@ -60,8 +60,13 @@ farm pass, but a tenant not yet migrated to the expand migration `1803100` (whic
 deploy on any DB with pre-existing tenant schemas. Fixed: removed the aggressive cross-schema
 `DROP COLUMN` loop (each schema's own `1804300` drops the column in the correct order after its
 `1803100`), and the shared-type reclamation now **defers** (returns) when any schema still references
-the type instead of masking-then-dropping. The orphan-type reclamation is tracked as FARM-MEDIUM-170
-(post-fan-out step). `bootstrap-from-scratch` missed it (empty DB → zero tenant schemas).
+the type instead of masking-then-dropping. The orphan-type reclamation FARM-MEDIUM-170 is now FIXED:
+`apps/db-migrate/src/orphan-type-reclamation.ts` holds a `POST_FANOUT_ORPHAN_TYPE_RECLAMATIONS` SSoT
+that a Phase-1.5 step in `main.ts` runs AFTER the whole per-service + tenant fan-out — the only point
+every dependent column across all schemas is provably gone — re-probing `pg_depend` and dropping the
+shared `farm.harvest_records_qualitygrade_enum` only when unreferenced (idempotent, non-fatal, unit
+tested with a mock QueryRunner). `bootstrap-from-scratch` missed the original abort (empty DB → zero
+tenant schemas).
 
 ### FARM-CRITICAL-168 — manual executed-slaughter wizard filed a fabricated government report
 

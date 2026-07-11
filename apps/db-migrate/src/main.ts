@@ -81,6 +81,7 @@ import {
   type RunSchemaOptions,
   type RunSchemaResult,
 } from './migration-orchestrator';
+import { reclaimPostFanoutOrphanTypes } from './orphan-type-reclamation';
 import { runPlatformBootstrap, resolvePlatformBootstrapSqlDir } from './platform-bootstrap.service';
 import { SCHEMA_REGISTRY, type SchemaPostMigrationHardening } from './schema-registry';
 import { runTenantSchemaProvisioner } from './tenant-schema-provisioner';
@@ -513,6 +514,29 @@ async function grantTenantLedgerReadAccess(
       tenantSchema,
       sourceSchema,
     });
+  } finally {
+    await queryRunner.release();
+    await dataSource.destroy();
+  }
+}
+
+/**
+ * Reclaim shared types that a fan-out migration deliberately left orphaned
+ * (FARM-MEDIUM-170). Runs on its own control connection AFTER the whole
+ * per-service + tenant fan-out, the only point every dependent column across all
+ * schemas is guaranteed gone. Non-fatal: a still-referenced or absent orphan is
+ * logged, never a deploy-abort — a lingering harmless type is far cheaper than
+ * failing a green deploy.
+ */
+async function reclaimOrphanTypesAfterFanout(
+  database: RunSchemaOptions['database'],
+): Promise<void> {
+  const dataSource = createControlDataSource(database);
+  await dataSource.initialize();
+  const queryRunner = dataSource.createQueryRunner();
+  try {
+    await queryRunner.connect();
+    await reclaimPostFanoutOrphanTypes(queryRunner, log);
   } finally {
     await queryRunner.release();
     await dataSource.destroy();
@@ -1201,6 +1225,23 @@ async function main(): Promise<number> {
         });
         return 1;
       }
+    }
+
+    // ── Phase 1.5 — Post-fan-out orphan-type reclamation (FARM-MEDIUM-170) ──
+    // Every source + tenant pass above succeeded (a failure returns 1 before
+    // here), so every schema is at head and any shared type a source-only
+    // migration deferred dropping is now genuinely unreferenced. Reclaim it.
+    // Non-fatal: an unexpected error (e.g. lock contention) must not fail an
+    // otherwise-green migration run — the orphan is harmless.
+    try {
+      await reclaimOrphanTypesAfterFanout(database);
+    } catch (err: unknown) {
+      log({
+        level: 'warn',
+        message: 'Post-fan-out orphan-type reclamation failed (non-fatal) — orphan type left for a later release',
+        context: 'DbMigrateOrphanTypeReclamation',
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
 
     const { expectedHeads, appliedHeads } = buildHeadPayloads(sourceHeads, tenantHeads);

@@ -475,7 +475,9 @@ export class ScriptEngineService {
 
       $setTag: (id: string, value: unknown): void => {
         try {
-          this.tagManager.writeTagValue(id, value, 'script-engine');
+          // Script writes run in the process-global runtime; route them to
+          // that runtime's tenant (RT-011 will make the engine per-tenant).
+          this.tagManager.writeTagValue(id, value, 'script-engine', this.alarmEngine.getTenantId());
         } catch (err) {
           this.logger.error(`$setTag error: ${(err as Error).message}`);
         }

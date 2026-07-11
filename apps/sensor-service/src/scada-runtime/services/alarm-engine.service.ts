@@ -162,6 +162,11 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
     this.tenantId = tenantId;
   }
 
+  /** The tenant this (currently single-tenant, RT-011) runtime evaluates for. */
+  getTenantId(): string {
+    return this.tenantId;
+  }
+
   /* ---------------------------------------------------------------- */
   /*  Main evaluation tick                                              */
   /* ---------------------------------------------------------------- */
@@ -542,7 +547,7 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
             const tagId = String(action.params['tagId'] ?? '');
             const value = action.params['value'];
             if (tagId && value !== undefined) {
-              this.tagManager.writeTagValue(tagId, value, 'alarm-engine');
+              this.tagManager.writeTagValue(tagId, value, 'alarm-engine', this.tenantId);
             }
             break;
           }

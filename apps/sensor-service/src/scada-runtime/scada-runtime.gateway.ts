@@ -51,6 +51,7 @@ import {
 } from './dto/scada-socket.dto';
 import { TagManagerService } from './services/tag-manager.service';
 import { TagResolutionService } from '../process/services/tag-resolution.service';
+import { TagDirection } from '../process/entities/unified-tag.entity';
 import { isTagRef } from '@platform/sensor-contracts';
 
 /* ------------------------------------------------------------------ */
@@ -381,10 +382,10 @@ export class ScadaRuntimeGateway
   /* ---------------------------------------------------------------- */
 
   @SubscribeMessage(ScadaSocketEvent.TAG_WRITE)
-  handleTagWrite(
+  async handleTagWrite(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: TagWriteDto,
-  ): void {
+  ): Promise<void> {
     try {
       const clientData = this.clients.get(client.id);
       if (!clientData) {
@@ -412,23 +413,50 @@ export class ScadaRuntimeGateway
         return;
       }
 
+      const tagId = payload.tagId.trim();
+
+      // Tenant + registry ownership gate. Unlike the subscribe path — which
+      // grandfathers legacy non-TagRef keys — a control WRITE must resolve
+      // STRICTLY against THIS tenant's registry: the target must be a
+      // registered tag of clientData.tenantId, and it must be writable
+      // (an INPUT tag cannot be actuated). This closes cross-tenant actuation
+      // by a predictable deviceCode/localName (SENSOR-CRITICAL-005).
+      const resolution = await this.tagResolution.resolve(clientData.tenantId, [tagId]);
+      const binding = resolution.resolved[0];
+      if (!binding) {
+        this.logger.warn(
+          `[tag-write] SECURITY: ${client.id} (tenant=${clientData.tenantId}) denied — ` +
+            `tagId=${tagId} not registered for this tenant`,
+        );
+        this.emitError(client, ScadaSocketEvent.TAG_WRITE, SCADA_ERROR_CODES.FORBIDDEN, 'Tag is not registered for this tenant');
+        return;
+      }
+      if (binding.direction === TagDirection.INPUT) {
+        this.emitError(client, ScadaSocketEvent.TAG_WRITE, SCADA_ERROR_CODES.FORBIDDEN, 'Tag is read-only (input) and cannot be written');
+        return;
+      }
+
       const writeFunction = payload.function ?? 'set';
 
       this.tagManager.writeTagValue(
-        payload.tagId.trim(),
+        tagId,
         payload.value,
         clientData.userId,
+        clientData.tenantId,
         writeFunction,
       );
 
       this.logger.debug(
-        `[tag-write] ${client.id} — tagId=${payload.tagId} function=${writeFunction} userId=${clientData.userId}`,
+        `[tag-write] ${client.id} — tenant=${clientData.tenantId} tagId=${tagId} function=${writeFunction} userId=${clientData.userId}`,
       );
 
-      // ACK back to the originating client
+      // ACK 'queued', not 'accepted': the write is emitted as an internal event
+      // for a device-driver adapter to fulfil; the gateway has no confirmation
+      // that it reached a device, so it must not assert success (a confirmed
+      // ACK is gated on a real completion event — tracked follow-on).
       client.emit(ScadaSocketEvent.TAG_WRITE_ACK, {
         tagId: payload.tagId,
-        status: 'accepted',
+        status: 'queued',
         timestamp: Date.now(),
       });
     } catch (error) {

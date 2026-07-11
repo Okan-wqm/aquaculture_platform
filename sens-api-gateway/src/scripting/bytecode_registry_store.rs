@@ -276,7 +276,9 @@ impl BytecodeRegistryStore {
     /// this — the store trusts the caller's validation
     /// + simply persists the row.
     pub fn save(&self, entry: &ProgramEntry) -> Result<(), StoreError> {
-        let bytecode_json = serde_json::to_string(&entry.bytecode)
+        // EDGE-HIGH-021: bytecode is Arc-wrapped; deref to serialize the
+        // inner Bytecode (Arc itself is not Serialize without serde "rc").
+        let bytecode_json = serde_json::to_string(&*entry.bytecode)
             .map_err(|e| StoreError::Encoding(e.to_string()))?;
         let deployed_secs = entry.deployed_at.timestamp();
         let enabled_int = if entry.enabled { 1 } else { 0 };
@@ -360,7 +362,7 @@ impl BytecodeRegistryStore {
 
             entries.push(ProgramEntry {
                 program_id,
-                bytecode,
+                bytecode: std::sync::Arc::new(bytecode),
                 tenant_id,
                 policy_version: policy_version as u64,
                 enabled: enabled_int != 0,
@@ -467,7 +469,7 @@ mod tests {
     fn mk_entry(program_id: &str, version: u64) -> ProgramEntry {
         ProgramEntry {
             program_id: program_id.to_string(),
-            bytecode: mk_bc(program_id, version),
+            bytecode: std::sync::Arc::new(mk_bc(program_id, version)),
             tenant_id: Some("tenant-a".to_string()),
             policy_version: version,
             enabled: true,
@@ -557,9 +559,9 @@ mod tests {
         let store = BytecodeRegistryStore::in_memory().expect("ok");
         let mut entry = mk_entry("factory_default", 1);
         entry.tenant_id = None;
-        let mut bc = entry.bytecode.clone();
+        let mut bc = (*entry.bytecode).clone();
         bc.tenant_id = None;
-        entry.bytecode = bc;
+        entry.bytecode = std::sync::Arc::new(bc);
         store.save(&entry).expect("ok");
         let loaded = store.load_all().expect("ok");
         assert!(loaded[0].tenant_id.is_none());

@@ -160,3 +160,10 @@ record. Remediation is phased in
 - **Description:** `deleteScadaPackage` and the process delete are soft-deletes (status -> ARCHIVED), but no deploy entrypoint checked status before pushing to the edge. `deployScadaPackageToEdge`, `deployScadaWithAutomation`, and `deployProcessToEdge` each loaded the row and proceeded to the broker regardless of an ARCHIVED status, so a deleted package/process could be (re)deployed and start running physical hardware.
 - **Impact:** A deleted SCADA package/process could be pushed to a device and actuate hardware, contradicting its deleted state.
 - **Recommendation:** Guard every device-push entrypoint on status: a shared `assertPackageDeployable` (throws on ARCHIVED) at the top of both package-deploy methods, and an inline ARCHIVED check in `deployProcessToEdge`, all before touching the broker. Regression spec covers all three entrypoints.
+
+### [SENSOR-MEDIUM-018] resolveTagRefs accepts an unbounded refs array (single-query amplification vector)
+- **File:** `apps/sensor-service/src/process/resolvers/unified-tag.resolver.ts`
+- **Category:** Availability / input validation
+- **Description:** The `resolveTagRefs` GraphQL query took `refs: [String]` with no size limit and passed it straight into `TagResolutionService.resolve`, which builds a single `IN (...)` lookup. Because `@Args` scalar-list arguments are not covered by the class-validator ValidationPipe, a caller could submit 100k+ refs in one query and force one enormous DB query — a cheap amplification vector at the tenant trust boundary.
+- **Impact:** A single crafted query could pin a DB connection with an oversized `IN (...)` scan.
+- **Recommendation:** Cap the list at `MAX_TAG_REFS_PER_QUERY` (1000 — far above a real screen/package's few hundred) and reject anything larger with a `BadRequestException` before hitting the resolution service. Regression spec pins reject-over-cap (service not called) and pass-at-cap.

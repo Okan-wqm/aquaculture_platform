@@ -41,3 +41,10 @@ record. Remediation is phased in
 - **Description:** The unified toolbar's Undo/Redo buttons posted `undo`/`redo` messages to the P&ID iframe, which has no such handler, and the SCADA store's real history (`undo`/`redo`/`canUndo`/`canRedo`) was never invoked. `useScadaKeyboardShortcuts` was never mounted, so Ctrl+Z/Y/C/V/X and Delete did nothing in HMI mode.
 - **Impact:** HMI editing in the default editor had no reachable undo history and no keyboard shortcuts — a regression from the standalone builder.
 - **Recommendation:** Route the toolbar Undo/Redo (and mount `useScadaKeyboardShortcuts`, gated to HMI so it cannot mutate the hidden HMI store from P&ID mode) to the SCADA store when `mode === 'hmi'`.
+
+### [SENSOR-HIGH-032] Unified editor has no in-app "play the process" simulation run mode
+- **File:** `web/modules/sensor-module/src/pages/unified/UnifiedEditorPage.tsx`, `web/modules/sensor-module/src/components/scada-builder/SimulationSidebar.tsx`, `web/modules/sensor-module/src/store/scada/simulationSlice.ts`
+- **Category:** Product capability gap
+- **Description:** The standalone builder has an Edit/Preview/Simulation sub-mode that runs a client-side IEC 61131-3 ST interpreter closed-loop, drives sim tag values, evaluates alarms, and animates HMI widgets — a FUXA-style in-app run with no device deploy. The unified editor (the default editor) never called `setSimulationMode`, hardcoded `ScreenCanvas isPreview={false}`, and had no run toggle, so the process could not be played/observed in-app without deploying to hardware.
+- **Impact:** Users of the default editor could not validate a process (P&ID + HMI + ST logic) by running it in simulation before deploying — the explicit "edit -> play -> observe, no deploy" workflow.
+- **Recommendation:** Add an HMI-scoped Run/Stop toggle that flips `simulationMode` (keeping `StableModeProvider mode="edit"` to avoid remount) + `ScreenCanvas isPreview={simulationMode}`, and swaps the right panel to `SimulationSidebar`. (P&ID equipment-node live animation during a run is tracked separately as the more expensive follow-on.)

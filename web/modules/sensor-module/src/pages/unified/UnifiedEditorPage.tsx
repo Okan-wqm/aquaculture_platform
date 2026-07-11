@@ -36,6 +36,8 @@ import {
   PanelRightOpen,
   Settings,
   Paperclip,
+  Play,
+  Square,
 } from 'lucide-react';
 
 import type { Edge } from '@xyflow/react';
@@ -64,6 +66,7 @@ import { AttachmentsPanel } from '../../components/process-editor/panels/Attachm
 import { UnifiedLeftPanel } from '../../components/scada-builder/UnifiedLeftPanel';
 import { ScreenCanvas } from '../../components/scada-builder/ScreenCanvas';
 import { StableModeProvider } from '../../components/scada-builder/StableModeProvider';
+import { SimulationSidebar } from '../../components/scada-builder/SimulationSidebar';
 import { DeployToEdgeDialog } from '../../components/deploy/DeployToEdgeDialog';
 import { DeployAutomationModal } from '../../components/deploy/DeployAutomationModal';
 import { ScadaPackagePreview } from '../../components/deploy/ScadaPackagePreview';
@@ -301,6 +304,12 @@ const UnifiedEditorPage: React.FC = () => {
   const scadaCanUndo = useScadaPackageStore((s) => s.canUndo());
   const scadaCanRedo = useScadaPackageStore((s) => s.canRedo());
 
+  // HMI simulation ("play the process") — flips the store's simulationMode so
+  // the SimulationSidebar drives sim tag values and ScreenCanvas renders them
+  // live (isPreview) without deploying to a device (FUXA-style in-app run).
+  const simulationMode = useScadaPackageStore((s) => s.simulationMode);
+  const setSimulationMode = useScadaPackageStore((s) => s.setSimulationMode);
+
   // Editor identity follows the route param. The scada store is a module
   // singleton shared with the standalone Builder, and this component instance
   // is REUSED when navigating unified-editor/A → unified-editor/B — without a
@@ -458,6 +467,14 @@ const UnifiedEditorPage: React.FC = () => {
     }
   }, [mode, isCanvasReady, sendToCanvas]);
 
+  // Simulation is an HMI-only run state; stop it when leaving HMI so it never
+  // leaks into P&ID/PLC/runtime/debug (where the sim sidebar is not mounted).
+  useEffect(() => {
+    if (mode !== 'hmi' && simulationMode) {
+      setSimulationMode(false);
+    }
+  }, [mode, simulationMode, setSimulationMode]);
+
   // Equipment drag
   const handleEquipmentDragStart = useCallback(
     (event: React.DragEvent, template: NodeTemplate) => {
@@ -576,7 +593,7 @@ const UnifiedEditorPage: React.FC = () => {
   // ONLY in HMI mode — the hook mutates the scada store, and Delete/Ctrl+Z in
   // P&ID mode must not reach through to the hidden HMI canvas. isPreview drives
   // the hook's early-return, so it attaches listeners solely in HMI.
-  useScadaKeyboardShortcuts({ onSave: handleSave, isPreview: mode !== 'hmi' });
+  useScadaKeyboardShortcuts({ onSave: handleSave, isPreview: mode !== 'hmi' || simulationMode });
 
   // Data-channel widget config modal handlers (6c parity). Save pushes the
   // updated widget data back to the canvas node; no console (no-console).
@@ -700,11 +717,28 @@ const UnifiedEditorPage: React.FC = () => {
 
         {/* Center Controls */}
         <div className="flex items-center gap-1">
+          {mode === 'hmi' && (
+            <>
+              <button
+                onClick={() => setSimulationMode(!simulationMode)}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                  simulationMode
+                    ? 'text-white bg-red-500 hover:bg-red-600'
+                    : 'text-white bg-green-600 hover:bg-green-700'
+                }`}
+                title={simulationMode ? 'Stop simulation' : 'Run the process in simulation (no device deploy)'}
+              >
+                {simulationMode ? <Square className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                {simulationMode ? 'Stop' : 'Run'}
+              </button>
+              <div className="h-5 w-px bg-gray-300 mx-1" />
+            </>
+          )}
           <button
             onClick={() => (mode === 'hmi' ? scadaUndo() : sendToCanvas('undo'))}
             className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
             title="Undo"
-            disabled={mode === 'hmi' ? !scadaCanUndo : !isCanvasReady || !isCanvasEditable}
+            disabled={mode === 'hmi' ? simulationMode || !scadaCanUndo : !isCanvasReady || !isCanvasEditable}
           >
             <Undo className="w-4 h-4" />
           </button>
@@ -712,7 +746,7 @@ const UnifiedEditorPage: React.FC = () => {
             onClick={() => (mode === 'hmi' ? scadaRedo() : sendToCanvas('redo'))}
             className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
             title="Redo"
-            disabled={mode === 'hmi' ? !scadaCanRedo : !isCanvasReady || !isCanvasEditable}
+            disabled={mode === 'hmi' ? simulationMode || !scadaCanRedo : !isCanvasReady || !isCanvasEditable}
           >
             <Redo className="w-4 h-4" />
           </button>
@@ -866,8 +900,11 @@ const UnifiedEditorPage: React.FC = () => {
             />
             {mode === 'hmi' && (
               <div className="absolute inset-0 flex flex-col">
+                {/* StableModeProvider stays mode="edit" (no remount); the
+                    store's simulationMode flag toggles the sim data plane, and
+                    isPreview locks editing + renders live sim values. */}
                 <StableModeProvider mode="edit">
-                  <ScreenCanvas isPreview={false} />
+                  <ScreenCanvas isPreview={simulationMode} />
                 </StableModeProvider>
               </div>
             )}
@@ -948,7 +985,7 @@ const UnifiedEditorPage: React.FC = () => {
                 </div>
               </>
             ) : mode === 'hmi' ? (
-              <HmiPropertiesPanel />
+              simulationMode ? <SimulationSidebar /> : <HmiPropertiesPanel />
             ) : (
               <UnifiedPropertiesPanel />
             )}

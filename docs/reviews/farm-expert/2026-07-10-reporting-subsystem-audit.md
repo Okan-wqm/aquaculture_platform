@@ -368,6 +368,14 @@ exercising the trigger behavior against real Postgres (runs in CI, not this sand
 
 ## OPEN — HIGH (tracked)
 
+- **Harvest cancel/update leaves the `tank_operations('harvest')` mirror un-reversed** (FARM-HIGH-198,
+  surfaced by the FARM-HIGH-182 SSoT-mapping): `delete-harvest-record` cancels `harvest_records` and
+  reverses the live stock but never compensates the paired `tank_operations('harvest')` row;
+  `update-harvest-record` edits `quantityHarvested` without adjusting the mirror. The regulatory read
+  side is SAFE (reconstruction + `querySlaughter` both source harvest from `harvest_records` filtered
+  `status ≠ cancelled`), but the write-path divergence over-counts removals for any consumer that reads
+  the `tank_operations('harvest')` ledger (e.g. `TankCountReconcileService.LEDGER_SQL` Option B1). Fix
+  routes to farm-expert (owner + deadline tracked).
 - **Direct REST submit trusts client-supplied org/lokalitet** instead of deriving them server-side
   like the draft path does (auth-security SEC-HIGH-001).
 - **`regulatory_report_drafts` has no RLS** (its sibling `regulatory_reports` does) and the draft
@@ -376,10 +384,20 @@ exercising the trigger behavior against real Postgres (runs in CI, not this sand
   surfaced to no operator (job-queue PRODUCT-JOB-HIGH-001, observability OBS-HIGH-002).
 - **Biomass draft in the "due" list has a broken Mattilsynet Approve & Submit** and is a duplicate of
   the `biomass_reports` Altinn state machine (farm-expert FARM-HIGH-004).
-- **No point-in-time stock ledger** to reconstruct a historical month-end beholdning — the biomass
-  calculator exposes only the live mirror and the stock read-model is current-state-only, so any
-  biomass report older than last month fails closed to MANUAL_REQUIRED rather than auto-filling the
-  real period-end figure (FARM-HIGH-182, the deeper fix behind the now-resolved FARM-HIGH-005/181).
+- **Point-in-time stock reconstruction** is FIXED (FARM-HIGH-182): `StockReconstructionService`
+  replays each batch's period-end count from source records —
+  `initialQuantity − Σ mortality_records − Σ tank_operations(cull) − Σ harvest_records(status≠cancelled)`,
+  the exact single-SSoT-per-event split the write-path uses (mortality and harvest each double-write a
+  `tank_operations` mirror; the replay reads each physical event from ONE ledger so nothing is
+  double-counted; transfers are batch-internal and ignored). Weight is the latest measurement ≤ the
+  period end. It is fail-closed — a missing baseline/weight or a negative replay (ledger gap) returns
+  `complete:false` and the biomass assembler keeps the blocking MANUAL_REQUIRED rather than filing an
+  unverifiable number. The assembler now stamps `/currentBiomass` RECORDS from the reconstruction for
+  stale periods. Verified by a pure fold spec + a **CI Postgres integration spec** running the exact
+  replay SQL against a seeded ledger (asserts the no-double-count, cancelled-harvest exclusion,
+  as-of-date weight, closed-batch membership, and the negative-gap fail-closed). While here, a related
+  over-report was fixed: the assembler's `querySlaughter` summed `harvest_records` with no status
+  filter, counting cancelled harvests into the regulatory slaughter section — now `status ≠ cancelled`.
 - **Settefisk CTEs are not site-scoped** → whole-tenant mortality scans re-run once per site
   (performance PERF-HIGH-002).
 - **Daily deadline sweep + auto-submit load every draft ever created** then filter in JS

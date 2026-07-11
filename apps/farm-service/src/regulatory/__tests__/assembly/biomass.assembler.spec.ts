@@ -8,6 +8,7 @@ import { QueryBus } from '@platform/cqrs';
 import { createMockDataSource } from '@aquaculture/testing';
 
 import { BiomassCalculatorService } from '../../../batch/services/biomass-calculator.service';
+import { StockReconstructionService } from '../../../batch/services/stock-reconstruction.service';
 import { GetMortalityByCauseQuery } from '../../../batch/queries/get-mortality-by-cause.query';
 import { GetTransfersSummaryQuery } from '../../../batch/queries/get-transfers-summary.query';
 import { GetSiteFeedConsumptionQuery } from '../../../feeding/queries/get-site-feed-consumption.query';
@@ -94,10 +95,24 @@ function makeCalculator(): Pick<BiomassCalculatorService, 'getSiteBiomassReport'
   };
 }
 
+function makeReconstruction(): Pick<
+  StockReconstructionService,
+  'reconstructSiteStockAtPeriodEnd'
+> {
+  // Default double: the assembler only calls this for materially STALE periods,
+  // which the fresh-period specs here do not exercise. Tests that assert the
+  // stale reconstruction path inject their own resolved value.
+  return { reconstructSiteStockAtPeriodEnd: jest.fn() };
+}
+
 function makeAssembler(
   queryBus: Pick<QueryBus, 'execute'>,
   calculator: Pick<BiomassCalculatorService, 'getSiteBiomassReport'>,
   queryMock?: jest.Mock,
+  reconstruction: Pick<
+    StockReconstructionService,
+    'reconstructSiteStockAtPeriodEnd'
+  > = makeReconstruction(),
 ): BiomassReportAssembler {
   const { mockDataSource, mockQueryRunner } = createMockDataSource();
   if (queryMock) {
@@ -107,6 +122,7 @@ function makeAssembler(
     mockDataSource,
     queryBus as QueryBus,
     calculator as BiomassCalculatorService,
+    reconstruction as StockReconstructionService,
   );
 }
 
@@ -191,9 +207,10 @@ describe('BiomassReportAssembler', () => {
     expect(fields.find((f) => f.path === '/mortality')?.sourceRecordCount).toBe(7);
   });
 
-  it('fails the standing stock closed to blocking MANUAL_REQUIRED for a materially historical period (FARM-HIGH-005)', async () => {
-    // A report for a month before last: the live inventory no longer reflects
-    // that month-end, so the standing stock must NOT be stamped RECORDS —
+  it('fails the standing stock closed to blocking MANUAL_REQUIRED when a stale period cannot be reconstructed (FARM-HIGH-005 / FARM-HIGH-182)', async () => {
+    // A report for a materially historical month whose period-end stock cannot be
+    // reconstructed from source records (the default reconstruction double resolves
+    // no result / incomplete): the standing stock must NOT be stamped RECORDS —
     // auto-submit is blocked until the operator supplies the real beholdning.
     const assembler = makeAssembler(makeQueryBus(), makeCalculator());
     const { fields } = await assembler.assemble(tenantId, siteId, 2020, 1);
@@ -202,7 +219,70 @@ describe('BiomassReportAssembler', () => {
     expect(standingStock?.provenance).toBe(ReportFieldProvenance.MANUAL_REQUIRED);
     expect(standingStock?.blocking).toBe(true);
     expect(standingStock?.message).toContain('2020-01');
-    expect(standingStock?.message).toMatch(/live inventory|month-end/i);
+    expect(standingStock?.message).toMatch(/reconstruct|month-end/i);
+  });
+
+  it('reconstructs a materially historical period from source records and stamps it RECORDS (FARM-HIGH-182)', async () => {
+    const reconstruction = {
+      reconstructSiteStockAtPeriodEnd: jest.fn().mockResolvedValue({
+        complete: true,
+        totalQuantity: 88000,
+        totalBiomassKg: 30800.5,
+        batchCount: 2,
+        speciesBreakdown: [
+          {
+            speciesId: 'sp-1',
+            speciesName: 'European seabass',
+            speciesCode: 'SEABASS',
+            quantity: 88000,
+            biomassKg: 30800.5,
+            avgWeightG: 350,
+          },
+        ],
+      }),
+    };
+
+    const assembler = makeAssembler(makeQueryBus(), makeCalculator(), undefined, reconstruction);
+    const { draftPayload, fields } = await assembler.assemble(tenantId, siteId, 2020, 1);
+    const payload = draftPayload as BiomassReportPayload;
+
+    // The reconstruction was consulted for the stale period end (2020-01-31).
+    expect(reconstruction.reconstructSiteStockAtPeriodEnd).toHaveBeenCalledWith(
+      tenantId,
+      siteId,
+      '2020-01-31',
+    );
+    // Standing stock is the RECONSTRUCTED period-end figure, not today's live stock.
+    expect(payload.currentBiomass.totalKg).toBe(30800.5);
+    expect(payload.currentBiomass.bySpecies[0]).toMatchObject({
+      fishCount: 88000,
+      avgWeightG: 350,
+    });
+    const standingStock = fields.find((f) => f.path === '/currentBiomass');
+    expect(standingStock?.provenance).toBe(ReportFieldProvenance.RECORDS);
+    expect(standingStock?.blocking).toBeFalsy();
+    expect(standingStock?.sourceQuery).toMatch(/StockReconstructionService/);
+  });
+
+  it('falls back to blocking MANUAL_REQUIRED when the reconstruction is incomplete (FARM-HIGH-182 fail-closed)', async () => {
+    const reconstruction = {
+      reconstructSiteStockAtPeriodEnd: jest.fn().mockResolvedValue({
+        complete: false,
+        incompleteReason: 'batch b-9 reconstructs to a negative quantity (-400) — the source ledger is incomplete for this period',
+        totalQuantity: 0,
+        totalBiomassKg: 0,
+        batchCount: 0,
+        speciesBreakdown: [],
+      }),
+    };
+
+    const assembler = makeAssembler(makeQueryBus(), makeCalculator(), undefined, reconstruction);
+    const { fields } = await assembler.assemble(tenantId, siteId, 2020, 1);
+
+    const standingStock = fields.find((f) => f.path === '/currentBiomass');
+    expect(standingStock?.provenance).toBe(ReportFieldProvenance.MANUAL_REQUIRED);
+    expect(standingStock?.blocking).toBe(true);
+    expect(standingStock?.message).toContain('negative quantity');
   });
 
   it('flags a stocking with no recorded avg weight instead of tagging a fabricated 0 as RECORDS (COMPLIANCE-MEDIUM-005)', async () => {

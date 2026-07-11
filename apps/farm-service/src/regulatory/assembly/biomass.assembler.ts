@@ -25,6 +25,10 @@ import { DataSource, QueryRunner } from 'typeorm';
 
 import { BiomassCalculatorService } from '../../batch/services/biomass-calculator.service';
 import {
+  ReconstructedSiteStock,
+  StockReconstructionService,
+} from '../../batch/services/stock-reconstruction.service';
+import {
   GetMortalityByCauseQuery,
   MortalityByCauseResult,
 } from '../../batch/queries/get-mortality-by-cause.query';
@@ -64,6 +68,7 @@ export class BiomassReportAssembler {
     private readonly dataSource: DataSource,
     private readonly queryBus: QueryBus,
     private readonly biomassCalculator: BiomassCalculatorService,
+    private readonly stockReconstruction: StockReconstructionService,
   ) {}
 
   async assemble(
@@ -74,26 +79,65 @@ export class BiomassReportAssembler {
   ): Promise<AssembledDraft<BiomassReportPayload>> {
     const { fromDate, toDate } = monthRange(reportYear, reportMonth);
 
+    // FARM-HIGH-182: for a materially historical period the live standing stock
+    // no longer reflects the month-end, so reconstruct the exact period-end
+    // beholdning from source records instead of stamping today's inventory. The
+    // reconstruction is only run when the period is stale; a fresh/just-closed
+    // period keeps the live calculator (cheaper, and identical at that point).
+    const now = new Date();
+    const stale = isStandingStockStale(toDate, now);
+
     // PERF-HIGH-005: the two direct DB reads (stockings + slaughter) share ONE
-    // tenant-read boundary; the calculator and the three CQRS queries own their
-    // own boundaries and run in parallel.
-    const [siteBiomass, mortality, transfers, feed, directReads] = await Promise.all([
-      this.biomassCalculator.getSiteBiomassReport(siteId, tenantId),
-      this.queryBus.execute<GetMortalityByCauseQuery, MortalityByCauseResult>(
-        new GetMortalityByCauseQuery(tenantId, siteId, fromDate, toDate),
-      ),
-      this.queryBus.execute<GetTransfersSummaryQuery, TransfersSummaryResult>(
-        new GetTransfersSummaryQuery(tenantId, siteId, fromDate, toDate),
-      ),
-      this.queryBus.execute<GetSiteFeedConsumptionQuery, SiteFeedConsumptionResult>(
-        new GetSiteFeedConsumptionQuery(tenantId, siteId, fromDate, toDate),
-      ),
-      runInTenantRead(this.dataSource, 'farm', tenantId, async (qr) => ({
-        stockingRows: await this.queryStockings(qr, tenantId, siteId, fromDate, toDate),
-        slaughterRows: await this.querySlaughter(qr, tenantId, siteId, fromDate, toDate),
-      })),
-    ]);
+    // tenant-read boundary; the calculator, the three CQRS queries, and the
+    // period-end reconstruction own their own boundaries and run in parallel.
+    const [siteBiomass, mortality, transfers, feed, directReads, reconstructed] =
+      await Promise.all([
+        this.biomassCalculator.getSiteBiomassReport(siteId, tenantId),
+        this.queryBus.execute<GetMortalityByCauseQuery, MortalityByCauseResult>(
+          new GetMortalityByCauseQuery(tenantId, siteId, fromDate, toDate),
+        ),
+        this.queryBus.execute<GetTransfersSummaryQuery, TransfersSummaryResult>(
+          new GetTransfersSummaryQuery(tenantId, siteId, fromDate, toDate),
+        ),
+        this.queryBus.execute<GetSiteFeedConsumptionQuery, SiteFeedConsumptionResult>(
+          new GetSiteFeedConsumptionQuery(tenantId, siteId, fromDate, toDate),
+        ),
+        runInTenantRead(this.dataSource, 'farm', tenantId, async (qr) => ({
+          stockingRows: await this.queryStockings(qr, tenantId, siteId, fromDate, toDate),
+          slaughterRows: await this.querySlaughter(qr, tenantId, siteId, fromDate, toDate),
+        })),
+        stale
+          ? this.stockReconstruction.reconstructSiteStockAtPeriodEnd(tenantId, siteId, toDate)
+          : Promise.resolve<ReconstructedSiteStock | null>(null),
+      ]);
     const { stockingRows, slaughterRows } = directReads;
+
+    // A stale period uses the reconstructed period-end stock ONLY when the replay
+    // was complete (every in-stock batch had a baseline + weight and never went
+    // negative); otherwise it falls back to the honest MANUAL_REQUIRED below.
+    const useReconstruction = stale && reconstructed?.complete === true;
+    const currentBiomass = useReconstruction
+      ? {
+          totalKg: round2(reconstructed.totalBiomassKg),
+          bySpecies: reconstructed.speciesBreakdown.map((entry) => ({
+            speciesId: entry.speciesId,
+            speciesName: entry.speciesName,
+            fishCount: entry.quantity,
+            biomassKg: round2(entry.biomassKg),
+            avgWeightG: round2(entry.avgWeightG),
+          })),
+        }
+      : {
+          totalKg: round2(siteBiomass.totalBiomassKg),
+          bySpecies: siteBiomass.speciesBreakdown.map((entry) => ({
+            speciesId: entry.speciesId,
+            speciesName: entry.speciesName,
+            fishCount: entry.quantity,
+            biomassKg: round2(entry.biomassKg),
+            avgWeightG:
+              entry.quantity > 0 ? round2((entry.biomassKg * 1000) / entry.quantity) : 0,
+          })),
+        };
 
     // COMPLIANCE-MEDIUM-005: a stocking whose batch has no recorded avg weight
     // must NOT be silently rendered as 0 kg tagged RECORDS — the biomass is
@@ -119,16 +163,7 @@ export class BiomassReportAssembler {
     });
 
     const draftPayload: BiomassReportPayload = {
-      currentBiomass: {
-        totalKg: round2(siteBiomass.totalBiomassKg),
-        bySpecies: siteBiomass.speciesBreakdown.map((entry) => ({
-          speciesId: entry.speciesId,
-          speciesName: entry.speciesName,
-          fishCount: entry.quantity,
-          biomassKg: round2(entry.biomassKg),
-          avgWeightG: entry.quantity > 0 ? round2((entry.biomassKg * 1000) / entry.quantity) : 0,
-        })),
-      },
+      currentBiomass,
       stockings,
       mortality: {
         totalCount: mortality.totalCount,
@@ -172,29 +207,33 @@ export class BiomassReportAssembler {
       },
     };
 
-    // FARM-HIGH-005: the standing stock is the CURRENT live inventory. For the
-    // current/just-closed period that is a faithful proxy for the closing
-    // beholdning and stays RECORDS. For a materially historical period the live
-    // stock no longer reflects that month-end, so we must NOT stamp today's
-    // number as RECORDS — fail closed to a blocking MANUAL_REQUIRED so the
-    // operator supplies the real period-end figure and auto-submit cannot file
-    // a stale number. (Deeper fix — a point-in-time stock ledger that
-    // reconstructs the exact month-end beholdning — is tracked as
-    // FARM-HIGH-182.)
-    const currentBiomassMeta = isStandingStockStale(toDate, new Date())
-      ? manualRequired(
-          '/currentBiomass',
-          `Standing stock is assembled from the CURRENT live inventory, which no longer ` +
-            `reflects the ${reportYear}-${String(reportMonth).padStart(2, '0')} month-end ` +
-            `(the period closed over a month ago). Verify and enter the actual closing ` +
-            `beholdning for the period.`,
-          true,
-        )
-      : fromRecords(
+    // Standing-stock provenance, three ways:
+    //  - fresh/just-closed period → the live inventory IS the closing beholdning
+    //    (RECORDS, from the calculator);
+    //  - stale period, reconstruction complete → the exact month-end beholdning
+    //    replayed from source records (RECORDS, FARM-HIGH-182);
+    //  - stale period, reconstruction incomplete (a batch missing a baseline /
+    //    weight, or a negative replay signalling a ledger gap) → fail closed to a
+    //    blocking MANUAL_REQUIRED so no unverifiable number is filed.
+    const currentBiomassMeta = !stale
+      ? fromRecords(
           '/currentBiomass',
           'BiomassCalculatorService.getSiteBiomassReport',
           siteBiomass.batchCount,
-        );
+        )
+      : useReconstruction
+        ? fromRecords(
+            '/currentBiomass',
+            'StockReconstructionService.reconstructSiteStockAtPeriodEnd (period-end replay)',
+            reconstructed.batchCount,
+          )
+        : manualRequired(
+            '/currentBiomass',
+            `The ${reportYear}-${String(reportMonth).padStart(2, '0')} month-end standing stock ` +
+              `could not be reconstructed from source records (${reconstructed?.incompleteReason ?? 'the source ledger is incomplete for this period'}). ` +
+              `Verify and enter the actual closing beholdning for the period.`,
+            true,
+          );
 
     const fields = [
       currentBiomassMeta,
@@ -293,6 +332,10 @@ export class BiomassReportAssembler {
            JOIN species s ON s.id = b."speciesId"
           WHERE hr."tenantId" = $1
             AND hr."harvestDate"::date BETWEEN $3 AND $4
+            -- FARM-HIGH-182: a cancelled harvest reverses the live stock but is
+            -- NOT a slaughter that happened — exclude it so the regulatory
+            -- slaughter section never over-reports (matches the reconstruction).
+            AND hr.status <> 'cancelled'
           GROUP BY hr."harvestDate"::date, s.code, s."officialCode"
           ORDER BY date`,
       [tenantId, siteId, fromDate, toDate],

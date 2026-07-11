@@ -47,3 +47,15 @@ This file records the two write-time authority findings closed by the P0 remedia
 **Rule violated:** Every privileged, state-mutating RBAC action must write an audit row atomically with the mutation (fail-closed), never after a committed change and never omitted.
 
 **Fix:** `TenantRoleService` now injects `AuditLogService` and writes `ROLE_CREATED` / `ROLE_UPDATED` (with before/after permission sets) / `ROLE_DELETED` (row snapshot) / `ROLE_SET_DEFAULT` / `ROLES_SEEDED` rows on the same SERIALIZABLE transaction (`queryRunner.manager`), mirroring the tenant-user-management assignment paths — a throwing audit rolls the mutation back.
+
+## RBAC-MEDIUM-001
+
+**Title:** The tenant-role gating invariant (`tenant-role.resolver.gating.spec.ts`) iterated a hand-maintained list of method names, so a newly-added `@Query`/`@Mutation` that was forgotten in the list and left ungated passed CI silently — falling through both opt-in guards to any authenticated tenant user.
+
+**Layer:** 3 (make-it-detectable)
+**Evidence:**
+- `apps/auth-service/src/modules/tenant/resolvers/__tests__/tenant-role.resolver.gating.spec.ts`
+
+**Rule violated:** Deny-by-default must be structural — an ungated authorization surface must fail the build, not depend on a reviewer remembering to update an allowlist.
+
+**Fix:** The invariant now enumerates the resolver's ACTUAL own methods and partitions them into gated (carries `@RequireTenantPermission`) vs an explicit, reviewed private-helper allowlist. Any ungated method that is not a listed helper fails the test, so a forgotten new operation cannot ship open; the capability map is additionally checked both ways (every operation mapped, no stale entries).

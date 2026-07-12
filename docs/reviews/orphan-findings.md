@@ -6546,3 +6546,13 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 3. Backend `queryPermissions` returns `{data,total,page,limit}` without `totalPages`; the FE `PaginatedResult` type declares it required (currently unused by the page — type-level drift).
 4. FE `getSessionActions` is a documented throw: no backend GET endpoint exposes a session's action log even though the data exists in `actionsPerformed` — a small read-endpoint gap.
 **Owner:** admin-expert (2-4) + the Faz 3 lane (1). **Deadline:** tracked (2026-10-15); item 1 folds into Faz 3.
+
+## ORPHAN-HIGH-373 — Faz 2b: config-service WIRE — seed the legacy settings + first real consumer (INFRA-HIGH-001; owner decision: wire) — IN PROGRESS (parallel lane)
+
+**Scope:** config-service's engine is built-but-unconsumed ([[ORPHAN-HIGH-356]] item 3); the platform owner chose WIRE. (1) Seed the retired system-settings vocabulary into `config.configurations` via a config-service migration sourcing `DEFAULT_SYSTEM_SETTINGS` (the code-side seed source kept in `system-setting.entity.ts`; the dropped rows' jsonb archive is `admin.retired_config_backups`). (2) Wire the admin-panel system-settings UI to config-service's federated `effectiveConfiguration`/`setConfiguration` GraphQL (the gateway already federates the config subgraph) so the engine has its first real consumer end-to-end.
+**Owner:** admin-expert / config owner. **Deadline:** this parallel-lane PR; updated to RESOLVED on merge.
+
+## ORPHAN-MEDIUM-374 — hr GOAL surface: competencyRatings scalar selection + the stale-SDL false-positive corrections — IN PROGRESS (parallel lane)
+
+**Scope:** the last mechanical remainder of DB-PEOPLE-HIGH-001 ([[ORPHAN-HIGH-359]]): `PERFORMANCE_REVIEW_FRAGMENT` selects `competencyRatings` as a scalar while the entity exposes `[CompetencyRating!]` — add the field sub-selection (same pattern as keyResults/milestones), verify against a freshly composed supergraph, and check why the drift-ratchet (graphql-fe-drift-baseline-no-grow) did not catch it. Also correct the synthesis: the 5 flagged performance ops (teamPerformanceOverview, reviewCycleStatus, goalProgressTrend, departmentKPIs, bulkCreateReviews) are FALSE POSITIVES from a stale Jun-19 SDL artifact — all have live resolvers since #697.
+**Owner:** hr-expert / frontend-expert. **Deadline:** this parallel-lane PR; updated to RESOLVED on merge.

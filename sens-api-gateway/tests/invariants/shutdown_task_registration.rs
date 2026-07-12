@@ -71,3 +71,49 @@ fn shutdown_has_whole_sequence_deadline() {
         MAIN_PATH
     );
 }
+
+/// PR935-HIGH-003: the deadline watchdog must run on a detached OS thread
+/// (immune to runtime starvation) and exit NON-ZERO (fail-visible).
+#[test]
+fn shutdown_watchdog_is_starvation_proof_and_fail_visible() {
+    let src = read_main();
+    // The watchdog block must build a named std::thread, not a tokio task —
+    // a tokio timer would be starved by the very CPU-bound/blocking wedge it
+    // guards against.
+    assert!(
+        src.contains("\"shutdown-watchdog\"") && src.contains("std::thread::sleep"),
+        "PR935-HIGH-003 regression: the shutdown watchdog is no longer a detached OS thread in \
+         {} — a tokio-task timer can be starved by a wedged 2-worker runtime and never fire.",
+        MAIN_PATH
+    );
+    // A forced exit that skipped safe-state/flush is a FAILURE — exit(1), never exit(0).
+    assert!(
+        src.contains("std::process::exit(1)") && !src.contains("std::process::exit(0)"),
+        "PR935-HIGH-003 regression: the shutdown watchdog must exit NON-ZERO so systemd \
+         Restart=on-failure + the hardware/PLC fail-safe see the forced termination as a failure."
+    );
+}
+
+/// PR935-HIGH-002: the coordinator's drain must ABORT a timed-out task, not
+/// detach it, and must drain concurrently (bounded to one budget).
+#[test]
+fn shutdown_drain_aborts_and_is_concurrent() {
+    let src = std::fs::read_to_string("src/shutdown.rs").unwrap_or_else(|e| {
+        panic!("cannot read src/shutdown.rs: {e}");
+    });
+    // `timeout(_, &mut handle)` + `handle.abort()` on the Err arm: the handle
+    // survives the timeout and the wedged task is cancelled before safe-state.
+    assert!(
+        src.contains("&mut handle") && src.contains("handle.abort()"),
+        "PR935-HIGH-002 regression: src/shutdown.rs no longer aborts a timed-out task — moving \
+         the handle into timeout() detaches (does not cancel) a wedged actuator write, which can \
+         then overwrite the safe-state value."
+    );
+    // Concurrent drain: all handles awaited together, not in a sequential for-loop.
+    assert!(
+        src.contains("futures::future::join_all(drains)"),
+        "PR935-HIGH-003 regression: src/shutdown.rs no longer drains tasks concurrently — a \
+         sequential drain lets a few wedged tasks exceed the whole-sequence deadline before \
+         safe-state is reached."
+    );
+}

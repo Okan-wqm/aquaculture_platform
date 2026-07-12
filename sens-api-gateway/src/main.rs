@@ -5874,27 +5874,42 @@ async fn run_agent(
     }
     info!("Shutdown race gate flipped: new commands will be rejected with ServiceShuttingDown");
 
-    // EDGE-HIGH-015: whole-sequence shutdown deadline. The coordinator
-    // bounds each task individually but nothing bounds the full sequence
-    // (drain → safe-state → flush → disconnect); a wedged step could
-    // otherwise run until systemd's TimeoutStopSec SIGKILLs the process
-    // mid-operation. A detached watchdog force-exits at a hard ceiling
-    // (kept below TimeoutStopSec) so we terminate on our own terms. In
-    // the normal path the sequence finishes in well under this ceiling
-    // and the watchdog never fires; the process exits when run_agent
-    // returns and this task is abandoned with the runtime.
+    // EDGE-HIGH-015 / PR935-HIGH-003: whole-sequence shutdown deadline. The
+    // coordinator now drains tasks CONCURRENTLY (src/shutdown.rs), so the
+    // whole drain is bounded to one `shutdown_timeout_secs` regardless of task
+    // count, and the safe-state phase below is reached in well under this
+    // ceiling. This watchdog is the last-resort backstop for a wedge in
+    // safe-state / flush itself.
+    //
+    // Two correctness properties the previous tokio-task watchdog lacked:
+    //   1. It runs on a DETACHED OS THREAD, not a tokio task. The wedge class
+    //      this backstop exists for includes CPU-bound / blocking tasks that
+    //      starve the 2-worker runtime — a `tokio::time::sleep` timer would be
+    //      starved alongside them and never fire, degrading to the SIGKILL it
+    //      was built to pre-empt. `std::thread::sleep` is immune to runtime
+    //      starvation.
+    //   2. It exits NON-ZERO. A forced exit that skipped the safe-state /
+    //      flush phases is a FAILURE; systemd `Restart=on-failure`, the
+    //      hardware watchdog, and the PLC-side fail-safe must all see it as
+    //      one. Exiting 0 previously told monitoring the shutdown was clean.
     let hard_deadline_secs = shutdown_timeout_secs
         .saturating_mul(2)
         .saturating_add(10)
         .min(80);
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(hard_deadline_secs)).await;
-        tracing::error!(
-            "Graceful shutdown exceeded {}s hard deadline — forcing process exit",
-            hard_deadline_secs
-        );
-        std::process::exit(0);
-    });
+    std::thread::Builder::new()
+        .name("shutdown-watchdog".into())
+        .spawn(move || {
+            std::thread::sleep(Duration::from_secs(hard_deadline_secs));
+            // eprintln!, not tracing: a wedged runtime may also stall a
+            // tracing appender; stderr is the robust last-resort sink.
+            eprintln!(
+                "FATAL: graceful shutdown exceeded {hard_deadline_secs}s hard deadline — \
+                 forcing non-zero exit. Safe-state may be incomplete; external \
+                 watchdog / PLC fail-safe must take over."
+            );
+            std::process::exit(1);
+        })
+        .expect("failed to spawn shutdown-watchdog thread");
 
     shutdown_coordinator
         .shutdown(Duration::from_secs(shutdown_timeout_secs))

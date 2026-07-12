@@ -1,7 +1,13 @@
 import React from 'react';
+import { Switch } from '@aquaculture/shared-ui';
 
 /**
  * Toggle switch component for settings pages.
+ *
+ * Thin wrapper over the shared-ui `Switch` (ADMIN-MEDIUM-004): keeps the
+ * module-local `{ enabled, onChange(boolean), label, description }` API and
+ * the label-left / switch-right settings-row layout; the switch itself comes
+ * from shared-ui.
  */
 export const Toggle: React.FC<{
   enabled: boolean;
@@ -14,19 +20,11 @@ export const Toggle: React.FC<{
       <p className="text-sm font-medium text-gray-900">{label}</p>
       {description && <p className="text-xs text-gray-500 mt-0.5">{description}</p>}
     </div>
-    <button
-      type="button"
-      onClick={() => onChange(!enabled)}
-      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:ring-offset-2 ${
-        enabled ? 'bg-tenant-600' : 'bg-gray-200'
-      }`}
-    >
-      <span
-        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-          enabled ? 'translate-x-5' : 'translate-x-0'
-        }`}
-      />
-    </button>
+    <Switch
+      checked={enabled}
+      onChange={(e) => onChange(e.target.checked)}
+      aria-label={label}
+    />
   </div>
 );
 
@@ -37,17 +35,10 @@ export const SmallToggle: React.FC<{
   enabled: boolean;
   onChange: (enabled: boolean) => void;
 }> = ({ enabled, onChange }) => (
-  <button
-    type="button"
-    onClick={() => onChange(!enabled)}
-    className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
-      enabled ? 'bg-tenant-600' : 'bg-gray-200'
-    }`}
-  >
-    <span
-      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-        enabled ? 'translate-x-4' : 'translate-x-0'
-      }`}
-    />
-  </button>
+  <Switch
+    size="sm"
+    checked={enabled}
+    onChange={(e) => onChange(e.target.checked)}
+    className="justify-center"
+  />
 );

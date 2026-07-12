@@ -96,12 +96,12 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
             </div>
             <div>
               <h2 className="text-lg font-semibold text-gray-900">
-                {step === 'form' ? 'Installer Link Olu\u015Ftur' : 'Installer Haz\u0131r!'}
+                {step === 'form' ? 'Create Installer Link' : 'Installer Ready!'}
               </h2>
               <p className="text-xs text-gray-500">
                 {step === 'form'
-                  ? 'Birden fazla cihaza kurulum yap\u0131labilen link'
-                  : 'A\u015Fa\u011F\u0131daki komutu end\u00FCstriyel PC\'de \u00E7al\u0131\u015Ft\u0131r\u0131n'}
+                  ? 'A reusable link for installing on multiple devices'
+                  : 'Run the command below on the industrial PC'}
               </p>
             </div>
           </div>
@@ -120,35 +120,35 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
             )}
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Key Ad\u0131 (opsiyonel)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Key Name (optional)</label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="\u00D6rn: \u00DCretim Hatt\u0131 Installer"
+                placeholder="e.g. Production Line Installer"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Max Cihaz</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Max Devices</label>
                 <input
                   type="number"
                   value={maxDevices}
                   onChange={(e) => setMaxDevices(e.target.value)}
-                  placeholder="S\u0131n\u0131rs\u0131z"
+                  placeholder="Unlimited"
                   min="1"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Ge\u00E7erlilik (g\u00FCn)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Validity (days)</label>
                 <input
                   type="number"
                   value={expiresInDays}
                   onChange={(e) => setExpiresInDays(e.target.value)}
-                  placeholder="S\u00FCresiz"
+                  placeholder="No expiry"
                   min="1"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 />
@@ -186,7 +186,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
                 disabled={loadingKeys}
                 className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
               >
-                {loadingKeys ? 'Y\u00FCkleniyor...' : 'Mevcut key\'leri g\u00F6r\u00FCnt\u00FCle'}
+                {loadingKeys ? 'Loading...' : 'View existing keys'}
               </button>
               <button
                 onClick={handleCreate}
@@ -194,14 +194,14 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
                 className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-medium text-sm"
               >
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
-                Olu\u015Ftur
+                Create
               </button>
             </div>
 
             {/* Existing Keys */}
             {showExisting && existingKeys.length > 0 && (
               <div className="border-t border-gray-100 pt-4 mt-4">
-                <h3 className="text-sm font-semibold text-gray-700 mb-2">Mevcut Key'ler</h3>
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">Existing Keys</h3>
                 <div className="space-y-2 max-h-40 overflow-y-auto">
                   {existingKeys.map((key) => (
                     <div key={key.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg text-xs">
@@ -231,7 +231,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
             {/* Installer Command */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Kurulum Komutu
+                Installation Command
               </label>
               <div className="relative">
                 <pre className="bg-gray-900 text-green-400 p-4 rounded-xl text-sm font-mono overflow-x-auto whitespace-pre-wrap break-all">
@@ -242,7 +242,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
                   className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 bg-gray-700 text-gray-500 hover:text-white rounded-md text-xs transition-colors"
                 >
                   {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  {copied ? 'Kopyaland\u0131!' : 'Kopyala'}
+                  {copied ? 'Copied!' : 'Copy'}
                 </button>
               </div>
             </div>
@@ -250,16 +250,16 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
             {/* Info */}
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="p-3 bg-gray-50 rounded-lg">
-                <span className="text-gray-500 block text-xs">Max Cihaz</span>
-                <span className="font-medium">{result.maxDevices ?? 'S\u0131n\u0131rs\u0131z'}</span>
+                <span className="text-gray-500 block text-xs">Max Devices</span>
+                <span className="font-medium">{result.maxDevices ?? 'Unlimited'}</span>
               </div>
               <div className="p-3 bg-gray-50 rounded-lg">
-                <span className="text-gray-500 block text-xs">Otomatik Onay</span>
-                <span className="font-medium">{result.autoApprove ? 'Evet' : 'Hay\u0131r'}</span>
+                <span className="text-gray-500 block text-xs">Auto-Approve</span>
+                <span className="font-medium">{result.autoApprove ? 'Yes' : 'No'}</span>
               </div>
               {result.expiresAt && (
                 <div className="p-3 bg-gray-50 rounded-lg col-span-2">
-                  <span className="text-gray-500 block text-xs">Ge\u00E7erlilik</span>
+                  <span className="text-gray-500 block text-xs">Valid Until</span>
                   <span className="font-medium">{formatDate(result.expiresAt)}</span>
                 </div>
               )}
@@ -267,8 +267,8 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
 
             <div className="flex items-center gap-2 p-3 bg-blue-50 text-blue-700 rounded-lg text-sm">
               <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              Bu komutu herhangi bir end\u00FCstriyel PC'de \u00E7al\u0131\u015Ft\u0131rarak agent kurulumu yapabilirsiniz.
-              Cihaz otomatik olarak panelde g\u00F6r\u00FCnecektir.
+              Run this command on any industrial PC to install the agent.
+              The device will appear in the panel automatically.
             </div>
 
             <div className="flex justify-end">
@@ -276,7 +276,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
                 onClick={onClose}
                 className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium text-sm"
               >
-                Kapat
+                Close
               </button>
             </div>
           </div>

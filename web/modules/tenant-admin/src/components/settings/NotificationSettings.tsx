@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Save, Check, RefreshCw, AlertCircle, Info } from 'lucide-react';
+import { Save, RefreshCw, Info } from 'lucide-react';
+import { useToast } from '@aquaculture/shared-ui';
 import {
   useNotificationPreferences,
   useUpdateNotificationPreferences,
 } from '../../hooks/useTenantData';
-import { logError, sanitizeErrorMessage } from '../../utils/error-handling';
+import { logError, createErrorToastOptions } from '../../utils/error-handling';
 import { Toggle } from './Toggle';
 
 /**
@@ -18,6 +19,7 @@ import { Toggle } from './Toggle';
 const NotificationSettings: React.FC = () => {
   const { data: notifData, isLoading } = useNotificationPreferences(true);
   const updateNotifPrefsMutation = useUpdateNotificationPreferences();
+  const { toast } = useToast();
 
   const [notifPrefs, setNotifPrefs] = useState({
     emailEnabled: true,
@@ -31,8 +33,6 @@ const NotificationSettings: React.FC = () => {
     systemNotifications: true,
   });
   const [dirty, setDirty] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (notifData) {
@@ -57,7 +57,6 @@ const NotificationSettings: React.FC = () => {
   };
 
   const handleSave = useCallback(async () => {
-    setSaveError(null);
     try {
       await updateNotifPrefsMutation.mutateAsync({
         emailEnabled: notifPrefs.emailEnabled,
@@ -71,13 +70,12 @@ const NotificationSettings: React.FC = () => {
         systemNotifications: notifPrefs.systemNotifications,
       });
       setDirty(false);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
+      toast({ variant: 'success', title: 'Settings saved' });
     } catch (err) {
       logError('NotificationSettings.handleSave', err);
-      setSaveError(sanitizeErrorMessage(err));
+      toast(createErrorToastOptions(err));
     }
-  }, [notifPrefs, updateNotifPrefsMutation]);
+  }, [notifPrefs, updateNotifPrefsMutation, toast]);
 
   const saving = updateNotifPrefsMutation.isPending;
 
@@ -194,23 +192,12 @@ const NotificationSettings: React.FC = () => {
           </div>
         )}
         <div className="flex items-center gap-3 ml-auto">
-          {saveError && (
-            <p className="text-xs text-red-600 flex items-center gap-1">
-              <AlertCircle className="w-3 h-3" />
-              {saveError}
-            </p>
-          )}
           <button
             onClick={handleSave}
             disabled={saving || !dirty}
             className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {saved ? (
-              <>
-                <Check className="w-4 h-4" />
-                Saved!
-              </>
-            ) : saving ? (
+            {saving ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin" />
                 Saving...

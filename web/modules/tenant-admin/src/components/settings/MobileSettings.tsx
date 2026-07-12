@@ -2,17 +2,17 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Smartphone,
   Save,
-  Check,
   RefreshCw,
   AlertCircle,
   Info,
 } from 'lucide-react';
+import { useToast } from '@aquaculture/shared-ui';
 import {
   useMobileUsersData,
   useUpdateMobileUserSettings,
 } from '../../hooks/useTenantData';
 import type { MobileUserSettingsData } from '../../hooks/useTenantData';
-import { logError } from '../../utils/error-handling';
+import { logError, createErrorToastOptions } from '../../utils/error-handling';
 import { SmallToggle } from './Toggle';
 
 /** Feature columns rendered in the table header. */
@@ -50,13 +50,13 @@ const MobileSettings: React.FC = () => {
     error: mobileQueryError,
   } = useMobileUsersData(true);
   const updateMobileSettingsMutation = useUpdateMobileUserSettings();
+  const { toast } = useToast();
 
   const mobileUsers = mobileData?.users ?? [];
   const [mobileSettings, setMobileSettings] = useState<Map<string, MobileUserSettingsData>>(new Map());
   const mobileError = mobileQueryError ? (mobileQueryError as Error).message : null;
   const mobileSaving = updateMobileSettingsMutation.isPending;
   const [dirtyUserIds, setDirtyUserIds] = useState<Set<string>>(new Set());
-  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     if (mobileData?.settings) {
@@ -117,12 +117,12 @@ const MobileSettings: React.FC = () => {
         }),
       );
       setDirtyUserIds(new Set());
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
+      toast({ variant: 'success', title: 'Settings saved' });
     } catch (err) {
       logError('MobileSettings.saveMobileSettings', err);
+      toast(createErrorToastOptions(err));
     }
-  }, [dirtyUserIds, getUserSettings, updateMobileSettingsMutation]);
+  }, [dirtyUserIds, getUserSettings, updateMobileSettingsMutation, toast]);
 
   const applyToAll = useCallback((field: 'isMobileEnabled' | keyof MobileUserSettingsData['allowedFeatures'], value: boolean) => {
     for (const user of mobileUsers) {
@@ -265,12 +265,7 @@ const MobileSettings: React.FC = () => {
           disabled={mobileSaving || dirtyUserIds.size === 0}
           className="ml-auto inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {saved ? (
-            <>
-              <Check className="w-4 h-4" />
-              Saved!
-            </>
-          ) : mobileSaving ? (
+          {mobileSaving ? (
             <>
               <RefreshCw className="w-4 h-4 animate-spin" />
               Saving...

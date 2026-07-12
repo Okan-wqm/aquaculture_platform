@@ -4,6 +4,8 @@
  * Provides consistent error handling, categorization, and user-friendly messages.
  */
 
+import type { ToastOptions } from '@aquaculture/shared-ui';
+
 // ============================================================================
 // Error Types
 // ============================================================================
@@ -294,6 +296,25 @@ export function createErrorToast(error: AppError, onRetry?: () => void): ToastMe
   }
 
   return toast;
+}
+
+/**
+ * Map any error into the app-wide shared-ui toast options (ADMIN-MEDIUM-005).
+ *
+ * Classifies the error via `processError`, builds the module's `ToastMessage`
+ * via `createErrorToast`, and adapts it to the `useToast()` options shape
+ * (type→variant, message→description, action→action). The shared-ui
+ * `formatErrorForToast` is intentionally NOT used here — its strings are
+ * Turkish, while tenant-admin is an English-only surface.
+ */
+export function createErrorToastOptions(error: unknown, onRetry?: () => void): ToastOptions {
+  const errorToast = createErrorToast(processError(error), onRetry);
+  return {
+    variant: errorToast.type,
+    title: errorToast.title,
+    description: errorToast.message,
+    action: errorToast.action,
+  };
 }
 
 /**

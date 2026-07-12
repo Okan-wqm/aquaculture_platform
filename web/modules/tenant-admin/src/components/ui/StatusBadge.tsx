@@ -1,29 +1,36 @@
 import React, { memo } from 'react';
 import { CheckCircle, XCircle, Clock } from 'lucide-react';
+import { Badge, type BadgeProps } from '@aquaculture/shared-ui';
 
 export interface StatusBadgeProps {
   status: string;
 }
 
-const statusConfig: Record<string, { bg: string; text: string; icon: React.ReactNode }> = {
-  active: { bg: 'bg-green-100', text: 'text-green-700', icon: <CheckCircle className="w-3 h-3" /> },
-  inactive: { bg: 'bg-gray-100', text: 'text-gray-700', icon: <XCircle className="w-3 h-3" /> },
-  pending: { bg: 'bg-yellow-100', text: 'text-yellow-700', icon: <Clock className="w-3 h-3" /> },
+const statusConfig: Record<string, { variant: BadgeProps['variant']; icon: React.ReactNode }> = {
+  active: { variant: 'success', icon: <CheckCircle className="w-3 h-3" /> },
+  inactive: { variant: 'default', icon: <XCircle className="w-3 h-3" /> },
+  pending: { variant: 'warning', icon: <Clock className="w-3 h-3" /> },
 };
 
-const defaultConfig = { bg: 'bg-gray-100', text: 'text-gray-700', icon: <Clock className="w-3 h-3" /> };
+const defaultConfig: { variant: BadgeProps['variant']; icon: React.ReactNode } = {
+  variant: 'default',
+  icon: <Clock className="w-3 h-3" />,
+};
 
 /**
  * Renders a user status with appropriate color and icon.
+ *
+ * Thin domain wrapper over the shared-ui `Badge` (ADMIN-MEDIUM-004): the
+ * status → variant mapping lives here, the markup comes from Badge.
  */
 export const StatusBadge = memo<StatusBadgeProps>(({ status }) => {
   const config = statusConfig[status] ?? defaultConfig;
 
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}>
+    <Badge variant={config.variant} size="sm" className="gap-1">
       {config.icon}
       {status.charAt(0).toUpperCase() + status.slice(1)}
-    </span>
+    </Badge>
   );
 });
 

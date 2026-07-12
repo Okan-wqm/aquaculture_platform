@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Save, Check, RefreshCw, AlertCircle, KeyRound, Sparkles } from 'lucide-react';
+import { Save, RefreshCw, AlertCircle, KeyRound, Sparkles } from 'lucide-react';
+import { useToast } from '@aquaculture/shared-ui';
 import {
   useAiProviderSettings,
   useUpdateAiProviderSettings,
   type LlmProviderId,
   type UpdateAiProviderSettingsInput,
 } from '../../hooks/useAiProviderSettings';
-import { logError, sanitizeErrorMessage } from '../../utils/error-handling';
+import { logError, createErrorToastOptions } from '../../utils/error-handling';
 
 interface AiAssistantSettingsProps {
   /** ai_settings:manage — false makes the whole surface read-only. */
@@ -29,6 +30,7 @@ const PROVIDER_LABEL: Record<LlmProviderId, string> = {
 const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) => {
   const { data: settings, isLoading, isError } = useAiProviderSettings();
   const updateMutation = useUpdateAiProviderSettings();
+  const { toast } = useToast();
 
   const [provider, setProvider] = useState<LlmProviderId>('anthropic');
   const [isEnabled, setIsEnabled] = useState(false);
@@ -38,8 +40,6 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
   // Key fields start empty — a blank field leaves the stored key untouched.
   const [anthropicApiKey, setAnthropicApiKey] = useState('');
   const [openaiApiKey, setOpenaiApiKey] = useState('');
-  const [saved, setSaved] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (settings) {
@@ -57,7 +57,6 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
   );
 
   const handleSave = useCallback(async () => {
-    setSaveError(null);
     // Send only what changed; omit untouched key fields so the stored key stays.
     const input: UpdateAiProviderSettingsInput = {
       provider,
@@ -73,11 +72,10 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
       // Clear the key inputs so a masked hint is never re-submitted.
       setAnthropicApiKey('');
       setOpenaiApiKey('');
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
+      toast({ variant: 'success', title: 'Settings saved' });
     } catch (err) {
       logError('AiAssistantSettings.handleSave', err);
-      setSaveError(sanitizeErrorMessage(err));
+      toast(createErrorToastOptions(err));
     }
   }, [
     provider,
@@ -88,6 +86,7 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
     anthropicApiKey,
     openaiApiKey,
     updateMutation,
+    toast,
   ]);
 
   const saving = updateMutation.isPending;
@@ -242,23 +241,12 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
 
       {canEdit && (
         <div className="flex items-center justify-end gap-3">
-          {saveError && (
-            <p className="text-xs text-red-600 flex items-center gap-1">
-              <AlertCircle className="w-3 h-3" />
-              {saveError}
-            </p>
-          )}
           <button
             onClick={handleSave}
             disabled={saving}
             className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {saved ? (
-              <>
-                <Check className="w-4 h-4" />
-                Saved!
-              </>
-            ) : saving ? (
+            {saving ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin" />
                 Saving…

@@ -26,6 +26,7 @@ import {
   BarChart3,
   Calendar,
 } from 'lucide-react';
+import { Table, type TableColumn } from '@aquaculture/shared-ui';
 import { useTenantBilling, type TenantInvoice } from '../hooks/useTenantBilling';
 
 // ============================================================================
@@ -160,6 +161,97 @@ const StatCard: React.FC<{
 );
 
 // ============================================================================
+// Table Columns (shared-ui Table — ADMIN-MEDIUM-004)
+// ============================================================================
+
+const invoiceColumns: TableColumn<TenantInvoice>[] = [
+  {
+    key: 'invoiceNumber',
+    label: 'Invoice',
+    render: (invoice) => (
+      <div className="flex items-center gap-2">
+        <FileText className="w-4 h-4 text-gray-500" />
+        <div>
+          <p className="text-sm font-medium text-gray-900">{invoice.invoiceNumber}</p>
+          <p className="text-xs text-gray-500">{invoice.description}</p>
+        </div>
+      </div>
+    ),
+  },
+  {
+    key: 'issuedAt',
+    label: 'Date',
+    render: (invoice) => (
+      <span className="text-sm text-gray-600">
+        {new Date(invoice.issuedAt).toLocaleDateString()}
+      </span>
+    ),
+  },
+  {
+    key: 'dueDate',
+    label: 'Due Date',
+    render: (invoice) => (
+      <span className="text-sm text-gray-600">
+        {new Date(invoice.dueDate).toLocaleDateString()}
+      </span>
+    ),
+  },
+  {
+    key: 'amount',
+    label: 'Amount',
+    align: 'right',
+    render: (invoice) => (
+      <span className="text-sm font-medium text-gray-900">
+        {invoice.currency === 'USD' ? '$' : invoice.currency}
+        {invoice.amount.toFixed(2)}
+      </span>
+    ),
+  },
+  {
+    key: 'status',
+    label: 'Status',
+    align: 'right',
+    render: (invoice) => <InvoiceStatusBadge status={invoice.status} />,
+  },
+];
+
+const paymentColumns: TableColumn<TenantInvoice>[] = [
+  {
+    key: 'invoiceNumber',
+    label: 'Invoice',
+    render: (invoice) => (
+      <div className="flex items-center gap-2">
+        <CheckCircle className="w-4 h-4 text-green-500" />
+        <span className="text-sm text-gray-900">{invoice.invoiceNumber}</span>
+      </div>
+    ),
+  },
+  {
+    key: 'paidAt',
+    label: 'Paid Date',
+    render: (invoice) => (
+      <div className="flex items-center gap-2">
+        <Calendar className="w-3.5 h-3.5 text-gray-500" />
+        <span className="text-sm text-gray-600">
+          {invoice.paidAt ? new Date(invoice.paidAt).toLocaleDateString() : '--'}
+        </span>
+      </div>
+    ),
+  },
+  {
+    key: 'amount',
+    label: 'Amount',
+    align: 'right',
+    render: (invoice) => (
+      <span className="text-sm font-medium text-green-600">
+        {invoice.currency === 'USD' ? '$' : invoice.currency}
+        {invoice.amount.toFixed(2)}
+      </span>
+    ),
+  },
+];
+
+// ============================================================================
 // Skeleton Loading
 // ============================================================================
 
@@ -211,6 +303,8 @@ const TenantBillingPage: React.FC = () => {
     error,
     refetch,
   } = useTenantBilling();
+
+  const paidInvoices = invoices.filter((inv) => inv.paidAt);
 
   if (isLoading) {
     return <BillingSkeleton />;
@@ -382,133 +476,30 @@ const TenantBillingPage: React.FC = () => {
         </div>
       )}
 
-      {/* Invoices */}
+      {/* Invoices — shared-ui Table (ADMIN-MEDIUM-004); explicit English
+          emptyMessage because the shared-ui default is Turkish. No pagination:
+          the endpoint returns the full invoice list without a known total. */}
       <div>
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Invoices</h2>
-        <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-          {invoices.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-100">
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Invoice
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Date
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">
-                      Due Date
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Amount
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {invoices.map((invoice: TenantInvoice) => (
-                    <tr key={invoice.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <FileText className="w-4 h-4 text-gray-500" />
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">
-                              {invoice.invoiceNumber}
-                            </p>
-                            <p className="text-xs text-gray-500">{invoice.description}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-sm text-gray-600">
-                          {new Date(invoice.issuedAt).toLocaleDateString()}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 hidden sm:table-cell">
-                        <span className="text-sm text-gray-600">
-                          {new Date(invoice.dueDate).toLocaleDateString()}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <span className="text-sm font-medium text-gray-900">
-                          {invoice.currency === 'USD' ? '$' : invoice.currency}
-                          {invoice.amount.toFixed(2)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <InvoiceStatusBadge status={invoice.status} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="py-12 text-center">
-              <FileText className="w-12 h-12 text-gray-500 mx-auto" />
-              <h3 className="mt-4 text-sm font-medium text-gray-900">No invoices</h3>
-              <p className="mt-1 text-sm text-gray-500">
-                Invoices will appear here once billing is active.
-              </p>
-            </div>
-          )}
-        </div>
+        <Table<TenantInvoice>
+          columns={invoiceColumns}
+          data={invoices}
+          rowKey="id"
+          emptyMessage="No invoices. Invoices will appear here once billing is active."
+        />
       </div>
 
       {/* Payment History Note */}
-      {invoices.filter((inv) => inv.paidAt).length > 0 && (
+      {paidInvoices.length > 0 && (
         <div>
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Payment History</h2>
-          <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-100">
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Invoice
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Paid Date
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Amount
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {invoices
-                    .filter((inv) => inv.paidAt)
-                    .map((invoice) => (
-                      <tr key={`payment-${invoice.id}`} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-3">
-                          <div className="flex items-center gap-2">
-                            <CheckCircle className="w-4 h-4 text-green-500" />
-                            <span className="text-sm text-gray-900">{invoice.invoiceNumber}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-3">
-                          <div className="flex items-center gap-2">
-                            <Calendar className="w-3.5 h-3.5 text-gray-500" />
-                            <span className="text-sm text-gray-600">
-                              {invoice.paidAt ? new Date(invoice.paidAt).toLocaleDateString() : '--'}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-3 text-right">
-                          <span className="text-sm font-medium text-green-600">
-                            {invoice.currency === 'USD' ? '$' : invoice.currency}
-                            {invoice.amount.toFixed(2)}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <Table<TenantInvoice>
+            columns={paymentColumns}
+            data={paidInvoices}
+            rowKey="id"
+            compact
+            emptyMessage="No payments recorded yet."
+          />
         </div>
       )}
 

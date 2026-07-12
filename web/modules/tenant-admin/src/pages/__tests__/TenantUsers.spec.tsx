@@ -38,6 +38,54 @@ vi.mock('@aquaculture/shared-ui', () => ({
     tenantId,
     ...segments,
   ],
+  // Lightweight stand-ins for the shared-ui components tenant-admin now
+  // composes (ADMIN-MEDIUM-004): they preserve the rendered text/roles the
+  // assertions below rely on without pulling in the real design system.
+  Badge: ({ children }: { children?: React.ReactNode }) =>
+    React.createElement('span', null, children),
+  Avatar: ({ name }: { name: string }) =>
+    React.createElement('div', { role: 'img', 'aria-label': name }),
+  ConfirmModal: ({
+    isOpen,
+    open,
+    onClose,
+    onConfirm,
+    title,
+    message,
+    confirmText,
+    cancelText,
+    isLoading,
+    loadingText,
+  }: {
+    isOpen?: boolean;
+    open?: boolean;
+    onClose: () => void;
+    onConfirm: () => void;
+    title: string;
+    message: React.ReactNode;
+    confirmText?: string;
+    cancelText?: string;
+    isLoading?: boolean;
+    loadingText?: string;
+  }) =>
+    (isOpen ?? open)
+      ? React.createElement(
+          'div',
+          { role: 'alertdialog', 'aria-label': title },
+          React.createElement('h3', null, title),
+          React.createElement('div', null, message),
+          React.createElement(
+            'button',
+            { type: 'button', onClick: onClose, disabled: isLoading },
+            cancelText ?? 'Cancel',
+          ),
+          React.createElement(
+            'button',
+            { type: 'button', onClick: onConfirm, disabled: isLoading },
+            isLoading ? loadingText ?? 'Loading...' : confirmText ?? 'Confirm',
+          ),
+        )
+      : null,
 }));
 
 const {

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Save, Check, RefreshCw, AlertCircle } from 'lucide-react';
+import { Save, RefreshCw } from 'lucide-react';
+import { useToast } from '@aquaculture/shared-ui';
 import { useMyTenant, useUpdateTenantSettings } from '../../hooks/useTenantData';
-import { logError, sanitizeErrorMessage } from '../../utils/error-handling';
+import { logError, createErrorToastOptions } from '../../utils/error-handling';
 
 interface GeneralSettingsProps {
   canEdit: boolean;
@@ -13,13 +14,12 @@ interface GeneralSettingsProps {
 const GeneralSettings: React.FC<GeneralSettingsProps> = ({ canEdit }) => {
   const { data: tenantData } = useMyTenant();
   const updateSettingsMutation = useUpdateTenantSettings();
+  const { toast } = useToast();
 
   const [tenantName, setTenantName] = useState('');
   const [contactEmail, setContactEmail] = useState('');
   const [contactPhone, setContactPhone] = useState('');
   const [address, setAddress] = useState('');
-  const [saved, setSaved] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (tenantData) {
@@ -31,7 +31,6 @@ const GeneralSettings: React.FC<GeneralSettingsProps> = ({ canEdit }) => {
   }, [tenantData]);
 
   const handleSave = useCallback(async () => {
-    setSaveError(null);
     try {
       await updateSettingsMutation.mutateAsync({
         id: tenantData?.id ?? '',
@@ -42,13 +41,12 @@ const GeneralSettings: React.FC<GeneralSettingsProps> = ({ canEdit }) => {
           address,
         },
       });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
+      toast({ variant: 'success', title: 'Settings saved' });
     } catch (err) {
       logError('GeneralSettings.handleSave', err);
-      setSaveError(sanitizeErrorMessage(err));
+      toast(createErrorToastOptions(err));
     }
-  }, [tenantName, contactEmail, contactPhone, address, updateSettingsMutation, tenantData]);
+  }, [tenantName, contactEmail, contactPhone, address, updateSettingsMutation, tenantData, toast]);
 
   const saving = updateSettingsMutation.isPending;
   const inputClass =
@@ -99,23 +97,12 @@ const GeneralSettings: React.FC<GeneralSettingsProps> = ({ canEdit }) => {
 
       {canEdit && (
         <div className="flex items-center justify-end gap-3">
-          {saveError && (
-            <p className="text-xs text-red-600 flex items-center gap-1">
-              <AlertCircle className="w-3 h-3" />
-              {saveError}
-            </p>
-          )}
           <button
             onClick={handleSave}
             disabled={saving}
             className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {saved ? (
-              <>
-                <Check className="w-4 h-4" />
-                Saved!
-              </>
-            ) : saving ? (
+            {saving ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin" />
                 Saving...

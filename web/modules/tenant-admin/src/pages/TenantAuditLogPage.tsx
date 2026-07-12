@@ -8,15 +8,12 @@
  * Read-only page -- no mutations.
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
-  Shield,
   Search,
   Download,
   RefreshCw,
   AlertCircle,
-  ChevronLeft,
-  ChevronRight,
   Filter,
   X,
   Info,
@@ -26,6 +23,7 @@ import {
   Calendar,
   Eye,
 } from 'lucide-react';
+import { Table, type TableColumn } from '@aquaculture/shared-ui';
 import { useTenantAuditLog, type AuditLogEntry } from '../hooks/useTenantAuditLog';
 
 // ============================================================================
@@ -185,26 +183,6 @@ const DetailsModal: React.FC<{
 };
 
 // ============================================================================
-// Skeleton Loading
-// ============================================================================
-
-const TableSkeleton: React.FC = () => (
-  <div className="animate-pulse">
-    {Array.from({ length: 8 }).map((_, i) => (
-      <div key={i} className="flex items-center gap-4 px-6 py-4 border-b border-gray-50">
-        <div className="w-36 h-4 bg-gray-200 rounded" />
-        <div className="w-24 h-5 bg-gray-200 rounded-full" />
-        <div className="w-32 h-4 bg-gray-200 rounded" />
-        <div className="w-24 h-4 bg-gray-200 rounded" />
-        <div className="w-16 h-5 bg-gray-200 rounded-full" />
-        <div className="flex-1" />
-        <div className="w-8 h-8 bg-gray-200 rounded" />
-      </div>
-    ))}
-  </div>
-);
-
-// ============================================================================
 // Main Component
 // ============================================================================
 
@@ -212,8 +190,8 @@ const TenantAuditLogPage: React.FC = () => {
   const {
     entries,
     total,
-    totalPages,
     page,
+    pageSize,
     filters,
     isLoading,
     isFetching,
@@ -221,8 +199,6 @@ const TenantAuditLogPage: React.FC = () => {
     updateFilters,
     resetFilters,
     goToPage,
-    nextPage,
-    prevPage,
     refresh,
     exportCsv,
   } = useTenantAuditLog(20);
@@ -252,8 +228,77 @@ const TenantAuditLogPage: React.FC = () => {
       )
     : entries;
 
-  const hasActiveFilters =
-    filters.startDate || filters.endDate || filters.action || filters.severity || filters.performedBy;
+  const hasActiveFilters = Boolean(
+    filters.startDate || filters.endDate || filters.action || filters.severity || filters.performedBy,
+  );
+
+  // Shared-ui Table columns (ADMIN-MEDIUM-004) — cell markup preserved from
+  // the previous hand-rolled table.
+  const columns = useMemo<TableColumn<AuditLogEntry>[]>(
+    () => [
+      {
+        key: 'createdAt',
+        label: 'Timestamp',
+        render: (entry) => (
+          <div className="flex items-center gap-2 whitespace-nowrap">
+            <Calendar className="w-3.5 h-3.5 text-gray-500 hidden sm:block" />
+            <div>
+              <p className="text-sm text-gray-900">
+                {new Date(entry.createdAt).toLocaleDateString()}
+              </p>
+              <p className="text-xs text-gray-500">
+                {new Date(entry.createdAt).toLocaleTimeString()}
+              </p>
+            </div>
+          </div>
+        ),
+      },
+      {
+        key: 'action',
+        label: 'Action',
+        render: (entry) => <ActionBadge action={entry.action} />,
+      },
+      {
+        key: 'performedBy',
+        label: 'User',
+        render: (entry) => (
+          <p className="text-sm text-gray-900 truncate max-w-[200px]">
+            {entry.performedByEmail || entry.performedBy}
+          </p>
+        ),
+      },
+      {
+        key: 'ipAddress',
+        label: 'IP Address',
+        render: (entry) => (
+          <span className="text-sm text-gray-500 font-mono">{entry.ipAddress || '--'}</span>
+        ),
+      },
+      {
+        key: 'severity',
+        label: 'Severity',
+        render: (entry) => <SeverityBadge severity={entry.severity} />,
+      },
+      {
+        key: 'details',
+        label: 'Details',
+        align: 'right',
+        render: (entry) => (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedEntry(entry);
+            }}
+            className="p-1.5 rounded-lg text-gray-500 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
+            title="View details"
+          >
+            <Eye className="w-4 h-4" />
+          </button>
+        ),
+      },
+    ],
+    [],
+  );
 
   return (
     <div className="space-y-6">
@@ -401,169 +446,44 @@ const TenantAuditLogPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        {isLoading ? (
-          <TableSkeleton />
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-100">
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Timestamp
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Action
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      User
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">
-                      IP Address
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Severity
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Details
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {visibleEntries.map((entry) => (
-                    <tr
-                      key={entry.id}
-                      className="hover:bg-gray-50 transition-colors cursor-pointer"
-                      onClick={() => setSelectedEntry(entry)}
-                    >
-                      <td className="px-6 py-3 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <Calendar className="w-3.5 h-3.5 text-gray-500 hidden sm:block" />
-                          <div>
-                            <p className="text-sm text-gray-900">
-                              {new Date(entry.createdAt).toLocaleDateString()}
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              {new Date(entry.createdAt).toLocaleTimeString()}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-3">
-                        <ActionBadge action={entry.action} />
-                      </td>
-                      <td className="px-6 py-3">
-                        <p className="text-sm text-gray-900 truncate max-w-[200px]">
-                          {entry.performedByEmail || entry.performedBy}
-                        </p>
-                      </td>
-                      <td className="px-6 py-3 hidden md:table-cell">
-                        <span className="text-sm text-gray-500 font-mono">
-                          {entry.ipAddress || '--'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-3">
-                        <SeverityBadge severity={entry.severity} />
-                      </td>
-                      <td className="px-6 py-3 text-right">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedEntry(entry);
-                          }}
-                          className="p-1.5 rounded-lg text-gray-500 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
-                          title="View details"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+      {/* Table — shared-ui Table (ADMIN-MEDIUM-004); English labels passed
+          explicitly because the shared-ui defaults are Turkish. Pagination is
+          only attached when the server reported a real total. */}
+      <Table<AuditLogEntry>
+        columns={columns}
+        data={visibleEntries}
+        rowKey="id"
+        isLoading={isLoading}
+        onRowClick={(entry) => setSelectedEntry(entry)}
+        emptyMessage={
+          hasActiveFilters
+            ? 'No audit log entries found. Try adjusting your filters to see more results.'
+            : 'No audit log entries found. Audit log entries will appear here as actions are performed.'
+        }
+        pagination={
+          total > 0
+            ? {
+                current: page,
+                pageSize,
+                total,
+                onChange: (newPage) => goToPage(newPage),
+              }
+            : undefined
+        }
+        paginationLabels={{ previous: 'Previous', next: 'Next', recordUnit: 'entries' }}
+      />
 
-            {/* Empty State */}
-            {visibleEntries.length === 0 && !isLoading && (
-              <div className="py-12 text-center">
-                <Shield className="w-12 h-12 text-gray-500 mx-auto" />
-                <h3 className="mt-4 text-sm font-medium text-gray-900">No audit log entries found</h3>
-                <p className="mt-1 text-sm text-gray-500">
-                  {hasActiveFilters
-                    ? 'Try adjusting your filters to see more results.'
-                    : 'Audit log entries will appear here as actions are performed.'}
-                </p>
-                {hasActiveFilters && (
-                  <button
-                    onClick={resetFilters}
-                    className="mt-4 px-4 py-2 text-sm font-medium text-tenant-600 hover:bg-tenant-50 rounded-lg transition-colors"
-                  >
-                    Clear Filters
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* Pagination */}
-            <div className="px-6 py-4 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <p className="text-sm text-gray-500">
-                Showing {visibleEntries.length} of {total} entries
-                {totalPages > 1 && ` (Page ${page} of ${totalPages})`}
-              </p>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={prevPage}
-                  disabled={page <= 1}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                  Previous
-                </button>
-
-                {/* Page numbers */}
-                <div className="hidden sm:flex items-center gap-1">
-                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                    let pageNum: number;
-                    if (totalPages <= 5) {
-                      pageNum = i + 1;
-                    } else if (page <= 3) {
-                      pageNum = i + 1;
-                    } else if (page >= totalPages - 2) {
-                      pageNum = totalPages - 4 + i;
-                    } else {
-                      pageNum = page - 2 + i;
-                    }
-                    return (
-                      <button
-                        key={pageNum}
-                        onClick={() => goToPage(pageNum)}
-                        className={`w-8 h-8 text-sm rounded-lg transition-colors ${
-                          page === pageNum
-                            ? 'bg-tenant-600 text-white'
-                            : 'text-gray-500 hover:bg-gray-100'
-                        }`}
-                      >
-                        {pageNum}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <button
-                  onClick={nextPage}
-                  disabled={page >= totalPages}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Next
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
+      {/* Clear-filters shortcut when the current filters hide every entry */}
+      {!isLoading && visibleEntries.length === 0 && hasActiveFilters && (
+        <div className="text-center">
+          <button
+            onClick={resetFilters}
+            className="px-4 py-2 text-sm font-medium text-tenant-600 hover:bg-tenant-50 rounded-lg transition-colors"
+          >
+            Clear Filters
+          </button>
+        </div>
+      )}
 
       {/* Details Modal */}
       <DetailsModal entry={selectedEntry} onClose={() => setSelectedEntry(null)} />

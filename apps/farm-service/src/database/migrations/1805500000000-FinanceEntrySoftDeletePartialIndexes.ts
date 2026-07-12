@@ -17,10 +17,10 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * (IF NOT EXISTS / IF EXISTS); a short lock/statement timeout bounds the DDL
  * so a deploy fails fast rather than blocking writes.
  */
-export class FinanceEntrySoftDeletePartialIndexes1804900000000
+export class FinanceEntrySoftDeletePartialIndexes1805500000000
   implements MigrationInterface
 {
-  name = 'FinanceEntrySoftDeletePartialIndexes1804900000000';
+  name = 'FinanceEntrySoftDeletePartialIndexes1805500000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`SET LOCAL lock_timeout = '2s'`);

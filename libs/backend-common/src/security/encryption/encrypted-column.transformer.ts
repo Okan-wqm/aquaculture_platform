@@ -40,19 +40,28 @@ function resolveKey(envVarName: string): Buffer {
   if (cached) return cached;
 
   const rawKey = process.env[envVarName];
-  const isProduction = process.env['NODE_ENV'] === 'production';
+  const nodeEnv = process.env['NODE_ENV'];
+  // SEC-MEDIUM-003: the insecure dev-fallback key must be opt-in via a KNOWN
+  // development environment, not merely "NODE_ENV is not the string 'production'".
+  // The old gate silently used the fallback in staging, in CI with an unset
+  // NODE_ENV, and under any typo'd env value — encrypting real Maskinporten
+  // secrets / PII with a public `dddd…` key. Fail closed everywhere except an
+  // explicit development/test env.
+  const isRecognizedDevEnv = nodeEnv === 'development' || nodeEnv === 'test';
 
   if (!rawKey) {
-    if (isProduction) {
+    if (!isRecognizedDevEnv) {
       throw new Error(
-        `[EncryptedColumn] ${envVarName} environment variable is required in production. ` +
-          'Set a 32-byte (64 hex character) AES-256 key before starting the service.',
+        `[EncryptedColumn] ${envVarName} environment variable is required unless NODE_ENV is ` +
+          `explicitly 'development' or 'test' (got '${nodeEnv ?? 'unset'}'). Set a 32-byte ` +
+          '(64 hex character) AES-256 key before starting the service — the insecure dev-only ' +
+          'fallback key is never used in production, staging, or an unset environment.',
       );
     }
 
-    // SECURITY: Dev fallback only -- never in production
+    // SECURITY: Dev fallback only -- gated on an explicit development/test env.
     logger.warn(
-      `[EncryptedColumn] ${envVarName} is not set. ` +
+      `[EncryptedColumn] ${envVarName} is not set (NODE_ENV='${nodeEnv}'). ` +
         'Using insecure dev-only fallback key. DO NOT use this in production.',
     );
     const key = Buffer.from(DEV_FALLBACK_KEY, 'utf8');

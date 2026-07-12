@@ -43,14 +43,30 @@ import { DropRegulatorySettingsSlaughterApprovalNumber1804100000000 } from './18
 import { DropSiteLocalityMappingsJsonb1804200000000 } from './1804200000000-DropSiteLocalityMappingsJsonb';
 import { DropHarvestQualityGrade1804300000000 } from './1804300000000-DropHarvestQualityGrade';
 import { DropOrphanQualityGradeEnum1804400000000 } from './1804400000000-DropOrphanQualityGradeEnum';
+// From main: heal-behind-tenant quality grade + finance tables (finance was
+// renumbered on main's own merge from 1802500000000 → 1804600000000).
 import { HealBehindTenantQualityGrade1804500000000 } from './1804500000000-HealBehindTenantQualityGrade';
-// Finance tables migration — renumbered from 1802500000000 to 1804600000000
-// on the main merge to resolve a timestamp collision with main's
-// AddSpeciesOfficialCode1802500000000 (migrations are append-only + ordered).
 import { CreateFinanceTables1804600000000 } from './1804600000000-CreateFinanceTables';
-import { AddFinanceEntryDeletedBy1804700000000 } from './1804700000000-AddFinanceEntryDeletedBy';
-import { AddWorkOrderEffectiveCostDateIndex1804800000000 } from './1804800000000-AddWorkOrderEffectiveCostDateIndex';
-import { FinanceEntrySoftDeletePartialIndexes1804900000000 } from './1804900000000-FinanceEntrySoftDeletePartialIndexes';
+import { AddRegulatoryAuditEnumValues1804700000000 } from './1804700000000-AddRegulatoryAuditEnumValues';
+import { AddRegulatoryReportImmutabilityTrigger1804800000000 } from './1804800000000-AddRegulatoryReportImmutabilityTrigger';
+import { AddWelfareLiceCheckConstraints1804900000000 } from './1804900000000-AddWelfareLiceCheckConstraints';
+// Renumbered from 1804500000000/1804600000000 → 1805000000000/1805100000000 on
+// this main merge to resolve a timestamp collision with main's
+// HealBehindTenantQualityGrade1804500000000 + CreateFinanceTables1804600000000
+// (migrations are append-only + ordered).
+import { ApplyRlsToRegulatoryReportDrafts1805000000000 } from './1805000000000-ApplyRlsToRegulatoryReportDrafts';
+import { AddTenantErasureRetainedColumns1805100000000 } from './1805100000000-AddTenantErasureRetainedColumns';
+import { AddFarmStockBatchSnapshotSpecies1805200000000 } from './1805200000000-AddFarmStockBatchSnapshotSpecies';
+// Renumbered from 1804700000000/1804800000000/1804900000000 →
+// 1805300000000/1805400000000/1805500000000 on this main merge to resolve a
+// timestamp collision with main's AddRegulatoryAuditEnumValues1804700000000 +
+// AddRegulatoryReportImmutabilityTrigger1804800000000 +
+// AddWelfareLiceCheckConstraints1804900000000 (migrations are append-only +
+// ordered; this branch's migrations never merged, so no deployed DB ran the
+// old numbers).
+import { AddFinanceEntryDeletedBy1805300000000 } from './1805300000000-AddFinanceEntryDeletedBy';
+import { AddWorkOrderEffectiveCostDateIndex1805400000000 } from './1805400000000-AddWorkOrderEffectiveCostDateIndex';
+import { FinanceEntrySoftDeletePartialIndexes1805500000000 } from './1805500000000-FinanceEntrySoftDeletePartialIndexes';
 
 /**
  * Canonical farm-service migration class list.
@@ -108,8 +124,13 @@ export const FARM_MIGRATIONS = [
   DropOrphanQualityGradeEnum1804400000000,
   HealBehindTenantQualityGrade1804500000000,
   CreateFinanceTables1804600000000,
-  AddFinanceEntryDeletedBy1804700000000,
-  AddWorkOrderEffectiveCostDateIndex1804800000000,
-  FinanceEntrySoftDeletePartialIndexes1804900000000,
-
+  AddRegulatoryAuditEnumValues1804700000000,
+  AddRegulatoryReportImmutabilityTrigger1804800000000,
+  AddWelfareLiceCheckConstraints1804900000000,
+  ApplyRlsToRegulatoryReportDrafts1805000000000,
+  AddTenantErasureRetainedColumns1805100000000,
+  AddFarmStockBatchSnapshotSpecies1805200000000,
+  AddFinanceEntryDeletedBy1805300000000,
+  AddWorkOrderEffectiveCostDateIndex1805400000000,
+  FinanceEntrySoftDeletePartialIndexes1805500000000,
 ] as const;

@@ -38,6 +38,16 @@ export const OFFICIAL_SPECIES_CODES: readonly OfficialSpeciesCode[] = [
   { officialCode: 'BNB', scientificName: 'Ctenolabrus rupestris', norwegianName: 'Bergnebb' },
 ] as const;
 
+/**
+ * FARM-MEDIUM-158 — the SINGLE source of truth for the official artskode shape.
+ * Every Mattilsynet species code in the seed map above is exactly three
+ * uppercase letters (SAL, USB, BER, …); the regulatory assemblers must all
+ * validate against THIS pattern rather than forking their own (escape used
+ * `{3}`, settefisk used `{2,5}` — the loose one would pass a non-official code
+ * straight to the regulator).
+ */
+export const OFFICIAL_ARTSKODE_PATTERN = /^[A-Z]{3}$/;
+
 /** Case-insensitive scientific-name lookup into the seed map. */
 export function resolveOfficialSpeciesCode(scientificName: string): string | undefined {
   const needle = scientificName.trim().toLowerCase();

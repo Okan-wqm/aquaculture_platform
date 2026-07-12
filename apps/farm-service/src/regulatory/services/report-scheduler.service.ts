@@ -33,7 +33,7 @@ import * as crypto from 'crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { Cron } from '@nestjs/schedule';
-import { DataSource } from 'typeorm';
+import { DataSource, QueryRunner } from 'typeorm';
 import { listTenantSchemas, runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { withTenantContext } from '@aquaculture/backend-common/context';
 import { OutboxPublisher } from '@platform/outbox';
@@ -45,6 +45,7 @@ import { RegulatorySettingsService } from '../regulatory-settings.service';
 import { RegulatoryReportStoreService } from './regulatory-report-store.service';
 import { RegulatorySubmissionService } from './regulatory-submission.service';
 import { RegulatoryReportDraftService } from './regulatory-report-draft.service';
+import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
 import {
   AUTO_SUBMIT_ACTOR_ID,
   RegulatoryDraftSubmissionService,
@@ -55,11 +56,6 @@ import {
   RegulatoryReportDraft,
   ReportDraftStatus,
 } from '../entities/regulatory-report-draft.entity';
-
-const TERMINAL_DRAFT_STATUSES: ReadonlySet<ReportDraftStatus> = new Set([
-  ReportDraftStatus.SUBMITTED,
-  ReportDraftStatus.DISMISSED,
-]);
 
 /** 'RPRT' in hex — the advisory-lock namespace for regulatory scheduling. */
 const ADVISORY_LOCK_NAMESPACE = 0x52505254;
@@ -93,6 +89,7 @@ export class ReportSchedulerService {
     private readonly draftService: RegulatoryReportDraftService,
     private readonly draftSubmissionService: RegulatoryDraftSubmissionService,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly metrics: FarmDomainMetricsService,
   ) {}
 
   // ==========================================================================
@@ -156,7 +153,15 @@ export class ReportSchedulerService {
     ];
   }
 
-  /** Monthly jobs: previous calendar month (smolt + cleaner fish + biomass). */
+  /**
+   * Monthly jobs: previous calendar month (smolt + cleaner fish). BIOMASS is NOT
+   * a Mattilsynet REST report — it is the Fiskeridirektoratet FD-0001 / Altinn
+   * manual channel with its own `biomass_reports` table and READY → Altinn-confirm
+   * state machine. It must not flow through this REST draft pipeline: a BIOMASS
+   * draft here surfaced in "Scheduled reports due" with a Mattilsynet "Approve &
+   * Submit" that always errors, and duplicated the biomass_reports lifecycle
+   * (FARM-HIGH-004 — no duplicate structures).
+   */
   static monthlyJobs(now: Date): RolloverJob[] {
     let year = now.getUTCFullYear();
     let month = now.getUTCMonth(); // 0-based current → previous month is this value (1-based)
@@ -167,7 +172,6 @@ export class ReportSchedulerService {
     return [
       { reportType: ReportPrefillType.SMOLT, year, month },
       { reportType: ReportPrefillType.CLEANER_FISH, year, month },
-      { reportType: ReportPrefillType.BIOMASS, year, month },
     ];
   }
 
@@ -268,10 +272,13 @@ export class ReportSchedulerService {
    * violation). Returns the number of reminders raised this run.
    */
   async notifyDeadlinesForTenant(tenantId: string, now: Date): Promise<number> {
-    const drafts = await this.draftService.listDrafts(tenantId);
+    // Only non-terminal drafts that carry a dueAt can breach a deadline; the
+    // predicate is applied in SQL (PERF-HIGH-003) so the daily sweep never loads
+    // the tenant's full terminal-draft history.
+    const drafts = await this.draftService.listDeadlineCandidates(tenantId);
     let notified = 0;
     for (const draft of drafts) {
-      if (TERMINAL_DRAFT_STATUSES.has(draft.status) || !draft.dueAt) continue;
+      if (!draft.dueAt) continue;
       const bucket = deadlineBucket(draft.dueAt, now);
       if (!bucket || bucket === draft.deadlineNotifiedBucket) continue;
 
@@ -394,35 +401,65 @@ export class ReportSchedulerService {
     jobName: string,
     perTenant: (tenantId: string) => Promise<number>,
   ): Promise<void> {
-    if (!(await this.tryAcquireAdvisoryLock(jobName))) {
-      this.logger.log(`${jobName}: another instance holds the lock, skipping`);
-      return;
-    }
-    const startedAt = Date.now();
-    let tenants = 0;
-    let total = 0;
+    // pg_try_advisory_lock is SESSION-scoped: it stays held on the exact backend
+    // connection that acquired it, and pg_advisory_unlock only releases it when
+    // run on that SAME connection. DataSource.query() borrows an arbitrary pooled
+    // connection per call, so acquiring and releasing through the pool would leak
+    // the lock onto one connection forever (unlock lands on a different one, no-ops)
+    // and every later run of every cron would then self-skip. Hold ONE dedicated
+    // QueryRunner for the lock's whole lifetime so acquire + release are provably
+    // the same session.
+    const lockRunner = this.dataSource.createQueryRunner();
+    await lockRunner.connect();
     try {
-      const tenantIds = await this.discoverTenantIds();
-      for (const tenantId of tenantIds) {
-        try {
-          // Establish the tenant AsyncLocalStorage frame so every scoped-repo
-          // read inside perTenant (settings, drafts) resolves search_path to
-          // tenant_<uuid>; without it the connection bootstrap falls back to the
-          // source `farm` schema and the job silently reads an empty template.
-          total += await withTenantContext(tenantId, () => perTenant(tenantId));
-          tenants += 1;
-        } catch (error) {
-          this.logger.error(
-            `${jobName} failed for tenant ${tenantId.slice(0, 8)}…: ${(error as Error).message}`,
-            (error as Error).stack,
-          );
-        }
+      if (!(await this.tryAcquireAdvisoryLock(lockRunner, jobName))) {
+        this.logger.log(`${jobName}: another instance holds the lock, skipping`);
+        // OBS-HIGH-002: a lock-skip is a legitimate run (another replica owns
+        // the job) — still a heartbeat, so the "cron stalled" alert never fires
+        // on the passive replicas.
+        this.metrics.recordRegulatoryCronRun({ job: jobName, outcome: 'skipped_locked' });
+        return;
       }
-      this.logger.log(
-        `${jobName}: processed ${tenants} tenant(s), ${total} unit(s) in ${Date.now() - startedAt}ms`,
-      );
+      const startedAt = Date.now();
+      let tenants = 0;
+      let total = 0;
+      try {
+        const tenantIds = await this.discoverTenantIds();
+        for (const tenantId of tenantIds) {
+          try {
+            // Establish the tenant AsyncLocalStorage frame so every scoped-repo
+            // read inside perTenant (settings, drafts) resolves search_path to
+            // tenant_<uuid>; without it the connection bootstrap falls back to the
+            // source `farm` schema and the job silently reads an empty template.
+            total += await withTenantContext(tenantId, () => perTenant(tenantId));
+            tenants += 1;
+          } catch (error) {
+            this.logger.error(
+              `${jobName} failed for tenant ${tenantId.slice(0, 8)}…: ${(error as Error).message}`,
+              (error as Error).stack,
+            );
+          }
+        }
+        this.logger.log(
+          `${jobName}: processed ${tenants} tenant(s), ${total} unit(s) in ${Date.now() - startedAt}ms`,
+        );
+        // OBS-HIGH-002: the job completed and stamped its heartbeat. Per-tenant
+        // failures are absorbed above (one tenant must not fail the whole run);
+        // an outcome=error below means the run itself broke (e.g. tenant
+        // discovery), which the operator alert distinguishes from a quiet run.
+        this.metrics.recordRegulatoryCronRun({ job: jobName, outcome: 'success' });
+      } catch (error) {
+        this.metrics.recordRegulatoryCronRun({ job: jobName, outcome: 'error' });
+        this.logger.error(
+          `${jobName}: run aborted — ${(error as Error).message}`,
+          (error as Error).stack,
+        );
+        throw error;
+      } finally {
+        await this.releaseAdvisoryLock(lockRunner, jobName);
+      }
     } finally {
-      await this.releaseAdvisoryLock(jobName);
+      await lockRunner.release();
     }
   }
 
@@ -439,8 +476,18 @@ export class ReportSchedulerService {
       await runner.connect();
       try {
         await runner.query(`SET search_path TO "${schema}", farm, public`);
+        // A schema is exactly one tenant, so any row's tenantId identifies it.
+        // Anchor discovery on regulatory_settings (the SSoT for "this tenant
+        // does regulatory reporting", populated at setup) UNION sites, so a
+        // tenant that has configured reporting but has no sites row yet — or
+        // vice-versa after a site was removed — is still discovered. Keying only
+        // on `sites` silently skipped such tenants (their deadlines/retries never
+        // ran).
         const rows: Array<{ tenantId: string }> = await runner.query(
-          `SELECT DISTINCT "tenantId" FROM sites LIMIT 1`,
+          `SELECT "tenantId" FROM regulatory_settings WHERE "tenantId" IS NOT NULL
+             UNION
+           SELECT "tenantId" FROM sites WHERE "tenantId" IS NOT NULL
+           LIMIT 1`,
         );
         for (const row of rows) {
           if (row.tenantId) tenantIds.add(row.tenantId);
@@ -461,16 +508,16 @@ export class ReportSchedulerService {
     return crypto.createHash('sha256').update(jobName).digest().readInt32LE(0);
   }
 
-  private async tryAcquireAdvisoryLock(jobName: string): Promise<boolean> {
-    const result = await this.dataSource.query(`SELECT pg_try_advisory_lock($1, $2) AS acquired`, [
+  private async tryAcquireAdvisoryLock(runner: QueryRunner, jobName: string): Promise<boolean> {
+    const result = await runner.query(`SELECT pg_try_advisory_lock($1, $2) AS acquired`, [
       ADVISORY_LOCK_NAMESPACE,
       this.getAdvisoryLockKey(jobName),
     ]);
     return result[0]?.acquired === true;
   }
 
-  private async releaseAdvisoryLock(jobName: string): Promise<void> {
-    await this.dataSource.query(`SELECT pg_advisory_unlock($1, $2)`, [
+  private async releaseAdvisoryLock(runner: QueryRunner, jobName: string): Promise<void> {
+    await runner.query(`SELECT pg_advisory_unlock($1, $2)`, [
       ADVISORY_LOCK_NAMESPACE,
       this.getAdvisoryLockKey(jobName),
     ]);

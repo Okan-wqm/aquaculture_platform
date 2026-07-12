@@ -169,7 +169,11 @@ export class FarmStockProjectionService {
             CASE WHEN NULLIF(trim(detail ->> 'avgWeightG'), '') ~ '${SAFE_NUMERIC}'
               THEN NULLIF(trim(detail ->> 'avgWeightG'), '')::numeric ELSE 0 END AS "avgWeightG",
             tb."densityKgM3",
-            false AS "isPrimary",
+            -- FARM-LOW-216: a mixed-batch container's detail rows previously all
+            -- carried isPrimary=false, leaving consumers no deterministic primary.
+            -- The tank-composition ledger's primaryBatchId IS the primary marker,
+            -- so project it truthfully per detail row.
+            COALESCE((detail ->> 'batchId')::uuid = tb."primaryBatchId", false) AS "isPrimary",
             tb."lastMortalityAt"
           FROM tank_batches tb
           CROSS JOIN LATERAL jsonb_array_elements(
@@ -212,6 +216,7 @@ export class FarmStockProjectionService {
         )
         INSERT INTO farm_stock_batch_snapshots (
           "tenantId", "containerId", "batchId", "batchNumber", "batchStatus",
+          "speciesId", "speciesName",
           "quantity", "biomassKg", "avgWeightG", "densityKgM3",
           "totalMortality", "totalCull", "harvestedQuantity",
           "isPrimary", "lastMortalityAt", "createdAt", "updatedAt"
@@ -222,6 +227,8 @@ export class FarmStockProjectionService {
           p."batchId",
           COALESCE(p."batchNumber", b."batchNumber"),
           b."status"::text,
+          b."speciesId",
+          sp."commonName",
           p."quantity",
           p."biomassKg",
           p."avgWeightG",
@@ -235,6 +242,7 @@ export class FarmStockProjectionService {
           now()
         FROM projected p
         LEFT JOIN batches_v2 b ON b."tenantId" = p."tenantId" AND b."id" = p."batchId"
+        LEFT JOIN species sp ON sp."tenantId" = b."tenantId" AND sp."id" = b."speciesId"
       `,
       [tenantId, containerIds],
     );

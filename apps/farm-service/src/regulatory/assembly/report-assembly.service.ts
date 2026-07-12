@@ -13,10 +13,13 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 
 import { BiomassReportAssembler } from './biomass.assembler';
+import { DiseaseReportAssembler } from './assemblers/disease.assembler';
+import { EscapeReportAssembler } from './assemblers/escape.assembler';
 import { LakselusReportAssembler } from './assemblers/lakselus.assembler';
 import { RensefiskReportAssembler } from './assemblers/rensefisk.assembler';
 import { SettefiskReportAssembler } from './assemblers/settefisk.assembler';
 import { SlaktReportAssembler } from './assemblers/slakt.assembler';
+import { WelfareReportAssembler } from './assemblers/welfare.assembler';
 import { AssembledDraft, ReportFieldMeta } from './provenance.types';
 
 /**
@@ -74,6 +77,9 @@ export class ReportAssemblyService {
     private readonly settefiskAssembler: SettefiskReportAssembler,
     private readonly rensefiskAssembler: RensefiskReportAssembler,
     private readonly slaktAssembler: SlaktReportAssembler,
+    private readonly escapeAssembler: EscapeReportAssembler,
+    private readonly welfareAssembler: WelfareReportAssembler,
+    private readonly diseaseAssembler: DiseaseReportAssembler,
   ) {}
 
   async assemble(
@@ -145,6 +151,18 @@ export class ReportAssemblyService {
           period.year,
           this.requireWeek(reportType, period),
         );
+      case ReportPrefillType.ESCAPE:
+        // Incident-triggered, not period-based: assembles the latest open,
+        // unreported escape_incident for the site (period is nominal).
+        return this.escapeAssembler.assemble(tenantId, siteId);
+      case ReportPrefillType.WELFARE_EVENT:
+        // Event-triggered: assembles the site's latest welfare_assessment
+        // (period is nominal).
+        return this.welfareAssembler.assemble(tenantId, siteId);
+      case ReportPrefillType.DISEASE_OUTBREAK:
+        // Event-triggered: assembles the site's latest disease_outbreak health
+        // event (interim source — FARM-MEDIUM-152; period is nominal).
+        return this.diseaseAssembler.assemble(tenantId, siteId);
       default:
         throw new BadRequestException(
           `Server-side assembly for ${reportType} has not landed yet — tracked in ` +

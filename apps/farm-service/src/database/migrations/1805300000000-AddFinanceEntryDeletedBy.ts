@@ -11,8 +11,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * Blue-green safe: nullable column add (no table rewrite), idempotent, and
  * replay is a no-op. A short lock/statement timeout bounds the DDL.
  */
-export class AddFinanceEntryDeletedBy1804700000000 implements MigrationInterface {
-  name = 'AddFinanceEntryDeletedBy1804700000000';
+export class AddFinanceEntryDeletedBy1805300000000 implements MigrationInterface {
+  name = 'AddFinanceEntryDeletedBy1805300000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`SET LOCAL lock_timeout = '2s'`);

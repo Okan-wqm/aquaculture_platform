@@ -63,7 +63,11 @@ describe('client-side aggregation stays deleted (dedup verdict RPT-012)', () => 
         'utf8',
       );
       expect(source).toContain('useReportPrefill');
-      expect(source).toContain('ProvenanceBadge');
+      // The tab must render provenance-aware prefill UI. Phase 4 migrates a tab
+      // from a bare ProvenanceBadge to PrefilledField (which renders the badge
+      // AND enforces the editable⟺MANUAL_REQUIRED rule) — either satisfies the
+      // "prefill stays wired" invariant.
+      expect(source).toMatch(/ProvenanceBadge|PrefilledField/);
     },
   );
 });

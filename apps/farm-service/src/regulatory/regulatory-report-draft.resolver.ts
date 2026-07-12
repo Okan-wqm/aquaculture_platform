@@ -109,7 +109,12 @@ export class RegulatoryReportDraftResolver {
     @Args('input') input: SaveReportDraftOverridesInput,
     @Context() ctx: GraphQLContext,
   ): Promise<RegulatoryReportDraft> {
-    return this.draftService.saveOverrides(this.getTenantId(ctx), input.draftId, input.overrides);
+    return this.draftService.saveOverrides(
+      this.getTenantId(ctx),
+      input.draftId,
+      input.overrides,
+      this.getUserId(ctx),
+    );
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
@@ -120,7 +125,7 @@ export class RegulatoryReportDraftResolver {
     @Args('draftId', { type: () => ID }) draftId: string,
     @Context() ctx: GraphQLContext,
   ): Promise<RegulatoryReportDraft> {
-    return this.draftService.dismissDraft(this.getTenantId(ctx), draftId);
+    return this.draftService.dismissDraft(this.getTenantId(ctx), draftId, this.getUserId(ctx));
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)

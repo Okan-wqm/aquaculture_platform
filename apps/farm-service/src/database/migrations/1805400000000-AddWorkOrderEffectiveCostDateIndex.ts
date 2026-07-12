@@ -16,10 +16,10 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * A short lock/statement timeout bounds the DDL so a deploy fails fast rather
  * than blocking writes if the exclusive lock can't be acquired quickly.
  */
-export class AddWorkOrderEffectiveCostDateIndex1804800000000
+export class AddWorkOrderEffectiveCostDateIndex1805400000000
   implements MigrationInterface
 {
-  name = 'AddWorkOrderEffectiveCostDateIndex1804800000000';
+  name = 'AddWorkOrderEffectiveCostDateIndex1805400000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`SET LOCAL lock_timeout = '2s'`);

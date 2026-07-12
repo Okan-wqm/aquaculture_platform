@@ -95,7 +95,7 @@ debt. Wave 1:
 ### AUDIT-HIGH-016 — soft-delete had no `deletedBy` attribution
 `finance_expense_entries` + `hr_finance_entries` recorded `isDeleted`/`deletedAt`
 but not the acting user. Added a nullable `deletedBy` uuid column (blue-green
-migrations `1804700000000` / `1801900000000`) and set it in the delete handlers.
+migrations `1805300000000` / `1801900000000`) and set it in the delete handlers.
 
 ### FARM-MEDIUM-163 — manual entry `batchId`/`siteId` not tenant-validated
 `validateEntryDimensions` now rejects a finance entry whose `batchId`/`siteId`
@@ -134,7 +134,7 @@ above; `DATA-MEDIUM-009` stays OPEN, re-parented to the platform effort.
 
 ### PERF-MEDIUM-005 — MAINTENANCE derived date had no index
 Added expression index `idx_work_orders_tenant_effective_cost_date` on
-`(tenantId, COALESCE(completedAt, createdAt))` (migration `1804800000000`) so the
+`(tenantId, COALESCE(completedAt, createdAt))` (migration `1805400000000`) so the
 work_orders range scan is index-driven. The feeding/harvest/health sources already
 carry their `(tenantId, dateColumn)` indexes.
 
@@ -370,7 +370,7 @@ snake_case would have made them the ONLY snake_case tables in the farm schema
 - **Soft-delete partial indexes (implemented).** Every ledger/summary read on
   `finance_expense_entries` / `hr_finance_entries` filters
   `"isDeleted" = false`, but the hot composite indexes were full-table.
-  Migrations `1804900000000` (farm) + `1802100000000` (hr) rebuild them as
+  Migrations `1805500000000` (farm) + `1802100000000` (hr) rebuild them as
   PARTIAL on that predicate (create-new-before-drop-old, idempotent,
   timeout-bounded); the entity `@Index` decorators mirror the new shape.
 - Soft-delete/version/audit completeness needed no change — the entry tables

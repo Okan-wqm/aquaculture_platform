@@ -10,7 +10,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * as PARTIAL (`WHERE "isDeleted" = false`) keeps them exactly the shape the
  * read path probes; soft-deleted rows remain reachable by primary key for
  * restore/audit. Mirrors the farm-side
- * FinanceEntrySoftDeletePartialIndexes1804900000000.
+ * FinanceEntrySoftDeletePartialIndexes1805500000000.
  *
  * New partial indexes are created BEFORE the full originals are dropped, so
  * no statement ever runs without index coverage. Idempotent + replay-safe;

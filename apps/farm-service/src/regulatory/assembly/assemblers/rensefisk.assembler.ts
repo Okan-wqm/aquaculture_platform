@@ -17,7 +17,7 @@ import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { QueryBus } from '@platform/cqrs';
-import { DataSource } from 'typeorm';
+import { DataSource, QueryRunner } from 'typeorm';
 
 import {
   ProduksjonsenhetRensefiskPayload,
@@ -85,13 +85,18 @@ export class RensefiskReportAssembler {
   ): Promise<AssembledDraft<RensefiskPrefillPayload>> {
     const { fromDate, toDate } = monthRange(reportYear, reportMonth);
 
-    const [composition, ledger, feed] = await Promise.all([
-      this.queryComposition(tenantId, siteId),
-      this.queryLedger(tenantId, siteId, fromDate, toDate),
+    // PERF-HIGH-005: both direct DB reads share ONE tenant-read boundary; the
+    // feed CQRS query owns its own boundary and runs in parallel.
+    const [dbReads, feed] = await Promise.all([
+      runInTenantRead(this.dataSource, 'farm', tenantId, async (qr) => ({
+        composition: await this.queryComposition(qr, tenantId, siteId),
+        ledger: await this.queryLedger(qr, tenantId, siteId, fromDate, toDate),
+      })),
       this.queryBus.execute<GetSiteFeedConsumptionQuery, SiteFeedConsumptionResult>(
         new GetSiteFeedConsumptionQuery(tenantId, siteId, fromDate, toDate),
       ),
     ]);
+    const { composition, ledger } = dbReads;
 
     // Ledger deltas keyed by tank+species.
     const deltas = new Map<string, Record<string, number>>();
@@ -199,36 +204,38 @@ export class RensefiskReportAssembler {
     };
   }
 
-  private async queryComposition(tenantId: string, siteId: string): Promise<CompositionRow[]> {
-    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      return queryRunner.query(
-        `SELECT t.id AS "tankId",
-                t.code AS "merdId",
-                cfd->>'speciesId' AS "speciesId",
-                COALESCE(s."officialCode", s.code) AS artskode,
-                cfd->>'sourceType' AS "sourceType",
-                COALESCE(cfd->>'quantity', '0') AS quantity
-           FROM tanks t
-           JOIN departments d ON d.id = t."departmentId" AND d."siteId" = $2
-           JOIN tank_batches tb ON tb."tankId" = t.id AND tb."tenantId" = $1,
-           jsonb_array_elements(COALESCE(tb."cleanerFishDetails", '[]'::jsonb)) AS cfd
-           LEFT JOIN species s ON s.id = (cfd->>'speciesId')::uuid
-          WHERE t."tenantId" = $1
-          ORDER BY t.code`,
-        [tenantId, siteId],
-      );
-    });
+  private async queryComposition(
+    qr: QueryRunner,
+    tenantId: string,
+    siteId: string,
+  ): Promise<CompositionRow[]> {
+    return qr.query(
+      `SELECT t.id AS "tankId",
+              t.code AS "merdId",
+              cfd->>'speciesId' AS "speciesId",
+              COALESCE(s."officialCode", s.code) AS artskode,
+              cfd->>'sourceType' AS "sourceType",
+              COALESCE(cfd->>'quantity', '0') AS quantity
+         FROM tanks t
+         JOIN departments d ON d.id = t."departmentId" AND d."siteId" = $2
+         JOIN tank_batches tb ON tb."tankId" = t.id AND tb."tenantId" = $1,
+         jsonb_array_elements(COALESCE(tb."cleanerFishDetails", '[]'::jsonb)) AS cfd
+         LEFT JOIN species s ON s.id = (cfd->>'speciesId')::uuid
+        WHERE t."tenantId" = $1
+        ORDER BY t.code`,
+      [tenantId, siteId],
+    );
   }
 
   private async queryLedger(
+    qr: QueryRunner,
     tenantId: string,
     siteId: string,
     fromDate: string,
     toDate: string,
   ): Promise<LedgerRow[]> {
-    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      return queryRunner.query(
-        `SELECT o."tankId" AS "tankId",
+    return qr.query(
+      `SELECT o."tankId" AS "tankId",
                 b."speciesId" AS "speciesId",
                 o."operationType" AS "operationType",
                 SUM(o.quantity)::bigint AS total
@@ -243,8 +250,7 @@ export class RensefiskReportAssembler {
             )
             AND o."operationDate"::date BETWEEN $3 AND $4
           GROUP BY o."tankId", b."speciesId", o."operationType"`,
-        [tenantId, siteId, fromDate, toDate],
-      );
-    });
+      [tenantId, siteId, fromDate, toDate],
+    );
   }
 }

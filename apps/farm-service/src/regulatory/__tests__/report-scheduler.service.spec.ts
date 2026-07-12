@@ -5,18 +5,21 @@
  * orchestration (advisory lock + tenant discovery) is integration surface; here
  * we drive the pure + per-tenant core.
  */
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource, EntityManager, QueryRunner } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 
 const runInTenantTransaction = jest.fn();
+const listTenantSchemas = jest.fn().mockResolvedValue([]);
 
 jest.mock('@aquaculture/backend-common/database', () => ({
   ...jest.requireActual('@aquaculture/backend-common/database'),
   runInTenantTransaction: (ds: unknown, schema: string, tenantId: string, cb: unknown) =>
     runInTenantTransaction(ds, schema, tenantId, cb),
+  listTenantSchemas: (ds: unknown) => listTenantSchemas(ds),
 }));
 
 import { ReportSchedulerService } from '../services/report-scheduler.service';
+import type { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
 import { ReportAssemblyService, ReportPrefillType } from '../assembly/report-assembly.service';
 import { RegulatorySettingsService } from '../regulatory-settings.service';
 import { RegulatoryReportStoreService } from '../services/regulatory-report-store.service';
@@ -41,6 +44,7 @@ function makeService(options: {
   autoSubmitPolicies?: Record<string, boolean>;
   drafts?: RegulatoryReportDraft[];
   approveAndSubmit?: jest.Mock;
+  dataSource?: DataSource;
 }): {
   service: ReportSchedulerService;
   assemble: jest.Mock;
@@ -51,6 +55,7 @@ function makeService(options: {
   resubmit: jest.Mock;
   listDrafts: jest.Mock;
   approveAndSubmit: jest.Mock;
+  recordRegulatoryCronRun: jest.Mock;
 } {
   const assemble = jest.fn().mockResolvedValue({
     draftPayload: { ok: true },
@@ -94,8 +99,12 @@ function makeService(options: {
   } as Partial<RegulatorySubmissionService> as RegulatorySubmissionService;
 
   const listDrafts = jest.fn().mockResolvedValue(options.drafts ?? []);
+  // The deadline sweep reads the SQL-filtered candidate set (non-terminal + dueAt);
+  // in the unit harness it returns the same fixture drafts.
+  const listDeadlineCandidates = jest.fn().mockResolvedValue(options.drafts ?? []);
   const draftService = {
     listDrafts,
+    listDeadlineCandidates,
   } as Partial<RegulatoryReportDraftService> as RegulatoryReportDraftService;
   const approveAndSubmit =
     options.approveAndSubmit ?? jest.fn().mockResolvedValue({ success: true });
@@ -103,8 +112,13 @@ function makeService(options: {
     approveAndSubmit,
   } as Partial<RegulatoryDraftSubmissionService> as RegulatoryDraftSubmissionService;
 
+  const recordRegulatoryCronRun = jest.fn();
+  const metrics = {
+    recordRegulatoryCronRun,
+  } as Partial<FarmDomainMetricsService> as FarmDomainMetricsService;
+
   const service = new ReportSchedulerService(
-    {} as Partial<DataSource> as DataSource,
+    options.dataSource ?? ({} as Partial<DataSource> as DataSource),
     assemblyService,
     settingsService,
     reportStore,
@@ -112,6 +126,7 @@ function makeService(options: {
     draftService,
     draftSubmissionService,
     outboxPublisher,
+    metrics,
   );
   return {
     service,
@@ -123,6 +138,7 @@ function makeService(options: {
     resubmit,
     listDrafts,
     approveAndSubmit,
+    recordRegulatoryCronRun,
   };
 }
 
@@ -137,17 +153,21 @@ describe('ReportSchedulerService period math', () => {
     ]);
   });
 
-  it('monthly jobs cover the previous calendar month, rolling the year at January', () => {
+  it('monthly jobs cover the previous calendar month (no BIOMASS — it is the Altinn channel)', () => {
     expect(ReportSchedulerService.monthlyJobs(new Date('2026-07-01T03:00:00Z'))).toEqual([
       { reportType: ReportPrefillType.SMOLT, year: 2026, month: 6 },
       { reportType: ReportPrefillType.CLEANER_FISH, year: 2026, month: 6 },
-      { reportType: ReportPrefillType.BIOMASS, year: 2026, month: 6 },
     ]);
     expect(ReportSchedulerService.monthlyJobs(new Date('2026-01-01T03:00:00Z'))).toEqual([
       { reportType: ReportPrefillType.SMOLT, year: 2025, month: 12 },
       { reportType: ReportPrefillType.CLEANER_FISH, year: 2025, month: 12 },
-      { reportType: ReportPrefillType.BIOMASS, year: 2025, month: 12 },
     ]);
+    // BIOMASS is filed via the FD-0001/Altinn manual channel (biomass_reports),
+    // never the Mattilsynet REST draft pipeline.
+    const types = ReportSchedulerService.monthlyJobs(new Date('2026-07-01T03:00:00Z')).map(
+      (j) => j.reportType,
+    );
+    expect(types).not.toContain(ReportPrefillType.BIOMASS);
   });
 });
 
@@ -258,14 +278,11 @@ describe('ReportSchedulerService.notifyDeadlinesForTenant', () => {
     expect(enqueue).not.toHaveBeenCalled();
   });
 
-  it('skips terminal and undated drafts, and drafts more than 3 days out', async () => {
+  it('does not notify a candidate draft more than 3 days out (no bucket yet)', async () => {
+    // Terminal + undated drafts are excluded by listDeadlineCandidates (SQL), so
+    // the sweep only sees dated non-terminal drafts; a >3-days-out one has no bucket.
     const { service, enqueue } = makeService({
-      drafts: [
-        draft({ id: 'd-submitted', dueAt: '2026-07-07', status: ReportDraftStatus.SUBMITTED }),
-        draft({ id: 'd-dismissed', dueAt: '2026-07-07', status: ReportDraftStatus.DISMISSED }),
-        draft({ id: 'd-undated', dueAt: undefined }),
-        draft({ id: 'd-far', dueAt: '2026-07-20' }), // >3 days → no bucket
-      ],
+      drafts: [draft({ id: 'd-far', dueAt: '2026-07-20' })],
     });
 
     const notified = await service.notifyDeadlinesForTenant(TENANT, NOW);
@@ -338,6 +355,111 @@ describe('ReportSchedulerService.retrySweepForTenant', () => {
 
     expect(resubmit).not.toHaveBeenCalled();
     expect(submitted).toBe(0);
+  });
+});
+
+describe('ReportSchedulerService advisory-lock discipline', () => {
+  /**
+   * Regression guard for the session-lock-on-pooled-connection class: the lock
+   * MUST be acquired and released on the SAME connection, or a session-scoped
+   * pg_try_advisory_lock leaks onto a pool connection and every later cron run
+   * self-skips. Invisible in a single-connection dev pool, so it needs an
+   * explicit assertion.
+   */
+  beforeEach(() => {
+    listTenantSchemas.mockReset();
+    listTenantSchemas.mockResolvedValue([]);
+  });
+
+  function makeLockService(acquired = true): {
+    service: ReportSchedulerService;
+    lockRunner: { query: jest.Mock; connect: jest.Mock; release: jest.Mock };
+    createQueryRunner: jest.Mock;
+    recordRegulatoryCronRun: jest.Mock;
+  } {
+    const lockRunner: { connect: jest.Mock; release: jest.Mock; query: jest.Mock } = {
+      connect: jest.fn().mockResolvedValue(undefined),
+      release: jest.fn().mockResolvedValue(undefined),
+      query: jest.fn((sql: string) => {
+        if (sql.includes('pg_try_advisory_lock')) return Promise.resolve([{ acquired }]);
+        return Promise.resolve([]);
+      }),
+    };
+    const createQueryRunner = jest.fn(() => lockRunner as Partial<QueryRunner> as QueryRunner);
+    const dataSource = { createQueryRunner } as Partial<DataSource> as DataSource;
+    const { service, recordRegulatoryCronRun } = makeService({ dataSource });
+    return { service, lockRunner, createQueryRunner, recordRegulatoryCronRun };
+  }
+
+  it('acquires and releases the advisory lock on the same dedicated connection', async () => {
+    listTenantSchemas.mockResolvedValueOnce([]); // no tenants → body is a no-op
+    const { service, lockRunner, createQueryRunner, recordRegulatoryCronRun } = makeLockService();
+
+    await service.deadlineSweep(new Date('2026-07-06T05:00:00Z'));
+
+    // exactly one dedicated runner, connected then released
+    expect(createQueryRunner).toHaveBeenCalledTimes(1);
+    expect(lockRunner.connect).toHaveBeenCalledTimes(1);
+    expect(lockRunner.release).toHaveBeenCalledTimes(1);
+    // both the acquire and the release ran on THAT runner
+    const sqls = lockRunner.query.mock.calls.map((c) => c[0] as string);
+    expect(sqls.some((s) => s.includes('pg_try_advisory_lock'))).toBe(true);
+    expect(sqls.some((s) => s.includes('pg_advisory_unlock'))).toBe(true);
+    // OBS-HIGH-002: a completed run stamps its cron heartbeat as success.
+    expect(recordRegulatoryCronRun).toHaveBeenCalledWith({
+      job: 'regulatory-deadline-sweep',
+      outcome: 'success',
+    });
+  });
+
+  it('releases the lock (and the connection) even when the job body throws', async () => {
+    listTenantSchemas.mockRejectedValueOnce(new Error('discovery boom'));
+    const { service, lockRunner, recordRegulatoryCronRun } = makeLockService();
+
+    // the error still propagates (the cron logs it) — but the lock+connection
+    // are released in finally regardless.
+    await expect(service.retrySweep(new Date('2026-07-06T05:00:00Z'))).rejects.toThrow(
+      'discovery boom',
+    );
+
+    const sqls = lockRunner.query.mock.calls.map((c) => c[0] as string);
+    expect(sqls.some((s) => s.includes('pg_advisory_unlock'))).toBe(true);
+    expect(lockRunner.release).toHaveBeenCalledTimes(1);
+    // OBS-HIGH-002: an aborted run records outcome=error so the operator alert
+    // distinguishes it from a quiet run.
+    expect(recordRegulatoryCronRun).toHaveBeenCalledWith({
+      job: 'regulatory-retry-sweep',
+      outcome: 'error',
+    });
+  });
+
+  it('does not run the job body (nor unlock without acquire) when the lock is held elsewhere', async () => {
+    const lockRunner: { connect: jest.Mock; release: jest.Mock; query: jest.Mock } = {
+      connect: jest.fn().mockResolvedValue(undefined),
+      release: jest.fn().mockResolvedValue(undefined),
+      query: jest.fn((sql: string) => {
+        if (sql.includes('pg_try_advisory_lock')) return Promise.resolve([{ acquired: false }]);
+        return Promise.resolve([]);
+      }),
+    };
+    const dataSource = {
+      createQueryRunner: jest.fn(() => lockRunner as Partial<QueryRunner> as QueryRunner),
+    } as Partial<DataSource> as DataSource;
+    const { service, recordRegulatoryCronRun } = makeService({ dataSource });
+
+    await service.deadlineSweep(new Date('2026-07-06T05:00:00Z'));
+
+    const sqls = lockRunner.query.mock.calls.map((c) => c[0] as string);
+    // acquire attempted, but no unlock when we never held it, and the runner is still released
+    expect(sqls.some((s) => s.includes('pg_advisory_unlock'))).toBe(false);
+    expect(lockRunner.release).toHaveBeenCalledTimes(1);
+    expect(listTenantSchemas).not.toHaveBeenCalled();
+    // OBS-HIGH-002: a lock-skip is still a heartbeat (a passive replica), so the
+    // "cron stalled" alert never fires on the replica that didn't win the lock.
+    expect(recordRegulatoryCronRun).toHaveBeenCalledWith({
+      job: 'regulatory-deadline-sweep',
+      outcome: 'skipped_locked',
+    });
   });
 });
 

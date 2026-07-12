@@ -32,7 +32,7 @@ import { FinanceCategory } from './finance-category.entity';
 @ObjectType()
 @Entity('finance_expense_entries')
 // Partial on the read path's dominant predicate (soft-deleted rows leave
-// aggregates but keep audit history) — see migration 1804900000000.
+// aggregates but keep audit history) — see migration 1805500000000.
 @Index('idx_finance_entries_tenant_date_active', ['tenantId', 'entryDate'], {
   where: '"isDeleted" = false',
 })

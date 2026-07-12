@@ -28,8 +28,18 @@ function kg(value: number): string {
 }
 
 function csvCell(value: string | number): string {
-  const s = String(value);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  // Numbers are our own formatted values — never a spreadsheet formula, and a
+  // leading-minus negative must stay numeric, so pass them through untouched.
+  if (typeof value === 'number') {
+    return String(value);
+  }
+  // SEC-MEDIUM-002 — CSV formula/injection neutralisation. A tenant-controlled
+  // string cell (species name, feed name, mortality cause) that a spreadsheet
+  // would evaluate as a formula — leading '=', '+', '-', '@', tab, or CR — is
+  // prefixed with a single quote so the cell opens as literal text and never
+  // executes (OWASP CSV Injection). Standard RFC-4180 quoting still applies.
+  const guarded = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  return /[",\n]/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded;
 }
 
 @Injectable()

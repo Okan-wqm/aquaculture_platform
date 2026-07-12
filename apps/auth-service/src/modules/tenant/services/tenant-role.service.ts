@@ -10,7 +10,11 @@ import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { AuditLogService } from '../../../audit/audit-log.service';
 
 import { CapabilityAuthorityService } from './capability-authority';
-import { PERMISSION_CATEGORIES, panelPermissionsToResourceArray } from './permission-catalogue';
+import {
+  PERMISSION_CATEGORIES,
+  panelPermissionsToResourceArray,
+  resolveEntitledCapabilities,
+} from './permission-catalogue';
 
 // Re-export the catalogue SSoT so existing importers (tenant-role.resolver,
 // permission-catalogue.spec) keep their import path. The definition now lives in
@@ -239,6 +243,9 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, Rec
     },
   },
 };
+
+/** Nested role permission matrix: category → resource → action → granted. */
+type PanelMatrix = Record<string, Record<string, Record<string, boolean>>>;
 
 export interface TenantRoleWithDetails {
   id: string;
@@ -842,12 +849,31 @@ export class TenantRoleService {
   }
 
   /**
-   * Seed default roles for a new tenant
+   * Seed AND upgrade the default roles for a tenant (RBAC-MEDIUM-015).
    *
-   * Uses SERIALIZABLE transaction to ensure:
-   * - All default roles are created atomically
-   * - Prevents partial seeding if an error occurs
-   * - Prevents race conditions if called multiple times
+   * This is a catalogue-driven seed/upgrade routine — the SSoT for what the
+   * shipped default roles look like is `DEFAULT_TENANT_ROLES` +
+   * `DEFAULT_ROLE_PERMISSIONS` in THIS file, and both the create and the
+   * top-up derive from it live. It replaces the point-in-time, name-keyed
+   * snapshot backfill migrations (e.g. MT-HIGH-057
+   * `1801300000000-BackfillMessagingAiRoleCapabilities`): when a future
+   * capability is added to the templates, existing tenants pick it up on the
+   * next run of this routine with NO new migration.
+   *
+   * Two phases, one SERIALIZABLE transaction:
+   *   1. CREATE the named defaults that are ABSENT (per-role idempotent — the
+   *      old guard skipped the whole seed when any role existed, but
+   *      provisioning always inserts a TENANT_ADMIN row first, so the 5
+   *      operational roles were never created — RBAC-H10 / DATA-HIGH-002).
+   *   2. RECONCILE existing default-NAMED, `is_system` roles: UNION any missing
+   *      entitled template capabilities into their stored permissions. Additive
+   *      only — a re-run adds nothing (idempotent) and no prior grant is removed.
+   *
+   * Both phases are ENTITLEMENT-GATED against the tenant's enabled modules
+   * (RBAC-HIGH-010): a non-entitled capability (e.g. `ai_settings:manage` for a
+   * tenant without the AI module) is never written to `tenant_role_permissions`,
+   * so this raw-SQL path matches the CapabilityAuthorityService write boundary
+   * and the token-mint intersection instead of bypassing them.
    */
   async seedDefaultRoles(tenantId: string, createdBy: string): Promise<TenantRoleWithDetails[]> {
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
@@ -856,26 +882,42 @@ export class TenantRoleService {
     await queryRunner.startTransaction('SERIALIZABLE');
 
     try {
-      // RBAC-H10 / DATA-HIGH-002: seed PER-ROLE-idempotently, not all-or-nothing.
-      // The previous guard skipped the ENTIRE seed when ANY role already existed —
-      // but tenant provisioning always inserts a TENANT_ADMIN row first, so the
-      // count was always ≥1 and the operational default roles (Supervisor,
-      // Technician, Feed Manager, Operator, Viewer) were NEVER created for any
-      // real tenant. Lock the tenant's roles (FOR UPDATE serializes concurrent
-      // seeds; ORPHAN-CRITICAL-100 tenant filter is load-bearing) and read the
-      // existing names, then create only the named defaults that are ABSENT.
-      const existingRoles = await queryRunner.query(
-        `SELECT LOWER(name) AS name FROM "auth"."tenant_roles" WHERE "tenantId" = $1 FOR UPDATE`,
+      // Lock the tenant's roles (FOR UPDATE OF r serializes concurrent seeds;
+      // ORPHAN-CRITICAL-100 tenant filter is load-bearing) and load their id,
+      // name, is_system flag AND current stored permissions so the reconcile
+      // phase can compute an additive top-up without a second round-trip.
+      const existingRoles = (await queryRunner.query(
+        `
+        SELECT r.id, LOWER(r.name) AS name, r.is_system,
+               p.panel_permissions, p.resource_permissions
+        FROM "auth"."tenant_roles" r
+        LEFT JOIN "auth"."tenant_role_permissions" p ON p.role_id = r.id
+        WHERE r."tenantId" = $1
+        FOR UPDATE OF r
+        `,
         [tenantId],
-      );
-      const existingNames = new Set(
-        (existingRoles as Array<{ name: string }>).map((r) => r.name),
+      )) as Array<{
+        id: string;
+        name: string;
+        is_system: boolean;
+        panel_permissions: PanelMatrix | string | null;
+        resource_permissions: string[] | null;
+      }>;
+      const existingNames = new Set(existingRoles.map((r) => r.name));
+
+      // Resolve the tenant's entitled capability set ONCE, inside the tx so it
+      // reflects the committed module state. Fail-safe: zero module rows ⇒ only
+      // CORE capabilities (module-gated grants denied, never silently allowed).
+      const entitled = await resolveEntitledCapabilities(
+        (sql, params) => queryRunner.query(sql, [...params]),
+        tenantId,
       );
 
+      // ---- Phase 1: create the ABSENT named defaults --------------------------
       const createdNames: string[] = [];
       for (const roleTemplate of DEFAULT_TENANT_ROLES) {
-        // Idempotent: a default already present (by name, this tenant) is left as
-        // is. Re-running the seed only fills the gaps — it never duplicates.
+        // Idempotent: a default already present (by name, this tenant) is left to
+        // the reconcile phase. Re-running only fills gaps — it never duplicates.
         if (existingNames.has(roleTemplate.name.toLowerCase())) {
           continue;
         }
@@ -902,8 +944,9 @@ export class TenantRoleService {
         );
 
         const roleId = roleResult[0].id;
-        const defaultPermissions = DEFAULT_ROLE_PERMISSIONS[roleTemplate.name] || {};
-        const resourcePermissions = panelPermissionsToResourceArray(defaultPermissions);
+        // Entitlement-gated: the stored panel + resources carry only capabilities
+        // the tenant's plan licenses, so a non-entitled grant is never seeded.
+        const { panel, resources } = this.entitledTemplate(roleTemplate.name, entitled);
 
         // Tenant-safe transitively via the role_id inserted above in this tx.
         await queryRunner.query(
@@ -912,16 +955,24 @@ export class TenantRoleService {
             role_id, panel_permissions, resource_permissions, created_at, updated_at
           ) VALUES ($1, $2, $3, NOW(), NOW())
           `,
-          [roleId, JSON.stringify(defaultPermissions), resourcePermissions],
+          [roleId, JSON.stringify(panel), resources],
         );
 
         createdNames.push(roleTemplate.name);
         this.logger.debug(`Created default role: ${roleTemplate.name}`);
       }
 
-      // RBAC-C3: fail-CLOSED audit for the seed operation, atomic with the
-      // inserts. Only written when something was actually created, and it records
-      // the REAL names/count seeded (not the full template list).
+      // ---- Phase 2: reconcile EXISTING default-named system roles -------------
+      const reconciled = await this.reconcileDefaultRolePermissions(
+        queryRunner,
+        existingRoles,
+        entitled,
+      );
+      const reconciledNames = reconciled.map((r) => r.name);
+
+      // RBAC-C3: fail-CLOSED audit, atomic with the writes. One row for the
+      // create phase (real names/count, not the template list) and one for the
+      // reconcile phase — each only when it actually changed state.
       if (createdNames.length > 0) {
         await this.auditLogService.log(
           {
@@ -939,13 +990,40 @@ export class TenantRoleService {
           queryRunner.manager,
         );
       }
+      if (reconciledNames.length > 0) {
+        await this.auditLogService.log(
+          {
+            tenantId,
+            performedBy: createdBy,
+            action: 'ROLES_RECONCILED',
+            entityType: 'TenantRole',
+            details: {
+              count: reconciledNames.length,
+              roleNames: reconciledNames,
+              timestamp: new Date().toISOString(),
+            },
+            severity: AuditLogSeverity.WARNING,
+          },
+          queryRunner.manager,
+        );
+      }
 
       await queryRunner.commitTransaction();
 
       this.logger.log(
-        `Seeded ${createdNames.length} default role(s) for tenant ${tenantId}` +
-          (createdNames.length === 0 ? ' (all defaults already present)' : ''),
+        `Seeded ${createdNames.length} and reconciled ${reconciledNames.length} default role(s) for tenant ${tenantId}` +
+          (createdNames.length === 0 && reconciledNames.length === 0
+            ? ' (all defaults already current)'
+            : ''),
       );
+
+      // RBAC-HIGH-001: a reconcile widened at least one active role's effective
+      // set — revoke live tokens of every holder so the new grants take effect on
+      // the next request. Runs AFTER commit so a revoke is never issued for a
+      // change that rolled back. Best-effort per user (see helper).
+      for (const role of reconciled) {
+        await this.revokeTokensForRoleHolders(tenantId, role.id);
+      }
 
       return this.getTenantRoles(tenantId);
     } catch (error) {
@@ -958,6 +1036,144 @@ export class TenantRoleService {
     } finally {
       await queryRunner.release();
     }
+  }
+
+  /**
+   * RBAC-MEDIUM-015: additively top-up existing default-NAMED, `is_system` roles
+   * with any entitled template capability they are missing, derived live from the
+   * `DEFAULT_ROLE_PERMISSIONS` SSoT. Returns the names of roles actually changed
+   * (empty ⇒ everything already current, so the caller writes no audit and
+   * revokes no tokens). Runs inside the caller's SERIALIZABLE transaction on its
+   * queryRunner, so the top-up commits atomically with the create phase.
+   *
+   * Discipline:
+   *  - ADDITIVE only (set UNION): a prior grant is never removed, so a tenant
+   *    admin's widening of a default role survives; a re-run adds nothing.
+   *  - Scope: ONLY roles whose current name matches a shipped default AND
+   *    `is_system = true`. A renamed or custom role is the tenant admin's to
+   *    manage in the role editor — never touched here.
+   *  - ENTITLEMENT-GATED: the template is intersected with `entitled` first, so a
+   *    module-gated capability is never persisted for a tenant without the module
+   *    (consistent with the CapabilityAuthorityService write boundary).
+   */
+  private async reconcileDefaultRolePermissions(
+    queryRunner: QueryRunner,
+    existingRoles: ReadonlyArray<{
+      id: string;
+      name: string;
+      is_system: boolean;
+      panel_permissions: PanelMatrix | string | null;
+      resource_permissions: string[] | null;
+    }>,
+    entitled: ReadonlySet<string>,
+  ): Promise<Array<{ id: string; name: string }>> {
+    const defaultTemplateByName = new Map(
+      DEFAULT_TENANT_ROLES.map((t) => [t.name.toLowerCase(), t.name]),
+    );
+
+    const reconciled: Array<{ id: string; name: string }> = [];
+    for (const role of existingRoles) {
+      // Only shipped, system-owned defaults are platform-managed baselines.
+      const templateName = defaultTemplateByName.get(role.name);
+      if (!templateName || !role.is_system) {
+        continue;
+      }
+
+      const { panel: templatePanel, resources: templateResources } = this.entitledTemplate(
+        templateName,
+        entitled,
+      );
+
+      const storedResources = new Set(role.resource_permissions ?? []);
+      const missing = templateResources.filter((cap) => !storedResources.has(cap));
+      if (missing.length === 0) {
+        continue; // idempotent: already carries every entitled template capability
+      }
+
+      const mergedResources = [...storedResources, ...missing];
+      const storedPanel = this.parsePanel(role.panel_permissions);
+      const mergedPanel = this.mergeGrantsIntoPanel(storedPanel, templatePanel);
+
+      await queryRunner.query(
+        `
+        UPDATE "auth"."tenant_role_permissions"
+        SET panel_permissions = $1, resource_permissions = $2, updated_at = NOW()
+        WHERE role_id = $3
+        `,
+        [JSON.stringify(mergedPanel), mergedResources, role.id],
+      );
+
+      reconciled.push({ id: role.id, name: templateName });
+      this.logger.debug(
+        `Reconciled default role "${templateName}" (${role.id}): +${missing.length} capability(ies)`,
+      );
+    }
+
+    return reconciled;
+  }
+
+  /**
+   * The template capabilities a default role should carry, filtered to the
+   * tenant's entitled set. Returns the enforced `resource:action` list AND the
+   * display panel with every non-entitled grant stripped, so a stored role never
+   * advertises or enforces a capability the tenant's plan does not license.
+   */
+  private entitledTemplate(
+    roleName: string,
+    entitled: ReadonlySet<string>,
+  ): { panel: PanelMatrix; resources: string[] } {
+    const template = DEFAULT_ROLE_PERMISSIONS[roleName] ?? {};
+    const panel: PanelMatrix = {};
+    for (const [category, resources] of Object.entries(template)) {
+      const categoryOut: Record<string, Record<string, boolean>> = {};
+      for (const [resource, actions] of Object.entries(resources)) {
+        const actionsOut: Record<string, boolean> = {};
+        for (const [action, enabled] of Object.entries(actions)) {
+          // A grant survives only if the tenant is entitled to it; a non-grant
+          // (false) is display metadata and is kept verbatim.
+          actionsOut[action] = enabled && entitled.has(`${resource}:${action}`);
+        }
+        categoryOut[resource] = actionsOut;
+      }
+      panel[category] = categoryOut;
+    }
+    // Derived from the already entitlement-filtered panel ⇒ entitled trues only.
+    return { panel, resources: panelPermissionsToResourceArray(panel) };
+  }
+
+  /**
+   * Deep additive merge: every GRANT (`true`) in `additions` is turned on in a
+   * copy of `stored`; nothing is ever turned off. Preserves a tenant admin's own
+   * edits to actions the template does not grant.
+   */
+  private mergeGrantsIntoPanel(stored: PanelMatrix, additions: PanelMatrix): PanelMatrix {
+    const merged: PanelMatrix = {};
+    for (const [category, resources] of Object.entries(stored)) {
+      merged[category] = {};
+      for (const [resource, actions] of Object.entries(resources)) {
+        merged[category][resource] = { ...actions };
+      }
+    }
+    for (const [category, resources] of Object.entries(additions)) {
+      merged[category] ??= {};
+      for (const [resource, actions] of Object.entries(resources)) {
+        merged[category][resource] ??= {};
+        for (const [action, enabled] of Object.entries(actions)) {
+          if (enabled) {
+            merged[category][resource][action] = true;
+          }
+        }
+      }
+    }
+    return merged;
+  }
+
+  /** Normalize a stored panel_permissions cell (jsonb object or string) to an object. */
+  private parsePanel(value: PanelMatrix | string | null): PanelMatrix {
+    if (!value) {
+      return {};
+    }
+    return typeof value === 'string' ? (JSON.parse(value) as PanelMatrix) : value;
   }
 
   /**

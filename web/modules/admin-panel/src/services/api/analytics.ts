@@ -41,24 +41,6 @@ export const analyticsApi = {
   // Usage Analytics
   getUsageAnalytics: (params?: DateRangeParams) =>
     apiFetch<UsageAnalytics>(`/analytics/usage?${buildQueryString(params || {})}`),
-  // TODO: No backend endpoint for /analytics/usage/api - removed
-  getApiUsageByEndpoint: (_params?: DateRangeParams & { limit?: number }) => {
-    throw new Error('Not implemented: no backend endpoint for /analytics/usage/api');
-  },
-
-  // TODO: No backend endpoint for /analytics/engagement - removed
-  getEngagementMetrics: (_params?: DateRangeParams) => {
-    throw new Error('Not implemented: no backend endpoint for /analytics/engagement');
-  },
-  // TODO: No backend endpoint for /analytics/engagement/features - removed
-  getFeatureUsage: (_params?: DateRangeParams) => {
-    throw new Error('Not implemented: no backend endpoint for /analytics/engagement/features');
-  },
-
-  // TODO: No backend endpoint for /analytics/geographic - removed
-  getGeographicDistribution: () => {
-    throw new Error('Not implemented: no backend endpoint for /analytics/geographic');
-  },
 
   // Churn Analytics
   getTenantChurn: (period = '30d') =>

@@ -57,24 +57,6 @@ declare module 'adminPanel/Module' {
   export default AdminPanelModule;
 }
 
-declare module 'adminPanel/UserManagement' {
-  import { FC } from 'react';
-  const UserManagement: FC;
-  export default UserManagement;
-}
-
-declare module 'adminPanel/TenantManagement' {
-  import { FC } from 'react';
-  const TenantManagement: FC;
-  export default TenantManagement;
-}
-
-declare module 'adminPanel/SystemSettings' {
-  import { FC } from 'react';
-  const SystemSettings: FC;
-  export default SystemSettings;
-}
-
 // ============================================================================
 // Tenant Admin Module
 // ============================================================================
@@ -83,36 +65,6 @@ declare module 'tenantAdmin/Module' {
   import { FC } from 'react';
   const TenantAdminModule: FC;
   export default TenantAdminModule;
-}
-
-declare module 'tenantAdmin/TenantDashboard' {
-  import { FC } from 'react';
-  const TenantDashboard: FC;
-  export default TenantDashboard;
-}
-
-declare module 'tenantAdmin/TenantUsers' {
-  import { FC } from 'react';
-  const TenantUsers: FC;
-  export default TenantUsers;
-}
-
-declare module 'tenantAdmin/TenantModules' {
-  import { FC } from 'react';
-  const TenantModules: FC;
-  export default TenantModules;
-}
-
-declare module 'tenantAdmin/TenantSettings' {
-  import { FC } from 'react';
-  const TenantSettings: FC;
-  export default TenantSettings;
-}
-
-declare module 'tenantAdmin/TenantDatabase' {
-  import { FC } from 'react';
-  const TenantDatabase: FC;
-  export default TenantDatabase;
 }
 
 // ============================================================================

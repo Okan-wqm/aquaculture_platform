@@ -41,10 +41,6 @@ export const impersonationApi = {
     notes?: string;
   }) =>
     apiFetch<ImpersonationPermission>('/impersonation/permissions', { method: 'POST', body: JSON.stringify(data) }),
-  // TODO: No backend PUT endpoint for updating permissions (only POST grant and POST revoke)
-  updatePermission: (_id: string, _data: Partial<ImpersonationPermission>) => {
-    throw new Error('Not implemented: no backend PUT endpoint for /impersonation/permissions/:id. Use grant/revoke instead.');
-  },
   // Fix: backend uses POST /permissions/:superAdminId/revoke (no body needed, auth from JWT)
   revokePermission: (superAdminId: string, _revokedBy?: string, _reason?: string) =>
     apiFetch<void>(`/impersonation/permissions/${superAdminId}/revoke`, { method: 'POST' }),

@@ -20,9 +20,6 @@ export default defineConfig({
       filename: 'remoteEntry.js',
       exposes: {
         './Module': './src/Module.tsx',
-        './UserManagement': './src/pages/UserManagementPage.tsx',
-        './TenantManagement': './src/pages/TenantManagementPage.tsx',
-        './SystemSettings': './src/pages/SystemSettingsPage.tsx',
       },
       // FE-HIGH-004: Single source of truth with strictVersion:true
       shared: getCoreSharedConfig(),

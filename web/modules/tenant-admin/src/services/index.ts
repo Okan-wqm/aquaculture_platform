@@ -94,6 +94,3 @@ export type {
   PermissionAction,
   PermissionResource,
 } from '../lib/types';
-
-// REST API services (messaging, announcements, tickets) remain in tenantApi.ts
-export * from './tenantApi';

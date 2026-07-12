@@ -42,8 +42,6 @@ export const securityApi = {
   } & PaginationParams & DateRangeParams) =>
     apiFetch<PaginatedResult<BackendActivityLog>>(`/security/activities?${buildQueryString(params || {})}`, platformScope),
   getActivityLog: (id: string) => apiFetch<BackendActivityLog>(`/security/activities/${id}`, platformScope),
-  getUserActivities: (userId: string, params?: PaginationParams & DateRangeParams) =>
-    apiFetch<PaginatedResult<BackendActivityLog>>(`/security/activities/user/${userId}?${buildQueryString(params || {})}`, platformScope),
   getEntityActivities: (entityType: string, entityId: string, params?: PaginationParams) =>
     apiFetch<PaginatedResult<BackendActivityLog>>(`/security/activities/entity/${entityType}/${entityId}?${buildQueryString(params || {})}`, platformScope),
   // Audit Trail
@@ -156,17 +154,7 @@ export const securityApi = {
     apiFetch<PaginatedResult<BackendThreatIndicator>>(`/security/monitoring/threat-intelligence?${buildQueryString(params || {})}`, platformScope),
   addThreatIndicator: (data: Omit<BackendThreatIndicator, 'id' | 'firstSeenAt' | 'lastSeenAt' | 'createdAt' | 'updatedAt'>) =>
     apiFetch<BackendThreatIndicator>('/security/monitoring/threat-intelligence', { ...platformScope, method: 'POST', body: JSON.stringify(data) }),
-  // Security Dashboard
-  getSecurityDashboard: () =>
-    apiFetch<{
-      threatLevel: SecurityEventSeverity;
-      activeIncidents: number;
-      unresolvedEvents: number;
-      blockedThreats: number;
-      recentEvents: BackendSecurityEvent[];
-      topThreats: Array<{ type: string; count: number }>;
-    }>('/security/monitoring/dashboard', platformScope),
-  // Full monitoring dashboard data
+  // Security Dashboard (typed by the backend SecurityDashboardStats contract)
   getMonitoringDashboard: () => apiFetch<BackendSecurityDashboardStats>('/security/monitoring/dashboard', platformScope),
   // Health score
   getHealthScore: () => apiFetch<BackendSecurityHealthScore>('/security/monitoring/health-score', platformScope),

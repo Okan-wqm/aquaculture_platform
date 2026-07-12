@@ -73,7 +73,6 @@ export const settingsApi = {
   revokeTenantApiKey: tenantConfigApi.revokeTenantApiKey,
   createWebhook: tenantConfigApi.createWebhook,
   deleteWebhook: tenantConfigApi.deleteWebhook,
-  testWebhook: tenantConfigApi.testWebhook,
 
   // Email Templates (delegated to email-templates.ts, kept here for backward compat)
   getEmailTemplates: emailTemplatesApi.getEmailTemplates,
@@ -104,7 +103,6 @@ export const systemSettingsApi = {
   getFeatureToggles: (params?: { scope?: string; status?: string; category?: string; search?: string } & PaginationParams) =>
     apiFetch<PaginatedResult<FeatureToggle>>(`/system/settings/feature-toggles?${buildQueryString(params || {})}`),
   getFeatureToggle: (id: string) => apiFetch<FeatureToggle>(`/system/settings/feature-toggles/${id}`),
-  getFeatureToggleByKey: (key: string) => apiFetch<FeatureToggle>(`/system/settings/feature-toggles/key/${key}`),
   createFeatureToggle: (data: Omit<FeatureToggle, 'id' | 'createdAt' | 'updatedAt'>) =>
     apiFetch<FeatureToggle>('/system/settings/feature-toggles', { method: 'POST', body: JSON.stringify(data) }),
   updateFeatureToggle: (id: string, data: Partial<FeatureToggle>) =>
@@ -219,8 +217,6 @@ export const systemSettingsApi = {
     apiFetch<JobQueue>(`/system/jobs/queues/${name}/pause`, { method: 'POST' }),
   resumeQueue: (name: string) =>
     apiFetch<JobQueue>(`/system/jobs/queues/${name}/resume`, { method: 'POST' }),
-  drainQueue: (name: string) =>
-    apiFetch<{ drained: number }>(`/system/jobs/queues/${name}/drain`, { method: 'POST' }),
   getJobs: (params?: {
     queueName?: string;
     status?: JobStatus[];
@@ -242,9 +238,4 @@ export const systemSettingsApi = {
     apiFetch<BackgroundJob>(`/system/jobs/${id}/cancel`, { method: 'POST' }),
   retryJob: (id: string) =>
     apiFetch<BackgroundJob>(`/system/jobs/${id}/retry`, { method: 'POST' }),
-  getScheduledJobs: () => apiFetch<BackgroundJob[]>('/system/jobs/scheduled'),
-  getFailedJobs: (limit?: number) =>
-    apiFetch<BackgroundJob[]>(`/system/jobs/failed${limit ? `?limit=${limit}` : ''}`),
-  cleanupJobs: (olderThanDays: number, status?: JobStatus[]) =>
-    apiFetch<{ deleted: number }>('/system/jobs/cleanup', { method: 'POST', body: JSON.stringify({ olderThanDays, status }) }),
 };

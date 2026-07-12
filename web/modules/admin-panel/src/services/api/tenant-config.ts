@@ -320,13 +320,6 @@ export const tenantConfigApi = {
       method: 'DELETE',
     }),
 
-  // testWebhook kept for backward compat (no backend endpoint yet)
-  testWebhook: (tenantId: string, webhookId: string) =>
-    apiFetch<{ success: boolean; statusCode: number; responseTime: number }>(
-      `/settings/tenant/${tenantId}/webhooks/${webhookId}/test`,
-      { method: 'POST' },
-    ),
-
   // ---------------------------------------------------------------------------
   // Domain & Branding
   // ---------------------------------------------------------------------------

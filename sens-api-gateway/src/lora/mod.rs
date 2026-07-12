@@ -415,11 +415,18 @@ impl LoRaActor {
             // girisin cikarilmasi (evict-oldest) icsel geri-basincdir ve
             // cagirilan downlink kabul edildiginden Ok doner.
             match mac.queue_downlink(item) {
-                EnqueueOutcome::Accepted | EnqueueOutcome::AcceptedEvictedOldest => Ok(()),
+                EnqueueOutcome::Accepted | EnqueueOutcome::AcceptedEvictedLowerValue => Ok(()),
                 EnqueueOutcome::RejectedDevAddrFull => {
                     anyhow::bail!(
                         "Downlink kuyruga alinamadi: dev_addr={} icin bekleyen downlink \
-                         siniri dolu",
+                         siniri dolu ve yeni gelen daha degerli degil",
+                        dev_addr
+                    )
+                }
+                EnqueueOutcome::RejectedQueueFull => {
+                    anyhow::bail!(
+                        "Downlink kuyruga alinamadi: global kuyruk dolu ve yeni gelen en az \
+                         degerli girisden daha degerli degil (dev_addr={})",
                         dev_addr
                     )
                 }

@@ -47,21 +47,40 @@ pub const DEFAULT_DOWNLINK_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 /// Kuyruga giris denemesinin sonucu.
 ///
 /// Cagiran taraf bu sonucu telemetri/geri-basinc kararlari icin kullanir.
+/// `#[must_use]` (PR935-LOW-007): bir Tier-1 sinir tipinin sonucu sessizce
+/// dusurulemez — kabul/red kararini cagiran taraf ele almalidir.
+#[must_use]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnqueueOutcome {
     /// Giris kabul edildi, hicbir sey cikarilmadi.
     Accepted,
-    /// Giris kabul edildi ancak global sinir doldugundan en eski
-    /// bekleyen downlink cikarildi.
-    AcceptedEvictedOldest,
-    /// Giris reddedildi — hedef DevAddr icin derinlik siniri dolu.
+    /// Giris kabul edildi ancak bir sinir doldugundan daha DUSUK degerli bir
+    /// bekleyen downlink cikarildi (PR935-MEDIUM-004: en eski degil, en az
+    /// onemli — onaylanmamis + dusuk oncelikli + eski oncelikle cikarilir).
+    AcceptedEvictedLowerValue,
+    /// Giris reddedildi — hedef DevAddr derinligi dolu VE yeni gelen, o
+    /// DevAddr icin bekleyenlerden daha degerli degil.
     RejectedDevAddrFull,
+    /// Giris reddedildi — global kuyruk dolu VE yeni gelen, kuyruktaki en az
+    /// degerli girisden daha degerli degil (kendisi en degersiz).
+    RejectedQueueFull,
+}
+
+/// Bir girisin "cikarilabilirlik" anahtari — BUYUK = daha cikarilabilir (daha
+/// az degerli). Sirasiyla: onaylanmamis > onaylanmis, dusuk oncelik (yuksek
+/// sayi) > yuksek oncelik, eski > yeni. `enqueue` bu anahtari maksimize eden
+/// girisi cikarir; yeni gelen bu anahtardan kucuk (daha degerli) degilse
+/// reddedilir. Yeni gelenin yasi sifir (`Duration::ZERO`) kabul edilir.
+fn evictability(confirmed: bool, priority: u8, age: Duration) -> (u8, u8, Duration) {
+    // confirmed=false → 1 (daha cikarilabilir); confirmed=true → 0.
+    let unconfirmed_rank = u8::from(!confirmed);
+    (unconfirmed_rank, priority, age)
 }
 
 impl EnqueueOutcome {
     /// Giris kuyruga alindiysa `true` (kabul veya kabul+cikar).
     pub fn accepted(self) -> bool {
-        matches!(self, Self::Accepted | Self::AcceptedEvictedOldest)
+        matches!(self, Self::Accepted | Self::AcceptedEvictedLowerValue)
     }
 }
 
@@ -136,41 +155,82 @@ impl BoundedDownlinkQueue {
 
     /// `enqueue`'nun deterministik cekirdegi — zaman referansi enjekte edilir.
     ///
-    /// Sinir uygulama sirasi:
+    /// Sinir uygulama sirasi (PR935-MEDIUM-004 — oncelik/onay-farkindalikli):
     /// 1. TTL suresi dolmus girisleri buda,
-    /// 2. hedef DevAddr derinligi doluysa reddet (reject-newest),
-    /// 3. global sinir doluysa en eskiyi cikar (evict-oldest),
+    /// 2. hedef DevAddr derinligi doluysa: o DevAddr icin EN AZ DEGERLI girisi
+    ///    bul; yeni gelen ondan daha degerliyse onu cikar, degilse reddet,
+    /// 3. global sinir doluysa: kuyruktaki EN AZ DEGERLI girisi bul; yeni gelen
+    ///    ondan daha degerliyse onu cikar, degilse (kendisi en degersizse) reddet,
     /// 4. girisi ekle.
+    ///
+    /// Boylece dusuk oncelikli/onaylanmamis bir telemetri-ack'i, baska bir
+    /// cihazin bekleyen ONAYLANMIS aktuator komutunu ASLA cikarmaz.
     pub fn enqueue_at(&mut self, item: DownlinkItem, now: Instant) -> EnqueueOutcome {
         self.prune_expired(now);
 
         let dev_addr = item.dev_addr;
+        let newcomer_ev = evictability(item.confirmed, item.priority, Duration::ZERO);
+
+        // Bir alt kume (predicate ile) icindeki en cikarilabilir girisin
+        // (index, anahtar) ciftini bulur. Kume bos ise None.
+        let worst_in = |queue: &VecDeque<Queued>,
+                        pred: &dyn Fn(&Queued) -> bool|
+         -> Option<(usize, (u8, u8, Duration))> {
+            queue
+                .iter()
+                .enumerate()
+                .filter(|(_, q)| pred(q))
+                .map(|(i, q)| {
+                    (
+                        i,
+                        evictability(q.item.confirmed, q.item.priority, now.duration_since(q.enqueued_at)),
+                    )
+                })
+                .max_by(|a, b| a.1.cmp(&b.1))
+        };
+
+        // Karsilastirma (onay, oncelik) uzerinden; yas yalnizca mevcutlar
+        // arasinda en kotuyu secmede kullanilir (esitlerde en eski).
+        let newcomer_value = (newcomer_ev.0, newcomer_ev.1);
+        let value_of = |worst_ev: (u8, u8, Duration)| (worst_ev.0, worst_ev.1);
+
+        // 2) DevAddr derinlik siniri — noisy-neighbor korumasi. Esit degerde
+        // "reject-newest" korunur (`<`): tek cihaz kuyrugunu churn'lemesin.
+        // Yalnizca KESIN daha degerli bir yeni gelen, en degersizi cikarir.
         let per_dev_addr = self
             .queue
             .iter()
             .filter(|q| q.item.dev_addr == dev_addr)
             .count();
         if per_dev_addr >= self.max_per_dev_addr {
-            return EnqueueOutcome::RejectedDevAddrFull;
+            match worst_in(&self.queue, &|q| q.item.dev_addr == dev_addr) {
+                Some((idx, worst_ev)) if newcomer_value < value_of(worst_ev) => {
+                    self.queue.remove(idx);
+                    self.queue.push_back(Queued { enqueued_at: now, item });
+                    return EnqueueOutcome::AcceptedEvictedLowerValue;
+                }
+                _ => return EnqueueOutcome::RejectedDevAddrFull,
+            }
         }
 
-        let mut evicted = false;
+        // 3) Global sert sinir — esit degerde "evict-oldest" korunur (`<=`):
+        // en taze komut kazanir. Yeni gelen KESIN en degersizse reddedilir.
         if self.queue.len() >= self.max_total {
-            // En eski girisi cikar — global sert sinir asilamaz.
-            self.queue.pop_front();
-            evicted = true;
+            match worst_in(&self.queue, &|_| true) {
+                Some((idx, worst_ev)) if newcomer_value <= value_of(worst_ev) => {
+                    self.queue.remove(idx);
+                    self.queue.push_back(Queued { enqueued_at: now, item });
+                    return EnqueueOutcome::AcceptedEvictedLowerValue;
+                }
+                _ => return EnqueueOutcome::RejectedQueueFull,
+            }
         }
 
         self.queue.push_back(Queued {
             enqueued_at: now,
             item,
         });
-
-        if evicted {
-            EnqueueOutcome::AcceptedEvictedOldest
-        } else {
-            EnqueueOutcome::Accepted
-        }
+        EnqueueOutcome::Accepted
     }
 
     /// Verilen DevAddr icin bekleyen ilk (FIFO) downlink'i cikarip dondurur.
@@ -227,6 +287,16 @@ mod tests {
         }
     }
 
+    fn item_pc(dev_addr: [u8; 4], marker: u8, priority: u8, confirmed: bool) -> DownlinkItem {
+        DownlinkItem {
+            dev_addr: DevAddr(dev_addr),
+            payload: vec![marker],
+            f_port: 1,
+            confirmed,
+            priority,
+        }
+    }
+
     #[test]
     fn accepts_within_limits() {
         let mut q = BoundedDownlinkQueue::new();
@@ -277,10 +347,11 @@ mod tests {
             assert_eq!(q.enqueue(item([0, 0, 0, i], i)), EnqueueOutcome::Accepted);
         }
         assert_eq!(q.len(), 3);
-        // 4. giris global siniri asar — en eski (marker 0) cikarilir.
+        // 4. giris global siniri asar — esit oncelik/onay durumunda en eski
+        // (marker 0) cikarilir (yas tiebreak).
         assert_eq!(
             q.enqueue(item([0, 0, 0, 9], 9)),
-            EnqueueOutcome::AcceptedEvictedOldest
+            EnqueueOutcome::AcceptedEvictedLowerValue
         );
         assert_eq!(q.len(), 3);
         // En eski DevAddr artik kuyrukta yok.
@@ -296,8 +367,8 @@ mod tests {
     fn take_returns_fifo_within_dev_addr() {
         let mut q = BoundedDownlinkQueue::new();
         let addr = [0, 0, 0, 5];
-        q.enqueue(item(addr, 10));
-        q.enqueue(item(addr, 20));
+        let _ = q.enqueue(item(addr, 10));
+        let _ = q.enqueue(item(addr, 20));
         assert_eq!(
             q.take_for_dev_addr(&DevAddr(addr)).unwrap().payload,
             vec![10]
@@ -312,7 +383,7 @@ mod tests {
     #[test]
     fn take_missing_dev_addr_returns_none() {
         let mut q = BoundedDownlinkQueue::new();
-        q.enqueue(item([0, 0, 0, 1], 0));
+        let _ = q.enqueue(item([0, 0, 0, 1], 0));
         assert!(q.take_for_dev_addr(&DevAddr([9, 9, 9, 9])).is_none());
     }
 
@@ -370,5 +441,89 @@ mod tests {
         assert!(q.len() <= MAX_DOWNLINK_QUEUE);
         // Ayni DevAddr'in derinligi de per-addr siniri asamaz.
         assert!(q.len() <= MAX_DOWNLINK_PER_DEV_ADDR);
+    }
+
+    // ---- PR935-MEDIUM-004: oncelik/onay-farkindalikli tahliye ----
+
+    #[test]
+    fn global_overflow_evicts_least_valuable_not_oldest() {
+        // Kuyruk: [confirmed hi-pri (eski), unconfirmed lo-pri (yeni)]. Global
+        // sinir dolunca gelen yeni bir orta-degerli giris, EN ESKIyi degil, en
+        // az degerli olani (unconfirmed lo-pri) cikarmali.
+        let mut q = BoundedDownlinkQueue::with_limits(2, 100, DEFAULT_DOWNLINK_TTL);
+        // dev A: onaylanmis, yuksek oncelik (0) — degerli, EN ESKI.
+        assert_eq!(
+            q.enqueue(item_pc([0, 0, 0, 1], 1, 0, true)),
+            EnqueueOutcome::Accepted
+        );
+        // dev B: onaylanmamis, dusuk oncelik (9) — en az degerli.
+        assert_eq!(
+            q.enqueue(item_pc([0, 0, 0, 2], 2, 9, false)),
+            EnqueueOutcome::Accepted
+        );
+        // Yeni: dev C, onaylanmamis, orta oncelik (5). Global sinir dolu.
+        assert_eq!(
+            q.enqueue(item_pc([0, 0, 0, 3], 3, 5, false)),
+            EnqueueOutcome::AcceptedEvictedLowerValue
+        );
+        // Onaylanmis-degerli (dev A, en eski) HALA kuyrukta — cikarilmadi.
+        assert_eq!(
+            q.take_for_dev_addr(&DevAddr([0, 0, 0, 1])).unwrap().payload,
+            vec![1]
+        );
+        // En az degerli (dev B) cikarilmis.
+        assert!(q.take_for_dev_addr(&DevAddr([0, 0, 0, 2])).is_none());
+    }
+
+    #[test]
+    fn global_overflow_rejects_newcomer_when_it_is_the_worst() {
+        // Kuyruk tamamen degerli girislerle dolu; gelen en degersizse
+        // reddedilir (mevcut daha degerli bir sey cikarilmaz).
+        let mut q = BoundedDownlinkQueue::with_limits(2, 100, DEFAULT_DOWNLINK_TTL);
+        assert_eq!(
+            q.enqueue(item_pc([0, 0, 0, 1], 1, 0, true)),
+            EnqueueOutcome::Accepted
+        );
+        assert_eq!(
+            q.enqueue(item_pc([0, 0, 0, 2], 2, 0, true)),
+            EnqueueOutcome::Accepted
+        );
+        // Gelen: onaylanmamis, en dusuk oncelik → en degersiz → reddet.
+        assert_eq!(
+            q.enqueue(item_pc([0, 0, 0, 3], 3, 9, false)),
+            EnqueueOutcome::RejectedQueueFull
+        );
+        assert_eq!(q.len(), 2);
+    }
+
+    #[test]
+    fn per_dev_addr_cap_evicts_stale_for_a_more_valuable_newcomer() {
+        // Bir DevAddr icin derinlik sinirini onaylanmamis dusuk-oncelikli
+        // girislerle doldur; sonra ayni DevAddr icin ONAYLANMIS yuksek-oncelikli
+        // bir komut gelsin — reddedilmemeli, en degersiz olani cikarmali.
+        let mut q = BoundedDownlinkQueue::with_limits(100, 2, DEFAULT_DOWNLINK_TTL);
+        let a = [0, 0, 0, 7];
+        assert_eq!(
+            q.enqueue(item_pc(a, 1, 9, false)),
+            EnqueueOutcome::Accepted
+        );
+        assert_eq!(
+            q.enqueue(item_pc(a, 2, 9, false)),
+            EnqueueOutcome::Accepted
+        );
+        // Kritik komut: onaylanmis, en yuksek oncelik (0).
+        assert_eq!(
+            q.enqueue(item_pc(a, 3, 0, true)),
+            EnqueueOutcome::AcceptedEvictedLowerValue
+        );
+        // Kritik komut kuyrukta olmali (ilk take FIFO ama esdeger degil —
+        // en az iki giris var; kritik olanin var oldugunu dogrula).
+        let mut found_critical = false;
+        while let Some(it) = q.take_for_dev_addr(&DevAddr(a)) {
+            if it.payload == vec![3] && it.confirmed && it.priority == 0 {
+                found_critical = true;
+            }
+        }
+        assert!(found_critical, "kritik onaylanmis komut cikarilmis olmamali");
     }
 }

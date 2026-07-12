@@ -251,22 +251,28 @@ impl LoRaMac {
                     dev_addr, f_port, payload_len, confirmed
                 );
             }
-            EnqueueOutcome::AcceptedEvictedOldest => {
+            EnqueueOutcome::AcceptedEvictedLowerValue => {
                 warn!(
-                    "Downlink kuyruga eklendi ancak global sinir ({}) doluydu — en eski \
-                     bekleyen downlink cikarildi: dev_addr={}, f_port={}, {} byte",
-                    super::downlink_queue::MAX_DOWNLINK_QUEUE,
-                    dev_addr,
-                    f_port,
-                    payload_len
+                    "Downlink kuyruga eklendi ancak bir sinir doluydu — en az degerli \
+                     (onaylanmamis/dusuk oncelikli/eski) bekleyen downlink cikarildi: \
+                     dev_addr={}, f_port={}, {} byte",
+                    dev_addr, f_port, payload_len
                 );
             }
             EnqueueOutcome::RejectedDevAddrFull => {
                 warn!(
-                    "Downlink reddedildi — dev_addr={} icin derinlik siniri ({}) dolu. \
-                     Cihaz uplink gondermiyor olabilir; yeni downlink kuyruga alinmadi.",
+                    "Downlink reddedildi — dev_addr={} icin derinlik siniri ({}) dolu ve \
+                     yeni gelen bekleyenlerden daha degerli degil; kuyruga alinmadi.",
                     dev_addr,
                     super::downlink_queue::MAX_DOWNLINK_PER_DEV_ADDR
+                );
+            }
+            EnqueueOutcome::RejectedQueueFull => {
+                warn!(
+                    "Downlink reddedildi — global kuyruk ({}) dolu ve yeni gelen kuyruktaki \
+                     en az degerli girisden daha degerli degil; kuyruga alinmadi: dev_addr={}",
+                    super::downlink_queue::MAX_DOWNLINK_QUEUE,
+                    dev_addr
                 );
             }
         }

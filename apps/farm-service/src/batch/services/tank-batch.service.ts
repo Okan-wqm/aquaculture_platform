@@ -176,10 +176,14 @@ export class TankBatchService {
     tankBatch.primaryBatchId = details[0]?.batchId;
     tankBatch.primaryBatchNumber = details[0]?.batchNumber;
 
-    // Denormalized current* mirror the totals — the mortality/cull handlers
-    // maintained these alongside totalQuantity/totalBiomassKg; keep them in the
-    // single SSoT writer so callers never have to (and they cannot drift).
-    tankBatch.currentQuantity = tankBatch.totalQuantity;
+    // A1 mirror retirement (ORPHAN-HIGH-353 step 2): the currentQuantity COUNT
+    // mirror is no longer written — every count read was collapsed onto the
+    // batchDetails-derived totalQuantity SSoT (farm-tank-count-ssot.spec) and
+    // DropTankBatchCurrentQuantityMirror removes the column. currentBiomassKg
+    // deliberately REMAINS written: it is the growth-tracked live value
+    // (daily-feeding-execution accrues weight-gain into it), re-baselined on
+    // every batch delta until the separately-tracked biomass unification flows
+    // growth into batchDetails.
     tankBatch.currentBiomassKg = tankBatch.totalBiomassKg;
     if (delta.lastMortalityAt) {
       tankBatch.lastMortalityAt = delta.lastMortalityAt;

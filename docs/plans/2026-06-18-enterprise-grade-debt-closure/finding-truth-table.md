@@ -27,6 +27,21 @@ post-merge close ceremony records a main-reachable closing commit (PROC-HIGH-001
 by the W1 network-security workstream) and `SENSOR-CRITICAL-003` (VFD tab
 visibility, closed by the W5 frontend workstream). Both are `already-fixed-needs-close`.
 
+Updated 2026-07-11: the reporting-line post-merge close ceremony (PRs #929/#937
+merged; ceremony commit records main-reachable closing commits) RESOLVED six of
+the audit-era criticals that sat in `already-fixed-needs-close` —
+`FARM-CRITICAL-161`, `-163`, `-165`, `-168`, `-169`, `-171` — so their rows leave
+the active table below (the table mirrors `active_critical_ids` exactly; the
+contract invariant enforces the bijection). 8 active CRITICALs remain.
+
+Updated 2026-07-12: reconciling the unified-SCADA-editor audit entries (PR #941)
+onto the chain adds three active CRITICALs whose fixes land in that same PR but
+whose registry rows stay IN-PROGRESS until the post-merge close ceremony records
+a main-reachable closing commit (PROC-HIGH-001, `close` refuses branch-local
+SHAs): `SENSOR-CRITICAL-004` (WS RS256→HS256 confusion bypass),
+`SENSOR-CRITICAL-005` (TAG_WRITE tenant fence), `SENSOR-CRITICAL-006`
+(server-side control-security PIN). All three are `already-fixed-needs-close`.
+
 Allowed truth buckets:
 
 - `real-open`
@@ -45,12 +60,10 @@ Allowed truth buckets:
 | `SENSOR-CRITICAL-003` | OPEN           | —            | sensor-expert | already-fixed-needs-close |
 | `DATA-CRITICAL-001`  | OPEN           | —            | data-expert  | real-open    |
 | `FARM-CRITICAL-153`  | OPEN           | 4.1          | farm-expert  | already-fixed-needs-close |
-| `FARM-CRITICAL-161`  | OPEN           | —            | farm-expert  | already-fixed-needs-close |
-| `FARM-CRITICAL-163`  | OPEN           | —            | farm-expert  | already-fixed-needs-close |
-| `FARM-CRITICAL-165`  | OPEN           | —            | frontend-expert | already-fixed-needs-close |
-| `FARM-CRITICAL-168`  | OPEN           | —            | farm-expert  | already-fixed-needs-close |
-| `FARM-CRITICAL-169`  | OPEN           | —            | data-expert  | already-fixed-needs-close |
-| `FARM-CRITICAL-171`  | OPEN           | —            | infra-expert | already-fixed-needs-close |
+| `INFRA-CRITICAL-039` | OPEN           | —            | infra-expert | already-fixed-needs-close |
+| `SENSOR-CRITICAL-004` | IN-PROGRESS   | —            | sensor-expert | already-fixed-needs-close |
+| `SENSOR-CRITICAL-005` | IN-PROGRESS   | —            | sensor-expert | already-fixed-needs-close |
+| `SENSOR-CRITICAL-006` | IN-PROGRESS   | —            | sensor-expert | already-fixed-needs-close |
 
 ## Mutation Rules
 
@@ -361,3 +374,21 @@ src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx` passed 28/28 on
   `109563f`. The messaging-service Jest run above passed the
   `SendMessageInput` envelope regression, proving offline `sendMessage` accepts
   the mobile command envelope while rejecting unknown fields.
+- `SENSOR-CRITICAL-004` (WS control-plane RS256→HS256 algorithm-confusion
+  bypass): PR #941 routes SCADA socket JWT verification through the platform
+  RS256-only path and broadens `tests/invariants/jwt-rs256-only.spec.ts`.
+  Reproducible proof: the sensor-service scada-runtime auth specs + the JWT
+  invariant pass on the branch. The row stays IN-PROGRESS until the post-merge
+  close ceremony records the main-reachable closing commit.
+- `SENSOR-CRITICAL-005` (WS `TAG_WRITE` accepted without a tenant fence):
+  PR #941 tenant-fences TAG_WRITE, resolves targets against the unified tag
+  registry, and replaces the fake ack with an honest `queued` result.
+  Reproducible proof: `apps/sensor-service/src/scada-runtime` gateway specs on
+  the branch. IN-PROGRESS until the post-merge close ceremony.
+- `SENSOR-CRITICAL-006` (control-security PINs stored plaintext and compared
+  client-side): PR #941 moves the secret server-side (scrypt `pinHash` at save,
+  read-path redaction, `PIN_VERIFY` socket verification with lockout, tag-keyed
+  TAG_WRITE elevation). Reproducible proof:
+  `apps/sensor-service/src/process/services/__tests__/pin-control-security.spec.ts`
+  + gateway elevation specs on the branch. IN-PROGRESS until the post-merge
+  close ceremony.

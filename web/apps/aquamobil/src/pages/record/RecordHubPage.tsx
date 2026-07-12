@@ -1,5 +1,5 @@
 import { clsx } from 'clsx';
-import { Utensils, Skull, Scissors, Package, ArrowLeftRight, ClipboardList, Droplets, Warehouse } from 'lucide-react';
+import { Utensils, Skull, Scissors, Package, ArrowLeftRight, Bug, ClipboardList, Droplets, FileText, HeartPulse, TriangleAlert, Warehouse } from 'lucide-react';
 import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -22,6 +22,11 @@ const allActions: RecordAction[] = [
   { feature: 'harvest', path: '/harvest/record', icon: Package, label: 'Harvest', gradient: 'from-green-500 to-green-600' },
   { feature: 'transfer', path: '/transfer/record', icon: ArrowLeftRight, label: 'Transfer', gradient: 'from-blue-500 to-blue-600' },
   { feature: 'storage', path: '/storage', icon: Warehouse, label: 'Storage', gradient: 'from-teal-500 to-teal-600' },
+  // FARM-HIGH-214 (RPT-019): regulatory field capture + the reports-due surface.
+  { feature: 'liceCount', path: '/lice/record', icon: Bug, label: 'Lice Count', gradient: 'from-violet-500 to-violet-600' },
+  { feature: 'welfare', path: '/welfare/record', icon: HeartPulse, label: 'Welfare Scores', gradient: 'from-emerald-500 to-emerald-600' },
+  { feature: 'escape', path: '/escape/record', icon: TriangleAlert, label: 'Escape Incident', gradient: 'from-orange-500 to-amber-600' },
+  { feature: 'reports', path: '/reports', icon: FileText, label: 'Reports Due', gradient: 'from-indigo-500 to-indigo-600' },
 ];
 
 export function RecordHubPage(): JSX.Element {

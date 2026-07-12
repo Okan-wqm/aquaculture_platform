@@ -571,6 +571,48 @@ export function ReasonGrid<TValue extends string>(props: {
   );
 }
 
+/**
+ * Numeric field (decimal-capable) — konsta-styled, used by the regulatory
+ * field-capture pages (FARM-HIGH-214): lice-stage averages are decimals
+ * (e.g. 0.15 adult females per fish), which the integer QuantityStepper
+ * cannot express. Empty input surfaces as null so "not entered" is
+ * distinguishable from 0 (a real, meaningful lice count).
+ */
+export function NumberField(props: {
+  label: string;
+  value: number | null;
+  onChange: (next: number | null) => void;
+  placeholder?: string;
+  step?: string;
+  min?: number;
+  error?: string;
+}): JSX.Element {
+  const { label, value, onChange, placeholder = '0', step = '0.01', min = 0, error } = props;
+  return (
+    <List strongIos insetIos>
+      <ListInput
+        label={label}
+        type="number"
+        inputMode="decimal"
+        step={step}
+        min={min}
+        placeholder={placeholder}
+        value={value ?? ''}
+        error={error}
+        onInput={(e: ChangeEvent<HTMLInputElement>) => {
+          const raw = e.target.value;
+          if (raw === '') {
+            onChange(null);
+            return;
+          }
+          const parsed = Number(raw);
+          onChange(Number.isFinite(parsed) ? parsed : null);
+        }}
+      />
+    </List>
+  );
+}
+
 /** Notes textarea — konsta-styled, used by cull + mortality. */
 export function NotesInput(props: {
   value: string;

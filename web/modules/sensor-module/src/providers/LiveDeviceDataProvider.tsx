@@ -268,22 +268,17 @@ export function LiveDeviceDataProviderInner({
 
   // ── IDataProvider implementation ──────────────────────────────────────────
 
-  const subscribeToTags = useCallback((tagIds: string[]): void => {
-    // We use a stable componentId derived from the call site — callers should
-    // pass a stable list.  The manager handles deduplication and ref-counting.
-    // Because this provider operates at a single-component-level hook, we use
-    // a fixed id; components that need isolated accounting should use the
-    // TagSubscriptionManager directly.
-    subManagerRef.current!.subscribe('__live_provider__', tagIds);
+  const subscribeToTags = useCallback((componentId: string, tagIds: string[]): void => {
+    // Each consumer subscribes under its own id; the manager ref-counts tags
+    // across consumers and only unsubscribes a tag server-side when the last
+    // consumer drops it.
+    subManagerRef.current!.subscribe(componentId, tagIds);
   }, []);
 
-  const unsubscribeFromTags = useCallback((tagIds: string[]): void => {
-    // Re-subscribe with the remaining set (i.e. current minus the removed ones).
-    const current = new Set(subManagerRef.current!.getActiveSubscriptions());
-    for (const id of tagIds) {
-      current.delete(id);
-    }
-    subManagerRef.current!.subscribe('__live_provider__', Array.from(current));
+  const unsubscribeFromTags = useCallback((componentId: string): void => {
+    // Drop this consumer entirely — the manager decrements each of its tags and
+    // emits TAG_UNSUBSCRIBE only for those no other consumer still holds.
+    subManagerRef.current!.unsubscribe(componentId);
   }, []);
 
   const writeTagValue = useCallback(

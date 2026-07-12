@@ -21,6 +21,12 @@ const SYNC_INVALIDATION_SEGMENTS = {
   createWaterQuality: [['tanks'], ['equipment-params'], ['waterQuality'], ['dailyOpsCounts'], ['ai']],
   recordStockMovement: [['stockEventsSummary'], ['stock-at-location'], ['warehouseSummary']],
   transferStock: [['stockEventsSummary'], ['stock-at-location'], ['warehouseSummary']],
+  // FARM-HIGH-214: synced field-capture records feed the scheduled report
+  // drafts — invalidate the mobile reports-due read models so a subsequent
+  // draft refresh/review reflects the new source rows.
+  recordLiceCount: [['reportDrafts'], ['reportDeadlines']],
+  recordWelfareAssessment: [['reportDrafts'], ['reportDeadlines']],
+  recordEscapeIncident: [['reportDrafts'], ['reportDeadlines']],
   clockIn: [['dailyOpsCounts'], ['todaysAttendance'], ['attendanceRecords'], ['attendanceSummary']],
   clockOut: [['dailyOpsCounts'], ['todaysAttendance'], ['attendanceRecords'], ['attendanceSummary']],
   createLeaveRequest: [['leaveRequests'], ['leaveBalances']],

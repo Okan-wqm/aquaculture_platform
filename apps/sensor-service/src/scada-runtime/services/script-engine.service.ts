@@ -499,7 +499,9 @@ export class ScriptEngineService {
 
       $setTag: (id: string, value: unknown): void => {
         try {
-          this.tagManager.writeTagValue(id, value, 'script-engine');
+          // Script writes run in the process-global runtime; route them to
+          // that runtime's tenant (RT-011 will make the engine per-tenant).
+          this.tagManager.writeTagValue(id, value, 'script-engine', this.alarmEngine.getTenantId());
         } catch (err) {
           this.logger.error(`$setTag error: ${(err as Error).message}`);
         }
@@ -580,6 +582,9 @@ export class ScriptEngineService {
         to: number,
       ): Promise<Record<string, HistoricalDataPoint[]>> => {
         try {
+          // Tenant-fenced history read (SENSOR-HIGH-053): the script sandbox
+          // runs under this engine's own fail-closed tenant binding (same
+          // source as the write/broadcast paths above).
           return await this.daqStorage.queryValues(
             this.requireTenant(),
             ids,

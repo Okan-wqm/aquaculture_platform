@@ -135,6 +135,10 @@ export class VfdCommandService {
           result = await this.executeFaultReset(device, adapter, handle);
           break;
 
+        case VfdCommandType.QUICK_STOP:
+          result = await this.executeQuickStop(device, adapter, handle);
+          break;
+
         case VfdCommandType.EMERGENCY_STOP:
           result = await this.executeEmergencyStop(device, adapter, handle);
           break;
@@ -147,8 +151,17 @@ export class VfdCommandService {
           result = await this.executeJog(device, adapter, handle, 'reverse');
           break;
 
-        default:
-          throw new BadRequestException(`Unknown command: ${commandInput.command}`);
+        case VfdCommandType.COAST_STOP:
+          result = await this.executeCoastStop(device, adapter, handle);
+          break;
+
+        default: {
+          // Compile-time exhaustiveness: adding a VfdCommandType member
+          // without a dispatch case is a type error, not a runtime
+          // "Unknown command" (QUICK_STOP/COAST_STOP shipped exactly that way).
+          const unhandled: never = commandInput.command;
+          throw new BadRequestException(`Unknown command: ${String(unhandled)}`);
+        }
       }
 
       executionResult = {
@@ -306,15 +319,28 @@ export class VfdCommandService {
       throw new BadRequestException(`Speed reference mapping not found for brand ${device.brand}`);
     }
 
-    // Validate frequency range
-    if (speedRefMapping.minValue != null && frequencyHz < speedRefMapping.minValue) {
+    if (!Number.isFinite(frequencyHz)) {
+      throw new BadRequestException(`Invalid frequency value: ${frequencyHz}`);
+    }
+
+    // Validate frequency range. Mapping-configured bounds win (Rockwell's
+    // signed -500..500 stays legitimate); an UNBOUNDED mapping falls back to
+    // a conservative absolute envelope instead of passing anything to the
+    // drive — the mapping columns are nullable, so without the fallback
+    // 600 Hz or -10 Hz reached physical hardware unvalidated. 0..400 Hz is
+    // the widest Hz bound in the shipped brand register data (Danfoss,
+    // Yaskawa both cap at 400 Hz); min 0 because SET_FREQUENCY is a
+    // magnitude — direction is the REVERSE command.
+    const minFrequencyHz = speedRefMapping.minValue ?? 0;
+    const maxFrequencyHz = speedRefMapping.maxValue ?? 400;
+    if (frequencyHz < minFrequencyHz) {
       throw new BadRequestException(
-        `Frequency ${frequencyHz} Hz is below minimum ${speedRefMapping.minValue} Hz`
+        `Frequency ${frequencyHz} Hz is below minimum ${minFrequencyHz} Hz`
       );
     }
-    if (speedRefMapping.maxValue != null && frequencyHz > speedRefMapping.maxValue) {
+    if (frequencyHz > maxFrequencyHz) {
       throw new BadRequestException(
-        `Frequency ${frequencyHz} Hz is above maximum ${speedRefMapping.maxValue} Hz`
+        `Frequency ${frequencyHz} Hz is above maximum ${maxFrequencyHz} Hz`
       );
     }
 
@@ -384,6 +410,51 @@ export class VfdCommandService {
     const resetCommand = brandCommands?.['FAULT_RESET'] || brandCommands?.['RESET'] || 0x0080;
 
     return adapter.writeControlWord(handle, resetCommand, controlWordMapping.registerAddress);
+  }
+
+  /**
+   * Execute QUICK_STOP command — controlled fast ramp-down. In CiA402 /
+   * PROFIdrive the quick-stop control word IS the fieldbus e-stop
+   * mechanism, so brands that define QUICK_STOP share the wire value with
+   * EMERGENCY_STOP; the distinct command types preserve operator intent
+   * in results and audit trails.
+   */
+  private async executeQuickStop(
+    device: VfdDevice,
+    adapter: ReturnType<typeof createVfdAdapter>,
+    handle: VfdConnectionHandle
+  ): Promise<VfdCommandResult> {
+    const controlWordMapping = await this.registerMappingService.getControlWordMapping(device.brand);
+    if (!controlWordMapping) {
+      throw new BadRequestException(`Control word mapping not found for brand ${device.brand}`);
+    }
+
+    const brandCommands = VFD_BRAND_COMMANDS[device.brand];
+    // CiA402 QUICK_STOP (OFF3) control word is 0x0002 (VFD_CONTROL_COMMANDS.QUICK_STOP)
+    const quickStopCommand = brandCommands?.['QUICK_STOP'] || 0x0002;
+
+    return adapter.writeControlWord(handle, quickStopCommand, controlWordMapping.registerAddress);
+  }
+
+  /**
+   * Execute COAST_STOP command — remove output voltage and let the motor
+   * freewheel (CiA402 OFF2 / DISABLE_VOLTAGE).
+   */
+  private async executeCoastStop(
+    device: VfdDevice,
+    adapter: ReturnType<typeof createVfdAdapter>,
+    handle: VfdConnectionHandle
+  ): Promise<VfdCommandResult> {
+    const controlWordMapping = await this.registerMappingService.getControlWordMapping(device.brand);
+    if (!controlWordMapping) {
+      throw new BadRequestException(`Control word mapping not found for brand ${device.brand}`);
+    }
+
+    const brandCommands = VFD_BRAND_COMMANDS[device.brand];
+    // 0x0000 = CiA402 DISABLE_VOLTAGE (OFF2 coast)
+    const coastCommand = brandCommands?.['COAST'] || brandCommands?.['COAST_STOP'] || 0x0000;
+
+    return adapter.writeControlWord(handle, coastCommand, controlWordMapping.registerAddress);
   }
 
   /**

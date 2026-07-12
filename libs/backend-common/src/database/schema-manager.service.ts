@@ -219,12 +219,14 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     // cloned — so it belongs in the source-schema-only infrastructure set.
     // SENSOR-MEDIUM-004: edge_device_directory is the cross-tenant O(1) index
     // (public identifier -> tenant_id); one table in `sensor`, never cloned.
-    // DB-SENSOR-CRITICAL-001 / SENSOR-HIGH-004: the SCADA runtime persistence
-    // tables (scada_alarms, scada_alarm_chronicle, scada_tag_history) are
-    // written by process-wide singleton services with no per-request
-    // search_path, so they cannot be per-tenant clones — they live once in
-    // `sensor` and carry a mandatory tenant_id discriminator (added by
-    // 1806000000000-ScadaTenantIsolation), exactly like edge_device_directory.
+    // DB-SENSOR-CRITICAL-001 / SENSOR-HIGH-004 / SENSOR-HIGH-053: the SCADA
+    // runtime persistence tables (scada_alarms, scada_alarm_chronicle,
+    // scada_tag_history) are written by process-wide singleton services with
+    // no per-request search_path, so they cannot be per-tenant clones — they
+    // live once in `sensor` and carry a mandatory tenant_id discriminator
+    // (added by 1806000000000-ScadaTenantIsolation), exactly like
+    // edge_device_directory. vfd_command_audit_logs is the append-only VFD
+    // command audit ledger (cross-tenant, same class).
     infrastructureTables: ['migrations', 'sensor_audit_logs', 'sensor_outbox', 'vfd_register_mappings', 'edge_device_directory', 'scada_alarms', 'scada_alarm_chronicle', 'scada_tag_history', 'vfd_command_audit_logs', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: ['sensor_protocols', 'sensor_type_definitions', 'industry_templates'],
     tables: [

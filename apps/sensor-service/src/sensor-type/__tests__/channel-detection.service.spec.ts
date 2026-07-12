@@ -83,17 +83,21 @@ describe('ChannelDetectionService', () => {
     ],
   };
 
-  const mockProposal: Partial<ChannelDetectionLog> = {
+  // FRESH proposal per test: approveProposal MUTATES the object findOne
+  // returns (proposal.userAction = APPROVED before save), so a shared
+  // module-level fixture trips the deliberate "already approved"
+  // idempotency guard in every test after the first approval.
+  const makeProposal = (): Partial<ChannelDetectionLog> => ({
     id: 'proposal-1',
     tenantId,
     sensorId,
-    rawSample: sampleData as any,
-    aiAnalysis: mockAiResponse.toolResults![0]!.result as any,
-    proposedChannels: (mockAiResponse.toolResults![1]!.result as any).channels as any,
+    rawSample: sampleData as never,
+    aiAnalysis: mockAiResponse.toolResults![0]!.result as never,
+    proposedChannels: (mockAiResponse.toolResults![1]!.result as { channels: never[] }).channels,
     userAction: undefined,
     finalChannels: undefined,
     createdAt: new Date(),
-  };
+  });
 
   beforeEach(async () => {
     mockFetch.mockReset();
@@ -109,7 +113,11 @@ describe('ChannelDetectionService', () => {
 
     const channelRepoMock = {
       find: jest.fn(),
-      create: jest.fn().mockImplementation((dto) => ({ ...dto })),
+      // Array-aware like the real Repository.create — TenantScopedRepository
+      // .saveMany passes the WHOLE batch array through create() before save().
+      create: jest.fn().mockImplementation((dto) =>
+        Array.isArray(dto) ? dto.map((d) => ({ ...d })) : { ...dto },
+      ),
       save: jest.fn().mockImplementation((entity) =>
         Array.isArray(entity)
           ? Promise.resolve(entity.map((e, i) => ({ id: `channel-${i}`, ...e })))
@@ -242,7 +250,7 @@ describe('ChannelDetectionService', () => {
 
   describe('approveProposal', () => {
     it('should create channels and update log when approved', async () => {
-      logRepo.findOne.mockResolvedValue(mockProposal as ChannelDetectionLog);
+      logRepo.findOne.mockResolvedValue(makeProposal() as ChannelDetectionLog);
       channelRepo.find.mockResolvedValue([]);
 
       const result = await service.approveProposal('proposal-1', tenantId);
@@ -250,9 +258,13 @@ describe('ChannelDetectionService', () => {
       expect(logRepo.findOne).toHaveBeenCalledWith({
         where: { id: 'proposal-1', tenantId },
       });
-      expect(channelRepo.create).toHaveBeenCalledTimes(3);
-      // Batch save: all channels saved in one call via transaction
-      expect(channelRepo.save).toHaveBeenCalled();
+      // Assert the PERSISTED batch (create-call counts are a
+      // TenantScopedRepository.saveMany internal, not product behavior).
+      expect(channelRepo.save).toHaveBeenCalledWith([
+        expect.objectContaining({ channelKey: 'temperature', tenantId }),
+        expect.objectContaining({ channelKey: 'ph', tenantId }),
+        expect.objectContaining({ channelKey: 'dissolved_oxygen', tenantId }),
+      ]);
       expect(logRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({
           userAction: 'approved',
@@ -262,7 +274,7 @@ describe('ChannelDetectionService', () => {
     });
 
     it('should use modifications when provided', async () => {
-      logRepo.findOne.mockResolvedValue(mockProposal as ChannelDetectionLog);
+      logRepo.findOne.mockResolvedValue(makeProposal() as ChannelDetectionLog);
       channelRepo.find.mockResolvedValue([]);
 
       const modifications = [
@@ -277,14 +289,14 @@ describe('ChannelDetectionService', () => {
 
       const result = await service.approveProposal('proposal-1', tenantId, modifications);
 
-      expect(channelRepo.create).toHaveBeenCalledTimes(1);
-      expect(channelRepo.create).toHaveBeenCalledWith(
+      expect(channelRepo.save).toHaveBeenCalledWith([
         expect.objectContaining({
           channelKey: 'temp',
           displayLabel: 'Water Temp',
           unit: 'Fahrenheit',
+          tenantId,
         }),
-      );
+      ]);
       expect(logRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({
           userAction: 'approved',
@@ -305,7 +317,7 @@ describe('ChannelDetectionService', () => {
 
   describe('rejectProposal', () => {
     it('should set userAction to rejected', async () => {
-      logRepo.findOne.mockResolvedValue(mockProposal as ChannelDetectionLog);
+      logRepo.findOne.mockResolvedValue(makeProposal() as ChannelDetectionLog);
 
       const result = await service.rejectProposal('proposal-1', tenantId);
 
@@ -328,7 +340,7 @@ describe('ChannelDetectionService', () => {
 
   describe('getPendingProposals', () => {
     it('should return proposals where userAction IS NULL ordered by createdAt DESC', async () => {
-      const proposals = [mockProposal] as ChannelDetectionLog[];
+      const proposals = [makeProposal()] as ChannelDetectionLog[];
       logRepo.find.mockResolvedValue(proposals);
 
       const result = await service.getPendingProposals(sensorId, tenantId);

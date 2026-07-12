@@ -732,6 +732,40 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    // Route SCADA undeploy acks (WF-011): the delete flow logged an
+    // UNDEPLOY_SENT row per device; the device's ack settles it.
+    if (payload.command === 'undeploy_scada_package' && payload.commandId) {
+      try {
+        if (this.scadaDeployLogService) {
+          if (payload.success) {
+            await this.scadaDeployLogService.updateStatus(
+              payload.commandId,
+              ScadaDeployStatus.UNDEPLOYED,
+              undefined,
+              tenantId,
+            );
+            this.logger.log(`SCADA undeploy confirmed for command ${payload.commandId}`);
+          } else {
+            await this.scadaDeployLogService.updateStatus(
+              payload.commandId,
+              ScadaDeployStatus.FAILED,
+              { errorMessage: payload.error || 'SCADA undeploy failed on device' },
+              tenantId,
+            );
+            this.logger.warn(
+              `SCADA undeploy failed for command ${payload.commandId}: ${payload.error || 'unknown error'}`,
+            );
+          }
+        } else {
+          this.logger.warn(
+            `ScadaDeployLogService not available — cannot update undeploy status for command ${payload.commandId}`,
+          );
+        }
+      } catch (error) {
+        this.logger.error(`Failed to process SCADA undeploy response: ${(error as Error).message}`);
+      }
+    }
+
     // Route release-bundle acks (Faz 5): the edge publishes an
     // intermediate `staged` ack and a final `confirmed`/`failed`
     // command response, all carrying result.bundleId + result.phase

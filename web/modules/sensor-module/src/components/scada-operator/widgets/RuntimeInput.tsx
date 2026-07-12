@@ -13,6 +13,8 @@
 import React, { memo, useState, useCallback, useRef, useEffect } from 'react';
 import { CheckCircle, AlertCircle, Lock, Loader2 } from 'lucide-react';
 import { useTagWrite } from '../../../hooks/useTagWrite';
+import { getScadaSocketService } from '../../../services/ScadaSocketService';
+import { useScadaPackageStore } from '../../../store/scada';
 import type { RuntimeWidgetProps } from '../../../types/scada-runtime.types';
 
 /* ------------------------------------------------------------------ */
@@ -159,16 +161,42 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
     [],
   );
 
+  // SENSOR-CRITICAL-006: the PIN is verified SERVER-SIDE against the
+  // package's salted hash — the client never sees or compares the secret
+  // (the pre-fix flow compared a plaintext config.pin in the browser, which
+  // was also readable by any tenant member). A successful verification
+  // elevates this socket so the pin-protected TAG_WRITE is accepted.
+  const packageId = useScadaPackageStore((st) => st.packageId);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [pinVerifying, setPinVerifying] = useState(false);
+
   const handlePinConfirm = useCallback(() => {
-    const expectedPin = (config.pin ?? '') as string;
-    if (pinInput !== expectedPin) {
-      setPinInput('');
-      return;
-    }
-    setShowPinDialog(false);
-    setPinInput('');
-    void doWrite(inputVal);
-  }, [pinInput, config.pin, doWrite, inputVal]);
+    if (!packageId || pinVerifying) return;
+    setPinVerifying(true);
+    setPinError(null);
+    getScadaSocketService()
+      .verifyPin(packageId, pinInput)
+      .then((result) => {
+        if (result.valid) {
+          setShowPinDialog(false);
+          setPinInput('');
+          void doWrite(inputVal);
+          return;
+        }
+        setPinInput('');
+        setPinError(
+          result.lockedUntil
+            ? 'Too many attempts — PIN entry is temporarily locked'
+            : 'Incorrect PIN',
+        );
+      })
+      .catch(() => {
+        setPinError('PIN verification unavailable — not connected');
+      })
+      .finally(() => {
+        setPinVerifying(false);
+      });
+  }, [packageId, pinVerifying, pinInput, doWrite, inputVal]);
 
   /* ---- HTML input type ---- */
   const htmlInputType =
@@ -282,6 +310,9 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
               aria-label="PIN"
               className="px-3 py-2 border border-gray-300 rounded text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-400"
             />
+            {pinError && (
+              <p className="text-xs text-red-600" role="alert">{pinError}</p>
+            )}
             <div className="flex gap-2">
               <button
                 type="button"
@@ -296,7 +327,8 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
               <button
                 type="button"
                 onClick={handlePinConfirm}
-                className="flex-1 py-1.5 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
+                disabled={pinVerifying}
+                className="flex-1 py-1.5 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
               >
                 OK
               </button>

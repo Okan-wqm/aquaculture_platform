@@ -8,6 +8,7 @@ import {
   CREATE_UNIFIED_TAG,
   UPDATE_UNIFIED_TAG,
   DELETE_UNIFIED_TAG,
+  RETIRE_UNIFIED_TAG,
   DISCOVER_TAGS,
   AUTO_BIND_TAGS,
 } from '../graphql/unified-tag.queries';
@@ -36,6 +37,8 @@ export interface UnifiedTag {
   deadband?: number;
   source: Record<string, unknown>;
   hierarchy: Record<string, unknown>;
+  /** Lifecycle: 'draft' | 'active' | 'retired'. Retired tags never resolve. */
+  status: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -295,7 +298,20 @@ export function useUpdateTag() {
   });
 }
 
-/** Delete a unified tag by ID */
+/** Retire a unified tag (terminal lifecycle state; the removal path for non-DRAFT tags) */
+export function useRetireTag() {
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const data = await graphqlFetch<{ retireUnifiedTag: UnifiedTag }>(
+        RETIRE_UNIFIED_TAG,
+        { id },
+      );
+      return data.retireUnifiedTag;
+    },
+  });
+}
+
+/** Delete a unified tag by ID (server allows this only while status=DRAFT) */
 export function useDeleteTag() {
   return useMutation({
     mutationFn: async (id: string) => {

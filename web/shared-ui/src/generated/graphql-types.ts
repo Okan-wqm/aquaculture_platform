@@ -1633,15 +1633,24 @@ export type BulkUpdateDataChannelsResult = {
 };
 
 export type BulkUpdateMobileSettingsInput = {
+  attendance?: InputMaybe<Scalars['Boolean']['input']>;
   cull?: InputMaybe<Scalars['Boolean']['input']>;
+  escape?: InputMaybe<Scalars['Boolean']['input']>;
   feeding?: InputMaybe<Scalars['Boolean']['input']>;
   harvest?: InputMaybe<Scalars['Boolean']['input']>;
   isMobileEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  leave?: InputMaybe<Scalars['Boolean']['input']>;
+  liceCount?: InputMaybe<Scalars['Boolean']['input']>;
   mortality?: InputMaybe<Scalars['Boolean']['input']>;
+  reports?: InputMaybe<Scalars['Boolean']['input']>;
+  schedule?: InputMaybe<Scalars['Boolean']['input']>;
   storage?: InputMaybe<Scalars['Boolean']['input']>;
   tankView?: InputMaybe<Scalars['Boolean']['input']>;
+  tasks?: InputMaybe<Scalars['Boolean']['input']>;
+  transfer?: InputMaybe<Scalars['Boolean']['input']>;
   userIds: Array<Scalars['ID']['input']>;
   waterQuality?: InputMaybe<Scalars['Boolean']['input']>;
+  welfare?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 /** Byte order for data parsing */
@@ -2691,6 +2700,7 @@ export type CreateEmployeeInput = {
   firstName: Scalars['String']['input'];
   hireDate: Scalars['String']['input'];
   isFarmWorker?: InputMaybe<Scalars['Boolean']['input']>;
+  laborCategory?: InputMaybe<LaborCategory>;
   lastName: Scalars['String']['input'];
   nationalId: Scalars['String']['input'];
   position: Scalars['String']['input'];
@@ -2892,6 +2902,24 @@ export type CreateFeedingRecordInput = {
   tankId?: InputMaybe<Scalars['ID']['input']>;
   totalMealsToday?: Scalars['Int']['input'];
   wasteAmount?: InputMaybe<Scalars['Float']['input']>;
+};
+
+export type CreateFinanceCategoryInput = {
+  displayOrder?: InputMaybe<Scalars['Int']['input']>;
+  kind?: InputMaybe<FinanceCategoryKind>;
+  name: Scalars['String']['input'];
+  scope: FinanceCategoryScope;
+};
+
+export type CreateFinanceEntryInput = {
+  amount: Scalars['Float']['input'];
+  batchId?: InputMaybe<Scalars['ID']['input']>;
+  categoryId: Scalars['ID']['input'];
+  description?: InputMaybe<Scalars['String']['input']>;
+  entryDate: Scalars['String']['input'];
+  periodEnd?: InputMaybe<Scalars['String']['input']>;
+  periodStart?: InputMaybe<Scalars['String']['input']>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type CreateGoalInput = {
@@ -3097,6 +3125,20 @@ export type CreateHealthEventInput = {
   waterQualitySnapshot?: InputMaybe<WaterQualitySnapshotInput>;
   /** Withdrawal period in days before harvest */
   withdrawalPeriodDays?: InputMaybe<Scalars['Int']['input']>;
+};
+
+export type CreateHrFinanceCategoryInput = {
+  displayOrder?: InputMaybe<Scalars['Int']['input']>;
+  name: Scalars['String']['input'];
+};
+
+export type CreateHrFinanceEntryInput = {
+  amount: Scalars['Float']['input'];
+  categoryId: Scalars['ID']['input'];
+  departmentHrId?: InputMaybe<Scalars['ID']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  employeeId?: InputMaybe<Scalars['ID']['input']>;
+  entryDate: Scalars['String']['input'];
 };
 
 export type CreateHydroponicsConfigInput = {
@@ -4919,6 +4961,7 @@ export type Employee = {
   id: Scalars['ID']['output'];
   isDeleted: Scalars['Boolean']['output'];
   isFarmWorker: Scalars['Boolean']['output'];
+  laborCategory?: Maybe<LaborCategory>;
   lastName: Scalars['String']['output'];
   personnelCategory?: Maybe<PersonnelCategory>;
   position: Scalars['String']['output'];
@@ -5601,6 +5644,8 @@ export type FarmStockBatchSnapshot = {
   isPrimary: Scalars['Boolean']['output'];
   lastMortalityAt?: Maybe<Scalars['DateTime']['output']>;
   quantity: Scalars['Int']['output'];
+  speciesId?: Maybe<Scalars['ID']['output']>;
+  speciesName?: Maybe<Scalars['String']['output']>;
   tenantId: Scalars['ID']['output'];
   totalCull: Scalars['Int']['output'];
   totalMortality: Scalars['Int']['output'];
@@ -6395,6 +6440,125 @@ export type FinalizeReviewInput = {
   finalRating: Scalars['Float']['input'];
   reviewId: Scalars['String']['input'];
   reviewerComments?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type FinanceBatchTotal = {
+  batchId: Scalars['ID']['output'];
+  totalExpense: Scalars['Float']['output'];
+  totalRevenue: Scalars['Float']['output'];
+};
+
+export type FinanceCategory = {
+  code?: Maybe<Scalars['String']['output']>;
+  computedRule?: Maybe<Scalars['JSON']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  displayOrder: Scalars['Int']['output'];
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  isSystem: Scalars['Boolean']['output'];
+  kind: FinanceCategoryKind;
+  name: Scalars['String']['output'];
+  scope: FinanceCategoryScope;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+};
+
+/** Whether entries in the category are money out or money in */
+export type FinanceCategoryKind =
+  | 'EXPENSE'
+  | 'REVENUE';
+
+/** Which farm finance ledger a category belongs to */
+export type FinanceCategoryScope =
+  | 'FARM_OPEX'
+  | 'FARM_REVENUE';
+
+export type FinanceCategoryTotal = {
+  categoryCode?: Maybe<Scalars['String']['output']>;
+  categoryId: Scalars['ID']['output'];
+  categoryName: Scalars['String']['output'];
+  isComputed: Scalars['Boolean']['output'];
+  isDerived: Scalars['Boolean']['output'];
+  kind: FinanceCategoryKind;
+  scope: FinanceCategoryScope;
+  total: Scalars['Float']['output'];
+};
+
+export type FinanceExpenseEntry = {
+  amount: Scalars['Float']['output'];
+  batchId?: Maybe<Scalars['String']['output']>;
+  category?: Maybe<FinanceCategory>;
+  categoryId: Scalars['String']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  currency: Scalars['String']['output'];
+  description?: Maybe<Scalars['String']['output']>;
+  entryDate: Scalars['DateTime']['output'];
+  id: Scalars['ID']['output'];
+  periodEnd?: Maybe<Scalars['DateTime']['output']>;
+  periodStart?: Maybe<Scalars['DateTime']['output']>;
+  siteId?: Maybe<Scalars['String']['output']>;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+};
+
+/** Time bucket size for finance aggregation */
+export type FinanceGranularity =
+  | 'DAY'
+  | 'MONTH'
+  | 'WEEK'
+  | 'YEAR';
+
+export type FinanceLineItem = {
+  amount: Scalars['Float']['output'];
+  batchId?: Maybe<Scalars['ID']['output']>;
+  categoryCode?: Maybe<Scalars['String']['output']>;
+  categoryId?: Maybe<Scalars['ID']['output']>;
+  categoryName: Scalars['String']['output'];
+  currency: Scalars['String']['output'];
+  description?: Maybe<Scalars['String']['output']>;
+  editable: Scalars['Boolean']['output'];
+  entryDate: Scalars['DateTime']['output'];
+  estimated: Scalars['Boolean']['output'];
+  id: Scalars['ID']['output'];
+  kind: FinanceCategoryKind;
+  origin: FinanceLineOrigin;
+  siteId?: Maybe<Scalars['ID']['output']>;
+  sourceDomain?: Maybe<Scalars['String']['output']>;
+  sourceRecordId?: Maybe<Scalars['ID']['output']>;
+};
+
+/** Whether a ledger line is a manual booking or a derived projection */
+export type FinanceLineOrigin =
+  | 'DERIVED'
+  | 'MANUAL';
+
+export type FinanceSettings = {
+  createdAt: Scalars['DateTime']['output'];
+  defaultCurrency: Scalars['String']['output'];
+  fiscalYearStartMonth: Scalars['Int']['output'];
+  id?: Maybe<Scalars['ID']['output']>;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+};
+
+export type FinanceSummary = {
+  byCategory: Array<FinanceCategoryTotal>;
+  currency: Scalars['String']['output'];
+  netResult: Scalars['Float']['output'];
+  series: Array<FinanceTimeBucket>;
+  totalExpense: Scalars['Float']['output'];
+  totalRevenue: Scalars['Float']['output'];
+};
+
+export type FinanceTimeBucket = {
+  bucketStart: Scalars['DateTime']['output'];
+  totalExpense: Scalars['Float']['output'];
+  totalRevenue: Scalars['Float']['output'];
 };
 
 export type FinancialProjectionInput = {
@@ -7463,6 +7627,87 @@ export type HealthSeverity =
   | 'MODERATE'
   | 'SEVERE';
 
+export type HrDepartmentCost = {
+  annualSalaryTotal: Scalars['Float']['output'];
+  departmentHrId?: Maybe<Scalars['String']['output']>;
+  departmentName: Scalars['String']['output'];
+  headcount: Scalars['Int']['output'];
+  hrExpenses: Scalars['Float']['output'];
+};
+
+export type HrFinanceCategory = {
+  code?: Maybe<Scalars['String']['output']>;
+  computedRule?: Maybe<Scalars['JSON']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  displayOrder: Scalars['Int']['output'];
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  isSystem: Scalars['Boolean']['output'];
+  name: Scalars['String']['output'];
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+};
+
+export type HrFinanceEntry = {
+  amount: Scalars['Float']['output'];
+  category?: Maybe<HrFinanceCategory>;
+  categoryId: Scalars['String']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  currency: Scalars['String']['output'];
+  departmentHrId?: Maybe<Scalars['String']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  employeeId?: Maybe<Scalars['String']['output']>;
+  entryDate: Scalars['DateTime']['output'];
+  id: Scalars['ID']['output'];
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+};
+
+/** Time bucket size for HR finance aggregation */
+export type HrFinanceGranularity =
+  | 'DAY'
+  | 'MONTH'
+  | 'WEEK'
+  | 'YEAR';
+
+export type HrFinanceSummary = {
+  byDepartment: Array<HrDepartmentCost>;
+  currency: Scalars['String']['output'];
+  series: Array<HrFinanceTimeBucket>;
+};
+
+export type HrFinanceTimeBucket = {
+  bucketStart: Scalars['DateTime']['output'];
+  hrExpenses: Scalars['Float']['output'];
+  payrollGross: Scalars['Float']['output'];
+};
+
+export type HrLabourCost = {
+  actualGrossPayYtd: Scalars['Float']['output'];
+  annualSalaryTotal: Scalars['Float']['output'];
+  currency: Scalars['String']['output'];
+  hrExpensesYtd: Scalars['Float']['output'];
+  medicalInsuranceFund: Scalars['Float']['output'];
+  otherCost: Scalars['Float']['output'];
+  pensionFund: Scalars['Float']['output'];
+  rows: Array<HrLabourCostRow>;
+  socialInsuranceFund: Scalars['Float']['output'];
+  totalHeadcount: Scalars['Int']['output'];
+  totalPayroll: Scalars['Float']['output'];
+  unclassifiedCount: Scalars['Int']['output'];
+};
+
+export type HrLabourCostRow = {
+  annualSalaryTotal: Scalars['Float']['output'];
+  avgAnnualSalary: Scalars['Float']['output'];
+  category?: Maybe<LaborCategory>;
+  headcount: Scalars['Int']['output'];
+};
+
 export type HydroponicsConfig = {
   configName: Scalars['String']['output'];
   createdAt: Scalars['DateTime']['output'];
@@ -7814,6 +8059,11 @@ export type LabResultsInput = {
   /** Type of test performed */
   testType: Scalars['String']['input'];
 };
+
+export type LaborCategory =
+  | 'MANAGER'
+  | 'TECHNICAL'
+  | 'UNSKILLED';
 
 export type LaborRecordInput = {
   durationMinutes?: InputMaybe<Scalars['Int']['input']>;
@@ -8658,6 +8908,9 @@ export type Mutation = {
   approveWorkOrder: WorkOrder;
   /** Archive a channel */
   archiveChannel: Scalars['Boolean']['output'];
+  /** Archive a finance category (derived-bound and computed categories cannot be archived). */
+  archiveFinanceCategory: FinanceCategory;
+  archiveHrFinanceCategory: HrFinanceCategory;
   archiveProgram: AutomationProgram;
   archiveSupportThread: SupportMessageThread;
   assignFeedsToBatch: BatchFeedAssignmentResponse;
@@ -8761,6 +9014,10 @@ export type Mutation = {
   /** Create a new feeding protocol */
   createFeedingProtocol: FeedingProtocolResponse;
   createFeedingRecord: FeedingRecord;
+  /** Create a user-defined finance category (dynamic taxonomy — data, not DDL). */
+  createFinanceCategory: FinanceCategory;
+  /** Book a manual finance entry (expense or revenue). */
+  createFinanceEntry: FinanceExpenseEntry;
   createGoal: Goal;
   createHRDepartment: DepartmentHr;
   /** Create a new harvest plan */
@@ -8769,6 +9026,8 @@ export type Mutation = {
   createHarvestRecord: HarvestRecord;
   /** Create a new health event */
   createHealthEvent: HealthEvent;
+  createHrFinanceCategory: HrFinanceCategory;
+  createHrFinanceEntry: HrFinanceEntry;
   /** Create a hydroponics configuration */
   createHydroponicsConfiguration: HydroponicsConfig;
   createInventoryCount: InventoryCountResponse;
@@ -8851,12 +9110,15 @@ export type Mutation = {
   deleteFeedingProgram: FeedingProgram;
   /** Delete a feeding protocol */
   deleteFeedingProtocol: Scalars['Boolean']['output'];
+  /** Soft-delete a manual finance entry. */
+  deleteFinanceEntry: Scalars['Boolean']['output'];
   /** Delete a harvest plan */
   deleteHarvestPlan: Scalars['Boolean']['output'];
   /** Delete (cancel) a harvest record and reverse quantity changes */
   deleteHarvestRecord: Scalars['Boolean']['output'];
   /** Delete a health event */
   deleteHealthEvent: Scalars['Boolean']['output'];
+  deleteHrFinanceEntry: Scalars['Boolean']['output'];
   /** Delete a hydroponics configuration */
   deleteHydroponicsConfiguration: Scalars['Boolean']['output'];
   deleteMaintenanceSchedule: DeleteMaintenanceScheduleResponse;
@@ -9049,6 +9311,9 @@ export type Mutation = {
   restoreFeed: FeedResponse;
   /** Soft-silinmis yemleme programini geri al */
   restoreFeedingProgram: FeedingProgram;
+  /** Reactivate an archived finance category. */
+  restoreFinanceCategory: FinanceCategory;
+  restoreHrFinanceCategory: HrFinanceCategory;
   restoreSite: SiteResponse;
   restoreSpecies: Species;
   restoreSupplier: SupplierResponse;
@@ -9197,6 +9462,12 @@ export type Mutation = {
   /** Update a feeding protocol */
   updateFeedingProtocol: FeedingProtocolResponse;
   updateFeedingRecord: FeedingRecord;
+  /** Rename / reorder a finance category (activation state is admin-gated). */
+  updateFinanceCategory: FinanceCategory;
+  /** Update a manual finance entry. Derived lines are edited at their source record. */
+  updateFinanceEntry: FinanceExpenseEntry;
+  /** Update tenant finance settings (default currency SSoT, fiscal year start). */
+  updateFinanceSettings: FinanceSettings;
   updateGoal: Goal;
   updateGoalProgress: Goal;
   updateHRDepartment: DepartmentHr;
@@ -9206,6 +9477,8 @@ export type Mutation = {
   updateHarvestRecord: HarvestRecord;
   /** Update a health event */
   updateHealthEvent: HealthEvent;
+  updateHrFinanceCategory: HrFinanceCategory;
+  updateHrFinanceEntry: HrFinanceEntry;
   /** Update a hydroponics configuration */
   updateHydroponicsConfiguration: HydroponicsConfig;
   updateInventoryCountItems: InventoryCountResponse;
@@ -9223,6 +9496,7 @@ export type Mutation = {
   updateOnCallSchedule: EscalationPolicy;
   updateParamEquipmentMapping: WaterQualityParamEquipment;
   updateParameterConfig: WaterQualityParameterConfig;
+  updatePayrollCostSettings: PayrollCostSettings;
   updatePlan: Plan;
   updatePlanEntry: WeeklyPlanEntry;
   updatePlcConnection: PlcConnection;
@@ -9616,6 +9890,16 @@ export type MutationApproveWorkOrderArgs = {
 
 
 export type MutationArchiveChannelArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationArchiveFinanceCategoryArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationArchiveHrFinanceCategoryArgs = {
   id: Scalars['ID']['input'];
 };
 
@@ -10097,6 +10381,16 @@ export type MutationCreateFeedingRecordArgs = {
 };
 
 
+export type MutationCreateFinanceCategoryArgs = {
+  input: CreateFinanceCategoryInput;
+};
+
+
+export type MutationCreateFinanceEntryArgs = {
+  input: CreateFinanceEntryInput;
+};
+
+
 export type MutationCreateGoalArgs = {
   input: CreateGoalInput;
 };
@@ -10119,6 +10413,16 @@ export type MutationCreateHarvestRecordArgs = {
 
 export type MutationCreateHealthEventArgs = {
   input: CreateHealthEventInput;
+};
+
+
+export type MutationCreateHrFinanceCategoryArgs = {
+  input: CreateHrFinanceCategoryInput;
+};
+
+
+export type MutationCreateHrFinanceEntryArgs = {
+  input: CreateHrFinanceEntryInput;
 };
 
 
@@ -10513,6 +10817,11 @@ export type MutationDeleteFeedingProtocolArgs = {
 };
 
 
+export type MutationDeleteFinanceEntryArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type MutationDeleteHarvestPlanArgs = {
   id: Scalars['ID']['input'];
 };
@@ -10524,6 +10833,11 @@ export type MutationDeleteHarvestRecordArgs = {
 
 
 export type MutationDeleteHealthEventArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationDeleteHrFinanceEntryArgs = {
   id: Scalars['ID']['input'];
 };
 
@@ -11345,6 +11659,16 @@ export type MutationRestoreFeedingProgramArgs = {
 };
 
 
+export type MutationRestoreFinanceCategoryArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationRestoreHrFinanceCategoryArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type MutationRestoreSiteArgs = {
   id: Scalars['ID']['input'];
 };
@@ -11967,6 +12291,23 @@ export type MutationUpdateFeedingRecordArgs = {
 };
 
 
+export type MutationUpdateFinanceCategoryArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateFinanceCategoryInput;
+};
+
+
+export type MutationUpdateFinanceEntryArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateFinanceEntryInput;
+};
+
+
+export type MutationUpdateFinanceSettingsArgs = {
+  input: UpdateFinanceSettingsInput;
+};
+
+
 export type MutationUpdateGoalArgs = {
   input: UpdateGoalInput;
 };
@@ -11995,6 +12336,18 @@ export type MutationUpdateHarvestRecordArgs = {
 export type MutationUpdateHealthEventArgs = {
   id: Scalars['ID']['input'];
   input: UpdateHealthEventInput;
+};
+
+
+export type MutationUpdateHrFinanceCategoryArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateHrFinanceCategoryInput;
+};
+
+
+export type MutationUpdateHrFinanceEntryArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateHrFinanceEntryInput;
 };
 
 
@@ -12068,6 +12421,11 @@ export type MutationUpdateParamEquipmentMappingArgs = {
 
 export type MutationUpdateParameterConfigArgs = {
   input: UpdateParameterConfigInput;
+};
+
+
+export type MutationUpdatePayrollCostSettingsArgs = {
+  input: UpdatePayrollCostSettingsInput;
 };
 
 
@@ -13229,6 +13587,19 @@ export type PayrollConnection = {
   totalPages: Scalars['Int']['output'];
 };
 
+export type PayrollCostSettings = {
+  createdAt: Scalars['DateTime']['output'];
+  defaultCurrency: Scalars['String']['output'];
+  id?: Maybe<Scalars['ID']['output']>;
+  medicalInsurancePct: Scalars['Float']['output'];
+  otherCostPct: Scalars['Float']['output'];
+  pensionFundPct: Scalars['Float']['output'];
+  socialInsurancePct: Scalars['Float']['output'];
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+};
+
 export type PayrollStatus =
   | 'APPROVED'
   | 'CANCELLED'
@@ -14360,6 +14731,16 @@ export type Query = {
   feedsByPelletSize: Array<FeedResponse>;
   feedsByType: Array<FeedResponse>;
   feedsForSpecies: Array<FeedResponse>;
+  /** Expense/revenue totals per batch (manual entries + derived costs) for a period. */
+  financeBatchTotals: Array<FinanceBatchTotal>;
+  /** Finance category catalogue (system defaults + user-defined), display order. */
+  financeCategories: Array<FinanceCategory>;
+  /** Unified finance ledger: MANUAL entries + DERIVED cost projections (feed, fingerlings, maintenance, treatments, harvest), newest first. `limit` is clamped to 200. */
+  financeLedger: Array<FinanceLineItem>;
+  /** Tenant finance settings (default currency SSoT + fiscal year start). */
+  financeSettings: FinanceSettings;
+  /** Aggregated finance summary for a period: totals, per-category breakdown (incl. computed rules like the 5% other-variable-cost line) and a time series at the requested granularity. */
+  financeSummary: FinanceSummary;
   generateBatchNumber: Scalars['String']['output'];
   getMobileUserSettings: MobileUserSettings;
   getMobileUsersSettings: Array<MobileUserSettings>;
@@ -14408,6 +14789,10 @@ export type Query = {
   hrDashboardStats: HrDashboardStats;
   hrDepartment: DepartmentHr;
   hrDepartments: Array<DepartmentHr>;
+  hrFinanceCategories: Array<HrFinanceCategory>;
+  hrFinanceEntries: Array<HrFinanceEntry>;
+  hrFinanceSummary: HrFinanceSummary;
+  hrLabourCost: HrLabourCost;
   /** Get a hydroponics configuration by ID */
   hydroponicsConfiguration: HydroponicsConfig;
   /** List hydroponics configurations */
@@ -14503,6 +14888,7 @@ export type Query = {
   parentDevice?: Maybe<ParentDeviceType>;
   parentDevices: SensorListType;
   payments: Array<Payment>;
+  payrollCostSettings: PayrollCostSettings;
   payrolls: PayrollConnection;
   pendingAttendanceApprovals: PendingAttendanceApprovalsConnection;
   pendingChannelProposals: Array<ChannelDetectionLog>;
@@ -15499,6 +15885,38 @@ export type QueryFeedsForSpeciesArgs = {
 };
 
 
+export type QueryFinanceBatchTotalsArgs = {
+  from: Scalars['DateTime']['input'];
+  to: Scalars['DateTime']['input'];
+};
+
+
+export type QueryFinanceCategoriesArgs = {
+  includeArchived?: Scalars['Boolean']['input'];
+  scope?: InputMaybe<FinanceCategoryScope>;
+};
+
+
+export type QueryFinanceLedgerArgs = {
+  batchId?: InputMaybe<Scalars['ID']['input']>;
+  categoryId?: InputMaybe<Scalars['ID']['input']>;
+  from?: InputMaybe<Scalars['DateTime']['input']>;
+  includeDerived?: Scalars['Boolean']['input'];
+  limit?: Scalars['Int']['input'];
+  offset?: Scalars['Int']['input'];
+  scope?: InputMaybe<FinanceCategoryScope>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+  to?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+
+export type QueryFinanceSummaryArgs = {
+  from: Scalars['DateTime']['input'];
+  granularity?: FinanceGranularity;
+  to: Scalars['DateTime']['input'];
+};
+
+
 export type QueryGetMobileUserSettingsArgs = {
   userId: Scalars['ID']['input'];
 };
@@ -15622,6 +16040,33 @@ export type QueryHrDepartmentArgs = {
 export type QueryHrDepartmentsArgs = {
   isDeleted?: InputMaybe<Scalars['Boolean']['input']>;
   siteId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type QueryHrFinanceCategoriesArgs = {
+  includeArchived?: Scalars['Boolean']['input'];
+};
+
+
+export type QueryHrFinanceEntriesArgs = {
+  categoryId?: InputMaybe<Scalars['ID']['input']>;
+  departmentHrId?: InputMaybe<Scalars['ID']['input']>;
+  from?: InputMaybe<Scalars['DateTime']['input']>;
+  limit?: Scalars['Int']['input'];
+  offset?: Scalars['Int']['input'];
+  to?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+
+export type QueryHrFinanceSummaryArgs = {
+  from: Scalars['DateTime']['input'];
+  granularity?: HrFinanceGranularity;
+  to: Scalars['DateTime']['input'];
+};
+
+
+export type QueryHrLabourCostArgs = {
+  year?: InputMaybe<Scalars['Int']['input']>;
 };
 
 
@@ -17117,11 +17562,23 @@ export type RecordEscapeIncidentInput = {
   batchId?: InputMaybe<Scalars['ID']['input']>;
   cause?: EscapeIncidentCause;
   causeDetails?: InputMaybe<Scalars['String']['input']>;
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
   /** When the escape was detected (ISO timestamp) */
   detectedAt: Scalars['String']['input'];
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
   estimatedCount: Scalars['Int']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
   recoveryOngoing?: Scalars['Boolean']['input'];
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
   siteId: Scalars['ID']['input'];
   speciesId: Scalars['ID']['input'];
   tankId?: InputMaybe<Scalars['ID']['input']>;
@@ -17168,13 +17625,25 @@ export type RecordLiceCountInput = {
   /** Attached lice (fastsittende lus), avg per fish */
   attachedLice: Scalars['Float']['input'];
   batchId?: InputMaybe<Scalars['ID']['input']>;
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
   /** Counting date (yyyy-mm-dd) */
   countDate: Scalars['String']['input'];
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
   /** Fish sampled (regulation: 10 or 20 per pen) */
   fishSampled: Scalars['Int']['input'];
   /** Mobile lice (bevegelige lus), avg per fish */
   mobileLice: Scalars['Float']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
   seaTemperatureC?: InputMaybe<Scalars['Float']['input']>;
   siteId: Scalars['ID']['input'];
   tankId: Scalars['ID']['input'];
@@ -17275,12 +17744,24 @@ export type RecordWelfareAssessmentInput = {
   /** Assessment date (yyyy-mm-dd) */
   assessedAt: Scalars['String']['input'];
   batchId?: InputMaybe<Scalars['ID']['input']>;
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
   deformityScore: Scalars['Int']['input'];
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
   finScore: Scalars['Int']['input'];
   fishSampled: Scalars['Int']['input'];
   /** 0 (healthy) .. 3 (severe) */
   gillScore: Scalars['Int']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
   siteId: Scalars['ID']['input'];
   tankId: Scalars['ID']['input'];
   woundScore: Scalars['Int']['input'];
@@ -20206,6 +20687,8 @@ export type TankBatchMetrics = {
   lastMortalityAt?: Maybe<Scalars['DateTime']['output']>;
   lastSamplingAt?: Maybe<Scalars['DateTime']['output']>;
   pieces?: Maybe<Scalars['Int']['output']>;
+  speciesId?: Maybe<Scalars['ID']['output']>;
+  speciesName?: Maybe<Scalars['String']['output']>;
 };
 
 export type TankCapacityInfo = {
@@ -21537,6 +22020,7 @@ export type UpdateEmployeeInput = {
   hireDate?: InputMaybe<Scalars['String']['input']>;
   id: Scalars['String']['input'];
   isFarmWorker?: InputMaybe<Scalars['Boolean']['input']>;
+  laborCategory?: InputMaybe<LaborCategory>;
   lastName?: InputMaybe<Scalars['String']['input']>;
   nationalId?: InputMaybe<Scalars['String']['input']>;
   position?: InputMaybe<Scalars['String']['input']>;
@@ -21711,6 +22195,27 @@ export type UpdateFeedingRecordInput = {
   notes?: InputMaybe<Scalars['String']['input']>;
   verifiedBy?: InputMaybe<Scalars['ID']['input']>;
   wasteAmount?: InputMaybe<Scalars['Float']['input']>;
+};
+
+export type UpdateFinanceCategoryInput = {
+  displayOrder?: InputMaybe<Scalars['Int']['input']>;
+  name?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type UpdateFinanceEntryInput = {
+  amount?: InputMaybe<Scalars['Float']['input']>;
+  batchId?: InputMaybe<Scalars['ID']['input']>;
+  categoryId?: InputMaybe<Scalars['ID']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  entryDate?: InputMaybe<Scalars['String']['input']>;
+  periodEnd?: InputMaybe<Scalars['String']['input']>;
+  periodStart?: InputMaybe<Scalars['String']['input']>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type UpdateFinanceSettingsInput = {
+  defaultCurrency?: InputMaybe<Scalars['String']['input']>;
+  fiscalYearStartMonth?: InputMaybe<Scalars['Int']['input']>;
 };
 
 export type UpdateGoalInput = {
@@ -21924,6 +22429,20 @@ export type UpdateHealthEventInput = {
   withdrawalPeriodDays?: InputMaybe<Scalars['Int']['input']>;
 };
 
+export type UpdateHrFinanceCategoryInput = {
+  displayOrder?: InputMaybe<Scalars['Int']['input']>;
+  name?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type UpdateHrFinanceEntryInput = {
+  amount?: InputMaybe<Scalars['Float']['input']>;
+  categoryId?: InputMaybe<Scalars['ID']['input']>;
+  departmentHrId?: InputMaybe<Scalars['ID']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  employeeId?: InputMaybe<Scalars['ID']['input']>;
+  entryDate?: InputMaybe<Scalars['String']['input']>;
+};
+
 export type UpdateHydroponicsConfigInput = {
   configName?: InputMaybe<Scalars['String']['input']>;
   id: Scalars['ID']['input'];
@@ -22019,15 +22538,24 @@ export type UpdateMeterReadingInput = {
 };
 
 export type UpdateMobileUserSettingsInput = {
+  attendance?: InputMaybe<Scalars['Boolean']['input']>;
   cull?: InputMaybe<Scalars['Boolean']['input']>;
+  escape?: InputMaybe<Scalars['Boolean']['input']>;
   feeding?: InputMaybe<Scalars['Boolean']['input']>;
   harvest?: InputMaybe<Scalars['Boolean']['input']>;
   isMobileEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  leave?: InputMaybe<Scalars['Boolean']['input']>;
+  liceCount?: InputMaybe<Scalars['Boolean']['input']>;
   mortality?: InputMaybe<Scalars['Boolean']['input']>;
+  reports?: InputMaybe<Scalars['Boolean']['input']>;
+  schedule?: InputMaybe<Scalars['Boolean']['input']>;
   storage?: InputMaybe<Scalars['Boolean']['input']>;
   tankView?: InputMaybe<Scalars['Boolean']['input']>;
+  tasks?: InputMaybe<Scalars['Boolean']['input']>;
+  transfer?: InputMaybe<Scalars['Boolean']['input']>;
   userId: Scalars['ID']['input'];
   waterQuality?: InputMaybe<Scalars['Boolean']['input']>;
+  welfare?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 export type UpdateMyProfileInput = {
@@ -22119,6 +22647,13 @@ export type UpdateParameterConfigInput = {
   warningMax?: InputMaybe<Scalars['Float']['input']>;
   /** Warning minimum value */
   warningMin?: InputMaybe<Scalars['Float']['input']>;
+};
+
+export type UpdatePayrollCostSettingsInput = {
+  medicalInsurancePct?: InputMaybe<Scalars['Float']['input']>;
+  otherCostPct?: InputMaybe<Scalars['Float']['input']>;
+  pensionFundPct?: InputMaybe<Scalars['Float']['input']>;
+  socialInsurancePct?: InputMaybe<Scalars['Float']['input']>;
 };
 
 export type UpdatePlanEntryInput = {

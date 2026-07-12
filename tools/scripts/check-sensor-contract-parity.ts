@@ -58,6 +58,11 @@ const EXPECTED_FIXTURES = [
     "deploy-process.json",
     "deploy-program.json",
     "deploy-scada-package.json",
+    // CONTRACT-H-002 tolerance pin: raw params FAIL the strict TS publish
+    // schema (staticText) yet still PARSE on the Rust side (Unknown bucket)
+    // — the parity expectation is deliberately asymmetric for this one.
+    "deploy-scada-package-unsupported-widget.json",
+    "undeploy-scada-package.json",
 ];
 
 function info(msg: string): void {

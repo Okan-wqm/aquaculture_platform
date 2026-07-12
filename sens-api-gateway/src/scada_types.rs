@@ -78,6 +78,12 @@ pub enum ScreenType {
     Trends,
     Alarms,
     Control,
+    /// Forward-compat (CONTRACT-H-002): a screen type this firmware does
+    /// not know renders as a plain dashboard instead of failing the whole
+    /// package deserialization (pre-transform artifacts can carry free
+    /// strings here).
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -136,6 +142,15 @@ pub enum WidgetType {
     CalibrationStatus,
     // Composite widgets
     ProcessView,
+    /// Forward-compat (CONTRACT-H-002): any widget type this firmware does
+    /// not know deserializes here instead of failing the WHOLE package
+    /// (one unknown string used to make the package undeployable). The
+    /// deploy handler counts + logs Unknowns; the renderer skips them.
+    /// The cloud's publish-boundary transform strips/rejects unsupported
+    /// types up front, so this bucket only fills for rollbacks of
+    /// pre-transform artifacts or a newer cloud talking to older firmware.
+    #[serde(other)]
+    Unknown,
 }
 
 // ---------------------------------------------------------------------------
@@ -358,4 +373,74 @@ pub struct PinSession {
     pub valid_until: chrono::DateTime<chrono::Utc>,
     pub failed_attempts: u32,
     pub lockout_until: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+// ---------------------------------------------------------------------------
+// Tests — forward-compat widget/screen type tolerance (CONTRACT-H-002)
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod widget_type_tolerance_tests {
+    use super::*;
+
+    #[test]
+    fn unknown_widget_type_deserializes_to_unknown_not_error() {
+        let widget: Widget = serde_json::from_value(serde_json::json!({
+            "id": "w1",
+            "widgetType": "staticText",
+            "position": { "col": 0, "row": 0, "w": 1, "h": 1 },
+            "config": {}
+        }))
+        .expect("an unknown widget type must not fail widget deserialization");
+        assert!(matches!(widget.widget_type, WidgetType::Unknown));
+    }
+
+    #[test]
+    fn every_edge_supported_type_parses_without_falling_to_unknown() {
+        // camelCase mirror of EDGE_SUPPORTED_WIDGET_TYPES
+        // (libs/sensor-contracts/src/scada-package-doc/edge-widget-support.ts).
+        // A rename on either side lands here or in the fixture parity test.
+        const SUPPORTED: [&str; 16] = [
+            "gauge",
+            "numericDisplay",
+            "statusIndicator",
+            "tankLevel",
+            "trendChart",
+            "alarmBanner",
+            "alarmList",
+            "toggleSwitch",
+            "slider",
+            "numericInput",
+            "pushButton",
+            "emergencyStop",
+            "calibrationWizard",
+            "calibrationHistory",
+            "calibrationStatus",
+            "processView",
+        ];
+        for name in SUPPORTED {
+            let widget: Widget = serde_json::from_value(serde_json::json!({
+                "id": "w",
+                "widgetType": name,
+                "config": {}
+            }))
+            .unwrap_or_else(|e| panic!("{name} must parse as a Widget: {e}"));
+            assert!(
+                !matches!(widget.widget_type, WidgetType::Unknown),
+                "{name} is edge-supported but fell into WidgetType::Unknown"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_screen_type_deserializes_to_unknown_not_error() {
+        let screen: Screen = serde_json::from_value(serde_json::json!({
+            "id": "s1",
+            "name": "Legacy",
+            "screenType": "somethingNew",
+            "widgets": []
+        }))
+        .expect("an unknown screen type must not fail screen deserialization");
+        assert!(matches!(screen.screen_type, ScreenType::Unknown));
+    }
 }

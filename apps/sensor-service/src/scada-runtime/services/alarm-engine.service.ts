@@ -35,7 +35,15 @@
  */
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { randomUUID } from 'crypto';
+
+import {
+  SCADA_ALARM_ACK_EVENT,
+  SCADA_ALARM_ACK_ALL_EVENT,
+  type AlarmAckRequest,
+  type AlarmAckAllRequest,
+} from './alarm-ack.events';
 
 import type {
   AlarmRuleRuntime,
@@ -184,6 +192,16 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
       );
     }
     return this.tenantId;
+  }
+
+  /**
+   * The tenant this (currently single-tenant, RT-011) runtime evaluates for
+   * (SENSOR-HIGH-053 public accessor). Delegates to requireTenant() so an
+   * unbound engine fails closed instead of leaking a 'default' tenant — the
+   * exact cross-tenant hazard DB-SENSOR-CRITICAL-001 removed.
+   */
+  getTenantId(): string {
+    return this.requireTenant();
   }
 
   /* ---------------------------------------------------------------- */
@@ -410,6 +428,18 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
   /*  Public ACK methods                                                */
   /* ---------------------------------------------------------------- */
 
+  /** Operator acknowledged a single alarm (from the SCADA gateway). */
+  @OnEvent(SCADA_ALARM_ACK_EVENT)
+  async handleAlarmAckEvent(req: AlarmAckRequest): Promise<void> {
+    await this.acknowledgeAlarm(req.alarmInstanceId, req.userId);
+  }
+
+  /** Operator acknowledged all alarms (from the SCADA gateway). */
+  @OnEvent(SCADA_ALARM_ACK_ALL_EVENT)
+  async handleAlarmAckAllEvent(req: AlarmAckAllRequest): Promise<void> {
+    await this.acknowledgeAll(req.userId);
+  }
+
   async acknowledgeAlarm(alarmId: string, userId: string): Promise<void> {
     const now = Date.now();
     let found = false;
@@ -587,7 +617,10 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
             const tagId = String(action.params['tagId'] ?? '');
             const value = action.params['value'];
             if (tagId && value !== undefined) {
-              this.tagManager.writeTagValue(tagId, value, 'alarm-engine');
+              // Fail-closed tenant binding (DB-SENSOR-CRITICAL-001): an alarm
+              // action can only fire on an engine already evaluating for a
+              // bound tenant — never a raw/unbound tenantId.
+              this.tagManager.writeTagValue(tagId, value, 'alarm-engine', this.requireTenant());
             }
             break;
           }

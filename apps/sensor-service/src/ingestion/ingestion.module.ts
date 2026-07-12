@@ -11,6 +11,7 @@ import { SensorReading } from '../database/entities/sensor-reading.entity';
 import { Sensor } from '../database/entities/sensor.entity';
 import { EdgeDeviceModule } from '../edge-device/edge-device.module';
 import { ReleaseBundleModule } from '../release-bundle/release-bundle.module';
+import { ScadaRuntimeModule } from '../scada-runtime/scada-runtime.module';
 
 import { BatchProcessorService } from './batch-processor.service';
 import { DataIngestionService } from './data-ingestion.service';
@@ -31,6 +32,9 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     ProcessModule, // For ScadaDeployLogService in MQTT response handling
     ReleaseBundleModule, // Faz 5 — bundle ack transitions in MQTT response handling
     SensorServiceConfigModule, // ADR-022 — exports SensorServiceProfileService
+    // Live-data producer (SENSOR-HIGH-046): TagValueFanoutService bridges
+    // ingested metrics onto the /scada gateway's tenant-fenced fan-out.
+    ScadaRuntimeModule,
   ],
   providers: [
     BatchProcessorService,

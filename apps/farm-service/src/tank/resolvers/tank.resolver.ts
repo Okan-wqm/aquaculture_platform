@@ -27,6 +27,7 @@ import {
   IStandardPaginatedResult,
 } from '@aquaculture/backend-common/pagination';
 import { Tank } from '../entities/tank.entity';
+import { Batch } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Department } from '../../department/entities/department.entity';
 import { CreateTankInput } from '../dto/create-tank.dto';
@@ -124,6 +125,18 @@ export class TankBatchMetrics {
   @Field({ nullable: true })
   batchId?: string;
 
+  /**
+   * Primary batch species (FARM-HIGH-214): mobile field capture needs the
+   * species without a second round-trip — escape incidents are recorded
+   * against the species actually stocked in the pen. Sourced from the
+   * TankBatch batchDetails ledger (the tank-composition SSoT), never guessed.
+   */
+  @Field(() => ID, { nullable: true })
+  speciesId?: string;
+
+  @Field({ nullable: true })
+  speciesName?: string;
+
   @Field(() => Int, { nullable: true })
   pieces?: number;
 
@@ -174,6 +187,11 @@ export class TankResolver {
     private readonly tankBatchRepository: Repository<TankBatch>,
     @InjectRepository(Department)
     private readonly departmentRepository: Repository<Department>,
+    // FARM-HIGH-214: species enrichment for batchMetrics — resolved from the
+    // batch row (batches_v2.speciesId is the species SSoT), never duplicated
+    // into the tank-composition jsonb ledger.
+    @InjectRepository(Batch)
+    private readonly batchRepository: Repository<Batch>,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -356,9 +374,25 @@ export class TankResolver {
       daysSinceStocking = Math.floor((now.getTime() - stocked.getTime()) / (1000 * 60 * 60 * 24));
     }
 
+    // FARM-HIGH-214: species of the primary batch from the batch row —
+    // batches_v2.speciesId is the species SSoT (the composition jsonb ledger
+    // deliberately does not duplicate it for production batches).
+    let speciesId: string | undefined;
+    let speciesName: string | undefined;
+    if (tankBatch.primaryBatchId) {
+      const primaryBatch = await this.batchRepository.findOne({
+        where: { tenantId: tank.tenantId, id: tankBatch.primaryBatchId },
+        relations: ['species'],
+      });
+      speciesId = primaryBatch?.speciesId ?? undefined;
+      speciesName = primaryBatch?.species?.commonName ?? undefined;
+    }
+
     return {
       batchNumber: tankBatch.primaryBatchNumber,
       batchId: tankBatch.primaryBatchId,
+      speciesId,
+      speciesName,
       // COUNT SSoT read (DB-FARMPROD-HIGH-001): the fish count is `totalQuantity`,
       // derived from batchDetails[] by the single writer (TankBatchService).
       // Reading it directly — not the redundant currentQuantity mirror — is what

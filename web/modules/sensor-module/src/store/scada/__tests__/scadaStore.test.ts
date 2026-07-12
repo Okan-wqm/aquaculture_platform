@@ -821,9 +821,16 @@ describe('ScadaStore', () => {
       expect(store.getState().isDirty).toBe(true);
     });
 
-    it('setTargetDeviceId does not mark dirty', () => {
+    it('setTargetDeviceId marks dirty so the choice persists on save (UI-006)', () => {
       store.getState().setTargetDeviceId('dev-1');
       expect(store.getState().targetDeviceId).toBe('dev-1');
+      expect(store.getState().isDirty).toBe(true);
+    });
+
+    it('setTargetDeviceId to the same value does not re-dirty', () => {
+      store.getState().setTargetDeviceId('dev-1');
+      store.getState().markClean();
+      store.getState().setTargetDeviceId('dev-1');
       expect(store.getState().isDirty).toBe(false);
     });
 

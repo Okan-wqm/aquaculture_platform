@@ -158,11 +158,22 @@ export class TagSubscriptionManager {
 
   /**
    * Reset all state (e.g. on provider teardown).
+   *
+   * The /scada socket is a shared singleton that stays connected across a
+   * provider unmount (it is torn down only on logout / tenant switch), so we
+   * MUST tell the server to drop every tag we still hold active before clearing
+   * local tracking. Otherwise a provider teardown strands those subscriptions
+   * server-side — the server keeps streaming tags no client wants (RT-010). If
+   * the socket is already gone (logout teardown) the emit is a harmless no-op.
    */
   reset(): void {
     if (this.debounceTimer !== null) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
+    }
+    const active = Array.from(this.activeServerTags);
+    if (active.length > 0) {
+      this.onFlush([], active);
     }
     this.componentTags.clear();
     this.tagRefCounts.clear();

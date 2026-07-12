@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 
 import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, Inject, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, ILike } from 'typeorm';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
@@ -31,6 +32,19 @@ import { TagResolutionService } from './tag-resolution.service';
 export class ProcessService {
   private readonly logger = new Logger(ProcessService.name);
 
+  /**
+   * Deploy tag-gate mode (WF-003 / SENSOR-HIGH-051). `enforce` blocks a deploy
+   * whose tag mappings do not fully resolve against the registry; the default
+   * `warn` only logs, so tenants whose registry is not yet populated keep
+   * deploying while ops flips the flag per environment after backfill.
+   * Config rides through Nest ConfigService (config-env-access-ratchet);
+   * without a ConfigService (slim test modules) the gate stays at `warn`.
+   */
+  private isDeployTagGateEnforced(): boolean {
+    const mode = this.configService?.get<string>('SCADA_DEPLOY_TAG_GATE') ?? 'warn';
+    return mode.toLowerCase() === 'enforce';
+  }
+
   constructor(
     @InjectRepository(Process)
     private readonly processRepository: Repository<Process>,
@@ -52,6 +66,9 @@ export class ProcessService {
     @Optional()
     @Inject(DeploySigningService)
     private readonly deploySigningService: DeploySigningService | null,
+    @Optional()
+    @Inject(ConfigService)
+    private readonly configService: ConfigService | null,
   ) {}
 
   /**
@@ -326,6 +343,15 @@ export class ProcessService {
     // 1. Process'i yükle
     const process = await this.getProcessOrFail(processId, tenantId);
 
+    // A soft-deleted (ARCHIVED) process must never be pushed to a device —
+    // deploy runs physical hardware, so a deleted process reaching the edge is
+    // a state-machine violation, not a recoverable warning.
+    if (process.status === ProcessStatus.ARCHIVED) {
+      throw new BadRequestException(
+        `Process ${processId} is archived (deleted) and cannot be deployed`,
+      );
+    }
+
     // 2. Edge device service kontrolü
     if (!this.edgeDeviceService) {
       throw new BadRequestException('Edge device service not available');
@@ -368,16 +394,19 @@ export class ProcessService {
       }
     }
 
-    // 5. Tag SSoT raporu (Faz 1, warn-only): her tag mapping'i
+    // 5. Tag SSoT gate (WF-003 / SENSOR-HIGH-051): her tag mapping'i
     // `${deviceCode}/${tagName}` olarak unified_tags registry'sine karşı çöz.
-    // Çözülemeyenler logla — bloklamaz; Faz 4 bunu deploy gate'ine çevirir.
+    // SCADA_DEPLOY_TAG_GATE=enforce iken çözülmeyen mapping deploy'u BLOKLAR;
+    // warn modunda (default — registry'si dolmamış tenant'lar) yalnız loglar.
     if (this.tagResolutionService && tagMappings.length > 0) {
       const refs = tagMappings.map((tm) => `${device.deviceCode}/${tm.tagName}`);
       const resolution = await this.tagResolutionService.resolve(tenantId, refs);
       if (resolution.unresolved.length > 0) {
-        this.logger.warn(
-          `deploy_process ${processId}: ${resolution.unresolved.length}/${refs.length} tag mapping registry'de çözülemedi: ${JSON.stringify(resolution.unresolved)}`,
-        );
+        const detail = `deploy_process ${processId}: ${resolution.unresolved.length}/${refs.length} tag mapping çözülemedi: ${JSON.stringify(resolution.unresolved)}`;
+        if (this.isDeployTagGateEnforced()) {
+          throw new BadRequestException(`${detail} — deploy engellendi (SCADA_DEPLOY_TAG_GATE=enforce)`);
+        }
+        this.logger.warn(detail);
       }
     }
 

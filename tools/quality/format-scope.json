@@ -4373,6 +4373,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/migrations/1805300000000-AddMobileFeatureFlagDefaults.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/announcement/__tests__/announcement.service.spec.ts",
       "prettier_managed": true
     },
@@ -9069,6 +9075,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1805200000000-AddFarmStockBatchSnapshotSpecies.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -10978,6 +10990,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/fish-health/__tests__/treatment-application.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/__tests__/welfare-assessment.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -22727,6 +22745,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1806000000000-ScadaPackageProcessUnique.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1806100000000-CreateScadaTagHistory.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1806200000000-AddUndeployScadaDeployStatuses.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/deploy-artifact/__tests__/artifact-immutability.spec.ts",
       "prettier_managed": true
     },
@@ -23357,6 +23393,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/process/dto/__tests__/tag-fqn-grammar.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/process/dto/process.dto.ts",
       "prettier_managed": true
     },
@@ -23411,6 +23453,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/process/resolvers/__tests__/resolve-tag-refs-bound.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/process/resolvers/process.resolver.ts",
       "prettier_managed": true
     },
@@ -23423,7 +23471,61 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/process/services/__tests__/deploy-archived-guard.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/process/services/__tests__/deploy-edge-widget-boundary.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/process/services/__tests__/deploy-tag-gate.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/process/services/__tests__/discover-tags-zero-limits.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/process/services/__tests__/pin-control-security.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/process/services/__tests__/scada-package-backfill.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/process/services/__tests__/scada-package-undeploy-on-delete.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/process/services/__tests__/scada-package-update-status.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/process/services/__tests__/tag-lifecycle.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/process/services/pin-hash.util.ts",
       "prettier_managed": true
     },
     {
@@ -23849,7 +23951,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/scada-runtime/__tests__/scada-runtime-module-mounted.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/scada-runtime/__tests__/tag-subscription-tenant-isolation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/scada-runtime/__tests__/tag-value-fanout.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/scada-runtime/__tests__/tag-write-tenant-gate.spec.ts",
       "prettier_managed": true
     },
     {
@@ -23903,6 +24023,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/scada-runtime/services/alarm-ack.events.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/scada-runtime/services/alarm-engine.service.ts",
       "prettier_managed": true
     },
@@ -23946,6 +24072,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/scada-runtime/services/tag-manager.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/scada-runtime/services/tag-value-fanout.service.ts",
       "prettier_managed": true
     },
     {
@@ -31333,6 +31465,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/infra-expert/2026-07-06-tenant-schema-grant-incident.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/infra/2026-06-30-farm-canary-masked-rejection.md",
       "prettier_managed": true
     },
@@ -31676,6 +31814,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/sensor-expert/2026-04-10-full-repo-audit.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/sensor-expert/2026-07-11-unified-scada-editor-audit.md",
       "prettier_managed": true
     },
     {
@@ -34477,6 +34621,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/database/tenant-schema-privileges.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/tenant-schema-privileges.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/database/tenant-schema-sync.service.ts",
       "prettier_managed": true
     },
@@ -36757,7 +36913,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/sensor-contracts/fixtures/deploy-scada-package-unsupported-widget.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/sensor-contracts/fixtures/deploy-scada-package.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/sensor-contracts/fixtures/undeploy-scada-package.json",
       "prettier_managed": true
     },
     {
@@ -36787,6 +36955,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/sensor-contracts/src/__tests__/edge-deploy-transform.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/sensor-contracts/src/__tests__/package-doc-upcaster.spec.ts",
       "prettier_managed": true
     },
@@ -36800,6 +36974,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/sensor-contracts/src/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/sensor-contracts/src/scada-package-doc/edge-deploy-transform.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/sensor-contracts/src/scada-package-doc/edge-scada-package-doc.schema.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/sensor-contracts/src/scada-package-doc/edge-widget-support.ts",
       "prettier_managed": true
     },
     {
@@ -36854,6 +37046,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/sensor-contracts/src/schemas/tag-ref.schema.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/sensor-contracts/src/schemas/undeploy-scada-package.schema.ts",
       "prettier_managed": true
     },
     {
@@ -41590,7 +41788,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "bd9b4851cc04864126033e10c2e37b9e670e3d52d3dd9955e7e28f54896e9450",
+      "content_sha256": "7976e50ab44a049f65010f5e080282e0332d1580879ad54c95de29f37dbce165",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/apps/aquamobil/src/generated/graphql.ts",
@@ -42046,6 +42244,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/escape/__tests__/EscapeIncidentPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/escape/EscapeIncidentPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/pages/feeding/__tests__/RecordFeedingPage.spec.tsx",
       "prettier_managed": true
     },
@@ -42089,6 +42299,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/pages/leave/MyLeavesPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/lice/__tests__/LiceCountPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/lice/LiceCountPage.tsx",
       "prettier_managed": true
     },
     {
@@ -42196,6 +42418,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/reports/__tests__/ReportsDuePage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/reports/ReportReviewPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/reports/ReportsDuePage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/pages/schedule/MySchedulePage.tsx",
       "prettier_managed": true
     },
@@ -42263,6 +42503,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/pages/water-quality/WaterQualityRecordPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/welfare/WelfareScorePage.tsx",
       "prettier_managed": true
     },
     {
@@ -46599,6 +46845,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/__tests__/edge-widget-support.invariant.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/__tests__/modbus-function-codes.test.ts",
       "prettier_managed": true
     },
@@ -46606,6 +46858,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/__tests__/no-legacy-scada-data-plane.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/__tests__/palette-parity.spec.ts",
       "prettier_managed": true
     },
     {
@@ -48921,6 +49179,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/components/unified-editor/HmiPropertiesPanel.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/components/unified-editor/json-bundle/bundle.utils.ts",
       "prettier_managed": true
     },
@@ -48999,12 +49263,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/modules/sensor-module/src/components/unified-editor/screenTemplates.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "web/modules/sensor-module/src/components/unified-editor/st-language-enhanced.ts",
       "prettier_managed": true
     },
@@ -49036,12 +49294,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/components/unified-editor/UnifiedPropertiesPanel.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/modules/sensor-module/src/components/unified-editor/WidgetDropHandler.ts",
       "prettier_managed": true
     },
     {
@@ -49611,6 +49863,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/hooks/__tests__/useRealtimeData.subscription-id.test.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/hooks/__tests__/useStEditor.persistence.test.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/hooks/socketFactory.ts",
       "prettier_managed": true
     },
@@ -50103,6 +50367,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/pages/tags/__tests__/TagRegistryPage.test.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/pages/tags/TagRegistryPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/pages/ThresholdsPage.tsx",
       "prettier_managed": true
     },
@@ -50283,7 +50559,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/services/__tests__/ScadaSocketService.heartbeat.test.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/services/__tests__/ScadaSocketService.tenant-isolation.test.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/services/__tests__/TagSubscriptionManager.reset.test.ts",
       "prettier_managed": true
     },
     {
@@ -50362,6 +50650,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/simulation/useSimulation.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/store/__tests__/processStore.dirty-tracking.test.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/store/__tests__/scada-tenant-reset.test.ts",
       "prettier_managed": true
     },
     {
@@ -51740,7 +52040,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "cfeda1d56cac599edffcdc795db7fc2ddecb24058c0bfeedcabc5a46767dc907",
+      "content_sha256": "c44a3bad7c790430aaaa64417908091c3b96bab1b8cbe9b04637c773d8437876",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",
@@ -52410,10 +52710,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8589,
+  "file_count": 8639,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8414,
-  "managed_file_list_sha256": "fe386601dde7580ad76049bc2322960c4f46c257eab35a42a302450d9cd5f364",
+  "managed_count": 8464,
+  "managed_file_list_sha256": "912392ac64f098e6e482bdf81f46564ba896a9b6f2f08fd37c7cbe890bfea834",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -330,7 +330,7 @@ export class ImpersonationService implements OnModuleInit {
     totalSessions: number;
     activePermissions: number;
     topAdmins: Array<{ adminId: string; email: string; sessionCount: number }>;
-    recentSessions: ImpersonationSession[];
+    recentSessions: SafeImpersonationSession[];
   }> {
     const [activeSessions, totalSessions, activePermissions, topAdminsRaw, recentSessions] =
       await Promise.all([
@@ -362,7 +362,8 @@ export class ImpersonationService implements OnModuleInit {
         email: r.email || 'Unknown',
         sessionCount: parseInt(r.sessionCount, 10) || 0,
       })),
-      recentSessions,
+      // DB-ADMIN-HIGH-002: the stats read path must not serialize token columns.
+      recentSessions: recentSessions.map(toSafeImpersonationSession),
     };
   }
 
@@ -571,7 +572,7 @@ export class ImpersonationService implements OnModuleInit {
     sessionId: string,
     endReason?: string,
     endedBy?: string,
-  ): Promise<ImpersonationSession> {
+  ): Promise<SafeImpersonationSession> {
     const session = await this.sessionRepo.findOne({ where: { id: sessionId } });
     if (!session) {
       throw new NotFoundException(`Session not found: ${sessionId}`);
@@ -617,14 +618,16 @@ export class ImpersonationService implements OnModuleInit {
 
     this.logger.log(`Ended impersonation session: ${sessionId}`);
 
-    return saved;
+    // DB-ADMIN-HIGH-002: the end response is session state, not a credential
+    // channel — strip the stored token columns like every other response path.
+    return toSafeImpersonationSession(saved);
   }
 
   async terminateSession(
     sessionId: string,
     terminatedBy: string,
     reason: string,
-  ): Promise<ImpersonationSession> {
+  ): Promise<SafeImpersonationSession> {
     const session = await this.sessionRepo.findOne({ where: { id: sessionId } });
     if (!session) {
       throw new NotFoundException(`Session not found: ${sessionId}`);
@@ -658,7 +661,8 @@ export class ImpersonationService implements OnModuleInit {
 
     this.logger.warn(`Terminated impersonation session: ${sessionId} - ${reason}`);
 
-    return saved;
+    // DB-ADMIN-HIGH-002: never echo the stored token columns on the terminate response.
+    return toSafeImpersonationSession(saved);
   }
 
   /**
@@ -669,7 +673,7 @@ export class ImpersonationService implements OnModuleInit {
     sessionId: string,
     additionalMinutes: number,
     extendedBy: string,
-  ): Promise<ImpersonationSession> {
+  ): Promise<SafeImpersonationSession> {
     const session = await this.sessionRepo.findOne({ where: { id: sessionId } });
     if (!session) {
       throw new NotFoundException(`Session not found: ${sessionId}`);
@@ -747,7 +751,8 @@ export class ImpersonationService implements OnModuleInit {
       `Extended impersonation session ${sessionId} by ${additionalMinutes} minutes`,
     );
 
-    return saved;
+    // DB-ADMIN-HIGH-002: never echo the stored token columns on the extend response.
+    return toSafeImpersonationSession(saved);
   }
 
   private async endAllSessionsForAdmin(adminId: string, reason: string): Promise<void> {

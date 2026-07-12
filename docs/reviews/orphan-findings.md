@@ -6505,3 +6505,20 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 **Also settles the shared.audit_logs=0 question ([[ORPHAN-INFO-363]]):** live `pg_policies` shows `shared.audit_logs` ALREADY carries `infra_ledger_append`/`infra_ledger_read` — its writes work; 0 rows is genuinely low activity (no audited billing op in this E2E tenant). The "benign" verdict stands at the RLS layer too.
 **Validation:** `infrastructure-ledger-ssot` + `rls-exclude-tables-ssot` + `rls-predicate-canonical` + `protected-tables-guard` + `shared-schema-canonical` 17/17; helper verified to DROP the old policy (`infrastructure-ledger-rls.helper.ts:177`). **Post-deploy check (rides this release):** `SELECT count(*) FROM shared.access_logs` > 0 after any HTTP request, and gateway logs free of `ACCESS_LOG_FAILURE`.
 **Owner:** auth-security / data-expert. **Deadline:** SSoT line landed this PR; live policy swap + row-growth verification on this PR's deploy.
+
+## ORPHAN-HIGH-368 — event-store crypto-shred rollout Step 2: wire `shred()` into the tenant-erasure handler (design-doc rollout #2) — IN PROGRESS (parallel lane)
+
+**Scope:** `docs/plans/2026-07-12-event-store-crypto-shred-design.md` rollout step 2 (the only step the platform owner approved for this initiative; steps 3-4 stay a separate security-review initiative). Add a `TenantPayloadCryptoService.shred(tenantId)` step to event-store's tenant-erasure execution (proof-carrying, idempotent — `shred` is already idempotent+tenant-scoped per its 6/6 spec). Only affects erased tenants; the live append/read path is untouched (crypto stays inert there).
+**Owner:** security-architecture / data-expert. **Deadline:** this parallel-lane PR; updated to RESOLVED on merge.
+
+## ORPHAN-HIGH-369 — farm_documents DROP (FARMPLAT-HIGH-001; owner decision: drop) — IN PROGRESS (parallel lane)
+
+**Scope:** platform owner chose DROP over wire ([[ORPHAN-HIGH-356]] item 2; live DB: 0 rows). Remove the orphan DMS: `document/` domain dir (entity+module), farm_documents references in `common/file-cleanup/*` + scheduler cron wiring, `MODULE_SCHEMAS['farm']` registration if present, and a NEW drop migration (never edit `CreateFarmDocuments` — immutability) with a 0-row guard (ABORT if any environment has data) + tenant-fanout drop across tenant schemas.
+**Owner:** farm-expert. **Deadline:** this parallel-lane PR; updated to RESOLVED on merge.
+
+## ORPHAN-HIGH-370 — admin-panel P2 contract repairs: impersonation FE rename + tenant list tier/counts (DB-ADMIN-HIGH-001/005) — IN PROGRESS (parallel lane)
+
+**Scope (evidence in [[ORPHAN-HIGH-360]] + the plan's Faz 4):**
+- HIGH-001: rename the FE impersonation types to the backend `SafeImpersonationSession` contract — surface is ONE page (`ImpersonationPage.tsx`) + `services/api/impersonation.ts` + `services/types/impersonation.ts`; status `'revoked'→'terminated'`; UI's numeric `actionsPerformed` → `actionCount`; DELETE unused `sessionToken`/`originalUserId`/`lastActivityAt` from the FE types (sessionToken must never be expected on reads — HIGH-002).
+- HIGH-005: `ListTenantsHandler` maps to the existing `TenantListItemDto` with `tier` (from `plan`) and `farmCount`/`sensorCount` via ONE batched round-trip (single SQL across the page's tenant schemas with information_schema existence guards — the batched form of `countTenantResource`; no per-row N+1).
+**Owner:** admin-expert. **Deadline:** this parallel-lane PR; updated to RESOLVED on merge.

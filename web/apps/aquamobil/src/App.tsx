@@ -10,6 +10,7 @@ import { useSwNavigation } from './hooks/useSwNavigation';
 import { MobileLayout } from './layouts/MobileLayout';
 import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/LoginPage';
+import { NotFoundPage } from './pages/NotFoundPage';
 import { isFeatureAccessible } from './utils/feature-access';
 
 /**
@@ -545,7 +546,10 @@ export function App(): ReactElement {
                       />
                       <Route path="/sync" element={<SyncStatusPage />} />
 
-                      <Route path="*" element={<Navigate to="/" replace />} />
+                      {/* MOB-LOW-001: unknown paths render a 404 page instead of a
+                          silent redirect home — broken deep links stay observable
+                          (BUG-16 was hidden by the old catch-all). */}
+                      <Route path="*" element={<NotFoundPage />} />
                       </Routes>
                     </Suspense>
                   </ErrorBoundary>

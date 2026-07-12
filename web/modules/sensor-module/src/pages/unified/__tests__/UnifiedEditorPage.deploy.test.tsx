@@ -31,7 +31,7 @@ const spies = vi.hoisted(() => ({
   updatePkg: vi.fn(async () => ({ id: 'pkg-1' })),
   createProcess: vi.fn(async () => ({ success: true, process: { id: 'proc-1' } })),
   updateProcess: vi.fn(async () => ({ success: true })),
-  getProcess: vi.fn(async () => ({ id: 'proc-1', name: 'Test Proc', nodes: [], edges: [] })),
+  getProcess: vi.fn(async () => ({ id: 'proc-1', name: 'Test Proc', status: 'draft', nodes: [], edges: [] })),
   linkedPackages: [] as Array<{ id: string; processId?: string; packageData: unknown }>,
   routeProcessId: 'proc-1',
 }));
@@ -367,6 +367,72 @@ describe('UnifiedEditorPage — 6b consolidation', () => {
     expect(spies.deployScada).not.toHaveBeenCalled();
   });
 
+  it('(WF-004) loading an existing process leaves the editor CLEAN', async () => {
+    render(<UnifiedEditorPage />);
+    fireCanvasReady();
+    await waitFor(() => expect(useProcessStore.getState().processId).toBe('proc-1'));
+
+    expect(useProcessStore.getState().isDirty).toBe(false);
+    expect(screen.queryByText('Unsaved')).toBeNull();
+    const saveBtn = screen.getByText('Save');
+    expect((saveBtn.closest('button') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('(WF-004) a user canvas edit (canvasEdited) dirties the process and enables Save', async () => {
+    render(<UnifiedEditorPage />);
+    fireCanvasReady();
+    await waitFor(() => expect(useProcessStore.getState().processId).toBe('proc-1'));
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: window.location.origin,
+          data: { type: 'canvasEdited', source: 'process-editor-canvas', data: { plane: 'nodes' } },
+        }),
+      );
+    });
+
+    await waitFor(() => expect(useProcessStore.getState().isDirty).toBe(true));
+    expect(screen.getByText('Unsaved')).toBeTruthy();
+    const saveBtn = screen.getByText('Save');
+    expect((saveBtn.closest('button') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('(WF-004) canvasEdited outside P&ID mode never dirties the process', async () => {
+    render(<UnifiedEditorPage />);
+    fireCanvasReady();
+    await waitFor(() => expect(useProcessStore.getState().processId).toBe('proc-1'));
+
+    act(() => useEditorModeStore.getState().setMode('hmi'));
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: window.location.origin,
+          data: { type: 'canvasEdited', source: 'process-editor-canvas', data: { plane: 'nodes' } },
+        }),
+      );
+    });
+
+    expect(useProcessStore.getState().isDirty).toBe(false);
+  });
+
+  it('(WF-004 dirty-gate) process deploy is blocked while the process has unsaved changes', async () => {
+    render(<UnifiedEditorPage />);
+    await waitFor(() => expect(useProcessStore.getState().processId).toBe('proc-1'));
+
+    fireEvent.click(screen.getByText('Deploy'));
+    fireEvent.click(screen.getByText(/Proses/));
+    await screen.findByTestId('deploy-dialog-cyan');
+
+    act(() => useProcessStore.getState().markDirty());
+
+    fireEvent.click(screen.getByTestId('deploy-confirm-cyan'));
+    await waitFor(() =>
+      expect(screen.getByTestId('deploy-result-cyan').textContent).toMatch(/Kaydedilmemiş/),
+    );
+    expect(spies.deployProcess).not.toHaveBeenCalled();
+  });
+
   it('(b) Deploy menu opens the automation-program modal (6c parity)', async () => {
     render(<UnifiedEditorPage />);
     await waitFor(() => expect(spies.getProcess).toHaveBeenCalled());
@@ -413,11 +479,18 @@ describe('UnifiedEditorPage — 6b consolidation', () => {
 
   it('(c) Save persists BOTH the process and the SCADA package (dual-target)', async () => {
     render(<UnifiedEditorPage />);
-    await waitFor(() => expect(spies.getProcess).toHaveBeenCalled());
     fireCanvasReady();
+    // Hydration completed: the store carries the loaded identity.
+    await waitFor(() => expect(useProcessStore.getState().processId).toBe('proc-1'));
 
-    // Save is enabled once the canvas is ready and the doc is dirty (load set the name).
+    // WF-004: loading is NOT editing — Save stays disabled until a real edit.
     const saveBtn = await screen.findByText('Save');
+    expect((saveBtn.closest('button') as HTMLButtonElement).disabled).toBe(true);
+
+    // A real user edit (rename) dirties the process and enables Save.
+    fireEvent.change(screen.getByPlaceholderText('Project Name'), {
+      target: { value: 'Test Proc v2' },
+    });
     await waitFor(() => expect((saveBtn.closest('button') as HTMLButtonElement).disabled).toBe(false));
 
     fireEvent.click(saveBtn);

@@ -210,6 +210,16 @@ const UnifiedEditorPage: React.FC = () => {
   const canvasEdgesRef = useRef(canvasEdges);
   useEffect(() => { canvasNodesRef.current = canvasNodes; }, [canvasNodes]);
   useEffect(() => { canvasEdgesRef.current = canvasEdges; }, [canvasEdges]);
+  // Ready-state ref for the load effect (WF-004): keeping isCanvasReady OUT
+  // of that effect's deps is the point — with it, the effect re-ran when the
+  // handshake landed and re-hydrated the store mid-session. The 'ready'
+  // replay in the message handler covers the ready-after-load ordering.
+  const isCanvasReadyRef = useRef(isCanvasReady);
+  useEffect(() => { isCanvasReadyRef.current = isCanvasReady; }, [isCanvasReady]);
+  // Mode ref for the message handler: the iframe stays mounted (hidden) across
+  // modes, so a stray canvas message outside P&ID must not dirty the process.
+  const modeRef = useRef(mode);
+  useEffect(() => { modeRef.current = mode; }, [mode]);
 
   // Device selector — the deploy target lives in the scada store so it
   // serializes to meta.edgeDeviceId and rehydrates on load (a local useState
@@ -268,9 +278,11 @@ const UnifiedEditorPage: React.FC = () => {
     selectEdge,
     setProcessName,
     setProcessId,
-    resetStore,
+    loadProcess,
+    startNewProcess,
     setIsSaving,
     markClean,
+    markDirty,
   } = useProcessStore();
 
   const { createProcess, updateProcess, getProcess } = useProcess();
@@ -364,6 +376,24 @@ const UnifiedEditorPage: React.FC = () => {
         case 'edgesChange':
           setCanvasEdges(data as CanvasEdge[]);
           break;
+        case 'canvasEdited':
+          // USER gesture on the P&ID plane (WF-004) — the only echo-free edit
+          // signal the iframe emits. Guarded by mode: the iframe stays mounted
+          // (hidden) in other modes and their edits belong to other stores.
+          if (modeRef.current === 'pid') {
+            markDirty();
+          }
+          break;
+        case 'nodeAdded':
+        case 'edgeAdded': {
+          // Palette drops / new connections are edits too — but scadaWidget
+          // overlay drops belong to the SCADA store's own dirty tracking.
+          const addedType = (data as { type?: string } | null)?.type;
+          if (modeRef.current === 'pid' && addedType !== 'scadaWidget') {
+            markDirty();
+          }
+          break;
+        }
         case 'nodeSelected': {
           const node = data as CanvasNode;
           setSelectedNodeId(node?.id || null);
@@ -397,31 +427,31 @@ const UnifiedEditorPage: React.FC = () => {
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [sendToCanvas, selectNode, selectEdge]);
+  }, [sendToCanvas, selectNode, selectEdge, markDirty]);
 
-  // Load process on mount / param change. BUG-004 (re-ported from
-  // ProcessEditorPage): the effect re-runs when isCanvasReady flips, so
-  // without an abort guard two concurrent getProcess calls race and a stale
-  // response can clobber the canvas after a param change or unmount.
+  // Load process on mount / param change. Hydration is ONE store transaction
+  // (loadProcess) that ends CLEAN — per-field setters marked the freshly
+  // loaded process dirty (WF-004). isCanvasReady rides in a ref: with it in
+  // the deps this effect re-ran on the handshake and re-hydrated mid-session
+  // (the 'ready' replay in the message handler covers ready-after-load).
+  // BUG-004: abort guard so a stale getProcess can't clobber a param change.
   useEffect(() => {
     const controller = new AbortController();
 
-    const loadProcess = async () => {
+    const load = async () => {
       if (id && id !== 'new') {
         const existingProcess = await getProcess(id);
         if (controller.signal.aborted) return;
         if (existingProcess) {
-          setProcessId(existingProcess.id);
-          setProcessName(existingProcess.name);
+          loadProcess(existingProcess);
           setCanvasNodes(existingProcess.nodes as CanvasNode[]);
           setCanvasEdges(existingProcess.edges as CanvasEdge[]);
-          if (isCanvasReady) {
+          if (isCanvasReadyRef.current) {
             sendToCanvas('setNodes', existingProcess.nodes);
             sendToCanvas('setEdges', existingProcess.edges);
           }
         } else {
-          resetStore();
-          setProcessName('New Project');
+          startNewProcess('New Project');
         }
         return;
       }
@@ -434,23 +464,24 @@ const UnifiedEditorPage: React.FC = () => {
         const template = await getProcess(templateId);
         if (controller.signal.aborted) return;
         if (template) {
-          resetStore();
-          setProcessName(template.name);
+          startNewProcess(template.name);
+          // Deliberately dirty: the seeded diagram is real unsaved work —
+          // the process only comes into existence when the user saves it.
+          markDirty();
           setCanvasNodes(template.nodes as CanvasNode[]);
           setCanvasEdges(template.edges as CanvasEdge[]);
-          if (isCanvasReady) {
+          if (isCanvasReadyRef.current) {
             sendToCanvas('setNodes', template.nodes);
             sendToCanvas('setEdges', template.edges);
           }
           return;
         }
       }
-      resetStore();
-      setProcessName('New Project');
+      startNewProcess('New Project');
     };
-    loadProcess();
+    load();
     return () => controller.abort();
-  }, [id, searchParams, setProcessId, setProcessName, resetStore, getProcess, isCanvasReady, sendToCanvas]);
+  }, [id, searchParams, loadProcess, startNewProcess, markDirty, getProcess, sendToCanvas]);
 
   // Hydrate the HMI canvas from the SCADA package linked to this process —
   // once, on first arrival, so it doesn't clobber unsaved edits (6b). The
@@ -511,8 +542,12 @@ const UnifiedEditorPage: React.FC = () => {
       sendToCanvas('removeNode', selectedNodeId);
       setSelectedNodeId(null);
       selectNode(null);
+      // Host-initiated removal goes through programmatic setNodes in the
+      // iframe, which never fires ReactFlow's interaction callbacks — the
+      // edit signal must originate here (WF-004).
+      markDirty();
     }
-  }, [selectedNodeId, sendToCanvas, selectNode]);
+  }, [selectedNodeId, sendToCanvas, selectNode, markDirty]);
 
   // Save
   const handleSave = async () => {
@@ -1101,6 +1136,15 @@ const UnifiedEditorPage: React.FC = () => {
           onDeploy={async (deviceId) => {
             if (!storeProcessId || storeProcessId === 'new') {
               return { success: false, message: 'Önce prosesi kaydedin.' };
+            }
+            // Dirty-gate (WF-004): deploy ships the SERVER's saved process, so
+            // deploying with unsaved P&ID edits would silently push the stale
+            // version — mirror of the SCADA leg's gate (SENSOR-HIGH-044).
+            if (isDirty) {
+              return {
+                success: false,
+                message: 'Kaydedilmemiş proses değişiklikleri var — önce kaydedin, sonra dağıtın.',
+              };
             }
             return deployProc.mutateAsync({ processId: storeProcessId, deviceId });
           }}

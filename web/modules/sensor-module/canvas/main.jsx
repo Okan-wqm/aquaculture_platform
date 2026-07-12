@@ -587,6 +587,27 @@ const ReactDOM = { createRoot: ReactDOMClient.createRoot };
         window.parent.postMessage({ type, data, source: CANVAS_SOURCE }, cachedParentOrigin);
       }, []);
 
+      // USER-edit signal (WF-004). The nodesChange/edgesChange echo effects
+      // below fire on EVERY state change — including host-initiated setNodes
+      // hydration — so the host cannot derive its dirty flag from them.
+      // ReactFlow invokes these interaction callbacks ONLY for user gestures
+      // (drag, keyboard delete), never for programmatic setNodes/setEdges:
+      // wrap them and emit 'canvasEdited' for the change types that are real
+      // edits ('dimensions'/'select' fire on mount/click and are not edits).
+      const onNodesChangeWithEditSignal = useCallback((changes) => {
+        onNodesChange(changes);
+        if (changes.some((c) => c.type === 'position' || c.type === 'remove')) {
+          notifyParent('canvasEdited', { plane: 'nodes' });
+        }
+      }, [onNodesChange, notifyParent]);
+
+      const onEdgesChangeWithEditSignal = useCallback((changes) => {
+        onEdgesChange(changes);
+        if (changes.some((c) => c.type === 'remove')) {
+          notifyParent('canvasEdited', { plane: 'edges' });
+        }
+      }, [onEdgesChange, notifyParent]);
+
       // Listen for messages from parent
       useEffect(() => {
         const handleMessage = (event) => {
@@ -947,8 +968,8 @@ const ReactDOM = { createRoot: ReactDOMClient.createRoot };
         h(ReactFlow, {
           nodes: displayNodes,
           edges: displayEdges,
-          onNodesChange: onNodesChange,
-          onEdgesChange: onEdgesChange,
+          onNodesChange: onNodesChangeWithEditSignal,
+          onEdgesChange: onEdgesChangeWithEditSignal,
           onConnect: onConnect,
           onNodeClick: onNodeClick,
           onEdgeClick: onEdgeClick,

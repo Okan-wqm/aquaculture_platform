@@ -34,6 +34,14 @@ export type CanvasToParentMessage =
   | { type: 'ready'; data?: undefined }
   | { type: 'nodesChange'; data: unknown[] }
   | { type: 'edgesChange'; data: unknown[] }
+  // USER-driven canvas edit (WF-004). nodesChange/edgesChange above echo on
+  // EVERY state change — including host-initiated hydration — so they can
+  // never drive a dirty flag. canvasEdited is emitted only from ReactFlow's
+  // interaction callbacks (drag, keyboard delete), which programmatic
+  // setNodes/setEdges never invoke.
+  | { type: 'canvasEdited'; data: { plane: 'nodes' | 'edges' } }
+  | { type: 'nodeAdded'; data: unknown }
+  | { type: 'edgeAdded'; data: unknown }
   | { type: 'nodeSelected'; data: { nodeId: string; nodeData: unknown } }
   | { type: 'overlayNodeSelected'; data: { nodeId: string; nodeData: ScadaWidgetNodeData } }
   | { type: 'overlayNodeMoved'; data: { nodeId: string; position: { x: number; y: number } } }

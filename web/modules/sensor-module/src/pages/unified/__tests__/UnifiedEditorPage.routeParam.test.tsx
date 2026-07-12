@@ -18,7 +18,7 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 
 const spies = vi.hoisted(() => ({
-  getProcess: vi.fn(async () => ({ id: 'proc-77', name: 'Real Route Proc', nodes: [], edges: [] })),
+  getProcess: vi.fn(async () => ({ id: 'proc-77', name: 'Real Route Proc', status: 'draft', nodes: [], edges: [] })),
 }));
 
 // Heavy children + data hooks stubbed to their contract surface — the router

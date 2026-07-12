@@ -1,5 +1,6 @@
 ---
 name: db-audit-ops-infra
+pedagogy-tier: 2
 description: Lane-D database E2E audit — ops/infra partition (alert-engine, hydroponics-service, config-service, event-store-service, observability-service, gateway-api) plus cross-cutting checks (MODULE_SCHEMAS registration gaps, outbox consistency, erasure-proof ledgers) — provenance, parity, incidental defect capture.
 model: opus
 effort: xhigh

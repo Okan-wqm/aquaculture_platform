@@ -717,6 +717,25 @@ export class TenantProvisioningCommandService {
         }
 
         tenant.status = targetStatus;
+
+        // Suspension audit trio (DB-ADMIN-HIGH-003): persisted atomically with
+        // the status write by the single writer of auth.tenants. The SUSPENDED
+        // transition records when/why/who (actor.id travels on every lifecycle
+        // command via AuthTenantCommandMetadata); the ACTIVE transition clears
+        // all three because an active tenant is, by definition, not suspended.
+        // Other targets (DEACTIVATED/ARCHIVED/…) deliberately leave the trio
+        // untouched so a tenant deactivated OUT of suspension keeps the audit
+        // trail of its last suspension.
+        if (targetStatus === TenantStatus.SUSPENDED) {
+          tenant.suspendedAt = new Date();
+          tenant.suspendedReason = reason ?? null;
+          tenant.suspendedBy = command.actor.id;
+        } else if (targetStatus === TenantStatus.ACTIVE) {
+          tenant.suspendedAt = null;
+          tenant.suspendedReason = null;
+          tenant.suspendedBy = null;
+        }
+
         await manager.save(Tenant, tenant);
 
         // Durable TenantStatusChanged, atomic with the status write. The local

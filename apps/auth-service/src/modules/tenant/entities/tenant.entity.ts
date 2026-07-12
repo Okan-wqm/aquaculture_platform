@@ -203,6 +203,37 @@ export class Tenant {
   @Column({ type: 'varchar', length: 255, nullable: true })
   customDomain?: string | null;
 
+  // ============================================
+  // Suspension audit (DB-ADMIN-HIGH-003)
+  // ============================================
+  // WHY here: auth-service is the single writer of auth.tenants
+  // (DB-ADMIN-HIGH-004), so the suspension audit trio is persisted by
+  // transitionTenantStatus on the SUSPENDED transition and cleared on the
+  // ACTIVE transition — never written by admin-api (its entity maps these
+  // columns read-only; enforced by
+  // tests/invariants/admin-no-auth-tenants-writes.spec.ts).
+
+  /**
+   * When the tenant was suspended (NULL when not suspended).
+   */
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
+  suspendedAt?: Date | null;
+
+  /**
+   * Operator-supplied reason for the suspension (NULL when not suspended).
+   */
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'text', nullable: true })
+  suspendedReason?: string | null;
+
+  /**
+   * Actor (user id) that requested the suspension (NULL when not suspended).
+   */
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'uuid', nullable: true })
+  suspendedBy?: string | null;
+
   /**
    * Tenant settings (JSON)
    */

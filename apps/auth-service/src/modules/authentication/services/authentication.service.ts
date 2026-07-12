@@ -152,6 +152,31 @@ export class AuthenticationService {
   }
 
   /**
+   * RBAC-HIGH-007: refresh enforces the SAME fail-closed tenant allow-list as
+   * login (isLoginAllowed — ACTIVE only, the tenant-status machine SSoT that
+   * MT-HIGH-003 installed on the login path). Before this gate, suspending /
+   * deactivating / cancelling a tenant only blocked NEW logins — every
+   * logged-in user kept silently ROTATING fresh tokens for the refresh-token
+   * lifetime (days). Both refresh paths call this after resolving the user;
+   * the tenant row is read through the same pre-tenant repository as the
+   * token/user rows (refresh runs before tenant context exists). SUPER_ADMIN
+   * (tenantId null) is exempt, matching login. A missing tenant row falls
+   * through exactly like the login gate — symmetry with login is the contract.
+   */
+  private async assertTenantOperationalForRefresh(
+    manager: EntityManager,
+    user: User,
+  ): Promise<void> {
+    if (!user.tenantId) return;
+    const tenant = await this.preTenantAuthRepository(manager, Tenant)
+      .findOne({ where: { id: user.tenantId } });
+    if (tenant && !isLoginAllowed(tenant.status)) {
+      this.logger.debug(`Refresh blocked: tenant ${user.tenantId} is ${tenant.status}`);
+      throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
+    }
+  }
+
+  /**
    * SECURITY (SEC-HIGH-002): lazily compute (once) a VALID peppered dummy
    * hash of random material. The user-not-found login branch verifies the
    * supplied password against it through the real verifyPassword pipeline so
@@ -817,6 +842,9 @@ export class AuthenticationService {
         throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
       }
 
+      // RBAC-HIGH-007: a non-operational tenant must not rotate tokens.
+      await this.assertTenantOperationalForRefresh(manager, user);
+
       // Revoke the token within the same transaction
       refreshToken.isRevoked = true;
       refreshToken.revokedAt = new Date();
@@ -929,6 +957,9 @@ export class AuthenticationService {
       if (!user || !user.isActive) {
         throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
       }
+
+      // RBAC-HIGH-007: a non-operational tenant must not rotate tokens.
+      await this.assertTenantOperationalForRefresh(manager, user);
 
       // Revoke the token within the same transaction
       matchedToken.isRevoked = true;

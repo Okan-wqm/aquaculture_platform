@@ -282,3 +282,21 @@ This file records the two write-time authority findings closed by the P0 remedia
 **Rule violated:** A cross-service migration citation must name the migration and its owning service unambiguously; a bare timestamp that collides with a same-timestamp local migration is a wrong citation.
 
 **Fix:** Both comments now cite "admin-api's `1800500000000-TenantProvisioningTopology`" and explicitly disambiguate from auth-service's same-timestamp `AddRefreshTokenFamilyId`. (The tenant-role.service citation flagged in the plan no longer exists — removed by the earlier RBAC refactors.)
+
+## RBAC-HIGH-007
+
+**Title:** Tenant suspend/deactivate/cancel/archive neither terminated sessions nor stopped token refresh: the lifecycle transition flipped `auth.tenants.status` and emitted the event but revoked NOTHING, and both refresh paths checked only `user.isActive` — so a suspended tenant's logged-in users kept full API access and silently ROTATED fresh tokens for the refresh-token lifetime (days). Login was the only gate (`isLoginAllowed`, MT-HIGH-003); refresh ignored the same SSoT.
+
+**Layer:** 2 (session lifecycle / tenant containment)
+**Evidence:**
+- `apps/auth-service/src/modules/authentication/services/authentication.service.ts`
+- `apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts`
+- `libs/event-contracts/src/enums/tenant-status.enum.ts` (ACTIVE is "the ONLY login-allowed state" — the SSoT refresh violated)
+
+**Rule violated:** Revoking a tenant's operational status must revoke its users' live credentials promptly and fleet-wide; every credential-minting path (login AND refresh) must enforce the same fail-closed tenant-status allow-list SSoT.
+
+**Fix (two symmetric legs, both on the isLoginAllowed SSoT):**
+1. **Refresh gate (make it automatic):** both refresh paths now call `assertTenantOperationalForRefresh` after resolving the user — the SAME `isLoginAllowed` allow-list login enforces (SUPER_ADMIN/tenantId-null exempt, missing-tenant fall-through symmetric with login). A non-operational tenant can never rotate tokens again, independent of whether the suspend-side revocation ran.
+2. **Transition-side termination (single emission point):** `transitionTenantStatus` — the one place all five lifecycle transitions flow through — now, for any transition into a status `isLoginAllowed` rejects, bulk-revokes ALL of the tenant users' refresh tokens INSIDE the SERIALIZABLE receipt transaction (atomic with the status write; a rolled-back suspend revokes nothing) under a tx-local `set_config('app.current_tenant', …, true)` so the RLS policy on `auth.refresh_tokens` admits exactly this tenant's rows (tenant-SCOPED context — the NATS lifecycle command carries no request tenant context); then post-commit blacklists each affected user via the RBAC-HIGH-001 `UserTokenRevocationService` (shared Redis `user_blacklist:{userId}`), which the gateway already enforces on every request — cutting LIVE access tokens fleet-wide immediately. The Redis leg is deliberately non-fatal per user (access tokens self-expire ≤15 min; the durable kill is in-tx + the refresh gate). Idempotent re-suspend and replayed receipts revoke nothing again; ActivateTenant (into ACTIVE) revokes nothing.
+
+Pinned by `tenant-status-refresh-gate.spec.ts` (SUSPENDED/DEACTIVATED/CANCELLED/ARCHIVED → 401 before rotation; ACTIVE → rotates; platform user exempt) and `tenant-suspend-revocation.spec.ts` (in-tx bulk revoke under the tenant GUC with correct ordering; per-user post-commit blacklist; Redis failure non-fatal; zero-user, idempotent-re-suspend, and ActivateTenant negative cases). The gateway needs no change: its existing user-blacklist check is the fleet-wide access-token enforcement point, making the 5-minute tenant-status cache and the `/graphql` public-path exemption irrelevant to containment.

@@ -170,10 +170,24 @@ export function useFilters<T extends Record<string, unknown>>(
       setFiltersState((prev) => {
         const newFilters = { ...prev, ...updates };
         updateUrl(newFilters);
+
+        // Mirror setFilter's immediate/debounce split so both APIs share one
+        // timing contract: a batch touching no debounced key syncs + fires
+        // onChange immediately; a batch touching any debounced key defers to
+        // the debounce effect.
+        const touchesDebouncedKey = Object.keys(updates).some((key) =>
+          debounceKeys.includes(key as keyof T)
+        );
+        if (!touchesDebouncedKey) {
+          setDebouncedFilters(newFilters);
+          onChange?.(newFilters);
+          immediateUpdateRef.current = true;
+        }
+
         return newFilters;
       });
     },
-    [updateUrl]
+    [debounceKeys, onChange, updateUrl]
   );
 
   const resetFilters = useCallback(() => {

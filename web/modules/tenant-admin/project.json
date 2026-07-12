@@ -33,6 +33,15 @@
         "command": "npm run lint",
         "cwd": "web/modules/tenant-admin"
       }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npm run test",
+        "cwd": "web/modules/tenant-admin"
+      },
+      "dependsOn": ["shared-ui:build"]
     }
-  }
+  },
+  "implicitDependencies": ["shared-ui"]
 }

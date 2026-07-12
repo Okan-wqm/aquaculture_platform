@@ -31,7 +31,7 @@
     "build:types": "tsc --emitDeclarationOnly",
     "lint": "node ../../tools/toolchain/run.mjs eslint src",
     "lint:fix": "node ../../tools/toolchain/run.mjs eslint src --fix",
-    "test": "vitest",
+    "test": "vitest run",
     "test:coverage": "vitest --coverage"
   },
   "peerDependencies": {

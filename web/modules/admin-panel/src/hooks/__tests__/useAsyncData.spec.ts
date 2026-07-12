@@ -12,7 +12,7 @@ import { useAsyncData, clearAsyncCache } from '../useAsyncData';
 
 describe('useAsyncData', () => {
   beforeEach(() => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     clearAsyncCache();
   });
 
@@ -325,13 +325,12 @@ describe('useAsyncData', () => {
         expect(result.current.data).toBe('first');
       });
 
-      let wasLoading = false;
       act(() => {
-        result.current.refresh();
-        wasLoading = result.current.loading;
+        void result.current.refresh();
       });
 
-      expect(wasLoading).toBe(true);
+      // Loading is observable after the act flush, before the fetch resolves
+      expect(result.current.loading).toBe(true);
 
       await waitFor(() => {
         expect(result.current.data).toBe('second');
@@ -518,12 +517,13 @@ describe('useAsyncData', () => {
   // ============================================================================
 
   describe('Edge Cases', () => {
-    it('should prevent concurrent fetches', async () => {
+    it('should supersede concurrent fetches (latest wins)', async () => {
       let callCount = 0;
       const fetcher = vi.fn().mockImplementation(() => {
         callCount++;
+        const id = callCount;
         return new Promise((resolve) =>
-          setTimeout(() => resolve(`data-${callCount}`), 100)
+          setTimeout(() => resolve(`data-${id}`), 100)
         );
       });
 
@@ -531,19 +531,22 @@ describe('useAsyncData', () => {
         useAsyncData(fetcher, { immediate: false })
       );
 
-      // Start multiple fetches simultaneously
+      // Start multiple fetches simultaneously — the hook's contract is
+      // supersede (fetchId), not dedupe: every call runs, only the latest
+      // one is allowed to update state.
       act(() => {
-        result.current.fetch();
-        result.current.fetch();
-        result.current.fetch();
+        void result.current.fetch();
+        void result.current.fetch();
+        void result.current.fetch();
       });
 
       await act(async () => {
         vi.advanceTimersByTime(200);
       });
 
-      // Should only have made one call
-      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(fetcher).toHaveBeenCalledTimes(3);
+      expect(result.current.data).toBe('data-3');
+      expect(result.current.loading).toBe(false);
     });
 
     it('should handle non-Error rejection', async () => {
@@ -649,8 +652,10 @@ describe('useAsyncData', () => {
         expect(result.current.loading).toBe(false);
       });
 
-      // Due to concurrent fetch prevention, only 2 calls should be made
-      expect(fetcher.mock.calls.length).toBeLessThanOrEqual(2);
+      // Supersede contract: every refresh invokes the fetcher (initial + 3),
+      // but state reflects only the latest fetch.
+      expect(fetcher).toHaveBeenCalledTimes(4);
+      expect(result.current.data).toBe('data-4');
     });
 
     it('should work with paginated data pattern', async () => {

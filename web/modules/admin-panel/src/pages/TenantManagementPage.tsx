@@ -245,6 +245,7 @@ const TenantManagementPage: React.FC = () => {
       header: (
         <input
           type="checkbox"
+          aria-label="Select all tenants"
           checked={selectedIds.size === tenants.length && tenants.length > 0}
           onChange={toggleSelectAll}
           className="w-4 h-4 rounded border-gray-300"
@@ -253,6 +254,7 @@ const TenantManagementPage: React.FC = () => {
       render: (tenant) => (
         <input
           type="checkbox"
+          aria-label={`Select ${tenant.name}`}
           checked={selectedIds.has(tenant.id)}
           onChange={() => toggleSelect(tenant.id)}
           className="w-4 h-4 rounded border-gray-300"
@@ -423,6 +425,7 @@ const TenantManagementPage: React.FC = () => {
             />
           </div>
           <Select
+            aria-label="Filter by status"
             value={statusFilter}
             onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
             options={[
@@ -435,6 +438,7 @@ const TenantManagementPage: React.FC = () => {
             ]}
           />
           <Select
+            aria-label="Filter by tier"
             value={tierFilter}
             onChange={(e) => { setTierFilter(e.target.value); setPage(1); }}
             options={[

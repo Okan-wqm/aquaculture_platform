@@ -297,9 +297,13 @@ describe('usePagination', () => {
       );
 
       act(() => {
-        result.current.goToPage(5);
-        result.current.setLimit(50);
         result.current.setTotal(500);
+      });
+      act(() => {
+        result.current.setLimit(50);
+      });
+      act(() => {
+        result.current.goToPage(5);
       });
 
       expect(result.current.page).not.toBe(1);
@@ -464,7 +468,11 @@ describe('usePagination', () => {
       // Navigate through pages
       act(() => {
         result.current.nextPage();
+      });
+      act(() => {
         result.current.nextPage();
+      });
+      act(() => {
         result.current.nextPage();
       });
 

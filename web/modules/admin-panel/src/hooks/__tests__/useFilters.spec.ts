@@ -156,6 +156,7 @@ describe('useFilters', () => {
           useFilters({
             initialFilters: defaultFilters,
             debounceDelay: 300,
+            debounceKeys: ['search'],
             onChange,
           }),
         { wrapper: createWrapper() }
@@ -212,6 +213,7 @@ describe('useFilters', () => {
           useFilters({
             initialFilters: defaultFilters,
             debounceDelay: 300,
+            debounceKeys: ['search'],
             onChange,
           }),
         { wrapper: createWrapper() }
@@ -427,6 +429,7 @@ describe('useFilters', () => {
           useFilters({
             initialFilters: defaultFilters,
             debounceDelay: 100,
+            debounceKeys: ['search'],
             onChange,
           }),
         { wrapper: createWrapper() }

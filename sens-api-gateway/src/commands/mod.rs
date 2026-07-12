@@ -78,6 +78,10 @@ mod watch_commands;
 // commands module boundary so external callers compile unchanged.
 mod program_def;
 pub use program_def::{ProgramDefinition, ProgramState};
+// WF-011: params struct re-exported so the shared-fixture parity test
+// (contract_fixtures_tests.rs) deserializes the exact handler contract.
+#[cfg(test)]
+pub(crate) use system::UndeployScadaPackageParams;
 mod config_dispatch;
 mod dispatch_lifecycle;
 mod mqtt_dispatch;

@@ -18,6 +18,7 @@ import { DEPLOY_PROCESS_PARAMS_SCHEMA } from './schemas/deploy-process.schema';
 import { DEPLOY_PROGRAM_PARAMS_SCHEMA } from './schemas/deploy-program.schema';
 import { DEPLOY_SCADA_PACKAGE_PARAMS_SCHEMA } from './schemas/deploy-scada-package.schema';
 import { TAG_REF_SCHEMA } from './schemas/tag-ref.schema';
+import { UNDEPLOY_SCADA_PACKAGE_PARAMS_SCHEMA } from './schemas/undeploy-scada-package.schema';
 
 const ajv = new Ajv({ strict: false, allErrors: true });
 
@@ -48,6 +49,9 @@ export const validateDeployProgramParams: ValidateFunction = ajv.compile(
 );
 export const validateDeployScadaPackageParams: ValidateFunction = ajv.compile(
   DEPLOY_SCADA_PACKAGE_PARAMS_SCHEMA,
+);
+export const validateUndeployScadaPackageParams: ValidateFunction = ajv.compile(
+  UNDEPLOY_SCADA_PACKAGE_PARAMS_SCHEMA,
 );
 export const validateDeployBundleParams: ValidateFunction = ajv.compile(
   DEPLOY_BUNDLE_PARAMS_SCHEMA,

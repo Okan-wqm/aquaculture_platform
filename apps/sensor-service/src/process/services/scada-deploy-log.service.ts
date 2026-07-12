@@ -33,6 +33,8 @@ export class ScadaDeployLogService {
     artifactId?: string;
     checksumSha256?: string;
     rolledBackTo?: number;
+    /** WF-011: undeploy rows start at UNDEPLOY_SENT; default stays SENT. */
+    status?: ScadaDeployStatus;
   }): Promise<ScadaDeployLog> {
     const log = this.deployLogRepo.create({
       tenantId: params.tenantId,
@@ -41,7 +43,7 @@ export class ScadaDeployLogService {
       deviceId: params.deviceId,
       commandId: params.commandId,
       version: params.version,
-      status: ScadaDeployStatus.SENT,
+      status: params.status ?? ScadaDeployStatus.SENT,
       sentAt: new Date(),
       deployedBy: params.deployedBy,
       artifactId: params.artifactId,
@@ -113,6 +115,10 @@ export class ScadaDeployLogService {
         log.deployedAt = log.deployedAt ?? now;
         break;
       case ScadaDeployStatus.ROLLED_BACK:
+        break;
+      case ScadaDeployStatus.UNDEPLOYED:
+        // WF-011: the device confirmed the package is cleared.
+        log.verifiedAt = now;
         break;
     }
 

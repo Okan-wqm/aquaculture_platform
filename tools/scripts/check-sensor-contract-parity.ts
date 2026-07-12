@@ -62,6 +62,7 @@ const EXPECTED_FIXTURES = [
     // schema (staticText) yet still PARSE on the Rust side (Unknown bucket)
     // — the parity expectation is deliberately asymmetric for this one.
     "deploy-scada-package-unsupported-widget.json",
+    "undeploy-scada-package.json",
 ];
 
 function info(msg: string): void {

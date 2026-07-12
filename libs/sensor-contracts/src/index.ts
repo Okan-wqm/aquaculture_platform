@@ -27,6 +27,7 @@ export { COMMAND_ENVELOPE_SCHEMA, UUID_PATTERN } from './schemas/command-envelop
 export { DEPLOY_PROCESS_PARAMS_SCHEMA } from './schemas/deploy-process.schema';
 export { DEPLOY_PROGRAM_PARAMS_SCHEMA } from './schemas/deploy-program.schema';
 export { DEPLOY_SCADA_PACKAGE_PARAMS_SCHEMA } from './schemas/deploy-scada-package.schema';
+export { UNDEPLOY_SCADA_PACKAGE_PARAMS_SCHEMA } from './schemas/undeploy-scada-package.schema';
 export {
   BUNDLE_MANIFEST_SCHEMA,
   DEPLOY_BUNDLE_PARAMS_SCHEMA,

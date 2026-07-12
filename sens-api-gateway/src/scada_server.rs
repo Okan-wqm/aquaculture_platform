@@ -533,16 +533,23 @@ impl ScadaState {
     }
 
     /// Restore the package sink to "no package": clear the in-memory
-    /// definition, drop the persisted file, empty the alarm rule set, and
-    /// broadcast the empty state. Counterpart of `clear_process` for the
-    /// bundle rollback's `None` pre-image case. The SQLite version history
-    /// is intentionally left intact (append-only audit trail).
+    /// definition, drop the persisted file, deactivate the SQLite active
+    /// row, empty the alarm rule set, and broadcast the empty state. Used
+    /// by the bundle rollback's `None` pre-image case and by
+    /// `undeploy_scada_package` (WF-011). The SQLite version HISTORY is
+    /// left intact (append-only audit trail) — only `is_active` drops,
+    /// because startup reloads the active package from SQLite and would
+    /// otherwise resurrect a cleared package on the next agent restart.
     pub async fn clear_package(&self) -> Result<(), String> {
         let path = Path::new(SCADA_DIR).join("package.json");
         match tokio::fs::remove_file(&path).await {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(format!("Failed to remove {}: {}", path.display(), e)),
+        }
+
+        if let Some(ref db) = self.inner.db {
+            db.deactivate_package()?;
         }
 
         // A cleared package has no alarm rules; drop the active set so a

@@ -18,6 +18,7 @@ import {
   validateDeployScadaPackageParams,
   validateEdgeScadaPackageDoc,
   validateScadaPackageDocV2,
+  validateUndeployScadaPackageParams,
 } from '@platform/sensor-contracts/validators';
 
 import { AutomationService } from '../../automation/automation.service';
@@ -42,6 +43,7 @@ import {
 import { ProcessPaginationInput } from '../dto/process.dto';
 import { Process } from '../entities/process.entity';
 import { ScadaPackage, ScadaPackageStatus } from '../entities/scada-package.entity';
+import { ScadaDeployLog, ScadaDeployStatus } from '../entities/scada-deploy-log.entity';
 import { ScadaDeployLogService } from './scada-deploy-log.service';
 import { TagResolutionService } from './tag-resolution.service';
 import { hashPin, isPinHash, verifyPin } from './pin-hash.util';
@@ -590,12 +592,169 @@ export class ScadaPackageService {
     await this.scadaPackageRepository.save(pkg);
   }
 
-  async deleteScadaPackage(id: string, tenantId: string): Promise<boolean> {
+  /**
+   * Delete (archive) a package — and take it OFF the devices it runs on
+   * (WF-011). Archive alone left every deployed device rendering, alarming
+   * and actuating from a package the tenant believed deleted.
+   *
+   * Undeploy is BEST-EFFORT and the archive happens REGARDLESS: blocking
+   * delete on an offline device would make decommissioning impossible, and
+   * an archived package can never be re-deployed (`assertPackageDeployable`).
+   * Per-device outcomes are returned so the caller can report honestly.
+   * Idempotent: re-deleting an ARCHIVED package is a no-op (already swept).
+   */
+  async deleteScadaPackage(
+    id: string,
+    tenantId: string,
+    userId?: string,
+  ): Promise<DeleteScadaPackageResult> {
     const pkg = await this.scadaPackageRepository.findOne({ where: { id, tenantId } });
     if (!pkg) throw new NotFoundException(`ScadaPackage ${id} not found`);
+
+    if (pkg.status === ScadaPackageStatus.ARCHIVED) {
+      return { archived: true, undeploy: [] };
+    }
+
+    const undeploy = await this.undeployPackageFromDevices(pkg, tenantId, userId);
+
     pkg.status = ScadaPackageStatus.ARCHIVED;
     await this.scadaPackageRepository.save(pkg);
-    return true;
+    return { archived: true, undeploy };
+  }
+
+  /**
+   * Fan an `undeploy_scada_package` command out to every device whose
+   * LATEST deploy-log row says this package is (or may be) running there.
+   * Devices whose latest row is FAILED / ROLLED_BACK / UNDEPLOY_SENT /
+   * UNDEPLOYED are skipped — nothing of this package runs there. A failure
+   * on device A never stops device B (each result is recorded).
+   */
+  private async undeployPackageFromDevices(
+    pkg: ScadaPackage,
+    tenantId: string,
+    userId?: string,
+  ): Promise<UndeployDeviceResult[]> {
+    if (!this.scadaDeployLogService) {
+      // No deploy history available — degrade to archive-only (nothing to
+      // derive targets from; the optional dep is absent in slim setups).
+      return [];
+    }
+
+    let logs: ScadaDeployLog[];
+    try {
+      logs = await this.scadaDeployLogService.getByPackage(pkg.id, tenantId);
+    } catch (error) {
+      this.logger.error(
+        `undeploy fan-out: deploy logs unavailable for package ${pkg.id}: ${(error as Error).message}`,
+      );
+      return [];
+    }
+
+    // getByPackage orders sentAt DESC — first row per device is its latest.
+    const latestByDevice = new Map<string, ScadaDeployStatus>();
+    for (const log of logs) {
+      if (!latestByDevice.has(log.deviceId)) {
+        latestByDevice.set(log.deviceId, log.status);
+      }
+    }
+
+    const nothingRunning = new Set<ScadaDeployStatus>([
+      ScadaDeployStatus.FAILED,
+      ScadaDeployStatus.ROLLED_BACK,
+      ScadaDeployStatus.UNDEPLOY_SENT,
+      ScadaDeployStatus.UNDEPLOYED,
+    ]);
+
+    const results: UndeployDeviceResult[] = [];
+    for (const [deviceId, latestStatus] of latestByDevice) {
+      if (nothingRunning.has(latestStatus)) continue;
+      results.push(await this.sendUndeployCommand(pkg, deviceId, tenantId, userId));
+    }
+    return results;
+  }
+
+  /** Publish one undeploy command; every failure mode becomes a result note. */
+  private async sendUndeployCommand(
+    pkg: ScadaPackage,
+    deviceId: string,
+    tenantId: string,
+    userId?: string,
+  ): Promise<UndeployDeviceResult> {
+    if (!this.edgeDeviceService || !this.mqttClient) {
+      return {
+        deviceId,
+        sent: false,
+        message: 'undeploy altyapısı mevcut değil (MQTT/device servisi) — yalnızca arşivlendi',
+      };
+    }
+
+    let device: Awaited<ReturnType<EdgeDeviceService['findByIdOrFail']>>;
+    try {
+      device = await this.edgeDeviceService.findByIdOrFail(deviceId, tenantId);
+    } catch {
+      return { deviceId, sent: false, message: `cihaz ${deviceId} bulunamadı` };
+    }
+    if (!device.isOnline) {
+      return {
+        deviceId: device.id,
+        sent: false,
+        message: `${device.deviceCode} çevrimdışı — undeploy gönderilemedi`,
+      };
+    }
+    if (!this.mqttClient.isConnectedToBroker()) {
+      return { deviceId: device.id, sent: false, message: 'MQTT broker bağlantısı yok' };
+    }
+
+    const commandId = randomUUID();
+    const params = { packageId: pkg.id, reason: 'package_deleted' };
+    const payload = {
+      commandId,
+      command: 'undeploy_scada_package',
+      params,
+      timestamp: new Date().toISOString(),
+    };
+    // Publish-boundary contract validation — same canonical schemas the
+    // Rust agent is parity-tested against (deploy-path discipline).
+    if (!validateUndeployScadaPackageParams(params) || !validateCommandEnvelope(payload)) {
+      const detail =
+        formatValidationErrors(validateUndeployScadaPackageParams) ||
+        formatValidationErrors(validateCommandEnvelope);
+      return {
+        deviceId: device.id,
+        sent: false,
+        message: `undeploy payload kontrat ihlali: ${detail}`,
+      };
+    }
+
+    if (this.scadaDeployLogService) {
+      try {
+        await this.scadaDeployLogService.createLog({
+          tenantId,
+          packageId: pkg.id,
+          deviceId: device.id,
+          commandId,
+          version: pkg.version,
+          deployedBy: userId,
+          status: ScadaDeployStatus.UNDEPLOY_SENT,
+        });
+      } catch (logError) {
+        this.logger.error(
+          `Failed to create undeploy log for device ${device.id}: ${(logError as Error).message}`,
+        );
+      }
+    }
+
+    try {
+      await this.mqttClient.publish(`tenants/${tenantId}/devices/${device.id}/commands`, payload);
+      this.logger.log(
+        `undeploy_scada_package sent for package ${pkg.id} to device ${device.deviceCode} (command: ${commandId})`,
+      );
+      return { deviceId: device.id, sent: true, message: `${device.deviceCode}: undeploy gönderildi` };
+    } catch (error) {
+      const msg = (error as Error).message;
+      this.logger.error(`Failed to publish undeploy to device ${device.id}: ${msg}`);
+      return { deviceId: device.id, sent: false, message: `${device.deviceCode}: publish hatası — ${msg}` };
+    }
   }
 
   /**
@@ -1387,6 +1546,19 @@ export class ScadaPackageService {
 // ==========================================================================
 // Interfaces
 // ==========================================================================
+
+/** Per-device outcome of the best-effort undeploy fan-out on delete (WF-011). */
+export interface UndeployDeviceResult {
+  deviceId: string;
+  sent: boolean;
+  message: string;
+}
+
+/** Result of deleteScadaPackage: archive always happens; undeploy is per-device. */
+export interface DeleteScadaPackageResult {
+  archived: boolean;
+  undeploy: UndeployDeviceResult[];
+}
 
 /** Shape of a single automation binding in packageData.meta.automationBindings */
 interface AutomationBinding {

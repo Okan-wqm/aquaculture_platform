@@ -187,6 +187,7 @@ function buildService(overrides: {
   sensorTopicCache?: SensorTopicCacheService | null;
   mqttClient?: MqttClientService | null;
   eventBus?: any;
+  scadaDeployLogService?: { updateStatus: jest.Mock } | null;
 } = {}) {
   const configService = createMockConfigService(overrides.configOverrides);
   const sensorRepo = createMockSensorRepository();
@@ -215,7 +216,7 @@ function buildService(overrides: {
     mqttClient,
     null, // deploymentLogService
     null, // automationService
-    null, // scadaDeployLogService
+    overrides.scadaDeployLogService ?? null, // scadaDeployLogService
   ) as MqttListenerService;
 
   return {
@@ -1394,6 +1395,80 @@ describe('MqttListenerService', () => {
       expect(mapPriority('medium')).toBe('warning');
       expect(mapPriority('low')).toBe('info');
       expect(mapPriority('unknown')).toBe('info');
+    });
+  });
+
+  // ==================== 16. SCADA undeploy ack routing (WF-011) ====================
+
+  describe('SCADA undeploy ack routing (WF-011)', () => {
+    const responseTopic = `tenants/${TENANT_ID}/devices/EDGE-01/response`;
+
+    it('routes a successful undeploy ack to UNDEPLOYED', async () => {
+      const updateStatus = jest.fn().mockResolvedValue({});
+      const { service } = buildService({ scadaDeployLogService: { updateStatus } });
+
+      await callHandleMessage(
+        service,
+        responseTopic,
+        JSON.stringify({
+          command: 'undeploy_scada_package',
+          commandId: 'cmd-undeploy-1',
+          success: true,
+        }),
+      );
+
+      expect(updateStatus).toHaveBeenCalledWith(
+        'cmd-undeploy-1',
+        'undeployed',
+        undefined,
+        TENANT_ID,
+      );
+    });
+
+    it('routes a failed undeploy ack to FAILED with the device error', async () => {
+      const updateStatus = jest.fn().mockResolvedValue({});
+      const { service } = buildService({ scadaDeployLogService: { updateStatus } });
+
+      await callHandleMessage(
+        service,
+        responseTopic,
+        JSON.stringify({
+          command: 'undeploy_scada_package',
+          commandId: 'cmd-undeploy-2',
+          success: false,
+          error: 'clear failed',
+        }),
+      );
+
+      expect(updateStatus).toHaveBeenCalledWith(
+        'cmd-undeploy-2',
+        'failed',
+        { errorMessage: 'clear failed' },
+        TENANT_ID,
+      );
+    });
+
+    it('a deploy ack never lands in the undeploy branch (command-keyed routing)', async () => {
+      const updateStatus = jest.fn().mockResolvedValue({});
+      const { service } = buildService({ scadaDeployLogService: { updateStatus } });
+
+      await callHandleMessage(
+        service,
+        responseTopic,
+        JSON.stringify({
+          command: 'deploy_scada_package',
+          commandId: 'cmd-deploy-1',
+          success: true,
+        }),
+      );
+
+      expect(updateStatus).toHaveBeenCalledWith('cmd-deploy-1', 'success', undefined, TENANT_ID);
+      expect(updateStatus).not.toHaveBeenCalledWith(
+        'cmd-deploy-1',
+        'undeployed',
+        expect.anything(),
+        expect.anything(),
+      );
     });
   });
 });

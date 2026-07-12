@@ -57,6 +57,7 @@ fn all_fixtures_parse_as_command_envelope() {
         "deploy-program.json",
         "deploy-scada-package.json",
         "deploy-scada-package-unsupported-widget.json",
+        "undeploy-scada-package.json",
         "deploy-bundle.json",
     ] {
         let envelope = envelope_of(name);
@@ -268,6 +269,21 @@ fn deploy_bundle_fixture_clears_full_edge_verification() {
     )
     .expect_err("wrong tenant must fail");
     assert!(err.contains("signature verification failed"));
+}
+
+/// WF-011: the undeploy fixture deserializes into the handler's params
+/// struct with the load-bearing fields POPULATED (the TS leg proves the
+/// same bytes satisfy UNDEPLOY_SCADA_PACKAGE_PARAMS_SCHEMA).
+#[test]
+fn undeploy_scada_package_fixture_parses_with_populated_params() {
+    let envelope = envelope_of("undeploy-scada-package.json");
+    assert_eq!(envelope.command, "undeploy_scada_package");
+
+    let params: crate::commands::UndeployScadaPackageParams =
+        serde_json::from_value(envelope.params)
+            .expect("undeploy-scada-package params must parse as UndeployScadaPackageParams");
+    assert_eq!(params.package_id, "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d");
+    assert_eq!(params.reason.as_deref(), Some("package_deleted"));
 }
 
 /// The signature material rides in the SAME positions the Faz 4 edge

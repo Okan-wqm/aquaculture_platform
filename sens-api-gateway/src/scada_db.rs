@@ -560,6 +560,18 @@ impl ScadaDb {
         Ok(())
     }
 
+    /// Deactivate every stored package row (WF-011 undeploy). History rows
+    /// stay intact (append-only audit trail) — only the active flag drops,
+    /// so the startup reload (`get_active_package`) can no longer resurrect
+    /// an undeployed/cleared package after an agent restart.
+    pub fn deactivate_package(&self) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| format!("Lock: {}", e))?;
+        conn.execute("UPDATE scada_package SET is_active = 0", [])
+            .map_err(|e| format!("Deactivate package: {}", e))?;
+        debug!("Deactivated all SCADA package rows");
+        Ok(())
+    }
+
     pub fn get_active_package(&self) -> Result<Option<String>, String> {
         let conn = self.conn.lock().map_err(|e| format!("Lock: {}", e))?;
         let mut stmt = conn
@@ -648,5 +660,53 @@ impl ScadaDb {
         conn.execute(&sql, rusqlite::params![id])
             .map_err(|e| format!("Mark synced: {}", e))?;
         Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests — package activation lifecycle (WF-011)
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod package_lifecycle_tests {
+    use super::*;
+
+    fn temp_db() -> (ScadaDb, std::path::PathBuf) {
+        let path = std::env::temp_dir().join(format!(
+            "scada-db-test-{}-{:?}.sqlite",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let db = ScadaDb::new(path.to_str().expect("utf8 temp path")).expect("open temp db");
+        (db, path)
+    }
+
+    #[test]
+    fn deactivate_package_clears_active_flag_but_keeps_history() {
+        let (db, path) = temp_db();
+
+        db.save_package(3, r#"{"v":3}"#, Some("user-1"))
+            .expect("save package");
+        assert_eq!(
+            db.get_active_package().expect("query"),
+            Some(r#"{"v":3}"#.to_string())
+        );
+
+        db.deactivate_package().expect("deactivate");
+
+        // No active package — a restart can no longer resurrect it...
+        assert_eq!(db.get_active_package().expect("query"), None);
+
+        // ...but the history row survives (append-only audit trail): a new
+        // deploy lands as a fresh active version alongside it.
+        db.save_package(4, r#"{"v":4}"#, Some("user-1"))
+            .expect("save next version");
+        assert_eq!(
+            db.get_active_package().expect("query"),
+            Some(r#"{"v":4}"#.to_string())
+        );
+
+        let _ = std::fs::remove_file(path);
     }
 }

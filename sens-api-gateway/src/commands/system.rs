@@ -47,6 +47,18 @@ use crate::mqtt::CommandMessage;
 
 use super::{CommandHandler, DEFAULT_REBOOT_DELAY_SECS, DEFAULT_RESTART_DELAY_SECS};
 
+/// `undeploy_scada_package` params (WF-011) — wire contract pinned by
+/// `libs/sensor-contracts/src/schemas/undeploy-scada-package.schema.ts`
+/// and the shared `undeploy-scada-package.json` fixture.
+#[cfg(any(feature = "scada-display", test))]
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UndeployScadaPackageParams {
+    pub(crate) package_id: String,
+    #[serde(default)]
+    pub(crate) reason: Option<String>,
+}
+
 /// Faz 4 deploy-signature gate outcome. `Unsigned` is accepted
 /// with an operator-visible warning until the Faz 5 bundle gate
 /// ships enforcement (tracked plan phase — gentle-waddling-rabbit
@@ -477,6 +489,64 @@ impl CommandHandler {
                         "screens": screen_count,
                         "alarm_rules": alarm_count,
                         "unknown_widget_count": unknown_widget_count,
+                    }),
+                    None,
+                )
+            }
+            Err(e) => (false, json!(null), Some(e)),
+        }
+    }
+
+    /// Remove the deployed SCADA package from this device (WF-011 —
+    /// cloud-initiated undeploy, e.g. the package row was deleted in the
+    /// cloud). Reuses the bundle-rollback restore path (`clear_package`),
+    /// which drops the persisted file, empties the alarm rule set,
+    /// deactivates the SQLite active row (so a restart cannot resurrect
+    /// the package), and broadcasts the empty state to connected HMIs.
+    #[cfg(feature = "scada-display")]
+    pub(super) async fn cmd_undeploy_scada_package(
+        &self,
+        params: &Value,
+    ) -> (bool, Value, Option<String>) {
+        let _deploy_guard = self.deploy_lock.lock().await;
+        info!("Executing undeploy_scada_package command");
+
+        let parsed: UndeployScadaPackageParams = match serde_json::from_value(params.clone()) {
+            Ok(p) => p,
+            Err(e) => {
+                return (
+                    false,
+                    json!(null),
+                    Some(format!("Invalid undeploy_scada_package params: {}", e)),
+                );
+            }
+        };
+
+        let state_guard = self.state.read().await;
+        let scada_state = match &state_guard.scada_state {
+            Some(s) => s.clone(),
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("SCADA display not initialized".to_string()),
+                );
+            }
+        };
+        drop(state_guard);
+
+        match scada_state.clear_package().await {
+            Ok(()) => {
+                info!(
+                    "SCADA package {} undeployed (reason: {})",
+                    parsed.package_id,
+                    parsed.reason.as_deref().unwrap_or("package_deleted")
+                );
+                (
+                    true,
+                    json!({
+                        "packageId": parsed.package_id,
+                        "cleared": true,
                     }),
                     None,
                 )

@@ -17,6 +17,7 @@ import {
   validateDeployProcessParams,
   validateDeployProgramParams,
   validateDeployScadaPackageParams,
+  validateUndeployScadaPackageParams,
 } from '../validators';
 
 /**
@@ -66,6 +67,7 @@ describe('sensor-contracts fixtures — cloud-side schema parity', () => {
     'deploy-program.json',
     'deploy-scada-package.json',
     'deploy-scada-package-unsupported-widget.json',
+    'undeploy-scada-package.json',
     'deploy-bundle.json',
   ] as const;
 
@@ -119,6 +121,14 @@ describe('sensor-contracts fixtures — cloud-side schema parity', () => {
       { screenId: 'screen-1', widgetId: 'widget-2', widgetType: 'staticText' },
     ]);
     expectValid(validateDeployScadaPackageParams, transform.doc);
+  });
+
+  it('undeploy-scada-package params satisfy UNDEPLOY_SCADA_PACKAGE_PARAMS_SCHEMA (WF-011)', () => {
+    const params = paramsOf(readFixture('undeploy-scada-package.json'));
+    expectValid(validateUndeployScadaPackageParams, params);
+    // Closed contract: identity + audit reason only.
+    expect(validateUndeployScadaPackageParams({ ...params, extra: 'nope' })).toBe(false);
+    expect(validateUndeployScadaPackageParams({ reason: 'package_deleted' })).toBe(false);
   });
 
   it('deploy-bundle params satisfy DEPLOY_BUNDLE_PARAMS_SCHEMA and are self-consistent', () => {

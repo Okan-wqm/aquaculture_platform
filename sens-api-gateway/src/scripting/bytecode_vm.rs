@@ -91,11 +91,28 @@ use super::bytecode::{Bytecode, Opcode, StValue, StValueType};
 /// `max_gas_per_tick` field, so signatures stay valid.
 pub const MAX_GAS_CEIL: u32 = 1_000_000;
 
+/// PR935-MEDIUM-003: hard wall-clock budget for a single scan-tick VM run.
+/// The gas ceiling bounds ITERATIONS; this bounds real occupancy of the
+/// 2-worker runtime. Legitimate programs finish in well under a millisecond,
+/// so 50 ms is a generous ceiling that still stops an IO-opcode-heavy program
+/// from permanently draining a worker every tick.
+pub const MAX_TICK_WALL: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// How many dispatches between wall-clock checks — amortizes the
+/// `Instant::now()` cost while keeping the overshoot bounded.
+const WALL_CHECK_STRIDE: u32 = 1024;
+
 /// VM runtime failure taxonomy.
 #[derive(Debug, Clone, PartialEq)]
 pub enum VmError {
     /// Gas budget exhausted before dispatch.
     GasExhausted { remaining: u32, needed: u32 },
+    /// PR935-MEDIUM-003: wall-clock tick budget exceeded. The gas ceiling
+    /// bounds ITERATIONS, but IO opcodes (LoadTag/WriteTag/FbCall) cost
+    /// µs-scale host work, so a signed program at the gas ceiling can still
+    /// occupy a worker for hundreds of ms every scan tick. This bounds the
+    /// hazard in its real unit (time), independent of gas-weight calibration.
+    WallClockExceeded { elapsed_ms: u64, budget_ms: u64 },
     /// Stack pop with empty stack.
     StackUnderflow { opcode: String },
     /// Stack-top type doesn't match the opcode's
@@ -173,6 +190,15 @@ impl std::fmt::Display for VmError {
                     f,
                     "vm: gas exhausted (remaining={}, needed={})",
                     remaining, needed
+                )
+            }
+            Self::WallClockExceeded {
+                elapsed_ms,
+                budget_ms,
+            } => {
+                write!(
+                    f,
+                    "vm: wall-clock tick budget exceeded (elapsed={elapsed_ms}ms, budget={budget_ms}ms)"
                 )
             }
             Self::StackUnderflow { opcode } => {
@@ -587,7 +613,23 @@ impl ScriptVm {
         fb: Option<&dyn FbIo>,
     ) -> VmOutcome {
         self.ip = 0;
+        // PR935-MEDIUM-003: wall-clock tick budget. Checked every
+        // WALL_CHECK_STRIDE dispatches so the Instant::now() cost is amortized.
+        let tick_start = std::time::Instant::now();
+        let mut dispatched: u32 = 0;
         loop {
+            // Wall-clock guard: bounds the tick in real time even if the gas
+            // budget would allow hundreds of ms of IO-opcode host work.
+            dispatched = dispatched.wrapping_add(1);
+            if dispatched % WALL_CHECK_STRIDE == 0 {
+                let elapsed = tick_start.elapsed();
+                if elapsed > MAX_TICK_WALL {
+                    return VmOutcome::Error(VmError::WallClockExceeded {
+                        elapsed_ms: elapsed.as_millis() as u64,
+                        budget_ms: MAX_TICK_WALL.as_millis() as u64,
+                    });
+                }
+            }
             // Safety: ip bounds check on every
             // iteration. A runaway bytecode that walks
             // past the end without Return gets halted
@@ -1846,6 +1888,54 @@ mod tests {
             }
             other => panic!("expected TagIoFailed, got {:?}", other),
         }
+    }
+
+    /// A TagIo whose writes are slow (host-call-like), to exercise the
+    /// wall-clock guard: gas alone would allow a long-running IO loop.
+    struct SlowWriter;
+    impl TagIo for SlowWriter {
+        fn read_tag(&self, _tag: &str) -> Result<StValue, TagIoError> {
+            Ok(StValue::Real(0.0))
+        }
+        fn write_tag(&self, _tag: &str, _value: StValue) -> Result<(), TagIoError> {
+            std::thread::sleep(std::time::Duration::from_micros(30));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn wall_clock_guard_halts_a_slow_io_loop_within_budget() {
+        // PR935-MEDIUM-003: an infinite WriteTag loop with a full gas budget
+        // (1M) but slow IO opcodes must be halted by the wall-clock guard, not
+        // run for the ~hundreds-of-ms the gas budget would otherwise permit.
+        let b = bc_with_tag_rules(
+            vec![
+                Opcode::PushConst {
+                    value: StValue::Real(1.0),
+                },
+                Opcode::WriteTag { name: "t".into() },
+                Opcode::Jump { target: 0 }, // loop forever
+            ],
+            0,
+            vec!["t".into()],
+            vec![],
+        );
+        let mut vm = ScriptVm::new(&b);
+        let start = std::time::Instant::now();
+        let outcome = vm.run_with_io(&b, &SlowWriter);
+        let elapsed = start.elapsed();
+
+        assert!(
+            matches!(outcome, VmOutcome::Error(VmError::WallClockExceeded { .. })),
+            "expected WallClockExceeded, got {outcome:?}"
+        );
+        // The guard must actually bound the tick — generous ceiling to absorb
+        // the check stride + a slow CI box, but far below the seconds a full
+        // gas budget of slow writes would take.
+        assert!(
+            elapsed < std::time::Duration::from_millis(500),
+            "wall-clock guard did not bound the tick: {elapsed:?}"
+        );
     }
 
     #[test]

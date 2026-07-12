@@ -155,3 +155,105 @@ export const CATALOGUE_CAPABILITIES: ReadonlySet<string> = (() => {
 export function isKnownCapability(capability: string): boolean {
   return CATALOGUE_CAPABILITIES.has(capability);
 }
+
+// ============================================================================
+// Plan-tier / module entitlement (RBAC-HIGH-010)
+// ============================================================================
+
+/**
+ * Catalogue category → the licensable module code (see `ModuleCode` in
+ * system-module/entities/module.entity.ts) a tenant MUST have enabled to hold
+ * any capability in that category. A category NOT listed here is CORE — always
+ * entitled regardless of plan:
+ *   - `farm` / `batch` / `operations` — the base aquaculture product;
+ *   - `reports` / `admin` — platform surfaces every tenant has;
+ *   - `messaging` — no licensable `ModuleCode` exists yet, so it stays core
+ *     (a dedicated messaging module gate is separate future work).
+ * Only the two categories that map 1:1 to an OPTIONAL module are gated:
+ *   - `hr` → the HR module;
+ *   - `ai` → the AI module (this is the audit's headline over-grant vector:
+ *     a STARTER tenant granting itself `ai_settings:manage`).
+ * Keying by category (not individual capability) keeps this aligned with the
+ * UI's category-grouped editor and avoids splitting a mixed category.
+ */
+export const CATEGORY_MODULE_REQUIREMENTS: Readonly<Record<string, string>> = {
+  hr: 'hr',
+  ai: 'ai',
+};
+
+/**
+ * capability (`resource:action`) → required module code, precomputed from
+ * CATEGORY_MODULE_REQUIREMENTS. Absent key ⇒ core capability (no module gate).
+ */
+const CAPABILITY_REQUIRED_MODULE: ReadonlyMap<string, string> = (() => {
+  const map = new Map<string, string>();
+  for (const [categoryKey, category] of Object.entries(PERMISSION_CATEGORIES)) {
+    const requiredModule = CATEGORY_MODULE_REQUIREMENTS[categoryKey];
+    if (!requiredModule) continue;
+    for (const [resource, definition] of Object.entries(category.resources)) {
+      for (const action of definition.actions) {
+        map.set(`${resource}:${action}`, requiredModule);
+      }
+    }
+  }
+  return map;
+})();
+
+/**
+ * The module code a capability requires, or `undefined` if it is core (no gate).
+ */
+export function requiredModuleFor(capability: string): string | undefined {
+  return CAPABILITY_REQUIRED_MODULE.get(capability);
+}
+
+/**
+ * The subset of `CATALOGUE_CAPABILITIES` a tenant with `enabledModuleCodes` is
+ * entitled to hold: every core capability, plus module-gated capabilities whose
+ * module is enabled. This is the SSoT both the write-time grant authority
+ * (reject persisting a non-entitled capability) and the token mint (never stamp
+ * a non-entitled capability into the JWT, so a stale grant from a plan
+ * downgrade or the MT-HIGH-057 backfill has zero runtime effect) consume.
+ */
+export function entitledCapabilities(
+  enabledModuleCodes: ReadonlySet<string>,
+): ReadonlySet<string> {
+  const result = new Set<string>();
+  for (const capability of CATALOGUE_CAPABILITIES) {
+    const requiredModule = CAPABILITY_REQUIRED_MODULE.get(capability);
+    if (!requiredModule || enabledModuleCodes.has(requiredModule)) {
+      result.add(capability);
+    }
+  }
+  return result;
+}
+
+/**
+ * SSoT query for a tenant's ENABLED module codes (joins the per-tenant
+ * `auth.tenant_modules` rows to the `auth.modules` catalogue). `$1` = tenantId.
+ */
+export const ENABLED_MODULE_CODES_SQL = `
+  SELECT m.code AS code
+  FROM "auth"."tenant_modules" tm
+  JOIN "auth"."modules" m ON tm."moduleId" = m.id
+  WHERE tm."tenantId" = $1 AND tm."isEnabled" = true
+`;
+
+/**
+ * Resolve a tenant's entitled capability set through a caller-supplied query
+ * function (each service passes its own DataSource.query, so this helper adds
+ * no DB dependency to the catalogue). Fail-safe: a tenant with zero module rows
+ * yields only the CORE capabilities — module-gated grants are denied, never
+ * silently allowed.
+ */
+export async function resolveEntitledCapabilities(
+  query: (sql: string, params: readonly unknown[]) => Promise<unknown>,
+  tenantId: string,
+): Promise<ReadonlySet<string>> {
+  const rows = await query(ENABLED_MODULE_CODES_SQL, [tenantId]);
+  const codes = new Set<string>(
+    (Array.isArray(rows) ? rows : [])
+      .map((row) => (row as { code?: unknown }).code)
+      .filter((code): code is string => typeof code === 'string'),
+  );
+  return entitledCapabilities(codes);
+}

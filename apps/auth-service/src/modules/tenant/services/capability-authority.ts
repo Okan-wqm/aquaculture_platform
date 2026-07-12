@@ -5,7 +5,11 @@ import { Repository, DataSource } from 'typeorm';
 
 import { User } from '../../authentication/entities/user.entity';
 
-import { CATALOGUE_CAPABILITIES } from './permission-catalogue';
+import {
+  CATALOGUE_CAPABILITIES,
+  requiredModuleFor,
+  resolveEntitledCapabilities,
+} from './permission-catalogue';
 import { applyPermissionOverrides, parsePermissionOverrides } from './permission-overrides.util';
 
 /**
@@ -45,10 +49,16 @@ export type ValidatedOverrideSet = {
  *   may grant ONLY a subset of this (the "cannot grant more than you have"
  *   invariant). Empty for admins (who bypass the subset check) and for an
  *   unresolved / cross-tenant actor (who can grant nothing — fail-closed).
+ * - `entitled` — the capabilities the TENANT's plan/modules license
+ *   (RBAC-HIGH-010). Enforced for EVERYONE, admins included: even a
+ *   TENANT_ADMIN cannot grant a capability for a module the tenant does not
+ *   license (revenue integrity + it would mint a capability no subgraph should
+ *   honour). Independent of the actor's own `effective` set.
  */
 export interface ActorAuthority {
   isTenantAdmin: boolean;
   effective: ReadonlySet<string>;
+  entitled: ReadonlySet<string>;
 }
 
 /**
@@ -85,11 +95,21 @@ export class CapabilityAuthorityService {
   async resolveActorAuthority(tenantId: string, actorUserId: string): Promise<ActorAuthority> {
     const actor = await this.userRepository.findOne({ where: { id: actorUserId, tenantId } });
     if (!actor) {
-      // Unknown / cross-tenant actor: fail-closed, grants nothing.
-      return { isTenantAdmin: false, effective: new Set<string>() };
+      // Unknown / cross-tenant actor: fail-closed, grants nothing. Entitlement
+      // is irrelevant when the actor can grant nothing at all.
+      return { isTenantAdmin: false, effective: new Set<string>(), entitled: new Set<string>() };
     }
+
+    // RBAC-HIGH-010: the tenant's licensed capability set, enforced for admins
+    // and delegates alike. Resolved via the shared SSoT (enabled tenant_modules
+    // ∩ catalogue category→module map). `resolveTenantEntitled` is a private
+    // wrapper so the two return paths share one call.
     if (actor.role === Role.SUPER_ADMIN || actor.role === Role.TENANT_ADMIN) {
-      return { isTenantAdmin: true, effective: new Set<string>() };
+      return {
+        isTenantAdmin: true,
+        effective: new Set<string>(),
+        entitled: await this.resolveTenantEntitled(tenantId),
+      };
     }
 
     // Non-admin actor: their ceiling is their OWN effective resource permissions.
@@ -122,7 +142,18 @@ export class CapabilityAuthorityService {
     return {
       isTenantAdmin: false,
       effective: new Set(applyPermissionOverrides(Array.from(roleBase), overrides)),
+      entitled: await this.resolveTenantEntitled(tenantId),
     };
+  }
+
+  /**
+   * The tenant's licensed capability set (RBAC-HIGH-010) via the shared SSoT.
+   */
+  private resolveTenantEntitled(tenantId: string): Promise<ReadonlySet<string>> {
+    return resolveEntitledCapabilities(
+      (sql, params) => this.dataSource.query(sql, params as unknown[]),
+      tenantId,
+    );
   }
 
   /**
@@ -136,6 +167,9 @@ export class CapabilityAuthorityService {
   ): GrantablePermissionSet {
     const deduped = Array.from(new Set(requested));
     this.assertKnownCapabilities(deduped, 'grant');
+    // Entitlement is enforced for EVERYONE (admins included) — a capability for
+    // a module the tenant does not license can never be persisted.
+    this.assertEntitled(deduped, actor);
     if (!actor.isTenantAdmin) {
       this.assertSubsetOfActor(deduped, actor);
     }
@@ -156,6 +190,10 @@ export class CapabilityAuthorityService {
     const revokes = Array.from(new Set(overrides?.revokes ?? []));
     this.assertKnownCapabilities(grants, 'grant');
     this.assertKnownCapabilities(revokes, 'revoke');
+    // Grants are entitlement-checked (revokes never are — removing access to an
+    // unlicensed capability must always be permitted, e.g. to clean up a stale
+    // grant after a plan downgrade).
+    this.assertEntitled(grants, actor);
     if (!actor.isTenantAdmin) {
       this.assertSubsetOfActor(grants, actor);
     }
@@ -182,6 +220,19 @@ export class CapabilityAuthorityService {
       throw new BadRequestException(
         `Cannot ${verb} unknown capabilit${unknown.length === 1 ? 'y' : 'ies'}: ${unknown.join(', ')}. ` +
           'Only capabilities defined in the permission catalogue are allowed.',
+      );
+    }
+  }
+
+  private assertEntitled(capabilities: readonly string[], actor: ActorAuthority): void {
+    const unentitled = capabilities.filter((capability) => !actor.entitled.has(capability));
+    if (unentitled.length > 0) {
+      const detail = unentitled
+        .map((capability) => `${capability} (requires the ${requiredModuleFor(capability) ?? '?'} module)`)
+        .join(', ');
+      throw new ForbiddenException(
+        `Cannot grant capabilit${unentitled.length === 1 ? 'y' : 'ies'} the tenant's plan does not license: ${detail}. ` +
+          'Enable the module for this tenant first.',
       );
     }
   }

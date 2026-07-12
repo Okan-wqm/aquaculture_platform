@@ -214,7 +214,11 @@ describe('TenantUserManagementService', () => {
       deleteUser: jest.fn().mockResolvedValue(true),
     };
 
-    const adminAuthority: ActorAuthority = { isTenantAdmin: true, effective: new Set<string>() };
+    const adminAuthority: ActorAuthority = {
+      isTenantAdmin: true,
+      effective: new Set<string>(),
+      entitled: new Set<string>(),
+    };
     mockCapabilityAuthority = {
       resolveActorAuthority: jest.fn().mockResolvedValue(adminAuthority),
       assertGrantableOverrides: jest.fn((o: { grants?: string[]; revokes?: string[] } | null) => ({

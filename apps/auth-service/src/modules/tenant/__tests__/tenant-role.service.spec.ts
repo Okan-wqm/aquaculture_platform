@@ -106,6 +106,7 @@ describe('TenantRoleService', () => {
             resolveActorAuthority: jest.fn().mockResolvedValue({
               isTenantAdmin: true,
               effective: new Set<string>(),
+              entitled: new Set<string>(),
             }),
             assertGrantableResourcePermissions: jest.fn((requested: string[]) => requested),
             assertGrantableOverrides: jest.fn((o: { grants?: string[]; revokes?: string[] } | null) => ({

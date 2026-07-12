@@ -237,10 +237,19 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     }>;
     plan?: string;
     onResourceQuery?: (sql: string) => Promise<unknown>;
+    // RBAC-HIGH-010: the tenant's ENABLED module codes for the entitlement
+    // intersection. Default 'farm' keeps core caps entitled; add 'ai'/'hr' to
+    // license those module-gated categories.
+    enabledModuleCodes?: string[];
   }): jest.Mock =>
     jest.fn((sql: string) => {
       if (typeof sql !== 'string') {
         return Promise.resolve([]);
+      }
+      // Entitlement query (RBAC-HIGH-010): tenant_modules JOIN modules.
+      if (sql.includes('tenant_modules') && sql.includes('"auth"."modules"')) {
+        const codes = overrides?.enabledModuleCodes ?? ['farm'];
+        return Promise.resolve(codes.map((code) => ({ code })));
       }
       if (sql.includes('user_role_assignments') && sql.includes('tenant_role_permissions')) {
         if (overrides?.onResourceQuery) {
@@ -625,6 +634,41 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       const claim = capturedPayload().resourcePermissions ?? [];
       expect(claim).toEqual(expect.arrayContaining(['sites:view', 'roles:view']));
       expect(claim).not.toContain('sites:edit');
+    });
+
+    // RBAC-HIGH-010: the mint intersects effective permissions with the tenant's
+    // LICENSED capability set, so a stored grant for an unlicensed module (a
+    // stale grant after a plan downgrade, or the MT-HIGH-057 backfill that
+    // seeded ai_/messaging caps onto every default role) never reaches the JWT.
+    it('drops a stored capability for a module the tenant does NOT license (entitlement intersection)', async () => {
+      service = await createService({
+        query: buildQueryRouter({
+          // The role stores a core cap AND an AI cap...
+          resourcePermissions: [{ resource_permissions: ['sites:view', 'ai_settings:manage'] }],
+          // ...but the tenant only licenses the farm module.
+          enabledModuleCodes: ['farm'],
+        }),
+      });
+
+      await service.generateTokens(buildUser({}));
+
+      const claim = capturedPayload().resourcePermissions ?? [];
+      expect(claim).toContain('sites:view'); // core survives
+      expect(claim).not.toContain('ai_settings:manage'); // unlicensed dropped
+    });
+
+    it('keeps the module-gated capability once the tenant licenses that module', async () => {
+      service = await createService({
+        query: buildQueryRouter({
+          resourcePermissions: [{ resource_permissions: ['sites:view', 'ai_settings:manage'] }],
+          enabledModuleCodes: ['farm', 'ai'],
+        }),
+      });
+
+      await service.generateTokens(buildUser({}));
+
+      const claim = capturedPayload().resourcePermissions ?? [];
+      expect(claim).toEqual(expect.arrayContaining(['sites:view', 'ai_settings:manage']));
     });
   });
 

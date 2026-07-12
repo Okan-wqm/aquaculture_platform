@@ -238,6 +238,7 @@ describe('UserLifecycleService', () => {
             resolveActorAuthority: jest.fn().mockResolvedValue({
               isTenantAdmin: true,
               effective: new Set<string>(),
+              entitled: new Set<string>(),
             }),
             assertGrantableOverrides: jest.fn((o: { grants?: string[]; revokes?: string[] } | null) => ({
               grants: o?.grants ?? [],

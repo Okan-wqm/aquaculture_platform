@@ -8050,12 +8050,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/farm-service/src/common/file-cleanup/farm-document-path.provider.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/farm-service/src/common/file-cleanup/farm-orphan-cleanup.service.ts",
       "prettier_managed": true
     },
@@ -9249,6 +9243,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1805300000000-DropFarmDocuments.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -9442,30 +9442,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/department/queries/list-departments.query.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/document/document.module.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/document/entities/farm-document.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/document/entities/index.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/document/index.ts",
       "prettier_managed": true
     },
     {
@@ -53004,10 +52980,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8688,
+  "file_count": 8684,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8513,
-  "managed_file_list_sha256": "4c655cd78557da896aac521183445ef351486b2252d938a7f6d6c01841458386",
+  "managed_count": 8509,
+  "managed_file_list_sha256": "657c4149336c7866930361c3f267dacc4cb7c758193af9a08cb5df2a7cd5b8c8",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

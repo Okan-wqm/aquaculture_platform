@@ -47,7 +47,8 @@ Allowed truth buckets:
 | `FARM-CRITICAL-153`  | OPEN           | 4.1          | farm-expert  | already-fixed-needs-close |
 | `EDGE-CRITICAL-002`  | OPEN           | 5.1          | edge-expert  | already-fixed-needs-close |
 | `EDGE-CRITICAL-003`  | OPEN           | 5.1          | edge-expert  | already-fixed-needs-close |
-| `EDGE-CRITICAL-004`  | OPEN           | 5.1          | edge-expert  | real-open |
+| `EDGE-CRITICAL-004`  | OPEN           | 5.1          | edge-expert  | already-fixed-needs-close |
+| `EDGE-CRITICAL-001-R1` | OPEN         | 5.1          | edge-expert  | real-open |
 
 ## Mutation Rules
 
@@ -154,6 +155,21 @@ tests/invariants/orchestrator-routing-coverage.spec.ts --runInBand` passed on
 tests/invariants/agent-frontmatter-schema.spec.ts --runInBand` passed 421/421,
   proving every discovered active agent carries `tools:` frontmatter from the
   allowed token set.
+- `EDGE-CRITICAL-004`: moved `real-open` → `already-fixed-needs-close` on
+  2026-07-12. The offline-replay idempotency fix landed in commit `da33f906`
+  (telemetry envelope stamped with a persisted `(device_id, edge_seq)` key),
+  which carries the `Closes:` trailer; the registry close ceremony runs
+  post-merge. NOTE: the 2026-07-12 PR #935 review found a residual power-loss
+  durability hole in the sequence allocator, tracked as the SEPARATE finding
+  `PR935-HIGH-004` — it does not reopen the original replay finding.
+- `EDGE-CRITICAL-001-R1`: append-only re-open of `EDGE-CRITICAL-001`
+  (`override_of: EDGE-CRITICAL-001`, SEC-REVIEW-005 pattern). The original row
+  closed `RESOLVED` on 2026-06-18 (required-status-checks control-plane work,
+  closing commit `d792f74ac` — see below), but the 2026-07-11 edge audit
+  re-scoped the anchored SQLCipher key-derivation weakness as still open. The
+  registry carried no transition; this row + the `-R1` registry entry are that
+  transition. `real-open`: residual key-derivation hardening beyond
+  `EDGE-CRITICAL-002`'s scada_db keystore-resolver fix.
 - `EDGE-CRITICAL-001`: registry state is `RESOLVED` with closing commit
   `d792f74ac`. Repository-local CI coverage exists in
   `.github/workflows/ci-affected.yml`; the required-check SSOT is

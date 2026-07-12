@@ -432,6 +432,33 @@ export class ScadaPackageService {
   }
 
   /**
+   * Deploy tag-gate mode (WF-003 / SENSOR-HIGH-051). `enforce` blocks a deploy
+   * whose tag bindings do not fully resolve against the registry; the default
+   * `warn` only logs, so tenants whose registry is not yet populated keep
+   * deploying while ops flips the flag per environment after backfill.
+   */
+  private isTagGateEnforced(): boolean {
+    return (process.env.SCADA_DEPLOY_TAG_GATE ?? 'warn').toLowerCase() === 'enforce';
+  }
+
+  /**
+   * Handle an unresolved tag-binding set at a deploy boundary: throw in
+   * enforce mode (each unresolved ref + reason named), warn otherwise.
+   */
+  private handleUnresolvedBindings(
+    context: string,
+    unresolved: ReadonlyArray<{ ref: string; reason: string }>,
+    totalRefs: number,
+  ): void {
+    if (unresolved.length === 0) return;
+    const detail = `${unresolved.length}/${totalRefs} tag binding çözülemedi: ${JSON.stringify(unresolved)}`;
+    if (this.isTagGateEnforced()) {
+      throw new BadRequestException(`${context}: ${detail} — deploy engellendi (SCADA_DEPLOY_TAG_GATE=enforce)`);
+    }
+    this.logger.warn(`${context}: ${detail}`);
+  }
+
+  /**
    * A package that has been soft-deleted (ARCHIVED) must never be pushed to a
    * device. Deploy is the moment the package starts running physical hardware,
    * so an archived (deleted) package reaching the edge is a state-machine
@@ -481,19 +508,19 @@ export class ScadaPackageService {
       deviceCode: device.deviceCode,
     });
 
-    // Tag SSoT raporu (Faz 1, warn-only): widget tag bağlamalarını
-    // `${deviceCode}/${tagName}` olarak registry'ye karşı çöz; çözülemeyenleri
-    // logla. Bloklamaz — Faz 4 bunu deploy gate'ine çevirir.
+    // Tag SSoT gate (WF-003): widget tag bağlamalarını `${deviceCode}/${tagName}`
+    // olarak registry'ye karşı çöz. enforce modunda çözülmeyen binding deploy'u
+    // BLOKLAR; warn modunda (default — registry'si dolmamış tenant'lar) loglar.
     if (this.tagResolutionService) {
       const tagNames = this.collectWidgetTagNames(packageDoc);
       if (tagNames.length > 0) {
         const refs = tagNames.map((name) => `${device.deviceCode}/${name}`);
         const resolution = await this.tagResolutionService.resolve(tenantId, refs);
-        if (resolution.unresolved.length > 0) {
-          this.logger.warn(
-            `deploy_scada_package ${packageId}: ${resolution.unresolved.length}/${refs.length} widget tag binding registry'de çözülemedi: ${JSON.stringify(resolution.unresolved)}`,
-          );
-        }
+        this.handleUnresolvedBindings(
+          `deploy_scada_package ${packageId}`,
+          resolution.unresolved,
+          refs.length,
+        );
       }
     }
 
@@ -1080,17 +1107,13 @@ export class ScadaPackageService {
       );
     }
 
-    // Tag SSoT warn report — same coverage as the single-command path.
+    // Tag SSoT gate (WF-003) — same coverage as the single-command path.
     if (this.tagResolutionService) {
       const tagNames = this.collectWidgetTagNames(packageDoc);
       if (tagNames.length > 0) {
         const refs = tagNames.map((name) => `${device.deviceCode}/${name}`);
         const resolution = await this.tagResolutionService.resolve(tenantId, refs);
-        if (resolution.unresolved.length > 0) {
-          this.logger.warn(
-            `bundle package ${pkg.id}: ${resolution.unresolved.length}/${refs.length} widget tag binding registry'de çözülemedi: ${JSON.stringify(resolution.unresolved)}`,
-          );
-        }
+        this.handleUnresolvedBindings(`bundle package ${pkg.id}`, resolution.unresolved, refs.length);
       }
     }
 

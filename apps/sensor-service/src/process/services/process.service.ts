@@ -27,6 +27,18 @@ import { Process, ProcessStatus } from '../entities/process.entity';
 import { ScadaDeployLogService } from './scada-deploy-log.service';
 import { TagResolutionService } from './tag-resolution.service';
 
+/**
+ * Deploy tag-gate mode (WF-003 / SENSOR-HIGH-051). `enforce` blocks a deploy
+ * whose tag mappings do not fully resolve against the registry; the default
+ * `warn` only logs, so tenants whose registry is not yet populated keep
+ * deploying while ops flips the flag per environment after backfill.
+ * (Module-level because `deployProcessToEdge` shadows the `process` global
+ * with its Process entity.)
+ */
+function isDeployTagGateEnforced(): boolean {
+  return (globalThis.process.env.SCADA_DEPLOY_TAG_GATE ?? 'warn').toLowerCase() === 'enforce';
+}
+
 @Injectable()
 export class ProcessService {
   private readonly logger = new Logger(ProcessService.name);
@@ -377,16 +389,19 @@ export class ProcessService {
       }
     }
 
-    // 5. Tag SSoT raporu (Faz 1, warn-only): her tag mapping'i
+    // 5. Tag SSoT gate (WF-003 / SENSOR-HIGH-051): her tag mapping'i
     // `${deviceCode}/${tagName}` olarak unified_tags registry'sine karşı çöz.
-    // Çözülemeyenler logla — bloklamaz; Faz 4 bunu deploy gate'ine çevirir.
+    // SCADA_DEPLOY_TAG_GATE=enforce iken çözülmeyen mapping deploy'u BLOKLAR;
+    // warn modunda (default — registry'si dolmamış tenant'lar) yalnız loglar.
     if (this.tagResolutionService && tagMappings.length > 0) {
       const refs = tagMappings.map((tm) => `${device.deviceCode}/${tm.tagName}`);
       const resolution = await this.tagResolutionService.resolve(tenantId, refs);
       if (resolution.unresolved.length > 0) {
-        this.logger.warn(
-          `deploy_process ${processId}: ${resolution.unresolved.length}/${refs.length} tag mapping registry'de çözülemedi: ${JSON.stringify(resolution.unresolved)}`,
-        );
+        const detail = `deploy_process ${processId}: ${resolution.unresolved.length}/${refs.length} tag mapping çözülemedi: ${JSON.stringify(resolution.unresolved)}`;
+        if (isDeployTagGateEnforced()) {
+          throw new BadRequestException(`${detail} — deploy engellendi (SCADA_DEPLOY_TAG_GATE=enforce)`);
+        }
+        this.logger.warn(detail);
       }
     }
 

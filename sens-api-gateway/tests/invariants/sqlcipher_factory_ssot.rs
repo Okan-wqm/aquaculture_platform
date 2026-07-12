@@ -25,14 +25,18 @@
 
 use std::path::{Path, PathBuf};
 
-/// Executable raw-key forms. The escaped `\"` distinguishes real code
-/// (`format!("PRAGMA key = \"x'…")`) from doc-comment prose
-/// (`/// PRAGMA key = "x'…"`), which carries no backslash and is ignored.
-const NEEDLES: &[&str] = &[
-    "PRAGMA key = \\\"x'",
-    "PRAGMA rekey = \\\"x'",
-    "pragma_update(None, \"key\"",
-];
+/// Raw-key / rekey emission on a CODE line. `PRAGMA key = ` matches every
+/// executable form — escaped (`"PRAGMA key = \"x'…"`), raw-string
+/// (`r#"PRAGMA key = "x'…"#`), AND passphrase (`PRAGMA key = '…'`) — because
+/// all three contain the literal substring. Doc-comment prose is excluded by
+/// `is_comment_line`, not by quote-escaping tricks (PR935-MEDIUM-002 closed
+/// the raw-string / passphrase / spacing holes the escaped-only needle missed).
+const KEY_NEEDLES: &[&str] = &["PRAGMA key = ", "PRAGMA rekey = "];
+
+/// Durability pragmas the factory owns exclusively (PR935-MEDIUM-002). A store
+/// re-emitting `synchronous=` can silently downgrade a DURABLE profile (this
+/// bit the LoRa frame-counter store); `journal_mode=` likewise.
+const DURABILITY_NEEDLES: &[&str] = &["PRAGMA synchronous=", "PRAGMA journal_mode="];
 
 const ALLOWLISTED_FILES: &[&str] = &[
     "src/db/sqlcipher_factory.rs",
@@ -47,6 +51,7 @@ const ALLOWLISTED_FILES: &[&str] = &[
 ];
 
 const TEST_SEED_MARKER: &str = "INVARIANT-ALLOW: sqlcipher-test-seed";
+const DURABILITY_MARKER: &str = "INVARIANT-ALLOW: sqlcipher-durability";
 
 fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
     let entries = match std::fs::read_dir(dir) {
@@ -68,6 +73,21 @@ fn normalize(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
+/// A line whose CONTENT is a comment (line-comment or block-comment
+/// continuation). Doc prose mentioning a PRAGMA is not an emission.
+fn is_comment_line(line: &str) -> bool {
+    let t = line.trim_start();
+    t.starts_with("//") || t.starts_with('*') || t.starts_with("/*")
+}
+
+/// Flag a `pragma_update(…, "key"|"rekey", …)` call regardless of spacing or
+/// `DatabaseName` argument (PR935-MEDIUM-002: the old exact-string needle
+/// missed `pragma_update(None,"key"` and `pragma_update(Some(..), "key"`).
+fn is_pragma_update_key(line: &str) -> bool {
+    line.contains("pragma_update(")
+        && (line.contains("\"key\"") || line.contains("\"rekey\""))
+}
+
 #[test]
 fn only_the_factory_and_migration_internals_emit_pragma_key() {
     let mut files = Vec::new();
@@ -81,14 +101,20 @@ fn only_the_factory_and_migration_internals_emit_pragma_key() {
 
     for file in &files {
         let rel = normalize(file);
-        if ALLOWLISTED_FILES.iter().any(|a| rel.ends_with(a)) {
+        // Exact path equality (PR935-LOW-009): `ends_with` could self-exempt a
+        // nested `.../src/scada_db.rs`.
+        if ALLOWLISTED_FILES.iter().any(|a| rel == *a) {
             continue;
         }
         let src =
             std::fs::read_to_string(file).unwrap_or_else(|e| panic!("BUG: cannot read {rel}: {e}"));
         let lines: Vec<&str> = src.lines().collect();
         for (i, line) in lines.iter().enumerate() {
-            if !NEEDLES.iter().any(|n| line.contains(n)) {
+            if is_comment_line(line) {
+                continue;
+            }
+            let is_key = KEY_NEEDLES.iter().any(|n| line.contains(n)) || is_pragma_update_key(line);
+            if !is_key {
                 continue;
             }
             // Exempt a marked test-seed: the marker may be on this line or
@@ -109,6 +135,55 @@ fn only_the_factory_and_migration_internals_emit_pragma_key() {
          internals). Route the open through \
          crate::db::sqlcipher_factory::{{open_device_secret,open_resolved}}, \
          or mark a genuine test-seed with `// {TEST_SEED_MARKER}`.\n  offenders:\n  {}",
+        offenders.join("\n  ")
+    );
+}
+
+#[test]
+fn only_the_factory_emits_durability_pragmas() {
+    // PR935-MEDIUM-002: a store re-emitting `PRAGMA synchronous=`/`journal_mode=`
+    // outside the factory can silently downgrade a DURABLE profile (the LoRa
+    // frame-counter store re-emitted synchronous=NORMAL and undid FULL). Only
+    // the factory owns them; a deliberate durability RAISE (e.g. the shutdown
+    // checkpoint) must carry the durability marker.
+    let mut files = Vec::new();
+    collect_rs_files(Path::new("src"), &mut files);
+    let mut offenders: Vec<String> = Vec::new();
+
+    for file in &files {
+        let rel = normalize(file);
+        if ALLOWLISTED_FILES.iter().any(|a| rel == *a) {
+            continue;
+        }
+        let src =
+            std::fs::read_to_string(file).unwrap_or_else(|e| panic!("BUG: cannot read {rel}: {e}"));
+        let lines: Vec<&str> = src.lines().collect();
+        for (i, line) in lines.iter().enumerate() {
+            if is_comment_line(line) {
+                continue;
+            }
+            if !DURABILITY_NEEDLES.iter().any(|n| line.contains(n)) {
+                continue;
+            }
+            let marked_here = line.contains(DURABILITY_MARKER);
+            let marked_above = i > 0 && lines[i - 1].contains(DURABILITY_MARKER);
+            // Allow up to a couple of lines of preceding comment before the
+            // marked emission (multi-line execute_batch blocks).
+            let marked_near = (i >= 2 && lines[i - 2].contains(DURABILITY_MARKER))
+                || (i >= 3 && lines[i - 3].contains(DURABILITY_MARKER));
+            if marked_here || marked_above || marked_near {
+                continue;
+            }
+            offenders.push(format!("{rel}:{}: {}", i + 1, line.trim()));
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "PR935-MEDIUM-002 VIOLATED: a durability pragma (`synchronous=`/\
+         `journal_mode=`) was emitted outside db::sqlcipher_factory. Open the \
+         store with the right PragmaProfile instead, or mark a deliberate \
+         durability raise with `// {DURABILITY_MARKER}`.\n  offenders:\n  {}",
         offenders.join("\n  ")
     );
 }

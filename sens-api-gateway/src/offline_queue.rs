@@ -612,10 +612,10 @@ impl OfflineQueue {
 
         conn.execute_batch(
             "
-            -- Enable WAL mode for better concurrent access
-            PRAGMA journal_mode=WAL;
-            PRAGMA synchronous=NORMAL;
-            PRAGMA busy_timeout=5000;
+            -- PR935-MEDIUM-002: journal_mode / synchronous / busy_timeout are
+            -- owned by the SQLCipher factory at open (this store's NORMAL floor
+            -- + the scoped durable_commit for the seq high-water-mark). Schema
+            -- init no longer re-emits them.
 
             -- Message queue table
             CREATE TABLE IF NOT EXISTS message_queue (
@@ -1130,9 +1130,11 @@ impl OfflineQueue {
     /// windows as far as the underlying filesystem allows.
     pub fn checkpoint_and_fsync(&self) -> Result<()> {
         let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
+        // A deliberate shutdown-flush durability RAISE (NORMAL floor → FULL) +
+        // WAL checkpoint, not a store opener re-emitting the factory's sequence.
         conn.execute_batch(
             "
-            PRAGMA synchronous=FULL;
+            PRAGMA synchronous=FULL; -- INVARIANT-ALLOW: sqlcipher-durability
             PRAGMA wal_checkpoint(FULL);
             ",
         )

@@ -587,7 +587,7 @@ impl SqlitePersistence {
         let conn = crate::db::sqlcipher_factory::open_device_secret(
             db_path.as_ref(),
             "scripting_persistence",
-            crate::db::sqlcipher_factory::PragmaProfile::DEFAULT,
+            crate::db::sqlcipher_factory::PragmaProfile::PERF,
         )
         .map_err(|e| PersistenceError::ConnectionFailed(format!("Cannot open database: {}", e)))?;
 
@@ -665,7 +665,7 @@ impl SqlitePersistence {
             crate::keystore::purpose::KeyPurpose::SqlCipherRetainPersistence,
             &ctx,
             keystore.as_ref(),
-            crate::db::sqlcipher_factory::PragmaProfile::DEFAULT,
+            crate::db::sqlcipher_factory::PragmaProfile::PERF,
         )
         .await
         .map_err(|e| PersistenceError::ConnectionFailed(format!("factory open_resolved: {}", e)))?
@@ -683,15 +683,10 @@ impl SqlitePersistence {
     /// post-key sequence (no drift in WAL mode or
     /// migration discipline between the two callers).
     fn finalize_open(conn: Connection, path_str: String) -> Result<Self, PersistenceError> {
-        conn.execute_batch(
-            "PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=NORMAL;
-             PRAGMA busy_timeout=5000;
-             PRAGMA cache_size=-8000;  -- 8MB cache
-             PRAGMA temp_store=MEMORY;",
-        )
-        .map_err(|e| PersistenceError::ConnectionFailed(e.to_string()))?;
-
+        // EDGE-HIGH-026 / PR935-MEDIUM-002: the durability + perf pragmas
+        // (journal_mode / synchronous / busy_timeout / auto_vacuum / cache_size
+        // / temp_store) are applied by the SQLCipher factory's PERF profile at
+        // open. This function no longer re-emits them — the factory is the SSoT.
         let persistence = Self {
             conn: Arc::new(Mutex::new(conn)),
             db_path: path_str,

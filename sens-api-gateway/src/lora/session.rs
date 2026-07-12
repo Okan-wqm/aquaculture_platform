@@ -158,10 +158,10 @@ impl SessionStore {
 
         conn.execute_batch(
             "
-            -- WAL modu: Concurrent okuma + yazma, crash-safe
-            PRAGMA journal_mode=WAL;
-            PRAGMA synchronous=NORMAL;
-            PRAGMA busy_timeout=5000;
+            -- PR935-MEDIUM-001/002: journal_mode / synchronous / busy_timeout
+            -- are owned by the SQLCipher factory (DURABLE profile → FULL). This
+            -- schema init MUST NOT re-emit synchronous=NORMAL — doing so would
+            -- silently downgrade the frame-counter durability guarantee.
 
             -- Aktif oturumlar tablosu
             -- dev_eui: Cihaz benzersiz kimligi (hex string, PK)

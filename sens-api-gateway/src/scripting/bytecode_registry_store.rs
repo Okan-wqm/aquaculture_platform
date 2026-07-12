@@ -117,7 +117,7 @@ impl BytecodeRegistryStore {
         let conn = crate::db::sqlcipher_factory::open_device_secret(
             db_path.as_ref(),
             "bytecode_registry",
-            crate::db::sqlcipher_factory::PragmaProfile::DEFAULT,
+            crate::db::sqlcipher_factory::PragmaProfile::PERF,
         )
         .map_err(|e| StoreError::ConnectionFailed(format!("open: {}", e)))?;
 
@@ -184,7 +184,7 @@ impl BytecodeRegistryStore {
             crate::keystore::purpose::KeyPurpose::SqlCipherBytecodeRetain,
             &ctx,
             keystore.as_ref(),
-            crate::db::sqlcipher_factory::PragmaProfile::DEFAULT,
+            crate::db::sqlcipher_factory::PragmaProfile::PERF,
         )
         .await
         .map_err(|e| StoreError::ConnectionFailed(format!("factory open_resolved: {}", e)))?
@@ -199,17 +199,9 @@ impl BytecodeRegistryStore {
     /// post-key sequence — no drift in WAL mode or
     /// migration discipline between callers.
     fn finalize_open(conn: Connection, path_str: String) -> Result<Self, StoreError> {
-        // WAL mode + sane defaults (same as
-        // SqlitePersistence).
-        conn.execute_batch(
-            "PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=NORMAL;
-             PRAGMA busy_timeout=5000;
-             PRAGMA cache_size=-8000;
-             PRAGMA temp_store=MEMORY;",
-        )
-        .map_err(|e| StoreError::ConnectionFailed(e.to_string()))?;
-
+        // EDGE-HIGH-026 / PR935-MEDIUM-002: durability + perf pragmas are
+        // applied by the SQLCipher factory's PERF profile at open; this
+        // function no longer re-emits them (the factory is the SSoT).
         let store = Self {
             conn: Arc::new(Mutex::new(conn)),
             db_path: path_str,

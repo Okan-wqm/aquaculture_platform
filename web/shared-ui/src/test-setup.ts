@@ -5,6 +5,9 @@
 
 import { vi, beforeEach, afterEach } from 'vitest';
 
+// jest-dom matchers (toBeInTheDocument, toHaveTextContent, ...) for vitest
+import '@testing-library/jest-dom/vitest';
+
 // ============================================================================
 // localStorage mock (jsdom provides a basic one, but we ensure it's clean)
 // ============================================================================

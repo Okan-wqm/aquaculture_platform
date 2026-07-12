@@ -338,7 +338,20 @@ export class TenantErasureTargetExecutor {
     }
 
     const sourceSchema = validateSqlIdentifier(this.options.sourceSchema, 'schema');
-    const excludedTables = new Set(this.options.excludedTables ?? []);
+    // Structural exclusions — enforced by the executor, never left to
+    // per-registry excludedTables convention. Both tables carry a tenant
+    // column, so the candidate filter would otherwise row-delete them:
+    //  - proof ledger: a NEW erasure operation must never erase the proofs of
+    //    PRIOR operations — those rows are the durable audit/GDPR evidence
+    //    that earlier erasures completed (and this operation's own proof is
+    //    inserted into the same table later in this transaction).
+    //  - outbox: tenant rows pending publish — including the erasure events
+    //    this very flow enqueues — must survive to publication.
+    const excludedTables = new Set([
+      ...(this.options.excludedTables ?? []),
+      this.options.proofLedger.table,
+      this.options.outbox.table,
+    ]);
     const candidateTables = [
       ...moduleSchema.tables,
       ...(moduleSchema.infrastructureTables ?? []),

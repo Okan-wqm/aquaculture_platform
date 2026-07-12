@@ -1,15 +1,18 @@
 /**
  * TenantErasureTargetExecutor — post-erasure hook contract (crypto-shred
- * rollout step 2, docs/plans/2026-07-12-event-store-crypto-shred-design.md).
+ * rollout step 2, docs/plans/2026-07-12-event-store-crypto-shred-design.md)
+ * plus the executor's structural table exclusions.
  *
- * Pins the extension-point guarantees the GDPR treatment for non-deletable
- * tenant data relies on:
+ * Pins the guarantees the GDPR treatment for non-deletable tenant data relies on:
  *   - hooks run inside the erasure transaction AFTER table deletion and BEFORE
  *     the success proof is recorded/enqueued, in registration order
  *   - a hook failure fails the erasure closed: no proof row, no
  *     TenantDataErased — a TenantDataErasureFailed is emitted instead
  *   - dry runs never execute destructive hooks
  *   - services without hooks keep the exact pre-hook behavior
+ *   - the proof ledger and outbox are excluded from row deletion by the
+ *     EXECUTOR itself, independent of registry excludedTables — a new erasure
+ *     operation must never erase the audit/GDPR evidence of prior operations
  */
 import {
   createBaseEvent,
@@ -36,6 +39,18 @@ const OPTIONS: TenantErasureTargetExecutorOptions = {
   proofLedger: { schema: 'event_store', table: 'tenant_erasure_target_proofs' },
 };
 
+/**
+ * Tables the fake information_schema reports a tenant column for. The proof
+ * ledger and outbox genuinely carry tenantId in production — listing them here
+ * is what makes the structural-exclusion test meaningful: if the executor ever
+ * lets them into the candidate set, they surface as delete targets.
+ */
+const TENANT_COLUMN_TABLES = new Set([
+  'event_streams',
+  'tenant_erasure_target_proofs',
+  'event_store_outbox',
+]);
+
 function makeRequest(
   overrides: Partial<TenantErasureRequestedEvent> = {},
 ): TenantErasureRequestedEvent {
@@ -56,12 +71,13 @@ function makeRequest(
 
 /**
  * Routes the executor's raw SQL by shape (London-school stand-in for the
- * transaction EntityManager). One erasable table (event_streams) keeps the
- * flow single-table so ordering assertions stay unambiguous.
+ * transaction EntityManager). The tenant-column lookup honours the requested
+ * table list, so the delete set observed in `calls` reflects exactly which
+ * candidates the executor allowed through its exclusion filter.
  */
 function makeManager(calls: string[]) {
   return {
-    query: jest.fn((sql: string) => {
+    query: jest.fn((sql: string, params?: readonly unknown[]) => {
       const norm = sql.replace(/\s+/g, ' ').trim();
       if (norm.includes('pg_advisory_xact_lock')) {
         return Promise.resolve([]);
@@ -71,7 +87,17 @@ function makeManager(calls: string[]) {
         return Promise.resolve([]);
       }
       if (norm.includes('information_schema.columns')) {
-        return Promise.resolve([{ table_name: 'event_streams', column_name: 'tenantId' }]);
+        const requestedRaw = params ? params[1] : undefined;
+        const requested = Array.isArray(requestedRaw) ? requestedRaw : [];
+        return Promise.resolve(
+          requested
+            .filter((table): table is string => typeof table === 'string')
+            .filter((table) => TENANT_COLUMN_TABLES.has(table))
+            .map((table) => ({ table_name: table, column_name: 'tenantId' })),
+        );
+      }
+      if (norm.includes('information_schema.table_constraints')) {
+        return Promise.resolve([]); // no FKs among test tables
       }
       if (norm.includes('"tenant_erasure_target_proofs"')) {
         return Promise.resolve([]); // no stored proof — first execution
@@ -79,8 +105,9 @@ function makeManager(calls: string[]) {
       if (norm.startsWith('SELECT COUNT(*)::text AS count')) {
         return Promise.resolve([{ count: '2' }]);
       }
-      if (norm.startsWith('DELETE FROM')) {
-        calls.push('table-delete');
+      const deleteMatch = norm.match(/^DELETE FROM "event_store"\."([^"]+)"/);
+      if (deleteMatch) {
+        calls.push(`table-delete:${deleteMatch[1]}`);
         return Promise.resolve([[], 2]);
       }
       return Promise.reject(new Error(`unrouted query in test manager: ${norm}`));
@@ -105,6 +132,7 @@ function makeHook(
 function makeHarness(
   calls: string[],
   hooks?: readonly TenantErasurePostErasureHook[],
+  options: TenantErasureTargetExecutorOptions = OPTIONS,
 ) {
   const manager = makeManager(calls);
   const outbox = {
@@ -129,7 +157,7 @@ function makeHarness(
     postErasureHooks: hooks,
   };
   return {
-    executor: new TenantErasureTargetExecutor(deps, OPTIONS),
+    executor: new TenantErasureTargetExecutor(deps, options),
     manager,
     outbox,
     logger,
@@ -152,8 +180,10 @@ describe('TenantErasureTargetExecutor post-erasure hooks', () => {
       manager,
     );
     // Deletion → hooks (registration order) → proof row → proof event.
-    expect(calls.indexOf('table-delete')).toBeGreaterThanOrEqual(0);
-    expect(calls.indexOf('table-delete')).toBeLessThan(calls.indexOf('hook:shred-a'));
+    expect(calls.indexOf('table-delete:event_streams')).toBeGreaterThanOrEqual(0);
+    expect(calls.indexOf('table-delete:event_streams')).toBeLessThan(
+      calls.indexOf('hook:shred-a'),
+    );
     expect(calls.indexOf('hook:shred-a')).toBeLessThan(calls.indexOf('hook:shred-b'));
     expect(calls.indexOf('hook:shred-b')).toBeLessThan(calls.indexOf('proof-ledger-insert'));
     expect(calls.indexOf('proof-ledger-insert')).toBeLessThan(
@@ -192,7 +222,8 @@ describe('TenantErasureTargetExecutor post-erasure hooks', () => {
 
     expect(result.state).toBe('PURGED');
     expect(hook.onTenantErased).not.toHaveBeenCalled();
-    expect(calls).not.toContain('table-delete'); // deletes are counted, not run
+    // Deletes are counted, not run, on a dry run.
+    expect(calls.some((entry) => entry.startsWith('table-delete:'))).toBe(false);
     expect(calls).toContain('proof-ledger-insert');
     expect(calls).toContain('enqueue:TenantDataErased');
   });
@@ -207,5 +238,25 @@ describe('TenantErasureTargetExecutor post-erasure hooks', () => {
     expect(result.erasedRecordCount).toBe(2);
     expect(calls).toContain('proof-ledger-insert');
     expect(calls).toContain('enqueue:TenantDataErased');
+  });
+});
+
+describe('TenantErasureTargetExecutor structural table exclusions', () => {
+  it('never deletes proof-ledger or outbox rows even when the registry does not exclude them', async () => {
+    const calls: string[] = [];
+    // Deliberately empty registry exclusions: the protection under test must
+    // come from the executor itself (Tier-1 structural), not configuration.
+    const { executor } = makeHarness(calls, undefined, {
+      ...OPTIONS,
+      excludedTables: [],
+    });
+
+    const result = await executor.eraseFromRequest(makeRequest());
+
+    expect(result.state).toBe('PURGED');
+    const deletes = calls.filter((entry) => entry.startsWith('table-delete:'));
+    // The proof ledger and outbox both report a tenant column in this fixture;
+    // only event_streams may be row-deleted.
+    expect(deletes).toEqual(['table-delete:event_streams']);
   });
 });

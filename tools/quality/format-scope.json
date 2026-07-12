@@ -2099,6 +2099,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1801500000000-DropRetiredUserPermissions.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -2849,37 +2855,13 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/users/__tests__/user-permissions.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/users/dto/invite-user.dto.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/users/dto/reset-password.dto.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/users/entities/user-permissions.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/users/services/role-template.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/users/services/user-permissions.service.ts",
       "prettier_managed": true
     },
     {
@@ -25874,6 +25856,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/adr/041-aria-narrow-autonomous-merge-lane.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/adr/042-retire-shared-user-permissions.md",
       "prettier_managed": true
     },
     {
@@ -53004,10 +52992,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8688,
+  "file_count": 8686,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8513,
-  "managed_file_list_sha256": "dc81f38a51e84337fbe895fcaefc43f7f68510ad02ee79cc49752d8feb2bf55f",
+  "managed_count": 8511,
+  "managed_file_list_sha256": "aa572af56769c6c600adc55d14c826021a98520f7d167eae7995b17c30ea3254",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

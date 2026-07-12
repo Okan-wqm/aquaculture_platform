@@ -6,11 +6,17 @@ import { Repository, FindOptionsWhere, ILike, In } from 'typeorm';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
-import { upcastScadaPackageDoc } from '@platform/sensor-contracts';
+import {
+  transformScadaDocForEdgeDeploy,
+  upcastScadaPackageDoc,
+  type EdgeDeployWidgetRef,
+  type ScadaPackageDocV2,
+} from '@platform/sensor-contracts';
 import {
   formatValidationErrors,
   validateCommandEnvelope,
   validateDeployScadaPackageParams,
+  validateEdgeScadaPackageDoc,
   validateScadaPackageDocV2,
 } from '@platform/sensor-contracts/validators';
 
@@ -620,6 +626,37 @@ export class ScadaPackageService {
   }
 
   /**
+   * Publish-boundary widget transform (CONTRACT-H-002). The edge runtime
+   * parses a closed 16-type widget set; everything else either STRIPS
+   * (decorative / display-only — losing it on the device costs pixels,
+   * not behaviour) or REJECTS the deploy (control-semantics widgets whose
+   * silent removal would change what the operator can actuate). Rejects
+   * throw with EVERY violating widget named; strips are warn-logged and
+   * returned so callers can surface a summary.
+   */
+  private transformForEdgeOrThrow(
+    context: string,
+    doc: ScadaPackageDocV2,
+  ): { doc: ScadaPackageDocV2; stripped: EdgeDeployWidgetRef[] } {
+    const transform = transformScadaDocForEdgeDeploy(doc);
+    if (!transform.ok) {
+      const detail = transform.rejected
+        .map((r) => `${r.widgetType} (widget ${r.widgetId}, ekran ${r.screenId})`)
+        .join(', ');
+      throw new BadRequestException(
+        `${context}: ${transform.rejected.length} widget edge runtime'da desteklenmiyor ve kontrol semantiği taşıdığı için sessizce çıkarılamaz: ${detail}. Bu widget'ları kaldırın veya edge-destekli karşılıklarıyla değiştirin.`,
+      );
+    }
+    if (transform.stripped.length > 0) {
+      this.logger.warn(
+        `${context}: ${transform.stripped.length} display-only/decorative widget edge payload'ından çıkarıldı (kayıtlı paket değişmedi): ` +
+          transform.stripped.map((r) => `${r.widgetType}#${r.widgetId}`).join(', '),
+      );
+    }
+    return { doc: transform.doc, stripped: transform.stripped };
+  }
+
+  /**
    * A package that has been soft-deleted (ARCHIVED) must never be pushed to a
    * device. Deploy is the moment the package starts running physical hardware,
    * so an archived (deleted) package reaching the edge is a state-machine
@@ -669,11 +706,19 @@ export class ScadaPackageService {
       deviceCode: device.deviceCode,
     });
 
+    // Edge widget transform (CONTRACT-H-002) — AFTER upcast (tagRef
+    // promotion first), BEFORE the tag gate (stripped widgets' bindings
+    // must not gate a payload they are no longer part of).
+    const { doc: edgeDoc, stripped } = this.transformForEdgeOrThrow(
+      `deploy_scada_package ${packageId}`,
+      packageDoc,
+    );
+
     // Tag SSoT gate (WF-003): widget tag bağlamalarını `${deviceCode}/${tagName}`
     // olarak registry'ye karşı çöz. enforce modunda çözülmeyen binding deploy'u
     // BLOKLAR; warn modunda (default — registry'si dolmamış tenant'lar) loglar.
     if (this.tagResolutionService) {
-      const tagNames = this.collectWidgetTagNames(packageDoc);
+      const tagNames = this.collectWidgetTagNames(edgeDoc);
       if (tagNames.length > 0) {
         const refs = tagNames.map((name) => `${device.deviceCode}/${name}`);
         const resolution = await this.tagResolutionService.resolve(tenantId, refs);
@@ -696,8 +741,10 @@ export class ScadaPackageService {
       try {
         artifact = await this.artifactService.snapshot(tenantId, {
           artifactType: DeployArtifactType.SCADA_PACKAGE,
-          content: packageDoc,
-          schemaVersion: packageDoc.meta.schemaVersion,
+          // The snapshot archives EXACTLY what ships (the transformed edge
+          // doc) so rollback republishes device-parseable content verbatim.
+          content: edgeDoc,
+          schemaVersion: edgeDoc.meta.schemaVersion,
           sourceEntityId: pkg.id,
           sourceEntityVersion: pkg.version,
           createdBy: userId,
@@ -722,9 +769,9 @@ export class ScadaPackageService {
         : null;
 
     const packagePayload = {
-      ...packageDoc,
+      ...edgeDoc,
       meta: {
-        ...packageDoc.meta,
+        ...edgeDoc.meta,
         // Server-side fields MUST come last to prevent client override
         version: pkg.version,
         packageVersion: `${pkg.version}.0.0`,
@@ -786,7 +833,13 @@ export class ScadaPackageService {
       this.logger.log(
         `SCADA package "${pkg.name}" v${pkg.version} deployed to device ${device.deviceCode} (command: ${commandId})`,
       );
-      return { success: true, message: 'SCADA package deployed successfully' };
+      // Honest success: name what was stripped so the operator is never
+      // surprised by widgets present in the builder but absent on the HMI.
+      const strippedNote =
+        stripped.length > 0
+          ? ` (${stripped.length} görüntü-amaçlı widget dağıtımdan çıkarıldı — pakette korunuyor: ${stripped.map((r) => r.widgetType).join(', ')})`
+          : '';
+      return { success: true, message: `SCADA package deployed successfully${strippedNote}` };
     } catch (error) {
       const msg = (error as Error).message;
       this.logger.error(`Failed to deploy SCADA package: ${msg}`);
@@ -834,6 +887,11 @@ export class ScadaPackageService {
     // Rollback republishes signed content: same artifact sha256, same
     // domain tag — the edge cannot distinguish (nor needs to) a rollback
     // from a fresh deploy at the signature layer.
+    // CONTRACT-H-002: deliberately NO widget transform here — the payload
+    // must stay byte-faithful to the signed artifact (the signature binds
+    // the content hash). Unknown widget types inside PRE-transform-era
+    // artifacts are absorbed by the edge's #[serde(other)] Unknown
+    // tolerance instead of failing deserialization.
     const signature = this.deploySigningService
       ? this.deploySigningService.signDeployArtifact(
           'scada-package',
@@ -1268,9 +1326,21 @@ export class ScadaPackageService {
       );
     }
 
+    // Edge widget transform (CONTRACT-H-002) — same ordering as the
+    // single-command path: after upcast, before the tag gate.
+    const { doc: edgeDoc } = this.transformForEdgeOrThrow(
+      `bundle package ${pkg.id}`,
+      packageDoc,
+    );
+    if (!validateEdgeScadaPackageDoc(edgeDoc)) {
+      throw new BadRequestException(
+        `bundle package failed edge-deploy validation: ${formatValidationErrors(validateEdgeScadaPackageDoc)}`,
+      );
+    }
+
     // Tag SSoT gate (WF-003) — same coverage as the single-command path.
     if (this.tagResolutionService) {
-      const tagNames = this.collectWidgetTagNames(packageDoc);
+      const tagNames = this.collectWidgetTagNames(edgeDoc);
       if (tagNames.length > 0) {
         const refs = tagNames.map((name) => `${device.deviceCode}/${name}`);
         const resolution = await this.tagResolutionService.resolve(tenantId, refs);
@@ -1280,8 +1350,10 @@ export class ScadaPackageService {
 
     const artifact = await this.artifactService.snapshot(tenantId, {
       artifactType: DeployArtifactType.SCADA_PACKAGE,
-      content: packageDoc,
-      schemaVersion: packageDoc.meta.schemaVersion,
+      // Bundle artifacts also archive EXACTLY what ships (the transformed
+      // edge doc) — the edge stages this content verbatim on confirmation.
+      content: edgeDoc,
+      schemaVersion: edgeDoc.meta.schemaVersion,
       sourceEntityId: pkg.id,
       sourceEntityVersion: pkg.version,
       createdBy: userId,

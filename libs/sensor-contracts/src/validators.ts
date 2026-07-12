@@ -7,6 +7,7 @@
 
 import Ajv, { type ValidateFunction } from 'ajv';
 
+import { EDGE_SCADA_PACKAGE_DOC_SCHEMA } from './scada-package-doc/edge-scada-package-doc.schema';
 import { SCADA_PACKAGE_DOC_V2_SCHEMA } from './scada-package-doc/scada-package-doc.schema';
 import { COMMAND_ENVELOPE_SCHEMA } from './schemas/command-envelope.schema';
 import {
@@ -26,6 +27,15 @@ export const validateTagRef: ValidateFunction = ajv.compile(TAG_REF_SCHEMA);
 /** Compiled validator for the V2 SCADA package document (save-time trust boundary). */
 export const validateScadaPackageDocV2: ValidateFunction = ajv.compile(
   SCADA_PACKAGE_DOC_V2_SCHEMA,
+);
+
+/**
+ * Compiled validator for the STRICT edge-deploy document (CONTRACT-H-002):
+ * run AFTER `transformScadaDocForEdgeDeploy`, guarantees the payload
+ * deserializes on the Rust edge with no widget in the Unknown bucket.
+ */
+export const validateEdgeScadaPackageDoc: ValidateFunction = ajv.compile(
+  EDGE_SCADA_PACKAGE_DOC_SCHEMA,
 );
 
 /** Publish-boundary validators for the cloud→edge deploy commands (Faz 4). */

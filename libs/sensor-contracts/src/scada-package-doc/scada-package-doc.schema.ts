@@ -13,7 +13,10 @@
 
 import { TAG_REF_PATTERN } from '../tag-ref';
 
-const WIDGET_POSITION_SCHEMA = {
+// The sub-schemas are exported so the STRICT edge-deploy recomposition
+// (`edge-scada-package-doc.schema.ts`) can tighten exactly the fields the
+// Rust structs require without duplicating the base shapes.
+export const WIDGET_POSITION_SCHEMA = {
   type: 'object',
   properties: {
     col: { type: 'number' },
@@ -25,7 +28,7 @@ const WIDGET_POSITION_SCHEMA = {
   additionalProperties: true,
 } as const;
 
-const WIDGET_SCHEMA = {
+export const WIDGET_SCHEMA = {
   type: 'object',
   properties: {
     id: { type: 'string', minLength: 1 },
@@ -51,7 +54,7 @@ const WIDGET_SCHEMA = {
   additionalProperties: true,
 } as const;
 
-const SCREEN_SCHEMA = {
+export const SCREEN_SCHEMA = {
   type: 'object',
   properties: {
     id: { type: 'string', minLength: 1 },
@@ -69,7 +72,7 @@ const SCREEN_SCHEMA = {
   additionalProperties: true,
 } as const;
 
-const ALARM_RULE_SCHEMA = {
+export const ALARM_RULE_SCHEMA = {
   type: 'object',
   properties: {
     id: { type: 'string', minLength: 1 },

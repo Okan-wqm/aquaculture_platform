@@ -391,6 +391,26 @@ impl CommandHandler {
             );
         }
 
+        // CONTRACT-H-002 forward-compat: widget types this firmware does not
+        // know deserialize to WidgetType::Unknown instead of failing the whole
+        // package (the cloud transform strips/rejects them up front, so this
+        // bucket only fills for pre-transform artifacts or a newer cloud).
+        // Count + name them, report in the ack — NEVER fail the deploy.
+        let unknown_widget_ids: Vec<String> = package
+            .screens
+            .iter()
+            .flat_map(|s| s.widgets.iter())
+            .filter(|w| matches!(w.widget_type, crate::scada_types::WidgetType::Unknown))
+            .map(|w| w.id.clone())
+            .collect();
+        let unknown_widget_count = unknown_widget_ids.len();
+        if unknown_widget_count > 0 {
+            warn!(
+                "deploy_scada_package: {} widget(s) with unknown type will not render: {:?}",
+                unknown_widget_count, unknown_widget_ids
+            );
+        }
+
         let version = package.meta.version;
         let screen_count = package.screens.len();
         let alarm_count = package.alarm_rules.len();
@@ -446,8 +466,8 @@ impl CommandHandler {
         match scada_state.deploy_package(package).await {
             Ok(()) => {
                 info!(
-                    "SCADA package deployed: version={}, screens={}, alarm_rules={}",
-                    version, screen_count, alarm_count
+                    "SCADA package deployed: version={}, screens={}, alarm_rules={}, unknown_widgets={}",
+                    version, screen_count, alarm_count, unknown_widget_count
                 );
                 (
                     true,
@@ -456,6 +476,7 @@ impl CommandHandler {
                         "version": version,
                         "screens": screen_count,
                         "alarm_rules": alarm_count,
+                        "unknown_widget_count": unknown_widget_count,
                     }),
                     None,
                 )

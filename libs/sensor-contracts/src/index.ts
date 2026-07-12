@@ -46,5 +46,28 @@ export type {
 
 export { SCADA_PACKAGE_DOC_V2_SCHEMA } from './scada-package-doc/scada-package-doc.schema';
 
+export {
+  EDGE_SUPPORTED_WIDGET_TYPES,
+  EDGE_REJECTED_WIDGET_TYPES,
+  EDGE_SCREEN_TYPES,
+  EDGE_ALARM_SEVERITIES,
+  classifyWidgetTypeForEdge,
+} from './scada-package-doc/edge-widget-support';
+export type {
+  EdgeSupportedWidgetType,
+  EdgeRejectedWidgetType,
+  EdgeScreenType,
+  EdgeAlarmSeverity,
+  EdgeWidgetClassification,
+} from './scada-package-doc/edge-widget-support';
+
+export { EDGE_SCADA_PACKAGE_DOC_SCHEMA } from './scada-package-doc/edge-scada-package-doc.schema';
+
+export { transformScadaDocForEdgeDeploy } from './scada-package-doc/edge-deploy-transform';
+export type {
+  EdgeDeployWidgetRef,
+  EdgeDeployTransformResult,
+} from './scada-package-doc/edge-deploy-transform';
+
 export { upcastScadaPackageDoc } from './scada-package-doc/upcast';
 export type { UpcastContext } from './scada-package-doc/upcast';

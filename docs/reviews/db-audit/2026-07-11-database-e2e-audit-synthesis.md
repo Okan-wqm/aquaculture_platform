@@ -51,7 +51,7 @@ The audit's core question — *"where is a datum written, and is it single-owned
 
 ### D. FE↔BE contract drift (frontend field ⇄ backend field mismatch)
 
-`impersonation` FE contract resolves entirely to `undefined` (superAdminId/targetTenantId/createdAt vs FE adminId/tenantId/startedAt — ADMIN-HIGH-001) · tenant suspension metadata + `lastActivityAt` assigned to non-`@Column` transient fields TypeORM drops → panel always `undefined` (ADMIN-HIGH-003) · tenant list omits FE-required `tier`/`limits`/`farmCount`/`sensorCount` (ADMIN-HIGH-005) · hr-module payroll+performance GraphQL ops structurally invalid vs live `hr` subgraph — beyond the documented 2-field floor: 5 queries/mutations absent, object fields selected as scalars (PEOPLE-HIGH-001).
+`impersonation` FE contract resolves entirely to `undefined` (superAdminId/targetTenantId/createdAt vs FE adminId/tenantId/startedAt — ADMIN-HIGH-001) · tenant suspension metadata + `lastActivityAt` assigned to non-`@Column` transient fields TypeORM drops → panel always `undefined` (ADMIN-HIGH-003) · tenant list omits FE-required `tier`/`limits`/`farmCount`/`sensorCount` (ADMIN-HIGH-005) · hr-module payroll+performance GraphQL ops structurally invalid vs live `hr` subgraph — beyond the documented 2-field floor: 5 queries/mutations absent, object fields selected as scalars (PEOPLE-HIGH-001 → **CORRECTED (partial), see [[ORPHAN-MEDIUM-374]]**: the "5 ops absent" half — `teamPerformanceOverview`/`reviewCycleStatus`/`goalProgressTrend`/`departmentKPIs`/`bulkCreateReviews` — is a FALSE POSITIVE from the stale Jun-19 `dist/graphql/subgraphs/hr.graphql` artifact; all five have live registered resolvers at `performance.resolver.ts:173/186/201/278/344` (added by #697) and compose into a fresh supergraph. The scalar-selection half was real: `PerformanceReviewFull.competencyRatings` selected an object type as a scalar — fixed under ORPHAN-MEDIUM-374).
 
 ### E. Security (beyond the CRITICAL)
 
@@ -94,7 +94,7 @@ The untracked working-tree migration `1801300000000-BackfillFeedInventoryIntoSto
 
 **P1 — SSoT collapse (closes the most findings per fix):** A1 tank count, A2 feed stock, A3 RBAC catalogue, A4 admin→auth.tenants write. Each is Tier-1/Tier-2: make the mirror derived or remove the second writer.
 
-**P2 — FE↔BE contract repair:** ADMIN-HIGH-001/003/005 (impersonation + tenant DTOs), PEOPLE-HIGH-001 (hr-module ops vs subgraph). Root cause is the two uncontracted boundaries — admin-panel hand-written REST types and codegen-unvalidated module GraphQL ops; the durable fix is to close the contract gap (generate FE types), Tier-3.
+**P2 — FE↔BE contract repair:** ADMIN-HIGH-001/003/005 (impersonation + tenant DTOs), PEOPLE-HIGH-001 (hr-module ops vs subgraph — scope shrunk by the [[ORPHAN-MEDIUM-374]] correction above: the 5 "absent" performance ops exist live; the remaining real drift is the fragment-level field mismatches). Root cause is the two uncontracted boundaries — admin-panel hand-written REST types and codegen-unvalidated module GraphQL ops; the durable fix is to close the contract gap (generate FE types), Tier-3.
 
 **P3 — Dead/orphan cleanup + governance:** decide keep-and-wire vs drop for farm_documents, feeding_tables, shared.access_logs, alert_incidents, config engine, GlobalConfig; register `billing` and `compliance` in the schema registry; create the missing tables (scada_tag_history, ai.conversation_turns, hydroponics grow-cycles) or remove their writers/claims.
 

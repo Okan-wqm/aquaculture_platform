@@ -52316,7 +52316,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "c44a3bad7c790430aaaa64417908091c3b96bab1b8cbe9b04637c773d8437876",
+      "content_sha256": "a86f22efa69c9709c00d5b66307499be7cc06db4afd009990a96ec3f59f979fd",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",

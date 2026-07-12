@@ -57,6 +57,7 @@ export interface ScadaEventPayloadMap {
   [ScadaSocketEvent.COMMAND_SET_VIEW]: { screenId: string };
   [ScadaSocketEvent.COMMAND_OPEN_CARD]: { screenId: string; x?: number; y?: number };
   [ScadaSocketEvent.COMMAND_TOAST]: { message: string; type?: string };
+  [ScadaSocketEvent.PIN_RESULT]: { valid: boolean; expiresAt?: number; lockedUntil?: number };
 }
 
 export type ScadaEventCallback<E extends keyof ScadaEventPayloadMap> = (
@@ -232,6 +233,37 @@ export class ScadaSocketService {
       callback(payload);
     };
     this.on(event, wrapper);
+  }
+
+  /**
+   * Server-side control-security PIN verification (SENSOR-CRITICAL-006).
+   * The stored PIN never reaches the client — the server compares against its
+   * salted hash and, on success, elevates THIS socket for a bounded window so
+   * pin-protected TAG_WRITEs are accepted. Resolves the server's verdict;
+   * rejects only on timeout / no connection (fail-closed for the caller).
+   */
+  verifyPin(
+    packageId: string,
+    pin: string,
+    timeoutMs = 5000,
+  ): Promise<{ valid: boolean; expiresAt?: number; lockedUntil?: number }> {
+    return new Promise((resolve, reject) => {
+      if (!this.isConnected) {
+        reject(new Error('Not connected to SCADA server'));
+        return;
+      }
+      const timer = setTimeout(() => {
+        this.off(ScadaSocketEvent.PIN_RESULT, handler);
+        reject(new Error('PIN verification timed out'));
+      }, timeoutMs);
+      const handler = (payload: { valid: boolean; expiresAt?: number; lockedUntil?: number }): void => {
+        clearTimeout(timer);
+        this.off(ScadaSocketEvent.PIN_RESULT, handler);
+        resolve(payload);
+      };
+      this.on(ScadaSocketEvent.PIN_RESULT, handler);
+      this.emit(ScadaSocketEvent.PIN_VERIFY, { packageId, pin });
+    });
   }
 
   // ── Tag-level convenience methods ──────────────────────────────────────────

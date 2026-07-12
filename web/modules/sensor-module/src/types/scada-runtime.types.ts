@@ -131,6 +131,11 @@ export enum ScadaSocketEvent {
   // Connection
   HEARTBEAT = 'scada:heartbeat',
   AUTH = 'scada:auth',
+
+  // Control-security PIN (SENSOR-CRITICAL-006): server-side verification —
+  // the client never sees or compares the stored PIN.
+  PIN_VERIFY = 'scada:pin:verify',
+  PIN_RESULT = 'scada:pin:result',
 }
 
 /** Payload: TAG_VALUES (server → client) */

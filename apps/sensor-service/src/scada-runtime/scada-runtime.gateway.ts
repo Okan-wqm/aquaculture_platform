@@ -49,10 +49,12 @@ import {
   ScadaErrorPayload,
   TagSubscriptionDto,
   TagWriteDto,
+  PinVerifyDto,
 } from './dto/scada-socket.dto';
 import { TagManagerService } from './services/tag-manager.service';
 import { DaqStorageService } from './services/daq-storage.service';
 import { TagResolutionService } from '../process/services/tag-resolution.service';
+import { ScadaPackageService } from '../process/services/scada-package.service';
 import { TagDirection } from '../process/entities/unified-tag.entity';
 import {
   SCADA_ALARM_ACK_EVENT,
@@ -116,6 +118,12 @@ interface ConnectedClient {
   tenantId: string;
   userId: string;
   role: HmiRole;
+  /** PIN elevation (SENSOR-CRITICAL-006): epoch-ms until which pin-protected writes are allowed. */
+  pinElevatedUntil?: number;
+  /** Consecutive failed PIN attempts; resets on success. */
+  pinFailCount?: number;
+  /** Brute-force lockout: epoch-ms until which PIN_VERIFY is rejected. */
+  pinLockedUntil?: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -161,6 +169,7 @@ export class ScadaRuntimeGateway
     private readonly tagResolution: TagResolutionService,
     private readonly eventEmitter: EventEmitter2,
     private readonly daqStorage: DaqStorageService,
+    private readonly scadaPackageService: ScadaPackageService,
   ) {
     this.isProduction = process.env['NODE_ENV'] === 'production';
   }
@@ -444,6 +453,25 @@ export class ScadaRuntimeGateway
         return;
       }
 
+      // Control-security PIN gate (SENSOR-CRITICAL-006): a tag bound to a
+      // pin-protected widget in ANY of this tenant's packages requires a
+      // server-verified PIN elevation on this socket. Keyed by TAG, not by
+      // caller-supplied package context, so a direct socket.emit cannot opt
+      // out of the widget's protection.
+      if (await this.isPinProtectedTag(clientData.tenantId, tagId)) {
+        const elevated =
+          typeof clientData.pinElevatedUntil === 'number' &&
+          clientData.pinElevatedUntil > Date.now();
+        if (!elevated) {
+          this.logger.warn(
+            `[tag-write] SECURITY: ${client.id} (tenant=${clientData.tenantId}) denied — ` +
+              `tagId=${tagId} is PIN-protected and the socket is not PIN-elevated`,
+          );
+          this.emitError(client, ScadaSocketEvent.TAG_WRITE, SCADA_ERROR_CODES.FORBIDDEN, 'PIN verification required for this control (send PIN_VERIFY first)');
+          return;
+        }
+      }
+
       const writeFunction = payload.function ?? 'set';
 
       this.tagManager.writeTagValue(
@@ -600,6 +628,94 @@ export class ScadaRuntimeGateway
   /* ---------------------------------------------------------------- */
   /*  HEARTBEAT                                                         */
   /* ---------------------------------------------------------------- */
+
+  /* ---------------------------------------------------------------- */
+  /*  PIN_VERIFY (SENSOR-CRITICAL-006)                                  */
+  /* ---------------------------------------------------------------- */
+
+  /** PIN elevation lifetime after a successful verification. */
+  private static readonly PIN_ELEVATION_MS = 5 * 60 * 1000;
+  /** Failed attempts before the socket is locked out. */
+  private static readonly PIN_MAX_ATTEMPTS = 5;
+  /** Lockout duration once the attempt budget is exhausted. */
+  private static readonly PIN_LOCKOUT_MS = 60 * 1000;
+  /** Staleness bound for the per-tenant pin-protected tag set. */
+  private static readonly PIN_SET_TTL_MS = 60 * 1000;
+
+  /** tenantId → cached pin-protected tag keys. */
+  private readonly pinProtectedCache = new Map<string, { keys: Set<string>; expiresAt: number }>();
+
+  private async isPinProtectedTag(tenantId: string, tagId: string): Promise<boolean> {
+    const now = Date.now();
+    const cached = this.pinProtectedCache.get(tenantId);
+    if (cached && cached.expiresAt > now) return cached.keys.has(tagId);
+    const keys = await this.scadaPackageService.getPinProtectedTagKeys(tenantId);
+    this.pinProtectedCache.set(tenantId, { keys, expiresAt: now + ScadaRuntimeGateway.PIN_SET_TTL_MS });
+    return keys.has(tagId);
+  }
+
+  /**
+   * Verify a control-security PIN against the package's stored (hashed) PIN
+   * and elevate this socket for a bounded window. Brute-force is rate-limited
+   * per socket: PIN_MAX_ATTEMPTS consecutive failures lock verification for
+   * PIN_LOCKOUT_MS. The client NEVER sees the stored secret (SENSOR-CRITICAL-006
+   * — the pre-fix flow compared a plaintext pin in the browser).
+   */
+  @SubscribeMessage(ScadaSocketEvent.PIN_VERIFY)
+  async handlePinVerify(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: PinVerifyDto,
+  ): Promise<void> {
+    try {
+      const clientData = this.clients.get(client.id);
+      if (!clientData) {
+        this.emitError(client, ScadaSocketEvent.PIN_VERIFY, SCADA_ERROR_CODES.AUTH_REQUIRED, 'Client not authenticated');
+        return;
+      }
+
+      const now = Date.now();
+      if (typeof clientData.pinLockedUntil === 'number' && clientData.pinLockedUntil > now) {
+        client.emit(ScadaSocketEvent.PIN_RESULT, {
+          valid: false,
+          lockedUntil: clientData.pinLockedUntil,
+        });
+        return;
+      }
+
+      const valid = await this.scadaPackageService.verifyPackagePin(
+        payload.packageId,
+        clientData.tenantId,
+        payload.pin,
+      );
+
+      if (valid) {
+        clientData.pinFailCount = 0;
+        clientData.pinLockedUntil = undefined;
+        clientData.pinElevatedUntil = now + ScadaRuntimeGateway.PIN_ELEVATION_MS;
+        client.emit(ScadaSocketEvent.PIN_RESULT, {
+          valid: true,
+          expiresAt: clientData.pinElevatedUntil,
+        });
+        return;
+      }
+
+      clientData.pinFailCount = (clientData.pinFailCount ?? 0) + 1;
+      if (clientData.pinFailCount >= ScadaRuntimeGateway.PIN_MAX_ATTEMPTS) {
+        clientData.pinLockedUntil = now + ScadaRuntimeGateway.PIN_LOCKOUT_MS;
+        clientData.pinFailCount = 0;
+        this.logger.warn(
+          `[pin-verify] SECURITY: ${client.id} (tenant=${clientData.tenantId}, userId=${clientData.userId}) ` +
+            `locked out after repeated failed PIN attempts`,
+        );
+        client.emit(ScadaSocketEvent.PIN_RESULT, { valid: false, lockedUntil: clientData.pinLockedUntil });
+        return;
+      }
+      client.emit(ScadaSocketEvent.PIN_RESULT, { valid: false });
+    } catch (error) {
+      this.logger.error(`[pin-verify] ${client.id} error: ${(error as Error).message}`);
+      this.emitError(client, ScadaSocketEvent.PIN_VERIFY, SCADA_ERROR_CODES.INTERNAL_ERROR, 'PIN verification failed');
+    }
+  }
 
   @SubscribeMessage(ScadaSocketEvent.HEARTBEAT)
   handleHeartbeat(@ConnectedSocket() client: Socket): void {

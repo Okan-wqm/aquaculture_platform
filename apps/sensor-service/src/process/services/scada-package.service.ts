@@ -38,6 +38,7 @@ import { Process } from '../entities/process.entity';
 import { ScadaPackage, ScadaPackageStatus } from '../entities/scada-package.entity';
 import { ScadaDeployLogService } from './scada-deploy-log.service';
 import { TagResolutionService } from './tag-resolution.service';
+import { hashPin, isPinHash, verifyPin } from './pin-hash.util';
 
 @Injectable()
 export class ScadaPackageService {
@@ -119,19 +120,49 @@ export class ScadaPackageService {
   private sanitizePackageData(pkg: ScadaPackage): ScadaPackage {
     const data = pkg.packageData;
     const controlPermissions = data.controlPermissions as Record<string, unknown> | undefined;
-    if (controlPermissions?.pinHash) {
-      // Return a copy — do not mutate the original entity that may be cached by TypeORM
-      const clone = Object.assign(Object.create(Object.getPrototypeOf(pkg)), pkg);
-      clone.packageData = {
-        ...data,
-        controlPermissions: {
-          ...controlPermissions,
-          pinHash: '[REDACTED]',
-        },
-      };
-      return clone;
-    }
-    return pkg;
+
+    // Legacy rows: widget config.pin is a PLAINTEXT secret readable by any
+    // tenant member (SENSOR-CRITICAL-006). Strip it on read, keeping the
+    // requirePin trigger so the operator UI still prompts (verification is
+    // server-side via PIN_VERIFY).
+    const screens = Array.isArray(data.screens) ? data.screens : [];
+    const hasWidgetPin = screens.some((screen) => {
+      const widgets = (screen as { widgets?: unknown[] })?.widgets;
+      return Array.isArray(widgets) && widgets.some((w) => {
+        const pin = (w as { config?: Record<string, unknown> })?.config?.pin;
+        return typeof pin === 'string' && pin.length > 0;
+      });
+    });
+
+    if (!controlPermissions?.pinHash && !hasWidgetPin) return pkg;
+
+    // Return a copy — do not mutate the original entity that may be cached by TypeORM
+    const clone = Object.assign(Object.create(Object.getPrototypeOf(pkg)), pkg);
+    clone.packageData = {
+      ...data,
+      ...(hasWidgetPin
+        ? {
+            screens: screens.map((screen) => {
+              const sc = screen as Record<string, unknown> & { widgets?: unknown[] };
+              if (!Array.isArray(sc.widgets)) return screen;
+              return {
+                ...sc,
+                widgets: sc.widgets.map((w) => {
+                  const widget = w as Record<string, unknown> & { config?: Record<string, unknown> };
+                  const pin = widget.config?.pin;
+                  if (typeof pin !== 'string' || pin.length === 0) return w;
+                  const { pin: _stripped, ...restConfig } = widget.config!;
+                  return { ...widget, config: { ...restConfig, requirePin: true } };
+                }),
+              };
+            }),
+          }
+        : {}),
+      ...(controlPermissions?.pinHash
+        ? { controlPermissions: { ...controlPermissions, pinHash: '[REDACTED]' } }
+        : {}),
+    };
+    return clone;
   }
 
   constructor(
@@ -178,6 +209,133 @@ export class ScadaPackageService {
    * Collect the tag-name strings widgets bind to (`config.tagName`, legacy
    * `config.tag`) from every screen in the package document.
    */
+  /* ── Control-security PIN (SENSOR-CRITICAL-006) ─────────────────────── */
+
+  /**
+   * Harden control security at the SAVE boundary — plaintext can never
+   * persist through a save:
+   *  - every plaintext `widget.config.pin` is stripped, replaced with
+   *    `config.requirePin = true`, its widget id recorded in
+   *    `controlPermissions.securityLevels.pin`, and the PIN itself hashed
+   *    into the package-level `controlPermissions.pinHash` (scrypt, salted);
+   *  - a plaintext value written into `pinHash` by the builder is hashed too;
+   *  - a null/absent incoming `pinHash` (the read path redacts it) preserves
+   *    the stored hash so a load→edit→save roundtrip cannot wipe the PIN.
+   */
+  private hardenControlSecurity(
+    data: Record<string, unknown>,
+    existingPinHash?: string | null,
+  ): void {
+    const cp = (data.controlPermissions ??= {
+      securityLevels: { none: [], confirm: [], pin: [] },
+      pinHash: null,
+      emergencyStop: null,
+    }) as Record<string, unknown>;
+    const levels = (cp.securityLevels ??= { none: [], confirm: [], pin: [] }) as Record<string, unknown>;
+    const pinLevel: unknown[] = Array.isArray(levels.pin) ? levels.pin : (levels.pin = []);
+
+    let plaintextPin: string | null = null;
+    const screens = Array.isArray(data.screens) ? data.screens : [];
+    for (const screen of screens) {
+      const widgets = (screen as { widgets?: unknown[] })?.widgets;
+      if (!Array.isArray(widgets)) continue;
+      for (const widget of widgets) {
+        const w = widget as { id?: string; config?: Record<string, unknown> };
+        const pin = w.config?.pin;
+        if (typeof pin === 'string' && pin.length > 0 && w.config) {
+          plaintextPin ??= pin;
+          delete w.config.pin;
+          w.config.requirePin = true;
+          if (w.id && !pinLevel.includes(w.id)) pinLevel.push(w.id);
+        }
+      }
+    }
+
+    if (cp.pinHash === '[REDACTED]') {
+      // Roundtripped read-path redaction marker — restore the stored hash.
+      cp.pinHash = existingPinHash ?? null;
+    } else if (typeof cp.pinHash === 'string' && cp.pinHash.length > 0 && !isPinHash(cp.pinHash)) {
+      // The builder wrote a raw PIN into the hash field — never store it as-is.
+      cp.pinHash = hashPin(cp.pinHash);
+    }
+    if (plaintextPin) {
+      cp.pinHash = hashPin(plaintextPin);
+    } else if ((cp.pinHash == null || cp.pinHash === '') && existingPinHash) {
+      cp.pinHash = existingPinHash;
+    }
+  }
+
+  /** Extract the stored pinHash from a raw (unredacted) packageData. */
+  private extractPinHash(data: Record<string, unknown>): string | null {
+    const cp = data.controlPermissions as { pinHash?: unknown } | undefined;
+    return typeof cp?.pinHash === 'string' && cp.pinHash.length > 0 ? cp.pinHash : null;
+  }
+
+  /**
+   * Verify a PIN against a package's stored hash (PIN_VERIFY socket flow).
+   * Legacy rows saved before hardening carry only plaintext widget pins —
+   * those compare directly and harden on their next save.
+   */
+  async verifyPackagePin(packageId: string, tenantId: string, pin: string): Promise<boolean> {
+    const pkg = await this.scadaPackageRepository.findOne({ where: { id: packageId, tenantId } });
+    if (!pkg) return false;
+    const stored = this.extractPinHash(pkg.packageData);
+    if (stored) {
+      return isPinHash(stored) ? verifyPin(pin, stored) : stored === pin;
+    }
+    // Legacy: per-widget plaintext pins (pre-hardening rows).
+    const screens = Array.isArray(pkg.packageData.screens) ? pkg.packageData.screens : [];
+    for (const screen of screens) {
+      const widgets = (screen as { widgets?: unknown[] })?.widgets;
+      if (!Array.isArray(widgets)) continue;
+      for (const widget of widgets) {
+        const wpin = (widget as { config?: Record<string, unknown> })?.config?.pin;
+        if (typeof wpin === 'string' && wpin.length > 0 && wpin === pin) return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * The tenant-wide set of tag keys whose writes require PIN elevation:
+   * every tag bound to a pin-protected widget (securityLevels.pin membership,
+   * `config.requirePin`, or a legacy plaintext `config.pin`) across the
+   * tenant's non-archived packages. The gateway enforces against this set so
+   * a caller cannot opt out by omitting package context.
+   */
+  async getPinProtectedTagKeys(tenantId: string): Promise<Set<string>> {
+    const packages = await this.scadaPackageRepository.find({ where: { tenantId } });
+    const keys = new Set<string>();
+    for (const pkg of packages) {
+      if (pkg.status === ScadaPackageStatus.ARCHIVED) continue;
+      const data = pkg.packageData;
+      const cp = data.controlPermissions as { securityLevels?: { pin?: unknown[] } } | undefined;
+      const pinWidgetIds = new Set(
+        (Array.isArray(cp?.securityLevels?.pin) ? cp.securityLevels.pin : []).filter(
+          (x): x is string => typeof x === 'string',
+        ),
+      );
+      const screens = Array.isArray(data.screens) ? data.screens : [];
+      for (const screen of screens) {
+        const widgets = (screen as { widgets?: unknown[] })?.widgets;
+        if (!Array.isArray(widgets)) continue;
+        for (const widget of widgets) {
+          const w = widget as { id?: string; config?: Record<string, unknown> };
+          const protectedWidget =
+            (w.id && pinWidgetIds.has(w.id)) ||
+            w.config?.requirePin === true ||
+            (typeof w.config?.pin === 'string' && w.config.pin.length > 0);
+          if (!protectedWidget || !w.config) continue;
+          for (const key of ['tagRef', 'tagId', 'tagName', 'tag'] as const) {
+            const v = w.config[key];
+            if (typeof v === 'string' && v.length > 0) keys.add(v);
+          }
+        }
+      }
+    }
+    return keys;
+  }
+
   private collectWidgetTagNames(data: Record<string, unknown>): string[] {
     const names = new Set<string>();
     const screens = Array.isArray(data.screens) ? data.screens : [];
@@ -207,6 +365,7 @@ export class ScadaPackageService {
     this.validatePackageDataSize(input.packageData);
     this.validatePackageDataStructure(input.packageData);
     const packageData = await this.upcastAndValidatePackageData(input.packageData, tenantId);
+    this.hardenControlSecurity(packageData);
 
     if (input.processId) {
       const process = await this.processRepository.findOne({
@@ -253,7 +412,9 @@ export class ScadaPackageService {
     if (input.packageData !== undefined) {
       this.validatePackageDataSize(input.packageData);
       this.validatePackageDataStructure(input.packageData);
+      const existingPinHash = this.extractPinHash(pkg.packageData);
       pkg.packageData = await this.upcastAndValidatePackageData(input.packageData, tenantId);
+      this.hardenControlSecurity(pkg.packageData, existingPinHash);
     }
 
     if (input.name !== undefined) pkg.name = input.name;

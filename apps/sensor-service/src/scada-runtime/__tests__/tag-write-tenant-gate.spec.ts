@@ -37,10 +37,17 @@ function binding(direction: TagDirection): ResolvedBinding {
   };
 }
 
-function makeGateway(resolveResult: { resolved: ResolvedBinding[]; unresolved: unknown[] }) {
+function makeGateway(
+  resolveResult: { resolved: ResolvedBinding[]; unresolved: unknown[] },
+  opts?: { pinProtectedKeys?: string[]; pinValid?: boolean },
+) {
   const tagManager = { writeTagValue: jest.fn() };
   const tagResolution = { resolve: jest.fn().mockResolvedValue(resolveResult) };
   const eventEmitter = { emit: jest.fn() };
+  const scadaPackages = {
+    getPinProtectedTagKeys: jest.fn().mockResolvedValue(new Set(opts?.pinProtectedKeys ?? [])),
+    verifyPackagePin: jest.fn().mockResolvedValue(opts?.pinValid ?? false),
+  };
   const gateway = new ScadaRuntimeGateway(
     {} as never,
     tagManager as never,
@@ -48,8 +55,9 @@ function makeGateway(resolveResult: { resolved: ResolvedBinding[]; unresolved: u
     tagResolution as never,
     eventEmitter as never,
     { queryChunked: jest.fn() } as never,
+    scadaPackages as never,
   );
-  return { gateway, tagManager, tagResolution, eventEmitter };
+  return { gateway, tagManager, tagResolution, eventEmitter, scadaPackages };
 }
 
 function seedClient(gateway: ScadaRuntimeGateway, socket: { id: string; emit: jest.Mock }) {
@@ -103,6 +111,75 @@ describe('TAG_WRITE tenant + registry gate', () => {
       ScadaSocketEvent.TAG_WRITE_ACK,
       expect.objectContaining({ status: 'queued' }),
     );
+  });
+});
+
+describe('PIN control-security gate (SENSOR-CRITICAL-006)', () => {
+  it('rejects a write to a PIN-protected tag when the socket is not elevated', async () => {
+    const { gateway, tagManager } = makeGateway(
+      { resolved: [binding(TagDirection.OUTPUT)], unresolved: [] },
+      { pinProtectedKeys: ['EDGE-01/pump.cmd'] },
+    );
+    const socket = makeSocket();
+    seedClient(gateway, socket);
+
+    await gateway.handleTagWrite(socket as never, { tagId: 'EDGE-01/pump.cmd', value: 1 } as never);
+
+    expect(tagManager.writeTagValue).not.toHaveBeenCalled();
+    expect(socket.emit).toHaveBeenCalledWith('scada:error', expect.objectContaining({ code: 'FORBIDDEN' }));
+  });
+
+  it('allows the write after a successful PIN_VERIFY elevates the socket', async () => {
+    const { gateway, tagManager } = makeGateway(
+      { resolved: [binding(TagDirection.OUTPUT)], unresolved: [] },
+      { pinProtectedKeys: ['EDGE-01/pump.cmd'], pinValid: true },
+    );
+    const socket = makeSocket();
+    seedClient(gateway, socket);
+
+    await gateway.handlePinVerify(socket as never, { packageId: 'pkg-1', pin: '1234' } as never);
+    expect(socket.emit).toHaveBeenCalledWith(
+      'scada:pin:result',
+      expect.objectContaining({ valid: true, expiresAt: expect.any(Number) }),
+    );
+
+    await gateway.handleTagWrite(socket as never, { tagId: 'EDGE-01/pump.cmd', value: 1 } as never);
+    expect(tagManager.writeTagValue).toHaveBeenCalled();
+  });
+
+  it('locks PIN verification after repeated failures (brute-force limit)', async () => {
+    const { gateway, scadaPackages } = makeGateway(
+      { resolved: [binding(TagDirection.OUTPUT)], unresolved: [] },
+      { pinValid: false },
+    );
+    const socket = makeSocket();
+    seedClient(gateway, socket);
+
+    for (let i = 0; i < 5; i++) {
+      await gateway.handlePinVerify(socket as never, { packageId: 'pkg-1', pin: 'wrong' } as never);
+    }
+    // The 5th failure returns a lockout...
+    expect(socket.emit).toHaveBeenLastCalledWith(
+      'scada:pin:result',
+      expect.objectContaining({ valid: false, lockedUntil: expect.any(Number) }),
+    );
+
+    // ...and while locked, verification is short-circuited (no hash check).
+    scadaPackages.verifyPackagePin.mockClear();
+    await gateway.handlePinVerify(socket as never, { packageId: 'pkg-1', pin: 'wrong' } as never);
+    expect(scadaPackages.verifyPackagePin).not.toHaveBeenCalled();
+  });
+
+  it('writes to unprotected tags never consult the PIN gate elevation', async () => {
+    const { gateway, tagManager } = makeGateway(
+      { resolved: [binding(TagDirection.OUTPUT)], unresolved: [] },
+      { pinProtectedKeys: ['EDGE-01/other.tag'] },
+    );
+    const socket = makeSocket();
+    seedClient(gateway, socket);
+
+    await gateway.handleTagWrite(socket as never, { tagId: 'EDGE-01/pump.cmd', value: 1 } as never);
+    expect(tagManager.writeTagValue).toHaveBeenCalled();
   });
 });
 

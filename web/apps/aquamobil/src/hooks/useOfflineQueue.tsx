@@ -16,6 +16,12 @@ import {
   removePendingBlob,
   MAX_RETRY_COUNT,
 } from '@/pwa/offline-queue';
+import {
+  OPERATION_MUTATIONS,
+  buildOperationVariables,
+  getLeaveSubmitFollowUp,
+} from '@/pwa/operation-registry';
+import { QUEUE_DRAIN_LOCK } from '@/pwa/sw-replay';
 import { authenticatedFetch, graphqlRequest } from '@/services/authenticated-fetch';
 import type {
   QueuedOperation,
@@ -60,218 +66,10 @@ interface OfflineContextValue {
 
 const OfflineContext = createContext<OfflineContextValue | null>(null);
 
-// GraphQL mutations for sync - tenantId/userId extracted from JWT by backend
-// MSG-MEDIUM-055: 'uploadAndSendMessage' is excluded — it is NOT a single
-// GraphQL mutation string. Its 3-step presign → PUT → send replay is handled by
-// replayUploadAndSendMessage below, never looked up in this map. Excluding it
-// keeps this record exhaustive over the single-mutation op types only.
-const MUTATIONS: Record<Exclude<OperationType, 'uploadAndSendMessage'> | 'submitLeaveRequest', string> = {
-  recordMortality: `
-    mutation RecordMortality($input: RecordMortalityInput!) {
-      recordMortality(input: $input) {
-        id
-        currentQuantity
-        totalMortality
-      }
-    }
-  `,
-  recordCull: `
-    mutation RecordCull($input: RecordCullInput!) {
-      recordCull(input: $input) {
-        id
-        currentQuantity
-        cullCount
-      }
-    }
-  `,
-  createHarvestRecord: `
-    mutation CreateHarvestRecord($input: CreateHarvestRecordInput!) {
-      createHarvestRecord(input: $input) {
-        id
-        recordCode
-        quantityHarvested
-      }
-    }
-  `,
-  recordFeeding: `
-    mutation RecordDailyFeeding($input: RecordDailyFeedingInput!) {
-      recordDailyFeeding(input: $input) {
-        id
-        actualFeedKg
-        status
-      }
-    }
-  `,
-  clockIn: `
-    mutation ClockIn($input: ClockInInput!) {
-      clockIn(input: $input) {
-        id
-        date
-        clockIn
-        status
-        workedMinutes
-        remarks
-      }
-    }
-  `,
-  clockOut: `
-    mutation ClockOut($input: ClockOutInput!) {
-      clockOut(input: $input) {
-        id
-        date
-        clockOut
-        status
-        workedMinutes
-      }
-    }
-  `,
-  createLeaveRequest: `
-    mutation CreateLeaveRequest($input: CreateLeaveRequestInput!) {
-      createLeaveRequest(input: $input) {
-        id
-        startDate
-        endDate
-        totalDays
-        status
-      }
-    }
-  `,
-  submitLeaveRequest: `
-    mutation SubmitLeaveRequest($id: ID!) {
-      submitLeaveRequest(id: $id) {
-        id
-        status
-      }
-    }
-  `,
-  // FARM-HIGH-057: task lifecycle mutations take a single TaskLifecycleInput that
-  // carries the task id PLUS the at-most-once command envelope. The server rejects
-  // an envelope-less call, so the queued payload (envelope already stamped on
-  // enqueue) is sent verbatim under `input`.
-  completeTask: `
-    mutation CompleteTask($input: TaskLifecycleInput!) {
-      completeTask(input: $input) {
-        id
-        status
-        completedAt
-        completedBy
-      }
-    }
-  `,
-  startTask: `
-    mutation StartTask($input: TaskLifecycleInput!) {
-      startTask(input: $input) {
-        id
-        status
-      }
-    }
-  `,
-  // FARM-HIGH-057: idempotent checklist SET — the queued payload carries the
-  // ABSOLUTE target isCompleted (taskId/itemId/isCompleted) plus the envelope, so
-  // a replay after reconnect converges instead of reverting the item.
-  setChecklistItem: `
-    mutation SetChecklistItem($input: SetChecklistItemInput!) {
-      setChecklistItem(input: $input) {
-        id
-        checklistItems
-      }
-    }
-  `,
-  recordTransfer: `
-    mutation RecordTransfer($input: TransferBatchInput!) {
-      transferBatch(input: $input) {
-        id
-      }
-    }
-  `,
-  createWaterQuality: `
-    mutation CreateWaterQualityMeasurement($input: CreateWaterQualityInput!) {
-      createWaterQualityMeasurement(input: $input) {
-        id
-        overallStatus
-        hasAlarm
-      }
-    }
-  `,
-  recordStockMovement: `
-    mutation RecordStockMovement($input: RecordStockMovementInput!) {
-      recordStockMovement(input: $input) {
-        id
-        movementType
-        quantity
-      }
-    }
-  `,
-  transferStock: `
-    mutation TransferStock($input: TransferStockInput!) {
-      transferStock(input: $input) {
-        id
-        quantity
-      }
-    }
-  `,
-  // FARM-HIGH-214: regulatory field capture. The queued payload carries the
-  // command envelope stamped on enqueue; the backend inputs extend
-  // MobileCommandEnvelopeInput so it rides under `input` verbatim. Lice counts
-  // are naturally idempotent (upsert per tank/date); welfare + escape dedup
-  // through the farm_mobile_command_receipts ledger on replay.
-  recordLiceCount: `
-    mutation RecordLiceCount($input: RecordLiceCountInput!) {
-      recordLiceCount(input: $input) {
-        id
-        reportingYear
-        reportingWeek
-      }
-    }
-  `,
-  recordWelfareAssessment: `
-    mutation RecordWelfareAssessment($input: RecordWelfareAssessmentInput!) {
-      recordWelfareAssessment(input: $input) {
-        id
-        assessedAt
-      }
-    }
-  `,
-  recordEscapeIncident: `
-    mutation RecordEscapeIncident($input: RecordEscapeIncidentInput!) {
-      recordEscapeIncident(input: $input) {
-        id
-        status
-      }
-    }
-  `,
-  // Messaging mutations — ADR-012
-  sendMessage: `
-    mutation SendMessage($input: SendMessageInput!) {
-      sendMessage(input: $input) {
-        id
-        channelId
-        content
-        contentType
-        createdAt
-      }
-    }
-  `,
-  editMessage: `
-    mutation EditMessage($id: ID!, $input: EditMessageInput!) {
-      editMessage(id: $id, input: $input) {
-        id
-        content
-        editedAt
-      }
-    }
-  `,
-  deleteMessage: `
-    mutation DeleteMessage($id: ID!) {
-      deleteMessage(id: $id)
-    }
-  `,
-  markMessagesRead: `
-    mutation MarkMessagesRead($input: MarkReadInput!) {
-      markMessagesRead(input: $input)
-    }
-  `,
-};
+// MOB-MEDIUM-002: the mutation documents + variable shaping live in the
+// React-free operation registry (src/pwa/operation-registry.ts) so the SW
+// closed-app replay lane (sw-replay.ts) executes the exact same contract as
+// this foreground provider. Do not re-inline them here.
 
 /**
  * MSG-MEDIUM-055: in-app replay of the binary offline lane. Runs the 3-step
@@ -460,24 +258,11 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
         return replayUploadAndSendMessage(payload as UploadAndSendMessageOfflinePayload, tenantId);
       }
 
-      // deleteMessage uses a flat { id } variable (no envelope: messaging deletes
-      // are not at-most-once-enveloped here). FARM-HIGH-057: completeTask/startTask
-      // are NO LONGER flat-id mutations — they take a single TaskLifecycleInput, so
-      // the whole enveloped payload rides under `input` like every other input
-      // mutation (the default branch below). setChecklistItem is the same shape.
-      const isIdMutation = type === 'deleteMessage';
-      // editMessage uses { id, input: { content } } — split payload into id + nested input
-      const isEditMessage = type === 'editMessage';
-
-      let variables: Record<string, unknown>;
-      if (isEditMessage) {
-        const { id: msgId, content, ...rest } = payload as unknown as Record<string, unknown>;
-        variables = { id: msgId, input: { content, ...rest } };
-      } else if (isIdMutation) {
-        variables = payload as unknown as Record<string, unknown>;
-      } else {
-        variables = { input: payload };
-      }
+      // MOB-MEDIUM-002: document + variable shaping come from the shared
+      // operation registry — the same contract the SW closed-app replay
+      // executes, so the two drain lanes cannot drift.
+      const mutationType = type;
+      const variables = buildOperationVariables(mutationType, payload);
 
       // MSG-CRITICAL-057 / MSG-HIGH-060: route replay through authenticatedFetch —
       // the ONE auth lane (auth-ready barrier + single-flight 401 refresh, reading
@@ -491,7 +276,7 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
       const response = await authenticatedFetch('/graphql', {
         method: 'POST',
         body: JSON.stringify({
-          query: MUTATIONS[type],
+          query: OPERATION_MUTATIONS[mutationType],
           variables,
         }),
       });
@@ -506,19 +291,13 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
         throw new Error(result.errors[0]?.message || 'GraphQL error');
       }
 
-      if (type === 'createLeaveRequest') {
-        const created = result.data as { createLeaveRequest?: { id?: string } } | undefined;
-        const createdId = created?.createLeaveRequest?.id;
-        if (!createdId) {
-          throw new Error('Leave request was created without an id');
-        }
-
+      // createLeaveRequest chains an immediate submit (shared registry helper —
+      // throws when the created id is missing, so the op surfaces as failed).
+      const followUp = getLeaveSubmitFollowUp(type, result.data);
+      if (followUp) {
         const submitResponse = await authenticatedFetch('/graphql', {
           method: 'POST',
-          body: JSON.stringify({
-            query: MUTATIONS.submitLeaveRequest,
-            variables: { id: createdId },
-          }),
+          body: JSON.stringify(followUp),
         });
 
         if (!submitResponse.ok) {
@@ -570,7 +349,16 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
         return next;
       });
 
-      const result = await syncAllOperations(tenantId, executeGraphQL);
+      // MOB-MEDIUM-002: the drain runs under the SAME Web Lock the SW's
+      // closed-app replay holds ('aquamobil-queue-drain'), so an app opening
+      // mid-SW-drain waits instead of double-draining or racing token
+      // rotations. Where Web Locks are unavailable the SW lane never drains
+      // (it requires the lock), so running unlocked here is safe.
+      const runDrain = (): Promise<SyncResult> => syncAllOperations(tenantId, executeGraphQL);
+      const result =
+        typeof navigator !== 'undefined' && navigator.locks
+          ? await navigator.locks.request(QUEUE_DRAIN_LOCK, runDrain)
+          : await runDrain();
       await refreshQueue();
 
       // C7: After sync, determine per-operation outcomes by comparing against

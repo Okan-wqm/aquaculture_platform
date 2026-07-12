@@ -37,6 +37,9 @@ import { NetworkFirst, CacheFirst, StaleWhileRevalidate } from 'workbox-strategi
 
 import { logger } from '../utils/logger';
 
+import { handleBackgroundSyncEvent } from './sw-replay';
+
+
 declare const self: ServiceWorkerGlobalScope & typeof globalThis;
 
 // ============================================================================
@@ -159,27 +162,18 @@ const APP_BASENAME = '/mobile';
 
 /**
  * Sync event handler — invoked by the browser when connectivity is restored.
- * Posts SYNC_COMPLETE to all active clients so the OfflineProvider triggers
- * a queue refresh and auto-sync via syncAllOperations().
  *
- * WHY SYNC_COMPLETE and not SYNC_MESSAGES: The OfflineProvider's service worker
- * message listener handles 'SYNC_COMPLETE'. Using a single event type ensures
- * ALL queued operations (messaging + farm + HR) are flushed through the single
- * authoritative sync engine — no separate messaging-only drain path.
+ * MOB-MEDIUM-002: delegates to sw-replay.ts, the real closed-app drain lane.
+ * With ≥1 open window client it posts SYNC_COMPLETE so the OfflineProvider's
+ * foreground drain runs (single event type — ALL queued operations flush
+ * through the one authoritative sync engine, no messaging-only path). With
+ * ZERO clients it replays the encrypted queue itself: cookie-refresh →
+ * /graphql re-POSTs under the shared 'aquamobil-queue-drain' Web Lock, blob
+ * ops excluded (MSG-MEDIUM-055).
  */
 function handleSyncEvent(event: ExtendableEvent & { tag: string }): void {
   if (event.tag === 'sync-messages' || event.tag === 'sync-operations') {
-    event.waitUntil(notifyClientsToSync());
-  }
-}
-
-async function notifyClientsToSync(): Promise<void> {
-  const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: false });
-  for (const client of clients) {
-    // WHY: SYNC_COMPLETE is the event the OfflineProvider listens for.
-    // Previously this posted SYNC_MESSAGES which was silently dropped,
-    // leaving messaging operations stranded after background sync fired.
-    client.postMessage({ type: 'SYNC_COMPLETE' });
+    event.waitUntil(handleBackgroundSyncEvent(self));
   }
 }
 

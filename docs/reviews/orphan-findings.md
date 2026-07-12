@@ -6506,6 +6506,7 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 **Also settles the shared.audit_logs=0 question ([[ORPHAN-INFO-363]]):** live `pg_policies` shows `shared.audit_logs` ALREADY carries `infra_ledger_append`/`infra_ledger_read` — its writes work; 0 rows is genuinely low activity (no audited billing op in this E2E tenant). The "benign" verdict stands at the RLS layer too.
 **Validation:** `infrastructure-ledger-ssot` + `rls-exclude-tables-ssot` + `rls-predicate-canonical` + `protected-tables-guard` + `shared-schema-canonical` 17/17; helper verified to DROP the old policy (`infrastructure-ledger-rls.helper.ts:177`). **Post-deploy check (rides this release):** `SELECT count(*) FROM shared.access_logs` > 0 after any HTTP request, and gateway logs free of `ACCESS_LOG_FAILURE`.
 **Owner:** auth-security / data-expert. **Deadline:** SSoT line landed this PR; live policy swap + row-growth verification on this PR's deploy.
+**DEPLOY-VERIFY UPDATE (2026-07-12, post-#944 deploy):** the policy did NOT flip — root cause: `apps/db-migrate/src/main.ts` routes `shared` OUT of the per-schema hardening pass ("shared.audit_logs is handled in platform-bootstrap SQL"), so `INFRASTRUCTURE_AUDIT_LEDGERS` alone is inert for `shared`. The authoritative policy source is `006-shared-schema-tables.sql`, which still gave access_logs `tenant_isolation_policy`. FIXED at the true source: access_logs removed from 006's tenant-policy array and given its own idempotent infra-ledger block (byte-for-byte the audit_logs pair); the SSoT entry stays (parity invariant + documents the class). Heals live on this fix's deploy; verify `pg_policies` shows the pair + `shared.access_logs` row growth.
 
 ## ORPHAN-HIGH-368 — event-store crypto-shred rollout Step 2: wire `shred()` into the tenant-erasure handler (design-doc rollout #2) — RESOLVED (this PR)
 
@@ -6546,3 +6547,13 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 3. Backend `queryPermissions` returns `{data,total,page,limit}` without `totalPages`; the FE `PaginatedResult` type declares it required (currently unused by the page — type-level drift).
 4. FE `getSessionActions` is a documented throw: no backend GET endpoint exposes a session's action log even though the data exists in `actionsPerformed` — a small read-endpoint gap.
 **Owner:** admin-expert (2-4) + the Faz 3 lane (1). **Deadline:** tracked (2026-10-15); item 1 folds into Faz 3.
+
+## ORPHAN-HIGH-373 — Faz 2b: config-service WIRE — seed the legacy settings + first real consumer (INFRA-HIGH-001; owner decision: wire) — IN PROGRESS (parallel lane)
+
+**Scope:** config-service's engine is built-but-unconsumed ([[ORPHAN-HIGH-356]] item 3); the platform owner chose WIRE. (1) Seed the retired system-settings vocabulary into `config.configurations` via a config-service migration sourcing `DEFAULT_SYSTEM_SETTINGS` (the code-side seed source kept in `system-setting.entity.ts`; the dropped rows' jsonb archive is `admin.retired_config_backups`). (2) Wire the admin-panel system-settings UI to config-service's federated `effectiveConfiguration`/`setConfiguration` GraphQL (the gateway already federates the config subgraph) so the engine has its first real consumer end-to-end.
+**Owner:** admin-expert / config owner. **Deadline:** this parallel-lane PR; updated to RESOLVED on merge.
+
+## ORPHAN-MEDIUM-374 — hr GOAL surface: competencyRatings scalar selection + the stale-SDL false-positive corrections — IN PROGRESS (parallel lane)
+
+**Scope:** the last mechanical remainder of DB-PEOPLE-HIGH-001 ([[ORPHAN-HIGH-359]]): `PERFORMANCE_REVIEW_FRAGMENT` selects `competencyRatings` as a scalar while the entity exposes `[CompetencyRating!]` — add the field sub-selection (same pattern as keyResults/milestones), verify against a freshly composed supergraph, and check why the drift-ratchet (graphql-fe-drift-baseline-no-grow) did not catch it. Also correct the synthesis: the 5 flagged performance ops (teamPerformanceOverview, reviewCycleStatus, goalProgressTrend, departmentKPIs, bulkCreateReviews) are FALSE POSITIVES from a stale Jun-19 SDL artifact — all have live resolvers since #697.
+**Owner:** hr-expert / frontend-expert. **Deadline:** this parallel-lane PR; updated to RESOLVED on merge.

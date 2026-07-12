@@ -31951,18 +31951,6 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
-      "path": "docs/reviews/orphan-findings.md",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_docs",
-      "owner": "docs",
-      "path": "docs/reviews/orphan-findings.md",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_docs",
-      "owner": "docs",
       "path": "docs/reviews/platform-kernel-expert/2026-04-10-full-repo-audit.md",
       "prettier_managed": true
     },
@@ -53016,10 +53004,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8690,
+  "file_count": 8688,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8515,
-  "managed_file_list_sha256": "61ad10fa8519a5a2d54afbf465d78e9b05b93cec39373776a6bdd5fac523bd9c",
+  "managed_count": 8513,
+  "managed_file_list_sha256": "dc81f38a51e84337fbe895fcaefc43f7f68510ad02ee79cc49752d8feb2bf55f",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

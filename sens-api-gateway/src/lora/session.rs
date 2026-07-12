@@ -94,10 +94,16 @@ impl SessionStore {
         // (v1 device-secret key). This also corrects the former outlier
         // pragma profile (cache_size=-2000, no busy_timeout/auto_vacuum) to
         // the canonical durability sequence the factory owns.
+        //
+        // PR935-MEDIUM-001: the DURABLE profile (synchronous=FULL) makes every
+        // commit power-loss durable. This store persists the LoRaWAN uplink
+        // frame counter (EDGE-HIGH-017); at synchronous=NORMAL a power cut can
+        // lose the last advances and reopen the replay window. Uplink rates
+        // are radio-bounded, so per-commit fsync is affordable.
         let conn = crate::db::sqlcipher_factory::open_device_secret(
             db_path,
             "lora_session",
-            crate::db::sqlcipher_factory::PragmaProfile::DEFAULT,
+            crate::db::sqlcipher_factory::PragmaProfile::DURABLE,
         )?;
 
         let store = Self {

@@ -40,11 +40,12 @@ use crate::db_migration::schema_version::DbKeySchemaVersion;
 use crate::keystore::Keystore;
 use crate::keystore::purpose::KeyPurpose;
 
-/// Store-specific PERFORMANCE pragmas, appended AFTER the canonical
-/// security/durability set. Security- and durability-affecting pragmas
-/// (`key`, `journal_mode`, `synchronous`, `busy_timeout`, `auto_vacuum`)
-/// are intentionally NOT expressible here — the factory owns them so no
-/// store can weaken them.
+/// Store-specific PERFORMANCE + DURABILITY posture applied on top of the
+/// canonical security sequence. The security pragmas (`key`, `journal_mode`,
+/// `busy_timeout`, `auto_vacuum`) are NOT expressible here — the factory owns
+/// them so no store can weaken them. `synchronous` is the one durability knob
+/// a store may raise (never lower): the factory floor is `NORMAL`; a store
+/// with a power-loss-critical write set may opt into `FULL`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PragmaProfile {
     /// `PRAGMA cache_size = <n>` when `Some`. Negative values are KiB (the
@@ -52,6 +53,12 @@ pub struct PragmaProfile {
     pub cache_size_kib: Option<i64>,
     /// `PRAGMA temp_store = MEMORY` when `true`.
     pub temp_store_memory: bool,
+    /// When `true`, the store opens at `PRAGMA synchronous=FULL` (WAL frames
+    /// fsync on every commit) instead of the `NORMAL` floor (fsync only at
+    /// checkpoint). For stores whose EVERY write must survive a power cut and
+    /// whose write rate makes per-commit fsync affordable (e.g. the LoRaWAN
+    /// frame-counter store — PR935-MEDIUM-001).
+    pub synchronous_full: bool,
 }
 
 impl PragmaProfile {
@@ -60,6 +67,7 @@ impl PragmaProfile {
     pub const DEFAULT: Self = Self {
         cache_size_kib: None,
         temp_store_memory: false,
+        synchronous_full: false,
     };
 
     /// Larger cache + in-memory temp store for hotter stores (bytecode /
@@ -67,7 +75,39 @@ impl PragmaProfile {
     pub const PERF: Self = Self {
         cache_size_kib: Some(-8000),
         temp_store_memory: true,
+        synchronous_full: false,
     };
+
+    /// Whole-store power-loss durability: every commit fsyncs the WAL. For
+    /// low-rate stores whose each write is safety- or replay-critical.
+    pub const DURABLE: Self = Self {
+        cache_size_kib: None,
+        temp_store_memory: false,
+        synchronous_full: true,
+    };
+}
+
+/// Run `f` with the connection temporarily at `PRAGMA synchronous=FULL`, then
+/// restore `NORMAL` — so a single power-loss-critical commit is fsync-durable
+/// on a store that otherwise runs at the `NORMAL` floor for hot-path throughput
+/// (PR935-HIGH-004: the offline-queue edge_seq high-water-mark reservation).
+///
+/// The caller MUST hold the connection lock across this call. `synchronous` is
+/// restored even if `f` returns `Err`, so the hot path is never left on `FULL`.
+pub fn durable_commit<T>(
+    conn: &Connection,
+    f: impl FnOnce(&Connection) -> Result<T>,
+) -> Result<T> {
+    conn.pragma_update(None, "synchronous", "FULL")
+        .context("durable_commit: raise synchronous=FULL failed")?;
+    let out = f(conn);
+    // Restore the NORMAL floor regardless of the outcome.
+    let restored = conn
+        .pragma_update(None, "synchronous", "NORMAL")
+        .context("durable_commit: restore synchronous=NORMAL failed");
+    let value = out?;
+    restored?;
+    Ok(value)
 }
 
 /// A freshly-opened, keyed SQLCipher connection plus the schema version its
@@ -154,13 +194,20 @@ fn finish_open(conn: &Connection, key_hex: &str, profile: PragmaProfile) -> Resu
     // 1. Raw-key (x'<hex>') — the crate's ONLY steady-state PRAGMA-key literal.
     conn.execute_batch(&format!("PRAGMA key = \"x'{key_hex}'\";"))
         .context("PRAGMA key failed")?;
-    // 2. Canonical durability + concurrency pragmas.
-    conn.execute_batch(
+    // 2. Canonical durability + concurrency pragmas. `synchronous` is the one
+    //    durability knob a profile may raise: NORMAL floor, or FULL for stores
+    //    whose every commit must be power-loss durable.
+    let synchronous = if profile.synchronous_full {
+        "FULL"
+    } else {
+        "NORMAL"
+    };
+    conn.execute_batch(&format!(
         "PRAGMA journal_mode=WAL;
-         PRAGMA synchronous=NORMAL;
+         PRAGMA synchronous={synchronous};
          PRAGMA busy_timeout=5000;
-         PRAGMA auto_vacuum=INCREMENTAL;",
-    )
+         PRAGMA auto_vacuum=INCREMENTAL;"
+    ))
     .context("canonical durability pragmas failed")?;
     // 3. Optional store performance pragmas.
     if let Some(kib) = profile.cache_size_kib {
@@ -223,5 +270,52 @@ mod tests {
         // Sanity: DEFAULT carries no perf pragmas.
         assert_eq!(PragmaProfile::DEFAULT.cache_size_kib, None);
         assert!(!PragmaProfile::DEFAULT.temp_store_memory);
+        assert!(!PragmaProfile::DEFAULT.synchronous_full);
+        assert!(PragmaProfile::DURABLE.synchronous_full);
+    }
+
+    #[test]
+    fn durable_profile_opens_at_synchronous_full() {
+        // PR935-MEDIUM-001: the DURABLE profile must land the connection at
+        // synchronous=FULL (2), not the NORMAL floor (1).
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("durable.db");
+        let conn =
+            open_device_secret(&path, "test-durable", PragmaProfile::DURABLE).expect("open");
+        let sync: i64 = conn
+            .query_row("PRAGMA synchronous", [], |r| r.get(0))
+            .expect("read synchronous");
+        assert_eq!(sync, 2, "DURABLE profile must open at synchronous=FULL (2)");
+    }
+
+    #[test]
+    fn durable_commit_runs_then_restores_normal_floor() {
+        // PR935-HIGH-004: the scoped helper raises FULL for one commit and
+        // restores the NORMAL floor afterwards, so the hot path is not left
+        // fsyncing every write.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("scoped.db");
+        let conn =
+            open_device_secret(&path, "test-scoped", PragmaProfile::DEFAULT).expect("open");
+        // Floor before.
+        let before: i64 = conn
+            .query_row("PRAGMA synchronous", [], |r| r.get(0))
+            .expect("read");
+        assert_eq!(before, 1, "DEFAULT should open at NORMAL (1)");
+
+        conn.execute_batch("CREATE TABLE t (k INTEGER PRIMARY KEY);")
+            .expect("schema");
+        let n = durable_commit(&conn, |c| {
+            c.execute("INSERT INTO t (k) VALUES (1)", [])
+                .map_err(anyhow::Error::from)
+        })
+        .expect("durable_commit");
+        assert_eq!(n, 1);
+
+        // Floor restored after.
+        let after: i64 = conn
+            .query_row("PRAGMA synchronous", [], |r| r.get(0))
+            .expect("read");
+        assert_eq!(after, 1, "durable_commit must restore synchronous=NORMAL (1)");
     }
 }

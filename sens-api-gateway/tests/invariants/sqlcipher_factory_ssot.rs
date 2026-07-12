@@ -123,7 +123,7 @@ fn factory_owns_the_canonical_sequence() {
     for token in [
         "PRAGMA key = \\\"x'",
         "journal_mode=WAL",
-        "synchronous=NORMAL",
+        "synchronous=",
         "busy_timeout=5000",
         "auto_vacuum=INCREMENTAL",
     ] {
@@ -131,6 +131,15 @@ fn factory_owns_the_canonical_sequence() {
             src.contains(token),
             "EDGE-HIGH-026: db/sqlcipher_factory.rs is missing canonical \
              token `{token}` — the open ceremony lost a step."
+        );
+    }
+    // PR935-MEDIUM-001: the durability knob must offer both the NORMAL floor
+    // and the FULL opt-in, and durable_commit must restore the floor.
+    for token in ["\"NORMAL\"", "\"FULL\"", "fn durable_commit"] {
+        assert!(
+            src.contains(token),
+            "PR935-MEDIUM-001: db/sqlcipher_factory.rs lost `{token}` — the \
+             synchronous durability knob / scoped durable-commit helper is gone."
         );
     }
 }

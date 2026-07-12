@@ -669,14 +669,23 @@ impl OfflineQueue {
             [],
         )
         .context("Failed to seed edge_seq_state")?;
-        let new_hwm: i64 = conn
-            .query_row(
+        // PR935-HIGH-004: this high-water-mark commit MUST survive a power cut.
+        // The queue runs at synchronous=NORMAL for the hot telemetry INSERT
+        // path (WAL frames fsync only at checkpoint), but a lost hwm commit
+        // would rewind reserved_hwm and re-issue already-handed-out
+        // (device_id, edge_seq) pairs, which the backend dedup would then drop
+        // as replays — silently discarding fresh telemetry and alarms. Scope
+        // synchronous=FULL to THIS commit only (it happens once per `block`
+        // messages, so the fsync is amortized ~1/256).
+        let new_hwm: i64 = crate::db::sqlcipher_factory::durable_commit(&conn, |conn| {
+            conn.query_row(
                 "UPDATE edge_seq_state SET reserved_hwm = reserved_hwm + ?1
                   WHERE id = 1 RETURNING reserved_hwm",
                 params![block as i64],
                 |row| row.get(0),
             )
-            .context("Failed to reserve edge_seq block")?;
+            .context("Failed to reserve edge_seq block")
+        })?;
         Ok(new_hwm as u64)
     }
 

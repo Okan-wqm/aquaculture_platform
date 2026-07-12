@@ -315,7 +315,7 @@ tenant age). Fix: read-through Redis caching via the platform `@Cacheable` /
 > cache is never wrong, only bounded-stale for cross-domain writes — so it is noted, not
 > blocking.
 
-## Wave 9 — platform Decimal money wire scalar (DATA-MEDIUM-009, additive coexistence — in progress)
+## Wave 9 — platform Decimal money wire scalar (DATA-MEDIUM-009, additive coexistence — implemented)
 
 Per ADR-0004 this is a platform-wide Shared-Kernel change executed as an **additive
 coexistence** migration (add a `Decimal`-scalar field alongside each `Float` money
@@ -331,31 +331,72 @@ incl. exact fixed-scale money). Subpath alias `@aquaculture/backend-common/graph
 call site can migrate to a Decimal-scalar field without breaking display/arithmetic
 during the window.
 
-**Wave 9b+ — per-field rollout (continuing).** Add the parallel `Decimal` fields
-alongside the ~65 `Float` money fields (billing ~35, farm finance + operational,
-hr finance + payroll) and migrate the ~115 FE consumers, domain by domain; `Float`
-removal is the post-coexistence step. This is the large mechanical sweep ADR-0004
-scopes to billing-expert + data-expert; the billing portion touches **live** invoices /
-payments, so it is migrated with the same additive-then-remove discipline rather than a
-one-shot flip. The finance-domain adoption is the reference implementation for that
-rollout.
+**Waves 9b–9l — per-field rollout (landed, platform-complete).** Every
+schema-reachable `Float` money field now carries a parallel `*Decimal` sibling
+(deprecationReason on the Float) and every FE money read goes through
+`parseMoney` on the Decimal string: 9b/9c hr-finance, 9d farm-finance, 9e
+billing (`@ResolveField` field resolvers on Invoice/Payment/Plan/PlanPricing +
+tenant-billing DTOs; guarded by `billing-money-decimal-coexistence.spec.ts`),
+9f–9k farm-operational (feeding, batch, harvest, equipment, fish-health,
+maintenance, storage/purchase-orders, feed/consumable/chemical catalogs), 9l
+hr-payroll (13 flat `Payroll` money fields — this also fixed a pre-existing
+FE↔BE drift: the hr-module `PAYROLL_FRAGMENT` selected a nested
+`earnings {}` / `deductions {}` shape absent from the schema; it now reads the
+flat fields). Two operational notes: the SDL emitter only discovers
+`*.resolver.ts` (singular) files — the billing rollout initially shipped a
+`.resolvers.ts` file whose fields never reached the schema (caught by the
+compose gate, fixed by rename); and money embedded INSIDE `GraphQLJSON`
+columns (`WorkOrder.costSummary`, `HarvestPlan.financialProjection`) is
+intentionally NOT part of this scalar swap — that is a separate structured
+change. `Float` removal remains the post-coexistence step; DATA-MEDIUM-009
+stays OPEN until it lands.
 
-## Tracked debt (owner + deadline — NOT fixed this cycle)
+## Wave 6 — finance schema hygiene (disposition + implemented remainder)
+
+The wave was originally scoped as "finance entities extend `BaseEntity`
+(snake_case + soft-delete + version SSoT) via blue-green column migration".
+Investigation INVERTED that premise: farm's `BaseEntity`
+(`database/entities/base.entity.ts`) had **zero production adopters** — the
+only `extends` were its own test fixtures, and every real farm entity (Batch,
+Site, …) declares inline camelCase audit columns. The finance entities already
+match the actual platform convention; renaming live finance-table columns to
+snake_case would have made them the ONLY snake_case tables in the farm schema
+— manufacturing inconsistency at live-money-table risk. Root-cause resolution:
+
+- **Orphan abstraction removed.** `base.entity.ts` + its spec deleted and the
+  entities barrel trimmed — the false "SSoT" that generated this wave's
+  premise can no longer be adopted or cited (tier 1: the wrong state is now
+  impossible).
+- **Soft-delete partial indexes (implemented).** Every ledger/summary read on
+  `finance_expense_entries` / `hr_finance_entries` filters
+  `"isDeleted" = false`, but the hot composite indexes were full-table.
+  Migrations `1804900000000` (farm) + `1802100000000` (hr) rebuild them as
+  PARTIAL on that predicate (create-new-before-drop-old, idempotent,
+  timeout-bounded); the entity `@Index` decorators mirror the new shape.
+- Soft-delete/version/audit completeness needed no change — the entry tables
+  already carry `isDeleted`/`deletedAt`/`deletedBy` (Wave 1) + `version`;
+  categories archive via `isActive` by design.
+
+## Tracked debt — resolution status
+
+All three items tracked at review time were subsequently implemented on this
+branch (sections above); the registry `close` ceremony runs post-merge (it
+requires a main-reachable closing SHA), so their registry rows remain OPEN
+until PR #934 merges.
 
 ### FARM-MEDIUM-162 — derived ledger lines ignore the `siteId` filter
-Owner: farm-expert. Deadline 2026-08-31. Derived sources have no `siteIdExpr`, so a
-site-scoped ledger mixes one site's manual entries with the whole tenant's derived
-costs. Needs `siteIdExpr` populated (feeding→tank→site, harvest→tank→site) or derived
-rows excluded when a `siteId` filter is present.
+IMPLEMENTED in Wave 4 (derived site attribution) — see that section. Original
+scope: derived sources had no `siteIdExpr`, so a site-scoped ledger mixed one
+site's manual entries with the whole tenant's derived costs.
 
 ### FE-HIGH-060 — no frontend role-gating for the finance surface
-Owner: frontend-expert. Deadline 2026-08-31. Backend is fail-closed (verified — no
-leak), so this is defense-in-depth + UX: role-filter the finance nav, `useCanMutate`
-on buttons, `requiredRoles` on the routes, and mirror the finance mutations in the FE
-permission-matrix. Partially addressed here: farm form error banners now announce via
-`role="alert"`; money now formats through the shared 2-decimal `formatCurrency`.
+IMPLEMENTED in Wave 5b — finance mutations mirrored in the FE
+permission-matrix (parity-locked by `permission-matrix.parity.spec`),
+`useCanMutate` on every finance action button, `requiredRoles` on the nav
+entries, and route guards on both finance pages. Backend was already
+fail-closed (verified — no leak); this closed the defense-in-depth + UX gap.
 
 ### FE-MEDIUM-061 — chart date off-by-one + window.confirm deletes
-Owner: frontend-expert. Deadline 2026-08-31. Format bucket dates with `timeZone:'UTC'`
-(the backend now emits canonical UTC `YYYY-MM-DD` bucket starts, FARM-MEDIUM-159) and
-route deletes through the shared accessible `ConfirmModal`.
+IMPLEMENTED in Wave 5 — bucket dates format with `timeZone:'UTC'` against the
+canonical UTC bucket starts (FARM-MEDIUM-159) and deletes route through the
+shared accessible `ConfirmModal`.

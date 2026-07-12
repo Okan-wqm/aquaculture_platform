@@ -73,10 +73,13 @@ export const impersonationApi = {
   revokeSession: (id: string, reason: string) =>
     apiFetch<ImpersonationSession>(`/impersonation/sessions/${id}/terminate`, { method: 'POST', body: JSON.stringify({ reason }) }),
   getActiveSessions: () => apiFetch<ImpersonationSession[]>('/impersonation/sessions/active'),
-  // TODO: No backend GET endpoint for session actions
-  getSessionActions: (_sessionId: string): Promise<ImpersonationAction[]> => {
-    throw new Error('Not implemented: no backend GET endpoint for /impersonation/sessions/:id/actions');
-  },
+  // The session row carries the action log (jsonb, capped at the last 1000
+  // actions — lossy for longer sessions). There is no dedicated actions
+  // endpoint; the detail read returns it.
+  getSessionActions: (sessionId: string): Promise<ImpersonationAction[]> =>
+    apiFetch<ImpersonationSession>(`/impersonation/sessions/${sessionId}`).then(
+      (session) => session.actionsPerformed ?? [],
+    ),
   // Fix: backend uses POST /sessions/:id/log-action (not /sessions/:id/actions)
   logAction: (sessionId: string, data: Omit<ImpersonationAction, 'timestamp'>) =>
     apiFetch<void>(`/impersonation/sessions/${sessionId}/log-action`, { method: 'POST', body: JSON.stringify(data) }),

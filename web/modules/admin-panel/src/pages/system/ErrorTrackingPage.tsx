@@ -155,7 +155,7 @@ export const ErrorTrackingPage: React.FC = () => {
     if (!selectedError) return;
 
     try {
-      const updated = await systemSettingsApi.updateErrorStatus(selectedError.id, 'acknowledged');
+      const updated = await systemSettingsApi.acknowledgeError(selectedError.id);
       setErrorGroups(errorGroups.map((e) => (e.id === selectedError.id ? updated : e)));
       setSelectedError(updated);
     } catch (err) {

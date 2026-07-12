@@ -104,15 +104,9 @@ export const FeatureTogglesPage: React.FC = () => {
 
   const handleToggleStatus = async (toggle: FeatureToggle) => {
     try {
-      const newEnabled = toggle.status !== 'enabled';
-      await systemSettingsApi.toggleFeature(toggle.id, newEnabled);
-      setToggles(
-        toggles.map((t) =>
-          t.id === toggle.id
-            ? { ...t, status: newEnabled ? 'enabled' : 'disabled' }
-            : t
-        )
-      );
+      const newStatus = toggle.status !== 'enabled' ? 'enabled' : 'disabled';
+      const updated = await systemSettingsApi.updateFeatureToggle(toggle.id, { status: newStatus });
+      setToggles(toggles.map((t) => (t.id === toggle.id ? updated : t)));
     } catch (err) {
       console.error('Failed to toggle feature:', err);
       setError(err instanceof Error ? err.message : 'Failed to toggle feature flag. Please try again.');

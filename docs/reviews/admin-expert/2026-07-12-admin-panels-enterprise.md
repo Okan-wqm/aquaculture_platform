@@ -210,6 +210,19 @@ Evidence:
 
 Resolution: wire `activateTenantUser`/`unlockTenantUser` into the user row actions.
 
+## ADMIN-HIGH-013 — admin-api-service baseline-red test suites (41 failures)
+
+**State:** OPEN → fixed in this cycle
+
+Discovered while verifying the parity fixes: 4 suites / 41 tests in admin-api-service fail with
+NO working-tree changes (verified via `git stash`): `user-permissions.spec.ts`,
+`tenant.integration.spec.ts`, `tenant-erasure.handler.spec.ts`,
+`email-circuit-breaker.spec.ts`. Spec-vs-implementation mock drift (e.g. the circuit-breaker spec
+mocks a transporter the service no longer sees — "SMTP not configured"). Same disabled-CI-signal
+class as ADMIN-HIGH-004/005 and SENSOR-MEDIUM-023.
+
+Resolution: repair the suites in-cycle (they gate this cycle's own admin-api commits).
+
 ## ADMIN-MEDIUM-001 — CRIT-04 deviation: 5 hooks bypass the lib/api.ts SSoT
 
 **State:** OPEN → fixed in this cycle
@@ -416,6 +429,26 @@ reintroduce Turkish invisibly to any src-scoped grep gate.
 Resolution: additive optional label props with current Turkish defaults preserved (farm-module
 unchanged); panels pass explicit English values; panels prefer the fully-English `DataTable` for
 paginated tables.
+
+## ADMIN-MEDIUM-019 — quick-view modal and individual suspend/activate flow unreachable
+
+**State:** OPEN → fixed in this cycle
+
+Found during the ADMIN-HIGH-005 spec repair: the old spec tested a "quick view" flow the page
+could no longer reach. `TenantManagementPage` carries a fully built tenant detail modal with
+Suspend/Activate actions, a suspend-reason modal, live handlers (`handleToggleStatus`,
+`handleConfirmSuspend`) and live backend routes (`PATCH admin/tenants/:id/suspend|activate`) —
+but nothing ever called `setIsDetailModalOpen(true)`. The trigger was lost in a refactor; the
+individual (non-bulk) suspend/activate capability silently disappeared from the product.
+
+Evidence:
+- web/modules/admin-panel/src/pages/TenantManagementPage.tsx:482 (modal with no opener)
+- apps/admin-api-service/src/tenant/tenant.controller.ts (suspend/activate routes)
+
+Resolution: restore a Quick View row action wiring the existing modal; suspending from the modal
+routes through the mandatory-reason modal; the detail modal closes when an action begins so the
+operator sees the outcome. Covered by a new spec test (quick-view → suspend-with-reason →
+`tenantsApi.suspend(id, reason)`).
 
 ## ADMIN-LOW-001 — dead admin-panel components
 

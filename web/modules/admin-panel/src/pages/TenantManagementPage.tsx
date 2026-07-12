@@ -131,6 +131,9 @@ const TenantManagementPage: React.FC = () => {
 
   // Handle suspend/activate
   const handleToggleStatus = async (tenant: Tenant, action: 'suspend' | 'activate') => {
+    // The quick-view modal shows pre-action state; close it so the outcome
+    // (or the reason modal) is what the operator sees next.
+    setIsDetailModalOpen(false);
     if (action === 'suspend') {
       // Require operator to provide a reason — open reason modal
       setTenantToSuspend(tenant);
@@ -331,6 +334,16 @@ const TenantManagementPage: React.FC = () => {
       align: 'right',
       render: (tenant) => (
         <div className="flex items-center justify-end space-x-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setSelectedTenant(tenant);
+              setIsDetailModalOpen(true);
+            }}
+          >
+            Quick View
+          </Button>
           <Button
             variant="ghost"
             size="sm"

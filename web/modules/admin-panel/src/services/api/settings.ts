@@ -109,8 +109,6 @@ export const systemSettingsApi = {
     apiFetch<FeatureToggle>(`/system/settings/feature-toggles/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteFeatureToggle: (id: string) =>
     apiFetch<void>(`/system/settings/feature-toggles/${id}`, { method: 'DELETE' }),
-  toggleFeature: (id: string, enabled: boolean) =>
-    apiFetch<FeatureToggle>(`/system/settings/feature-toggles/${id}/toggle`, { method: 'POST', body: JSON.stringify({ enabled }) }),
   evaluateFeature: (key: string, context: Record<string, unknown>) =>
     apiFetch<{ key: string; enabled: boolean; variant?: string; value?: unknown; reason: string }>('/system/settings/feature-toggles/evaluate', {
       method: 'POST',
@@ -190,8 +188,10 @@ export const systemSettingsApi = {
   getErrorGroup: (id: string) => apiFetch<ErrorGroup>(`/system/errors/groups/${id}`),
   getErrorOccurrences: (groupId: string, params?: PaginationParams) =>
     apiFetch<PaginatedResult<ErrorOccurrence>>(`/system/errors/groups/${groupId}/occurrences?${buildQueryString(params || {})}`),
-  updateErrorStatus: (id: string, status: string, assignedTo?: string, notes?: string) =>
-    apiFetch<ErrorGroup>(`/system/errors/groups/${id}/status`, { method: 'PUT', body: JSON.stringify({ status, assignedTo, notes }) }),
+  acknowledgeError: (id: string) =>
+    apiFetch<ErrorGroup>(`/system/errors/groups/${id}/acknowledge`, { method: 'POST' }),
+  assignError: (id: string, assigneeId: string) =>
+    apiFetch<ErrorGroup>(`/system/errors/groups/${id}/assign`, { method: 'POST', body: JSON.stringify({ assigneeId }) }),
   resolveError: (id: string, resolvedBy: string, notes?: string) =>
     apiFetch<ErrorGroup>(`/system/errors/groups/${id}/resolve`, { method: 'POST', body: JSON.stringify({ resolvedBy, notes }) }),
   ignoreError: (id: string) =>

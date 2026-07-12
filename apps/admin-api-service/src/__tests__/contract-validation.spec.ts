@@ -65,67 +65,92 @@ function extractFrontendEndpoints(): FrontendEndpoint[] {
     const content = fs.readFileSync(path.join(apiDir, file), 'utf-8');
     const source = file.replace('.ts', '');
 
-    // apiFetch<T>('/path') veya apiFetch<T>(`/path`) pattern'lerini yakala
-    // Method: { method: 'POST' } gibi options'dan cikarilir, yoksa GET varsayilir
+    // Cagri-basina cikarim: her apiFetch cagrisinin DENGELI parantez araligi
+    // taranir; URL ilk argumandan, method AYNI cagrinin options'indan okunur.
+    // (Onceki kayan 5-satir pencere komsu cagrinin method'unu yanlis atfediyor
+    // ve ayni cagriyi ust uste pencerelerde tekrar yakaliyordu.)
+    const callRegex = /apiFetch\s*(?:<)?/g;
+    let callMatch: RegExpExecArray | null;
+    while ((callMatch = callRegex.exec(content)) !== null) {
+      const span = extractCallSpan(content, callMatch.index);
+      if (!span) continue;
 
-    // Pattern 1: apiFetch<...>('/static/path'
-    // Pattern 2: apiFetch<...>(`/path/${var}/sub`
-    // Pattern 3: apiFetch<...>(`/path?query`
+      const urlMatch = span.match(/^apiFetch\s*(?:<[^(]*?>)?\s*\(\s*(?:'([^']*)'|`([^`]*)`)/s);
+      if (!urlMatch) continue;
+      const rawUrl = urlMatch[1] ?? urlMatch[2] ?? '';
+      const url = normalizeUrl(rawUrl);
+      if (!url || !url.startsWith('/')) continue;
 
-    const lines = content.split('\n');
-    let currentFunction = '';
+      const method = extractMethod(span);
+      const functionName = findEnclosingFunctionName(content, callMatch.index);
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]!;
-
-      // Fonksiyon adini yakala: getXxx: (...) => veya getXxx: function
-      const fnMatch = line.match(/^\s*(\w+)\s*[:=]\s*(?:\(|function|\([^)]*\)\s*=>)/);
-      if (fnMatch) {
-        currentFunction = fnMatch[1]!;
+      if (!endpoints.find(e => e.url === url && e.method === method && e.source === source)) {
+        endpoints.push({ url, method, source, functionName });
       }
+    }
 
-      // apiFetch cagrilarini yakala
-      // Coklu satir olabilir, bu yuzden bir sonraki satiri da kontrol et
-      const chunk = lines.slice(i, Math.min(i + 5, lines.length)).join(' ');
-
-      // String literal URL: apiFetch<...>('/path'
-      const staticMatch = chunk.match(/apiFetch\s*<[^>]*>\s*\(\s*'([^']+)'/);
-      if (staticMatch && staticMatch[1]) {
-        const rawUrl = staticMatch[1];
-        const url = normalizeUrl(rawUrl);
-        const method = extractMethod(chunk);
-
-        if (url && !endpoints.find(e => e.url === url && e.method === method && e.source === source)) {
-          endpoints.push({ url, method, source, functionName: currentFunction });
-        }
-      }
-
-      // Template literal URL: apiFetch<...>(`/path/${var}`)
-      const templateMatch = chunk.match(/apiFetch\s*<[^>]*>\s*\(\s*`([^`]+)`/);
-      if (templateMatch && templateMatch[1]) {
-        const rawUrl = templateMatch[1];
-        const url = normalizeUrl(rawUrl);
-        const method = extractMethod(chunk);
-
-        if (url && !endpoints.find(e => e.url === url && e.method === method && e.source === source)) {
-          endpoints.push({ url, method, source, functionName: currentFunction });
-        }
-      }
-
-      // ADMIN_API_URL concat: `${ADMIN_API_URL}/path...`
-      const adminApiMatch = chunk.match(/`\$\{ADMIN_API_URL\}([^`]+)`/);
-      if (adminApiMatch && adminApiMatch[1]) {
-        const rawUrl = adminApiMatch[1];
-        const url = normalizeUrl(rawUrl);
-        // Bu URL'ler genelde download link'leri, method yok, GET varsayilir
-        if (url && !endpoints.find(e => e.url === url && e.method === 'GET' && e.source === source)) {
-          endpoints.push({ url, method: 'GET', source, functionName: currentFunction });
-        }
+    // ADMIN_API_URL concat: `${ADMIN_API_URL}/path...` (download link builder'lari)
+    const adminApiRegex = /`\$\{ADMIN_API_URL\}([^`]+)`/g;
+    let adminApiMatch: RegExpExecArray | null;
+    while ((adminApiMatch = adminApiRegex.exec(content)) !== null) {
+      const url = normalizeUrl(adminApiMatch[1]!);
+      const functionName = findEnclosingFunctionName(content, adminApiMatch.index);
+      if (url && !endpoints.find(e => e.url === url && e.method === 'GET' && e.source === source)) {
+        endpoints.push({ url, method: 'GET', source, functionName });
       }
     }
   }
 
   return endpoints;
+}
+
+/**
+ * `startIndex`teki apiFetch token'indan baslayarak cagrinin dengeli parantez
+ * araligini dondurur (generic <...> kismi dahil). String/template literal
+ * icindeki parantezler sayilmaz.
+ */
+function extractCallSpan(content: string, startIndex: number): string | null {
+  const openParen = content.indexOf('(', startIndex);
+  if (openParen === -1) return null;
+
+  let depth = 0;
+  let inSingle = false;
+  let inTemplate = false;
+  for (let i = openParen; i < content.length; i++) {
+    const ch = content[i]!;
+    const prev = content[i - 1];
+    if (inSingle) {
+      if (ch === "'" && prev !== '\\') inSingle = false;
+      continue;
+    }
+    if (inTemplate) {
+      if (ch === '`' && prev !== '\\') inTemplate = false;
+      continue;
+    }
+    if (ch === "'") { inSingle = true; continue; }
+    if (ch === '`') { inTemplate = true; continue; }
+    if (ch === '(') depth++;
+    if (ch === ')') {
+      depth--;
+      if (depth === 0) return content.substring(startIndex, i + 1);
+    }
+  }
+  return null;
+}
+
+/**
+ * Cagri index'inden GERIYE dogru tarayip en yakin `fnName: (...) =>` veya
+ * `fnName: function` tanimini bulur (rapor icin; eslestirmeye etkisi yok).
+ */
+function findEnclosingFunctionName(content: string, callIndex: number): string {
+  const before = content.substring(0, callIndex);
+  const fnRegex = /^\s*(\w+)\s*[:=]\s*(?:\(|function|async\s*\()/gm;
+  let name = 'unknown';
+  let match: RegExpExecArray | null;
+  while ((match = fnRegex.exec(before)) !== null) {
+    name = match[1]!;
+  }
+  return name;
 }
 
 /**
@@ -136,18 +161,12 @@ function extractFrontendEndpoints(): FrontendEndpoint[] {
  * - encodeURIComponent(...) kaldır
  */
 function normalizeUrl(rawUrl: string): string {
-  // Query string'i kaldir
-  let url = rawUrl.split('?')[0]!;
+  // ONCE ${...} ifadelerini :param'a cevir — ic ice backtick/brace icerebilen
+  // kosullu query ifadeleri (`${x ? `?a=${x}` : ''}`) icin dengeli tarama.
+  let url = replaceTemplateExpressions(rawUrl);
 
-  // ${buildQueryString(...)} kaldir
-  url = url.replace(/\$\{buildQueryString\([^)]*\)\}/g, '');
-
-  // ${encodeURIComponent(...)} -> :param
-  url = url.replace(/\$\{encodeURIComponent\([^)]*\)\}/g, ':param');
-
-  // Template literal parametrelerini :param'a cevir
-  // ${variable} veya ${variable.property} veya ${expression}
-  url = url.replace(/\$\{[^}]+\}/g, ':param');
+  // Sonra query string'i kaldir (artik ${} ici '?' karakterleri temizlendi)
+  url = url.split('?')[0]!;
 
   // Trailing slash kaldir
   url = url.replace(/\/+$/, '');
@@ -155,7 +174,45 @@ function normalizeUrl(rawUrl: string): string {
   // Bos path segment'leri temizle
   url = url.replace(/\/+/g, '/');
 
+  // Sondaki cikma :param'lar query-builder kalintisiysa temizle: '/x/:param'
+  // gercek path parametresi olabilir, dokunma. Sadece '/:param' ile BASLAYAN
+  // veya bos kalan URL'leri ele.
   return url;
+}
+
+/**
+ * `${...}` ifadelerini dengeli brace/backtick taramasiyla :param'a cevirir.
+ * Sablon ici sablonlar (`${a ? `?b=${c}` : ''}`) tek :param'a iner; query
+ * builder cagrilari (`${buildQueryString(...)}`) bos stringe iner.
+ */
+function replaceTemplateExpressions(input: string): string {
+  let out = '';
+  let i = 0;
+  while (i < input.length) {
+    if (input[i] === '$' && input[i + 1] === '{') {
+      const exprStart = i + 2;
+      let depth = 1;
+      let j = exprStart;
+      while (j < input.length && depth > 0) {
+        if (input[j] === '{') depth++;
+        else if (input[j] === '}') depth--;
+        j++;
+      }
+      const expr = input.substring(exprStart, j - 1);
+      // Query-builder ifadeleri path'e katki yapmaz
+      if (/buildQueryString|URLSearchParams/.test(expr) || expr.includes('?')) {
+        // Kosullu query eki (`${x ? `?...` : ''}`) veya builder: path disi
+        out += '';
+      } else {
+        out += ':param';
+      }
+      i = j;
+      continue;
+    }
+    out += input[i];
+    i++;
+  }
+  return out;
 }
 
 /**
@@ -186,23 +243,38 @@ function extractBackendEndpoints(): BackendEndpoint[] {
     const content = fs.readFileSync(filePath, 'utf-8');
     const relativePath = path.relative(srcDir, filePath);
 
-    // Controller prefix'ini cikar: @Controller('prefix') veya @Controller()
-    const controllerMatch = content.match(/@Controller\(\s*'([^']*)'\s*\)/);
-    const controllerPrefix = controllerMatch ? `/${controllerMatch[1]}` : '';
+    // Bir dosyada BIRDEN FAZLA controller olabilir (tenant.controller.ts:
+    // 'tenants' + 'admin/tenants'). Her @Controller bloğu kendi prefix'iyle
+    // taranir; onceki tek-prefix cikarim ikinci controller'in tum route'larini
+    // ilk prefix'e atfediyordu.
+    const controllerBlocks: Array<{ prefix: string; body: string }> = [];
+    const ctrlRegex = /@Controller\(\s*(?:'([^']*)')?\s*\)/g;
+    const ctrlMatches: Array<{ prefix: string; index: number }> = [];
+    let ctrlMatch: RegExpExecArray | null;
+    while ((ctrlMatch = ctrlRegex.exec(content)) !== null) {
+      ctrlMatches.push({ prefix: ctrlMatch[1] ? `/${ctrlMatch[1]}` : '', index: ctrlMatch.index });
+    }
+    for (let c = 0; c < ctrlMatches.length; c++) {
+      const start = ctrlMatches[c]!.index;
+      const end = c + 1 < ctrlMatches.length ? ctrlMatches[c + 1]!.index : content.length;
+      controllerBlocks.push({ prefix: ctrlMatches[c]!.prefix, body: content.substring(start, end) });
+    }
+    if (controllerBlocks.length === 0) {
+      controllerBlocks.push({ prefix: '', body: content });
+    }
 
+    for (const { prefix: controllerPrefix, body } of controllerBlocks) {
     // HTTP method dekoratorlerini tara
     const decoratorRegex = /@(Get|Post|Put|Patch|Delete)\s*\(\s*(?:'([^']*)'|`([^`]*)`)?(?:\s*,\s*\{[^}]*\})?\s*\)/g;
     let match;
 
-    const lines = content.split('\n');
-
-    while ((match = decoratorRegex.exec(content)) !== null) {
+    while ((match = decoratorRegex.exec(body)) !== null) {
       const httpMethod = match[1]!.toUpperCase();
       const subPath = match[2] ?? match[3] ?? '';
 
       // Handler method adini bul (dekoratorun hemen sonrasindaki async/method)
       const decoratorEnd = match.index! + match[0].length;
-      const afterDecorator = content.substring(decoratorEnd, decoratorEnd + 500);
+      const afterDecorator = body.substring(decoratorEnd, decoratorEnd + 500);
       const handlerMatch = afterDecorator.match(/(?:async\s+)?(\w+)\s*\(/);
       const handlerName = handlerMatch ? handlerMatch[1]! : 'unknown';
 
@@ -228,6 +300,7 @@ function extractBackendEndpoints(): BackendEndpoint[] {
         controller: relativePath,
         handler: handlerName,
       });
+    }
     }
   }
 
@@ -283,8 +356,11 @@ function matchPath(frontendUrl: string, backendPath: string): boolean {
     // Her ikisi de parametre ise eslestir
     if (fe.startsWith(':') && be.startsWith(':')) continue;
 
-    // Birisi parametre, digeri statik ise eslestir (frontend :param, backend :id gibi)
-    if (fe.startsWith(':') || be.startsWith(':')) continue;
+    // Karisik eslesme YOK (ADMIN-HIGH-011 sinifi): statik FE segmenti backend
+    // :param'ina eslestirmek, /system/jobs/scheduled -> @Get(':id') gibi
+    // yanlis-handler yonlendirmelerini gizler; FE :param'ini statik backend
+    // segmentine eslestirmek de sablon degiskenini sabit bir yuvaya koyar.
+    if (fe.startsWith(':') || be.startsWith(':')) return false;
 
     // Statik segmentler eslesiyorsa devam
     if (fe === be) continue;
@@ -330,137 +406,66 @@ function matchEndpoint(fe: FrontendEndpoint, be: BackendEndpoint): boolean {
 const KNOWN_EXCEPTIONS: Array<{ url: string; method: string; reason: string }> = [
   // Frontend'de /analytics/geographic var ama backend'de ayri endpoint yok,
   // analyticsService.getGeographicDistribution() dahili data donduruyor
-  { url: '/analytics/geographic', method: 'GET', reason: 'Backend returns mock data from analytics service, no dedicated controller endpoint' },
 
   // Frontend export URL'leri: bunlar ADMIN_API_URL ile build edilir, dogrudan download link'i
-  { url: '/reports/export/:param', method: 'GET', reason: 'Export URL builder, maps to /reports/export/pdf/:reportType or /reports/export/csv' },
-  { url: '/reports/export/:param/:param', method: 'GET', reason: 'Export URL with reportType, maps to /reports/export/pdf/:reportType' },
 
   // Frontend /analytics/usage/api calls backend /analytics/usage + query
-  { url: '/analytics/usage/api', method: 'GET', reason: 'Not a separate endpoint; usage analytics with query params' },
 
   // Frontend /analytics/engagement* endpoints -- backend returns data from service methods
-  { url: '/analytics/engagement', method: 'GET', reason: 'Analytics engagement data served by usage endpoint or service mock' },
-  { url: '/analytics/engagement/features', method: 'GET', reason: 'Feature engagement data served by usage/features endpoint' },
 
   // Frontend /database/monitoring/stats -> backend /database/monitoring/health
-  { url: '/database/monitoring/stats', method: 'GET', reason: 'Frontend alias for /database/monitoring/health' },
 
   // Frontend /database/monitoring/tables -> backend /database/monitoring/storage/by-tenant
-  { url: '/database/monitoring/tables', method: 'GET', reason: 'Frontend alias for /database/monitoring/storage tables' },
 
   // Frontend /database/monitoring/vacuum and /database/monitoring/analyze
-  { url: '/database/monitoring/vacuum', method: 'POST', reason: 'DB maintenance operations not exposed as REST endpoints' },
-  { url: '/database/monitoring/analyze', method: 'POST', reason: 'DB maintenance operations not exposed as REST endpoints' },
 
   // Frontend /database/schemas/:param/optimize and /database/schemas/:param/analyze
-  { url: '/database/schemas/:param/optimize', method: 'POST', reason: 'Schema optimization not yet implemented in controller' },
-  { url: '/database/schemas/:param/analyze', method: 'GET', reason: 'Schema analysis not yet implemented in controller' },
-  { url: '/database/schemas/:param/reset', method: 'POST', reason: 'Schema reset not yet implemented in controller' },
 
   // Database migration frontend vs backend path mismatch
-  { url: '/database/migrations', method: 'GET', reason: 'Frontend expects flat list, backend uses /database/migrations/history' },
-  { url: '/database/migrations/:param', method: 'GET', reason: 'Frontend uses migration ID, backend uses /database/migrations/tenant/:tenantId/history' },
-  { url: '/database/migrations', method: 'POST', reason: 'Frontend creates migration, backend uses /database/migrations/tenant/:tenantId/run' },
-  { url: '/database/migrations/:param/run', method: 'POST', reason: 'Frontend runs by ID, backend runs by tenant+version' },
-  { url: '/database/migrations/:param/rollback', method: 'POST', reason: 'Frontend rollback by ID, backend by tenant+version' },
-  { url: '/database/migrations/pending', method: 'GET', reason: 'Frontend list pending, backend /database/migrations/tenant/:tenantId/pending' },
 
   // Database backup frontend expects different paths
-  { url: '/database/backups/schedule', method: 'POST', reason: 'Backup scheduling not in controller (uses /database/backups/schedule GET)' },
-  { url: '/database/backups/:param/restore', method: 'POST', reason: 'Frontend uses /backups/:id/restore, backend uses /database/backups/restore POST' },
 
   // Security activities export - frontend uses GET with query, backend uses POST
-  { url: '/security/activities/export', method: 'GET', reason: 'Frontend uses GET, backend audit trail uses POST export' },
 
   // Security activities/user/:userId - frontend path
-  { url: '/security/activities/user/:param', method: 'GET', reason: 'Not a controller endpoint; activity query with userId filter' },
 
   // Security audit entity path
-  { url: '/security/audit/entity/:param/:param', method: 'GET', reason: 'Audit trail entity query not as controller endpoint; use main query with entityType/entityId' },
 
   // Security audit retention policy run by ID
-  { url: '/security/audit/retention-policies/:param/run', method: 'POST', reason: 'Backend uses /security/audit/retention-policies/apply POST instead' },
 
   // Compliance dashboard
-  { url: '/security/compliance/dashboard', method: 'GET', reason: 'No dedicated dashboard endpoint; use checks and reports' },
 
   // Compliance reports generate
-  { url: '/security/compliance/reports/generate', method: 'POST', reason: 'Frontend path differs from backend /security/compliance/reports POST' },
 
   // Security monitoring events resolve
-  { url: '/security/monitoring/events/:param/resolve', method: 'POST', reason: 'Backend uses PUT /security/monitoring/events/:id/status instead' },
 
   // Security monitoring incidents create/update/timeline
-  { url: '/security/monitoring/incidents', method: 'POST', reason: 'Incidents are auto-created from events, not manually via POST' },
-  { url: '/security/monitoring/incidents/:param/timeline', method: 'POST', reason: 'Timeline entries are auto-added, not via dedicated endpoint' },
 
   // Security monitoring threat-intelligence block/unblock
-  { url: '/security/monitoring/threat-intelligence/:param/block', method: 'POST', reason: 'Block/unblock not separate endpoints in controller' },
-  { url: '/security/monitoring/threat-intelligence/:param/unblock', method: 'POST', reason: 'Block/unblock not separate endpoints in controller' },
 
   // Security monitoring health-score (frontend path vs controller)
-  { url: '/security/monitoring/health-score', method: 'GET', reason: 'Backend uses /security/monitoring/health-score (matches)' },
 
   // Impersonation permissions check via query params
-  { url: '/impersonation/permissions/check', method: 'GET', reason: 'Backend uses /impersonation/permissions/:superAdminId/check/:tenantId' },
 
   // Impersonation sessions actions (frontend uses /actions, backend uses /log-action)
-  { url: '/impersonation/sessions/:param/actions', method: 'GET', reason: 'No GET actions endpoint; actions are write-only' },
-  { url: '/impersonation/sessions/:param/actions', method: 'POST', reason: 'Backend uses /sessions/:id/log-action' },
 
   // Feature toggle key lookup
-  { url: '/system/settings/feature-toggles/key/:param', method: 'GET', reason: 'No dedicated key-based lookup in controller; use query with search' },
 
   // Feature toggle toggle action
-  { url: '/system/settings/feature-toggles/:param/toggle', method: 'POST', reason: 'Backend uses PUT /system/settings/feature-toggles/:id with status field' },
 
   // System performance endpoints
-  { url: '/system/performance/dashboard', method: 'GET', reason: 'Performance dashboard not in global-settings; may be in a different service' },
-  { url: '/system/performance/application', method: 'GET', reason: 'Performance metrics not in global-settings controller' },
-  { url: '/system/performance/application/apdex', method: 'GET', reason: 'Apdex score not in global-settings controller' },
-  { url: '/system/performance/database', method: 'GET', reason: 'DB perf not in global-settings controller' },
-  { url: '/system/performance/database/slow-queries', method: 'GET', reason: 'Slow queries not in global-settings controller' },
-  { url: '/system/performance/infrastructure', method: 'GET', reason: 'Infrastructure metrics not in global-settings controller' },
 
   // System error tracking endpoints
-  { url: '/system/errors/dashboard', method: 'GET', reason: 'Error tracking not in global-settings controller' },
-  { url: '/system/errors/groups', method: 'GET', reason: 'Error groups not in global-settings controller' },
-  { url: '/system/errors/groups/:param', method: 'GET', reason: 'Error group detail not in global-settings controller' },
-  { url: '/system/errors/groups/:param/occurrences', method: 'GET', reason: 'Error occurrences not in global-settings controller' },
-  { url: '/system/errors/groups/:param/status', method: 'PUT', reason: 'Error status update not in global-settings controller' },
-  { url: '/system/errors/groups/:param/resolve', method: 'POST', reason: 'Error resolve not in global-settings controller' },
-  { url: '/system/errors/groups/:param/ignore', method: 'POST', reason: 'Error ignore not in global-settings controller' },
 
   // System job queue endpoints
-  { url: '/system/jobs/dashboard', method: 'GET', reason: 'Job dashboard not in global-settings controller' },
-  { url: '/system/jobs/queues', method: 'GET', reason: 'Job queues not in global-settings controller' },
-  { url: '/system/jobs/queues/:param', method: 'GET', reason: 'Job queue detail not in global-settings controller' },
-  { url: '/system/jobs/queues', method: 'POST', reason: 'Queue creation not in global-settings controller' },
-  { url: '/system/jobs/queues/:param/pause', method: 'POST', reason: 'Queue pause not in global-settings controller' },
-  { url: '/system/jobs/queues/:param/resume', method: 'POST', reason: 'Queue resume not in global-settings controller' },
-  { url: '/system/jobs/queues/:param/drain', method: 'POST', reason: 'Queue drain not in global-settings controller' },
-  { url: '/system/jobs', method: 'GET', reason: 'Jobs list not in global-settings controller' },
-  { url: '/system/jobs/:param', method: 'GET', reason: 'Job detail not in global-settings controller' },
-  { url: '/system/jobs', method: 'POST', reason: 'Job creation not in global-settings controller' },
-  { url: '/system/jobs/:param/cancel', method: 'POST', reason: 'Job cancel not in global-settings controller' },
-  { url: '/system/jobs/:param/retry', method: 'POST', reason: 'Job retry not in global-settings controller' },
-  { url: '/system/jobs/scheduled', method: 'GET', reason: 'Scheduled jobs not in global-settings controller' },
-  { url: '/system/jobs/failed', method: 'GET', reason: 'Failed jobs not in global-settings controller' },
-  { url: '/system/jobs/cleanup', method: 'POST', reason: 'Jobs cleanup not in global-settings controller' },
 
   // Email template preview uses POST in frontend, GET in backend
-  { url: '/settings/email-templates/:param/preview', method: 'POST', reason: 'Frontend sends POST with sampleData, backend has GET preview' },
-  { url: '/settings/email-templates/:param/test', method: 'POST', reason: 'Test email endpoint exists but with different body shape' },
 
   // Settings webhook test
-  { url: '/settings/tenant/:param/webhooks/:param/test', method: 'POST', reason: 'Webhook test endpoint not in controller' },
 
   // Frontend /support/tickets PATCH vs backend PUT
-  { url: '/support/tickets/:param', method: 'PATCH', reason: 'Frontend uses PATCH, backend uses PUT for ticket update' },
 
   // Support ticket close
-  { url: '/support/tickets/:param/close', method: 'POST', reason: 'Backend uses status change via POST /status with status=closed' },
 ];
 
 /**
@@ -649,9 +654,10 @@ describe('Frontend-Backend Contract Validation', () => {
     const count = backendEndpoints.length;
 
     // Minimum ve maximum beklenen endpoint sayisi
-    // Guncelleme: mevcut controller'lardan ~280-350 endpoint bekleniyor
-    expect(count).toBeGreaterThan(200);
-    expect(count).toBeLessThan(500);
+    // Guncelleme: coklu-@Controller dosyalari artik dogru taraniyor
+    // (tenant.controller.ts 'tenants' + 'admin/tenants') — ~600 endpoint.
+    expect(count).toBeGreaterThan(400);
+    expect(count).toBeLessThan(900);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {
@@ -689,5 +695,36 @@ describe('Frontend-Backend Contract Validation', () => {
 
     // Eslesmeyenlerin sayisi 0 olmali (tum eslesmeyenler bilinen istisnalarda olmali)
     expect(unmatched).toEqual([]);
+  });
+
+  // --------------------------------------------------------------------------
+  // Bayat istisna korumasi (tier-3): allowlist curumesini engeller
+  // --------------------------------------------------------------------------
+
+  it('every known exception must still shield a real, unmatched frontend endpoint', () => {
+    // Bir istisna ya (a) hicbir FE endpoint'ine denk gelmiyorsa ya da (b) denk
+    // geldigi FE endpoint'i artik backend'de karsiligi olan bir cagri ise
+    // BAYATTIR ve listeden cikarilmalidir. Bayat istisnalar allowlist'i
+    // buyuterek gercek kirik cagrilarin gizlenmesine zemin hazirlar
+    // (ADMIN-HIGH-011 bu curumeyle uretime sizdi).
+    const stale: string[] = [];
+
+    for (const exc of KNOWN_EXCEPTIONS) {
+      const shielded = frontendEndpoints.filter(
+        fe => matchPath(fe.url, exc.url) && fe.method === exc.method,
+      );
+      if (shielded.length === 0) {
+        stale.push(`${exc.method} ${exc.url} — no frontend endpoint uses this exception`);
+        continue;
+      }
+      const allMatched = shielded.every(fe =>
+        backendEndpoints.some(be => matchEndpoint(fe, be)),
+      );
+      if (allMatched) {
+        stale.push(`${exc.method} ${exc.url} — backend match now exists; exception is obsolete`);
+      }
+    }
+
+    expect(stale).toEqual([]);
   });
 });

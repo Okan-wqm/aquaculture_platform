@@ -317,6 +317,31 @@ describe('TenantManagementPage', () => {
       });
     });
 
+    it('should open the quick-view modal and suspend with a reason', async () => {
+      const user = userEvent.setup();
+      vi.mocked(tenantsApi.suspend).mockResolvedValueOnce(undefined as never);
+
+      renderWithRouter(<TenantManagementPage />);
+
+      await waitFor(() => expect(screen.getByText('Ocean Farms Ltd')).toBeInTheDocument());
+
+      await user.click(screen.getAllByRole('button', { name: /quick view/i })[0]);
+
+      // Detail modal for the active tenant offers Suspend
+      await user.click(screen.getByRole('button', { name: /^suspend$/i }));
+
+      // Reason modal enforces a reason before the destructive call
+      await user.type(
+        screen.getByPlaceholderText(/enter reason for suspension/i),
+        'Abuse report'
+      );
+      await user.click(screen.getByRole('button', { name: /^suspend tenant$/i }));
+
+      await waitFor(() => {
+        expect(tenantsApi.suspend).toHaveBeenCalledWith('tenant-1', 'Abuse report');
+      });
+    });
+
     it('should bulk activate a selected suspended tenant', async () => {
       const user = userEvent.setup();
       vi.mocked(tenantsApi.bulkActivate).mockResolvedValueOnce({ success: ['tenant-4'], failed: [] });

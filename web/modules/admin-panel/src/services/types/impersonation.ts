@@ -41,8 +41,8 @@ export interface ImpersonationPermission {
 /**
  * Read model for GET /impersonation/sessions* — the backend's
  * SafeImpersonationSession. Optionality follows the entity's nullable columns.
- * `actionsPerformed` (the action array) is intentionally omitted: the UI only
- * consumes the numeric `actionCount`.
+ * `actionsPerformed` is the jsonb action log on the session row (capped at
+ * the last 1000 actions) — the session detail read is the only actions source.
  */
 export interface ImpersonationSession {
   id: string;
@@ -63,6 +63,7 @@ export interface ImpersonationSession {
   endedAt?: string;
   endReason?: string;
   actionCount: number;
+  actionsPerformed?: ImpersonationAction[];
   createdAt: string;
   updatedAt: string;
 }

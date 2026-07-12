@@ -550,8 +550,8 @@ $$;
 -- Canonical predicate from
 -- libs/backend-common/src/database/rls/apply-tenant-rls.helper.ts.
 --
--- shared.audit_logs is DELIBERATELY EXCLUDED here (ORPHAN-HIGH-308 /
--- ORPHAN-MEDIUM-324): it is a CROSS-TENANT append-only audit ledger written
+-- shared.audit_logs AND shared.access_logs are DELIBERATELY EXCLUDED here
+-- (ORPHAN-HIGH-308 / ORPHAN-MEDIUM-324 / ORPHAN-HIGH-367): it is a CROSS-TENANT append-only audit ledger written
 -- from no-tenant-context paths (billing's unauthenticated Stripe webhook,
 -- cross-service admin actions, platform SUPER_ADMIN with tenantId NULL). Under
 -- tenant_isolation_policy those INSERTs are silently RLS-denied — the exact
@@ -568,8 +568,7 @@ BEGIN
     SELECT * FROM (VALUES
       ('gdpr_data_requests', 'tenantId'),
       ('user_consents',      'tenantId'),
-      ('user_permissions',   'tenantId'),
-      ('access_logs',        'tenantId')
+      ('user_permissions',   'tenantId')
     ) AS t(tbl, tcol)
   LOOP
     IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'shared' AND tablename = entry.tbl) THEN
@@ -611,6 +610,36 @@ BEGIN
     CREATE POLICY infra_ledger_append ON shared.audit_logs
       FOR INSERT WITH CHECK (true);
     CREATE POLICY infra_ledger_read ON shared.audit_logs
+      FOR SELECT USING (
+        current_setting('app.bypass_rls', true) = 'on'
+        OR NULLIF(current_setting('app.current_tenant', true), '') IS NULL
+        OR "tenantId" = NULLIF(current_setting('app.current_tenant', true), '')::uuid
+      );
+  END IF;
+END
+$$;
+
+-- ──────────────────────────────────────────────────────────────────────────
+-- Canonical INFRASTRUCTURE-LEDGER policy for shared.access_logs
+-- (ORPHAN-HIGH-367, live-verified 2026-07-12): the gateway's AccessLogMiddleware
+-- writes one row per HTTP request for ALL tenants + anonymous (tenantId NULL)
+-- requests on a single no-tenant-GUC connection — under tenant_isolation_policy
+-- every INSERT failed ("new row violates row-level security policy",
+-- ACCESS_LOG_FAILURE in prod gateway logs). Same append-ledger class as
+-- shared.audit_logs above; NOTE the per-schema db-migrate hardening pass does
+-- NOT cover `shared` (main.ts routes shared here, to platform-bootstrap), so
+-- THIS block — not INFRASTRUCTURE_AUDIT_LEDGERS alone — is what heals the live
+-- table on each deploy.
+-- ──────────────────────────────────────────────────────────────────────────
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'shared' AND tablename = 'access_logs') THEN
+    DROP POLICY IF EXISTS tenant_isolation_policy ON shared.access_logs;
+    DROP POLICY IF EXISTS infra_ledger_append ON shared.access_logs;
+    DROP POLICY IF EXISTS infra_ledger_read ON shared.access_logs;
+    CREATE POLICY infra_ledger_append ON shared.access_logs
+      FOR INSERT WITH CHECK (true);
+    CREATE POLICY infra_ledger_read ON shared.access_logs
       FOR SELECT USING (
         current_setting('app.bypass_rls', true) = 'on'
         OR NULLIF(current_setting('app.current_tenant', true), '') IS NULL

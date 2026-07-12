@@ -4463,6 +4463,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/migrations/1807100000000-AddTenantSuspensionAudit.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/announcement/__tests__/announcement.service.spec.ts",
       "prettier_managed": true
     },
@@ -5142,6 +5148,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/services/__tests__/permission-overrides.util.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/services/__tests__/tenant-lifecycle-suspension.spec.ts",
       "prettier_managed": true
     },
     {
@@ -39564,6 +39576,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-no-auth-tenants-writes.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-security-runtime-contract.spec.ts",
       "prettier_managed": true
     },
@@ -41437,6 +41455,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/quality/closure-manifest.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
       "prettier_managed": true
     },
     {
@@ -52992,10 +53022,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8686,
+  "file_count": 8691,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8511,
-  "managed_file_list_sha256": "d0b4913cdb598bc208cff7ae003e83dc7bd32e2d0f54469d2ee57681f88c7f06",
+  "managed_count": 8516,
+  "managed_file_list_sha256": "9d2478f96c58a5c629a63804c3c8da7ce415c8da4f5082714366bb4e46525dc5",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

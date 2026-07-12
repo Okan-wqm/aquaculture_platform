@@ -7,11 +7,10 @@
  * Uses TanStack Query for data fetching and caching.
  */
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey, getTenantId } from '@aquaculture/shared-ui';
+import { useQueryClient } from '@tanstack/react-query';
+import { useTenantQuery, createTenantInvalidationKey, getTenantId } from '@aquaculture/shared-ui';
 import { useState, useCallback, useMemo } from 'react';
-import { graphqlRequest } from '../services/tenant-api.service';
-import { TENANT_AUDIT_LOGS_QUERY } from '../graphql';
+import { getTenantAuditLogs } from '../lib/api';
 import { logError } from '../utils/error-handling';
 
 // ============================================================================
@@ -44,19 +43,6 @@ export interface AuditLogPage {
   data: AuditLogEntry[];
   total: number;
 }
-
-// ============================================================================
-// Query Keys
-// ============================================================================
-
-// Tenant-scoped via createTenantQueryKey (['tenant', tenantId, …]); `all` is a
-// function because the tenantId is only known at call time (web/CLAUDE.md
-// FE-CRITICAL-014/015/016).
-export const auditLogKeys = {
-  all: () => createTenantQueryKey(getTenantId(), 'tenant-audit-log'),
-  list: (filters: AuditLogFilters, page: number, pageSize: number) =>
-    createTenantQueryKey(getTenantId(), 'tenant-audit-log', 'list', filters, page, pageSize),
-};
 
 // ============================================================================
 // Hook
@@ -93,24 +79,20 @@ export function useTenantAuditLog(pageSize = 20) {
   }, [filters, pageSize, offset]);
 
   // Query
-  const query = useQuery({
-    queryKey: auditLogKeys.list(filters, page, pageSize),
-    queryFn: async (): Promise<AuditLogPage> => {
+  // Tenant-scoped key via the useTenantQuery SSoT (cross-tenant cache rule);
+  // keepPreviousData defaults to true, replacing the placeholderData hack.
+  const query = useTenantQuery<AuditLogPage>(
+    ['auditLogs', 'list', filters, page, pageSize],
+    async () => {
       try {
-        const data = await graphqlRequest<{ tenantAuditLogs: AuditLogPage }>(
-          TENANT_AUDIT_LOGS_QUERY,
-          variables,
-        );
-        return data.tenantAuditLogs;
+        return await getTenantAuditLogs(variables);
       } catch (err) {
         logError('useTenantAuditLog', err);
-        // Return empty result on error so UI still renders
         throw err;
       }
     },
-    staleTime: 30 * 1000, // 30 seconds
-    placeholderData: (previousData) => previousData,
-  });
+    { staleTime: 30 * 1000 },
+  );
 
   // Actions
   const updateFilters = useCallback((newFilters: Partial<AuditLogFilters>) => {
@@ -142,7 +124,11 @@ export function useTenantAuditLog(pageSize = 20) {
   }, []);
 
   const refresh = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: auditLogKeys.all() });
+    // Epoch-less tenant-scoped prefix — matches every ['auditLogs', ...] key
+    // for the current tenant (web/CLAUDE.md FE-CRITICAL-014/015/016).
+    void queryClient.invalidateQueries({
+      queryKey: createTenantInvalidationKey(getTenantId(), 'auditLogs'),
+    });
   }, [queryClient]);
 
   // CSV export

@@ -4,98 +4,36 @@
  * Fetches subscription, invoices, payment history, and usage data
  * for the current tenant. Read-only -- no mutations.
  *
- * Uses TanStack Query for data fetching and caching.
+ * Tenant-scoped via the useTenantQuery SSoT (cross-tenant cache rule);
+ * data access goes through the lib/api typed layer (CRIT-04).
  */
 
-import { useQuery } from '@tanstack/react-query';
-import { graphqlRequest } from '../services/tenant-api.service';
-import { TENANT_BILLING_QUERY } from '../graphql';
+import { useTenantQuery } from '@aquaculture/shared-ui';
+import { getTenantBilling, type TenantBillingData } from '../lib/api';
 import { logError } from '../utils/error-handling';
 
-// ============================================================================
-// Types
-// ============================================================================
+export type {
+  TenantSubscription,
+  TenantInvoice,
+  TenantBillingData,
+} from '../lib/api';
 
-export interface TenantSubscription {
-  id: string;
-  plan: string;
-  status: 'ACTIVE' | 'TRIAL' | 'PAST_DUE' | 'CANCELLED' | 'SUSPENDED';
-  billingPeriod: 'MONTHLY' | 'YEARLY';
-  currentPeriodStart: string;
-  currentPeriodEnd: string;
-  trialEndDate: string | null;
-  monthlyPrice: number;
-  currency: string;
-}
-
-export interface TenantInvoice {
-  id: string;
-  invoiceNumber: string;
-  amount: number;
-  currency: string;
-  status: 'PAID' | 'PENDING' | 'OVERDUE' | 'DRAFT' | 'VOID';
-  issuedAt: string;
-  dueDate: string;
-  paidAt: string | null;
-  description: string;
-}
-
-export interface PlanLimits {
-  maxFarms: number;
-  maxSensors: number;
-  maxUsers: number;
-  maxStorage: number; // in GB
-  currentFarms: number;
-  currentSensors: number;
-  currentUsers: number;
-  currentStorage: number; // in GB
-}
-
-export interface UsageMetrics {
-  apiCallsThisMonth: number;
-  apiCallsLimit: number;
-  storageUsedGb: number;
-  storageLimit: number;
-  sensorReadingsThisMonth: number;
-  sensorReadingsLimit: number;
-}
-
-export interface TenantBillingData {
-  subscription: TenantSubscription | null;
-  invoices: TenantInvoice[];
-  planLimits: PlanLimits | null;
-  usageMetrics: UsageMetrics | null;
-}
-
-// ============================================================================
-// Query Keys
-// ============================================================================
-
-export const billingKeys = {
-  all: ['tenant-billing'] as const,
-  details: () => [...billingKeys.all, 'details'] as const,
-};
-
-// ============================================================================
-// Hook
-// ============================================================================
+/** Domain key segments — tenant prefix + epoch are added by useTenantQuery. */
+const BILLING_SEGMENTS = ['billing', 'details'] as const;
 
 export function useTenantBilling() {
-  const query = useQuery({
-    queryKey: billingKeys.details(),
-    queryFn: async (): Promise<TenantBillingData> => {
+  const query = useTenantQuery<TenantBillingData>(
+    BILLING_SEGMENTS,
+    async () => {
       try {
-        const data = await graphqlRequest<{ tenantBilling: TenantBillingData }>(
-          TENANT_BILLING_QUERY,
-        );
-        return data.tenantBilling;
+        return await getTenantBilling();
       } catch (err) {
         logError('useTenantBilling', err);
         throw err;
       }
     },
-    staleTime: 5 * 60 * 1000, // 5 minutes
-  });
+    { staleTime: 5 * 60 * 1000 },
+  );
 
   return {
     subscription: query.data?.subscription ?? null,

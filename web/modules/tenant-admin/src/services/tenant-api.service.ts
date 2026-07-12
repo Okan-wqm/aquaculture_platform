@@ -1,18 +1,13 @@
 /**
  * Tenant Admin API Service - Backward Compatibility Layer
  *
- * CRIT-04: The canonical implementation now lives in lib/api.ts.
- * This file re-exports everything for backward compatibility so
+ * CRIT-04: The canonical implementation lives in lib/api.ts.
+ * This file re-exports the typed functions for backward compatibility so
  * existing imports like:
- *   import { graphqlRequest } from '../services/tenant-api.service';
  *   import { getMyTenant, type User } from '../services/tenant-api.service';
- * continue to work without modification.
- *
- * The graphqlRequest function is preserved for hooks/components that
- * are migrated incrementally.
+ * continue to work without modification. The untyped graphqlRequest escape
+ * hatch is gone — every call goes through a typed lib/api function.
  */
-
-import { apiClient } from './api-client';
 
 // ============================================================================
 // Re-export ALL types from lib/types
@@ -134,20 +129,3 @@ export type {
   AuditLogPage,
   EdgeDeviceDetail,
 } from '../lib/api';
-
-// ============================================================================
-// Backward-compatible graphqlRequest wrapper
-// ============================================================================
-
-/**
- * Execute GraphQL query/mutation.
- * Delegates to apiClient.graphql() for centralized auth/error handling.
- *
- * @deprecated Use typed functions from lib/api.ts instead.
- */
-export async function graphqlRequest<T>(
-  query: string,
-  variables?: Record<string, unknown>,
-): Promise<T> {
-  return apiClient.graphql<T>(query, variables);
-}

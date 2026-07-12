@@ -10,10 +10,9 @@
  * Uses TanStack Query for data fetching and caching.
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useTenantQuery } from '@aquaculture/shared-ui';
 import { useState, useCallback } from 'react';
-import { graphqlRequest } from '../services/tenant-api.service';
-import { TENANT_ACTIVITY_QUERY } from '../graphql';
+import { getTenantActivity } from '../lib/api';
 import { logError } from '../utils/error-handling';
 
 // ============================================================================
@@ -61,12 +60,6 @@ export type ActivityPeriod = '7d' | '30d';
 // Query Keys
 // ============================================================================
 
-export const activityKeys = {
-  all: ['tenant-activity'] as const,
-  summary: (period: ActivityPeriod) =>
-    [...activityKeys.all, 'summary', period] as const,
-};
-
 // ============================================================================
 // Hook
 // ============================================================================
@@ -74,23 +67,22 @@ export const activityKeys = {
 export function useTenantActivity() {
   const [period, setPeriod] = useState<ActivityPeriod>('7d');
 
-  const query = useQuery({
-    queryKey: activityKeys.summary(period),
-    queryFn: async (): Promise<TenantActivityData> => {
+  // Tenant-scoped key via the useTenantQuery SSoT (cross-tenant cache rule).
+  const query = useTenantQuery<TenantActivityData>(
+    ['activity', 'summary', period],
+    async () => {
       try {
-        const data = await graphqlRequest<{ tenantActivity: TenantActivityData }>(
-          TENANT_ACTIVITY_QUERY,
-          { period },
-        );
-        return data.tenantActivity;
+        return await getTenantActivity(period);
       } catch (err) {
         logError('useTenantActivity', err);
         throw err;
       }
     },
-    staleTime: 60 * 1000, // 1 minute
-    refetchInterval: 2 * 60 * 1000, // Refetch every 2 minutes
-  });
+    {
+      staleTime: 60 * 1000,
+      refetchInterval: 2 * 60 * 1000,
+    },
+  );
 
   const changePeriod = useCallback((p: ActivityPeriod) => {
     setPeriod(p);

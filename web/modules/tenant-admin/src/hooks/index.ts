@@ -32,6 +32,6 @@ export {
   roleKeys as tenantRoleKeys,
 } from './useTenantRoles';
 
-export { useTenantAuditLog, auditLogKeys } from './useTenantAuditLog';
-export { useTenantBilling, billingKeys } from './useTenantBilling';
-export { useTenantActivity, activityKeys } from './useTenantActivity';
+export { useTenantAuditLog } from './useTenantAuditLog';
+export { useTenantBilling } from './useTenantBilling';
+export { useTenantActivity } from './useTenantActivity';

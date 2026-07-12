@@ -72,6 +72,8 @@ import {
   MY_ANNOUNCEMENTS_QUERY,
   VIEW_ANNOUNCEMENT_MUTATION,
   ACKNOWLEDGE_ANNOUNCEMENT_MUTATION,
+  AI_PROVIDER_SETTINGS_QUERY,
+  UPDATE_AI_PROVIDER_SETTINGS_MUTATION,
 } from '../graphql';
 
 // Types
@@ -391,29 +393,33 @@ export async function seedTenantRoles(): Promise<TenantRole[]> {
  * Billing data structure (matches TENANT_BILLING_QUERY shape).
  * Kept inline since it is only used here and in the billing hook.
  */
+export interface TenantSubscription {
+  id: string;
+  plan: string;
+  status: 'ACTIVE' | 'TRIAL' | 'PAST_DUE' | 'CANCELLED' | 'SUSPENDED';
+  billingPeriod: 'MONTHLY' | 'YEARLY';
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  trialEndDate: string | null;
+  monthlyPrice: number;
+  currency: string;
+}
+
+export interface TenantInvoice {
+  id: string;
+  invoiceNumber: string;
+  amount: number;
+  currency: string;
+  status: 'PAID' | 'PENDING' | 'OVERDUE' | 'DRAFT' | 'VOID';
+  issuedAt: string;
+  dueDate: string;
+  paidAt: string | null;
+  description: string;
+}
+
 export interface TenantBillingData {
-  subscription: {
-    id: string;
-    plan: string;
-    status: string;
-    billingPeriod: string;
-    currentPeriodStart: string;
-    currentPeriodEnd: string;
-    trialEndDate: string | null;
-    monthlyPrice: number;
-    currency: string;
-  } | null;
-  invoices: Array<{
-    id: string;
-    invoiceNumber: string;
-    amount: number;
-    currency: string;
-    status: string;
-    issuedAt: string;
-    dueDate: string;
-    paidAt: string | null;
-    description: string;
-  }>;
+  subscription: TenantSubscription | null;
+  invoices: TenantInvoice[];
   planLimits: {
     maxFarms: number;
     maxSensors: number;
@@ -896,4 +902,49 @@ export async function acknowledgeAnnouncement(
     acknowledgeAnnouncement: { id: string; announcementId: string; userId: string; viewedAt: string; acknowledgedAt: string };
   }>(ACKNOWLEDGE_ANNOUNCEMENT_MUTATION, { id });
   return data.acknowledgeAnnouncement;
+}
+
+// ============================================================================
+// AI Provider Settings (BYOK — ai-service subgraph)
+// ============================================================================
+
+export type LlmProviderId = 'anthropic' | 'openai';
+
+export interface AiProviderSettings {
+  provider: LlmProviderId;
+  isEnabled: boolean;
+  /** 'ok' = ready; 'disabled' = turned off; 'key_missing' = no valid key. */
+  enablementReason: 'ok' | 'disabled' | 'key_missing';
+  anthropicKeyHint: string | null;
+  openaiKeyHint: string | null;
+  chatModel: string | null;
+  monthlyTokenBudget: number;
+  hourlyRequestLimit: number;
+  availableProviders: LlmProviderId[];
+}
+
+export interface UpdateAiProviderSettingsInput {
+  provider?: LlmProviderId;
+  anthropicApiKey?: string;
+  openaiApiKey?: string;
+  chatModel?: string;
+  isEnabled?: boolean;
+  monthlyTokenBudget?: number;
+  hourlyRequestLimit?: number;
+}
+
+export async function getAiProviderSettings(): Promise<AiProviderSettings> {
+  const data = await apiClient.graphql<{ aiProviderSettings: AiProviderSettings }>(
+    AI_PROVIDER_SETTINGS_QUERY,
+  );
+  return data.aiProviderSettings;
+}
+
+export async function updateAiProviderSettings(
+  input: UpdateAiProviderSettingsInput,
+): Promise<AiProviderSettings> {
+  const data = await apiClient.graphql<{
+    updateAiProviderSettings: AiProviderSettings;
+  }>(UPDATE_AI_PROVIDER_SETTINGS_MUTATION, { input });
+  return data.updateAiProviderSettings;
 }

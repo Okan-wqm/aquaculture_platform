@@ -1,40 +1,13 @@
 import React, { useState } from 'react';
 import { X, Copy, Check, Key, AlertCircle, AlertTriangle, Loader2 } from 'lucide-react';
-import { graphqlRequest } from '../../services/tenant-api.service';
-import {
-  CREATE_PROVISIONING_KEY_MUTATION,
-  LIST_PROVISIONING_KEYS_QUERY,
-  REVOKE_PROVISIONING_KEY_MUTATION,
-} from '../../graphql';
+import { createProvisioningKey, listProvisioningKeys, revokeProvisioningKey } from '../../lib/api';
+import type { TenantKeyResponse, TenantProvisioningKey } from '../../lib/types';
 import { logError, sanitizeErrorMessage } from '../../utils/error-handling';
 import { formatDate } from '../../utils/date-utils';
 
 interface InstallerKeyModalProps {
   onClose: () => void;
   onCreated: () => void;
-}
-
-interface TenantKeyResponse {
-  id: string;
-  keyToken: string;
-  installerUrl: string;
-  installerCommand: string;
-  expiresAt?: string;
-  maxDevices?: number;
-  autoApprove: boolean;
-}
-
-interface TenantProvisioningKey {
-  id: string;
-  // SENSOR-MEDIUM-001: raw key is shown only once at creation; the list never
-  // re-exposes it (stored value is a SHA-256 digest, not selectable).
-  name?: string;
-  isActive: boolean;
-  maxDevices?: number;
-  usedCount: number;
-  autoApprove: boolean;
-  expiresAt?: string;
-  createdAt: string;
 }
 
 export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, onCreated }) => {
@@ -66,12 +39,9 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
       if (autoApprove) input.autoApprove = true;
       if (expiresInDays) input.expiresInDays = parseInt(expiresInDays, 10);
 
-      const data = await graphqlRequest<{ createTenantProvisioningKey: TenantKeyResponse }>(
-        CREATE_PROVISIONING_KEY_MUTATION,
-        { input },
-      );
+      const created = await createProvisioningKey(input);
 
-      setResult(data.createTenantProvisioningKey);
+      setResult(created);
       setStep('result');
       onCreated();
     } catch (err) {
@@ -96,8 +66,8 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
   const loadExistingKeys = async () => {
     setLoadingKeys(true);
     try {
-      const data = await graphqlRequest<{ tenantProvisioningKeys: TenantProvisioningKey[] }>(LIST_PROVISIONING_KEYS_QUERY);
-      setExistingKeys(data.tenantProvisioningKeys || []);
+      const keys = await listProvisioningKeys();
+      setExistingKeys(keys || []);
       setShowExisting(true);
     } catch (err) {
       logError('InstallerKeyModal.loadExistingKeys', err);
@@ -108,7 +78,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
 
   const handleRevoke = async (keyId: string) => {
     try {
-      await graphqlRequest(REVOKE_PROVISIONING_KEY_MUTATION, { keyId });
+      await revokeProvisioningKey(keyId);
       setExistingKeys(prev => prev.map(k => k.id === keyId ? { ...k, isActive: false } : k));
     } catch (err) {
       logError('InstallerKeyModal.handleRevoke', err);

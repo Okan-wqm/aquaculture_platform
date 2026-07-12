@@ -57,6 +57,7 @@ export interface ScadaEventPayloadMap {
   [ScadaSocketEvent.COMMAND_SET_VIEW]: { screenId: string };
   [ScadaSocketEvent.COMMAND_OPEN_CARD]: { screenId: string; x?: number; y?: number };
   [ScadaSocketEvent.COMMAND_TOAST]: { message: string; type?: string };
+  [ScadaSocketEvent.PIN_RESULT]: { valid: boolean; expiresAt?: number; lockedUntil?: number };
 }
 
 export type ScadaEventCallback<E extends keyof ScadaEventPayloadMap> = (
@@ -77,9 +78,19 @@ export class ScadaSocketService {
   private _connectionState: DataProviderConnectionState = 'disconnected';
   private listeners: ListenerMap = {};
   private heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 
-  /** Heartbeat timeout: if no heartbeat arrives within this window → 'error'. */
+  /** Heartbeat timeout: if no inbound frame arrives within this window → 'error'. */
   private readonly HEARTBEAT_TIMEOUT_MS = 35_000;
+
+  /**
+   * Client heartbeat cadence. The server echoes each HEARTBEAT (resetting the
+   * watchdog), so a genuinely idle-but-connected socket stays healthy — the
+   * server sends no periodic heartbeat of its own, and without this a live
+   * socket carrying no traffic would falsely trip to 'error' after 35 s and
+   * block tag writes (SENSOR-HIGH-038).
+   */
+  private readonly HEARTBEAT_INTERVAL_MS = 15_000;
 
   private constructor() {}
 
@@ -159,6 +170,7 @@ export class ScadaSocketService {
    */
   disconnect(): void {
     this._clearHeartbeatTimer();
+    this._stopHeartbeat();
     if (this.socket) {
       this.socket.disconnect();
     }
@@ -223,6 +235,37 @@ export class ScadaSocketService {
     this.on(event, wrapper);
   }
 
+  /**
+   * Server-side control-security PIN verification (SENSOR-CRITICAL-006).
+   * The stored PIN never reaches the client — the server compares against its
+   * salted hash and, on success, elevates THIS socket for a bounded window so
+   * pin-protected TAG_WRITEs are accepted. Resolves the server's verdict;
+   * rejects only on timeout / no connection (fail-closed for the caller).
+   */
+  verifyPin(
+    packageId: string,
+    pin: string,
+    timeoutMs = 5000,
+  ): Promise<{ valid: boolean; expiresAt?: number; lockedUntil?: number }> {
+    return new Promise((resolve, reject) => {
+      if (!this.isConnected) {
+        reject(new Error('Not connected to SCADA server'));
+        return;
+      }
+      const timer = setTimeout(() => {
+        this.off(ScadaSocketEvent.PIN_RESULT, handler);
+        reject(new Error('PIN verification timed out'));
+      }, timeoutMs);
+      const handler = (payload: { valid: boolean; expiresAt?: number; lockedUntil?: number }): void => {
+        clearTimeout(timer);
+        this.off(ScadaSocketEvent.PIN_RESULT, handler);
+        resolve(payload);
+      };
+      this.on(ScadaSocketEvent.PIN_RESULT, handler);
+      this.emit(ScadaSocketEvent.PIN_VERIFY, { packageId, pin });
+    });
+  }
+
   // ── Tag-level convenience methods ──────────────────────────────────────────
 
   /**
@@ -268,10 +311,12 @@ export class ScadaSocketService {
     s.on('connect', () => {
       this._setConnectionState('connected');
       this._resetHeartbeatTimer();
+      this._startHeartbeat();
     });
 
     s.on('disconnect', (_reason: string) => {
       this._clearHeartbeatTimer();
+      this._stopHeartbeat();
       this._setConnectionState('disconnected');
     });
 
@@ -292,6 +337,7 @@ export class ScadaSocketService {
     s.on('reconnect', () => {
       this._setConnectionState('connected');
       this._resetHeartbeatTimer();
+      this._startHeartbeat();
     });
 
     s.on('reconnect_failed', () => {
@@ -302,12 +348,30 @@ export class ScadaSocketService {
     const serverPushEvents = Object.values(ScadaSocketEvent) as ScadaSocketEvent[];
     serverPushEvents.forEach((event) => {
       s.on(event, (payload: unknown) => {
-        if (event === ScadaSocketEvent.HEARTBEAT) {
-          this._resetHeartbeatTimer();
-        }
+        // Any inbound server frame proves the connection is alive — reset the
+        // watchdog on all of them, not only HEARTBEAT. Previously a socket
+        // streaming TAG_VALUES still tripped to 'error' after 35 s because
+        // only HEARTBEAT (which the server never pushes on its own) reset it.
+        this._resetHeartbeatTimer();
         this._dispatch(event as keyof ScadaEventPayloadMap, payload);
       });
     });
+  }
+
+  private _startHeartbeat(): void {
+    this._stopHeartbeat();
+    this.heartbeatInterval = setInterval(() => {
+      if (this.socket?.connected) {
+        this.socket.emit(ScadaSocketEvent.HEARTBEAT);
+      }
+    }, this.HEARTBEAT_INTERVAL_MS);
+  }
+
+  private _stopHeartbeat(): void {
+    if (this.heartbeatInterval !== null) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
   }
 
   private _dispatch<E extends keyof ScadaEventPayloadMap>(

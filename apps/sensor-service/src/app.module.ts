@@ -68,6 +68,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { HealthModule } from './health/health.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { SensorMetricsModule } from './metrics/metrics.module';
+import { ScadaRuntimeModule } from './scada-runtime/scada-runtime.module';
 import { SensorOutboxModule } from './outbox/sensor-outbox.module';
 import { SensorOutbox } from './outbox/sensor-outbox.entity';
 import {
@@ -411,6 +412,12 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
 
     // Data ingestion module (MQTT listener, data processing)
     IngestionModule,
+
+    // SCADA operator runtime: the /scada WebSocket gateway (tag subscribe /
+    // write / alarm ack), tag manager, alarm engine, DAQ storage. Without
+    // this import the entire control plane is dead code — the gateway never
+    // mounts and operator screens connect to nothing (SENSOR-HIGH-045).
+    ScadaRuntimeModule,
 
     // Process module for equipment connection diagrams
     ProcessModule,

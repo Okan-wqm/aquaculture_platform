@@ -364,10 +364,20 @@ export class ProcessResolver {
   async deleteScadaPackage(
     @Args('id', { type: () => ID }) id: string,
     @Tenant() tenantId: string,
+    @CurrentUser() user: CurrentUserPayload,
   ): Promise<DeleteProcessResultType> {
     try {
-      const success = await this.scadaPackageService.deleteScadaPackage(id, tenantId);
-      return { success, message: success ? 'Package archived' : 'Failed', deletedId: success ? id : undefined };
+      const result = await this.scadaPackageService.deleteScadaPackage(id, tenantId, user.sub);
+      // Honest per-device reporting (WF-011): archive always succeeds; the
+      // message names which devices got the undeploy and which were missed.
+      const sent = result.undeploy.filter((r) => r.sent);
+      const missed = result.undeploy.filter((r) => !r.sent);
+      const parts = ['Paket arşivlendi'];
+      if (sent.length > 0) parts.push(`undeploy gönderildi: ${sent.length} cihaz`);
+      if (missed.length > 0) {
+        parts.push(`ulaşılamadı: ${missed.map((r) => r.message).join('; ')}`);
+      }
+      return { success: true, message: parts.join(' — '), deletedId: id };
     } catch (error) {
       return { success: false, message: (error as Error).message };
     }

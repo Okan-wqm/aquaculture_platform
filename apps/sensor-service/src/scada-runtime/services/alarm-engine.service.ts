@@ -35,7 +35,15 @@
  */
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { randomUUID } from 'crypto';
+
+import {
+  SCADA_ALARM_ACK_EVENT,
+  SCADA_ALARM_ACK_ALL_EVENT,
+  type AlarmAckRequest,
+  type AlarmAckAllRequest,
+} from './alarm-ack.events';
 
 import type {
   AlarmRuleRuntime,
@@ -160,6 +168,11 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
   /** Set tenant context for gateway broadcasts. */
   setTenantId(tenantId: string): void {
     this.tenantId = tenantId;
+  }
+
+  /** The tenant this (currently single-tenant, RT-011) runtime evaluates for. */
+  getTenantId(): string {
+    return this.tenantId;
   }
 
   /* ---------------------------------------------------------------- */
@@ -370,6 +383,18 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
   /*  Public ACK methods                                                */
   /* ---------------------------------------------------------------- */
 
+  /** Operator acknowledged a single alarm (from the SCADA gateway). */
+  @OnEvent(SCADA_ALARM_ACK_EVENT)
+  async handleAlarmAckEvent(req: AlarmAckRequest): Promise<void> {
+    await this.acknowledgeAlarm(req.alarmInstanceId, req.userId);
+  }
+
+  /** Operator acknowledged all alarms (from the SCADA gateway). */
+  @OnEvent(SCADA_ALARM_ACK_ALL_EVENT)
+  async handleAlarmAckAllEvent(req: AlarmAckAllRequest): Promise<void> {
+    await this.acknowledgeAll(req.userId);
+  }
+
   async acknowledgeAlarm(alarmId: string, userId: string): Promise<void> {
     const now = Date.now();
     let found = false;
@@ -542,7 +567,7 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
             const tagId = String(action.params['tagId'] ?? '');
             const value = action.params['value'];
             if (tagId && value !== undefined) {
-              this.tagManager.writeTagValue(tagId, value, 'alarm-engine');
+              this.tagManager.writeTagValue(tagId, value, 'alarm-engine', this.tenantId);
             }
             break;
           }

@@ -693,6 +693,20 @@ pub(crate) const COMMAND_CATALOG: &[CommandCatalogEntry] = &[
         AuditAction::ProgramDeployApplied,
         AuditAction::ProgramDeployRequested
     ),
+    // Undeploy is the INVERSE of deploy_scada_package — it stops content
+    // running on physical screens, so it takes the identical DeployProgram
+    // permission class + ProgramDeploy audit taxonomy + legacy policy as
+    // its counterpart (EDGE-HIGH-003: a dispatch arm without a catalog
+    // entry falls back to the WRONG RBAC class and NO audit action).
+    entry!(
+        "undeploy_scada_package",
+        "cmd_undeploy_scada_package",
+        PermissionResolver::Static(StaticPermission::DeployProgram),
+        LegacyPolicy::DenyUnsignedInEnforcing,
+        false,
+        AuditAction::ProgramDeployApplied,
+        AuditAction::ProgramDeployRequested
+    ),
     // A release bundle is the transactional grouping of the SAME artifacts
     // deploy_process / deploy_scada_package / deploy_program apply, so it takes
     // the identical DeployProgram permission class and ProgramDeploy audit
@@ -868,6 +882,7 @@ pub(crate) const MUTATING_WIRE_NAMES: &[&str] = &[
     "rotate_master",
     "set_log_level",
     "set_output",
+    "undeploy_scada_package",
     "unforce_all",
     "unforce_value",
     "update_cert_pinning",

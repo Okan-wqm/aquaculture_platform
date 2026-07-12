@@ -6,6 +6,7 @@
  */
 
 import { create } from 'zustand';
+import { registerLogoutCleanup, onTenantChange } from '@aquaculture/shared-ui';
 
 export type EditorMode = 'pid' | 'hmi' | 'plc' | 'runtime' | 'debug';
 
@@ -24,16 +25,21 @@ interface EditorModeState {
   setBottomPanelOpen: (open: boolean) => void;
   toggleLeftPanel: () => void;
   toggleRightPanel: () => void;
+  reset: () => void;
 }
 
-export const useEditorModeStore = create<EditorModeState>((set, get) => ({
-  mode: 'pid',
-  previousMode: null,
+const INITIAL_EDITOR_MODE_STATE = {
+  mode: 'pid' as EditorMode,
+  previousMode: null as EditorMode | null,
   isCanvasEditable: true,
   isPidLocked: false,
   isBottomPanelOpen: false,
   leftPanelVisible: true,
   rightPanelVisible: true,
+};
+
+export const useEditorModeStore = create<EditorModeState>((set, get) => ({
+  ...INITIAL_EDITOR_MODE_STATE,
 
   setMode: (newMode) => {
     const current = get().mode;
@@ -63,4 +69,13 @@ export const useEditorModeStore = create<EditorModeState>((set, get) => ({
 
   toggleRightPanel: () =>
     set((state) => ({ rightPanelVisible: !state.rightPanelVisible })),
+
+  reset: () => set({ ...INITIAL_EDITOR_MODE_STATE }),
 }));
+
+// SECURITY (SENSOR-HIGH-041): the editor-mode store is a single-active,
+// tenant-owned view of the SCADA editor. Fully reset it on logout and on any
+// tenant switch so tenant A's editor state never carries into tenant B's
+// session. onTenantChange fires only on an actual A->B change, never first login.
+registerLogoutCleanup(() => useEditorModeStore.getState().reset());
+onTenantChange(() => useEditorModeStore.getState().reset());

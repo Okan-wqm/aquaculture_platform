@@ -1,4 +1,5 @@
 import { Resolver, Query, Mutation, Args, ID, Int } from '@nestjs/graphql';
+import { BadRequestException } from '@nestjs/common';
 import { Tenant, Roles, Role } from '@aquaculture/backend-common/decorators';
 
 import {
@@ -14,6 +15,13 @@ import { ProcessPaginationInput } from '../dto/process.dto';
 import { UnifiedTag } from '../entities/unified-tag.entity';
 import { UnifiedTagService } from '../services/unified-tag.service';
 import { TagResolutionService } from '../services/tag-resolution.service';
+
+/**
+ * Upper bound on the number of TagRefs a single resolveTagRefs query may carry.
+ * The refs feed one `IN (...)` lookup, so an unbounded list is a cheap
+ * amplification vector; a real screen/package resolves at most a few hundred.
+ */
+const MAX_TAG_REFS_PER_QUERY = 1000;
 
 @Resolver(() => UnifiedTagType)
 export class UnifiedTagResolver {
@@ -69,6 +77,11 @@ export class UnifiedTagResolver {
     @Args('refs', { type: () => [String] }) refs: string[],
     @Tenant() tenantId: string = '',
   ): Promise<TagResolutionResultType> {
+    if (refs.length > MAX_TAG_REFS_PER_QUERY) {
+      throw new BadRequestException(
+        `resolveTagRefs accepts at most ${MAX_TAG_REFS_PER_QUERY} refs per query (got ${refs.length})`,
+      );
+    }
     const result = await this.tagResolutionService.resolve(tenantId, refs);
     return {
       resolved: result.resolved.map((binding) => ({
@@ -116,6 +129,21 @@ export class UnifiedTagResolver {
     @Tenant() tenantId: string,
   ): Promise<boolean> {
     return this.unifiedTagService.deleteTag(id, tenantId);
+  }
+
+  /**
+   * Retire (terminal lifecycle state) — the only removal path for a tag that
+   * has left DRAFT. Server-owned method, mirroring the package-status rule:
+   * lifecycle is never a client-writable field (SENSOR-HIGH-050).
+   */
+  @Mutation(() => UnifiedTagType, { name: 'retireUnifiedTag' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async retireTag(
+    @Args('id', { type: () => ID }) id: string,
+    @Tenant() tenantId: string,
+  ): Promise<UnifiedTagType> {
+    const tag = await this.unifiedTagService.retireTag(id, tenantId);
+    return this.mapToType(tag);
   }
 
   @Mutation(() => TagDiscoveryResultType, { name: 'discoverTags' })

@@ -36,6 +36,11 @@ function stripComments(src: string): string {
 
 const HS256_SIGN = /\balgorithm\s*:\s*['"]HS256['"]/;
 const HS256_VERIFY = /\balgorithms\s*:\s*\[\s*['"]HS256['"]/;
+// A `JWT_ALGORITHM` config/env key is the algorithm-confusion evasion vector:
+// it sources the verify allowlist from a variable (default 'HS256'), slipping
+// past the literal HS256 checks above. All verification must funnel through
+// getJwtVerifyOptions (RS256 pinned); no code may read this key.
+const JWT_ALGORITHM_KEY = /['"]JWT_ALGORITHM['"]/;
 
 function sourceFiles(): string[] {
   return execFileSync('git', ['ls-files', 'apps/**/*.ts', 'libs/**/*.ts', 'platform/**/*.ts'], {
@@ -58,6 +63,17 @@ describe('JWT RS256-only invariant', () => {
     for (const file of sourceFiles()) {
       const code = stripComments(readFileSync(join(REPO_ROOT, file), 'utf8'));
       if (HS256_SIGN.test(code) || HS256_VERIFY.test(code)) {
+        offenders.push(relative(REPO_ROOT, join(REPO_ROOT, file)));
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('no live code sources the JWT verify algorithm from a JWT_ALGORITHM key (allowlist-evasion ban)', () => {
+    const offenders: string[] = [];
+    for (const file of sourceFiles()) {
+      const code = stripComments(readFileSync(join(REPO_ROOT, file), 'utf8'));
+      if (JWT_ALGORITHM_KEY.test(code)) {
         offenders.push(relative(REPO_ROOT, join(REPO_ROOT, file)));
       }
     }

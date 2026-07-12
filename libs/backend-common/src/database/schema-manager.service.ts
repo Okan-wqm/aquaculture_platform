@@ -219,7 +219,10 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     // cloned — so it belongs in the source-schema-only infrastructure set.
     // SENSOR-MEDIUM-004: edge_device_directory is the cross-tenant O(1) index
     // (public identifier -> tenant_id); one table in `sensor`, never cloned.
-    infrastructureTables: ['migrations', 'sensor_audit_logs', 'sensor_outbox', 'vfd_register_mappings', 'edge_device_directory', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    // scada_tag_history: SCADA runtime DAQ history (SENSOR-HIGH-053) — one
+    // `sensor` table, tenant-fenced by its mandatory tenant_id column (the
+    // runtime storage services run on the service-wide DataSource).
+    infrastructureTables: ['migrations', 'sensor_audit_logs', 'sensor_outbox', 'vfd_register_mappings', 'edge_device_directory', 'scada_tag_history', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: ['sensor_protocols', 'sensor_type_definitions', 'industry_templates'],
     tables: [
       // Core sensor entities

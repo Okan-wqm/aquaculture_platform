@@ -97,6 +97,7 @@ function makeService(opts?: {
   sensor?: Sensor | null;
   channels?: SensorDataChannel[];
   batch?: jest.Mocked<BatchProcessorService>;
+  fanout?: { fanoutMetric: jest.Mock; drainStats: jest.Mock } | null;
 }) {
   // Faz 3 follow-on: cache extracted to SensorMetaCacheService. The
   // test uses a thin stub that returns whatever the test scenario
@@ -114,13 +115,17 @@ function makeService(opts?: {
   const batch = opts?.batch ?? makeBatch();
   const bus = opts?.bus === undefined ? makeBus() : opts.bus;
   const config = { get: jest.fn() } as unknown as ConfigService;
+  const fanout = opts?.fanout === undefined ? null : opts.fanout;
   const svc = new NatsIngestionConsumerService(
     batch,
     config,
     metaCache as unknown as import('../sensor-meta-cache.service').SensorMetaCacheService,
     bus,
+    // Structural stub — TagValueFanoutService has private members, so the
+    // plain object stub is injected via `as never` (repo test convention).
+    fanout as never,
   );
-  return { svc, metaCache, batch, bus };
+  return { svc, metaCache, batch, bus, fanout };
 }
 
 describe('NatsIngestionConsumerService', () => {
@@ -226,6 +231,7 @@ describe('NatsIngestionConsumerService', () => {
         { get: jest.fn() } as unknown as ConfigService,
         metaCache as unknown as import('../sensor-meta-cache.service').SensorMetaCacheService,
         makeBus(),
+        null,
       );
       await svc.handle(fakeEvent({ qualityCode: 99 }));
       // Schema rejection short-circuits BEFORE the cache lookup —
@@ -273,6 +279,34 @@ describe('NatsIngestionConsumerService', () => {
       // Pin the producerTs → time conversion so a future Date(0)
       // refactor cannot silently shift the persisted timestamp.
       expect(arg.time?.toISOString()).toBe('2024-10-27T03:33:20.000Z');
+    });
+
+    it('fans the metric out to the /scada control plane after enqueue (SENSOR-HIGH-046)', async () => {
+      const batch = makeBatch();
+      const fanout = {
+        fanoutMetric: jest.fn().mockResolvedValue(undefined),
+        drainStats: jest.fn().mockReturnValue({ pushed: 0, unmapped: 0 }),
+      };
+      const { svc } = makeService({ batch, fanout });
+
+      await svc.handle(fakeEvent());
+
+      expect(batch.enqueue).toHaveBeenCalledTimes(1); // persistence unaffected
+      expect(fanout.fanoutMetric).toHaveBeenCalledWith({
+        tenantId: TENANT_ID,
+        sensorId: SENSOR_ID,
+        channelId: CHANNEL_ID,
+        value: 24.5,
+        timestampMs: 1_730_000_000_000,
+        qualityCode: 1,
+      });
+    });
+
+    it('handles events normally when the fanout service is not mounted', async () => {
+      const batch = makeBatch();
+      const { svc } = makeService({ batch, fanout: null });
+      await expect(svc.handle(fakeEvent())).resolves.toBeUndefined();
+      expect(batch.enqueue).toHaveBeenCalledTimes(1);
     });
 
     it('publishes a typed SensorReadingEvent after enqueue (event-side farm/pond honored)', async () => {

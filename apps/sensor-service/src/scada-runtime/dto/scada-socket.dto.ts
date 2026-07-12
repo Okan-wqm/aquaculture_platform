@@ -22,6 +22,8 @@ import {
   ArrayMinSize,
   ArrayMaxSize,
   ValidateNested,
+  IsUUID,
+  MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -149,6 +151,24 @@ export class DaqQueryDto implements DaqQueryPayload {
   @ValidateNested()
   @Type(() => DaqAggregationDto)
   aggregation?: DaqAggregationDto;
+}
+
+/* ------------------------------------------------------------------ */
+/*  PIN_VERIFY (SENSOR-CRITICAL-006)                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Verify a control-security PIN server-side. The stored PIN never leaves the
+ * server; the socket gains a bounded elevation window on success.
+ */
+export class PinVerifyDto {
+  @IsUUID()
+  packageId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(32)
+  pin!: string;
 }
 
 /* ------------------------------------------------------------------ */

@@ -5,32 +5,84 @@
  
 /**
  * VFD Modbus TCP Adapter Unit Tests
+ *
+ * Mocking layers:
+ *  - `net` — the adapter speaks RAW MBAP-framed TCP (the old modbus-serial
+ *    mock was vestigial and every I/O test attempted a real socket).
+ *    FakeModbusSocket answers FC3/FC4 reads with 0x01f4 per register and
+ *    echoes FC6 writes, exercising the adapter's real frame builder/parser.
+ *  - SsrfValidatorService.validateHost — the deliberate pre-connect SSRF
+ *    guard (SVD-HIGH-001) denies the RFC-1918 test address; tests stub the
+ *    prototype method (the adapter's instance is a field initializer, not
+ *    injectable) to an allow verdict, and re-enable it where the guard
+ *    itself is under test. The PRODUCTION guard is untouched.
  */
+
+import { SsrfValidatorService } from '@aquaculture/backend-common/ai-safety';
 
 import { VfdProtocol } from '../../entities/vfd.enums';
 import { VfdModbusTcpAdapter } from '../vfd-modbus-tcp.adapter';
 
-// Mock the modbus-serial library
-jest.mock('modbus-serial', () => {
-  return jest.fn().mockImplementation(() => ({
-    connectTCP: jest.fn().mockResolvedValue(undefined),
-    setID: jest.fn(),
-    setTimeout: jest.fn(),
-    close: jest.fn().mockResolvedValue(undefined),
-    readHoldingRegisters: jest.fn().mockResolvedValue({ buffer: Buffer.from([0x01, 0xf4]) }),
-    readInputRegisters: jest.fn().mockResolvedValue({ buffer: Buffer.from([0x01, 0xf4]) }),
-    writeRegister: jest.fn().mockResolvedValue(undefined),
-    writeRegisters: jest.fn().mockResolvedValue(undefined),
-    isOpen: true,
-  }));
+jest.mock('net', () => {
+  // Only Socket is faked — the SSRF validator's isIPv4/isIPv6 and every
+  // other `net` export stay real.
+  const actualNet = jest.requireActual<typeof import('net')>('net');
+  const { EventEmitter } = jest.requireActual<typeof import('events')>('events');
+
+  class FakeModbusSocket extends EventEmitter {
+    setNoDelay(): void {}
+    setKeepAlive(): void {}
+    connect(_port: number, _host: string, cb: () => void): void {
+      setImmediate(cb);
+    }
+    write(request: Buffer): boolean {
+      const txId = request.readUInt16BE(0);
+      const unitId = request[6] ?? 0;
+      const fc = request[7] ?? 0;
+      if (fc === 3 || fc === 4) {
+        const quantity = request.readUInt16BE(10);
+        const byteCount = quantity * 2;
+        const response = Buffer.alloc(9 + byteCount);
+        response.writeUInt16BE(txId, 0); // transaction id
+        response.writeUInt16BE(0, 2); // protocol id
+        response.writeUInt16BE(3 + byteCount, 4); // length = unit + fc + bc + data
+        response.writeUInt8(unitId, 6);
+        response.writeUInt8(fc, 7);
+        response.writeUInt8(byteCount, 8);
+        for (let i = 0; i < quantity; i += 1) {
+          response.writeUInt16BE(0x01f4, 9 + i * 2); // 500 per register
+        }
+        setImmediate(() => this.emit('data', response));
+      } else if (fc === 6) {
+        // FC06 acknowledges by echoing the 12-byte request frame.
+        setImmediate(() => this.emit('data', Buffer.from(request)));
+      }
+      return true;
+    }
+    end(cb?: () => void): void {
+      if (cb) setImmediate(cb);
+    }
+    destroy(): void {}
+  }
+
+  return { ...actualNet, Socket: FakeModbusSocket };
 });
 
 describe('VfdModbusTcpAdapter', () => {
   let adapter: VfdModbusTcpAdapter;
+  let validateHostSpy: jest.SpyInstance;
 
   beforeEach(() => {
-    adapter = new VfdModbusTcpAdapter();
     jest.clearAllMocks();
+    // Allow the RFC-1918 test address through the SSRF guard by default.
+    validateHostSpy = jest
+      .spyOn(SsrfValidatorService.prototype, 'validateHost')
+      .mockResolvedValue({ safe: true, resolvedIp: '192.168.1.100' });
+    adapter = new VfdModbusTcpAdapter();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   describe('protocolCode', () => {
@@ -68,7 +120,7 @@ describe('VfdModbusTcpAdapter', () => {
       const result = adapter.validateConfiguration(config);
 
       expect(result.valid).toBe(false);
-      expect(result.errors).toContain('host is required');
+      expect(result.errors).toContain('host is required and must be a string');
     });
 
     it('should reject invalid port', () => {
@@ -198,14 +250,11 @@ describe('VfdModbusTcpAdapter', () => {
       expect(handle.metadata?.['host']).toBe('192.168.1.100');
     });
 
-    it('should handle connection error', async () => {
-      const ModbusRTU = require('modbus-serial');
-      ModbusRTU.mockImplementationOnce(() => ({
-        connectTCP: jest.fn().mockRejectedValue(new Error('Connection refused')),
-        setID: jest.fn(),
-        setTimeout: jest.fn(),
-        close: jest.fn(),
-      }));
+    it('should handle a denied/unreachable target with the OPAQUE error', async () => {
+      // SVD-HIGH-001 oracle suppression: every pre-connect failure is the
+      // single opaque 'Connection failed' — never a network-mapping detail
+      // like the old 'Connection refused'.
+      validateHostSpy.mockResolvedValueOnce({ safe: false, reason: 'denied' });
 
       const config = {
         host: '192.168.1.100',
@@ -213,7 +262,20 @@ describe('VfdModbusTcpAdapter', () => {
         unitId: 1,
       };
 
-      await expect(adapter.connect(config)).rejects.toThrow('Connection refused');
+      await expect(adapter.connect(config)).rejects.toThrow('Connection failed');
+    });
+
+    it('the REAL SSRF guard denies RFC-1918 targets (no stub)', async () => {
+      // IP literal → no DNS; deterministic denylist hit on the real guard.
+      validateHostSpy.mockRestore();
+
+      const config = {
+        host: '192.168.1.100',
+        port: 502,
+        unitId: 1,
+      };
+
+      await expect(adapter.connect(config)).rejects.toThrow('Connection failed');
     });
   });
 
@@ -253,13 +315,7 @@ describe('VfdModbusTcpAdapter', () => {
     });
 
     it('should return failure for connection error', async () => {
-      const ModbusRTU = require('modbus-serial');
-      ModbusRTU.mockImplementationOnce(() => ({
-        connectTCP: jest.fn().mockRejectedValue(new Error('Connection refused')),
-        setID: jest.fn(),
-        setTimeout: jest.fn(),
-        close: jest.fn(),
-      }));
+      validateHostSpy.mockResolvedValueOnce({ safe: false, reason: 'denied' });
 
       const config = {
         host: '192.168.1.100',
@@ -270,7 +326,8 @@ describe('VfdModbusTcpAdapter', () => {
       const result = await adapter.testConnection(config);
 
       expect(result.success).toBe(false);
-      expect(result.error).toBeDefined();
+      // Opaque by design (SVD-HIGH-001 oracle suppression).
+      expect(result.error).toBe('Connection failed');
     });
   });
 

@@ -311,6 +311,8 @@ impl super::CommandHandler {
             "deploy_process" => self.cmd_deploy_process(&command.params).await,
             #[cfg(feature = "scada-display")]
             "deploy_scada_package" => self.cmd_deploy_scada_package(&command.params).await,
+            #[cfg(feature = "scada-display")]
+            "undeploy_scada_package" => self.cmd_undeploy_scada_package(&command.params).await,
             // Faz 5 two-phase release bundle (takes the full command —
             // the intermediate staged ack rides the bundle's commandId)
             #[cfg(feature = "scada-display")]

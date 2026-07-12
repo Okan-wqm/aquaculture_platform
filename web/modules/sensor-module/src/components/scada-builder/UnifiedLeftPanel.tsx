@@ -19,6 +19,7 @@ import {
   GitCommitHorizontal, Square, Circle, Minus, FileImage, Calendar,
   Video, MapPinned, MoreHorizontal, Spline, Image, Hexagon,
   Triangle, Diamond, ArrowRight, Package, Zap,
+  Disc3, ChevronDownSquare, BarChart3, PieChart, Table2, Globe,
 } from 'lucide-react';
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 
@@ -61,6 +62,7 @@ const ICONS: Record<string, React.FC<{ className?: string }>> = {
   GitCommitHorizontal, Square, Circle, Minus, FileImage, Calendar,
   Video, MapPinned, Ellipsis: MoreHorizontal, Spline, Image, Hexagon, Triangle,
   Diamond, ArrowRight, Zap,
+  Disc3, ChevronDownSquare, BarChart3, PieChart, Table2, Globe,
 };
 
 function icon(key: string, cls = 'w-4 h-4'): React.ReactNode {

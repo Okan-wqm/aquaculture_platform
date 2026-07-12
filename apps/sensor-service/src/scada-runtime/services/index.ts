@@ -17,3 +17,6 @@ export { AlarmStorageService } from './alarm-storage.service';
 export { NotificationService } from './notification.service';
 
 export { DaqStorageService } from './daq-storage.service';
+
+export { TagValueFanoutService, mapQualityCode } from './tag-value-fanout.service';
+export type { IngestedMetricForFanout } from './tag-value-fanout.service';

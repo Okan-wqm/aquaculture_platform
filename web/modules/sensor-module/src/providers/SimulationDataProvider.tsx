@@ -55,11 +55,11 @@ export function SimulationDataProviderInner({
 
   // ── IDataProvider implementation ────────────────────────────────────────────
 
-  const subscribeToTags = useCallback((_tagIds: string[]): void => {
+  const subscribeToTags = useCallback((_componentId: string, _tagIds: string[]): void => {
     // No-op: simulation values are pushed via the store; no subscription needed.
   }, []);
 
-  const unsubscribeFromTags = useCallback((_tagIds: string[]): void => {
+  const unsubscribeFromTags = useCallback((_componentId: string): void => {
     // No-op.
   }, []);
 

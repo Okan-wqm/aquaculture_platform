@@ -57,6 +57,9 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
 
   setTargetDeviceId: (id) =>
     set((state) => {
+      // Changing the deploy target is a package edit — mark dirty so the
+      // selection persists on Save (it serializes to meta.edgeDeviceId).
+      if (state.targetDeviceId !== id) state.isDirty = true;
       state.targetDeviceId = id;
     }),
 

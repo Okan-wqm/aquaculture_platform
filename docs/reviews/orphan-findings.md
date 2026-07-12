@@ -6443,3 +6443,18 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 **Validation:** `platform-entity-registry-parity` 8/8 (5 services + the honest-exclusion check) + `invariant-reachability` green.
 **Follow-on (tracked):** give observability-service a `MODULE_SCHEMAS['observability']` entry (classify its 4 tables — they look like schema/migration infra) + wire its drift validator, then move it from KNOWN_UNREGISTERED into COVERED.
 **Owner:** observability-expert / data-expert. **Deadline:** billing + platform-wide guard closed this PR; the observability registry entry is a tracked follow-on (2026-10-15).
+
+## ORPHAN-INFO-363 — LIVE-VERIFIED against the running droplet database (read-only) — findings + fixes confirmed with real data (this PR)
+
+**Discovered:** 2026-07-12. This session runs ON the droplet (`aqua-postgres` container, PG16, DB `aquaculture`); the deployed image is `c7edad031` (this branch is NOT deployed). Read-only queries as superuser confirm the audit findings + that the fixes target real gaps. NOTE: the droplet holds ONE nearly-empty E2E/staging tenant (`tenant_7f6b08ab90e246d3`, tanks named `E2E-Cage-*`), so "0 rows" means "unused in THIS env", weaker than a busy-prod signal.
+
+**Fixes/findings confirmed live:**
+- `shared.access_logs` = **0 rows** → the canonical table is genuinely never written (built-but-unmounted, IDENT-HIGH-002 / [[ORPHAN-HIGH-357]]) — the gateway wire-up addresses a real gap.
+- admin registry: all **13/13** added tables exist in `admin` schema; billing: both `plans` + `stripe_webhook_events` exist ([[ORPHAN-MEDIUM-361]]/[[ORPHAN-MEDIUM-362]]) — the registry additions are for REAL tables, not phantom.
+- `auth.tenants` has **no `suspendedAt`/`suspended_at` column** → DB-ADMIN-HIGH-003 confirmed: the suspend handler writes a transient prop TypeORM drops (data goes nowhere).
+- A1 tank count: all live `tank_batches` rows have `currentQuantity == totalQuantity` and `equipment.currentCount == totalQuantity` (0 mismatches) → the deployed single-WRITER fix keeps all four count locations in lock-step; the A1 READ-side fix + invariant ([[ORPHAN-HIGH-353]]) is correctly PREVENTIVE, not fixing active corruption.
+- Decision-pending tables are empty in this env: `config.configurations`=0 (INFRA-HIGH-001 built-but-unconsumed — also unwritten), `farm_documents`=0 (FARMPLAT-HIGH-001 orphan DMS), `feeding_tables`=0 → dropping any of these is data-loss-safe HERE, but confirm against a data-bearing tenant before a real drop.
+- `shared.user_permissions` = 1 row (A3 "dead parallel RBAC catalogue" — essentially unused; live RBAC rides `auth.tenant_role_permissions`).
+
+**NEW incidental observation (needs follow-up):** `shared.audit_logs` = **0 rows** while `admin.audit_logs` = **213 rows**. The SUPER_ADMIN audit stream works, but the cross-service semantic-action stream (`shared.audit_logs`, the 7y SOC 2 CC4 evidence chain that `AuditedOperationInterceptor` writes on `@AuditedOperation()` handlers) is empty. Either no service has fired an audited operation in this low-activity E2E env, OR the shared semantic-audit stream is as unmounted as access_logs was. Worth a dedicated check on a busy tenant / a grep for actual `@AuditedOperation()` decorator usage across services — same "capability exists, is it actually wired?" class as access_logs. Tracked, NOT investigated here.
+**Owner:** data-expert. **Deadline:** informational (live confirmation of already-tracked findings); the shared.audit_logs coverage question is a new tracked follow-on (2026-10-15).

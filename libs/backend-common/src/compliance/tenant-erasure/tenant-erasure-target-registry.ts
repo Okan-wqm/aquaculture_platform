@@ -100,8 +100,10 @@ export const TENANT_ERASURE_TARGET_OPTIONS_BY_SERVICE = {
   },
   // DB-INFRA-HIGH-003: event-store-service — deletes the tenant-column projection
   // tables (event_streams, snapshots, projection_*). stored_events is EXCLUDED:
-  // it is an immutable append-only log; its PII payload awaits the crypto-shred
-  // design (blueprint Part B), not row deletion.
+  // it is an immutable append-only log; its PII payload is erased by the
+  // crypto-shred post-erasure hook (StoredEventsCryptoShredHook, rollout step 2
+  // of docs/plans/2026-07-12-event-store-crypto-shred-design.md), not by row
+  // deletion.
   'event-store-service': {
     targetService: 'event-store-service',
     moduleName: 'event_store',
@@ -109,7 +111,16 @@ export const TENANT_ERASURE_TARGET_OPTIONS_BY_SERVICE = {
     mode: 'source-schema-tenant-column',
     outbox: { schema: 'event_store', table: 'event_store_outbox' },
     proofLedger: { schema: 'event_store', table: 'tenant_erasure_target_proofs' },
-    excludedTables: ['event_store_outbox', 'stored_events'],
+    excludedTables: [
+      'event_store_outbox',
+      'stored_events',
+      // The crypto-shred key store: its GDPR treatment is the shred itself
+      // (wrapped DEK overwritten + shredded_at stamped by the hook), NOT row
+      // deletion. Deleting the row would destroy the shred tombstone (allowing
+      // a fresh DEK to be minted for an erased tenant) and deadlock the erasure
+      // transaction against the hook's own UPDATE on the same row.
+      'tenant_payload_keys',
+    ],
   },
 } as const satisfies Record<
   TenantErasureTargetService,

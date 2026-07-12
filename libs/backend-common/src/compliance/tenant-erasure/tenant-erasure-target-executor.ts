@@ -22,6 +22,34 @@ export type TenantErasureTargetMode =
   | 'tenant-schema-module'
   | 'source-schema-tenant-column';
 
+/**
+ * Optional per-service post-erasure extension point.
+ *
+ * WHY: some erasure targets hold tenant data that table deletion cannot reach
+ * (e.g. event-store's immutable `stored_events` log, whose GDPR treatment is a
+ * per-tenant crypto-shred). Hooks run INSIDE the erasure transaction, after
+ * every table deletion succeeded and before the success proof is recorded and
+ * enqueued — so a hook failure aborts the erasure exactly like a table-deletion
+ * failure (fail-closed: TenantDataErasureFailed, no proof).
+ */
+export interface TenantErasurePostErasureHook {
+  /**
+   * Stable identifier folded into the erasure proof hash so the proof attests
+   * which hooks completed as part of the operation.
+   */
+  readonly hookName: string;
+  /**
+   * MUST be idempotent (erasure retries re-invoke it) and MUST reject on
+   * failure. Receives the transaction EntityManager so hooks that write can
+   * commit atomically with the erasure; hooks with their own persistence (e.g.
+   * an idempotent crypto-shred) may ignore it.
+   */
+  onTenantErased(
+    event: TenantErasureRequestedEvent,
+    manager: EntityManager,
+  ): Promise<void>;
+}
+
 export interface TenantErasureTargetExecutorOptions {
   readonly targetService: TenantErasureTargetService;
   readonly moduleName: string;
@@ -43,6 +71,11 @@ export interface TenantErasureTargetExecutorDependencies {
   readonly outboxPublisher: OutboxPublisher;
   readonly legalHoldService: LegalHoldService;
   readonly logger?: Logger;
+  /**
+   * Post-erasure hooks for tenant data that table deletion cannot reach
+   * (see TenantErasurePostErasureHook). Empty for most services.
+   */
+  readonly postErasureHooks?: readonly TenantErasurePostErasureHook[];
 }
 
 export interface TenantErasureTargetResult {
@@ -164,6 +197,12 @@ export class TenantErasureTargetExecutor {
           (sum, item) => sum + item.erasedCount,
           0,
         );
+        // Post-erasure hooks run after every table deletion succeeded and
+        // before the proof exists: a hook throw rolls the transaction back and
+        // falls through to the emitFailure path below, so the erasure can never
+        // report success while non-deletable tenant data (e.g. stored_events
+        // ciphertext) is still recoverable.
+        const executedHooks = await this.runPostErasureHooks(event, manager);
         const erasedAt = new Date().toISOString();
         const proofHash = this.createProofHash({
           event,
@@ -171,6 +210,7 @@ export class TenantErasureTargetExecutor {
           matchedRecordCount,
           erasedRecordCount,
           tableResults,
+          executedHooks,
         });
 
         const proofEvent: TenantDataErasedEvent = {
@@ -215,6 +255,37 @@ export class TenantErasureTargetExecutor {
         erasedRecordCount: 0,
       };
     }
+  }
+
+  /**
+   * Runs the registered post-erasure hooks sequentially, returning the names of
+   * the hooks that completed (folded into the proof hash).
+   *
+   * WHY dry runs skip hooks entirely: hooks are destructive by contract (the
+   * canonical hook crypto-shreds a tenant key). A dry run must count what an
+   * erasure WOULD remove without destroying anything, so the executor — not
+   * each hook author — guarantees no hook ever fires under dryRun.
+   */
+  private async runPostErasureHooks(
+    event: TenantErasureRequestedEvent,
+    manager: EntityManager,
+  ): Promise<readonly string[]> {
+    const hooks = this.deps.postErasureHooks ?? [];
+    if (hooks.length === 0) {
+      return [];
+    }
+    if (event.dryRun) {
+      this.logger.log(
+        `Dry run: skipping ${hooks.length} post-erasure hook(s) for operation=${event.operationId}`,
+      );
+      return [];
+    }
+    const executed: string[] = [];
+    for (const hook of hooks) {
+      await hook.onTenantErased(event, manager);
+      executed.push(hook.hookName);
+    }
+    return executed;
   }
 
   private async eraseTenantSchemaModule(
@@ -782,6 +853,7 @@ export class TenantErasureTargetExecutor {
     readonly matchedRecordCount: number;
     readonly erasedRecordCount: number;
     readonly tableResults: readonly TableDeleteResult[];
+    readonly executedHooks: readonly string[];
   }): string {
     const perTable = [...args.tableResults]
       .sort((a, b) => a.tableName.localeCompare(b.tableName))
@@ -798,6 +870,10 @@ export class TenantErasureTargetExecutor {
       String(args.matchedRecordCount),
       String(args.erasedRecordCount),
       perTable,
+      // Hook coverage is part of the attested proof material: the hash of a
+      // successful erasure binds WHICH non-deletion treatments (e.g. the
+      // stored_events crypto-shred) completed inside the same transaction.
+      args.executedHooks.join(','),
     ].join('|');
     return `sha256:${createHash('sha256').update(material).digest('hex')}`;
   }

@@ -57,6 +57,7 @@ import { AddWelfareLiceCheckConstraints1804900000000 } from './1804900000000-Add
 import { ApplyRlsToRegulatoryReportDrafts1805000000000 } from './1805000000000-ApplyRlsToRegulatoryReportDrafts';
 import { AddTenantErasureRetainedColumns1805100000000 } from './1805100000000-AddTenantErasureRetainedColumns';
 import { AddFarmStockBatchSnapshotSpecies1805200000000 } from './1805200000000-AddFarmStockBatchSnapshotSpecies';
+import { DropFarmDocuments1805300000000 } from './1805300000000-DropFarmDocuments';
 
 /**
  * Canonical farm-service migration class list.
@@ -120,4 +121,5 @@ export const FARM_MIGRATIONS = [
   ApplyRlsToRegulatoryReportDrafts1805000000000,
   AddTenantErasureRetainedColumns1805100000000,
   AddFarmStockBatchSnapshotSpecies1805200000000,
+  DropFarmDocuments1805300000000,
 ] as const;

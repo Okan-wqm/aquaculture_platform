@@ -8056,12 +8056,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/farm-service/src/common/file-cleanup/farm-document-path.provider.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/farm-service/src/common/file-cleanup/farm-orphan-cleanup.service.ts",
       "prettier_managed": true
     },
@@ -9255,6 +9249,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1805300000000-DropFarmDocuments.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -9448,30 +9448,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/department/queries/list-departments.query.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/document/document.module.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/document/entities/farm-document.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/document/entities/index.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/document/index.ts",
       "prettier_managed": true
     },
     {
@@ -41466,6 +41442,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/quality/lint-target-inventory.json",
       "prettier_managed": true
     },
@@ -53010,10 +52998,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8689,
+  "file_count": 8687,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8514,
-  "managed_file_list_sha256": "78f37947cd3da51c1be29f8675548895acfde31ba67102ab0b7d215c5242615e",
+  "managed_count": 8512,
+  "managed_file_list_sha256": "a45c56a32283ba73b4ffe0abe40273ea0b6da7c2b40f30164eb8ec5555b99219",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

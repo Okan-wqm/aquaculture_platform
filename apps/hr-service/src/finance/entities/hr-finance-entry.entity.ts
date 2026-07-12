@@ -23,9 +23,19 @@ import { HrFinanceCategory } from './hr-finance-category.entity';
 
 @ObjectType()
 @Entity('hr_finance_entries')
-@Index('IDX_hr_finance_entries_tenant_date', ['tenantId', 'entryDate'])
-@Index('IDX_hr_finance_entries_tenant_category_date', ['tenantId', 'categoryId', 'entryDate'])
-@Index('IDX_hr_finance_entries_tenant_department', ['tenantId', 'departmentHrId'])
+// Partial on the read path's dominant predicate (soft-deleted rows leave
+// aggregates but keep audit history) — see migration 1802100000000.
+@Index('IDX_hr_finance_entries_tenant_date_active', ['tenantId', 'entryDate'], {
+  where: '"isDeleted" = false',
+})
+@Index(
+  'IDX_hr_finance_entries_tenant_category_date_active',
+  ['tenantId', 'categoryId', 'entryDate'],
+  { where: '"isDeleted" = false' },
+)
+@Index('IDX_hr_finance_entries_tenant_department_active', ['tenantId', 'departmentHrId'], {
+  where: '"isDeleted" = false',
+})
 export class HrFinanceEntry {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

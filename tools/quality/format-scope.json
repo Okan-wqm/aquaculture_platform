@@ -8182,12 +8182,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/farm-service/src/database/__tests__/base.entity.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/farm-service/src/database/__tests__/code-generator.service.spec.ts",
       "prettier_managed": true
     },
@@ -8207,12 +8201,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/database/entities/audit-log.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/database/entities/base.entity.ts",
       "prettier_managed": true
     },
     {
@@ -9022,6 +9010,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/database/migrations/1804800000000-AddWorkOrderEffectiveCostDateIndex.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1804900000000-FinanceEntrySoftDeletePartialIndexes.ts",
       "prettier_managed": true
     },
     {
@@ -17398,6 +17392,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/hr-service/src/database/migrations/1802000000000-ReclassifyTechnicalLeads.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/hr-service/src/database/migrations/1802100000000-HrFinanceEntrySoftDeletePartialIndexes.ts",
       "prettier_managed": true
     },
     {
@@ -52329,7 +52329,7 @@
   "file_count": 8575,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
   "managed_count": 8400,
-  "managed_file_list_sha256": "0e56978e4057f1df6a5000bf36188fab7e1a1fe3ccf294a101faaec2cdd778a9",
+  "managed_file_list_sha256": "225ac937532d625e143b484ed1cfd6c22cbf4f9fe111db35a4ed7f4a6619084b",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -50,6 +50,7 @@ import { HealBehindTenantQualityGrade1804500000000 } from './1804500000000-HealB
 import { CreateFinanceTables1804600000000 } from './1804600000000-CreateFinanceTables';
 import { AddFinanceEntryDeletedBy1804700000000 } from './1804700000000-AddFinanceEntryDeletedBy';
 import { AddWorkOrderEffectiveCostDateIndex1804800000000 } from './1804800000000-AddWorkOrderEffectiveCostDateIndex';
+import { FinanceEntrySoftDeletePartialIndexes1804900000000 } from './1804900000000-FinanceEntrySoftDeletePartialIndexes';
 
 /**
  * Canonical farm-service migration class list.
@@ -109,5 +110,6 @@ export const FARM_MIGRATIONS = [
   CreateFinanceTables1804600000000,
   AddFinanceEntryDeletedBy1804700000000,
   AddWorkOrderEffectiveCostDateIndex1804800000000,
+  FinanceEntrySoftDeletePartialIndexes1804900000000,
 
 ] as const;

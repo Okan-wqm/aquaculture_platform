@@ -31,10 +31,22 @@ import { FinanceCategory } from './finance-category.entity';
 
 @ObjectType()
 @Entity('finance_expense_entries')
-@Index('idx_finance_entries_tenant_date', ['tenantId', 'entryDate'])
-@Index('idx_finance_entries_tenant_category_date', ['tenantId', 'categoryId', 'entryDate'])
-@Index('idx_finance_entries_tenant_batch', ['tenantId', 'batchId'])
-@Index('idx_finance_entries_tenant_site', ['tenantId', 'siteId'])
+// Partial on the read path's dominant predicate (soft-deleted rows leave
+// aggregates but keep audit history) — see migration 1804900000000.
+@Index('idx_finance_entries_tenant_date_active', ['tenantId', 'entryDate'], {
+  where: '"isDeleted" = false',
+})
+@Index(
+  'idx_finance_entries_tenant_category_date_active',
+  ['tenantId', 'categoryId', 'entryDate'],
+  { where: '"isDeleted" = false' },
+)
+@Index('idx_finance_entries_tenant_batch_active', ['tenantId', 'batchId'], {
+  where: '"isDeleted" = false',
+})
+@Index('idx_finance_entries_tenant_site_active', ['tenantId', 'siteId'], {
+  where: '"isDeleted" = false',
+})
 export class FinanceExpenseEntry {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

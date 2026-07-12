@@ -129,15 +129,37 @@ export class Tenant {
   @VersionColumn({ name: 'version' })
   version!: number;
 
+  // ============================================
+  // Suspension audit (DB-ADMIN-HIGH-003) — READ-ONLY for admin-api
+  // ============================================
+  // WHY real columns: these were previously non-persisted compatibility props,
+  // so every handler assignment was silently dropped by TypeORM and the
+  // platform kept no durable suspension record. They now map the real
+  // auth.tenants columns added by auth-service migration
+  // 1807100000000-AddTenantSuspensionAudit. auth-service is the single writer
+  // (DB-ADMIN-HIGH-004): it sets the trio on the SUSPENDED transition and
+  // clears it on ACTIVE. Admin-api only READS them (tenant detail surface) —
+  // no admin code may write auth.tenants, enforced by
+  // tests/invariants/admin-no-auth-tenants-writes.spec.ts.
+  @Column({ type: 'timestamptz', nullable: true })
+  suspendedAt?: Date | null;
+
+  @Column({ type: 'text', nullable: true })
+  suspendedReason?: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  suspendedBy?: string | null;
+
   // Backwards compatibility - these properties are NOT in the database
   // but exist for code compatibility with other services
   domain?: string; // Use customDomain instead
   country?: string;
   region?: string;
-  suspendedAt?: Date;
-  suspendedReason?: string;
-  suspendedBy?: string;
-  lastActivityAt?: Date;
+  // NOTE: lastActivityAt was removed (DB-ADMIN-HIGH-003 cleanup). It was a
+  // non-persisted compatibility prop with USER-ACTIVITY semantics that no
+  // auth.tenants column ever backed — every read was undefined and the one
+  // write (activate handler) was silently dropped. Tenant activity is owned
+  // by admin.tenant_activities / admin.user_sessions, not the tenant row.
   billingEmail?: string;
   primaryContact?: { name: string; email: string; phone?: string; role: string };
   billingContact?: { name: string; email: string; phone?: string; role: string };

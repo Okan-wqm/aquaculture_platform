@@ -221,7 +221,13 @@ export function validatePagination(
   limit?: number,
 ): { page: number; limit: number; skip: number } {
   const validPage = Math.max(1, Math.floor(page || 1));
-  const validLimit = Math.min(100, Math.max(1, Math.floor(limit || 20)));
+  // An EXPLICIT limit clamps to the 1..100 envelope (validateLimit's
+  // semantics); only absent/NaN falls back to the default. `limit || 20`
+  // treated an explicit 0 as "unset", making the min clamp dead code.
+  const validLimit =
+    limit === undefined || limit === null || Number.isNaN(limit)
+      ? 20 // Default
+      : Math.min(100, Math.max(1, Math.floor(limit)));
   const skip = (validPage - 1) * validLimit;
 
   return { page: validPage, limit: validLimit, skip };

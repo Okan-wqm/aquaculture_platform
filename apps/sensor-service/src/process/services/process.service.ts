@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 
 import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, Inject, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, ILike } from 'typeorm';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
@@ -27,21 +28,22 @@ import { Process, ProcessStatus } from '../entities/process.entity';
 import { ScadaDeployLogService } from './scada-deploy-log.service';
 import { TagResolutionService } from './tag-resolution.service';
 
-/**
- * Deploy tag-gate mode (WF-003 / SENSOR-HIGH-051). `enforce` blocks a deploy
- * whose tag mappings do not fully resolve against the registry; the default
- * `warn` only logs, so tenants whose registry is not yet populated keep
- * deploying while ops flips the flag per environment after backfill.
- * (Module-level because `deployProcessToEdge` shadows the `process` global
- * with its Process entity.)
- */
-function isDeployTagGateEnforced(): boolean {
-  return (globalThis.process.env.SCADA_DEPLOY_TAG_GATE ?? 'warn').toLowerCase() === 'enforce';
-}
-
 @Injectable()
 export class ProcessService {
   private readonly logger = new Logger(ProcessService.name);
+
+  /**
+   * Deploy tag-gate mode (WF-003 / SENSOR-HIGH-051). `enforce` blocks a deploy
+   * whose tag mappings do not fully resolve against the registry; the default
+   * `warn` only logs, so tenants whose registry is not yet populated keep
+   * deploying while ops flips the flag per environment after backfill.
+   * Config rides through Nest ConfigService (config-env-access-ratchet);
+   * without a ConfigService (slim test modules) the gate stays at `warn`.
+   */
+  private isDeployTagGateEnforced(): boolean {
+    const mode = this.configService?.get<string>('SCADA_DEPLOY_TAG_GATE') ?? 'warn';
+    return mode.toLowerCase() === 'enforce';
+  }
 
   constructor(
     @InjectRepository(Process)
@@ -64,6 +66,9 @@ export class ProcessService {
     @Optional()
     @Inject(DeploySigningService)
     private readonly deploySigningService: DeploySigningService | null,
+    @Optional()
+    @Inject(ConfigService)
+    private readonly configService: ConfigService | null,
   ) {}
 
   /**
@@ -398,7 +403,7 @@ export class ProcessService {
       const resolution = await this.tagResolutionService.resolve(tenantId, refs);
       if (resolution.unresolved.length > 0) {
         const detail = `deploy_process ${processId}: ${resolution.unresolved.length}/${refs.length} tag mapping çözülemedi: ${JSON.stringify(resolution.unresolved)}`;
-        if (isDeployTagGateEnforced()) {
+        if (this.isDeployTagGateEnforced()) {
           throw new BadRequestException(`${detail} — deploy engellendi (SCADA_DEPLOY_TAG_GATE=enforce)`);
         }
         this.logger.warn(detail);

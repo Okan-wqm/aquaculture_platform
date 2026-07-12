@@ -19,8 +19,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useTenantQuery } from '@aquaculture/shared-ui';
 import {
   Tags,
   Search,
@@ -76,31 +75,26 @@ interface LinkChannel {
   unit?: string;
 }
 
+// useTenantQuery is the SSoT for tenant-scoped fetches (key prefix + auth
+// enabled-gate baked in) — hand-rolling useQuery + createTenantQueryKey is
+// ratcheted by web-usetenantquery-adoption-ratchet.spec.ts.
 function useLinkSensors() {
-  const { tenantId } = useAuth();
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'tagRegistryLinkSensors'),
-    queryFn: async () => {
-      const data = await graphqlFetch<{ sensors: { items: LinkSensor[] } }>(
-        LINK_SENSORS_QUERY,
-        {},
-      );
-      return data.sensors.items;
-    },
+  return useTenantQuery(['tagRegistryLinkSensors'], async () => {
+    const data = await graphqlFetch<{ sensors: { items: LinkSensor[] } }>(
+      LINK_SENSORS_QUERY,
+      {},
+    );
+    return data.sensors.items;
   });
 }
 
 function useLinkChannels() {
-  const { tenantId } = useAuth();
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'tagRegistryLinkChannels'),
-    queryFn: async () => {
-      const data = await graphqlFetch<{ allDataChannels: LinkChannel[] }>(
-        LINK_CHANNELS_QUERY,
-        {},
-      );
-      return data.allDataChannels;
-    },
+  return useTenantQuery(['tagRegistryLinkChannels'], async () => {
+    const data = await graphqlFetch<{ allDataChannels: LinkChannel[] }>(
+      LINK_CHANNELS_QUERY,
+      {},
+    );
+    return data.allDataChannels;
   });
 }
 

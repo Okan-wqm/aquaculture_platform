@@ -24,7 +24,8 @@
  *   DaqAggregation.interval: 1min | 5min | 10min | 30min | 1h | 1d
  */
 
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
@@ -131,10 +132,13 @@ export class DaqStorageService implements OnModuleInit, OnModuleDestroy {
   private retentionTimer: ReturnType<typeof setInterval> | null = null;
 
   onModuleInit(): void {
-    const retentionDays = Number(process.env.SCADA_DAQ_RETENTION_DAYS ?? '30');
+    // Config rides through Nest ConfigService (config-env-access-ratchet);
+    // without a ConfigService (slim test modules) the default window applies.
+    const configured = this.configService?.get<string>('SCADA_DAQ_RETENTION_DAYS');
+    const retentionDays = Number(configured ?? '30');
     if (!Number.isFinite(retentionDays) || retentionDays <= 0) {
       this.logger.warn(
-        `DaqStorage: retention DISABLED (SCADA_DAQ_RETENTION_DAYS=${process.env.SCADA_DAQ_RETENTION_DAYS ?? 'unset->30 expected'}) — scada_tag_history will grow unbounded`,
+        `DaqStorage: retention DISABLED (SCADA_DAQ_RETENTION_DAYS=${configured ?? 'unset->30 expected'}) — scada_tag_history will grow unbounded`,
       );
       return;
     }
@@ -164,6 +168,9 @@ export class DaqStorageService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    @Optional()
+    @Inject(ConfigService)
+    private readonly configService: ConfigService | null,
   ) {}
 
   /* ---------------------------------------------------------------- */

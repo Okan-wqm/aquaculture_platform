@@ -200,11 +200,17 @@ fn unsupported_widget_fixture_parses_with_unknown_bucket() {
     let widgets = &package.screens[0].widgets;
     assert_eq!(widgets.len(), 2);
     assert!(
-        !matches!(widgets[0].widget_type, crate::scada_types::WidgetType::Unknown),
+        !matches!(
+            widgets[0].widget_type,
+            crate::scada_types::WidgetType::Unknown
+        ),
         "gauge must parse as a known type"
     );
     assert!(
-        matches!(widgets[1].widget_type, crate::scada_types::WidgetType::Unknown),
+        matches!(
+            widgets[1].widget_type,
+            crate::scada_types::WidgetType::Unknown
+        ),
         "staticText must land in the Unknown tolerance bucket"
     );
 }

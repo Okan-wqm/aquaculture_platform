@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { Process, ProcessStatus } from '../../entities/process.entity';
 import { ProcessService } from '../process.service';
@@ -84,6 +85,12 @@ describe('deploy tag-gate (SENSOR-HIGH-051)', () => {
           },
         },
         { provide: TagResolutionService, useValue: { resolve } },
+        {
+          // The gate reads its mode via ConfigService (config-env-access-
+          // ratchet); the tests keep driving it through process.env.
+          provide: ConfigService,
+          useValue: { get: (key: string) => process.env[key] },
+        },
       ],
     }).compile();
     service = module.get(ProcessService);

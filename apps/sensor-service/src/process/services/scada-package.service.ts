@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'crypto';
 
 import { Injectable, Logger, NotFoundException, BadRequestException, Inject, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, ILike, In } from 'typeorm';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
@@ -211,6 +212,9 @@ export class ScadaPackageService {
     @Optional()
     @Inject(OutboxPublisher)
     private readonly outboxPublisher: OutboxPublisher | null,
+    @Optional()
+    @Inject(ConfigService)
+    private readonly configService: ConfigService | null,
   ) {}
 
   /**
@@ -764,7 +768,10 @@ export class ScadaPackageService {
    * deploying while ops flips the flag per environment after backfill.
    */
   private isTagGateEnforced(): boolean {
-    return (process.env.SCADA_DEPLOY_TAG_GATE ?? 'warn').toLowerCase() === 'enforce';
+    // Config rides through Nest ConfigService (config-env-access-ratchet);
+    // without a ConfigService (slim test modules) the gate stays at `warn`.
+    const mode = this.configService?.get<string>('SCADA_DEPLOY_TAG_GATE') ?? 'warn';
+    return mode.toLowerCase() === 'enforce';
   }
 
   /**

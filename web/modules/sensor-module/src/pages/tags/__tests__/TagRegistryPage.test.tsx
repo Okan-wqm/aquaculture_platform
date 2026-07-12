@@ -21,10 +21,17 @@ const spies = vi.hoisted(() => ({
   tags: [] as unknown[],
 }));
 
-vi.mock('@aquaculture/shared-ui', () => ({
-  useAuth: () => ({ tenantId: 'tenant-1', token: 't' }),
-  createTenantQueryKey: (tenantId: string, ...rest: unknown[]) => ['tenant', tenantId, ...rest],
-}));
+vi.mock('@aquaculture/shared-ui', async () => {
+  const { useQuery } = await import('@tanstack/react-query');
+  return {
+    useAuth: () => ({ tenantId: 'tenant-1', token: 't' }),
+    createTenantQueryKey: (tenantId: string, ...rest: unknown[]) => ['tenant', tenantId, ...rest],
+    // Faithful stub of the SSoT hook: tenant-prefixed key + the given fetcher
+    // on the test's real QueryClient (the auth gate is always-on here).
+    useTenantQuery: (segments: readonly unknown[], queryFn: () => Promise<unknown>) =>
+      useQuery({ queryKey: ['tenant', 'tenant-1', ...segments], queryFn }),
+  };
+});
 
 vi.mock('../../../hooks/useUnifiedTags', () => ({
   useUnifiedTags: () => ({

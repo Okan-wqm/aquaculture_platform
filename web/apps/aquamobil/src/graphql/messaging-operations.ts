@@ -72,6 +72,8 @@ import type {
   RemoveReactionMutationVariables,
   ForwardMessageMutation,
   ForwardMessageMutationVariables,
+  MobileSentimentTrendsQuery,
+  MobileSentimentTrendsQueryVariables,
 } from '@/generated/graphql';
 
 // --- Reusable fragments ---
@@ -466,4 +468,25 @@ export const FORWARD_MESSAGE: TypedDocumentNode<ForwardMessageMutation, ForwardM
     }
   }
   ${MESSAGE_FIELDS}
+`;
+
+/**
+ * Weekly aggregate sentiment trends for a channel (TENANT_ADMIN only,
+ * backend-enforced). MOB-MEDIUM-003: replaces the hardcoded 'neutral' badge in
+ * ChannelSettingsPage with the real `message_analyses` aggregates. Sentiment is
+ * never exposed per-message — only these weekly rollups.
+ */
+export const MOBILE_SENTIMENT_TRENDS: TypedDocumentNode<
+  MobileSentimentTrendsQuery,
+  MobileSentimentTrendsQueryVariables
+> = gql`
+  query MobileSentimentTrends($input: SentimentTrendsInput!) {
+    sentimentTrends(input: $input) {
+      channelId
+      weekStart
+      avgScore
+      messageCount
+      trend
+    }
+  }
 `;

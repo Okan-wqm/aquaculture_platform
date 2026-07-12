@@ -1263,7 +1263,14 @@ pub async fn start_health_server(
                 "/lifecycle/confirm-active",
                 post(crate::lifecycle::confirm_active_handler),
             )
-            .layer(Extension(cell));
+            .layer(Extension(cell))
+            // PR935-HIGH-005: give the confirm-active POST the same
+            // bind-address context the observability GETs use, so its keyless
+            // branch fails closed on a non-loopback bind instead of accepting
+            // anonymous firmware-lifecycle writes from any network peer.
+            .layer(Extension(crate::lifecycle::HealthBindIsLoopback(
+                addr.ip().is_loopback(),
+            )));
         info!("Lifecycle HTTP endpoint registered: POST /lifecycle/confirm-active");
     }
 

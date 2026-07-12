@@ -27,6 +27,7 @@ export { COMMAND_ENVELOPE_SCHEMA, UUID_PATTERN } from './schemas/command-envelop
 export { DEPLOY_PROCESS_PARAMS_SCHEMA } from './schemas/deploy-process.schema';
 export { DEPLOY_PROGRAM_PARAMS_SCHEMA } from './schemas/deploy-program.schema';
 export { DEPLOY_SCADA_PACKAGE_PARAMS_SCHEMA } from './schemas/deploy-scada-package.schema';
+export { UNDEPLOY_SCADA_PACKAGE_PARAMS_SCHEMA } from './schemas/undeploy-scada-package.schema';
 export {
   BUNDLE_MANIFEST_SCHEMA,
   DEPLOY_BUNDLE_PARAMS_SCHEMA,
@@ -45,6 +46,29 @@ export type {
 } from './scada-package-doc/scada-package-doc.types';
 
 export { SCADA_PACKAGE_DOC_V2_SCHEMA } from './scada-package-doc/scada-package-doc.schema';
+
+export {
+  EDGE_SUPPORTED_WIDGET_TYPES,
+  EDGE_REJECTED_WIDGET_TYPES,
+  EDGE_SCREEN_TYPES,
+  EDGE_ALARM_SEVERITIES,
+  classifyWidgetTypeForEdge,
+} from './scada-package-doc/edge-widget-support';
+export type {
+  EdgeSupportedWidgetType,
+  EdgeRejectedWidgetType,
+  EdgeScreenType,
+  EdgeAlarmSeverity,
+  EdgeWidgetClassification,
+} from './scada-package-doc/edge-widget-support';
+
+export { EDGE_SCADA_PACKAGE_DOC_SCHEMA } from './scada-package-doc/edge-scada-package-doc.schema';
+
+export { transformScadaDocForEdgeDeploy } from './scada-package-doc/edge-deploy-transform';
+export type {
+  EdgeDeployWidgetRef,
+  EdgeDeployTransformResult,
+} from './scada-package-doc/edge-deploy-transform';
 
 export { upcastScadaPackageDoc } from './scada-package-doc/upcast';
 export type { UpcastContext } from './scada-package-doc/upcast';

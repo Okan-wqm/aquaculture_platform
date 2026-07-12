@@ -22,6 +22,7 @@ import {
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
 import { SensorMetricInput } from '../database/entities/sensor-metric.entity';
 import { Sensor } from '../database/entities/sensor.entity';
+import { TagValueFanoutService } from '../scada-runtime/services/tag-value-fanout.service';
 
 import { BatchProcessorService } from './batch-processor.service';
 import { SensorMetaCacheService } from './sensor-meta-cache.service';
@@ -96,6 +97,13 @@ export class NatsIngestionConsumerService
     @Optional()
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus | null,
+    // Live-data producer (SENSOR-HIGH-046): fans each ingested metric out to
+    // subscribed /scada operator sockets via the registry's sensor→fqn
+    // linkage. Optional so ingestion keeps working if the SCADA runtime is
+    // not mounted (e.g. isolated integration tests).
+    @Optional()
+    @Inject(TagValueFanoutService)
+    private readonly tagFanout: TagValueFanoutService | null,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -122,12 +130,14 @@ export class NatsIngestionConsumerService
     // throughput against the consumer's enqueue + publish rate without
     // sampling tracing spans.
     this.statsTimer = setInterval(() => {
+      const fanout = this.tagFanout?.drainStats() ?? { pushed: 0, unmapped: 0 };
       this.logger.log(
         `NatsIngestionConsumer stats — received=${this.receivedCount} ` +
           `rejectedSchema=${this.rejectedSchemaCount} ` +
           `skippedNoSensor=${this.skippedNoSensorCount} ` +
           `skippedNoChannel=${this.skippedNoChannelCount} ` +
-          `enqueued=${this.enqueuedCount} published=${this.publishedCount}`,
+          `enqueued=${this.enqueuedCount} published=${this.publishedCount} ` +
+          `scadaPushed=${fanout.pushed} scadaUnmapped=${fanout.unmapped}`,
       );
       this.receivedCount = 0;
       this.rejectedSchemaCount = 0;
@@ -269,6 +279,20 @@ export class NatsIngestionConsumerService
     };
     this.batchProcessor.enqueue(metric);
     this.enqueuedCount++;
+
+    // 4b. Live fan-out to subscribed /scada operator sockets. Best-effort by
+    //     contract — fanoutMetric never throws (a fan-out failure must not
+    //     poison the ingestion path into JetStream redelivery).
+    if (this.tagFanout) {
+      await this.tagFanout.fanoutMetric({
+        tenantId: event.tenantId,
+        sensorId: event.sensorId,
+        channelId: event.channelId,
+        value: event.value,
+        timestampMs: event.producerTs,
+        qualityCode: event.qualityCode,
+      });
+    }
 
     // 5. Re-emit the typed SensorReadingEvent for downstream consumers
     //    (alert-engine, AI service, audit). channelKey selects the

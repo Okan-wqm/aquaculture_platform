@@ -37,6 +37,7 @@ import { AlarmEngineService } from './services/alarm-engine.service';
 import { AlarmStorageService } from './services/alarm-storage.service';
 import { NotificationService } from './services/notification.service';
 import { DaqStorageService } from './services/daq-storage.service';
+import { TagValueFanoutService } from './services/tag-value-fanout.service';
 
 /* ------------------------------------------------------------------ */
 /*  Optional services (may still be in progress from other agents)     */
@@ -106,6 +107,9 @@ if (SchedulerService) optionalProviders.push(SchedulerService as Provider);
     AlarmStorageService,
     NotificationService,
     DaqStorageService,
+    // Live-data producer: bridges ingested sensor metrics onto the gateway's
+    // tenant-fenced tag fan-out via the registry's sensor→fqn linkage.
+    TagValueFanoutService,
     // ScriptEngineService and SchedulerService registered only when their
     // source files are present (see optional-import block above).
     ...optionalProviders,
@@ -121,6 +125,9 @@ if (SchedulerService) optionalProviders.push(SchedulerService as Provider);
     // Exported so that the alarm engine and other services can call
     // gateway.pushAlarmStatus() / gateway.broadcastCommand() directly.
     ScadaRuntimeGateway,
+    // Exported so the ingestion consumer can fan ingested metrics out to
+    // subscribed operator sockets (the live-data producer).
+    TagValueFanoutService,
   ],
 })
  

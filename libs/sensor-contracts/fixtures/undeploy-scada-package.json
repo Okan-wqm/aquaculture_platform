@@ -1,0 +1,9 @@
+{
+  "commandId": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
+  "command": "undeploy_scada_package",
+  "params": {
+    "packageId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+    "reason": "package_deleted"
+  },
+  "timestamp": "2026-07-12T11:00:00.000Z"
+}

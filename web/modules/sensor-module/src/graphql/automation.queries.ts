@@ -93,6 +93,26 @@ export const AUTOMATION_PROGRAM_QUERY = `
   }
 `;
 
+/**
+ * Lean ST-editor hydration query: only Structured Text programs, with their
+ * source. Kept separate from AUTOMATION_PROGRAMS_QUERY so the list page's
+ * payload stays small while the editor gets the code bodies in one round trip.
+ */
+export const ST_PROGRAMS_QUERY = `
+  query StPrograms($limit: Int) {
+    automationPrograms(filter: { programType: ST }, limit: $limit) {
+      items {
+        id
+        programCode
+        programName
+        status
+        structuredTextCode
+        updatedAt
+      }
+    }
+  }
+`;
+
 export const DEPLOYMENT_HISTORY_QUERY = `
   query DeploymentHistory($deviceId: ID, $page: Int, $limit: Int) {
     deploymentHistory(deviceId: $deviceId, page: $page, limit: $limit) {

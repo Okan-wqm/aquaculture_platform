@@ -4,6 +4,7 @@
 
 import { HOST_SOURCE } from '../canvas-contract';
 import { create } from 'zustand';
+import { registerLogoutCleanup, onTenantChange } from '@aquaculture/shared-ui';
 import {
   Node,
   Edge,
@@ -283,6 +284,39 @@ export interface SavedProcess {
   createdBy?: string;
 }
 
+// -----------------------------------------------------------------------
+// Hydration input (WF-004): the shape `getProcess` actually returns.
+// The API's nodes/edges are persisted JSON, not live ReactFlow objects —
+// loadProcess normalizes them (edge connectionType default, node maps)
+// in ONE set() with isDirty:false, so loading never counts as editing.
+// -----------------------------------------------------------------------
+export interface ProcessHydrationNode {
+  id: string;
+  type?: string;
+  position: { x: number; y: number };
+  data: Record<string, unknown>;
+}
+
+export interface ProcessHydrationEdge {
+  id: string;
+  source: string;
+  target: string;
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
+  type?: string;
+  data?: Record<string, unknown>;
+}
+
+export interface ProcessHydrationInput {
+  id: string;
+  name: string;
+  description?: string;
+  version?: string;
+  status: 'draft' | 'active' | 'inactive' | 'archived';
+  nodes: ProcessHydrationNode[];
+  edges: ProcessHydrationEdge[];
+}
+
 // Process store state
 interface ProcessState {
   // Process metadata
@@ -355,11 +389,13 @@ interface ProcessState {
   selectEdge: (edge: Edge<ProcessEdgeData> | null) => void;
 
   // Actions - Save/Load
-  loadProcess: (process: SavedProcess) => void;
+  loadProcess: (process: ProcessHydrationInput) => void;
+  startNewProcess: (name: string) => void;
   getProcessData: () => Omit<SavedProcess, 'id' | 'createdAt' | 'updatedAt' | 'createdBy'>;
   resetStore: () => void;
   setIsSaving: (saving: boolean) => void;
   markClean: () => void;
+  markDirty: () => void;
   rebuildEquipmentNodeMap: () => void;
 }
 
@@ -577,18 +613,26 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
     const equipmentNodeMap: Record<string, string> = {};
     const sensorNodeMap: Record<string, string> = {};
     process.nodes.forEach((node) => {
-      if (node.data?.equipmentId) equipmentNodeMap[node.data.equipmentId] = node.id;
-      const sensorId = (node.data as any)?.sensorId as string | undefined;
-      if (sensorId) sensorNodeMap[sensorId] = node.id;
+      const equipmentId = node.data?.equipmentId;
+      if (typeof equipmentId === 'string' && equipmentId) equipmentNodeMap[equipmentId] = node.id;
+      const sensorId = node.data?.sensorId;
+      if (typeof sensorId === 'string' && sensorId) sensorNodeMap[sensorId] = node.id;
     });
+    // Persisted edges may predate the typed edge-data contract: default the
+    // connectionType instead of asserting it exists (the store's edge type
+    // promises it to every consumer).
+    const edges: Edge<ProcessEdgeData>[] = process.edges.map((edge) => ({
+      ...edge,
+      data: { connectionType: DEFAULT_CONNECTION_TYPE, ...edge.data } as ProcessEdgeData,
+    }));
     set({
       processId: process.id,
       processName: process.name,
       processDescription: process.description || '',
-      processVersion: process.version,
+      processVersion: process.version || '1.0.0',
       processStatus: process.status,
       nodes: process.nodes,
-      edges: process.edges,
+      edges,
       selectedNode: null,
       selectedEdge: null,
       isDirty: false,
@@ -596,6 +640,12 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
       sensorNodeMap,
     });
   },
+
+  // Start a brand-new editing session CLEAN (WF-004). resetStore() +
+  // setProcessName() left a pristine editor marked dirty because the name
+  // setter is a user-edit signal — naming the fresh session is not an edit.
+  startNewProcess: (name) =>
+    set({ ...initialState, processName: name }),
 
   getProcessData: () => {
     const state = get();
@@ -617,6 +667,12 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
 
   markClean: () =>
     set({ isDirty: false }),
+
+  // Idempotent by identity: returning the SAME state object when already
+  // dirty lets zustand skip notification, so the canvas's per-drag-frame
+  // canvasEdited stream cannot re-render the host on every mousemove.
+  markDirty: () =>
+    set((state) => (state.isDirty ? state : { ...state, isDirty: true })),
 
   // Equipment linking actions
   linkEquipmentToNode: (nodeId, equipmentId, equipmentData) => {
@@ -848,3 +904,11 @@ export const useProcessMetadata = () =>
     status: state.processStatus,
   }));
 export const useIsDirty = () => useProcessStore((state) => state.isDirty);
+
+// SECURITY (SENSOR-HIGH-041): the process store holds a single active,
+// tenant-owned P&ID (nodes, edges, equipment/sensor node maps). Fully reset it
+// on logout and on any tenant switch so tenant A's diagram can never surface in
+// — or be saved into — tenant B's session. onTenantChange fires only on an
+// actual A->B change, never on first login.
+registerLogoutCleanup(() => useProcessStore.getState().resetStore());
+onTenantChange(() => useProcessStore.getState().resetStore());

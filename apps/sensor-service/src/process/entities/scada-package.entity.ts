@@ -35,6 +35,12 @@ registerEnumType(ScadaPackageStatus, {
 @ObjectType()
 @Entity('scada_packages')
 @Index(['tenantId', 'status'])
+// One package per process (SENSOR-HIGH-037): partial so standalone
+// (builder) packages with a NULL process_id are unconstrained.
+@Index('uq_scada_packages_tenant_process', ['tenantId', 'processId'], {
+  unique: true,
+  where: 'process_id IS NOT NULL',
+})
 export class ScadaPackage {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

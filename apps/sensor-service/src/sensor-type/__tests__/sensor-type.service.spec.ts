@@ -123,8 +123,13 @@ describe('SensorTypeService', () => {
           useValue: {
             find: jest.fn(),
             create: jest.fn().mockImplementation((dto) => ({ ...dto })),
+            // Array-aware: the service batch-saves channel ARRAYS
+            // (save(channels) is idiomatic TypeORM); spreading an array
+            // into an object was the original mock's error.
             save: jest.fn().mockImplementation((entity) =>
-              Promise.resolve({ id: 'channel-id', ...entity }),
+              Array.isArray(entity)
+                ? Promise.resolve(entity.map((e, i) => ({ id: `channel-${i}`, ...e })))
+                : Promise.resolve({ id: 'channel-id', ...entity }),
             ),
           },
         },

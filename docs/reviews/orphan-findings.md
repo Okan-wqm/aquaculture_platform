@@ -6308,3 +6308,16 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 **Deliberately EXCLUDED — the remaining architectural work:** `stored_events` is an immutable append-only event log; deleting a tenant's rows would break event-sourcing, and its jsonb `payload` can embed PII. It is in the registry `excludedTables`, so it is NOT row-deleted. The GDPR-correct treatment is **crypto-shred** (per-tenant envelope encryption of the payload + key destruction on erasure) — a distinct encryption-at-rest design requiring a STRIDE threat model. Tracked as the last open piece of DB-INFRA-HIGH-003; blueprint Part B (`docs/plans/2026-07-11-infra-high-003-gdpr-erasure-cascade.md`).
 **Validation:** full `tests/invariants` 1858/1858; `nats-invariants` 68/68; `tenant-erasure-ssot` 18/18; type-check clean; migration SQL-lint clean.
 **Owner:** data-expert / security-architecture. **Deadline:** deletable-tables half closed by this PR's merge; `stored_events` crypto-shred is a tracked follow-on (2026-10-15).
+
+## ORPHAN-HIGH-352 — event-store stored_events crypto-shred: tested core built; live-path wiring gated on review — RESOLVED-CORE (this PR)
+
+**Discovered:** 2026-07-11 (Lane-D db-audit — the immutable-log half of DB-INFRA-HIGH-003; see [[ORPHAN-HIGH-351]]).
+**Context:** `stored_events` is an immutable append-only event log whose `payload`/`metadata` jsonb can embed PII; it cannot be row-deleted (breaks event-sourcing). GDPR erasure = crypto-shred (per-tenant key destruction).
+**Remediation (this PR — the tested, isolated core + design):**
+- Design + STRIDE threat model + staged-rollout/backfill plan: `docs/plans/2026-07-12-event-store-crypto-shred-design.md`.
+- `event_store.tenant_payload_keys` key store (entity + `CreateTenantPayloadKeys` migration; registered in `MODULE_SCHEMAS['event_store'].infrastructureTables`) — one KEK-wrapped per-tenant DEK per row.
+- `TenantPayloadCryptoService` (envelope encryption; AES-256-GCM matching the platform primitive): `encrypt`/`decrypt`/`shred`/`isShredded`, per-tenant DEKs, fail-closed on a shredded/absent key. Pinned by `tenant-payload-crypto.service.spec` (6/6: roundtrip, cross-tenant isolation, shred→permanently-unrecoverable, idempotent+scoped shred, legacy-plaintext passthrough, fresh-instance refuses a shredded tenant).
+- `CryptoShredModule` registered in event-store `app.module` — inert (not called by the live path yet).
+**DELIBERATELY NOT DONE (gated on security review — stated per CLAUDE.md):** wiring `encrypt` into `appendToStream`, `decrypt` (+ shredded-tombstone) into the read path, the erasure handler `shred` step, and the one-time backfill of existing plaintext events. Mis-encrypting a live event-sourcing write path corrupts replay irrecoverably, so the core is proven in isolation first; the design doc sequences the reviewed rollout (steps 2–4).
+**Validation:** crypto spec 6/6; full `tests/invariants` 1858/1858; type-check + migration SQL-lint clean.
+**Owner:** security-architecture / data-expert. **Deadline:** rollout steps 2–4 tracked (2026-10-15).

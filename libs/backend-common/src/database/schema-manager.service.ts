@@ -779,7 +779,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     // excluded in the erasure registry; awaits crypto-shred). NOT tenant-cloned.
     moduleName: 'event_store',
     sourceSchema: 'event_store',
-    infrastructureTables: ['migrations', 'event_store_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    infrastructureTables: ['migrations', 'event_store_outbox', 'tenant_payload_keys', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: [],
     tables: ['stored_events', 'event_streams', 'snapshots', 'projection_checkpoints', 'projection_rebuilds'],
   },

@@ -12,6 +12,7 @@ import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redi
 import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
 import { EventBusModule, buildEventBusConfig } from '@platform/event-bus';
 import { EventStoreOutboxModule } from './outbox/event-store-outbox.module';
+import { CryptoShredModule } from './crypto-shred/crypto-shred.module';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
@@ -80,6 +81,10 @@ const EventStoreSchemaVersionGate = createSchemaVersionGate('event_store');
     }),
     EventStoreOutboxModule,
     TenantErasureTargetModule.forService('event-store-service'),
+    // DB-INFRA-HIGH-003 Part B: per-tenant payload crypto-shred core (key store +
+    // service). Registered so the migration entity + service are available; the
+    // append/read-path wiring is gated on the security review (design doc).
+    CryptoShredModule,
 
     EventStoreModule,
     ProjectionsModule,

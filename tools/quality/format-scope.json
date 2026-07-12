@@ -4463,6 +4463,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/migrations/1807100000000-AddTenantSuspensionAudit.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/announcement/__tests__/announcement.service.spec.ts",
       "prettier_managed": true
     },
@@ -5142,6 +5148,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/services/__tests__/permission-overrides.util.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/services/__tests__/tenant-lifecycle-suspension.spec.ts",
       "prettier_managed": true
     },
     {
@@ -39558,6 +39570,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-no-auth-tenants-writes.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-security-runtime-contract.spec.ts",
       "prettier_managed": true
     },
@@ -52986,10 +53004,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8685,
+  "file_count": 8688,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8510,
-  "managed_file_list_sha256": "46da3e07f2fb037e05ac333bd77d59226aa33c0ea751c1ece89975b7ee626555",
+  "managed_count": 8513,
+  "managed_file_list_sha256": "dc81f38a51e84337fbe895fcaefc43f7f68510ad02ee79cc49752d8feb2bf55f",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

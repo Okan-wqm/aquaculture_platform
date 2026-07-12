@@ -110,6 +110,7 @@ export default {
         '<rootDir>/messaging-joins.spec.ts',
         '<rootDir>/messaging-migration-runner.spec.ts',
         '<rootDir>/admin-api-schema-boundaries.spec.ts',
+        '<rootDir>/admin-no-auth-tenants-writes.spec.ts',
         '<rootDir>/eslint-rule-presence.spec.ts',
         '<rootDir>/eslint-disable-annotation-positional-binding.spec.ts',
         '<rootDir>/no-direct-getrepository-call.spec.ts',

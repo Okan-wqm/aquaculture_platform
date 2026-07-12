@@ -678,6 +678,12 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'usage_hourly_data',
       'subscription_provisioning_retries',
       'command_receipts',
+      // DB registry completeness (same class as DB-ADMIN-MEDIUM-002): billing
+      // domain tables that had drifted out of the registry — `plans` (plan
+      // catalog) + `stripe_webhook_events` (Stripe webhook idempotency ledger,
+      // same class as command_receipts above).
+      'plans',
+      'stripe_webhook_events',
     ],
   },
   {

@@ -1,5 +1,6 @@
 ---
 name: db-audit-farm-platform
+pedagogy-tier: 2
 description: Lane-D database E2E audit — farm-service asset/ops partition (farm, site, department, equipment, maintenance, task, worker, document, regulatory, compliance, scheduler, weather, marine-data, sentinel-hub, mobile-command, mobile-dashboard, ai-insights, system) — provenance, parity, incidental defect capture.
 model: opus
 effort: xhigh

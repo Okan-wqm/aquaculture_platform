@@ -1,5 +1,6 @@
 ---
 name: db-audit-sensor
+pedagogy-tier: 2
 description: Lane-D database E2E audit — sensor-service partition (all ~50 entities incl. calibration, aggregation, VFD, automation, edge-device, SCADA runtime) + sensor-module frontend — column provenance, parity, incidental defect capture.
 model: opus
 effort: xhigh

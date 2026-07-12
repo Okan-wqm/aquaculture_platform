@@ -74,6 +74,8 @@ import type {
   ForwardMessageMutationVariables,
   MobileSentimentTrendsQuery,
   MobileSentimentTrendsQueryVariables,
+  MobileConfirmAiActionMutation,
+  MobileConfirmAiActionMutationVariables,
 } from '@/generated/graphql';
 
 // --- Reusable fragments ---
@@ -468,6 +470,21 @@ export const FORWARD_MESSAGE: TypedDocumentNode<ForwardMessageMutation, ForwardM
     }
   }
   ${MESSAGE_FIELDS}
+`;
+
+/**
+ * Confirm a proposed AI action (MOB-HIGH-001, human-in-the-loop). The argument
+ * is the ID of the AI MESSAGE carrying the proposal metadata; messaging-service
+ * verifies channel membership, then ai-service executes the PERSISTED proposal
+ * row keyed by metadata.actionId — never client-echoed params.
+ */
+export const MOBILE_CONFIRM_AI_ACTION: TypedDocumentNode<
+  MobileConfirmAiActionMutation,
+  MobileConfirmAiActionMutationVariables
+> = gql`
+  mutation MobileConfirmAiAction($actionId: ID!) {
+    confirmAiAction(actionId: $actionId)
+  }
 `;
 
 /**

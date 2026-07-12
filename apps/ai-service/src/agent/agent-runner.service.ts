@@ -4,6 +4,7 @@ import {
   CircuitBreakerService,
   DEFAULT_BREAKER_OPTIONS,
 } from '@aquaculture/backend-common/resilience';
+import { ActionProposalService } from '../actions/action-proposal.service';
 import { ToolRegistryService } from '../tools/tool-registry.service';
 import { ToolExecutorService } from '../tools/core/tool-executor.service';
 import { AgentProfileService } from './agent-profile.service';
@@ -87,6 +88,18 @@ export interface ChatResponse {
     result: unknown;
   }>;
   tokenUsage: TokenUsageBreakdown;
+  /**
+   * MOB-HIGH-001: a held actuation-class tool call, persisted as a proposal
+   * awaiting human confirmation. Rides the chat response metadata so the
+   * messaging bridge stores it on the AI message (status:'proposed') and the
+   * clients render a confirmation card. One per turn — the first held call.
+   */
+  proposedAction?: {
+    actionId: string;
+    actionType: string;
+    params: Record<string, unknown>;
+    description: string;
+  };
 }
 
 @Injectable()
@@ -106,6 +119,7 @@ export class AgentRunnerService {
     private readonly aiSafety: AiSafetyMiddleware,
     private readonly breaker: CircuitBreakerService,
     private readonly providerFactory: LlmProviderFactory,
+    private readonly actionProposals: ActionProposalService,
   ) {
     // FAZ1-BYOK: the process-global Anthropic client is gone. Each request runs
     // against the tenant's own decrypted key, resolved below and passed to the
@@ -256,6 +270,10 @@ export class AgentRunnerService {
 
     // 9. Run agent loop
     const toolCalls: ChatResponse['toolCalls'] = [];
+    // MOB-HIGH-001: the first held actuation of the turn becomes a persisted
+    // proposal + confirmation card. One per turn — chat metadata carries a
+    // single card, and one confirmable side effect per exchange is the safe UX.
+    let proposedAction: ChatResponse['proposedAction'];
     const totalTokens: TokenUsageBreakdown = {
       input: 0,
       output: 0,
@@ -391,6 +409,45 @@ export class AgentRunnerService {
           toolContext,
         );
 
+        // MOB-HIGH-001: a held actuation (confirm_required policy) is not an
+        // error — it becomes a PERSISTED proposal whose id rides the response
+        // metadata as a confirmation card. The stored row (tool + params +
+        // requester context) is what executes on confirm; the model is told to
+        // direct the user to the card instead of retrying the tool.
+        if (!result.success && result.requiresConfirmation && !proposedAction) {
+          const proposal = await this.actionProposals.createProposal({
+            tenantId: request.tenantId,
+            toolName: toolUse.name,
+            params: toolUse.input,
+            description: this.describeAction(toolUse.name, toolUse.input),
+            requestedBy: request.userId,
+            requesterRoles: request.userRoles,
+            persona: request.persona,
+            correlationId: request.correlationId,
+          });
+          proposedAction = {
+            actionId: proposal.id,
+            actionType: proposal.toolName,
+            params: proposal.params,
+            description: proposal.description,
+          };
+          toolCalls.push({
+            name: toolUse.name,
+            input: toolUse.input,
+            result: { heldForConfirmation: true, actionId: proposal.id },
+          });
+          toolResults.push({
+            type: 'tool_result',
+            toolUseId: toolUse.id,
+            content:
+              'The action was HELD for human confirmation and a confirmation card was ' +
+              'shown to the user. Do not retry the tool — tell the user to review and ' +
+              'confirm the card to execute it.',
+            isError: false,
+          });
+          continue;
+        }
+
         toolCalls.push({
           name: toolUse.name,
           input: toolUse.input,
@@ -453,6 +510,19 @@ export class AgentRunnerService {
       message: finalMessage,
       toolCalls,
       tokenUsage: totalTokens,
+      proposedAction,
     };
+  }
+
+  /**
+   * Human-readable one-liner for the confirmation card. Uses the input's
+   * title/name when present so the user confirms WHAT, not just WHICH tool.
+   */
+  private describeAction(toolName: string, input: Record<string, unknown>): string {
+    const title = input['title'] ?? input['name'];
+    if (typeof title === 'string' && title.trim().length > 0) {
+      return `${toolName}: "${title.trim()}"`;
+    }
+    return `Run ${toolName}`;
   }
 }

@@ -638,6 +638,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // tenant_<uuid> schema by TenantSchemaSyncService.
       'agent_conversations',
       'tenant_agent_configs',
+      // MOB-HIGH-001: held actuation proposals (human-in-the-loop confirm
+      // flow) — migration 1803000000000-CreateAiProposedActions.
+      'ai_proposed_actions',
     ],
   },
   {

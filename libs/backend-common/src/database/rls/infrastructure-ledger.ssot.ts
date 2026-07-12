@@ -58,7 +58,14 @@
 export const INFRASTRUCTURE_AUDIT_LEDGERS: Readonly<Record<string, readonly string[]>> = {
   // Platform-level schemas (no tenant fan-out; source-only).
   auth: ['audit_logs'],
-  shared: ['audit_logs'],
+  // access_logs (ORPHAN-HIGH-357 wire-up fallout, live-verified 2026-07-12):
+  // the gateway writes one row per HTTP request for ALL tenants + anonymous
+  // (tenantId null) on a single connection with no tenant GUC — the
+  // tenant_isolation_policy the bootstrap gave it blocked every INSERT
+  // ("new row violates row-level security policy", ACCESS_LOG_FAILURE in prod
+  // logs). Same append-ledger class as shared.audit_logs: infra_ledger_append
+  // (INSERT check=true) + infra_ledger_read (tenant-scoped/operator read).
+  shared: ['audit_logs', 'access_logs'],
 
   // Tenant-scoped service SOURCE schemas (the ledger stays cross-tenant; only
   // the per-tenant `tables` are cloned).

@@ -772,6 +772,17 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     referenceDataTables: [],
     tables: ['configurations', 'configuration_history'],
   },
+  {
+    // DB-INFRA-HIGH-003: event-store-service — platform-level erasure target.
+    // The tenant-column projection tables are deleted by tenantId on erasure;
+    // stored_events is intentionally NOT deleted (immutable append-only log —
+    // excluded in the erasure registry; awaits crypto-shred). NOT tenant-cloned.
+    moduleName: 'event_store',
+    sourceSchema: 'event_store',
+    infrastructureTables: ['migrations', 'event_store_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    referenceDataTables: [],
+    tables: ['stored_events', 'event_streams', 'snapshots', 'projection_checkpoints', 'projection_rebuilds'],
+  },
 ];
 
 /**
@@ -807,6 +818,7 @@ export const PLATFORM_LEVEL_MODULES: ReadonlySet<string> = new Set([
   'auth',
   'notification',
   'config',
+  'event_store',
 ]);
 
 export const DEFAULT_TENANT_MODULES: string[] = MODULE_SCHEMAS.filter((m) =>

@@ -573,3 +573,24 @@ services:
     subscribe:
       - "$JS.API.>"
       - "_INBOX.>"
+
+  # ---------------------------------------------------------------------------
+  # event-store-service: event persistence + projections
+  # ---------------------------------------------------------------------------
+  # Onboarded to the event backbone 2026-07-12 (DB-INFRA-HIGH-003) as a GDPR
+  # tenant-erasure target: consumes TenantErasureRequested via a JetStream pull
+  # consumer and publishes proof events via its own outbox. Erases the tenant-
+  # column projection tables; stored_events (immutable) awaits crypto-shred.
+  - name: event_store_service
+    description: Event persistence + projections — GDPR tenant-erasure target (proof publisher)
+    publish:
+      - "events.*.TenantDataErased"
+      - "events.*.TenantDataErasureFailed"
+      - "events.*.TenantErasureBlocked"
+      - "events.platform.schema-migration.>"
+      - "events.security.events.>"
+      - "$JS.API.>"
+      - "_INBOX.>"
+    subscribe:
+      - "$JS.API.>"
+      - "_INBOX.>"

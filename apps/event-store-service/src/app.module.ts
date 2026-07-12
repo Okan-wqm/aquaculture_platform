@@ -7,6 +7,11 @@ import {
 } from '@aquaculture/backend-common/database';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
 import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
+// DB-INFRA-HIGH-003: event-backbone participation to be a GDPR erasure target.
+import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
+import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
+import { EventBusModule, buildEventBusConfig } from '@platform/event-bus';
+import { EventStoreOutboxModule } from './outbox/event-store-outbox.module';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
@@ -57,6 +62,25 @@ const EventStoreSchemaVersionGate = createSchemaVersionGate('event_store');
     }),
     // Schedule module — single forRoot() for the entire service
     ScheduleModule.forRoot(),
+
+    // DB-INFRA-HIGH-003: event-backbone participation, solely for GDPR erasure.
+    // The TenantErasureTargetModule handler subscribes to TenantErasureRequested
+    // and deletes the tenant-column projection tables (event_streams, snapshots,
+    // projection_*); stored_events is excluded (awaits crypto-shred).
+    RedisModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) =>
+        buildRedisOptions(configService, 'event-store', 'optional'),
+    }),
+    EventBusModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: buildEventBusConfig,
+    }),
+    EventStoreOutboxModule,
+    TenantErasureTargetModule.forService('event-store-service'),
+
     EventStoreModule,
     ProjectionsModule,
     HealthModule,

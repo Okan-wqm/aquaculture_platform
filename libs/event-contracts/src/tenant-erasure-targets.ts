@@ -16,6 +16,7 @@ export const TENANT_ERASURE_TARGET_SERVICES = [
   'alert-engine',
   'admin-api-service',
   'config-service',
+  'event-store-service',
 ] as const;
 
 export type TenantErasureTargetService =

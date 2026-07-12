@@ -13,6 +13,7 @@ import {
   IsNotEmpty,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
 import { AlertOperator, AlertSeverity } from '../../database/entities/alert-rule.entity';
 
 /**
@@ -146,9 +147,15 @@ export class UpdateAlertRuleInput {
 
 /**
  * Acknowledge Alert Input
+ *
+ * MOB-HIGH-006: extends MobileCommandEnvelopeInput because AquaMobil queues
+ * acknowledgements offline and replays them with the injected command envelope;
+ * `forbidNonWhitelisted` would otherwise reject the replay and silently lose
+ * the field worker's ack. The ack is naturally idempotent (re-applying it
+ * converges), so the envelope is acceptance-only — no receipt ledger needed.
  */
 @InputType()
-export class AcknowledgeAlertInput {
+export class AcknowledgeAlertInput extends MobileCommandEnvelopeInput {
   @Field(() => ID)
   @IsUUID()
   alertId!: string;

@@ -67,7 +67,7 @@ export function useSentimentTrends(
   const { tenantId } = useAuth();
 
   const query = useQuery({
-    queryKey: createTenantQueryKey(tenantId, ['sentiment-trends', channelId ?? 'none']),
+    queryKey: createTenantQueryKey(tenantId, 'sentiment-trends', channelId ?? 'none'),
     enabled: enabled && Boolean(channelId) && Boolean(tenantId),
     queryFn: async (): Promise<LatestSentiment | null> => {
       const data = await graphqlRequest(MOBILE_SENTIMENT_TRENDS, {

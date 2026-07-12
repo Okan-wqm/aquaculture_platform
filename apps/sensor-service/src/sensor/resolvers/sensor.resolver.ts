@@ -118,6 +118,11 @@ export class SensorResolver {
     pondId?: string,
     @Args('status', { type: () => SensorStatus, nullable: true })
     status?: SensorStatus,
+    // MOB-MEDIUM-008: mobile tank screens join sensors by the FARM container
+    // UUID stored in sensor.tank_id (indexed) — a resolver-level filter, not a
+    // client-side heuristic over the free-form pondId field.
+    @Args('tankId', { type: () => ID, nullable: true })
+    tankId?: string,
   ): Promise<Sensor[]> {
     // SECURITY: Clamp page and limit BEFORE computing skip to prevent
     // tenant-level query DoS via large OFFSET values.
@@ -129,6 +134,7 @@ export class SensorResolver {
     const where: Record<string, unknown> = { tenantId };
     if (pondId) where['pondId'] = pondId;
     if (status) where['status'] = status;
+    if (tankId) where['tankId'] = tankId;
 
     return await this.sensorRepository.find({
       where,

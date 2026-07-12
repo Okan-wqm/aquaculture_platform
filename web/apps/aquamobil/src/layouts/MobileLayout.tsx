@@ -7,6 +7,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 // classes with dark: variants that use Konsta's internal color tokens (#efeff4 / #1c1c1e).
 // These override our Tailwind dark:bg-gray-950 design system. We use a plain div instead
 // to maintain full control over light/dark backgrounds via Tailwind's class-based dark mode.
+import { CriticalAlertBanner } from '@/components/CriticalAlertBanner';
 import { useFarmRealtimeSync } from '@/hooks/useFarmRealtimeSync';
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
 import { useNotifications } from '@/hooks/useNotifications';
@@ -46,7 +47,10 @@ export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
   // mortality/feeding/transfer recorded elsewhere (another mobile user or the
   // web tenant panel) invalidates this app's tank/ops caches within ~1s,
   // instead of waiting for the 1-min staleTime (the 719-vs-900 divergence).
-  useFarmRealtimeSync();
+  // MOB-MEDIUM-008: isConnected is no longer discarded — a live-channel drop
+  // while HTTP is fine means the "~1s freshness" promise is silently broken,
+  // and the worker must see that data may lag (degraded-live strip below).
+  const { isConnected: isLiveConnected } = useFarmRealtimeSync();
 
   // ADR-012: Unread message count for the Messages tab badge.
   // WHY useUnreadCount hook: Replaces manual fetch + polling with the shared
@@ -119,12 +123,27 @@ export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
 
   return (
     <div className="flex flex-col h-full w-full overflow-auto pb-safe bg-gray-50 dark:bg-gray-950">
+      {/* MOB-HIGH-006: unacknowledged CRITICAL alarms top every screen and stay
+          until acknowledged — life-safety alerts never hide behind a badge. */}
+      <CriticalAlertBanner />
+
       {/* WHY: Offline banner appears above all content — field workers need clear indication that
           their actions are queuing locally, not syncing to the server in real-time. */}
       {!isOnline && (
         <div className="bg-gradient-to-r from-amber-500 to-amber-600 text-white px-4 py-2.5 flex items-center justify-center gap-2 text-sm font-semibold shadow-md">
           <CloudOff size={15} />
           <span>Offline -- changes will sync when connected</span>
+        </div>
+      )}
+
+      {/* MOB-MEDIUM-008: degraded-live strip — HTTP is reachable but the
+          real-time channel is down, so tank/ops data may lag behind the farm.
+          Distinct from the offline banner: requests still work, freshness
+          doesn't. Hidden while offline (the offline banner already owns that). */}
+      {isOnline && !isLiveConnected && (
+        <div className="bg-gray-700 text-white px-4 py-1.5 flex items-center justify-center gap-2 text-xs font-semibold">
+          <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" aria-hidden />
+          <span>Live updates unavailable — data may lag</span>
         </div>
       )}
 

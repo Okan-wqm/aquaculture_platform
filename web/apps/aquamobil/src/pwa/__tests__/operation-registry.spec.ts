@@ -41,6 +41,7 @@ const ALL_OPERATION_TYPES: readonly OperationType[] = [
   'recordLiceCount',
   'recordWelfareAssessment',
   'recordEscapeIncident',
+  'acknowledgeAlert',
   'sendMessage',
   'editMessage',
   'deleteMessage',

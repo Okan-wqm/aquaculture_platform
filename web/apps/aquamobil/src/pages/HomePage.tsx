@@ -4,6 +4,7 @@ import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { AiInsightsCard } from '@/components/ai';
+import { AlertsBell } from '@/components/AlertsBell';
 import { TankCard } from '@/components/cards/TankCard';
 import { NotificationBell } from '@/components/NotificationBell';
 import { useAuth } from '@/hooks/useAuth';
@@ -146,6 +147,7 @@ export function HomePage(): JSX.Element {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <AlertsBell />
               <NotificationBell />
               <button onClick={() => void logout()} className="p-2.5 bg-white/10 rounded-xl touch-feedback hover:bg-white/20 transition-colors">
                 <LogOut size={18} />

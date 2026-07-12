@@ -206,6 +206,18 @@ export const OPERATION_MUTATIONS: Record<
       }
     }
   `,
+  // MOB-HIGH-006: offline-capable alarm acknowledgement. AcknowledgeAlertInput
+  // extends MobileCommandEnvelopeInput on the backend, so the enveloped payload
+  // rides under `input` verbatim; the ack is naturally idempotent on replay.
+  acknowledgeAlert: `
+    mutation MobileAcknowledgeAlertQueued($input: AcknowledgeAlertInput!) {
+      acknowledgeAlert(input: $input) {
+        id
+        acknowledged
+        acknowledgedAt
+      }
+    }
+  `,
   // Messaging mutations — ADR-012
   sendMessage: `
     mutation SendMessage($input: SendMessageInput!) {

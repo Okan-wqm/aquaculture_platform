@@ -70,6 +70,10 @@ const AccountPage = lazy(() =>
 const NotificationsPage = lazy(() =>
   import('./pages/notifications/NotificationsPage').then((m) => ({ default: m.NotificationsPage }))
 );
+// MOB-HIGH-006: mobile alarm surface (alert-engine history + acknowledge)
+const AlertsPage = lazy(() =>
+  import('./pages/alerts/AlertsPage').then((m) => ({ default: m.AlertsPage }))
+);
 const RecordTransferPage = lazy(() =>
   import('./pages/transfer/RecordTransferPage').then((m) => ({ default: m.RecordTransferPage }))
 );
@@ -310,6 +314,7 @@ export function App(): ReactElement {
                       <Route path="/hr" element={<Navigate to="/operations" replace />} />
                       <Route path="/more" element={<Navigate to="/account" replace />} />
                       <Route path="/notifications" element={<NotificationsPage />} />
+                      <Route path="/alerts" element={<AlertsPage />} />
                       <Route
                         path="/mortality/record"
                         element={

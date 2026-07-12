@@ -34,7 +34,19 @@ export type AcknowledgeAlarmInput = {
 
 export type AcknowledgeAlertInput = {
   alertId: Scalars['ID']['input'];
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
   note?: InputMaybe<Scalars['String']['input']>;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
 };
 
 /** IEC 61131-3 action qualifier determining when/how action executes */
@@ -16725,6 +16737,7 @@ export type QuerySensorRawListArgs = {
   page?: InputMaybe<Scalars['Int']['input']>;
   pondId?: InputMaybe<Scalars['ID']['input']>;
   status?: InputMaybe<SensorStatus>;
+  tankId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 

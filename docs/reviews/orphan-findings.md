@@ -6347,3 +6347,17 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 **NOT DONE (trivial, tracked here):** the file is still named `global-config.entity.ts` although it now holds only enums (no `@Entity`). Renaming to a non-`.entity` name touches four import sites (barrel + service + controller + spec); left as an optional cosmetic follow-up to keep this cleanup minimal-churn. A header comment documents the misnomer.
 **Validation:** `provisioning-config.spec` 7/7; admin-api `tsc --noEmit` clean; eslint clean on the three touched files.
 **Owner:** admin-expert. **Deadline:** dead class removed this PR; the optional rename is unscheduled (cosmetic).
+
+## ORPHAN-MEDIUM-355 — INFRA-HIGH-002 "drop `alert_incidents`, keep `alert_history`" is a FALSE POSITIVE — corrected, NOT dropped (this PR)
+
+**Discovered:** 2026-07-12 (Lane-D db-audit P3 verification — the CLAUDE.md "look at the target before deleting" gate caught this). Corrects [[docs/reviews/db-audit/2026-07-11-database-e2e-audit-synthesis]] rows A10 + §B.
+**Original (incorrect) finding:** INFRA-HIGH-002 classified `alert_incidents` as a no-FE orphan duplicate of `alert_history` and proposed dropping it, collapsing the "fired-alert lifecycle" onto `alert_history`.
+**What the code actually shows (verified firsthand):**
+- `alert_incidents` (`apps/alert-engine/src/database/entities/alert-incident.entity.ts`, `@Entity('alert_incidents')` + `@ObjectType`) is a rich **incident-lifecycle** model: `IncidentStatus` NEW→ACKNOWLEDGED→INVESTIGATING→RESOLVED→CLOSED/SUPPRESSED, a timeline, assignment, escalation.
+- It is **read AND written** by the live pipeline: `alert-evaluation.service.ts:390` `findOne(AlertIncident)` (dedup of an open incident) → `:402/:448/:611` create/update; `escalation-manager.service.ts` injects `Repository<AlertIncident>` and transitions status on escalation. Also written by mortality/water-quality alert services.
+- It is **FK-referenced** by the farm domain: `web/modules/farm-module/src/hooks/useHealthEvents.ts` carries `alertIncidentId` on health events (5 sites).
+- `alert_history` (`alert/entities/alert-history.entity.ts`, "records triggered alerts for audit and tracking") is a SEPARATE concern: the triggered-alert audit + cooldown log (`@Index(['ruleId','triggeredAt'])` for the cooldown query), and it IS the resolver-exposed one (`alert.resolver.ts`).
+- The two are **complementary, not duplicates**. Dropping `alert_incidents` would break incident dedup + escalation and orphan the farm `alertIncidentId` references.
+**Correct classification:** `alert_incidents` is a live, internally-consumed model whose only true gap is that its `@ObjectType` is **not exposed by any resolver** — i.e., there is no incident-read GraphQL surface + no incident-management UI. That is a **feature gap** (build the read resolver + FE), NOT a dead-table cleanup. Tracked as such; out of scope for a cleanup pass (needs product direction on the incident-management UX).
+**Action this PR:** did NOT drop anything. Annotated the synthesis (A10 + §B) so neither this session's nor a future engineer's "cleanup" acts on the wrong remediation.
+**Owner:** alert-engine-expert (incident-read resolver/FE, feature-gap) / data-expert (finding hygiene). **Deadline:** correction landed this PR; the incident-read surface is an unscheduled feature (needs product direction).

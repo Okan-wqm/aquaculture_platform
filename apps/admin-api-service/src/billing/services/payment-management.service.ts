@@ -56,6 +56,21 @@ export interface RefundPaymentDto {
   reason: string;
 }
 
+export interface PaymentStatsWindow {
+  totalPayments: number;
+  succeeded: number;
+  failed: number;
+  refunded: number;
+  pending: number;
+  /** succeeded + refund states over terminal attempts (0 when none). */
+  successRate: number;
+  totalAmount: number;
+}
+
+export interface PaymentStats extends PaymentStatsWindow {
+  last30Days: PaymentStatsWindow;
+}
+
 type DbNumeric = number | string | null | undefined;
 
 interface CountRow {
@@ -85,6 +100,39 @@ function mapPaymentOverview(row: PaymentOverviewRow): PaymentOverview {
     ...row,
     amount: dbNumber(row.amount),
     refundedAmount: dbNumber(row.refundedAmount),
+  };
+}
+
+interface PaymentStatusCountRow {
+  status: string;
+  count: DbNumeric;
+  total: DbNumeric;
+}
+
+/** Fold per-status GROUP BY rows into one dashboard window. */
+function summarizePaymentStatusCounts(rows: PaymentStatusCountRow[]): PaymentStatsWindow {
+  const byStatus = new Map<string, { count: number; total: number }>();
+  for (const row of rows) {
+    byStatus.set(row.status, { count: dbNumber(row.count), total: dbNumber(row.total) });
+  }
+  const count = (status: string): number => byStatus.get(status)?.count ?? 0;
+
+  const succeeded = count('succeeded');
+  const failed = count('failed');
+  const refunded = count('refunded') + count('partially_refunded');
+  const pending = count('pending') + count('processing');
+  const totalPayments = [...byStatus.values()].reduce((sum, v) => sum + v.count, 0);
+  const totalAmount = [...byStatus.values()].reduce((sum, v) => sum + v.total, 0);
+  const terminalAttempts = succeeded + refunded + failed;
+
+  return {
+    totalPayments,
+    succeeded,
+    failed,
+    refunded,
+    pending,
+    successRate: terminalAttempts > 0 ? (succeeded + refunded) / terminalAttempts : 0,
+    totalAmount,
   };
 }
 
@@ -216,5 +264,30 @@ export class PaymentManagementService {
     throw new ConflictException(
       'Payment refund is billing-service-owned. Use BillingAdminCommandClientService.refundPayment.',
     );
+  }
+
+  /**
+   * Read-only aggregate for the billing dashboard payment-success KPI.
+   * Success rate counts terminal outcomes only: succeeded + refund states
+   * (money moved) over succeeded + refund states + failed. Pending/processing
+   * are in flight and cancelled never attempted capture.
+   */
+  async getPaymentStats(): Promise<PaymentStats> {
+    const rows = await this.dataSource.query<PaymentStatusCountRow[]>(
+      `SELECT p.status, COUNT(*) as count, COALESCE(SUM(p.amount), 0) as total
+       FROM billing.payments p
+       GROUP BY p.status`,
+    );
+    const last30Rows = await this.dataSource.query<PaymentStatusCountRow[]>(
+      `SELECT p.status, COUNT(*) as count, COALESCE(SUM(p.amount), 0) as total
+       FROM billing.payments p
+       WHERE p.payment_date >= NOW() - INTERVAL '30 days'
+       GROUP BY p.status`,
+    );
+
+    return {
+      ...summarizePaymentStatusCounts(rows),
+      last30Days: summarizePaymentStatusCounts(last30Rows),
+    };
   }
 }

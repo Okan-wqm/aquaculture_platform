@@ -254,6 +254,21 @@ export interface InvoiceOverview {
   createdAt: string;
 }
 
+export interface PaymentStatsWindow {
+  totalPayments: number;
+  succeeded: number;
+  failed: number;
+  refunded: number;
+  pending: number;
+  /** succeeded + refund states over terminal attempts (0..1; 0 when none). */
+  successRate: number;
+  totalAmount: number;
+}
+
+export interface PaymentStats extends PaymentStatsWindow {
+  last30Days: PaymentStatsWindow;
+}
+
 export interface InvoiceStats {
   totalInvoices: number;
   totalAmount: number;

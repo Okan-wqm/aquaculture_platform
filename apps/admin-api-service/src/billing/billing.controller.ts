@@ -742,6 +742,11 @@ export class BillingController {
   // Payments
   // ============================================================================
 
+  @Get('payments/stats')
+  async getPaymentStats(): Promise<unknown> {
+    return this.paymentService.getPaymentStats();
+  }
+
   @Get('payments')
   async getPayments(
     @Query('status') status?: string,

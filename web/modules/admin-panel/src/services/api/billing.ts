@@ -36,6 +36,7 @@ import type {
   TopTenantUsage,
   AggregationPeriod,
   MeterType,
+  PaymentStats,
 } from '../types';
 
 export const billingApi = {
@@ -147,6 +148,8 @@ export const billingApi = {
   },
   getInvoiceStats: () =>
     apiFetch<InvoiceStats>('/billing/invoices/stats'),
+  getPaymentStats: () =>
+    apiFetch<PaymentStats>('/billing/payments/stats'),
   getInvoiceById: (invoiceId: string) =>
     apiFetch<InvoiceOverview>(`/billing/invoices/${invoiceId}`),
   markInvoicePaid: (invoiceId: string, amount: number) =>

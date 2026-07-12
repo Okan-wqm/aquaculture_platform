@@ -7,9 +7,29 @@
  */
 import { Field, ID, InputType, Int, ObjectType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
-import { IsBoolean, IsInt, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID } from 'class-validator';
 
 import { ReportDraftStatus } from '../entities/regulatory-report-draft.entity';
+
+/**
+ * COMPLIANCE-MEDIUM-006 — the SSoT for which report types may carry an
+ * auto-submit policy: the five Mattilsynet REST draft types the scheduler
+ * rolls over and can transmit unattended. BIOMASS is the manual Altinn
+ * channel and the three varsling types (welfare/escape/disease) are
+ * immediate manual filings — none of them has an auto-submit draft path, so
+ * a policy key for them would be dead configuration at best and a
+ * false "will auto-file" affordance at worst. Used by the input validator
+ * (API-boundary rejection) AND the service guard (defence in depth).
+ */
+export const AUTO_SUBMITTABLE_REPORT_TYPES = [
+  'SEA_LICE',
+  'CLEANER_FISH',
+  'SMOLT',
+  'SLAUGHTER_PLANNED',
+  'SLAUGHTER_EXECUTED',
+] as const;
+
+export type AutoSubmittableReportType = (typeof AUTO_SUBMITTABLE_REPORT_TYPES)[number];
 
 @InputType()
 export class ReportDraftFilterInput {
@@ -48,6 +68,9 @@ export class SaveReportDraftOverridesInput {
 export class UpdateAutoSubmitPolicyInput {
   @Field()
   @IsString()
+  @IsIn(AUTO_SUBMITTABLE_REPORT_TYPES, {
+    message: `reportType must be one of: ${AUTO_SUBMITTABLE_REPORT_TYPES.join(', ')}`,
+  })
   reportType!: string;
 
   @Field()

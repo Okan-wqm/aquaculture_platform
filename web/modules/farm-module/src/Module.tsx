@@ -6,26 +6,35 @@
  */
 
 import './styles.css';
-import React from 'react';
+import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useFarmRealtimeStream } from './hooks/useFarmRealtimeStream';
-import MapViewPage from './pages/MapViewPage';
-import SetupPage from './pages/setup/SetupPage';
-import ReportsPage from './pages/reports/ReportsPage';
-import TanksPage from './pages/tanks/TanksPage';
-import SentinelHubSettingsPage from './pages/settings/SentinelHubSettingsPage';
-import FeedingPage from './pages/feeding/FeedingPage';
-import FeedingProgramForm from './pages/feeding/FeedingProgramForm';
-import StoragePage from './pages/storage/StoragePage';
-import HealthEventsPage from './pages/health/HealthEventsPage';
-import HarvestPlansPage from './pages/harvest/HarvestPlansPage';
-import TasksPage from './pages/tasks/TasksPage';
-import CompanyPage from './pages/company/CompanyPage';
-import WaterChemistryPage from './pages/water-chemistry/WaterChemistryPage';
-import AnalyticsPage from './pages/analytics/AnalyticsPage';
-import BatchDetailPage from './pages/production/BatchDetailPage';
-import MaintenancePage from './pages/maintenance/MaintenancePage';
-import FinancePage from './pages/finance/FinancePage';
+
+// PERF-HIGH-004: every page-level route is code-split with React.lazy so the
+// farm-module remote no longer ships all page code (the heavy 8-tab regulatory
+// reporting UI in particular) eagerly in one bundle. Each route becomes its own
+// async chunk fetched on navigation; a Suspense boundary shows a light fallback
+// while the chunk loads.
+const MapViewPage = React.lazy(() => import('./pages/MapViewPage'));
+const SetupPage = React.lazy(() => import('./pages/setup/SetupPage'));
+const ReportsPage = React.lazy(() => import('./pages/reports/ReportsPage'));
+const TanksPage = React.lazy(() => import('./pages/tanks/TanksPage'));
+const SentinelHubSettingsPage = React.lazy(
+  () => import('./pages/settings/SentinelHubSettingsPage'),
+);
+const FeedingPage = React.lazy(() => import('./pages/feeding/FeedingPage'));
+const FeedingProgramForm = React.lazy(() => import('./pages/feeding/FeedingProgramForm'));
+const StoragePage = React.lazy(() => import('./pages/storage/StoragePage'));
+const HealthEventsPage = React.lazy(() => import('./pages/health/HealthEventsPage'));
+const HarvestPlansPage = React.lazy(() => import('./pages/harvest/HarvestPlansPage'));
+const TasksPage = React.lazy(() => import('./pages/tasks/TasksPage'));
+const CompanyPage = React.lazy(() => import('./pages/company/CompanyPage'));
+const WaterChemistryPage = React.lazy(() => import('./pages/water-chemistry/WaterChemistryPage'));
+const AnalyticsPage = React.lazy(() => import('./pages/analytics/AnalyticsPage'));
+const BatchDetailPage = React.lazy(() => import('./pages/production/BatchDetailPage'));
+const MaintenancePage = React.lazy(() => import('./pages/maintenance/MaintenancePage'));
+// From main: the finance page, also code-split to keep the PERF-HIGH-004 budget.
+const FinancePage = React.lazy(() => import('./pages/finance/FinancePage'));
 
 // ============================================================================
 // Sites Module
@@ -41,9 +50,20 @@ const FarmModule: React.FC = () => {
   useFarmRealtimeStream();
 
   return (
-    <Routes>
-      {/* Index -> Map'e yönlendir */}
-      <Route index element={<Navigate to="map" replace />} />
+    <Suspense
+      fallback={
+        <div
+          role="status"
+          aria-live="polite"
+          style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-muted, #6b7280)' }}
+        >
+          Laster…
+        </div>
+      }
+    >
+      <Routes>
+        {/* Index -> Map'e yönlendir */}
+        <Route index element={<Navigate to="map" replace />} />
 
       {/* Site Harita Görünümü (Ana Sayfa) */}
       <Route path="map" element={<MapViewPage />} />
@@ -133,9 +153,10 @@ const FarmModule: React.FC = () => {
       {/* Analytics - Performance metrics and insights */}
       <Route path="analytics/*" element={<AnalyticsPage />} />
 
-      {/* Bilinmeyen route'lar -> map'e yönlendir */}
-      <Route path="*" element={<Navigate to="/sites/map" replace />} />
-    </Routes>
+        {/* Bilinmeyen route'lar -> map'e yönlendir */}
+        <Route path="*" element={<Navigate to="/sites/map" replace />} />
+      </Routes>
+    </Suspense>
   );
 };
 

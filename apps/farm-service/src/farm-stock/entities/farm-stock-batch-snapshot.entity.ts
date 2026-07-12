@@ -40,6 +40,16 @@ export class FarmStockBatchSnapshot {
   @Column({ type: 'varchar', length: 80, nullable: true })
   batchStatus?: string | null;
 
+  /** FARM-HIGH-214: species of the batch in this container — mobile regulatory
+   * field capture (escape incidents) reads it from the cached inventory. */
+  @Field(() => ID, { nullable: true })
+  @Column({ type: 'uuid', nullable: true })
+  speciesId?: string | null;
+
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  speciesName?: string | null;
+
   @Field(() => Int)
   @Column({ type: 'int', default: 0 })
   quantity!: number;

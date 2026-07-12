@@ -2,9 +2,14 @@
  * EscapeIncidentService — the row and the EscapeIncidentRecordedEvent outbox
  * entry are written through the SAME transaction manager (atomic), and close
  * ends the recapture lifecycle.
+ *
+ * Phase 6 (FARM-HIGH-214): mobile offline-queue replays dedup through the
+ * farm_mobile_command_receipts ledger — a replayed clientCommandId returns
+ * the ORIGINAL incident (no second row, no second outbox event).
  */
 import { NotFoundException } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { OutboxPublisher } from '@platform/outbox';
 
 const runInTenantTransaction = jest.fn();
@@ -34,6 +39,8 @@ function setup(existing: object | null = null): {
   service: EscapeIncidentService;
   repo: FakeRepo;
   enqueue: jest.Mock;
+  receiptBegin: jest.Mock;
+  receiptComplete: jest.Mock;
   txManager: Partial<EntityManager>;
 } {
   const txManager: Partial<EntityManager> = {};
@@ -52,11 +59,18 @@ function setup(existing: object | null = null): {
   };
   tenantManagerRepo.mockReturnValue(repo);
   const enqueue = jest.fn().mockResolvedValue(undefined);
+  // Default: envelope-less desktop call → legacy mode (no receipt row).
+  const receiptBegin = jest.fn().mockResolvedValue({ mode: 'legacy' });
+  const receiptComplete = jest.fn().mockResolvedValue(undefined);
   const service = new EscapeIncidentService(
     {} as Partial<DataSource> as DataSource,
     { enqueue } as Partial<OutboxPublisher> as OutboxPublisher,
+    {
+      begin: receiptBegin,
+      complete: receiptComplete,
+    } as Partial<MobileCommandReceiptService> as MobileCommandReceiptService,
   );
-  return { service, repo, enqueue, txManager };
+  return { service, repo, enqueue, receiptBegin, receiptComplete, txManager };
 }
 
 describe('EscapeIncidentService', () => {
@@ -138,5 +152,95 @@ describe('EscapeIncidentService', () => {
     await expect(service.close(TENANT, { id: 'missing' }, USER)).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+
+  it('completes a started mobile-command receipt with the incident id (FARM-HIGH-214)', async () => {
+    const { service, receiptBegin, receiptComplete } = setup();
+    receiptBegin.mockResolvedValue({ mode: 'started', receiptId: 'receipt-1' });
+
+    await service.record(
+      TENANT,
+      {
+        siteId: 'site-1',
+        detectedAt: '2026-07-05T09:30:00Z',
+        speciesId: 'species-1',
+        estimatedCount: 40,
+        clientCommandId: 'cccccccc-1111-4222-8333-444444444444',
+        payloadHash: 'hash-1',
+      },
+      USER,
+    );
+
+    expect(receiptBegin).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        tableName: 'farm_mobile_command_receipts',
+        tenantId: TENANT,
+        operationType: 'recordEscapeIncident',
+      }),
+    );
+    expect(receiptComplete).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        receipt: { mode: 'started', receiptId: 'receipt-1' },
+        responseType: 'EscapeIncident',
+        responseId: 'incident-1',
+      }),
+    );
+  });
+
+  it('REPLAY: a replayed clientCommandId returns the original incident and writes NOTHING (FARM-HIGH-214)', async () => {
+    const original = { id: 'incident-1', tenantId: TENANT, siteId: 'site-1' };
+    const { service, repo, enqueue, receiptBegin, receiptComplete } = setup(original);
+    receiptBegin.mockResolvedValue({
+      mode: 'replay',
+      responseType: 'EscapeIncident',
+      responseId: 'incident-1',
+      responsePayload: { id: 'incident-1' },
+    });
+
+    const replayed = await service.record(
+      TENANT,
+      {
+        siteId: 'site-1',
+        detectedAt: '2026-07-05T09:30:00Z',
+        speciesId: 'species-1',
+        estimatedCount: 40,
+        clientCommandId: 'cccccccc-1111-4222-8333-444444444444',
+        payloadHash: 'hash-1',
+      },
+      USER,
+    );
+
+    expect(replayed).toBe(original);
+    // The whole point: no second row, no second varsling reminder event.
+    expect(repo.save).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(receiptComplete).not.toHaveBeenCalled();
+  });
+
+  it('REPLAY: a receipt pointing at a deleted incident fails loudly (no silent fabrication)', async () => {
+    const s = setup(null);
+    s.receiptBegin.mockResolvedValue({
+      mode: 'replay',
+      responseType: 'EscapeIncident',
+      responseId: 'incident-gone',
+      responsePayload: { id: 'incident-gone' },
+    });
+
+    await expect(
+      s.service.record(
+        TENANT,
+        {
+          siteId: 'site-1',
+          detectedAt: '2026-07-05T09:30:00Z',
+          speciesId: 'species-1',
+          estimatedCount: 40,
+          clientCommandId: 'cccccccc-1111-4222-8333-444444444444',
+          payloadHash: 'hash-1',
+        },
+        USER,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

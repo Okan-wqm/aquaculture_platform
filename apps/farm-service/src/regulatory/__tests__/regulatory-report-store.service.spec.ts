@@ -14,6 +14,9 @@
  */
 import { createMockDataSource } from '@aquaculture/testing';
 
+import { AuditAction } from '../../database/entities/audit-log.entity';
+import type { AuditLogService } from '../../database/services/audit-log.service';
+import type { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
 import { RegulatoryReportStoreService } from '../services/regulatory-report-store.service';
 import {
   RegulatoryFailureClass,
@@ -52,10 +55,20 @@ const baseParams = {
 describe('RegulatoryReportStoreService', () => {
   let service: RegulatoryReportStoreService;
   let mocks: ReturnType<typeof createMockDataSource>;
+  let logWithManager: jest.Mock;
+  let incRegulatorySubmission: jest.Mock;
 
   beforeEach(() => {
     mocks = createMockDataSource();
-    service = new RegulatoryReportStoreService(mocks.mockDataSource);
+    logWithManager = jest.fn().mockResolvedValue(undefined);
+    const auditLog = {
+      logWithManager,
+    } as Partial<AuditLogService> as AuditLogService;
+    incRegulatorySubmission = jest.fn();
+    const metrics = {
+      incRegulatorySubmission,
+    } as Partial<FarmDomainMetricsService> as FarmDomainMetricsService;
+    service = new RegulatoryReportStoreService(mocks.mockDataSource, auditLog, metrics);
   });
 
   describe('recordPending', () => {
@@ -98,6 +111,50 @@ describe('RegulatoryReportStoreService', () => {
       expect(row.referanse).toBeNull();
       expect(row.payload).toBe(seaLicePayload);
     });
+
+    it('refuses to reset an already-SUBMITTED row — the accepted filing + receipt are immutable', async () => {
+      // COMPLIANCE-HIGH-002: a re-entry for an accepted klientReferanse must not
+      // resurrect the row to PENDING or drop its Mattilsynet receipt.
+      const accepted = new RegulatoryReport();
+      accepted.id = 'row-accepted';
+      accepted.tenantId = TENANT_ID;
+      accepted.reportType = RegulatoryReportType.SEA_LICE;
+      accepted.klientReferanse = 'ref-123';
+      accepted.status = RegulatoryReportSubmissionStatus.SUBMITTED;
+      accepted.referanse = 'MT-ACCEPTED-7';
+      mocks.mockManager.findOne.mockResolvedValueOnce(accepted);
+
+      const row = await service.recordPending(TENANT_ID, baseParams);
+
+      expect(row.status).toBe(RegulatoryReportSubmissionStatus.SUBMITTED);
+      expect(row.referanse).toBe('MT-ACCEPTED-7');
+      // returned as-is: no create, no save-mutation of the accepted row
+      expect(mocks.mockManager.create).not.toHaveBeenCalled();
+      expect(mocks.mockManager.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('findByKlientReferanse', () => {
+    it('looks up the submission row by (tenantId, reportType, klientReferanse)', async () => {
+      const existing = new RegulatoryReport();
+      existing.id = 'row-1';
+      mocks.mockManager.findOne.mockResolvedValueOnce(existing);
+
+      const found = await service.findByKlientReferanse(
+        TENANT_ID,
+        RegulatoryReportType.SEA_LICE,
+        'ref-123',
+      );
+
+      expect(found).toBe(existing);
+      expect(mocks.mockManager.findOne).toHaveBeenCalledWith(RegulatoryReport, {
+        where: {
+          tenantId: TENANT_ID,
+          reportType: RegulatoryReportType.SEA_LICE,
+          klientReferanse: 'ref-123',
+        },
+      });
+    });
   });
 
   describe('markSubmitted', () => {
@@ -121,6 +178,24 @@ describe('RegulatoryReportStoreService', () => {
       expect(row.failureClass).toBeNull();
       expect(row.submittedAt).toBeInstanceOf(Date);
       expect(mocks.mockManager.save).toHaveBeenCalledWith(RegulatoryReport, row);
+      // PRODUCT-JOB-MEDIUM-001: the row is locked before the transition.
+      expect(mocks.mockManager.findOneOrFail).toHaveBeenCalledWith(
+        RegulatoryReport,
+        expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
+      );
+      // COMPLIANCE-HIGH-001: the acceptance is audited inside the same txn.
+      expect(logWithManager).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          action: AuditAction.REGULATORY_SUBMITTED,
+          entityType: 'RegulatoryReport',
+          entityId: 'row-1',
+        }),
+      );
+      // OBS-HIGH-001: the acceptance increments the RED submission counter.
+      expect(incRegulatorySubmission).toHaveBeenCalledWith(
+        expect.objectContaining({ outcome: 'submitted' }),
+      );
     });
   });
 
@@ -178,6 +253,24 @@ describe('RegulatoryReportStoreService', () => {
       expect(saved.failureClass).toBe(RegulatoryFailureClass.PERMANENT);
       expect(saved.nextAttemptAt).toBeNull();
       expect(saved.attemptCount).toBe(1);
+      // PRODUCT-JOB-MEDIUM-001: the RMW is serialised by a pessimistic lock.
+      expect(mocks.mockManager.findOneOrFail).toHaveBeenCalledWith(
+        RegulatoryReport,
+        expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
+      );
+      // COMPLIANCE-HIGH-001: the failure is audited on the caller's manager.
+      expect(logWithManager).toHaveBeenCalledWith(
+        mocks.mockManager,
+        expect.objectContaining({
+          action: AuditAction.REGULATORY_FAILED,
+          entityType: 'RegulatoryReport',
+          entityId: 'row-1',
+        }),
+      );
+      // OBS-HIGH-001: a failed submission increments the counter as failed.
+      expect(incRegulatorySubmission).toHaveBeenCalledWith(
+        expect.objectContaining({ outcome: 'failed' }),
+      );
     });
   });
 
@@ -218,6 +311,20 @@ describe('RegulatoryReportStoreService', () => {
       expect(row.submittedAt).toBeInstanceOf(Date);
       expect(row.status).toBe(RegulatoryReportSubmissionStatus.QUEUED);
       expect(row.klientReferanse).toBe('ref-escape');
+      // COMPLIANCE-HIGH-001: the varsling filing is audited atomically with
+      // the outbox enqueue on the caller's manager.
+      expect(logWithManager).toHaveBeenCalledWith(
+        mocks.mockManager,
+        expect.objectContaining({
+          action: AuditAction.REGULATORY_SUBMITTED,
+          entityType: 'RegulatoryReport',
+          userId: 'user-001',
+        }),
+      );
+      // OBS-HIGH-001: a queued varsling increments the counter as queued.
+      expect(incRegulatorySubmission).toHaveBeenCalledWith(
+        expect.objectContaining({ outcome: 'queued' }),
+      );
     });
   });
 });

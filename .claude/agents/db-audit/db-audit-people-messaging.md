@@ -1,5 +1,6 @@
 ---
 name: db-audit-people-messaging
+pedagogy-tier: 2
 description: Lane-D database E2E audit — people/comms partition (hr-service, messaging-service, ai-service) with hr-module (known fragment drift), the messaging-module scaffold, and aquamobil messaging/AI/attendance surfaces — column provenance, parity, incidental defect capture.
 model: opus
 effort: xhigh

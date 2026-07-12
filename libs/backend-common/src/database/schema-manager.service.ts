@@ -760,6 +760,18 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     referenceDataTables: [],
     tables: ['device_tokens', 'notification_logs', 'command_receipts'],
   },
+  {
+    // DB-INFRA-HIGH-003: config-service registered as a platform-level
+    // (source-schema-tenant-column) tenant-erasure target. NOT tenant-cloned
+    // (absent from TENANT_SCOPED_MODULES); per-tenant config rows are deleted
+    // by tenantId on erasure. config_outbox + the erasure proof ledger are its
+    // cross-tenant infrastructure tables.
+    moduleName: 'config',
+    sourceSchema: 'config',
+    infrastructureTables: ['migrations', 'config_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    referenceDataTables: [],
+    tables: ['configurations', 'configuration_history'],
+  },
 ];
 
 /**
@@ -794,6 +806,7 @@ export const PLATFORM_LEVEL_MODULES: ReadonlySet<string> = new Set([
   'admin',
   'auth',
   'notification',
+  'config',
 ]);
 
 export const DEFAULT_TENANT_MODULES: string[] = MODULE_SCHEMAS.filter((m) =>

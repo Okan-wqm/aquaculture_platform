@@ -89,6 +89,15 @@ export const TENANT_ERASURE_TARGET_OPTIONS_BY_SERVICE = {
       'tenant_schemas',
     ],
   },
+  // DB-INFRA-HIGH-003: config-service — per-tenant dynamic configuration.
+  'config-service': {
+    targetService: 'config-service',
+    moduleName: 'config',
+    sourceSchema: 'config',
+    mode: 'source-schema-tenant-column',
+    outbox: { schema: 'config', table: 'config_outbox' },
+    proofLedger: { schema: 'config', table: 'tenant_erasure_target_proofs' },
+  },
 } as const satisfies Record<
   TenantErasureTargetService,
   TenantErasureTargetExecutorOptions

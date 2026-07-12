@@ -68,6 +68,12 @@ const TARGET_PROOF_LEDGER_FORWARD_MIGRATIONS = [
     schema: 'sensor',
     path: 'apps/sensor-service/src/database/migrations/1801000000000-EnsureSensorTenantErasureProofLedger.ts',
   },
+  {
+    // DB-INFRA-HIGH-003: config-service onboarded as an erasure target 2026-07-12.
+    service: 'config-service',
+    schema: 'config',
+    path: 'apps/config-service/src/database/migrations/1801000000000-EnsureConfigTenantErasureProofLedger.ts',
+  },
 ] as const;
 
 function repoFile(relPath: string): string {
@@ -93,13 +99,14 @@ function relative(abs: string): string {
 }
 
 describe('INVARIANT (COMPLIANCE-CRITICAL-001): tenant-erasure target roster is SSoT', () => {
-  it('contains the 10 registry-mandated tenant-data services exactly once', () => {
-    expect(TENANT_ERASURE_TARGET_SERVICE_COUNT).toBe(10);
+  it('contains the 11 registry-mandated tenant-data services exactly once', () => {
+    expect(TENANT_ERASURE_TARGET_SERVICE_COUNT).toBe(11);
     expect([...TENANT_ERASURE_TARGET_SERVICES].sort()).toEqual([
       'admin-api-service',
       'ai-service',
       'alert-engine',
       'billing-service',
+      'config-service',
       'farm-service',
       'hr-service',
       'hydroponics-service',

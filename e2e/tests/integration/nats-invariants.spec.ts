@@ -315,7 +315,7 @@ const APP_TO_SERVICE: Record<string, string | null> = {
   'alert-engine': 'alert_engine',
   'auth-service': 'auth_service',
   'billing-service': 'billing_service',
-  'config-service': null,
+  'config-service': 'config_service',
   'db-migrate': null,
   'event-store-service': null,
   'farm-service': 'farm_service',

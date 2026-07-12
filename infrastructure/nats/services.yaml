@@ -552,3 +552,24 @@ services:
       - "events.security.events.>"
       - "$JS.API.>"
       - "_INBOX.>"
+
+  # ---------------------------------------------------------------------------
+  # config-service: dynamic per-tenant configuration
+  # ---------------------------------------------------------------------------
+  # Onboarded to the event backbone 2026-07-12 (DB-INFRA-HIGH-003) solely to be
+  # a GDPR tenant-erasure target: it consumes TenantErasureRequested via a
+  # JetStream pull consumer ($JS.API.> + _INBOX.>) and publishes the erasure
+  # proof events via its own outbox worker (own cert). No domain events.
+  - name: config_service
+    description: Dynamic per-tenant configuration — GDPR tenant-erasure target (proof publisher)
+    publish:
+      - "events.*.TenantDataErased"
+      - "events.*.TenantDataErasureFailed"
+      - "events.*.TenantErasureBlocked"
+      - "events.platform.schema-migration.>"
+      - "events.security.events.>"
+      - "$JS.API.>"
+      - "_INBOX.>"
+    subscribe:
+      - "$JS.API.>"
+      - "_INBOX.>"

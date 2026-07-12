@@ -171,7 +171,9 @@ export function toSafeImpersonationSession(
 ): SafeImpersonationSession {
   const safe: Record<string, unknown> = { ...session };
   for (const field of IMPERSONATION_SESSION_SECRET_FIELDS) {
-    delete safe[field];
+    // Reflect.deleteProperty: same strip without the `delete` operator on a
+    // computed key (no-dynamic-delete) — repo-established pattern.
+    Reflect.deleteProperty(safe, field);
   }
   return safe as SafeImpersonationSession;
 }

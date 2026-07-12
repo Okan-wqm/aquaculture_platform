@@ -57,6 +57,12 @@
     {
       "class": "agent_contract_docs",
       "owner": "agent-governance",
+      "path": ".claude/agents/_shared/db-audit-methodology.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "agent_contract_docs",
+      "owner": "agent-governance",
       "path": ".claude/agents/admin-expert.md",
       "prettier_managed": true
     },
@@ -244,6 +250,60 @@
       "class": "agent_contract_docs",
       "owner": "agent-governance",
       "path": ".claude/agents/database-reviewer.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "agent_contract_docs",
+      "owner": "agent-governance",
+      "path": ".claude/agents/db-audit/db-audit-farm-operations.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "agent_contract_docs",
+      "owner": "agent-governance",
+      "path": ".claude/agents/db-audit/db-audit-farm-platform.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "agent_contract_docs",
+      "owner": "agent-governance",
+      "path": ".claude/agents/db-audit/db-audit-farm-production.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "agent_contract_docs",
+      "owner": "agent-governance",
+      "path": ".claude/agents/db-audit/db-audit-identity-billing.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "agent_contract_docs",
+      "owner": "agent-governance",
+      "path": ".claude/agents/db-audit/db-audit-ops-infra.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "agent_contract_docs",
+      "owner": "agent-governance",
+      "path": ".claude/agents/db-audit/db-audit-people-messaging.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "agent_contract_docs",
+      "owner": "agent-governance",
+      "path": ".claude/agents/db-audit/db-audit-platform-admin.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "agent_contract_docs",
+      "owner": "agent-governance",
+      "path": ".claude/agents/db-audit/db-audit-sensor.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "agent_contract_docs",
+      "owner": "agent-governance",
+      "path": ".claude/agents/db-audit/README.md",
       "prettier_managed": true
     },
     {
@@ -1570,6 +1630,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/impersonation/services/__tests__/impersonation.service.lifecycle.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/impersonation/services/__tests__/impersonation.service.token-redaction.spec.ts",
       "prettier_managed": true
     },
     {
@@ -2994,6 +3060,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/app.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/audit/__tests__/audit.service.strict.spec.ts",
       "prettier_managed": true
     },
     {
@@ -6163,6 +6235,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/database/migrations/1800600000000-CreateConfigOutbox.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/database/migrations/1801000000000-EnsureConfigTenantErasureProofLedger.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/filters/global-exception.filter.ts",
       "prettier_managed": true
     },
@@ -6188,6 +6272,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/config-service/src/main.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/outbox/config-outbox.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/outbox/config-outbox.module.ts",
       "prettier_managed": true
     },
     {
@@ -6361,6 +6457,30 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/event-store-service/src/crypto-shred/__tests__/tenant-payload-crypto.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/event-store-service/src/crypto-shred/crypto-shred.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/event-store-service/src/crypto-shred/entities/tenant-payload-key.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/event-store-service/src/crypto-shred/tenant-payload-crypto.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/event-store-service/src/database/data-source.ts",
       "prettier_managed": true
     },
@@ -6527,6 +6647,36 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/event-store-service/src/migrations/1800200000000-ProjectionRebuilds.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/event-store-service/src/migrations/1800300000000-CreateEventStoreOutbox.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/event-store-service/src/migrations/1801000000000-EnsureEventStoreTenantErasureProofLedger.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/event-store-service/src/migrations/1801100000000-CreateTenantPayloadKeys.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/event-store-service/src/outbox/event-store-outbox.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/event-store-service/src/outbox/event-store-outbox.module.ts",
       "prettier_managed": true
     },
     {
@@ -17637,6 +17787,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/hr-service/src/hr/__tests__/hr.resolver.employee-pii.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/hr-service/src/hr/__tests__/payroll.integration.spec.ts",
       "prettier_managed": true
     },
@@ -22763,6 +22919,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1806300000000-ScadaTenantIsolation.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1807000000000-CreateVfdCommandAuditLog.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/deploy-artifact/__tests__/artifact-immutability.spec.ts",
       "prettier_managed": true
     },
@@ -23957,6 +24125,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/scada-runtime/__tests__/scada-storage-tenant-isolation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/scada-runtime/__tests__/tag-subscription-tenant-isolation.spec.ts",
       "prettier_managed": true
     },
@@ -24695,6 +24869,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/vfd/entities/vfd-command-audit-log.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/vfd/entities/vfd-device.entity.ts",
       "prettier_managed": true
     },
@@ -24762,6 +24942,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/vfd/resolvers/vfd-reading.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd/services/__tests__/vfd-command.audit.spec.ts",
       "prettier_managed": true
     },
     {
@@ -29335,6 +29521,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-07-11-infra-high-003-gdpr-erasure-cascade.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-07-12-event-store-crypto-shred-design.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/multi-agent-architecture.md",
       "prettier_managed": true
     },
@@ -30980,6 +31178,60 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/database-reviewer/2026-04-28-core-platform-review.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/db-audit/2026-07-11-database-e2e-audit-synthesis.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/db-audit/db-audit-farm-operations/2026-07-11-farm-operations-stock.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/db-audit/db-audit-farm-platform/2026-07-11-farm-platform-assets.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/db-audit/db-audit-farm-production/2026-07-11-farm-production-biology.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/db-audit/db-audit-identity-billing/2026-07-11-identity-rbac-billing.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/db-audit/db-audit-ops-infra/2026-07-11-ops-infra-crosscut.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/db-audit/db-audit-people-messaging/2026-07-11-hr-messaging-ai.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/db-audit/db-audit-platform-admin/2026-07-11-platform-admin-notification.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/db-audit/db-audit-sensor/2026-07-11-sensor-industrial.md",
       "prettier_managed": true
     },
     {
@@ -39258,6 +39510,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/access-log-middleware-mounted.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/access-log-stream-shape.spec.ts",
       "prettier_managed": true
     },
@@ -39708,6 +39966,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/farm-tank-count-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/farm-wq-template-nondestructive-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -40045,6 +40309,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/plan-quota-enforcement.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/platform-entity-registry-parity.spec.ts",
       "prettier_managed": true
     },
     {
@@ -52710,10 +52980,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8639,
+  "file_count": 8684,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8464,
-  "managed_file_list_sha256": "912392ac64f098e6e482bdf81f46564ba896a9b6f2f08fd37c7cbe890bfea834",
+  "managed_count": 8509,
+  "managed_file_list_sha256": "292775b69622b3407b1f53bdc4c154f778fedee51746dc14fc2fd8b9cc441ebd",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

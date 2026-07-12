@@ -135,7 +135,8 @@ describe('ToolExecutorService (AISAFETY-MEDIUM-017)', () => {
     await service.executeTool('read_ph', {}, ctx('allowed'));
 
     // Read-only path calls logToolExecution WITHOUT the strict flag.
-    const call = logToolExecution.mock.calls.find((c) => c[0] === 'read_ph');
+    const calls = logToolExecution.mock.calls as unknown[][];
+    const call = calls.find((c) => c[0] === 'read_ph');
     expect(call).toBeDefined();
     expect(call![5]).toBeUndefined();
   });

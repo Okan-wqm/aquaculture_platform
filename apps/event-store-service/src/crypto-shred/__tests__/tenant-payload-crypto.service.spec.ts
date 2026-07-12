@@ -18,16 +18,18 @@ const TENANT_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 /** In-memory TenantPayloadKey repository backing the service's persistence. */
 function makeFakeRepo(store: Map<string, TenantPayloadKey> = new Map()) {
   const repo = {
-    findOne: jest.fn(async ({ where }: { where: Record<string, unknown> }) => {
+    // Promise.resolve (not async) — these fakes never await, and require-await
+    // correctly flags an async body with no await expression.
+    findOne: jest.fn(({ where }: { where: Record<string, unknown> }) => {
       const row = store.get(where.tenantId as string);
-      if (!row) return null;
+      if (!row) return Promise.resolve(null);
       // Emulate the `shreddedAt: IsNull()` filtered read.
-      if ('shreddedAt' in where && row.shreddedAt) return null;
-      return row;
+      if ('shreddedAt' in where && row.shreddedAt) return Promise.resolve(null);
+      return Promise.resolve(row);
     }),
-    save: jest.fn(async (row: TenantPayloadKey) => {
+    save: jest.fn((row: TenantPayloadKey) => {
       store.set(row.tenantId, row);
-      return row;
+      return Promise.resolve(row);
     }),
     createQueryBuilder: jest.fn(() => {
       let pending: Partial<TenantPayloadKey> = {};
@@ -39,15 +41,15 @@ function makeFakeRepo(store: Map<string, TenantPayloadKey> = new Map()) {
           return qb;
         },
         orIgnore: () => qb,
-        execute: async () => {
+        execute: () => {
           const id = pending.tenantId as string;
-          if (store.has(id)) return { identifiers: [] };
+          if (store.has(id)) return Promise.resolve({ identifiers: [] });
           store.set(id, {
             ...(pending as TenantPayloadKey),
             createdAt: new Date(),
             shreddedAt: null,
           });
-          return { identifiers: [{ tenantId: id }] };
+          return Promise.resolve({ identifiers: [{ tenantId: id }] });
         },
       };
       return qb;

@@ -116,7 +116,7 @@ describe('AlarmStorageService — tenant fencing', () => {
 describe('DaqStorageService — tenant fencing', () => {
   it('addValues stamps tenant_id as the leading column of every row', async () => {
     const { dataSource, calls } = makeDataSourceMock();
-    const svc = new DaqStorageService(dataSource);
+    const svc = new DaqStorageService(dataSource, null);
 
     await svc.addValues(TENANT_A, 'device-1', [
       { tagId: 'tag-1', value: 10, timestamp: 1_700_000_000_000, quality: 'good' },
@@ -128,7 +128,7 @@ describe('DaqStorageService — tenant fencing', () => {
 
   it('queryValues fences tenant as the first predicate', async () => {
     const { dataSource, calls } = makeDataSourceMock(() => []);
-    const svc = new DaqStorageService(dataSource);
+    const svc = new DaqStorageService(dataSource, null);
 
     await svc.queryValues(TENANT_B, ['tag-1'], new Date(0), new Date(1));
 
@@ -141,7 +141,7 @@ describe('DaqStorageService — tenant fencing', () => {
     ['queryValues', (s: DaqStorageService) => s.queryValues('', ['t'], new Date(0), new Date(1))],
   ])('%s fails closed on an empty tenantId', async (_name, call) => {
     const { dataSource } = makeDataSourceMock();
-    const svc = new DaqStorageService(dataSource);
+    const svc = new DaqStorageService(dataSource, null);
     await expect(call(svc)).rejects.toThrow(/tenantId is required/);
   });
 });

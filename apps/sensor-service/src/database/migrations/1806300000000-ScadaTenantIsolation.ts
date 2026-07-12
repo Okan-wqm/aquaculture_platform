@@ -36,8 +36,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * `id` stays the primary key on the two alarm tables (alarm ids are globally
  * unique UUIDs), so `ON CONFLICT (id)` upserts are unaffected.
  */
-export class ScadaTenantIsolation1806000000000 implements MigrationInterface {
-  name = 'ScadaTenantIsolation1806000000000';
+export class ScadaTenantIsolation1806300000000 implements MigrationInterface {
+  name = 'ScadaTenantIsolation1806300000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // --- scada_alarms: add tenant discriminator, enforce, index ---

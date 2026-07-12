@@ -1,5 +1,6 @@
 ---
 name: db-audit-identity-billing
+pedagogy-tier: 2
 description: Lane-D database E2E audit — identity/billing partition (auth-service incl. tenant RBAC, billing-service, the shared-schema canonical tables, libs shared entities) and the tenant-admin frontend — column provenance, parity, incidental defect capture.
 model: opus
 effort: xhigh

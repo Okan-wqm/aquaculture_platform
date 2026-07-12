@@ -9303,6 +9303,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1805400000000-DropTankBatchCurrentQuantityMirror.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -41496,6 +41502,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/quality/lint-target-inventory.json",
       "prettier_managed": true
     },
@@ -52394,7 +52412,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "a86f22efa69c9709c00d5b66307499be7cc06db4afd009990a96ec3f59f979fd",
+      "content_sha256": "00c8ae989bebbb735a9b3425c0960aecd5ba3e8b8059ae36f6050883bf658237",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",
@@ -53064,10 +53082,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8698,
+  "file_count": 8701,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8523,
-  "managed_file_list_sha256": "cbb7ec8e76981be87ccd80d8175286caac443e0a43ebf3c0fd74f99a0c54091e",
+  "managed_count": 8526,
+  "managed_file_list_sha256": "1d32dff67da5b28f3a95d19a126c8a1c2baa1c929219be9f19c1d00c7af32320",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

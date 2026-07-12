@@ -695,6 +695,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'cleanup_run_steps',
       'cleanup_run_events',
       'cleanup_run_evidence',
+      // DB-ADMIN-MEDIUM-002: schema-lifecycle backup ledger — same class as
+      // schema_backups/schema_restores above (retired-tenant-schema backups).
+      'retired_schema_backups',
       ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
     ],
     referenceDataTables: [],
@@ -740,6 +743,22 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'login_attempts',
       'api_usage_logs',
       'user_sessions',
+      // DB-ADMIN-MEDIUM-002: admin-schema data tables that were absent from this
+      // registry, so the ADR-012 drift validator + orphan-drop presence checks
+      // did not cover them (an unregistered real table is neither protected nor
+      // reconciled). All are @Entity(..., { schema: 'admin' }).
+      'discount_codes',
+      'module_pricing',
+      'plan_definitions',
+      'plan_module_assignments',
+      'threat_intelligence',
+      'retention_policies',
+      'database_metrics',
+      'slow_query_logs',
+      'ingest_backend_policy_state',
+      'announcements',
+      'job_queues',
+      'system_versions',
     ],
   },
   {

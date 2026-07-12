@@ -243,6 +243,7 @@ export default {
         '<rootDir>/deploy-startup-budget-ssot.spec.ts',
         '<rootDir>/edge-v2-plan-contract.spec.ts',
         '<rootDir>/platform-service-catalog-parity.spec.ts',
+        '<rootDir>/admin-entity-registry-parity.spec.ts',
         '<rootDir>/farm-service-migration-array-completeness.spec.ts',
         '<rootDir>/three-store-invariants.spec.ts',
         '<rootDir>/protected-tables-guard.spec.ts',

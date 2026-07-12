@@ -24,9 +24,26 @@ import { useProcessStore } from '../../../store/processStore';
 import { useScadaPackageStore } from '../../../store/scada';
 
 // --- hoisted spies shared between the vi.mock factories and the assertions ---
-const spies = vi.hoisted(() => ({
+const spies = vi.hoisted(() => {
+  // Explicit result shape: the default factory's `automationResults: []`
+  // would otherwise infer never[], rejecting the failure-path
+  // mockResolvedValueOnce payloads at compile time.
+  interface BundleDeployResult {
+    success: boolean;
+    message?: string;
+    automationResults: Array<{ programId: string; success: boolean; message?: string }>;
+    scadaResult?: { packageId: string; success: boolean; message?: string };
+  }
+  return {
   deployProcess: vi.fn(async () => ({ success: true })),
-  deployScada: vi.fn(async () => ({ success: true, message: 'Bundle staged', automationResults: [], scadaResult: { packageId: 'pkg-1', success: true } })),
+  deployScada: vi.fn(
+    async (): Promise<BundleDeployResult> => ({
+      success: true,
+      message: 'Bundle staged',
+      automationResults: [],
+      scadaResult: { packageId: 'pkg-1', success: true },
+    }),
+  ),
   createPkg: vi.fn(async () => ({ id: 'new-pkg' })),
   updatePkg: vi.fn(async () => ({ id: 'pkg-1' })),
   createProcess: vi.fn(async () => ({ success: true, process: { id: 'proc-1' } })),
@@ -34,7 +51,8 @@ const spies = vi.hoisted(() => ({
   getProcess: vi.fn(async () => ({ id: 'proc-1', name: 'Test Proc', status: 'draft', nodes: [], edges: [] })),
   linkedPackages: [] as Array<{ id: string; processId?: string; packageData: unknown }>,
   routeProcessId: 'proc-1',
-}));
+  };
+});
 
 vi.mock('react-router-dom', () => {
   // The real useSearchParams returns a STABLE tuple across renders (the router

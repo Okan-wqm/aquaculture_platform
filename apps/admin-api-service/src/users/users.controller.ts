@@ -36,15 +36,13 @@ import {
 
 import { PlatformAdminOnly } from '../decorators/roles.decorator';
 
-import { InviteUserDto, UpdateUserPermissionsDto, UserWithPermissionsDto } from './dto/invite-user.dto';
+import { InviteUserDto } from './dto/invite-user.dto';
 import { ResetPasswordByAdminDto } from './dto/reset-password.dto';
-import { PanelPermissions, DEFAULT_USER_PERMISSIONS } from './entities/user-permissions.entity';
 import {
   RoleTemplateService,
   Permission,
   RoleTemplate,
 } from './services/role-template.service';
-import { UserPermissionsService } from './services/user-permissions.service';
 import {
   UserProvisioningService,
   InviteUserDto as ProvisioningInviteUserDto,
@@ -212,7 +210,6 @@ export class UsersController {
     private readonly usersService: UsersService,
     private readonly userProvisioningService: UserProvisioningService,
     private readonly roleTemplateService: RoleTemplateService,
-    private readonly userPermissionsService: UserPermissionsService,
   ) {}
 
   /**
@@ -523,37 +520,13 @@ export class UsersController {
       throw new BadRequestException(result.error || 'Failed to invite user');
     }
 
-    // Set initial permissions if provided
-    if (dto.permissions) {
-      try {
-        // First create default permissions
-        await this.userPermissionsService.createDefaultPermissions(
-          result.userId,
-          tenantId,
-          req.user.id,
-          false,
-        );
-
-        // Then update with provided permissions
-        await this.userPermissionsService.updatePermissions(
-          result.userId,
-          tenantId,
-          dto.permissions,
-          req.user.id,
-        );
-      } catch (error) {
-        // Log error but don't fail the invitation
-        this.logger.error('Failed to set initial permissions', error instanceof Error ? error.stack : error);
-      }
-    } else {
-      // Create default permissions
-      await this.userPermissionsService.createDefaultPermissions(
-        result.userId,
-        tenantId,
-        req.user.id,
-        false,
-      );
-    }
+    // RBAC-HIGH-009: the former `shared.user_permissions` write here had ZERO
+    // authorization effect — no guard or token-mint path reads that table;
+    // enforcement is the auth-service tenant-RBAC (auth.tenant_role_permissions
+    // folded into the JWT `resourcePermissions` claim). Writing it made the
+    // operator believe a capability was granted/revoked when nothing changed.
+    // The invited user's real authority comes from the role assigned by the
+    // provisioning flow above; the phantom permission write is removed.
 
     const deliveryStatus =
       dto.sendInvitationEmail === false ? 'not_requested' : result.deliveryStatus ?? 'queued';
@@ -568,139 +541,14 @@ export class UsersController {
     };
   }
 
-  /**
-   * Get permission categories for frontend checkbox display
-   * Returns structured permission categories with labels
-   */
-  @Get('permission-categories')
-  @PlatformAdminOnly()
-  getPermissionCategories(): { category: string; permissions: string[]; label: string }[] {
-    return this.userPermissionsService.getPermissionCategories();
-  }
-
-  /**
-   * Get user permissions by user ID (TENANT_ADMIN)
-   */
-  @Get(':id/permissions')
-  @PlatformAdminOnly()
-  async getUserPermissions(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Req() req: { user: { tenantId?: string } },
-  ): Promise<{ userId: string; permissions: PanelPermissions }> {
-    const tenantId = req.user.tenantId;
-    if (!tenantId) {
-      throw new BadRequestException('Tenant context required for this operation');
-    }
-
-    const permissions = await this.userPermissionsService.getUserPermissions(id, tenantId);
-
-    if (!permissions) {
-      // Return default permissions if not found
-      return {
-        userId: id,
-        permissions: DEFAULT_USER_PERMISSIONS,
-      };
-    }
-
-    return {
-      userId: id,
-      permissions: permissions.permissions,
-    };
-  }
-
-  /**
-   * Update user permissions (TENANT_ADMIN)
-   * Allows tenant admin to toggle individual permission checkboxes
-   */
-  @Put(':id/permissions')
-  @PlatformAdminOnly()
-  async updateUserPermissions(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateUserPermissionsDto,
-    @Req() req: { user: { id: string; tenantId?: string } },
-  ): Promise<{ success: boolean; userId: string; permissions: PanelPermissions }> {
-    const tenantId = req.user.tenantId;
-    if (!tenantId) {
-      throw new BadRequestException('Tenant context required for this operation');
-    }
-
-    // Verify the user exists and belongs to the tenant
-    const user = await this.usersService.getUserById(id);
-    if (user.tenantId !== tenantId) {
-      throw new BadRequestException('Cannot modify permissions for users outside your tenant');
-    }
-
-    // Check if permissions exist, create if not
-    const permissions = await this.userPermissionsService.getUserPermissions(id, tenantId);
-
-    if (!permissions) {
-      // Create default permissions first
-      await this.userPermissionsService.createDefaultPermissions(
-        id,
-        tenantId,
-        req.user.id,
-        false,
-      );
-    }
-
-    // Update permissions
-    const updated = await this.userPermissionsService.updatePermissions(
-      id,
-      tenantId,
-      dto.permissions,
-      req.user.id,
-    );
-
-    return {
-      success: true,
-      userId: id,
-      permissions: updated.permissions,
-    };
-  }
-
-  /**
-   * Get all users with their permissions for a tenant (TENANT_ADMIN)
-   */
-  @Get('tenant/users-with-permissions')
-  @PlatformAdminOnly()
-  async getTenantUsersWithPermissions(
-    @Req() req: { user: { tenantId?: string } },
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ): Promise<{ data: UserWithPermissionsDto[]; total: number }> {
-    const tenantId = req.user.tenantId;
-    if (!tenantId) {
-      throw new BadRequestException('Tenant context required for this operation');
-    }
-
-    // Get users from tenant
-    const usersResult = await this.usersService.listUsers(
-      { tenantId, status: 'all' },
-      page ? parseInt(page, 10) : 1,
-      limit ? parseInt(limit, 10) : 50,
-    );
-
-    // Get permissions for all users
-    const allPermissions = await this.userPermissionsService.getTenantUsersPermissions(tenantId);
-    const permissionsMap = new Map(
-      allPermissions.map(p => [p.userId, p.permissions]),
-    );
-
-    // Merge user data with permissions
-    const usersWithPermissions: UserWithPermissionsDto[] = usersResult.data.map(user => ({
-      id: user.id,
-      email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      isActive: user.isActive,
-      permissions: permissionsMap.get(user.id) || DEFAULT_USER_PERMISSIONS,
-      invitedAt: user.createdAt,
-      lastLoginAt: user.lastLoginAt || undefined,
-    }));
-
-    return {
-      data: usersWithPermissions,
-      total: usersResult.total,
-    };
-  }
+  // RBAC-HIGH-009: the phantom-permission endpoints (permission-categories,
+  // GET/PUT :id/permissions, tenant/users-with-permissions) were REMOVED.
+  // They read/wrote `shared.user_permissions`, a store NO guard or token-mint
+  // path consumes — enforcement is the auth-service tenant-RBAC folded into the
+  // JWT `resourcePermissions` claim — so toggling them changed no real access
+  // (security theater). They were also structurally unreachable: gated
+  // @PlatformAdminOnly() (SUPER_ADMIN) yet requiring `req.user.tenantId`, which
+  // a SUPER_ADMIN never carries, so every call already 400'd. The `shared`
+  // table itself is a canonical protected table; its removal is governed
+  // (ADR + architectural-arbiter) and tracked separately.
 }

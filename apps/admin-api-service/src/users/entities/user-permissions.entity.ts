@@ -8,6 +8,20 @@ import {
 } from 'typeorm';
 
 /**
+ * RBAC-HIGH-009 — persistence mapping ONLY.
+ *
+ * `shared.user_permissions` is a phantom authorization store: NO guard or
+ * token-mint path reads it (enforcement is the auth-service tenant-RBAC folded
+ * into the JWT `resourcePermissions` claim). Its write/read service, the
+ * SUPER_ADMIN controller endpoints, and the FE surface were removed. This
+ * entity is retained SOLELY so the schema-drift validator keeps a shape for
+ * the canonical protected `shared.user_permissions` table — dropping the table
+ * is governed (ADR + architectural-arbiter) and tracked separately. Do NOT
+ * reintroduce a service or endpoint over this entity; per-user authority lives
+ * in `auth.tenant_role_permissions`.
+ */
+
+/**
  * Permission categories that map to frontend panel sections
  */
 export interface PanelPermissions {
@@ -123,103 +137,3 @@ export class UserPermissions {
   @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
-
-/**
- * Default permissions for new users (minimal access)
- */
-export const DEFAULT_USER_PERMISSIONS: PanelPermissions = {
-  dashboard: { view: true, viewAnalytics: false, exportReports: false },
-  farms: { view: true, create: false, edit: false, delete: false },
-  batches: {
-    view: true,
-    create: false,
-    edit: false,
-    delete: false,
-    recordMortality: false,
-    transfer: false,
-  },
-  feeding: {
-    view: true,
-    createRecords: false,
-    manageSchedules: false,
-    manageInventory: false,
-  },
-  sensors: {
-    view: true,
-    configure: false,
-    manageAlerts: false,
-    viewRawData: false,
-  },
-  maintenance: {
-    view: true,
-    createWorkOrders: false,
-    completeWorkOrders: false,
-    manageSpareParts: false,
-    manageSchedules: false,
-  },
-  hr: {
-    view: false,
-    manageEmployees: false,
-    manageAttendance: false,
-    manageLeave: false,
-    viewPayroll: false,
-    managePayroll: false,
-  },
-  reports: { view: true, export: false, createCustom: false },
-  settings: {
-    viewTenantSettings: false,
-    editTenantSettings: false,
-    manageIntegrations: false,
-  },
-  users: { view: false, invite: false, editPermissions: false, deactivate: false },
-};
-
-/**
- * Full permissions for TENANT_ADMIN
- */
-export const TENANT_ADMIN_PERMISSIONS: PanelPermissions = {
-  dashboard: { view: true, viewAnalytics: true, exportReports: true },
-  farms: { view: true, create: true, edit: true, delete: true },
-  batches: {
-    view: true,
-    create: true,
-    edit: true,
-    delete: true,
-    recordMortality: true,
-    transfer: true,
-  },
-  feeding: {
-    view: true,
-    createRecords: true,
-    manageSchedules: true,
-    manageInventory: true,
-  },
-  sensors: {
-    view: true,
-    configure: true,
-    manageAlerts: true,
-    viewRawData: true,
-  },
-  maintenance: {
-    view: true,
-    createWorkOrders: true,
-    completeWorkOrders: true,
-    manageSpareParts: true,
-    manageSchedules: true,
-  },
-  hr: {
-    view: true,
-    manageEmployees: true,
-    manageAttendance: true,
-    manageLeave: true,
-    viewPayroll: true,
-    managePayroll: true,
-  },
-  reports: { view: true, export: true, createCustom: true },
-  settings: {
-    viewTenantSettings: true,
-    editTenantSettings: true,
-    manageIntegrations: true,
-  },
-  users: { view: true, invite: true, editPermissions: true, deactivate: true },
-};

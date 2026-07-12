@@ -1,6 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { Injectable } from '@nestjs/common';
 
 /**
  * Permission definition
@@ -27,27 +25,11 @@ export interface RoleTemplate {
 }
 
 /**
- * Custom role for a tenant
- */
-export interface TenantCustomRole {
-  id: string;
-  tenantId: string;
-  name: string;
-  description: string;
-  baseRole: string;
-  permissions: string[];
-  createdBy: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-/**
  * Role Template Service
  * Manages role templates and custom tenant roles
  */
 @Injectable()
 export class RoleTemplateService {
-  private readonly logger = new Logger(RoleTemplateService.name);
 
   // System-wide permissions
   private readonly permissions: Permission[] = [
@@ -280,10 +262,15 @@ export class RoleTemplateService {
     },
   ];
 
-  constructor(
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
-  ) {}
+  // RBAC-MEDIUM-011: this is a pure in-memory role/permission CATALOGUE
+  // reference (getAllPermissions/getPermissionsByCategory/getRoleTemplates/…),
+  // consumed read-only by the SUPER_ADMIN role-reference endpoints. It has no
+  // DataSource: the former createCustomRole/getTenantCustomRoles wrote/read an
+  // unqualified `tenant_custom_roles` table that NO migration creates (every
+  // call threw "relation does not exist" or swallowed it and returned []) and
+  // had zero callers — dead code, removed. Tenant-configurable roles are owned
+  // by the auth-service tenant-RBAC system (auth.tenant_roles /
+  // tenant_role_permissions), NOT this catalogue.
 
   /**
    * Get all system permissions
@@ -370,96 +357,6 @@ export class RoleTemplateService {
     }
 
     return role.permissions;
-  }
-
-  /**
-   * Create a custom role for a tenant
-   */
-  async createCustomRole(
-    tenantId: string,
-    name: string,
-    description: string,
-    baseRole: string,
-    permissions: string[],
-    createdBy: string,
-  ): Promise<TenantCustomRole> {
-    // Validate base role
-    const baseTemplate = this.getRoleTemplate(baseRole);
-    if (!baseTemplate) {
-      throw new Error(`Invalid base role: ${baseRole}`);
-    }
-
-    // Custom roles can only have permissions from base role or less
-    const basePermissions = this.getRolePermissions(baseRole);
-    const validPermissions = permissions.filter((p) =>
-      basePermissions.includes(p),
-    );
-
-    // Insert custom role
-    const result = await this.dataSource.query(
-      `
-      INSERT INTO tenant_custom_roles (
-        id, tenant_id, name, description, base_role, permissions,
-        created_by, created_at, updated_at
-      ) VALUES (
-        gen_random_uuid(), $1, $2, $3, $4, $5,
-        $6, NOW(), NOW()
-      )
-      RETURNING *
-    `,
-      [
-        tenantId,
-        name,
-        description,
-        baseRole,
-        JSON.stringify(validPermissions),
-        createdBy,
-      ],
-    );
-
-    this.logger.log(
-      `Created custom role '${name}' for tenant ${tenantId} based on ${baseRole}`,
-    );
-
-    return {
-      id: result[0].id,
-      tenantId: result[0].tenant_id,
-      name: result[0].name,
-      description: result[0].description,
-      baseRole: result[0].base_role,
-      permissions: JSON.parse(result[0].permissions),
-      createdBy: result[0].created_by,
-      createdAt: result[0].created_at,
-      updatedAt: result[0].updated_at,
-    };
-  }
-
-  /**
-   * Get custom roles for a tenant
-   */
-  async getTenantCustomRoles(tenantId: string): Promise<TenantCustomRole[]> {
-    try {
-      const result = await this.dataSource.query(
-        `SELECT * FROM tenant_custom_roles WHERE tenant_id = $1 ORDER BY name`,
-        [tenantId],
-      );
-
-      return result.map((row: Record<string, unknown>) => ({
-        id: row['id'] as string,
-        tenantId: row['tenant_id'] as string,
-        name: row['name'] as string,
-        description: row['description'] as string,
-        baseRole: row['base_role'] as string,
-        permissions: JSON.parse(row['permissions'] as string),
-        createdBy: row['created_by'] as string,
-        createdAt: row['created_at'] as Date,
-        updatedAt: row['updated_at'] as Date,
-      }));
-    } catch (error) {
-      // Table might not exist yet
-      this.logger.warn(`Could not fetch custom roles: ${(error as Error).message}`);
-      return [];
-    }
   }
 
   /**

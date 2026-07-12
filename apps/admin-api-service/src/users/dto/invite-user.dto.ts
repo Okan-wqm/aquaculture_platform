@@ -1,11 +1,14 @@
-import { Type } from 'class-transformer';
-import { IsEmail, IsString, IsOptional, IsObject, ValidateNested, IsBoolean } from 'class-validator';
-
-import { PanelPermissions } from '../entities/user-permissions.entity';
+import { IsEmail, IsString, IsOptional, IsBoolean } from 'class-validator';
 
 /**
- * DTO for inviting a new user to the tenant
- * TENANT_ADMIN uses this to create users with specific permissions
+ * DTO for inviting a new user to the tenant.
+ *
+ * RBAC-HIGH-009: the former `permissions?: Partial<PanelPermissions>` field
+ * (and the UpdateUserPermissionsDto / UserWithPermissionsDto response DTOs)
+ * were removed. They fed the phantom `shared.user_permissions` store, which
+ * no guard or token-mint path consumes — the invited user's real authority
+ * comes from the role assigned by the provisioning flow (auth-service
+ * tenant-RBAC), not a panel-permission matrix persisted here.
  */
 export class InviteUserDto {
   @IsEmail({}, { message: 'Valid email address is required' })
@@ -19,33 +22,7 @@ export class InviteUserDto {
   @IsOptional()
   lastName?: string;
 
-  @IsObject()
-  @IsOptional()
-  permissions?: Partial<PanelPermissions>;
-
   @IsBoolean()
   @IsOptional()
   sendInvitationEmail?: boolean = true;
-}
-
-/**
- * DTO for updating user permissions
- */
-export class UpdateUserPermissionsDto {
-  @IsObject()
-  permissions!: Partial<PanelPermissions>;
-}
-
-/**
- * Response DTO for user with permissions
- */
-export class UserWithPermissionsDto {
-  id!: string;
-  email!: string;
-  firstName?: string;
-  lastName?: string;
-  isActive!: boolean;
-  permissions!: PanelPermissions;
-  invitedAt!: Date;
-  lastLoginAt?: Date;
 }

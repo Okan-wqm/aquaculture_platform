@@ -341,3 +341,30 @@ Pinned by `tenant-status-refresh-gate.spec.ts` (SUSPENDED/DEACTIVATED/CANCELLED/
 **Rule violated:** A frontend client must speak the backend's exact contract (field names, request DTO shape, response envelope, enum values); an invented read model that never matches the API is a non-functional feature masquerading as complete.
 
 **Fix:** Rewrote the impersonation types to MIRROR the admin-api entities field-for-field and the API client to speak the exact controller DTOs: `startSession` sends `{targetTenantId, targetUserId?, reason:<enum>, reasonDetails?}` (admin identity from the JWT, never the body); list results read `{items,total}`; `terminateSession(id, reason)` sends only the whitelisted `{reason}` and is required in the confirm dialog; `getSessionActions` reads the `actionsPerformed` jsonb off `GET /sessions/:id` (the log lives on the session row — no phantom `/actions` endpoint); the start modal's Reason is the backend enum with free text in `reasonDetails`; permission revoke is keyed by grantee `superAdminId`; status filters/badges use `terminated`; the false-affordance "Allowed Actions" checkboxes (never sent, never enforced) were removed. FE type-check + admin-panel lint clean; the admin-api impersonation controller/service specs (68) stay green.
+
+## RBAC-HIGH-009
+
+**Title:** `shared.user_permissions` was a phantom permission store whose writes had ZERO authorization effect: the admin-api `UserPermissionsService` + `PanelPermissions` matrix persisted a per-user capability grid that NO guard or token-mint path reads (enforcement is the auth-service tenant-RBAC folded into the JWT `resourcePermissions` claim). An operator toggling a permission here believed they granted/revoked a capability that stayed exactly as the user's real role dictated — security theater. The endpoints were also structurally unreachable: gated `@PlatformAdminOnly()` (SUPER_ADMIN) yet requiring `req.user.tenantId`, which a SUPER_ADMIN never carries, so every call already 400'd. #931 residue.
+
+**Layer:** 2 (phantom authorization store / #931 residue)
+**Evidence:**
+- `apps/admin-api-service/src/users/services/user-permissions.service.ts` (deleted)
+- `apps/admin-api-service/src/users/users.controller.ts`
+- `apps/admin-api-service/src/users/dto/invite-user.dto.ts`
+- `apps/admin-api-service/src/users/entities/user-permissions.entity.ts`
+
+**Rule violated:** A permission-management surface must write to the store the enforcement path actually reads; a write with no authorization effect is security theater and must be removed, not left to mislead operators.
+
+**Fix:** Removed the entire phantom write/read surface — the four unreachable endpoints (`permission-categories`, `GET`/`PUT :id/permissions`, `tenant/users-with-permissions`), the phantom permission writes inside `POST users/tenant/invite` (real user provisioning retained), the `UserPermissionsService` (+ its spec), and the phantom DTOs (`UpdateUserPermissionsDto`, `UserWithPermissionsDto`, and `InviteUserDto.permissions`). The `UserPermissions` entity is retained ONLY as the persistence mapping for the canonical protected `shared.user_permissions` table (with a doc comment forbidding a new service/endpoint over it); the misleading "permissions managed via user_permissions table" comments in tenant-provisioning were corrected to point at the auth-service tenant-RBAC. **Tracked debt (owner: auth-security-expert; governance: ADR + architectural-arbiter):** dropping the `shared.user_permissions` table + this entity, which requires updating the `PROTECTED_TABLES`/`SHARED_SCHEMA_TABLES` SSoT and a governed migration — deliberately NOT done here (shared-schema changes are gated). admin-api tsc + lint clean; tenant-provisioning specs green.
+
+## RBAC-MEDIUM-011
+
+**Title:** `RoleTemplateService.createCustomRole`/`getTenantCustomRoles` were dead code writing/reading an unqualified `tenant_custom_roles` table that NO migration creates — `createCustomRole` would throw "relation does not exist" and `getTenantCustomRoles` swallowed the same error and returned `[]` — with zero callers anywhere in the repo. #931 residue in admin-api.
+
+**Layer:** 3 (dead code / nonexistent table)
+**Evidence:**
+- `apps/admin-api-service/src/users/services/role-template.service.ts`
+
+**Rule violated:** No code path may target a table that no migration creates; dead methods with zero callers are removed, not left as latent runtime errors.
+
+**Fix:** Deleted `createCustomRole`, `getTenantCustomRoles`, and the `TenantCustomRole` interface. With the raw-SQL paths gone, `RoleTemplateService` no longer needs a `DataSource` (or a `Logger`) — the injection, constructor, and the `@nestjs/typeorm`/`typeorm` imports were removed, leaving a pure in-memory role/permission CATALOGUE reference consumed read-only by the SUPER_ADMIN role-reference endpoints. Tenant-configurable roles are owned by the auth-service tenant-RBAC (`auth.tenant_roles`/`tenant_role_permissions`), not this catalogue. (The catalogue-vocabulary drift vs the enforced `PERMISSION_CATEGORIES` — a live read surface, not dead code — is a separate product-truth reconciliation, not folded in here.)

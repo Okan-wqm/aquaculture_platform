@@ -28,7 +28,7 @@ function makeHarness() {
     manager: manager as EntityManager,
   };
   const dataSource: Pick<DataSource, 'createQueryRunner'> = {
-    createQueryRunner: jest.fn().mockReturnValue(queryRunner as QueryRunner),
+    createQueryRunner: jest.fn().mockReturnValue(queryRunner),
   };
   return { queryRunner, dataSource: dataSource as DataSource };
 }

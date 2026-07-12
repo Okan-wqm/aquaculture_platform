@@ -715,6 +715,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'tenant_provisioning_runs',
       'tenant_provisioning_steps',
       'tenant_onboarding_acks',
+      // ORPHAN-HIGH-364 items 1-3: the jsonb archive that received the retired
+      // legacy config stores' rows before 1801400000000 dropped them
+      // (global_configs / system_settings / tenant_configurations). Raw-SQL
+      // table (no entity) — registry entry keeps it visible + protected.
+      'retired_config_backups',
       ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
     ],
     referenceDataTables: [],

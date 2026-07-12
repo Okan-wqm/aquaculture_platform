@@ -1,7 +1,11 @@
 import { LegalHoldService } from '@aquaculture/backend-common/compliance';
 import { BadRequestException } from '@nestjs/common';
 import { IEventBus } from '@platform/event-bus';
-import { TenantDataErasedEvent, TenantStatus } from '@platform/event-contracts';
+import {
+  TENANT_ERASURE_TARGET_SERVICE_COUNT,
+  TenantDataErasedEvent,
+  TenantStatus,
+} from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, EntityManager, QueryRunner } from 'typeorm';
 
@@ -126,7 +130,7 @@ describe('RequestTenantErasureHandler', () => {
         operationId: result.operationId,
         requestedBy: USER_ID,
         dryRun: true,
-        targetServiceCount: 10,
+        targetServiceCount: TENANT_ERASURE_TARGET_SERVICE_COUNT,
       }),
       manager,
       {

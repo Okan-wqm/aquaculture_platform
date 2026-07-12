@@ -29,7 +29,7 @@ describe('EmailSenderService — Circuit Breaker', () => {
   let mockTransporter: any;
 
   const mockSettingsService = {
-    getEmailConfig: jest.fn(),
+    getEmailConfigForSending: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -42,7 +42,7 @@ describe('EmailSenderService — Circuit Breaker', () => {
       close: jest.fn(),
     };
     (nodemailer.createTransport as jest.Mock).mockReturnValue(mockTransporter);
-    mockSettingsService.getEmailConfig.mockResolvedValue(mockEmailConfig);
+    mockSettingsService.getEmailConfigForSending.mockReturnValue(mockEmailConfig);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -255,7 +255,7 @@ describe('EmailSenderService — Circuit Breaker', () => {
 
   describe('SMTP not configured', () => {
     it('should return graceful failure when SMTP host is empty', async () => {
-      mockSettingsService.getEmailConfig.mockResolvedValue({
+      mockSettingsService.getEmailConfigForSending.mockReturnValue({
         ...mockEmailConfig,
         smtpHost: '',
       });
@@ -279,7 +279,7 @@ describe('EmailSenderService — Circuit Breaker', () => {
     });
 
     it('should throw when SMTP not configured and email is required', async () => {
-      mockSettingsService.getEmailConfig.mockResolvedValue({
+      mockSettingsService.getEmailConfigForSending.mockReturnValue({
         ...mockEmailConfig,
         smtpHost: '',
       });

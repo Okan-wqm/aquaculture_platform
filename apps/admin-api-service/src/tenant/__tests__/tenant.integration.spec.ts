@@ -2,6 +2,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { CqrsModule, CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../audit/audit.service';
@@ -85,6 +86,10 @@ const mockModuleAssignmentService = {
 
 const mockEventBus = {
   publish: jest.fn(),
+};
+
+const mockOutboxPublisher = {
+  enqueue: jest.fn().mockResolvedValue(undefined),
 };
 
 const mockAuthProvisioningClient = {
@@ -299,6 +304,10 @@ describe('Tenant Integration Tests', () => {
         {
           provide: 'EVENT_BUS',
           useValue: mockEventBus,
+        },
+        {
+          provide: OutboxPublisher,
+          useValue: mockOutboxPublisher,
         },
         // Command Handlers
         UpdateTenantHandler,

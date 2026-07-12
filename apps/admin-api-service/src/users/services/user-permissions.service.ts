@@ -106,13 +106,16 @@ export class UserPermissionsService {
     // BUG-026 fix: removed the `category in result` guard that silently dropped new
     // permission categories. New categories (e.g. from newly added modules) are now
     // merged in instead of being discarded.
+    // PanelPermissions has known categories but new ones can be added dynamically,
+    // so merge through a record view of the SAME object being returned. (A prior
+    // regression rebuilt a detached `{ ...result }` copy on every loop iteration
+    // and discarded each merge, so permission updates were never applied.)
+    const resultRecord = result as PanelPermissions &
+      Record<string, Record<string, boolean>>;
     for (const [category, perms] of Object.entries(updates)) {
       if (perms && typeof perms === 'object') {
-        // PanelPermissions has known categories but new ones can be added dynamically
-        const resultRecord = { ...result } as Record<string, Record<string, boolean>>;
-        const existingPerms = resultRecord[category] ?? {};
         resultRecord[category] = {
-          ...existingPerms,
+          ...(resultRecord[category] ?? {}),
           ...(perms as Record<string, boolean>),
         };
       }

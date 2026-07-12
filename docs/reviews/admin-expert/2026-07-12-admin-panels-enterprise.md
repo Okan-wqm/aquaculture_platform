@@ -221,7 +221,15 @@ NO working-tree changes (verified via `git stash`): `user-permissions.spec.ts`,
 mocks a transporter the service no longer sees — "SMTP not configured"). Same disabled-CI-signal
 class as ADMIN-HIGH-004/005 and SENSOR-MEDIUM-023.
 
-Resolution: repair the suites in-cycle (they gate this cycle's own admin-api commits).
+Resolution: repaired in-cycle. Root causes: email spec mocked the retired async
+`getEmailConfig()` seam (service now uses sync `getEmailConfigForSending()`); the erasure spec
+hardcoded a 10-service roster that grew to 12 (now asserts the exported
+`TENANT_ERASURE_TARGET_SERVICE_COUNT` SSoT); the tenant integration module missed the newly
+injected `OutboxPublisher` provider; and — a **genuine production defect** — 
+`UserPermissionsService.mergePermissions` wrote merged categories into a per-iteration shallow
+copy and returned the untouched original, so `updatePermissions` silently dropped EVERY
+permission change (fail-silent authz update reporting success). The service now merges into the
+returned object; the pre-existing specs asserting the deep-merge contract pass.
 
 ## ADMIN-MEDIUM-001 — CRIT-04 deviation: 5 hooks bypass the lib/api.ts SSoT
 

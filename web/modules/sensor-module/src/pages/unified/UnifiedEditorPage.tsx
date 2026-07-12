@@ -946,7 +946,7 @@ const UnifiedEditorPage: React.FC = () => {
 
           {/* Bottom Panel - ST Editor in PLC mode, generic output otherwise */}
           {mode === 'plc' ? (
-            <StEditorPanel />
+            <StEditorPanel onDeploy={() => setIsAutomationDeployOpen(true)} />
           ) : (
             <>
               {isBottomPanelOpen && (

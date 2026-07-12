@@ -70,9 +70,6 @@ import { ScadaRuntimeGateway } from '../scada-runtime.gateway';
 /** Default script execution timeout in milliseconds. */
 const DEFAULT_TIMEOUT_MS = 5_000;
 
-/** Tenant ID used for gateway broadcasts when no context is available. */
-const BROADCAST_TENANT_ID = 'default';
-
 /* ------------------------------------------------------------------ */
 /*  Timer lifecycle tracker                                             */
 /* ------------------------------------------------------------------ */
@@ -245,6 +242,33 @@ interface SandboxContext {
 @Injectable()
 export class ScriptEngineService {
   private readonly logger = new Logger(ScriptEngineService.name);
+
+  /**
+   * Tenant this script runtime is bound to. Script SCADA APIs read tenant-
+   * scoped alarm/history storage and broadcast to the tenant's HMI room, so
+   * the runtime starts UNBOUND and refuses those operations until an
+   * activation binds a real tenant (DB-SENSOR-CRITICAL-001) — no more
+   * hardcoded 'default' bucket every tenant would share.
+   */
+  private boundTenantId: string | null = null;
+
+  /** Bind this script runtime to a tenant. */
+  setTenantId(tenantId: string): void {
+    if (typeof tenantId !== 'string' || tenantId.trim().length === 0) {
+      throw new Error('ScriptEngineService.setTenantId: a non-empty tenantId is required');
+    }
+    this.boundTenantId = tenantId;
+  }
+
+  /** Return the bound tenant or throw — every tenant-scoped script API uses this. */
+  private requireTenant(): string {
+    if (this.boundTenantId == null) {
+      throw new Error(
+        'ScriptEngineService: no tenant bound — call setTenantId() before running tenant-scoped scripts',
+      );
+    }
+    return this.boundTenantId;
+  }
 
   constructor(
     private readonly tagManager: TagManagerService,
@@ -439,7 +463,7 @@ export class ScriptEngineService {
         // shows output in real time.
         try {
           this.gateway.broadcastCommand(
-            BROADCAST_TENANT_ID,
+            this.requireTenant(),
             {
               type: 'TOAST',
               message: `[${level.toUpperCase()}] ${message}`,
@@ -501,7 +525,7 @@ export class ScriptEngineService {
       // View navigation
       $setView: (viewName: string): void => {
         try {
-          this.gateway.broadcastCommand(BROADCAST_TENANT_ID, {
+          this.gateway.broadcastCommand(this.requireTenant(), {
             type: 'SETVIEW',
             viewId: viewName,
           });
@@ -536,7 +560,7 @@ export class ScriptEngineService {
       $getAlarmsHistory: async (from: number, to: number): Promise<AlarmInstance[]> => {
         try {
           const filter: AlarmHistoryFilter = { from, to };
-          return await this.alarmStorage.getAlarmHistory(filter);
+          return await this.alarmStorage.getAlarmHistory(this.requireTenant(), filter);
         } catch (err) {
           this.logger.error(`$getAlarmsHistory error: ${(err as Error).message}`);
           return [];
@@ -559,8 +583,14 @@ export class ScriptEngineService {
       ): Promise<Record<string, HistoricalDataPoint[]>> => {
         try {
           // Tenant-fenced history read (SENSOR-HIGH-053): the script sandbox
-          // runs under the engine's tenant context.
-          return await this.daqStorage.queryValues(this.alarmEngine.getTenantId(), ids, new Date(from), new Date(to));
+          // runs under this engine's own fail-closed tenant binding (same
+          // source as the write/broadcast paths above).
+          return await this.daqStorage.queryValues(
+            this.requireTenant(),
+            ids,
+            new Date(from),
+            new Date(to),
+          );
         } catch (err) {
           this.logger.error(`$getHistoricalTags error: ${(err as Error).message}`);
           return {};

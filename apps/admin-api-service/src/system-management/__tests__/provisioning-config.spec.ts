@@ -22,11 +22,7 @@ import { GoneException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
-import {
-  GlobalConfig,
-  ConfigCategory,
-  ConfigValueType,
-} from '../entities/global-config.entity';
+import { ConfigCategory, ConfigValueType } from '../entities/global-config.entity';
 import { FeatureToggle } from '../entities/feature-toggle.entity';
 import { MaintenanceMode } from '../entities/maintenance-mode.entity';
 import { SystemVersion } from '../entities/system-version.entity';
@@ -47,11 +43,11 @@ interface MockRepository {
 }
 
 const createMockRepository = (): MockRepository => ({
-  create: jest.fn().mockImplementation((dto: Partial<GlobalConfig>) => ({
+  create: jest.fn().mockImplementation((dto: Record<string, unknown>) => ({
     id: 'generated-uuid',
     ...dto,
   })),
-  save: jest.fn().mockImplementation((entity: Partial<GlobalConfig>) =>
+  save: jest.fn().mockImplementation((entity: Record<string, unknown>) =>
     Promise.resolve({ id: entity.id ?? 'generated-uuid', ...entity }),
   ),
   findOne: jest.fn().mockResolvedValue(null),
@@ -89,7 +85,6 @@ const PROVISIONING_ENV_KEYS = [
 // ---------------------------------------------------------------------------
 describe('GlobalSettingsService - Provisioning Config', () => {
   let service: GlobalSettingsService;
-  let globalConfigRepo: MockRepository;
   let featureToggleRepo: MockRepository;
   let maintenanceModeRepo: MockRepository;
   let systemVersionRepo: MockRepository;
@@ -108,7 +103,6 @@ describe('GlobalSettingsService - Provisioning Config', () => {
       Reflect.deleteProperty(process.env, key);
     }
 
-    globalConfigRepo = createMockRepository();
     featureToggleRepo = createMockRepository();
     maintenanceModeRepo = createMockRepository();
     systemVersionRepo = createMockRepository();
@@ -116,7 +110,6 @@ describe('GlobalSettingsService - Provisioning Config', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         GlobalSettingsService,
-        { provide: getRepositoryToken(GlobalConfig), useValue: globalConfigRepo },
         { provide: getRepositoryToken(FeatureToggle), useValue: featureToggleRepo },
         { provide: getRepositoryToken(MaintenanceMode), useValue: maintenanceModeRepo },
         { provide: getRepositoryToken(SystemVersion), useValue: systemVersionRepo },
@@ -159,8 +152,10 @@ describe('GlobalSettingsService - Provisioning Config', () => {
     it('does NOT read the global_configs table (storage was retired)', () => {
       service.getProvisioningConfig();
 
-      expect(globalConfigRepo.find).not.toHaveBeenCalled();
-      expect(globalConfigRepo.findOne).not.toHaveBeenCalled();
+      // getProvisioningConfig sources from env only — it must read no repo at all
+      // (the global_configs repo it once consulted no longer exists).
+      expect(featureToggleRepo.find).not.toHaveBeenCalled();
+      expect(featureToggleRepo.findOne).not.toHaveBeenCalled();
     });
 
     it('sources values from PROVISIONING_* env vars when present', () => {
@@ -220,14 +215,16 @@ describe('GlobalSettingsService - Provisioning Config', () => {
         service.updateProvisioningConfig({ 'provisioning.new_setting': 'new-value' }, 'admin-user-1'),
       ).toThrow(GoneException);
 
-      expect(globalConfigRepo.findOne).not.toHaveBeenCalled();
-      expect(globalConfigRepo.create).not.toHaveBeenCalled();
-      expect(globalConfigRepo.save).not.toHaveBeenCalled();
+      // The retired write path must persist through NONE of the service's real
+      // repos (there is no global_configs repo at all anymore).
+      expect(featureToggleRepo.save).not.toHaveBeenCalled();
+      expect(maintenanceModeRepo.save).not.toHaveBeenCalled();
+      expect(systemVersionRepo.save).not.toHaveBeenCalled();
     });
   });
 
   // Reference the contract enums so the imports stay meaningful for readers
-  // wiring up future fixtures against the GlobalConfig shape.
+  // wiring up future fixtures against the config vocabulary.
   it('exposes the provisioning config category contract', () => {
     expect(ConfigCategory.PROVISIONING).toBeDefined();
     expect(ConfigValueType.STRING).toBeDefined();

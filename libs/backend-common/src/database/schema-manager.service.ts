@@ -219,10 +219,15 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     // cloned — so it belongs in the source-schema-only infrastructure set.
     // SENSOR-MEDIUM-004: edge_device_directory is the cross-tenant O(1) index
     // (public identifier -> tenant_id); one table in `sensor`, never cloned.
-    // scada_tag_history: SCADA runtime DAQ history (SENSOR-HIGH-053) — one
-    // `sensor` table, tenant-fenced by its mandatory tenant_id column (the
-    // runtime storage services run on the service-wide DataSource).
-    infrastructureTables: ['migrations', 'sensor_audit_logs', 'sensor_outbox', 'vfd_register_mappings', 'edge_device_directory', 'scada_tag_history', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    // DB-SENSOR-CRITICAL-001 / SENSOR-HIGH-004 / SENSOR-HIGH-053: the SCADA
+    // runtime persistence tables (scada_alarms, scada_alarm_chronicle,
+    // scada_tag_history) are written by process-wide singleton services with
+    // no per-request search_path, so they cannot be per-tenant clones — they
+    // live once in `sensor` and carry a mandatory tenant_id discriminator
+    // (added by 1806000000000-ScadaTenantIsolation), exactly like
+    // edge_device_directory. vfd_command_audit_logs is the append-only VFD
+    // command audit ledger (cross-tenant, same class).
+    infrastructureTables: ['migrations', 'sensor_audit_logs', 'sensor_outbox', 'vfd_register_mappings', 'edge_device_directory', 'scada_alarms', 'scada_alarm_chronicle', 'scada_tag_history', 'vfd_command_audit_logs', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: ['sensor_protocols', 'sensor_type_definitions', 'industry_templates'],
     tables: [
       // Core sensor entities
@@ -244,6 +249,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'vfd_change_set_items',
       'vfd_automation_rules',
       'vfd_parameter_audit_logs',
+      // DB-SENSOR-HIGH-003: vfd_command_audit_logs is a CROSS-TENANT audit ledger
+      // (declares schema:'sensor', tenant_id-discriminated) — see
+      // infrastructureTables above, NOT this per-tenant clone list.
 
       // Dashboard & Edge devices
       'dashboard_layouts',
@@ -672,6 +680,12 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'usage_hourly_data',
       'subscription_provisioning_retries',
       'command_receipts',
+      // DB registry completeness (same class as DB-ADMIN-MEDIUM-002): billing
+      // domain tables that had drifted out of the registry — `plans` (plan
+      // catalog) + `stripe_webhook_events` (Stripe webhook idempotency ledger,
+      // same class as command_receipts above).
+      'plans',
+      'stripe_webhook_events',
     ],
   },
   {
@@ -689,6 +703,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'cleanup_run_steps',
       'cleanup_run_events',
       'cleanup_run_evidence',
+      // DB-ADMIN-MEDIUM-002: schema-lifecycle backup ledger — same class as
+      // schema_backups/schema_restores above (retired-tenant-schema backups).
+      'retired_schema_backups',
       ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
     ],
     referenceDataTables: [],
@@ -734,6 +751,22 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'login_attempts',
       'api_usage_logs',
       'user_sessions',
+      // DB-ADMIN-MEDIUM-002: admin-schema data tables that were absent from this
+      // registry, so the ADR-012 drift validator + orphan-drop presence checks
+      // did not cover them (an unregistered real table is neither protected nor
+      // reconciled). All are @Entity(..., { schema: 'admin' }).
+      'discount_codes',
+      'module_pricing',
+      'plan_definitions',
+      'plan_module_assignments',
+      'threat_intelligence',
+      'retention_policies',
+      'database_metrics',
+      'slow_query_logs',
+      'ingest_backend_policy_state',
+      'announcements',
+      'job_queues',
+      'system_versions',
     ],
   },
   {
@@ -753,6 +786,29 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     infrastructureTables: ['migrations', 'notification_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: [],
     tables: ['device_tokens', 'notification_logs', 'command_receipts'],
+  },
+  {
+    // DB-INFRA-HIGH-003: config-service registered as a platform-level
+    // (source-schema-tenant-column) tenant-erasure target. NOT tenant-cloned
+    // (absent from TENANT_SCOPED_MODULES); per-tenant config rows are deleted
+    // by tenantId on erasure. config_outbox + the erasure proof ledger are its
+    // cross-tenant infrastructure tables.
+    moduleName: 'config',
+    sourceSchema: 'config',
+    infrastructureTables: ['migrations', 'config_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    referenceDataTables: [],
+    tables: ['configurations', 'configuration_history'],
+  },
+  {
+    // DB-INFRA-HIGH-003: event-store-service — platform-level erasure target.
+    // The tenant-column projection tables are deleted by tenantId on erasure;
+    // stored_events is intentionally NOT deleted (immutable append-only log —
+    // excluded in the erasure registry; awaits crypto-shred). NOT tenant-cloned.
+    moduleName: 'event_store',
+    sourceSchema: 'event_store',
+    infrastructureTables: ['migrations', 'event_store_outbox', 'tenant_payload_keys', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    referenceDataTables: [],
+    tables: ['stored_events', 'event_streams', 'snapshots', 'projection_checkpoints', 'projection_rebuilds'],
   },
 ];
 
@@ -788,6 +844,8 @@ export const PLATFORM_LEVEL_MODULES: ReadonlySet<string> = new Set([
   'admin',
   'auth',
   'notification',
+  'config',
+  'event_store',
 ]);
 
 export const DEFAULT_TENANT_MODULES: string[] = MODULE_SCHEMAS.filter((m) =>

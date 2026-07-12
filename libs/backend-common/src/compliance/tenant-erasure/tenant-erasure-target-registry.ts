@@ -89,6 +89,28 @@ export const TENANT_ERASURE_TARGET_OPTIONS_BY_SERVICE = {
       'tenant_schemas',
     ],
   },
+  // DB-INFRA-HIGH-003: config-service — per-tenant dynamic configuration.
+  'config-service': {
+    targetService: 'config-service',
+    moduleName: 'config',
+    sourceSchema: 'config',
+    mode: 'source-schema-tenant-column',
+    outbox: { schema: 'config', table: 'config_outbox' },
+    proofLedger: { schema: 'config', table: 'tenant_erasure_target_proofs' },
+  },
+  // DB-INFRA-HIGH-003: event-store-service — deletes the tenant-column projection
+  // tables (event_streams, snapshots, projection_*). stored_events is EXCLUDED:
+  // it is an immutable append-only log; its PII payload awaits the crypto-shred
+  // design (blueprint Part B), not row deletion.
+  'event-store-service': {
+    targetService: 'event-store-service',
+    moduleName: 'event_store',
+    sourceSchema: 'event_store',
+    mode: 'source-schema-tenant-column',
+    outbox: { schema: 'event_store', table: 'event_store_outbox' },
+    proofLedger: { schema: 'event_store', table: 'tenant_erasure_target_proofs' },
+    excludedTables: ['event_store_outbox', 'stored_events'],
+  },
 } as const satisfies Record<
   TenantErasureTargetService,
   TenantErasureTargetExecutorOptions

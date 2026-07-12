@@ -173,22 +173,37 @@ export class DaqStorageService implements OnModuleInit, OnModuleDestroy {
     private readonly configService: ConfigService | null,
   ) {}
 
+  /**
+   * Fail-closed tenant guard. `scada_tag_history` is a cross-tenant
+   * infrastructure table in the shared `sensor` schema (DB-SENSOR-CRITICAL-001),
+   * so every read and write MUST carry a tenant discriminator — an unbound
+   * tenant would write rows no tenant owns, or read every tenant's history.
+   */
+  private assertTenant(tenantId: string): void {
+    if (typeof tenantId !== 'string' || tenantId.trim().length === 0) {
+      throw new Error(
+        'DaqStorageService: tenantId is required — SCADA tag history is tenant-scoped and refuses an unbound tenant context',
+      );
+    }
+  }
+
   /* ---------------------------------------------------------------- */
   /*  Write                                                            */
   /* ---------------------------------------------------------------- */
 
   /**
-   * Persist a batch of tag value changes.
+   * Persist a batch of tag value changes for a tenant.
    *
    * Uses a single parameterised INSERT with multiple value rows for
-   * efficiency.  On conflict (same tag_id + timestamp) the row is
+   * efficiency.  On conflict (same tenant_id + tag_id + timestamp) the row is
    * updated so re-ingestion is idempotent.
    */
   async addValues(tenantId: string, deviceId: string, values: TagValueChange[]): Promise<void> {
+    this.assertTenant(tenantId);
     if (values.length === 0) return;
 
     // Build a multi-row VALUES clause.
-    // Each row: (tag_id, timestamp, value, quality)
+    // Each row: (tenant_id, tag_id, timestamp, value, quality)
     const rows: string[] = [];
     const params: unknown[] = [];
     let pi = 1;
@@ -252,9 +267,11 @@ export class DaqStorageService implements OnModuleInit, OnModuleDestroy {
     from: Date,
     to: Date,
   ): Promise<Record<string, HistoricalDataPoint[]>> {
+    this.assertTenant(tenantId);
     if (tagIds.length === 0) return {};
 
-    // Build a parameterised ANY($n) for the tagIds list.
+    // Tenant fence is the first predicate — a history read is confined to the
+    // caller's tenant before any tag/time filtering.
     const sql = `
       SELECT
         tag_id,
@@ -305,6 +322,7 @@ export class DaqStorageService implements OnModuleInit, OnModuleDestroy {
     to: Date,
     aggregation: DaqAggregation,
   ): Promise<Record<string, HistoricalDataPoint[]>> {
+    this.assertTenant(tenantId);
     if (tagIds.length === 0) return {};
 
     const intervalSql = INTERVAL_SQL[aggregation.interval];
@@ -317,7 +335,8 @@ export class DaqStorageService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Use time_bucket (TimescaleDB). Wrap in try/catch and fall back to
-    // date_trunc if the function is not available.
+    // date_trunc if the function is not available. Tenant fence is applied
+    // in both variants so an aggregate can never span tenants.
     const sql = `
       SELECT
         tag_id,
@@ -425,6 +444,7 @@ export class DaqStorageService implements OnModuleInit, OnModuleDestroy {
     queryId: string = crypto.randomUUID(),
     aggregation?: DaqAggregation,
   ): Promise<void> {
+    this.assertTenant(tenantId);
     if (tagIds.length === 0) {
       chunkCallback({ queryId, data: {}, hasMore: false, chunkIndex: 0 });
       return;

@@ -66,7 +66,11 @@ export const INFRASTRUCTURE_AUDIT_LEDGERS: Readonly<Record<string, readonly stri
   hr: ['payroll_audit'],
   alert: ['alert_audit_log'],
   ai: ['tool_execution_audit'],
-  sensor: ['sensor_audit_logs'],
+  // DB-SENSOR-HIGH-003: vfd_command_audit_logs is written by the VFD command
+  // path (tenant context present) AND could be written by system/automation
+  // callers (tenantId 'system'); as a cross-tenant append-only ledger it needs
+  // the infra-ledger policy, not tenant_isolation_policy.
+  sensor: ['sensor_audit_logs', 'vfd_command_audit_logs'],
 } as const;
 
 /**

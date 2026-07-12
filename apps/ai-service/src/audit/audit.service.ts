@@ -19,6 +19,7 @@ export class AuditService {
     result: ToolResult,
     ctx: ToolExecutionContext,
     conversationId?: string,
+    strict = false,
   ): Promise<void> {
     try {
       const audit = this.auditRepo.create({
@@ -36,10 +37,16 @@ export class AuditService {
       });
       await this.auditRepo.save(audit);
     } catch (error) {
-      // Audit logging should never break the main flow
+      // DB-PEOPLE-MEDIUM-003: for read-only tools the audit is best-effort — a
+      // broken write must never break the chat flow. For actuation-class tools
+      // the caller passes strict=true: the row is safety-load-bearing, so we
+      // re-throw instead of swallowing and let the executor surface the gap.
       this.logger.error(
         `Failed to log audit: ${error instanceof Error ? error.message : String(error)}`,
       );
+      if (strict) {
+        throw error;
+      }
     }
   }
 

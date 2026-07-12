@@ -23,7 +23,18 @@ import {
   ImpersonationReason,
   ImpersonationPermissions,
   ImpersonationAction,
+  SafeImpersonationSession,
+  toSafeImpersonationSession,
 } from '../entities/impersonation-session.entity';
+
+/**
+ * Start-impersonation response: the safe session view PLUS the raw
+ * impersonation token, revealed exactly once to the initiating super-admin so
+ * they can drive the session. Never carries `originalSessionToken`.
+ */
+export type StartedImpersonationSession = SafeImpersonationSession & {
+  impersonationToken: string;
+};
 
 // ============================================================================
 // Interfaces
@@ -63,7 +74,7 @@ export interface ImpersonationAuditSummary {
   sessionsByReason: Record<ImpersonationReason, number>;
   topImpersonators: Array<{ adminId: string; email: string; sessionCount: number }>;
   topTargetTenants: Array<{ tenantId: string; tenantName: string; sessionCount: number }>;
-  recentSessions: ImpersonationSession[];
+  recentSessions: SafeImpersonationSession[];
 }
 
 // ============================================================================
@@ -405,7 +416,9 @@ export class ImpersonationService implements OnModuleInit {
   // Session Management
   // ============================================================================
 
-  async startImpersonation(request: StartImpersonationRequest): Promise<ImpersonationSession> {
+  async startImpersonation(
+    request: StartImpersonationRequest,
+  ): Promise<StartedImpersonationSession> {
     // SECURITY: Rate limiting based on admin ID and IP address
     const rateLimitKey = `impersonate:${request.superAdminId}:${request.ipAddress || 'unknown'}`;
     const rateCheck = await this.checkRateLimit(rateLimitKey);
@@ -547,9 +560,11 @@ export class ImpersonationService implements OnModuleInit {
     });
 
     // C-5 fix: Return raw token to caller (only time it's available in plaintext).
-    // The DB stores the hash. Override the hashed value on the returned object only.
-    const result = { ...saved, impersonationToken: rawImpersonationToken };
-    return result as ImpersonationSession;
+    // DB-ADMIN-HIGH-002: strip the stored secrets (plaintext originalSessionToken
+    // + token hash) from the response and re-attach ONLY the raw impersonation
+    // token the initiator needs — so the create response reveals exactly the
+    // one credential, once, and never echoes the stored plaintext session token.
+    return { ...toSafeImpersonationSession(saved), impersonationToken: rawImpersonationToken };
   }
 
   async endImpersonation(
@@ -901,7 +916,7 @@ export class ImpersonationService implements OnModuleInit {
     endDate?: Date;
     page?: number;
     limit?: number;
-  }): Promise<{ items: ImpersonationSession[]; total: number }> {
+  }): Promise<{ items: SafeImpersonationSession[]; total: number }> {
     const query = this.sessionRepo.createQueryBuilder('s');
 
     if (params.superAdminId) {
@@ -930,15 +945,17 @@ export class ImpersonationService implements OnModuleInit {
     query.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await query.getManyAndCount();
-    return { items, total };
+    // DB-ADMIN-HIGH-002: never serialize the token columns onto a list response.
+    return { items: items.map(toSafeImpersonationSession), total };
   }
 
-  async getSession(id: string): Promise<ImpersonationSession> {
+  async getSession(id: string): Promise<SafeImpersonationSession> {
     const session = await this.sessionRepo.findOne({ where: { id } });
     if (!session) {
       throw new NotFoundException(`Session not found: ${id}`);
     }
-    return session;
+    // DB-ADMIN-HIGH-002: strip secret token columns before the entity leaves the service.
+    return toSafeImpersonationSession(session);
   }
 
   async getAuditSummary(
@@ -1019,7 +1036,8 @@ export class ImpersonationService implements OnModuleInit {
         tenantName: r.tenantName || 'Unknown',
         sessionCount: parseInt(r.sessionCount, 10),
       })),
-      recentSessions,
+      // DB-ADMIN-HIGH-002: the recent-sessions block must not carry token columns.
+      recentSessions: recentSessions.map(toSafeImpersonationSession),
     };
   }
 
@@ -1101,17 +1119,18 @@ export class ImpersonationService implements OnModuleInit {
   // Active Sessions Info
   // ============================================================================
 
-  getActiveSessions(): ImpersonationSession[] {
+  getActiveSessions(): SafeImpersonationSession[] {
     // LOW-005 fix: filter out sessions that have expired in-memory before returning,
     // so callers are not misled by stale session entries after restart or clock drift.
     const now = new Date();
-    const active: ImpersonationSession[] = [];
+    const active: SafeImpersonationSession[] = [];
     for (const [sessionId, session] of this.localActiveSessions.entries()) {
       if (new Date(session.expiresAt) <= now) {
         // Evict expired sessions from cache on access to prevent stale reads
         this.localActiveSessions.delete(sessionId);
       } else {
-        active.push(session);
+        // DB-ADMIN-HIGH-002: strip secret token columns before returning.
+        active.push(toSafeImpersonationSession(session));
       }
     }
     return active;

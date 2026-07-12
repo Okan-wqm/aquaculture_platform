@@ -91,6 +91,11 @@ const PLATFORM_LEVEL_SCHEMAS: ReadonlyArray<string> = [
   'config',
   'gateway',
   'shared',
+  // Registry-completeness sweep (ORPHAN-HIGH-365): compliance (legal_holds,
+  // admin-api-owned) + platform (db-migrate bootstrap tables) — single
+  // cross-tenant schemas, never per-tenant cloned.
+  'compliance',
+  'platform',
 ];
 
 const TENANT_FANOUT_TABLES_BY_SCHEMA: ReadonlyMap<string, ReadonlyArray<string>> = new Map(

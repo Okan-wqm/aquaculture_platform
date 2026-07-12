@@ -706,6 +706,13 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // DB-ADMIN-MEDIUM-002: schema-lifecycle backup ledger — same class as
       // schema_backups/schema_restores above (retired-tenant-schema backups).
       'retired_schema_backups',
+      // ORPHAN-HIGH-364 follow-on: the TenantProvisioningWorkflow tables
+      // (migrations 1800400/1800500/1801200) — legitimate raw-SQL/migration-
+      // managed workflow state with no TypeORM entity. Registered so the drift
+      // validator + orphan-drop presence checks recognize them.
+      'tenant_provisioning_runs',
+      'tenant_provisioning_steps',
+      'tenant_onboarding_acks',
       ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
     ],
     referenceDataTables: [],
@@ -810,6 +817,54 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     referenceDataTables: [],
     tables: ['stored_events', 'event_streams', 'snapshots', 'projection_checkpoints', 'projection_rebuilds'],
   },
+  {
+    // ORPHAN-HIGH-365: the `compliance` schema existed in the live DB with NO
+    // registry entry — its single table is litigation/GDPR-critical (legal-hold
+    // precedence gates every destructive path), yet the drift validator and the
+    // orphan-drop presence checks were blind to it. Owner: admin-api-service
+    // (its migration 1787500000000-CreateComplianceLegalHolds created the
+    // schema; the LegalHold entity lives there and admin-api's own
+    // SchemaDriftValidator validates it at boot). Cross-tenant ledger — never
+    // per-tenant cloned — so it is an infrastructure table.
+    moduleName: 'compliance',
+    sourceSchema: 'compliance',
+    infrastructureTables: ['legal_holds'],
+    referenceDataTables: [],
+    tables: [],
+  },
+  {
+    // ORPHAN-MEDIUM-362 follow-on: observability-service had schema-declaring
+    // entities but NO registry entry. All four tables are migration/schema
+    // observability infrastructure (written by the migration/backfill pipeline
+    // and emergency-override tooling), single cross-tenant copies — never
+    // per-tenant cloned. observability-service already registers
+    // SchemaDriftModule.forRoot (app.module), so its boot validator now has a
+    // matching registry surface.
+    moduleName: 'observability',
+    sourceSchema: 'observability',
+    infrastructureTables: [
+      'migrations',
+      'emergency_overrides',
+      'migration_backfill_progress',
+      'migration_events',
+      'schema_object_history',
+    ],
+    referenceDataTables: [],
+    tables: [],
+  },
+  {
+    // ORPHAN-HIGH-365: the `platform` schema holds db-migrate/bootstrap-owned
+    // raw-SQL infrastructure (the bootstrap signal, the release ledger, the
+    // tenant-schema-provisioner job queue). It has NO TypeORM entities and no
+    // owning NestJS service by design — the entry exists so the registry is a
+    // complete map of every non-tenant schema and a future strictOwnership or
+    // orphan sweep can never mistake these for droppable orphans.
+    moduleName: 'platform',
+    sourceSchema: 'platform',
+    infrastructureTables: ['bootstrap_signal', 'release_ledger', 'tenant_schema_jobs'],
+    referenceDataTables: [],
+    tables: [],
+  },
 ];
 
 /**
@@ -846,6 +901,14 @@ export const PLATFORM_LEVEL_MODULES: ReadonlySet<string> = new Set([
   'notification',
   'config',
   'event_store',
+  // Registry-completeness sweep (ORPHAN-HIGH-365 / DB audit A-classification):
+  // billing was in NEITHER classification set (flagged by the DB audit);
+  // compliance/observability/platform gained MODULE_SCHEMAS entries and are
+  // platform-level by nature (single cross-tenant schemas, no per-tenant fan-out).
+  'billing',
+  'compliance',
+  'observability',
+  'platform',
 ]);
 
 export const DEFAULT_TENANT_MODULES: string[] = MODULE_SCHEMAS.filter((m) =>

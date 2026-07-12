@@ -35,10 +35,21 @@ const COVERED: ReadonlyArray<{ schema: string; appDir: string; minEntities: numb
   { schema: 'notification', appDir: 'apps/notification-service/src', minEntities: 2 },
   { schema: 'config', appDir: 'apps/config-service/src', minEntities: 2 },
   { schema: 'event_store', appDir: 'apps/event-store-service/src', minEntities: 5 },
+  // Registry-completeness sweep (ORPHAN-HIGH-365 / ORPHAN-MEDIUM-362 follow-on):
+  { schema: 'observability', appDir: 'apps/observability-service/src', minEntities: 4 },
+  // compliance's LegalHold entity is a backend-common shared-lib entity (the
+  // legal-hold gate is enforced platform-wide); admin-api's migration created
+  // the physical schema.
+  { schema: 'compliance', appDir: 'libs/backend-common/src', minEntities: 1 },
 ];
 
-/** Platform services known to lack a MODULE_SCHEMAS entry — tracked follow-on, not covered here. */
-const KNOWN_UNREGISTERED = ['observability'];
+/**
+ * Raw-SQL infrastructure schemas: registered in MODULE_SCHEMAS but with NO
+ * TypeORM entities by design (db-migrate/bootstrap-owned tables). The guard
+ * asserts the registry entry EXISTS and that no entity ever declares the
+ * schema — if one appears, the schema must move into COVERED.
+ */
+const RAW_SQL_INFRA_SCHEMAS = ['platform'];
 
 function collectEntityFiles(dir: string): string[] {
   const out: string[] = [];
@@ -100,11 +111,28 @@ describe('INVARIANT: platform-service entities are all registered in MODULE_SCHE
     },
   );
 
-  it('KNOWN_UNREGISTERED platform services really do lack a MODULE_SCHEMAS entry (keeps the exclusion honest)', () => {
-    // If one of these gains an entry, add it to COVERED and drop it here — this
-    // assertion fails the moment the tracked gap is closed, forcing the update.
-    for (const schema of KNOWN_UNREGISTERED) {
-      expect(sm.includes(`moduleName: '${schema}'`)).toBe(false);
-    }
-  });
+  it.each(RAW_SQL_INFRA_SCHEMAS)(
+    '%s: registered in MODULE_SCHEMAS with NO TypeORM entities (raw-SQL infra schema)',
+    (schema) => {
+      // The registry entry must exist (a complete map of every non-tenant schema)…
+      expect(sm.includes(`moduleName: '${schema}'`)).toBe(true);
+      // …and no entity may declare the schema. If one appears, the schema has
+      // gained an ORM surface and must move into COVERED with its owning appDir.
+      const decl = new RegExp(`schema:\\s*'${schema}'`);
+      const offenders: string[] = [];
+      for (const appDir of readdirSync(resolve(REPO_ROOT, 'apps'))) {
+        const src = resolve(REPO_ROOT, 'apps', appDir, 'src');
+        try {
+          for (const file of collectEntityFiles(src)) {
+            if (decl.test(readFileSync(file, 'utf8'))) {
+              offenders.push(file.replace(`${REPO_ROOT}/`, ''));
+            }
+          }
+        } catch {
+          // apps/<name> without a src dir (e.g. tooling packages) — skip.
+        }
+      }
+      expect(offenders).toEqual([]);
+    },
+  );
 });

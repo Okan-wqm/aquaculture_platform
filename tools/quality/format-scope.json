@@ -2093,6 +2093,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1801400000000-DropRetiredLegacyConfigStores.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -6457,6 +6463,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/event-store-service/src/crypto-shred/__tests__/stored-events-crypto-shred.hook.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/event-store-service/src/crypto-shred/__tests__/tenant-payload-crypto.service.spec.ts",
       "prettier_managed": true
     },
@@ -6470,6 +6482,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/event-store-service/src/crypto-shred/entities/tenant-payload-key.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/event-store-service/src/crypto-shred/stored-events-crypto-shred.hook.ts",
       "prettier_managed": true
     },
     {
@@ -34027,6 +34045,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/compliance/tenant-erasure/__tests__/tenant-erasure-target-executor.hooks.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/compliance/tenant-erasure/index.ts",
       "prettier_managed": true
     },
@@ -52980,10 +53004,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8684,
+  "file_count": 8688,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8509,
-  "managed_file_list_sha256": "292775b69622b3407b1f53bdc4c154f778fedee51746dc14fc2fd8b9cc441ebd",
+  "managed_count": 8513,
+  "managed_file_list_sha256": "4c655cd78557da896aac521183445ef351486b2252d938a7f6d6c01841458386",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

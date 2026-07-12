@@ -51,6 +51,7 @@ import {
   TagWriteDto,
 } from './dto/scada-socket.dto';
 import { TagManagerService } from './services/tag-manager.service';
+import { DaqStorageService } from './services/daq-storage.service';
 import { TagResolutionService } from '../process/services/tag-resolution.service';
 import { TagDirection } from '../process/entities/unified-tag.entity';
 import {
@@ -159,6 +160,7 @@ export class ScadaRuntimeGateway
     private readonly configService: ConfigService,
     private readonly tagResolution: TagResolutionService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly daqStorage: DaqStorageService,
   ) {
     this.isProduction = process.env['NODE_ENV'] === 'production';
   }
@@ -476,10 +478,10 @@ export class ScadaRuntimeGateway
   /* ---------------------------------------------------------------- */
 
   @SubscribeMessage(ScadaSocketEvent.DAQ_QUERY)
-  handleDaqQuery(
+  async handleDaqQuery(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: DaqQueryDto,
-  ): void {
+  ): Promise<void> {
     try {
       const clientData = this.clients.get(client.id);
       if (!clientData) {
@@ -496,13 +498,19 @@ export class ScadaRuntimeGateway
         `[daq-query] ${client.id} — queryId=${payload.queryId} tags=${payload.tagIds?.length ?? 0}`,
       );
 
-      // TODO: Inject DaqService and forward the query when available.
-      // Return an empty result so the client knows the query was received.
-      client.emit(ScadaSocketEvent.DAQ_RESULT, {
-        queryId: payload.queryId,
-        data: {},
-        hasMore: false,
-      });
+      // Real history read (SENSOR-HIGH-053): tenant-fenced against the DAQ
+      // store, chunked so long ranges stream instead of one giant frame.
+      // Previously this was a stub that emitted an empty result — trends
+      // rendered "successfully" blank.
+      await this.daqStorage.queryChunked(
+        clientData.tenantId,
+        payload.tagIds,
+        new Date(payload.from),
+        new Date(payload.to),
+        (chunk) => client.emit(ScadaSocketEvent.DAQ_RESULT, chunk),
+        payload.queryId,
+        payload.aggregation,
+      );
     } catch (error) {
       this.logger.error(`[daq-query] ${client.id} error: ${(error as Error).message}`);
       this.emitError(client, ScadaSocketEvent.DAQ_QUERY, SCADA_ERROR_CODES.INTERNAL_ERROR, 'DAQ query failed');

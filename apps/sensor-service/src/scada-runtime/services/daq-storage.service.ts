@@ -140,7 +140,7 @@ export class DaqStorageService {
    * efficiency.  On conflict (same tag_id + timestamp) the row is
    * updated so re-ingestion is idempotent.
    */
-  async addValues(deviceId: string, values: TagValueChange[]): Promise<void> {
+  async addValues(tenantId: string, deviceId: string, values: TagValueChange[]): Promise<void> {
     if (values.length === 0) return;
 
     // Build a multi-row VALUES clause.
@@ -157,20 +157,21 @@ export class DaqStorageService {
           ? (change.value ? 1 : 0)
           : parseFloat(String(change.value));
 
-      rows.push(`($${pi}, $${pi + 1}, $${pi + 2}, $${pi + 3})`);
+      rows.push(`($${pi}, $${pi + 1}, $${pi + 2}, $${pi + 3}, $${pi + 4})`);
       params.push(
+        tenantId,
         change.tagId,
         new Date(change.timestamp),
         isNaN(numVal) ? null : numVal,
         change.quality ?? 'good',
       );
-      pi += 4;
+      pi += 5;
     }
 
     const sql = `
-      INSERT INTO ${TABLE_NAME} (tag_id, timestamp, value, quality)
+      INSERT INTO ${TABLE_NAME} (tenant_id, tag_id, timestamp, value, quality)
       VALUES ${rows.join(', ')}
-      ON CONFLICT (tag_id, timestamp)
+      ON CONFLICT (tenant_id, tag_id, timestamp)
       DO UPDATE SET
         value   = EXCLUDED.value,
         quality = EXCLUDED.quality
@@ -202,6 +203,7 @@ export class DaqStorageService {
    * Maximum 50 000 rows per tag to prevent runaway queries.
    */
   async queryValues(
+    tenantId: string,
     tagIds: string[],
     from: Date,
     to: Date,
@@ -216,15 +218,17 @@ export class DaqStorageService {
         value,
         quality
       FROM ${TABLE_NAME}
-      WHERE tag_id = ANY($1)
-        AND timestamp >= $2
-        AND timestamp <  $3
+      WHERE tenant_id = $1
+        AND tag_id = ANY($2)
+        AND timestamp >= $3
+        AND timestamp <  $4
       ORDER BY tag_id, timestamp ASC
       LIMIT 50000
     `;
 
     try {
       const rows: RawHistoryRow[] = await this.dataSource.query(sql, [
+        tenantId,
         tagIds,
         from,
         to,
@@ -251,6 +255,7 @@ export class DaqStorageService {
    * Results are ordered ascending by bucket per tag.
    */
   async queryAggregated(
+    tenantId: string,
     tagIds: string[],
     from: Date,
     to: Date,
@@ -275,9 +280,10 @@ export class DaqStorageService {
         time_bucket($1::INTERVAL, timestamp) AS bucket,
         ${aggFnSql}(value)                   AS agg_value
       FROM ${TABLE_NAME}
-      WHERE tag_id = ANY($2)
-        AND timestamp >= $3
-        AND timestamp <  $4
+      WHERE tenant_id = $2
+        AND tag_id = ANY($3)
+        AND timestamp >= $4
+        AND timestamp <  $5
         AND quality = 'good'
       GROUP BY tag_id, bucket
       ORDER BY tag_id, bucket ASC
@@ -294,9 +300,10 @@ export class DaqStorageService {
         ${bucketExpr} AS bucket,
         ${aggFnSql}(value)        AS agg_value
       FROM ${TABLE_NAME}
-      WHERE tag_id = ANY($1)
-        AND timestamp >= $2
-        AND timestamp <  $3
+      WHERE tenant_id = $1
+        AND tag_id = ANY($2)
+        AND timestamp >= $3
+        AND timestamp <  $4
         AND quality = 'good'
       GROUP BY tag_id, bucket
       ORDER BY tag_id, bucket ASC
@@ -304,13 +311,13 @@ export class DaqStorageService {
 
     let rows: AggregatedRow[];
     try {
-      rows = await this.dataSource.query(sql, [intervalSql, tagIds, from, to]);
+      rows = await this.dataSource.query(sql, [intervalSql, tenantId, tagIds, from, to]);
     } catch {
       // time_bucket not available — use date_trunc fallback
       this.logger.warn(
         'DaqStorage: time_bucket unavailable, falling back to date_trunc',
       );
-      rows = await this.dataSource.query(fallbackSql, [tagIds, from, to]);
+      rows = await this.dataSource.query(fallbackSql, [tenantId, tagIds, from, to]);
     }
 
     return aggRowsToDataMap(tagIds, rows);
@@ -366,11 +373,12 @@ export class DaqStorageService {
    *   - chunkIndex: 0-based index of this chunk
    */
   async queryChunked(
+    tenantId: string,
     tagIds: string[],
     from: Date,
     to: Date,
     chunkCallback: (chunk: DaqResultPayload) => void,
-    queryId = crypto.randomUUID(),
+    queryId: string = crypto.randomUUID(),
     aggregation?: DaqAggregation,
   ): Promise<void> {
     if (tagIds.length === 0) {
@@ -405,9 +413,9 @@ export class DaqStorageService {
 
       let data: Record<string, HistoricalDataPoint[]>;
       if (aggregation) {
-        data = await this.queryAggregated(tagIds, chunk.from, chunk.to, aggregation);
+        data = await this.queryAggregated(tenantId, tagIds, chunk.from, chunk.to, aggregation);
       } else {
-        data = await this.queryValues(tagIds, chunk.from, chunk.to);
+        data = await this.queryValues(tenantId, tagIds, chunk.from, chunk.to);
       }
 
       chunkCallback({

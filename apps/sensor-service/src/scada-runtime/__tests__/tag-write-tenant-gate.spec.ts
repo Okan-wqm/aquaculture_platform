@@ -47,6 +47,7 @@ function makeGateway(resolveResult: { resolved: ResolvedBinding[]; unresolved: u
     { get: () => '' } as never,
     tagResolution as never,
     eventEmitter as never,
+    { queryChunked: jest.fn() } as never,
   );
   return { gateway, tagManager, tagResolution, eventEmitter };
 }

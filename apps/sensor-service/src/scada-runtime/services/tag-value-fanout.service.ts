@@ -23,12 +23,13 @@
  * same failure forever).
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 
 import { UnifiedTagService } from '../../process/services/unified-tag.service';
 import type { TagQuality, TagValueChange } from '../scada-types';
 
 import { ScadaRuntimeGateway } from '../scada-runtime.gateway';
+import { DaqStorageService } from './daq-storage.service';
 
 /** One ingested metric, as the ingestion consumer sees it. */
 export interface IngestedMetricForFanout {
@@ -82,6 +83,10 @@ export class TagValueFanoutService {
   constructor(
     private readonly unifiedTagService: UnifiedTagService,
     private readonly gateway: ScadaRuntimeGateway,
+    // Optional so unit tests can omit it; wired in ScadaRuntimeModule.
+    @Optional()
+    @Inject(DaqStorageService)
+    private readonly daqStorage: DaqStorageService | null,
   ) {}
 
   /**
@@ -109,6 +114,14 @@ export class TagValueFanoutService {
       }));
       this.gateway.pushTagValues(metric.tenantId, values);
       this.pushedCount += values.length;
+
+      // Record into the tenant-fenced DAQ history store so what streams live
+      // is also queryable historically (SENSOR-HIGH-053). Same best-effort
+      // contract as the push — a history write failure must not affect
+      // ingestion or the live plane.
+      if (this.daqStorage) {
+        await this.daqStorage.addValues(metric.tenantId, metric.sensorId, values);
+      }
     } catch (error) {
       this.logger.warn(
         `fanoutMetric failed (sensor=${metric.sensorId} channel=${metric.channelId}): ${(error as Error).message}`,

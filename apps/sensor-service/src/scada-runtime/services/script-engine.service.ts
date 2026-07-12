@@ -558,7 +558,9 @@ export class ScriptEngineService {
         to: number,
       ): Promise<Record<string, HistoricalDataPoint[]>> => {
         try {
-          return await this.daqStorage.queryValues(ids, new Date(from), new Date(to));
+          // Tenant-fenced history read (SENSOR-HIGH-053): the script sandbox
+          // runs under the engine's tenant context.
+          return await this.daqStorage.queryValues(this.alarmEngine.getTenantId(), ids, new Date(from), new Date(to));
         } catch (err) {
           this.logger.error(`$getHistoricalTags error: ${(err as Error).message}`);
           return {};

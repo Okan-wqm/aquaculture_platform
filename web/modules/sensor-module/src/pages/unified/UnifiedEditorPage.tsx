@@ -54,7 +54,7 @@ import {
   useScadaPackages,
   useCreateScadaPackage,
   useUpdateScadaPackage,
-  useDeployScadaPackage,
+  useDeployScadaBundle,
 } from '../../hooks/useScadaPackage';
 import { useDeployProcessToEdge } from '../../hooks/useDeployProcess';
 import { EquipmentPanel } from '../../components/process-editor/panels/EquipmentPanel';
@@ -275,7 +275,10 @@ const UnifiedEditorPage: React.FC = () => {
   // Canonical package persist + deploy mutations (6b)
   const createPkg = useCreateScadaPackage();
   const updatePkg = useUpdateScadaPackage();
-  const deployPkg = useDeployScadaPackage();
+  // GAP-3A: SCADA deploys go through the ATOMIC bundle path — package + bound
+  // automation programs as one signed release bundle, PUBLISHED only on the
+  // edge's two-phase confirmation (no half-deploy window).
+  const deployPkg = useDeployScadaBundle();
   const deployProc = useDeployProcessToEdge();
   // Existing SCADA package for THIS process (filter by processId) — used to
   // hydrate the HMI canvas on load and to pick create-vs-update on save.
@@ -1100,7 +1103,22 @@ const UnifiedEditorPage: React.FC = () => {
                 message: 'Kaydedilmemiş HMI değişiklikleri var — önce kaydedin, sonra dağıtın.',
               };
             }
-            return deployPkg.mutateAsync({ packageId: scadaPackageId, deviceId });
+            const result = await deployPkg.mutateAsync({ packageId: scadaPackageId, deviceId });
+            if (result.success) {
+              return { success: true, message: result.message ?? 'Bundle staged — cihaz onayı bekleniyor.' };
+            }
+            // Compose an honest failure: name the failing leg(s).
+            const failedPrograms = result.automationResults
+              .filter((r) => !r.success)
+              .map((r) => `program ${r.programId}: ${r.message ?? 'failed'}`);
+            const scadaMsg =
+              result.scadaResult && !result.scadaResult.success
+                ? [`SCADA: ${result.scadaResult.message ?? 'failed'}`]
+                : [];
+            return {
+              success: false,
+              message: [result.message, ...scadaMsg, ...failedPrograms].filter(Boolean).join(' | ') || 'Bundle deploy başarısız.',
+            };
           }}
         />
       )}

@@ -41,7 +41,7 @@ vi.mock('../../../hooks/useScadaPackage', () => ({
   useScadaPackages: () => ({ packages: [], loading: false, error: null, refetch: vi.fn() }),
   useCreateScadaPackage: () => ({ mutateAsync: vi.fn() }),
   useUpdateScadaPackage: () => ({ mutateAsync: vi.fn() }),
-  useDeployScadaPackage: () => ({ mutateAsync: vi.fn() }),
+  useDeployScadaBundle: () => ({ mutateAsync: vi.fn() }),
 }));
 vi.mock('../../../hooks/useDeployProcess', () => ({
   useDeployProcessToEdge: () => ({ mutateAsync: vi.fn() }),

@@ -26,7 +26,7 @@ import { useScadaPackageStore } from '../../../store/scada';
 // --- hoisted spies shared between the vi.mock factories and the assertions ---
 const spies = vi.hoisted(() => ({
   deployProcess: vi.fn(async () => ({ success: true })),
-  deployScada: vi.fn(async () => ({ success: true, packageId: 'pkg-1', deviceId: 'device-1' })),
+  deployScada: vi.fn(async () => ({ success: true, message: 'Bundle staged', automationResults: [], scadaResult: { packageId: 'pkg-1', success: true } })),
   createPkg: vi.fn(async () => ({ id: 'new-pkg' })),
   updatePkg: vi.fn(async () => ({ id: 'pkg-1' })),
   createProcess: vi.fn(async () => ({ success: true, process: { id: 'proc-1' } })),
@@ -76,7 +76,7 @@ vi.mock('../../../hooks/useScadaPackage', () => ({
   useScadaPackages: () => ({ packages: spies.linkedPackages, loading: false, error: null, refetch: vi.fn() }),
   useCreateScadaPackage: () => ({ mutateAsync: spies.createPkg }),
   useUpdateScadaPackage: () => ({ mutateAsync: spies.updatePkg }),
-  useDeployScadaPackage: () => ({ mutateAsync: spies.deployScada }),
+  useDeployScadaBundle: () => ({ mutateAsync: spies.deployScada }),
 }));
 
 vi.mock('../../../hooks/useDeployProcess', () => ({
@@ -304,6 +304,31 @@ describe('UnifiedEditorPage — 6b consolidation', () => {
       expect(screen.getByTestId('deploy-result-purple').textContent).toMatch(/kaydedin/),
     );
     expect(spies.deployScada).not.toHaveBeenCalled();
+  });
+
+  it('(GAP-3A) a failed bundle deploy names the failing leg(s) in the dialog', async () => {
+    spies.linkedPackages = [
+      { id: 'pkg-1', processId: 'proc-1', packageData: { meta: { schemaVersion: 2, packageName: 'HMI' }, screens: [{ id: 's1', name: 'Main', isDefault: true }] } },
+    ];
+    spies.deployScada.mockResolvedValueOnce({
+      success: false,
+      message: 'Bundle aborted',
+      automationResults: [{ programId: 'prog-9', success: false, message: 'not approved' }],
+      scadaResult: { packageId: 'pkg-1', success: true },
+    });
+    render(<UnifiedEditorPage />);
+    await waitFor(() => expect(spies.getProcess).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByText('Deploy'));
+    fireEvent.click(screen.getByText(/SCADA Paketi/));
+    await screen.findByTestId('deploy-dialog-purple');
+    fireEvent.click(screen.getByTestId('deploy-confirm-purple'));
+
+    await waitFor(() => {
+      const txt = screen.getByTestId('deploy-result-purple').textContent ?? '';
+      expect(txt).toContain('Bundle aborted');
+      expect(txt).toContain('prog-9');
+    });
   });
 
   it('(dirty-gate) SCADA deploy is blocked when the HMI package has unsaved changes', async () => {

@@ -131,6 +131,21 @@ export class UnifiedTagResolver {
     return this.unifiedTagService.deleteTag(id, tenantId);
   }
 
+  /**
+   * Retire (terminal lifecycle state) — the only removal path for a tag that
+   * has left DRAFT. Server-owned method, mirroring the package-status rule:
+   * lifecycle is never a client-writable field (SENSOR-HIGH-050).
+   */
+  @Mutation(() => UnifiedTagType, { name: 'retireUnifiedTag' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async retireTag(
+    @Args('id', { type: () => ID }) id: string,
+    @Tenant() tenantId: string,
+  ): Promise<UnifiedTagType> {
+    const tag = await this.unifiedTagService.retireTag(id, tenantId);
+    return this.mapToType(tag);
+  }
+
   @Mutation(() => TagDiscoveryResultType, { name: 'discoverTags' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async discoverTags(

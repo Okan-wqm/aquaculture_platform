@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, ILike, In, QueryFailedError } from 'typeorm';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
@@ -127,11 +127,39 @@ export class UnifiedTagService {
     return rows.map((r) => r.fqn);
   }
 
+  /**
+   * Hard delete — ONLY for DRAFT tags (SENSOR-HIGH-050). An ACTIVE tag may be
+   * referenced by widget bindings / deploy artifacts (references are FQN
+   * strings inside JSONB documents — no FK to scan), so the structural
+   * guarantee is lifecycle-based: anything past DRAFT can only be RETIRED,
+   * which resolution already reports as unresolved. A referenced tag can
+   * therefore never silently vanish.
+   */
   async deleteTag(id: string, tenantId: string): Promise<boolean> {
     const tag = await this.tagRepository.findOne({ where: { id, tenantId } });
     if (!tag) throw new NotFoundException(`Tag ${id} not found`);
+    if (tag.status !== TagStatus.DRAFT) {
+      throw new ForbiddenException(
+        `Tag ${tag.fqn} is ${tag.status} and cannot be hard-deleted — retire it instead`,
+      );
+    }
     await this.tagRepository.remove(tag);
     return true;
+  }
+
+  /**
+   * Retire a tag: the terminal lifecycle state. The row stays for audit and
+   * resolution reports RETIRED bindings as unresolved (deploy/subscribe gates
+   * see them); the live fan-out skips retired tags. Idempotent.
+   */
+  async retireTag(id: string, tenantId: string): Promise<UnifiedTag> {
+    const tag = await this.tagRepository.findOne({ where: { id, tenantId } });
+    if (!tag) throw new NotFoundException(`Tag ${id} not found`);
+    if (tag.status === TagStatus.RETIRED) return tag;
+    tag.status = TagStatus.RETIRED;
+    // Registry edit → revision bump so binding snapshots detect staleness.
+    tag.revision += 1;
+    return this.tagRepository.save(tag);
   }
 
   async listTags(

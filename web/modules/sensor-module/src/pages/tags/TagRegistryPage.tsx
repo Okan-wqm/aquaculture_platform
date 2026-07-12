@@ -28,6 +28,7 @@ import {
   Radar,
   Pencil,
   Trash2,
+  Archive,
   X,
   Link2,
   Loader2,
@@ -40,6 +41,7 @@ import {
   useDiscoverTags,
   useUpdateTag,
   useDeleteTag,
+  useRetireTag,
   type UnifiedTag,
   type UpdateTagInput,
 } from '../../hooks/useUnifiedTags';
@@ -329,6 +331,7 @@ const TagRegistryPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [editingTag, setEditingTag] = useState<UnifiedTag | null>(null);
   const [confirmDeleteTag, setConfirmDeleteTag] = useState<UnifiedTag | null>(null);
+  const [confirmRetireTag, setConfirmRetireTag] = useState<UnifiedTag | null>(null);
   const [banner, setBanner] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
   const { data: devices } = useEdgeDevices();
@@ -342,6 +345,7 @@ const TagRegistryPage: React.FC = () => {
 
   const discover = useDiscoverTags();
   const deleteTag = useDeleteTag();
+  const retireTag = useRetireTag();
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -371,6 +375,32 @@ const TagRegistryPage: React.FC = () => {
       setConfirmDeleteTag(null);
       setBanner({ kind: 'error', text: `Silme başarısız: ${(e as Error).message}` });
     }
+  };
+
+  const handleRetire = async (): Promise<void> => {
+    if (!confirmRetireTag) return;
+    setBanner(null);
+    try {
+      await retireTag.mutateAsync(confirmRetireTag.id);
+      setConfirmRetireTag(null);
+      refetch();
+    } catch (e) {
+      setConfirmRetireTag(null);
+      setBanner({ kind: 'error', text: `Emeklilik başarısız: ${(e as Error).message}` });
+    }
+  };
+
+  const statusBadge = (status: string): React.ReactElement => {
+    const styles: Record<string, string> = {
+      draft: 'bg-gray-50 text-gray-600 border-gray-200',
+      active: 'bg-cyan-50 text-cyan-700 border-cyan-200',
+      retired: 'bg-amber-50 text-amber-700 border-amber-200',
+    };
+    return (
+      <span className={`inline-block px-1.5 py-0.5 text-[11px] rounded border ${styles[status] ?? styles.draft}`}>
+        {status}
+      </span>
+    );
   };
 
   const linkedBadge = (tag: UnifiedTag): React.ReactElement => {
@@ -467,6 +497,7 @@ const TagRegistryPage: React.FC = () => {
               <th className="px-3 py-2 font-medium">Yön</th>
               <th className="px-3 py-2 font-medium">Birim</th>
               <th className="px-3 py-2 font-medium">Aralık</th>
+              <th className="px-3 py-2 font-medium">Durum</th>
               <th className="px-3 py-2 font-medium">Canlı</th>
               <th className="px-3 py-2 font-medium text-right">İşlem</th>
             </tr>
@@ -474,19 +505,19 @@ const TagRegistryPage: React.FC = () => {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={9} className="px-3 py-8 text-center text-gray-400">
+                <td colSpan={10} className="px-3 py-8 text-center text-gray-400">
                   <Loader2 className="w-5 h-5 animate-spin inline-block" />
                 </td>
               </tr>
             )}
             {!loading && error && (
               <tr>
-                <td colSpan={9} className="px-3 py-6 text-center text-sm text-red-600">{error}</td>
+                <td colSpan={10} className="px-3 py-6 text-center text-sm text-red-600">{error}</td>
               </tr>
             )}
             {!loading && !error && tags.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-3 py-8 text-center text-sm text-gray-400">
+                <td colSpan={10} className="px-3 py-8 text-center text-sm text-gray-400">
                   Kayıtlı tag yok. Bir cihaz seçip <span className="font-medium">Tag Keşfet</span> ile başlayın.
                 </td>
               </tr>
@@ -504,24 +535,40 @@ const TagRegistryPage: React.FC = () => {
                     ? `${tag.engMin ?? '−∞'} … ${tag.engMax ?? '+∞'}`
                     : '—'}
                 </td>
+                <td className="px-3 py-2">{statusBadge(tag.status)}</td>
                 <td className="px-3 py-2">{linkedBadge(tag)}</td>
                 <td className="px-3 py-2 text-right whitespace-nowrap">
-                  <button
-                    onClick={() => setEditingTag(tag)}
-                    className="p-1 text-gray-400 hover:text-cyan-600"
-                    title="Düzenle"
-                    aria-label={`${tag.fqn} tag'ini düzenle`}
-                  >
-                    <Pencil className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setConfirmDeleteTag(tag)}
-                    className="p-1 text-gray-400 hover:text-red-600"
-                    title="Sil"
-                    aria-label={`${tag.fqn} tag'ini sil`}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {tag.status !== 'retired' && (
+                    <button
+                      onClick={() => setEditingTag(tag)}
+                      className="p-1 text-gray-400 hover:text-cyan-600"
+                      title="Düzenle"
+                      aria-label={`${tag.fqn} tag'ini düzenle`}
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                  )}
+                  {/* Lifecycle: hard delete exists only while DRAFT; anything
+                      past DRAFT can only be retired (server-enforced). */}
+                  {tag.status === 'draft' ? (
+                    <button
+                      onClick={() => setConfirmDeleteTag(tag)}
+                      className="p-1 text-gray-400 hover:text-red-600"
+                      title="Sil"
+                      aria-label={`${tag.fqn} tag'ini sil`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  ) : tag.status !== 'retired' ? (
+                    <button
+                      onClick={() => setConfirmRetireTag(tag)}
+                      className="p-1 text-gray-400 hover:text-amber-600"
+                      title="Emekli et"
+                      aria-label={`${tag.fqn} tag'ini emekli et`}
+                    >
+                      <Archive className="w-4 h-4" />
+                    </button>
+                  ) : null}
                 </td>
               </tr>
             ))}
@@ -561,6 +608,35 @@ const TagRegistryPage: React.FC = () => {
             refetch();
           }}
         />
+      )}
+
+      {/* Retire confirm */}
+      {confirmRetireTag && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-4">
+            <h2 className="text-sm font-semibold text-gray-900 mb-1">Tag emekli edilsin mi?</h2>
+            <p className="text-xs text-gray-500 mb-3">
+              <span className="font-mono">{confirmRetireTag.fqn}</span> emekli edilecek: kayıt
+              denetim için kalır, ama bağlamalar artık çözülmez ve canlı veri akmaz. Bu işlem
+              geri alınamaz.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setConfirmRetireTag(null)}
+                className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-md"
+              >
+                İptal
+              </button>
+              <button
+                onClick={handleRetire}
+                disabled={retireTag.isPending}
+                className="px-3 py-1.5 text-sm text-white bg-amber-600 hover:bg-amber-700 rounded-md disabled:opacity-50"
+              >
+                Emekli Et
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Delete confirm */}

@@ -16,6 +16,7 @@ const spies = vi.hoisted(() => ({
   discover: vi.fn(async () => ({ success: true, discoveredCount: 5, createdCount: 3, tags: [] })),
   updateTag: vi.fn(async (input: unknown) => input),
   deleteTag: vi.fn(async () => true),
+  retireTag: vi.fn(async () => ({ id: 'tag-1', status: 'retired' })),
   refetch: vi.fn(),
   tags: [] as unknown[],
 }));
@@ -36,6 +37,7 @@ vi.mock('../../../hooks/useUnifiedTags', () => ({
   useDiscoverTags: () => ({ mutateAsync: spies.discover, isPending: false }),
   useUpdateTag: () => ({ mutateAsync: spies.updateTag, isPending: false }),
   useDeleteTag: () => ({ mutateAsync: spies.deleteTag, isPending: false }),
+  useRetireTag: () => ({ mutateAsync: spies.retireTag, isPending: false }),
 }));
 
 vi.mock('../../../hooks/useEdgeDevices', () => ({
@@ -82,6 +84,7 @@ const baseTag = {
   engUnit: 'mg/L',
   source: { type: 'edge_device', edgeDeviceId: 'dev-1', ioConfigId: 'io-1' },
   hierarchy: {},
+  status: 'active',
   createdAt: '',
   updatedAt: '',
 };
@@ -162,8 +165,8 @@ describe('TagRegistryPage (SENSOR-HIGH-048)', () => {
     expect(input.source.type).toBe('edge_device');
   });
 
-  it('deletes a tag after confirmation', async () => {
-    spies.tags = [baseTag];
+  it('deletes a DRAFT tag after confirmation (hard delete is DRAFT-only)', async () => {
+    spies.tags = [{ ...baseTag, status: 'draft' }];
     renderPage();
 
     fireEvent.click(screen.getByLabelText(`${baseTag.fqn} tag'ini sil`));
@@ -172,5 +175,29 @@ describe('TagRegistryPage (SENSOR-HIGH-048)', () => {
 
     await waitFor(() => expect(spies.deleteTag).toHaveBeenCalledWith('tag-1'));
     expect(spies.refetch).toHaveBeenCalled();
+  });
+
+  it('an ACTIVE tag offers Retire, not Delete (SENSOR-HIGH-050)', async () => {
+    spies.tags = [baseTag]; // status: 'active'
+    renderPage();
+
+    expect(screen.queryByLabelText(`${baseTag.fqn} tag'ini sil`)).toBeNull();
+    fireEvent.click(screen.getByLabelText(`${baseTag.fqn} tag'ini emekli et`));
+    await screen.findByText('Tag emekli edilsin mi?');
+    fireEvent.click(screen.getByText('Emekli Et'));
+
+    await waitFor(() => expect(spies.retireTag).toHaveBeenCalledWith('tag-1'));
+    expect(spies.deleteTag).not.toHaveBeenCalled();
+    expect(spies.refetch).toHaveBeenCalled();
+  });
+
+  it('a RETIRED tag is read-only (no edit, no delete, no retire)', () => {
+    spies.tags = [{ ...baseTag, status: 'retired' }];
+    renderPage();
+
+    expect(screen.queryByLabelText(`${baseTag.fqn} tag'ini düzenle`)).toBeNull();
+    expect(screen.queryByLabelText(`${baseTag.fqn} tag'ini sil`)).toBeNull();
+    expect(screen.queryByLabelText(`${baseTag.fqn} tag'ini emekli et`)).toBeNull();
+    expect(screen.getByText('retired')).toBeTruthy();
   });
 });

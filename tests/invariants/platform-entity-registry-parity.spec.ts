@@ -62,7 +62,12 @@ function entityTablesFor(appDir: string, schema: string): Set<string> {
     const text = readFileSync(file, 'utf8');
     let m: RegExpExecArray | null;
     while ((m = decl.exec(text)) !== null) {
-      tables.add(m[1]);
+      const table = m[1];
+      // Group 1 is non-optional in the pattern; the guard narrows the
+      // RegExpExecArray index type (string | undefined) for strict tsc.
+      if (table !== undefined) {
+        tables.add(table);
+      }
     }
   }
   return tables;

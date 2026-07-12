@@ -743,7 +743,10 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     gatewayParticipation: 'apollo-subgraph',
     // Matches compose start_period: 60s.
     startupBudgetSeconds: 60,
-    requiredSignals: ['schema_drift_clean'],
+    // DB-INFRA-HIGH-003: config-service joined the NATS event backbone
+    // (EventBusModule for the GDPR tenant-erasure cascade) — boot must prove
+    // the mTLS-cert NATS identity like every other bus participant.
+    requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
     requiredEnv: [
       'CONFIG_SERVICE_DB_PASS',
       'SERVICE_IDENTITY_KEYRING',
@@ -780,7 +783,9 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     classification: 'internal-service',
     // Matches compose start_period: 60s.
     startupBudgetSeconds: 60,
-    requiredSignals: ['schema_drift_clean'],
+    // DB-INFRA-HIGH-003: event-store-service joined the NATS event backbone
+    // (EventBusModule for the GDPR tenant-erasure cascade) — same mTLS proof.
+    requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
     eventStoreTenantScopePolicy: 'none',
     requiredEnv: ['EVENT_STORE_SERVICE_DB_PASS', 'SERVICE_IDENTITY_KEYRING'],
   }),

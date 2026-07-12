@@ -38,6 +38,7 @@ import {
   Paperclip,
   Play,
   Square,
+  X,
 } from 'lucide-react';
 
 import type { Edge } from '@xyflow/react';
@@ -188,6 +189,8 @@ const UnifiedEditorPage: React.FC = () => {
 
   // Editor mode
   const mode = useEditorModeStore((s) => s.mode);
+  const setMode = useEditorModeStore((s) => s.setMode);
+  const previousMode = useEditorModeStore((s) => s.previousMode);
   const isCanvasEditable = useEditorModeStore((s) => s.isCanvasEditable);
   const isBottomPanelOpen = useEditorModeStore((s) => s.isBottomPanelOpen);
   const toggleBottomPanel = useEditorModeStore((s) => s.toggleBottomPanel);
@@ -947,10 +950,9 @@ const UnifiedEditorPage: React.FC = () => {
             )}
           </div>
 
-          {/* Bottom Panel - ST Editor in PLC mode, generic output otherwise */}
-          {mode === 'plc' ? (
-            <StEditorPanel onDeploy={() => setIsAutomationDeployOpen(true)} />
-          ) : (
+          {/* Bottom Panel — generic output. The ST editor is a POPUP in PLC
+              mode (see the overlay below), not a bottom dock. */}
+          {(
             <>
               {isBottomPanelOpen && (
                 <div className="h-48 border-t border-gray-200 bg-white flex flex-col">
@@ -1060,6 +1062,29 @@ const UnifiedEditorPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* PLC mode: the ST editor opens as a floating POPUP over the canvas
+          instead of docking to the page bottom. Closing it returns to the
+          previous editor mode (programs persist server-side, nothing is
+          lost on close). */}
+      {mode === 'plc' && (
+        <div className="fixed inset-0 z-40 bg-black/50 flex items-center justify-center p-4 sm:p-8">
+          <div className="w-full max-w-6xl h-[85vh] bg-gray-900 rounded-xl shadow-2xl border border-gray-700 flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-2 bg-gray-800 border-b border-gray-700 flex-shrink-0">
+              <span className="text-sm font-medium text-gray-200">ST Program Editörü (PLC)</span>
+              <button
+                onClick={() => setMode(previousMode && previousMode !== 'plc' ? previousMode : 'pid')}
+                className="p-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded"
+                title="Kapat"
+                aria-label="ST editörünü kapat"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <StEditorPanel floating onDeploy={() => setIsAutomationDeployOpen(true)} />
+          </div>
+        </div>
+      )}
 
       {/* Deploy dialogs (6b) — the unified editor owns BOTH artifacts, so one
           canonical DeployToEdgeDialog is bound per artifact, each with its own

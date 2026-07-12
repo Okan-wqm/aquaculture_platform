@@ -306,6 +306,22 @@ describe('UnifiedEditorPage — 6b consolidation', () => {
     expect(spies.deployScada).not.toHaveBeenCalled();
   });
 
+  it('(popup) PLC mode opens the ST editor as a floating popup, not a bottom dock', async () => {
+    render(<UnifiedEditorPage />);
+    await waitFor(() => expect(spies.getProcess).toHaveBeenCalled());
+    expect(screen.queryByTestId('st-editor')).toBeNull();
+
+    act(() => useEditorModeStore.getState().setMode('plc'));
+    await screen.findByTestId('st-editor');
+    // Rendered inside the fixed overlay dialog, with a close control.
+    expect(screen.getByText('ST Program Editörü (PLC)')).toBeTruthy();
+
+    // Closing the popup returns to the previous editor mode.
+    fireEvent.click(screen.getByLabelText('ST editörünü kapat'));
+    await waitFor(() => expect(screen.queryByTestId('st-editor')).toBeNull());
+    expect(useEditorModeStore.getState().mode).toBe('pid');
+  });
+
   it('(GAP-3A) a failed bundle deploy names the failing leg(s) in the dialog', async () => {
     spies.linkedPackages = [
       { id: 'pkg-1', processId: 'proc-1', packageData: { meta: { schemaVersion: 2, packageName: 'HMI' }, screens: [{ id: 's1', name: 'Main', isDefault: true }] } },

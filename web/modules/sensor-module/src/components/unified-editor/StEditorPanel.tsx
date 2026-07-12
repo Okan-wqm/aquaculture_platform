@@ -79,6 +79,12 @@ export interface StEditorPanelProps {
   onValidate?: () => void;
   /** Deploy action (F9 / Deploy button) — e.g. open the automation deploy modal */
   onDeploy?: () => void;
+  /**
+   * Floating (popup) presentation: fill the host dialog's height, no bottom
+   * dock chrome (resize handle / collapse). Persistence semantics stay
+   * standalone — only the layout changes.
+   */
+  floating?: boolean;
   /** Validation results from parent */
   validationResult?: {
     errors: DiagnosticItem[];
@@ -116,8 +122,11 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
   onSave,
   onValidate,
   onDeploy,
+  floating = false,
   validationResult,
 }) => {
+  // Docked = the legacy bottom-panel presentation (standalone, not floating).
+  const docked = !embedded && !floating;
   // Standalone mode: use editor mode store for collapse/expand
   const isBottomPanelOpen = useEditorModeStore((s) => s.isBottomPanelOpen);
   const toggleBottomPanel = useEditorModeStore((s) => s.toggleBottomPanel);
@@ -125,10 +134,10 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
 
   // Auto-open panel on mount in standalone mode so the editor is visible
   useEffect(() => {
-    if (!embedded) {
+    if (docked) {
       setBottomPanelOpen(true);
     }
-  }, [embedded, setBottomPanelOpen]);
+  }, [docked, setBottomPanelOpen]);
 
   const {
     programs,
@@ -252,9 +261,9 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
     };
   }, []);
 
-  // Ctrl+J toggle (standalone mode only)
+  // Ctrl+J toggle (docked bottom-panel mode only — the popup has no dock)
   useEffect(() => {
-    if (embedded) return;
+    if (!docked) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === 'j') {
         e.preventDefault();
@@ -263,7 +272,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [embedded, toggleBottomPanel]);
+  }, [docked, toggleBottomPanel]);
 
   // Resize handlers
   const handleResizeStart = useCallback(
@@ -411,10 +420,10 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
     [updateSource],
   );
 
-  const panelStyle = useMemo(() => (embedded ? undefined : { height: panelHeight }), [embedded, panelHeight]);
+  const panelStyle = useMemo(() => (docked ? { height: panelHeight } : undefined), [docked, panelHeight]);
 
   // Standalone collapsed state
-  if (!embedded && !isBottomPanelOpen) {
+  if (docked && !isBottomPanelOpen) {
     return (
       <button
         onClick={() => setBottomPanelOpen(true)}
@@ -428,11 +437,11 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
 
   return (
     <div
-      className={`flex flex-col bg-gray-900 ${embedded ? 'flex-1 min-h-0' : 'border-t border-gray-700'}`}
+      className={`flex flex-col bg-gray-900 ${docked ? 'border-t border-gray-700' : 'flex-1 min-h-0'}`}
       style={panelStyle}
     >
-      {/* Resize handle (standalone mode only) */}
-      {!embedded && (
+      {/* Resize handle (docked bottom-panel mode only) */}
+      {docked && (
         <div
           onMouseDown={handleResizeStart}
           className="h-1 bg-gray-700 hover:bg-cyan-600 cursor-row-resize flex-shrink-0"
@@ -572,8 +581,8 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
         {/* Compile status badge */}
         <CompileStatusBadge status={compileStatus} count={diagnostics.length} />
 
-        {/* Collapse (standalone mode only) */}
-        {!embedded && (
+        {/* Collapse (docked bottom-panel mode only) */}
+        {docked && (
           <button
             onClick={toggleBottomPanel}
             className="px-1.5 py-1 text-gray-500 hover:text-white hover:bg-gray-700 rounded"

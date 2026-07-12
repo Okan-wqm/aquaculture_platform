@@ -4251,6 +4251,15 @@ export type DaySummary = {
   workingCount: Scalars['Int']['output'];
 };
 
+export type DeductionsBreakdown = {
+  healthInsurance?: Maybe<Scalars['Float']['output']>;
+  otherDeductions?: Maybe<Scalars['Float']['output']>;
+  retirement?: Maybe<Scalars['Float']['output']>;
+  socialSecurity?: Maybe<Scalars['Float']['output']>;
+  tax?: Maybe<Scalars['Float']['output']>;
+  totalDeductions: Scalars['Float']['output'];
+};
+
 export type DeductionsInput = {
   healthInsurance?: InputMaybe<Scalars['Float']['input']>;
   otherDeductions?: InputMaybe<Scalars['Float']['input']>;
@@ -4814,6 +4823,15 @@ export type DissolvedOxygenInput = {
   min: Scalars['Float']['input'];
   optimal: Scalars['Float']['input'];
   unit?: Scalars['String']['input'];
+};
+
+export type EarningsBreakdown = {
+  allowances?: Maybe<Scalars['Float']['output']>;
+  baseSalary: Scalars['Float']['output'];
+  bonus?: Maybe<Scalars['Float']['output']>;
+  commission?: Maybe<Scalars['Float']['output']>;
+  grossPay: Scalars['Float']['output'];
+  overtime?: Maybe<Scalars['Float']['output']>;
 };
 
 export type EarningsInput = {
@@ -9322,6 +9340,7 @@ export type Mutation = {
   resubmitRegulatoryReport: ReportSubmissionResult;
   resumeMaintenanceSchedule: MaintenanceSchedule;
   resumeWorkOrder: WorkOrder;
+  retireUnifiedTag: UnifiedTagType;
   /** Reopen a READY biomass report back to DRAFT for editing. */
   revertBiomassReportToDraft: BiomassReport;
   revokeCertification: EmployeeCertification;
@@ -11704,6 +11723,11 @@ export type MutationResumeWorkOrderArgs = {
 };
 
 
+export type MutationRetireUnifiedTagArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type MutationRevertBiomassReportToDraftArgs = {
   id: Scalars['ID']['input'];
 };
@@ -13539,12 +13563,14 @@ export type Payroll = {
   createdAt: Scalars['DateTime']['output'];
   createdBy?: Maybe<Scalars['String']['output']>;
   currency: Scalars['String']['output'];
+  deductions: DeductionsBreakdown;
   deductionsHealthInsurance?: Maybe<Scalars['Float']['output']>;
   deductionsOther?: Maybe<Scalars['Float']['output']>;
   deductionsRetirement?: Maybe<Scalars['Float']['output']>;
   deductionsSocialSecurity?: Maybe<Scalars['Float']['output']>;
   deductionsTax?: Maybe<Scalars['Float']['output']>;
   deductionsTotal: Scalars['Float']['output'];
+  earnings: EarningsBreakdown;
   earningsAllowances?: Maybe<Scalars['Float']['output']>;
   earningsBaseSalary: Scalars['Float']['output'];
   earningsBonus?: Maybe<Scalars['Float']['output']>;
@@ -15102,6 +15128,7 @@ export type Query = {
   vfdBrands?: Maybe<Scalars['JSON']['output']>;
   vfdChangeSet?: Maybe<VfdChangeSet>;
   vfdChangeSets: Array<VfdChangeSet>;
+  vfdCommandAuditLog: Array<VfdCommandAuditLog>;
   vfdCurrentParameterValues: Scalars['JSON']['output'];
   vfdDevice?: Maybe<VfdDevice>;
   /** Returns JSON object with status counts */
@@ -17216,6 +17243,12 @@ export type QueryVfdChangeSetsArgs = {
 };
 
 
+export type QueryVfdCommandAuditLogArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  vfdDeviceId: Scalars['ID']['input'];
+};
+
+
 export type QueryVfdCurrentParameterValuesArgs = {
   parameterNames: Array<Scalars['String']['input']>;
   vfdDeviceId: Scalars['ID']['input'];
@@ -18616,6 +18649,8 @@ export type ScadaDeployStatus =
   | 'ROLLED_BACK'
   | 'SENT'
   | 'SUCCESS'
+  | 'UNDEPLOYED'
+  | 'UNDEPLOY_SENT'
   | 'VERIFYING';
 
 export type ScadaDeployStepResultType = {
@@ -20725,7 +20760,6 @@ export type TankCountReconcileRow = {
   healed: Scalars['Boolean']['output'];
   ledgerComplete: Scalars['Boolean']['output'];
   ledgerQuantity: Scalars['Int']['output'];
-  mirrorQuantity?: Maybe<Scalars['Int']['output']>;
   tankId: Scalars['ID']['output'];
 };
 
@@ -22802,7 +22836,6 @@ export type UpdateScadaPackageInput = {
   name?: InputMaybe<Scalars['String']['input']>;
   packageData?: InputMaybe<Scalars['JSON']['input']>;
   processId?: InputMaybe<Scalars['String']['input']>;
-  status?: InputMaybe<ScadaPackageStatus>;
 };
 
 export type UpdateSchedulingSettingsInput = {
@@ -23669,6 +23702,23 @@ export type VfdChangeSetStatus =
   | 'ROLLED_BACK'
   | 'VERIFIED';
 
+/** Immutable VFD runtime control-command audit log */
+export type VfdCommandAuditLog = {
+  command: VfdCommandType;
+  error?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  latencyMs?: Maybe<Scalars['Int']['output']>;
+  metadata?: Maybe<Scalars['JSON']['output']>;
+  performedBy: Scalars['String']['output'];
+  performedByEmail?: Maybe<Scalars['String']['output']>;
+  source: Scalars['String']['output'];
+  success: Scalars['Boolean']['output'];
+  tenantId: Scalars['String']['output'];
+  timestamp: Scalars['DateTime']['output'];
+  value?: Maybe<Scalars['Float']['output']>;
+  vfdDeviceId: Scalars['String']['output'];
+};
+
 export type VfdCommandInput = {
   command: Scalars['String']['input'];
   timeoutMs?: InputMaybe<Scalars['Int']['input']>;
@@ -23685,6 +23735,20 @@ export type VfdCommandResult = {
   previousValue?: Maybe<Scalars['Float']['output']>;
   success: Scalars['Boolean']['output'];
 };
+
+/** VFD command types */
+export type VfdCommandType =
+  | 'COAST_STOP'
+  | 'EMERGENCY_STOP'
+  | 'FAULT_RESET'
+  | 'JOG_FORWARD'
+  | 'JOG_REVERSE'
+  | 'QUICK_STOP'
+  | 'REVERSE'
+  | 'SET_FREQUENCY'
+  | 'SET_SPEED'
+  | 'START'
+  | 'STOP';
 
 export type VfdConnectionStatus = {
   consecutiveFailures?: Maybe<Scalars['Int']['output']>;

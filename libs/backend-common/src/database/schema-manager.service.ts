@@ -388,7 +388,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // `batches_v2` is the current canonical batches table.
       'batches_v2',
       'batch_documents',
-      'farm_documents',
+      // farm_documents was dropped (ORPHAN-HIGH-369, owner decision): a fully
+      // built but unwired DMS surface — DropFarmDocuments1805300000000 removed
+      // the physical table from farm + every tenant clone.
       'batch_feed_assignments',
       'batch_locations',
       'species',

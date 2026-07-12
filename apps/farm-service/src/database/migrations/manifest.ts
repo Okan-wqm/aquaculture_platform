@@ -58,6 +58,7 @@ import { ApplyRlsToRegulatoryReportDrafts1805000000000 } from './1805000000000-A
 import { AddTenantErasureRetainedColumns1805100000000 } from './1805100000000-AddTenantErasureRetainedColumns';
 import { AddFarmStockBatchSnapshotSpecies1805200000000 } from './1805200000000-AddFarmStockBatchSnapshotSpecies';
 import { DropFarmDocuments1805300000000 } from './1805300000000-DropFarmDocuments';
+import { DropFarmWorkerPlaceholderPii1805500000000 } from './1805500000000-DropFarmWorkerPlaceholderPii';
 
 /**
  * Canonical farm-service migration class list.
@@ -122,4 +123,5 @@ export const FARM_MIGRATIONS = [
   AddTenantErasureRetainedColumns1805100000000,
   AddFarmStockBatchSnapshotSpecies1805200000000,
   DropFarmDocuments1805300000000,
+  DropFarmWorkerPlaceholderPii1805500000000,
 ] as const;

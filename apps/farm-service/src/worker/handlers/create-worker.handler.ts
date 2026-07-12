@@ -61,6 +61,11 @@ export class CreateWorkerHandler implements ICommandHandler<CreateWorkerCommand,
       const employeeNumber = `${prefix}${String(nextNumber).padStart(5, '0')}`;
       const now = new Date();
 
+      // WHY no address/dateOfBirth/nationalId/employmentType/baseSalary here:
+      // those columns were dropped (ORPHAN-MEDIUM-379). They existed only to
+      // satisfy NOT NULL with synthesized placeholders (country 'TR',
+      // '1990-01-01', '-', 'full_time', 0) — deep worker PII lives in
+      // hr.employees, the platform's worker-PII SSoT.
       const worker = queryRunner.manager.create(Worker, {
         tenantId,
         employeeNumber,
@@ -71,23 +76,12 @@ export class CreateWorkerHandler implements ICommandHandler<CreateWorkerCommand,
           email: input.email.toLowerCase().trim(),
           phone: input.phone || '',
         },
-        address: {
-          street: '-',
-          city: '-',
-          state: '-',
-          postalCode: '-',
-          country: 'TR',
-        },
-        dateOfBirth: '1990-01-01',
-        nationalId: '-',
         status: 'active',
-        employmentType: 'full_time',
         department: 'operations',
         position: input.position,
         isVeterinarian: input.isVeterinarian ?? false,
         veterinaryLicenseNumber: input.veterinaryLicenseNumber,
         hireDate: now,
-        baseSalary: 0,
         currency: defaultCurrency,
         isFarmWorker: true,
         createdBy: userId,

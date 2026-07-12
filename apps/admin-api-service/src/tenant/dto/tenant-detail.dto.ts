@@ -94,8 +94,10 @@ export interface TenantDetailDto {
   tier: string;
   plan?: string;
   trialEndsAt?: Date;
-  suspendedAt?: Date;
-  suspendedReason?: string;
+  // Suspension audit (DB-ADMIN-HIGH-003): real auth.tenants columns written
+  // only by auth-service; NULL when the tenant is not suspended.
+  suspendedAt?: Date | null;
+  suspendedReason?: string | null;
   availableActions: TenantAvailableAction[];
 
   // Contact Info
@@ -157,7 +159,9 @@ export interface TenantDetailDto {
   createdAt: Date;
   updatedAt: Date;
   createdBy?: string;
-  lastActivityAt?: Date;
+  // NOTE: lastActivityAt was removed (DB-ADMIN-HIGH-003 cleanup): no
+  // auth.tenants column ever backed it, so the field was always undefined.
+  // Tenant activity lives in recentActivities (admin.tenant_activities).
 }
 
 // Tenant List Item (optimized for list view)
@@ -173,7 +177,8 @@ export interface TenantListItemDto {
   farmCount: number;
   sensorCount: number;
   activeModulesCount?: number;
-  lastActivityAt?: Date;
+  // NOTE: lastActivityAt was removed (DB-ADMIN-HIGH-003 cleanup): the list
+  // mapper never populated it and no auth.tenants column backed it.
   createdAt: Date;
 }
 

@@ -26,8 +26,14 @@ import { AuthTenantProvisioningClientService } from '../services/auth-tenant-pro
  * tenant-status machine via canTransition. These tests pin, for every handler,
  * that EVERY illegal source state is rejected with a BadRequestException BEFORE
  * any side effect (the auth provisioning client is never called), and that the
- * machine's legal source states reach the client. A regression that re-opens an
- * illegal transition (or breaks a legal one) fails here.
+ * machine's legal source states reach the client.
+ *
+ * DB-ADMIN-HIGH-004 (single-writer): the handlers MUST NOT write auth.tenants
+ * themselves — auth-service persists the transition and these handlers re-read
+ * the fresh row after the NATS reply. The legal-path assertions pin that
+ * contract: the client mock simulates the owner's committed write by flipping
+ * the shared row's status, `manager.save` is never called, and the handler
+ * returns the re-read row carrying the owner-written status.
  */
 const ALL_STATUSES = Object.values(TenantStatus);
 
@@ -44,20 +50,26 @@ interface MockClient {
   archiveTenant: jest.Mock;
 }
 
-describe('Tenant lifecycle handlers — MT-HIGH-003 transition legality', () => {
+describe('Tenant lifecycle handlers — MT-HIGH-003 transition legality + DB-ADMIN-HIGH-004 single-writer', () => {
   let suspendHandler: SuspendTenantHandler;
   let activateHandler: ActivateTenantHandler;
   let deactivateHandler: DeactivateTenantHandler;
   let archiveHandler: ArchiveTenantHandler;
 
   let manager: MockManager;
+  let tenantRepository: { findOne: jest.Mock };
   let client: MockClient;
   let outboxPublisher: { enqueue: jest.Mock };
 
-  const seedTenant = (status: TenantStatus): void => {
+  const seedTenant = (status: TenantStatus): Tenant => {
     const tenant = new Tenant();
     Object.assign(tenant, { id: 'tenant-1', status });
+    // Pre-read (repository, no lock) and post-reply re-read (queryRunner
+    // manager) resolve the same shared row object — the client mock mutates it
+    // to simulate the owner's committed transition.
+    tenantRepository.findOne.mockResolvedValue(tenant);
     manager.findOne.mockResolvedValue(tenant);
+    return tenant;
   };
 
   beforeEach(async () => {
@@ -75,11 +87,12 @@ describe('Tenant lifecycle handlers — MT-HIGH-003 transition legality', () => 
       manager,
     };
     const dataSource = { createQueryRunner: jest.fn().mockReturnValue(queryRunner) };
+    tenantRepository = { findOne: jest.fn() };
     client = {
-      suspendTenant: jest.fn().mockResolvedValue(undefined),
-      activateTenant: jest.fn().mockResolvedValue(undefined),
-      deprovisionTenant: jest.fn().mockResolvedValue(undefined),
-      archiveTenant: jest.fn().mockResolvedValue(undefined),
+      suspendTenant: jest.fn().mockResolvedValue({ success: true }),
+      activateTenant: jest.fn().mockResolvedValue({ success: true }),
+      deprovisionTenant: jest.fn().mockResolvedValue({ success: true }),
+      archiveTenant: jest.fn().mockResolvedValue({ success: true }),
     };
     outboxPublisher = {
       enqueue: jest.fn().mockResolvedValue(undefined),
@@ -91,7 +104,7 @@ describe('Tenant lifecycle handlers — MT-HIGH-003 transition legality', () => 
         ActivateTenantHandler,
         DeactivateTenantHandler,
         ArchiveTenantHandler,
-        { provide: getRepositoryToken(Tenant), useValue: {} },
+        { provide: getRepositoryToken(Tenant), useValue: tenantRepository },
         { provide: getDataSourceToken(), useValue: dataSource },
         { provide: OutboxPublisher, useValue: outboxPublisher },
         { provide: AuditLogService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
@@ -110,12 +123,14 @@ describe('Tenant lifecycle handlers — MT-HIGH-003 transition legality', () => 
   const lifecycleCases: ReadonlyArray<{
     name: string;
     legal: readonly TenantStatus[];
+    target: TenantStatus;
     run: () => Promise<Tenant>;
     client: () => jest.Mock;
   }> = [
     {
       name: 'suspend',
       legal: [TenantStatus.ACTIVE],
+      target: TenantStatus.SUSPENDED,
       run: () => suspendHandler.execute(new SuspendTenantCommand('tenant-1', { reason: 'x' }, 'admin')),
       client: () => client.suspendTenant,
     },
@@ -127,18 +142,21 @@ describe('Tenant lifecycle handlers — MT-HIGH-003 transition legality', () => 
         TenantStatus.DEACTIVATED,
         TenantStatus.CANCELLED,
       ],
+      target: TenantStatus.ACTIVE,
       run: () => activateHandler.execute(new ActivateTenantCommand('tenant-1', 'admin')),
       client: () => client.activateTenant,
     },
     {
       name: 'deactivate',
       legal: [TenantStatus.ACTIVE, TenantStatus.SUSPENDED],
+      target: TenantStatus.DEACTIVATED,
       run: () => deactivateHandler.execute(new DeactivateTenantCommand('tenant-1', 'x', 'admin')),
       client: () => client.deprovisionTenant,
     },
     {
       name: 'archive',
       legal: [TenantStatus.SUSPENDED, TenantStatus.DEACTIVATED, TenantStatus.CANCELLED],
+      target: TenantStatus.ARCHIVED,
       run: () => archiveHandler.execute(new ArchiveTenantCommand('tenant-1', 'admin')),
       client: () => client.archiveTenant,
     },
@@ -152,13 +170,25 @@ describe('Tenant lifecycle handlers — MT-HIGH-003 transition legality', () => 
         seedTenant(status);
         await expect(lc.run()).rejects.toBeInstanceOf(BadRequestException);
         expect(lc.client()).not.toHaveBeenCalled();
+        expect(manager.save).not.toHaveBeenCalled();
       });
 
       it.each(lc.legal)(`allows ${lc.name} from %s (reaches the auth client)`, async (status) => {
-        seedTenant(status);
-        await lc.run();
+        const tenant = seedTenant(status);
+        // Simulate the single writer: auth-service commits the transition
+        // before replying, so the re-read observes the target status.
+        lc.client().mockImplementationOnce(async () => {
+          tenant.status = lc.target;
+          return { success: true };
+        });
+
+        const returned = await lc.run();
+
         expect(lc.client()).toHaveBeenCalledTimes(1);
-        expect(manager.save).toHaveBeenCalledWith(Tenant, expect.objectContaining({ id: 'tenant-1' }));
+        // Single-writer: admin-api never writes auth.tenants.
+        expect(manager.save).not.toHaveBeenCalled();
+        // The synchronous return contract carries the owner-written fresh row.
+        expect(returned.status).toBe(lc.target);
         expect(outboxPublisher.enqueue).toHaveBeenCalledWith(
           expect.objectContaining({
             eventType: 'TenantStatusChanged',
@@ -168,6 +198,20 @@ describe('Tenant lifecycle handlers — MT-HIGH-003 transition legality', () => 
           { aggregateId: 'tenant-1' },
         );
       });
+
+      it.each(lc.legal)(
+        `${lc.name} from %s records no local side effect when the owner rejects the command`,
+        async (status) => {
+          seedTenant(status);
+          lc.client().mockRejectedValueOnce(new BadRequestException('owner rejected'));
+
+          await expect(lc.run()).rejects.toBeInstanceOf(BadRequestException);
+
+          expect(manager.save).not.toHaveBeenCalled();
+          expect(manager.query).not.toHaveBeenCalled();
+          expect(outboxPublisher.enqueue).not.toHaveBeenCalled();
+        },
+      );
     });
   }
 });

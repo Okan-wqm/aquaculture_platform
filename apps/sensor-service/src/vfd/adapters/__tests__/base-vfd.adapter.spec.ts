@@ -520,8 +520,10 @@ describe('BaseVfdAdapter', () => {
       const buffer = Buffer.from([0x01, 0x03, 0x00, 0x00, 0x00, 0x0a]);
       const crc = adapter.testCalculateCRC16(buffer);
 
-      // Expected CRC for this message
-      expect(crc).toBe(0xc5cd);
+      // The function returns the CRC INTEGER (0xCDC5). Modbus RTU transmits
+      // it low-byte-first, so the wire bytes are C5 CD — hard-coding that
+      // wire order as the integer (0xC5CD) was the original test's error.
+      expect(crc).toBe(0xcdc5);
     });
 
     it('should calculate different CRC for different data', () => {

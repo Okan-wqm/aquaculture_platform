@@ -7,7 +7,14 @@ const config: Config = {
     '^.+\\.ts$': 'ts-jest',
   },
   testMatch: ['<rootDir>/tests/**/*.spec.ts'],
-  testPathIgnorePatterns: ['/node_modules/', '<rootDir>/tests/security/'],
+  // Playwright-run suites (security, water-chemistry, mobile) are excluded —
+  // the runner boundary is explicit so Jest never loads @playwright/test specs.
+  testPathIgnorePatterns: [
+    '/node_modules/',
+    '<rootDir>/tests/security/',
+    '<rootDir>/tests/water-chemistry/',
+    '<rootDir>/tests/mobile/',
+  ],
   moduleNameMapper: {
     // Explicit subpath mappings resolve to <subpath>/index.ts (matching
     // the tsconfig.base.json paths declarations). Listed BEFORE the

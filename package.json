@@ -28,6 +28,7 @@
     "test": "node tools/toolchain/run.mjs nx affected --target=test",
     "test:all": "node tools/toolchain/run.mjs nx run-many --target=test --all",
     "test:e2e:water-chemistry": "npm --prefix e2e run test:water-chemistry",
+    "test:e2e:mobile": "npm --prefix e2e run test:mobile",
     "lint": "node tools/toolchain/run.mjs nx affected --target=lint",
     "lint:all": "node tools/toolchain/run.mjs nx run-many --target=lint --all",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",

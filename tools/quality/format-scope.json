@@ -2633,6 +2633,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/tenant/__tests__/list-tenants-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/tenant/__tests__/performance/list-tenants-pagination.spec.ts",
       "prettier_managed": true
     },
@@ -41442,6 +41448,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/quality/lint-target-inventory.json",
       "prettier_managed": true
     },
@@ -52986,10 +53004,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8685,
+  "file_count": 8688,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8510,
-  "managed_file_list_sha256": "3fb096868c9ccee8482f63c42549a8a59121f2267bcf505778770c639d9182d3",
+  "managed_count": 8513,
+  "managed_file_list_sha256": "b732204b4fda6721cfeeeef56c563193791963c7ff1e6a159c98246f82412714",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

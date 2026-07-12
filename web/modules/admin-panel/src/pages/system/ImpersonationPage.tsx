@@ -6,7 +6,20 @@ import {
   type ImpersonationSession,
   type ImpersonationPermission,
   type ImpersonationAction,
+  type ImpersonationReasonCode,
 } from '../../services/adminApi';
+
+// Backend ImpersonationReason enum values (StartImpersonationDto validates
+// against these) with operator-facing labels. Free text goes in reasonDetails.
+const REASON_OPTIONS: Array<{ value: ImpersonationReasonCode; label: string }> = [
+  { value: 'support_request', label: 'Support request' },
+  { value: 'debugging', label: 'Debugging' },
+  { value: 'configuration', label: 'Configuration' },
+  { value: 'onboarding_assistance', label: 'Onboarding assistance' },
+  { value: 'security_investigation', label: 'Security investigation' },
+  { value: 'data_verification', label: 'Data verification' },
+  { value: 'other', label: 'Other' },
+];
 
 // Simplified tenant type
 interface SimpleTenant {
@@ -90,11 +103,18 @@ export const ImpersonationPage: React.FC = () => {
     data?: Record<string, unknown>;
   } | null>(null);
 
-  // Start impersonation form
-  const [startForm, setStartForm] = useState({
-    tenantId: '',
+  // Start impersonation form — fields mirror the backend StartImpersonationDto
+  // (targetTenantId/targetUserId/reason enum + free-text reasonDetails).
+  const [startForm, setStartForm] = useState<{
+    targetTenantId: string;
+    reason: ImpersonationReasonCode | '';
+    reasonDetails: string;
+    targetUserId: string;
+  }>({
+    targetTenantId: '',
     reason: '',
-    impersonatedUserId: '',
+    reasonDetails: '',
+    targetUserId: '',
   });
 
   // Grant permission form
@@ -142,7 +162,8 @@ export const ImpersonationPage: React.FC = () => {
         recentSessions: [],
       };
 
-      setSessions(sessionsRes.status === 'fulfilled' ? (sessionsRes.value.data || []) : []);
+      // Backend session-list envelope is { items, total } (not the data/page shape).
+      setSessions(sessionsRes.status === 'fulfilled' ? sessionsRes.value.items : []);
       setPermissions(permissionsRes.status === 'fulfilled' ? (permissionsRes.value.data || []) : []);
       setStats(statsRes.status === 'fulfilled' ? statsRes.value : defaultStats);
       setTenants(
@@ -178,10 +199,12 @@ export const ImpersonationPage: React.FC = () => {
   const revokedPermissions = useMemo(() => permissions.filter((p) => !p.isActive), [permissions]);
 
   const filteredSessions = useMemo(() => sessions.filter((session) => {
+    // targetTenantName/superAdminEmail are nullable backend columns — an
+    // absent value simply cannot match a search term.
     const matchesSearch =
       !searchQuery ||
-      session.tenantName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      session.adminEmail.toLowerCase().includes(searchQuery.toLowerCase());
+      (session.targetTenantName ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (session.superAdminEmail ?? '').toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === 'all' || session.status === statusFilter;
     return matchesSearch && matchesStatus;
   }), [sessions, searchQuery, statusFilter]);
@@ -198,16 +221,22 @@ export const ImpersonationPage: React.FC = () => {
 
   // Handlers
   const handleStartImpersonation = async () => {
+    // The submit button gates on these, but narrowing the '' union here keeps
+    // the payload type exact (reason must be a backend enum value).
+    if (!startForm.targetTenantId || !startForm.reason) return;
     setPageError(null);
     try {
+      // The super-admin identity comes from the verified JWT on the backend;
+      // the body carries ONLY StartImpersonationDto fields (forbidNonWhitelisted).
       await impersonationApi.startSession({
-        tenantId: startForm.tenantId,
-        adminId: currentAdminId,
-        impersonatedUserId: startForm.impersonatedUserId || undefined,
+        targetTenantId: startForm.targetTenantId,
+        targetTenantName: tenants.find((t) => t.id === startForm.targetTenantId)?.name,
+        targetUserId: startForm.targetUserId || undefined,
         reason: startForm.reason,
+        reasonDetails: startForm.reasonDetails || undefined,
       });
       setShowStartModal(false);
-      setStartForm({ tenantId: '', reason: '', impersonatedUserId: '' });
+      setStartForm({ targetTenantId: '', reason: '', reasonDetails: '', targetUserId: '' });
       fetchData();
     } catch (error) {
       console.error('Failed to start impersonation:', error);
@@ -239,7 +268,9 @@ export const ImpersonationPage: React.FC = () => {
 
   const handleRevokeSession = async (sessionId: string, reason: string) => {
     try {
-      await impersonationApi.revokeSession(sessionId, currentAdminId, reason);
+      // Terminate endpoint takes only { reason }; the terminating admin's
+      // identity is derived from the JWT server-side.
+      await impersonationApi.revokeSession(sessionId, reason);
       fetchData();
     } catch (error) {
       console.error('Failed to revoke session:', error);
@@ -306,11 +337,12 @@ export const ImpersonationPage: React.FC = () => {
 
   // Utility functions
   const getStatusBadge = (status: string) => {
+    // Keys mirror the backend ImpersonationStatus enum ('terminated', not 'revoked').
     const variants: Record<string, 'success' | 'error' | 'warning' | 'default'> = {
       active: 'success',
       ended: 'default',
       expired: 'warning',
-      revoked: 'error',
+      terminated: 'error',
     };
     return variants[status] || 'default';
   };
@@ -384,7 +416,7 @@ export const ImpersonationPage: React.FC = () => {
                   {activeSessions.length} Active Impersonation Session{activeSessions.length > 1 ? 's' : ''}
                 </div>
                 <div className="text-sm text-yellow-700">
-                  Currently impersonating: {activeSessions.map((s) => s.tenantName).join(', ')}
+                  Currently impersonating: {activeSessions.map((s) => s.targetTenantName ?? s.targetTenantId).join(', ')}
                 </div>
               </div>
             </div>
@@ -401,7 +433,7 @@ export const ImpersonationPage: React.FC = () => {
                       type: 'end',
                       id: activeSessions[0].id,
                       title: 'End Session',
-                      message: `Are you sure you want to end the impersonation session for ${activeSessions[0].tenantName}?`,
+                      message: `Are you sure you want to end the impersonation session for ${activeSessions[0].targetTenantName ?? activeSessions[0].targetTenantId}?`,
                     });
                     setShowConfirmModal(true);
                   }}
@@ -464,7 +496,7 @@ export const ImpersonationPage: React.FC = () => {
             <div>
               <p className="text-sm text-gray-500">Actions Logged</p>
               <p className="text-2xl font-bold text-purple-600">
-                {sessions.reduce((sum, s) => sum + s.actionsPerformed, 0)}
+                {sessions.reduce((sum, s) => sum + s.actionCount, 0)}
               </p>
             </div>
             <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
@@ -531,10 +563,11 @@ export const ImpersonationPage: React.FC = () => {
               </>
             ) : (
               <>
+                {/* Session statuses mirror the backend enum — operator override is 'terminated'. */}
                 <option value="active">Active</option>
                 <option value="ended">Ended</option>
                 <option value="expired">Expired</option>
-                <option value="revoked">Revoked</option>
+                <option value="terminated">Terminated</option>
               </>
             )}
           </select>
@@ -563,30 +596,30 @@ export const ImpersonationPage: React.FC = () => {
                 <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-lg font-semibold text-gray-900">{session.tenantName}</h3>
+                      <h3 className="text-lg font-semibold text-gray-900">{session.targetTenantName ?? session.targetTenantId}</h3>
                       <Badge variant={getStatusBadge(session.status)}>{session.status}</Badge>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-gray-600 mb-3">
                       <div>
-                        <span className="text-gray-500">Admin:</span> {session.adminEmail}
+                        <span className="text-gray-500">Admin:</span> {session.superAdminEmail ?? session.superAdminId}
                       </div>
-                      {session.impersonatedUserId && (
+                      {session.targetUserId && (
                         <div>
-                          <span className="text-gray-500">As User:</span> {session.impersonatedUserId}
+                          <span className="text-gray-500">As User:</span> {session.targetUserEmail ?? session.targetUserId}
                         </div>
                       )}
                       <div>
-                        <span className="text-gray-500">Started:</span> {formatDate(session.startedAt)}
+                        <span className="text-gray-500">Started:</span> {formatDate(session.createdAt)}
                       </div>
                       <div>
                         <span className="text-gray-500">Expires:</span> {formatDate(session.expiresAt)}
                       </div>
                       <div>
-                        <span className="text-gray-500">IP Address:</span> {session.ipAddress}
+                        <span className="text-gray-500">IP Address:</span> {session.ipAddress ?? '-'}
                       </div>
                       <div>
-                        <span className="text-gray-500">Actions:</span> {session.actionsPerformed}
+                        <span className="text-gray-500">Actions:</span> {session.actionCount}
                       </div>
                     </div>
 
@@ -599,7 +632,7 @@ export const ImpersonationPage: React.FC = () => {
                         {getTimeRemaining(session.expiresAt)}
                       </div>
                       <span className="text-sm text-gray-500">
-                        Duration: {formatDuration(session.startedAt)}
+                        Duration: {formatDuration(session.createdAt)}
                       </span>
                     </div>
                   </div>
@@ -620,7 +653,7 @@ export const ImpersonationPage: React.FC = () => {
                           type: 'extend',
                           id: session.id,
                           title: 'Extend Session',
-                          message: `Extend the impersonation session for ${session.tenantName}`,
+                          message: `Extend the impersonation session for ${session.targetTenantName ?? session.targetTenantId}`,
                         });
                         setShowConfirmModal(true);
                       }}
@@ -646,7 +679,7 @@ export const ImpersonationPage: React.FC = () => {
                           type: 'end',
                           id: session.id,
                           title: 'End Session',
-                          message: `Are you sure you want to end the impersonation session for ${session.tenantName}?`,
+                          message: `Are you sure you want to end the impersonation session for ${session.targetTenantName ?? session.targetTenantId}?`,
                         });
                         setShowConfirmModal(true);
                       }}
@@ -697,23 +730,23 @@ export const ImpersonationPage: React.FC = () => {
                   .map((session) => (
                     <tr key={session.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="font-medium text-gray-900">{session.tenantName}</div>
-                        <div className="text-sm text-gray-500">{session.tenantId}</div>
+                        <div className="font-medium text-gray-900">{session.targetTenantName ?? session.targetTenantId}</div>
+                        <div className="text-sm text-gray-500">{session.targetTenantId}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        {session.adminEmail}
+                        {session.superAdminEmail ?? session.superAdminId}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <Badge variant={getStatusBadge(session.status)}>{session.status}</Badge>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        {formatDuration(session.startedAt, session.endedAt)}
+                        {formatDuration(session.createdAt, session.endedAt)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        {session.actionsPerformed}
+                        {session.actionCount}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        {formatDate(session.startedAt)}
+                        {formatDate(session.createdAt)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right">
                         <Button
@@ -901,8 +934,8 @@ export const ImpersonationPage: React.FC = () => {
                 {stats.recentSessions.slice(0, 5).map((session) => (
                   <div key={session.id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
                     <div>
-                      <div className="font-medium text-gray-900">{session.tenantName}</div>
-                      <div className="text-sm text-gray-500">{session.adminEmail}</div>
+                      <div className="font-medium text-gray-900">{session.targetTenantName ?? session.targetTenantId}</div>
+                      <div className="text-sm text-gray-500">{session.superAdminEmail ?? session.superAdminId}</div>
                     </div>
                     <Badge variant={getStatusBadge(session.status)}>{session.status}</Badge>
                   </div>
@@ -938,8 +971,8 @@ export const ImpersonationPage: React.FC = () => {
                     Select Tenant <span className="text-red-500">*</span>
                   </label>
                   <select
-                    value={startForm.tenantId}
-                    onChange={(e) => setStartForm({ ...startForm, tenantId: e.target.value })}
+                    value={startForm.targetTenantId}
+                    onChange={(e) => setStartForm({ ...startForm, targetTenantId: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   >
                     <option value="">Choose a tenant...</option>
@@ -956,9 +989,9 @@ export const ImpersonationPage: React.FC = () => {
                     Impersonate Specific User (Optional)
                   </label>
                   <Input
-                    placeholder="User ID or email"
-                    value={startForm.impersonatedUserId}
-                    onChange={(e) => setStartForm({ ...startForm, impersonatedUserId: e.target.value })}
+                    placeholder="User ID (UUID)"
+                    value={startForm.targetUserId}
+                    onChange={(e) => setStartForm({ ...startForm, targetUserId: e.target.value })}
                   />
                   <p className="text-xs text-gray-500 mt-1">
                     Leave empty to impersonate as tenant admin
@@ -969,9 +1002,34 @@ export const ImpersonationPage: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Reason <span className="text-red-500">*</span>
                   </label>
-                  <textarea
+                  {/* The backend validates reason against its ImpersonationReason
+                      enum; free text belongs in the details field below. */}
+                  <select
                     value={startForm.reason}
-                    onChange={(e) => setStartForm({ ...startForm, reason: e.target.value })}
+                    onChange={(e) => {
+                      // Narrow via the option catalogue instead of a type
+                      // assertion — only real enum values reach the form state.
+                      const selected = REASON_OPTIONS.find((option) => option.value === e.target.value);
+                      setStartForm({ ...startForm, reason: selected ? selected.value : '' });
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">Choose a reason...</option>
+                    {REASON_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Details (Optional)
+                  </label>
+                  <textarea
+                    value={startForm.reasonDetails}
+                    onChange={(e) => setStartForm({ ...startForm, reasonDetails: e.target.value })}
                     rows={3}
                     placeholder="Describe why you need to impersonate this tenant..."
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -986,7 +1044,7 @@ export const ImpersonationPage: React.FC = () => {
                 <Button
                   variant="primary"
                   onClick={handleStartImpersonation}
-                  disabled={!startForm.tenantId || !startForm.reason}
+                  disabled={!startForm.targetTenantId || !startForm.reason}
                 >
                   Start Session
                 </Button>
@@ -1117,7 +1175,7 @@ export const ImpersonationPage: React.FC = () => {
                 <div>
                   <h2 className="text-xl font-bold text-gray-900">Session Actions</h2>
                   <p className="text-sm text-gray-500 mt-1">
-                    {selectedSession.tenantName} - {selectedSession.adminEmail}
+                    {selectedSession.targetTenantName ?? selectedSession.targetTenantId} - {selectedSession.superAdminEmail ?? selectedSession.superAdminId}
                   </p>
                 </div>
                 <button
@@ -1146,8 +1204,9 @@ export const ImpersonationPage: React.FC = () => {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {sessionActions.map((action) => (
-                    <div key={action.id} className="flex gap-4 p-3 bg-gray-50 rounded-lg">
+                  {/* Backend action entries carry no id — the timestamp+index pair keys the list. */}
+                  {sessionActions.map((action, index) => (
+                    <div key={`${action.timestamp}-${index}`} className="flex gap-4 p-3 bg-gray-50 rounded-lg">
                       <div className="flex-shrink-0 w-2 h-2 mt-2 bg-blue-500 rounded-full" />
                       <div className="flex-1">
                         <div className="flex justify-between items-start">
@@ -1156,11 +1215,10 @@ export const ImpersonationPage: React.FC = () => {
                             {formatDate(action.timestamp)}
                           </div>
                         </div>
-                        {(action.entityType || action.entityId) && (
-                          <div className="text-sm text-gray-600 mt-1">
-                            {action.entityType}: {action.entityId}
-                          </div>
-                        )}
+                        <div className="text-sm text-gray-600 mt-1">
+                          {action.resource}
+                          {action.resourceId ? `: ${action.resourceId}` : ''}
+                        </div>
                         {action.details && typeof action.details === 'object' && (
                           <pre className="text-xs text-gray-500 mt-2 bg-gray-100 p-2 rounded overflow-x-auto">
                             {JSON.stringify(

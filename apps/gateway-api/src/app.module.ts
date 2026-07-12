@@ -1,9 +1,15 @@
-import { AuditedOperationModule, AuditLogEntity } from '@aquaculture/backend-common/audit';
+import {
+  AccessLogModule,
+  AccessLogEntity,
+  AuditedOperationModule,
+  AuditLogEntity,
+} from '@aquaculture/backend-common/audit';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
 import {
+  AccessLogMiddleware,
   CorrelationIdMiddleware,
   RequestLoggingMiddleware,
   StripInternalHeadersMiddleware,
@@ -208,17 +214,39 @@ function positiveIntConfig(
           migrations: [],
           migrationsRun: false,
           // Explicit entity list (instead of autoLoadEntities) so the
-          // gateway-api connection only ever knows about the one entity
-          // it could conceivably touch. Adding more entities here without
-          // a clear ownership story would silently re-introduce the
-          // PR #226 surface that motivated removing RlsModule.forRoot()
-          // from this AppModule (see large comment block lower down).
-          entities: [AuditLogEntity],
+          // gateway-api connection only ever knows the entities it actually
+          // writes. Adding an entity here without a clear ownership story
+          // would silently re-introduce the PR #226 surface that motivated
+          // removing RlsModule.forRoot() from this AppModule (see large
+          // comment block lower down). Both listed entities have that story:
+          //   - AuditLogEntity   → shared.audit_logs, written by the global
+          //                        AuditedOperationInterceptor.
+          //   - AccessLogEntity  → shared.access_logs, written by the
+          //                        AccessLogMiddleware mounted in configure()
+          //                        (one row per HTTP request at the single
+          //                        external ingress; AUDITTRAIL-HIGH-004).
+          // Both are cross-tenant `shared` tables the gateway_service role
+          // holds DML on (006-shared-schema-tables.sql GRANTs shared DML to
+          // PUBLIC), so the repository lookup resolves against the same
+          // search_path='shared' connection.
+          entities: [AuditLogEntity, AccessLogEntity],
         }),
     }),
 
     // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor.
     AuditedOperationModule.forRoot(),
+
+    // AUDITTRAIL-HIGH-004: low-level HTTP access-log stream. Registers
+    // AccessLogService + the AccessLogEntity repository (forFeature) so the
+    // AccessLogMiddleware mounted in configure() can persist one row per
+    // request to shared.access_logs. The gateway is the single external
+    // ingress, so mounting here (not per-subgraph) yields exactly one
+    // authoritative access row per external request — including the 401/403/
+    // CSRF/throttle rejections that never reach a subgraph. 90-day retention
+    // is enforced by the canonical RetentionEnforcementService policy
+    // registered in admin-api's AdminApiRetentionBootstrapModule. Enforced
+    // mounted by tests/invariants/access-log-middleware-mounted.spec.ts.
+    AccessLogModule.forRoot(),
 
     // ARCH-GW-006: composition readiness state. Imported BEFORE GraphQLModule so
     // the CompositionStateService singleton is resolvable inside the GraphQL
@@ -604,6 +632,24 @@ export class AppModule implements NestModule {
      */
     consumer
       .apply(SecurityHeadersMiddleware)
+      .forRoutes('*');
+
+    /**
+     * AUDITTRAIL-HIGH-004: low-level HTTP access log, one row per request.
+     *
+     * Mounted at the entry point (right after security headers, before the
+     * identity chain) so `start = Date.now()` measures the fullest request
+     * duration. The row is emitted from `res.on('finish')` — AFTER the
+     * identity chain below has populated req.user / tenantContext /
+     * correlationId — so it captures who/which-tenant without depending on
+     * middleware order at `use()` time. Fire-and-forget: a persistence blip
+     * never surfaces into the response (see AccessLogService docstring).
+     * `forRoutes('*')` deliberately includes REST + GraphQL + 404s + guard
+     * rejections — the Express layer sees every request the Nest pipeline
+     * would miss.
+     */
+    consumer
+      .apply(AccessLogMiddleware)
       .forRoutes('*');
 
     consumer

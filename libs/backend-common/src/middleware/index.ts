@@ -25,3 +25,6 @@ export {
 export { createTenantSchemaMiddleware } from './tenant-schema.middleware';
 export { StripInternalHeadersMiddleware } from './strip-internal-headers.middleware';
 export { VerifiedUserAssertionMiddleware } from './verified-user-assertion.middleware';
+// Low-level HTTP access-log stream (shared.access_logs, AUDITTRAIL-HIGH-004).
+// Companion to AccessLogModule.forRoot() in @aquaculture/backend-common/audit.
+export { AccessLogMiddleware } from './access-log.middleware';

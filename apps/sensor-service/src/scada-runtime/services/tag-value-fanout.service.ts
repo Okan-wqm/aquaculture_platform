@@ -23,7 +23,7 @@
  * same failure forever).
  */
 
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 
 import { UnifiedTagService } from '../../process/services/unified-tag.service';
 import type { TagQuality, TagValueChange } from '../scada-types';
@@ -70,7 +70,7 @@ export function mapQualityCode(code: number): TagQuality {
 }
 
 @Injectable()
-export class TagValueFanoutService {
+export class TagValueFanoutService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(TagValueFanoutService.name);
 
   /** `${tenantId}\0${sensorId}\0${channelId}` → resolution (60s TTL). */
@@ -116,11 +116,14 @@ export class TagValueFanoutService {
       this.pushedCount += values.length;
 
       // Record into the tenant-fenced DAQ history store so what streams live
-      // is also queryable historically (SENSOR-HIGH-053). Same best-effort
-      // contract as the push — a history write failure must not affect
-      // ingestion or the live plane.
+      // is also queryable historically (SENSOR-HIGH-053). BUFFERED, not
+      // per-metric: a 1-row INSERT per ingested reading would put a DB
+      // roundtrip on the ingestion hot path — the same cost
+      // BatchProcessorService exists to avoid — so history rows coalesce and
+      // flush on time (500ms) or size (500 rows), per tenant. Best-effort,
+      // like the push itself.
       if (this.daqStorage) {
-        await this.daqStorage.addValues(metric.tenantId, metric.sensorId, values);
+        this.bufferHistory(metric.tenantId, values);
       }
     } catch (error) {
       this.logger.warn(
@@ -135,6 +138,56 @@ export class TagValueFanoutService {
     this.pushedCount = 0;
     this.unmappedCount = 0;
     return stats;
+  }
+
+  /* ── Buffered DAQ history writes (SENSOR-HIGH-053) ─────────────────── */
+
+  private readonly historyBuffer = new Map<string, TagValueChange[]>();
+  private historyFlushTimer: ReturnType<typeof setInterval> | null = null;
+  private static readonly HISTORY_FLUSH_MS = 500;
+  private static readonly HISTORY_FLUSH_MAX_ROWS = 500;
+
+  onModuleInit(): void {
+    if (!this.daqStorage) return;
+    this.historyFlushTimer = setInterval(() => {
+      this.flushHistory();
+    }, TagValueFanoutService.HISTORY_FLUSH_MS);
+  }
+
+  onModuleDestroy(): void {
+    if (this.historyFlushTimer) {
+      clearInterval(this.historyFlushTimer);
+      this.historyFlushTimer = null;
+    }
+    this.flushHistory(); // drain what's left
+  }
+
+  private bufferHistory(tenantId: string, values: TagValueChange[]): void {
+    const bucket = this.historyBuffer.get(tenantId);
+    if (bucket) bucket.push(...values);
+    else this.historyBuffer.set(tenantId, [...values]);
+
+    let total = 0;
+    for (const rows of this.historyBuffer.values()) total += rows.length;
+    if (total >= TagValueFanoutService.HISTORY_FLUSH_MAX_ROWS) this.flushHistory();
+  }
+
+  /**
+   * Drain the buffer into the DAQ store, one INSERT per tenant batch.
+   * Fire-and-managed: each write handles its own failure (logged, rows
+   * dropped) so history can never back-pressure the ingestion path.
+   */
+  private flushHistory(): void {
+    if (!this.daqStorage || this.historyBuffer.size === 0) return;
+    const drained = [...this.historyBuffer.entries()];
+    this.historyBuffer.clear();
+    for (const [tenantId, rows] of drained) {
+      this.daqStorage.addValues(tenantId, 'live-fanout', rows).catch((error: Error) => {
+        this.logger.warn(
+          `history flush failed (tenant=${tenantId}, ${rows.length} row(s) dropped): ${error.message}`,
+        );
+      });
+    }
   }
 
   private async resolveFqns(

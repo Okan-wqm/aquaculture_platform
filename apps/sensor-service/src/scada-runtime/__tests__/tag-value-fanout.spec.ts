@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 
 import { UnifiedTagService } from '../../process/services/unified-tag.service';
 import { ScadaRuntimeGateway } from '../scada-runtime.gateway';
+import { DaqStorageService } from '../services/daq-storage.service';
 import {
   TagValueFanoutService,
   mapQualityCode,
@@ -35,16 +36,19 @@ describe('TagValueFanoutService (SENSOR-HIGH-046)', () => {
   let service: TagValueFanoutService;
   let findFqns: jest.Mock;
   let pushTagValues: jest.Mock;
+  let addValues: jest.Mock;
 
   beforeEach(async () => {
     findFqns = jest.fn();
     pushTagValues = jest.fn();
+    addValues = jest.fn().mockResolvedValue(undefined);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TagValueFanoutService,
         { provide: UnifiedTagService, useValue: { findFqnsBySensorSource: findFqns } },
         { provide: ScadaRuntimeGateway, useValue: { pushTagValues } },
+        { provide: DaqStorageService, useValue: { addValues } },
       ],
     }).compile();
 
@@ -101,6 +105,25 @@ describe('TagValueFanoutService (SENSOR-HIGH-046)', () => {
 
     await expect(service.fanoutMetric(metric())).resolves.toBeUndefined();
     expect(pushTagValues).not.toHaveBeenCalled();
+  });
+
+  it('buffers DAQ history and flushes ONE tenant batch, not per-metric inserts (SENSOR-HIGH-053)', async () => {
+    findFqns.mockResolvedValue(['EDGE-AABB1122/tank1.do']);
+
+    await service.fanoutMetric(metric({ value: 7.4 }));
+    await service.fanoutMetric(metric({ value: 7.5 }));
+    await service.fanoutMetric(metric({ value: 7.6 }));
+
+    // Nothing written yet — history writes coalesce off the ingestion hot path.
+    expect(addValues).not.toHaveBeenCalled();
+
+    service.onModuleDestroy(); // drains the buffer
+
+    expect(addValues).toHaveBeenCalledTimes(1); // one batch, one tenant
+    const [tenantArg, , rows] = addValues.mock.calls[0];
+    expect(tenantArg).toBe(TENANT);
+    expect(rows).toHaveLength(3);
+    expect(rows.map((r: { value: number }) => r.value)).toEqual([7.4, 7.5, 7.6]);
   });
 
   it('maps the IEC 61131-3 subset and legacy OPC-UA ranges to TagQuality', () => {

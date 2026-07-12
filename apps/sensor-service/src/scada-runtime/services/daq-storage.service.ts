@@ -24,7 +24,7 @@
  *   DaqAggregation.interval: 1min | 5min | 10min | 30min | 1h | 1d
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
@@ -121,7 +121,44 @@ function aggRowsToDataMap(
 /* ------------------------------------------------------------------ */
 
 @Injectable()
-export class DaqStorageService {
+export class DaqStorageService implements OnModuleInit, OnModuleDestroy {
+  /**
+   * Scheduled retention (SENSOR-HIGH-053): the live fan-out persists every
+   * pushed value, so without a running retention pass scada_tag_history grows
+   * without bound. Interval + retention window are env-tunable; retention <= 0
+   * disables the schedule explicitly.
+   */
+  private retentionTimer: ReturnType<typeof setInterval> | null = null;
+
+  onModuleInit(): void {
+    const retentionDays = Number(process.env.SCADA_DAQ_RETENTION_DAYS ?? '30');
+    if (!Number.isFinite(retentionDays) || retentionDays <= 0) {
+      this.logger.warn(
+        `DaqStorage: retention DISABLED (SCADA_DAQ_RETENTION_DAYS=${process.env.SCADA_DAQ_RETENTION_DAYS ?? 'unset->30 expected'}) — scada_tag_history will grow unbounded`,
+      );
+      return;
+    }
+    const run = async (): Promise<void> => {
+      try {
+        await this.cleanupOldData(retentionDays);
+      } catch {
+        // cleanupOldData already logged the failure; the next tick retries.
+      }
+    };
+    // Every 6h; the first pass runs shortly after boot so a long-stopped
+    // service trims its backlog without waiting a full interval.
+    this.retentionTimer = setInterval(run, 6 * 60 * 60 * 1000);
+    setTimeout(run, 60_000).unref?.();
+    this.logger.log(`DaqStorage: retention scheduled (every 6h, keep ${retentionDays} day(s))`);
+  }
+
+  onModuleDestroy(): void {
+    if (this.retentionTimer) {
+      clearInterval(this.retentionTimer);
+      this.retentionTimer = null;
+    }
+  }
+
   private readonly logger = new Logger(DaqStorageService.name);
 
   constructor(

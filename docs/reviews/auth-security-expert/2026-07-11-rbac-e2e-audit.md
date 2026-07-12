@@ -300,3 +300,44 @@ This file records the two write-time authority findings closed by the P0 remedia
 2. **Transition-side termination (single emission point):** `transitionTenantStatus` — the one place all five lifecycle transitions flow through — now, for any transition into a status `isLoginAllowed` rejects, bulk-revokes ALL of the tenant users' refresh tokens INSIDE the SERIALIZABLE receipt transaction (atomic with the status write; a rolled-back suspend revokes nothing) under a tx-local `set_config('app.current_tenant', …, true)` so the RLS policy on `auth.refresh_tokens` admits exactly this tenant's rows (tenant-SCOPED context — the NATS lifecycle command carries no request tenant context); then post-commit blacklists each affected user via the RBAC-HIGH-001 `UserTokenRevocationService` (shared Redis `user_blacklist:{userId}`), which the gateway already enforces on every request — cutting LIVE access tokens fleet-wide immediately. The Redis leg is deliberately non-fatal per user (access tokens self-expire ≤15 min; the durable kill is in-tx + the refresh gate). Idempotent re-suspend and replayed receipts revoke nothing again; ActivateTenant (into ACTIVE) revokes nothing.
 
 Pinned by `tenant-status-refresh-gate.spec.ts` (SUSPENDED/DEACTIVATED/CANCELLED/ARCHIVED → 401 before rotation; ACTIVE → rotates; platform user exempt) and `tenant-suspend-revocation.spec.ts` (in-tx bulk revoke under the tenant GUC with correct ordering; per-user post-commit blacklist; Redis failure non-fatal; zero-user, idempotent-re-suspend, and ActivateTenant negative cases). The gateway needs no change: its existing user-blacklist check is the fleet-wide access-token enforcement point, making the 5-minute tenant-status cache and the `/graphql` public-path exemption irrelevant to containment.
+
+## RBAC-HIGH-008
+
+**Title:** Impersonation was audit-only and UNENFORCED end-to-end: the admin-panel "Open Tenant Portal" button opened `/tenant?impersonation_session=<id>` in a new tab, but NOTHING consumed that query parameter — the tab ran under the SUPER_ADMIN's OWN JWT while the UI asserted an impersonated, read-only session. So the `canModifyData:false` permission set the backend computes was never enforced, and per-action dual-identity audit depended on a best-effort FE `log-action` POST. No MFA step-up gated session start (the `mfaCompleted` column is dead).
+
+**Layer:** 3 (authorization boundary / false-security affordance)
+**Evidence:**
+- `web/modules/admin-panel/src/pages/system/ImpersonationPage.tsx`
+- `apps/admin-api-service/src/impersonation/services/impersonation.service.ts` (mints an impersonationToken no downstream subgraph validates)
+
+**Rule violated:** A UI must not present an authorization boundary it does not enforce; a "read-only impersonation" affordance that actually runs with full admin authority is worse than none — it manufactures false assurance and unaudited access.
+
+**Fix (fail-closed, this PR):** Removed the "Open Tenant Portal" button — the only control that implied an active impersonated browsing context — so the panel no longer offers a session-entry path that silently runs as the admin. The session-management surface (start/list/extend/end/terminate/audit) remains and is now contract-correct (RBAC-MEDIUM-010), so the feature is honest about what it does: it records governed impersonation *intent* and audit, and does not grant an unenforced tenant-portal session. **Tracked debt (owner: auth-security-expert; deadline: next impersonation hardening cycle):** wiring a real gateway token-exchange that mints a scoped, `canModifyData`-enforcing impersonation JWT consumed by every subgraph, plus MFA step-up at session start, before any portal-entry control is reintroduced. This is a design-significant multi-service change (gateway + every subgraph guard), explicitly NOT smuggled in here.
+
+## RBAC-MEDIUM-009
+
+**Title:** Impersonation session-duration ceilings exceeded policy and were duplicated across DTOs: the request DTO accepted up to 480 min (8 h), the grant DTO up to 1440 min (24 h), and the extend DTO up to 120 min — versus the ≤1-hour impersonation policy — with no service-side clamp, so a historical over-cap grant row conferred an over-long session at USE time regardless of the DTO, and there was no idle/inactivity timeout.
+
+**Layer:** 3 (policy ceiling / SSoT)
+**Evidence:**
+- `apps/admin-api-service/src/impersonation/entities/impersonation-session.entity.ts`
+- `apps/admin-api-service/src/impersonation/controllers/impersonation.controller.ts`
+- `apps/admin-api-service/src/impersonation/services/impersonation.service.ts`
+
+**Rule violated:** A security limit must have ONE authoritative value enforced at every layer (DTO AND service), not a set of divergent per-DTO magic numbers that a stored record can outflank at use time.
+
+**Fix:** Introduced `IMPERSONATION_MAX_SESSION_MINUTES = 60` as the single ceiling constant beside the entity. The three DTO `@Max` bounds (grant, request, extend) now derive from it, and the service clamps at every use point that consumes a stored grant: `grantImpersonationPermission` clamps `maxSessionDurationMinutes` on both the create and update paths; `startImpersonation` folds the absolute ceiling into the duration `Math.min` (so a legacy 1440 grant yields a ≤60-min session); `extendSession` bounds TOTAL duration by the ceiling, not the grant. Pinned by `impersonation.session-cap.spec.ts` (create/update clamp; legacy-1440 grant → ≤60-min session; extend refused at the ceiling). Raising the policy is now a one-line change to the constant. (Idle-timeout is called out as follow-on hardening under RBAC-HIGH-008's tracked debt.)
+
+## RBAC-MEDIUM-010
+
+**Title:** The admin-panel impersonation client was a fabricated contract: the TypeScript types invented a read model (tenantName/adminEmail/startedAt/sessionToken/lastActivityAt/actionsPerformed:number) that matched NOTHING the admin-api returns (targetTenantName/superAdminEmail/createdAt/actionCount/…), the start call sent `{tenantId, adminId, reason:string}` which the whitelist ValidationPipe rejected with 400 (the DTO requires `{targetTenantId, reason:<enum>}` and derives the admin from the JWT), list handlers read `.data` from endpoints that return `{items,total}`, terminate sent a non-whitelisted `revokedBy`, `getSessionActions` threw "Not implemented", and the status filter/badges used a `revoked` state the backend calls `terminated`. The impersonation UI was non-functional as shipped.
+
+**Layer:** 3 (FE↔BE contract parity)
+**Evidence:**
+- `web/modules/admin-panel/src/services/types/impersonation.ts`
+- `web/modules/admin-panel/src/services/api/impersonation.ts`
+- `web/modules/admin-panel/src/pages/system/ImpersonationPage.tsx`
+
+**Rule violated:** A frontend client must speak the backend's exact contract (field names, request DTO shape, response envelope, enum values); an invented read model that never matches the API is a non-functional feature masquerading as complete.
+
+**Fix:** Rewrote the impersonation types to MIRROR the admin-api entities field-for-field and the API client to speak the exact controller DTOs: `startSession` sends `{targetTenantId, targetUserId?, reason:<enum>, reasonDetails?}` (admin identity from the JWT, never the body); list results read `{items,total}`; `terminateSession(id, reason)` sends only the whitelisted `{reason}` and is required in the confirm dialog; `getSessionActions` reads the `actionsPerformed` jsonb off `GET /sessions/:id` (the log lives on the session row — no phantom `/actions` endpoint); the start modal's Reason is the backend enum with free text in `reasonDetails`; permission revoke is keyed by grantee `superAdminId`; status filters/badges use `terminated`; the false-affordance "Allowed Actions" checkboxes (never sent, never enforced) were removed. FE type-check + admin-panel lint clean; the admin-api impersonation controller/service specs (68) stay green.

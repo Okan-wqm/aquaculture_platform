@@ -40,6 +40,7 @@ import {
   ImpersonationStatus,
   ImpersonationReason,
   ImpersonationPermissions,
+  IMPERSONATION_MAX_SESSION_MINUTES,
 } from '../entities/impersonation-session.entity';
 import {
   ImpersonationService,
@@ -76,7 +77,9 @@ class GrantPermissionDto {
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(1440) // Max 24 hours
+  // RBAC-MEDIUM-009 (M7): grants previously accepted up to 1440 min (24 h),
+  // violating the 1-hour impersonation policy the SSoT constant owns.
+  @Max(IMPERSONATION_MAX_SESSION_MINUTES)
   maxSessionDurationMinutes?: number;
 
   @IsOptional()
@@ -145,7 +148,8 @@ class StartImpersonationDto {
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(480) // Max 8 hours
+  // RBAC-MEDIUM-009 (M7): requests previously accepted up to 480 min (8 h).
+  @Max(IMPERSONATION_MAX_SESSION_MINUTES)
   durationMinutes?: number;
 }
 
@@ -198,7 +202,11 @@ class LogResourceAccessDto {
 class ExtendSessionDto {
   @IsInt()
   @Min(5, { message: 'Minimum extension is 5 minutes' })
-  @Max(120, { message: 'Maximum extension is 120 minutes' })
+  // RBAC-MEDIUM-009 (M7): an extension can never exceed the absolute session
+  // ceiling (the service additionally bounds TOTAL duration to the cap).
+  @Max(IMPERSONATION_MAX_SESSION_MINUTES, {
+    message: `Maximum extension is ${IMPERSONATION_MAX_SESSION_MINUTES} minutes`,
+  })
   additionalMinutes!: number;
 }
 

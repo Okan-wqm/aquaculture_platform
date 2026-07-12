@@ -7,6 +7,11 @@ import {
   type ImpersonationPermission,
   type ImpersonationAction,
 } from '../../services/adminApi';
+import {
+  IMPERSONATION_REASONS,
+  IMPERSONATION_MAX_SESSION_MINUTES,
+  type ImpersonationReasonValue,
+} from '../../services/types';
 
 // Simplified tenant type
 interface SimpleTenant {
@@ -90,19 +95,20 @@ export const ImpersonationPage: React.FC = () => {
     data?: Record<string, unknown>;
   } | null>(null);
 
-  // Start impersonation form
+  // Start impersonation form — mirrors StartImpersonationDto (RBAC-MEDIUM-010):
+  // reason is the backend ENUM; free text travels as reasonDetails.
   const [startForm, setStartForm] = useState({
-    tenantId: '',
-    reason: '',
-    impersonatedUserId: '',
+    targetTenantId: '',
+    reason: '' as '' | ImpersonationReasonValue,
+    reasonDetails: '',
+    targetUserId: '',
   });
 
-  // Grant permission form
+  // Grant permission form — mirrors GrantPermissionDto.
   const [permissionForm, setPermissionForm] = useState({
     tenantId: '',
-    maxSessionDuration: 60,
-    allowedActions: ['read'] as string[],
-    reason: '',
+    maxSessionDurationMinutes: 60,
+    notes: '',
     expiresAt: '',
   });
 
@@ -142,8 +148,9 @@ export const ImpersonationPage: React.FC = () => {
         recentSessions: [],
       };
 
-      setSessions(sessionsRes.status === 'fulfilled' ? (sessionsRes.value.data || []) : []);
-      setPermissions(permissionsRes.status === 'fulfilled' ? (permissionsRes.value.data || []) : []);
+      // Backend list endpoints return { items, total } (RBAC-MEDIUM-010).
+      setSessions(sessionsRes.status === 'fulfilled' ? (sessionsRes.value.items || []) : []);
+      setPermissions(permissionsRes.status === 'fulfilled' ? (permissionsRes.value.items || []) : []);
       setStats(statsRes.status === 'fulfilled' ? statsRes.value : defaultStats);
       setTenants(
         tenantsRes.status === 'fulfilled'
@@ -178,18 +185,21 @@ export const ImpersonationPage: React.FC = () => {
   const revokedPermissions = useMemo(() => permissions.filter((p) => !p.isActive), [permissions]);
 
   const filteredSessions = useMemo(() => sessions.filter((session) => {
+    const q = searchQuery.toLowerCase();
     const matchesSearch =
       !searchQuery ||
-      session.tenantName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      session.adminEmail.toLowerCase().includes(searchQuery.toLowerCase());
+      (session.targetTenantName ?? session.targetTenantId).toLowerCase().includes(q) ||
+      (session.superAdminEmail ?? session.superAdminId).toLowerCase().includes(q);
     const matchesStatus = statusFilter === 'all' || session.status === statusFilter;
     return matchesSearch && matchesStatus;
   }), [sessions, searchQuery, statusFilter]);
 
   const filteredPermissions = useMemo(() => permissions.filter((permission) => {
+    const q = searchQuery.toLowerCase();
     const matchesSearch =
       !searchQuery ||
-      permission.tenantName.toLowerCase().includes(searchQuery.toLowerCase());
+      (permission.superAdminEmail ?? permission.superAdminId).toLowerCase().includes(q) ||
+      (permission.allowedTenants ?? []).some((t) => t.toLowerCase().includes(q));
     const matchesStatus =
       statusFilter === 'all' ||
       (statusFilter === 'active' ? permission.isActive : !permission.isActive);
@@ -198,16 +208,19 @@ export const ImpersonationPage: React.FC = () => {
 
   // Handlers
   const handleStartImpersonation = async () => {
+    if (!startForm.reason) return;
     setPageError(null);
     try {
+      // StartImpersonationDto exactly: enum reason + optional free-text
+      // details; admin identity comes from the verified JWT, never the body.
       await impersonationApi.startSession({
-        tenantId: startForm.tenantId,
-        adminId: currentAdminId,
-        impersonatedUserId: startForm.impersonatedUserId || undefined,
+        targetTenantId: startForm.targetTenantId,
+        targetUserId: startForm.targetUserId || undefined,
         reason: startForm.reason,
+        reasonDetails: startForm.reasonDetails || undefined,
       });
       setShowStartModal(false);
-      setStartForm({ tenantId: '', reason: '', impersonatedUserId: '' });
+      setStartForm({ targetTenantId: '', reason: '', reasonDetails: '', targetUserId: '' });
       fetchData();
     } catch (error) {
       console.error('Failed to start impersonation:', error);
@@ -238,12 +251,14 @@ export const ImpersonationPage: React.FC = () => {
   };
 
   const handleRevokeSession = async (sessionId: string, reason: string) => {
+    // TerminateSessionDto requires a reason; the confirm dialog enforces it.
+    if (!reason.trim()) return;
     try {
-      await impersonationApi.revokeSession(sessionId, currentAdminId, reason);
+      await impersonationApi.terminateSession(sessionId, reason.trim());
       fetchData();
     } catch (error) {
-      console.error('Failed to revoke session:', error);
-      setPageError(error instanceof Error ? error.message : 'Failed to revoke session.');
+      console.error('Failed to terminate session:', error);
+      setPageError(error instanceof Error ? error.message : 'Failed to terminate session.');
     }
     setShowConfirmModal(false);
     setConfirmAction(null);
@@ -253,20 +268,18 @@ export const ImpersonationPage: React.FC = () => {
   const handleGrantPermission = async () => {
     setPageError(null);
     try {
-      // Fix: backend DTO uses superAdminId (from currentAdminId) and allowedTenants
       await impersonationApi.grantPermission({
         superAdminId: currentAdminId,
         allowedTenants: [permissionForm.tenantId],
-        maxSessionDurationMinutes: permissionForm.maxSessionDuration,
-        notes: permissionForm.reason,
+        maxSessionDurationMinutes: permissionForm.maxSessionDurationMinutes,
+        notes: permissionForm.notes,
         expiresAt: permissionForm.expiresAt || undefined,
       });
       setShowPermissionModal(false);
       setPermissionForm({
         tenantId: '',
-        maxSessionDuration: 60,
-        allowedActions: ['read'],
-        reason: '',
+        maxSessionDurationMinutes: 60,
+        notes: '',
         expiresAt: '',
       });
       fetchData();
@@ -276,9 +289,11 @@ export const ImpersonationPage: React.FC = () => {
     }
   };
 
-  const handleRevokePermission = async (permissionId: string, reason: string) => {
+  // Permission revocation is keyed by the GRANTEE superAdminId (the backend
+  // route is /permissions/:superAdminId/revoke), not the permission row id.
+  const handleRevokePermission = async (superAdminId: string) => {
     try {
-      await impersonationApi.revokePermission(permissionId, currentAdminId, reason);
+      await impersonationApi.revokePermission(superAdminId);
       fetchData();
     } catch (error) {
       console.error('Failed to revoke permission:', error);
@@ -310,10 +325,14 @@ export const ImpersonationPage: React.FC = () => {
       active: 'success',
       ended: 'default',
       expired: 'warning',
-      revoked: 'error',
+      terminated: 'error',
     };
     return variants[status] || 'default';
   };
+
+  // Display helpers over the backend truth (fields are nullable there).
+  const sessionTenantLabel = (s: ImpersonationSession) => s.targetTenantName ?? s.targetTenantId;
+  const sessionAdminLabel = (s: ImpersonationSession) => s.superAdminEmail ?? s.superAdminId;
 
   const formatDate = (date: string) => new Date(date).toLocaleString();
 
@@ -384,7 +403,7 @@ export const ImpersonationPage: React.FC = () => {
                   {activeSessions.length} Active Impersonation Session{activeSessions.length > 1 ? 's' : ''}
                 </div>
                 <div className="text-sm text-yellow-700">
-                  Currently impersonating: {activeSessions.map((s) => s.tenantName).join(', ')}
+                  Currently impersonating: {activeSessions.map((s) => sessionTenantLabel(s)).join(', ')}
                 </div>
               </div>
             </div>
@@ -401,7 +420,7 @@ export const ImpersonationPage: React.FC = () => {
                       type: 'end',
                       id: activeSessions[0].id,
                       title: 'End Session',
-                      message: `Are you sure you want to end the impersonation session for ${activeSessions[0].tenantName}?`,
+                      message: `Are you sure you want to end the impersonation session for ${sessionTenantLabel(activeSessions[0])}?`,
                     });
                     setShowConfirmModal(true);
                   }}
@@ -464,7 +483,7 @@ export const ImpersonationPage: React.FC = () => {
             <div>
               <p className="text-sm text-gray-500">Actions Logged</p>
               <p className="text-2xl font-bold text-purple-600">
-                {sessions.reduce((sum, s) => sum + s.actionsPerformed, 0)}
+                {sessions.reduce((sum, s) => sum + s.actionCount, 0)}
               </p>
             </div>
             <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
@@ -534,7 +553,7 @@ export const ImpersonationPage: React.FC = () => {
                 <option value="active">Active</option>
                 <option value="ended">Ended</option>
                 <option value="expired">Expired</option>
-                <option value="revoked">Revoked</option>
+                <option value="terminated">Terminated</option>
               </>
             )}
           </select>
@@ -563,30 +582,30 @@ export const ImpersonationPage: React.FC = () => {
                 <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-lg font-semibold text-gray-900">{session.tenantName}</h3>
+                      <h3 className="text-lg font-semibold text-gray-900">{sessionTenantLabel(session)}</h3>
                       <Badge variant={getStatusBadge(session.status)}>{session.status}</Badge>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-gray-600 mb-3">
                       <div>
-                        <span className="text-gray-500">Admin:</span> {session.adminEmail}
+                        <span className="text-gray-500">Admin:</span> {sessionAdminLabel(session)}
                       </div>
-                      {session.impersonatedUserId && (
+                      {session.targetUserId && (
                         <div>
-                          <span className="text-gray-500">As User:</span> {session.impersonatedUserId}
+                          <span className="text-gray-500">As User:</span> {session.targetUserEmail ?? session.targetUserId}
                         </div>
                       )}
                       <div>
-                        <span className="text-gray-500">Started:</span> {formatDate(session.startedAt)}
+                        <span className="text-gray-500">Started:</span> {formatDate(session.createdAt)}
                       </div>
                       <div>
                         <span className="text-gray-500">Expires:</span> {formatDate(session.expiresAt)}
                       </div>
                       <div>
-                        <span className="text-gray-500">IP Address:</span> {session.ipAddress}
+                        <span className="text-gray-500">IP Address:</span> {session.ipAddress ?? '—'}
                       </div>
                       <div>
-                        <span className="text-gray-500">Actions:</span> {session.actionsPerformed}
+                        <span className="text-gray-500">Actions:</span> {session.actionCount}
                       </div>
                     </div>
 
@@ -599,7 +618,7 @@ export const ImpersonationPage: React.FC = () => {
                         {getTimeRemaining(session.expiresAt)}
                       </div>
                       <span className="text-sm text-gray-500">
-                        Duration: {formatDuration(session.startedAt)}
+                        Duration: {formatDuration(session.createdAt)}
                       </span>
                     </div>
                   </div>
@@ -620,24 +639,20 @@ export const ImpersonationPage: React.FC = () => {
                           type: 'extend',
                           id: session.id,
                           title: 'Extend Session',
-                          message: `Extend the impersonation session for ${session.tenantName}`,
+                          message: `Extend the impersonation session for ${sessionTenantLabel(session)}`,
                         });
                         setShowConfirmModal(true);
                       }}
                     >
                       Extend
                     </Button>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={() => {
-                        // Open tenant portal in a new tab with the impersonation session's access token
-                        const tenantPortalUrl = `/tenant?impersonation_session=${session.id}`;
-                        window.open(tenantPortalUrl, '_blank', 'noopener,noreferrer');
-                      }}
-                    >
-                      Open Tenant Portal
-                    </Button>
+                    {/* RBAC-MEDIUM-010 / H6 fail-closed: the former "Open Tenant
+                        Portal" button opened /tenant?impersonation_session=<id>,
+                        but NOTHING consumes that parameter — the tab ran under
+                        the SUPER_ADMIN's own JWT while the UI claimed an
+                        impersonated, read-only session. Removed until a real
+                        token-exchange consumer enforces the impersonation
+                        context end-to-end (tracked under RBAC-H6). */}
                     <Button
                       variant="danger"
                       size="sm"
@@ -646,7 +661,7 @@ export const ImpersonationPage: React.FC = () => {
                           type: 'end',
                           id: session.id,
                           title: 'End Session',
-                          message: `Are you sure you want to end the impersonation session for ${session.tenantName}?`,
+                          message: `Are you sure you want to end the impersonation session for ${sessionTenantLabel(session)}?`,
                         });
                         setShowConfirmModal(true);
                       }}
@@ -697,23 +712,23 @@ export const ImpersonationPage: React.FC = () => {
                   .map((session) => (
                     <tr key={session.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="font-medium text-gray-900">{session.tenantName}</div>
-                        <div className="text-sm text-gray-500">{session.tenantId}</div>
+                        <div className="font-medium text-gray-900">{sessionTenantLabel(session)}</div>
+                        <div className="text-sm text-gray-500">{session.targetTenantId}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        {session.adminEmail}
+                        {sessionAdminLabel(session)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <Badge variant={getStatusBadge(session.status)}>{session.status}</Badge>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        {formatDuration(session.startedAt, session.endedAt)}
+                        {formatDuration(session.createdAt, session.endedAt ?? undefined)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        {session.actionsPerformed}
+                        {session.actionCount}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        {formatDate(session.startedAt)}
+                        {formatDate(session.createdAt)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right">
                         <Button
@@ -753,31 +768,37 @@ export const ImpersonationPage: React.FC = () => {
                     <Card key={permission.id} className="p-4">
                       <div className="flex justify-between items-start mb-3">
                         <div>
-                          <h4 className="font-medium text-gray-900">{permission.tenantName}</h4>
-                          <p className="text-sm text-gray-500">{permission.tenantId}</p>
+                          {/* A grant is keyed by ADMIN (grantee), scoped to tenants. */}
+                          <h4 className="font-medium text-gray-900">
+                            {permission.superAdminEmail ?? permission.superAdminId}
+                          </h4>
+                          <p className="text-sm text-gray-500">
+                            {(permission.allowedTenants?.length ?? 0) > 0
+                              ? `${permission.allowedTenants!.length} allowed tenant(s)`
+                              : 'All tenants'}
+                          </p>
                         </div>
                         <Badge variant="success">Active</Badge>
                       </div>
 
                       <div className="space-y-2 text-sm text-gray-600 mb-3">
                         <div>
-                          <span className="text-gray-500">Granted by:</span> {permission.grantedByEmail}
+                          <span className="text-gray-500">Granted by:</span> {permission.grantedBy ?? '—'}
                         </div>
                         <div>
-                          <span className="text-gray-500">Max Duration:</span> {permission.maxSessionDuration} min
+                          <span className="text-gray-500">Max Duration:</span> {permission.maxSessionDurationMinutes} min
                         </div>
                         <div>
-                          <span className="text-gray-500">Allowed Actions:</span>{' '}
-                          {permission.allowedActions.join(', ')}
+                          <span className="text-gray-500">Max Concurrent:</span> {permission.maxConcurrentSessions}
                         </div>
                         {permission.expiresAt && (
                           <div>
                             <span className="text-gray-500">Expires:</span> {formatDate(permission.expiresAt)}
                           </div>
                         )}
-                        {permission.reason && (
+                        {permission.notes && (
                           <div>
-                            <span className="text-gray-500">Reason:</span> {permission.reason}
+                            <span className="text-gray-500">Notes:</span> {permission.notes}
                           </div>
                         )}
                       </div>
@@ -789,9 +810,10 @@ export const ImpersonationPage: React.FC = () => {
                           onClick={() => {
                             setConfirmAction({
                               type: 'revoke_permission',
-                              id: permission.id,
+                              // Backend revokes by GRANTEE superAdminId, not row id.
+                              id: permission.superAdminId,
                               title: 'Revoke Permission',
-                              message: `Are you sure you want to revoke impersonation permission for ${permission.tenantName}?`,
+                              message: `Are you sure you want to revoke impersonation permission for ${permission.superAdminEmail ?? permission.superAdminId}?`,
                             });
                             setShowConfirmModal(true);
                           }}
@@ -813,26 +835,31 @@ export const ImpersonationPage: React.FC = () => {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tenant</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Admin</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Granted By</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Revoked By</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Revoked At</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Granted At</th>
+                      {/* The entity records no dedicated revocation audit fields;
+                          updatedAt is when isActive flipped false (revoke is the
+                          only mutation after grant). */}
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Deactivated At</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
                     {revokedPermissions.map((permission) => (
                       <tr key={permission.id} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="font-medium text-gray-900">{permission.tenantName}</div>
+                          <div className="font-medium text-gray-900">
+                            {permission.superAdminEmail ?? permission.superAdminId}
+                          </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                          {permission.grantedByEmail}
+                          {permission.grantedBy ?? '—'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                          {permission.revokedBy || '-'}
+                          {permission.grantedAt ? formatDate(permission.grantedAt) : '—'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                          {permission.revokedAt ? formatDate(permission.revokedAt) : '-'}
+                          {formatDate(permission.updatedAt)}
                         </td>
                       </tr>
                     ))}
@@ -901,8 +928,8 @@ export const ImpersonationPage: React.FC = () => {
                 {stats.recentSessions.slice(0, 5).map((session) => (
                   <div key={session.id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
                     <div>
-                      <div className="font-medium text-gray-900">{session.tenantName}</div>
-                      <div className="text-sm text-gray-500">{session.adminEmail}</div>
+                      <div className="font-medium text-gray-900">{sessionTenantLabel(session)}</div>
+                      <div className="text-sm text-gray-500">{sessionAdminLabel(session)}</div>
                     </div>
                     <Badge variant={getStatusBadge(session.status)}>{session.status}</Badge>
                   </div>
@@ -938,8 +965,8 @@ export const ImpersonationPage: React.FC = () => {
                     Select Tenant <span className="text-red-500">*</span>
                   </label>
                   <select
-                    value={startForm.tenantId}
-                    onChange={(e) => setStartForm({ ...startForm, tenantId: e.target.value })}
+                    value={startForm.targetTenantId}
+                    onChange={(e) => setStartForm({ ...startForm, targetTenantId: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   >
                     <option value="">Choose a tenant...</option>
@@ -956,9 +983,9 @@ export const ImpersonationPage: React.FC = () => {
                     Impersonate Specific User (Optional)
                   </label>
                   <Input
-                    placeholder="User ID or email"
-                    value={startForm.impersonatedUserId}
-                    onChange={(e) => setStartForm({ ...startForm, impersonatedUserId: e.target.value })}
+                    placeholder="User ID (UUID)"
+                    value={startForm.targetUserId}
+                    onChange={(e) => setStartForm({ ...startForm, targetUserId: e.target.value })}
                   />
                   <p className="text-xs text-gray-500 mt-1">
                     Leave empty to impersonate as tenant admin
@@ -969,9 +996,31 @@ export const ImpersonationPage: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Reason <span className="text-red-500">*</span>
                   </label>
-                  <textarea
+                  {/* The backend audits reason as a closed ENUM; free text goes
+                      to reasonDetails below (RBAC-MEDIUM-010). */}
+                  <select
                     value={startForm.reason}
-                    onChange={(e) => setStartForm({ ...startForm, reason: e.target.value })}
+                    onChange={(e) =>
+                      setStartForm({ ...startForm, reason: e.target.value as ImpersonationReasonValue })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">Select a reason...</option>
+                    {IMPERSONATION_REASONS.map((reason) => (
+                      <option key={reason} value={reason}>
+                        {reason.replace(/_/g, ' ')}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Details (Optional)
+                  </label>
+                  <textarea
+                    value={startForm.reasonDetails}
+                    onChange={(e) => setStartForm({ ...startForm, reasonDetails: e.target.value })}
                     rows={3}
                     placeholder="Describe why you need to impersonate this tenant..."
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -986,7 +1035,7 @@ export const ImpersonationPage: React.FC = () => {
                 <Button
                   variant="primary"
                   onClick={handleStartImpersonation}
-                  disabled={!startForm.tenantId || !startForm.reason}
+                  disabled={!startForm.targetTenantId || !startForm.reason}
                 >
                   Start Session
                 </Button>
@@ -1026,45 +1075,28 @@ export const ImpersonationPage: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Max Session Duration (minutes)
                   </label>
+                  {/* RBAC-MEDIUM-009: the 1-hour policy ceiling — mirrors the
+                      backend DTO @Max + service clamps. */}
                   <Input
                     type="number"
                     min={15}
-                    max={480}
-                    value={permissionForm.maxSessionDuration}
-                    onChange={(e) => setPermissionForm({ ...permissionForm, maxSessionDuration: parseInt(e.target.value) || 60 })}
+                    max={IMPERSONATION_MAX_SESSION_MINUTES}
+                    value={permissionForm.maxSessionDurationMinutes}
+                    onChange={(e) =>
+                      setPermissionForm({
+                        ...permissionForm,
+                        maxSessionDurationMinutes: Math.min(
+                          parseInt(e.target.value) || 60,
+                          IMPERSONATION_MAX_SESSION_MINUTES,
+                        ),
+                      })
+                    }
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Allowed Actions
-                  </label>
-                  <div className="flex gap-4">
-                    {['read', 'write', 'admin'].map((action) => (
-                      <label key={action} className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={permissionForm.allowedActions.includes(action)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setPermissionForm({
-                                ...permissionForm,
-                                allowedActions: [...permissionForm.allowedActions, action],
-                              });
-                            } else {
-                              setPermissionForm({
-                                ...permissionForm,
-                                allowedActions: permissionForm.allowedActions.filter((a) => a !== action),
-                              });
-                            }
-                          }}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-sm text-gray-700 capitalize">{action}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
+                {/* The former "Allowed Actions" checkboxes were a false
+                    affordance: the values were never sent to the backend and
+                    no guard consumes them (RBAC-MEDIUM-010). */}
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1079,11 +1111,11 @@ export const ImpersonationPage: React.FC = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Reason <span className="text-red-500">*</span>
+                    Notes <span className="text-red-500">*</span>
                   </label>
                   <textarea
-                    value={permissionForm.reason}
-                    onChange={(e) => setPermissionForm({ ...permissionForm, reason: e.target.value })}
+                    value={permissionForm.notes}
+                    onChange={(e) => setPermissionForm({ ...permissionForm, notes: e.target.value })}
                     rows={3}
                     placeholder="Reason for granting permission..."
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -1098,7 +1130,7 @@ export const ImpersonationPage: React.FC = () => {
                 <Button
                   variant="primary"
                   onClick={handleGrantPermission}
-                  disabled={!permissionForm.tenantId || !permissionForm.reason}
+                  disabled={!permissionForm.tenantId || !permissionForm.notes}
                 >
                   Grant Permission
                 </Button>
@@ -1117,7 +1149,7 @@ export const ImpersonationPage: React.FC = () => {
                 <div>
                   <h2 className="text-xl font-bold text-gray-900">Session Actions</h2>
                   <p className="text-sm text-gray-500 mt-1">
-                    {selectedSession.tenantName} - {selectedSession.adminEmail}
+                    {sessionTenantLabel(selectedSession)} - {sessionAdminLabel(selectedSession)}
                   </p>
                 </div>
                 <button
@@ -1146,8 +1178,8 @@ export const ImpersonationPage: React.FC = () => {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {sessionActions.map((action) => (
-                    <div key={action.id} className="flex gap-4 p-3 bg-gray-50 rounded-lg">
+                  {sessionActions.map((action, index) => (
+                    <div key={`${action.timestamp}-${index}`} className="flex gap-4 p-3 bg-gray-50 rounded-lg">
                       <div className="flex-shrink-0 w-2 h-2 mt-2 bg-blue-500 rounded-full" />
                       <div className="flex-1">
                         <div className="flex justify-between items-start">
@@ -1156,9 +1188,9 @@ export const ImpersonationPage: React.FC = () => {
                             {formatDate(action.timestamp)}
                           </div>
                         </div>
-                        {(action.entityType || action.entityId) && (
+                        {(action.resource || action.resourceId) && (
                           <div className="text-sm text-gray-600 mt-1">
-                            {action.entityType}: {action.entityId}
+                            {action.resource}{action.resourceId ? `: ${action.resourceId}` : ''}
                           </div>
                         )}
                         {action.details && typeof action.details === 'object' && (
@@ -1214,24 +1246,25 @@ export const ImpersonationPage: React.FC = () => {
                   </label>
                   <Input
                     type="number"
-                    min={15}
-                    max={120}
+                    min={5}
+                    max={IMPERSONATION_MAX_SESSION_MINUTES}
                     value={extendMinutes}
                     onChange={(e) => setExtendMinutes(parseInt(e.target.value) || 30)}
                   />
                 </div>
               )}
 
-              {(confirmAction.type === 'revoke' || confirmAction.type === 'revoke_permission') && (
+              {confirmAction.type === 'revoke' && (
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Reason (optional)
+                    Reason <span className="text-red-500">*</span>
                   </label>
+                  {/* TerminateSessionDto requires a reason (RBAC-MEDIUM-010). */}
                   <textarea
                     value={revokeReason}
                     onChange={(e) => setRevokeReason(e.target.value)}
                     rows={2}
-                    placeholder="Reason for revocation..."
+                    placeholder="Reason for termination..."
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
@@ -1252,6 +1285,7 @@ export const ImpersonationPage: React.FC = () => {
                 <Button
                   variant={confirmAction.type === 'extend' ? 'primary' : 'danger'}
                   autoFocus={confirmAction.type === 'extend'}
+                  disabled={confirmAction.type === 'revoke' && !revokeReason.trim()}
                   onClick={() => {
                     if (confirmAction.type === 'end') {
                       handleEndSession(confirmAction.id);
@@ -1260,7 +1294,7 @@ export const ImpersonationPage: React.FC = () => {
                     } else if (confirmAction.type === 'revoke') {
                       handleRevokeSession(confirmAction.id, revokeReason);
                     } else if (confirmAction.type === 'revoke_permission') {
-                      handleRevokePermission(confirmAction.id, revokeReason);
+                      handleRevokePermission(confirmAction.id);
                     }
                   }}
                 >

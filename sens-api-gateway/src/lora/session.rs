@@ -336,7 +336,10 @@ impl SessionStore {
                 "UPDATE sessions
                     SET f_cnt_up = ?1, last_seen = ?2
                   WHERE dev_eui = ?3 AND ?4 >= f_cnt_up",
-                params![f_cnt + 1, now, dev_eui_hex, f_cnt],
+                // PR935-LOW-006: saturating_add so the stored next-expected
+                // counter cannot wrap to 0 at u32::MAX (release has no
+                // overflow-checks) — a wrap would reopen the replay window.
+                params![f_cnt.saturating_add(1), now, dev_eui_hex, f_cnt],
             )
             .context("FCntUp dogrula-ve-ilerlet basarisiz")?;
         Ok(rows == 1)

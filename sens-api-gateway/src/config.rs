@@ -1868,8 +1868,12 @@ pub struct KeystoreConfig {
     /// central PLATFORM_KEY_CEREMONY authority (ADR-018 §5); this is
     /// the trust anchor that keeps the weaker FileBacked master-key
     /// tier unavailable unless the ceremony signed off. REQUIRED in
-    /// FileBacked mode — boot fails closed when absent (see the
-    /// keystore coherence rule in validate_faz2_security_coherence).
+    /// FileBacked mode — boot fails closed when absent. The enforcement
+    /// lives in the keystore bootstrap (`keystore/bootstrap.rs`
+    /// `build_production_keystore_from_config`, which injects the real
+    /// verify_strict closure and refuses to construct FileBacked acceptance
+    /// without this key), NOT in `validate_faz2_security_coherence`
+    /// (PR935-LOW-008: the prior cross-reference was wrong).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub acceptance_pubkey_hex: Option<String>,
 

@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Select, ConfirmModal, useToast } from '@aquaculture/shared-ui';
 import { systemSettingsApi } from '../../services/adminApi';
 import type { BackgroundJob, JobQueue } from '../../services/adminApi';
 
@@ -25,6 +25,15 @@ interface JobDashboard {
   avgDuration: number;
   queues: JobQueue[];
   recentJobs: BackgroundJob[];
+}
+
+interface PendingJobAction {
+  title: string;
+  message: string;
+  variant: 'danger' | 'warning' | 'info';
+  confirmText: string;
+  loadingText: string;
+  onConfirm: () => Promise<void>;
 }
 
 // ============================================================================
@@ -47,8 +56,11 @@ const defaultDashboard: JobDashboard = {
 // ============================================================================
 
 export const JobQueuePage: React.FC = () => {
+  const { toast } = useToast();
   // State
   const [dashboard, setDashboard] = useState<JobDashboard | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingJobAction | null>(null);
+  const [actionRunning, setActionRunning] = useState(false);
   const [jobs, setJobs] = useState<BackgroundJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -108,50 +120,92 @@ export const JobQueuePage: React.FC = () => {
   // Handlers
   // ============================================================================
 
-  const handleRetryJob = async (job: BackgroundJob) => {
-    const currentJobs = Array.isArray(jobs) ? jobs : [];
+  const runPendingAction = async () => {
+    if (!pendingAction) return;
+    setActionRunning(true);
     try {
-      await systemSettingsApi.retryJob(job.id);
-      setJobs(
-        currentJobs.map((j) =>
-          j.id === job.id
-            ? { ...j, status: 'pending' as JobStatus, attempts: 0 }
-            : j
-        )
-      );
+      await pendingAction.onConfirm();
+    } finally {
+      setActionRunning(false);
+      setPendingAction(null);
+    }
+  };
+
+  const retryJob = async (job: BackgroundJob): Promise<void> => {
+    await systemSettingsApi.retryJob(job.id);
+    setJobs((prev) =>
+      (Array.isArray(prev) ? prev : []).map((j) =>
+        j.id === job.id
+          ? { ...j, status: 'pending' as JobStatus, attempts: 0 }
+          : j
+      )
+    );
+  };
+
+  const handleRetryJob = async (job: BackgroundJob) => {
+    try {
+      await retryJob(job);
+      toast({ title: 'Job retried', variant: 'success' });
     } catch (err) {
       console.error('Failed to retry job:', err);
       setError(err instanceof Error ? err.message : 'Failed to retry job. Please try again.');
     }
   };
 
-  const handleCancelJob = async (job: BackgroundJob) => {
-    if (!confirm(`Are you sure you want to cancel "${job.name}"?`)) return;
-
-    const currentJobs = Array.isArray(jobs) ? jobs : [];
+  const cancelJob = async (job: BackgroundJob): Promise<void> => {
     try {
       await systemSettingsApi.cancelJob(job.id);
-      setJobs(
-        currentJobs.map((j) =>
+      setJobs((prev) =>
+        (Array.isArray(prev) ? prev : []).map((j) =>
           j.id === job.id ? { ...j, status: 'cancelled' as JobStatus } : j
         )
       );
+      toast({ title: 'Job cancelled', variant: 'success' });
     } catch (err) {
       console.error('Failed to cancel job:', err);
       setError(err instanceof Error ? err.message : 'Failed to cancel job. Please try again.');
     }
   };
 
-  const handleRetryAllFailed = async () => {
+  const handleCancelJob = (job: BackgroundJob) => {
+    setPendingAction({
+      title: 'Cancel Job',
+      message: `Are you sure you want to cancel "${job.name}"?`,
+      variant: 'danger',
+      confirmText: 'Cancel Job',
+      loadingText: 'Cancelling...',
+      onConfirm: () => cancelJob(job),
+    });
+  };
+
+  const retryAllFailed = async (failedJobs: BackgroundJob[]): Promise<void> => {
+    try {
+      for (const job of failedJobs) {
+        await retryJob(job);
+      }
+      toast({
+        title: `Retried ${failedJobs.length} failed job${failedJobs.length === 1 ? '' : 's'}`,
+        variant: 'success',
+      });
+    } catch (err) {
+      console.error('Failed to retry jobs:', err);
+      setError(err instanceof Error ? err.message : 'Failed to retry jobs. Please try again.');
+    }
+  };
+
+  const handleRetryAllFailed = () => {
     const currentJobs = Array.isArray(jobs) ? jobs : [];
     const failedJobs = currentJobs.filter((j) => j.status === 'failed');
     if (failedJobs.length === 0) return;
 
-    if (!confirm(`Retry all ${failedJobs.length} failed jobs?`)) return;
-
-    for (const job of failedJobs) {
-      await handleRetryJob(job);
-    }
+    setPendingAction({
+      title: 'Retry All Failed Jobs',
+      message: `Retry all ${failedJobs.length} failed jobs?`,
+      variant: 'warning',
+      confirmText: 'Retry All',
+      loadingText: 'Retrying...',
+      onConfirm: () => retryAllFailed(failedJobs),
+    });
   };
 
   const handlePauseQueue = async (queue: JobQueue) => {
@@ -648,6 +702,22 @@ export const JobQueuePage: React.FC = () => {
             </table>
           </div>
         </Card>
+      )}
+
+      {/* Confirm Modal */}
+      {pendingAction && (
+        <ConfirmModal
+          isOpen={true}
+          onClose={() => setPendingAction(null)}
+          onConfirm={runPendingAction}
+          title={pendingAction.title}
+          message={pendingAction.message}
+          confirmText={pendingAction.confirmText}
+          cancelText="Cancel"
+          variant={pendingAction.variant}
+          isLoading={actionRunning}
+          loadingText={pendingAction.loadingText}
+        />
       )}
 
       {/* Error Display */}

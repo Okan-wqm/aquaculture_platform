@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Select, ConfirmModal, useToast } from '@aquaculture/shared-ui';
 import { systemSettingsApi } from '../../services/adminApi';
 import type { FeatureToggle } from '../../services/adminApi';
 
@@ -39,8 +39,11 @@ const defaultForm: FeatureToggleForm = {
 // ============================================================================
 
 export const FeatureTogglesPage: React.FC = () => {
+  const { toast } = useToast();
   // State
   const [toggles, setToggles] = useState<FeatureToggle[]>([]);
+  const [toggleToDelete, setToggleToDelete] = useState<FeatureToggle | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -164,15 +167,21 @@ export const FeatureTogglesPage: React.FC = () => {
     }
   };
 
-  const handleDelete = async (toggle: FeatureToggle) => {
-    if (!confirm(`Are you sure you want to delete "${toggle.name}"?`)) return;
+  const handleDelete = async () => {
+    if (!toggleToDelete) return;
 
+    setDeleting(true);
     try {
-      await systemSettingsApi.deleteFeatureToggle(toggle.id);
-      setToggles(toggles.filter((t) => t.id !== toggle.id));
+      await systemSettingsApi.deleteFeatureToggle(toggleToDelete.id);
+      setToggles(toggles.filter((t) => t.id !== toggleToDelete.id));
+      setToggleToDelete(null);
+      toast({ title: 'Feature toggle deleted', variant: 'success' });
     } catch (err) {
       console.error('Failed to delete toggle:', err);
+      setToggleToDelete(null);
       setError(err instanceof Error ? err.message : 'Failed to delete feature flag. Please try again.');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -427,7 +436,7 @@ export const FeatureTogglesPage: React.FC = () => {
                           Edit
                         </button>
                         <button
-                          onClick={() => handleDelete(toggle)}
+                          onClick={() => setToggleToDelete(toggle)}
                           className="px-3 py-1.5 text-sm font-medium bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
                         >
                           Delete
@@ -569,6 +578,22 @@ export const FeatureTogglesPage: React.FC = () => {
             </div>
           </Card>
         </div>
+      )}
+
+      {/* Delete Toggle Confirm Modal */}
+      {toggleToDelete && (
+        <ConfirmModal
+          isOpen={true}
+          onClose={() => setToggleToDelete(null)}
+          onConfirm={handleDelete}
+          title="Delete Feature Toggle"
+          message={`Are you sure you want to delete "${toggleToDelete.name}"?`}
+          confirmText="Delete"
+          cancelText="Cancel"
+          variant="danger"
+          isLoading={deleting}
+          loadingText="Deleting..."
+        />
       )}
 
       {/* Error Display */}

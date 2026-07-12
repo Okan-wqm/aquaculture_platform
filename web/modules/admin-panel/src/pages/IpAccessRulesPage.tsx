@@ -10,7 +10,9 @@ import {
   Button,
   Badge,
   Input,
-  Modal
+  Modal,
+  ConfirmModal,
+  useToast
 } from '@aquaculture/shared-ui';
 import { settingsApi, IpAccessRule } from '../services/adminApi';
 
@@ -32,7 +34,10 @@ interface IpAccessStats {
 // ============================================================================
 
 const IpAccessRulesPage: React.FC = () => {
+  const { toast } = useToast();
   const [rules, setRules] = useState<IpAccessRule[]>([]);
+  const [ruleToDelete, setRuleToDelete] = useState<IpAccessRule | null>(null);
+  const [deletingRule, setDeletingRule] = useState(false);
   const [stats, setStats] = useState<IpAccessStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -129,14 +134,20 @@ const IpAccessRulesPage: React.FC = () => {
     }
   };
 
-  const handleDeleteRule = async (id: string) => {
-    if (!window.confirm('Are you sure you want to delete this rule?')) return;
+  const handleDeleteRule = async () => {
+    if (!ruleToDelete) return;
+    setDeletingRule(true);
     try {
-      await settingsApi.deleteIpAccessRule(id);
-      setRules(rules.filter(r => r.id !== id));
+      await settingsApi.deleteIpAccessRule(ruleToDelete.id);
+      setRules(rules.filter(r => r.id !== ruleToDelete.id));
+      setRuleToDelete(null);
+      toast({ title: 'Rule deleted', variant: 'success' });
     } catch (err) {
       console.error('Failed to delete rule:', err);
+      setRuleToDelete(null);
       setError(err instanceof Error ? err.message : 'Failed to delete rule');
+    } finally {
+      setDeletingRule(false);
     }
   };
 
@@ -146,6 +157,10 @@ const IpAccessRulesPage: React.FC = () => {
       setRules(rules.map(r =>
         r.id === rule.id ? { ...r, isActive: !r.isActive } : r
       ));
+      toast({
+        title: rule.isActive ? 'Rule disabled' : 'Rule enabled',
+        variant: 'success',
+      });
     } catch (err) {
       console.error('Failed to toggle rule:', err);
       setError(err instanceof Error ? err.message : 'Failed to update rule status');
@@ -367,7 +382,7 @@ const IpAccessRulesPage: React.FC = () => {
                         variant="ghost"
                         size="sm"
                         className="text-red-600"
-                        onClick={() => handleDeleteRule(rule.id)}
+                        onClick={() => setRuleToDelete(rule)}
                       >
                         Delete
                       </Button>
@@ -533,6 +548,22 @@ const IpAccessRulesPage: React.FC = () => {
             </div>
           </div>
         </Modal>
+      )}
+
+      {/* Delete Rule Confirm Modal */}
+      {ruleToDelete && (
+        <ConfirmModal
+          isOpen={true}
+          onClose={() => setRuleToDelete(null)}
+          onConfirm={handleDeleteRule}
+          title="Delete IP Rule"
+          message={`Are you sure you want to delete the rule for "${ruleToDelete.ipAddress}"?`}
+          confirmText="Delete"
+          cancelText="Cancel"
+          variant="danger"
+          isLoading={deletingRule}
+          loadingText="Deleting..."
+        />
       )}
     </div>
   );

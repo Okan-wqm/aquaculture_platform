@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge, Input } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, ConfirmModal, useToast } from '@aquaculture/shared-ui';
 import {
   billingApi,
   DiscountCode,
@@ -21,7 +21,10 @@ import {
 // ============================================================================
 
 const DiscountCodePage: React.FC = () => {
+  const { toast } = useToast();
   const [discountCodes, setDiscountCodes] = useState<DiscountCode[]>([]);
+  const [codeToDeactivate, setCodeToDeactivate] = useState<DiscountCode | null>(null);
+  const [deactivating, setDeactivating] = useState(false);
   const [stats, setStats] = useState<DiscountStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -100,14 +103,20 @@ const DiscountCodePage: React.FC = () => {
     }
   };
 
-  const handleDeactivate = async (id: string) => {
-    if (!confirm('Are you sure you want to deactivate this discount code?')) return;
+  const handleDeactivate = async () => {
+    if (!codeToDeactivate) return;
 
+    setDeactivating(true);
     try {
-      await billingApi.deactivateDiscountCode(id, 'admin');
+      await billingApi.deactivateDiscountCode(codeToDeactivate.id, 'admin');
+      setCodeToDeactivate(null);
+      toast({ title: 'Discount code deactivated', variant: 'success' });
       loadData();
     } catch (err) {
+      setCodeToDeactivate(null);
       setError((err as Error).message);
+    } finally {
+      setDeactivating(false);
     }
   };
 
@@ -369,7 +378,7 @@ const DiscountCodePage: React.FC = () => {
                       <Button
                         variant="danger"
                         size="sm"
-                        onClick={() => handleDeactivate(code.id)}
+                        onClick={() => setCodeToDeactivate(code)}
                       >
                         Deactivate
                       </Button>
@@ -617,6 +626,22 @@ const DiscountCodePage: React.FC = () => {
             </div>
           </Card>
         </div>
+      )}
+
+      {/* Deactivate Confirm Modal */}
+      {codeToDeactivate && (
+        <ConfirmModal
+          isOpen={true}
+          onClose={() => setCodeToDeactivate(null)}
+          onConfirm={handleDeactivate}
+          title="Deactivate Discount Code"
+          message={`Are you sure you want to deactivate the discount code "${codeToDeactivate.code}"?`}
+          confirmText="Deactivate"
+          cancelText="Cancel"
+          variant="warning"
+          isLoading={deactivating}
+          loadingText="Deactivating..."
+        />
       )}
     </div>
   );

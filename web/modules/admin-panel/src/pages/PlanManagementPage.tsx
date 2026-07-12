@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge, Input } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, ConfirmModal, useToast } from '@aquaculture/shared-ui';
 import {
   billingApi,
   PlanDefinition,
@@ -18,11 +18,14 @@ import {
 // ============================================================================
 
 const PlanManagementPage: React.FC = () => {
+  const { toast } = useToast();
   const [plans, setPlans] = useState<PlanDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<PlanDefinition | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  const [planToDeprecate, setPlanToDeprecate] = useState<PlanDefinition | null>(null);
+  const [deprecating, setDeprecating] = useState(false);
 
   useEffect(() => {
     loadPlans();
@@ -52,14 +55,20 @@ const PlanManagementPage: React.FC = () => {
     }
   };
 
-  const handleDeprecatePlan = async (planId: string) => {
-    if (!confirm('Are you sure you want to deprecate this plan?')) return;
+  const handleDeprecatePlan = async () => {
+    if (!planToDeprecate) return;
 
+    setDeprecating(true);
     try {
-      await billingApi.deprecatePlan(planId, 'admin');
+      await billingApi.deprecatePlan(planToDeprecate.id, 'admin');
+      setPlanToDeprecate(null);
+      toast({ title: 'Plan deprecated', variant: 'success' });
       loadPlans();
     } catch (err) {
+      setPlanToDeprecate(null);
       setError((err as Error).message);
+    } finally {
+      setDeprecating(false);
     }
   };
 
@@ -243,7 +252,7 @@ const PlanManagementPage: React.FC = () => {
                   <Button
                     variant="danger"
                     size="sm"
-                    onClick={() => handleDeprecatePlan(plan.id)}
+                    onClick={() => setPlanToDeprecate(plan)}
                   >
                     Deprecate
                   </Button>
@@ -412,6 +421,22 @@ const PlanManagementPage: React.FC = () => {
             </div>
           </Card>
         </div>
+      )}
+
+      {/* Deprecate Confirm Modal */}
+      {planToDeprecate && (
+        <ConfirmModal
+          isOpen={true}
+          onClose={() => setPlanToDeprecate(null)}
+          onConfirm={handleDeprecatePlan}
+          title="Deprecate Plan"
+          message={`Are you sure you want to deprecate the plan "${planToDeprecate.name}"?`}
+          confirmText="Deprecate"
+          cancelText="Cancel"
+          variant="warning"
+          isLoading={deprecating}
+          loadingText="Deprecating..."
+        />
       )}
     </div>
   );

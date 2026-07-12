@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Sidebar, type UserRole } from '@aquaculture/shared-ui';
+import { Sidebar, type UserRole, type NavigationItem } from '@aquaculture/shared-ui';
 import { adminNavItems, adminNavIcons } from './admin-nav-items';
 
 // Admin panel standalone dev mode runs without auth context. The
@@ -22,6 +22,35 @@ interface AdminLayoutProps {
 }
 
 // ============================================================================
+// Nav quick-filter search index (flattened from adminNavItems)
+// ============================================================================
+
+interface NavSearchEntry {
+  id: string;
+  label: string;
+  path: string;
+}
+
+const buildNavSearchIndex = (
+  items: NavigationItem[],
+  parentLabel?: string
+): NavSearchEntry[] => {
+  const entries: NavSearchEntry[] = [];
+  for (const item of items) {
+    const label = parentLabel ? `${parentLabel} / ${item.label}` : item.label;
+    if (item.path && !item.isExternal) {
+      entries.push({ id: item.id, label, path: item.path });
+    }
+    if (item.children && item.children.length > 0) {
+      entries.push(...buildNavSearchIndex(item.children, label));
+    }
+  }
+  return entries;
+};
+
+const NAV_SEARCH_INDEX: NavSearchEntry[] = buildNavSearchIndex(adminNavItems);
+
+// ============================================================================
 // Header Component
 // ============================================================================
 
@@ -30,6 +59,73 @@ const AdminHeader: React.FC<{
   onToggleSidebar: () => void;
   onToggleMobileSidebar: () => void;
 }> = ({ sidebarCollapsed, onToggleSidebar, onToggleMobileSidebar }) => {
+  const navigate = useNavigate();
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+
+  const trimmedQuery = searchQuery.trim().toLowerCase();
+  const matches = trimmedQuery
+    ? NAV_SEARCH_INDEX.filter((entry) =>
+        entry.label.toLowerCase().includes(trimmedQuery)
+      )
+    : [];
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setActiveIndex(-1);
+  }, []);
+
+  const selectMatch = useCallback(
+    (entry: NavSearchEntry) => {
+      navigate(entry.path);
+      setSearchQuery('');
+      closeSearch();
+    },
+    [navigate, closeSearch]
+  );
+
+  // Close the dropdown on outside click
+  useEffect(() => {
+    if (!searchOpen) return;
+    const handleMouseDown = (e: MouseEvent) => {
+      if (
+        searchContainerRef.current &&
+        e.target instanceof Node &&
+        !searchContainerRef.current.contains(e.target)
+      ) {
+        closeSearch();
+      }
+    };
+    document.addEventListener('mousedown', handleMouseDown);
+    return () => document.removeEventListener('mousedown', handleMouseDown);
+  }, [searchOpen, closeSearch]);
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      closeSearch();
+      return;
+    }
+    if (matches.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSearchOpen(true);
+      setActiveIndex((prev) => (prev + 1) % matches.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSearchOpen(true);
+      setActiveIndex((prev) => (prev <= 0 ? matches.length - 1 : prev - 1));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const entry = matches[activeIndex >= 0 ? activeIndex : 0];
+      if (entry) {
+        selectMatch(entry);
+      }
+    }
+  };
+
   return (
     <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 lg:px-6">
       {/* Left side */}
@@ -64,30 +160,84 @@ const AdminHeader: React.FC<{
 
       {/* Right side */}
       <div className="flex items-center gap-4">
-        {/* Search */}
+        {/* Nav quick-filter search */}
         <div className="hidden md:block">
-          <div className="relative">
+          <div className="relative" ref={searchContainerRef}>
             <input
               type="text"
-              placeholder="Search..."
+              placeholder="Search pages..."
+              value={searchQuery}
+              role="combobox"
+              aria-expanded={searchOpen && matches.length > 0}
+              aria-controls="admin-nav-search-results"
+              aria-autocomplete="list"
+              aria-activedescendant={
+                activeIndex >= 0 && activeIndex < matches.length
+                  ? `admin-nav-search-option-${activeIndex}`
+                  : undefined
+              }
+              aria-label="Search admin pages"
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setSearchOpen(true);
+                setActiveIndex(-1);
+              }}
+              onFocus={() => {
+                if (searchQuery.trim()) setSearchOpen(true);
+              }}
+              onKeyDown={handleSearchKeyDown}
               className="w-64 pl-10 pr-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
             <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
+
+            {searchOpen && trimmedQuery && (
+              <ul
+                id="admin-nav-search-results"
+                role="listbox"
+                aria-label="Matching admin pages"
+                className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto"
+              >
+                {matches.length === 0 ? (
+                  <li className="px-4 py-2 text-sm text-gray-500" role="presentation">
+                    No matching pages
+                  </li>
+                ) : (
+                  matches.map((entry, idx) => (
+                    <li
+                      key={entry.id}
+                      id={`admin-nav-search-option-${idx}`}
+                      role="option"
+                      aria-selected={idx === activeIndex}
+                    >
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        onClick={() => selectMatch(entry)}
+                        onMouseEnter={() => setActiveIndex(idx)}
+                        className={`w-full text-left px-4 py-2 text-sm ${
+                          idx === activeIndex
+                            ? 'bg-blue-50 text-blue-700'
+                            : 'text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        {entry.label}
+                      </button>
+                    </li>
+                  ))
+                )}
+              </ul>
+            )}
           </div>
         </div>
 
-        {/* Notifications */}
-        <button aria-label="Notifications" className="relative p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg">
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-          </svg>
-          <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-        </button>
-
         {/* Settings */}
-        <button aria-label="Settings" className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg">
+        <button
+          aria-label="Settings"
+          onClick={() => navigate('/admin/settings')}
+          className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+        >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />

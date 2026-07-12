@@ -120,6 +120,20 @@ const adminBillingNavItems: NavigationItem[] = ADMIN_BILLING_NAV_ITEMS.map((item
 }));
 
 /**
+ * External API docs link is environment-driven (VITE_ADMIN_API_DOCS_URL).
+ * When the variable is unset (or empty), the nav item is not rendered at all
+ * — no hardcoded host leaks into production builds (ADMIN-LOW-003).
+ */
+const adminApiDocsUrl = ((): string | undefined => {
+  const value: unknown = import.meta.env.VITE_ADMIN_API_DOCS_URL;
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+})();
+
+const apiDocsNavItems: NavigationItem[] = adminApiDocsUrl
+  ? [{ id: 'api-docs', label: 'API Docs', path: adminApiDocsUrl, icon: 'apiDocs', isExternal: true }]
+  : [];
+
+/**
  * Admin-panel navigation tree. `icon` is a string key into
  * `adminNavIcons` (or shared-ui's built-in `defaultIcons`).
  *
@@ -224,5 +238,5 @@ export const adminNavItems: NavigationItem[] = [
       { id: 'settings-provisioning', label: 'Provisioning', path: '/admin/settings/provisioning', icon: 'system' },
     ],
   },
-  { id: 'api-docs', label: 'API Docs', path: 'http://localhost:3008/docs', icon: 'apiDocs', isExternal: true },
+  ...apiDocsNavItems,
 ];

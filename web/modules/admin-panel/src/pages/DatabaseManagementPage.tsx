@@ -12,6 +12,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
+import { ConfirmModal, useToast } from '@aquaculture/shared-ui';
 import { useAsyncData } from '../hooks';
 import { databaseApi } from '../services/api/database';
 
@@ -259,7 +260,10 @@ const EmptyState: React.FC<{ message: string }> = ({ message }) => (
 // ============================================================================
 
 const SchemasTab: React.FC = () => {
+  const { toast } = useToast();
   const [selectedSchema, setSelectedSchema] = useState<SchemaItem | null>(null);
+  const [schemaToSuspend, setSchemaToSuspend] = useState<SchemaItem | null>(null);
+  const [suspending, setSuspending] = useState(false);
 
   const schemasState = useAsyncData<SchemaItem[]>(
     useCallback(() => databaseApi.getSchemas({ page: 1, limit: 100 }).then(res => {
@@ -274,6 +278,26 @@ const SchemasTab: React.FC = () => {
   );
 
   const schemas = schemasState.data || [];
+
+  const handleSuspendSchema = async () => {
+    if (!schemaToSuspend) return;
+    setSuspending(true);
+    try {
+      await databaseApi.suspendSchema(schemaToSuspend.tenantId);
+      setSchemaToSuspend(null);
+      toast({ title: 'Schema suspended', variant: 'success' });
+      schemasState.refresh();
+    } catch (err) {
+      setSchemaToSuspend(null);
+      toast({
+        title: 'Suspend failed',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'error',
+      });
+    } finally {
+      setSuspending(false);
+    }
+  };
 
   if (schemasState.loading && schemasState.isInitialLoad) {
     return <LoadingSpinner message="Loading schemas..." />;
@@ -370,11 +394,7 @@ const SchemasTab: React.FC = () => {
                       </button>
                       {schema.status === 'active' ? (
                         <button
-                          onClick={() => {
-                            if (confirm('Are you sure you want to suspend this schema?')) {
-                              databaseApi.suspendSchema(schema.tenantId).then(() => schemasState.refresh());
-                            }
-                          }}
+                          onClick={() => setSchemaToSuspend(schema)}
                           className="text-yellow-600 hover:text-yellow-800 text-sm"
                         >
                           Suspend
@@ -454,9 +474,21 @@ const SchemasTab: React.FC = () => {
                   onClick={() => {
                     databaseApi.validateSchemaIsolation(selectedSchema.tenantId)
                       .then(result => {
-                        alert(result.valid ? 'Schema isolation is valid.' : `Issues found: ${result.issues.join(', ')}`);
+                        if (result.valid) {
+                          toast({ title: 'Schema isolation is valid', variant: 'success' });
+                        } else {
+                          toast({
+                            title: 'Schema isolation issues found',
+                            description: result.issues.join(', '),
+                            variant: 'error',
+                          });
+                        }
                       })
-                      .catch(err => alert(`Validation failed: ${err.message}`));
+                      .catch(err => toast({
+                        title: 'Validation failed',
+                        description: err instanceof Error ? err.message : 'Unknown error',
+                        variant: 'error',
+                      }));
                   }}
                   className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
                 >
@@ -466,10 +498,15 @@ const SchemasTab: React.FC = () => {
                   onClick={() => {
                     databaseApi.refreshSchemaStats(selectedSchema.tenantId)
                       .then(() => {
+                        toast({ title: 'Schema stats refreshed', variant: 'success' });
                         schemasState.refresh();
                         setSelectedSchema(null);
                       })
-                      .catch(err => alert(`Refresh failed: ${err.message}`));
+                      .catch(err => toast({
+                        title: 'Refresh failed',
+                        description: err instanceof Error ? err.message : 'Unknown error',
+                        variant: 'error',
+                      }));
                   }}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
                 >
@@ -480,6 +517,22 @@ const SchemasTab: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Suspend Schema Confirm Modal */}
+      {schemaToSuspend && (
+        <ConfirmModal
+          isOpen={true}
+          onClose={() => setSchemaToSuspend(null)}
+          onConfirm={handleSuspendSchema}
+          title="Suspend Schema"
+          message={`Are you sure you want to suspend the schema "${schemaToSuspend.schemaName}"?`}
+          confirmText="Suspend"
+          cancelText="Cancel"
+          variant="warning"
+          isLoading={suspending}
+          loadingText="Suspending..."
+        />
+      )}
     </div>
   );
 };
@@ -489,6 +542,7 @@ const SchemasTab: React.FC = () => {
 // ============================================================================
 
 const MigrationsTab: React.FC = () => {
+  const { toast } = useToast();
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [batchVersion, setBatchVersion] = useState('');
   const [batchDryRun, setBatchDryRun] = useState(false);
@@ -535,9 +589,14 @@ const MigrationsTab: React.FC = () => {
       setShowBatchModal(false);
       setBatchVersion('');
       setBatchDryRun(false);
+      toast({ title: 'Batch migration started', variant: 'success' });
       historyState.refresh();
     } catch (err) {
-      alert(`Batch migration failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      toast({
+        title: 'Batch migration failed',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'error',
+      });
     } finally {
       setBatchRunning(false);
     }
@@ -741,9 +800,14 @@ const MigrationsTab: React.FC = () => {
 // ============================================================================
 
 const BackupsTab: React.FC = () => {
+  const { toast } = useToast();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showRestoreModal, setShowRestoreModal] = useState(false);
   const [selectedBackup, setSelectedBackup] = useState<BackupItem | null>(null);
+  const [backupToDelete, setBackupToDelete] = useState<BackupItem | null>(null);
+  const [deletingBackup, setDeletingBackup] = useState(false);
+  const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [createForm, setCreateForm] = useState({
     tenantId: '',
     backupType: 'full' as string,
@@ -790,32 +854,56 @@ const BackupsTab: React.FC = () => {
         retentionDays: createForm.retentionDays,
       });
       setShowCreateModal(false);
+      toast({ title: 'Backup created', variant: 'success' });
       backupsState.refresh();
     } catch (err) {
-      alert(`Backup creation failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      toast({
+        title: 'Backup creation failed',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'error',
+      });
     } finally {
       setCreating(false);
     }
   };
 
-  const handleDeleteBackup = async (backupId: string) => {
-    if (!confirm('Are you sure you want to delete this backup?')) return;
+  const handleDeleteBackup = async () => {
+    if (!backupToDelete) return;
+    setDeletingBackup(true);
     try {
-      await databaseApi.deleteBackup(backupId);
+      await databaseApi.deleteBackup(backupToDelete.id);
+      setBackupToDelete(null);
+      toast({ title: 'Backup deleted', variant: 'success' });
       backupsState.refresh();
     } catch (err) {
-      alert(`Delete failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setBackupToDelete(null);
+      toast({
+        title: 'Delete failed',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'error',
+      });
+    } finally {
+      setDeletingBackup(false);
     }
   };
 
-  const handleRestoreBackup = async (backupId: string) => {
-    if (!confirm('This will overwrite existing data. Are you sure?')) return;
+  const handleRestoreBackup = async () => {
+    if (!selectedBackup) return;
+    setRestoring(true);
     try {
-      await databaseApi.restoreFromBackup({ backupId });
-      alert('Restore initiated successfully.');
+      await databaseApi.restoreFromBackup({ backupId: selectedBackup.id });
+      setRestoreConfirmOpen(false);
       setSelectedBackup(null);
+      toast({ title: 'Restore initiated successfully', variant: 'success' });
     } catch (err) {
-      alert(`Restore failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setRestoreConfirmOpen(false);
+      toast({
+        title: 'Restore failed',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'error',
+      });
+    } finally {
+      setRestoring(false);
     }
   };
 
@@ -963,7 +1051,7 @@ const BackupsTab: React.FC = () => {
                           </button>
                         )}
                         <button
-                          onClick={() => handleDeleteBackup(backup.id)}
+                          onClick={() => setBackupToDelete(backup)}
                           className="text-red-600 hover:text-red-800 text-sm"
                         >
                           Delete
@@ -1128,7 +1216,7 @@ const BackupsTab: React.FC = () => {
                 <button
                   onClick={() => {
                     if (selectedBackup) {
-                      handleRestoreBackup(selectedBackup.id);
+                      setRestoreConfirmOpen(true);
                     }
                   }}
                   className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
@@ -1139,6 +1227,38 @@ const BackupsTab: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Delete Backup Confirm Modal */}
+      {backupToDelete && (
+        <ConfirmModal
+          isOpen={true}
+          onClose={() => setBackupToDelete(null)}
+          onConfirm={handleDeleteBackup}
+          title="Delete Backup"
+          message={`Are you sure you want to delete the backup "${backupToDelete.fileName || backupToDelete.location || backupToDelete.id}"?`}
+          confirmText="Delete"
+          cancelText="Cancel"
+          variant="danger"
+          isLoading={deletingBackup}
+          loadingText="Deleting..."
+        />
+      )}
+
+      {/* Restore Confirm Modal */}
+      {restoreConfirmOpen && selectedBackup && (
+        <ConfirmModal
+          isOpen={true}
+          onClose={() => setRestoreConfirmOpen(false)}
+          onConfirm={handleRestoreBackup}
+          title="Restore from Backup"
+          message="This will overwrite existing data. Are you sure?"
+          confirmText="Restore"
+          cancelText="Cancel"
+          variant="danger"
+          isLoading={restoring}
+          loadingText="Restoring..."
+        />
       )}
     </div>
   );

@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Select, ConfirmModal, useToast } from '@aquaculture/shared-ui';
 import { debugApi, systemApi, databaseApi } from '../../services/adminApi';
 import type { CacheEntry } from '../../services/adminApi';
 
@@ -70,10 +70,13 @@ export const DebugToolsPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   // Cache state
+  const { toast } = useToast();
   const [cacheEntries, setCacheEntries] = useState<CacheEntry[]>([]);
   const [cacheStats, setCacheStats] = useState<CacheStats | null>(null);
   const [cacheFilter, setCacheFilter] = useState('');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [entryToInvalidate, setEntryToInvalidate] = useState<string | null>(null);
+  const [invalidating, setInvalidating] = useState(false);
 
   // Logs state
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -204,6 +207,7 @@ export const DebugToolsPage: React.FC = () => {
     try {
       await debugApi.invalidateCacheByPattern('*');
       setShowClearConfirm(false);
+      toast({ title: 'Cache cleared', variant: 'success' });
       loadCacheData();
     } catch (err) {
       console.error('Failed to clear cache:', err);
@@ -213,16 +217,23 @@ export const DebugToolsPage: React.FC = () => {
     }
   };
 
-  const handleInvalidateEntry = async (key: string) => {
-    if (!confirm(`Are you sure you want to invalidate cache entry "${key}"?`)) return;
+  const handleInvalidateEntry = async () => {
+    if (!entryToInvalidate) return;
+    const key = entryToInvalidate;
 
+    setInvalidating(true);
     try {
       await debugApi.invalidateCacheEntry(key);
+      setEntryToInvalidate(null);
+      toast({ title: 'Cache entry invalidated', variant: 'success' });
       loadCacheData();
     } catch (err) {
       console.error('Failed to invalidate cache entry:', err);
       // Mock success for demo
+      setEntryToInvalidate(null);
       setCacheEntries(cacheEntries.filter((e) => e.key !== key));
+    } finally {
+      setInvalidating(false);
     }
   };
 
@@ -461,7 +472,7 @@ export const DebugToolsPage: React.FC = () => {
                         </td>
                         <td className="px-6 py-4 text-right">
                           <button
-                            onClick={() => handleInvalidateEntry(entry.key)}
+                            onClick={() => setEntryToInvalidate(entry.key)}
                             className="text-sm font-medium text-red-600 hover:text-red-800 transition-colors"
                           >
                             Invalidate
@@ -852,6 +863,22 @@ export const DebugToolsPage: React.FC = () => {
             </div>
           </Card>
         </div>
+      )}
+
+      {/* Invalidate Cache Entry Confirm Modal */}
+      {entryToInvalidate && (
+        <ConfirmModal
+          isOpen={true}
+          onClose={() => setEntryToInvalidate(null)}
+          onConfirm={handleInvalidateEntry}
+          title="Invalidate Cache Entry"
+          message={`Are you sure you want to invalidate cache entry "${entryToInvalidate}"?`}
+          confirmText="Invalidate"
+          cancelText="Cancel"
+          variant="danger"
+          isLoading={invalidating}
+          loadingText="Invalidating..."
+        />
       )}
 
       {/* Error Display */}

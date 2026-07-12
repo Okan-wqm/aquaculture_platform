@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Select, ConfirmModal, useToast } from '@aquaculture/shared-ui';
 import { systemSettingsApi } from '../../services/adminApi';
 
 // ============================================================================
@@ -59,6 +59,15 @@ const defaultForm: MaintenanceForm = {
   bypassForSuperAdmins: true,
 };
 
+interface PendingMaintenanceAction {
+  title: string;
+  message: string;
+  variant: 'danger' | 'warning' | 'info';
+  confirmText: string;
+  loadingText: string;
+  onConfirm: () => Promise<void>;
+}
+
 // ============================================================================
 // No Mock Data - Using Real API Only
 // ============================================================================
@@ -68,8 +77,11 @@ const defaultForm: MaintenanceForm = {
 // ============================================================================
 
 export const MaintenancePage: React.FC = () => {
+  const { toast } = useToast();
   // State
   const [maintenanceList, setMaintenanceList] = useState<MaintenanceWindow[]>([]);
+  const [pendingAction, setPendingAction] = useState<PendingMaintenanceAction | null>(null);
+  const [actionRunning, setActionRunning] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'upcoming' | 'active' | 'history'>('upcoming');
@@ -144,9 +156,18 @@ export const MaintenancePage: React.FC = () => {
     }
   };
 
-  const handleStartMaintenance = async (maintenance: MaintenanceWindow) => {
-    if (!confirm(`Start maintenance "${maintenance.title}" now?`)) return;
+  const runPendingAction = async () => {
+    if (!pendingAction) return;
+    setActionRunning(true);
+    try {
+      await pendingAction.onConfirm();
+    } finally {
+      setActionRunning(false);
+      setPendingAction(null);
+    }
+  };
 
+  const handleStartMaintenance = async (maintenance: MaintenanceWindow) => {
     try {
       await systemSettingsApi.startMaintenance(maintenance.id);
       setMaintenanceList(
@@ -156,6 +177,7 @@ export const MaintenancePage: React.FC = () => {
             : m
         )
       );
+      toast({ title: 'Maintenance started', variant: 'success' });
     } catch (err) {
       console.error('Failed to start maintenance:', err);
       setError(err instanceof Error ? err.message : 'Failed to start maintenance. Please try again.');
@@ -163,8 +185,6 @@ export const MaintenancePage: React.FC = () => {
   };
 
   const handleEndMaintenance = async (maintenance: MaintenanceWindow) => {
-    if (!confirm(`End maintenance "${maintenance.title}"?`)) return;
-
     try {
       await systemSettingsApi.endMaintenance(maintenance.id);
       setMaintenanceList(
@@ -174,6 +194,7 @@ export const MaintenancePage: React.FC = () => {
             : m
         )
       );
+      toast({ title: 'Maintenance ended', variant: 'success' });
     } catch (err) {
       console.error('Failed to end maintenance:', err);
       setError(err instanceof Error ? err.message : 'Failed to end maintenance. Please try again.');
@@ -210,8 +231,6 @@ export const MaintenancePage: React.FC = () => {
   };
 
   const handleCancelMaintenance = async (maintenance: MaintenanceWindow) => {
-    if (!confirm(`Cancel maintenance "${maintenance.title}"?`)) return;
-
     try {
       await systemSettingsApi.cancelMaintenance(maintenance.id);
       setMaintenanceList(
@@ -219,6 +238,7 @@ export const MaintenancePage: React.FC = () => {
           m.id === maintenance.id ? { ...m, status: 'cancelled' } : m
         )
       );
+      toast({ title: 'Maintenance cancelled', variant: 'success' });
     } catch (err) {
       console.error('Failed to cancel maintenance:', err);
       setError(err instanceof Error ? err.message : 'Failed to cancel maintenance. Please try again.');
@@ -520,7 +540,16 @@ export const MaintenancePage: React.FC = () => {
                       <Button
                         variant="primary"
                         size="sm"
-                        onClick={() => handleStartMaintenance(maintenance)}
+                        onClick={() =>
+                          setPendingAction({
+                            title: 'Start Maintenance',
+                            message: `Start maintenance "${maintenance.title}" now?`,
+                            variant: 'warning',
+                            confirmText: 'Start Now',
+                            loadingText: 'Starting...',
+                            onConfirm: () => handleStartMaintenance(maintenance),
+                          })
+                        }
                       >
                         Start Now
                       </Button>
@@ -548,7 +577,16 @@ export const MaintenancePage: React.FC = () => {
                       <Button
                         variant="danger"
                         size="sm"
-                        onClick={() => handleCancelMaintenance(maintenance)}
+                        onClick={() =>
+                          setPendingAction({
+                            title: 'Cancel Maintenance',
+                            message: `Cancel maintenance "${maintenance.title}"?`,
+                            variant: 'danger',
+                            confirmText: 'Cancel Maintenance',
+                            loadingText: 'Cancelling...',
+                            onConfirm: () => handleCancelMaintenance(maintenance),
+                          })
+                        }
                       >
                         Cancel
                       </Button>
@@ -559,7 +597,16 @@ export const MaintenancePage: React.FC = () => {
                       <Button
                         variant="success"
                         size="sm"
-                        onClick={() => handleEndMaintenance(maintenance)}
+                        onClick={() =>
+                          setPendingAction({
+                            title: 'End Maintenance',
+                            message: `End maintenance "${maintenance.title}"?`,
+                            variant: 'info',
+                            confirmText: 'End Maintenance',
+                            loadingText: 'Ending...',
+                            onConfirm: () => handleEndMaintenance(maintenance),
+                          })
+                        }
                       >
                         End Maintenance
                       </Button>
@@ -722,6 +769,22 @@ export const MaintenancePage: React.FC = () => {
             </div>
           </Card>
         </div>
+      )}
+
+      {/* Confirm Modal */}
+      {pendingAction && (
+        <ConfirmModal
+          isOpen={true}
+          onClose={() => setPendingAction(null)}
+          onConfirm={runPendingAction}
+          title={pendingAction.title}
+          message={pendingAction.message}
+          confirmText={pendingAction.confirmText}
+          cancelText="Cancel"
+          variant={pendingAction.variant}
+          isLoading={actionRunning}
+          loadingText={pendingAction.loadingText}
+        />
       )}
 
       {/* Error Display */}

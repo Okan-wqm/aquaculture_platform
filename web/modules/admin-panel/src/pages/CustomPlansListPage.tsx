@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, Badge, Input } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, ConfirmModal } from '@aquaculture/shared-ui';
 import {
   billingApi,
   CustomPlan,
@@ -79,6 +79,9 @@ const CustomPlansListPage: React.FC = () => {
   // Clone modal
   const [cloneModal, setCloneModal] = useState<{ planId: string; planName: string } | null>(null);
   const [cloneTenantId, setCloneTenantId] = useState('');
+
+  // Delete confirm modal
+  const [deleteModal, setDeleteModal] = useState<{ planId: string; planName: string } | null>(null);
 
   // ============================================================================
   // Data Loading
@@ -202,19 +205,20 @@ const CustomPlansListPage: React.FC = () => {
     }
   };
 
-  const handleDelete = async (planId: string, planName: string) => {
-    if (!confirm(`Are you sure you want to delete the plan "${planName}"? This cannot be undone.`)) {
-      return;
-    }
+  const handleDelete = async () => {
+    if (!deleteModal) return;
+    const { planId, planName } = deleteModal;
 
     setActionLoading(planId);
     setError(null);
     try {
       await billingApi.deleteCustomPlan(planId);
       setSuccess(`Plan "${planName}" deleted.`);
+      setDeleteModal(null);
       loadPlans();
     } catch (err) {
       setError((err as Error).message || 'Failed to delete plan');
+      setDeleteModal(null);
     } finally {
       setActionLoading(null);
     }
@@ -489,7 +493,9 @@ const CustomPlansListPage: React.FC = () => {
                                 variant="danger"
                                 size="sm"
                                 disabled={isLoading}
-                                onClick={() => handleDelete(plan.id, plan.name)}
+                                onClick={() =>
+                                  setDeleteModal({ planId: plan.id, planName: plan.name })
+                                }
                               >
                                 Delete
                               </Button>
@@ -550,7 +556,9 @@ const CustomPlansListPage: React.FC = () => {
                               variant="danger"
                               size="sm"
                               disabled={isLoading}
-                              onClick={() => handleDelete(plan.id, plan.name)}
+                              onClick={() =>
+                                setDeleteModal({ planId: plan.id, planName: plan.name })
+                              }
                             >
                               Delete
                             </Button>
@@ -683,6 +691,22 @@ const CustomPlansListPage: React.FC = () => {
             </div>
           </Card>
         </div>
+      )}
+
+      {/* Delete Confirm Modal */}
+      {deleteModal && (
+        <ConfirmModal
+          isOpen={true}
+          onClose={() => setDeleteModal(null)}
+          onConfirm={handleDelete}
+          title="Delete Plan"
+          message={`Are you sure you want to delete the plan "${deleteModal.planName}"? This cannot be undone.`}
+          confirmText="Delete"
+          cancelText="Cancel"
+          variant="danger"
+          isLoading={actionLoading === deleteModal.planId}
+          loadingText="Deleting..."
+        />
       )}
     </div>
   );

@@ -996,17 +996,35 @@ describe('TenantRoleService', () => {
   // ==========================================================================
 
   describe('getPermissionCategories', () => {
-    it('should return all permission categories', () => {
-      const categories = service.getPermissionCategories();
+    it('returns every category (incl. hr/ai) for a fully-licensed tenant', async () => {
+      mockDataSource.query.mockResolvedValueOnce([{ code: 'hr' }, { code: 'ai' }]);
 
-      expect(categories).toBeDefined();
+      const categories = await service.getPermissionCategories(TENANT_ID);
+
       expect(categories.farm).toBeDefined();
-      expect(categories.farm.name).toBe('Farm Management');
+      expect(categories.farm!.name).toBe('Farm Management');
       expect(categories.batch).toBeDefined();
       expect(categories.operations).toBeDefined();
       expect(categories.hr).toBeDefined();
+      expect(categories.ai).toBeDefined();
       expect(categories.reports).toBeDefined();
       expect(categories.admin).toBeDefined();
+      // Entitlement resolution is tenant-bound (never interpolated).
+      expect(mockDataSource.query).toHaveBeenCalledWith(expect.any(String), [TENANT_ID]);
+    });
+
+    it('RBAC-HIGH-010: drops the hr/ai categories wholesale for an unlicensed tenant', async () => {
+      mockDataSource.query.mockResolvedValueOnce([]); // no modules enabled → core-only
+
+      const categories = await service.getPermissionCategories(TENANT_ID);
+
+      // Module-gated categories are ABSENT (not empty groups)…
+      expect(categories.hr).toBeUndefined();
+      expect(categories.ai).toBeUndefined();
+      // …while every core category still offers its full action set.
+      expect(categories.farm).toBeDefined();
+      expect(categories.messaging).toBeDefined();
+      expect(categories.admin!.resources['roles']!.actions).toContain('create');
     });
   });
 

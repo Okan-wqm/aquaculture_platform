@@ -11,6 +11,8 @@ import { AuditLogService } from '../../../audit/audit-log.service';
 
 import { CapabilityAuthorityService } from './capability-authority';
 import {
+  CatalogueCategoryView,
+  entitledPermissionCategories,
   PERMISSION_CATEGORIES,
   panelPermissionsToResourceArray,
   resolveEntitledCapabilities,
@@ -1177,10 +1179,19 @@ export class TenantRoleService {
   }
 
   /**
-   * Get permission categories structure for UI
+   * Get the permission categories the ROLE EDITOR may offer this tenant —
+   * the catalogue intersected with the tenant's entitled capability set
+   * (RBAC-HIGH-010 third enforcement point: the UI never offers what the write
+   * boundary would reject). An unlicensed module's category is absent entirely.
    */
-  getPermissionCategories(): typeof PERMISSION_CATEGORIES {
-    return PERMISSION_CATEGORIES;
+  async getPermissionCategories(
+    tenantId: string,
+  ): Promise<Record<string, CatalogueCategoryView>> {
+    const entitled = await resolveEntitledCapabilities(
+      (sql, params) => this.dataSource.query(sql, [...params]),
+      tenantId,
+    );
+    return entitledPermissionCategories(entitled);
   }
 
   /**

@@ -227,6 +227,48 @@ export function entitledCapabilities(
   return result;
 }
 
+/** The catalogue shape after entitlement filtering (same nesting, subset content). */
+export interface CatalogueResourceView {
+  name: string;
+  actions: string[];
+}
+export interface CatalogueCategoryView {
+  name: string;
+  resources: Record<string, CatalogueResourceView>;
+}
+
+/**
+ * The catalogue restricted to a tenant's entitled capabilities — the THIRD
+ * enforcement point on the RBAC-HIGH-010 entitlement SSoT (after the write
+ * boundary and the token-mint intersection): the role editor's
+ * `permissionCategories` query serves this, so the UI never OFFERS a capability
+ * the write path would reject (e.g. the AI category for a tenant without the AI
+ * module). Actions are filtered per capability; a resource with zero remaining
+ * actions is dropped, and a category with zero remaining resources is dropped —
+ * so an unlicensed module's category disappears wholesale rather than rendering
+ * as an empty group.
+ */
+export function entitledPermissionCategories(
+  entitled: ReadonlySet<string>,
+): Record<string, CatalogueCategoryView> {
+  const result: Record<string, CatalogueCategoryView> = {};
+  for (const [categoryKey, category] of Object.entries(PERMISSION_CATEGORIES)) {
+    const resources: Record<string, CatalogueResourceView> = {};
+    for (const [resourceKey, definition] of Object.entries(category.resources)) {
+      const actions = definition.actions.filter((action) =>
+        entitled.has(`${resourceKey}:${action}`),
+      );
+      if (actions.length > 0) {
+        resources[resourceKey] = { name: definition.name, actions };
+      }
+    }
+    if (Object.keys(resources).length > 0) {
+      result[categoryKey] = { name: category.name, resources };
+    }
+  }
+  return result;
+}
+
 /**
  * SSoT query for a tenant's ENABLED module codes (joins the per-tenant
  * `auth.tenant_modules` rows to the `auth.modules` catalogue). `$1` = tenantId.

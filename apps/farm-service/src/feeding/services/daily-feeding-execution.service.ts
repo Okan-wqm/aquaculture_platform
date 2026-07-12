@@ -952,7 +952,10 @@ export class DailyFeedingExecutionService {
         if (!tankBatch) {
           continue;
         }
-        const fishCount = tankBatch.currentQuantity ?? tankBatch.totalQuantity;
+        // COUNT SSoT read (DB-FARMPROD-HIGH-001): fish count is the batchDetails-
+        // derived totalQuantity, not the redundant currentQuantity mirror. Biomass
+        // keeps the currentBiomassKg-first read (growth-tracked live value).
+        const fishCount = tankBatch.totalQuantity;
         const currentBiomassKg = Number(tankBatch.currentBiomassKg ?? tankBatch.totalBiomassKg);
         if (fishCount <= 0) {
           continue;

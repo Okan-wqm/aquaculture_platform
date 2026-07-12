@@ -41,8 +41,11 @@ export class GetTankCapacityHandler implements IQueryHandler<GetTankCapacityQuer
         throw new NotFoundException(`Tank ${tankId} bulunamadı`);
       }
 
-      // Mevcut değerler
-      const currentQuantity = tankBatch?.currentQuantity ?? tankBatch?.totalQuantity ?? 0;
+      // Mevcut değerler — COUNT SSoT read (DB-FARMPROD-HIGH-001): totalQuantity is
+      // the batchDetails-derived truth; the redundant currentQuantity mirror is
+      // being retired. Biomass keeps the currentBiomassKg-first read (growth-
+      // tracked live value, not a stale mirror).
+      const currentQuantity = tankBatch?.totalQuantity ?? 0;
       const currentBiomassKg = tankBatch?.currentBiomassKg ?? tankBatch?.totalBiomassKg ?? 0;
       const avgWeightG = tankBatch?.avgWeightG || 0;
 

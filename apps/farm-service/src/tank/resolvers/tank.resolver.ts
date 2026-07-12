@@ -359,7 +359,15 @@ export class TankResolver {
     return {
       batchNumber: tankBatch.primaryBatchNumber,
       batchId: tankBatch.primaryBatchId,
-      pieces: tankBatch.currentQuantity ?? tankBatch.totalQuantity,
+      // COUNT SSoT read (DB-FARMPROD-HIGH-001): the fish count is `totalQuantity`,
+      // derived from batchDetails[] by the single writer (TankBatchService).
+      // Reading it directly — not the redundant currentQuantity mirror — is what
+      // makes web and mobile agree; the mirror-preference `?? total` was the
+      // 900-vs-719 divergence when the mirror lagged the SSoT. Biomass KEEPS the
+      // currentBiomassKg-first read: unlike count, currentBiomassKg is the
+      // growth-tracked live value (feeding weight-gain), NOT a stale mirror —
+      // totalBiomassKg is only the batchDetails baseline.
+      pieces: tankBatch.totalQuantity,
       avgWeight: Number(tankBatch.avgWeightG) || undefined,
       biomass: Number(tankBatch.currentBiomassKg ?? tankBatch.totalBiomassKg) || undefined,
       density: Number(tankBatch.densityKgM3) || undefined,

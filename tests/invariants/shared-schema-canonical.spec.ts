@@ -82,12 +82,13 @@ function readSharedTablesFromGenerateInit(): readonly string[] {
   const m = /const\s+SHARED_SCHEMA_TABLES\s*=\s*\[([\s\S]*?)\]\s*as\s+const/m.exec(
     src,
   );
-  if (!m) {
+  const body = m?.[1];
+  if (body === undefined) {
     throw new Error(
       `[shared-schema-canonical] generate-init-schemas.ts does not expose SHARED_SCHEMA_TABLES in the expected shape; refusing to verify`,
     );
   }
-  return m[1]
+  return body
     .split(',')
     .map((s) => s.trim().replace(/['"]/g, ''))
     .filter((s) => /^[a-z_][a-z0-9_]*$/.test(s));
@@ -100,11 +101,17 @@ function readSharedTablesFromSql(): readonly string[] {
   const createRe =
     /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?shared\.([a-z_][a-z0-9_]*)/gi;
   let m: RegExpExecArray | null;
-  while ((m = createRe.exec(src)) !== null) names.add(m[1]);
+  while ((m = createRe.exec(src)) !== null) {
+    const name = m[1];
+    if (name !== undefined) names.add(name);
+  }
   // Match: ALTER TABLE public.foo SET SCHEMA shared
   const moveRe =
     /ALTER\s+TABLE\s+(?:public\.)?([a-z_][a-z0-9_]*)\s+SET\s+SCHEMA\s+shared/gi;
-  while ((m = moveRe.exec(src)) !== null) names.add(m[1]);
+  while ((m = moveRe.exec(src)) !== null) {
+    const name = m[1];
+    if (name !== undefined) names.add(name);
+  }
   return [...names].sort();
 }
 

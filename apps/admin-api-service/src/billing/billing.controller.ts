@@ -41,7 +41,6 @@ import {
 } from './dto/billing.dto';
 import { CustomPlanStatus } from './entities/custom-plan.entity';
 import { BillingCycle, PlanTier } from './entities/plan-definition.entity';
-import { UsagePeriodType } from './entities/tenant-usage-metrics-readonly.entity';
 import { AggregationPeriod, MeterType } from './entities/usage-aggregation-readonly.entity';
 import { BillingAdminCommandClientService } from './services/billing-admin-command-client.service';
 import {
@@ -864,19 +863,6 @@ export class BillingController {
       limit ? parseInt(limit, 10) : 10,
       dateFrom ? new Date(dateFrom) : undefined,
       dateTo ? new Date(dateTo) : undefined,
-    );
-  }
-
-  @Get('usage/tenant/:tenantId/metrics')
-  async getTenantUsageMetrics(
-    @Param('tenantId') tenantId: string,
-    @Query('periodType') periodType?: UsagePeriodType,
-    @Query('limit') limit?: string,
-  ): Promise<unknown> {
-    return this.usageMeteringService.getTenantUsageMetrics(
-      tenantId,
-      periodType || UsagePeriodType.MONTHLY,
-      limit ? parseInt(limit, 10) : 12,
     );
   }
 }

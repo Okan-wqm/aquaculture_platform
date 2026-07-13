@@ -674,14 +674,24 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'billing',
     sourceSchema: 'billing',
-    infrastructureTables: ['migrations', 'billing_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    infrastructureTables: [
+      'migrations',
+      'billing_outbox',
+      // A6 / DB-IDENT-MEDIUM-002: jsonb archive of the retired
+      // tenant_usage_metrics rows (archive-before-drop, migration
+      // 1801700000000) — same class as admin.retired_config_backups.
+      'retired_usage_metrics_backup',
+      ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
+    ],
     referenceDataTables: [],
     tables: [
       'subscriptions',
       'subscription_module_items',
       'invoices',
       'payments',
-      'tenant_usage_metrics',
+      // tenant_usage_metrics retired 2026-07-13 (A6 / DB-IDENT-MEDIUM-002,
+      // ORPHAN-MEDIUM-382): dead parallel usage model with no writer —
+      // usage_aggregations/usage_hourly_data below are the usage SSoT.
       'scheduled_plan_changes',
       'usage_aggregations',
       'usage_hourly_data',

@@ -1299,12 +1299,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/billing/entities/tenant-usage-metrics-readonly.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/billing/entities/usage-aggregation-readonly.entity.ts",
       "prettier_managed": true
     },
@@ -5435,6 +5429,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/__tests__/get-tenant-billing.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/__tests__/invoice.service.spec.ts",
       "prettier_managed": true
     },
@@ -5658,12 +5658,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/billing/entities/subscription.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/billing-service/src/billing/entities/tenant-usage-metrics.entity.ts",
       "prettier_managed": true
     },
     {
@@ -5974,6 +5968,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/database/migrations/1801100000000-AddPlanStripeIdentifiers.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/database/migrations/1801700000000-DropRetiredTenantUsageMetrics.ts",
       "prettier_managed": true
     },
     {
@@ -31081,6 +31081,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/2026-07-13-branch-triage/ledger.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/admin-expert/2026-04-05-s2-high-findings.md",
       "prettier_managed": true
     },
@@ -31957,6 +31963,24 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/mobile-messaging-e2e/2026-07-01-findings.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/mobile-messaging-e2e/2026-07-01-sprint-a1-waves-1-3.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/mobile-messaging-e2e/2026-07-01-wave0-baseline.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/multi-tenant-saas-expert/2026-04-09-tenant-isolation-exploitability.md",
       "prettier_managed": true
     },
@@ -32072,6 +32096,18 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/orchestrator/2026-04-18-agentic-diff-validation.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/orphan-findings.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/orphan-findings.md",
       "prettier_managed": true
     },
     {
@@ -41593,6 +41629,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/quality/closure-manifest.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
       "prettier_managed": true
     },
     {
@@ -53172,10 +53220,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8716,
+  "file_count": 8724,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8541,
-  "managed_file_list_sha256": "a01037fba7e8072a0c966832709e9bb1a00539319c719730134b2fe4064e224e",
+  "managed_count": 8549,
+  "managed_file_list_sha256": "8b3693ed7823f84f3faedb9ce7966506e3407dbf15c46a39d44f79f166208f1d",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

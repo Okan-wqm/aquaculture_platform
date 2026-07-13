@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 
+import { createMockDataSource } from '../../../../testing/src/factories/mock-datasource.factory';
 import { createSchemaVersionGate } from '../schema-version-gate.service';
 
 function mockConfig(): ConfigService {
@@ -154,6 +155,74 @@ describe('SchemaVersionGate release-ledger lifecycle', () => {
       6,
       expect.stringContaining("tenant_fanout #> ARRAY[$2, 'tenants', $1]"),
       [tenantSchema, 'farm', expect.arrayContaining(['db_complete', 'rollback_verified'])],
+    );
+  });
+
+  it('ORPHAN-410 — accepts a tenant onboarded AFTER the release when its head matches the release source head', async () => {
+    const tenantSchema = 'tenant_4b529829ea7948da';
+    const head = '1800300000000';
+    const headName = 'AlignEquipmentTypesRuntimeContract1800300000000';
+    const { mockDataSource } = createMockDataSource();
+    mockDataSource.query
+      .mockReset()
+      .mockResolvedValueOnce(bootstrapRow())
+      .mockResolvedValueOnce([{ last_ts: head, last_name: headName, row_count: '4' }])
+      .mockResolvedValueOnce([
+        { release_id: 'release-1', expected_ts: head, expected_name: headName },
+      ])
+      .mockResolvedValueOnce([{ schema_name: tenantSchema }])
+      .mockResolvedValueOnce([{ last_ts: head, last_name: headName, row_count: '4' }])
+      // Post-release tenant: no per-tenant head, but the release DOES carry a
+      // source head the tenant's actual head matches → boot is allowed.
+      .mockResolvedValueOnce([
+        {
+          release_id: 'release-1',
+          expected_ts: null,
+          expected_name: null,
+          source_ts: head,
+          source_name: headName,
+          fanout_evidence: null,
+        },
+      ]);
+
+    const Gate = createSchemaVersionGate('farm', { mode: 'gate', tenantAware: true });
+    await expect(
+      new Gate(mockDataSource, mockConfig()).onApplicationBootstrap(),
+    ).resolves.toBeUndefined();
+  });
+
+  it('ORPHAN-410 — still refuses a post-release tenant whose head is BEHIND the release source head', async () => {
+    const tenantSchema = 'tenant_4b529829ea7948da';
+    const behindHead = '1800200000000';
+    const releaseHead = '1800300000000';
+    const releaseName = 'AlignEquipmentTypesRuntimeContract1800300000000';
+    const { mockDataSource } = createMockDataSource();
+    mockDataSource.query
+      .mockReset()
+      .mockResolvedValueOnce(bootstrapRow())
+      .mockResolvedValueOnce([{ last_ts: releaseHead, last_name: releaseName, row_count: '4' }])
+      .mockResolvedValueOnce([
+        { release_id: 'release-1', expected_ts: releaseHead, expected_name: releaseName },
+      ])
+      .mockResolvedValueOnce([{ schema_name: tenantSchema }])
+      // Tenant is genuinely behind: its actual head predates the release head.
+      .mockResolvedValueOnce([
+        { last_ts: behindHead, last_name: 'OlderMigration1800200000000', row_count: '3' },
+      ])
+      .mockResolvedValueOnce([
+        {
+          release_id: 'release-1',
+          expected_ts: null,
+          expected_name: null,
+          source_ts: releaseHead,
+          source_name: releaseName,
+          fanout_evidence: null,
+        },
+      ]);
+
+    const Gate = createSchemaVersionGate('farm', { mode: 'gate', tenantAware: true });
+    await expect(new Gate(mockDataSource, mockConfig()).onApplicationBootstrap()).rejects.toThrow(
+      /behind the release source head/,
     );
   });
 });

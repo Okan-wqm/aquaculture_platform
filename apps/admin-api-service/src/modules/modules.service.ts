@@ -18,7 +18,6 @@ import {
   type AdminDeleteModuleResult,
   type AdminUpdateModuleCommand,
   type AdminUpdateModuleResult,
-  type AuthModuleSnapshot,
 } from '@platform/event-contracts';
 import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
 import { DataSource } from 'typeorm';
@@ -107,6 +106,30 @@ export interface AssignModuleDto {
 
 @Injectable()
 export class ModulesService {
+  /**
+   * Catalog-derived per-module base price.
+   *
+   * WHY: billing owns all subscription pricing (platform rule D14).
+   * ModuleDto.price is derived from the module-pricing catalog
+   * (admin.module_pricing — BASE_PRICE metric of the currently-effective
+   * active row), NOT from auth.modules: auth carries catalogue metadata
+   * only. This keeps the admin module list showing the SAME base price the
+   * tenant-create quote flow (PricingCalculatorService) actually charges.
+   * `::float8` makes the driver return a JS number, matching ModuleDto.price.
+   */
+  private static readonly CATALOG_BASE_PRICE_SQL = `COALESCE((
+          SELECT (metric.value->>'price')::numeric
+          FROM admin.module_pricing mp
+          CROSS JOIN LATERAL jsonb_array_elements(mp."pricingMetrics") AS metric(value)
+          WHERE mp."moduleId" = m.id
+            AND mp."isActive" = true
+            AND mp."effectiveFrom" <= NOW()
+            AND (mp."effectiveTo" IS NULL OR mp."effectiveTo" >= NOW())
+            AND metric.value->>'type' = 'base_price'
+          ORDER BY mp."effectiveFrom" DESC
+          LIMIT 1
+        ), 0)::float8`;
+
   private readonly logger = new Logger(ModulesService.name);
   private readonly timeoutMs: number;
 
@@ -168,7 +191,7 @@ export class ModulesService {
         m.icon,
         COALESCE(m.is_core, false) as "isCore",
         m."isActive" as "isActive",
-        COALESCE(m.price, 0) as price,
+        ${ModulesService.CATALOG_BASE_PRICE_SQL} as price,
         COUNT(tm.id)::int as "tenantsCount",
         m."createdAt" as "createdAt",
         m."updatedAt" as "updatedAt"
@@ -270,7 +293,7 @@ export class ModulesService {
           m.icon,
           COALESCE(m.is_core, false) as "isCore",
           m."isActive" as "isActive",
-          COALESCE(m.price, 0) as price,
+          ${ModulesService.CATALOG_BASE_PRICE_SQL} as price,
           COUNT(tm.id)::int as "tenantsCount",
           m."createdAt" as "createdAt",
           m."updatedAt" as "updatedAt"
@@ -310,7 +333,7 @@ export class ModulesService {
           m.icon,
           COALESCE(m.is_core, false) as "isCore",
           m."isActive" as "isActive",
-          COALESCE(m.price, 0) as price,
+          ${ModulesService.CATALOG_BASE_PRICE_SQL} as price,
           COUNT(tm.id)::int as "tenantsCount",
           m."createdAt" as "createdAt",
           m."updatedAt" as "updatedAt"
@@ -344,7 +367,6 @@ export class ModulesService {
     defaultRoute: string;
     icon?: string;
     isCore?: boolean;
-    price?: number;
   }): Promise<ModuleDto> {
     const command: AdminCreateModuleCommand = {
       code: dto.code,
@@ -353,7 +375,6 @@ export class ModulesService {
       defaultRoute: dto.defaultRoute,
       icon: dto.icon ?? null,
       isCore: dto.isCore ?? false,
-      price: dto.price ?? 0,
     };
     const result = await this.sendAuthAdminCommand<
       AdminCreateModuleCommand,
@@ -368,7 +389,9 @@ export class ModulesService {
     }
 
     this.logger.log(`Created module via auth-service: ${dto.code}`);
-    return this.toModuleDto(result.module, 0);
+    // Re-read through the catalog-priced SELECT so ModuleDto.price reflects
+    // the module-pricing catalog (0 until a pricing row is configured).
+    return this.getModuleById(result.module.id);
   }
 
   /**
@@ -382,7 +405,6 @@ export class ModulesService {
       defaultRoute?: string;
       icon?: string;
       isActive?: boolean;
-      price?: number;
     },
   ): Promise<ModuleDto> {
     const patchKeys = Object.keys(dto).filter(
@@ -399,7 +421,6 @@ export class ModulesService {
       ...(dto.defaultRoute !== undefined && { defaultRoute: dto.defaultRoute }),
       ...(dto.icon !== undefined && { icon: dto.icon }),
       ...(dto.isActive !== undefined && { isActive: dto.isActive }),
-      ...(dto.price !== undefined && { price: dto.price }),
     };
     const result = await this.sendAuthAdminCommand<
       AdminUpdateModuleCommand,
@@ -738,22 +759,6 @@ export class ModulesService {
     }
   }
 
-  private toModuleDto(module: AuthModuleSnapshot, tenantsCount: number): ModuleDto {
-    return {
-      id: module.id,
-      code: module.code,
-      name: module.name,
-      description: module.description,
-      defaultRoute: module.defaultRoute,
-      icon: module.icon,
-      isCore: module.isCore,
-      isActive: module.isActive,
-      price: module.price,
-      tenantsCount,
-      createdAt: new Date(module.createdAt),
-      updatedAt: new Date(module.updatedAt),
-    };
-  }
 }
 
 function buildModuleLifecycleCommandMetadata(

@@ -2129,6 +2129,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/modules/tenant-management/services/__tests__/module-assignment.resolve-provisioning.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/tenant-management/services/module-assignment.service.ts",
       "prettier_managed": true
     },
@@ -5669,7 +5675,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/billing-service/src/billing/event-handlers/tenant-subscription-requested.handler.ts",
+      "path": "apps/billing-service/src/billing/handlers/__tests__/billing-admin-nats.handler.spec.ts",
       "prettier_managed": true
     },
     {
@@ -5980,6 +5986,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/database/migrations/1801700000000-DropRetiredTenantUsageMetrics.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/database/migrations/1801800000000-DropSubscriptionProvisioningRetries.ts",
       "prettier_managed": true
     },
     {
@@ -53532,10 +53544,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8771,
+  "file_count": 8773,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8590,
-  "managed_file_list_sha256": "038f00c825cae275f7703b3f9d711b4d45c8b856c527ca52a48cbed701803498",
+  "managed_count": 8592,
+  "managed_file_list_sha256": "a79b98b24af901a11b6d54d2485df3adfd6392d2dafeaf55f2cc4821a680f27a",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

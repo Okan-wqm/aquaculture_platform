@@ -1,13 +1,9 @@
 import * as crypto from 'crypto';
 
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventBus } from '@nestjs/cqrs';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { createBaseEvent } from '@platform/event-contracts';
+import { createBaseEvent, type BillingProvisioningModuleItem } from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
 
 import { PlanTier, BillingCycle } from '../../../billing/entities/plan-definition.entity';
@@ -126,14 +122,16 @@ export class ModuleAssignmentService {
   /**
    * Assign multiple modules to a tenant
    */
-  async assignModulesToTenant(
-    dto: BulkModuleAssignmentDto,
-  ): Promise<ModuleAssignmentResult> {
-    const { tenantId, modules, assignedBy, tier = PlanTier.STARTER, billingCycle = BillingCycle.MONTHLY } = dto;
+  async assignModulesToTenant(dto: BulkModuleAssignmentDto): Promise<ModuleAssignmentResult> {
+    const {
+      tenantId,
+      modules,
+      assignedBy,
+      tier = PlanTier.STARTER,
+      billingCycle = BillingCycle.MONTHLY,
+    } = dto;
 
-    this.logger.log(
-      `Assigning ${modules.length} modules to tenant ${tenantId}`,
-    );
+    this.logger.log(`Assigning ${modules.length} modules to tenant ${tenantId}`);
 
     // Validate tenant exists
     const tenant = await this.getTenant(tenantId);
@@ -145,9 +143,7 @@ export class ModuleAssignmentService {
     const failedModules: Array<{ moduleId: string; error: string }> = [];
 
     // Get module information for all requested modules
-    const moduleInfoMap = await this.getModuleInfoMap(
-      modules.map((m) => m.moduleId),
-    );
+    const moduleInfoMap = await this.getModuleInfoMap(modules.map((m) => m.moduleId));
 
     // Prepare modules for pricing calculation
     const moduleSelections: ModuleSelection[] = [];
@@ -197,7 +193,9 @@ export class ModuleAssignmentService {
           })),
         assignedBy,
       });
-      this.logger.log(`Delegated ${assignedModules.length} module assignments to auth-service for tenant ${tenantId}`);
+      this.logger.log(
+        `Delegated ${assignedModules.length} module assignments to auth-service for tenant ${tenantId}`,
+      );
     }
 
     // Calculate pricing for assigned modules
@@ -216,9 +214,7 @@ export class ModuleAssignmentService {
         // Update pricing on tenant_modules
         await this.updateTenantModulesPricing(tenantId, pricing);
       } catch (error) {
-        this.logger.warn(
-          `Could not calculate pricing: ${(error as Error).message}`,
-        );
+        this.logger.warn(`Could not calculate pricing: ${(error as Error).message}`);
       }
     }
 
@@ -234,9 +230,7 @@ export class ModuleAssignmentService {
       {
         assignedModules,
         failedModules,
-        pricing: pricing
-          ? { monthlyTotal: pricing.monthlyTotal, tier, billingCycle }
-          : undefined,
+        pricing: pricing ? { monthlyTotal: pricing.monthlyTotal, tier, billingCycle } : undefined,
       },
       assignedBy,
     );
@@ -263,9 +257,7 @@ export class ModuleAssignmentService {
 
     const isAssigned = await this.isModuleAssigned(tenantId, moduleId);
     if (!isAssigned) {
-      throw new NotFoundException(
-        `Module ${moduleId} is not assigned to tenant ${tenantId}`,
-      );
+      throw new NotFoundException(`Module ${moduleId} is not assigned to tenant ${tenantId}`);
     }
 
     const result = await this.authProvisioningClient.removeTenantModule({
@@ -280,25 +272,21 @@ export class ModuleAssignmentService {
       removedBy,
     });
     if ((result.modulesRemoved ?? 0) === 0) {
-      throw new NotFoundException(
-        `Module ${moduleId} is not assigned to tenant ${tenantId}`,
-      );
+      throw new NotFoundException(`Module ${moduleId} is not assigned to tenant ${tenantId}`);
     }
 
     // Publish event
     this.eventBus.publish({
-      ...createBaseEvent('ModuleRemovedFromTenant', tenantId, { aggregateId: moduleId, aggregateType: 'TenantModule' }),
+      ...createBaseEvent('ModuleRemovedFromTenant', tenantId, {
+        aggregateId: moduleId,
+        aggregateType: 'TenantModule',
+      }),
       moduleId,
       removedBy,
     });
 
     // Create audit log
-    await this.createAuditLog(
-      tenantId,
-      'MODULE_REMOVED',
-      { moduleId },
-      removedBy,
-    );
+    await this.createAuditLog(tenantId, 'MODULE_REMOVED', { moduleId }, removedBy);
 
     this.logger.log(`Module ${moduleId} removed from tenant ${tenantId}`);
   }
@@ -306,9 +294,7 @@ export class ModuleAssignmentService {
   /**
    * Get all modules assigned to a tenant with pricing
    */
-  async getTenantModulesWithPricing(
-    tenantId: string,
-  ): Promise<TenantModuleWithPricing[]> {
+  async getTenantModulesWithPricing(tenantId: string): Promise<TenantModuleWithPricing[]> {
     const results = await this.dataSource.query(
       `
       SELECT
@@ -351,6 +337,84 @@ export class ModuleAssignmentService {
   }
 
   /**
+   * Resolve fully-priced module line items for a tenant-provisioning command.
+   *
+   * This is the single writer boundary's answer to the billing-subscription
+   * break (ORPHAN-CRITICAL-393 / ORPHAN-HIGH-394): admin-api OWNS module
+   * code/name resolution (`auth.modules`, via its own grant) AND pricing
+   * (`admin.module_pricing` via PricingCalculatorService), so it resolves every
+   * selected module into `{moduleId, code, name, quantities, lineItems,
+   * subtotal, discountAmount, total}` HERE and passes it in the command.
+   * billing then writes `billing.subscription_module_items` directly with no
+   * schema-unqualified `modules` query (which failed → tx rollback → lost
+   * subscription) and no invented $0 prices.
+   *
+   * Side-effect-free by design: unlike assignModulesToTenant it does NOT call
+   * auth-service, publish events, or write audit rows — it is a pure pricing
+   * resolution safe to run inside the idempotent `create_subscription` saga step.
+   *
+   * A module with no `admin.module_pricing` catalog entry is legitimately free
+   * (PricingCalculatorService drops it from the breakdown); it still yields a
+   * $0 module row rather than throwing — provisioning must not fail on absent
+   * catalog pricing (that is the very rollback this fix removes).
+   */
+  async resolveProvisioningModuleItems(params: {
+    modules: Array<{ moduleId: string; quantities?: ModuleQuantities }>;
+    tier: PlanTier;
+    billingCycle: BillingCycle;
+  }): Promise<BillingProvisioningModuleItem[]> {
+    const moduleIds = params.modules.map((m) => m.moduleId);
+    if (moduleIds.length === 0) {
+      return [];
+    }
+
+    const moduleInfoMap = await this.getModuleInfoMap(moduleIds);
+
+    const moduleSelections: ModuleSelection[] = params.modules.map((m) => {
+      const info = moduleInfoMap.get(m.moduleId);
+      if (!info) {
+        // Modules are validated + assigned at the assign_modules step BEFORE
+        // provisioning reaches create_subscription; a missing auth.modules row
+        // here is a genuine data-integrity fault (not the free-tier case), so
+        // fail loud. No subscription has been created yet — the saga step fails
+        // cleanly with nothing to roll back.
+        throw new NotFoundException(
+          `Module ${m.moduleId} not found in auth.modules during subscription pricing resolution`,
+        );
+      }
+      return {
+        moduleId: m.moduleId,
+        moduleCode: info.code,
+        moduleName: info.name,
+        quantities: m.quantities ?? {},
+      };
+    });
+
+    const pricing = await this.pricingCalculator.calculatePricing({
+      modules: moduleSelections,
+      tier: params.tier,
+      billingCycle: params.billingCycle,
+    });
+    const breakdownByModuleId = new Map(
+      pricing.modules.map((breakdown) => [breakdown.moduleId, breakdown]),
+    );
+
+    return moduleSelections.map((selection) => {
+      const breakdown = breakdownByModuleId.get(selection.moduleId);
+      return {
+        moduleId: selection.moduleId,
+        code: selection.moduleCode,
+        name: selection.moduleName ?? selection.moduleCode,
+        quantities: { moduleId: selection.moduleId, ...selection.quantities },
+        lineItems: breakdown?.lineItems ?? [],
+        subtotal: breakdown?.subtotal ?? 0,
+        discountAmount: breakdown?.tierDiscount ?? 0,
+        total: breakdown?.total ?? 0,
+      };
+    });
+  }
+
+  /**
    * Check if a module is assigned to a tenant
    */
   async isModuleAssigned(tenantId: string, moduleId: string): Promise<boolean> {
@@ -373,7 +437,9 @@ export class ModuleAssignmentService {
    */
   async getTenantTotalMonthlyPrice(tenantId: string): Promise<number> {
     // monthly_price column does not exist; pricing is handled by the pricing service
-    this.logger.log(`getTenantTotalMonthlyPrice called for tenant ${tenantId} - returning 0 (use pricing service for actual price)`);
+    this.logger.log(
+      `getTenantTotalMonthlyPrice called for tenant ${tenantId} - returning 0 (use pricing service for actual price)`,
+    );
     return 0;
   }
 
@@ -418,9 +484,7 @@ export class ModuleAssignmentService {
     return result[0] || null;
   }
 
-  private async getModuleInfoMap(
-    moduleIds: string[],
-  ): Promise<Map<string, ModuleInfo>> {
+  private async getModuleInfoMap(moduleIds: string[]): Promise<Map<string, ModuleInfo>> {
     if (moduleIds.length === 0) {
       return new Map();
     }
@@ -468,7 +532,10 @@ export class ModuleAssignmentService {
     assignedBy: string,
   ): void {
     this.eventBus.publish({
-      ...createBaseEvent('TenantModulesAssigned', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
+      ...createBaseEvent('TenantModulesAssigned', tenantId, {
+        aggregateId: tenantId,
+        aggregateType: 'Tenant',
+      }),
       moduleIds,
       pricingMonthlyTotal: pricing?.monthlyTotal,
       pricingAnnualTotal: pricing?.annualTotal,
@@ -500,17 +567,11 @@ export class ModuleAssignmentService {
       );
     } catch (error) {
       // Don't fail the main operation if audit logging fails
-      this.logger.warn(
-        `Failed to create audit log: ${(error as Error).message}`,
-      );
+      this.logger.warn(`Failed to create audit log: ${(error as Error).message}`);
     }
   }
 
-  private commandRequestReference(
-    commandType: string,
-    tenantId: string,
-    payload: unknown,
-  ): string {
+  private commandRequestReference(commandType: string, tenantId: string, payload: unknown): string {
     return `${commandType}:${tenantId}:${this.hashPayload(payload)}`;
   }
 
@@ -525,7 +586,10 @@ export class ModuleAssignmentService {
 
     if (value && typeof value === 'object') {
       const record = value as Record<string, unknown>;
-      return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${this.stableStringify(record[key])}`).join(',')}}`;
+      return `{${Object.keys(record)
+        .sort()
+        .map((key) => `${JSON.stringify(key)}:${this.stableStringify(record[key])}`)
+        .join(',')}}`;
     }
 
     return JSON.stringify(value);

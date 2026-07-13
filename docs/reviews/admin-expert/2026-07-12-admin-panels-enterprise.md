@@ -604,6 +604,34 @@ product decision. Catalog by controller:
 
 ---
 
+## Advisory — WebAssembly candidates in the web workspace (no finding IDs; product/architecture backlog)
+
+Assessed on request during this cycle. Verdict for the two admin panels themselves: **no WASM
+case** — they are network/DOM-bound CRUD and dashboard surfaces; WASM would add bundle weight and
+build complexity for no measurable gain. Genuine candidates elsewhere, in ROI order:
+
+1. **Shared Rust protocol decode in the browser (sensor-module device pages).** The platform
+   already owns Rust protocol implementations (`sens-api-gateway`, `sensor-ingestion` — Modbus,
+   LoRaWAN payloads, Atlas EZO). Compiling the frame/payload decoders to WASM would let the
+   device-detail and SCADA debug views parse raw frames client-side with the SAME code that runs
+   on the edge — one decoder, zero drift, live troubleshooting without round-trips. Highest
+   leverage because the Rust code and its tests already exist.
+2. **Time-series downsampling for sensor charts (sensor-module, dashboard).** Rendering
+   100k+-point telemetry series needs LTTB/M4 downsampling; at that scale a WASM implementation
+   is typically 5-20x faster than JS and keeps the main thread responsive (pair with a worker).
+   Only worth it once real series exceed ~50k points per chart — measure first.
+3. **AquaMobil offline pipeline (web/apps/aquamobil).** WASM codecs for photo
+   compression/resizing before offline queueing (mozjpeg/webp encoders) and optional
+   zstd-compressed offline payloads — proven wins on low-end Android field devices where the
+   PWA actually runs.
+4. **Large client-side exports.** Only if product ever demands 100k+-row XLSX generation in the
+   browser (a Rust xlsx writer via WASM outperforms JS libs by an order of magnitude). Today's
+   exports are server-generated or small-page CSV — no need yet.
+
+Not candidates: shared-ui SVG charts at current data sizes (bottleneck is SVG/DOM — the next
+lever is canvas/WebGL, not WASM), remote-bundle integrity hashing (SubtleCrypto is native), the
+database explorer (DOM-bound), and the water-chemistry engine at its current formula complexity.
+
 ## Cross-domain handoffs (recorded for the PR)
 
 - **farm-expert**: shell-level ToastProvider makes farm-module's 30+ currently-invisible `toast()`

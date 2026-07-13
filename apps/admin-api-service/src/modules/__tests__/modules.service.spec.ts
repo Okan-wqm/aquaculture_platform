@@ -42,7 +42,10 @@ const createMockModuleSnapshot = (
   overrides: Partial<ModuleDto> = {},
 ): AuthModuleSnapshot => {
   const module = createMockModule(overrides);
-  const { tenantsCount: _tenantsCount, ...snapshot } = module;
+  // WHY price is stripped too: AuthModuleSnapshot carries catalogue metadata
+  // only — pricing is billing-owned (D14); ModuleDto.price is derived from
+  // the admin.module_pricing catalog on the read side, never from auth.
+  const { tenantsCount: _tenantsCount, price: _price, ...snapshot } = module;
   return {
     ...snapshot,
     createdAt: module.createdAt.toISOString(),
@@ -281,6 +284,20 @@ describe('ModulesService', () => {
       );
     });
 
+    it('should derive price from the admin.module_pricing catalog, never from auth.modules (D14)', async () => {
+      // A5 / DB-IDENT-MEDIUM-003 regression pin: billing owns pricing —
+      // ModuleDto.price must come from the module-pricing catalog's
+      // base_price metric; auth.modules no longer carries a price column.
+      mockDataSource.query.mockResolvedValueOnce([createMockModule()]);
+
+      await service.getModuleById('module-uuid-123');
+
+      const [sql] = mockDataSource.query.mock.calls[0];
+      expect(sql).toContain('admin.module_pricing');
+      expect(sql).toContain(`metric.value->>'type' = 'base_price'`);
+      expect(sql).not.toContain('m.price');
+    });
+
     it('should throw NotFoundException when module not found', async () => {
       mockDataSource.query.mockResolvedValueOnce([]);
 
@@ -335,22 +352,32 @@ describe('ModulesService', () => {
       defaultRoute: '/new',
       icon: 'new-icon',
       isCore: false,
-      price: 50,
     };
 
-    it('should create module with all fields', async () => {
-      const mockCreated = createMockModule({ ...createDto, id: 'new-module-id' });
+    it('should create module with all fields and re-read through the catalog-priced SELECT', async () => {
+      const mockCreated = createMockModule({ ...createDto, id: 'new-module-id', tenantsCount: 0 });
       mockAuthNatsClient.send.mockReturnValueOnce(of({
         success: true,
         module: createMockModuleSnapshot(mockCreated),
       }));
+      // createModule re-reads via getModuleById so price comes from the
+      // admin.module_pricing catalog, never from the auth snapshot.
+      mockDataSource.query.mockResolvedValueOnce([mockCreated]);
 
       const result = await service.createModule(createDto);
 
-      expect(result).toEqual({ ...mockCreated, tenantsCount: 0 });
+      expect(result).toEqual(mockCreated);
       expect(mockAuthNatsClient.send).toHaveBeenCalledWith(
         AUTH_ADMIN_COMMAND_SUBJECTS.CREATE_MODULE,
         expect.objectContaining(createDto),
+      );
+      expect(mockAuthNatsClient.send).toHaveBeenCalledWith(
+        AUTH_ADMIN_COMMAND_SUBJECTS.CREATE_MODULE,
+        expect.not.objectContaining({ price: expect.anything() }),
+      );
+      expect(mockDataSource.query).toHaveBeenCalledWith(
+        expect.stringContaining('admin.module_pricing'),
+        ['new-module-id'],
       );
     });
 
@@ -365,6 +392,7 @@ describe('ModulesService', () => {
         success: true,
         module: createMockModuleSnapshot(mockCreated),
       }));
+      mockDataSource.query.mockResolvedValueOnce([mockCreated]);
 
       await service.createModule(minimalDto);
 
@@ -377,7 +405,6 @@ describe('ModulesService', () => {
           defaultRoute: '/minimal',
           icon: null,
           isCore: false,
-          price: 0,
         }),
       );
     });
@@ -415,7 +442,6 @@ describe('ModulesService', () => {
         defaultRoute: '/updated',
         icon: 'updated-icon',
         isActive: false,
-        price: 200,
       };
       const mockUpdated = createMockModule({ ...updateDto, id: 'module-id' });
       mockDataSource.query

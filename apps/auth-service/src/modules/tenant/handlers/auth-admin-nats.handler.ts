@@ -439,7 +439,6 @@ export class AuthAdminNatsHandler {
         icon: command.icon ?? null,
         isCore: command.isCore ?? false,
         isActive: true,
-        price: command.price ?? 0,
       });
       const saved = await this.moduleRepository.save(module);
       return { success: true, module: this.toModuleSnapshot(saved) };
@@ -464,7 +463,6 @@ export class AuthAdminNatsHandler {
       if (command.defaultRoute !== undefined) module.defaultRoute = command.defaultRoute;
       if (command.icon !== undefined) module.icon = command.icon;
       if (command.isActive !== undefined) module.isActive = command.isActive;
-      if (command.price !== undefined) module.price = command.price;
 
       const saved = await this.moduleRepository.save(module);
       return { success: true, module: this.toModuleSnapshot(saved) };
@@ -752,7 +750,6 @@ export class AuthAdminNatsHandler {
       icon: module.icon ?? null,
       isCore: module.isCore ?? false,
       isActive: module.isActive,
-      price: module.price ?? 0,
       createdAt: module.createdAt.toISOString(),
       updatedAt: module.updatedAt.toISOString(),
     };

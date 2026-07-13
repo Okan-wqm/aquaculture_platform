@@ -4493,6 +4493,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/migrations/1807200000000-DropModulePriceFromAuthModules.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/announcement/__tests__/announcement.service.spec.ts",
       "prettier_managed": true
     },
@@ -32071,6 +32077,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/orphan-findings.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/orphan-findings.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/platform-kernel-expert/2026-04-10-full-repo-audit.md",
       "prettier_managed": true
     },
@@ -53316,10 +53334,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8735,
+  "file_count": 8738,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8554,
-  "managed_file_list_sha256": "6d249b33c11b96df515b534cac253f3ad7f3578f136db329503a13327ec6eeef",
+  "managed_count": 8557,
+  "managed_file_list_sha256": "83a7bd9bb4c86260a366faac45b5d3b570ab30d2304f416d82ba7e1195ee98ff",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

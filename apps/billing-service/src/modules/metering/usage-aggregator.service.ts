@@ -8,7 +8,7 @@
  */
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { DataSource, Repository, In, MoreThanOrEqual, Not } from 'typeorm';
+import { DataSource, Repository, Between, In, MoreThanOrEqual, Not } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { MeterType, UsageMeteringService, MeterReading } from './usage-metering.service';
 import { UsageAggregation, UsageHourlyData } from './entities/usage-aggregation.entity';
@@ -100,6 +100,23 @@ export interface RollupConfig {
   retentionDays: number;
   aggregateOnSchedule: boolean;
   scheduleExpression?: string;
+}
+
+/**
+ * Month-to-date usage summary for one meter, read from the PERSISTED
+ * usage_aggregations rows (not the per-instance in-memory cache).
+ *
+ * WHY two numbers: cumulative counters (api_calls, sensor_readings) are
+ * answered by the month's summed totalUsage, while gauge meters
+ * (data_storage, users/farms/sensors active) record absolute levels — for
+ * those the most recent hourly bucket's maxUsage is the current level.
+ */
+export interface MeterMonthUsage {
+  meterType: MeterType;
+  /** Σ totalUsage across the month window — correct for cumulative counters. */
+  cumulativeTotal: number;
+  /** maxUsage of the most recent hourly bucket — current level for gauges. */
+  latestLevel: number;
 }
 
 /**
@@ -633,6 +650,54 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
     );
 
     return rollup;
+  }
+
+  /**
+   * Month-to-date persisted usage summary for one tenant.
+   *
+   * WHY: `billing.tenant_usage_metrics` was retired (A6 / DB-IDENT-MEDIUM-002)
+   * — `usage_aggregations` is the single persisted usage model. Tenant-facing
+   * billing reads (GetTenantBillingHandler) need a month summary that is
+   * correct across service instances, so this reads the PERSISTED rows rather
+   * than the per-instance in-memory cache above.
+   *
+   * WHAT: aggregates the tenant's HOURLY rows inside the month containing
+   * `reference`. HOURLY is the granularity the live event path writes
+   * (`handleUsageRecorded` → `updateAggregation(HOURLY)`); rollup periods are
+   * derived views, so summing hourly buckets never double-counts.
+   */
+  async getPersistedMonthUsage(
+    tenantId: string,
+    reference: Date,
+  ): Promise<Map<MeterType, MeterMonthUsage>> {
+    const bounds = this.getPeriodBounds(AggregationPeriod.MONTHLY, reference);
+
+    // This service is a cross-tenant aggregator (see onModuleInit); per its
+    // contract every downstream query pins tenantId explicitly in the WHERE.
+    const rows = await this.aggregationRepository.find({
+      where: {
+        tenantId,
+        period: AggregationPeriod.HOURLY,
+        periodStart: Between(bounds.start, bounds.end),
+      },
+      order: { periodStart: 'ASC' },
+    });
+
+    const summary = new Map<MeterType, MeterMonthUsage>();
+    for (const row of rows) {
+      const entry = summary.get(row.meterType) ?? {
+        meterType: row.meterType,
+        cumulativeTotal: 0,
+        latestLevel: 0,
+      };
+      entry.cumulativeTotal += row.totalUsage;
+      // Rows arrive periodStart-ASC, so the last row seen per meter is the
+      // most recent bucket — its maxUsage is the level a gauge meter reached
+      // in that bucket (gauges record absolute levels as event quantities).
+      entry.latestLevel = row.maxUsage;
+      summary.set(row.meterType, entry);
+    }
+    return summary;
   }
 
   /**

@@ -5,4 +5,3 @@ export * from './module-pricing.entity';
 export * from './plan-module-assignment.entity';
 export * from './custom-plan.entity';
 export * from './usage-aggregation-readonly.entity';
-export * from './tenant-usage-metrics-readonly.entity';

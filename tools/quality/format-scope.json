@@ -1299,12 +1299,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/billing/entities/tenant-usage-metrics-readonly.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/billing/entities/usage-aggregation-readonly.entity.ts",
       "prettier_managed": true
     },
@@ -5429,6 +5423,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/__tests__/get-tenant-billing.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/__tests__/invoice.service.spec.ts",
       "prettier_managed": true
     },
@@ -5652,12 +5652,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/billing/entities/subscription.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/billing-service/src/billing/entities/tenant-usage-metrics.entity.ts",
       "prettier_managed": true
     },
     {
@@ -5968,6 +5962,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/database/migrations/1801100000000-AddPlanStripeIdentifiers.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/database/migrations/1801700000000-DropRetiredTenantUsageMetrics.ts",
       "prettier_managed": true
     },
     {
@@ -53175,7 +53175,7 @@
   "file_count": 8716,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
   "managed_count": 8541,
-  "managed_file_list_sha256": "229ed4cfbcf29ac35f9776d631c28b92ee24176c26b289f2d0c4836c06ef8154",
+  "managed_file_list_sha256": "1282b8e6545e796be1776a961e84aee40d08b1239cc336c5f1d7c937f3fdc36f",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

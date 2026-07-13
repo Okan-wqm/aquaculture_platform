@@ -2,7 +2,9 @@
  * Usage Metering Management Service
  *
  * Provides read-only access to metered billing data for the admin dashboard.
- * Queries the billing schema's usage_aggregations and tenant_usage_metrics tables.
+ * Queries the billing schema's usage_aggregations table — the single usage
+ * SSoT (A6 / DB-IDENT-MEDIUM-002; billing.tenant_usage_metrics was a dead
+ * parallel model and has been retired).
  */
 
 import { Injectable, Logger } from '@nestjs/common';
@@ -15,10 +17,6 @@ import {
   AggregationPeriod,
   MeterType,
 } from '../entities/usage-aggregation-readonly.entity';
-import {
-  TenantUsageMetricsReadOnly,
-  UsagePeriodType,
-} from '../entities/tenant-usage-metrics-readonly.entity';
 
 // ============================================================================
 // DTOs and Interfaces
@@ -99,8 +97,6 @@ export class UsageMeteringManagementService {
   constructor(
     @InjectRepository(UsageAggregationReadOnly)
     private readonly aggregationRepo: Repository<UsageAggregationReadOnly>,
-    @InjectRepository(TenantUsageMetricsReadOnly)
-    private readonly usageMetricsRepo: Repository<TenantUsageMetricsReadOnly>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -400,28 +396,6 @@ export class UsageMeteringManagementService {
       unit: r['unit'] as string,
       eventCount: Number(r['eventCount'] || 0),
     }));
-  }
-
-  // ============================================================================
-  // Tenant Usage Metrics (from tenant_usage_metrics table)
-  // ============================================================================
-
-  /**
-   * Get tenant usage metrics (module-level usage data)
-   */
-  async getTenantUsageMetrics(
-    tenantId: string,
-    periodType: UsagePeriodType = UsagePeriodType.MONTHLY,
-    limit = 12,
-  ): Promise<TenantUsageMetricsReadOnly[]> {
-    return this.usageMetricsRepo.find({
-      where: {
-        tenantId,
-        periodType,
-      },
-      order: { periodStart: 'DESC' },
-      take: limit,
-    });
   }
 
   // ============================================================================

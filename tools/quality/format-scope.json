@@ -5405,6 +5405,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/__tests__/get-tenant-billing.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/__tests__/invoice.service.spec.ts",
       "prettier_managed": true
     },
@@ -5944,6 +5950,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/database/migrations/1801100000000-AddPlanStripeIdentifiers.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/database/migrations/1801700000000-DropRetiredTenantUsageMetrics.ts",
       "prettier_managed": true
     },
     {
@@ -53106,10 +53118,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8705,
+  "file_count": 8707,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8530,
-  "managed_file_list_sha256": "d4fa02b932c15a16ba1b6f5d0cd4316faec66fa32fbb4ce474d7f509588f166f",
+  "managed_count": 8532,
+  "managed_file_list_sha256": "28fd80ad67e1cd3fa0e6977b192f3474f57352136a2c26c7f7e602ba9665ebb0",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

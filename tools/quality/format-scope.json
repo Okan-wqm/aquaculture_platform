@@ -9309,6 +9309,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1805500000000-DropFarmWorkerPlaceholderPii.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -53070,10 +53076,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8699,
+  "file_count": 8700,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8524,
-  "managed_file_list_sha256": "f80eee8dc91cd911f0a55e659b6066458fe9e73adfd29d09e72e7bdabffa38af",
+  "managed_count": 8525,
+  "managed_file_list_sha256": "d464be0172d4653bd5faa24d3c6816dbe92a3ff816e2ff0ab523836669d35e20",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -1,7 +1,11 @@
 import { Logger } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 import { Test } from '@nestjs/testing';
-import type { BillingTenantProvisioningCommand } from '@platform/event-contracts';
+import { BypassRlsService } from '@aquaculture/backend-common/database';
+import type {
+  BillingAdminCreateInvoiceCommand,
+  BillingTenantProvisioningCommand,
+} from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
 
 import { BillingAdminNatsHandler } from '../billing-admin-nats.handler';
@@ -27,6 +31,8 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
   let handler: BillingAdminNatsHandler;
   let recordedQueries: Array<{ sql: string; params: unknown[] }>;
   let dataSourceQuery: jest.Mock;
+  let bypassRls: { withBypass: jest.Mock };
+  let planFindOne: jest.Mock;
 
   const plan = {
     id: 'plan-starter-1',
@@ -121,14 +127,21 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
       return [];
     });
 
+    planFindOne = jest.fn().mockResolvedValue(plan);
     const mockManager = {
       query: managerQuery,
       getRepository: jest.fn().mockReturnValue({
-        findOne: jest.fn().mockResolvedValue(plan),
+        findOne: planFindOne,
       }),
     };
 
-    dataSourceQuery = jest.fn().mockResolvedValue([]);
+    // dataSource.query is the OUT-OF-TRANSACTION path (the failure receipt in
+    // markBillingReceiptFailed). Record it into the same ordered log so a test
+    // can prove it also runs AFTER the RLS bypass was granted.
+    dataSourceQuery = jest.fn(async (sql: string, params: unknown[] = []) => {
+      recordedQueries.push({ sql, params });
+      return [];
+    });
     const mockDataSource = {
       transaction: jest.fn(
         async (_level: string, cb: (m: typeof mockManager) => Promise<unknown>) => cb(mockManager),
@@ -136,11 +149,24 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
       query: dataSourceQuery,
     };
 
+    // London-style collaborator: the real BypassRlsService.withBypass sets
+    // app.bypass_rls='on' for the callback's async frame (RlsConnectionBootstrap
+    // reads it on pool checkout). The mock records the grant in query order and
+    // runs the callback so the receipt/subscription writes still execute — which
+    // lets a test prove the grant precedes every command_receipts write.
+    bypassRls = {
+      withBypass: jest.fn(async (operation: string, cb: () => Promise<unknown>) => {
+        recordedQueries.push({ sql: `__BYPASS_GRANTED__ ${operation}`, params: [] });
+        return cb();
+      }),
+    };
+
     const moduleRef = await Test.createTestingModule({
       controllers: [BillingAdminNatsHandler],
       providers: [
         { provide: CommandBus, useValue: { execute: jest.fn() } },
         { provide: DataSource, useValue: mockDataSource },
+        { provide: BypassRlsService, useValue: bypassRls },
       ],
     }).compile();
 
@@ -195,6 +221,92 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
     // No subscription may be created for a rejected command.
     expect(recordedQueries.some((q) => /INSERT INTO billing\.subscriptions/.test(q.sql))).toBe(
       false,
+    );
+  });
+
+  /**
+   * Regression guard for ORPHAN-CRITICAL-412: provisioning arrives over NATS
+   * with no HTTP tenant context, so app.bypass_rls defaults to 'off' and the
+   * billing.command_receipts tenant_isolation RLS policy denies the receipt
+   * INSERT — rolling back the whole SERIALIZABLE transaction so no subscription
+   * ever persists. The handler must therefore establish an audited RLS bypass
+   * BEFORE the first command_receipts write.
+   */
+  it('grants an audited RLS bypass before the command_receipts write', async () => {
+    const result = await handler.provisionTenantSubscription(buildCommand());
+    expect(result.success).toBe(true);
+
+    expect(bypassRls.withBypass).toHaveBeenCalledWith(
+      'billing-admin:provision-tenant-subscription',
+      expect.any(Function),
+    );
+    // Exactly one grant covers the receipt AND the subscription/module writes.
+    expect(bypassRls.withBypass).toHaveBeenCalledTimes(1);
+
+    const grantIdx = recordedQueries.findIndex((q) =>
+      q.sql.startsWith('__BYPASS_GRANTED__ billing-admin:provision-tenant-subscription'),
+    );
+    const firstReceiptWriteIdx = recordedQueries.findIndex(
+      (q) =>
+        /billing\.command_receipts/.test(q.sql) &&
+        (/INSERT INTO/.test(q.sql) || /FOR UPDATE/.test(q.sql)),
+    );
+    expect(grantIdx).toBeGreaterThanOrEqual(0);
+    expect(firstReceiptWriteIdx).toBeGreaterThan(grantIdx);
+  });
+
+  it('writes the FAILED command_receipts (outside the transaction) under the same bypass', async () => {
+    // Force plan resolution to fail so the SERIALIZABLE transaction throws and
+    // the catch-block failure receipt (a SEPARATE dataSource.query outside the
+    // transaction) runs. It must still be inside the one audited bypass frame.
+    planFindOne.mockResolvedValue(null);
+
+    const result = await handler.provisionTenantSubscription(buildCommand());
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('CATALOG_MISSING');
+
+    // One grant only — the whole command (txn + failure receipt) is covered.
+    expect(bypassRls.withBypass).toHaveBeenCalledTimes(1);
+
+    const grantIdx = recordedQueries.findIndex((q) =>
+      q.sql.startsWith('__BYPASS_GRANTED__ billing-admin:provision-tenant-subscription'),
+    );
+    const failureReceiptIdx = recordedQueries.findIndex(
+      (q) => /INSERT INTO billing\.command_receipts/.test(q.sql) && /'FAILED'/.test(q.sql),
+    );
+    expect(grantIdx).toBeGreaterThanOrEqual(0);
+    expect(failureReceiptIdx).toBeGreaterThan(grantIdx);
+  });
+
+  it('runs a CommandBus-delegating admin command under an audited RLS bypass', async () => {
+    // createInvoice delegates to the CommandBus handler, which writes the
+    // RLS-protected billing.invoices table with no HTTP tenant context. The
+    // bypass must wrap it too (the mapInvoice on the undefined execute() result
+    // throws and is caught — the bypass grant is the assertion, not the result).
+    const nowIso = new Date().toISOString();
+    const command: BillingAdminCreateInvoiceCommand = {
+      tenantId: '22222222-2222-4222-8222-222222222222',
+      actorId: '33333333-3333-4333-8333-333333333333',
+      input: {
+        billingAddress: {
+          companyName: 'Acme',
+          street: '1 Farm Rd',
+          city: 'Aqua',
+          state: 'CA',
+          postalCode: '00000',
+          country: 'US',
+        },
+        lineItems: [],
+        dueDate: nowIso,
+        periodStart: nowIso,
+        periodEnd: nowIso,
+      },
+    };
+    await handler.createInvoice(command);
+
+    expect(bypassRls.withBypass).toHaveBeenCalledWith(
+      'billing-admin:create-invoice',
+      expect.any(Function),
     );
   });
 });

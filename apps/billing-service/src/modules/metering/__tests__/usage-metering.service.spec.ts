@@ -85,7 +85,9 @@ describe('UsageMeteringService', () => {
         expect(event.meterType).toBe(MeterType.API_CALLS);
         expect(event.quantity).toBe(100);
         expect(event.unit).toBe('calls');
-        expect(event.timestamp).toBeInstanceOf(Date);
+        // UsageEvent.timestamp is a serialized ISO-8601 string, not a Date.
+        expect(typeof event.timestamp).toBe('string');
+        expect(Number.isNaN(Date.parse(event.timestamp))).toBe(false);
       });
 
       it('should store event metadata correctly', () => {
@@ -210,7 +212,7 @@ describe('UsageMeteringService', () => {
         });
 
         // Flush to process
-        jest.advanceTimersByTime(5000);
+        service.runScheduledFlush();
 
         // Duplicate event with same idempotency key
         service.recordUsage({
@@ -221,7 +223,7 @@ describe('UsageMeteringService', () => {
           idempotencyKey,
         });
 
-        jest.advanceTimersByTime(5000);
+        service.runScheduledFlush();
 
         const metrics = service.getMetrics();
         expect(metrics.duplicateEventsSkipped).toBeGreaterThan(0);
@@ -242,7 +244,7 @@ describe('UsageMeteringService', () => {
           unit: 'calls',
         });
 
-        jest.advanceTimersByTime(5000);
+        service.runScheduledFlush();
 
         const metrics = service.getMetrics();
         expect(metrics.totalEventsReceived).toBe(2);
@@ -282,7 +284,7 @@ describe('UsageMeteringService', () => {
         );
 
         await Promise.all(promises);
-        jest.advanceTimersByTime(5000);
+        service.runScheduledFlush();
 
         const metrics = service.getMetrics();
         expect(metrics.totalEventsReceived).toBe(100);
@@ -304,7 +306,9 @@ describe('UsageMeteringService', () => {
         expect(batch).toBeDefined();
         expect(batch.batchId).toBeDefined();
         expect(batch.events.length).toBe(50);
-        expect(batch.timestamp).toBeInstanceOf(Date);
+        // UsageEventBatch.timestamp is a serialized ISO-8601 string, not a Date.
+        expect(typeof batch.timestamp).toBe('string');
+        expect(Number.isNaN(Date.parse(batch.timestamp))).toBe(false);
       });
 
       it('should track batch processing metrics', () => {
@@ -368,7 +372,7 @@ describe('UsageMeteringService', () => {
         });
 
         // Advance timer to trigger flush
-        jest.advanceTimersByTime(5000);
+        service.runScheduledFlush();
 
         const metrics = service.getMetrics();
         expect(metrics.totalEventsProcessed).toBeGreaterThan(0);
@@ -458,7 +462,7 @@ describe('UsageMeteringService', () => {
           unit: 'calls',
         });
 
-        jest.advanceTimersByTime(5000);
+        service.runScheduledFlush();
 
         const reading = service.getMeterReading('tenant-1', MeterType.API_CALLS);
         expect(reading).toBeDefined();
@@ -481,7 +485,7 @@ describe('UsageMeteringService', () => {
           unit: 'GB',
         });
 
-        jest.advanceTimersByTime(5000);
+        service.runScheduledFlush();
 
         const readings = service.getAllMeterReadings('tenant-1');
         expect(readings.length).toBeGreaterThanOrEqual(2);
@@ -502,7 +506,7 @@ describe('UsageMeteringService', () => {
           });
         }
 
-        jest.advanceTimersByTime(5000);
+        service.runScheduledFlush();
 
         const reading = service.getMeterReading('tenant-1', MeterType.API_CALLS);
         expect(reading?.currentValue).toBe(100);
@@ -519,7 +523,7 @@ describe('UsageMeteringService', () => {
           unit: 'calls',
         });
 
-        jest.advanceTimersByTime(5000);
+        service.runScheduledFlush();
 
         service.setMeterLimit('tenant-1', MeterType.API_CALLS, 1000);
 
@@ -536,7 +540,7 @@ describe('UsageMeteringService', () => {
           unit: 'calls',
         });
 
-        jest.advanceTimersByTime(5000);
+        service.runScheduledFlush();
 
         service.setMeterLimit('tenant-1', MeterType.API_CALLS, 1000);
         expect(service.isWithinLimits('tenant-1', MeterType.API_CALLS)).toBe(true);
@@ -548,7 +552,7 @@ describe('UsageMeteringService', () => {
           unit: 'calls',
         });
 
-        jest.advanceTimersByTime(5000);
+        service.runScheduledFlush();
 
         expect(service.isWithinLimits('tenant-1', MeterType.API_CALLS)).toBe(false);
       });
@@ -561,7 +565,7 @@ describe('UsageMeteringService', () => {
           unit: 'calls',
         });
 
-        jest.advanceTimersByTime(5000);
+        service.runScheduledFlush();
 
         service.setMeterLimit('tenant-1', MeterType.API_CALLS, 1000);
 
@@ -577,7 +581,7 @@ describe('UsageMeteringService', () => {
           unit: 'calls',
         });
 
-        jest.advanceTimersByTime(5000);
+        service.runScheduledFlush();
 
         const remaining = service.getRemainingUsage('tenant-1', MeterType.API_CALLS);
         expect(remaining).toBeNull();
@@ -596,7 +600,7 @@ describe('UsageMeteringService', () => {
         quantity: 500,
         unit: 'calls',
       });
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
     });
 
     it('should reset single meter', () => {
@@ -631,7 +635,7 @@ describe('UsageMeteringService', () => {
         quantity: 100,
         unit: 'GB',
       });
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
       service.resetAllMeters('tenant-1', 'Billing cycle reset');
 
@@ -690,7 +694,7 @@ describe('UsageMeteringService', () => {
         unit: 'calls',
       });
 
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
       expect(mockEventEmitter.emit).toHaveBeenCalledWith(
         'usage.threshold.breached',
@@ -710,7 +714,7 @@ describe('UsageMeteringService', () => {
         unit: 'calls',
       });
 
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
       expect(mockEventEmitter.emit).toHaveBeenCalledWith(
         'usage.threshold.breached',
@@ -728,7 +732,7 @@ describe('UsageMeteringService', () => {
         unit: 'calls',
       });
 
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
       expect(mockEventEmitter.emit).toHaveBeenCalledWith(
         'usage.threshold.breached',
@@ -746,7 +750,7 @@ describe('UsageMeteringService', () => {
         unit: 'calls',
       });
 
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
       expect(mockEventEmitter.emit).toHaveBeenCalledWith(
         'usage.threshold.breached',
@@ -763,7 +767,7 @@ describe('UsageMeteringService', () => {
         quantity: 500,
         unit: 'calls',
       });
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
       const breachCallsAfterFirst = mockEventEmitter.emit.mock.calls.filter(
         (call) => call[0] === 'usage.threshold.breached',
@@ -776,7 +780,7 @@ describe('UsageMeteringService', () => {
         quantity: 100,
         unit: 'calls',
       });
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
       const breachCallsAfterSecond = mockEventEmitter.emit.mock.calls.filter(
         (call) => call[0] === 'usage.threshold.breached',
@@ -793,7 +797,7 @@ describe('UsageMeteringService', () => {
         quantity: 1000,
         unit: 'calls',
       });
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
       const metrics = service.getMetrics();
       expect(metrics.thresholdBreaches).toBeGreaterThan(0);
@@ -806,7 +810,7 @@ describe('UsageMeteringService', () => {
         quantity: 500,
         unit: 'calls',
       });
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
       service.resetMeter('tenant-1', MeterType.API_CALLS);
 
@@ -817,7 +821,7 @@ describe('UsageMeteringService', () => {
         quantity: 500,
         unit: 'calls',
       });
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
       // Should emit breach again after reset
       const breachCalls = mockEventEmitter.emit.mock.calls.filter(
@@ -844,7 +848,7 @@ describe('UsageMeteringService', () => {
         quantity: 1500,
         unit: 'calls',
       });
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
       const overage = service.getOverage('tenant-1', MeterType.API_CALLS);
       expect(overage).toBe(500);
@@ -857,7 +861,7 @@ describe('UsageMeteringService', () => {
         quantity: 800,
         unit: 'calls',
       });
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
       const overage = service.getOverage('tenant-1', MeterType.API_CALLS);
       expect(overage).toBe(0);
@@ -870,7 +874,7 @@ describe('UsageMeteringService', () => {
         quantity: 1500,
         unit: 'calls',
       });
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
       const cost = service.getOverageCost('tenant-1', MeterType.API_CALLS);
       // 500 overage * 0.001 overage rate = 0.5
@@ -884,7 +888,7 @@ describe('UsageMeteringService', () => {
         quantity: 800,
         unit: 'calls',
       });
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
       const cost = service.getOverageCost('tenant-1', MeterType.API_CALLS);
       expect(cost).toBe(0);
@@ -908,7 +912,7 @@ describe('UsageMeteringService', () => {
         quantity: 50,
         unit: 'GB',
       });
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
       service.setMeterLimit('tenant-1', MeterType.API_CALLS, 1000);
 
@@ -926,7 +930,7 @@ describe('UsageMeteringService', () => {
         quantity: 1000,
         unit: 'calls',
       });
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
       service.setMeterLimit('tenant-1', MeterType.API_CALLS, 1000);
 
@@ -941,7 +945,7 @@ describe('UsageMeteringService', () => {
         quantity: 100,
         unit: 'calls',
       });
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
       const exported = service.exportUsageData('tenant-1');
 
@@ -979,7 +983,7 @@ describe('UsageMeteringService', () => {
           unit: 'calls',
         });
       }
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
       const metrics = service.getMetrics();
       expect(metrics.totalEventsProcessed).toBe(10);
@@ -995,7 +999,7 @@ describe('UsageMeteringService', () => {
         unit: 'calls',
         idempotencyKey,
       });
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
       service.recordUsage({
         tenantId: 'tenant-1',
@@ -1052,7 +1056,7 @@ describe('UsageMeteringService', () => {
         });
 
         expect(event.meterType).toBe(type);
-        jest.advanceTimersByTime(5000);
+        service.runScheduledFlush();
 
         const reading = service.getMeterReading('tenant-1', type);
         expect(reading?.meterType).toBe(type);
@@ -1071,7 +1075,7 @@ describe('UsageMeteringService', () => {
         quantity: 100,
         unit: 'calls',
       });
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
       expect(mockEventEmitter.emit).toHaveBeenCalledWith(
         'usage.recorded',
@@ -1090,7 +1094,7 @@ describe('UsageMeteringService', () => {
         quantity: 50,
         unit: 'calls',
       });
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
       let reading = service.getMeterReading('tenant-1', MeterType.API_CALLS);
       expect(reading?.currentValue).toBe(50);
@@ -1101,7 +1105,7 @@ describe('UsageMeteringService', () => {
         quantity: 50,
         unit: 'calls',
       });
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
       reading = service.getMeterReading('tenant-1', MeterType.API_CALLS);
       expect(reading?.currentValue).toBe(100);
@@ -1114,10 +1118,12 @@ describe('UsageMeteringService', () => {
         quantity: 100,
         unit: 'calls',
       });
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
       const reading = service.getMeterReading('tenant-1', MeterType.API_CALLS);
-      expect(reading?.lastUpdated).toBeInstanceOf(Date);
+      // MeterReading.lastUpdated is a serialized ISO-8601 string, not a Date.
+      expect(typeof reading?.lastUpdated).toBe('string');
+      expect(Number.isNaN(Date.parse(reading!.lastUpdated))).toBe(false);
     });
   });
 
@@ -1140,7 +1146,7 @@ describe('UsageMeteringService', () => {
         quantity: 1,
         unit: 'calls',
       });
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
       expect(service.getMeterReading('tenant-active', MeterType.API_CALLS))
         .not.toBeNull();
 
@@ -1152,26 +1158,25 @@ describe('UsageMeteringService', () => {
         quantity: 1,
         unit: 'calls',
       });
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
-      // Advance 25 hours total. The cleanup interval is 1h so
-      // it fires 25 times during this advance — each tick will
-      // re-touch the active tenant if we record on it. We
-      // re-touch every hour to keep tenant-active hot.
+      // Advance 25 hours, driving the hourly maintenance sweep
+      // (`runScheduledCleanup` — the method the `@Interval` fires in
+      // production) once per simulated hour. The active tenant is re-touched
+      // each hour so its lastTouchedAtMs stays fresh; the idle tenant ages out.
       for (let h = 0; h < 25; h++) {
-        // Each loop step advances 1 hour. Record on the active
-        // tenant FIRST so its lastTouchedAtMs updates BEFORE
-        // the hourly sweep fires.
+        // Re-touch the active tenant FIRST (flush processes the buffered event,
+        // which calls getOrCreateTenantState → updates lastTouchedAtMs to now)
+        // so its state is fresh BEFORE the hourly sweep runs.
         service.recordUsage({
           tenantId: 'tenant-active',
           meterType: MeterType.API_CALLS,
           quantity: 1,
           unit: 'calls',
         });
-        jest.advanceTimersByTime(60 * 60 * 1000); // 1 hour
-        // Flush the recordUsage push — the periodic flush is
-        // every 5s so it has fired many times during the
-        // 1-hour advance.
+        service.runScheduledFlush();
+        jest.advanceTimersByTime(60 * 60 * 1000); // advance the faked wall clock 1h
+        service.runScheduledCleanup(); // the hourly eviction sweep
       }
 
       // Active tenant survives: most-recent recordUsage was
@@ -1200,11 +1205,12 @@ describe('UsageMeteringService', () => {
         quantity: 1,
         unit: 'calls',
       });
-      jest.advanceTimersByTime(5000);
+      service.runScheduledFlush();
 
-      // Advance 23 hours — under the 24h staleness threshold.
-      // The cleanup sweep fires 23 times during this advance.
+      // Advance 23 hours — under the 24h staleness threshold — then run the
+      // maintenance sweep. The tenant was touched < 24h ago, so it survives.
       jest.advanceTimersByTime(23 * 60 * 60 * 1000);
+      service.runScheduledCleanup();
 
       expect(service.getMeterReading('tenant-recent', MeterType.API_CALLS))
         .not.toBeNull();

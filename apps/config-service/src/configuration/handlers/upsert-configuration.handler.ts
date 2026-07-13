@@ -3,7 +3,6 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
-import { createBaseEvent, type ConfigurationChangedEvent } from '@platform/event-contracts';
 import { pinRlsTenantScope } from '../../database/rls-scoped-session';
 import { UpsertConfigurationCommand } from '../commands/upsert-configuration.command';
 import {
@@ -11,6 +10,7 @@ import {
   ConfigurationHistory,
   ConfigValueType,
 } from '../entities/configuration.entity';
+import { emitConfigurationChanged } from '../events/emit-configuration-changed';
 import { ConfigurationService } from '../services/configuration.service';
 import { EncryptionService } from '../services/encryption.service';
 
@@ -152,28 +152,11 @@ export class UpsertConfigurationHandler
 
       // Faz C (D6): enqueue a metadata-only ConfigurationChanged signal into the
       // config_outbox IN THE SAME TRANSACTION as the config write — atomic, so a
-      // committed change always emits and a rolled-back one never does. The
-      // event NEVER carries the value/secret; a consumer (billing) uses it to
+      // committed change always emits and a rolled-back one never does. Shared
+      // emit path across create/update/delete/upsert (ARCH-MEDIUM-003). The event
+      // NEVER carries the value/secret; a consumer (billing) uses it to
       // invalidate its cached snapshot and re-fetch on demand via GET_SECRET.
-      const changedAt =
-        saved.updatedAt instanceof Date ? saved.updatedAt : new Date(saved.updatedAt);
-      const event: ConfigurationChangedEvent = {
-        ...createBaseEvent<ConfigurationChangedEvent>('ConfigurationChanged', tenantId, {
-          userId,
-          aggregateId: saved.id,
-          aggregateType: 'Configuration',
-        }),
-        service,
-        key,
-        environment,
-        valueType: saved.valueType,
-        isSecret: saved.isSecret === true || saved.valueType === ConfigValueType.SECRET,
-        configVersion: saved.version,
-        changedAt: changedAt.toISOString(),
-      };
-      await this.outboxPublisher.enqueue(event, queryRunner.manager, {
-        aggregateId: saved.id,
-      });
+      await emitConfigurationChanged(this.outboxPublisher, queryRunner.manager, saved, userId);
 
       await queryRunner.commitTransaction();
       this.configurationService.invalidateCache(tenantId, service, key);

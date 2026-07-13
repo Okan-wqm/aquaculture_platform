@@ -12,6 +12,8 @@ import { Controller, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import {
+  CONFIG_RUNTIME_NONSECRET_ALLOWLIST,
+  CONFIG_RUNTIME_SECRET_ALLOWLIST,
   CONFIG_RUNTIME_SUBJECTS,
   CONFIG_RUNTIME_SYSTEM_TENANT_ID,
   canonicalConfigRuntimeBody,
@@ -27,26 +29,23 @@ import { SYSTEM_TENANT_ID } from '../configuration.constants';
 import { ConfigurationService } from '../services/configuration.service';
 
 /**
- * Per-caller (service/key) allowlist for the NON-secret GET path. A caller may
- * read ONLY the exact keys it needs — an allowlisted key can never be a SECRET
- * key, which is what keeps GET from ever decrypting-and-returning a secret.
+ * Per-caller (service/key) allowlists — the SSoT lives in the contract
+ * (@platform/event-contracts) so the nats-invariant can cross-check every
+ * allowlisted caller against its NATS publish grants AND assert the secret and
+ * non-secret maps are disjoint (a secret key can never appear on the GET path).
  */
-const NONSECRET_FETCH_ALLOWLIST: Readonly<Record<string, ReadonlySet<string>>> = {
-  'billing-service': new Set([
-    'platform/billing.stripe_enabled',
-    'platform/billing.stripe_public_key',
-  ]),
-};
+const NONSECRET_FETCH_ALLOWLIST = toSetMap(CONFIG_RUNTIME_NONSECRET_ALLOWLIST);
+const SECRET_FETCH_ALLOWLIST = toSetMap(CONFIG_RUNTIME_SECRET_ALLOWLIST);
 
-/**
- * Per-caller (service/key) allowlist for the TRUSTED GET_SECRET path.
- * billing-service may fetch ONLY the Stripe secret key. (billing.stripe_webhook_secret
- * is env-only today — ORPHAN-399 tracks seeding it into config; once seeded it is
- * added here.)
- */
-const SECRET_FETCH_ALLOWLIST: Readonly<Record<string, ReadonlySet<string>>> = {
-  'billing-service': new Set(['platform/billing.stripe_secret_key']),
-};
+function toSetMap(
+  source: Readonly<Record<string, readonly string[]>>,
+): Readonly<Record<string, ReadonlySet<string>>> {
+  const out: Record<string, ReadonlySet<string>> = {};
+  for (const [caller, keys] of Object.entries(source)) {
+    out[caller] = new Set(keys);
+  }
+  return out;
+}
 
 /** Nonce-replay window — matches the ServiceIdentity signature validity (5 min). */
 const NONCE_TTL_MS = 5 * 60 * 1000;
@@ -162,17 +161,11 @@ export class ConfigRuntimeNatsHandler {
       return { found: false, value: null };
     }
 
-    // ── Fetch effective value (single-key path decrypts secrets) ──
-    // Default null distinguishes "row absent" (null → found:false) from an
-    // empty-string value. The VALUE is never logged or placed in audit metadata.
-    let value: string | null;
+    // ── Fetch effective value + secret classification (single lookup) ──
+    // The VALUE is never logged or placed in audit metadata.
+    let entry: { value: string; isSecret: boolean } | null;
     try {
-      value = await this.configurationService.get<string | null>(
-        SYSTEM_TENANT_ID,
-        service,
-        key,
-        null,
-      );
+      entry = await this.configurationService.getEffectiveWithMeta(SYSTEM_TENANT_ID, service, key);
     } catch (err) {
       await this.deny(actions.deny, resource, {
         caller,
@@ -182,14 +175,46 @@ export class ConfigRuntimeNatsHandler {
       return { found: false, value: null };
     }
 
-    const found = value !== null;
-    // ── Layer 5: mandatory audit on allow (VALUE NEVER in metadata) ──
-    await this.audit(actions.ok, resource, {
-      caller,
-      nonce,
-      outcome: 'allow',
-      found,
-    });
+    // ── SEC-MEDIUM-001: the non-secret GET path can NEVER return a secret ──
+    // Structural guard independent of the allowlist: even if a secret key were
+    // ever added to the non-secret allowlist by mistake, GET refuses it here.
+    if (!isSecretPath && entry?.isSecret) {
+      await this.deny(actions.deny, resource, {
+        caller,
+        nonce,
+        reason: 'is-secret-on-nonsecret-path',
+      });
+      return { found: false, value: null };
+    }
+
+    const found = entry !== null;
+    const value = entry?.value ?? null;
+
+    if (isSecretPath) {
+      // ── SEC-MEDIUM-002: fail-closed — do NOT return the secret if the audit
+      // row cannot be written. The regulated-mutation audit invariant must hold
+      // for every secret disclosure; a lost audit row means no disclosure.
+      try {
+        await this.auditLogService.recordAwait({
+          action: actions.ok,
+          resource: 'config-runtime',
+          resourceId: resource,
+          tenantId: SYSTEM_TENANT_ID,
+          severity: AuditSeverity.INFO,
+          metadata: { caller, nonce, outcome: 'allow', found },
+        });
+      } catch (err) {
+        this.logger.error(
+          `config-runtime secret audit write failed for ${resource} — refusing to ` +
+            `return the secret (fail-closed): ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return { found: false, value: null };
+      }
+      return { found, value };
+    }
+
+    // ── Layer 5 (non-secret): best-effort audit on allow (VALUE NEVER in metadata) ──
+    await this.audit(actions.ok, resource, { caller, nonce, outcome: 'allow', found });
     return { found, value };
   }
 

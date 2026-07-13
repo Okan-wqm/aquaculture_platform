@@ -22,19 +22,23 @@ const DEV_SECRET = 'unit-test-signing-secret';
 const CALLER = 'billing-service';
 const SECRET_KEY = 'platform/billing.stripe_secret_key';
 
+type FetchResult = { value: string; isSecret: boolean } | null;
+
 interface Mocks {
   handler: ConfigRuntimeNatsHandler;
-  get: jest.Mock;
+  fetch: jest.Mock;
   audit: jest.Mock;
 }
 
-function build(getImpl?: () => Promise<string | null>): Mocks {
-  const get = jest.fn();
-  get.mockImplementation(getImpl ?? (async () => 'sk_live_super'));
+function build(fetchImpl?: () => Promise<FetchResult>): Mocks {
+  const fetch = jest.fn();
+  fetch.mockImplementation(fetchImpl ?? (async () => ({ value: 'sk_live_super', isSecret: true })));
   const audit = jest.fn();
   audit.mockResolvedValue(undefined);
   // Repo cast-free mock idiom: a Pick-typed partial + single `as` at the seam.
-  const configurationService: Pick<ConfigurationService, 'get'> = { get };
+  const configurationService: Pick<ConfigurationService, 'getEffectiveWithMeta'> = {
+    getEffectiveWithMeta: fetch,
+  };
   const auditLogService: Pick<AuditLogService, 'recordAwait'> = { recordAwait: audit };
   const configService: Pick<ConfigService, 'get'> = {
     get: (key: string): string | undefined =>
@@ -45,7 +49,7 @@ function build(getImpl?: () => Promise<string | null>): Mocks {
     auditLogService as AuditLogService,
     configService as ConfigService,
   );
-  return { handler, get, audit };
+  return { handler, fetch, audit };
 }
 
 function signedRequest(
@@ -74,7 +78,7 @@ function signedRequest(
 
 describe('ConfigRuntimeNatsHandler — GET_SECRET trusted path', () => {
   it('allowed caller + allowed key + valid HMAC → returns the decrypted value and audits ALLOW', async () => {
-    const { handler, audit } = build(async () => 'sk_live_super');
+    const { handler, audit } = build(async () => ({ value: 'sk_live_super', isSecret: true }));
     const req = signedRequest(
       CONFIG_RUNTIME_SUBJECTS.GET_SECRET,
       'platform',
@@ -97,7 +101,7 @@ describe('ConfigRuntimeNatsHandler — GET_SECRET trusted path', () => {
   });
 
   it('caller not on the key allowlist → deny + audit, no value leaked', async () => {
-    const { handler, audit, get } = build();
+    const { handler, audit, fetch } = build();
     const req = signedRequest(
       CONFIG_RUNTIME_SUBJECTS.GET_SECRET,
       'platform',
@@ -107,12 +111,12 @@ describe('ConfigRuntimeNatsHandler — GET_SECRET trusted path', () => {
     const result = await handler.getSecret(req);
 
     expect(result).toEqual({ found: false, value: null });
-    expect(get).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
     expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'config.secret.denied' }));
   });
 
   it('tampered signature → deny (invalid HMAC), no fetch', async () => {
-    const { handler, audit, get } = build();
+    const { handler, audit, fetch } = build();
     const req = signedRequest(
       CONFIG_RUNTIME_SUBJECTS.GET_SECRET,
       'platform',
@@ -123,7 +127,7 @@ describe('ConfigRuntimeNatsHandler — GET_SECRET trusted path', () => {
     const result = await handler.getSecret(req);
 
     expect(result).toEqual({ found: false, value: null });
-    expect(get).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
     expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'config.secret.denied' }));
   });
 
@@ -139,7 +143,7 @@ describe('ConfigRuntimeNatsHandler — GET_SECRET trusted path', () => {
   });
 
   it('replayed nonce → first ALLOW, second DENY (replay)', async () => {
-    const { handler, audit } = build(async () => 'sk_live_super');
+    const { handler, audit } = build(async () => ({ value: 'sk_live_super', isSecret: true }));
     const req = signedRequest(
       CONFIG_RUNTIME_SUBJECTS.GET_SECRET,
       'platform',
@@ -165,19 +169,41 @@ describe('ConfigRuntimeNatsHandler — GET_SECRET trusted path', () => {
     );
     expect(await handler.getSecret(req)).toEqual({ found: false, value: null });
   });
+
+  it('SEC-MEDIUM-002: secret-path audit write failure → secret is NOT returned (fail-closed)', async () => {
+    const { handler, audit } = build(async () => ({ value: 'sk_live_super', isSecret: true }));
+    // The allow-audit recordAwait throws (DB down).
+    audit.mockRejectedValue(new Error('audit db unavailable'));
+    const req = signedRequest(
+      CONFIG_RUNTIME_SUBJECTS.GET_SECRET,
+      'platform',
+      'billing.stripe_secret_key',
+    );
+    expect(await handler.getSecret(req)).toEqual({ found: false, value: null });
+  });
 });
 
 describe('ConfigRuntimeNatsHandler — GET non-secret path cannot leak a secret key', () => {
   it('GET for the secret key is DENIED (not on the non-secret allowlist)', async () => {
-    const { handler, get } = build();
+    const { handler, fetch } = build();
     const req = signedRequest(CONFIG_RUNTIME_SUBJECTS.GET, 'platform', 'billing.stripe_secret_key');
     expect(await handler.getValue(req)).toEqual({ found: false, value: null });
-    expect(get).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('GET for an allowlisted non-secret key → returns the value', async () => {
-    const { handler } = build(async () => 'true');
+    const { handler } = build(async () => ({ value: 'true', isSecret: false }));
     const req = signedRequest(CONFIG_RUNTIME_SUBJECTS.GET, 'platform', 'billing.stripe_enabled');
     expect(await handler.getValue(req)).toEqual({ found: true, value: 'true' });
+  });
+
+  it('SEC-MEDIUM-001: GET for an allowlisted key whose row IS a secret → refused (structural guard)', async () => {
+    // Misconfiguration: an allowlisted non-secret key resolves to a secret row.
+    // GET must refuse regardless of the allowlist.
+    const { handler, audit } = build(async () => ({ value: 'leaked', isSecret: true }));
+    const req = signedRequest(CONFIG_RUNTIME_SUBJECTS.GET, 'platform', 'billing.stripe_public_key');
+    expect(await handler.getValue(req)).toEqual({ found: false, value: null });
+    const denyCall = audit.mock.calls.find((c) => c[0].action === 'config.value.denied');
+    expect(denyCall?.[0].metadata).toMatchObject({ reason: 'is-secret-on-nonsecret-path' });
   });
 });

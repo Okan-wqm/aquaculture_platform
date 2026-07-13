@@ -288,7 +288,6 @@ describe('ModulesController', () => {
       defaultRoute: '/new',
       icon: 'new-icon',
       isCore: false,
-      price: 50,
     };
 
     it('should create module', async () => {

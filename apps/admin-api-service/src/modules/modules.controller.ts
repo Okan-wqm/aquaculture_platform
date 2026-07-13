@@ -16,6 +16,13 @@ import { ApiTags } from '@nestjs/swagger';
 
 import { ModulesService, PaginatedModules } from './modules.service';
 
+/**
+ * WHY no price field: billing owns all subscription pricing (platform rule
+ * D14). Per-module prices are managed through the module-pricing catalog
+ * (admin.module_pricing via ModulePricingService), never through the
+ * auth.modules catalogue surface. The read-side ModuleDto.price is derived
+ * from that catalog.
+ */
 export interface CreateModuleDto {
   code: string;
   name: string;
@@ -23,7 +30,6 @@ export interface CreateModuleDto {
   defaultRoute: string;
   icon?: string;
   isCore?: boolean;
-  price?: number;
 }
 
 export interface UpdateModuleDto {
@@ -32,7 +38,6 @@ export interface UpdateModuleDto {
   defaultRoute?: string;
   icon?: string;
   isActive?: boolean;
-  price?: number;
 }
 
 export interface ModuleQuantitiesDto {

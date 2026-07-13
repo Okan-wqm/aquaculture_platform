@@ -4493,6 +4493,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/migrations/1807200000000-DropModulePriceFromAuthModules.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/announcement/__tests__/announcement.service.spec.ts",
       "prettier_managed": true
     },
@@ -53106,10 +53112,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8705,
+  "file_count": 8706,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8530,
-  "managed_file_list_sha256": "d4fa02b932c15a16ba1b6f5d0cd4316faec66fa32fbb4ce474d7f509588f166f",
+  "managed_count": 8531,
+  "managed_file_list_sha256": "cb86a430263763a9b9b2bad37ac73d41e6571a5c87f55fffa7b3afd2e4636c3c",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

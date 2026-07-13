@@ -25,6 +25,10 @@ import {
   updateTenantUser as updateTenantUserApi,
   deleteTenantUser as deleteTenantUserApi,
   deactivateTenantUser as deactivateTenantUserApi,
+  activateTenantUser as activateTenantUserApi,
+  unlockTenantUser as unlockTenantUserApi,
+  bulkAssignUserRole as bulkAssignUserRoleApi,
+  getUserEffectivePermissions,
   getNotificationPreferences,
   updateNotificationPreferences as updateNotificationPrefsApi,
   getMobileUsersSettings,
@@ -48,6 +52,8 @@ import type {
   TenantStats,
   TenantModule,
   User,
+  BulkAssignRoleResult,
+  UserEffectivePermissions,
   TenantDatabaseInfo,
   TableSchemaInfo,
   TableDataResult,
@@ -97,6 +103,8 @@ export const tenantKeys = {
   moduleUsageStats: () => createTenantQueryKey(getTenantId(), 'moduleUsageStats'),
   users: (filters?: Record<string, unknown>) =>
     createTenantQueryKey(getTenantId(), 'users', filters),
+  userEffectivePermissions: (userId: string) =>
+    createTenantQueryKey(getTenantId(), 'userEffectivePermissions', userId),
   database: () => createTenantQueryKey(getTenantId(), 'database'),
   tableSchema: (schemaName: string, tableName: string) =>
     createTenantQueryKey(getTenantId(), 'tableSchema', schemaName, tableName),
@@ -612,6 +620,59 @@ export function useDeactivateTenantUser() {
   });
 }
 
+/**
+ * Hook to activate a tenant user (ADMIN-HIGH-012)
+ */
+export function useActivateTenantUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) => activateTenantUserApi(userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: tenantKeys.users() });
+    },
+  });
+}
+
+/**
+ * Hook to clear a tenant user's failed-login lockout (ADMIN-HIGH-012)
+ */
+export function useUnlockTenantUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) => unlockTenantUserApi(userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: tenantKeys.users() });
+    },
+  });
+}
+
+/**
+ * Hook to bulk-assign a role to multiple tenant users (ADMIN-MEDIUM-016)
+ */
+export function useBulkAssignUserRole() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { userIds: string[]; roleId: string }): Promise<BulkAssignRoleResult> =>
+      bulkAssignUserRoleApi(input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: tenantKeys.users() });
+    },
+  });
+}
+
+/**
+ * Hook to fetch a user's resolved (role + overrides) permissions
+ * (ADMIN-MEDIUM-016)
+ */
+export function useUserEffectivePermissions(userId: string | null) {
+  return useQuery<UserEffectivePermissions>({
+    queryKey: tenantKeys.userEffectivePermissions(userId ?? ''),
+    queryFn: () => getUserEffectivePermissions(userId!),
+    enabled: !!userId,
+    staleTime: 60 * 1000,
+  });
+}
+
 // ============================================================================
 // Module Hooks (additional)
 // ============================================================================
@@ -817,6 +878,7 @@ export function useUpdateMobileUserSettings() {
 // ============================================================================
 
 export type { Tenant, TenantStats, TenantModule, User, TenantDatabaseInfo, TableSchemaInfo, TableDataResult, GetTableDataInput };
+export type { BulkAssignRoleResult, UserEffectivePermissions };
 export type { MessageThread, Message, Announcement };
 export type { ApiSupportTicket, ApiTicketComment, ApiTicketCategory };
 export type { EdgeDeviceListItem, DeviceStats, EdgeDevicesFilters, EdgeDevicesResponse, DeviceEvent };

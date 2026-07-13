@@ -17,6 +17,7 @@ import {
   TENANT_STATS_QUERY,
   MY_TENANT_MODULES_QUERY,
   TENANT_USERS_QUERY,
+  USER_EFFECTIVE_PERMISSIONS_QUERY,
   TENANT_DATABASE_QUERY,
   TABLE_SCHEMA_QUERY,
   TABLE_DATA_QUERY,
@@ -25,6 +26,9 @@ import {
   UPDATE_USER_MUTATION,
   DELETE_USER_MUTATION,
   DEACTIVATE_TENANT_USER_MUTATION,
+  ACTIVATE_TENANT_USER_MUTATION,
+  UNLOCK_TENANT_USER_MUTATION,
+  BULK_ASSIGN_USER_ROLE_MUTATION,
   TENANT_ROLES_QUERY,
   TENANT_ROLE_QUERY,
   DEFAULT_TENANT_ROLE_QUERY,
@@ -89,6 +93,8 @@ import type {
   GetTableDataInput,
   TableDataResult,
   TenantRole,
+  BulkAssignRoleResult,
+  UserEffectivePermissions,
   CreateTenantRoleInput,
   UpdateTenantRoleInput,
   PermissionCategory,
@@ -225,6 +231,47 @@ export async function deactivateTenantUser(
     deactivateTenantUser: { id: string; isActive: boolean };
   }>(DEACTIVATE_TENANT_USER_MUTATION, { userId });
   return data.deactivateTenantUser;
+}
+
+export async function activateTenantUser(
+  userId: string,
+): Promise<{ id: string; isActive: boolean }> {
+  const data = await apiClient.graphql<{
+    activateTenantUser: { id: string; isActive: boolean };
+  }>(ACTIVATE_TENANT_USER_MUTATION, { userId });
+  return data.activateTenantUser;
+}
+
+/**
+ * Clear a user's failed-login lockout (ORPHAN-MEDIUM-320). The server resets
+ * failedLoginAttempts and nulls lockedUntil; tenantId derives from the JWT.
+ */
+export async function unlockTenantUser(
+  userId: string,
+): Promise<{ id: string; lockedUntil: string | null }> {
+  const data = await apiClient.graphql<{
+    unlockTenantUser: { id: string; lockedUntil: string | null };
+  }>(UNLOCK_TENANT_USER_MUTATION, { userId });
+  return data.unlockTenantUser;
+}
+
+export async function bulkAssignUserRole(input: {
+  userIds: string[];
+  roleId: string;
+}): Promise<BulkAssignRoleResult> {
+  const data = await apiClient.graphql<{
+    bulkAssignUserRole: BulkAssignRoleResult;
+  }>(BULK_ASSIGN_USER_ROLE_MUTATION, { input });
+  return data.bulkAssignUserRole;
+}
+
+export async function getUserEffectivePermissions(
+  userId: string,
+): Promise<UserEffectivePermissions> {
+  const data = await apiClient.graphql<{
+    getUserEffectivePermissions: UserEffectivePermissions;
+  }>(USER_EFFECTIVE_PERMISSIONS_QUERY, { userId });
+  return data.getUserEffectivePermissions;
 }
 
 // ============================================================================

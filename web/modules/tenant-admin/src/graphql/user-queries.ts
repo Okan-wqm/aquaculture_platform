@@ -21,7 +21,20 @@ export const TENANT_USERS_QUERY = `
       isActive
       isEmailVerified
       lastLoginAt
+      lockedUntil
       createdAt
+    }
+  }
+`;
+
+export const USER_EFFECTIVE_PERMISSIONS_QUERY = `
+  query GetUserEffectivePermissions($userId: ID!) {
+    getUserEffectivePermissions(userId: $userId) {
+      roleId
+      roleName
+      panelPermissions
+      resourcePermissions
+      overrides { grants revokes }
     }
   }
 `;
@@ -68,6 +81,35 @@ export const DEACTIVATE_TENANT_USER_MUTATION = `
     deactivateTenantUser(userId: $userId) {
       id
       isActive
+    }
+  }
+`;
+
+export const ACTIVATE_TENANT_USER_MUTATION = `
+  mutation ActivateTenantUser($userId: ID!) {
+    activateTenantUser(userId: $userId) {
+      id
+      isActive
+    }
+  }
+`;
+
+// Clears the failed-login lockout (server resets failedLoginAttempts and
+// nulls lockedUntil — ORPHAN-MEDIUM-320).
+export const UNLOCK_TENANT_USER_MUTATION = `
+  mutation UnlockTenantUser($userId: ID!) {
+    unlockTenantUser(userId: $userId) {
+      id
+      lockedUntil
+    }
+  }
+`;
+
+export const BULK_ASSIGN_USER_ROLE_MUTATION = `
+  mutation BulkAssignUserRole($input: BulkAssignRoleInput!) {
+    bulkAssignUserRole(input: $input) {
+      success
+      failed { userId error }
     }
   }
 `;

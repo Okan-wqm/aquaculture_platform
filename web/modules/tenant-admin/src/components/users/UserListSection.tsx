@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Edit, Trash2, MoreVertical } from 'lucide-react';
+import { Users, Edit, Trash2, UserCheck, LockOpen, ShieldCheck } from 'lucide-react';
 import { UserAvatar } from '../ui/UserAvatar';
 import { RoleBadge } from '../ui/RoleBadge';
 import { StatusBadge } from '../ui/StatusBadge';
@@ -10,6 +10,8 @@ export interface DisplayUser {
   email: string;
   role: string;
   status: string;
+  /** True while the user's failed-login lockout (lockedUntil) is in the future. */
+  isLocked: boolean;
   lastLogin: string;
 }
 
@@ -30,6 +32,9 @@ export interface UserListSectionProps {
   onToggleAll: () => void;
   onEditUser: (user: DisplayUser) => void;
   onDeleteUser: (user: DisplayUser) => void;
+  onActivateUser: (user: DisplayUser) => void;
+  onUnlockUser: (user: DisplayUser) => void;
+  onViewPermissions: (user: DisplayUser) => void;
   canManageUsers: boolean;
   totalUsersInPage: number;
 }
@@ -48,6 +53,9 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
   onToggleAll,
   onEditUser,
   onDeleteUser,
+  onActivateUser,
+  onUnlockUser,
+  onViewPermissions,
   canManageUsers,
   totalUsersInPage,
 }) => {
@@ -119,11 +127,30 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
+                        {user.status === 'inactive' && (
+                          <button
+                            onClick={() => onActivateUser(user)}
+                            className="p-1.5 rounded-lg text-gray-500 hover:text-green-600 hover:bg-green-50 transition-colors"
+                            title="Activate user"
+                          >
+                            <UserCheck className="w-4 h-4" />
+                          </button>
+                        )}
+                        {user.isLocked && (
+                          <button
+                            onClick={() => onUnlockUser(user)}
+                            className="p-1.5 rounded-lg text-gray-500 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                            title="Unlock user"
+                          >
+                            <LockOpen className="w-4 h-4" />
+                          </button>
+                        )}
                         <button
-                          className="p-1.5 rounded-lg text-gray-500 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-                          title="More options"
+                          onClick={() => onViewPermissions(user)}
+                          className="p-1.5 rounded-lg text-gray-500 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
+                          title="Effective permissions"
                         >
-                          <MoreVertical className="w-4 h-4" />
+                          <ShieldCheck className="w-4 h-4" />
                         </button>
                       </>
                     ) : (

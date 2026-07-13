@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { UserPlus, Download, RefreshCw, AlertCircle } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useAuthContext } from '@aquaculture/shared-ui';
+import { useAuthContext, useToast } from '@aquaculture/shared-ui';
 import { AddEditUserModal, type UserFormData } from '../components/users/AddEditUserModal';
 import { UserFilters } from '../components/users/UserFilters';
 import { BulkActions } from '../components/users/BulkActions';
 import { UserListSection, type DisplayUser } from '../components/users/UserListSection';
+import { EffectivePermissionsModal } from '../components/users/EffectivePermissionsModal';
 import { useTenantRoles } from '../hooks/useTenantRoles';
 import {
   useTenantUsersRaw,
@@ -13,9 +14,13 @@ import {
   useUpdateTenantUser,
   useDeleteTenantUser,
   useDeactivateTenantUser,
+  useActivateTenantUser,
+  useUnlockTenantUser,
+  useBulkAssignUserRole,
   tenantKeys,
+  type BulkAssignRoleResult,
 } from '../hooks/useTenantData';
-import { logError } from '../utils/error-handling';
+import { logError, createErrorToastOptions } from '../utils/error-handling';
 import { formatRelativeTime } from '../utils/date-utils';
 import { DeleteConfirmModal } from '../components/common';
 
@@ -32,6 +37,7 @@ interface ApiUser {
   isActive?: boolean;
   isEmailVerified?: boolean;
   lastLoginAt?: string;
+  lockedUntil?: string | null;
   createdAt: string;
 }
 
@@ -49,6 +55,8 @@ function transformUser(apiUser: ApiUser): DisplayUser {
     email: apiUser.email,
     role: apiUser.role,
     status,
+    // Locked = lockedUntil in the future (mirrors User.isLocked on the server).
+    isLocked: !!apiUser.lockedUntil && new Date(apiUser.lockedUntil) > new Date(),
     lastLogin: formatRelativeTime(apiUser.lastLoginAt || null),
   };
 }
@@ -69,6 +77,7 @@ const TenantUsers: React.FC = () => {
   const { hasRoleOrHigher } = useAuthContext();
   const canManageUsers = hasRoleOrHigher('TENANT_ADMIN');
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -89,6 +98,9 @@ const TenantUsers: React.FC = () => {
   const [editingUser, setEditingUser] = useState<DisplayUser | null>(null);
   const [deletingUser, setDeletingUser] = useState<DisplayUser | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [activatingUser, setActivatingUser] = useState<DisplayUser | null>(null);
+  const [unlockingUser, setUnlockingUser] = useState<DisplayUser | null>(null);
+  const [permissionsUser, setPermissionsUser] = useState<DisplayUser | null>(null);
 
   // Roles
   const { data: roles = [], isLoading: rolesLoading } = useTenantRoles();
@@ -127,6 +139,9 @@ const TenantUsers: React.FC = () => {
   const updateUserMutation = useUpdateTenantUser();
   const deleteUserMutation = useDeleteTenantUser();
   const deactivateUserMutation = useDeactivateTenantUser();
+  const activateUserMutation = useActivateTenantUser();
+  const unlockUserMutation = useUnlockTenantUser();
+  const bulkAssignRoleMutation = useBulkAssignUserRole();
 
   const isSaving = createUserMutation.isPending || updateUserMutation.isPending;
   const isDeleting = deleteUserMutation.isPending;
@@ -175,6 +190,70 @@ const TenantUsers: React.FC = () => {
       await deactivateUserMutation.mutateAsync(userId);
     },
     [deactivateUserMutation],
+  );
+
+  const handleConfirmActivate = useCallback(async () => {
+    if (!activatingUser) return;
+    try {
+      await activateUserMutation.mutateAsync(activatingUser.id);
+      toast({
+        variant: 'success',
+        title: 'User activated',
+        description: `${activatingUser.name} can now sign in again.`,
+      });
+    } catch (err) {
+      logError('TenantUsers.handleActivate', err);
+      toast(createErrorToastOptions(err));
+    } finally {
+      setActivatingUser(null);
+    }
+  }, [activatingUser, activateUserMutation, toast]);
+
+  const handleConfirmUnlock = useCallback(async () => {
+    if (!unlockingUser) return;
+    try {
+      await unlockUserMutation.mutateAsync(unlockingUser.id);
+      toast({
+        variant: 'success',
+        title: 'User unlocked',
+        description: `The login lockout for ${unlockingUser.name} has been cleared.`,
+      });
+    } catch (err) {
+      logError('TenantUsers.handleUnlock', err);
+      toast(createErrorToastOptions(err));
+    } finally {
+      setUnlockingUser(null);
+    }
+  }, [unlockingUser, unlockUserMutation, toast]);
+
+  const handleBulkAssignRole = useCallback(
+    async (roleId: string): Promise<BulkAssignRoleResult> => {
+      try {
+        const result = await bulkAssignRoleMutation.mutateAsync({
+          userIds: selectedUsers,
+          roleId,
+        });
+        if (result.failed.length === 0) {
+          toast({
+            variant: 'success',
+            title: 'Role assigned',
+            description: `Role assigned to ${result.success.length} user(s).`,
+          });
+        } else {
+          toast({
+            variant: 'warning',
+            title: 'Role assignment partially failed',
+            description: `${result.success.length} user(s) updated, ${result.failed.length} failed.`,
+          });
+        }
+        return result;
+      } catch (err) {
+        logError('TenantUsers.handleBulkAssignRole', err);
+        toast(createErrorToastOptions(err));
+        throw err;
+      }
+    },
+    [bulkAssignRoleMutation, selectedUsers, toast],
   );
 
   const handleRefresh = () => queryClient.invalidateQueries({ queryKey: tenantKeys.users() });
@@ -254,8 +333,11 @@ const TenantUsers: React.FC = () => {
       <BulkActions
         selectedUsers={selectedUsers}
         onDeactivate={handleDeactivateUser}
+        onAssignRole={handleBulkAssignRole}
         onClearSelection={() => setSelectedUsers([])}
         isDeactivating={deactivateUserMutation.isPending}
+        isAssigningRole={bulkAssignRoleMutation.isPending}
+        roles={roles}
         canManageUsers={canManageUsers}
       />
 
@@ -269,6 +351,9 @@ const TenantUsers: React.FC = () => {
         onToggleAll={toggleAllSelection}
         onEditUser={(user) => { setEditingUser(user); setSaveError(null); setIsModalOpen(true); }}
         onDeleteUser={(user) => { setDeletingUser(user); setDeleteError(null); }}
+        onActivateUser={setActivatingUser}
+        onUnlockUser={setUnlockingUser}
+        onViewPermissions={setPermissionsUser}
         canManageUsers={canManageUsers}
         totalUsersInPage={users.length}
       />
@@ -295,6 +380,40 @@ const TenantUsers: React.FC = () => {
           isLoading={isDeleting}
         />
       )}
+
+      {activatingUser && (
+        <DeleteConfirmModal
+          isOpen={!!activatingUser}
+          onClose={() => setActivatingUser(null)}
+          onConfirm={handleConfirmActivate}
+          title="Activate User"
+          message={`Are you sure you want to activate "${activatingUser.name}"? The user will be able to sign in again.`}
+          confirmLabel="Activate"
+          cancelLabel="Cancel"
+          variant="warning"
+          isLoading={activateUserMutation.isPending}
+        />
+      )}
+
+      {unlockingUser && (
+        <DeleteConfirmModal
+          isOpen={!!unlockingUser}
+          onClose={() => setUnlockingUser(null)}
+          onConfirm={handleConfirmUnlock}
+          title="Unlock User"
+          message={`Are you sure you want to unlock "${unlockingUser.name}"? This clears the failed-login lockout so the user can sign in immediately.`}
+          confirmLabel="Unlock"
+          cancelLabel="Cancel"
+          variant="warning"
+          isLoading={unlockUserMutation.isPending}
+        />
+      )}
+
+      <EffectivePermissionsModal
+        isOpen={!!permissionsUser}
+        onClose={() => setPermissionsUser(null)}
+        user={permissionsUser}
+      />
     </div>
   );
 };

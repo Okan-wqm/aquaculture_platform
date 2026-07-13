@@ -24,6 +24,7 @@ import { createTenantAdminTestQueryClient } from '../../test/query-client';
 
 // Mock useAuthContext — controls role-based visibility
 const mockHasRoleOrHigher = vi.fn();
+const mockToast = vi.fn();
 
 vi.mock('@aquaculture/shared-ui', () => ({
   useAuthContext: () => ({
@@ -31,6 +32,7 @@ vi.mock('@aquaculture/shared-ui', () => ({
     user: { id: 'u1', email: 'admin@test.com', role: 'TENANT_ADMIN' },
     isAuthenticated: true,
   }),
+  useToast: () => ({ toast: mockToast }),
   getAccessToken: vi.fn(() => 'test-access-token'),
   getTenantId: vi.fn(() => 'tenant-1'),
   createTenantQueryKey: (tenantId: string | null | undefined, ...segments: readonly unknown[]) => [
@@ -94,6 +96,10 @@ const {
   mockUpdateTenantUser,
   mockDeleteTenantUser,
   mockDeactivateTenantUser,
+  mockActivateTenantUser,
+  mockUnlockTenantUser,
+  mockBulkAssignUserRole,
+  mockGetUserEffectivePermissions,
   mockUnexpectedTenantApiCall,
 } = vi.hoisted(() => ({
   mockGetTenantUsers: vi.fn(),
@@ -101,6 +107,10 @@ const {
   mockUpdateTenantUser: vi.fn(),
   mockDeleteTenantUser: vi.fn(),
   mockDeactivateTenantUser: vi.fn(),
+  mockActivateTenantUser: vi.fn(),
+  mockUnlockTenantUser: vi.fn(),
+  mockBulkAssignUserRole: vi.fn(),
+  mockGetUserEffectivePermissions: vi.fn(),
   mockUnexpectedTenantApiCall: (name: string) =>
     vi.fn(() => Promise.reject(new Error(`Unexpected tenant-admin API call: ${name}`))),
 }));
@@ -124,6 +134,10 @@ vi.mock('../../lib/api', () => ({
   updateTenantUser: (...args: unknown[]) => mockUpdateTenantUser(...args),
   deleteTenantUser: (...args: unknown[]) => mockDeleteTenantUser(...args),
   deactivateTenantUser: (...args: unknown[]) => mockDeactivateTenantUser(...args),
+  activateTenantUser: (...args: unknown[]) => mockActivateTenantUser(...args),
+  unlockTenantUser: (...args: unknown[]) => mockUnlockTenantUser(...args),
+  bulkAssignUserRole: (...args: unknown[]) => mockBulkAssignUserRole(...args),
+  getUserEffectivePermissions: (...args: unknown[]) => mockGetUserEffectivePermissions(...args),
   getNotificationPreferences: mockUnexpectedTenantApiCall('getNotificationPreferences'),
   updateNotificationPreferences: mockUnexpectedTenantApiCall('updateNotificationPreferences'),
   getMobileUsersSettings: mockUnexpectedTenantApiCall('getMobileUsersSettings'),
@@ -150,6 +164,14 @@ vi.mock('../../utils/error-handling', () => ({
     userMessage: 'Error',
     timestamp: new Date(),
     retryable: false,
+  })),
+  sanitizeErrorMessage: vi.fn((err: unknown) =>
+    err instanceof Error ? err.message : String(err),
+  ),
+  createErrorToastOptions: vi.fn((err: unknown) => ({
+    variant: 'error',
+    title: 'Error',
+    description: err instanceof Error ? err.message : String(err),
   })),
 }));
 
@@ -181,6 +203,7 @@ const mockApiUsers = [
     isActive: true,
     isEmailVerified: true,
     lastLoginAt: new Date().toISOString(),
+    lockedUntil: null as string | null,
     createdAt: '2024-01-01T00:00:00Z',
   },
   {
@@ -192,6 +215,8 @@ const mockApiUsers = [
     isActive: true,
     isEmailVerified: true,
     lastLoginAt: new Date(Date.now() - 86400000).toISOString(),
+    // Active failed-login lockout — drives the Unlock row action.
+    lockedUntil: new Date(Date.now() + 3600000).toISOString() as string | null,
     createdAt: '2024-02-01T00:00:00Z',
   },
   {
@@ -203,6 +228,7 @@ const mockApiUsers = [
     isActive: false,
     isEmailVerified: false,
     lastLoginAt: null,
+    lockedUntil: null as string | null,
     createdAt: '2024-03-01T00:00:00Z',
   },
 ];
@@ -266,6 +292,16 @@ describe('TenantUsers Page', () => {
     mockUpdateTenantUser.mockResolvedValue(mockApiUsers[0]);
     mockDeleteTenantUser.mockResolvedValue(true);
     mockDeactivateTenantUser.mockResolvedValue({ ...mockApiUsers[0], isActive: false });
+    mockActivateTenantUser.mockResolvedValue({ id: 'u3', isActive: true });
+    mockUnlockTenantUser.mockResolvedValue({ id: 'u2', lockedUntil: null });
+    mockBulkAssignUserRole.mockResolvedValue({ success: [], failed: [] });
+    mockGetUserEffectivePermissions.mockResolvedValue({
+      roleId: 'r2',
+      roleName: 'User',
+      panelPermissions: { farm: { tanks: { read: true, update: false } } },
+      resourcePermissions: ['users:view'],
+      overrides: { grants: [], revokes: [] },
+    });
   });
 
   afterEach(() => {
@@ -529,6 +565,160 @@ describe('TenantUsers Page', () => {
       await waitFor(() => {
         expect(screen.queryByText(/user\(s\) selected/)).not.toBeInTheDocument();
       });
+    });
+  });
+
+  // ========================================================================
+  // Activate + unlock row actions (ADMIN-HIGH-012)
+  // ========================================================================
+
+  describe('Activate and Unlock Row Actions (ADMIN-HIGH-012)', () => {
+    it('should show the Activate action only for inactive users', async () => {
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText('John Doe')).toBeInTheDocument());
+
+      // Only u3 (Bob) is inactive
+      expect(screen.getAllByTitle('Activate user')).toHaveLength(1);
+    });
+
+    it('should activate an inactive user after confirmation', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText('Bob Wilson')).toBeInTheDocument());
+
+      await user.click(screen.getByTitle('Activate user'));
+
+      const dialog = await screen.findByRole('alertdialog', { name: 'Activate User' });
+      await user.click(within(dialog).getByRole('button', { name: 'Activate' }));
+
+      await waitFor(() => {
+        expect(mockActivateTenantUser).toHaveBeenCalledWith('u3');
+      });
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({ variant: 'success', title: 'User activated' }),
+      );
+    });
+
+    it('should not activate when the confirmation is cancelled', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText('Bob Wilson')).toBeInTheDocument());
+
+      await user.click(screen.getByTitle('Activate user'));
+
+      const dialog = await screen.findByRole('alertdialog', { name: 'Activate User' });
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+      await waitFor(() => {
+        expect(screen.queryByRole('alertdialog', { name: 'Activate User' })).not.toBeInTheDocument();
+      });
+      expect(mockActivateTenantUser).not.toHaveBeenCalled();
+    });
+
+    it('should show the Unlock action only for locked users', async () => {
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText('Jane Smith')).toBeInTheDocument());
+
+      // Only u2 (Jane) has an active lockout
+      expect(screen.getAllByTitle('Unlock user')).toHaveLength(1);
+    });
+
+    it('should unlock a locked user after confirmation', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText('Jane Smith')).toBeInTheDocument());
+
+      await user.click(screen.getByTitle('Unlock user'));
+
+      const dialog = await screen.findByRole('alertdialog', { name: 'Unlock User' });
+      await user.click(within(dialog).getByRole('button', { name: 'Unlock' }));
+
+      await waitFor(() => {
+        expect(mockUnlockTenantUser).toHaveBeenCalledWith('u2');
+      });
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({ variant: 'success', title: 'User unlocked' }),
+      );
+    });
+
+    it('should hide Activate/Unlock actions for MODULE_USER', async () => {
+      mockHasRoleOrHigher.mockReturnValue(false);
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText('John Doe')).toBeInTheDocument());
+
+      expect(screen.queryByTitle('Activate user')).not.toBeInTheDocument();
+      expect(screen.queryByTitle('Unlock user')).not.toBeInTheDocument();
+    });
+  });
+
+  // ========================================================================
+  // Bulk role assignment (ADMIN-MEDIUM-016)
+  // ========================================================================
+
+  describe('Bulk Role Assignment (ADMIN-MEDIUM-016)', () => {
+    it('should bulk-assign the picked role to the selected users (happy path)', async () => {
+      mockBulkAssignUserRole.mockResolvedValue({ success: ['u1'], failed: [] });
+
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText('John Doe')).toBeInTheDocument());
+
+      // Select first user (checkbox[0] is select-all)
+      const checkboxes = screen.getAllByRole('checkbox');
+      await user.click(checkboxes[1]);
+
+      await waitFor(() => {
+        expect(screen.getByText(/1 user\(s\) selected/)).toBeInTheDocument();
+      });
+
+      // Pick a role and trigger the bulk action
+      const rolePicker = screen.getByRole('combobox', { name: /role to assign/i });
+      await user.selectOptions(rolePicker, 'r2');
+
+      await user.click(screen.getByRole('button', { name: /assign role/i }));
+
+      // Confirm through the ConfirmModal gate
+      const dialog = await screen.findByRole('alertdialog', { name: 'Assign Role' });
+      await user.click(within(dialog).getByRole('button', { name: 'Assign Role' }));
+
+      await waitFor(() => {
+        expect(mockBulkAssignUserRole).toHaveBeenCalledWith({
+          userIds: ['u1'],
+          roleId: 'r2',
+        });
+      });
+
+      // Outcome summary toast + selection cleared
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({ variant: 'success', title: 'Role assigned' }),
+      );
+      await waitFor(() => {
+        expect(screen.queryByText(/user\(s\) selected/)).not.toBeInTheDocument();
+      });
+    });
+
+    it('should keep the Assign role button disabled until a role is picked', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText('John Doe')).toBeInTheDocument());
+
+      const checkboxes = screen.getAllByRole('checkbox');
+      await user.click(checkboxes[1]);
+
+      const assignButton = await screen.findByRole('button', { name: /assign role/i });
+      expect(assignButton).toBeDisabled();
+
+      const rolePicker = screen.getByRole('combobox', { name: /role to assign/i });
+      await user.selectOptions(rolePicker, 'r1');
+      expect(assignButton).toBeEnabled();
     });
   });
 

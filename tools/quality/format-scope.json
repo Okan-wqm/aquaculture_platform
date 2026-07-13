@@ -4146,6 +4146,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/__tests__/entity-schema-routing.architecture.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/app.module.ts",
       "prettier_managed": true
     },
@@ -4751,6 +4757,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/guards/jwt-auth.guard.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/guards/jwt-auth.guard.ts",
       "prettier_managed": true
     },
@@ -4824,6 +4836,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/services/token.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/services/webauthn.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -41562,6 +41580,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/quality/lint-target-inventory.json",
       "prettier_managed": true
     },
@@ -53130,10 +53160,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8709,
+  "file_count": 8714,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8534,
-  "managed_file_list_sha256": "2a7db5ca75b8238b423703f528fc63f952ae8228fc3387d34b068dcd7f935cf9",
+  "managed_count": 8539,
+  "managed_file_list_sha256": "c21770a59930b3d033240420311741e029ddfe48be2460b768610008ec3d0ab3",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

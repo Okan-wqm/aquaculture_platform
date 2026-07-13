@@ -3292,6 +3292,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/database/migrations/1803100000000-HealAiProposedActionsUnqualified.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/health/health.controller.ts",
       "prettier_managed": true
     },
@@ -53940,10 +53946,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8839,
+  "file_count": 8840,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8658,
-  "managed_file_list_sha256": "3e5f84592751902e655d1cdf72e77c37a421f07e9c3eaba860f20c3b75f10b77",
+  "managed_count": 8659,
+  "managed_file_list_sha256": "9c0ad7974b440dc1ed7a99a7c99f4eee0e091972284204b6e38fdb7992fad579",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -32029,18 +32029,6 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
-      "path": "docs/reviews/orphan-findings.md",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_docs",
-      "owner": "docs",
-      "path": "docs/reviews/orphan-findings.md",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_docs",
-      "owner": "docs",
       "path": "docs/reviews/platform-kernel-expert/2026-04-10-full-repo-audit.md",
       "prettier_managed": true
     },
@@ -41539,18 +41527,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/quality/closure-manifest.json",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "tools/quality/format-scope.json",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "tools/quality/format-scope.json",
       "prettier_managed": true
     },
     {
@@ -53130,10 +53106,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8709,
+  "file_count": 8705,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8534,
-  "managed_file_list_sha256": "ecfd38e959ad24d7ffefb979d7a45ae94e2651e2fcf9297fc71827c8b9dfc4f1",
+  "managed_count": 8530,
+  "managed_file_list_sha256": "d4fa02b932c15a16ba1b6f5d0cd4316faec66fa32fbb4ce474d7f509588f166f",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

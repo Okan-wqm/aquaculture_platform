@@ -231,6 +231,9 @@ const mockTokenService = {
 const mockMfaService = {
   isMfaAvailable: jest.fn().mockReturnValue(true),
   generateMfaChallenge: jest.fn().mockReturnValue({ mfaToken: 'mock-mfa-token' }),
+  // ADR-042: the enforcement gate mints a pre-session enrollment token when
+  // the tenant enforces MFA and the user has none enrolled.
+  generateMfaSetupToken: jest.fn().mockReturnValue('mock-mfa-setup-token'),
 };
 
 const mockDataSource = {
@@ -270,6 +273,10 @@ const mockDataSource = {
         }
         if (entity === User) {
           return mockUserRepository;
+        }
+        // ADR-042: rotation reads the tenant session-timeout policy.
+        if (entity === Tenant) {
+          return mockTenantRepository;
         }
         return {};
       }),
@@ -337,6 +344,9 @@ describe('AuthenticationService', () => {
       if (entity === User) return mockUserRepository;
       if (entity === Invitation) return mockInvitationRepository;
       if (entity === ActionToken) return mockActionTokenRepository;
+      // ADR-042: rotation re-reads the tenant session-timeout policy through
+      // the transaction manager (resolveTenantSessionTimeout).
+      if (entity === Tenant) return mockTenantRepository;
       return {};
     });
     mockDataSource.transaction.mockImplementation(
@@ -651,8 +661,10 @@ describe('AuthenticationService', () => {
       // token.service.spec.ts where the collaborator lives.
       expect(result.accessToken).toBe('mock-access-token');
       // ORPHAN-LOW-135: login threads the rememberMe choice (default false) into issuance.
+      // ADR-042: and the tenant session-timeout policy (unset here → null).
       expect(mockTokenService.generateTokens).toHaveBeenCalledWith(user, '127.0.0.1', 'test-agent', {
         rememberMe: false,
+        sessionTimeoutMinutes: null,
       });
     });
 
@@ -677,6 +689,111 @@ describe('AuthenticationService', () => {
 
       await expect(service.login(validInput)).rejects.toThrow(UnauthorizedException);
       expect(mockAuditLogService.log).toHaveBeenCalled();
+    });
+  });
+
+  // ==========================================================================
+  // ADR-042 — tenant MFA-enforcement login gate + session-timeout threading
+  // ==========================================================================
+  describe('login() — ADR-042 tenant MFA-enforcement gate', () => {
+    const validInput = { email: 'test@example.com', password: 'ValidP@ss1' };
+
+    it('enforced + user WITHOUT MFA → NO tokens, mfaSetupRequired + mfaSetupToken instead', async () => {
+      const user = createMockUser({ mfaEnabled: false });
+      mockUserRepository.findOne.mockResolvedValue(user);
+      mockTenantRepository.findOne.mockResolvedValue(
+        createMockTenant({ enforceMfa: true }),
+      );
+      mockBcryptCompare.mockResolvedValue(true);
+      mockUserRepository.save.mockResolvedValue(user);
+
+      const result = await service.login(validInput, '127.0.0.1', 'test-agent');
+
+      // Fail-closed on ISSUANCE: no access/refresh token leaves the gate.
+      expect(result.accessToken).toBe('');
+      expect(result.refreshToken).toBe('');
+      expect(result.mfaSetupRequired).toBe(true);
+      expect(result.mfaSetupToken).toBe('mock-mfa-setup-token');
+      expect(mockMfaService.generateMfaSetupToken).toHaveBeenCalledWith(user);
+      expect(mockTokenService.generateTokens).not.toHaveBeenCalled();
+      // The completable-path event is audit-logged.
+      expect(mockAuditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'LOGIN_MFA_SETUP_REQUIRED' }),
+      );
+    });
+
+    it('enforced + user WITH MFA → existing challenge flow unchanged (no setup fields)', async () => {
+      const user = createMockUser({ mfaEnabled: true });
+      mockUserRepository.findOne.mockResolvedValue(user);
+      mockTenantRepository.findOne.mockResolvedValue(
+        createMockTenant({ enforceMfa: true }),
+      );
+      mockBcryptCompare.mockResolvedValue(true);
+      mockUserRepository.save.mockResolvedValue(user);
+
+      const result = await service.login(validInput);
+
+      expect(result.mfaRequired).toBe(true);
+      expect(result.mfaToken).toBe('mock-mfa-token');
+      expect(result.mfaSetupRequired).toBeUndefined();
+      expect(result.mfaSetupToken).toBeUndefined();
+      expect(mockMfaService.generateMfaSetupToken).not.toHaveBeenCalled();
+      expect(mockTokenService.generateTokens).not.toHaveBeenCalled();
+    });
+
+    it('policy UNSET (enforceMfa null/undefined) → passthrough, tokens minted', async () => {
+      const user = createMockUser({ mfaEnabled: false });
+      mockUserRepository.findOne.mockResolvedValue(user);
+      mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
+      mockBcryptCompare.mockResolvedValue(true);
+      mockUserRepository.save.mockResolvedValue(user);
+
+      const result = await service.login(validInput);
+
+      expect(result.accessToken).toBe('mock-access-token');
+      expect(result.mfaSetupRequired).toBeUndefined();
+      expect(mockMfaService.generateMfaSetupToken).not.toHaveBeenCalled();
+    });
+
+    it('enforced but MFA service unavailable → passthrough (dev-only; prod fails boot without the MFA key)', async () => {
+      // WHY pinned: in production-like environments MfaService throws at boot
+      // without MFA_ENCRYPTION_KEY, so this branch is reachable only in
+      // local/dev — where blocking would be a hard lockout with no
+      // enrollment path.
+      const user = createMockUser({ mfaEnabled: false });
+      mockUserRepository.findOne.mockResolvedValue(user);
+      mockTenantRepository.findOne.mockResolvedValue(
+        createMockTenant({ enforceMfa: true }),
+      );
+      // Once-scoped so the suite-wide `true` default returns for later tests
+      // (jest.clearAllMocks does not reset implementations).
+      mockMfaService.isMfaAvailable.mockReturnValueOnce(false);
+      mockBcryptCompare.mockResolvedValue(true);
+      mockUserRepository.save.mockResolvedValue(user);
+
+      const result = await service.login(validInput);
+
+      expect(result.accessToken).toBe('mock-access-token');
+      expect(result.mfaSetupRequired).toBeUndefined();
+    });
+
+    it('threads the tenant session-timeout policy into token issuance (ADR-042 clamp input)', async () => {
+      const user = createMockUser();
+      mockUserRepository.findOne.mockResolvedValue(user);
+      mockTenantRepository.findOne.mockResolvedValue(
+        createMockTenant({ sessionTimeoutMinutes: 30 }),
+      );
+      mockBcryptCompare.mockResolvedValue(true);
+      mockUserRepository.save.mockResolvedValue(user);
+
+      await service.login(validInput, '127.0.0.1', 'test-agent');
+
+      expect(mockTokenService.generateTokens).toHaveBeenCalledWith(
+        user,
+        '127.0.0.1',
+        'test-agent',
+        { rememberMe: false, sessionTimeoutMinutes: 30 },
+      );
     });
   });
 

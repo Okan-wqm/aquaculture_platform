@@ -51,4 +51,20 @@ describe('TenantAdminResolver — Guard Decorators', () => {
     expect(roles).toContain(Role.TENANT_ADMIN);
     expect(roles).not.toContain(Role.MODULE_USER);
   });
+
+  // ADR-042: the tenant auth-security policy + localization surfaces are
+  // TENANT_ADMIN-gated writes/reads on the caller's OWN tenant.
+  it.each([
+    'tenantSecurityPolicy',
+    'updateTenantSecurityPolicy',
+    'tenantLocalizationPreferences',
+    'updateTenantLocalizationPreferences',
+  ])('%s should require TenantAdminOrHigher', (method) => {
+    const roles = getMethodRoles(TenantAdminResolver.prototype, method);
+    expect(roles).toBeDefined();
+    expect(roles).toContain(Role.SUPER_ADMIN);
+    expect(roles).toContain(Role.TENANT_ADMIN);
+    expect(roles).not.toContain(Role.MODULE_MANAGER);
+    expect(roles).not.toContain(Role.MODULE_USER);
+  });
 });

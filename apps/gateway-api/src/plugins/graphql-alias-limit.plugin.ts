@@ -25,6 +25,11 @@ const SENSITIVE_MUTATIONS = new Set([
   'resetPassword',
   'forgotPassword',
   'verifyMfaLogin',
+  // ADR-042: pre-session MFA enrollment surface (reachable with the
+  // mfa_setup token before any session exists) — same alias brute-force
+  // posture as verifyMfaLogin.
+  'setupMfa',
+  'verifyMfaSetup',
   'changePassword',
 ]);
 

@@ -34,6 +34,13 @@ registerEnumType(TenantStatus, {
 });
 
 /**
+ * Canonical tenant date-format vocabulary (ADR-042). A closed union (not a free
+ * string) so an unknown format is a compile-time error at every producer.
+ */
+export const TENANT_DATE_FORMATS = ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'] as const;
+export type TenantDateFormat = (typeof TENANT_DATE_FORMATS)[number];
+
+/**
  * Tenant Entity
  *
  * Represents a tenant (company/organization) in the multi-tenant system.
@@ -216,6 +223,48 @@ export class Tenant {
   @Field(() => String, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
   createdBy?: string | null;
+
+  // ============================================
+  // Tenant auth-security policy + localization preferences (ADR-042)
+  //
+  // NOT @Field-decorated (like `version` below): these columns never enter the
+  // public GraphQL Tenant ObjectType. The TENANT_ADMIN-guarded policy surface
+  // (tenantSecurityPolicy / tenantLocalizationPreferences) is the only read
+  // path, so exposure is a deliberate resolver decision, not an entity default.
+  // NULL means "no tenant policy set" — platform defaults apply.
+  // ============================================
+
+  /**
+   * ADR-042: when true, every user of this tenant MUST have MFA enrolled to
+   * receive tokens at login (AuthenticationService login gate). Enforced —
+   * not advisory. NULL/false = not enforced.
+   */
+  @Column({ type: 'boolean', nullable: true, name: 'enforce_mfa' })
+  enforceMfa?: boolean | null;
+
+  /**
+   * ADR-042: idle-session timeout in minutes (5..1440, validated at the
+   * mutation DTO). Clamps the refresh-token TTL at issuance AND rotation
+   * (MIN(configured TTL incl. rememberMe, this) — tenant policy wins), giving
+   * sliding idle-timeout semantics. NULL = configured platform TTL applies.
+   */
+  @Column({ type: 'int', nullable: true, name: 'session_timeout_minutes' })
+  sessionTimeoutMinutes?: number | null;
+
+  /**
+   * ADR-042: IANA timezone preference (e.g. 'Europe/Istanbul'). A
+   * localization PREFERENCE column — deliberately not part of the security
+   * policy container.
+   */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  timezone?: string | null;
+
+  /**
+   * ADR-042: date-format preference. Closed vocabulary (TENANT_DATE_FORMATS);
+   * the mutation DTO enum-validates writes.
+   */
+  @Column({ type: 'varchar', length: 10, nullable: true, name: 'date_format' })
+  dateFormat?: TenantDateFormat | null;
 
   // ============================================
   // Timestamps

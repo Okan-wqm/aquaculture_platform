@@ -12,7 +12,7 @@ import { Role } from '@aquaculture/backend-common/decorators';
 // users). UserModuleAssignment.tenantId is required, so it uses the
 // scoped wrapper.
 import * as crypto from 'crypto';
-import { Repository, DataSource } from 'typeorm';
+import { In, Repository, DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
@@ -32,6 +32,12 @@ import {
   TableDataResult,
   GetTableDataInput,
 } from '../dto/tenant-admin.dto';
+import {
+  TenantLocalizationPreferences,
+  TenantSecurityPolicy,
+  UpdateTenantLocalizationPreferencesInput,
+  UpdateTenantSecurityPolicyInput,
+} from '../dto/tenant-policy.dto';
 import { TenantModule } from '../entities/tenant-module.entity';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
 
@@ -770,6 +776,196 @@ export class TenantAdminService {
     }
 
     return saved;
+  }
+
+  // =========================================================
+  // Tenant auth-security policy + localization preferences (ADR-042)
+  // =========================================================
+
+  private async findTenantOrFail(tenantId: string): Promise<Tenant> {
+    const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
+    if (!tenant) {
+      throw new NotFoundException('Tenant not found');
+    }
+    return tenant;
+  }
+
+  /**
+   * Read the EFFECTIVE tenant auth-security policy (ADR-042). The nullable
+   * enforce_mfa column collapses to its enforced meaning here (NULL → false)
+   * so consumers never re-implement the default.
+   */
+  async getSecurityPolicy(tenantId: string): Promise<TenantSecurityPolicy> {
+    const tenant = await this.findTenantOrFail(tenantId);
+    return {
+      enforceMfa: tenant.enforceMfa === true,
+      sessionTimeoutMinutes: tenant.sessionTimeoutMinutes ?? null,
+    };
+  }
+
+  /**
+   * Update the tenant auth-security policy (ADR-042).
+   *
+   * REVOCATION-ON-FLIP: when enforceMfa transitions false/NULL → true, the
+   * refresh tokens of this tenant's users WITHOUT MFA enrolled are revoked
+   * (same update primitive as logout-all/deactivate) and a security audit
+   * event records the blast radius. Their next login walks the enrollment
+   * gate (mfaSetupRequired + mfa_setup token) instead of receiving tokens.
+   *
+   * sessionTimeoutMinutes REDUCTIONS apply on the next rotation: existing
+   * refresh-token rows keep their already-persisted expiresAt; every
+   * subsequent issuance/rotation clamps to MIN(configured TTL, policy) —
+   * sliding idle-timeout semantics (see TokenService.generateTokens).
+   */
+  async updateSecurityPolicy(
+    tenantAdminId: string,
+    tenantId: string,
+    input: UpdateTenantSecurityPolicyInput,
+  ): Promise<TenantSecurityPolicy> {
+    const admin = await this.userRepository.findOne({ where: { id: tenantAdminId } });
+    if (!admin) {
+      throw new NotFoundException('Admin not found');
+    }
+
+    const tenant = await this.findTenantOrFail(tenantId);
+    const wasEnforced = tenant.enforceMfa === true;
+
+    if (input.enforceMfa !== undefined) {
+      tenant.enforceMfa = input.enforceMfa;
+    }
+    if (input.sessionTimeoutMinutes !== undefined) {
+      tenant.sessionTimeoutMinutes = input.sessionTimeoutMinutes;
+    }
+    await this.tenantRepository.save(tenant);
+
+    const enforcementFlippedOn = !wasEnforced && tenant.enforceMfa === true;
+    let revokedUserCount = 0;
+    if (enforcementFlippedOn) {
+      revokedUserCount = await this.revokeSessionsOfUsersWithoutMfa(tenantId);
+      this.logger.warn(
+        `Tenant ${tenantId} enabled MFA enforcement — revoked refresh tokens of ${revokedUserCount} user(s) without MFA`,
+      );
+    }
+
+    // SECURITY AUDIT: policy changes are audit-logged like sibling
+    // tenant-admin mutations (best-effort — the policy write is the SSoT and
+    // has its own log line above on the security-relevant branch).
+    try {
+      await this.auditLogService.log({
+        tenantId,
+        performedBy: tenantAdminId,
+        performedByEmail: admin.email,
+        action: 'TENANT_SECURITY_POLICY_UPDATED',
+        entityType: 'Tenant',
+        entityId: tenantId,
+        details: {
+          enforceMfa: tenant.enforceMfa ?? null,
+          sessionTimeoutMinutes: tenant.sessionTimeoutMinutes ?? null,
+          enforcementFlippedOn,
+          revokedUserCount,
+          timestamp: new Date().toISOString(),
+        },
+        severity: enforcementFlippedOn ? AuditLogSeverity.WARNING : AuditLogSeverity.INFO,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to log audit event TENANT_SECURITY_POLICY_UPDATED: ${(error as Error).message}`,
+      );
+    }
+
+    return {
+      enforceMfa: tenant.enforceMfa === true,
+      sessionTimeoutMinutes: tenant.sessionTimeoutMinutes ?? null,
+    };
+  }
+
+  /**
+   * ADR-042 revocation-on-flip helper: revoke every active refresh token of
+   * this tenant's users who have NOT enrolled MFA. Uses the same bulk
+   * `refreshTokenRepository.update({ isRevoked: false } → revoked)` primitive
+   * as logout-all / deactivateUser. Users WITH MFA keep their sessions —
+   * they already satisfy the policy.
+   */
+  private async revokeSessionsOfUsersWithoutMfa(tenantId: string): Promise<number> {
+    const nonMfaUsers = await this.userRepository.find({
+      where: { tenantId, mfaEnabled: false },
+      select: ['id'],
+    });
+    if (nonMfaUsers.length === 0) {
+      return 0;
+    }
+    await this.refreshTokenRepository.update(
+      { userId: In(nonMfaUsers.map((user) => user.id)), isRevoked: false },
+      {
+        isRevoked: true,
+        revokedAt: new Date(),
+        revokedReason: 'Tenant MFA enforcement enabled',
+      },
+    );
+    return nonMfaUsers.length;
+  }
+
+  /**
+   * Read the tenant localization preferences (ADR-042 — a PREFERENCE
+   * container, deliberately separate from the security policy).
+   */
+  async getLocalizationPreferences(tenantId: string): Promise<TenantLocalizationPreferences> {
+    const tenant = await this.findTenantOrFail(tenantId);
+    return {
+      timezone: tenant.timezone ?? null,
+      dateFormat: tenant.dateFormat ?? null,
+    };
+  }
+
+  /**
+   * Update the tenant localization preferences (ADR-042). Timezone is
+   * IANA-sanity-validated and dateFormat enum-validated at the input DTO.
+   */
+  async updateLocalizationPreferences(
+    tenantAdminId: string,
+    tenantId: string,
+    input: UpdateTenantLocalizationPreferencesInput,
+  ): Promise<TenantLocalizationPreferences> {
+    const admin = await this.userRepository.findOne({ where: { id: tenantAdminId } });
+    if (!admin) {
+      throw new NotFoundException('Admin not found');
+    }
+
+    const tenant = await this.findTenantOrFail(tenantId);
+
+    if (input.timezone !== undefined) {
+      tenant.timezone = input.timezone;
+    }
+    if (input.dateFormat !== undefined) {
+      tenant.dateFormat = input.dateFormat;
+    }
+    await this.tenantRepository.save(tenant);
+
+    try {
+      await this.auditLogService.log({
+        tenantId,
+        performedBy: tenantAdminId,
+        performedByEmail: admin.email,
+        action: 'TENANT_LOCALIZATION_PREFERENCES_UPDATED',
+        entityType: 'Tenant',
+        entityId: tenantId,
+        details: {
+          timezone: tenant.timezone ?? null,
+          dateFormat: tenant.dateFormat ?? null,
+          timestamp: new Date().toISOString(),
+        },
+        severity: AuditLogSeverity.INFO,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to log audit event TENANT_LOCALIZATION_PREFERENCES_UPDATED: ${(error as Error).message}`,
+      );
+    }
+
+    return {
+      timezone: tenant.timezone ?? null,
+      dateFormat: tenant.dateFormat ?? null,
+    };
   }
 
   // =========================================================

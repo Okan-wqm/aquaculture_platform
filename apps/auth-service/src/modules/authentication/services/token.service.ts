@@ -75,10 +75,13 @@ export interface JwtPayload {
   /**
    * Token type discriminator -- prevents refresh tokens from being used as
    * access tokens, and vice versa. The gateway's AuthGuard rejects any token
-   * where `type !== 'access'`, ensuring that short-lived MFA challenge tokens
-   * and opaque refresh tokens cannot be replayed as bearer credentials.
+   * where `type !== 'access'`, ensuring that short-lived MFA challenge tokens,
+   * MFA setup (enrollment) tokens, and opaque refresh tokens cannot be
+   * replayed as bearer credentials. 'mfa_setup' (ADR-042) authorizes ONLY the
+   * setupMfa + verifyMfaSetup enrollment pair (MfaService positively requires
+   * it there); enforceAccessTokenType rejects it on every bearer surface.
    */
-  type: 'access' | 'refresh' | 'mfa_challenge';
+  type: 'access' | 'refresh' | 'mfa_challenge' | 'mfa_setup';
   /** @deprecated Will be removed in next major version. Fetch from auth-service instead. */
   firstName?: string;
   /** @deprecated Will be removed in next major version. Fetch from auth-service instead. */
@@ -217,6 +220,19 @@ export class TokenService {
       mfaVerified?: boolean;
       familyId?: string;
       rememberMe?: boolean;
+      /**
+       * ADR-042: the tenant's idle-session policy (auth.tenants.
+       * session_timeout_minutes), threaded EXPLICITLY by the caller (login /
+       * rotation) — this service performs no hidden tenant reads. When set,
+       * the refresh-token TTL is clamped to
+       * MIN(configured TTL incl. rememberMe, policy): tenant policy wins.
+       * Applied at issuance AND rotation, so the policy behaves as a SLIDING
+       * idle timeout. Access-token TTL is untouched. Callers that do not
+       * thread it (MFA verify/step-up, invitation acceptance) mint with the
+       * configured TTL and converge on the clamp at the first rotation.
+       * null/undefined = no tenant policy.
+       */
+      sessionTimeoutMinutes?: number | null;
     },
   ): Promise<AuthPayload> {
     // SSoT: the effective tenant this token is scoped to — the user's own tenant.
@@ -333,6 +349,19 @@ export class TokenService {
       ? this.rememberMeRefreshTokenExpiryDays
       : this.refreshTokenExpiryDays;
 
+    // ADR-042: effective refresh TTL = MIN(configured TTL incl. rememberMe,
+    // tenant session-timeout policy) — the tenant policy WINS, including over
+    // a rememberMe extension. Applied on every mint (login AND rotation), so
+    // a tenant idle timeout slides forward with activity and a policy
+    // REDUCTION takes effect at the next rotation.
+    const configuredTtlMs = expiryDays * 24 * 60 * 60 * 1000;
+    const policyTtlMs =
+      options?.sessionTimeoutMinutes != null
+        ? options.sessionTimeoutMinutes * 60 * 1000
+        : null;
+    const effectiveTtlMs =
+      policyTtlMs !== null ? Math.min(configuredTtlMs, policyTtlMs) : configuredTtlMs;
+
     // Create refresh token
     const refreshToken = this.refreshTokenRepository.create({
       token: tokenToStore,
@@ -340,7 +369,7 @@ export class TokenService {
       tenantId: user.tenantId,
       familyId,
       rememberMe,
-      expiresAt: new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000),
+      expiresAt: new Date(Date.now() + effectiveTtlMs),
       ipAddress,
       userAgent,
     });

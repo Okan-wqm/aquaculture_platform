@@ -717,6 +717,82 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       expect(result.rememberMe).toBe(false);
     });
   });
+
+  // ADR-042: tenant session-timeout policy clamps the refresh-token TTL —
+  // MIN(configured TTL incl. rememberMe, policy). Threaded explicitly by the
+  // caller; no hidden tenant reads happen here.
+  describe('tenant session-timeout clamp (ADR-042)', () => {
+    const minutesFromNow = (d: Date): number => (d.getTime() - Date.now()) / 60_000;
+
+    it('clamps the refresh TTL to the tenant policy when policy < configured', async () => {
+      service = await createService({ config: { REFRESH_TOKEN_EXPIRY_DAYS: 7 } });
+
+      await service.generateTokens(buildUser({}), undefined, undefined, {
+        sessionTimeoutMinutes: 30,
+      });
+
+      const savedRow = refreshSave.mock.calls[0]?.[0] as { expiresAt: Date };
+      expect(minutesFromNow(savedRow.expiresAt)).toBeGreaterThan(29);
+      expect(minutesFromNow(savedRow.expiresAt)).toBeLessThanOrEqual(30);
+    });
+
+    it('tenant policy WINS over the rememberMe extension', async () => {
+      service = await createService({
+        config: { REFRESH_TOKEN_EXPIRY_DAYS: 7, REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30 },
+      });
+
+      await service.generateTokens(buildUser({}), undefined, undefined, {
+        rememberMe: true,
+        sessionTimeoutMinutes: 60,
+      });
+
+      const savedRow = refreshSave.mock.calls[0]?.[0] as {
+        rememberMe: boolean;
+        expiresAt: Date;
+      };
+      // The rememberMe CHOICE persists on the row, but the TTL is the policy's.
+      expect(savedRow.rememberMe).toBe(true);
+      expect(minutesFromNow(savedRow.expiresAt)).toBeGreaterThan(59);
+      expect(minutesFromNow(savedRow.expiresAt)).toBeLessThanOrEqual(60);
+    });
+
+    it('unset policy (null) → configured TTL applies unchanged', async () => {
+      service = await createService({ config: { REFRESH_TOKEN_EXPIRY_DAYS: 7 } });
+
+      await service.generateTokens(buildUser({}), undefined, undefined, {
+        sessionTimeoutMinutes: null,
+      });
+
+      const savedRow = refreshSave.mock.calls[0]?.[0] as { expiresAt: Date };
+      const days = (savedRow.expiresAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000);
+      expect(days).toBeGreaterThan(6);
+      expect(days).toBeLessThanOrEqual(7);
+    });
+
+    it('never EXTENDS the TTL: MIN semantics when policy > configured', async () => {
+      // Configured 1 day (1440 min); policy allows 1440 min too — but with a
+      // shorter configured TTL the configured value must win.
+      service = await createService({ config: { REFRESH_TOKEN_EXPIRY_DAYS: 1 } });
+
+      await service.generateTokens(buildUser({}), undefined, undefined, {
+        sessionTimeoutMinutes: 1440 * 2, // hypothetically larger than configured
+      });
+
+      const savedRow = refreshSave.mock.calls[0]?.[0] as { expiresAt: Date };
+      const days = (savedRow.expiresAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000);
+      expect(days).toBeLessThanOrEqual(1);
+    });
+
+    it('access-token expiresIn is untouched by the policy clamp', async () => {
+      service = await createService({ config: { JWT_EXPIRES_IN: '15m' } });
+
+      const result = await service.generateTokens(buildUser({}), undefined, undefined, {
+        sessionTimeoutMinutes: 5,
+      });
+
+      expect(result.expiresIn).toBe(15 * 60);
+    });
+  });
 });
 
 describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051/052)', () => {

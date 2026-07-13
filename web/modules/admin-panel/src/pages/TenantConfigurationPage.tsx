@@ -1175,19 +1175,15 @@ const TenantConfigurationPage: React.FC = () => {
     return (
       <div className="space-y-6">
         <Card title="Multi-Factor Authentication (MFA)">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="flex items-center">
-              <input
-                type="checkbox"
-                id="mfaRequired"
-                checked={securityConfig.mfaRequired}
-                onChange={(e) => setSecurityConfig({ ...securityConfig, mfaRequired: e.target.checked })}
-                className="h-4 w-4 text-blue-600 rounded"
-              />
-              <label htmlFor="mfaRequired" className="ml-2 text-sm text-gray-700">
-                Require MFA for All Users
-              </label>
-            </div>
+          <div className="space-y-4">
+            {/* ADR-042: "Require MFA for All Users" is managed by the tenant's
+                own admin (tenant-admin module → auth-service policy), not by
+                SUPER_ADMIN. The old checkbox wrote to a fabricated field that
+                nothing enforced. */}
+            <p className="text-sm text-gray-500">
+              MFA enforcement for all users is managed by the tenant&apos;s own
+              administrator (Tenant Admin → Security Policy).
+            </p>
             <div className="flex items-center">
               <input
                 type="checkbox"
@@ -1269,13 +1265,14 @@ const TenantConfigurationPage: React.FC = () => {
                 onChange={(e) => setSecurityConfig({ ...securityConfig, lockoutDurationMinutes: parseInt(e.target.value) || 0 })}
               />
             </div>
+            {/* ADR-042: session timeout is managed by the tenant's own admin
+                (auth-service policy — it clamps refresh-token TTL); the old
+                input wrote to a fabricated field that nothing enforced. */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Session Timeout (min)</label>
-              <Input
-                type="number"
-                value={securityConfig.sessionTimeoutMinutes}
-                onChange={(e) => setSecurityConfig({ ...securityConfig, sessionTimeoutMinutes: parseInt(e.target.value) || 0 })}
-              />
+              <p className="text-sm text-gray-500">
+                Managed by the tenant&apos;s administrator (Tenant Admin → Security Policy).
+              </p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Remember Me (days)</label>

@@ -337,8 +337,12 @@ export class AuthenticationService {
       // allow-list (ACTIVE only) owned by the tenant-status machine — a new
       // non-operational status is blocked by default, not by remembering to
       // add it here. SUPER_ADMIN users (tenantId null) are exempt.
+      // The row is hoisted (not scoped to this block) because it also drives
+      // the ADR-042 enforcement points below: the MFA-enforcement login gate
+      // and the session-timeout clamp threaded into token issuance.
+      let tenant: Tenant | null = null;
       if (user.tenantId) {
-        const tenant = await this.tenantRepository.findOne({ where: { id: user.tenantId } });
+        tenant = await this.tenantRepository.findOne({ where: { id: user.tenantId } });
         if (tenant && !isLoginAllowed(tenant.status)) {
           await this.ensureMinDuration(startTime);
           this.logger.debug(`Login failed: tenant ${user.tenantId} is ${tenant.status}`);
@@ -440,6 +444,57 @@ export class AuthenticationService {
         };
       }
 
+      // ----------------------------------------------------------------
+      // ADR-042 MFA-ENFORCEMENT GATE: the tenant requires MFA but this
+      // user has none enrolled. Fail closed on token issuance — NO
+      // access/refresh tokens — but hand back a completable enrollment
+      // path instead of a lockout: a short-lived (10 min) 'mfa_setup'
+      // token that authorizes ONLY setupMfa + verifyMfaSetup. After
+      // verifyMfaSetup succeeds the user logs in again and walks the
+      // normal MFA challenge flow.
+      //
+      // The gate runs only when the MFA service is available: in
+      // production-like environments MFA availability is guaranteed at
+      // boot (MfaService fails fast without MFA_ENCRYPTION_KEY), so the
+      // no-key fallthrough below is reachable only in local/dev where
+      // enforcement without an enrollment path would be a hard lockout.
+      // ----------------------------------------------------------------
+      if (
+        !user.mfaEnabled &&
+        tenant &&
+        tenant.enforceMfa === true &&
+        this.mfaService.isMfaAvailable()
+      ) {
+        // Persist the reset failed-attempt counters, but NOT lastLoginAt —
+        // like the MFA challenge branch, this is not yet a completed login.
+        await this.userRepository.save(user);
+
+        const mfaSetupToken = this.mfaService.generateMfaSetupToken(user);
+
+        await this.logSecurityEvent('LOGIN_MFA_SETUP_REQUIRED', {
+          userId: user.id,
+          email: user.email,
+          tenantId: user.tenantId,
+          ipAddress,
+          userAgent,
+          success: true,
+          reason: 'Password valid; tenant enforces MFA and user has none enrolled',
+        });
+
+        await this.ensureMinDuration(startTime);
+
+        return {
+          accessToken: '',
+          refreshToken: '',
+          user,
+          expiresIn: 0,
+          tokenType: 'Bearer',
+          redirectUrl: '',
+          mfaSetupRequired: true,
+          mfaSetupToken,
+        };
+      }
+
       // No MFA — proceed with full login.
       //
       // SECURITY (HIGH-006): lazy password-hash migration.
@@ -535,18 +590,24 @@ export class AuthenticationService {
           tenantId: user.tenantId,
           userId: user.id,
         };
+        // ADR-042: the tenant idle-session policy rides along explicitly —
+        // TokenService clamps the refresh TTL to MIN(configured, policy).
+        const sessionTimeoutMinutes = tenant ? tenant.sessionTimeoutMinutes ?? null : null;
         return await requestContextStorage.run(scopedContext, () =>
           this.tokenService.generateTokens(user, ipAddress, userAgent, {
             rememberMe: input.rememberMe ?? false,
+            sessionTimeoutMinutes,
           }),
         );
       }
       // SUPER_ADMIN: audited bypass for platform-level session creation.
+      // No tenant → no tenant session-timeout policy (ADR-042).
       return await this.bypassRls.withBypass(
         'auth-service:super-admin-login-tokens',
         () =>
           this.tokenService.generateTokens(user, ipAddress, userAgent, {
             rememberMe: input.rememberMe ?? false,
+            sessionTimeoutMinutes: null,
           }),
       );
     } catch (error) {
@@ -823,13 +884,21 @@ export class AuthenticationService {
       refreshToken.revokedReason = 'Token refreshed';
       await tokenRepo.save(refreshToken);
 
+      // ADR-042: re-read the tenant policy at EVERY rotation (explicit
+      // caller-side read — TokenService performs no hidden repo reads) so
+      // the refresh-TTL clamp gives sliding idle-timeout semantics.
+      const sessionTimeoutMinutes = await this.resolveTenantSessionTimeout(
+        manager,
+        user.tenantId,
+      );
+
       // Preserve the rememberMe choice across rotation so a remembered session
       // stays persistent (the resolver re-issues a persistent vs session cookie).
       return this.tokenService.generateTokens(
         user,
         refreshToken.ipAddress ?? undefined,
         refreshToken.userAgent ?? undefined,
-        { rememberMe: refreshToken.rememberMe },
+        { rememberMe: refreshToken.rememberMe, sessionTimeoutMinutes },
       );
     }));
   }
@@ -936,6 +1005,14 @@ export class AuthenticationService {
       matchedToken.revokedReason = 'Token refreshed';
       await tokenRepo.save(matchedToken);
 
+      // ADR-042: same explicit rotation-time policy read as the non-hashed
+      // path — the clamp is what turns session_timeout_minutes into a
+      // SLIDING idle timeout.
+      const sessionTimeoutMinutes = await this.resolveTenantSessionTimeout(
+        manager,
+        user.tenantId,
+      );
+
       // SECURITY (SEC-MEDIUM-003): the rotated token inherits the family of
       // the token it replaces, so reuse-detection can scope revocation to
       // this lineage instead of the whole user.
@@ -943,9 +1020,40 @@ export class AuthenticationService {
         user,
         matchedToken.ipAddress ?? undefined,
         matchedToken.userAgent ?? undefined,
-        { familyId: matchedToken.familyId ?? undefined, rememberMe: matchedToken.rememberMe },
+        {
+          familyId: matchedToken.familyId ?? undefined,
+          rememberMe: matchedToken.rememberMe,
+          sessionTimeoutMinutes,
+        },
       );
     });
+  }
+
+  /**
+   * ADR-042: resolve the tenant's idle-session policy (session_timeout_minutes)
+   * for a token-issuance caller. Lives HERE — at the caller — by design: the
+   * policy is threaded into TokenService.generateTokens as an explicit
+   * parameter, so TokenService stays free of hidden repository reads and the
+   * clamp is testable as pure input → output.
+   *
+   * Runs inside the rotation transaction's manager so the read shares the
+   * rotation's RLS-bypass context (the tenant row is cross-tenant by design —
+   * D14). Platform users (tenantId NULL) have no tenant policy.
+   */
+  private async resolveTenantSessionTimeout(
+    manager: EntityManager,
+    tenantId: string | null | undefined,
+  ): Promise<number | null> {
+    if (!tenantId) {
+      return null;
+    }
+    const tenant = await this.preTenantAuthRepository(manager, Tenant).findOne({
+      where: { id: tenantId },
+    });
+    if (!tenant) {
+      return null;
+    }
+    return tenant.sessionTimeoutMinutes ?? null;
   }
 
   /**

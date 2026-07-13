@@ -1,6 +1,8 @@
 import { TenantAdminOrHigher, ModuleUserOrHigher, CurrentUser } from '@aquaculture/backend-common/decorators';
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 
+import { BadRequestException } from '@nestjs/common';
+
 import { User } from '../../authentication/entities/user.entity';
 import {
   AssignUserToModuleInput,
@@ -12,6 +14,12 @@ import {
   TableDataResult,
   GetTableDataInput,
 } from '../dto/tenant-admin.dto';
+import {
+  TenantLocalizationPreferences,
+  TenantSecurityPolicy,
+  UpdateTenantLocalizationPreferencesInput,
+  UpdateTenantSecurityPolicyInput,
+} from '../dto/tenant-policy.dto';
 import { TenantAdminService } from '../services/tenant-admin.service';
 
 /**
@@ -167,6 +175,85 @@ export class TenantAdminResolver {
     @Args('userId', { type: () => ID }) targetUserId: string,
   ): Promise<User> {
     return this.tenantAdminService.activateUser(userId, targetUserId);
+  }
+
+  // =========================================================
+  // Tenant auth-security policy + localization preferences (ADR-042)
+  //
+  // tenantId ALWAYS comes from the caller's JWT — never an argument — so a
+  // TENANT_ADMIN can only ever read/write their OWN tenant's policy. A
+  // SUPER_ADMIN session without a tenant context is rejected fail-closed.
+  // =========================================================
+
+  /**
+   * ADR-042: the caller's own tenant is the ONLY addressable tenant on this
+   * surface. SUPER_ADMIN JWTs carry tenantId=null — reject rather than guess.
+   */
+  private requireTenantContext(tenantId: string | null | undefined): string {
+    if (!tenantId) {
+      throw new BadRequestException(
+        'A tenant context is required for tenant policy operations',
+      );
+    }
+    return tenantId;
+  }
+
+  /**
+   * Effective tenant auth-security policy (ADR-042): enforceMfa collapses
+   * NULL → false; sessionTimeoutMinutes stays nullable (null = platform TTL).
+   */
+  @Query(() => TenantSecurityPolicy)
+  @TenantAdminOrHigher()
+  async tenantSecurityPolicy(
+    @CurrentUser() currentUser: { tenantId: string | null },
+  ): Promise<TenantSecurityPolicy> {
+    return this.tenantAdminService.getSecurityPolicy(
+      this.requireTenantContext(currentUser.tenantId),
+    );
+  }
+
+  /**
+   * ADR-042 policy write. enforceMfa flip false/NULL→true revokes the refresh
+   * tokens of this tenant's non-MFA users (see TenantAdminService); a
+   * sessionTimeoutMinutes reduction applies on the next token rotation.
+   */
+  @Mutation(() => TenantSecurityPolicy)
+  @TenantAdminOrHigher()
+  async updateTenantSecurityPolicy(
+    @CurrentUser() currentUser: { sub: string; tenantId: string | null },
+    @Args('input') input: UpdateTenantSecurityPolicyInput,
+  ): Promise<TenantSecurityPolicy> {
+    return this.tenantAdminService.updateSecurityPolicy(
+      currentUser.sub,
+      this.requireTenantContext(currentUser.tenantId),
+      input,
+    );
+  }
+
+  /**
+   * Tenant localization preferences (ADR-042 — separate from security).
+   */
+  @Query(() => TenantLocalizationPreferences)
+  @TenantAdminOrHigher()
+  async tenantLocalizationPreferences(
+    @CurrentUser() currentUser: { tenantId: string | null },
+  ): Promise<TenantLocalizationPreferences> {
+    return this.tenantAdminService.getLocalizationPreferences(
+      this.requireTenantContext(currentUser.tenantId),
+    );
+  }
+
+  @Mutation(() => TenantLocalizationPreferences)
+  @TenantAdminOrHigher()
+  async updateTenantLocalizationPreferences(
+    @CurrentUser() currentUser: { sub: string; tenantId: string | null },
+    @Args('input') input: UpdateTenantLocalizationPreferencesInput,
+  ): Promise<TenantLocalizationPreferences> {
+    return this.tenantAdminService.updateLocalizationPreferences(
+      currentUser.sub,
+      this.requireTenantContext(currentUser.tenantId),
+      input,
+    );
   }
 
   /**

@@ -1,5 +1,5 @@
 import { InputType, Field, ObjectType } from '@nestjs/graphql';
-import { IsString, Length, Matches } from 'class-validator';
+import { IsOptional, IsString, Length, Matches } from 'class-validator';
 
 // ============================================================================
 // Input DTOs
@@ -12,6 +12,20 @@ export class VerifyMfaSetupInput {
   @Length(6, 6, { message: 'TOTP code must be exactly 6 digits' })
   @Matches(/^\d{6}$/, { message: 'TOTP code must be exactly 6 digits' })
   code!: string;
+
+  /**
+   * ADR-042: pre-session enrollment credential from login
+   * (mfaSetupRequired=true). Identifies the user when no authenticated
+   * session exists; ignored when the caller is authenticated.
+   */
+  @Field(() => String, {
+    nullable: true,
+    description:
+      'MFA setup token from login (mfaSetupRequired=true) — identifies the user when no authenticated session exists',
+  })
+  @IsOptional()
+  @IsString()
+  mfaSetupToken?: string;
 }
 
 @InputType()

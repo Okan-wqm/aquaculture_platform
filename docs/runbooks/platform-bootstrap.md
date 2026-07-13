@@ -24,7 +24,7 @@ Success looks like one JSON log line with `"message":"Platform bootstrap complet
 | 003 | `003-schemas.sql` | `CREATE SCHEMA IF NOT EXISTS` × 16 + idempotent ownership transfer |
 | 004 | `004-schema-grants.sql` | GRANT + ALTER DEFAULT PRIVILEGES, idempotent re-issue every run |
 | 005 | `005-platform-functions.sql` | `CREATE OR REPLACE FUNCTION` × 4 (`current_tenant_id`, `set_tenant_id`, `update_updated_at_column`, `audit_immutability_guard`) |
-| 006 | `006-shared-schema-tables.sql` | SHARED_SCHEMA_TABLES (5): `audit_logs`, `gdpr_data_requests`, `user_consents`, `user_permissions`, `access_logs`. Includes RLS install + immutability triggers. |
+| 006 | `006-shared-schema-tables.sql` | SHARED_SCHEMA_TABLES (4): `audit_logs`, `gdpr_data_requests`, `user_consents`, `access_logs` (`user_permissions` retired per ADR-042). Includes RLS install + immutability triggers. |
 | 007 | `007-bootstrap-signal.sql` | `INSERT ON CONFLICT` `platform.bootstrap_signal` (singleton row) |
 
 ## When the atom runs

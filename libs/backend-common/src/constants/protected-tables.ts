@@ -12,7 +12,7 @@
  *     `alert.alert_audit_log`. SOC 2 CC4 + SOX § 404 record-integrity require
  *     append-only invariants; trigger-based immutability ENFORCES this.
  *   - **Compliance state** — `shared.gdpr_data_requests`, `shared.user_consents`,
- *     `shared.user_permissions`, `shared.access_logs`. Legal-hold precedence
+ *     `shared.access_logs`. Legal-hold precedence
  *     (FRCP Rule 37(e) / TR CMK delil karartma) forbids destructive ops on
  *     held records.
  *
@@ -86,16 +86,19 @@
  * Lowercase canonical form — every comparison MUST lowercase the input.
  */
 export const PROTECTED_TABLES = [
-  // ── Shared schema — cross-tenant compliance state (ADR-011 canonical 5-table set) ──
+  // ── Shared schema — cross-tenant compliance state (ADR-011 canonical 4-table set) ──
   // Aligned with SHARED_SCHEMA_TABLES in scripts/schema-registry/generate-init-schemas.ts
   // and with the CREATE TABLE statements in
   // apps/db-migrate/src/sql/platform-bootstrap/006-shared-schema-tables.sql.
   // tests/invariants/shared-schema-canonical.spec.ts enforces parity between
   // these three sources on every PR.
+  // shared.user_permissions was retired 2026-07-12 (ADR-042, ORPHAN-HIGH-378):
+  // it was a dead parallel permission catalog superseded by the auth-service
+  // tenant RBAC (auth.tenant_role_permissions.panel_permissions). Archived into
+  // admin.retired_config_backups + dropped by admin-api migration 1801500000000.
   'shared.audit_logs',
   'shared.gdpr_data_requests',
   'shared.user_consents',
-  'shared.user_permissions',
   'shared.access_logs',
 
   // ── Event sourcing — append-only stream of truth ──

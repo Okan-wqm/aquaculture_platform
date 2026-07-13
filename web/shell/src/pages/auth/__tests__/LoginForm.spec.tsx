@@ -10,11 +10,16 @@ import { MemoryRouter } from 'react-router-dom';
 
 const login = vi.fn().mockResolvedValue({ redirectPath: '/' });
 const clearError = vi.fn();
+// Hoisted so the vi.mock factory (which reads it eagerly) can reference it.
+const { publicRequest } = vi.hoisted(() => ({ publicRequest: vi.fn() }));
 
 vi.mock('@aquaculture/shared-ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@aquaculture/shared-ui')>();
   return {
     ...actual,
+    // MfaSetupScreen drives enrollment through the pre-session public client;
+    // stub it so the setup screen renders without a real network call.
+    publicGraphqlClient: { request: publicRequest },
     useAuthContext: () => ({
       login,
       verifyMfaLogin: vi.fn(),
@@ -53,5 +58,41 @@ describe('LoginForm remember-me wiring', () => {
     expect(login).toHaveBeenCalledWith(
       expect.objectContaining({ email: 'a@b.com', password: 'password123', rememberMe: true }),
     );
+  });
+
+  it('routes into MFA setup when login returns mfaSetupRequired (ADR-042)', async () => {
+    login.mockResolvedValueOnce({ mfaSetupRequired: true, mfaSetupToken: 'setup-tok' });
+    publicRequest.mockResolvedValueOnce({
+      setupMfa: {
+        secret: 'BASE32SECRET',
+        qrCodeUri: 'otpauth://totp/Aqua:a@b.com?secret=BASE32SECRET&issuer=Aqua',
+        recoveryCodes: ['code-1', 'code-2'],
+      },
+    });
+
+    const { container } = renderForm();
+    const byName = (name: string): HTMLInputElement => {
+      const el = container.querySelector<HTMLInputElement>(`input[name="${name}"]`);
+      if (!el) throw new Error(`input[name="${name}"] not found`);
+      return el;
+    };
+
+    fireEvent.change(byName('email'), { target: { value: 'a@b.com' } });
+    fireEvent.change(byName('password'), { target: { value: 'password123' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign In' }));
+
+    // setupMfa was initiated with the setup token, and the enrollment UI renders.
+    await waitFor(() =>
+      expect(publicRequest).toHaveBeenCalledWith(
+        expect.stringContaining('setupMfa'),
+        { mfaSetupToken: 'setup-tok' },
+      ),
+    );
+    // getByRole/getByText throw when absent, so these are presence assertions
+    // without needing jest-dom matchers (the shell suite doesn't load them).
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /enable mfa/i })).toBeTruthy(),
+    );
+    expect(screen.getByText('BASE32SECRET')).toBeTruthy();
   });
 });

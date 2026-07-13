@@ -78,6 +78,10 @@ import {
   ACKNOWLEDGE_ANNOUNCEMENT_MUTATION,
   AI_PROVIDER_SETTINGS_QUERY,
   UPDATE_AI_PROVIDER_SETTINGS_MUTATION,
+  TENANT_SECURITY_POLICY_QUERY,
+  UPDATE_TENANT_SECURITY_POLICY_MUTATION,
+  TENANT_LOCALIZATION_PREFERENCES_QUERY,
+  UPDATE_TENANT_LOCALIZATION_PREFERENCES_MUTATION,
 } from '../graphql';
 
 // Types
@@ -994,4 +998,77 @@ export async function updateAiProviderSettings(
     updateAiProviderSettings: AiProviderSettings;
   }>(UPDATE_AI_PROVIDER_SETTINGS_MUTATION, { input });
   return data.updateAiProviderSettings;
+}
+
+// ============================================================================
+// Tenant security policy + localization preferences (ADR-042 — auth subgraph)
+// ============================================================================
+
+/**
+ * Tenant auth-security policy (ENFORCED). `enforceMfa` is the effective flag
+ * (server collapses NULL → false); `sessionTimeoutMinutes` is null when no
+ * tenant override is set (the configured platform TTL applies).
+ */
+export interface TenantSecurityPolicy {
+  enforceMfa: boolean;
+  sessionTimeoutMinutes: number | null;
+}
+
+/**
+ * Update payload. Both fields optional: an omitted field leaves the stored
+ * value untouched (server semantics). `sessionTimeoutMinutes` must be 5..1440
+ * when present — the same bound the server enforces.
+ */
+export interface UpdateTenantSecurityPolicyInput {
+  enforceMfa?: boolean;
+  sessionTimeoutMinutes?: number;
+}
+
+/**
+ * Tenant date-format vocabulary as it crosses the wire. GraphQL enum values are
+ * the enum NAMES (not the 'DD/MM/YYYY' display strings, which are illegal
+ * GraphQL enum names); the server maps them to the stored value.
+ */
+export type TenantDateFormat = 'DD_MM_YYYY' | 'MM_DD_YYYY' | 'YYYY_MM_DD';
+
+export interface TenantLocalizationPreferences {
+  timezone: string | null;
+  dateFormat: TenantDateFormat | null;
+}
+
+export interface UpdateTenantLocalizationPreferencesInput {
+  timezone?: string;
+  dateFormat?: TenantDateFormat;
+}
+
+export async function getTenantSecurityPolicy(): Promise<TenantSecurityPolicy> {
+  const data = await apiClient.graphql<{
+    tenantSecurityPolicy: TenantSecurityPolicy;
+  }>(TENANT_SECURITY_POLICY_QUERY);
+  return data.tenantSecurityPolicy;
+}
+
+export async function updateTenantSecurityPolicy(
+  input: UpdateTenantSecurityPolicyInput,
+): Promise<TenantSecurityPolicy> {
+  const data = await apiClient.graphql<{
+    updateTenantSecurityPolicy: TenantSecurityPolicy;
+  }>(UPDATE_TENANT_SECURITY_POLICY_MUTATION, { input });
+  return data.updateTenantSecurityPolicy;
+}
+
+export async function getTenantLocalizationPreferences(): Promise<TenantLocalizationPreferences> {
+  const data = await apiClient.graphql<{
+    tenantLocalizationPreferences: TenantLocalizationPreferences;
+  }>(TENANT_LOCALIZATION_PREFERENCES_QUERY);
+  return data.tenantLocalizationPreferences;
+}
+
+export async function updateTenantLocalizationPreferences(
+  input: UpdateTenantLocalizationPreferencesInput,
+): Promise<TenantLocalizationPreferences> {
+  const data = await apiClient.graphql<{
+    updateTenantLocalizationPreferences: TenantLocalizationPreferences;
+  }>(UPDATE_TENANT_LOCALIZATION_PREFERENCES_MUTATION, { input });
+  return data.updateTenantLocalizationPreferences;
 }

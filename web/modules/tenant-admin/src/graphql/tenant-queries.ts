@@ -138,3 +138,52 @@ export const UPDATE_TENANT_MUTATION = `
  * @deprecated Use UPDATE_TENANT_MUTATION instead.
  */
 export const UPDATE_TENANT_SETTINGS_MUTATION = UPDATE_TENANT_MUTATION;
+
+// ============================================================================
+// Tenant security policy + localization preferences (ADR-042)
+//
+// TENANT_ADMIN-guarded auth-service subgraph. The security policy is ENFORCED
+// (login MFA gate + refresh-TTL clamp); the localization preferences are
+// display-only. tenantId is never an input — it derives from the caller's JWT.
+// `dateFormat` is a GraphQL enum (TenantDateFormat): the wire values are the
+// enum NAMES (DD_MM_YYYY / MM_DD_YYYY / YYYY_MM_DD), which the server maps to
+// the 'DD/MM/YYYY'-style stored value.
+// ============================================================================
+
+export const TENANT_SECURITY_POLICY_QUERY = `
+  query TenantSecurityPolicy {
+    tenantSecurityPolicy {
+      enforceMfa
+      sessionTimeoutMinutes
+    }
+  }
+`;
+
+export const UPDATE_TENANT_SECURITY_POLICY_MUTATION = `
+  mutation UpdateTenantSecurityPolicy($input: UpdateTenantSecurityPolicyInput!) {
+    updateTenantSecurityPolicy(input: $input) {
+      enforceMfa
+      sessionTimeoutMinutes
+    }
+  }
+`;
+
+export const TENANT_LOCALIZATION_PREFERENCES_QUERY = `
+  query TenantLocalizationPreferences {
+    tenantLocalizationPreferences {
+      timezone
+      dateFormat
+    }
+  }
+`;
+
+export const UPDATE_TENANT_LOCALIZATION_PREFERENCES_MUTATION = `
+  mutation UpdateTenantLocalizationPreferences(
+    $input: UpdateTenantLocalizationPreferencesInput!
+  ) {
+    updateTenantLocalizationPreferences(input: $input) {
+      timezone
+      dateFormat
+    }
+  }
+`;

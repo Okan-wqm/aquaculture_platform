@@ -127,9 +127,25 @@ export interface MfaChallengeResult {
 }
 
 /**
- * Login result — either a redirect path (normal login) or MFA challenge
+ * MFA-setup-required result (ADR-042) — returned when the tenant ENFORCES MFA
+ * but this user has none enrolled. No session tokens are issued; the
+ * short-lived mfaSetupToken authorizes ONLY setupMfa + verifyMfaSetup so the
+ * user can enroll and then log in again. A completable path, not a lockout.
  */
-export type LoginResult = { redirectPath: string } | MfaChallengeResult;
+export interface MfaSetupRequiredResult {
+  mfaSetupRequired: true;
+  mfaSetupToken: string;
+}
+
+/**
+ * Login result — a redirect path (normal login), an MFA challenge (user has MFA
+ * and must verify), or an MFA-setup requirement (tenant enforces MFA, user must
+ * enroll first).
+ */
+export type LoginResult =
+  | { redirectPath: string }
+  | MfaChallengeResult
+  | MfaSetupRequiredResult;
 
 /**
  * Verify MFA login payload
@@ -430,6 +446,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
             redirectUrl
             mfaRequired
             mfaToken
+            mfaSetupRequired
+            mfaSetupToken
             user {
               id
               email
@@ -451,6 +469,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
           redirectUrl: string;
           mfaRequired?: boolean;
           mfaToken?: string;
+          mfaSetupRequired?: boolean;
+          mfaSetupToken?: string;
           user: AuthUser;
         };
       }>(LOGIN_MUTATION, {
@@ -472,6 +492,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
         return {
           mfaRequired: true,
           mfaToken: response.login.mfaToken,
+        };
+      }
+
+      // ADR-042: tenant enforces MFA and this user has none enrolled. No tokens
+      // are issued — hand back the setup token so the UI can drive enrollment
+      // (setupMfa + verifyMfaSetup) and then send the user back to log in.
+      if (response.login.mfaSetupRequired && response.login.mfaSetupToken) {
+        dispatch({ type: 'SET_LOADING', payload: false });
+        return {
+          mfaSetupRequired: true,
+          mfaSetupToken: response.login.mfaSetupToken,
         };
       }
 

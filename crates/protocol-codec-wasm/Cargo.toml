@@ -1,0 +1,19 @@
+[package]
+name = "protocol-codec-wasm"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+authors = ["Aquaculture Platform Team <platform@aquaculture.dev>"]
+license = "Proprietary"
+repository = "https://github.com/Okan-wqm/aquaculture_platform"
+publish = false
+description = "wasm-bindgen bindings over protocol-codec — one drift-zero Modbus parser shared by the edge (Rust), the NestJS backend (this wasm build), and the browser config UI."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+protocol-codec = { path = "../protocol-codec" }
+wasm-bindgen = "=0.2.100"
+serde_json = "1.0"

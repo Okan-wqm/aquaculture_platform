@@ -1340,6 +1340,13 @@ pub struct LoRaWanConfig {
     #[serde(default)]
     pub devices: Vec<LoRaDeviceConfigYaml>,
 
+    /// Directory of custom wasm payload decoders (`<name>.wasm`), loaded at
+    /// start when the `wasm-codec` feature is built. A device whose `codec` is
+    /// an unrecognised name resolves to `CodecType::Custom { decoder_name }` and
+    /// dispatches to `<name>.wasm` here. Unset ⇒ no custom decoders.
+    #[serde(default)]
+    pub wasm_decoder_dir: Option<String>,
+
     /// RX1 receive window delay (seconds, default 1)
     #[serde(default = "default_rx1_delay")]
     pub rx1_delay: u8,

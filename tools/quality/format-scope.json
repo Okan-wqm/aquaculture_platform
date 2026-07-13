@@ -23801,6 +23801,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/process/services/__tests__/scada-package-script-validation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/process/services/__tests__/scada-package-undeploy-on-delete.spec.ts",
       "prettier_managed": true
     },
@@ -23850,6 +23856,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/process/services/unified-tag.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/protocol/adapters/__tests__/protocol-codec-golden.spec.ts",
       "prettier_managed": true
     },
     {
@@ -24323,6 +24335,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/scada-runtime/services/__tests__/quickjs-sandbox.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/scada-runtime/services/__tests__/script-engine.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/scada-runtime/services/alarm-ack.events.ts",
       "prettier_managed": true
     },
@@ -24354,6 +24378,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/scada-runtime/services/notification.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/scada-runtime/services/quickjs-sandbox.ts",
       "prettier_managed": true
     },
     {
@@ -31207,6 +31237,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-13-protocol-codec-wasm.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-13-scada-script-sandbox.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -33788,6 +33830,87 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "jest.preset.js",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/alarm-core/jest.config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/alarm-core/package.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/alarm-core/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/alarm-core/src/decision-core.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "generated",
+      "content_sha256": "ce4c0526eafb541388591d9886129b9ff138b2448846a969ee59f14c350735e5",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "libs/alarm-core/src/generated/alarm_core_wasm_bg.wasm.d.ts",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
+    },
+    {
+      "class": "generated",
+      "content_sha256": "8135ecf76b76a405a9d3c8fdd927569b145b9252cdc5282c37244038fe6cf791",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "libs/alarm-core/src/generated/alarm_core_wasm.d.ts",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
+    },
+    {
+      "class": "generated",
+      "content_sha256": "5be6d0debdeea884a376c0d1f94c3ee022776c2decc1f67138fd8b730edb81c2",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "libs/alarm-core/src/generated/alarm_core_wasm.js",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/alarm-core/src/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/alarm-core/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/alarm-core/tsconfig.lib.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/alarm-core/tsconfig.spec.json",
       "prettier_managed": true
     },
     {
@@ -37273,6 +37396,87 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/protocol-codec/jest.config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/protocol-codec/package.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/protocol-codec/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "generated",
+      "content_sha256": "b23d7a754fba47890bda7b6f3870054e8c70b2e6d55c5be0043e1cd8e882cbab",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "libs/protocol-codec/src/generated/protocol_codec_wasm_bg.wasm.d.ts",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
+    },
+    {
+      "class": "generated",
+      "content_sha256": "cb5d4bbc10ad01a68d9e23e75f82509f308e2890db64cda42a44744df00237b5",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "libs/protocol-codec/src/generated/protocol_codec_wasm.d.ts",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
+    },
+    {
+      "class": "generated",
+      "content_sha256": "409caeea16245bf79a94b88300657bf589a818c35a13b0fd0ac91fd9035ea7af",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "libs/protocol-codec/src/generated/protocol_codec_wasm.js",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/protocol-codec/src/index.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/protocol-codec/src/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/protocol-codec/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/protocol-codec/tsconfig.lib.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/protocol-codec/tsconfig.spec.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/sdk/typescript/README.md",
       "prettier_managed": true
     },
@@ -37316,6 +37520,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/sensor-automation-types/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/sensor-contracts/fixtures/alarm/decision-core.json",
       "prettier_managed": true
     },
     {
@@ -38124,7 +38334,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "0324908ff79fb6e031a801f22fb28cf0a1d7172f9459d2fabb56410cea9d625c",
+      "content_sha256": "4438dccf0c90310514c6c4621e59391978dace97bbdf60c10efa0d09fa26d9b1",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -39595,6 +39805,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "sensorprotocols/mqtt-protocol.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "sensorprotocols/wasm-decoder-template/README.md",
       "prettier_managed": true
     },
     {
@@ -53196,10 +53412,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8720,
+  "file_count": 8751,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8545,
-  "managed_file_list_sha256": "c6f2daad0e5ef710b84e60ebce842ae81d6c1300499bed0a2ab0bcf56448567b",
+  "managed_count": 8570,
+  "managed_file_list_sha256": "1be7adb117aad1cf973ae4e4444627015fcf40960d75d14018f462e48c757b79",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

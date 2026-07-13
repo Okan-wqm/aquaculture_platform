@@ -250,13 +250,22 @@ pub fn decode_payload(
         CodecType::CayenneLpp => decode_cayenne_lpp(payload, tag_prefix),
         CodecType::RawBinary { byte_order } => decode_raw_binary(payload, tag_prefix, *byte_order),
         CodecType::Custom { decoder_name } => {
-            // Ozel decoder'lar henuz desteklenmiyor - ileride scripting modulu
-            // ile entegre edilecek (Lua veya WASM tabanli)
-            warn!(
-                "Custom codec '{}' henuz desteklenmiyor, bos sonuc donuluyor",
-                decoder_name
-            );
-            Vec::new()
+            // Sandboxed wasm decoder plugin (ADR-026 follow-on). With the
+            // `wasm-codec` feature the named decoder runs in a fuel- and
+            // memory-bounded wasmi isolate; without it, custom codecs remain a
+            // warn+empty no-op so the default fleet binary carries no wasm engine.
+            #[cfg(feature = "wasm-codec")]
+            {
+                super::wasm_decoder::decode(decoder_name, payload, tag_prefix)
+            }
+            #[cfg(not(feature = "wasm-codec"))]
+            {
+                warn!(
+                    "Custom codec '{}' desteklenmiyor (wasm-codec feature kapali), bos sonuc donuluyor",
+                    decoder_name
+                );
+                Vec::new()
+            }
         }
     }
 }

@@ -246,6 +246,19 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   // trailer is structurally unavailable. Allowlist the cherry-pick SHA
   // so the validator does not block merge.
   '4b5174db', // fix(migration): replace archived migration imports with Baseline (3 services) — cherry-picked from f757b3ed
+  // WASM-adoption feature commits whose Closes: trailers used a hyphenated
+  // finding-ID prefix (SCADA-SANDBOX-*, CODEC-WASM-*) that fails the
+  // CLOSES_TRAILER_REGEX PREFIX rule ([A-Z][A-Z0-9]+, no hyphen). The findings
+  // are real (docs/reviews/claude/2026-07-13-*.md); only the trailer ID shape
+  // was wrong. Amending is barred by the force-push ban, so these SHAs are
+  // allowlisted. Later WASM-adoption commits use compliant ORPHAN-{SEV}-NNN IDs.
+  'ad4a5d96', // security(scada-runtime): QuickJS-WASM SCADA script sandbox (Phase 1)
+  'a238c98a', // feat(protocol-codec): compile the Modbus SSoT to wasm (Phase 2)
+  // feat(lora) Phase 3: its Closes: trailer referenced ORPHAN-HIGH-378, which
+  // independently landed on main (shared.user_permissions retirement) during
+  // concurrent development. The branch finding was renumbered to ORPHAN-HIGH-382
+  // on merge; the pushed commit's trailer cannot be amended (force-push ban).
+  '5334a47a', // feat(lora): sandboxed wasm custom payload decoders (Phase 3)
 ]);
 
 interface Commit {

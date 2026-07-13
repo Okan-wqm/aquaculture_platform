@@ -56,6 +56,15 @@ export class ScadaPackageService {
   /** Max packageData size: 1 MB */
   private static readonly MAX_PACKAGE_DATA_BYTES = 1_048_576;
 
+  /** Max source size of a single SCADA script (`code` field): 64 KiB. */
+  private static readonly MAX_SCRIPT_CODE_BYTES = 65_536;
+
+  /** Max number of scripts a single package may carry. */
+  private static readonly MAX_SCRIPTS_PER_PACKAGE = 50;
+
+  /** Modes a stored script may declare. */
+  private static readonly VALID_SCRIPT_MODES = new Set(['server', 'client']);
+
   private validatePackageDataSize(data: Record<string, unknown>): void {
     const size = Buffer.byteLength(JSON.stringify(data), 'utf8');
     if (size > ScadaPackageService.MAX_PACKAGE_DATA_BYTES) {
@@ -78,6 +87,50 @@ export class ScadaPackageService {
             throw new BadRequestException('Each screen.widgets must be an array');
           }
         }
+      }
+    }
+  }
+
+  /**
+   * Bound the script surface at the write boundary.
+   *
+   * SCADA scripts run as untrusted tenant code inside the QuickJS sandbox at
+   * runtime (`ScriptEngineService`); the sandbox is memory- and CPU-bounded, but
+   * accepting unbounded source at rest is still a denial-of-service and storage
+   * vector. Reject (never truncate) oversized code, over-large script counts, or
+   * an unknown execution mode so malformed packages cannot be persisted.
+   */
+  private validateScripts(data: Record<string, unknown>): void {
+    if (data.scripts === undefined) {
+      return;
+    }
+    if (!Array.isArray(data.scripts)) {
+      throw new BadRequestException('packageData.scripts must be an array');
+    }
+    if (data.scripts.length > ScadaPackageService.MAX_SCRIPTS_PER_PACKAGE) {
+      throw new BadRequestException(
+        `packageData.scripts exceeds the maximum of ${ScadaPackageService.MAX_SCRIPTS_PER_PACKAGE} scripts`,
+      );
+    }
+    for (const entry of data.scripts) {
+      if (!entry || typeof entry !== 'object') {
+        throw new BadRequestException('Each packageData.scripts entry must be an object');
+      }
+      const scriptEntry = entry as Record<string, unknown>;
+      const { code, mode } = scriptEntry;
+      if (typeof code !== 'string') {
+        throw new BadRequestException('Each script must have a string `code` field');
+      }
+      const codeBytes = Buffer.byteLength(code, 'utf8');
+      if (codeBytes > ScadaPackageService.MAX_SCRIPT_CODE_BYTES) {
+        throw new BadRequestException(
+          `Script "${String(scriptEntry.name ?? scriptEntry.id ?? 'unnamed')}" code exceeds the maximum size (${(
+            codeBytes / 1024
+          ).toFixed(0)} KB > ${ScadaPackageService.MAX_SCRIPT_CODE_BYTES / 1024} KB)`,
+        );
+      }
+      if (mode !== undefined && (typeof mode !== 'string' || !ScadaPackageService.VALID_SCRIPT_MODES.has(mode))) {
+        throw new BadRequestException("Script `mode` must be 'server' or 'client'");
       }
     }
   }
@@ -376,6 +429,7 @@ export class ScadaPackageService {
 
     this.validatePackageDataSize(input.packageData);
     this.validatePackageDataStructure(input.packageData);
+    this.validateScripts(input.packageData);
     const packageData = await this.upcastAndValidatePackageData(input.packageData, tenantId);
     this.hardenControlSecurity(packageData);
 
@@ -424,6 +478,7 @@ export class ScadaPackageService {
     if (input.packageData !== undefined) {
       this.validatePackageDataSize(input.packageData);
       this.validatePackageDataStructure(input.packageData);
+      this.validateScripts(input.packageData);
       const existingPinHash = this.extractPinHash(pkg.packageData);
       pkg.packageData = await this.upcastAndValidatePackageData(input.packageData, tenantId);
       this.hardenControlSecurity(pkg.packageData, existingPinHash);

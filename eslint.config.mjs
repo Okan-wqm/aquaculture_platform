@@ -278,6 +278,7 @@ export default [
       '**/build/**',
       '**/coverage/**',
       '**/.nx/**',
+      '**/generated/**',
       '**/*.d.ts',
       '**/*.js.map',
       '**/.archive/**',

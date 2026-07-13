@@ -111,20 +111,25 @@ members of this role via `GRANT shared_schema_owner TO <svc>_service`,
 which gives every member ALTER privileges (needed for RLS bootstrap and
 schema migrations) without exposing superuser credentials.
 
-Currently (Wave 4-A.2, 2026-05-08) the shared schema contains exactly five tables:
+Currently (amended 2026-07-12 by ADR-042) the shared schema contains exactly
+four tables:
 
   - `shared.audit_logs` — cross-service audit trail (backend-common's
     AuditLogEntity, written by billing/config/notification/alert/ai/
     admin-api).
   - `shared.gdpr_data_requests` — compliance: GDPR data-export tracking.
   - `shared.user_consents` — compliance: consent records.
-  - `shared.user_permissions` — platform-wide RBAC, READ by every
-    service for permission checks on every request.
   - `shared.access_logs` — cross-service access trail (backend-common's
     AccessLogEntity), distinct from audit_logs by retention policy and
     cardinality (access_logs are write-many, audit_logs are write-once).
 
-Adding a 6th shared table requires an ADR + architectural-arbiter
+> **Amendment (2026-07-12, ADR-042):** `shared.user_permissions` — originally
+> listed here as "platform-wide RBAC, READ by every service" — was retired.
+> No service ever read it; the live RBAC SSoT is the auth-service tenant RBAC
+> (`auth.tenant_role_permissions.panel_permissions`). See
+> `docs/adr/042-retire-shared-user-permissions.md` (ORPHAN-HIGH-378).
+
+Adding a new shared table requires an ADR + architectural-arbiter
 approval AND an update to the CI invariant (`SHARED_SCHEMA_TABLES` set
 in schema-invariants.spec.ts). The `add-shared-table` skill gate
 (BLOCKER-15) enforces this at PR time.
@@ -148,7 +153,7 @@ invariant catches the omission immediately.
 - **RLS bootstrap is naturally correct.** Each service owns its schema
   and can ALTER its own tables without role-membership gymnastics.
 - **Cross-service reads are explicit.** A consumer reading
-  `shared.user_permissions` is doing so deliberately; the schema
+  `shared.audit_logs` is doing so deliberately; the schema
   qualification documents the cross-service dependency in the query
   itself.
 - **Tenant schema replication maps cleanly.** Source tables in service

@@ -100,4 +100,13 @@ ignore = [
     #   never been mirrored here — drift caught 2026-06-11 by
     #   scripts/ci/check-advisory-ignore-sync.ts on its first run.
     "RUSTSEC-2026-0173",
+
+    # Finding: EDGE-CI-008 — paste 1.0.15 unmaintained
+    # Owner: platform-team; Deadline: 2026-12-01
+    # Why: Build-time-only transitive via wasmi (wasmi_core) behind the
+    #   wasm-codec LoRa custom-decoder feature (OFF by default). paste is
+    #   an archived proc-macro helper; no wasmi release drops it yet —
+    #   re-check on each wasmi bump. No active vulnerability — unmaintained
+    #   signal only; the proc-macro never reaches the shipped binary.
+    "RUSTSEC-2024-0436",
 ]

@@ -219,10 +219,15 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     // cloned — so it belongs in the source-schema-only infrastructure set.
     // SENSOR-MEDIUM-004: edge_device_directory is the cross-tenant O(1) index
     // (public identifier -> tenant_id); one table in `sensor`, never cloned.
-    // scada_tag_history: SCADA runtime DAQ history (SENSOR-HIGH-053) — one
-    // `sensor` table, tenant-fenced by its mandatory tenant_id column (the
-    // runtime storage services run on the service-wide DataSource).
-    infrastructureTables: ['migrations', 'sensor_audit_logs', 'sensor_outbox', 'vfd_register_mappings', 'edge_device_directory', 'scada_tag_history', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    // DB-SENSOR-CRITICAL-001 / SENSOR-HIGH-004 / SENSOR-HIGH-053: the SCADA
+    // runtime persistence tables (scada_alarms, scada_alarm_chronicle,
+    // scada_tag_history) are written by process-wide singleton services with
+    // no per-request search_path, so they cannot be per-tenant clones — they
+    // live once in `sensor` and carry a mandatory tenant_id discriminator
+    // (added by 1806000000000-ScadaTenantIsolation), exactly like
+    // edge_device_directory. vfd_command_audit_logs is the append-only VFD
+    // command audit ledger (cross-tenant, same class).
+    infrastructureTables: ['migrations', 'sensor_audit_logs', 'sensor_outbox', 'vfd_register_mappings', 'edge_device_directory', 'scada_alarms', 'scada_alarm_chronicle', 'scada_tag_history', 'vfd_command_audit_logs', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: ['sensor_protocols', 'sensor_type_definitions', 'industry_templates'],
     tables: [
       // Core sensor entities
@@ -244,6 +249,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'vfd_change_set_items',
       'vfd_automation_rules',
       'vfd_parameter_audit_logs',
+      // DB-SENSOR-HIGH-003: vfd_command_audit_logs is a CROSS-TENANT audit ledger
+      // (declares schema:'sensor', tenant_id-discriminated) — see
+      // infrastructureTables above, NOT this per-tenant clone list.
 
       // Dashboard & Edge devices
       'dashboard_layouts',
@@ -380,7 +388,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // `batches_v2` is the current canonical batches table.
       'batches_v2',
       'batch_documents',
-      'farm_documents',
+      // farm_documents was dropped (ORPHAN-HIGH-369, owner decision): a fully
+      // built but unwired DMS surface — DropFarmDocuments1805300000000 removed
+      // the physical table from farm + every tenant clone.
       'batch_feed_assignments',
       'batch_locations',
       'species',
@@ -628,6 +638,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // tenant_<uuid> schema by TenantSchemaSyncService.
       'agent_conversations',
       'tenant_agent_configs',
+      // Durable per-invocation AI cost ledger (ORPHAN-MEDIUM-380 /
+      // DB-PEOPLE-MEDIUM-002) — created current_schema-relative by
+      // `1802100000000-CreateConversationTurns`; append-only at the
+      // service layer (TurnLedgerService).
+      'conversation_turns',
     ],
   },
   {
@@ -659,19 +674,35 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'billing',
     sourceSchema: 'billing',
-    infrastructureTables: ['migrations', 'billing_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    infrastructureTables: [
+      'migrations',
+      'billing_outbox',
+      // A6 / DB-IDENT-MEDIUM-002: jsonb archive of the retired
+      // tenant_usage_metrics rows (archive-before-drop, migration
+      // 1801700000000) — same class as admin.retired_config_backups.
+      'retired_usage_metrics_backup',
+      ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
+    ],
     referenceDataTables: [],
     tables: [
       'subscriptions',
       'subscription_module_items',
       'invoices',
       'payments',
-      'tenant_usage_metrics',
+      // tenant_usage_metrics retired 2026-07-13 (A6 / DB-IDENT-MEDIUM-002,
+      // ORPHAN-MEDIUM-382): dead parallel usage model with no writer —
+      // usage_aggregations/usage_hourly_data below are the usage SSoT.
       'scheduled_plan_changes',
       'usage_aggregations',
       'usage_hourly_data',
       'subscription_provisioning_retries',
       'command_receipts',
+      // DB registry completeness (same class as DB-ADMIN-MEDIUM-002): billing
+      // domain tables that had drifted out of the registry — `plans` (plan
+      // catalog) + `stripe_webhook_events` (Stripe webhook idempotency ledger,
+      // same class as command_receipts above).
+      'plans',
+      'stripe_webhook_events',
     ],
   },
   {
@@ -689,6 +720,21 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'cleanup_run_steps',
       'cleanup_run_events',
       'cleanup_run_evidence',
+      // DB-ADMIN-MEDIUM-002: schema-lifecycle backup ledger — same class as
+      // schema_backups/schema_restores above (retired-tenant-schema backups).
+      'retired_schema_backups',
+      // ORPHAN-HIGH-364 follow-on: the TenantProvisioningWorkflow tables
+      // (migrations 1800400/1800500/1801200) — legitimate raw-SQL/migration-
+      // managed workflow state with no TypeORM entity. Registered so the drift
+      // validator + orphan-drop presence checks recognize them.
+      'tenant_provisioning_runs',
+      'tenant_provisioning_steps',
+      'tenant_onboarding_acks',
+      // ORPHAN-HIGH-364 items 1-3: the jsonb archive that received the retired
+      // legacy config stores' rows before 1801400000000 dropped them
+      // (global_configs / system_settings / tenant_configurations). Raw-SQL
+      // table (no entity) — registry entry keeps it visible + protected.
+      'retired_config_backups',
       ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
     ],
     referenceDataTables: [],
@@ -734,6 +780,22 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'login_attempts',
       'api_usage_logs',
       'user_sessions',
+      // DB-ADMIN-MEDIUM-002: admin-schema data tables that were absent from this
+      // registry, so the ADR-012 drift validator + orphan-drop presence checks
+      // did not cover them (an unregistered real table is neither protected nor
+      // reconciled). All are @Entity(..., { schema: 'admin' }).
+      'discount_codes',
+      'module_pricing',
+      'plan_definitions',
+      'plan_module_assignments',
+      'threat_intelligence',
+      'retention_policies',
+      'database_metrics',
+      'slow_query_logs',
+      'ingest_backend_policy_state',
+      'announcements',
+      'job_queues',
+      'system_versions',
     ],
   },
   {
@@ -753,6 +815,77 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     infrastructureTables: ['migrations', 'notification_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: [],
     tables: ['device_tokens', 'notification_logs', 'command_receipts'],
+  },
+  {
+    // DB-INFRA-HIGH-003: config-service registered as a platform-level
+    // (source-schema-tenant-column) tenant-erasure target. NOT tenant-cloned
+    // (absent from TENANT_SCOPED_MODULES); per-tenant config rows are deleted
+    // by tenantId on erasure. config_outbox + the erasure proof ledger are its
+    // cross-tenant infrastructure tables.
+    moduleName: 'config',
+    sourceSchema: 'config',
+    infrastructureTables: ['migrations', 'config_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    referenceDataTables: [],
+    tables: ['configurations', 'configuration_history'],
+  },
+  {
+    // DB-INFRA-HIGH-003: event-store-service — platform-level erasure target.
+    // The tenant-column projection tables are deleted by tenantId on erasure;
+    // stored_events is intentionally NOT deleted (immutable append-only log —
+    // excluded in the erasure registry; awaits crypto-shred). NOT tenant-cloned.
+    moduleName: 'event_store',
+    sourceSchema: 'event_store',
+    infrastructureTables: ['migrations', 'event_store_outbox', 'tenant_payload_keys', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    referenceDataTables: [],
+    tables: ['stored_events', 'event_streams', 'snapshots', 'projection_checkpoints', 'projection_rebuilds'],
+  },
+  {
+    // ORPHAN-HIGH-365: the `compliance` schema existed in the live DB with NO
+    // registry entry — its single table is litigation/GDPR-critical (legal-hold
+    // precedence gates every destructive path), yet the drift validator and the
+    // orphan-drop presence checks were blind to it. Owner: admin-api-service
+    // (its migration 1787500000000-CreateComplianceLegalHolds created the
+    // schema; the LegalHold entity lives there and admin-api's own
+    // SchemaDriftValidator validates it at boot). Cross-tenant ledger — never
+    // per-tenant cloned — so it is an infrastructure table.
+    moduleName: 'compliance',
+    sourceSchema: 'compliance',
+    infrastructureTables: ['legal_holds'],
+    referenceDataTables: [],
+    tables: [],
+  },
+  {
+    // ORPHAN-MEDIUM-362 follow-on: observability-service had schema-declaring
+    // entities but NO registry entry. All four tables are migration/schema
+    // observability infrastructure (written by the migration/backfill pipeline
+    // and emergency-override tooling), single cross-tenant copies — never
+    // per-tenant cloned. observability-service already registers
+    // SchemaDriftModule.forRoot (app.module), so its boot validator now has a
+    // matching registry surface.
+    moduleName: 'observability',
+    sourceSchema: 'observability',
+    infrastructureTables: [
+      'migrations',
+      'emergency_overrides',
+      'migration_backfill_progress',
+      'migration_events',
+      'schema_object_history',
+    ],
+    referenceDataTables: [],
+    tables: [],
+  },
+  {
+    // ORPHAN-HIGH-365: the `platform` schema holds db-migrate/bootstrap-owned
+    // raw-SQL infrastructure (the bootstrap signal, the release ledger, the
+    // tenant-schema-provisioner job queue). It has NO TypeORM entities and no
+    // owning NestJS service by design — the entry exists so the registry is a
+    // complete map of every non-tenant schema and a future strictOwnership or
+    // orphan sweep can never mistake these for droppable orphans.
+    moduleName: 'platform',
+    sourceSchema: 'platform',
+    infrastructureTables: ['bootstrap_signal', 'release_ledger', 'tenant_schema_jobs'],
+    referenceDataTables: [],
+    tables: [],
   },
 ];
 
@@ -788,6 +921,16 @@ export const PLATFORM_LEVEL_MODULES: ReadonlySet<string> = new Set([
   'admin',
   'auth',
   'notification',
+  'config',
+  'event_store',
+  // Registry-completeness sweep (ORPHAN-HIGH-365 / DB audit A-classification):
+  // billing was in NEITHER classification set (flagged by the DB audit);
+  // compliance/observability/platform gained MODULE_SCHEMAS entries and are
+  // platform-level by nature (single cross-tenant schemas, no per-tenant fan-out).
+  'billing',
+  'compliance',
+  'observability',
+  'platform',
 ]);
 
 export const DEFAULT_TENANT_MODULES: string[] = MODULE_SCHEMAS.filter((m) =>

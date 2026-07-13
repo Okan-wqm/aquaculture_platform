@@ -23,7 +23,6 @@ import { ScheduledPlanChange } from './entities/scheduled-plan-change.entity';
 import { StripeWebhookEventEntity } from './entities/stripe-webhook-event.entity';
 import { SubscriptionModuleItem } from './entities/subscription-module-item.entity';
 import { Subscription } from './entities/subscription.entity';
-import { TenantUsageMetrics } from './entities/tenant-usage-metrics.entity';
 import { BillingAdminNatsHandler } from './handlers/billing-admin-nats.handler';
 import { CancelSubscriptionHandler } from './handlers/cancel-subscription.handler';
 import { ChangeSubscriptionPlanHandler } from './handlers/change-subscription-plan.handler';
@@ -43,6 +42,7 @@ import { GetPlansHandler } from './query-handlers/get-plans.handler';
 import { GetSubscriptionHandler } from './query-handlers/get-subscription.handler';
 import { GetTenantBillingHandler } from './query-handlers/get-tenant-billing.handler';
 import { PlanSeedService } from './seed/plan-seed.service';
+import { MeteringModule } from '../modules/metering/metering.module';
 
 const CommandHandlers = [
   CreateSubscriptionHandler,
@@ -71,9 +71,14 @@ const EventHandlers: never[] = [];
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Subscription, Invoice, Payment, SubscriptionModuleItem, TenantUsageMetrics, Plan, ScheduledPlanChange, StripeWebhookEventEntity]),
+    TypeOrmModule.forFeature([Subscription, Invoice, Payment, SubscriptionModuleItem, Plan, ScheduledPlanChange, StripeWebhookEventEntity]),
     CqrsModule,
     ScheduleModule,
+    // A6 / DB-IDENT-MEDIUM-002: GetTenantBillingHandler reads tenant usage
+    // from the metering SSoT (usage_aggregations via UsageAggregatorService)
+    // and included quantities from MeteredBillingService's pricing model —
+    // the retired billing.tenant_usage_metrics parallel model is gone.
+    MeteringModule,
     // W1.1 (ADR-016 / BILLING-CRITICAL-001): bind the canonical Stripe client so
     // money handlers get a REAL outbound StripeApiService when billing is on.
     // The factory is gated by the STRIPE_BILLING_ENABLED SSoT flag (default

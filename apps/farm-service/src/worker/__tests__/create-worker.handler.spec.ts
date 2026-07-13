@@ -74,6 +74,21 @@ describe('CreateWorkerHandler', () => {
       employeeNumber: `EMP-${year}-00001`,
     }));
     expect(mockManager.save).toHaveBeenCalledTimes(1);
+
+    // ORPHAN-MEDIUM-379 regression guard: the placeholder-PII columns
+    // (address/dateOfBirth/nationalId/employmentType/baseSalary) were dropped —
+    // deep worker PII lives in hr.employees. The handler must not resurrect
+    // the placeholder synthesis that only existed to satisfy NOT NULL.
+    const createArg = (mockManager.create as jest.Mock).mock.calls[0][1] as Record<string, unknown>;
+    for (const droppedColumn of [
+      'address',
+      'dateOfBirth',
+      'nationalId',
+      'employmentType',
+      'baseSalary',
+    ]) {
+      expect(createArg).not.toHaveProperty(droppedColumn);
+    }
   });
 
   it('increments the employee number from the locked max row', async () => {

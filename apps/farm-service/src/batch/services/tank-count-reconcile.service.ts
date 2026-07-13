@@ -4,13 +4,13 @@
  * WHY: before the single-writer fix (FARM-HIGH-104) each handler maintained
  * equipment/tank.currentCount independently of tank_batches.totalQuantity, so the
  * two drifted (the operator saw 900 on mobile vs 719 on web for one tank). Going
- * forward applyBatchDelta keeps them in lock-step, but EXISTING rows can still be
- * off in two ways: (a) a wrong count, and (b) a stale pre-fix mirror — pre-SSoT
- * rows carry batchDetails=NULL and a stale currentQuantity (the column mobile's
- * batchMetrics.pieces prefers) while totalQuantity has already converged. This
+ * forward applyBatchDelta keeps them in lock-step, but EXISTING rows can still
+ * carry a wrong count, and pre-SSoT rows carry batchDetails=NULL while
+ * totalQuantity has already converged. (The historical currentQuantity mirror is
+ * fully retired — ORPHAN-HIGH-353; every count read is totalQuantity.) This
  * service recomputes each tank-batch's TRUE count from the operation ledger and
  * (only when applied) routes every correction — including the zero-delta
- * self-heal for stale mirrors — through applyBatchDelta, the single writer.
+ * batchDetails seed for pre-SSoT rows — through applyBatchDelta, the single writer.
  *
  * LEDGER (verified against the write paths AND live data — FARM-HIGH-112):
  *   trueQty(tank,batch) =
@@ -57,10 +57,6 @@ export class TankCountReconcileRow {
   @Field(() => Int)
   currentQuantity!: number;
 
-  /** The stale pre-fix mirror (tank_batches.currentQuantity) mobile surfaces — null when unset. */
-  @Field(() => Int, { nullable: true })
-  mirrorQuantity!: number | null;
-
   /** The count recomputed from the operation ledger (signed allocations − removals). */
   @Field(() => Int)
   ledgerQuantity!: number;
@@ -77,7 +73,7 @@ export class TankCountReconcileRow {
   @Field()
   applied!: boolean;
 
-  /** True when a zero-delta self-heal was written (apply mode, delta 0, stale mirror or missing batchDetails). */
+  /** True when a zero-delta self-heal was written (apply mode, delta 0, missing batchDetails). */
   @Field()
   healed!: boolean;
 }
@@ -128,7 +124,7 @@ export class TankCountReconcileService {
 
   /**
    * Recompute every tank-batch's true count from the ledger and (when
-   * dryRun=false) correct drift / heal stale pre-SSoT mirrors through
+   * dryRun=false) correct drift / seed missing pre-SSoT batchDetails through
    * applyBatchDelta. Returns the per tank-batch diff either way.
    */
   async reconcile(
@@ -160,17 +156,15 @@ export class TankCountReconcileService {
         const currentQuantity =
           detail?.quantity ??
           (details.length === 0 && isPrimary ? Math.trunc(Number(tankBatch?.totalQuantity ?? 0)) : 0);
-        const mirrorRaw = tankBatch?.currentQuantity;
-        const mirrorQuantity = mirrorRaw == null ? null : Math.trunc(Number(mirrorRaw));
         const delta = ledgerQuantity - currentQuantity;
         // Fail-closed: no inflow history or a negative net = incomplete ledger
         // (e.g. initial stocking predates the createBatch allocation write).
         const ledgerComplete = Number(entry.inflowRows) > 0 && ledgerQuantity >= 0;
-        // A pre-SSoT row needs a self-heal even at delta 0: batchDetails missing
-        // and/or the currentQuantity mirror (mobile's preferred source) is stale.
-        const needsHeal =
-          tankBatch != null &&
-          (details.length === 0 || mirrorQuantity !== Math.trunc(Number(tankBatch.totalQuantity)));
+        // A pre-SSoT row still needs a zero-delta self-heal when batchDetails is
+        // missing (seeds the per-batch SSoT from the correct totals). The old
+        // stale-MIRROR heal condition is gone with the currentQuantity column
+        // (A1 retirement, ORPHAN-HIGH-353 step 2) — every read is totalQuantity.
+        const needsHeal = tankBatch != null && details.length === 0;
 
         let applied = false;
         let healed = false;
@@ -185,7 +179,7 @@ export class TankCountReconcileService {
             applied = true;
           } else if (needsHeal) {
             // Zero-delta write through the single writer: seeds batchDetails from
-            // the (correct) totals and re-derives currentQuantity + currentCount.
+            // the (correct) totals and re-derives the aggregates + currentCount.
             await this.tankBatchService.applyBatchDelta(manager, tenantId, entry.tankId, {
               batchId: entry.batchId,
               batchNumber: detail?.batchNumber ?? tankBatch.primaryBatchNumber ?? '',
@@ -201,7 +195,6 @@ export class TankCountReconcileService {
           batchId: entry.batchId,
           batchNumber: detail?.batchNumber ?? tankBatch?.primaryBatchNumber ?? '',
           currentQuantity,
-          mirrorQuantity,
           ledgerQuantity,
           delta,
           ledgerComplete,

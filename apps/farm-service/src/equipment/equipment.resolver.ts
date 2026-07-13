@@ -451,7 +451,11 @@ export class EquipmentResolver {
     return {
       batchNumber: tankBatch.primaryBatchNumber,
       batchId: tankBatch.primaryBatchId,
-      pieces: tankBatch.currentQuantity ?? tankBatch.totalQuantity,
+      // COUNT SSoT read (DB-FARMPROD-HIGH-001): the fish count is `totalQuantity`
+      // (batchDetails-derived); reading the redundant currentQuantity mirror here
+      // was a second channel of the 900-vs-719 web/mobile divergence. Biomass
+      // (biomassKg above) keeps the currentBiomassKg-first read — growth-tracked.
+      pieces: tankBatch.totalQuantity,
       avgWeight: avgWeightG || undefined,
       biomass: biomassKg || undefined,
       density: Number(tankBatch.densityKgM3) || undefined,

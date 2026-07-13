@@ -12,6 +12,7 @@ README for deeper detail.
 | `agents/_maintenance/` | Out-of-runtime maintenance tooling — <!-- cardinality:lane-a-maintenance -->5<!-- /cardinality --> agents (prompt-writer, implementation-planner, gdpr-erasure-executor, aria-drafter, aria-prompt-writer). Auto-discovered by loader but excluded from runtime dispatch by the `maintenance-isolation` invariant. |
 | `agents/product-audit/` | Lane-B product-quality roster — <!-- cardinality:lane-b-active-agents -->22<!-- /cardinality --> active UI/E2E/tenant-surface auditors. Meta-agents carry a `product-audit-*` name prefix to stay globally unique vs Lane-A. |
 | `agents/edge-docs/` | Lane-C documentation-production roster for `sens-api-gateway/docs/**`, entered through `edge-docs-orchestrator`. Keeping Lane-C separate prevents documentation writers from being mistaken for code reviewers. |
+| `agents/db-audit/` | Lane-D database end-to-end audit roster — 8 partition auditors tracing column provenance, FE↔BE parity, and dead/orphan/duplicate durable surfaces. No lane orchestrator: the operator session dispatches partitions and owns synthesis. Method SSoT: `agents/_shared/db-audit-methodology.md`; reports land under `docs/reviews/db-audit/**`. |
 | `shared/` | Shared fragments consumed by agents via `@`-reference: `operating-modes.md`, `tier-claim-syntax.md`, `handoff-protocol.md`, `output-format.md`, `orchestrator-phases.md`, `orchestrator-routing-table.md`, `_conversion-template.md`. |
 | `knowledge/` | 3-layer SSoT for tech anchors, patterns, and ADRs — `layer-1-{core,nestjs,typeorm,react,rust,timescaledb,ai}.md`, `layer-2-patterns.md`, `layer-3-adrs.md`. |
 | `skills/` | 7 procedural cascade files — `status: reference-only` per the 2026-04-18 flip; consulted as canonical recipes, not auto-invoked pipelines. |
@@ -27,7 +28,7 @@ README for deeper detail.
 Agent(subagent_type="farm-expert", description="...", prompt="...")
 ```
 
-Claude Code auto-discovers active prompts under `.claude/agents/**/*.md` only. Active dispatch lanes are Lane-A root code review (`orchestrator`), Lane-B product audit (`agents/product-audit/`, `product-audit-orchestrator`), Lane-C edge documentation (`agents/edge-docs/`, `edge-docs-orchestrator`), and ARIA (`aria-*.md` plus ARIA maintenance prompts, invoked only by ARIA operator/kernel workflows).
+Claude Code auto-discovers active prompts under `.claude/agents/**/*.md` only. Active dispatch lanes are Lane-A root code review (`orchestrator`), Lane-B product audit (`agents/product-audit/`, `product-audit-orchestrator`), Lane-C edge documentation (`agents/edge-docs/`, `edge-docs-orchestrator`), Lane-D database audit (`agents/db-audit/`, operator-dispatched, no lane orchestrator), and ARIA (`aria-*.md` plus ARIA maintenance prompts, invoked only by ARIA operator/kernel workflows).
 
 Retired prompt folders are deleted after useful guidance is migrated into the active owner. Keeping stale prompt copies causes duplicate agent names, conflicting ownership rules, wrong finding-ID prefixes, and invalid output paths.
 
@@ -72,6 +73,7 @@ Every push runs `npx jest --config tests/invariants/jest.config.ts`.
 - `agents/README.md` — Lane-A intent + activation history
 - `agents/product-audit/README.md` — Lane-B intent + roster
 - `agents/edge-docs/README.md` — Lane-C documentation-production charter + roster
+- `agents/db-audit/README.md` — Lane-D database-audit charter + roster
 - `docs/aria/{SPEC,IDENTITY,CONTRACTS}.md` and `knowledge/layer-1-aria.md` — ARIA design, behavior, and contract anchors
 - `docs/runbooks/product-audit-invocation.md` — Lane-B operational runbook (moved out of `.claude/agents/` dispatch surface 2026-04-18)
 - `knowledge/README.md` — SSoT layer model

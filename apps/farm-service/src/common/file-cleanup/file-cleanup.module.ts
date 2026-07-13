@@ -26,18 +26,15 @@ import { Repository } from 'typeorm';
 
 import { BatchDocument } from '../../batch/entities/batch-document.entity';
 import { Chemical } from '../../chemical/entities/chemical.entity';
-import { FarmDocument } from '../../document/entities/farm-document.entity';
 import { BatchDocumentPathProvider } from './batch-document-path.provider';
 import { ChemicalDocumentPathProvider } from './chemical-document-path.provider';
-import { FarmDocumentPathProvider } from './farm-document-path.provider';
 import { FarmOrphanCleanupService } from './farm-orphan-cleanup.service';
 import { FILE_REFERENCE_PROVIDERS } from './file-reference-provider';
 
 @Module({
-  imports: [ConfigModule, TypeOrmModule.forFeature([BatchDocument, Chemical, FarmDocument])],
+  imports: [ConfigModule, TypeOrmModule.forFeature([BatchDocument, Chemical])],
   providers: [
     BatchDocumentPathProvider,
-    FarmDocumentPathProvider,
     {
       provide: ChemicalDocumentPathProvider,
       useFactory: (chemicalRepo: Repository<Chemical>, config: ConfigService) =>
@@ -52,9 +49,8 @@ import { FILE_REFERENCE_PROVIDERS } from './file-reference-provider';
       useFactory: (
         batchProvider: BatchDocumentPathProvider,
         chemicalProvider: ChemicalDocumentPathProvider,
-        farmDocumentProvider: FarmDocumentPathProvider,
-      ) => [batchProvider, chemicalProvider, farmDocumentProvider],
-      inject: [BatchDocumentPathProvider, ChemicalDocumentPathProvider, FarmDocumentPathProvider],
+      ) => [batchProvider, chemicalProvider],
+      inject: [BatchDocumentPathProvider, ChemicalDocumentPathProvider],
     },
     FarmOrphanCleanupService,
   ],

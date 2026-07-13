@@ -210,7 +210,14 @@ export class Payroll {
   /**
    * Virtual getter providing the legacy EarningsBreakdown shape for backward compatibility.
    * GraphQL resolvers can use this to maintain the nested response structure.
+   *
+   * DB-PEOPLE-HIGH-001: the @Field was missing, so the `hr` subgraph exposed only
+   * the flat earnings* columns while the hr-module PAYROLL_FRAGMENT selects the
+   * nested `earnings { baseSalary … grossPay }` — gateway-validation-400 on all
+   * payroll ops. Exposing this getter (its shape already matches EarningsBreakdown
+   * @ObjectType field-for-field) completes the intended design; storage stays flat.
    */
+  @Field(() => EarningsBreakdown)
   get earnings(): EarningsBreakdown {
     return {
       baseSalary: this.earningsBaseSalary,
@@ -224,7 +231,10 @@ export class Payroll {
 
   /**
    * Virtual getter providing the legacy DeductionsBreakdown shape for backward compatibility.
+   * DB-PEOPLE-HIGH-001: @Field was missing (same defect as `earnings` above) — the
+   * hr-module fragment selects nested `deductions { tax … totalDeductions }`.
    */
+  @Field(() => DeductionsBreakdown)
   get deductions(): DeductionsBreakdown {
     return {
       tax: this.deductionsTax,

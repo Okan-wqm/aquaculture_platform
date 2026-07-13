@@ -86,6 +86,23 @@ export class AlarmStorageService implements OnModuleInit {
     private readonly dataSource: DataSource,
   ) {}
 
+  /**
+   * Fail-closed tenant guard. Every read and write in this service is
+   * tenant-scoped (DB-SENSOR-CRITICAL-001): the SCADA persistence tables are
+   * cross-tenant infrastructure in the shared `sensor` schema, so a query
+   * without a tenant filter would read or stamp another tenant's alarms.
+   * Refusing an empty tenantId here makes the leak structurally impossible —
+   * a caller that has not bound a real tenant cannot persist or read at all,
+   * rather than silently falling through to every tenant's rows.
+   */
+  private assertTenant(tenantId: string): void {
+    if (typeof tenantId !== 'string' || tenantId.trim().length === 0) {
+      throw new Error(
+        'AlarmStorageService: tenantId is required — SCADA alarm persistence is tenant-scoped and refuses an unbound tenant context',
+      );
+    }
+  }
+
   /* ---------------------------------------------------------------- */
   /*  Lifecycle                                                         */
   /* ---------------------------------------------------------------- */
@@ -109,7 +126,7 @@ export class AlarmStorageService implements OnModuleInit {
     const rows: unknown = await this.dataSource.query(
       `
       SELECT expected.table_name
-      FROM (VALUES ('scada_alarms'), ('scada_alarm_chronicle')) AS expected(table_name)
+      FROM (VALUES ('scada_alarms'), ('scada_alarm_chronicle'), ('scada_tag_history')) AS expected(table_name)
       WHERE NOT EXISTS (
         SELECT 1
         FROM information_schema.tables t
@@ -141,15 +158,16 @@ export class AlarmStorageService implements OnModuleInit {
    * Upsert an active alarm.  On conflict (same id) all mutable columns
    * are updated, preserving the original on_time.
    */
-  async saveAlarm(alarm: ScadaAlarm): Promise<void> {
+  async saveAlarm(tenantId: string, alarm: ScadaAlarm): Promise<void> {
+    this.assertTenant(tenantId);
     try {
       await this.dataSource.query(
         `
         INSERT INTO scada_alarms
-          (id, rule_id, rule_name, severity, status, message, group_name,
+          (tenant_id, id, rule_id, rule_name, severity, status, message, group_name,
            current_value, threshold, on_time, off_time, ack_time, ack_user_id,
            colors_bg, colors_text, updated_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15, NOW())
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16, NOW())
         ON CONFLICT (id) DO UPDATE SET
           severity      = EXCLUDED.severity,
           status        = EXCLUDED.status,
@@ -163,6 +181,7 @@ export class AlarmStorageService implements OnModuleInit {
           updated_at    = NOW()
         `,
         [
+          tenantId,
           alarm.id,
           alarm.ruleId,
           alarm.ruleName,
@@ -191,9 +210,13 @@ export class AlarmStorageService implements OnModuleInit {
   /**
    * Delete an active alarm by id (called once the alarm resolves).
    */
-  async deleteAlarm(alarmId: string): Promise<void> {
+  async deleteAlarm(tenantId: string, alarmId: string): Promise<void> {
+    this.assertTenant(tenantId);
     try {
-      await this.dataSource.query(`DELETE FROM scada_alarms WHERE id = $1`, [alarmId]);
+      await this.dataSource.query(`DELETE FROM scada_alarms WHERE id = $1 AND tenant_id = $2`, [
+        alarmId,
+        tenantId,
+      ]);
     } catch (error) {
       this.logger.error(
         `deleteAlarm: failed to delete id=${alarmId} — ${(error as Error).message}`,
@@ -204,10 +227,13 @@ export class AlarmStorageService implements OnModuleInit {
   /**
    * Return all rows from scada_alarms ordered by severity then on_time.
    */
-  async getActiveAlarms(): Promise<AlarmInstance[]> {
+  async getActiveAlarms(tenantId: string): Promise<AlarmInstance[]> {
+    this.assertTenant(tenantId);
     try {
-      const rows: AlarmRow[] = await this.dataSource.query(`
+      const rows: AlarmRow[] = await this.dataSource.query(
+        `
         SELECT * FROM scada_alarms
+        WHERE tenant_id = $1
         ORDER BY
           CASE severity
             WHEN 'critical' THEN 1
@@ -217,7 +243,9 @@ export class AlarmStorageService implements OnModuleInit {
             ELSE 5
           END,
           on_time ASC
-      `);
+      `,
+        [tenantId],
+      );
       return rows.map(rowToInstance);
     } catch (error) {
       this.logger.error(`getActiveAlarms: query failed — ${(error as Error).message}`);
@@ -232,17 +260,19 @@ export class AlarmStorageService implements OnModuleInit {
   /**
    * Append a completed alarm to the chronicle table.
    */
-  async saveToChronicle(alarm: ScadaAlarmChronicle): Promise<void> {
+  async saveToChronicle(tenantId: string, alarm: ScadaAlarmChronicle): Promise<void> {
+    this.assertTenant(tenantId);
     try {
       await this.dataSource.query(
         `
         INSERT INTO scada_alarm_chronicle
-          (id, rule_id, rule_name, severity, status, message, group_name,
+          (tenant_id, id, rule_id, rule_name, severity, status, message, group_name,
            current_value, threshold, on_time, off_time, ack_time, ack_user_id)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
         ON CONFLICT (id) DO NOTHING
         `,
         [
+          tenantId,
           alarm.id,
           alarm.ruleId,
           alarm.ruleName,
@@ -269,11 +299,17 @@ export class AlarmStorageService implements OnModuleInit {
   /**
    * Query alarm history with optional filtering, pagination, and text search.
    */
-  async getAlarmHistory(filter: AlarmHistoryFilter = {}): Promise<AlarmInstance[]> {
+  async getAlarmHistory(
+    tenantId: string,
+    filter: AlarmHistoryFilter = {},
+  ): Promise<AlarmInstance[]> {
+    this.assertTenant(tenantId);
     try {
-      const conditions: string[] = [];
-      const params: unknown[] = [];
-      let idx = 1;
+      // Tenant fence is the FIRST, non-optional predicate — a history read can
+      // never span tenants regardless of which optional filters the caller sets.
+      const conditions: string[] = ['tenant_id = $1'];
+      const params: unknown[] = [tenantId];
+      let idx = 2;
 
       if (filter.severity && filter.severity.length > 0) {
         conditions.push(`severity = ANY($${idx})`);

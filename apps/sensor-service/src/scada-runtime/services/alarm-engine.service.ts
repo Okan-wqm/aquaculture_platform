@@ -54,6 +54,12 @@ import type {
   NotificationConfig,
 } from '../scada-types';
 
+import {
+  evaluateCondition as coreEvaluateCondition,
+  isOutsideDeadband as coreIsOutsideDeadband,
+  delayElapsed as coreDelayElapsed,
+} from '@platform/alarm-core';
+
 import { ScadaRuntimeGateway } from '../scada-runtime.gateway';
 import { TagManagerService } from './tag-manager.service';
 import { AlarmStorageService } from './alarm-storage.service';
@@ -96,8 +102,16 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
   /** Per-rule evaluation state. */
   private readonly evalState = new Map<string, RuleEvalState>();
 
-  /** Tenant ID used for gateway broadcasts. */
-  private tenantId: string = 'default';
+  /**
+   * Tenant this engine instance is bound to. Persistence and broadcast are
+   * tenant-scoped (DB-SENSOR-CRITICAL-001), so the engine starts UNBOUND
+   * (null) and refuses to persist or broadcast until an activation binds a
+   * real tenant via setTenantId(). This makes the cross-tenant leak
+   * structurally impossible: an unbound engine writes nothing and reads
+   * nothing rather than defaulting to a shared 'default' bucket every tenant
+   * would collide in.
+   */
+  private tenantId: string | null = null;
 
   private evalInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -165,14 +179,35 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
     this.notificationConfigs = configs;
   }
 
-  /** Set tenant context for gateway broadcasts. */
+  /** Bind this engine to a tenant. Required before any persistence/broadcast. */
   setTenantId(tenantId: string): void {
+    if (typeof tenantId !== 'string' || tenantId.trim().length === 0) {
+      throw new Error('AlarmEngineService.setTenantId: a non-empty tenantId is required');
+    }
     this.tenantId = tenantId;
   }
 
-  /** The tenant this (currently single-tenant, RT-011) runtime evaluates for. */
-  getTenantId(): string {
+  /**
+   * Return the bound tenant or throw. Every storage write flows through here
+   * so an unbound engine fails closed instead of persisting cross-tenant.
+   */
+  private requireTenant(): string {
+    if (this.tenantId == null) {
+      throw new Error(
+        'AlarmEngineService: no tenant bound — call setTenantId() before evaluating alarms',
+      );
+    }
     return this.tenantId;
+  }
+
+  /**
+   * The tenant this (currently single-tenant, RT-011) runtime evaluates for
+   * (SENSOR-HIGH-053 public accessor). Delegates to requireTenant() so an
+   * unbound engine fails closed instead of leaking a 'default' tenant — the
+   * exact cross-tenant hazard DB-SENSOR-CRITICAL-001 removed.
+   */
+  getTenantId(): string {
+    return this.requireTenant();
   }
 
   /* ---------------------------------------------------------------- */
@@ -180,6 +215,11 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
   /* ---------------------------------------------------------------- */
 
   private evaluateTick(): void {
+    // Fail-closed: an engine with no bound tenant is not activated for anyone.
+    // Skipping the tick (rather than persisting to a shared bucket) is what
+    // keeps SCADA alarm state from ever crossing tenants.
+    if (this.tenantId == null) return;
+
     const now = Date.now();
 
     for (const rule of this.rules) {
@@ -226,10 +266,11 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
           state.conditionTrueAt = now;
         }
 
-        const delay = (rule.timeDelay ?? 0) * 1000;
-        const elapsed = now - state.conditionTrueAt;
+        const delayMs = (rule.timeDelay ?? 0) * 1000;
+        const elapsedMs = now - state.conditionTrueAt;
 
-        if (elapsed >= delay) {
+        // Shared alarm-core kernel: `elapsedMs >= delayMs` (ms precision).
+        if (coreDelayElapsed(elapsedMs, delayMs)) {
           // Delay satisfied — activate alarm
           this.activateAlarm(rule, rawValue, now, state);
         }
@@ -243,7 +284,9 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
       // else: already ACTIVE — update current value
       else if (currentAlarm.status === 'active') {
         currentAlarm.currentValue = rawValue;
-        void this.storage.saveAlarm(this.instanceToEntity(currentAlarm)).catch(() => undefined);
+        void this.storage
+          .saveAlarm(this.requireTenant(), this.instanceToEntity(currentAlarm))
+          .catch(() => undefined);
       }
     } else {
       // Condition not met — reset delay timer
@@ -297,9 +340,11 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
     );
 
     // Persist
-    void this.storage.saveAlarm(this.instanceToEntity(alarm)).catch((err: Error) => {
-      this.logger.error(`activateAlarm: persist failed — ${err.message}`);
-    });
+    void this.storage
+      .saveAlarm(this.requireTenant(), this.instanceToEntity(alarm))
+      .catch((err: Error) => {
+        this.logger.error(`activateAlarm: persist failed — ${err.message}`);
+      });
 
     // Execute alarm actions
     if (rule.actions && rule.actions.length > 0 && !state.actionsExecuted) {
@@ -330,9 +375,11 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
 
     this.logger.log(`ALARM REACTIVATED: id=${alarm.id} rule=${alarm.ruleName}`);
 
-    void this.storage.saveAlarm(this.instanceToEntity(alarm)).catch((err: Error) => {
-      this.logger.error(`reactivateAlarm: persist failed — ${err.message}`);
-    });
+    void this.storage
+      .saveAlarm(this.requireTenant(), this.instanceToEntity(alarm))
+      .catch((err: Error) => {
+        this.logger.error(`reactivateAlarm: persist failed — ${err.message}`);
+      });
   }
 
   private clearAlarm(
@@ -351,9 +398,11 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
       this.resolveAlarm(alarm, state);
     } else {
       alarm.status = 'cleared';
-      void this.storage.saveAlarm(this.instanceToEntity(alarm)).catch((err: Error) => {
-        this.logger.error(`clearAlarm: persist failed — ${err.message}`);
-      });
+      void this.storage
+        .saveAlarm(this.requireTenant(), this.instanceToEntity(alarm))
+        .catch((err: Error) => {
+          this.logger.error(`clearAlarm: persist failed — ${err.message}`);
+        });
       this.logger.log(`ALARM CLEARED: id=${alarm.id} rule=${alarm.ruleName}`);
     }
   }
@@ -362,12 +411,15 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`ALARM RESOLVED: id=${alarm.id} rule=${alarm.ruleName}`);
 
     // Archive to chronicle
-    void this.storage.saveToChronicle(this.instanceToChronicle(alarm)).catch((err: Error) => {
-      this.logger.error(`resolveAlarm: chronicle failed — ${err.message}`);
-    });
+    const tenantId = this.requireTenant();
+    void this.storage
+      .saveToChronicle(tenantId, this.instanceToChronicle(alarm))
+      .catch((err: Error) => {
+        this.logger.error(`resolveAlarm: chronicle failed — ${err.message}`);
+      });
 
     // Remove from active table
-    void this.storage.deleteAlarm(alarm.id).catch((err: Error) => {
+    void this.storage.deleteAlarm(tenantId, alarm.id).catch((err: Error) => {
       this.logger.error(`resolveAlarm: delete failed — ${err.message}`);
     });
 
@@ -424,9 +476,11 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
         `ALARM ACKNOWLEDGED: id=${alarmId} userId=${userId} rule=${alarm.ruleName}`,
       );
 
-      await this.storage.saveAlarm(this.instanceToEntity(alarm)).catch((err: Error) => {
-        this.logger.error(`acknowledgeAlarm: persist failed — ${err.message}`);
-      });
+      await this.storage
+        .saveAlarm(this.requireTenant(), this.instanceToEntity(alarm))
+        .catch((err: Error) => {
+          this.logger.error(`acknowledgeAlarm: persist failed — ${err.message}`);
+        });
 
       // If condition is already clear, resolve immediately
       if (alarm.offTime != null) {
@@ -463,9 +517,11 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
       alarm.status = 'acknowledged';
       count++;
 
-      await this.storage.saveAlarm(this.instanceToEntity(alarm)).catch((err: Error) => {
-        this.logger.error(`acknowledgeAll: persist failed id=${alarm.id} — ${err.message}`);
-      });
+      await this.storage
+        .saveAlarm(this.requireTenant(), this.instanceToEntity(alarm))
+        .catch((err: Error) => {
+          this.logger.error(`acknowledgeAll: persist failed id=${alarm.id} — ${err.message}`);
+        });
 
       if (alarm.offTime != null) {
         this.resolveAlarm(alarm, state);
@@ -513,6 +569,7 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
       pendingActions: actions.length > 0 ? actions : undefined,
     };
 
+    if (this.tenantId == null) return; // unbound engine broadcasts to no tenant
     try {
       this.gateway.pushAlarmStatus(this.tenantId, summary);
     } catch (error) {
@@ -567,7 +624,10 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
             const tagId = String(action.params['tagId'] ?? '');
             const value = action.params['value'];
             if (tagId && value !== undefined) {
-              this.tagManager.writeTagValue(tagId, value, 'alarm-engine', this.tenantId);
+              // Fail-closed tenant binding (DB-SENSOR-CRITICAL-001): an alarm
+              // action can only fire on an engine already evaluating for a
+              // bound tenant — never a raw/unbound tenantId.
+              this.tagManager.writeTagValue(tagId, value, 'alarm-engine', this.requireTenant());
             }
             break;
           }
@@ -600,39 +660,18 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
     condition: AlarmRuleRuntime['condition'],
     threshold: number,
   ): boolean {
-    switch (condition) {
-      case '>':  return value > threshold;
-      case '<':  return value < threshold;
-      case '>=': return value >= threshold;
-      case '<=': return value <= threshold;
-      case '==': return Math.abs(value - threshold) < 0.0001;
-      case '!=': return Math.abs(value - threshold) >= 0.0001;
-      default:   return false;
-    }
+    // Delegates to the drift-zero alarm-core kernel (shared with the Rust edge
+    // engine via WebAssembly). `==`/`!=` use the canonical 1e-4 epsilon.
+    return coreEvaluateCondition(condition, value, threshold);
   }
 
   /**
    * Returns true if the value is far enough from the threshold to
-   * allow the alarm to clear (deadband hysteresis).
+   * allow the alarm to clear (deadband hysteresis) — delegated to the shared
+   * alarm-core kernel (exclusive boundaries, no hidden floor, deadband 0 clears).
    */
   private isOutsideDeadband(value: number, rule: AlarmRuleRuntime): boolean {
-    const deadband = rule.deadband ?? 0;
-    if (deadband === 0) return true;
-
-    switch (rule.condition) {
-      case '>':
-      case '>=':
-        return value < rule.threshold - deadband;
-      case '<':
-      case '<=':
-        return value > rule.threshold + deadband;
-      case '==':
-        return Math.abs(value - rule.threshold) > deadband;
-      case '!=':
-        return Math.abs(value - rule.threshold) <= deadband;
-      default:
-        return true;
-    }
+    return coreIsOutsideDeadband(rule.condition, value, rule.threshold, rule.deadband ?? 0);
   }
 
   /* ---------------------------------------------------------------- */

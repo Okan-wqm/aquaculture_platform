@@ -75,6 +75,14 @@ const SCOPED_DIRS: readonly ScopedDir[] = [
     // INVOCATION-PACK.md moved to docs/runbooks/ in the same phase.
     exempt: ['README.md'],
   },
+  {
+    label: 'agents/db-audit (Lane-D)',
+    // Lane-D added 2026-07-11: bind the new subdirectory lane to the cap at
+    // creation time so it never inherits the edge-docs scanning gap (subdir
+    // lanes are invisible to the Lane-A scope above, which is non-recursive).
+    path: path.join(REPO_ROOT, '.claude', 'agents', 'db-audit'),
+    exempt: ['README.md'],
+  },
 ];
 
 function walkAgentFiles(dir: ScopedDir): { name: string; full: string; lines: number }[] {

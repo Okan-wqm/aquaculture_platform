@@ -9,7 +9,9 @@
 
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
 
+import { VfdCommandAuditLog } from '../../entities/vfd-command-audit-log.entity';
 import { VfdDevice } from '../../entities/vfd-device.entity';
 import { VfdProtocol, VfdBrand, VfdDeviceStatus, VfdCommandType } from '../../entities/vfd.enums';
 import { VfdCommandService, VfdCommandInput } from '../vfd-command.service';
@@ -88,6 +90,15 @@ describe('VfdCommandService', () => {
             getControlWordMapping: jest.fn().mockResolvedValue(mockControlMapping),
             getSpeedReferenceMapping: jest.fn().mockResolvedValue(mockSpeedRefMapping),
             getCommandValue: jest.fn().mockReturnValue(0x047f),
+          },
+        },
+        {
+          // DB-SENSOR-HIGH-003: command audit repo (best-effort writer).
+          provide: getRepositoryToken(VfdCommandAuditLog),
+          useValue: {
+            create: jest.fn((x: unknown) => x),
+            save: jest.fn().mockResolvedValue(undefined),
+            find: jest.fn().mockResolvedValue([]),
           },
         },
       ],

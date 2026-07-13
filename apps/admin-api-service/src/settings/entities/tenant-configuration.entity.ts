@@ -1,93 +1,31 @@
-import {
-  Column,
-  PrimaryGeneratedColumn,
-  CreateDateColumn,
-  UpdateDateColumn,
-  Index,
-} from 'typeorm';
-
 /**
- * Tenant-level configuration entity
- * Stores all tenant-specific settings with JSON structure
+ * NOTE: the former `TenantConfiguration` CLASS (and its
+ * `admin.tenant_configurations` table) is RETIRED — config-service owns tenant
+ * configuration now. The class was UNdecorated (no `@Entity`, mapped to no
+ * table) and its write paths return 410 Gone (`TenantConfigurationService`);
+ * migration 1801400000000 archived the legacy rows into
+ * `admin.retired_config_backups` and dropped the table (ORPHAN-HIGH-364).
+ *
+ * The INTERFACE below replaces the class: the read paths still SERVE this shape
+ * at runtime (the service synthesizes per-tenant defaults via
+ * `createDefaultTenantConfiguration`), so the contract stays — only the
+ * ORM-table illusion is gone. The config-shape interfaces further down document
+ * the tenant-config vocabulary the config-service consumer carries forward.
  */
-@Index(['tenantId'], { unique: true })
-export class TenantConfiguration {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
-
-  @Column({ type: 'uuid', unique: true })
-  tenantId!: string;
-
-  // ============================================================================
-  // User & Access Limits
-  // ============================================================================
-
-  @Column('jsonb', { default: '{}' })
-  userLimits!: UserLimitsConfig;
-
-  // ============================================================================
-  // Storage Configuration
-  // ============================================================================
-
-  @Column('jsonb', { default: '{}' })
-  storageConfig!: StorageConfig;
-
-  // ============================================================================
-  // API Configuration
-  // ============================================================================
-
-  @Column('jsonb', { default: '{}' })
-  apiConfig!: ApiConfig;
-
-  // ============================================================================
-  // Data Retention Settings
-  // ============================================================================
-
-  @Column('jsonb', { default: '{}' })
-  dataRetention!: DataRetentionConfig;
-
-  // ============================================================================
-  // Domain & Branding
-  // ============================================================================
-
-  @Column('jsonb', { default: '{}' })
-  domainConfig!: DomainConfig;
-
-  @Column('jsonb', { default: '{}' })
-  brandingConfig!: BrandingConfig;
-
-  // ============================================================================
-  // Security Settings
-  // ============================================================================
-
-  @Column('jsonb', { default: '{}' })
-  securityConfig!: TenantSecurityConfig;
-
-  // ============================================================================
-  // Notification Settings
-  // ============================================================================
-
-  @Column('jsonb', { default: '{}' })
-  notificationConfig!: TenantNotificationConfig;
-
-  // ============================================================================
-  // Feature Flags
-  // ============================================================================
-
-  @Column('jsonb', { default: '{}' })
-  featureFlags!: FeatureFlagsConfig;
-
-  // ============================================================================
-  // Metadata
-  // ============================================================================
-
-  @CreateDateColumn()
-  createdAt!: Date;
-
-  @UpdateDateColumn()
-  updatedAt!: Date;
-
-  @Column({ nullable: true })
+export interface TenantConfiguration {
+  id: string;
+  tenantId: string;
+  userLimits: UserLimitsConfig;
+  storageConfig: StorageConfig;
+  apiConfig: ApiConfig;
+  dataRetention: DataRetentionConfig;
+  domainConfig: DomainConfig;
+  brandingConfig: BrandingConfig;
+  securityConfig: TenantSecurityConfig;
+  notificationConfig: TenantNotificationConfig;
+  featureFlags: FeatureFlagsConfig;
+  createdAt: Date;
+  updatedAt: Date;
   updatedBy?: string;
 }
 

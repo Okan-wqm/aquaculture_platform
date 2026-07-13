@@ -8,6 +8,27 @@
  * window; Faz 3 baseline migration consolidates both into a single
  * coherent shape.
  *
+ * # v1/v2 coexistence contract (ADR-034 §Coexistence, DB-SENSOR-MEDIUM-003)
+ *
+ * Disclosed WIP mid-cutover — BOTH models are intentionally registered in
+ * edge-device.module.ts:
+ *
+ *   - v1 `edge_devices` (`EdgeDevice`) is the PRODUCTION-ACTIVE model:
+ *     every runtime write path (edge-device.service.ts,
+ *     provisioning.service.ts, mqtt-auth.service.ts) and the GraphQL
+ *     surface (edge-device.resolver.ts) operate on v1 today.
+ *   - the v2 family (`devices`/`policies`/`licenses`/`firmware_releases`/
+ *     `provisioning_records`/`witnesses`/`audit_archive_v1`) is the
+ *     ADR-034 TARGET model: migration-created, drift-validated, and
+ *     module-registered so schema fan-out and SchemaDriftValidator cover
+ *     it, but it has NO runtime write path yet.
+ *   - Single-writer-per-model rule: one service file must never write both
+ *     the v1 and the v2 device row — the cutover is a routing flip, not an
+ *     interleaved dual-write scattered across handlers. Enforced by
+ *     tests/invariants/edge-device-dual-model-guard.spec.ts.
+ *   - Do NOT retire v1 outside the planned cutover
+ *     (docs/plans/2026-05-12-sens-api-gateway-edge-platform-v2-revision.md).
+ *
  * # DDL contract (constraint set carried verbatim from ADR-022 §2.1)
  *
  *   - `trustBundleSha256 bytea NOT NULL CHECK (octet_length=32)`

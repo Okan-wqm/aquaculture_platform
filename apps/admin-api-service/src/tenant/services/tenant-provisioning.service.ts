@@ -115,14 +115,15 @@ export class TenantProvisioningService {
 
   /**
    * Default roles to be created for each tenant during provisioning.
-   * Only TENANT_ADMIN role is created - actual permissions are managed via user_permissions table.
+   * Only TENANT_ADMIN role is created - actual permissions are managed by the
+   * auth-service tenant RBAC (auth.tenant_role_permissions.panel_permissions, ADR-042).
    */
   private readonly defaultRoles: DefaultTenantRole[] = [
     {
       code: 'TENANT_ADMIN',
       name: 'Tenant Administrator',
       description: 'Full administrative access to all tenant features. Can manage users and assign permissions.',
-      permissions: ['*'], // Full access - actual permissions managed via user_permissions table
+      permissions: ['*'], // Full access - actual permissions managed by auth tenant RBAC (ADR-042)
       isDefault: false,
       isEditable: false,
       displayOrder: 1,
@@ -685,7 +686,8 @@ export class TenantProvisioningService {
 
   /**
    * Setup default roles for a newly provisioned tenant.
-   * Creates only the TENANT_ADMIN role - actual permissions are managed via user_permissions table.
+   * Creates only the TENANT_ADMIN role - actual permissions are managed by the
+   * auth-service tenant RBAC (auth.tenant_role_permissions.panel_permissions, ADR-042).
    */
   private async setupDefaultRoles(
     tenant: Tenant,

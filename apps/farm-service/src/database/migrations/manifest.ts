@@ -57,16 +57,19 @@ import { AddWelfareLiceCheckConstraints1804900000000 } from './1804900000000-Add
 import { ApplyRlsToRegulatoryReportDrafts1805000000000 } from './1805000000000-ApplyRlsToRegulatoryReportDrafts';
 import { AddTenantErasureRetainedColumns1805100000000 } from './1805100000000-AddTenantErasureRetainedColumns';
 import { AddFarmStockBatchSnapshotSpecies1805200000000 } from './1805200000000-AddFarmStockBatchSnapshotSpecies';
+import { DropFarmDocuments1805300000000 } from './1805300000000-DropFarmDocuments';
+import { DropTankBatchCurrentQuantityMirror1805400000000 } from './1805400000000-DropTankBatchCurrentQuantityMirror';
+import { DropFarmWorkerPlaceholderPii1805500000000 } from './1805500000000-DropFarmWorkerPlaceholderPii';
 // Renumbered from 1804700000000/1804800000000/1804900000000 →
-// 1805300000000/1805400000000/1805500000000 on this main merge to resolve a
-// timestamp collision with main's AddRegulatoryAuditEnumValues1804700000000 +
-// AddRegulatoryReportImmutabilityTrigger1804800000000 +
-// AddWelfareLiceCheckConstraints1804900000000 (migrations are append-only +
-// ordered; this branch's migrations never merged, so no deployed DB ran the
-// old numbers).
-import { AddFinanceEntryDeletedBy1805300000000 } from './1805300000000-AddFinanceEntryDeletedBy';
-import { AddWorkOrderEffectiveCostDateIndex1805400000000 } from './1805400000000-AddWorkOrderEffectiveCostDateIndex';
-import { FinanceEntrySoftDeletePartialIndexes1805500000000 } from './1805500000000-FinanceEntrySoftDeletePartialIndexes';
+// 1805300000000/1805400000000/1805500000000 → 1805600000000/1805700000000/1805800000000
+// across successive main merges to resolve timestamp collisions: first with
+// main's AddRegulatoryAuditEnumValues1804700000000 group, then with main's
+// DropFarmDocuments1805300000000 / DropTankBatchCurrentQuantityMirror1805400000000 /
+// DropFarmWorkerPlaceholderPii1805500000000. Migrations are append-only + ordered;
+// this branch's migrations never merged, so no deployed DB ran the old numbers.
+import { AddFinanceEntryDeletedBy1805600000000 } from './1805600000000-AddFinanceEntryDeletedBy';
+import { AddWorkOrderEffectiveCostDateIndex1805700000000 } from './1805700000000-AddWorkOrderEffectiveCostDateIndex';
+import { FinanceEntrySoftDeletePartialIndexes1805800000000 } from './1805800000000-FinanceEntrySoftDeletePartialIndexes';
 
 /**
  * Canonical farm-service migration class list.
@@ -130,7 +133,10 @@ export const FARM_MIGRATIONS = [
   ApplyRlsToRegulatoryReportDrafts1805000000000,
   AddTenantErasureRetainedColumns1805100000000,
   AddFarmStockBatchSnapshotSpecies1805200000000,
-  AddFinanceEntryDeletedBy1805300000000,
-  AddWorkOrderEffectiveCostDateIndex1805400000000,
-  FinanceEntrySoftDeletePartialIndexes1805500000000,
+  DropFarmDocuments1805300000000,
+  DropTankBatchCurrentQuantityMirror1805400000000,
+  DropFarmWorkerPlaceholderPii1805500000000,
+  AddFinanceEntryDeletedBy1805600000000,
+  AddWorkOrderEffectiveCostDateIndex1805700000000,
+  FinanceEntrySoftDeletePartialIndexes1805800000000,
 ] as const;

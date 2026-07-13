@@ -35,6 +35,7 @@ import {
 } from './dto/request-tenant-erasure.dto';
 import {
   TenantDetailDto,
+  TenantListItemDto,
   BulkSuspendDto,
   BulkActivateDto,
   CreateTenantNoteDto,
@@ -147,7 +148,7 @@ export class TenantAdminController {
   @ApiOperation({ summary: 'List all tenants with filtering and pagination' })
   async listTenants(
     @Query() query: ListTenantsQueryDto,
-  ): Promise<PaginatedResult<Tenant>> {
+  ): Promise<PaginatedResult<TenantListItemDto>> {
     return this.queryBus.execute(
       new ListTenantsQuery(
         {

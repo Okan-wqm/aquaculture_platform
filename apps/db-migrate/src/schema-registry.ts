@@ -17,7 +17,7 @@
  * mirrors the read-dependency topology:
  *
  *   1. `shared` / `public` — cross-cutting tables (audit_logs,
- *      gdpr_data_requests, user_consents, user_permissions, platform_migrations).
+ *      gdpr_data_requests, user_consents, access_logs, platform_migrations).
  *      Not a service-owned schema. Initialized by postgres init-scripts
  *      (00-init-schemas.sh) BEFORE any container including this one starts.
  *      Listed here for documentation only; the runner does NOT own

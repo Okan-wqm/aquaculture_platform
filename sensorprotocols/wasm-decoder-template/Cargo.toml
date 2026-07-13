@@ -1,0 +1,20 @@
+# Template crate for a custom LoRaWAN payload decoder that runs inside the
+# sens-api-gateway `wasm-codec` sandbox. Build with:
+#   cargo build --target wasm32-unknown-unknown --release
+# then copy target/wasm32-unknown-unknown/release/my_decoder.wasm into the
+# gateway's `lorawan.wasm_decoder_dir` as `<decoder_name>.wasm`.
+#
+# This crate is standalone (not a workspace member) — vendors build it in their
+# own tree. No dependencies, no_std-friendly, no WASI.
+[package]
+name = "wasm-decoder-template"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true

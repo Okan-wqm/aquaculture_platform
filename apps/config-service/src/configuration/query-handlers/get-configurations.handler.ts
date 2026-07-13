@@ -1,8 +1,10 @@
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { Injectable } from '@nestjs/common';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere } from 'typeorm';
+import { DataSource, Repository, FindOptionsWhere } from 'typeorm';
 
+import { runInRlsScopedRead } from '../../database/rls-scoped-session';
 import { SYSTEM_TENANT_ID } from '../configuration.constants';
 import {
   Configuration,
@@ -79,37 +81,44 @@ export class GetConfigurationsHandler
 export class GetConfigurationsByServiceHandler
   implements IQueryHandler<GetConfigurationsByServiceQuery, Configuration[]>
 {
-  constructor(
-    @InjectRepository(Configuration)
-    private readonly configRepository: Repository<Configuration>,
-  ) {}
+  constructor(private readonly dataSource: DataSource) {}
 
   async execute(query: GetConfigurationsByServiceQuery): Promise<Configuration[]> {
     const { tenantId, service, environment } = query;
 
-    const where: FindOptionsWhere<Configuration>[] = [
-      {
-        tenantId,
-        service,
-        ...(environment && { environment: environment as ConfigEnvironment }),
-      },
-    ];
+    const serviceScopedWhere: FindOptionsWhere<Configuration> = {
+      service,
+      ...(environment && { environment: environment as ConfigEnvironment }),
+    };
 
-    // Also include system fallback configs.
-    if (tenantId !== SYSTEM_TENANT_ID) {
-      where.push({
-        tenantId: SYSTEM_TENANT_ID,
-        service,
-        isActive: true,
-        ...(environment && { environment: environment as ConfigEnvironment }),
-      });
-    }
+    // WHY two explicitly-scoped reads instead of one pooled query: FORCE RLS on
+    // config.configurations exposes only the partition matching the
+    // app.current_tenant GUC, so a single query can never see both the tenant's
+    // own rows and the SYSTEM fallback rows. Each read owns its RLS scope
+    // transaction-locally — the tenant read is scoped to the resolved tenant
+    // (which IS the system tenant for a tenantless platform admin), and the
+    // system-fallback read is scoped to SYSTEM_TENANT_ID because platform
+    // defaults are cross-tenant-readable BY DESIGN.
+    const tenantRows = await runInRlsScopedRead(this.dataSource, tenantId, (manager) =>
+      tenantManagerRepo(manager, Configuration, tenantId).find({
+        where: serviceScopedWhere,
+        order: { key: 'ASC' },
+        take: 500,
+      }),
+    );
 
-    const configurations = await this.configRepository.find({
-      where,
-      order: { key: 'ASC' },
-      take: 500,
-    });
+    const systemRows =
+      tenantId === SYSTEM_TENANT_ID
+        ? []
+        : await runInRlsScopedRead(this.dataSource, SYSTEM_TENANT_ID, (manager) =>
+            tenantManagerRepo(manager, Configuration, SYSTEM_TENANT_ID).find({
+              where: { ...serviceScopedWhere, isActive: true },
+              order: { key: 'ASC' },
+              take: 500,
+            }),
+          );
+
+    const configurations = [...tenantRows, ...systemRows];
 
     // Merge: tenant-specific overrides system fallback.
     const configMap = new Map<string, Configuration>();

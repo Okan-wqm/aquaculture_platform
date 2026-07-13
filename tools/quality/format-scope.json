@@ -23729,6 +23729,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/process/services/__tests__/scada-package-script-validation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/process/services/__tests__/scada-package-undeploy-on-delete.spec.ts",
       "prettier_managed": true
     },
@@ -23778,6 +23784,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/process/services/unified-tag.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/protocol/adapters/__tests__/protocol-codec-golden.spec.ts",
       "prettier_managed": true
     },
     {
@@ -24251,6 +24263,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/scada-runtime/services/__tests__/quickjs-sandbox.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/scada-runtime/services/__tests__/script-engine.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/scada-runtime/services/alarm-ack.events.ts",
       "prettier_managed": true
     },
@@ -24282,6 +24306,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/scada-runtime/services/notification.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/scada-runtime/services/quickjs-sandbox.ts",
       "prettier_managed": true
     },
     {
@@ -31111,6 +31141,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-13-protocol-codec-wasm.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-13-scada-script-sandbox.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -37153,6 +37195,81 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/protocol-codec/jest.config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/protocol-codec/package.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/protocol-codec/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "generated",
+      "content_sha256": "b23d7a754fba47890bda7b6f3870054e8c70b2e6d55c5be0043e1cd8e882cbab",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "libs/protocol-codec/src/generated/protocol_codec_wasm_bg.wasm.d.ts",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
+    },
+    {
+      "class": "generated",
+      "content_sha256": "cb5d4bbc10ad01a68d9e23e75f82509f308e2890db64cda42a44744df00237b5",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "libs/protocol-codec/src/generated/protocol_codec_wasm.d.ts",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
+    },
+    {
+      "class": "generated",
+      "content_sha256": "409caeea16245bf79a94b88300657bf589a818c35a13b0fd0ac91fd9035ea7af",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "libs/protocol-codec/src/generated/protocol_codec_wasm.js",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/protocol-codec/src/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/protocol-codec/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/protocol-codec/tsconfig.lib.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/protocol-codec/tsconfig.spec.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/sdk/typescript/README.md",
       "prettier_managed": true
     },
@@ -38004,7 +38121,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "0324908ff79fb6e031a801f22fb28cf0a1d7172f9459d2fabb56410cea9d625c",
+      "content_sha256": "9a1b5591497e1da3308f5cc1ed7c1f36e312d040074e7145be69bddeb1c0441d",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -39475,6 +39592,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "sensorprotocols/mqtt-protocol.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "sensorprotocols/wasm-decoder-template/README.md",
       "prettier_managed": true
     },
     {
@@ -53070,10 +53193,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8699,
+  "file_count": 8717,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8524,
-  "managed_file_list_sha256": "f80eee8dc91cd911f0a55e659b6066458fe9e73adfd29d09e72e7bdabffa38af",
+  "managed_count": 8539,
+  "managed_file_list_sha256": "929708c8821ea7d046a2cd518c52404410918af05525390d9e85cc8bb596b34e",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

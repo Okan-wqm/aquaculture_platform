@@ -209,7 +209,6 @@ jobs:
         uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
         with:
           toolchain: 1.88.0
-          targets: wasm32-unknown-unknown
       - name: Cache cargo registry + target
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
@@ -221,16 +220,13 @@ jobs:
           node-version: '22'
       - name: codec-drift script (validates fixtures + runs Rust golden test)
         run: node --experimental-strip-types tools/scripts/check-codec-drift.ts
-      # Regenerate the committed wasm bindings from the SAME pinned rustc +
-      # wasm-bindgen (0.2.100) and fail if they differ from what is checked in.
-      # A drift here means the crate changed but src/generated was not
-      # regenerated — the TS consumers would be running a stale parser.
-      - name: Install pinned wasm-bindgen-cli
-        run: cargo install wasm-bindgen-cli --version 0.2.100 --locked
-      - name: Regenerate protocol-codec wasm bindings
-        run: bash libs/protocol-codec/scripts/build-wasm.sh
-      - name: Fail on stale committed bindings
-        run: git diff --exit-code libs/protocol-codec/src/generated
+      # NB: the committed protocol-codec wasm bindings are guarded FUNCTIONALLY,
+      # not by a byte-diff — the wasm binary is not reproducible byte-for-byte
+      # across build hosts. The TypeScript golden twin
+      # (apps/sensor-service/.../protocol-codec-golden.spec.ts) drives the
+      # committed wasm over the SAME golden fixtures the Rust harness asserts, so
+      # a stale or wrong binary fails there. Regenerate locally with
+      # libs/protocol-codec/scripts/build-wasm.sh.
 
   doc:
     # cargo doc with RUSTDOCFLAGS=-D warnings turns any broken intra-doc

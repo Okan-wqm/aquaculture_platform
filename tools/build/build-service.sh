@@ -27,6 +27,20 @@ if [ -d "apps/${SERVICE_NAME}/src/assets" ]; then
   cp -r "apps/${SERVICE_NAME}/src/assets/." "${DIST_DIR}/apps/${SERVICE_NAME}/src/assets/"
 fi
 
+# ── Generated non-TS lib assets (e.g. wasm-bindgen bindings) ──
+# WHY: tsc compiles a lib's *.ts sources into the dist tree but does NOT copy
+# pre-generated .js/.wasm assets that the lib's index.ts imports (e.g.
+# libs/protocol-codec/src/generated). Mirror any such `src/generated` dir into
+# the dist tree — only when the owning lib was actually compiled into this
+# service — so the emitted require() resolves at runtime.
+while IFS= read -r gendir; do
+  libsrc="$(dirname "${gendir}")"
+  if [ -d "${DIST_DIR}/${libsrc}" ]; then
+    mkdir -p "${DIST_DIR}/${gendir}"
+    cp -r "${gendir}/." "${DIST_DIR}/${gendir}/"
+  fi
+done < <(find libs -type d -path '*/src/generated' 2>/dev/null)
+
 # ── Entry Shim ──
 # WHY: With rootDir=workspace-root, tsc outputs to dist/apps/{svc}/apps/{svc}/src/main.js.
 # Docker expects `node dist/main.js`. This shim bridges the gap.

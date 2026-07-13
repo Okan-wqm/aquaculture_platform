@@ -17,6 +17,11 @@ exclude = [
     # (libfuzzer-sys, requires nightly to run). Excluded from the
     # workspace so `cargo build --workspace` stays on stable.
     "crates/protocol-codec/fuzz",
+    # wasm-bindgen binding crate — built standalone via `wasm-pack`
+    # (`--target nodejs`) for the NestJS/browser consumers, not by the
+    # native workspace build. Excluded so `cargo build --workspace`,
+    # clippy, and tests stay on the native target.
+    "crates/protocol-codec-wasm",
     # Vendored upstream fork (RUST-CVE-001) — consumed only via
     # [patch.crates-io] at the bottom of this file. Excluded so upstream
     # code is not subject to our workspace lints/tests; provenance and

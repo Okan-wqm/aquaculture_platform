@@ -3107,6 +3107,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/conversation/__tests__/conversation-privacy-event.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/conversation/conversation-privacy-event.handler.ts",
       "prettier_managed": true
     },
@@ -25993,6 +25999,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/adr/043-support-conversation-boundary.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/adr/044-ai-conversation-content-ownership.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/adr/2026-04-30-apollo-router-self-hosted-static-supergraph.md",
       "prettier_managed": true
     },
@@ -39948,6 +39966,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/edge-device-dual-model-guard.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/edge-v2-plan-contract.spec.ts",
       "prettier_managed": true
     },
@@ -53148,10 +53172,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8712,
+  "file_count": 8716,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8537,
-  "managed_file_list_sha256": "e945dc970868d4236f0d76a23b1be75ccd82f0f84dd8d4182e3aa659121f64f3",
+  "managed_count": 8541,
+  "managed_file_list_sha256": "a01037fba7e8072a0c966832709e9bb1a00539319c719730134b2fe4064e224e",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

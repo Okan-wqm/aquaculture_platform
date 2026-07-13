@@ -202,6 +202,26 @@ export interface ErrorOccurrence {
   timestamp: string;
 }
 
+export interface JobExecutionLog {
+  id: string;
+  jobId: string;
+  attemptNumber: number;
+  status: JobStatus;
+  startedAt: string;
+  completedAt?: string;
+  durationMs?: number;
+  errorMessage?: string;
+  stackTrace?: string;
+  result?: Record<string, unknown>;
+  logs?: Array<{
+    level: 'debug' | 'info' | 'warn' | 'error';
+    message: string;
+    timestamp: string;
+    data?: Record<string, unknown>;
+  }>;
+  workerId?: string;
+}
+
 export interface BackgroundJob {
   id: string;
   name: string;

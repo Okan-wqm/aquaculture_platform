@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Select, useAuthContext, useToast } from '@aquaculture/shared-ui';
 import { systemSettingsApi } from '../../services/adminApi';
 import type { ErrorGroup, ErrorOccurrence } from '../../services/adminApi';
 
@@ -33,8 +33,12 @@ interface ErrorStats {
 // ============================================================================
 
 export const ErrorTrackingPage: React.FC = () => {
+  const { user } = useAuthContext();
+  const adminActor = user ? user.email : 'unknown-admin';
+  const { toast } = useToast();
   // State
   const [errorGroups, setErrorGroups] = useState<ErrorGroup[]>([]);
+  const [assigneeInput, setAssigneeInput] = useState('');
   const [stats, setStats] = useState<ErrorStats>({
     totalErrors: 0,
     unresolvedErrors: 0,
@@ -129,7 +133,7 @@ export const ErrorTrackingPage: React.FC = () => {
     if (!selectedError) return;
 
     try {
-      const updated = await systemSettingsApi.resolveError(selectedError.id, 'admin');
+      const updated = await systemSettingsApi.resolveError(selectedError.id, adminActor);
       setErrorGroups(errorGroups.map((e) => (e.id === selectedError.id ? updated : e)));
       setSelectedError(updated);
       setStats((prev) => ({ ...prev, unresolvedErrors: prev.unresolvedErrors - 1 }));
@@ -148,6 +152,24 @@ export const ErrorTrackingPage: React.FC = () => {
       setStats((prev) => ({ ...prev, unresolvedErrors: prev.unresolvedErrors - 1 }));
     } catch (err) {
       console.error('Failed to ignore error:', err);
+    }
+  };
+
+  const handleAssign = async (): Promise<void> => {
+    if (!selectedError || !assigneeInput.trim()) return;
+
+    try {
+      const updated = await systemSettingsApi.assignError(selectedError.id, assigneeInput.trim());
+      setErrorGroups(errorGroups.map((e) => (e.id === selectedError.id ? updated : e)));
+      setSelectedError(updated);
+      toast({ variant: 'success', title: `Assigned to ${assigneeInput.trim()}` });
+      setAssigneeInput('');
+    } catch (err) {
+      toast({
+        variant: 'error',
+        title: 'Failed to assign error group',
+        description: err instanceof Error ? err.message : undefined,
+      });
     }
   };
 
@@ -563,6 +585,21 @@ export const ErrorTrackingPage: React.FC = () => {
                     Ignore
                   </Button>
                 )}
+                <div className="flex items-center gap-2">
+                  <Input
+                    placeholder="Assignee ID or email"
+                    value={assigneeInput}
+                    onChange={(e) => setAssigneeInput(e.target.value)}
+                    className="w-56"
+                  />
+                  <Button
+                    onClick={handleAssign}
+                    variant="outline"
+                    disabled={!assigneeInput.trim()}
+                  >
+                    Assign
+                  </Button>
+                </div>
                 <Button
                   onClick={() => {
                     setSelectedError(null);

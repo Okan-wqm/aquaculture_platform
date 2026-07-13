@@ -6,9 +6,9 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Button, Badge, Input, Select, ConfirmModal, useToast } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Select, ConfirmModal, Modal, useToast } from '@aquaculture/shared-ui';
 import { systemSettingsApi } from '../../services/adminApi';
-import type { BackgroundJob, JobQueue } from '../../services/adminApi';
+import type { BackgroundJob, JobExecutionLog, JobQueue } from '../../services/adminApi';
 
 // ============================================================================
 // Types
@@ -61,6 +61,9 @@ export const JobQueuePage: React.FC = () => {
   const [dashboard, setDashboard] = useState<JobDashboard | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingJobAction | null>(null);
   const [actionRunning, setActionRunning] = useState(false);
+  const [logsJob, setLogsJob] = useState<BackgroundJob | null>(null);
+  const [jobLogs, setJobLogs] = useState<JobExecutionLog[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
   const [jobs, setJobs] = useState<BackgroundJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -178,17 +181,18 @@ export const JobQueuePage: React.FC = () => {
     });
   };
 
-  const retryAllFailed = async (failedJobs: BackgroundJob[]): Promise<void> => {
+  const retryAllFailed = async (): Promise<void> => {
     try {
-      for (const job of failedJobs) {
-        await retryJob(job);
-      }
+      // One server-side bulk operation (POST /system/jobs/retry-failed)
+      // instead of a client-side per-job loop (ADMIN-MEDIUM-017).
+      const { retriedCount } = await systemSettingsApi.retryAllFailedJobs();
       toast({
-        title: `Retried ${failedJobs.length} failed job${failedJobs.length === 1 ? '' : 's'}`,
+        title: `Retried ${retriedCount} failed job${retriedCount === 1 ? '' : 's'}`,
         variant: 'success',
       });
+      loadDashboard();
+      loadJobs();
     } catch (err) {
-      console.error('Failed to retry jobs:', err);
       setError(err instanceof Error ? err.message : 'Failed to retry jobs. Please try again.');
     }
   };
@@ -204,8 +208,47 @@ export const JobQueuePage: React.FC = () => {
       variant: 'warning',
       confirmText: 'Retry All',
       loadingText: 'Retrying...',
-      onConfirm: () => retryAllFailed(failedJobs),
+      onConfirm: retryAllFailed,
     });
+  };
+
+  const purgeCompleted = async (): Promise<void> => {
+    try {
+      const { purgedCount } = await systemSettingsApi.purgeCompletedJobs();
+      toast({
+        title: `Purged ${purgedCount} completed job${purgedCount === 1 ? '' : 's'}`,
+        variant: 'success',
+      });
+      loadDashboard();
+      loadJobs();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to purge jobs. Please try again.');
+    }
+  };
+
+  const handlePurgeCompleted = () => {
+    setPendingAction({
+      title: 'Purge Completed Jobs',
+      message: 'Permanently remove completed job records? This cannot be undone.',
+      variant: 'danger',
+      confirmText: 'Purge',
+      loadingText: 'Purging...',
+      onConfirm: purgeCompleted,
+    });
+  };
+
+  const openJobLogs = async (job: BackgroundJob): Promise<void> => {
+    setLogsJob(job);
+    setLogsLoading(true);
+    setJobLogs([]);
+    try {
+      const { items } = await systemSettingsApi.getJobLogs(job.id, { limit: 50 });
+      setJobLogs(items);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load job logs.');
+    } finally {
+      setLogsLoading(false);
+    }
   };
 
   const handlePauseQueue = async (queue: JobQueue) => {
@@ -432,6 +475,15 @@ export const JobQueuePage: React.FC = () => {
                   Retry All Failed
                 </Button>
               )}
+              {safeJobs.some((j) => j.status === 'completed') && (
+                <Button
+                  variant="outline"
+                  onClick={handlePurgeCompleted}
+                  className="whitespace-nowrap"
+                >
+                  Purge Completed
+                </Button>
+              )}
             </div>
           </Card>
 
@@ -557,6 +609,12 @@ export const JobQueuePage: React.FC = () => {
                                   Cancel
                                 </button>
                               )}
+                              <button
+                                onClick={() => void openJobLogs(job)}
+                                className="px-3 py-1.5 text-sm font-medium bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                              >
+                                Logs
+                              </button>
                             </div>
                           </td>
                         </tr>
@@ -719,6 +777,48 @@ export const JobQueuePage: React.FC = () => {
           loadingText={pendingAction.loadingText}
         />
       )}
+
+      {/* Job Execution Logs */}
+      <Modal
+        isOpen={logsJob !== null}
+        onClose={() => setLogsJob(null)}
+        title={logsJob ? `Execution Logs — ${logsJob.name}` : 'Execution Logs'}
+        size="lg"
+      >
+        {logsLoading ? (
+          <div className="py-8 text-center text-gray-500">Loading logs...</div>
+        ) : jobLogs.length === 0 ? (
+          <div className="py-8 text-center text-gray-500">No execution logs for this job yet</div>
+        ) : (
+          <div className="space-y-3 max-h-[60vh] overflow-y-auto">
+            {jobLogs.map((log) => (
+              <div key={log.id} className="border border-gray-200 rounded-lg p-3">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="font-medium text-gray-900">Attempt {log.attemptNumber}</span>
+                  <Badge variant={getStatusBadge(log.status)}>{log.status}</Badge>
+                </div>
+                <div className="mt-1 text-xs text-gray-500">
+                  {formatDateTime(log.startedAt)}
+                  {log.durationMs != null && ` · ${formatDuration(log.durationMs)}`}
+                  {log.workerId && ` · ${log.workerId}`}
+                </div>
+                {log.errorMessage && (
+                  <p className="mt-2 text-xs text-red-600 font-mono whitespace-pre-wrap">{log.errorMessage}</p>
+                )}
+                {log.logs && log.logs.length > 0 && (
+                  <div className="mt-2 space-y-0.5">
+                    {log.logs.map((line, index) => (
+                      <p key={index} className="text-xs font-mono text-gray-600">
+                        [{line.level}] {line.message}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
 
       {/* Error Display */}
       {error && (

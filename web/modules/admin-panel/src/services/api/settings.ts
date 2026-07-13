@@ -24,6 +24,7 @@ import type {
   BackgroundJob,
   JobQueue,
   JobStatus,
+  JobExecutionLog,
 } from '../types';
 
 // Re-export extracted APIs for barrel convenience
@@ -238,4 +239,16 @@ export const systemSettingsApi = {
     apiFetch<BackgroundJob>(`/system/jobs/${id}/cancel`, { method: 'POST' }),
   retryJob: (id: string) =>
     apiFetch<BackgroundJob>(`/system/jobs/${id}/retry`, { method: 'POST' }),
+  retryAllFailedJobs: (queueName?: string) =>
+    apiFetch<{ retriedCount: number }>('/system/jobs/retry-failed', {
+      method: 'POST',
+      body: JSON.stringify(queueName ? { queueName } : {}),
+    }),
+  purgeCompletedJobs: (olderThanDays?: number) =>
+    apiFetch<{ purgedCount: number }>('/system/jobs/purge-completed', {
+      method: 'POST',
+      body: JSON.stringify(olderThanDays != null ? { olderThanDays } : {}),
+    }),
+  getJobLogs: (id: string, params?: { page?: number; limit?: number }) =>
+    apiFetch<{ items: JobExecutionLog[]; total: number }>(`/system/jobs/${id}/logs?${buildQueryString(params || {})}`),
 };

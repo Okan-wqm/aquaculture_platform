@@ -23,6 +23,7 @@ import {
   Loader2,
   Inbox,
 } from 'lucide-react';
+import { useAuthContext } from '@aquaculture/shared-ui';
 import {
   supportApi,
   type MessageThread,
@@ -56,6 +57,8 @@ interface MessagingStats {
 // ============================================================================
 
 export const MessagingPage: React.FC = () => {
+  const { user } = useAuthContext();
+  const adminDisplayName = user ? [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email : 'Platform Admin';
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [stats, setStats] = useState<MessagingStats | null>(null);
   const [selectedThread, setSelectedThread] = useState<ThreadSummary | null>(null);
@@ -162,7 +165,7 @@ export const MessagingPage: React.FC = () => {
     try {
       await supportApi.sendSupportMessage(selectedThread.id, {
         content: newMessage,
-        senderName: 'Admin', // TODO: Use actual admin name
+        senderName: adminDisplayName,
       });
       setNewMessage('');
       setIsInternalNote(false);
@@ -213,7 +216,7 @@ export const MessagingPage: React.FC = () => {
     try {
       await supportApi.createThread({
         ...data,
-        senderName: 'Admin', // TODO: Use actual admin name
+        senderName: adminDisplayName,
       });
       setShowNewThreadModal(false);
       fetchThreads();

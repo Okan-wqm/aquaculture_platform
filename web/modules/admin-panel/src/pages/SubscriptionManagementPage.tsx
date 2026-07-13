@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge, Input } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input , useAuthContext } from '@aquaculture/shared-ui';
 import {
   billingApi,
   SubscriptionOverview,
@@ -20,6 +20,9 @@ import {
 // ============================================================================
 
 const SubscriptionManagementPage: React.FC = () => {
+  const { user } = useAuthContext();
+  // Audit-bearing actions record the real acting admin (ADMIN-MEDIUM-008).
+  const adminActor = user ? `${[user.firstName, user.lastName].filter(Boolean).join(' ') || user.email} (${user.id})` : 'unknown-admin';
   const [subscriptions, setSubscriptions] = useState<SubscriptionOverview[]>([]);
   const [stats, setStats] = useState<SubscriptionStats | null>(null);
   const [total, setTotal] = useState(0);
@@ -74,7 +77,7 @@ const SubscriptionManagementPage: React.FC = () => {
       await billingApi.cancelSubscription(
         selectedSubscription.tenantId,
         cancelReason,
-        'admin', // TODO: get from auth context
+        adminActor,
       );
       setShowCancelModal(false);
       setSelectedSubscription(null);
@@ -92,7 +95,7 @@ const SubscriptionManagementPage: React.FC = () => {
       await billingApi.extendTrial(
         selectedSubscription.tenantId,
         trialDays,
-        'admin', // TODO: get from auth context
+        adminActor,
       );
       setShowExtendTrialModal(false);
       setSelectedSubscription(null);

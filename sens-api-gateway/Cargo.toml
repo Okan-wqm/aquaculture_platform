@@ -20,7 +20,7 @@ futures = "0.3"
 # Drift-zero alarm decision core — the SAME condition / deadband / delay math the
 # NestJS SCADA runtime evaluates (via the alarm-core wasm build). See
 # crates/alarm-core.
-alarm-core = { path = "../crates/alarm-core" }
+alarm-core = { path = "../crates/alarm-core", version = "0.1.0" }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }

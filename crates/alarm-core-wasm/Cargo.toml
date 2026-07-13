@@ -14,5 +14,5 @@ crate-type = ["cdylib", "rlib"]
 path = "src/lib.rs"
 
 [dependencies]
-alarm-core = { path = "../alarm-core" }
+alarm-core = { path = "../alarm-core", version = "0.1.0" }
 wasm-bindgen = "=0.2.100"

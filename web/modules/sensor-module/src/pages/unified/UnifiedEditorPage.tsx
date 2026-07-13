@@ -36,6 +36,9 @@ import {
   PanelRightOpen,
   Settings,
   Paperclip,
+  Play,
+  Square,
+  X,
 } from 'lucide-react';
 
 import type { Edge } from '@xyflow/react';
@@ -47,21 +50,24 @@ import { useScadaPackageStore } from '../../store/scada';
 import { useProcess, type ProcessNode } from '../../hooks/useProcess';
 import { useEdgeDevices } from '../../hooks/useEdgeDevices';
 import { useUnifiedTags } from '../../hooks/useUnifiedTags';
+import { useScadaKeyboardShortcuts } from '../../hooks/useScadaKeyboardShortcuts';
 import {
   useScadaPackages,
   useCreateScadaPackage,
   useUpdateScadaPackage,
-  useDeployScadaPackage,
+  useDeployScadaBundle,
 } from '../../hooks/useScadaPackage';
 import { useDeployProcessToEdge } from '../../hooks/useDeployProcess';
 import { EquipmentPanel } from '../../components/process-editor/panels/EquipmentPanel';
 import { NodeTemplate } from '../../components/process-editor/panels/EquipmentPanel';
 import ModeTabBar from '../../components/unified-editor/ModeTabBar';
 import { UnifiedPropertiesPanel } from '../../components/unified-editor/UnifiedPropertiesPanel';
+import { HmiPropertiesPanel } from '../../components/unified-editor/HmiPropertiesPanel';
 import { AttachmentsPanel } from '../../components/process-editor/panels/AttachmentsPanel';
-import { WidgetPalette } from '../../components/scada-builder/WidgetPalette';
+import { UnifiedLeftPanel } from '../../components/scada-builder/UnifiedLeftPanel';
 import { ScreenCanvas } from '../../components/scada-builder/ScreenCanvas';
 import { StableModeProvider } from '../../components/scada-builder/StableModeProvider';
+import { SimulationSidebar } from '../../components/scada-builder/SimulationSidebar';
 import { DeployToEdgeDialog } from '../../components/deploy/DeployToEdgeDialog';
 import { DeployAutomationModal } from '../../components/deploy/DeployAutomationModal';
 import { ScadaPackagePreview } from '../../components/deploy/ScadaPackagePreview';
@@ -183,6 +189,8 @@ const UnifiedEditorPage: React.FC = () => {
 
   // Editor mode
   const mode = useEditorModeStore((s) => s.mode);
+  const setMode = useEditorModeStore((s) => s.setMode);
+  const previousMode = useEditorModeStore((s) => s.previousMode);
   const isCanvasEditable = useEditorModeStore((s) => s.isCanvasEditable);
   const isBottomPanelOpen = useEditorModeStore((s) => s.isBottomPanelOpen);
   const toggleBottomPanel = useEditorModeStore((s) => s.toggleBottomPanel);
@@ -202,10 +210,23 @@ const UnifiedEditorPage: React.FC = () => {
   const canvasEdgesRef = useRef(canvasEdges);
   useEffect(() => { canvasNodesRef.current = canvasNodes; }, [canvasNodes]);
   useEffect(() => { canvasEdgesRef.current = canvasEdges; }, [canvasEdges]);
+  // Ready-state ref for the load effect (WF-004): keeping isCanvasReady OUT
+  // of that effect's deps is the point — with it, the effect re-ran when the
+  // handshake landed and re-hydrated the store mid-session. The 'ready'
+  // replay in the message handler covers the ready-after-load ordering.
+  const isCanvasReadyRef = useRef(isCanvasReady);
+  useEffect(() => { isCanvasReadyRef.current = isCanvasReady; }, [isCanvasReady]);
+  // Mode ref for the message handler: the iframe stays mounted (hidden) across
+  // modes, so a stray canvas message outside P&ID must not dirty the process.
+  const modeRef = useRef(mode);
+  useEffect(() => { modeRef.current = mode; }, [mode]);
 
-  // Device selector
+  // Device selector — the deploy target lives in the scada store so it
+  // serializes to meta.edgeDeviceId and rehydrates on load (a local useState
+  // never reached the store, so the choice was lost on save — UI-006).
   const [showDeviceDropdown, setShowDeviceDropdown] = useState(false);
-  const [targetDeviceId, setTargetDeviceId] = useState<string | null>(null);
+  const targetDeviceId = useScadaPackageStore((s) => s.targetDeviceId);
+  const setTargetDeviceId = useScadaPackageStore((s) => s.setTargetDeviceId);
   const { data: deviceConnection } = useEdgeDevices({ limit: 50 });
   const devices = deviceConnection?.items || [];
   const selectedDevice = useMemo(
@@ -257,9 +278,11 @@ const UnifiedEditorPage: React.FC = () => {
     selectEdge,
     setProcessName,
     setProcessId,
-    resetStore,
+    loadProcess,
+    startNewProcess,
     setIsSaving,
     markClean,
+    markDirty,
   } = useProcessStore();
 
   const { createProcess, updateProcess, getProcess } = useProcess();
@@ -267,7 +290,10 @@ const UnifiedEditorPage: React.FC = () => {
   // Canonical package persist + deploy mutations (6b)
   const createPkg = useCreateScadaPackage();
   const updatePkg = useUpdateScadaPackage();
-  const deployPkg = useDeployScadaPackage();
+  // GAP-3A: SCADA deploys go through the ATOMIC bundle path — package + bound
+  // automation programs as one signed release bundle, PUBLISHED only on the
+  // edge's two-phase confirmation (no half-deploy window).
+  const deployPkg = useDeployScadaBundle();
   const deployProc = useDeployProcessToEdge();
   // Existing SCADA package for THIS process (filter by processId) — used to
   // hydrate the HMI canvas on load and to pick create-vs-update on save.
@@ -291,6 +317,19 @@ const UnifiedEditorPage: React.FC = () => {
   const scadaDirty = useScadaPackageStore((s) => s.isDirty);
   const scadaMarkClean = useScadaPackageStore((s) => s.markClean);
   const scadaReset = useScadaPackageStore((s) => s.reset);
+
+  // HMI undo/redo — the real history lives in the scada store; the toolbar
+  // buttons route here in HMI mode instead of the (undo-less) P&ID iframe.
+  const scadaUndo = useScadaPackageStore((s) => s.undo);
+  const scadaRedo = useScadaPackageStore((s) => s.redo);
+  const scadaCanUndo = useScadaPackageStore((s) => s.canUndo());
+  const scadaCanRedo = useScadaPackageStore((s) => s.canRedo());
+
+  // HMI simulation ("play the process") — flips the store's simulationMode so
+  // the SimulationSidebar drives sim tag values and ScreenCanvas renders them
+  // live (isPreview) without deploying to a device (FUXA-style in-app run).
+  const simulationMode = useScadaPackageStore((s) => s.simulationMode);
+  const setSimulationMode = useScadaPackageStore((s) => s.setSimulationMode);
 
   // Editor identity follows the route param. The scada store is a module
   // singleton shared with the standalone Builder, and this component instance
@@ -337,6 +376,24 @@ const UnifiedEditorPage: React.FC = () => {
         case 'edgesChange':
           setCanvasEdges(data as CanvasEdge[]);
           break;
+        case 'canvasEdited':
+          // USER gesture on the P&ID plane (WF-004) — the only echo-free edit
+          // signal the iframe emits. Guarded by mode: the iframe stays mounted
+          // (hidden) in other modes and their edits belong to other stores.
+          if (modeRef.current === 'pid') {
+            markDirty();
+          }
+          break;
+        case 'nodeAdded':
+        case 'edgeAdded': {
+          // Palette drops / new connections are edits too — but scadaWidget
+          // overlay drops belong to the SCADA store's own dirty tracking.
+          const addedType = (data as { type?: string } | null)?.type;
+          if (modeRef.current === 'pid' && addedType !== 'scadaWidget') {
+            markDirty();
+          }
+          break;
+        }
         case 'nodeSelected': {
           const node = data as CanvasNode;
           setSelectedNodeId(node?.id || null);
@@ -370,31 +427,31 @@ const UnifiedEditorPage: React.FC = () => {
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [sendToCanvas, selectNode, selectEdge]);
+  }, [sendToCanvas, selectNode, selectEdge, markDirty]);
 
-  // Load process on mount / param change. BUG-004 (re-ported from
-  // ProcessEditorPage): the effect re-runs when isCanvasReady flips, so
-  // without an abort guard two concurrent getProcess calls race and a stale
-  // response can clobber the canvas after a param change or unmount.
+  // Load process on mount / param change. Hydration is ONE store transaction
+  // (loadProcess) that ends CLEAN — per-field setters marked the freshly
+  // loaded process dirty (WF-004). isCanvasReady rides in a ref: with it in
+  // the deps this effect re-ran on the handshake and re-hydrated mid-session
+  // (the 'ready' replay in the message handler covers ready-after-load).
+  // BUG-004: abort guard so a stale getProcess can't clobber a param change.
   useEffect(() => {
     const controller = new AbortController();
 
-    const loadProcess = async () => {
+    const load = async () => {
       if (id && id !== 'new') {
         const existingProcess = await getProcess(id);
         if (controller.signal.aborted) return;
         if (existingProcess) {
-          setProcessId(existingProcess.id);
-          setProcessName(existingProcess.name);
+          loadProcess(existingProcess);
           setCanvasNodes(existingProcess.nodes as CanvasNode[]);
           setCanvasEdges(existingProcess.edges as CanvasEdge[]);
-          if (isCanvasReady) {
+          if (isCanvasReadyRef.current) {
             sendToCanvas('setNodes', existingProcess.nodes);
             sendToCanvas('setEdges', existingProcess.edges);
           }
         } else {
-          resetStore();
-          setProcessName('New Project');
+          startNewProcess('New Project');
         }
         return;
       }
@@ -407,23 +464,24 @@ const UnifiedEditorPage: React.FC = () => {
         const template = await getProcess(templateId);
         if (controller.signal.aborted) return;
         if (template) {
-          resetStore();
-          setProcessName(template.name);
+          startNewProcess(template.name);
+          // Deliberately dirty: the seeded diagram is real unsaved work —
+          // the process only comes into existence when the user saves it.
+          markDirty();
           setCanvasNodes(template.nodes as CanvasNode[]);
           setCanvasEdges(template.edges as CanvasEdge[]);
-          if (isCanvasReady) {
+          if (isCanvasReadyRef.current) {
             sendToCanvas('setNodes', template.nodes);
             sendToCanvas('setEdges', template.edges);
           }
           return;
         }
       }
-      resetStore();
-      setProcessName('New Project');
+      startNewProcess('New Project');
     };
-    loadProcess();
+    load();
     return () => controller.abort();
-  }, [id, searchParams, setProcessId, setProcessName, resetStore, getProcess, isCanvasReady, sendToCanvas]);
+  }, [id, searchParams, loadProcess, startNewProcess, markDirty, getProcess, sendToCanvas]);
 
   // Hydrate the HMI canvas from the SCADA package linked to this process —
   // once, on first arrival, so it doesn't clobber unsaved edits (6b). The
@@ -434,13 +492,18 @@ const UnifiedEditorPage: React.FC = () => {
   useEffect(() => {
     if (scadaPackageId) return;
     if (!hasRealProcessId) return;
+    // Never adopt over unsaved HMI work: the linked-package query resolves
+    // asynchronously, so if the user already started editing while it was in
+    // flight, loadFromJSON would silently wipe those edits and reset isDirty
+    // (SENSOR-HIGH-033). scadaDirty is the pristine signal.
+    if (scadaDirty) return;
     const pkg = linkedPackages[0];
     if (!pkg) return;
     if (pkg.processId !== id) return;
     setScadaPackageId(pkg.id);
     scadaSetPackageId(pkg.id);
     scadaLoadFromJSON(pkg.packageData);
-  }, [linkedPackages, scadaPackageId, hasRealProcessId, id, scadaSetPackageId, scadaLoadFromJSON]);
+  }, [linkedPackages, scadaPackageId, hasRealProcessId, id, scadaDirty, scadaSetPackageId, scadaLoadFromJSON]);
 
   // Sync editor mode to iframe canvas — when mode changes, send setEditorMode
   useEffect(() => {
@@ -448,6 +511,14 @@ const UnifiedEditorPage: React.FC = () => {
       sendToCanvas('setEditorMode', { mode });
     }
   }, [mode, isCanvasReady, sendToCanvas]);
+
+  // Simulation is an HMI-only run state; stop it when leaving HMI so it never
+  // leaks into P&ID/PLC/runtime/debug (where the sim sidebar is not mounted).
+  useEffect(() => {
+    if (mode !== 'hmi' && simulationMode) {
+      setSimulationMode(false);
+    }
+  }, [mode, simulationMode, setSimulationMode]);
 
   // Equipment drag
   const handleEquipmentDragStart = useCallback(
@@ -458,9 +529,8 @@ const UnifiedEditorPage: React.FC = () => {
     [],
   );
 
-  // HMI widget drops are handled natively by the real <ScreenCanvas> (6b) —
-  // the legacy iframe-overlay drop path (parseWidgetDropData / addOverlayNode)
-  // is retired.
+  // HMI widget drops are handled natively by the real <ScreenCanvas> (6b);
+  // the legacy iframe-overlay drop path has been removed.
 
   // Zoom & delete
   const handleZoomIn = () => sendToCanvas('zoomIn');
@@ -472,15 +542,23 @@ const UnifiedEditorPage: React.FC = () => {
       sendToCanvas('removeNode', selectedNodeId);
       setSelectedNodeId(null);
       selectNode(null);
+      // Host-initiated removal goes through programmatic setNodes in the
+      // iframe, which never fires ReactFlow's interaction callbacks — the
+      // edit signal must originate here (WF-004).
+      markDirty();
     }
-  }, [selectedNodeId, sendToCanvas, selectNode]);
+  }, [selectedNodeId, sendToCanvas, selectNode, markDirty]);
 
   // Save
   const handleSave = async () => {
     setIsSaving(true);
     setSaveError(null);
     try {
-      const currentState = await new Promise<{ nodes: CanvasNode[]; edges: CanvasEdge[] }>((resolve) => {
+      // The P&ID canvas is the authoritative source at save time. On a
+      // getState timeout we FAIL the save rather than persisting the possibly
+      // stale ref mirror — a non-responding canvas masked as a successful save
+      // would silently ship an out-of-date P&ID (SENSOR-HIGH-034).
+      const currentState = await new Promise<{ nodes: CanvasNode[]; edges: CanvasEdge[] }>((resolve, reject) => {
         const controller = new AbortController();
         const handler = (event: MessageEvent) => {
           if (event.origin !== window.location.origin) return;
@@ -494,12 +572,18 @@ const UnifiedEditorPage: React.FC = () => {
         sendToCanvas('getState');
         const timeoutId = setTimeout(() => {
           controller.abort();
-          resolve({ nodes: canvasNodesRef.current, edges: canvasEdgesRef.current });
-        }, 2000);
+          reject(new Error('Canvas yanıt vermedi — kaydetme iptal edildi, lütfen tekrar deneyin'));
+        }, 3000);
         controller.signal.addEventListener('abort', () => clearTimeout(timeoutId));
       });
 
-      const isNewProcess = !storeProcessId || storeProcessId === 'new' || id === 'new';
+      // Create-vs-update is driven ONLY by the persisted identity. The route
+      // param `id` is NOT included: window.history.replaceState below rewrites
+      // the URL without notifying the router, so useParams().processId stays
+      // 'new' for the whole session — including it here made every save after
+      // the first re-run createProcess and spawn duplicate processes
+      // (SENSOR-HIGH-035).
+      const isNewProcess = !storeProcessId || storeProcessId === 'new';
 
       // 1. Persist the P&ID process — FAIL CLOSED: the mutations report
       // rejection via { success: false } without throwing, so an unchecked
@@ -518,7 +602,6 @@ const UnifiedEditorPage: React.FC = () => {
         }
         resolvedProcessId = result.process.id;
         setProcessId(result.process.id);
-        markClean();
         window.history.replaceState(null, '', `/sensor/unified-editor/${result.process.id}`);
       } else {
         const result = await updateProcess({
@@ -531,7 +614,6 @@ const UnifiedEditorPage: React.FC = () => {
           setSaveError(result.message || 'Proses güncellenemedi');
           return;
         }
-        markClean();
       }
 
       // 2. Persist the HMI SCADA package (6b — dual-target save). The unified
@@ -553,8 +635,12 @@ const UnifiedEditorPage: React.FC = () => {
           setScadaPackageId(created.id);
           scadaSetPackageId(created.id);
         }
-        // Both targets persisted — the HMI side is clean too (SENSOR-HIGH-003:
-        // scada-store dirtiness is tracked separately from the process store).
+        // Atomic dual-target: only NOW, with BOTH the process and the package
+        // persisted, do we mark either store clean. Marking the process clean
+        // inside its own leg (before the package leg, which can throw on the
+        // 1 MB cap or validation) left the process clean while the package
+        // stayed dirty and unsaved (SENSOR-HIGH-036).
+        markClean();
         scadaMarkClean();
       }
     } catch (error) {
@@ -563,6 +649,12 @@ const UnifiedEditorPage: React.FC = () => {
       setIsSaving(false);
     }
   };
+
+  // HMI keyboard shortcuts (undo/redo/copy/paste/cut/delete + Ctrl+S). Bound
+  // ONLY in HMI mode — the hook mutates the scada store, and Delete/Ctrl+Z in
+  // P&ID mode must not reach through to the hidden HMI canvas. isPreview drives
+  // the hook's early-return, so it attaches listeners solely in HMI.
+  useScadaKeyboardShortcuts({ onSave: handleSave, isPreview: mode !== 'hmi' || simulationMode });
 
   // Data-channel widget config modal handlers (6c parity). Save pushes the
   // updated widget data back to the canvas node; no console (no-console).
@@ -686,19 +778,36 @@ const UnifiedEditorPage: React.FC = () => {
 
         {/* Center Controls */}
         <div className="flex items-center gap-1">
+          {mode === 'hmi' && (
+            <>
+              <button
+                onClick={() => setSimulationMode(!simulationMode)}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                  simulationMode
+                    ? 'text-white bg-red-500 hover:bg-red-600'
+                    : 'text-white bg-green-600 hover:bg-green-700'
+                }`}
+                title={simulationMode ? 'Stop simulation' : 'Run the process in simulation (no device deploy)'}
+              >
+                {simulationMode ? <Square className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                {simulationMode ? 'Stop' : 'Run'}
+              </button>
+              <div className="h-5 w-px bg-gray-300 mx-1" />
+            </>
+          )}
           <button
-            onClick={() => sendToCanvas('undo')}
+            onClick={() => (mode === 'hmi' ? scadaUndo() : sendToCanvas('undo'))}
             className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
             title="Undo"
-            disabled={!isCanvasReady || !isCanvasEditable}
+            disabled={mode === 'hmi' ? simulationMode || !scadaCanUndo : !isCanvasReady || !isCanvasEditable}
           >
             <Undo className="w-4 h-4" />
           </button>
           <button
-            onClick={() => sendToCanvas('redo')}
+            onClick={() => (mode === 'hmi' ? scadaRedo() : sendToCanvas('redo'))}
             className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
             title="Redo"
-            disabled={!isCanvasReady || !isCanvasEditable}
+            disabled={mode === 'hmi' ? simulationMode || !scadaCanRedo : !isCanvasReady || !isCanvasEditable}
           >
             <Redo className="w-4 h-4" />
           </button>
@@ -795,31 +904,34 @@ const UnifiedEditorPage: React.FC = () => {
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Panel */}
+        {/* Left Panel. HMI mounts the full builder left panel (palette + FUXA
+            browser + scene tree + layers + search) which owns its own width +
+            border; other modes share the fixed 256px wrapper. */}
         {leftPanelVisible && (
-          <div className="w-64 flex flex-col border-r border-gray-200 bg-white overflow-hidden">
-            {mode === 'pid' && (
-              <EquipmentPanel onDragStart={handleEquipmentDragStart} />
-            )}
-            {mode === 'hmi' && (
-              <WidgetPalette />
-            )}
-            {mode === 'plc' && (
-              <div className="p-4">
-                <h3 className="text-sm font-semibold text-gray-700 mb-3">PLC Blocks</h3>
-                <p className="text-xs text-gray-500">Function blocks - coming soon</p>
-              </div>
-            )}
-            {mode === 'runtime' && (
-              <LiveTagsPanel />
-            )}
-            {mode === 'debug' && (
-              <div className="p-4">
-                <h3 className="text-sm font-semibold text-gray-700 mb-3">Debug</h3>
-                <p className="text-xs text-gray-500">Watch variables - coming soon</p>
-              </div>
-            )}
-          </div>
+          mode === 'hmi' ? (
+            <UnifiedLeftPanel />
+          ) : (
+            <div className="w-64 flex flex-col border-r border-gray-200 bg-white overflow-hidden">
+              {mode === 'pid' && (
+                <EquipmentPanel onDragStart={handleEquipmentDragStart} />
+              )}
+              {mode === 'plc' && (
+                <div className="p-4">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">PLC Blocks</h3>
+                  <p className="text-xs text-gray-500">Function blocks - coming soon</p>
+                </div>
+              )}
+              {mode === 'runtime' && (
+                <LiveTagsPanel />
+              )}
+              {mode === 'debug' && (
+                <div className="p-4">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Debug</h3>
+                  <p className="text-xs text-gray-500">Watch variables - coming soon</p>
+                </div>
+              )}
+            </div>
+          )
         )}
 
         {/* Center - Canvas + Bottom Panel */}
@@ -832,7 +944,7 @@ const UnifiedEditorPage: React.FC = () => {
               iframe stays mounted but hidden in HMI so its P&ID state survives
               mode switches; HMI widget drops are handled natively by ScreenCanvas. */}
           <div className="flex-1 bg-gray-50 relative">
-            {!isCanvasReady && mode !== 'hmi' && (
+            {!isCanvasReady && mode !== 'hmi' && mode !== 'runtime' && (
               <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
                 <div className="flex flex-col items-center gap-3">
                   <Loader2 className="w-8 h-8 text-cyan-600 animate-spin" />
@@ -843,23 +955,39 @@ const UnifiedEditorPage: React.FC = () => {
             <iframe
               ref={iframeRef}
               src={PROCESS_EDITOR_CANVAS_URL}
-              className={`w-full h-full border-0 ${mode === 'hmi' ? 'hidden' : ''}`}
+              className={`w-full h-full border-0 ${mode === 'hmi' || mode === 'runtime' ? 'hidden' : ''}`}
               title="Process Editor Canvas"
               sandbox="allow-scripts allow-same-origin"
             />
             {mode === 'hmi' && (
               <div className="absolute inset-0 flex flex-col">
+                {/* StableModeProvider stays mode="edit" (no remount); the
+                    store's simulationMode flag toggles the sim data plane, and
+                    isPreview locks editing + renders live sim values. */}
                 <StableModeProvider mode="edit">
-                  <ScreenCanvas isPreview={false} />
+                  <ScreenCanvas isPreview={simulationMode} />
+                </StableModeProvider>
+              </div>
+            )}
+            {mode === 'runtime' && (
+              <div className="absolute inset-0 flex flex-col">
+                {/* Runtime = the live operator view of THIS package: the same
+                    ScreenCanvas, read-only, on the live data plane. mode
+                    "preview" selects the LiveDeviceDataProvider, so widgets
+                    read real values from the tenant-fenced /scada socket —
+                    the same Layer-B chain the operator runtime uses
+                    (SENSOR-HIGH-047). Previously this mode showed only the
+                    frozen P&ID iframe and never a live value. */}
+                <StableModeProvider mode="preview">
+                  <ScreenCanvas isPreview />
                 </StableModeProvider>
               </div>
             )}
           </div>
 
-          {/* Bottom Panel - ST Editor in PLC mode, generic output otherwise */}
-          {mode === 'plc' ? (
-            <StEditorPanel />
-          ) : (
+          {/* Bottom Panel — generic output. The ST editor is a POPUP in PLC
+              mode (see the overlay below), not a bottom dock. */}
+          {(
             <>
               {isBottomPanelOpen && (
                 <div className="h-48 border-t border-gray-200 bg-white flex flex-col">
@@ -930,6 +1058,8 @@ const UnifiedEditorPage: React.FC = () => {
                   )}
                 </div>
               </>
+            ) : mode === 'hmi' ? (
+              simulationMode ? <SimulationSidebar /> : <HmiPropertiesPanel />
             ) : (
               <UnifiedPropertiesPanel />
             )}
@@ -968,6 +1098,29 @@ const UnifiedEditorPage: React.FC = () => {
         </div>
       </div>
 
+      {/* PLC mode: the ST editor opens as a floating POPUP over the canvas
+          instead of docking to the page bottom. Closing it returns to the
+          previous editor mode (programs persist server-side, nothing is
+          lost on close). */}
+      {mode === 'plc' && (
+        <div className="fixed inset-0 z-40 bg-black/50 flex items-center justify-center p-4 sm:p-8">
+          <div className="w-full max-w-6xl h-[85vh] bg-gray-900 rounded-xl shadow-2xl border border-gray-700 flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-2 bg-gray-800 border-b border-gray-700 flex-shrink-0">
+              <span className="text-sm font-medium text-gray-200">ST Program Editörü (PLC)</span>
+              <button
+                onClick={() => setMode(previousMode && previousMode !== 'plc' ? previousMode : 'pid')}
+                className="p-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded"
+                title="Kapat"
+                aria-label="ST editörünü kapat"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <StEditorPanel floating onDeploy={() => setIsAutomationDeployOpen(true)} />
+          </div>
+        </div>
+      )}
+
       {/* Deploy dialogs (6b) — the unified editor owns BOTH artifacts, so one
           canonical DeployToEdgeDialog is bound per artifact, each with its own
           mutation. Gated on deployTarget so the SCADA preview only serializes
@@ -983,6 +1136,15 @@ const UnifiedEditorPage: React.FC = () => {
           onDeploy={async (deviceId) => {
             if (!storeProcessId || storeProcessId === 'new') {
               return { success: false, message: 'Önce prosesi kaydedin.' };
+            }
+            // Dirty-gate (WF-004): deploy ships the SERVER's saved process, so
+            // deploying with unsaved P&ID edits would silently push the stale
+            // version — mirror of the SCADA leg's gate (SENSOR-HIGH-044).
+            if (isDirty) {
+              return {
+                success: false,
+                message: 'Kaydedilmemiş proses değişiklikleri var — önce kaydedin, sonra dağıtın.',
+              };
             }
             return deployProc.mutateAsync({ processId: storeProcessId, deviceId });
           }}
@@ -1001,7 +1163,31 @@ const UnifiedEditorPage: React.FC = () => {
             if (!scadaPackageId) {
               return { success: false, message: 'Önce HMI paketini kaydedin.' };
             }
-            return deployPkg.mutateAsync({ packageId: scadaPackageId, deviceId });
+            // Dirty-gate: deploy ships the SERVER's saved package, so deploying
+            // with unsaved HMI edits would silently push the stale version
+            // (SENSOR-HIGH-044). Refuse until the package is saved.
+            if (scadaDirty) {
+              return {
+                success: false,
+                message: 'Kaydedilmemiş HMI değişiklikleri var — önce kaydedin, sonra dağıtın.',
+              };
+            }
+            const result = await deployPkg.mutateAsync({ packageId: scadaPackageId, deviceId });
+            if (result.success) {
+              return { success: true, message: result.message ?? 'Bundle staged — cihaz onayı bekleniyor.' };
+            }
+            // Compose an honest failure: name the failing leg(s).
+            const failedPrograms = result.automationResults
+              .filter((r) => !r.success)
+              .map((r) => `program ${r.programId}: ${r.message ?? 'failed'}`);
+            const scadaMsg =
+              result.scadaResult && !result.scadaResult.success
+                ? [`SCADA: ${result.scadaResult.message ?? 'failed'}`]
+                : [];
+            return {
+              success: false,
+              message: [result.message, ...scadaMsg, ...failedPrograms].filter(Boolean).join(' | ') || 'Bundle deploy başarısız.',
+            };
           }}
         />
       )}

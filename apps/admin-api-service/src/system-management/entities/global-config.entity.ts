@@ -1,11 +1,20 @@
-import {
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  UpdateDateColumn,
-  Index,
-} from 'typeorm';
-
+/**
+ * Config vocabulary enums for the admin system-management surface.
+ *
+ * The former `GlobalConfig` TypeORM entity + its `global_configs` table are
+ * RETIRED: admin-api no longer persists global configuration directly —
+ * config-service's effective-configuration APIs own that, and
+ * `GlobalSettingsService.createConfig` / `updateConfig` / `bulkUpdateConfigs` /
+ * `updateProvisioningConfig` now return 410 Gone. The entity class had already
+ * lost its `@Entity()` decorator (it mapped to no table, was in no repository,
+ * and no migration created it), so it was dead weight; it is removed here.
+ *
+ * These two enums remain because the retired-but-present config DTO/query surface
+ * (`GlobalSettingsController`) still types its `category` / `valueType` fields
+ * against them. NOTHING in this file carries `@Entity` — it maps to no table.
+ * (Filename kept as-is to avoid churning four import sites; see ORPHAN-LOW-354
+ * for the optional rename to a non-`.entity` name.)
+ */
 export enum ConfigCategory {
   API = 'api',
   DATABASE = 'database',
@@ -31,100 +40,4 @@ export enum ConfigValueType {
   URL = 'url',
   EMAIL = 'email',
   DURATION = 'duration',
-}
-
-export interface ConfigValidation {
-  required?: boolean;
-  min?: number;
-  max?: number;
-  minLength?: number;
-  maxLength?: number;
-  pattern?: string;
-  allowedValues?: unknown[];
-  customValidator?: string;
-}
-
-export interface ConfigHistory {
-  previousValue: unknown;
-  newValue: unknown;
-  changedAt: Date;
-  changedBy: string;
-  reason?: string;
-}
-
-@Index(['key'], { unique: true })
-@Index(['category'])
-@Index(['isSecret'])
-export class GlobalConfig {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
-
-  @Column({ length: 200 })
-  key!: string;
-
-  @Column({ length: 255 })
-  name!: string;
-
-  @Column({ type: 'text', nullable: true })
-  description?: string;
-
-  @Column({ type: 'varchar', length: 50, default: ConfigCategory.SYSTEM })
-  category!: ConfigCategory;
-
-  @Column({ type: 'varchar', length: 50, default: ConfigValueType.STRING })
-  valueType!: ConfigValueType;
-
-  @Column({ type: 'jsonb' })
-  value!: unknown;
-
-  @Column({ type: 'jsonb', nullable: true })
-  defaultValue?: unknown;
-
-  @Column({ type: 'jsonb', nullable: true })
-  validation?: ConfigValidation;
-
-  @Column({ default: false })
-  isSecret!: boolean;
-
-  @Column({ default: false })
-  isReadOnly!: boolean;
-
-  @Column({ default: false })
-  requiresRestart!: boolean;
-
-  @Column({ default: false })
-  isEnvironmentSpecific!: boolean;
-
-  @Column({ type: 'jsonb', nullable: true })
-  environmentOverrides?: Record<string, unknown>;
-
-  @Column({ type: 'jsonb', nullable: true })
-  history?: ConfigHistory[];
-
-  @Column({ type: 'int', default: 10 })
-  maxHistoryEntries!: number;
-
-  @Column({ type: 'jsonb', nullable: true })
-  dependsOn?: string[];
-
-  @Column({ type: 'jsonb', nullable: true })
-  affectedServices?: string[];
-
-  @Column({ type: 'text', nullable: true })
-  helpText?: string;
-
-  @Column({ type: 'text', nullable: true })
-  warningMessage?: string;
-
-  @Column({ type: 'int', default: 0 })
-  sortOrder!: number;
-
-  @Column({ nullable: true })
-  lastModifiedBy?: string;
-
-  @CreateDateColumn()
-  createdAt!: Date;
-
-  @UpdateDateColumn()
-  updatedAt!: Date;
 }

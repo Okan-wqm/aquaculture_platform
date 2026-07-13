@@ -154,8 +154,8 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA config        GRANT USAGE, SELECT, UPDATE ON 
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Shared schema grants — cross-service write surface (ADR-011).
--- 5 SHARED_SCHEMA_TABLES: audit_logs, gdpr_data_requests, user_consents,
--- user_permissions, access_logs (created in stage 006).
+-- 4 SHARED_SCHEMA_TABLES: audit_logs, gdpr_data_requests, user_consents,
+-- access_logs (created in stage 006).
 -- Per-table GRANTs intentionally absent here — ALTER DEFAULT PRIVILEGES
 -- below covers future tables (no ordering hazard with stage 006).
 -- ──────────────────────────────────────────────────────────────────────────

@@ -16,6 +16,7 @@
  *
  * @module FishHealth
  */
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
@@ -94,6 +95,10 @@ const FieldCaptureQueryHandlers = [
     // Same local-provider pattern regulatory/feeding/equipment modules use —
     // the service only injects DataSource; no module cycle with water-quality.
     WaterTemperatureService,
+    // Phase 6 (FARM-HIGH-214): welfare + escape are plain inserts, so mobile
+    // offline-queue replays dedup through the farm_mobile_command_receipts
+    // ledger (same at-most-once contract as mortality/cull/harvest).
+    MobileCommandReceiptService,
     // Resolvers
     HealthEventResolver,
     FieldCaptureResolver,

@@ -65,6 +65,33 @@ export const DELETE_SCADA_PACKAGE = `
   }
 `;
 
+/**
+ * Atomic bundle deploy (GAP-3A): SCADA package + its bound automation programs
+ * ship as ONE signed release bundle (release_bundles PENDING + outbox in a
+ * single transaction; PUBLISHED only on the edge's two-phase confirmation).
+ * This replaces the N+1 fire-and-forget deployScadaPackageToEdge path in the
+ * unified editor, structurally closing the half-deploy window.
+ */
+export const DEPLOY_SCADA_WITH_AUTOMATION = `
+  mutation DeployScadaWithAutomation($input: DeployScadaWithAutomationInput!) {
+    deployScadaWithAutomation(input: $input) {
+      success
+      message
+      automationResults {
+        programId
+        success
+        message
+        commandId
+      }
+      scadaResult {
+        packageId
+        success
+        message
+      }
+    }
+  }
+`;
+
 export const DEPLOY_SCADA_PACKAGE = `
   mutation DeployScadaPackageToEdge($packageId: ID!, $deviceId: ID!) {
     deployScadaPackageToEdge(packageId: $packageId, deviceId: $deviceId) {

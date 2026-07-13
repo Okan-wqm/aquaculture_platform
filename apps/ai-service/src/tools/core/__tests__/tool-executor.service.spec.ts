@@ -96,19 +96,49 @@ describe('ToolExecutorService (AISAFETY-MEDIUM-017)', () => {
     expect(result.error).toMatch(/blocked/i);
   });
 
-  it("executes an actuation tool under 'allowed' (autonomous supervisor)", async () => {
+  it("executes an actuation tool under 'allowed' (autonomous supervisor) with a STRICT audit write", async () => {
     registry.getTool.mockReturnValue(makeTool({ requiresConfirmation: true }));
 
     const result = await service.executeTool('dose_reagent', {}, ctx('allowed'));
 
     expect(execute).toHaveBeenCalledTimes(1);
     expect(result.success).toBe(true);
+    expect(result.auditFailed).toBeUndefined();
+    // DB-PEOPLE-MEDIUM-003: actuation audit is written STRICTLY (6th arg = true).
     expect(logToolExecution).toHaveBeenCalledWith(
       'dose_reagent',
       expect.any(Object),
       okResult,
       expect.objectContaining({ actuationPolicy: 'allowed' }),
+      undefined,
+      true,
     );
+  });
+
+  it('surfaces auditFailed (not swallow) when an actuation audit write fails, without a false failure', async () => {
+    registry.getTool.mockReturnValue(makeTool({ requiresConfirmation: true }));
+    // Simulate the strict audit write re-throwing (audit store down).
+    logToolExecution.mockRejectedValueOnce(new Error('audit db down'));
+
+    const result = await service.executeTool('dose_reagent', {}, ctx('allowed'));
+
+    // The actuation already ran — we must NOT return a false failure (that would
+    // risk a double-actuation); instead the audit gap is surfaced.
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(true);
+    expect(result.auditFailed).toBe(true);
+  });
+
+  it('keeps read-only tool audit best-effort (strict flag not set)', async () => {
+    registry.getTool.mockReturnValue(makeTool({ name: 'read_ph', requiresConfirmation: false }));
+
+    await service.executeTool('read_ph', {}, ctx('allowed'));
+
+    // Read-only path calls logToolExecution WITHOUT the strict flag.
+    const calls = logToolExecution.mock.calls as unknown[][];
+    const call = calls.find((c) => c[0] === 'read_ph');
+    expect(call).toBeDefined();
+    expect(call![5]).toBeUndefined();
   });
 
   it('executes a read-only tool (no confirmation) regardless of policy, and audits it', async () => {

@@ -985,11 +985,11 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
    * delete in that case.
    *
    * The QueryRunner MUST already have its search_path pinned to the
-   * target schema. All three tables expose a camelCase `"tenantId"`
-   * column.
+   * target schema. Both tables expose a camelCase `"tenantId"` column.
+   * (farm_documents was dropped as an unwired orphan — ORPHAN-HIGH-369.)
    */
   private async resolveTenantIdForSchema(queryRunner: QueryRunner): Promise<string | null> {
-    const documentTables = ['farm_documents', 'batch_documents', 'chemicals'];
+    const documentTables = ['batch_documents', 'chemicals'];
     for (const table of documentTables) {
       const rows: Array<{ tenantId: string }> = await queryRunner.query(
         `SELECT "tenantId" FROM "${table}" WHERE "tenantId" IS NOT NULL LIMIT 1`,

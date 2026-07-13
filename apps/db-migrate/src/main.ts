@@ -58,16 +58,18 @@ import { resolve } from 'node:path';
 
 import { bootInvariantSignalRecord } from '@aquaculture/backend-common/constants';
 import {
-  applyTenantRlsToSchema,
   applyInfrastructureLedgerRls,
-  getInfrastructureAuditLedgers,
+  applyTenantRlsToSchema,
+  assertTenantSchemaPrivileges,
   convertAuditColumnsToTimestamptz,
+  getInfrastructureAuditLedgers,
   getTenantSchemaName,
   grantTenantMigrationLedgerReadAccess,
   MIGRATION_LEDGER_TABLE,
   tenantMigrationLedgerTable,
   TENANT_AWARE_SCHEMAS,
   TENANT_SCHEMA_NAME_RE,
+  verifyTenantSchemaPrivileges,
 } from '@aquaculture/backend-common/database';
 import { DataSource, QueryRunner } from 'typeorm';
 import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
@@ -503,6 +505,9 @@ async function grantTenantLedgerReadAccess(
   sourceSchema: string;
   tenantLedger: string;
   serviceRole: string;
+  /** Registered per-tenant tables aligned to owner+DML this pass (2026-07-06 grant incident). */
+  alignedTables: string[];
+  absentTables: string[];
 }> {
   const dataSource = createControlDataSource(database);
   await dataSource.initialize();
@@ -510,14 +515,85 @@ async function grantTenantLedgerReadAccess(
 
   try {
     await queryRunner.connect();
-    return await grantTenantMigrationLedgerReadAccess(queryRunner, {
+    const ledgerGrant = await grantTenantMigrationLedgerReadAccess(queryRunner, {
       tenantSchema,
       sourceSchema,
     });
+    // The fan-out creates tables on the bootstrap (superuser) connection —
+    // Postgres neither copies privileges nor applies another role's default
+    // ACLs, so without this every migration-added tenant table is born
+    // owner=superuser with an empty ACL and the owning service's first query
+    // dies with "permission denied" (live incident: sensor_temperature_latest
+    // blanked mobile batchMetrics). Idempotent registry-derived alignment.
+    const privileges = await assertTenantSchemaPrivileges(queryRunner, {
+      tenantSchema,
+      sourceSchema,
+    });
+    return {
+      ...ledgerGrant,
+      alignedTables: privileges.alignedTables,
+      absentTables: privileges.absentTables,
+    };
   } finally {
     await queryRunner.release();
     await dataSource.destroy();
   }
+}
+
+/**
+ * Deploy-blocking drift gate (make-it-detectable half of the 2026-07-06 grant
+ * incident): after the full fan-out, re-read pg_catalog and fail the deploy if
+ * any registered-and-present per-tenant table still lacks its
+ * <source>_schema_owner ownership or <source>_service DML privileges.
+ * Unknown (unregistered) tenant tables are logged loudly — silence is how the
+ * class stayed invisible before.
+ */
+async function verifyTenantPrivilegesOrFail(
+  database: RunSchemaOptions['database'],
+  tenantSchemas: readonly string[],
+  log: (record: Record<string, unknown>) => void,
+): Promise<boolean> {
+  if (tenantSchemas.length === 0) {
+    return true;
+  }
+  const sources = [...TENANT_AWARE_SCHEMAS];
+  const dataSource = createControlDataSource(database);
+  await dataSource.initialize();
+  const queryRunner = dataSource.createQueryRunner();
+  let ok = true;
+
+  try {
+    await queryRunner.connect();
+    for (const tenantSchema of tenantSchemas) {
+      const verification = await verifyTenantSchemaPrivileges(queryRunner, tenantSchema, sources);
+      if (verification.unknownTables.length > 0) {
+        log({
+          level: 'warn',
+          message:
+            'Tenant schema contains tables registered by NO module — they carry no managed ' +
+            'grants and their owning service WILL fail at runtime. Register them in ' +
+            'MODULE_SCHEMAS or drop them.',
+          context: 'DbMigrate',
+          tenantSchema,
+          unknownTables: verification.unknownTables,
+        });
+      }
+      if (verification.violations.length > 0) {
+        ok = false;
+        log({
+          level: 'error',
+          message: 'Tenant-schema privilege drift detected — aborting deploy',
+          context: 'DbMigrate',
+          tenantSchema,
+          violations: verification.violations,
+        });
+      }
+    }
+  } finally {
+    await queryRunner.release();
+    await dataSource.destroy();
+  }
+  return ok;
 }
 
 /**
@@ -1181,12 +1257,14 @@ async function main(): Promise<number> {
               const grant = await grantTenantLedgerReadAccess(database, entry.schema, tenantSchema);
               log({
                 level: 'info',
-                message: 'Tenant migration ledger read grant asserted',
+                message: 'Tenant ledger read grant + table privileges asserted',
                 context: 'DbMigrate',
                 sourceSchema: entry.schema,
                 tenantSchema,
                 tenantLedger: grant.tenantLedger,
                 serviceRole: grant.serviceRole,
+                alignedTables: grant.alignedTables.length,
+                absentTables: grant.absentTables,
               });
               results.push(tenantResult);
               if (!tenantHeads.has(tenantSchema)) {
@@ -1225,6 +1303,24 @@ async function main(): Promise<number> {
         });
         return 1;
       }
+    }
+
+    // Deploy-blocking privilege drift gate (2026-07-06 grant incident): every
+    // registered-and-present per-tenant table must carry its schema-owner
+    // ownership + service-role DML before the deploy is allowed to proceed.
+    try {
+      const privilegesOk = await verifyTenantPrivilegesOrFail(database, tenantSchemas, log);
+      if (!privilegesOk) {
+        return 1;
+      }
+    } catch (err: unknown) {
+      log({
+        level: 'error',
+        message: 'Tenant-schema privilege verification failed — aborting deploy',
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      return 1;
     }
 
     // ── Phase 1.5 — Post-fan-out orphan-type reclamation (FARM-MEDIUM-170) ──

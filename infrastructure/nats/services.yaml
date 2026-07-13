@@ -193,6 +193,9 @@ services:
       - "events.*.SensorRegistered"
       - "events.*.SensorRegistrationCompleted"
       - "events.*.SensorRegistrationStarted"
+      - "events.*.TenantDataErased"
+      - "events.*.TenantDataErasureFailed"
+      - "events.*.TenantErasureBlocked"
       - "st.language.>"
       - "events.platform.schema-migration.>"
       - "events.security.events.>"
@@ -244,6 +247,9 @@ services:
       - "events.*.TenantSchemaDeletionFailed"
       - "events.*.TenantStatusChanged"
       - "events.*.TenantSuspended"
+      - "events.*.TenantDataErased"
+      - "events.*.TenantDataErasureFailed"
+      - "events.*.TenantErasureBlocked"
       - "st.language.>"
       - "request.messaging.verifyMembership"
       - "request.messaging.resolveNotificationRef"
@@ -309,6 +315,9 @@ services:
       - "events.*.NotificationDelivered"
       - "events.*.NotificationFailed"
       - "events.*.NotificationSent"
+      - "events.*.TenantDataErased"
+      - "events.*.TenantDataErasureFailed"
+      - "events.*.TenantErasureBlocked"
       - "events.platform.schema-migration.>"
       - "events.security.events.>"
       - "$JS.API.>"
@@ -325,6 +334,9 @@ services:
   - name: ai_service
     description: AI domain — model/tool execution and agent conversations
     publish:
+      - "events.*.TenantDataErased"
+      - "events.*.TenantDataErasureFailed"
+      - "events.*.TenantErasureBlocked"
       - "events.platform.schema-migration.>"
       - "events.security.events.>"
       # create_task actuation tool → farm-service responder (request-reply)
@@ -362,6 +374,9 @@ services:
       - "events.*.SubscriptionProvisioningFailed"
       - "events.*.SubscriptionUpdated"
       - "events.*.TenantSubscriptionChanged"
+      - "events.*.TenantDataErased"
+      - "events.*.TenantDataErasureFailed"
+      - "events.*.TenantErasureBlocked"
       - "events.platform.schema-migration.>"
       - "events.security.events.>"
       - "$JS.API.>"
@@ -384,6 +399,9 @@ services:
       - "events.*.AlertResolved"
       - "events.*.AlertTriggered"
       - "events.*.SensorReading"
+      - "events.*.TenantDataErased"
+      - "events.*.TenantDataErasureFailed"
+      - "events.*.TenantErasureBlocked"
       - "events.platform.schema-migration.>"
       - "events.security.events.>"
       - "$JS.API.>"
@@ -420,6 +438,9 @@ services:
       - "events.*.LeaveRequestSubmitted"
       - "events.*.PayrollProcessed"
       - "events.*.TrainingCompleted"
+      - "events.*.TenantDataErased"
+      - "events.*.TenantDataErasureFailed"
+      - "events.*.TenantErasureBlocked"
       - "commands.notification.sendEmail"
       - "events.platform.schema-migration.>"
       - "events.security.events.>"
@@ -461,6 +482,9 @@ services:
       - "events.*.ThreadCreated"
       - "events.*.ThreadStatusChanged"
       - "events.*.UserDataAnonymized"
+      - "events.*.TenantDataErased"
+      - "events.*.TenantDataErasureFailed"
+      - "events.*.TenantErasureBlocked"
       - "commands.notification.sendPush"
       - "request.auth.user.validateTenantMembership"
       - "request.auth.user.listTenantUserIds"
@@ -500,6 +524,9 @@ services:
   - name: hydroponics_service
     description: Hydroponics domain — grow cycles, nutrient dosing, climate control
     publish:
+      - "events.*.TenantDataErased"
+      - "events.*.TenantDataErasureFailed"
+      - "events.*.TenantErasureBlocked"
       - "events.platform.schema-migration.>"
       - "events.security.events.>"
       - "$JS.API.>"
@@ -523,5 +550,47 @@ services:
     subscribe:
       - "events.platform.schema-migration.>"
       - "events.security.events.>"
+      - "$JS.API.>"
+      - "_INBOX.>"
+
+  # ---------------------------------------------------------------------------
+  # config-service: dynamic per-tenant configuration
+  # ---------------------------------------------------------------------------
+  # Onboarded to the event backbone 2026-07-12 (DB-INFRA-HIGH-003) solely to be
+  # a GDPR tenant-erasure target: it consumes TenantErasureRequested via a
+  # JetStream pull consumer ($JS.API.> + _INBOX.>) and publishes the erasure
+  # proof events via its own outbox worker (own cert). No domain events.
+  - name: config_service
+    description: Dynamic per-tenant configuration — GDPR tenant-erasure target (proof publisher)
+    publish:
+      - "events.*.TenantDataErased"
+      - "events.*.TenantDataErasureFailed"
+      - "events.*.TenantErasureBlocked"
+      - "events.platform.schema-migration.>"
+      - "events.security.events.>"
+      - "$JS.API.>"
+      - "_INBOX.>"
+    subscribe:
+      - "$JS.API.>"
+      - "_INBOX.>"
+
+  # ---------------------------------------------------------------------------
+  # event-store-service: event persistence + projections
+  # ---------------------------------------------------------------------------
+  # Onboarded to the event backbone 2026-07-12 (DB-INFRA-HIGH-003) as a GDPR
+  # tenant-erasure target: consumes TenantErasureRequested via a JetStream pull
+  # consumer and publishes proof events via its own outbox. Erases the tenant-
+  # column projection tables; stored_events (immutable) awaits crypto-shred.
+  - name: event_store_service
+    description: Event persistence + projections — GDPR tenant-erasure target (proof publisher)
+    publish:
+      - "events.*.TenantDataErased"
+      - "events.*.TenantDataErasureFailed"
+      - "events.*.TenantErasureBlocked"
+      - "events.platform.schema-migration.>"
+      - "events.security.events.>"
+      - "$JS.API.>"
+      - "_INBOX.>"
+    subscribe:
       - "$JS.API.>"
       - "_INBOX.>"

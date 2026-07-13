@@ -5,6 +5,11 @@ import { join } from 'path';
 import type { ValidateFunction } from 'ajv';
 
 import {
+  EDGE_SUPPORTED_WIDGET_TYPES,
+  transformScadaDocForEdgeDeploy,
+  type ScadaPackageDocV2,
+} from '../index';
+import {
   formatValidationErrors,
   validateBundleManifest,
   validateCommandEnvelope,
@@ -12,6 +17,7 @@ import {
   validateDeployProcessParams,
   validateDeployProgramParams,
   validateDeployScadaPackageParams,
+  validateUndeployScadaPackageParams,
 } from '../validators';
 
 /**
@@ -60,6 +66,8 @@ describe('sensor-contracts fixtures — cloud-side schema parity', () => {
     'deploy-process.json',
     'deploy-program.json',
     'deploy-scada-package.json',
+    'deploy-scada-package-unsupported-widget.json',
+    'undeploy-scada-package.json',
     'deploy-bundle.json',
   ] as const;
 
@@ -85,6 +93,42 @@ describe('sensor-contracts fixtures — cloud-side schema parity', () => {
       validateDeployScadaPackageParams,
       paramsOf(readFixture('deploy-scada-package.json')),
     );
+  });
+
+  it('deploy-scada-package exercises EVERY edge-supported widget type (Rust-enum ⊇ pin)', () => {
+    // Together with the Rust leg's "no widget deserializes to Unknown"
+    // assertion over the SAME bytes, this mechanically pins
+    // EDGE_SUPPORTED_WIDGET_TYPES ⊆ the Rust WidgetType enum.
+    const params = paramsOf(readFixture('deploy-scada-package.json')) as ScadaPackageDocV2;
+    const shipped = params.screens.flatMap((s) => s.widgets.map((w) => w.widgetType));
+    expect([...new Set(shipped)].sort()).toEqual([...EDGE_SUPPORTED_WIDGET_TYPES].sort());
+  });
+
+  it('unsupported-widget fixture: RAW params fail the strict publish schema (CONTRACT-H-002)', () => {
+    const params = paramsOf(readFixture('deploy-scada-package-unsupported-widget.json'));
+    expect(validateDeployScadaPackageParams(params)).toBe(false);
+  });
+
+  it('unsupported-widget fixture: transformed params PASS (strip-class widget removed)', () => {
+    const params = paramsOf(
+      readFixture('deploy-scada-package-unsupported-widget.json'),
+    ) as ScadaPackageDocV2;
+    const transform = transformScadaDocForEdgeDeploy(params);
+    if (!transform.ok) {
+      throw new Error(`fixture must transform cleanly, rejected: ${JSON.stringify(transform.rejected)}`);
+    }
+    expect(transform.stripped).toEqual([
+      { screenId: 'screen-1', widgetId: 'widget-2', widgetType: 'staticText' },
+    ]);
+    expectValid(validateDeployScadaPackageParams, transform.doc);
+  });
+
+  it('undeploy-scada-package params satisfy UNDEPLOY_SCADA_PACKAGE_PARAMS_SCHEMA (WF-011)', () => {
+    const params = paramsOf(readFixture('undeploy-scada-package.json'));
+    expectValid(validateUndeployScadaPackageParams, params);
+    // Closed contract: identity + audit reason only.
+    expect(validateUndeployScadaPackageParams({ ...params, extra: 'nope' })).toBe(false);
+    expect(validateUndeployScadaPackageParams({ reason: 'package_deleted' })).toBe(false);
   });
 
   it('deploy-bundle params satisfy DEPLOY_BUNDLE_PARAMS_SCHEMA and are self-consistent', () => {

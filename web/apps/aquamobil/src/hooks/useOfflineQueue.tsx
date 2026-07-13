@@ -210,6 +210,36 @@ const MUTATIONS: Record<Exclude<OperationType, 'uploadAndSendMessage'> | 'submit
       }
     }
   `,
+  // FARM-HIGH-214: regulatory field capture. The queued payload carries the
+  // command envelope stamped on enqueue; the backend inputs extend
+  // MobileCommandEnvelopeInput so it rides under `input` verbatim. Lice counts
+  // are naturally idempotent (upsert per tank/date); welfare + escape dedup
+  // through the farm_mobile_command_receipts ledger on replay.
+  recordLiceCount: `
+    mutation RecordLiceCount($input: RecordLiceCountInput!) {
+      recordLiceCount(input: $input) {
+        id
+        reportingYear
+        reportingWeek
+      }
+    }
+  `,
+  recordWelfareAssessment: `
+    mutation RecordWelfareAssessment($input: RecordWelfareAssessmentInput!) {
+      recordWelfareAssessment(input: $input) {
+        id
+        assessedAt
+      }
+    }
+  `,
+  recordEscapeIncident: `
+    mutation RecordEscapeIncident($input: RecordEscapeIncidentInput!) {
+      recordEscapeIncident(input: $input) {
+        id
+        status
+      }
+    }
+  `,
   // Messaging mutations — ADR-012
   sendMessage: `
     mutation SendMessage($input: SendMessageInput!) {

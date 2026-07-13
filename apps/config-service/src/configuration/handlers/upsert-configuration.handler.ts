@@ -6,10 +6,40 @@ import {
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { pinRlsTenantScope } from '../../database/rls-scoped-session';
 import { UpsertConfigurationCommand } from '../commands/upsert-configuration.command';
 import { Configuration, ConfigurationHistory, ConfigValueType } from '../entities/configuration.entity';
 import { ConfigurationService } from '../services/configuration.service';
 import { EncryptionService } from '../services/encryption.service';
+
+/**
+ * Columns overwritten when the (tenant, service, key, environment) row already
+ * exists.
+ *
+ * WHY `value_type` is only overwritten for SECRET writes: the public
+ * setConfiguration mutation carries no valueType argument, so a plain write
+ * would otherwise downgrade a seeded `number`/`boolean`/`json` row to `string`
+ * and every typed consumer of getTypedValue() would silently start receiving
+ * raw strings. A non-secret upsert therefore preserves the stored type (the
+ * value is still stored in its canonical string form), while a secret write
+ * MUST stamp `secret` so redaction is enforced by type, not just by the
+ * is_secret flag.
+ */
+export function resolveUpsertOverwriteColumns(isSecret: boolean): string[] {
+  return [
+    'value',
+    ...(isSecret ? ['value_type'] : []),
+    'is_secret',
+    'updated_by',
+    'updated_at',
+    'is_active',
+    'deleted_at',
+    'deleted_by',
+    'delete_reason',
+    'retention_until',
+    'suppress_fallback',
+  ];
+}
 
 @Injectable()
 @CommandHandler(UpsertConfigurationCommand)
@@ -32,6 +62,13 @@ export class UpsertConfigurationHandler
     await queryRunner.startTransaction('READ COMMITTED');
 
     try {
+      // config.configurations is behind a FORCE RLS policy keyed on the
+      // app.current_tenant GUC. Pool-checkout pinning follows the HTTP request
+      // context, which is EMPTY for a tenantless SUPER_ADMIN whose scope the
+      // resolver resolved to SYSTEM_TENANT_ID — own the GUC transaction-locally
+      // so RLS visibility always matches the command's resolved tenant scope.
+      await pinRlsTenantScope(queryRunner, tenantId);
+
       const repo = tenantManagerRepo(queryRunner.manager, Configuration, tenantId);
 
       // Fetch existing config before upsert (for history tracking)
@@ -69,19 +106,7 @@ export class UpsertConfigurationHandler
           updatedBy: userId,
         })
         .orUpdate(
-          [
-            'value',
-            'value_type',
-            'is_secret',
-            'updated_by',
-            'updated_at',
-            'is_active',
-            'deleted_at',
-            'deleted_by',
-            'delete_reason',
-            'retention_until',
-            'suppress_fallback',
-          ],
+          resolveUpsertOverwriteColumns(canonicalIsSecret),
           ['tenant_id', 'service', 'key', 'environment'],
         )
         .returning('*')

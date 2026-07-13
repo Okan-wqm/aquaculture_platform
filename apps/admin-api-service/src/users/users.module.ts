@@ -1,13 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ClientsModule } from '@nestjs/microservices';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { NatsV3Client } from '@aquaculture/backend-common/nats';
 
 import { SettingsModule } from '../settings/settings.module';
 
-import { UserPermissions } from './entities/user-permissions.entity';
 import { RoleTemplateService } from './services/role-template.service';
-import { UserPermissionsService } from './services/user-permissions.service';
 import { UserProvisioningService } from './services/user-provisioning.service';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
@@ -15,7 +12,6 @@ import { UsersService } from './users.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([UserPermissions]),
     SettingsModule,
     /**
      * NATS client for auth-service delegation.
@@ -44,13 +40,11 @@ import { UsersService } from './users.service';
     UsersService,
     UserProvisioningService,
     RoleTemplateService,
-    UserPermissionsService,
   ],
   exports: [
     UsersService,
     UserProvisioningService,
     RoleTemplateService,
-    UserPermissionsService,
   ],
 })
 export class UsersModule {}

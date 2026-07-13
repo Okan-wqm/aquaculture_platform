@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { devtools, subscribeWithSelector } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
+import { registerLogoutCleanup, onTenantChange } from '@aquaculture/shared-ui';
 import type { ScadaStore } from './types';
 
 import { createSceneSlice } from './sceneSlice';
@@ -49,3 +50,12 @@ export function createScadaStore() {
 
 // Singleton instance for the application
 export const useScadaPackageStore = createScadaStore();
+
+// SECURITY (SENSOR-HIGH-041): the SCADA design store holds a single active,
+// tenant-owned package (screens, alarm rules, control permissions, scripts).
+// Fully reset it on logout and on any tenant switch so tenant A's in-progress
+// design can never surface in — or be saved into — tenant B's session.
+// onTenantChange fires only on an actual A->B change, never on first login.
+// Registered against the singleton only; test-created stores stay isolated.
+registerLogoutCleanup(() => useScadaPackageStore.getState().reset());
+onTenantChange(() => useScadaPackageStore.getState().reset());

@@ -83,9 +83,16 @@ services:
       - schema_drift_clean
   - name: config-service
     signals:
+      # DB-INFRA-HIGH-003: config-service joined the NATS event backbone
+      # (EventBusModule for the GDPR tenant-erasure cascade), so its boot must
+      # prove the mTLS-cert NATS identity like every other bus participant.
+      - nats_auth_mode_mtls
       - schema_drift_clean
   - name: event-store-service
     signals:
+      # DB-INFRA-HIGH-003: event-store-service joined the NATS event backbone
+      # (EventBusModule for the GDPR tenant-erasure cascade) — same proof.
+      - nats_auth_mode_mtls
       - schema_drift_clean
   - name: observability-service
     signals:

@@ -161,9 +161,11 @@ const ProcessEditorPage: React.FC = () => {
     selectEdge,
     setProcessName,
     setProcessId,
-    resetStore,
+    loadProcess,
+    startNewProcess,
     setIsSaving,
     markClean,
+    markDirty,
   } = useProcessStore();
 
   // API hook for process CRUD operations
@@ -206,6 +208,12 @@ const ProcessEditorPage: React.FC = () => {
           setCanvasEdges(data as CanvasEdge[]);
           break;
 
+        case 'canvasEdited':
+          // USER gesture on the canvas (WF-004) — the only echo-free edit
+          // signal the iframe emits (nodesChange also fires on hydration).
+          markDirty();
+          break;
+
         case 'nodeSelected':
           const node = data as CanvasNode;
           setSelectedNodeId(node?.id || null);
@@ -227,8 +235,10 @@ const ProcessEditorPage: React.FC = () => {
           break;
 
         case 'nodeAdded':
-          // Node already added via nodesChange, just log
-          console.log('Node added:', data);
+        case 'edgeAdded':
+          // Palette drops / new connections are user edits (WF-004); the
+          // state itself already arrived via the nodesChange echo.
+          markDirty();
           break;
 
         case 'openWidgetConfig':
@@ -248,43 +258,49 @@ const ProcessEditorPage: React.FC = () => {
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [canvasNodes, canvasEdges, sendToCanvas, selectNode, selectEdge]);
+  }, [canvasNodes, canvasEdges, sendToCanvas, selectNode, selectEdge, markDirty]);
 
-  // Initialize store based on route
+  // Ready-state ref for the load effect (WF-004): keeping isCanvasReady OUT
+  // of that effect's deps is the point — with it, the effect re-ran on the
+  // handshake and re-hydrated the store mid-session. The 'ready' replay in
+  // the message handler covers the ready-after-load ordering.
+  const isCanvasReadyRef = useRef(isCanvasReady);
+  useEffect(() => { isCanvasReadyRef.current = isCanvasReady; }, [isCanvasReady]);
+
+  // Initialize store based on route. Hydration is ONE store transaction
+  // (loadProcess) that ends CLEAN — per-field setters marked the freshly
+  // loaded process dirty (WF-004).
   useEffect(() => {
     // BUG-004: AbortController so async API call is cancelled on unmount / dep change
     const controller = new AbortController();
 
-    const loadProcess = async () => {
+    const load = async () => {
       if (processId && processId !== 'new') {
         // Load existing process from API
         const existingProcess = await getProcess(processId);
         // Guard: if the effect was cleaned up while the fetch was in-flight, do nothing
         if (controller.signal.aborted) return;
         if (existingProcess) {
-          setProcessId(existingProcess.id);
-          setProcessName(existingProcess.name);
+          loadProcess(existingProcess);
           setCanvasNodes(existingProcess.nodes as CanvasNode[]);
           setCanvasEdges(existingProcess.edges as CanvasEdge[]);
           // Send to canvas if ready
-          if (isCanvasReady) {
+          if (isCanvasReadyRef.current) {
             sendToCanvas('setNodes', existingProcess.nodes);
             sendToCanvas('setEdges', existingProcess.edges);
           }
         } else {
           // Process not found, reset to new
-          resetStore();
-          setProcessName('New Process');
+          startNewProcess('New Process');
         }
       } else {
-        resetStore();
-        setProcessName('New Process');
+        startNewProcess('New Process');
       }
     };
-    loadProcess();
+    load();
 
     return () => controller.abort();
-  }, [processId, setProcessId, setProcessName, resetStore, getProcess, isCanvasReady, sendToCanvas]);
+  }, [processId, loadProcess, startNewProcess, getProcess, sendToCanvas]);
 
   // Handle node template drag start from panel
   const handleEquipmentDragStart = useCallback(
@@ -307,8 +323,12 @@ const ProcessEditorPage: React.FC = () => {
       sendToCanvas('removeNode', selectedNodeId);
       setSelectedNodeId(null);
       selectNode(null);
+      // Host-initiated removal goes through programmatic setNodes in the
+      // iframe, which never fires ReactFlow's interaction callbacks — the
+      // edit signal must originate here (WF-004).
+      markDirty();
     }
-  }, [selectedNodeId, sendToCanvas, selectNode]);
+  }, [selectedNodeId, sendToCanvas, selectNode, markDirty]);
 
   // Handle save
   const handleSave = async () => {
@@ -698,7 +718,17 @@ const ProcessEditorPage: React.FC = () => {
           accent="cyan"
           isOpen={isEdgeDeployOpen}
           onClose={() => setIsEdgeDeployOpen(false)}
-          onDeploy={(deviceId) => edgeDeployMutation.mutateAsync({ processId, deviceId })}
+          onDeploy={async (deviceId) => {
+            // Dirty-gate (WF-004): deploy ships the SERVER's saved process —
+            // unsaved edits would silently push the stale version.
+            if (isDirty) {
+              return {
+                success: false,
+                message: 'Kaydedilmemiş proses değişiklikleri var — önce kaydedin, sonra dağıtın.',
+              };
+            }
+            return edgeDeployMutation.mutateAsync({ processId, deviceId });
+          }}
         />
       )}
     </div>

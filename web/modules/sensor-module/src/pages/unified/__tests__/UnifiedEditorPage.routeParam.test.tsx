@@ -18,7 +18,7 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 
 const spies = vi.hoisted(() => ({
-  getProcess: vi.fn(async () => ({ id: 'proc-77', name: 'Real Route Proc', nodes: [], edges: [] })),
+  getProcess: vi.fn(async () => ({ id: 'proc-77', name: 'Real Route Proc', status: 'draft', nodes: [], edges: [] })),
 }));
 
 // Heavy children + data hooks stubbed to their contract surface — the router
@@ -41,7 +41,7 @@ vi.mock('../../../hooks/useScadaPackage', () => ({
   useScadaPackages: () => ({ packages: [], loading: false, error: null, refetch: vi.fn() }),
   useCreateScadaPackage: () => ({ mutateAsync: vi.fn() }),
   useUpdateScadaPackage: () => ({ mutateAsync: vi.fn() }),
-  useDeployScadaPackage: () => ({ mutateAsync: vi.fn() }),
+  useDeployScadaBundle: () => ({ mutateAsync: vi.fn() }),
 }));
 vi.mock('../../../hooks/useDeployProcess', () => ({
   useDeployProcessToEdge: () => ({ mutateAsync: vi.fn() }),
@@ -53,6 +53,9 @@ vi.mock('../../../components/unified-editor/ModeTabBar', () => ({ default: () =>
 vi.mock('../../../components/unified-editor/UnifiedPropertiesPanel', () => ({
   UnifiedPropertiesPanel: () => <div />,
 }));
+vi.mock('../../../components/unified-editor/HmiPropertiesPanel', () => ({
+  HmiPropertiesPanel: () => <div />,
+}));
 vi.mock('../../../components/process-editor/panels/AttachmentsPanel', () => ({
   AttachmentsPanel: () => <div />,
 }));
@@ -61,7 +64,7 @@ vi.mock('../../../components/process-editor/WidgetConfigModal', () => ({
 }));
 vi.mock('../../../components/unified-editor/ScreenManager', () => ({ default: () => <div /> }));
 vi.mock('../../../components/unified-editor/StEditorPanel', () => ({ default: () => <div /> }));
-vi.mock('../../../components/scada-builder/WidgetPalette', () => ({ WidgetPalette: () => <div /> }));
+vi.mock('../../../components/scada-builder/UnifiedLeftPanel', () => ({ UnifiedLeftPanel: () => <div /> }));
 vi.mock('../../../components/scada-builder/ScreenCanvas', () => ({ ScreenCanvas: () => <div /> }));
 vi.mock('../../../components/scada-builder/StableModeProvider', () => ({
   StableModeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,

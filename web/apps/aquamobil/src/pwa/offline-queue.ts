@@ -924,7 +924,15 @@ export async function syncAllOperations(
   );
   await Promise.all(retryableFailed.map((op) => updateOperation(op.tenantId, op.id, { status: 'pending' })));
 
-  const operations = await getPendingOperations(tenantId);
+  const pendingOps = await getPendingOperations(tenantId);
+  // FARM-HIGH-214 priority drain: escape incidents are legally time-critical
+  // (the rømming varsling is immediate), so a reconnect flushes them BEFORE the
+  // rest of the backlog. Stable partition — relative order within each group
+  // is preserved, so the established FIFO semantics hold for everything else.
+  const operations = [
+    ...pendingOps.filter((op) => op.type === 'recordEscapeIncident'),
+    ...pendingOps.filter((op) => op.type !== 'recordEscapeIncident'),
+  ];
   let success = 0;
   let failed = 0;
 

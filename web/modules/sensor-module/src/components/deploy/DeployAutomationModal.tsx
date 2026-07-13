@@ -49,14 +49,20 @@ export const DeployAutomationModal: React.FC<DeployAutomationModalProps> = ({
 
     graphqlRequest(AUTOMATION_PROGRAMS_QUERY, { filter: { status: 'APPROVED' }, limit: 50 })
       .then((data: Record<string, unknown>) => {
-        const items =
-          (data?.automationPrograms as Array<{
-            id: string;
-            programCode: string;
-            programName: string;
-            status: string;
-          }>) || [];
-        setPrograms(items);
+        // The query returns a paginated CONNECTION ({ items, total, ... }),
+        // not a bare array — reading the connection as an array left the
+        // program list permanently empty (UI-005 / SENSOR-HIGH-049).
+        const connection = data?.automationPrograms as
+          | {
+              items?: Array<{
+                id: string;
+                programCode: string;
+                programName: string;
+                status: string;
+              }>;
+            }
+          | undefined;
+        setPrograms(connection?.items ?? []);
       })
       .catch(() => {
         // Surfaced to the user as the empty-list hint below; no console (no-console).

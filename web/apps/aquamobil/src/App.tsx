@@ -113,6 +113,23 @@ const AiChatPage = lazy(() =>
   import('./pages/messaging/AiChatPage').then((m) => ({ default: m.AiChatPage }))
 );
 
+// Regulatory field capture + report surface (FARM-HIGH-214 / RPT-019)
+const LiceCountPage = lazy(() =>
+  import('./pages/lice/LiceCountPage').then((m) => ({ default: m.LiceCountPage }))
+);
+const WelfareScorePage = lazy(() =>
+  import('./pages/welfare/WelfareScorePage').then((m) => ({ default: m.WelfareScorePage }))
+);
+const EscapeIncidentPage = lazy(() =>
+  import('./pages/escape/EscapeIncidentPage').then((m) => ({ default: m.EscapeIncidentPage }))
+);
+const ReportsDuePage = lazy(() =>
+  import('./pages/reports/ReportsDuePage').then((m) => ({ default: m.ReportsDuePage }))
+);
+const ReportReviewPage = lazy(() =>
+  import('./pages/reports/ReportReviewPage').then((m) => ({ default: m.ReportReviewPage }))
+);
+
 // Operations hub sub-pages — enterprise-grade dedicated hubs per ADR-011
 const DailyOpsHubPage = lazy(() =>
   import('./pages/operations/DailyOpsHubPage').then((m) => ({ default: m.DailyOpsHubPage }))
@@ -454,6 +471,75 @@ export function App(): ReactElement {
                         element={
                           <FeatureRoute feature="leave">
                             <LeaveRequestPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      {/* Regulatory field capture (FARM-HIGH-214 / RPT-019) —
+                          offline-first writes into the Phase-2 source entities */}
+                      <Route
+                        path="/lice/record"
+                        element={
+                          <FeatureRoute feature="liceCount">
+                            <LiceCountPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/lice/record/:tankId"
+                        element={
+                          <FeatureRoute feature="liceCount">
+                            <LiceCountPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/welfare/record"
+                        element={
+                          <FeatureRoute feature="welfare">
+                            <WelfareScorePage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/welfare/record/:tankId"
+                        element={
+                          <FeatureRoute feature="welfare">
+                            <WelfareScorePage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/escape/record"
+                        element={
+                          <FeatureRoute feature="escape">
+                            <EscapeIncidentPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/escape/record/:tankId"
+                        element={
+                          <FeatureRoute feature="escape">
+                            <EscapeIncidentPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      {/* Report surface — ONLINE-ONLY review/approve; FeatureRoute
+                          enforces the MODULE_MANAGER role floor (feature-access SSoT)
+                          mirroring the draft resolver's @Roles matrix */}
+                      <Route
+                        path="/reports"
+                        element={
+                          <FeatureRoute feature="reports">
+                            <ReportsDuePage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/reports/:draftId"
+                        element={
+                          <FeatureRoute feature="reports">
+                            <ReportReviewPage />
                           </FeatureRoute>
                         }
                       />

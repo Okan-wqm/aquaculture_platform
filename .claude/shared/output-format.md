@@ -12,6 +12,7 @@
   - `TEST-*` — test-runner
   - `ARCH-*` — architectural-arbiter
   - `PRODUCT-{AGENT-PREFIX}-*` — Lane-B product-audit agents
+  - `DB-{AREA}-*` — Lane-D db-audit agents; AREA ∈ FARMPROD | FARMOPS | FARMPLAT | SENSOR | ADMIN | IDENT | PEOPLE | INFRA (one per partition auditor under `.claude/agents/db-audit/`)
   - `PLAT-*` — platform-kernel-expert only; retired platform service aliases are invalid
   - `BILLING-*` — billing-expert
   - `ALERT-*` — alert-engine-expert

@@ -1,7 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { SelectQueryBuilder } from 'typeorm';
+import { DataSource, SelectQueryBuilder } from 'typeorm';
 
+import { TenantListItemDto } from '../../dto/tenant-detail.dto';
 import { Tenant, TenantStatus, TenantPlan } from '../../entities/tenant.entity';
 import { ListTenantsQuery } from '../../queries/tenant.queries';
 import { ListTenantsHandler, PaginatedResult } from '../../query-handlers/tenant-query.handlers';
@@ -63,6 +64,15 @@ describe('ListTenantsHandler - Pagination', () => {
         {
           provide: getRepositoryToken(Tenant),
           useValue: mockRepository,
+        },
+        {
+          // The handler batch-counts per-tenant farms/sensors via raw SQL.
+          // These pagination fixtures use non-UUID tenant ids, so the count
+          // path short-circuits before touching the DataSource — the mock only
+          // satisfies DI (DTO-mapping behaviour is pinned in
+          // ../list-tenants-contract.spec.ts).
+          provide: DataSource,
+          useValue: { query: jest.fn().mockResolvedValue([]) },
         },
       ],
     }).compile();
@@ -304,7 +314,7 @@ describe('ListTenantsHandler - Pagination', () => {
       const tenants = createMockTenants(3);
       (mockQueryBuilder.getManyAndCount as jest.Mock).mockResolvedValue([tenants, 3]);
 
-      const result: PaginatedResult<Tenant> = await handler.execute(
+      const result: PaginatedResult<TenantListItemDto> = await handler.execute(
         new ListTenantsQuery(),
       );
 

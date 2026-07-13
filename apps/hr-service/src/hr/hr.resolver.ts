@@ -1,11 +1,11 @@
 import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType } from '@nestjs/graphql';
 import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles, Role, AuditLog } from '@aquaculture/backend-common/decorators';
+import { Roles, Role, AuditLog, CurrentUser, CurrentUserPayload } from '@aquaculture/backend-common/decorators';
 import { StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { RolesGuard } from '@aquaculture/backend-common/guards';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { Employee, EmployeeStatus, Department } from './entities/employee.entity';
+import { Employee, EmployeeStatus, Department, ContactInfo, Address } from './entities/employee.entity';
 import { DepartmentHR } from './entities/department.entity';
 import { Payroll, PayrollStatus } from './entities/payroll.entity';
 import { CreateEmployeeInput } from './dto/create-employee.input';
@@ -71,6 +71,59 @@ export class HRResolver {
     return userId;
   }
 
+  // ── DB-PEOPLE-MEDIUM-001: employee contact-PII object-level authz ──
+  // The employee read queries are gated to MODULE_USER (the broad workforce
+  // role), so without this a MODULE_USER could fetch ANY colleague's home
+  // address, personal phone, and emergency contacts. Full contact PII is
+  // returned only to workforce managers (TENANT_ADMIN/MODULE_MANAGER) or the
+  // subject themselves (self); everyone else gets a redacted directory
+  // projection. (Direct-supervisor visibility for a MODULE_USER line manager is
+  // a tracked refinement — ORPHAN-MEDIUM-347 — needing a viewer-employee lookup.)
+  private readonly HR_PII_PRIVILEGED_ROLES: readonly Role[] = [
+    Role.TENANT_ADMIN,
+    Role.MODULE_MANAGER,
+  ];
+
+  private canViewEmployeeContactPii(employee: Employee, viewer: CurrentUserPayload): boolean {
+    if (viewer.roles?.some((r) => this.HR_PII_PRIVILEGED_ROLES.includes(r as Role))) {
+      return true;
+    }
+    return !!employee.userId && employee.userId === viewer.sub;
+  }
+
+  /** Redact home address + personal/emergency phone in place for unauthorized viewers. */
+  private maskEmployeeContactPii(employee: Employee, viewer: CurrentUserPayload): Employee {
+    if (this.canViewEmployeeContactPii(employee, viewer)) {
+      return employee;
+    }
+    const REDACTED = 'REDACTED';
+    // Keep the work email (already public via the top-level `email` field);
+    // redact personal + emergency phone and the full home address.
+    const maskedContact: ContactInfo = {
+      email: employee.contactInfo?.email,
+      phone: REDACTED,
+      emergencyContact: undefined,
+      emergencyPhone: undefined,
+    };
+    const maskedAddress: Address = {
+      street: REDACTED,
+      city: REDACTED,
+      state: REDACTED,
+      postalCode: REDACTED,
+      country: REDACTED,
+    };
+    employee.contactInfo = maskedContact;
+    employee.address = maskedAddress;
+    return employee;
+  }
+
+  private maskEmployeeList(employees: Employee[], viewer: CurrentUserPayload): Employee[] {
+    for (const employee of employees) {
+      this.maskEmployeeContactPii(employee, viewer);
+    }
+    return employees;
+  }
+
   // Employee Queries
   @Query(() => Employee, { name: 'employee' })
   @UseGuards(RolesGuard)
@@ -78,9 +131,11 @@ export class HRResolver {
   async getEmployee(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
+    @CurrentUser() viewer: CurrentUserPayload,
   ): Promise<Employee> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(new GetEmployeeQuery(tenantId, id));
+    const employee: Employee = await this.queryBus.execute(new GetEmployeeQuery(tenantId, id));
+    return this.maskEmployeeContactPii(employee, viewer);
   }
 
   @Query(() => EmployeeConnection, { name: 'employees' })
@@ -90,9 +145,11 @@ export class HRResolver {
     @Args('filter', { nullable: true }) filter: EmployeeFilterInput,
     @Args('pagination', { nullable: true }) pagination: EmployeePaginationInput,
     @Context() context: GraphQLContext,
+    @CurrentUser() viewer: CurrentUserPayload,
   ): Promise<IStandardPaginatedResult<Employee>> {
     const tenantId = this.getTenantId(context);
     const result = await this.queryBus.execute(new GetEmployeesQuery(tenantId, filter, pagination));
+    this.maskEmployeeList(result.data, viewer);
     return fromCqrsPaginated(result);
   }
 
@@ -104,12 +161,13 @@ export class HRResolver {
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit: number,
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page: number,
     @Context() context: GraphQLContext,
+    @CurrentUser() viewer: CurrentUserPayload,
   ): Promise<Employee[]> {
     const tenantId = this.getTenantId(context);
     const result = await this.queryBus.execute(
       new GetEmployeesQuery(tenantId, { department }, { page, limit }),
     );
-    return result.data;
+    return this.maskEmployeeList(result.data, viewer);
   }
 
   @Query(() => [Employee], { name: 'activeEmployees' })
@@ -119,12 +177,13 @@ export class HRResolver {
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit: number,
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page: number,
     @Context() context: GraphQLContext,
+    @CurrentUser() viewer: CurrentUserPayload,
   ): Promise<Employee[]> {
     const tenantId = this.getTenantId(context);
     const result = await this.queryBus.execute(
       new GetEmployeesQuery(tenantId, { status: EmployeeStatus.ACTIVE }, { page, limit }),
     );
-    return result.data;
+    return this.maskEmployeeList(result.data, viewer);
   }
 
   // Employee Mutations

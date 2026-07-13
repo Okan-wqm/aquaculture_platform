@@ -17,12 +17,12 @@ handoff:
 
 ## ADR Gate
 
-Adding a NEW cross-tenant table to the `shared` schema is **architecturally gated**. The canonical shared-schema tables are exactly four per ADR-011:
+Adding a NEW cross-tenant table to the `shared` schema is **architecturally gated**. The canonical shared-schema tables are exactly four per ADR-011 (as amended by ADR-042, which retired `user_permissions`):
 
 1. `audit_logs`
 2. `gdpr_data_requests`
 3. `user_consents`
-4. `user_permissions`
+4. `access_logs`
 
 A 5th table REQUIRES:
 
@@ -127,7 +127,11 @@ A review or feature proposal argues for adding a new cross-tenant table. Before 
   - `shared.audit_logs` — append-only cross-tenant audit.
   - `shared.gdpr_data_requests` — Art 15/17/20 request tracking.
   - `shared.user_consents` — consent capture + withdrawal history.
-  - `shared.user_permissions` — cross-tenant permission grants (separate from per-tenant RBAC).
+  - `shared.access_logs` — low-level HTTP access stream (90-day horizon).
+- Retired: `shared.user_permissions` (ADR-042, 2026-07-12) — dead parallel
+  permission catalog; the RBAC SSoT is `auth.tenant_role_permissions`.
+  Retirement is the reverse ceremony: ADR + archive-before-drop migration +
+  SSoT list shrink in the same PR.
 
 No 5th table exists in the repo yet — this skill is the gate.
 
@@ -144,3 +148,5 @@ No 5th table exists in the repo yet — this skill is the gate.
 ## Changelog
 
 - v1 (2026-04-17) — initial landing, Phase 3 deliverable, BLOCKER-15 class.
+- v2 (2026-07-12) — canonical list corrected to the live 4 (access_logs in,
+  user_permissions retired per ADR-042 / ORPHAN-HIGH-378).

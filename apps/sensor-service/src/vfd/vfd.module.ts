@@ -8,6 +8,7 @@ import { VfdModbusRtuAdapter } from './adapters/vfd-modbus-rtu.adapter';
 import { VfdModbusTcpAdapter } from './adapters/vfd-modbus-tcp.adapter';
 import { VfdProfibusAdapter } from './adapters/vfd-profibus-dp.adapter';
 import { VfdProfinetAdapter } from './adapters/vfd-profinet.adapter';
+import { VfdCommandAuditLog } from './entities/vfd-command-audit-log.entity';
 import { VfdDevice } from './entities/vfd-device.entity';
 import { VfdReading } from './entities/vfd-reading.entity';
 import { VfdRegisterMapping } from './entities/vfd-register-mapping.entity';
@@ -35,6 +36,7 @@ import { VfdRegisterMappingService } from './services/vfd-register-mapping.servi
       VfdDevice,
       VfdRegisterMapping,
       VfdReading,
+      VfdCommandAuditLog,
     ]),
   ],
   providers: [

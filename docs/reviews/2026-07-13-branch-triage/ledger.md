@@ -358,3 +358,15 @@ Silinen her ref bu dosyadaki SHA ile geri getirilebilir: `git branch <ad> <sha>`
 ```
 
 Dokunulmaz: `/var/lib/aqua/deploy/checkout`, kilitli `.claude/worktrees/agent-*`, ana checkout.
+
+---
+
+## Faz 1 yürütme kaydı — 2026-07-13
+
+- **106 lokal branch silindi** (Sınıf A+B; her biri silme anında ancestor/`git cherry` 0-unique testiyle YENİDEN doğrulandı; SHA'lar yukarıdaki tabloda). 0 hata.
+- **51 origin branch silindi** (origin ref'in KENDİSİ A/B testinden geçti; açık PR head'leri ve aktif lane hariç tutuldu). 0 hata.
+- **10 ölü worktree kaldırıldı** (312952bb ve 3e5dfe28 oturum scratchpad'leri; hepsi kaldırma öncesi `git status --porcelain` ile TEMİZ doğrulandı — commit'lenmemiş iş yoktu): wt-deploybootstrap, wt-deploydir, wt-flagged, wt-leaveadmin, wt-orphan, wt-relverify, wt-smoke, wt-csp-052, wt-fmtscope-117, wt-restclient-091.
+- Lokal `main` origin/main'e fast-forward edildi.
+- Bulgu: origin feeding hattı (`protocol-batch-feeding-ssot-v2`, `daily-plan-protocol-ssot`, `feeding-growth-mode`, `water-temperature-feed-rate`, `feeding-tab-swap`, `combine-batch-visibility`) **B çıktı** — içerik main'de zaten mevcut; Faz 2 tema-7 kapsamı daraldı.
+- Skip edilenler (aktif lane, dokunulmadı): `fix/a5-pricing-ssot` (PR #963 bu sabah merge oldu), `fix/a6-usage-metering-ssot`, `fix/stray-tenant-migration-journal`, `fix/schema-gate-derive-shared-count` (yeni açık PR), kilitli `.claude/worktrees/agent-*`.
+- Kalan: 100 lokal branch (C/D + aktif lane), 42 origin branch'i.

@@ -92,11 +92,12 @@ const PLATFORM_FUNCTIONS = [
   'audit_immutability_guard',
 ] as const;
 
+// user_permissions retired 2026-07-12 (ADR-042, ORPHAN-HIGH-378) — stage 006
+// no longer creates it; the canonical shared set is 4 tables.
 const SHARED_SCHEMA_TABLES = [
   'audit_logs',
   'gdpr_data_requests',
   'user_consents',
-  'user_permissions',
   'access_logs',
 ] as const;
 

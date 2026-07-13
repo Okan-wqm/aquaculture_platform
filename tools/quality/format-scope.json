@@ -2099,6 +2099,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1801500000000-DropRetiredUserPermissions.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -2849,37 +2855,13 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/users/__tests__/user-permissions.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/users/dto/invite-user.dto.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/users/dto/reset-password.dto.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/users/entities/user-permissions.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/users/services/role-template.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/users/services/user-permissions.service.ts",
       "prettier_managed": true
     },
     {
@@ -9346,6 +9328,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/database/migrations/1805400000000-DropTankBatchCurrentQuantityMirror.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1805500000000-DropFarmWorkerPlaceholderPii.ts",
       "prettier_managed": true
     },
     {
@@ -25963,6 +25951,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/adr/042-retire-shared-user-permissions.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/adr/2026-04-30-apollo-router-self-hosted-static-supergraph.md",
       "prettier_managed": true
     },
@@ -32024,6 +32018,18 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/orchestrator/2026-04-18-agentic-diff-validation.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/orphan-findings.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/orphan-findings.md",
       "prettier_managed": true
     },
     {
@@ -41533,6 +41539,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/quality/closure-manifest.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
       "prettier_managed": true
     },
     {
@@ -53112,10 +53130,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8706,
+  "file_count": 8709,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8531,
-  "managed_file_list_sha256": "917b8055a4633876f4e8b6ba7f7039465cc299f1e02eb1cf5d03a91dcf5bc4bd",
+  "managed_count": 8534,
+  "managed_file_list_sha256": "ecfd38e959ad24d7ffefb979d7a45ae94e2651e2fcf9297fc71827c8b9dfc4f1",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

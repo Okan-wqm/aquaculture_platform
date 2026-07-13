@@ -1299,12 +1299,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/billing/entities/tenant-usage-metrics-readonly.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/billing/entities/usage-aggregation-readonly.entity.ts",
       "prettier_managed": true
     },
@@ -3102,6 +3096,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/chat/guards/jwt-auth.guard.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/conversation/__tests__/conversation-privacy-event.handler.spec.ts",
       "prettier_managed": true
     },
     {
@@ -5429,6 +5429,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/__tests__/get-tenant-billing.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/__tests__/invoice.service.spec.ts",
       "prettier_managed": true
     },
@@ -5652,12 +5658,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/billing/entities/subscription.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/billing-service/src/billing/entities/tenant-usage-metrics.entity.ts",
       "prettier_managed": true
     },
     {
@@ -5968,6 +5968,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/database/migrations/1801100000000-AddPlanStripeIdentifiers.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/database/migrations/1801700000000-DropRetiredTenantUsageMetrics.ts",
       "prettier_managed": true
     },
     {
@@ -26023,6 +26029,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/adr/043-support-conversation-boundary.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/adr/044-ai-conversation-content-ownership.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/adr/2026-04-30-apollo-router-self-hosted-static-supergraph.md",
       "prettier_managed": true
     },
@@ -31093,6 +31111,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/2026-07-13-branch-triage/ledger.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/admin-expert/2026-04-05-s2-high-findings.md",
       "prettier_managed": true
     },
@@ -31981,6 +32005,24 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/mobile-messaging-e2e/2026-07-01-findings.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/mobile-messaging-e2e/2026-07-01-sprint-a1-waves-1-3.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/mobile-messaging-e2e/2026-07-01-wave0-baseline.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/multi-tenant-saas-expert/2026-04-09-tenant-isolation-exploitability.md",
       "prettier_managed": true
     },
@@ -32096,6 +32138,18 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/orchestrator/2026-04-18-agentic-diff-validation.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/orphan-findings.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/orphan-findings.md",
       "prettier_managed": true
     },
     {
@@ -40159,6 +40213,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/drift-repair-naming.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/edge-device-dual-model-guard.spec.ts",
       "prettier_managed": true
     },
     {
@@ -53364,10 +53424,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8743,
+  "file_count": 8753,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8562,
-  "managed_file_list_sha256": "910e0143a9b2a44944ab60933c8960ea3d16dcf726501d13fbf24b513b61c5ef",
+  "managed_count": 8572,
+  "managed_file_list_sha256": "e9411e72239e50c3da1b31efa02bfcab09a95d572b85201a3f438651e162d3fa",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

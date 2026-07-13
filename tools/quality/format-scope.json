@@ -2099,6 +2099,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1801500000000-DropRetiredUserPermissions.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -2849,37 +2855,13 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/users/__tests__/user-permissions.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/users/dto/invite-user.dto.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/users/dto/reset-password.dto.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/users/entities/user-permissions.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/users/services/role-template.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/users/services/user-permissions.service.ts",
       "prettier_managed": true
     },
     {
@@ -2958,6 +2940,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/agent/__tests__/agent-profile-model.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/__tests__/agent-runner-cost-ledger.spec.ts",
       "prettier_managed": true
     },
     {
@@ -3143,7 +3131,31 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/cost/__tests__/model-pricing.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/cost/__tests__/turn-ledger.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/cost/conversation-turn.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/cost/cost.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/cost/model-pricing.ts",
       "prettier_managed": true
     },
     {
@@ -3156,6 +3168,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/cost/token-budget.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/cost/turn-ledger.service.ts",
       "prettier_managed": true
     },
     {
@@ -3197,6 +3215,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/database/migrations/1802000000000-AddByokTenantAiCredentials.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/database/migrations/1802100000000-CreateConversationTurns.ts",
       "prettier_managed": true
     },
     {
@@ -9304,6 +9328,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/database/migrations/1805400000000-DropTankBatchCurrentQuantityMirror.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1805500000000-DropFarmWorkerPlaceholderPii.ts",
       "prettier_managed": true
     },
     {
@@ -25951,6 +25981,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/adr/042-retire-shared-user-permissions.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/adr/2026-04-30-apollo-router-self-hosted-static-supergraph.md",
       "prettier_managed": true
     },
@@ -32024,6 +32060,18 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/orchestrator/2026-04-18-agentic-diff-validation.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/orphan-findings.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/orphan-findings.md",
       "prettier_managed": true
     },
     {
@@ -53193,10 +53241,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8717,
+  "file_count": 8725,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8539,
-  "managed_file_list_sha256": "929708c8821ea7d046a2cd518c52404410918af05525390d9e85cc8bb596b34e",
+  "managed_count": 8547,
+  "managed_file_list_sha256": "4816a295956dccc3d80210443e74a9c667011b53f653e76dd0475c0e2219cbac",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

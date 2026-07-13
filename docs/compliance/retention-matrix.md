@@ -77,7 +77,12 @@ documents which authority dominates.
 | `shared` | `access_logs` | 90 | 90d | Operational forensics | DELETE (TimescaleDB chunk drop) | cross-service |
 | `shared` | `gdpr_data_requests` | 3650 | 10y | KVKK Art 16 evidence-of-rights-fulfilment | Anonymise userId post-cutoff | cross-service |
 | `shared` | `user_consents` | 3650 | 10y | KVKK Art 5(2)(a) açık rıza demonstrability | Anonymise userId post-cutoff | cross-service |
-| `shared` | `user_permissions` | Tied to user lifecycle | — | Operational | DELETE on user-erase | cross-service |
+| `admin` | `retired_config_backups` | Until superseding release verified | — | Operational (retirement archive: legacy config stores + retired `shared.user_permissions` rows, ADR-042) | DELETE after recovery window review | admin-api-service |
+
+> `shared.user_permissions` retired 2026-07-12 (ADR-042, ORPHAN-HIGH-378):
+> the dead parallel permission catalog was archived into
+> `admin.retired_config_backups` and dropped; live RBAC state lives in
+> `auth.tenant_role_permissions`.
 
 ---
 

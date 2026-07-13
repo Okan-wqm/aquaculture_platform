@@ -7,7 +7,6 @@ import {
   Get,
   HttpCode,
   HttpStatus,
-  Logger,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -34,17 +33,12 @@ import {
   Matches,
 } from 'class-validator';
 
-import { AllowTenantAdmin } from '../decorators/roles.decorator';
-
-import { InviteUserDto, UpdateUserPermissionsDto, UserWithPermissionsDto } from './dto/invite-user.dto';
 import { ResetPasswordByAdminDto } from './dto/reset-password.dto';
-import { PanelPermissions, DEFAULT_USER_PERMISSIONS } from './entities/user-permissions.entity';
 import {
   RoleTemplateService,
   Permission,
   RoleTemplate,
 } from './services/role-template.service';
-import { UserPermissionsService } from './services/user-permissions.service';
 import {
   UserProvisioningService,
   InviteUserDto as ProvisioningInviteUserDto,
@@ -206,13 +200,10 @@ export class ListUsersQueryDto {
 @ApiTags('Users')
 @Controller('users')
 export class UsersController {
-  private readonly logger = new Logger(UsersController.name);
-
   constructor(
     private readonly usersService: UsersService,
     private readonly userProvisioningService: UserProvisioningService,
     private readonly roleTemplateService: RoleTemplateService,
-    private readonly userPermissionsService: UserPermissionsService,
   ) {}
 
   /**
@@ -475,233 +466,5 @@ export class UsersController {
   @Get('roles/:roleCode/permissions')
   getRolePermissions(@Param('roleCode') roleCode: string): string[] {
     return this.roleTemplateService.getRolePermissions(roleCode);
-  }
-
-  // ============================================
-  // User Permission Management Endpoints
-  // (TENANT_ADMIN can manage user permissions)
-  // ============================================
-
-  /**
-   * Invite a new user with specific permissions (TENANT_ADMIN)
-   * This endpoint is for tenant admins to invite users with checkbox permissions
-   */
-  @ThrottleSensitive()
-  @Post('tenant/invite')
-  @AllowTenantAdmin()
-  @HttpCode(HttpStatus.CREATED)
-  async inviteUserWithPermissions(
-    @Body() dto: InviteUserDto,
-    @Req() req: { user: { id: string; tenantId?: string } },
-  ): Promise<{ success: boolean; userId?: string; deliveryStatus: 'queued' | 'not_requested'; message: string }> {
-    const tenantId = req.user.tenantId;
-    if (!tenantId) {
-      throw new BadRequestException('Tenant context required for this operation');
-    }
-
-    // Check user limit for tenant
-    const limitCheck = await this.userProvisioningService.checkUserLimit(tenantId);
-    if (!limitCheck.canCreate) {
-      throw new BadRequestException(
-        `User limit reached. Current: ${limitCheck.currentCount}/${limitCheck.limit}`,
-      );
-    }
-
-    // Create the user via provisioning service
-    const provisioningDto: ProvisioningInviteUserDto = {
-      tenantId,
-      email: dto.email,
-      firstName: dto.firstName,
-      lastName: dto.lastName,
-      role: 'MODULE_USER', // Default role for invited users
-      invitedBy: req.user.id,
-      sendInvitation: dto.sendInvitationEmail !== false,
-    };
-
-    const result = await this.userProvisioningService.inviteUser(provisioningDto);
-
-    if (!result.success || !result.userId) {
-      throw new BadRequestException(result.error || 'Failed to invite user');
-    }
-
-    // Set initial permissions if provided
-    if (dto.permissions) {
-      try {
-        // First create default permissions
-        await this.userPermissionsService.createDefaultPermissions(
-          result.userId,
-          tenantId,
-          req.user.id,
-          false,
-        );
-
-        // Then update with provided permissions
-        await this.userPermissionsService.updatePermissions(
-          result.userId,
-          tenantId,
-          dto.permissions,
-          req.user.id,
-        );
-      } catch (error) {
-        // Log error but don't fail the invitation
-        this.logger.error('Failed to set initial permissions', error instanceof Error ? error.stack : error);
-      }
-    } else {
-      // Create default permissions
-      await this.userPermissionsService.createDefaultPermissions(
-        result.userId,
-        tenantId,
-        req.user.id,
-        false,
-      );
-    }
-
-    const deliveryStatus =
-      dto.sendInvitationEmail === false ? 'not_requested' : result.deliveryStatus ?? 'queued';
-
-    return {
-      success: true,
-      userId: result.userId,
-      deliveryStatus,
-      message: deliveryStatus === 'queued'
-        ? 'User invited successfully. Notification delivery queued.'
-        : 'User invited successfully. Notification delivery was not requested.',
-    };
-  }
-
-  /**
-   * Get permission categories for frontend checkbox display
-   * Returns structured permission categories with labels
-   */
-  @Get('permission-categories')
-  @AllowTenantAdmin()
-  getPermissionCategories(): { category: string; permissions: string[]; label: string }[] {
-    return this.userPermissionsService.getPermissionCategories();
-  }
-
-  /**
-   * Get user permissions by user ID (TENANT_ADMIN)
-   */
-  @Get(':id/permissions')
-  @AllowTenantAdmin()
-  async getUserPermissions(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Req() req: { user: { tenantId?: string } },
-  ): Promise<{ userId: string; permissions: PanelPermissions }> {
-    const tenantId = req.user.tenantId;
-    if (!tenantId) {
-      throw new BadRequestException('Tenant context required for this operation');
-    }
-
-    const permissions = await this.userPermissionsService.getUserPermissions(id, tenantId);
-
-    if (!permissions) {
-      // Return default permissions if not found
-      return {
-        userId: id,
-        permissions: DEFAULT_USER_PERMISSIONS,
-      };
-    }
-
-    return {
-      userId: id,
-      permissions: permissions.permissions,
-    };
-  }
-
-  /**
-   * Update user permissions (TENANT_ADMIN)
-   * Allows tenant admin to toggle individual permission checkboxes
-   */
-  @Put(':id/permissions')
-  @AllowTenantAdmin()
-  async updateUserPermissions(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateUserPermissionsDto,
-    @Req() req: { user: { id: string; tenantId?: string } },
-  ): Promise<{ success: boolean; userId: string; permissions: PanelPermissions }> {
-    const tenantId = req.user.tenantId;
-    if (!tenantId) {
-      throw new BadRequestException('Tenant context required for this operation');
-    }
-
-    // Verify the user exists and belongs to the tenant
-    const user = await this.usersService.getUserById(id);
-    if (user.tenantId !== tenantId) {
-      throw new BadRequestException('Cannot modify permissions for users outside your tenant');
-    }
-
-    // Check if permissions exist, create if not
-    const permissions = await this.userPermissionsService.getUserPermissions(id, tenantId);
-
-    if (!permissions) {
-      // Create default permissions first
-      await this.userPermissionsService.createDefaultPermissions(
-        id,
-        tenantId,
-        req.user.id,
-        false,
-      );
-    }
-
-    // Update permissions
-    const updated = await this.userPermissionsService.updatePermissions(
-      id,
-      tenantId,
-      dto.permissions,
-      req.user.id,
-    );
-
-    return {
-      success: true,
-      userId: id,
-      permissions: updated.permissions,
-    };
-  }
-
-  /**
-   * Get all users with their permissions for a tenant (TENANT_ADMIN)
-   */
-  @Get('tenant/users-with-permissions')
-  @AllowTenantAdmin()
-  async getTenantUsersWithPermissions(
-    @Req() req: { user: { tenantId?: string } },
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ): Promise<{ data: UserWithPermissionsDto[]; total: number }> {
-    const tenantId = req.user.tenantId;
-    if (!tenantId) {
-      throw new BadRequestException('Tenant context required for this operation');
-    }
-
-    // Get users from tenant
-    const usersResult = await this.usersService.listUsers(
-      { tenantId, status: 'all' },
-      page ? parseInt(page, 10) : 1,
-      limit ? parseInt(limit, 10) : 50,
-    );
-
-    // Get permissions for all users
-    const allPermissions = await this.userPermissionsService.getTenantUsersPermissions(tenantId);
-    const permissionsMap = new Map(
-      allPermissions.map(p => [p.userId, p.permissions]),
-    );
-
-    // Merge user data with permissions
-    const usersWithPermissions: UserWithPermissionsDto[] = usersResult.data.map(user => ({
-      id: user.id,
-      email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      isActive: user.isActive,
-      permissions: permissionsMap.get(user.id) || DEFAULT_USER_PERMISSIONS,
-      invitedAt: user.createdAt,
-      lastLoginAt: user.lastLoginAt || undefined,
-    }));
-
-    return {
-      data: usersWithPermissions,
-      total: usersResult.total,
-    };
   }
 }

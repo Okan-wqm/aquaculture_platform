@@ -254,6 +254,11 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   // allowlisted. Later WASM-adoption commits use compliant ORPHAN-{SEV}-NNN IDs.
   'ad4a5d96', // security(scada-runtime): QuickJS-WASM SCADA script sandbox (Phase 1)
   'a238c98a', // feat(protocol-codec): compile the Modbus SSoT to wasm (Phase 2)
+  // feat(lora) Phase 3: its Closes: trailer referenced ORPHAN-HIGH-378, which
+  // independently landed on main (shared.user_permissions retirement) during
+  // concurrent development. The branch finding was renumbered to ORPHAN-HIGH-382
+  // on merge; the pushed commit's trailer cannot be amended (force-push ban).
+  '5334a47a', // feat(lora): sandboxed wasm custom payload decoders (Phase 3)
 ]);
 
 interface Commit {

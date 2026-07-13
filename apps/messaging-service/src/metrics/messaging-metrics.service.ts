@@ -38,8 +38,10 @@ export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
   // Dead-letter and GDPR metrics
   // @see MSG-HIGH-006 (dead-letter metric counter)
   // @see MSG-HIGH-027 (GDPR erasure metric counter)
+  // @see ADR-044 / INC-MSG-1 (GDPR cascade emit-failure counter)
   private deadLetterTotal!: client.Counter;
   private gdprErasureTotal!: client.Counter;
+  private gdprCascadeEmitFailureTotal!: client.Counter;
 
   constructor() {
     this.registry = new client.Registry();
@@ -161,6 +163,16 @@ export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
       labelNames: ['tenant'],
       registers: [this.registry],
     });
+
+    // WHY (ADR-044 / INC-MSG-1): the erasure transaction rolls back when the
+    // GdprAnonymizeRequested cascade event cannot be enqueued; this counter makes
+    // that failure mode alertable instead of a silently-swallowed catch branch.
+    this.gdprCascadeEmitFailureTotal = new client.Counter({
+      name: 'messaging_gdpr_cascade_emit_failure_total',
+      help: 'GDPR erasures rolled back because the cross-service cascade event could not be enqueued',
+      labelNames: ['tenant'],
+      registers: [this.registry],
+    });
   }
 
   // ── Public metric recording methods ─────────────────────────────
@@ -242,6 +254,15 @@ export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
    */
   incrementGdprErasure(tenant: string): void {
     this.gdprErasureTotal.inc({ tenant });
+  }
+
+  /**
+   * Increment the GDPR cascade emit-failure counter (ADR-044 / INC-MSG-1).
+   * Fired when the GdprAnonymizeRequested outbox enqueue fails and the
+   * erasure transaction is rolled back — fail-loud, never swallowed.
+   */
+  incrementGdprCascadeEmitFailure(tenant: string): void {
+    this.gdprCascadeEmitFailureTotal.inc({ tenant });
   }
 
   // ── Prometheus scrape endpoint support ──────────────────────────

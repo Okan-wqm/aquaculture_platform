@@ -72,16 +72,27 @@ export class PlanLimits {
 
 @ObjectType()
 export class PlanPricing {
-  @Field(() => Float)
+  @Field(() => Float, {
+    deprecationReason: 'Use basePriceDecimal (exact decimal string, ADR-0004).',
+  })
   basePrice!: number;
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, {
+    nullable: true,
+    deprecationReason: 'Use perFarmPriceDecimal (exact decimal string, ADR-0004).',
+  })
   perFarmPrice?: number;
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, {
+    nullable: true,
+    deprecationReason: 'Use perSensorPriceDecimal (exact decimal string, ADR-0004).',
+  })
   perSensorPrice?: number;
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, {
+    nullable: true,
+    deprecationReason: 'Use perUserPriceDecimal (exact decimal string, ADR-0004).',
+  })
   perUserPrice?: number;
 
   @Field()

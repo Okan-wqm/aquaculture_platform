@@ -1,8 +1,9 @@
 /**
  * Chemical GraphQL Resolver
  */
-import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
+import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -40,6 +41,12 @@ export class ChemicalResolver {
     private readonly chemicalRepository: Repository<Chemical>,
     private readonly restoreService: RestoreService,
   ) {}
+
+  /** Exact-decimal wire form of `unitPrice` (ADR-0004 / DATA-MEDIUM-009). */
+  @ResolveField(() => DecimalScalar, { nullable: true })
+  unitPriceDecimal(@Parent() chemical: ChemicalResponse): number | null {
+    return chemical.unitPrice ?? null;
+  }
 
   /**
    * Create a new chemical

@@ -44,11 +44,25 @@ export const SalariesTab: React.FC<SalariesTabProps> = ({ data, isLoading }) => 
                 {laborCategoryLabel(row.category)}
               </td>
               <td className="px-5 py-3 text-sm text-gray-700 dark:text-gray-300">{row.headcount}</td>
-              <td className="px-5 py-3 text-sm text-gray-700 dark:text-gray-300">
-                {formatMoney(row.avgAnnualSalary, data.currency)}
+              <td
+                className="px-5 py-3 text-sm text-gray-700 dark:text-gray-300"
+                title={
+                  row.salarySuppressed
+                    ? 'Withheld — too few people in this category to show salary without identifying an individual'
+                    : undefined
+                }
+              >
+                {formatMoney(row.avgAnnualSalaryDecimal, data.currency)}
               </td>
-              <td className="px-5 py-3 text-right text-sm font-medium text-gray-900 dark:text-gray-100">
-                {formatMoney(row.annualSalaryTotal, data.currency)}
+              <td
+                className="px-5 py-3 text-right text-sm font-medium text-gray-900 dark:text-gray-100"
+                title={
+                  row.salarySuppressed
+                    ? 'Withheld — too few people in this category to show salary without identifying an individual'
+                    : undefined
+                }
+              >
+                {formatMoney(row.annualSalaryTotalDecimal, data.currency)}
               </td>
             </tr>
           ))}
@@ -57,7 +71,7 @@ export const SalariesTab: React.FC<SalariesTabProps> = ({ data, isLoading }) => 
               Total annual salaries
             </td>
             <td className="px-5 py-3 text-right text-sm font-semibold text-gray-900 dark:text-gray-100">
-              {formatMoney(data.annualSalaryTotal, data.currency)}
+              {formatMoney(data.annualSalaryTotalDecimal, data.currency)}
             </td>
           </tr>
         </tbody>

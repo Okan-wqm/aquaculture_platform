@@ -19,12 +19,14 @@ export const TENANT_BILLING_QUERY = `
         currentPeriodEnd
         trialEndDate
         monthlyPrice
+        monthlyPriceDecimal
         currency
       }
       invoices {
         id
         invoiceNumber
         amount
+        amountDecimal
         currency
         status
         issuedAt
@@ -71,6 +73,7 @@ export const MY_SUBSCRIPTION_QUERY = `
       trialEndDate
       pricing {
         basePrice
+        basePriceDecimal
         currency
       }
     }

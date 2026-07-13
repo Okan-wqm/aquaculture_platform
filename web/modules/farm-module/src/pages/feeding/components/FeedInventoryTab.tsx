@@ -24,7 +24,7 @@ import {
 } from '../../../hooks/useFeedingRecords';
 import { useFeedList } from '../../../hooks/useFeeds';
 import { isBlockingError } from '../../../utils/list-view-state';
-import { Modal, useAuth } from '@aquaculture/shared-ui';
+import { Modal, parseMoney, useAuth } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // TYPES
@@ -350,11 +350,13 @@ export const FeedInventoryTab: React.FC<FeedInventoryTabProps> = ({ siteId, site
                       </span>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-500">
-                      {inv.unitPricePerKg ? `${Number(inv.unitPricePerKg).toFixed(2)}` : '-'}
+                      {inv.unitPricePerKgDecimal != null
+                        ? `${parseMoney(inv.unitPricePerKgDecimal).toFixed(2)}`
+                        : '-'}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900">
-                      {inv.totalValue
-                        ? `${Number(inv.totalValue).toFixed(0)} ${inv.currency || 'NOK'}`
+                      {inv.totalValueDecimal != null
+                        ? `${parseMoney(inv.totalValueDecimal).toFixed(0)} ${inv.currency || 'NOK'}`
                         : '-'}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">

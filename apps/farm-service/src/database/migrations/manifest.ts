@@ -60,6 +60,16 @@ import { AddFarmStockBatchSnapshotSpecies1805200000000 } from './1805200000000-A
 import { DropFarmDocuments1805300000000 } from './1805300000000-DropFarmDocuments';
 import { DropTankBatchCurrentQuantityMirror1805400000000 } from './1805400000000-DropTankBatchCurrentQuantityMirror';
 import { DropFarmWorkerPlaceholderPii1805500000000 } from './1805500000000-DropFarmWorkerPlaceholderPii';
+// Renumbered from 1804700000000/1804800000000/1804900000000 →
+// 1805300000000/1805400000000/1805500000000 → 1805600000000/1805700000000/1805800000000
+// across successive main merges to resolve timestamp collisions: first with
+// main's AddRegulatoryAuditEnumValues1804700000000 group, then with main's
+// DropFarmDocuments1805300000000 / DropTankBatchCurrentQuantityMirror1805400000000 /
+// DropFarmWorkerPlaceholderPii1805500000000. Migrations are append-only + ordered;
+// this branch's migrations never merged, so no deployed DB ran the old numbers.
+import { AddFinanceEntryDeletedBy1805600000000 } from './1805600000000-AddFinanceEntryDeletedBy';
+import { AddWorkOrderEffectiveCostDateIndex1805700000000 } from './1805700000000-AddWorkOrderEffectiveCostDateIndex';
+import { FinanceEntrySoftDeletePartialIndexes1805800000000 } from './1805800000000-FinanceEntrySoftDeletePartialIndexes';
 
 /**
  * Canonical farm-service migration class list.
@@ -126,4 +136,7 @@ export const FARM_MIGRATIONS = [
   DropFarmDocuments1805300000000,
   DropTankBatchCurrentQuantityMirror1805400000000,
   DropFarmWorkerPlaceholderPii1805500000000,
+  AddFinanceEntryDeletedBy1805600000000,
+  AddWorkOrderEffectiveCostDateIndex1805700000000,
+  FinanceEntrySoftDeletePartialIndexes1805800000000,
 ] as const;

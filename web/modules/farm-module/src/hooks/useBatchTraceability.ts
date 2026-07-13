@@ -34,7 +34,9 @@ export interface BatchTraceabilitySummary {
   protocolId: string | null;
   protocolName: string | null;
   totalFeedKg: number;
+  /** @deprecated Float — use `totalFeedCostDecimal` (exact decimal string, ADR-0004). */
   totalFeedCost: number | null;
+  totalFeedCostDecimal: string | null;
   fcrActual: number | null;
 }
 
@@ -52,7 +54,9 @@ export interface BatchFeedTotal {
   feedName: string | null;
   feedCode: string | null;
   totalKg: number;
+  /** @deprecated Float — use `totalCostDecimal` (exact decimal string, ADR-0004). */
   totalCost: number | null;
+  totalCostDecimal: string | null;
 }
 
 /** One "where the fish lived" interval: a tank stay with its aggregates. */
@@ -119,6 +123,7 @@ const BATCH_TRACEABILITY_QUERY = `
         protocolName
         totalFeedKg
         totalFeedCost
+        totalFeedCostDecimal
         fcrActual
       }
       residencies {
@@ -144,6 +149,7 @@ const BATCH_TRACEABILITY_QUERY = `
           feedCode
           totalKg
           totalCost
+          totalCostDecimal
         }
         feedTotalKg
       }
@@ -153,6 +159,7 @@ const BATCH_TRACEABILITY_QUERY = `
         feedCode
         totalKg
         totalCost
+        totalCostDecimal
       }
       events {
         id

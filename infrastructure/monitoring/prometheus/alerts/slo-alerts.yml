@@ -119,6 +119,19 @@ spec:
               sum(rate(webhook_processing_duration_seconds_bucket{namespace="aquaculture"}[5m])) by (le)
             )
 
+        # -- Finance query p99 (PERF-MEDIUM-008) --
+        # The finance read path (financeSummary/Ledger/BatchTotals) is a set of
+        # GraphQL queries on route="/graphql", so the route-blind
+        # http_request_duration_seconds histogram (SLI 2/3) cannot isolate it. The
+        # farm FarmMetricsInterceptor times queries AND mutations into
+        # farm_mutation_duration_seconds, labelled by `operation` — so the finance
+        # query series exist without new instrumentation.
+        - record: aquaculture:farm_finance_query_latency_p99:5m
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(farm_mutation_duration_seconds_bucket{namespace="aquaculture", operation=~"financeSummary|financeLedger|financeBatchTotals"}[5m])) by (le)
+            )
+
     # ========================================================================
     # SLO 1: Gateway Availability >= 99.9%
     # ========================================================================
@@ -239,6 +252,28 @@ spec:
               {{ $value | humanizeDuration }}, above the 200ms tier-0 SLO. Token
               validation gates every authenticated request — investigate JWKS
               fetch / signature-verify latency.
+            runbook_url: "https://wiki.internal/runbooks/high-latency"
+
+    # ========================================================================
+    # SLO 10: Finance query latency p99 < 1500ms (PERF-MEDIUM-008)
+    # ========================================================================
+    - name: aquaculture.slo.finance-latency
+      rules:
+        - alert: SloFinanceQueryP99High
+          expr: aquaculture:farm_finance_query_latency_p99:5m > 1.5
+          for: 10m
+          labels:
+            severity: warning
+            slo: finance-query-p99
+          annotations:
+            summary: "Finance query p99 latency exceeds 1.5s SLO"
+            description: >-
+              The 99th percentile finance read latency (financeSummary / financeLedger
+              / financeBatchTotals) is {{ $value | humanizeDuration }}, above the 1.5s
+              SLO. These queries aggregate the manual ledger plus every derived cost
+              source at read time — a breach signals aggregation regression (missing
+              index, re-introduced N+1) or a tenant whose source tables have outgrown
+              query-time derivation and needs the PERF-HIGH-004 rollup/cache.
             runbook_url: "https://wiki.internal/runbooks/high-latency"
 
     # ========================================================================

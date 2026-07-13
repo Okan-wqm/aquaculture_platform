@@ -26,6 +26,7 @@ platform team and its users. All SLOs are enforced via Prometheus alert rules de
 | 7 | Webhook processing latency | `histogram_quantile(0.95, webhook_processing_duration_seconds_bucket)` | < 5 s | 30 days (rolling) | warning |
 | 8 | Auth login latency p99 (tier-0) | `histogram_quantile(0.99, auth_operation_duration_seconds_bucket{operation="login"})` | < 500 ms | 30 days (rolling) | warning |
 | 9 | Auth token-validation latency p99 (tier-0) | `histogram_quantile(0.99, auth_operation_duration_seconds_bucket{operation="token_validation"})` | < 200 ms | 30 days (rolling) | warning |
+| 10 | Finance query latency p99 | `histogram_quantile(0.99, farm_mutation_duration_seconds_bucket{operation=~"financeSummary\|financeLedger\|financeBatchTotals"})` | < 1500 ms | 30 days (rolling) | warning |
 
 > **Tier-0 auth latency (SLI 8 & 9, PERF-MEDIUM-003):** login and token-validation
 > are GraphQL operations served on `/graphql`, so the route-blind
@@ -37,6 +38,19 @@ platform team and its users. All SLOs are enforced via Prometheus alert rules de
 > constant-time login floor (the deliberate timing-attack mitigation), so the alert
 > fires on real regression, not the floor itself. Alerts: `SloAuthLoginP99High`,
 > `SloAuthTokenValidationP99High`.
+
+> **Finance query latency (SLI 10, PERF-MEDIUM-008):** the finance read path
+> (`financeSummary`, `financeLedger`, `financeBatchTotals`) is the heaviest read in
+> farm-service — it aggregates the manual ledger plus every derived cost source
+> (feeding, batches, work orders, health events, harvest). Like the auth tier-0
+> operations these are GraphQL queries on `/graphql`, so the route-blind SLI 2/3
+> histogram cannot isolate them; the farm `FarmMetricsInterceptor` already times
+> **queries and mutations** into `farm_mutation_duration_seconds`, labelled by
+> `operation`, so the finance query series exist without new instrumentation. The
+> 1500 ms target sits below the generic 2000 ms API p99 (SLI 3) — a finance read
+> exceeding it signals aggregation regression (missing index, N+1 re-introduced, or
+> a tenant whose source tables have outgrown the query-time derivation and needs the
+> rollup/cache in `PERF-HIGH-004`). Alert: `SloFinanceQueryP99High`.
 
 ---
 
@@ -84,6 +98,7 @@ to be measurable:
 | `auth_login_attempts_total` | Counter | auth-service | `result` (success/failure) |
 | `auth_login_success_total` | Counter | auth-service | - |
 | `webhook_processing_duration_seconds` | Histogram | gateway-api / alert-service | `webhook_type` |
+| `farm_mutation_duration_seconds` | Histogram | farm-service (`FarmMetricsInterceptor` — times queries **and** mutations) | `operation`, `outcome` |
 
 > **Note:** If a metric is not yet instrumented, the corresponding SLO alert will not fire
 > (PromQL returns empty on missing series). Implementing these metrics is tracked in the

@@ -187,6 +187,7 @@ export default {
         '<rootDir>/farm-identity-ssot.spec.ts',
         '<rootDir>/farm-rest-cqrs-ssot.spec.ts',
         '<rootDir>/farm-graphql-fe-be-parity.spec.ts',
+        '<rootDir>/hr-graphql-fe-be-parity.spec.ts',
         '<rootDir>/farm-graphql-enum-parity.spec.ts',
         '<rootDir>/farm-graphql-resolver-field-uniqueness.spec.ts',
         '<rootDir>/dead-contract-fe-operations.spec.ts',
@@ -224,6 +225,7 @@ export default {
       displayName: 'registry',
       testMatch: [
         '<rootDir>/adoption-invariants.spec.ts',
+        '<rootDir>/billing-money-decimal-coexistence.spec.ts',
         '<rootDir>/tenant-permission-guard-adoption.spec.ts',
         '<rootDir>/sensor-enum-fe-be-parity.spec.ts',
         '<rootDir>/authoritative-runtime-ddl-contract.spec.ts',

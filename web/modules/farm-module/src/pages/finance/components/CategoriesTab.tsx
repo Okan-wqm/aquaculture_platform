@@ -10,6 +10,8 @@
  */
 import React, { useState } from 'react';
 
+import { useCanMutate } from '@aquaculture/shared-ui';
+
 import {
   FinanceCategory,
   useArchiveFinanceCategory,
@@ -26,6 +28,10 @@ export const CategoriesTab: React.FC = () => {
   const updateCategory = useUpdateFinanceCategory();
   const archiveCategory = useArchiveFinanceCategory();
   const restoreCategory = useRestoreFinanceCategory();
+  const canCreate = useCanMutate('createFinanceCategory');
+  const canUpdate = useCanMutate('updateFinanceCategory');
+  const canArchiveCat = useCanMutate('archiveFinanceCategory');
+  const canRestore = useCanMutate('restoreFinanceCategory');
 
   const [newName, setNewName] = useState('');
   const [newScope, setNewScope] = useState<'FARM_OPEX' | 'FARM_REVENUE'>('FARM_OPEX');
@@ -74,11 +80,12 @@ export const CategoriesTab: React.FC = () => {
   };
 
   const canArchive = (category: FinanceCategory): boolean =>
-    category.isActive && !category.computedRule && !(category.isSystem && category.code && DERIVED_CODES.has(category.code));
+    canArchiveCat && category.isActive && !category.computedRule && !(category.isSystem && category.code && DERIVED_CODES.has(category.code));
 
   return (
     <div className="space-y-6">
-      {/* Create form */}
+      {/* Create form — only for roles allowed to create categories */}
+      {canCreate && (
       <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3 rounded-lg bg-white p-4 shadow">
         <div className="flex-1 min-w-[200px]">
           <label htmlFor="new-category-name" className="block text-sm font-medium text-gray-700">
@@ -123,6 +130,7 @@ export const CategoriesTab: React.FC = () => {
           <span>Show archived</span>
         </label>
       </form>
+      )}
 
       {errorMessage && (
         <div role="alert" aria-live="assertive" className="rounded-md bg-red-50 p-3 text-sm text-red-700">
@@ -206,7 +214,7 @@ export const CategoriesTab: React.FC = () => {
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 text-right text-sm">
                   <span className="space-x-3">
-                    {category.isActive && renaming?.id !== category.id && (
+                    {canUpdate && category.isActive && renaming?.id !== category.id && (
                       <button
                         onClick={() => setRenaming({ id: category.id, name: category.name })}
                         className="font-medium text-blue-600 hover:text-blue-800"
@@ -222,7 +230,7 @@ export const CategoriesTab: React.FC = () => {
                         Archive
                       </button>
                     )}
-                    {!category.isActive && (
+                    {canRestore && !category.isActive && (
                       <button
                         onClick={() => restoreCategory.mutate(category.id)}
                         className="font-medium text-green-600 hover:text-green-800"

@@ -43,10 +43,14 @@ export class InvoiceLineItem {
   @Field(() => Float)
   quantity!: number;
 
-  @Field(() => Float)
+  @Field(() => Float, {
+    deprecationReason: 'Use unitPriceDecimal (exact decimal string, ADR-0004).',
+  })
   unitPrice!: number;
 
-  @Field(() => Float)
+  @Field(() => Float, {
+    deprecationReason: 'Use amountDecimal (exact decimal string, ADR-0004).',
+  })
   amount!: number;
 
   @Field({ nullable: true })
@@ -58,7 +62,9 @@ export class TaxInfo {
   @Field(() => Float)
   taxRate!: number;
 
-  @Field(() => Float)
+  @Field(() => Float, {
+    deprecationReason: 'Use taxAmountDecimal (exact decimal string, ADR-0004).',
+  })
   taxAmount!: number;
 
   @Field({ nullable: true })
@@ -140,9 +146,12 @@ export class Invoice {
   @Column('jsonb', { name: 'line_items' })
   lineItems!: InvoiceLineItem[];
 
-  // TODO: Migrate to Decimal scalar (see PLAT-LOW-001). DB layer is already numeric(19,4)
-  // via MoneyColumn — only the GraphQL serialization uses lossy Float.
-  @Field(() => Float)
+  // ADR-0004 / PLAT-LOW-001: subtotalDecimal (Decimal scalar) is the exact wire
+  // form; this Float is retained during additive coexistence, removed once all
+  // readers migrate. DB layer is already numeric(19,4) via MoneyColumn.
+  @Field(() => Float, {
+    deprecationReason: 'Use subtotalDecimal (exact decimal string, ADR-0004).',
+  })
   @MoneyColumn()
   subtotal!: Decimal;
 
@@ -150,8 +159,10 @@ export class Invoice {
   @Column('jsonb', { nullable: true })
   tax?: TaxInfo;
 
-  // TODO: Migrate to Decimal scalar (see PLAT-LOW-001)
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, {
+    nullable: true,
+    deprecationReason: 'Use discountDecimal (exact decimal string, ADR-0004).',
+  })
   @MoneyColumn({ nullable: true })
   discount?: Decimal;
 
@@ -159,18 +170,22 @@ export class Invoice {
   @Column({ nullable: true, name: 'discount_code' })
   discountCode?: string;
 
-  // TODO: Migrate to Decimal scalar (see PLAT-LOW-001)
-  @Field(() => Float)
+  @Field(() => Float, {
+    deprecationReason: 'Use totalDecimal (exact decimal string, ADR-0004).',
+  })
   @MoneyColumn()
   total!: Decimal;
 
-  // TODO: Migrate to Decimal scalar (see PLAT-LOW-001)
-  @Field(() => Float, { defaultValue: 0 })
+  @Field(() => Float, {
+    defaultValue: 0,
+    deprecationReason: 'Use amountPaidDecimal (exact decimal string, ADR-0004).',
+  })
   @MoneyColumn({ default: 0, name: 'amount_paid' })
   amountPaid!: Decimal;
 
-  // TODO: Migrate to Decimal scalar (see PLAT-LOW-001)
-  @Field(() => Float)
+  @Field(() => Float, {
+    deprecationReason: 'Use amountDueDecimal (exact decimal string, ADR-0004).',
+  })
   @MoneyColumn({ name: 'amount_due' })
   amountDue!: Decimal;
 

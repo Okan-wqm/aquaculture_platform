@@ -18,7 +18,7 @@
 export function formatNumber(
   value: number,
   decimals: number = 0,
-  locale: string = 'tr-TR'
+  locale: string = 'tr-TR',
 ): string {
   return new Intl.NumberFormat(locale, {
     minimumFractionDigits: decimals,
@@ -31,15 +31,34 @@ export const DEFAULT_CURRENCY = 'TRY';
 export const DEFAULT_LOCALE = 'tr-TR';
 
 /**
+ * Coerce a money value to a number for arithmetic/formatting.
+ *
+ * The platform `Decimal` GraphQL scalar (ADR-0004 / DATA-MEDIUM-009) sends money
+ * as an exact decimal STRING; legacy `Float` money fields still send a number
+ * during the coexistence window. `parseMoney` accepts either so a call site can
+ * migrate to the string field without breaking arithmetic. Nullish → 0.
+ *
+ * NOTE: JS `number` re-introduces IEEE-754 imprecision — use this only at the
+ * display/aggregation boundary, never as the durable representation. For summing
+ * a list of money strings, prefer a decimal library; this is the render helper.
+ */
+export function parseMoney(value: number | string | null | undefined): number {
+  if (value === null || value === undefined) return 0;
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
  * Platform-wide currency formatter.
- * Uses tenant's currency setting, fallback to TRY.
+ * Uses tenant's currency setting, fallback to TRY. Accepts a number OR the
+ * exact decimal string emitted by the `Decimal` scalar (ADR-0004).
  *
  * @example
  * formatCurrency(1234.56) // "₺1.234,56"
- * formatCurrency(1234.56, 'USD') // "$1.234,56"
+ * formatCurrency('1234.56', 'USD') // "$1.234,56"
  */
 export function formatCurrency(
-  value: number,
+  value: number | string,
   currency: string = DEFAULT_CURRENCY,
   locale: string = DEFAULT_LOCALE,
 ): string {
@@ -48,7 +67,7 @@ export function formatCurrency(
     currency,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(value);
+  }).format(parseMoney(value));
 }
 
 /**
@@ -58,7 +77,7 @@ export function formatCurrency(
  * formatCompactCurrency(1500000) // "₺1,5 Mn"
  */
 export function formatCompactCurrency(
-  amount: number,
+  amount: number | string,
   currency: string = DEFAULT_CURRENCY,
   locale: string = DEFAULT_LOCALE,
 ): string {
@@ -67,7 +86,7 @@ export function formatCompactCurrency(
     currency,
     notation: 'compact',
     maximumFractionDigits: 1,
-  }).format(amount);
+  }).format(parseMoney(amount));
 }
 
 /**
@@ -80,7 +99,7 @@ export function formatCompactCurrency(
 export function formatPercent(
   value: number,
   decimals: number = 2,
-  locale: string = 'tr-TR'
+  locale: string = 'tr-TR',
 ): string {
   return new Intl.NumberFormat(locale, {
     style: 'percent',
@@ -104,7 +123,8 @@ export function formatFileSize(bytes: number): string {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
 
   const value = bytes / Math.pow(k, i);
-  const formatted = value < 10 ? value.toFixed(2) : value < 100 ? value.toFixed(1) : value.toFixed(0);
+  const formatted =
+    value < 10 ? value.toFixed(2) : value < 100 ? value.toFixed(1) : value.toFixed(0);
 
   return `${formatted.replace('.', ',')} ${units[i]}`;
 }
@@ -116,10 +136,7 @@ export function formatFileSize(bytes: number): string {
  * formatCompact(1234) // "1,23K"
  * formatCompact(1234567) // "1,23M"
  */
-export function formatCompact(
-  value: number,
-  locale: string = 'tr-TR'
-): string {
+export function formatCompact(value: number, locale: string = 'tr-TR'): string {
   return new Intl.NumberFormat(locale, {
     notation: 'compact',
     compactDisplay: 'short',
@@ -204,7 +221,7 @@ export function titleCase(text: string): string {
   if (!text) return '';
   return text
     .split(' ')
-    .map(word => capitalize(word))
+    .map((word) => capitalize(word))
     .join(' ');
 }
 
@@ -259,8 +276,8 @@ export function getInitials(name: string, maxLength: number = 2): string {
 
   return name
     .split(/\s+/)
-    .filter(word => word.length > 0)
-    .map(word => word.charAt(0).toLocaleUpperCase('tr-TR'))
+    .filter((word) => word.length > 0)
+    .map((word) => word.charAt(0).toLocaleUpperCase('tr-TR'))
     .slice(0, maxLength)
     .join('');
 }

@@ -29,7 +29,7 @@ export const ExpenseEntryFormModal: React.FC<ExpenseEntryFormModalProps> = ({ en
 
   const [categoryId, setCategoryId] = useState(entry?.categoryId ?? '');
   const [entryDate, setEntryDate] = useState(entry?.entryDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10));
-  const [amount, setAmount] = useState<string>(entry ? String(entry.amount) : '');
+  const [amount, setAmount] = useState<string>(entry ? entry.amountDecimal : '');
   const [description, setDescription] = useState(entry?.description ?? '');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 

@@ -1,8 +1,9 @@
 /**
  * Consumable GraphQL Resolver
  */
-import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
+import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -34,6 +35,12 @@ export class ConsumableResolver {
     private readonly consumableRepository: Repository<Consumable>,
     private readonly restoreService: RestoreService,
   ) {}
+
+  /** Exact-decimal wire form of `unitPrice` (ADR-0004 / DATA-MEDIUM-009). */
+  @ResolveField(() => DecimalScalar, { nullable: true })
+  unitPriceDecimal(@Parent() consumable: ConsumableResponse): number | null {
+    return consumable.unitPrice ?? null;
+  }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => ConsumableResponse)

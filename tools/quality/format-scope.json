@@ -5471,6 +5471,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/billing-decimal.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/billing-scheduler.service.ts",
       "prettier_managed": true
     },
@@ -7750,6 +7756,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/batch/resolvers/batch-decimal.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/batch/resolvers/batch-feed-assignment.resolver.ts",
       "prettier_managed": true
     },
@@ -8494,12 +8506,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/farm-service/src/database/__tests__/base.entity.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/farm-service/src/database/__tests__/code-generator.service.spec.ts",
       "prettier_managed": true
     },
@@ -8519,12 +8525,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/database/entities/audit-log.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/database/entities/base.entity.ts",
       "prettier_managed": true
     },
     {
@@ -9376,6 +9376,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/database/migrations/1805500000000-DropFarmWorkerPlaceholderPii.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1805600000000-AddFinanceEntryDeletedBy.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1805700000000-AddWorkOrderEffectiveCostDateIndex.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1805800000000-FinanceEntrySoftDeletePartialIndexes.ts",
       "prettier_managed": true
     },
     {
@@ -10971,6 +10989,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/finance/__tests__/finance-aggregation-union.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/finance/__tests__/finance-cache-metadata.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/finance/__tests__/finance-category-seed.service.spec.ts",
       "prettier_managed": true
     },
@@ -11133,6 +11163,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/finance/handlers/validate-entry-dimensions.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/finance/queries/get-finance-batch-totals.query.ts",
       "prettier_managed": true
     },
@@ -11200,6 +11236,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/finance/query-handlers/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/finance/resolvers/finance-decimal.mapper.ts",
       "prettier_managed": true
     },
     {
@@ -14356,6 +14398,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/storage/resolvers/inventory-count-response.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/resolvers/storage-decimal.resolver.ts",
       "prettier_managed": true
     },
     {
@@ -17745,6 +17793,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/hr-service/src/database/migrations/1801900000000-AddHrFinanceEntryDeletedBy.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/hr-service/src/database/migrations/1802000000000-ReclassifyTechnicalLeads.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/hr-service/src/database/migrations/1802100000000-HrFinanceEntrySoftDeletePartialIndexes.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/hr-service/src/database/migrations/hr-owned-entities.ts",
       "prettier_managed": true
     },
@@ -17758,6 +17824,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/hr-service/src/finance/__tests__/labour-cost-calculator.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/hr-service/src/finance/__tests__/merge-department-costs.spec.ts",
       "prettier_managed": true
     },
     {
@@ -17842,6 +17914,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/hr-service/src/finance/query-handlers/get-hr-labour-cost.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/hr-service/src/finance/query-handlers/get-hr-personnel-table.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/hr-service/src/finance/resolvers/hr-finance-decimal.mapper.ts",
       "prettier_managed": true
     },
     {
@@ -29989,6 +30073,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/recommendations/architectural-arbiter/2026-07-11-adr-0004-money-wire-representation.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/recommendations/auth-security-expert/2026-04-06-guard-di-security-recommendations.md",
       "prettier_managed": true
     },
@@ -35374,6 +35464,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/graphql/decimal.scalar.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/graphql/decimal.scalar.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/graphql/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/guards/__tests__/mobile-feature.guard.spec.ts",
       "prettier_managed": true
     },
@@ -40104,6 +40212,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/billing-money-decimal-coexistence.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/billing-webhook-redis-required.spec.ts",
       "prettier_managed": true
     },
@@ -40441,6 +40555,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/helpers/farm-graphql-surface.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/hr-graphql-fe-be-parity.spec.ts",
       "prettier_managed": true
     },
     {
@@ -53412,10 +53532,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8751,
+  "file_count": 8771,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8570,
-  "managed_file_list_sha256": "1be7adb117aad1cf973ae4e4444627015fcf40960d75d14018f462e48c757b79",
+  "managed_count": 8590,
+  "managed_file_list_sha256": "038f00c825cae275f7703b3f9d711b4d45c8b856c527ca52a48cbed701803498",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

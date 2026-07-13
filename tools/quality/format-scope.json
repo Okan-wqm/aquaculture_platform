@@ -6463,6 +6463,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/db-migrate/src/__tests__/stray-tenant-journal-heal.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/db-migrate/src/__tests__/tenant-schema-provisioner.contract.spec.ts",
       "prettier_managed": true
     },
@@ -6500,6 +6506,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/db-migrate/src/schema-registry.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/db-migrate/src/stray-tenant-journal-heal.ts",
       "prettier_managed": true
     },
     {
@@ -34543,6 +34555,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/database/migration-runner/__tests__/migration-runner.factory.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/database/migration-runner/__tests__/migration-runner.module.spec.ts",
       "prettier_managed": true
     },
@@ -53130,10 +53148,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8709,
+  "file_count": 8712,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8534,
-  "managed_file_list_sha256": "3015620c9c203e16ccc3fca0cc42f0c4f2a0b096aaaf736fe9c17e8121900b91",
+  "managed_count": 8537,
+  "managed_file_list_sha256": "e945dc970868d4236f0d76a23b1be75ccd82f0f84dd8d4182e3aa659121f64f3",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

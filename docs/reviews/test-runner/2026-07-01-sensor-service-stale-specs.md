@@ -40,7 +40,9 @@ Remediation:
 
 Owner: sensor-expert (backend) — escalate `vfd-command` triage to security-reviewer if validation regression confirmed.
 Deadline: 2026-07-15
-State: OPEN
+State: RESOLVED
+
+Resolution (2026-07-13, verified against current `main`): the full `nx test sensor-service` suite is green — **61 suites / 890 tests, zero failures** (live run, exceeds the 40/784 the reconciliation originally targeted). Every remediated surface landed on `main` via later, equal-or-newer paths rather than the stale review branch (`claude/sense-sensor-module-arch-oguq01`, 350 commits behind, now superseded): the CiA402 `QUICK_STOP` handler and `vfd-command` error-surfacing are in `apps/sensor-service/src/vfd/services/vfd-command.service.ts` (which additionally gained the DB-SENSOR-HIGH-003 command-audit-log the branch never had); the `registerVfdDevice` connection-error surfacing is in `vfd-device.resolver.ts` (`connectionError`); and the `validatePagination` explicit-`0` clamp is in `input-sanitizer.ts` in a stricter undefined/null/NaN form. The `vfd-modbus-tcp` adapter spec on the raw `net.Socket` layer and all previously-stale suites pass. NOTE — scope boundary: this closes ONLY the stale-spec test-debt finding; the `SENSOR-HIGH-001..005` architectural SCADA/deploy findings that the retired branch's close-ceremony also touched remain **OPEN** on `main` and were deliberately NOT flipped here (they require their own code-level verification, not a spec-suite green signal). Follow-up still open: add `sensor-service` to the CI required-green set so drift cannot re-accumulate (infra work, non-blocking). Verified by: 2026-07-13 branch-triage program.
 
 Cross-domain dependency:
 - `sensor-expert`, `security-reviewer`, `test-runner`

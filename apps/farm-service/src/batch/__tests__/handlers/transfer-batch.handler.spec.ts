@@ -141,7 +141,6 @@ describe('TransferBatchHandler', () => {
       primaryBatchId: 'batch-1',
       primaryBatchNumber: 'B-001',
       totalQuantity: 500,
-      currentQuantity: 500,
       totalBiomassKg: 25,
       currentBiomassKg: 25,
       avgWeightG: 50,

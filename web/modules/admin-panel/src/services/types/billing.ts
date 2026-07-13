@@ -6,6 +6,11 @@
 // Billing Enums
 // ============================================================================
 
+// Mirror of the canonical `BillingPlanTier` SSoT
+// (libs/event-contracts/src/billing/billing-plan-tier.ts). Web modules cannot
+// import a backend `@platform/*` library, so this literal is PINNED member-for-
+// member to the SSoT by `tests/invariants/tier-enum-ssot.spec.ts` (Faz D, D8) —
+// adding/removing a value here without mirroring the SSoT fails that invariant.
 export enum PlanTier {
   FREE = 'free',
   STARTER = 'starter',

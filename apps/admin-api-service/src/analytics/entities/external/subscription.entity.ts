@@ -8,6 +8,15 @@
 
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
 
+// Read-model of billing.subscriptions — its plan_tier is the canonical
+// `BillingPlanTier` SSoT (@platform/event-contracts), re-exported as `PlanTier`.
+// Faz D (D8): the former local copy omitted FREE, so a FREE subscription row
+// (Billing Revival Faz B added 'free' to the DB enum) had no matching member —
+// sourcing from the SSoT restores it.
+import { BillingPlanTier as PlanTier } from '@platform/event-contracts';
+
+export { PlanTier };
+
 export enum SubscriptionStatus {
   TRIAL = 'trial',
   ACTIVE = 'active',
@@ -22,13 +31,6 @@ export enum BillingCycle {
   QUARTERLY = 'quarterly',
   SEMI_ANNUAL = 'semi_annual',
   ANNUAL = 'annual',
-}
-
-export enum PlanTier {
-  STARTER = 'starter',
-  PROFESSIONAL = 'professional',
-  ENTERPRISE = 'enterprise',
-  CUSTOM = 'custom',
 }
 
 export interface PlanPricing {

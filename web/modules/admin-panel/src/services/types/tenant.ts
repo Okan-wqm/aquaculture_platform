@@ -16,6 +16,12 @@ export enum TenantStatus {
   ARCHIVED = 'ARCHIVED',
 }
 
+// A tenant's *sellable* tier as the admin-panel shows it — which CAN be
+// `custom`. This mirrors the canonical `BillingPlanTier` SSoT
+// (libs/event-contracts/src/billing/billing-plan-tier.ts), NOT the entitlement
+// `TenantPlan` (that one has `trial` and no `custom`). Web modules cannot import
+// a backend `@platform/*` library, so this literal is PINNED member-for-member
+// to the SSoT by `tests/invariants/tier-enum-ssot.spec.ts` (Faz D, D8).
 export enum TenantTier {
   FREE = 'free',
   STARTER = 'starter',

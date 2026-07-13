@@ -31063,6 +31063,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/2026-07-13-branch-triage/ledger.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/admin-expert/2026-04-05-s2-high-findings.md",
       "prettier_managed": true
     },
@@ -31934,6 +31940,24 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/messaging-expert/2026-06-13-wave2-closeout.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/mobile-messaging-e2e/2026-07-01-findings.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/mobile-messaging-e2e/2026-07-01-sprint-a1-waves-1-3.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/mobile-messaging-e2e/2026-07-01-wave0-baseline.md",
       "prettier_managed": true
     },
     {
@@ -53148,10 +53172,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8712,
+  "file_count": 8716,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8537,
-  "managed_file_list_sha256": "e945dc970868d4236f0d76a23b1be75ccd82f0f84dd8d4182e3aa659121f64f3",
+  "managed_count": 8541,
+  "managed_file_list_sha256": "229ed4cfbcf29ac35f9776d631c28b92ee24176c26b289f2d0c4836c06ef8154",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -7,16 +7,13 @@ import {
   Index,
 } from 'typeorm';
 
-/**
- * Plan tier enum - aligns with billing-service
- */
-export enum PlanTier {
-  FREE = 'free',
-  STARTER = 'starter',
-  PROFESSIONAL = 'professional',
-  ENTERPRISE = 'enterprise',
-  CUSTOM = 'custom',
-}
+// Plan tier — the canonical `BillingPlanTier` SSoT (@platform/event-contracts),
+// re-exported under the historical name `PlanTier` so every admin-billing
+// consumer (services, dtos, custom-plan + module-pricing entities) is unchanged.
+// Faz D (D8) removed this file's hand-copied enum in favour of that one source.
+import { BillingPlanTier as PlanTier } from '@platform/event-contracts';
+
+export { PlanTier };
 
 /**
  * Billing cycle options

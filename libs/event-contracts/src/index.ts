@@ -7,6 +7,10 @@ export * from './enums/tenant-plan.enum';
 // Per-plan resource limits SSoT (SSOT-C-13 cure) — the single catalog every
 // service projects its plan limits from; replaces 5 hand-copied catalogs.
 export * from './billing/plan-catalog';
+// Billing/admin sellable-tier enum SSoT (Faz D — D8 cure). Distinct from the
+// entitlement `TenantPlan`: no `trial`, plus a negotiated `custom` tier. The
+// billing + admin entities re-export this; the FE literals are pinned to it.
+export * from './billing/billing-plan-tier';
 export * from './enums/tenant-status.enum';
 // Tenant lifecycle transition authority (auth-audit HIGH-007). Pure,
 // dependency-free logic that gates every status change + login + erasure.

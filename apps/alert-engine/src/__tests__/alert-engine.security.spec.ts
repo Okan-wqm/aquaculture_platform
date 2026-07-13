@@ -12,6 +12,8 @@ import { EscalationPolicyService, type CreatePolicyDto } from '../escalation/esc
 import { NotificationDispatcherService, type ChannelHandler } from '../notification/notification-dispatcher.service';
 import { ChannelRouterService } from '../notification/channel-router.service';
 import { TemplateRendererService, type NotificationTemplate, type TemplateContext } from '../notification/template-renderer.service';
+import { RedisService } from '@aquaculture/backend-common/redis';
+import { createRedisServiceMock } from './support/redis-service.mock';
 
 // Same import-path migration as the integration spec — see PR-43.
 // `LogicalOperator` was removed from alert-rule.entity (rules-engine
@@ -58,6 +60,9 @@ describe('Alert Engine Security', () => {
             find: jest.fn(),
             save: jest.fn(),
             create: jest.fn(),
+            // Rule loading moved to a tenant-scoped query builder
+            // (WHERE rule.tenantId = :tenantId … getMany()).
+            createQueryBuilder: jest.fn(),
           },
         },
         {
@@ -82,6 +87,12 @@ describe('Alert Engine Security', () => {
         {
           provide: EventEmitter2,
           useValue: { emit: jest.fn() },
+        },
+        {
+          // ChannelRouterService gained a RedisService dependency when
+          // rate-limiting moved to distributed (cross-replica) Redis counters.
+          provide: RedisService,
+          useValue: createRedisServiceMock(),
         },
       ],
     }).compile();
@@ -110,14 +121,32 @@ describe('Alert Engine Security', () => {
         { id: 'rule-2', tenantId: 'tenant-2', name: 'Rule 2', isActive: true },
       ];
 
-      alertRuleRepository.find.mockImplementation(async (options: any) => {
-        if (options?.where?.tenantId === 'tenant-1') {
-          return tenant1Rules as unknown as AlertRule[];
-        }
-        if (options?.where?.tenantId === 'tenant-2') {
-          return tenant2Rules as unknown as AlertRule[];
-        }
-        return [];
+      // The engine loads rules through a tenant-scoped query builder, binding
+      // `tenantId` into the WHERE clause. Model that: capture the bound tenantId
+      // per builder and return only that tenant's rules — a cross-tenant leak
+      // would surface as the wrong rule set or an unbound query.
+      const boundTenantIds: string[] = [];
+      alertRuleRepository.createQueryBuilder.mockImplementation(() => {
+        let tenantId: string | undefined;
+        const qb: any = {
+          where: (_sql: string, params?: Record<string, unknown>) => {
+            if (typeof params?.tenantId === 'string') {
+              tenantId = params.tenantId;
+              boundTenantIds.push(params.tenantId);
+            }
+            return qb;
+          },
+          andWhere: () => qb,
+          // qb is intentionally `any` (a structural query-builder stand-in), so
+          // the partial seed rows flow through without an unsafe cast.
+          getMany: async () =>
+            tenantId === 'tenant-1'
+              ? tenant1Rules
+              : tenantId === 'tenant-2'
+                ? tenant2Rules
+                : [],
+        };
+        return qb;
       });
 
       const context1: EvaluationContext = {
@@ -135,17 +164,10 @@ describe('Alert Engine Security', () => {
       await rulesEngine.evaluateRules({ tenantId: context1.tenantId!, context: context1 });
       await rulesEngine.evaluateRules({ tenantId: context2.tenantId!, context: context2 });
 
-      // Verify each tenant only sees their own rules
-      expect(alertRuleRepository.find).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ tenantId: 'tenant-1' }),
-        }),
-      );
-      expect(alertRuleRepository.find).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ tenantId: 'tenant-2' }),
-        }),
-      );
+      // Every rule load was scoped to exactly one tenant, and both tenants were
+      // queried under their own id — no unscoped (leaky) query ran.
+      expect(alertRuleRepository.createQueryBuilder).toHaveBeenCalledTimes(2);
+      expect(boundTenantIds).toEqual(['tenant-1', 'tenant-2']);
     });
 
     it('should not allow cross-tenant policy access', async () => {
@@ -313,9 +335,21 @@ describe('Alert Engine Security', () => {
 
       const rendered = templateRenderer.render(NotificationChannel.EMAIL, maliciousContext);
 
-      // The raw HTML should be escaped in the output
-      expect(rendered.body).not.toContain('<script>');
-      // Note: The actual escaping depends on the template implementation
+      // HTML escaping applies to the HTML-rendered variant (htmlBody) — the
+      // channel that a mail client interprets as markup. The user-supplied
+      // title/description must be neutralised there so injected tags cannot
+      // execute; the plain-text `body` is delivered as text/plain and is not a
+      // markup sink.
+      // The security property is that no user-supplied tag delimiters survive
+      // as live markup — the `<script>`/`<img …>` become inert escaped text, so
+      // neither the script tag nor the onerror handler can execute. (The literal
+      // string "onerror=" surviving inside `&lt;img … onerror=&quot;…&gt;` is
+      // harmless — it is rendered as visible text, not an attribute.)
+      expect(rendered.htmlBody).toBeDefined();
+      expect(rendered.htmlBody).not.toContain('<script>');
+      expect(rendered.htmlBody).not.toContain('<img');
+      expect(rendered.htmlBody).toContain('&lt;script&gt;');
+      expect(rendered.htmlBody).toContain('&lt;img');
     });
 
     it('should handle null values in context safely', () => {
@@ -366,65 +400,43 @@ describe('Alert Engine Security', () => {
   });
 
   describe('Rate Limiting', () => {
-    it('should apply rate limits to notifications', () => {
-      channelRouter.setUserPreferences({
-        userId: 'user-1',
-        enabledChannels: [NotificationChannel.SMS],
-        preferredChannel: NotificationChannel.SMS,
-        channelConfigs: {
-          [NotificationChannel.SMS]: {
-            enabled: true,
-            rateLimit: {
-              maxPerHour: 2,
-              maxPerDay: 10,
-            },
-          },
-        },
-      });
+    // Rate limiting is enforced across replicas via Redis counters
+    // (checkRateLimit + recordDelivery) — NOT synchronously inside route(),
+    // which cannot see another instance's delivery counts. These tests exercise
+    // that real distributed path against the stateful Redis double.
+    it('should apply rate limits to notifications', async () => {
+      const userId = 'user-1';
+      const channel = NotificationChannel.SMS;
 
-      // First two should succeed
-      channelRouter.route('user-1', AlertSeverity.HIGH);
-      channelRouter.route('user-1', AlertSeverity.HIGH);
+      // First two deliveries are allowed, and each is recorded.
+      expect(await channelRouter.checkRateLimit(userId, channel, 2, 10)).toBe(true);
+      await channelRouter.recordDelivery(userId, channel);
+      expect(await channelRouter.checkRateLimit(userId, channel, 2, 10)).toBe(true);
+      await channelRouter.recordDelivery(userId, channel);
 
-      // Third should be rate limited
-      const result = channelRouter.route('user-1', AlertSeverity.HIGH);
-
-      expect(result.channels).not.toContain(NotificationChannel.SMS);
+      // The third is rate limited — the hourly counter (2) has reached the cap.
+      expect(await channelRouter.checkRateLimit(userId, channel, 2, 10)).toBe(false);
     });
 
-    it('should not allow bypassing rate limits', () => {
+    it('should not allow bypassing rate limits by editing preferences', async () => {
+      const userId = 'user-1';
+      const channel = NotificationChannel.EMAIL;
+
+      // Exhaust an hourly cap of 1.
+      await channelRouter.recordDelivery(userId, channel);
+      expect(await channelRouter.checkRateLimit(userId, channel, 1, 5)).toBe(false);
+
+      // The counter lives in Redis keyed by (channel, user), independent of the
+      // in-memory user preferences — rewriting/removing the per-user rate config
+      // cannot reset it.
       channelRouter.setUserPreferences({
-        userId: 'user-1',
-        enabledChannels: [NotificationChannel.EMAIL],
-        preferredChannel: NotificationChannel.EMAIL,
-        channelConfigs: {
-          [NotificationChannel.EMAIL]: {
-            enabled: true,
-            rateLimit: {
-              maxPerHour: 1,
-              maxPerDay: 5,
-            },
-          },
-        },
+        userId,
+        enabledChannels: [channel],
+        preferredChannel: channel,
+        // No rate-limit config — an attempt to "remove" the limit.
       });
 
-      // Exhaust limit
-      channelRouter.route('user-1', AlertSeverity.HIGH);
-
-      // Try to bypass by changing preferences
-      channelRouter.setUserPreferences({
-        userId: 'user-1',
-        enabledChannels: [NotificationChannel.EMAIL],
-        preferredChannel: NotificationChannel.EMAIL,
-        // No rate limit config - trying to remove limits
-      });
-
-      // Rate limit counter should persist
-      const result = channelRouter.route('user-1', AlertSeverity.HIGH);
-
-      // Should still have EMAIL in channels since rate limit config was removed
-      // This tests that removing config doesn't bypass existing limits
-      expect(result.channels).toContain(NotificationChannel.EMAIL);
+      expect(await channelRouter.checkRateLimit(userId, channel, 1, 5)).toBe(false);
     });
   });
 
@@ -585,12 +597,16 @@ describe('Alert Engine Security', () => {
         ],
       };
 
-      // Should not throw, should return false. The evaluator's
-      // contract: missing `values` map equals "no value to compare"
-      // — return false rather than crash.
-      const result = ruleEvaluator.evaluate(malformedRule as unknown as AlertRule, { values: { value: 50 } });
+      // Should not throw. The evaluator returns a structured EvaluationResult
+      // (async); its fail-closed contract is `matched === false` on bad data —
+      // an unknown operator / empty parameter matches nothing rather than
+      // crashing or spuriously firing.
+      const result = await ruleEvaluator.evaluate(malformedRule as AlertRule, {
+        values: { value: 50 },
+      });
 
-      expect(typeof result).toBe('boolean');
+      expect(typeof result.matched).toBe('boolean');
+      expect(result.matched).toBe(false);
     });
   });
 

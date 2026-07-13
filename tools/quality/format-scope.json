@@ -4146,6 +4146,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/__tests__/entity-schema-routing.architecture.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/app.module.ts",
       "prettier_managed": true
     },
@@ -4751,6 +4757,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/guards/jwt-auth.guard.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/guards/jwt-auth.guard.ts",
       "prettier_managed": true
     },
@@ -4824,6 +4836,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/services/token.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/services/webauthn.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -6445,6 +6463,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/db-migrate/src/__tests__/stray-tenant-journal-heal.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/db-migrate/src/__tests__/tenant-schema-provisioner.contract.spec.ts",
       "prettier_managed": true
     },
@@ -6482,6 +6506,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/db-migrate/src/schema-registry.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/db-migrate/src/stray-tenant-journal-heal.ts",
       "prettier_managed": true
     },
     {
@@ -34648,6 +34678,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/database/migration-runner/__tests__/migration-runner.factory.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/database/migration-runner/__tests__/migration-runner.module.spec.ts",
       "prettier_managed": true
     },
@@ -53328,10 +53364,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8737,
+  "file_count": 8743,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8556,
-  "managed_file_list_sha256": "4d9375e9c151b4fbb51a98074a4f1f68b7bbdc3eb6b800c182890f041ec4854f",
+  "managed_count": 8562,
+  "managed_file_list_sha256": "910e0143a9b2a44944ab60933c8960ea3d16dcf726501d13fbf24b513b61c5ef",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

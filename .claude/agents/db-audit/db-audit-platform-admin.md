@@ -1,5 +1,6 @@
 ---
 name: db-audit-platform-admin
+pedagogy-tier: 2
 description: Lane-D database E2E audit — platform-admin partition (admin-api-service 71 entity classes + notification-service) and the admin-panel REST frontend (hand-written types, no contract codegen) — column provenance, parity, incidental defect capture.
 model: opus
 effort: xhigh

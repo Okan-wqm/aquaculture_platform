@@ -1,5 +1,6 @@
 ---
 name: db-audit-farm-production
+pedagogy-tier: 2
 description: Lane-D database E2E audit — farm-service production-biology partition (batch, tank, growth, fish-health, health, water-quality, harvest, species) — column provenance, dead/orphan surfaces, FE-BE parity, mandatory incidental defect capture.
 model: opus
 effort: xhigh

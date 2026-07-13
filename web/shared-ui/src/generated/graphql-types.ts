@@ -20773,7 +20773,6 @@ export type TankCountReconcileRow = {
   healed: Scalars['Boolean']['output'];
   ledgerComplete: Scalars['Boolean']['output'];
   ledgerQuantity: Scalars['Int']['output'];
-  mirrorQuantity?: Maybe<Scalars['Int']['output']>;
   tankId: Scalars['ID']['output'];
 };
 

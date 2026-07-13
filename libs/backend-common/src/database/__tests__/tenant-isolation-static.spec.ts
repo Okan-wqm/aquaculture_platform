@@ -56,7 +56,9 @@ describe('Tenant Isolation Static Analysis', () => {
         .reduce((sum, m) => sum + m.tables.length, 0);
       // 183 → 182: farm_documents dropped (ORPHAN-HIGH-369, owner decision;
       // DropFarmDocuments1805300000000 removed the unwired orphan DMS table).
-      expect(tenantTotal).toBe(182);
+      // 182 → 183: ai conversation_turns added (ORPHAN-MEDIUM-380 durable
+      // per-turn AI cost ledger; CreateConversationTurns1802100000000).
+      expect(tenantTotal).toBe(183);
     });
 
     it('every module should have a sourceSchema', () => {
@@ -111,7 +113,9 @@ describe('Tenant Isolation Static Analysis', () => {
       expect(counts['hr']).toBe(29);
       expect(counts['hydroponics']).toBe(1);
       expect(counts['alert']).toBe(4);
-      expect(counts['ai']).toBe(2);
+      // 2 → 3: conversation_turns added (ORPHAN-MEDIUM-380 durable per-turn
+      // AI cost ledger).
+      expect(counts['ai']).toBe(3);
       expect(counts['messaging']).toBe(15);
     });
   });

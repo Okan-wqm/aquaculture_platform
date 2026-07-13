@@ -348,7 +348,7 @@ describe('NotificationDispatcherService', () => {
       const resultPromise = service.send(mockRequest);
 
       // Advance timers for retry
-      jest.advanceTimersByTime(200);
+      await jest.advanceTimersByTimeAsync(200);
 
       const results = await resultPromise;
 
@@ -372,9 +372,9 @@ describe('NotificationDispatcherService', () => {
       const resultPromise = service.send(mockRequest);
 
       // Advance through all retries
-      jest.advanceTimersByTime(100); // First retry
-      jest.advanceTimersByTime(200); // Second retry
-      jest.advanceTimersByTime(400); // After max retries
+      await jest.advanceTimersByTimeAsync(100); // First retry
+      await jest.advanceTimersByTimeAsync(200); // Second retry
+      await jest.advanceTimersByTimeAsync(400); // After max retries
 
       const results = await resultPromise;
 
@@ -583,9 +583,9 @@ describe('NotificationDispatcherService', () => {
 
       const resultPromise = service.send(mockRequest);
 
-      jest.advanceTimersByTime(100);
-      jest.advanceTimersByTime(200);
-      jest.advanceTimersByTime(400);
+      await jest.advanceTimersByTimeAsync(100);
+      await jest.advanceTimersByTimeAsync(200);
+      await jest.advanceTimersByTimeAsync(400);
 
       const results = await resultPromise;
 

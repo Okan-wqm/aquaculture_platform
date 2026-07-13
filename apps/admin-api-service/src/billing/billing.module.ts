@@ -11,7 +11,6 @@ import { DiscountCode, DiscountRedemption } from './entities/discount-code.entit
 import { ModulePricing } from './entities/module-pricing.entity';
 import { PlanDefinition } from './entities/plan-definition.entity';
 import { PlanModuleAssignment } from './entities/plan-module-assignment.entity';
-import { TenantUsageMetricsReadOnly } from './entities/tenant-usage-metrics-readonly.entity';
 import { UsageAggregationReadOnly } from './entities/usage-aggregation-readonly.entity';
 import { BillingAdminCommandClientService } from './services/billing-admin-command-client.service';
 import { CustomPlanService } from './services/custom-plan.service';
@@ -46,7 +45,6 @@ import { UsageMeteringManagementService } from './services/usage-metering-manage
       CustomPlan,
       InvoiceReadOnly,
       UsageAggregationReadOnly,
-      TenantUsageMetricsReadOnly,
     ]),
   ],
   controllers: [BillingController],

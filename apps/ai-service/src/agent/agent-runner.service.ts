@@ -11,6 +11,7 @@ import { AgentProfileService } from './agent-profile.service';
 import { ConversationService } from '../conversation/conversation.service';
 import { TokenBudgetService } from '../cost/token-budget.service';
 import { RateLimitService } from '../cost/rate-limit.service';
+import { TurnLedgerService } from '../cost/turn-ledger.service';
 import { AgentConfigService } from '../tenant-config/agent-config.service';
 import { ToolExecutionContext } from '../tools/core/tool.interface';
 import { AiSafetyMiddleware } from '../safety/ai-safety.middleware';
@@ -67,9 +68,14 @@ export interface ChatRequest {
  *   - cacheCreation       — prompt tokens written into the cache on
  *                           first use (pricing typically ~125% of input)
  *
- * `total` is the cost-weighted-equivalent count for back-compat
- * downstream consumers; the per-class fields drive the cost rollup
- * with the model-specific multiplier from cost_catalog.
+ * `total` is the BILLABLE token counter consumed by TokenBudgetService:
+ * input + output + cacheCreation. Cache creation is included because the
+ * provider bills those tokens ABOVE the input rate (~1.25x) — excluding
+ * them let cached-prompt tenants consume unbounded cache writes outside
+ * the monthly budget (DB-PEOPLE-MEDIUM-002). Cache READS stay excluded:
+ * they bill at ~0.1x input and metering them as full tokens would punish
+ * exactly the callers the prompt cache is meant to reward. The per-class
+ * USD rollup lives in cost/model-pricing.ts (TurnLedgerService).
  */
 export interface TokenUsageBreakdown {
   input: number;
@@ -115,6 +121,7 @@ export class AgentRunnerService {
     private readonly conversationService: ConversationService,
     private readonly tokenBudget: TokenBudgetService,
     private readonly rateLimit: RateLimitService,
+    private readonly turnLedger: TurnLedgerService,
     private readonly agentConfig: AgentConfigService,
     private readonly aiSafety: AiSafetyMiddleware,
     private readonly breaker: CircuitBreakerService,
@@ -342,9 +349,13 @@ export class AgentRunnerService {
       totalTokens.output += response.usage.output;
       totalTokens.cacheRead += response.usage.cacheRead;
       totalTokens.cacheCreation += response.usage.cacheCreation;
-      // `total` keeps the legacy semantics (input + output sum) because
-      // downstream TokenBudgetService consumes it as a single counter.
-      totalTokens.total += response.usage.input + response.usage.output;
+      // DB-PEOPLE-MEDIUM-002 cure: `total` (the TokenBudgetService counter)
+      // now includes cacheCreation — those tokens bill ABOVE the input rate
+      // (~1.25x), so leaving them out let cached-prompt turns consume
+      // unbounded cache writes outside the monthly budget. Cache READS stay
+      // excluded (billed at ~0.1x input; see TokenUsageBreakdown docblock).
+      totalTokens.total +=
+        response.usage.input + response.usage.output + response.usage.cacheCreation;
 
       // Process response content
       const textBlocks: string[] = [];
@@ -482,7 +493,36 @@ export class AgentRunnerService {
       );
     }
 
-    // 11. Save assistant response to conversation
+    // 11. Durable per-turn cost ledger (ORPHAN-MEDIUM-380): append one
+    // immutable conversation_turns row for this completed invocation.
+    // Placed BEFORE the mutable conversation/budget writes so the finance
+    // and safety-forensics record survives a downstream write failure — the
+    // provider has already billed these tokens either way. The write is
+    // awaited (no floating promise) but never throws: TurnLedgerService
+    // catches, logs loudly, and returns false so a ledger outage cannot
+    // break the chat path. Redis (step 13) remains the fast enforcement
+    // cache; this row is the durable SSoT.
+    const flaggedCategories: string[] = [
+      ...(safetyResult.inputFilter?.flaggedPatterns ?? []).map(
+        (pattern) => `input:${pattern}`,
+      ),
+      ...(postResult.piiRedacted ? ['output:pii_redacted'] : []),
+    ];
+    await this.turnLedger.recordTurn({
+      tenantId: request.tenantId,
+      conversationId,
+      personaId: request.persona,
+      model: profile.persona.model,
+      usage: {
+        input: totalTokens.input,
+        output: totalTokens.output,
+        cacheRead: totalTokens.cacheRead,
+        cacheCreation: totalTokens.cacheCreation,
+      },
+      flaggedCategories,
+    });
+
+    // 12. Save assistant response to conversation
     // SECURITY: addMessage requires tenantId + userId ownership check
     await this.conversationService.addMessage(
       conversationId,
@@ -496,7 +536,8 @@ export class AgentRunnerService {
       },
     );
 
-    // 12. Update token usage
+    // 13. Update token usage (total = input + output + cacheCreation — see
+    // the TokenUsageBreakdown docblock for the budget semantics)
     await this.tokenBudget.addUsage(request.tenantId, totalTokens.total);
     await this.conversationService.updateTokenCount(
       conversationId,

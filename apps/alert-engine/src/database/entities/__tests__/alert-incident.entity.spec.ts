@@ -562,13 +562,15 @@ describe('AlertIncident Entity', () => {
       expect(incident.status).toBe(IncidentStatus.CLOSED);
       expect(incident.isClosed()).toBe(true);
 
-      // Verify timeline
-      expect(incident.timeline.length).toBe(5);
+      // Verify timeline — every lifecycle transition is recorded for audit,
+      // including close() (a STATUS_CHANGE to CLOSED).
+      expect(incident.timeline.length).toBe(6);
       expect(incident.timeline[0]!.type).toBe(TimelineEventType.ACKNOWLEDGED);
       expect(incident.timeline[1]!.type).toBe(TimelineEventType.ASSIGNED);
       expect(incident.timeline[2]!.type).toBe(TimelineEventType.STATUS_CHANGE);
       expect(incident.timeline[3]!.type).toBe(TimelineEventType.COMMENT_ADDED);
       expect(incident.timeline[4]!.type).toBe(TimelineEventType.RESOLVED);
+      expect(incident.timeline[5]!.type).toBe(TimelineEventType.STATUS_CHANGE);
     });
 
     it('should handle reopen and re-resolve cycle', () => {

@@ -51,7 +51,9 @@ Every path below has a Nx project.json + tsconfig.json + package.json. Columns d
 
 | Path | Rubric row | Consumers (examples) |
 |---|---|---|
+| `libs/alarm-core` | libs/<domain>/ | apps/sensor-service SCADA-runtime alarm engine (drift-zero decision core via `@platform/alarm-core` wasm; twin of the Rust `crates/alarm-core` the edge consumes natively) |
 | `libs/aquaculture-engines` | libs/<domain>/ | ai-service, farm-management-mcp, web/farm-module, web/hydroponics-module |
+| `libs/protocol-codec` | libs/<domain>/ | apps/sensor-service VFD + industrial Modbus adapters (drift-zero Modbus SSoT via `@platform/protocol-codec` wasm; twin of the Rust `crates/protocol-codec`, ADR-026) |
 | `libs/backend-common` | libs/backend-common/ | every backend service (apps/*) |
 | `libs/event-contracts` | libs/event-contracts/ | 30+ emitters + consumers across apps/, platform/libs/ |
 | `libs/farm-shared` | libs/<domain>/ | web/farm-module |

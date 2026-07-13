@@ -638,6 +638,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // tenant_<uuid> schema by TenantSchemaSyncService.
       'agent_conversations',
       'tenant_agent_configs',
+      // Durable per-invocation AI cost ledger (ORPHAN-MEDIUM-380 /
+      // DB-PEOPLE-MEDIUM-002) — created current_schema-relative by
+      // `1802100000000-CreateConversationTurns`; append-only at the
+      // service layer (TurnLedgerService).
+      'conversation_turns',
       // MOB-HIGH-001: held actuation proposals (human-in-the-loop confirm
       // flow) — migration 1803000000000-CreateAiProposedActions.
       'ai_proposed_actions',
@@ -672,14 +677,24 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'billing',
     sourceSchema: 'billing',
-    infrastructureTables: ['migrations', 'billing_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    infrastructureTables: [
+      'migrations',
+      'billing_outbox',
+      // A6 / DB-IDENT-MEDIUM-002: jsonb archive of the retired
+      // tenant_usage_metrics rows (archive-before-drop, migration
+      // 1801700000000) — same class as admin.retired_config_backups.
+      'retired_usage_metrics_backup',
+      ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
+    ],
     referenceDataTables: [],
     tables: [
       'subscriptions',
       'subscription_module_items',
       'invoices',
       'payments',
-      'tenant_usage_metrics',
+      // tenant_usage_metrics retired 2026-07-13 (A6 / DB-IDENT-MEDIUM-002,
+      // ORPHAN-MEDIUM-382): dead parallel usage model with no writer —
+      // usage_aggregations/usage_hourly_data below are the usage SSoT.
       'scheduled_plan_changes',
       'usage_aggregations',
       'usage_hourly_data',

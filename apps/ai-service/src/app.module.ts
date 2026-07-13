@@ -90,6 +90,7 @@ import { ActionsModule } from './actions/actions.module';
 import { ProposedAction } from './actions/proposed-action.entity';
 import { TenantAgentConfig } from './tenant-config/agent-config.entity';
 import { ToolExecutionAudit } from './audit/tool-execution-audit.entity';
+import { ConversationTurn } from './cost/conversation-turn.entity';
 import { AiOutbox } from './outbox/ai-outbox.entity';
 
 // Per-process cache for GraphQL complexity results keyed by document hash.
@@ -137,7 +138,14 @@ type QueryComplexityOperationContext = {
           // metadata solely from here. Omitting it broke outbox repository DI
           // and left the outbox table out of SourceSchemaBootstrap/TenantSchemaSync
           // (messaging-service registers MessagingOutbox the same way).
-          entities: [AgentConversation, TenantAgentConfig, ToolExecutionAudit, AiOutbox, ProposedAction],
+          entities: [
+            AgentConversation,
+            TenantAgentConfig,
+            ToolExecutionAudit,
+            ConversationTurn,
+            AiOutbox,
+            ProposedAction,
+          ],
           migrations: [__dirname + '/database/migrations/[0-9]*.{js,ts}'],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The

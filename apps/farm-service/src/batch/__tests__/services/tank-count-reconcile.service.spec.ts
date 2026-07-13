@@ -4,7 +4,8 @@
  * Proves: dryRun (default) computes the per-tank-batch diff WITHOUT writing;
  * apply routes non-zero corrections through applyBatchDelta (the single writer);
  * a pre-SSoT row (batchDetails NULL) baselines from totalQuantity instead of 0
- * and gets a zero-delta self-heal when its currentQuantity mirror is stale; an
+ * and gets a zero-delta self-heal that seeds batchDetails (the currentQuantity
+ * mirror itself is retired — ORPHAN-HIGH-353); an
  * incomplete ledger (no inflow rows / negative net) is fail-closed — reported,
  * never applied.
  */
@@ -43,19 +44,18 @@ const DRIFTED_TANK_BATCH = {
   primaryBatchId: BATCH,
   primaryBatchNumber: 'B-001',
   totalQuantity: 900,
-  currentQuantity: 900,
   avgWeightG: 50,
   batchDetails: [{ batchId: BATCH, batchNumber: 'B-001', quantity: 900, avgWeightG: 50 }],
 };
 
-// Pre-SSoT row: batchDetails NULL, converged totalQuantity, STALE currentQuantity
-// mirror — the exact live shape behind the 900-vs-719 mobile/web divergence.
-const PRE_SSOT_STALE_MIRROR = {
+// Pre-SSoT row: batchDetails NULL with a converged totalQuantity — needs the
+// zero-delta seed so the per-batch SSoT exists (the historical stale-mirror
+// column behind the 900-vs-719 divergence is dropped; ORPHAN-HIGH-353).
+const PRE_SSOT_NO_DETAILS = {
   tankId: TANK,
   primaryBatchId: BATCH,
   primaryBatchNumber: 'B-001',
   totalQuantity: 719,
-  currentQuantity: 900,
   avgWeightG: 50,
   batchDetails: null,
 };
@@ -75,7 +75,6 @@ describe('TankCountReconcileService.reconcile', () => {
         batchId: BATCH,
         batchNumber: 'B-001',
         currentQuantity: 900,
-        mirrorQuantity: 900,
         ledgerQuantity: 719,
         delta: -181,
         ledgerComplete: true,
@@ -111,14 +110,13 @@ describe('TankCountReconcileService.reconcile', () => {
   it('pre-SSoT row baselines from totalQuantity (not 0) — no phantom delta', async () => {
     const { svc, applyBatchDelta } = harness(
       [{ tankId: TANK, batchId: BATCH, trueQty: '719', inflowRows: '5' }],
-      PRE_SSOT_STALE_MIRROR,
+      PRE_SSOT_NO_DETAILS,
     );
 
     const rows = await svc.reconcile(TENANT);
 
     expect(rows[0]).toMatchObject({
       currentQuantity: 719, // totalQuantity fallback — NOT 0
-      mirrorQuantity: 900, // the stale mobile-surfaced mirror, reported for review
       ledgerQuantity: 719,
       delta: 0,
       ledgerComplete: true,
@@ -127,10 +125,10 @@ describe('TankCountReconcileService.reconcile', () => {
     expect(applyBatchDelta).not.toHaveBeenCalled();
   });
 
-  it('apply self-heals a stale mirror at delta 0 via a zero-delta applyBatchDelta', async () => {
+  it('apply seeds missing batchDetails at delta 0 via a zero-delta applyBatchDelta', async () => {
     const { svc, applyBatchDelta } = harness(
       [{ tankId: TANK, batchId: BATCH, trueQty: '719', inflowRows: '5' }],
-      PRE_SSOT_STALE_MIRROR,
+      PRE_SSOT_NO_DETAILS,
     );
 
     const rows = await svc.reconcile(TENANT, { dryRun: false });
@@ -150,7 +148,7 @@ describe('TankCountReconcileService.reconcile', () => {
     const { svc, applyBatchDelta } = harness(
       // Missing initial stocking → net went negative (transfer_out > known inflows).
       [{ tankId: TANK, batchId: BATCH, trueQty: '-902', inflowRows: '4' }],
-      { ...DRIFTED_TANK_BATCH, totalQuantity: 98, currentQuantity: 180 },
+      { ...DRIFTED_TANK_BATCH, totalQuantity: 98 },
     );
 
     const rows = await svc.reconcile(TENANT, { dryRun: false });
@@ -173,7 +171,7 @@ describe('TankCountReconcileService.reconcile', () => {
     expect(applyBatchDelta).not.toHaveBeenCalled();
   });
 
-  it('does NOT write when consistent and already healed (delta 0, fresh mirror, details present)', async () => {
+  it('does NOT write when consistent and already healed (delta 0, details present)', async () => {
     const { svc, applyBatchDelta } = harness(
       [{ tankId: TANK, batchId: BATCH, trueQty: '900', inflowRows: '2' }],
       DRIFTED_TANK_BATCH,

@@ -1087,18 +1087,21 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
     expect(rows.length).toBe(1);
   });
 
-  it('shared schema contains the 4 cross-service tables (audit_logs, gdpr_data_requests, user_consents, user_permissions)', async () => {
+  it('shared schema contains the 4 cross-service tables (audit_logs, gdpr_data_requests, user_consents, access_logs)', async () => {
+    // user_permissions retired 2026-07-12 (ADR-042, ORPHAN-HIGH-378):
+    // the canonical shared set is audit_logs, gdpr_data_requests,
+    // user_consents, access_logs.
     const rows = await probeDs().query<{ table_name: string }[]>(
       `SELECT table_name FROM information_schema.tables
        WHERE table_schema = 'shared' AND table_name = ANY($1::text[])`,
-      [['audit_logs', 'gdpr_data_requests', 'user_consents', 'user_permissions']],
+      [['audit_logs', 'gdpr_data_requests', 'user_consents', 'access_logs']],
     );
     const found = new Set(rows.map((r) => r.table_name));
-    for (const t of ['audit_logs', 'gdpr_data_requests', 'user_consents', 'user_permissions']) {
+    for (const t of ['audit_logs', 'gdpr_data_requests', 'user_consents', 'access_logs']) {
       if (!found.has(t)) {
         throw new Error(
-          `shared.${t} missing after init scripts. Check ` +
-            `infrastructure/docker/init-scripts/10-shared-schema.sql.`,
+          `shared.${t} missing after platform bootstrap. Check ` +
+            `apps/db-migrate/src/sql/platform-bootstrap/006-shared-schema-tables.sql.`,
         );
       }
     }

@@ -71,7 +71,9 @@ export type LlmStopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'other';
  * Per-class token usage. Providers that do not surface prompt-cache classes
  * (e.g. OpenAI) report cacheRead/cacheCreation as 0 — never NaN or omitted, so
  * the cost rollup gets explicit zeros. Mirrors TokenUsageBreakdown minus the
- * derived `total` (the caller sums input+output).
+ * derived `total` (the caller sums input + output + cacheCreation — see the
+ * TokenUsageBreakdown docblock in agent-runner.service.ts for the budget
+ * semantics, ORPHAN-MEDIUM-380).
  */
 export interface LlmUsage {
   input: number;

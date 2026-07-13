@@ -12,6 +12,8 @@ export * from './enums/tenant-status.enum';
 // dependency-free logic that gates every status change + login + erasure.
 export * from './enums/tenant-status.machine';
 export * from './tenant-erasure-targets';
+// Config-runtime RPC subjects + ConfigurationChanged signal (Billing Revival Faz C).
+export * from './config-runtime';
 
 // Domain events by module
 export * from './auth-events';

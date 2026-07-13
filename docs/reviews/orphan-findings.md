@@ -6736,3 +6736,30 @@ Severity: HIGH (recurrence enabler for the 2026-07-07 messaging outage class). #
 **Fix (this PR):** `REDIS_URL` (same shape as every other service) + `redis: service_healthy` depends_on.
 **Residual (owner platform-kernel-expert, deadline 2026-10-15):** `buildRedisOptions`'s 'optional' mode should distinguish "deliberately not configured" (skip client entirely) from "configured-by-default localhost in production" (fail fast like the event-bus SSoT) — a third service could regrow this class silently.
 **Owner:** infra-expert. **Deadline:** RESOLVED on merge.
+
+## ORPHAN-HIGH-397 — Stripe billing could not use operator-entered keys at runtime; enabled-but-keyless crashed boot (D6) — RESOLVED (this PR)
+
+**Discovered:** 2026-07-13 (Billing Revival Faz C). Operators enter Stripe keys in the admin-panel SystemSettings Billing tab; they are written encrypted to config-service (`service='platform'`, `billing.stripe_*`). But billing-service only ever read Stripe config from ENV at boot (`stripe-client.factory.ts`), so the entered keys were inert until a redeploy, and the env factory's `enabled-but-keyless` branch THREW at boot — the 2026-06 Suderra outage root cause (a keyless-but-enabled droplet crash-looped and rolled the deploy back).
+**Fix (this PR):** config-runtime NATS read path (`config.runtime.get` / `get_secret`) on config-service (ServiceIdentity HMAC-v2 + per-caller key allowlist + nonce-replay + mandatory audit; the secret NEVER leaves via GraphQL, which masks it). `DynamicStripeClient` delegator behind `STRIPE_API_CLIENT` + `DynamicStripeClientProvider` (TTL snapshot, secret in memory only) resolves the effective client from config with an env fallback, so keys take effect WITHOUT a redeploy. The boot `throw` is deleted — enabled-but-keyless now binds a fail-closed-at-request client + WARN + SecurityEvent, never crashes boot. `ConfigurationChanged` outbox signal invalidates the snapshot on save. Stripe stays MOCK in prod; this only makes it *able* to flip to real.
+**Owner:** billing-expert. **Deadline:** RESOLVED on merge.
+
+## ORPHAN-MEDIUM-398 — no gateway route for the Stripe webhook (D7) — RESOLVED (this PR)
+
+**Discovered:** 2026-07-13 (Faz C). The billing Stripe webhook controller existed but no nginx route reached it, and it mounted under `/api/v1/webhooks/stripe` (behind the versioned prefix), so a real Stripe webhook could never be delivered once billing flips to real.
+**Fix (this PR):** `location = /webhooks/stripe` in `infrastructure/nginx/droplet.conf` proxies verbatim to billing-service (raw body → Stripe HMAC survives; `Stripe-Signature` forwarded). billing `main.ts` excludes `webhooks`/`webhooks/(.*)` from the `/api/v1` prefix so the controller mounts at `/webhooks/stripe`.
+**Owner:** infra-expert. **Deadline:** RESOLVED on merge.
+
+## ORPHAN-MEDIUM-399 — STRIPE_WEBHOOK_SECRET is env-only, absent from the config-service seed — OPEN
+
+**Discovered:** 2026-07-13 (Faz C). Unlike `billing.stripe_enabled/public_key/secret_key`, the Stripe *webhook signing* secret (`STRIPE_WEBHOOK_SECRET`) is read ONLY from env (`stripe-webhook.controller.ts`). An operator who flips Stripe on via the panel cannot also set the webhook secret without a redeploy — the webhook verification then rejects every event. Follow-up: add a `platform/billing.stripe_webhook_secret` seed row (config-service `1805400000000` seed pattern), a config-runtime GET_SECRET allowlist entry (`billing-service → platform/billing.stripe_webhook_secret`), and have the webhook controller read it via `ConfigRuntimeClient.getSecret` with an env fallback.
+**Owner:** billing-expert. **Deadline:** 2026-09-30.
+
+## ORPHAN-LOW-400 — gateway `ServiceProxyService.proxyRequest` has no caller (dead REST proxy) — OPEN
+
+**Discovered:** 2026-07-13 while mapping the webhook ingress path (Faz C). `apps/gateway-api/src/proxy/service-proxy.service.ts` `proxyRequest(...)` (~:284) has no production caller — the gateway routes GraphQL + a few REST paths but does not use this generic Express proxy. Dead code that implies a routing capability the gateway does not actually offer; either wire it or delete it so the webhook/REST ingress story stays legible.
+**Owner:** infra-expert. **Deadline:** 2026-10-31.
+
+## ORPHAN-MEDIUM-401 — gateway REST proxy re-serializes the request body (raw-byte corruption) — OPEN
+
+**Discovered:** 2026-07-13 (Faz C, same file as ORPHAN-400). `service-proxy.service.ts` (~:640) forwards a non-string body via `JSON.stringify(proxyRequest.body)` — re-serializing the V8-parsed body, which does NOT reproduce the original wire bytes (numeric-key ordering, `1.0`→`1`, whitespace). Any signature-sensitive payload proxied through this path (Stripe/HMAC bodies) would fail verification downstream. The Faz C webhook route deliberately bypasses this proxy (direct nginx→billing) so the raw body survives, but the corruption class remains for any future REST proxy use. Fix: forward `req.rawBody` (Nest `rawBody:true`) byte-for-byte instead of re-stringifying.
+**Owner:** infra-expert. **Deadline:** 2026-10-31.

@@ -426,3 +426,23 @@ Dokunulmaz: `/var/lib/aqua/deploy/checkout`, kilitli `.claude/worktrees/agent-*`
 - **#940 / #935 / #900 / #886** — dün/önceki güncellenmiş büyük DRAFT denetim hatları; sıralı derin denetim sonraki oturumlarda (plan M3-M4).
 - **#961 WASM / #962 admin-panels / #952 mobile-E2E** — BUGÜN güncellenmiş → muhtemelen canlı oturumların işi; ACTIVE çiti uygulanır, dokunulmaz.
 - **#959 dependabot cargo** — SHA'sız sürüm bump'ı; train'de #847 sonrası güncellendi, CI bekleniyor.
+
+---
+
+## M1 oturum kapanışı — 2026-07-13
+
+**Merge edilen (sequential merge-train, her biri CI-yeşil + lokal doğrulama):**
+- #847 dependabot actions (6 SHA gh-api-doğrulandı) — 10:02Z
+- #959 dependabot cargo
+- #968 `test(auth)` audit-009 güvenlik spec'leri (20/20 yeşil, salvage)
+- #969 `test(alert-engine)` suite realignment — main'in 102 kırmızı testi yeşile döndü (FARM-HIGH-124 Closes; salvage, kaynak #863)
+
+**Kapatılan:** #938 (kanıt: kod #920'de bayt-aynı; kayıt ORPHAN-HIGH-388 olarak bu PR'da).
+
+**Kapanış adayı (kullanıcı onayı bekliyor):** #808 (kod main'de; 3 review dokümanı bu PR'a kurtarıldı), #863 (tek commit'i #969 ile porta alınıp merge edildi).
+
+**Son worktree tablosu:** ana checkout + deploy checkout + `aria-demo-ws` (KİRLİ — ARIA deney dosyaları, kullanıcıya bırakıldı) + `aria-ops` (#936 head) + 78de149b oturumunun 3 worktree'si (wt-847/wt-feedp2/wt-msgssot — oturum canlı olabilir, dokunulmadı) + bu programın wt-triage'ı. `aqua-324` kaldırıldı (HEAD ba05aaf45, #891 MERGED, temizdi).
+
+**Kalan lokal branch'ler (8):** main, triage, aktif lane ×4 (a5/a6/stray/schema-gate — a5+a6+schema-gate merge oldu, lane bitince silinebilir), feed-dual-ssot-phase2 (ARŞİV), dep-847-local + refactor/messaging-partition (78de149b worktree'leri serbest kalınca silinecek), aria-autonomous-mode lokali yok (origin'de #936 head).
+
+**Sonraki oturum kuyruğu (öncelik sırası):** (1) #900 sensor spec-realign portu — #863/#969 deseninin aynısı, güçlü aday; (2) #936 aria-autonomous tazeleme + ARIA seremonisi; (3) #934 finance-waves derin denetim (kendi oturumu); (4) #886 kalan 14 dosya artık-değer; (5) #940/#935/#871; (6) 78de149b lane bitince worktree/branch süpürmesi.

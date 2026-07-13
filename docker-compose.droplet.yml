@@ -712,6 +712,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      nats:
+        condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by the
       # aqua-db-migrate container; per-service createMigrationRunnerService
       # stays as a safety-net fallback (Phase 1 backward-compat).
@@ -861,6 +863,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      nats:
+        condition: service_healthy
       mosquitto:
         condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
@@ -944,6 +948,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      nats:
+        condition: service_healthy
       minio:
         condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
@@ -1000,6 +1006,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      nats:
         condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
@@ -1091,6 +1099,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      nats:
+        condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
         condition: service_completed_successfully
@@ -1145,6 +1155,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      nats:
+        condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
         condition: service_completed_successfully
@@ -1198,6 +1210,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      nats:
         condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
@@ -1319,6 +1333,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      nats:
+        condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
         condition: service_completed_successfully
@@ -1391,6 +1407,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      nats:
         condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
@@ -1524,7 +1542,7 @@ services:
       redis:
         condition: service_healthy
       nats:
-        condition: service_started
+        condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
         condition: service_completed_successfully
@@ -1599,7 +1617,7 @@ services:
       redis:
         condition: service_healthy
       nats:
-        condition: service_started
+        condition: service_healthy
       db-migrate:
         condition: service_completed_successfully
     deploy:

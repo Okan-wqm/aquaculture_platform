@@ -31063,6 +31063,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/2026-07-13-branch-triage/ledger.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/admin-expert/2026-04-05-s2-high-findings.md",
       "prettier_managed": true
     },
@@ -31934,6 +31940,24 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/messaging-expert/2026-06-13-wave2-closeout.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/mobile-messaging-e2e/2026-07-01-findings.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/mobile-messaging-e2e/2026-07-01-sprint-a1-waves-1-3.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/mobile-messaging-e2e/2026-07-01-wave0-baseline.md",
       "prettier_managed": true
     },
     {
@@ -41569,6 +41593,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/quality/closure-manifest.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
       "prettier_managed": true
     },
     {
@@ -53148,10 +53184,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8712,
+  "file_count": 8718,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8537,
-  "managed_file_list_sha256": "66cbc5012fcf6e728f0a88406d47f720dbe41c2c4b53315f6da6d2e7d8694567",
+  "managed_count": 8543,
+  "managed_file_list_sha256": "6fc9ecd5d5af1a791e14335ea776d86bb6c888cc9d1036634fb290db6ab1b2dc",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

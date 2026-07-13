@@ -1,8 +1,8 @@
 /**
  * Admin Panel Module - Standalone Entry Point
  *
- * Bağımsız geliştirme için kullanılır.
- * Production'da Module Federation ile yüklenir.
+ * Used for standalone development.
+ * Loaded via Module Federation in production.
  */
 
 import React from 'react';

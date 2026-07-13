@@ -1,7 +1,7 @@
 /**
  * IP Access Rules Page
  *
- * IP whitelist ve blacklist yönetimi için sayfa.
+ * Page for managing the IP whitelist and blacklist.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -337,7 +337,7 @@ const IpAccessRulesPage: React.FC = () => {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hit Count</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Son Hit</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Hit</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expires</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>

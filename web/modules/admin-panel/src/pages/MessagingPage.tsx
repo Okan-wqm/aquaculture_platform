@@ -1,7 +1,7 @@
 /**
  * Messaging Page
  *
- * Admin-tenant mesajlaşma sistemi - direct messaging, bulk messaging.
+ * Admin-tenant messaging system - direct messaging, bulk messaging.
  * Thread management, attachment support, read receipts.
  */
 

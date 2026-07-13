@@ -2,7 +2,7 @@
  * Admin Panel Module Root
  *
  * Super Admin Panel for managing tenants, users, billing, support, and system settings.
- * NOT: AdminLayout Shell'de kullanılıyor, burada sadece sayfa route'ları tanımlı.
+ * NOTE: AdminLayout is used in the Shell; only page routes are defined here.
  *
  * All page imports use React.lazy for code splitting — each page chunk is loaded
  * on demand so the initial bundle stays small.
@@ -79,7 +79,7 @@ const DebugToolsPage = lazy(() => import('./pages/system/DebugToolsPage'));
 
 const SuspenseFallback: React.FC = () => (
   <div className="flex items-center justify-center h-64">
-    <Spinner size="lg" text="Yukleniyor..." />
+    <Spinner size="lg" text="Loading..." />
   </div>
 );
 

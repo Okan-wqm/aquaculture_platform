@@ -1,7 +1,7 @@
 /**
  * Role Management Page
  *
- * Rol ve yetki yönetimi - Role hierarchy and permissions.
+ * Role and permission management - Role hierarchy and permissions.
  */
 
 import React, { useState, useEffect } from 'react';

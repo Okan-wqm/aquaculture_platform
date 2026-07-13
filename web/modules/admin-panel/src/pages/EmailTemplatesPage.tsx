@@ -1,8 +1,8 @@
 /**
  * Email Templates Page
  *
- * Email şablonlarının yönetimi için sayfa.
- * Şablonları görüntüleme, düzenleme, önizleme ve test etme.
+ * Page for managing email templates.
+ * View, edit, preview, and test templates.
  */
 
 import React, { useState, useEffect } from 'react';

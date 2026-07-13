@@ -1,8 +1,8 @@
 /**
  * Database Explorer Page
  *
- * Veritabanı tablolarını görüntüleme, veri ekleme/güncelleme/silme.
- * SUPER_ADMIN için geliştirme ve debug amaçlı.
+ * View database tables and insert/update/delete data.
+ * For SUPER_ADMIN development and debugging purposes.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -696,7 +696,7 @@ const DatabaseExplorerPage: React.FC = () => {
                                 </svg>
                               )}
                               {isSensitive && (
-                                <svg className="w-3 h-3 text-orange-500" fill="currentColor" viewBox="0 0 20 20" aria-label="Hassas veri - Maskeli">
+                                <svg className="w-3 h-3 text-orange-500" fill="currentColor" viewBox="0 0 20 20" aria-label="Sensitive data - Masked">
                                   <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
                                 </svg>
                               )}

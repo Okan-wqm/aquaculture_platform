@@ -1,7 +1,7 @@
 /**
  * Admin Dashboard
  *
- * SUPER_ADMIN paneli ana sayfası - Sistem metrikleri ve hızlı erişim.
+ * SUPER_ADMIN panel home page - System metrics and quick access.
  */
 
 import { Alert, Badge, Card, MetricCard } from '@aquaculture/shared-ui';
@@ -501,7 +501,7 @@ const AdminDashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Sayfa Basligi */}
+      {/* Page Title */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
@@ -582,7 +582,7 @@ const AdminDashboard: React.FC = () => {
         />
       </div>
 
-      {/* Hizli Erisim */}
+      {/* Quick Access */}
       <div>
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Access</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -598,7 +598,7 @@ const AdminDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Alt Kisim: Servis Durumu, Veritabani, Circuit Breakers, Son Aktiviteler */}
+      {/* Bottom Section: Service Status, Database, Circuit Breakers, Recent Activity */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
           <ServiceStatusCard services={services} />
@@ -625,7 +625,7 @@ const AdminDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Kullanici Dagilimi */}
+      {/* User Distribution */}
       {userStats && userStats.usersByRole.length > 0 && (
         <Card>
           <div className="px-4 py-3 border-b border-gray-200">

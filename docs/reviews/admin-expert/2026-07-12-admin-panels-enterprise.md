@@ -564,6 +564,16 @@ login path and needs spoofing-hardened client-IP extraction — a security-criti
 design. The shipped SecuritySettings UI deliberately renders ONLY enforced controls; no
 unpersisted checkbox ships (no security theater).
 
+## ADMIN-LOW-009 — transliterated Turkish remains in non-enumerated pages (manual-sweep follow-up)
+
+Discovered while closing ADMIN-MEDIUM-009: ASCII-transliterated Turkish with no special characters
+(`icin`, `yonetimi`, `tumu`, …) remains in ~10 admin-panel pages not in the MEDIUM-009 special-char
+file set (TenantManagementPage, DatabaseManagementPage, TenantDetailPage, ProvisioningSettingsPage,
+ReportsPage, UserManagementPage, PlanManagementPage, AnalyticsDashboardPage, MessagingAiPersonasPage,
+PerformanceDashboardPage). It has no reliable structural signature (collides with English words), so
+the CI English-only gate cannot catch it — it needs a manual sweep. Owner `by-okan@live.com`,
+deadline 2026-08-31.
+
 ## ADMIN-LOW-006 — gateway ServiceProxyService prefix table is dead configuration
 
 `apps/gateway-api/src/proxy/service-proxy.service.ts:900-957` registers per-service prefixes

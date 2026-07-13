@@ -125,6 +125,8 @@ export default {
         '<rootDir>/web-usetenantquery-adoption-ratchet.spec.ts',
         '<rootDir>/web-no-createtenantquerykey-in-invalidate.spec.ts',
         '<rootDir>/web-no-hand-rolled-modal-shell.spec.ts',
+        '<rootDir>/admin-panels-english-only.spec.ts',
+        '<rootDir>/admin-panel-contract-parity-tripwire.spec.ts',
         '<rootDir>/restore-mutation-tenant-admin.spec.ts',
         '<rootDir>/backup-production-secrets.spec.ts',
         '<rootDir>/deploy-ssot-contract.spec.ts',

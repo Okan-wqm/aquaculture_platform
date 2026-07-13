@@ -40,7 +40,7 @@ import {
 // Types
 // ============================================================================
 
-// Tier'ı burada tanımlıyoruz (fix plan yok, sadece indirim oranları için)
+// We define the tier here (no fixed plan, only for discount rates)
 type PricingTier = 'free' | 'starter' | 'professional' | 'enterprise' | 'custom';
 
 interface ModuleConfig {
@@ -1169,7 +1169,7 @@ const CreateTenantPage: React.FC = () => {
                   <h4 className="font-medium text-gray-700 mb-3">Company Information</h4>
                   <dl className="space-y-2 text-sm">
                     <div className="flex justify-between">
-                      <dt className="text-gray-500">Ad:</dt>
+                      <dt className="text-gray-500">Name:</dt>
                       <dd className="font-medium">{formData.name}</dd>
                     </div>
                     <div className="flex justify-between">
@@ -1200,16 +1200,16 @@ const CreateTenantPage: React.FC = () => {
                   <h4 className="font-medium text-gray-700 mb-3">Admin Information</h4>
                   <dl className="space-y-2 text-sm">
                     <div className="flex justify-between">
-                      <dt className="text-gray-500">Ad:</dt>
+                      <dt className="text-gray-500">Name:</dt>
                       <dd className="font-medium">{formData.primaryContact.name}</dd>
                     </div>
                     <div className="flex justify-between">
-                      <dt className="text-gray-500">E-posta:</dt>
+                      <dt className="text-gray-500">Email:</dt>
                       <dd>{formData.primaryContact.email}</dd>
                     </div>
                     {formData.primaryContact.phone && (
                       <div className="flex justify-between">
-                        <dt className="text-gray-500">Telefon:</dt>
+                        <dt className="text-gray-500">Phone:</dt>
                         <dd>{formData.primaryContact.phone}</dd>
                       </div>
                     )}

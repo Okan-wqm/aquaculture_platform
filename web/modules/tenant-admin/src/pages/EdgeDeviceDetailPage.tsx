@@ -208,9 +208,9 @@ const EdgeDeviceDetailPage: React.FC = () => {
   }
 
   const tabs: { id: TabId; label: string }[] = [
-    { id: 'overview', label: 'Genel Bakış' },
-    { id: 'io-config', label: 'I/O Konfig' },
-    { id: 'automation', label: 'Otomasyon' },
+    { id: 'overview', label: 'Overview' },
+    { id: 'io-config', label: 'I/O Config' },
+    { id: 'automation', label: 'Automation' },
     { id: 'events', label: 'Events' },
   ];
 
@@ -349,7 +349,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
 
           {/* Device Info */}
           <div className="bg-white border border-gray-200 rounded-xl p-6">
-            <h3 className="text-sm font-semibold text-gray-900 mb-4">Cihaz Bilgileri</h3>
+            <h3 className="text-sm font-semibold text-gray-900 mb-4">Device Information</h3>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
               {[
                 ['Device Code', device.deviceCode],
@@ -372,7 +372,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
 
           {/* Quick Actions */}
           <div className="bg-white border border-gray-200 rounded-xl p-6">
-            <h3 className="text-sm font-semibold text-gray-900 mb-4">İşlemler</h3>
+            <h3 className="text-sm font-semibold text-gray-900 mb-4">Actions</h3>
             <div className="flex flex-wrap gap-3">
               <button
                 onClick={() => {

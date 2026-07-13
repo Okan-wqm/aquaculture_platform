@@ -1,7 +1,7 @@
 /**
  * Tenant Configuration Page
  *
- * Tenant-level ayarlarin yonetimi icin sayfa.
+ * Page for managing tenant-level settings.
  * Her tab kendi sub-resource endpoint'ini kullanir (granular GET/PUT).
  *
  * Sub-resources: user-limits, storage, api, api-keys, webhooks,

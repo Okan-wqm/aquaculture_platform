@@ -255,7 +255,10 @@ export class FeedResponse {
   @Field({ nullable: true })
   expiryDate?: Date;
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, {
+    nullable: true,
+    deprecationReason: 'Use pricePerKgDecimal (exact decimal string, ADR-0004).',
+  })
   pricePerKg?: number;
 
   @Field()
@@ -281,7 +284,11 @@ export class FeedResponse {
   @Field({ nullable: true, description: 'Unit size (e.g., "25kg bag")' })
   unitSize?: string;
 
-  @Field(() => Float, { nullable: true, description: 'Unit price' })
+  @Field(() => Float, {
+    nullable: true,
+    description: 'Unit price',
+    deprecationReason: 'Use unitPriceDecimal (exact decimal string, ADR-0004).',
+  })
   unitPrice?: number;
 
   // Yeni alanlar - Çevresel etki ve besleme eğrisi

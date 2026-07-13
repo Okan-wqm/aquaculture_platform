@@ -271,7 +271,7 @@ const MODULE_NAV_CONFIG: Record<string, NavigationItem> = {
       { id: 'sites-maintenance', label: 'Maintenance', path: '/sites/maintenance', icon: 'settings' },
       { id: 'sites-harvest', label: 'Harvest', path: '/sites/harvest' },
       { id: 'sites-reports', label: 'Reports', path: '/sites/reports' },
-      { id: 'sites-finance', label: 'Finance', path: '/sites/finance', icon: 'analytics' },
+      { id: 'sites-finance', label: 'Finance', path: '/sites/finance', icon: 'analytics', requiredRoles: ['SUPER_ADMIN', 'TENANT_ADMIN', 'MODULE_MANAGER'] },
       { id: 'sites-analytics', label: 'Analytics', path: '/sites/analytics', icon: 'analytics' },
     ],
   },
@@ -308,7 +308,7 @@ const MODULE_NAV_CONFIG: Record<string, NavigationItem> = {
       { id: 'hr-leaves', label: 'Leaves', path: '/hr/leaves', icon: 'calendar-off' },
       { id: 'hr-training', label: 'Training', path: '/hr/training', icon: 'graduation-cap' },
       { id: 'hr-payroll', label: 'Payroll', path: '/hr/payroll' },
-      { id: 'hr-finance', label: 'Finance', path: '/hr/finance', icon: 'analytics' },
+      { id: 'hr-finance', label: 'Finance', path: '/hr/finance', icon: 'analytics', requiredRoles: ['SUPER_ADMIN', 'TENANT_ADMIN', 'MODULE_MANAGER'] },
     ],
   },
   hydroponics: {
@@ -596,6 +596,7 @@ const MainLayout: React.FC = () => {
         onCollapsedChange={handleSidebarToggle}
         theme={theme}
         logo={logoElement}
+        userRoles={userRole ? [userRole] : []}
       />
 
       {/* Main Content Area */}

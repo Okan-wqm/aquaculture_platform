@@ -121,7 +121,9 @@ export interface Chemical {
   expiryDate?: string;
   usageAreas?: string[];
   documents?: ChemicalDocument[];
+  /** @deprecated Float — use `unitPriceDecimal` (exact decimal string, ADR-0004). */
   unitPrice?: number;
+  unitPriceDecimal?: string | null;
   currency: string;
   notes?: string;
   isActive: boolean;
@@ -227,6 +229,7 @@ const CHEMICALS_LIST_QUERY = `
           uploadedBy
         }
         unitPrice
+        unitPriceDecimal
         currency
         notes
         isActive
@@ -292,6 +295,7 @@ const CHEMICAL_QUERY = `
         uploadedBy
       }
       unitPrice
+      unitPriceDecimal
       currency
       notes
       isActive

@@ -120,7 +120,9 @@ export interface WorkOrder {
   checklistProgress?: number;
   usedMaterials?: UsedMaterial[];
   laborRecords?: LaborRecord[];
+  /** @deprecated Float — use `estimatedCostDecimal` (exact decimal string, ADR-0004). */
   estimatedCost?: number;
+  estimatedCostDecimal?: string | null;
   costSummary?: CostSummary;
   currency?: string;
   maintenanceScheduleId?: string;
@@ -266,7 +268,9 @@ export interface SparePart {
   unit: string;
   status: SparePartStatus;
   location?: StorageLocation;
+  /** @deprecated Float — use `unitPriceDecimal` (exact decimal string, ADR-0004). */
   unitPrice?: number;
+  unitPriceDecimal?: string | null;
   currency: string;
   specifications?: Record<string, unknown>;
   leadTimeDays?: number;
@@ -333,7 +337,9 @@ export interface UpdateWorkOrderInput {
   checklistUpdates?: { id: string; isCompleted?: boolean; notes?: string }[];
   usedMaterials?: UsedMaterial[];
   laborRecords?: LaborRecord[];
+  /** @deprecated Float — use `estimatedCostDecimal` (exact decimal string, ADR-0004). */
   estimatedCost?: number;
+  estimatedCostDecimal?: string | null;
   currency?: string;
   notes?: string;
   attachments?: string[];
@@ -440,6 +446,7 @@ const WORK_ORDER_FIELDS = `
   usedMaterials
   laborRecords
   estimatedCost
+  estimatedCostDecimal
   costSummary
   currency
   maintenanceScheduleId
@@ -476,6 +483,7 @@ const MAINTENANCE_SCHEDULE_FIELDS = `
   nextMaintenanceMeterReading
   estimatedDurationMinutes
   estimatedCost
+  estimatedCostDecimal
   currency
   checklistTemplate
   requiredMaterials
@@ -512,6 +520,7 @@ const SPARE_PART_FIELDS = `
   status
   location
   unitPrice
+  unitPriceDecimal
   currency
   specifications
   leadTimeDays
@@ -606,6 +615,7 @@ export function useWorkOrderStatistics(dateFrom?: string, dateTo?: string) {
             completedOnTime
             avgCompletionTime
             totalCost
+            totalCostDecimal
             draft
             pendingApproval
             approved
@@ -626,6 +636,7 @@ export function useWorkOrderStatistics(dateFrom?: string, dateTo?: string) {
           completedOnTime: number;
           avgCompletionTime: number;
           totalCost: number;
+          totalCostDecimal: string;
           draft: number;
           pendingApproval: number;
           approved: number;
@@ -1621,6 +1632,7 @@ export function useStockSummary() {
           stockSummary {
             totalParts
             totalValue
+            totalValueDecimal
             lowStockCount
             outOfStockCount
             inStockCount
@@ -1634,6 +1646,7 @@ export function useStockSummary() {
         stockSummary: {
           totalParts: number;
           totalValue: number;
+          totalValueDecimal: string;
           lowStockCount: number;
           outOfStockCount: number;
           inStockCount: number;

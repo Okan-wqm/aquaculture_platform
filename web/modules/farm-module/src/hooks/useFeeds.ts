@@ -153,7 +153,9 @@ export interface Feed {
   storageHumidityMax?: number;
   shelfLifeMonths?: number;
   expiryDate?: string;
+  /** @deprecated Float — use `pricePerKgDecimal` (exact decimal string, ADR-0004). */
   pricePerKg?: number;
+  pricePerKgDecimal?: string | null;
   currency: string;
   notes?: string;
   isActive: boolean;
@@ -166,7 +168,9 @@ export interface Feed {
   productStage?: string;
   composition?: string;
   unitSize?: string;
+  /** @deprecated Float — use `unitPriceDecimal` (exact decimal string, ADR-0004). */
   unitPrice?: number;
+  unitPriceDecimal?: string | null;
   environmentalImpact?: EnvironmentalImpact;
   feedingCurve?: FeedingCurvePoint[];
   feedingMatrix2D?: FeedingMatrix2D;
@@ -274,6 +278,7 @@ const FEEDS_LIST_QUERY = `
         shelfLifeMonths
         expiryDate
         pricePerKg
+        pricePerKgDecimal
         currency
         notes
         isActive
@@ -284,6 +289,7 @@ const FEEDS_LIST_QUERY = `
         composition
         unitSize
         unitPrice
+        unitPriceDecimal
         environmentalImpact {
           co2EqWithLuc
           co2EqWithoutLuc
@@ -363,6 +369,7 @@ const FEED_QUERY = `
       shelfLifeMonths
       expiryDate
       pricePerKg
+      pricePerKgDecimal
       currency
       notes
       isActive
@@ -373,6 +380,7 @@ const FEED_QUERY = `
       composition
       unitSize
       unitPrice
+      unitPriceDecimal
       environmentalImpact {
         co2EqWithLuc
         co2EqWithoutLuc

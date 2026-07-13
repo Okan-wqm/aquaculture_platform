@@ -34,6 +34,7 @@ const FEEDING_RECORD_FIELDS = `
   equipmentId
   feedingDurationMinutes
   feedCost
+  feedCostDecimal
   currency
   fedBy
   verifiedBy
@@ -60,7 +61,9 @@ const FEED_INVENTORY_FIELDS = `
   expiryDate
   receivedDate
   unitPricePerKg
+  unitPricePerKgDecimal
   totalValue
+  totalValueDecimal
   currency
   storageLocation
   notes
@@ -151,6 +154,7 @@ export const FEEDING_SUMMARY_QUERY = `
       totalFeedings
       avgFeedingKg
       totalCost
+      totalCostDecimal
       currency
       byFeedType {
         feedId

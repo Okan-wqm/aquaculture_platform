@@ -5,10 +5,15 @@
  * single `hrLabourCost` snapshot so the numbers never drift between
  * views. Charts and the manual HR expense ledger complete the surface.
  */
+import { useAuth } from '@aquaculture/shared-ui';
 import React, { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
-import { useHrLabourCost, type HrFinanceGranularity } from '../../hooks/useHrFinance';
+import {
+  useHrLabourCost,
+  useHrPersonnelTable,
+  type HrFinanceGranularity,
+} from '../../hooks/useHrFinance';
 import { PersonnelTableTab } from './components/PersonnelTableTab';
 import { SalariesTab } from './components/SalariesTab';
 import { LabourCostTab } from './components/LabourCostTab';
@@ -29,6 +34,14 @@ const TABS: Array<{ id: TabId; name: string }> = [
 ];
 
 const HRFinancePage: React.FC = () => {
+  const { hasAnyRole, hasPermission } = useAuth();
+  // Finance-tab access is MANAGER+ADMIN; guard the route so a lower role never
+  // reaches the surface (buttons included).
+  const canView = hasAnyRole(['SUPER_ADMIN', 'TENANT_ADMIN', 'MODULE_MANAGER']);
+  // Salary/labour-cost figures are separately gated (HR-MEDIUM-005): the tenant
+  // admin grants `hr_finance:view_salary`; SUPER/TENANT_ADMIN bypass. Managers
+  // without it see headcount + expenses but not pay.
+  const canViewSalary = hasPermission('hr_finance:view_salary');
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab') as TabId | null;
   const activeTab: TabId = tabParam && VALID_TABS.includes(tabParam) ? tabParam : DEFAULT_TAB;
@@ -40,8 +53,9 @@ const HRFinancePage: React.FC = () => {
     [currentYear],
   );
 
-  // Single shared snapshot behind Personnel / Salaries / Labour Cost.
-  const labourCostQuery = useHrLabourCost(year);
+  // Headcount always available; the salary snapshot only when permitted.
+  const personnelQuery = useHrPersonnelTable();
+  const labourCostQuery = useHrLabourCost(year, canViewSalary);
 
   const period = useMemo(() => {
     const from = `${year}-01-01`;
@@ -57,6 +71,19 @@ const HRFinancePage: React.FC = () => {
       return next;
     });
   };
+
+  if (!canView) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center p-6">
+        <div role="alert" className="max-w-md rounded-md bg-white p-8 text-center shadow">
+          <h2 className="text-lg font-semibold text-gray-900">Finance is restricted</h2>
+          <p className="mt-2 text-sm text-gray-600">
+            You need a manager or admin role to view the HR finance tab.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 p-6">
@@ -110,21 +137,38 @@ const HRFinancePage: React.FC = () => {
       {/* Tab content */}
       {activeTab === 'personnel' && (
         <PersonnelTableTab
-          data={labourCostQuery.data}
-          isLoading={labourCostQuery.isLoading}
-          error={labourCostQuery.error}
+          data={personnelQuery.data}
+          isLoading={personnelQuery.isLoading}
+          error={personnelQuery.error}
         />
       )}
-      {activeTab === 'salaries' && (
-        <SalariesTab data={labourCostQuery.data} isLoading={labourCostQuery.isLoading} />
-      )}
-      {activeTab === 'labour' && (
-        <LabourCostTab data={labourCostQuery.data} isLoading={labourCostQuery.isLoading} />
-      )}
+      {activeTab === 'salaries' &&
+        (canViewSalary ? (
+          <SalariesTab data={labourCostQuery.data} isLoading={labourCostQuery.isLoading} />
+        ) : (
+          <SalaryRestricted />
+        ))}
+      {activeTab === 'labour' &&
+        (canViewSalary ? (
+          <LabourCostTab data={labourCostQuery.data} isLoading={labourCostQuery.isLoading} />
+        ) : (
+          <SalaryRestricted />
+        ))}
       {activeTab === 'expenses' && <HrExpensesTab period={period} />}
-      {activeTab === 'charts' && <HrChartsTab period={period} />}
+      {activeTab === 'charts' && <HrChartsTab period={period} canViewSalary={canViewSalary} />}
     </div>
   );
 };
+
+/** Shown on the salary tabs when the caller lacks `hr_finance:view_salary`. */
+const SalaryRestricted: React.FC = () => (
+  <div role="alert" className="rounded-md bg-white p-8 text-center shadow dark:bg-gray-800">
+    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Salary is restricted</h2>
+    <p className="mx-auto mt-2 max-w-md text-sm text-gray-600 dark:text-gray-400">
+      Your role can view headcounts and expenses, but not salary figures. A tenant admin can grant
+      the “HR Finance: view salary” permission to your role.
+    </p>
+  </div>
+);
 
 export default HRFinancePage;

@@ -24,6 +24,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
+import Decimal from 'decimal.js';
 import { runInTenantRead } from '@aquaculture/backend-common/database';
 
 import {
@@ -50,6 +51,50 @@ const GRANULARITY_SQL: Record<FinanceGranularity, string> = {
   [FinanceGranularity.WEEK]: 'week',
   [FinanceGranularity.MONTH]: 'month',
   [FinanceGranularity.YEAR]: 'year',
+};
+
+/** Coarsest-to-finest order + approximate days/bucket, for bucket bounding. */
+const GRANULARITY_DAYS: Array<[FinanceGranularity, number]> = [
+  [FinanceGranularity.DAY, 1],
+  [FinanceGranularity.WEEK, 7],
+  [FinanceGranularity.MONTH, 30],
+  [FinanceGranularity.YEAR, 365],
+];
+
+/**
+ * Upper bound on time-series buckets. A DAY granularity over multiple years
+ * would emit ~1000+ buckets, each triggering a computed-rule pass and bloating
+ * the payload. Beyond this the granularity is auto-coarsened to the next step.
+ */
+const MAX_SERIES_BUCKETS = 400;
+
+/** Top-N per-batch rows returned; the remainder is rolled into an "Other" row. */
+const MAX_BATCH_ROWS = 25;
+/** Synthetic batchId for the aggregated tail in the per-batch chart. */
+const OTHER_BATCH_ID = 'other';
+
+/**
+ * Auto-coarsen the requested granularity so the series can never exceed
+ * MAX_SERIES_BUCKETS — bounded server work and payload regardless of range.
+ */
+const clampGranularity = (
+  range: { from: Date; to: Date },
+  requested: FinanceGranularity,
+): FinanceGranularity => {
+  const spanDays = Math.max(
+    1,
+    (range.to.getTime() - range.from.getTime()) / 86_400_000,
+  );
+  let chosen = requested;
+  for (const [gran, days] of GRANULARITY_DAYS) {
+    if (days < (GRANULARITY_DAYS.find(([g]) => g === requested)?.[1] ?? 1)) continue;
+    if (spanDays / days <= MAX_SERIES_BUCKETS) {
+      chosen = gran;
+      break;
+    }
+    chosen = gran;
+  }
+  return chosen;
 };
 
 export enum FinanceLineOrigin {
@@ -121,14 +166,123 @@ export interface FinanceSummaryShape {
   series: TimeBucketShape[];
 }
 
-interface DerivedAggRow {
-  /** Canonical UTC bucket key `YYYY-MM-DD` (null in batch-grouped mode). */
+/** Whitelisted `date_trunc` units — the ONLY strings ever interpolated into SQL. */
+const VALID_TRUNC_UNITS: ReadonlySet<string> = new Set(Object.values(GRANULARITY_SQL));
+
+/** One derived-cost source resolved to its table + system category for a UNION branch. */
+interface DerivedBranchSpec {
+  /** Real (metadata) table name; search_path routes it to the tenant schema. */
+  table: string;
+  alias: string;
+  amountExpr: string;
+  dateExpr: string;
+  baseWhere: string;
+  /** Resolved system-category id this source books under (bound, never interpolated). */
+  categoryId: string;
+  /** batch dimension expression — required for the per-batch aggregation. */
+  batchIdExpr: string | null;
+}
+
+/** A grouped aggregation row from the single-UNION query (keys match the SELECT aliases). */
+interface UnionAggRow {
   bucket: string | null;
-  batchId: string | null;
+  batch_id: string | null;
+  category_id: string;
   total: string;
 }
 
-const round2 = (value: number): number => Math.round(value * 100) / 100;
+/**
+ * Build the finance *summary* aggregation as ONE `UNION ALL` query instead of
+ * 1 manual + N derived round-trips (PERF-009). Manual entries and every derived
+ * source project the same `(bucket, category_id, total)` shape and are summed in
+ * a single DB round-trip. Positional params are shared: `$1`=tenantId, `$2`=from,
+ * `$3`=to across all branches; each derived branch appends its resolved category
+ * id (bound, never interpolated). Column/date/amount fragments come only from the
+ * developer-authored DERIVED_COST_SOURCES registry, and `truncUnit` is asserted
+ * against the enum whitelist — so no API input ever reaches the SQL string.
+ */
+export function buildSummaryAggregationQuery(
+  tenantId: string,
+  from: Date,
+  to: Date,
+  truncUnit: string,
+  derived: readonly DerivedBranchSpec[],
+): { sql: string; params: unknown[] } {
+  if (!VALID_TRUNC_UNITS.has(truncUnit)) {
+    throw new Error(`Illegal date_trunc unit: ${truncUnit}`);
+  }
+  const params: unknown[] = [tenantId, from, to];
+  const branches: string[] = [
+    `SELECT to_char(date_trunc('${truncUnit}', e."entryDate"), 'YYYY-MM-DD') AS bucket, ` +
+      `NULL::text AS batch_id, e."categoryId"::text AS category_id, SUM(e."amount") AS total ` +
+      `FROM finance_expense_entries e ` +
+      `WHERE e."tenantId" = $1 AND e."isDeleted" = false ` +
+      `AND e."entryDate" >= $2 AND e."entryDate" <= $3 ` +
+      `GROUP BY bucket, e."categoryId"`,
+  ];
+  for (const d of derived) {
+    params.push(d.categoryId);
+    const catRef = `$${params.length}`;
+    branches.push(
+      `SELECT to_char(date_trunc('${truncUnit}', ${d.dateExpr} AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS bucket, ` +
+        `NULL::text AS batch_id, ${catRef}::text AS category_id, SUM(${d.amountExpr}) AS total ` +
+        `FROM ${d.table} ${d.alias} ` +
+        `WHERE ${d.baseWhere} AND ${d.alias}."tenantId" = $1 ` +
+        `AND ${d.dateExpr} >= $2 AND ${d.dateExpr} <= $3 ` +
+        `GROUP BY bucket`,
+    );
+  }
+  return { sql: branches.join(' UNION ALL '), params };
+}
+
+/**
+ * Build the per-*batch* aggregation as ONE `UNION ALL` query (PERF-009). Only
+ * derived sources that carry a batch dimension contribute; manual entries with a
+ * non-null batch are always included. Shared params: `$1`=tenantId, `$2`=from,
+ * `$3`=to; each derived branch appends its resolved category id.
+ */
+export function buildBatchAggregationQuery(
+  tenantId: string,
+  from: Date,
+  to: Date,
+  derived: readonly DerivedBranchSpec[],
+): { sql: string; params: unknown[] } {
+  const params: unknown[] = [tenantId, from, to];
+  const branches: string[] = [
+    `SELECT NULL::text AS bucket, e."batchId"::text AS batch_id, ` +
+      `e."categoryId"::text AS category_id, SUM(e."amount") AS total ` +
+      `FROM finance_expense_entries e ` +
+      `WHERE e."tenantId" = $1 AND e."isDeleted" = false AND e."batchId" IS NOT NULL ` +
+      `AND e."entryDate" >= $2 AND e."entryDate" <= $3 ` +
+      `GROUP BY e."batchId", e."categoryId"`,
+  ];
+  for (const d of derived) {
+    if (!d.batchIdExpr) continue;
+    params.push(d.categoryId);
+    const catRef = `$${params.length}`;
+    branches.push(
+      `SELECT NULL::text AS bucket, ${d.batchIdExpr}::text AS batch_id, ` +
+        `${catRef}::text AS category_id, SUM(${d.amountExpr}) AS total ` +
+        `FROM ${d.table} ${d.alias} ` +
+        `WHERE ${d.baseWhere} AND ${d.alias}."tenantId" = $1 ` +
+        `AND ${d.dateExpr} >= $2 AND ${d.dateExpr} <= $3 ` +
+        `GROUP BY ${d.batchIdExpr}`,
+    );
+  }
+  return { sql: branches.join(' UNION ALL '), params };
+}
+
+/**
+ * Money rounding SSoT for the read model: exact 2dp HALF_EVEN via Decimal,
+ * converted to a JS number only at the GraphQL boundary. All accumulation
+ * upstream is Decimal, so no IEEE-754 float drift enters the totals.
+ */
+const toMoney = (value: Decimal): number =>
+  value.toDecimalPlaces(2, Decimal.ROUND_HALF_EVEN).toNumber();
+
+/** Exact 2dp rounding of a single source amount string (derived line items). */
+const round2 = (value: string | number): number =>
+  toMoney(new Decimal(value));
 
 @Injectable()
 export class FinanceLedgerQueryService {
@@ -191,53 +345,43 @@ export class FinanceLedgerQueryService {
       const categories = await this.loadCategories(manager, tenantId);
       const byCode = this.categoriesByCode(categories);
       const currency = await this.settingsService.getDefaultCurrencyInTx(manager, tenantId);
-      const truncUnit = GRANULARITY_SQL[granularity];
+      // Auto-coarsen so a wide range can't explode into thousands of buckets.
+      const truncUnit = GRANULARITY_SQL[clampGranularity(range, granularity)];
 
       // categoryId → booked total; (bucketKey|categoryId) → bucket totals.
       // bucketKey is a canonical UTC `YYYY-MM-DD` string computed in SQL, so
       // manual (DATE) and derived (timestamptz) columns land in the SAME
       // bucket regardless of the DB session timezone (no Date round-trip).
-      const categoryTotals = new Map<string, number>();
-      const bucketTotals = new Map<string, Map<string, number>>();
+      // Exact Decimal accumulation — SQL SUM over numeric(15,2) is exact, and
+      // the JS-side merge across sources/buckets stays exact (no float drift).
+      const categoryTotals = new Map<string, Decimal>();
+      const bucketTotals = new Map<string, Map<string, Decimal>>();
 
-      const record = (categoryId: string, bucketKey: string, amount: number): void => {
-        categoryTotals.set(categoryId, (categoryTotals.get(categoryId) ?? 0) + amount);
+      const record = (categoryId: string, bucketKey: string, amount: Decimal): void => {
+        categoryTotals.set(categoryId, (categoryTotals.get(categoryId) ?? new Decimal(0)).plus(amount));
         let perCategory = bucketTotals.get(bucketKey);
         if (!perCategory) {
-          perCategory = new Map<string, number>();
+          perCategory = new Map<string, Decimal>();
           bucketTotals.set(bucketKey, perCategory);
         }
-        perCategory.set(categoryId, (perCategory.get(categoryId) ?? 0) + amount);
+        perCategory.set(categoryId, (perCategory.get(categoryId) ?? new Decimal(0)).plus(amount));
       };
 
-      // Manual entries: one grouped query. entryDate is a DATE (tz-free), so
-      // to_char is deterministic.
-      const manualRows = (await manager
-        .createQueryBuilder(FinanceExpenseEntry, 'e')
-        .select(`to_char(date_trunc('${truncUnit}', e."entryDate"), 'YYYY-MM-DD')`, 'bucket')
-        .addSelect('e."categoryId"', 'categoryId')
-        .addSelect('SUM(e."amount")', 'total')
-        .where('e."tenantId" = :tenantId', { tenantId })
-        .andWhere('e."isDeleted" = false')
-        .andWhere('e."entryDate" >= :from', { from: range.from })
-        .andWhere('e."entryDate" <= :to', { to: range.to })
-        .groupBy('bucket')
-        .addGroupBy('e."categoryId"')
-        .getRawMany<{ bucket: string; categoryId: string; total: string }>());
-
-      for (const row of manualRows) {
-        record(row.categoryId, row.bucket, Number(row.total));
-      }
-
-      // Derived sources: one grouped query per source.
-      for (const source of DERIVED_COST_SOURCES) {
-        const category = byCode.get(source.systemCode);
-        if (!category) continue;
-        const rows = await this.aggregateDerivedSource(manager, tenantId, source, range, truncUnit, null);
-        for (const row of rows) {
-          if (row.bucket === null) continue;
-          record(category.id, row.bucket, Number(row.total));
-        }
+      // Manual entries + every derived source aggregated in ONE round-trip
+      // (PERF-009). entryDate is a DATE (tz-free); derived timestamptz columns are
+      // normalized to UTC before truncation, so both land in the same bucket key.
+      const derivedBranches = this.derivedBranchSpecs(byCode);
+      const { sql, params } = buildSummaryAggregationQuery(
+        tenantId,
+        range.from,
+        range.to,
+        truncUnit,
+        derivedBranches,
+      );
+      const rows = (await manager.query(sql, params)) as UnionAggRow[];
+      for (const row of rows) {
+        if (row.bucket === null) continue;
+        record(row.category_id, row.bucket, new Decimal(row.total));
       }
 
       // Computed categories — per whole period AND per bucket. Evaluated
@@ -258,7 +402,7 @@ export class FinanceLedgerQueryService {
       // Fold into the response shape.
       const kindOf = new Map(categories.map((c) => [c.id, c.kind]));
       const byCategory: CategoryTotalShape[] = categories
-        .filter((c) => c.isActive || (categoryTotals.get(c.id) ?? 0) > 0)
+        .filter((c) => c.isActive || (categoryTotals.get(c.id) ?? new Decimal(0)).gt(0))
         .map((c) => ({
           categoryId: c.id,
           categoryCode: c.code ?? null,
@@ -267,46 +411,42 @@ export class FinanceLedgerQueryService {
           kind: c.kind,
           isComputed: Boolean(c.computedRule),
           isDerived: Boolean(c.code && DERIVED_COST_SOURCES.some((s) => s.systemCode === c.code)),
-          total: round2(categoryTotals.get(c.id) ?? 0),
+          total: toMoney(categoryTotals.get(c.id) ?? new Decimal(0)),
         }))
         .sort((a, b) => b.total - a.total);
 
       const series: TimeBucketShape[] = [...bucketTotals.entries()]
         .map(([bucketKey, perCategory]) => {
-          let totalExpense = 0;
-          let totalRevenue = 0;
+          let totalExpense = new Decimal(0);
+          let totalRevenue = new Decimal(0);
           for (const [categoryId, total] of perCategory.entries()) {
             if (kindOf.get(categoryId) === FinanceCategoryKind.REVENUE) {
-              totalRevenue += total;
+              totalRevenue = totalRevenue.plus(total);
             } else {
-              totalExpense += total;
+              totalExpense = totalExpense.plus(total);
             }
           }
           return {
             // Canonical UTC midnight for the bucket key — no local-tz drift.
             bucketStart: new Date(`${bucketKey}T00:00:00.000Z`),
-            totalExpense: round2(totalExpense),
-            totalRevenue: round2(totalRevenue),
+            totalExpense: toMoney(totalExpense),
+            totalRevenue: toMoney(totalRevenue),
           };
         })
         .sort((a, b) => a.bucketStart.getTime() - b.bucketStart.getTime());
 
-      const totalExpense = round2(
-        byCategory
-          .filter((c) => c.kind === FinanceCategoryKind.EXPENSE)
-          .reduce((sum, c) => sum + c.total, 0),
-      );
-      const totalRevenue = round2(
-        byCategory
-          .filter((c) => c.kind === FinanceCategoryKind.REVENUE)
-          .reduce((sum, c) => sum + c.total, 0),
-      );
+      const sumByKind = (kind: FinanceCategoryKind): Decimal =>
+        categories
+          .filter((c) => c.kind === kind)
+          .reduce((sum, c) => sum.plus(categoryTotals.get(c.id) ?? 0), new Decimal(0));
+      const expenseTotal = sumByKind(FinanceCategoryKind.EXPENSE);
+      const revenueTotal = sumByKind(FinanceCategoryKind.REVENUE);
 
       return {
         currency,
-        totalExpense,
-        totalRevenue,
-        netResult: round2(totalRevenue - totalExpense),
+        totalExpense: toMoney(expenseTotal),
+        totalRevenue: toMoney(revenueTotal),
+        netResult: toMoney(revenueTotal.minus(expenseTotal)),
         byCategory,
         series,
       };
@@ -324,54 +464,49 @@ export class FinanceLedgerQueryService {
       const categories = await this.loadCategories(manager, tenantId);
       const byCode = this.categoriesByCode(categories);
 
-      const totals = new Map<string, { expense: number; revenue: number }>();
-      const record = (batchId: string, kind: FinanceCategoryKind, amount: number): void => {
-        const bucket = totals.get(batchId) ?? { expense: 0, revenue: 0 };
+      const totals = new Map<string, { expense: Decimal; revenue: Decimal }>();
+      const record = (batchId: string, kind: FinanceCategoryKind, amount: Decimal): void => {
+        const bucket = totals.get(batchId) ?? { expense: new Decimal(0), revenue: new Decimal(0) };
         if (kind === FinanceCategoryKind.REVENUE) {
-          bucket.revenue += amount;
+          bucket.revenue = bucket.revenue.plus(amount);
         } else {
-          bucket.expense += amount;
+          bucket.expense = bucket.expense.plus(amount);
         }
         totals.set(batchId, bucket);
       };
 
-      const manualRows = (await manager
-        .createQueryBuilder(FinanceExpenseEntry, 'e')
-        .select('e."batchId"', 'batchId')
-        .addSelect('e."categoryId"', 'categoryId')
-        .addSelect('SUM(e."amount")', 'total')
-        .where('e."tenantId" = :tenantId', { tenantId })
-        .andWhere('e."isDeleted" = false')
-        .andWhere('e."batchId" IS NOT NULL')
-        .andWhere('e."entryDate" >= :from', { from: range.from })
-        .andWhere('e."entryDate" <= :to', { to: range.to })
-        .groupBy('e."batchId"')
-        .addGroupBy('e."categoryId"')
-        .getRawMany<{ batchId: string; categoryId: string; total: string }>());
+      // Manual + batch-bearing derived sources in ONE round-trip (PERF-009).
+      const derivedBranches = this.derivedBranchSpecs(byCode);
+      const { sql, params } = buildBatchAggregationQuery(tenantId, range.from, range.to, derivedBranches);
+      const rows = (await manager.query(sql, params)) as UnionAggRow[];
 
       const kindOf = new Map(categories.map((c) => [c.id, c.kind]));
-      for (const row of manualRows) {
-        record(row.batchId, kindOf.get(row.categoryId) ?? FinanceCategoryKind.EXPENSE, Number(row.total));
+      for (const row of rows) {
+        if (!row.batch_id) continue;
+        record(row.batch_id, kindOf.get(row.category_id) ?? FinanceCategoryKind.EXPENSE, new Decimal(row.total));
       }
 
-      for (const source of DERIVED_COST_SOURCES) {
-        if (!source.batchIdExpr) continue;
-        const category = byCode.get(source.systemCode);
-        if (!category) continue;
-        const rows = await this.aggregateDerivedSource(manager, tenantId, source, range, null, source.batchIdExpr);
-        for (const row of rows) {
-          if (!row.batchId) continue;
-          record(row.batchId, source.kind, Number(row.total));
-        }
-      }
+      const ranked = [...totals.entries()]
+        .map(([batchId, bucket]) => ({ batchId, expense: bucket.expense, revenue: bucket.revenue }))
+        .sort((a, b) => b.expense.comparedTo(a.expense));
 
-      return [...totals.entries()]
-        .map(([batchId, bucket]) => ({
-          batchId,
-          totalExpense: round2(bucket.expense),
-          totalRevenue: round2(bucket.revenue),
-        }))
-        .sort((a, b) => b.totalExpense - a.totalExpense);
+      // Bound the payload: top-N batches by cost, remainder rolled into "Other".
+      const head = ranked.slice(0, MAX_BATCH_ROWS).map((r) => ({
+        batchId: r.batchId,
+        totalExpense: toMoney(r.expense),
+        totalRevenue: toMoney(r.revenue),
+      }));
+      const tail = ranked.slice(MAX_BATCH_ROWS);
+      if (tail.length > 0) {
+        const otherExpense = tail.reduce((s, r) => s.plus(r.expense), new Decimal(0));
+        const otherRevenue = tail.reduce((s, r) => s.plus(r.revenue), new Decimal(0));
+        head.push({
+          batchId: OTHER_BATCH_ID,
+          totalExpense: toMoney(otherExpense),
+          totalRevenue: toMoney(otherRevenue),
+        });
+      }
+      return head;
     });
   }
 
@@ -462,6 +597,11 @@ export class FinanceLedgerQueryService {
       if (!category) continue;
       if (filter.scope && category.scope !== filter.scope) continue;
       if (filter.batchId && !source.batchIdExpr) continue;
+      // A site-scoped ledger must NEVER show a derived cost that cannot be
+      // attributed to that site (maintenance/fingerling costs have no site
+      // dimension). Exclude unattributable sources rather than silently
+      // mixing tenant-wide costs into one site's P&L (FARM-MEDIUM-162).
+      if (filter.siteId && !source.siteIdExpr) continue;
 
       const qb = manager
         .createQueryBuilder(source.entity, source.alias)
@@ -482,6 +622,9 @@ export class FinanceLedgerQueryService {
       if (filter.batchId && source.batchIdExpr) {
         qb.andWhere(`${source.batchIdExpr} = :batchId`, { batchId: filter.batchId });
       }
+      if (filter.siteId && source.siteIdExpr) {
+        qb.andWhere(`${source.siteIdExpr} = :siteId`, { siteId: filter.siteId });
+      }
 
       const rows = await qb.getRawMany<{
         sourceId: string;
@@ -501,7 +644,7 @@ export class FinanceLedgerQueryService {
           categoryCode: category.code ?? null,
           categoryName: category.name,
           kind: source.kind,
-          amount: round2(Number(row.amount)),
+          amount: round2(row.amount),
           currency: row.currency ?? defaultCurrency,
           entryDate: new Date(row.entryDate),
           batchId: row.batchId,
@@ -518,41 +661,26 @@ export class FinanceLedgerQueryService {
   }
 
   /**
-   * Grouped aggregate over one derived source. Groups by time bucket
-   * when `truncUnit` is set, by batch when `batchExpr` is set.
+   * Resolve every derived-cost source that has a seeded system category into a
+   * UNION branch spec (real table name from entity metadata, resolved category
+   * id). Sources whose category is not seeded for this tenant are skipped — the
+   * same behaviour as the previous per-source loop's `if (!category) continue`.
    */
-  private async aggregateDerivedSource(
-    manager: EntityManager,
-    tenantId: string,
-    source: DerivedCostSource,
-    range: { from: Date; to: Date },
-    truncUnit: string | null,
-    batchExpr: string | null,
-  ): Promise<DerivedAggRow[]> {
-    const qb = manager
-      .createQueryBuilder(source.entity, source.alias)
-      .select(`SUM(${source.amountExpr})`, 'total')
-      .where(source.baseWhere)
-      .andWhere(`${source.alias}."tenantId" = :tenantId`, { tenantId })
-      .andWhere(`${source.dateExpr} >= :from`, { from: range.from })
-      .andWhere(`${source.dateExpr} <= :to`, { to: range.to });
-
-    if (truncUnit) {
-      // Normalize the timestamptz to UTC wall-clock before truncating so the
-      // bucket key matches the manual (DATE) side regardless of session tz.
-      qb.addSelect(
-        `to_char(date_trunc('${truncUnit}', ${source.dateExpr} AT TIME ZONE 'UTC'), 'YYYY-MM-DD')`,
-        'bucket',
-      ).groupBy('bucket');
-    } else {
-      qb.addSelect('NULL::text', 'bucket');
+  private derivedBranchSpecs(byCode: Map<string, FinanceCategory>): DerivedBranchSpec[] {
+    const specs: DerivedBranchSpec[] = [];
+    for (const source of DERIVED_COST_SOURCES) {
+      const category = byCode.get(source.systemCode);
+      if (!category) continue;
+      specs.push({
+        table: this.dataSource.getMetadata(source.entity).tableName,
+        alias: source.alias,
+        amountExpr: source.amountExpr,
+        dateExpr: source.dateExpr,
+        baseWhere: source.baseWhere,
+        categoryId: category.id,
+        batchIdExpr: source.batchIdExpr,
+      });
     }
-    if (batchExpr) {
-      qb.addSelect(batchExpr, 'batchId').addGroupBy(batchExpr);
-    } else {
-      // Constant select — legal alongside aggregates without GROUP BY.
-      qb.addSelect('NULL::uuid', 'batchId');
-    }
-    return qb.getRawMany<DerivedAggRow>();
+    return specs;
   }
 }

@@ -6,6 +6,7 @@
  */
 import { Field, Float, ID, ObjectType } from '@nestjs/graphql';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import {
   Column,
   CreateDateColumn,
@@ -22,9 +23,19 @@ import { HrFinanceCategory } from './hr-finance-category.entity';
 
 @ObjectType()
 @Entity('hr_finance_entries')
-@Index('IDX_hr_finance_entries_tenant_date', ['tenantId', 'entryDate'])
-@Index('IDX_hr_finance_entries_tenant_category_date', ['tenantId', 'categoryId', 'entryDate'])
-@Index('IDX_hr_finance_entries_tenant_department', ['tenantId', 'departmentHrId'])
+// Partial on the read path's dominant predicate (soft-deleted rows leave
+// aggregates but keep audit history) — see migration 1802100000000.
+@Index('IDX_hr_finance_entries_tenant_date_active', ['tenantId', 'entryDate'], {
+  where: '"isDeleted" = false',
+})
+@Index(
+  'IDX_hr_finance_entries_tenant_category_date_active',
+  ['tenantId', 'categoryId', 'entryDate'],
+  { where: '"isDeleted" = false' },
+)
+@Index('IDX_hr_finance_entries_tenant_department_active', ['tenantId', 'departmentHrId'], {
+  where: '"isDeleted" = false',
+})
 export class HrFinanceEntry {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -47,7 +58,10 @@ export class HrFinanceEntry {
   @Column('date')
   entryDate!: Date;
 
-  @Field(() => Float)
+  @Field(() => Float, {
+    deprecationReason:
+      'Use amountDecimal (exact decimal string, ADR-0004). Float is removed after the coexistence window.',
+  })
   @Column({
     type: 'decimal',
     precision: 15,
@@ -55,6 +69,19 @@ export class HrFinanceEntry {
     transformer: new DecimalTransformer(),
   })
   amount!: number;
+
+  /**
+   * The same value as `amount`, on the wire as an EXACT decimal string via the
+   * platform Decimal scalar (ADR-0004 / DATA-MEDIUM-009). Additive coexistence:
+   * `amount` (Float) stays until consumers migrate, then Float is removed. A
+   * getter (not a column) so TypeORM ignores it and no handler change is needed.
+   */
+  @Field(() => DecimalScalar, {
+    description: 'Exact-decimal amount as a string. Coexists with the deprecated Float `amount`.',
+  })
+  get amountDecimal(): number {
+    return this.amount;
+  }
 
   /** ISO 4217 — defaulted from hr_payroll_cost_settings at write time. */
   @Field()
@@ -86,6 +113,10 @@ export class HrFinanceEntry {
 
   @Column('timestamptz', { nullable: true })
   deletedAt?: Date | null;
+
+  /** Actor who soft-deleted the row — required for financial audit attribution. */
+  @Column('uuid', { nullable: true })
+  deletedBy?: string | null;
 
   @VersionColumn()
   version!: number;

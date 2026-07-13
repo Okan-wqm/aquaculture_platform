@@ -251,10 +251,14 @@ export interface Batch {
   harvestedQuantity?: number;
   cullCount: number;
   totalFeedConsumed: number;
+  /** @deprecated Float — use `totalFeedCostDecimal` (exact decimal string, ADR-0004). */
   totalFeedCost: number;
+  totalFeedCostDecimal: string;
   retentionRate?: number;
   sgr?: number;
+  /** @deprecated Float — use `costPerKgDecimal` (exact decimal string, ADR-0004). */
   costPerKg?: number;
+  costPerKgDecimal?: string | null;
   weight: BatchWeight;
   fcr: BatchFCR;
   stockedAt: string;
@@ -262,7 +266,9 @@ export interface Batch {
   actualHarvestDate?: string;
   supplierId?: string;
   supplierBatchNumber?: string;
+  /** @deprecated Float — use `purchaseCostDecimal` (exact decimal string, ADR-0004). */
   purchaseCost?: number;
+  purchaseCostDecimal?: string | null;
   currency?: string;
   arrivalMethod?: ArrivalMethod;
   status: BatchStatus;
@@ -401,9 +407,11 @@ const BATCH_CORE_FIELDS = `
   cullCount
   totalFeedConsumed
   totalFeedCost
+  totalFeedCostDecimal
   retentionRate
   sgr
   costPerKg
+  costPerKgDecimal
   weight
   fcr
   stockedAt
@@ -412,6 +420,7 @@ const BATCH_CORE_FIELDS = `
   supplierId
   supplierBatchNumber
   purchaseCost
+  purchaseCostDecimal
   currency
   arrivalMethod
   status

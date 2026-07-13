@@ -1435,12 +1435,19 @@ services:
       DATABASE_MIGRATIONS_RUN: 'false'
       SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING is required}
       SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
+      # ORPHAN-MEDIUM-392: app.module registers RedisModule ('optional' mode);
+      # without this URL the client fell back to localhost and retried forever
+      # (ECONNREFUSED spam, Redis-backed paths silently degraded) — the second
+      # under-provisioned-block gap after the NATS one (ORPHAN-HIGH-391).
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       <<: *nats-event-store-env
     volumes:
       - *nats-ca-mount
       - *nats-clients-mount
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       nats:
         condition: service_healthy

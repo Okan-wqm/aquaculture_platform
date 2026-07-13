@@ -6069,6 +6069,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/configuration/__tests__/configuration.resolver.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/configuration/__tests__/graphql-schema-build.spec.ts",
       "prettier_managed": true
     },
@@ -6147,6 +6153,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/configuration/handlers/__tests__/upsert-overwrite-columns.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/configuration/handlers/create-configuration.handler.ts",
       "prettier_managed": true
     },
@@ -6213,6 +6225,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/database/__tests__/platform-configuration-seed.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/database/__tests__/rls-scoped-session.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/database/data-source.ts",
       "prettier_managed": true
     },
@@ -6266,6 +6290,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/config-service/src/database/migrations/1801000000000-EnsureConfigTenantErasureProofLedger.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/database/migrations/1805400000000-SeedPlatformConfigurations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/database/rls-scoped-session.ts",
       "prettier_managed": true
     },
     {
@@ -43162,6 +43198,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/graphql/platform-configuration-operations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/hooks/__tests__/useAsyncData.spec.ts",
       "prettier_managed": true
     },
@@ -43229,6 +43271,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/hooks/usePagination.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/hooks/usePlatformConfiguration.ts",
       "prettier_managed": true
     },
     {
@@ -43594,6 +43642,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/services/api/__tests__/platform-configuration.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/services/api/analytics.ts",
       "prettier_managed": true
     },
@@ -43643,6 +43697,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/services/api/modules.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/services/api/platform-configuration.ts",
       "prettier_managed": true
     },
     {
@@ -53010,10 +53070,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8689,
+  "file_count": 8699,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8514,
-  "managed_file_list_sha256": "567a473fccaf63dc066e4bbb202fb48318828065d5547850357c64966c791ee0",
+  "managed_count": 8524,
+  "managed_file_list_sha256": "f80eee8dc91cd911f0a55e659b6066458fe9e73adfd29d09e72e7bdabffa38af",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

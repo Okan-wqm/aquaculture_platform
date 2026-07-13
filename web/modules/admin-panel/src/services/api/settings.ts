@@ -13,7 +13,6 @@ import type {
   PaginatedResult,
   PaginationParams,
   DateRangeParams,
-  SystemSetting,
   IpAccessRule,
   FeatureToggle,
   MaintenanceWindow,
@@ -35,35 +34,17 @@ import { tenantConfigApi } from './tenant-config';
 import { emailTemplatesApi } from './email-templates';
 
 export const settingsApi = {
-  // System Settings
-  getAll: () => apiFetch<Record<string, SystemSetting[]>>('/settings'),
-  getByCategory: (category: string) => apiFetch<SystemSetting[]>(`/settings/category/${category}`),
-  // Fix: H19 -- backend path uyumu (/settings/${key} -> /settings/key/${key})
-  get: (key: string) => apiFetch<SystemSetting>(`/settings/key/${key}`),
-  update: (key: string, value: unknown, updatedBy?: string) =>
-    apiFetch<SystemSetting>(`/settings/key/${key}`, { method: 'PUT', body: JSON.stringify({ value, updatedBy }) }),
-  // Fix: backend expects { updates: [{ key, value }] }, updatedBy comes from JWT
-  bulkUpdate: (settings: Array<{ key: string; value: unknown }>, _updatedBy?: string) =>
-    apiFetch<SystemSetting[]>('/settings/bulk', { method: 'PUT', body: JSON.stringify({ updates: settings }) }),
-
-  // Config Endpoints
-  getEmailConfig: () => apiFetch<Record<string, unknown>>('/settings/config/email'),
-  updateEmailConfig: (config: Record<string, unknown>) =>
-    apiFetch<Record<string, unknown>>('/settings/config/email', { method: 'PUT', body: JSON.stringify(config) }),
+  // System settings live in config-service now (ORPHAN-HIGH-373): the legacy
+  // admin-api settings stores are retired — their write endpoints return 410
+  // Gone and the reads were static env-backed stubs. Read/write goes through
+  // the federated GraphQL operations in graphql/platform-configuration-
+  // operations.ts (hooks/usePlatformConfiguration.ts). Only the live SMTP
+  // test-send and system-info endpoints remain here.
   testEmailConfig: (to: string) =>
     apiFetch<Record<string, unknown>>('/settings/config/email/test', {
       method: 'POST',
       body: JSON.stringify({ to }),
     }),
-  getSecurityConfig: () => apiFetch<Record<string, unknown>>('/settings/config/security'),
-  updateSecurityConfig: (config: Record<string, unknown>) =>
-    apiFetch<Record<string, unknown>>('/settings/config/security', { method: 'PUT', body: JSON.stringify(config) }),
-  getBillingConfig: () => apiFetch<Record<string, unknown>>('/settings/config/billing'),
-  updateBillingConfig: (config: Record<string, unknown>) =>
-    apiFetch<Record<string, unknown>>('/settings/config/billing', { method: 'PUT', body: JSON.stringify(config) }),
-  getRateLimits: () => apiFetch<Record<string, unknown>>('/settings/config/rate-limits'),
-  updateRateLimits: (config: Record<string, unknown>) =>
-    apiFetch<Record<string, unknown>>('/settings/config/rate-limits', { method: 'PUT', body: JSON.stringify(config) }),
   getSystemInfo: () => apiFetch<Record<string, unknown>>('/settings/system/info'),
 
   // Tenant Configuration (delegated to tenant-config.ts, kept here for backward compat)

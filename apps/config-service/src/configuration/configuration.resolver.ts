@@ -12,6 +12,7 @@ import {
 } from '@nestjs/graphql';
 
 import { UpsertConfigurationCommand } from './commands/upsert-configuration.command';
+import { SYSTEM_TENANT_ID } from './configuration.constants';
 import {
   EffectiveConfigurationDto,
   toEffectiveConfigurationDto,
@@ -27,11 +28,22 @@ interface GraphQLContext {
   req: {
     user?: {
       sub: string;
-      tenantId: string;
+      /**
+       * Absent/null for SUPER_ADMIN: it is the platform's only tenantless
+       * principal by design (auth-service token-mint C1 invariant).
+       */
+      tenantId?: string | null;
       roles?: string[];
     };
   };
 }
+
+/**
+ * Roles allowed to administer configuration. The same vocabulary gates both
+ * the setConfiguration mutation and the tenantless system-scope resolution,
+ * so the two checks can never drift apart.
+ */
+const PLATFORM_ADMIN_ROLES: readonly string[] = ['admin', 'platform_admin', 'SUPER_ADMIN'];
 
 @Resolver(() => EffectiveConfigurationDto)
 export class ConfigurationResolver {
@@ -40,16 +52,33 @@ export class ConfigurationResolver {
     private readonly queryBus: QueryBus,
   ) {}
 
+  private hasPlatformAdminRole(context: GraphQLContext): boolean {
+    const roles = context.req.user?.roles ?? [];
+    return PLATFORM_ADMIN_ROLES.some((role) => roles.includes(role));
+  }
+
   /**
-   * Extract tenant ID exclusively from verified JWT payload.
+   * Resolve the tenant scope exclusively from the verified JWT payload.
    * SECURITY: Never fall back to headers - JWT is the only trusted source.
+   *
+   * WHY the SYSTEM_TENANT_ID resolution for tenantless platform admins:
+   * SUPER_ADMIN is the platform's only tenantless principal (auth-service
+   * refuses to mint any other token without a tenant), and TenantGuard already
+   * admits it in system scope. Platform-scope configuration rows are stored
+   * under SYSTEM_TENANT_ID, so a tenantless platform admin reads and writes the
+   * system rows — a tenant-scoped user still resolves ONLY from its verified
+   * JWT tenant claim, and an authenticated non-admin without a tenant stays
+   * rejected fail-closed.
    */
   private getTenantId(context: GraphQLContext): string {
     const tenantId = context.req.user?.tenantId;
-    if (!tenantId) {
-      throw new UnauthorizedException('Authentication required - tenant ID must come from JWT');
+    if (tenantId) {
+      return tenantId;
     }
-    return tenantId;
+    if (context.req.user && this.hasPlatformAdminRole(context)) {
+      return SYSTEM_TENANT_ID;
+    }
+    throw new UnauthorizedException('Authentication required - tenant ID must come from JWT');
   }
 
   /**
@@ -68,8 +97,7 @@ export class ConfigurationResolver {
    * Check admin access from verified JWT roles.
    */
   private checkAdminAccess(context: GraphQLContext): void {
-    const roles = context.req.user?.roles ?? [];
-    if (!roles.includes('admin') && !roles.includes('platform_admin') && !roles.includes('SUPER_ADMIN')) {
+    if (!this.hasPlatformAdminRole(context)) {
       throw new ForbiddenException('Admin access required for this operation');
     }
   }

@@ -4146,6 +4146,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/__tests__/entity-schema-routing.architecture.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/app.module.ts",
       "prettier_managed": true
     },
@@ -4751,6 +4757,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/guards/jwt-auth.guard.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/guards/jwt-auth.guard.ts",
       "prettier_managed": true
     },
@@ -4824,6 +4836,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/services/token.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/services/webauthn.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -53112,10 +53130,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8706,
+  "file_count": 8709,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8531,
-  "managed_file_list_sha256": "cb86a430263763a9b9b2bad37ac73d41e6571a5c87f55fffa7b3afd2e4636c3c",
+  "managed_count": 8534,
+  "managed_file_list_sha256": "3015620c9c203e16ccc3fca0cc42f0c4f2a0b096aaaf736fe9c17e8121900b91",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

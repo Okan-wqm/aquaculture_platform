@@ -1,5 +1,6 @@
 import { DynamicModule, Module } from '@nestjs/common';
 import { ClientsModule } from '@nestjs/microservices';
+import { CONFIG_RUNTIME_INBOX_PREFIX } from '@platform/event-contracts';
 
 import { NatsV3Client } from '../nats/nats-v3-client.proxy';
 
@@ -30,7 +31,13 @@ export class ConfigClientModule {
           {
             name: CONFIG_NATS_CLIENT,
             customClass: NatsV3Client,
-            options: { serviceName: options.consumerService },
+            // SEC-CRITICAL-001: scoped reply inbox so the decrypted secret never
+            // returns on the platform-wide `_INBOX.>` that every service cert
+            // subscribes. Only billing subscribes / config publishes this token.
+            options: {
+              serviceName: options.consumerService,
+              inboxPrefix: CONFIG_RUNTIME_INBOX_PREFIX,
+            },
           },
         ]),
       ],

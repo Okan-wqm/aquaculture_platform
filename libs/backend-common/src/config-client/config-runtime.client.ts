@@ -35,6 +35,13 @@ export interface BillingStripeSettings {
   enabled: boolean;
   publicKey: string | null;
   secretKey: string | null;
+  /**
+   * Whether config-service actually RESPONDED. Distinguishes "reachable +
+   * deliberately disabled" (operator turned Stripe off) from "unreachable"
+   * (transport failure) — the DynamicStripeClientProvider needs the difference
+   * to avoid a silent warm-degradation of a live-billing tenant (ARCH-HIGH-002).
+   */
+  reachable: boolean;
 }
 
 /**
@@ -79,8 +86,12 @@ export class ConfigRuntimeClient {
     key: string,
     defaultValue: string | null = null,
   ): Promise<string | null> {
-    const result = await this.request(CONFIG_RUNTIME_SUBJECTS.GET, service, key);
-    return result.found ? result.value : defaultValue;
+    try {
+      const result = await this.send(CONFIG_RUNTIME_SUBJECTS.GET, service, key);
+      return result.found ? result.value : defaultValue;
+    } catch {
+      return defaultValue;
+    }
   }
 
   /** Read a non-secret boolean value ('true'/'1' → true). */
@@ -93,20 +104,45 @@ export class ConfigRuntimeClient {
   /**
    * Read a decrypted secret over the trusted GET_SECRET subject. `found:false`
    * when the row is absent OR the caller/key is not on config-service's
-   * allowlist — the two are indistinguishable by design (no oracle).
+   * allowlist OR config-service is unreachable — all indistinguishable by design
+   * (no oracle; fail-closed).
    */
   async getSecret(service: string, key: string): Promise<ConfigRuntimeResult> {
-    return this.request(CONFIG_RUNTIME_SUBJECTS.GET_SECRET, service, key);
+    try {
+      return await this.send(CONFIG_RUNTIME_SUBJECTS.GET_SECRET, service, key);
+    } catch {
+      return { found: false, value: null };
+    }
   }
 
   /**
    * Convenience: assemble the effective Stripe settings from the three platform
-   * rows. `enabled` + `publicKey` go over the non-secret GET path; `secretKey`
-   * over the trusted GET_SECRET path. Runs the three reads in parallel.
+   * rows, carrying whether config-service actually responded (`reachable`).
+   *
+   * The `enabled` read doubles as the reachability probe: a transport error
+   * there marks the whole result unreachable so the provider can tell a
+   * deliberate operator-disable (reachable) from an outage (unreachable) and
+   * never silently downgrade a live-billing tenant.
    */
   async getBillingStripeSettings(): Promise<BillingStripeSettings> {
-    const [enabled, publicKey, secret] = await Promise.all([
-      this.getBoolean(CONFIG_RUNTIME_SERVICE, CONFIG_RUNTIME_KEYS.STRIPE_ENABLED, false),
+    let enabled = false;
+    try {
+      const r = await this.send(
+        CONFIG_RUNTIME_SUBJECTS.GET,
+        CONFIG_RUNTIME_SERVICE,
+        CONFIG_RUNTIME_KEYS.STRIPE_ENABLED,
+      );
+      enabled = r.found && (r.value === 'true' || r.value === '1');
+    } catch (err) {
+      this.logger.warn(
+        `config-runtime unreachable (stripe_enabled probe): ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return { enabled: false, publicKey: null, secretKey: null, reachable: false };
+    }
+
+    // config-service responded — the remaining reads swallow (fail-closed) but
+    // reachability is already established by the probe above.
+    const [publicKey, secret] = await Promise.all([
       this.getString(CONFIG_RUNTIME_SERVICE, CONFIG_RUNTIME_KEYS.STRIPE_PUBLIC_KEY, null),
       this.getSecret(CONFIG_RUNTIME_SERVICE, CONFIG_RUNTIME_KEYS.STRIPE_SECRET_KEY),
     ]);
@@ -114,14 +150,17 @@ export class ConfigRuntimeClient {
       enabled,
       publicKey,
       secretKey: secret.found ? secret.value : null,
+      reachable: true,
     };
   }
 
-  private async request(
-    subject: string,
-    service: string,
-    key: string,
-  ): Promise<ConfigRuntimeResult> {
+  /**
+   * Issue one signed request. Resolves with the handler's `{found,value}` reply
+   * (including a legitimate not-found / denial); THROWS only on a transport
+   * failure (timeout / no responder / connection closed) so callers can
+   * distinguish "unreachable" from "handler said no".
+   */
+  private async send(subject: string, service: string, key: string): Promise<ConfigRuntimeResult> {
     const body = canonicalConfigRuntimeBody(service, key);
     // Sign the exact subject+body so config-service's verifier binds this
     // operation. tenantId = the system tenant that owns platform config.
@@ -134,23 +173,11 @@ export class ConfigRuntimeClient {
       audience: this.audience,
     });
     const payload: ConfigRuntimeGetRequest = { service, key, identity };
-    try {
-      return await firstValueFrom(
-        this.client.send<ConfigRuntimeResult, ConfigRuntimeGetRequest>(subject, payload).pipe(
-          timeout(this.timeoutMs),
-          catchError((err: Error) => throwError(() => err)),
-        ),
-      );
-    } catch (err: unknown) {
-      // Fail-closed: an unreachable/slow config-service yields "not found" so the
-      // caller falls back to its safe default (never a crash, never a leak). The
-      // key is safe to log (it is not the secret VALUE); the value never is.
-      this.logger.warn(
-        `config-runtime ${subject} for ${service}/${key} failed: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-      return { found: false, value: null };
-    }
+    return firstValueFrom(
+      this.client.send<ConfigRuntimeResult, ConfigRuntimeGetRequest>(subject, payload).pipe(
+        timeout(this.timeoutMs),
+        catchError((err: Error) => throwError(() => err)),
+      ),
+    );
   }
 }

@@ -63,6 +63,39 @@ export const CONFIG_RUNTIME_KEYS = {
 } as const;
 
 /**
+ * SCOPED reply-inbox prefix for the config-runtime request-reply client
+ * (SEC-CRITICAL-001 cure). The decrypted Stripe secret returns on the reply
+ * subject; the default `_INBOX.` prefix is subscribed by EVERY service cert, so
+ * a compromised non-billing service could passively read it. Routing the reply
+ * through a distinct first token — `_INBOXBILLINGCFG.<nuid>` (NO trailing dot:
+ * createInbox appends `.nuid`) — means the broad `_INBOX.>` grants can NEVER
+ * match it (NATS matching is segment-exact on the first token). Only
+ * billing_service subscribes `_INBOXBILLINGCFG.>` and only config_service
+ * publishes it; enforced by the NATS ACL SSoT + nats-invariants.
+ */
+export const CONFIG_RUNTIME_INBOX_PREFIX = '_INBOXBILLINGCFG';
+
+/**
+ * Per-caller (service/key) allowlist for the TRUSTED GET_SECRET path — the SSoT
+ * the config-service handler enforces AND the nats-invariant cross-checks against
+ * the NATS publish grants (a caller here MUST hold a config.runtime.* publish
+ * grant in services.yaml). Keys are `${service}/${key}`; the service segment is
+ * the ServiceIdentity caller name (matches the apps/ dir → cert-CN map).
+ */
+export const CONFIG_RUNTIME_SECRET_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
+  'billing-service': ['platform/billing.stripe_secret_key'],
+};
+
+/**
+ * Per-caller (service/key) allowlist for the NON-secret GET path. A key here can
+ * NEVER be a secret key (the nats-invariant asserts the two maps are disjoint),
+ * which is the structural guarantee that GET cannot decrypt-and-leak a secret.
+ */
+export const CONFIG_RUNTIME_NONSECRET_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
+  'billing-service': ['platform/billing.stripe_enabled', 'platform/billing.stripe_public_key'],
+};
+
+/**
  * ServiceIdentity HMAC-v2 headers, carried inside the NATS request payload
  * because core-NATS request-reply has no HTTP header channel. The handler
  * rebuilds a header map from this object and runs the same

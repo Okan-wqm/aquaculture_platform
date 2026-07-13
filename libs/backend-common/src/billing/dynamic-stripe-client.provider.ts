@@ -35,6 +35,15 @@ interface StripeClientSnapshot {
   contentHash: string;
   /** Wall-clock expiry; a resolve() past this refetches config. */
   expiresAt: number;
+  /** Where the settings came from — 'config' means config-service was the authority. */
+  source: 'config' | 'env';
+  /**
+   * True when this snapshot is a REAL client built from config-service settings
+   * (live billing). Used to detect a warm-loss: if config later becomes
+   * unreachable while this is true, the provider must NOT silently downgrade to
+   * env/mock (ARCH-HIGH-002).
+   */
+  billingLive: boolean;
 }
 
 /**
@@ -45,8 +54,10 @@ interface StripeClientSnapshot {
  * # Precedence (config > env > mock/unconfigured)
  *   1. config `stripe_enabled=true` + secret present  → Real (sk_live_ rejected outside prod)
  *   2. config `stripe_enabled=true` + secret absent    → Unconfigured + WARN + SecurityEvent (boots)
- *   3. config `stripe_enabled=false`                   → ENV fallback (BILLING_PROVIDER/STRIPE_BILLING_ENABLED/STRIPE_SECRET_KEY)
- *   4. config unreachable                              → ENV fallback (getBillingStripeSettings fails closed to disabled)
+ *   3. config `stripe_enabled=false` (reachable)       → ENV fallback (BILLING_PROVIDER/STRIPE_BILLING_ENABLED/STRIPE_SECRET_KEY)
+ *   4. config unreachable, no prior live snapshot      → ENV fallback (cold)
+ *   4b. config unreachable, prior snapshot was live    → WARM-LOSS: preserve last-known-good client + SecurityEvent
+ *       (never a silent downgrade of a live-billing tenant to env/mock — ARCH-HIGH-002)
  *   5. nothing configured                              → ENV default (mock on the droplet, else fail-closed Unconfigured)
  *
  * # Secret handling
@@ -66,6 +77,8 @@ export class DynamicStripeClientProvider {
   private readonly ttlMs: number;
   private snapshot: StripeClientSnapshot | null = null;
   private refreshPromise: Promise<IStripeApiClient> | null = null;
+  /** Latched while serving a preserved last-known-good client — throttles the warm-loss alert to the transition. */
+  private inWarmLoss = false;
 
   constructor(
     private readonly configRuntimeClient: ConfigRuntimeClient,
@@ -86,11 +99,18 @@ export class DynamicStripeClientProvider {
   }
 
   /**
-   * Drop the cached snapshot so the next resolve() rebuilds immediately. Called
+   * Expire the cached snapshot so the next resolve() rebuilds from config. Called
    * by the ConfigurationChanged handler when a `platform/billing.*` row changes.
+   *
+   * We EXPIRE (not discard) the snapshot so the warm-loss guard retains the
+   * last-known-good client: if config-service is unreachable at the next resolve,
+   * a live-billing tenant is preserved rather than silently downgraded
+   * (ARCH-HIGH-002). A reachable config change still rebuilds normally.
    */
   invalidate(): void {
-    this.snapshot = null;
+    if (this.snapshot) {
+      this.snapshot = { ...this.snapshot, expiresAt: 0 };
+    }
     this.logger.log('Stripe client snapshot invalidated — next call rebuilds from config');
   }
 
@@ -106,7 +126,35 @@ export class DynamicStripeClientProvider {
   }
 
   private async doRefresh(now: number): Promise<IStripeApiClient> {
-    const { settings, source } = await this.resolveSettings();
+    const { settings, source, configReachable } = await this.resolveSettings();
+
+    // WARM-LOSS (ARCH-HIGH-002): config-service is unreachable AND the last
+    // snapshot was a live config-sourced client. Do NOT silently downgrade a
+    // paying tenant to env/mock — preserve the last-known-good client and raise
+    // a SecurityEvent so the outage is visible. The alert fires once per
+    // transition (latched), not every TTL. A deliberate operator-disable is
+    // reachable (configReachable=true) and never lands here.
+    if (!configReachable && this.snapshot?.billingLive) {
+      if (!this.inWarmLoss) {
+        this.inWarmLoss = true;
+        this.logger.error(
+          'config-service unreachable while Stripe billing was live — preserving the ' +
+            'last-known-good client (NOT downgrading to env/mock); config change will ' +
+            'apply when config-service recovers',
+        );
+        void this.securityEventService?.publishSuspiciousActivity({
+          description: 'stripe-config-warm-loss',
+          reason: 'config-unreachable-while-billing-live',
+          source,
+        });
+      }
+      this.snapshot = { ...this.snapshot, expiresAt: now + this.ttlMs };
+      return this.snapshot.client;
+    }
+    // Config path is healthy again (reachable, or cold with no live snapshot) —
+    // clear the latch so a future warm-loss re-alerts.
+    this.inWarmLoss = false;
+
     const contentHash = this.hashSettings(settings, source);
 
     // Config unchanged since last build → extend TTL, reuse the SAME client
@@ -153,7 +201,8 @@ export class DynamicStripeClientProvider {
     }
 
     const client = buildClientFromDecision(decision);
-    this.snapshot = { client, contentHash, expiresAt: now + this.ttlMs };
+    const billingLive = source === 'config' && decision.kind === 'real';
+    this.snapshot = { client, contentHash, expiresAt: now + this.ttlMs, source, billingLive };
     this.logger.log(
       `Stripe client rebuilt from ${source} config (decision=${decision.kind}` +
         (decision.kind === 'unconfigured' ? `/${decision.reason}` : '') +
@@ -165,25 +214,32 @@ export class DynamicStripeClientProvider {
   /**
    * Resolve the effective settings: config-service wins when it explicitly
    * enables billing; otherwise fall back to the boot env (which is mock on the
-   * droplet). getBillingStripeSettings fails closed (enabled=false) on an
-   * unreachable config-service, which also routes to the env fallback.
+   * droplet). Surfaces `configReachable` so doRefresh can distinguish a
+   * deliberate operator-disable (reachable) from an outage (unreachable) and
+   * avoid a silent warm-degradation of a live-billing tenant.
    */
   private async resolveSettings(): Promise<{
     settings: StripeClientSettings;
     source: 'config' | 'env';
+    configReachable: boolean;
   }> {
     let configSettings: BillingStripeSettings;
     try {
       configSettings = await this.configRuntimeClient.getBillingStripeSettings();
     } catch (err) {
-      // getBillingStripeSettings already fails closed, but guard defensively.
+      // getBillingStripeSettings already fails closed to reachable:false, but
+      // guard defensively against an unexpected throw.
       this.logger.warn(
         `config-service Stripe read failed (${err instanceof Error ? err.message : String(err)}) — env fallback`,
       );
-      return { settings: stripeSettingsFromEnv(this.configService), source: 'env' };
+      return {
+        settings: stripeSettingsFromEnv(this.configService),
+        source: 'env',
+        configReachable: false,
+      };
     }
 
-    if (configSettings.enabled) {
+    if (configSettings.reachable && configSettings.enabled) {
       // Config explicitly enables billing — config wins over env.
       return {
         settings: {
@@ -193,11 +249,18 @@ export class DynamicStripeClientProvider {
           isProduction: this.configService.get<string>('NODE_ENV') === 'production',
         },
         source: 'config',
+        configReachable: true,
       };
     }
 
-    // Config disabled OR unreachable → env fallback (existing boot behaviour).
-    return { settings: stripeSettingsFromEnv(this.configService), source: 'env' };
+    // config reachable + disabled → deliberate; config unreachable → outage.
+    // Both route to env fallback, but doRefresh treats them differently when a
+    // live snapshot exists (warm-loss guard).
+    return {
+      settings: stripeSettingsFromEnv(this.configService),
+      source: 'env',
+      configReachable: configSettings.reachable,
+    };
   }
 
   private hashSettings(settings: StripeClientSettings, source: 'config' | 'env'): string {

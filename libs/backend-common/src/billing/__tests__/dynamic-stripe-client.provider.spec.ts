@@ -27,12 +27,18 @@ function configStub(values: Record<string, string | undefined>): ConfigService {
   return partial as ConfigService;
 }
 
-function runtimeStub(settings: BillingStripeSettings | (() => Promise<BillingStripeSettings>)): {
+// Literal inputs default `reachable: true`; pass it explicitly (or a thunk) to
+// simulate an unreachable config-service.
+type SettingsInput = Omit<BillingStripeSettings, 'reachable'> & { reachable?: boolean };
+
+function runtimeStub(settings: SettingsInput | (() => Promise<BillingStripeSettings>)): {
   client: ConfigRuntimeClient;
   spy: jest.Mock;
 } {
   const spy = jest.fn(() =>
-    typeof settings === 'function' ? settings() : Promise.resolve(settings),
+    typeof settings === 'function'
+      ? settings()
+      : Promise.resolve<BillingStripeSettings>({ reachable: true, ...settings }),
   );
   const client: Partial<ConfigRuntimeClient> = { getBillingStripeSettings: spy };
   return { client: client as ConfigRuntimeClient, spy };
@@ -168,7 +174,12 @@ describe('DynamicStripeClientProvider — snapshot + invalidation + secret hygie
   });
 
   it('invalidate() forces a rebuild that picks up new config (runtime swap)', async () => {
-    let current: BillingStripeSettings = { enabled: false, publicKey: null, secretKey: null };
+    let current: BillingStripeSettings = {
+      enabled: false,
+      publicKey: null,
+      secretKey: null,
+      reachable: true,
+    };
     const { client: runtime } = runtimeStub(() => Promise.resolve(current));
     const provider = new DynamicStripeClientProvider(
       runtime,
@@ -177,11 +188,57 @@ describe('DynamicStripeClientProvider — snapshot + invalidation + secret hygie
     expect(await provider.resolve()).toBeInstanceOf(MockBillingProvider);
 
     // Operator saves a real key → ConfigurationChanged → invalidate.
-    current = { enabled: true, publicKey: 'pk', secretKey: 'sk_test_new' };
+    current = { enabled: true, publicKey: 'pk', secretKey: 'sk_test_new', reachable: true };
     provider.invalidate();
     const swapped = await provider.resolve();
     expect(swapped).not.toBeInstanceOf(MockBillingProvider);
     expect(swapped).not.toBeInstanceOf(UnconfiguredStripeClient);
+  });
+
+  it('WARM-LOSS: config was live then unreachable → preserves last-known-good (no downgrade) + SecurityEvent', async () => {
+    let current: BillingStripeSettings = {
+      enabled: true,
+      publicKey: 'pk',
+      secretKey: 'sk_test_live',
+      reachable: true,
+    };
+    const { client: runtime } = runtimeStub(() => Promise.resolve(current));
+    const { svc, publish } = securityStub();
+    const provider = new DynamicStripeClientProvider(
+      runtime,
+      // env fallback would be mock — proving preservation is NOT the env path.
+      configStub({ BILLING_PROVIDER: 'mock', NODE_ENV: 'production' }),
+      svc,
+    );
+    const live = await provider.resolve();
+    expect(live).not.toBeInstanceOf(MockBillingProvider);
+    expect(live).not.toBeInstanceOf(UnconfiguredStripeClient);
+
+    // config-service goes dark (transport failure → reachable:false).
+    current = { enabled: false, publicKey: null, secretKey: null, reachable: false };
+    provider.invalidate();
+    const afterLoss = await provider.resolve();
+
+    // Preserved the SAME live client — NOT silently downgraded to env/mock.
+    expect(afterLoss).toBe(live);
+    expect(afterLoss).not.toBeInstanceOf(MockBillingProvider);
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({ description: 'stripe-config-warm-loss' }),
+    );
+  });
+
+  it('COLD unreachable (no prior live snapshot) → env fallback (no false warm-loss)', async () => {
+    const { client: runtime } = runtimeStub({
+      enabled: false,
+      publicKey: null,
+      secretKey: null,
+      reachable: false,
+    });
+    const provider = new DynamicStripeClientProvider(
+      runtime,
+      configStub({ BILLING_PROVIDER: 'mock', NODE_ENV: 'production' }),
+    );
+    expect(await provider.resolve()).toBeInstanceOf(MockBillingProvider);
   });
 
   it('never logs the secret value (secret held in memory only)', async () => {

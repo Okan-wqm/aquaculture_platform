@@ -18,6 +18,8 @@ import type {
   BatchTraceability,
   BatchTraceabilityEvent,
 } from '../../../hooks/useBatchTraceability';
+import { parseMoney } from '@aquaculture/shared-ui';
+
 import { escapeHtml } from '../../water-chemistry/waterChemistryReportExport';
 
 /** Em-dash placeholder for absent values — matches the tabs' display idiom. */
@@ -125,7 +127,7 @@ function feedTotalRows(feedTotals: BatchFeedTotal[]): string[][] {
     feed.feedName ?? EMPTY_VALUE,
     feed.feedCode ?? EMPTY_VALUE,
     formatDecimal(feed.totalKg),
-    formatDecimal(feed.totalCost, 2),
+    formatDecimal(feed.totalCostDecimal != null ? parseMoney(feed.totalCostDecimal) : null, 2),
   ]);
 }
 
@@ -168,7 +170,7 @@ export function buildBatchTraceabilityReportHtml(
     ['Current avg weight (g)', formatDecimal(summary.currentAvgWeightG)],
     ['Survival rate (%)', formatDecimal(summary.survivalRatePercent)],
     ['Total feed (kg)', formatDecimal(summary.totalFeedKg)],
-    ['Total feed cost', formatDecimal(summary.totalFeedCost, 2)],
+    ['Total feed cost', formatDecimal(summary.totalFeedCostDecimal != null ? parseMoney(summary.totalFeedCostDecimal) : null, 2)],
     ['FCR (actual)', formatDecimal(summary.fcrActual, 2)],
   ];
 

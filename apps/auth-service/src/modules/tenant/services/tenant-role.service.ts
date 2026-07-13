@@ -266,6 +266,11 @@ export const PERMISSION_CATEGORIES = {
       attendance: { name: 'Attendance', actions: ['view', 'manage'] },
       leave: { name: 'Leave Management', actions: ['view', 'approve'] },
       shifts: { name: 'Shifts', actions: ['view', 'create', 'edit', 'delete'] },
+      // HR finance salary visibility (HR-MEDIUM-005). Headcount/expenses on the HR
+      // finance tab stay MANAGER-visible; the salary/labour-cost/payroll-analytics
+      // figures are gated by `hr_finance:view_salary`, which a TENANT_ADMIN grants
+      // per role — so the tenant decides who sees pay, not a hardcoded role.
+      hr_finance: { name: 'HR Finance', actions: ['view_salary'] },
     },
   },
   reports: {

@@ -3,7 +3,7 @@
  * and interactive pie/donut charts for category distribution and location fill rates.
  */
 import React, { useState, useMemo } from 'react';
-import { DonutChart, formatCurrency, DEFAULT_CURRENCY } from '@aquaculture/shared-ui';
+import { DonutChart, formatCurrency, parseMoney, DEFAULT_CURRENCY } from '@aquaculture/shared-ui';
 import type { PieDataItem } from '@aquaculture/shared-ui';
 import { useStorageOverview, useStockMovements, useStorageInventory, StorageItemType } from '../../../hooks/useStorageInventory';
 import { useStorageLocationList } from '../../../hooks/useStorageLocations';
@@ -86,7 +86,7 @@ export const OverviewTab: React.FC = () => {
       .filter(cat => visibleCategories.has(cat.category.toUpperCase()))
       .map(cat => ({
         label: CATEGORY_CONFIG[cat.category]?.label || cat.category,
-        value: cat.totalValue,
+        value: parseMoney(cat.totalValueDecimal),
         color: CATEGORY_CONFIG[cat.category]?.color || '#6B7280',
       }));
   }, [overview?.categoryTotals, visibleCategories]);
@@ -139,7 +139,7 @@ export const OverviewTab: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-lg border border-gray-200 p-5">
           <div className="text-sm font-medium text-gray-500">Total Stock Value</div>
-          <div className="mt-1 text-2xl font-bold text-gray-900">{formatCurrency(overview?.totalStockValue || 0, DEFAULT_CURRENCY)}</div>
+          <div className="mt-1 text-2xl font-bold text-gray-900">{formatCurrency(parseMoney(overview?.totalStockValueDecimal), DEFAULT_CURRENCY)}</div>
           <div className="mt-1 text-xs text-gray-400">{overview?.totalItems || 0} items</div>
         </div>
         <div className="bg-white rounded-lg border border-gray-200 p-5">

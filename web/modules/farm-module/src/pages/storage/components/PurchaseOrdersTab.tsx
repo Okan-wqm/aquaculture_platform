@@ -1,6 +1,7 @@
 /**
  * Purchase Orders Tab - Real GraphQL-backed PO list with filters and modals
  */
+import { parseMoney } from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 import {
   usePurchaseOrders,
@@ -182,7 +183,7 @@ export const PurchaseOrdersTab: React.FC = () => {
                     ) : <span className="text-gray-400">No items</span>}
                   </td>
                   <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                    {po.totalAmount ? formatCurrency(po.totalAmount, po.currency) : '-'}
+                    {po.totalAmountDecimal != null ? formatCurrency(parseMoney(po.totalAmountDecimal), po.currency) : '-'}
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500">
                     {po.expectedDeliveryDate ? new Date(po.expectedDeliveryDate).toLocaleDateString('nb-NO') : '-'}

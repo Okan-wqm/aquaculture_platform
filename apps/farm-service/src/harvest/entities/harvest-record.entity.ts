@@ -24,6 +24,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import {
   ObjectType,
   Field,
@@ -508,13 +509,31 @@ export class HarvestRecord {
   // FİNANSAL
   // -------------------------------------------------------------------------
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, {
+    nullable: true,
+    deprecationReason: 'Use totalRevenueDecimal (exact decimal string, ADR-0004).',
+  })
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   totalRevenue?: number;
 
-  @Field(() => Float, { nullable: true })
+  /** Exact-decimal wire form of `totalRevenue` (ADR-0004 / DATA-MEDIUM-009). */
+  @Field(() => DecimalScalar, { nullable: true })
+  get totalRevenueDecimal(): number | null {
+    return this.totalRevenue ?? null;
+  }
+
+  @Field(() => Float, {
+    nullable: true,
+    deprecationReason: 'Use harvestCostDecimal (exact decimal string, ADR-0004).',
+  })
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   harvestCost?: number;
+
+  /** Exact-decimal wire form of `harvestCost` (ADR-0004 / DATA-MEDIUM-009). */
+  @Field(() => DecimalScalar, { nullable: true })
+  get harvestCostDecimal(): number | null {
+    return this.harvestCost ?? null;
+  }
 
   @Field({ nullable: true })
   @Column({ length: 3, nullable: true })

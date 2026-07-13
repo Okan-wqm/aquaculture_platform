@@ -21,6 +21,7 @@ import { DataSource } from 'typeorm';
 import { UpdateFinanceEntryCommand } from '../commands/update-finance-entry.command';
 import { FinanceCategory } from '../entities/finance-category.entity';
 import { FinanceExpenseEntry } from '../entities/finance-expense-entry.entity';
+import { validateEntryDimensions } from './validate-entry-dimensions';
 
 @Injectable()
 @CommandHandler(UpdateFinanceEntryCommand)
@@ -72,6 +73,11 @@ export class UpdateFinanceEntryHandler
       if (!category) {
         throw new NotFoundException(`Finance category ${entry.categoryId} not found`);
       }
+
+      await validateEntryDimensions(manager, tenantId, {
+        batchId: input.batchId,
+        siteId: input.siteId,
+      });
 
       if (input.entryDate !== undefined) entry.entryDate = new Date(input.entryDate);
       if (input.amount !== undefined) entry.amount = input.amount;

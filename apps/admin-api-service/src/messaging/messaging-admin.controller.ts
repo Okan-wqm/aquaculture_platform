@@ -94,6 +94,42 @@ interface ExportResponse {
   status: string;
 }
 
+/** Per-tenant messaging activity row (ADMIN-HIGH-009). */
+interface TenantMessagingOverviewRow {
+  tenantId: string;
+  messageCount24h: number;
+  messageCount7d: number;
+  totalMessages: number;
+  activeChannels: number;
+}
+
+/** Cross-tenant outbox health snapshot (ADMIN-HIGH-009). */
+interface MessagingOutboxHealth {
+  pendingCount: number;
+  failedCount: number;
+  oldestPendingAgeSeconds: number | null;
+}
+
+/** Platform-wide monitoring statistics returned by GET /messaging/monitoring/stats. */
+interface MonitoringStatsResponse {
+  totals: {
+    totalMessages: number;
+    messages24h: number;
+    messages7d: number;
+    activeChannels: number;
+    tenantCount: number;
+  };
+  perTenant: TenantMessagingOverviewRow[];
+  outbox: MessagingOutboxHealth;
+  generatedAt: string;
+}
+
+/** Per-tenant messaging overview returned by GET /messaging/tenants. */
+interface TenantsOverviewResponse {
+  tenants: TenantMessagingOverviewRow[];
+  generatedAt: string;
+}
+
 interface PersonaResponse {
   id: string;
   name: string;
@@ -243,16 +279,17 @@ export class MessagingAdminController {
   // ── Monitoring ──────────────────────────────────────────────────────
 
   /**
-   * Get messaging monitoring statistics.
-   * Not yet implemented in messaging-service.
+   * Get platform-wide messaging monitoring statistics: message volume totals
+   * (24h/7d/all-time), active channel counts, per-tenant breakdown, and
+   * transactional-outbox health. Aggregated cross-tenant by messaging-service
+   * and cached there for 60 seconds (ADMIN-HIGH-009).
    */
   @Get('monitoring/stats')
   @ApiOperation({ summary: 'Get messaging monitoring statistics' })
-  async getMonitoringStats(): Promise<never> {
-    throw new HttpException(
-      'Messaging monitoring stats not yet implemented in messaging-service. ' +
-      'Requires real-time metrics aggregation endpoint.',
-      HttpStatus.NOT_IMPLEMENTED,
+  async getMonitoringStats(): Promise<MonitoringStatsResponse> {
+    return this.sendNatsRequest<MonitoringStatsResponse>(
+      'request.messaging.admin.getMonitoringStats',
+      {},
     );
   }
 
@@ -294,16 +331,17 @@ export class MessagingAdminController {
   // ── Tenant Messaging Overview ───────────────────────────────────────
 
   /**
-   * Get tenant list with messaging statistics.
-   * Not yet implemented in messaging-service.
+   * Get the per-tenant messaging overview: message counts (24h/7d/all-time)
+   * and active channel counts per tenant, sorted by 24h volume. Aggregated
+   * cross-tenant by messaging-service and cached there for 60 seconds
+   * (ADMIN-HIGH-009).
    */
   @Get('tenants')
   @ApiOperation({ summary: 'List tenants with messaging stats' })
-  async getTenants(): Promise<never> {
-    throw new HttpException(
-      'Tenant messaging overview not yet implemented in messaging-service. ' +
-      'Requires cross-tenant aggregation endpoint.',
-      HttpStatus.NOT_IMPLEMENTED,
+  async getTenants(): Promise<TenantsOverviewResponse> {
+    return this.sendNatsRequest<TenantsOverviewResponse>(
+      'request.messaging.admin.getTenantsOverview',
+      {},
     );
   }
 

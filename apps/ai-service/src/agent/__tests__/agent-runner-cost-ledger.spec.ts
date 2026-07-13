@@ -13,6 +13,7 @@ import { ConversationService } from '../../conversation/conversation.service';
 import { TokenBudgetService } from '../../cost/token-budget.service';
 import { RateLimitService } from '../../cost/rate-limit.service';
 import { TurnLedgerService } from '../../cost/turn-ledger.service';
+import { ActionProposalService } from '../../actions/action-proposal.service';
 import { AgentConfigService } from '../../tenant-config/agent-config.service';
 import { AiSafetyMiddleware } from '../../safety/ai-safety.middleware';
 
@@ -171,6 +172,9 @@ describe('AgentRunnerService cost ledger + budget accounting (ORPHAN-MEDIUM-380)
           provide: LlmProviderFactory,
           useValue: { get: jest.fn().mockReturnValue({ chat }) },
         },
+        // MOB-HIGH-001: the runner now persists held actuations via
+        // ActionProposalService; this suite proposes none, so a stub suffices.
+        { provide: ActionProposalService, useValue: { createProposal: jest.fn() } },
       ],
     }).compile();
 

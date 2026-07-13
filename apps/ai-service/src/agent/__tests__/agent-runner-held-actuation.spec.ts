@@ -7,6 +7,7 @@ import { ActionProposalService } from '../../actions/action-proposal.service';
 import { ConversationService } from '../../conversation/conversation.service';
 import { RateLimitService } from '../../cost/rate-limit.service';
 import { TokenBudgetService } from '../../cost/token-budget.service';
+import { TurnLedgerService } from '../../cost/turn-ledger.service';
 import { AiSafetyMiddleware } from '../../safety/ai-safety.middleware';
 import { AgentConfigService } from '../../tenant-config/agent-config.service';
 import { ToolExecutorService } from '../../tools/core/tool-executor.service';
@@ -119,6 +120,9 @@ describe('AgentRunnerService held actuation (MOB-HIGH-001)', () => {
           provide: RateLimitService,
           useValue: { checkRateLimit: jest.fn().mockResolvedValue({ allowed: true }) },
         },
+        // main's per-turn cost ledger (constructor index 7) — a stub keeps this
+        // held-actuation suite focused on the proposal path.
+        { provide: TurnLedgerService, useValue: { recordTurn: jest.fn() } },
         {
           provide: AgentConfigService,
           useValue: {

@@ -49,7 +49,7 @@ export const UnreadBadge = React.memo(function UnreadBadge({
     <span
       className={clsx(
         'inline-flex items-center justify-center font-bold rounded-full tabular-nums leading-none',
-        size === 'sm' && 'min-w-[16px] h-4 text-[9px] px-1',
+        size === 'sm' && 'min-w-[16px] h-4 text-[10px] px-1',
         size === 'md' && 'min-w-[20px] h-5 text-[10px] px-1.5',
         color === 'red' && 'bg-red-500 text-white',
         color === 'blue' && 'bg-ocean-600 text-white',

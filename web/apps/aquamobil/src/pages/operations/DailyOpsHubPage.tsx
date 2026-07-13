@@ -153,7 +153,7 @@ export function DailyOpsHubPage(): JSX.Element {
       label: 'Shift',
       value: isClockedIn ? '\u25CF' : '\u25CB',
       ariaLabel: isClockedIn ? 'Shift status: clocked in' : 'Shift status: not clocked in',
-      valueColor: isClockedIn ? 'text-green-300' : 'text-white/50',
+      valueColor: isClockedIn ? 'text-green-300' : 'text-white/75',
       isLoading: statsLoading,
     },
     {

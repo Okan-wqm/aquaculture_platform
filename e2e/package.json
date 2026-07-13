@@ -7,6 +7,7 @@
     "test": "npm run test:security && npm run test:node",
     "test:security": "playwright test --project=security",
     "test:water-chemistry": "playwright test --config playwright.water-chemistry.config.ts --project=farm-water-chemistry",
+    "test:mobile": "playwright test --config playwright.aquamobil.config.ts --project=aquamobil-mobile",
     "test:node": "jest --config jest.config.ts",
     "test:workflow": "jest --config jest.config.ts tests/workflow",
     "test:integration": "jest --config jest.config.ts tests/integration",

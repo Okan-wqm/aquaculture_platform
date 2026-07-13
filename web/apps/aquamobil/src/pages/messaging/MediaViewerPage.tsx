@@ -339,7 +339,7 @@ export function MediaViewerPage(): JSX.Element {
             <p className="text-sm font-medium text-white truncate">
               {currentMedia.senderName}
             </p>
-            <p className="text-[11px] text-white/60">
+            <p className="text-[11px] text-white/75">
               {formatMediaDate(currentMedia.sentAt)}
             </p>
           </div>
@@ -376,17 +376,17 @@ export function MediaViewerPage(): JSX.Element {
         {loading ? (
           <div className="flex flex-col items-center gap-3">
             <div className="animate-spin rounded-full h-10 w-10 border-2 border-white border-t-transparent" />
-            <p className="text-sm text-white/60">Loading media...</p>
+            <p className="text-sm text-white/75">Loading media...</p>
           </div>
         ) : error ? (
           <div className="flex flex-col items-center gap-3 px-6 text-center">
-            <AlertCircle size={40} className="text-white/40" />
-            <p className="text-sm text-white/60">{error}</p>
+            <AlertCircle size={40} className="text-white/75" />
+            <p className="text-sm text-white/75">{error}</p>
           </div>
         ) : !currentMedia ? (
           <div className="flex flex-col items-center gap-3 px-6 text-center">
-            <AlertCircle size={40} className="text-white/40" />
-            <p className="text-sm text-white/60">Media not found</p>
+            <AlertCircle size={40} className="text-white/75" />
+            <p className="text-sm text-white/75">Media not found</p>
           </div>
         ) : currentMedia.type === 'IMAGE' && safeMediaUrl ? (
           <img
@@ -411,7 +411,7 @@ export function MediaViewerPage(): JSX.Element {
               <p className="text-sm font-semibold text-white truncate max-w-[200px]">
                 {currentMedia.fileName}
               </p>
-              <p className="text-xs text-white/50 mt-1">PDF Document</p>
+              <p className="text-xs text-white/75 mt-1">PDF Document</p>
             </div>
             <button
               onClick={handleDownload}
@@ -485,7 +485,7 @@ export function MediaViewerPage(): JSX.Element {
       {/* Counter for many items */}
       {media.length > 20 && (
         <div className="flex items-center justify-center py-4 pb-safe bg-black/40">
-          <span className="text-xs text-white/60 font-medium">
+          <span className="text-xs text-white/75 font-medium">
             {activeIndex + 1} / {media.length}
           </span>
         </div>

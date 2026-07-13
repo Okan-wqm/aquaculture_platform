@@ -2945,6 +2945,42 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/actions/__tests__/action-proposal.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/actions/__tests__/ai-action.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/actions/action-proposal.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/actions/actions.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/actions/ai-action.responder.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/actions/proposed-action.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/agent/__tests__/agent-profile-model.spec.ts",
       "prettier_managed": true
     },
@@ -2952,6 +2988,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/agent/__tests__/agent-runner-cost-ledger.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/__tests__/agent-runner-held-actuation.spec.ts",
       "prettier_managed": true
     },
     {
@@ -3233,6 +3275,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/database/migrations/1802100000000-CreateConversationTurns.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/database/migrations/1803000000000-CreateAiProposedActions.ts",
       "prettier_managed": true
     },
     {
@@ -3653,6 +3701,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/alert-engine/src/alert/alert.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/alert/dto/__tests__/acknowledge-alert-envelope-parity.spec.ts",
       "prettier_managed": true
     },
     {
@@ -24623,6 +24677,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/sensor/resolvers/__tests__/sensor-raw-list-tank-filter.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/sensor/resolvers/__tests__/sensor-reading.resolver.spec.ts",
       "prettier_managed": true
     },
@@ -32125,6 +32185,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/mobile-app-auditor/2026-07-12-aquamobil-e2e-audit.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/mobile-messaging-e2e/2026-07-01-findings.md",
       "prettier_managed": true
     },
@@ -33255,6 +33321,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "e2e/playwright.aquamobil.config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "e2e/playwright.config.ts",
       "prettier_managed": true
     },
@@ -33358,6 +33430,48 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "e2e/tests/integration/token-lifecycle.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "e2e/tests/mobile/ai-action-confirm.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "e2e/tests/mobile/alerts-ack.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "e2e/tests/mobile/helpers/mobile-helpers.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "e2e/tests/mobile/login.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "e2e/tests/mobile/messaging-smoke.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "e2e/tests/mobile/offline-sync-roundtrip.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "e2e/tests/mobile/record-forms.spec.ts",
       "prettier_managed": true
     },
     {
@@ -38472,7 +38586,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "4438dccf0c90310514c6c4621e59391978dace97bbdf60c10efa0d09fa26d9b1",
+      "content_sha256": "82dede0c7ce48f3c2a48fa73e29a127cc27be8c791925e3fbfdaff2031d912f5",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -41994,6 +42108,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/quality/lint-target-inventory.json",
       "prettier_managed": true
     },
@@ -42299,7 +42425,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "6ba8f544dc4a0d6a136deceeb3e510a46d049b7b29b7f1fbcc4595d53156ba46",
+      "content_sha256": "a70a087f4c4b7d38519c357163847c3f166b6cec34104323713bb316d8235fb9",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "web/apps/aquamobil/package-lock.json",
@@ -42341,7 +42467,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/__tests__/field-ergonomics.invariant.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/App.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/__tests__/BarcodeScanButton.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/__tests__/DataFreshness.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -42354,6 +42498,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/components/__tests__/IdentityBoundary.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/__tests__/NotificationBell.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/__tests__/VirtualList.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -42389,6 +42545,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/components/AlertsBell.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/BarcodeScanButton.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/components/cards/TankCard.tsx",
       "prettier_managed": true
     },
@@ -42396,6 +42564,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/components/cards/TaskCard.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/CriticalAlertBanner.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/DataFreshness.tsx",
       "prettier_managed": true
     },
     {
@@ -42456,6 +42636,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/components/InstallPrompt.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/LiveReadingsCard.tsx",
       "prettier_managed": true
     },
     {
@@ -42615,8 +42801,14 @@
       "prettier_managed": true
     },
     {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/VirtualList.tsx",
+      "prettier_managed": true
+    },
+    {
       "class": "generated",
-      "content_sha256": "7976e50ab44a049f65010f5e080282e0332d1580879ad54c95de29f37dbce165",
+      "content_sha256": "bebf49546a7c3238f0525be43da9fe77810511e2e7c374fca2cab226cb8a4b6f",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/apps/aquamobil/src/generated/graphql.ts",
@@ -42629,6 +42821,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/graphql/ai-insights.queries.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/graphql/alert-operations.ts",
       "prettier_managed": true
     },
     {
@@ -42647,6 +42845,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/graphql/operations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/graphql/sensor-operations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/__tests__/useAiChat-actions.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/__tests__/useAlerts.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -42683,6 +42899,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/__tests__/useLatestReadings.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -42772,6 +42994,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/__tests__/useSentimentTrends.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/__tests__/useTanks-pagination.spec.ts",
       "prettier_managed": true
     },
@@ -42803,6 +43031,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/useAiInsights.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/useAlerts.ts",
       "prettier_managed": true
     },
     {
@@ -42880,6 +43114,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/useLatestReadings.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/useLeave.ts",
       "prettier_managed": true
     },
@@ -42947,6 +43187,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/useSendMessage.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/useSentimentTrends.ts",
       "prettier_managed": true
     },
     {
@@ -43036,6 +43282,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/__tests__/NotFoundPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/pages/_shared/__tests__/RecordEntityPage.spec.tsx",
       "prettier_managed": true
     },
@@ -43055,6 +43307,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/pages/account/AccountPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/alerts/AlertsPage.tsx",
       "prettier_managed": true
     },
     {
@@ -43103,12 +43361,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/pages/HomePage.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/apps/aquamobil/src/pages/hr/HrHubPage.tsx",
       "prettier_managed": true
     },
     {
@@ -43198,13 +43450,13 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/apps/aquamobil/src/pages/more/MorePage.tsx",
+      "path": "web/apps/aquamobil/src/pages/mortality/RecordMortalityPage.tsx",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/apps/aquamobil/src/pages/mortality/RecordMortalityPage.tsx",
+      "path": "web/apps/aquamobil/src/pages/NotFoundPage.tsx",
       "prettier_managed": true
     },
     {
@@ -43235,12 +43487,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/pages/operations/StockEventsHubPage.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/apps/aquamobil/src/pages/record/RecordHubPage.tsx",
       "prettier_managed": true
     },
     {
@@ -43360,7 +43606,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/pwa/__tests__/operation-registry.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/pwa/__tests__/sw-build-artifact.invariant.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pwa/__tests__/sw-replay.spec.ts",
       "prettier_managed": true
     },
     {
@@ -43373,6 +43631,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/pwa/offline-queue.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pwa/operation-registry.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pwa/sw-replay.ts",
       "prettier_managed": true
     },
     {
@@ -43462,6 +43732,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/utils/__tests__/offline-ux.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/utils/__tests__/role-rank.spec.ts",
       "prettier_managed": true
     },
@@ -43504,6 +43780,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/utils/last-sync.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/utils/logger.ts",
       "prettier_managed": true
     },
@@ -43529,6 +43811,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/utils/normalize-role.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/utils/offline-optimistic.ts",
       "prettier_managed": true
     },
     {
@@ -52892,7 +53180,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "00c8ae989bebbb735a9b3425c0960aecd5ba3e8b8059ae36f6050883bf658237",
+      "content_sha256": "19d80206752ebe251a1c91e55a2433c5b8a77b7644682e190ce38f8ffafddf6d",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",
@@ -53562,10 +53850,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8776,
+  "file_count": 8824,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8595,
-  "managed_file_list_sha256": "abb635f77b2aaf3bf8ffa42fd47bd42ddbb0a04d779520e84ae6d84c98cc70de",
+  "managed_count": 8643,
+  "managed_file_list_sha256": "733a0616ab7ae0fa182a2b11617b2fcf481df4d71032262ab0e35d34a9df0f5e",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

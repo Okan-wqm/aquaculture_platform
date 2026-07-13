@@ -276,6 +276,8 @@ export function AiChatPage(): JSX.Element {
   const { sendMessage, isSending } = useSendMessage(channelId);
 
   // AI-specific hooks
+  // MOB-HIGH-001: the channel's messages feed the hook — proposal cards derive
+  // from the AI messages carrying status:'proposed' metadata (server truth).
   const {
     isAiThinking,
     isAiDelayed,
@@ -284,7 +286,7 @@ export function AiChatPage(): JSX.Element {
     stopAiThinking,
     confirmAction,
     cancelAction,
-  } = useAiChat(channelId, channel?.type);
+  } = useAiChat(channelId, channel?.type, messages);
 
   const isOnline = useNetworkStatus();
   // WHY: Track whether the last user message was queued offline so we can show
@@ -532,7 +534,9 @@ export function AiChatPage(): JSX.Element {
           </div>
         )}
 
-        {/* Action cards from AI */}
+        {/* Action cards from AI — Confirm runs the real confirmAiAction
+            mutation (MOB-HIGH-001); void adapts the async handler to the
+            card's sync callback contract (no floating promise). */}
         {actions.map((action) => (
           <AiActionCard
             key={action.id}
@@ -540,7 +544,7 @@ export function AiChatPage(): JSX.Element {
             description={action.description}
             status={action.status}
             resultMessage={action.resultMessage}
-            onConfirm={confirmAction}
+            onConfirm={(id) => void confirmAction(id)}
             onCancel={cancelAction}
           />
         ))}

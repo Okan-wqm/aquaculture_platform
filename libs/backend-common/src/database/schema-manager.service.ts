@@ -643,6 +643,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // `1802100000000-CreateConversationTurns`; append-only at the
       // service layer (TurnLedgerService).
       'conversation_turns',
+      // MOB-HIGH-001: held actuation proposals (human-in-the-loop confirm
+      // flow) — migration 1803000000000-CreateAiProposedActions.
+      'ai_proposed_actions',
     ],
   },
   {

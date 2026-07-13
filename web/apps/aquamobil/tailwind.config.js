@@ -92,6 +92,10 @@ export default konstaConfig({
         'safe-top': 'env(safe-area-inset-top)',
         'safe-left': 'env(safe-area-inset-left)',
         'safe-right': 'env(safe-area-inset-right)',
+        // MOB-MEDIUM-009: the 44px gloved-use touch-target floor. Interactive
+        // elements use `min-h-touch min-w-touch` — enforced by
+        // src/__tests__/field-ergonomics.invariant.spec.ts.
+        touch: '2.75rem',
       },
     },
   },

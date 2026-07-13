@@ -4,6 +4,7 @@ import type { JSX } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 
 import { TankRiskBadge, GrowthPredictionCard, FeedingAdviceCard } from '@/components/ai';
+import { LiveReadingsCard } from '@/components/LiveReadingsCard';
 import { useTanks } from '@/hooks/useTanks';
 
 
@@ -224,6 +225,13 @@ export function TankDetailPage(): JSX.Element {
             <p className="text-sm mt-1">Assign a batch to this tank to see metrics</p>
           </div>
         )}
+      </div>
+
+      {/* MOB-MEDIUM-008: live water values (temp/DO/pH…) with per-value
+          freshness stamps — the operational data a worker standing at this
+          tank actually needs, joined by sensor.tank_id at the resolver. */}
+      <div className="px-4 pt-4">
+        <LiveReadingsCard tankId={tank.id} />
       </div>
 
       {/* WHY: AI risk assessment shown on tank detail provides actionable intelligence

@@ -165,4 +165,18 @@ describe('INVARIANT — shared-schema canonical SSoT parity (SHARED-SCHEMA-CRITI
       );
     }
   });
+
+  it('SchemaVersionGate derives its shared-table expectation from PROTECTED_TABLES (no hand-copied literal)', () => {
+    // 2026-07-13 outage class (ORPHAN-HIGH-387): the gate carried a numeric
+    // literal `EXPECTED_SHARED_TABLE_COUNT = 5`; when ADR-042 retired
+    // shared.user_permissions the bootstrap honestly recorded 4 while the
+    // gate still demanded 5, crash-looping every backend service. The
+    // expectation MUST be derived from the runtime canonical copy.
+    const gateSource = readFileSync(
+      resolve(REPO_ROOT, 'libs/backend-common/src/database/schema-version-gate.service.ts'),
+      'utf8',
+    );
+    expect(gateSource).not.toMatch(/EXPECTED_SHARED_TABLE_COUNT\s*=\s*\d/);
+    expect(gateSource).toMatch(/EXPECTED_SHARED_TABLE_COUNT\s*=\s*PROTECTED_TABLES/);
+  });
 });

@@ -1,6 +1,5 @@
 import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { TenantPlan, resolvePlanLimits } from '@platform/event-contracts';
 import { Repository } from 'typeorm';
 
 import {
@@ -12,20 +11,7 @@ import {
   PlanFeatures,
   BillingCycle,
 } from '../entities/plan-definition.entity';
-
-/**
- * Map the admin billing PlanTier onto the canonical TenantPlan SSoT. CUSTOM has
- * no TenantPlan equivalent and is fully unlimited, so it maps to ENTERPRISE
- * limits. Keeps the admin tier vocabulary while sourcing limit NUMBERS from the
- * single PLAN_CATALOG.
- */
-const PLAN_TIER_TO_TENANT_PLAN: Record<PlanTier, TenantPlan> = {
-  [PlanTier.FREE]: TenantPlan.FREE,
-  [PlanTier.STARTER]: TenantPlan.STARTER,
-  [PlanTier.PROFESSIONAL]: TenantPlan.PROFESSIONAL,
-  [PlanTier.ENTERPRISE]: TenantPlan.ENTERPRISE,
-  [PlanTier.CUSTOM]: TenantPlan.ENTERPRISE,
-};
+import { adminPlanLimitsFor } from '../plan-limits.util';
 
 export interface CreatePlanDto {
   code: string;
@@ -377,30 +363,11 @@ export class PlanDefinitionService {
    * Get default plan limits for a tier
    */
   getDefaultLimitsForTier(tier: PlanTier): PlanLimits {
-    // Project the canonical PLAN_CATALOG SSoT onto admin's richer PlanLimits
-    // shape. The numbers live ONLY in plan-catalog.ts; here we just select the
-    // admin fields and rename maxStorageGb → storageGB. The former hardcoded
-    // per-tier table (a 4th drift copy) is gone.
-    const limits = resolvePlanLimits(PLAN_TIER_TO_TENANT_PLAN[tier]);
-    return {
-      maxUsers: limits.maxUsers,
-      maxFarms: limits.maxFarms,
-      maxPonds: limits.maxPonds,
-      maxSensors: limits.maxSensors,
-      maxModules: limits.maxModules,
-      storageGB: limits.maxStorageGb,
-      dataRetentionDays: limits.dataRetentionDays,
-      apiRateLimit: limits.apiRateLimit,
-      alertsEnabled: limits.alertsEnabled,
-      reportsEnabled: limits.reportsEnabled,
-      customBrandingEnabled: limits.customBrandingEnabled,
-      apiAccessEnabled: limits.apiAccessEnabled,
-      customIntegrationsEnabled: limits.customIntegrationsEnabled,
-      ssoEnabled: limits.ssoEnabled,
-      auditLogEnabled: limits.auditLogEnabled,
-      prioritySupport: limits.prioritySupport,
-      dedicatedAccountManager: limits.dedicatedAccountManager,
-    };
+    // Delegate to the admin plan-limits projection util (Faz D — D9). It selects
+    // the admin fields from the canonical PLAN_CATALOG and applies the single
+    // field-name divergence (maxStorageGb → storageGB); no per-tier number is
+    // hand-maintained here.
+    return adminPlanLimitsFor(tier);
   }
 
   /**

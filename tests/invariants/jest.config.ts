@@ -138,6 +138,7 @@ export default {
         '<rootDir>/admin-billing-runtime-contract.spec.ts',
         '<rootDir>/admin-security-runtime-contract.spec.ts',
         '<rootDir>/plan-limits-ssot.spec.ts',
+        '<rootDir>/tier-enum-ssot.spec.ts',
         '<rootDir>/plan-features-ssot.spec.ts',
         '<rootDir>/event-contract-date-iso-ssot.spec.ts',
         '<rootDir>/shared-contracts-no-enum-drift.spec.ts',

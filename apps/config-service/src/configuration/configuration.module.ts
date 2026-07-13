@@ -1,3 +1,4 @@
+import { SecurityEventService } from '@aquaculture/backend-common/security';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
@@ -17,6 +18,8 @@ import { CreateConfigurationHandler } from './handlers/create-configuration.hand
 import { UpdateConfigurationHandler } from './handlers/update-configuration.handler';
 import { DeleteConfigurationHandler } from './handlers/delete-configuration.handler';
 import { UpsertConfigurationHandler } from './handlers/upsert-configuration.handler';
+// Faz C (D6): trusted NATS read surface for effective config (incl. decrypted secrets).
+import { ConfigRuntimeNatsHandler } from './handlers/config-runtime-nats.handler';
 
 // Query Handlers
 import {
@@ -45,14 +48,18 @@ const QueryHandlers = [
 ];
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([Configuration, ConfigurationHistory]),
-  ],
+  imports: [TypeOrmModule.forFeature([Configuration, ConfigurationHistory])],
+  // ConfigRuntimeNatsHandler is a @Controller so the NATS microservice
+  // transport registers its @MessagePattern subscribers (config.runtime.*).
+  controllers: [ConfigRuntimeNatsHandler],
   providers: [
     ConfigurationResolver,
     ConfigurationService,
     EncryptionService,
     ConfigurationValidationService,
+    // SecurityEventService emits real-time alerts on config-runtime denials.
+    // Degrades gracefully when EVENT_BUS is unavailable (its own @Optional inject).
+    SecurityEventService,
     ...CommandHandlers,
     ...QueryHandlers,
   ],

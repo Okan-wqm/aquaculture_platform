@@ -1311,6 +1311,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/billing/plan-limits.util.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/billing/seed-module-pricing.service.ts",
       "prettier_managed": true
     },
@@ -5735,6 +5741,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/event-handlers/configuration-changed.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/handlers/__tests__/billing-admin-nats.handler.spec.ts",
       "prettier_managed": true
     },
@@ -6105,6 +6117,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/modules/metering/__tests__/usage-aggregator.scheduler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/modules/metering/__tests__/usage-aggregator.service.spec.ts",
       "prettier_managed": true
     },
@@ -6297,7 +6315,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/configuration/events/emit-configuration-changed.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/configuration/handlers/__tests__/config-runtime-nats.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/configuration/handlers/__tests__/upsert-overwrite-columns.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/configuration/handlers/config-runtime-nats.handler.ts",
       "prettier_managed": true
     },
     {
@@ -30169,6 +30205,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/recommendations/architectural-arbiter/2026-07-13-adr-0005-config-runtime-subject-namespace.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/recommendations/auth-security-expert/2026-04-06-guard-di-security-recommendations.md",
       "prettier_managed": true
     },
@@ -34438,7 +34480,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/billing/__tests__/dynamic-stripe-client.provider.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/billing/__tests__/stripe-api.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/billing/dynamic-stripe-client.provider.ts",
       "prettier_managed": true
     },
     {
@@ -34577,6 +34631,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/compliance/tenant-erasure/tenant-erasure-target.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/config-client/config-client.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/config-client/config-runtime.client.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/config-client/index.ts",
       "prettier_managed": true
     },
     {
@@ -36772,6 +36844,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/billing/billing-plan-tier.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/billing/plan-catalog.ts",
       "prettier_managed": true
     },
@@ -36779,6 +36857,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/compliance-events.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/config-runtime.ts",
       "prettier_managed": true
     },
     {
@@ -41233,6 +41317,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/three-store-invariants.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/tier-enum-ssot.spec.ts",
       "prettier_managed": true
     },
     {
@@ -53838,10 +53928,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8822,
+  "file_count": 8837,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8641,
-  "managed_file_list_sha256": "7143a879e8b36d573ec3f16fa174420ef4f1e19ca9eb9c79b144c2825f8be579",
+  "managed_count": 8656,
+  "managed_file_list_sha256": "54427043f7cb0dfffad4ba11a27c2da058af3167a5b746c0347c998176890e39",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

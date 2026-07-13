@@ -33809,7 +33809,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "be2fcdb1a5c960b45c94ad69f482dd166d327bf0972d2c40bb427849ba41a5ab",
+      "content_sha256": "8135ecf76b76a405a9d3c8fdd927569b145b9252cdc5282c37244038fe6cf791",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "libs/alarm-core/src/generated/alarm_core_wasm.d.ts",
@@ -33820,7 +33820,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "e51ac12d9f5910965856e704afec48c2671d8e742725ab2cc0d935680cae3412",
+      "content_sha256": "5be6d0debdeea884a376c0d1f94c3ee022776c2decc1f67138fd8b730edb81c2",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "libs/alarm-core/src/generated/alarm_core_wasm.js",
@@ -37377,6 +37377,12 @@
       "reason": "generated artifact; source generator is canonical",
       "review_required": true,
       "source_of_truth": "generator"
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/protocol-codec/src/index.spec.ts",
+      "prettier_managed": true
     },
     {
       "class": "canonical_source",
@@ -53334,10 +53340,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8738,
+  "file_count": 8739,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8557,
-  "managed_file_list_sha256": "83a7bd9bb4c86260a366faac45b5d3b570ab30d2304f416d82ba7e1195ee98ff",
+  "managed_count": 8558,
+  "managed_file_list_sha256": "f7d4dfdff67932156cc7f208e457d8425a7ca686b176e103bf373b3a98d8a1a4",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

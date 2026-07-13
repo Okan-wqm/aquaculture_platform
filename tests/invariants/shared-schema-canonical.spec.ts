@@ -82,12 +82,13 @@ function readSharedTablesFromGenerateInit(): readonly string[] {
   const m = /const\s+SHARED_SCHEMA_TABLES\s*=\s*\[([\s\S]*?)\]\s*as\s+const/m.exec(
     src,
   );
-  if (!m) {
+  const body = m?.[1];
+  if (body === undefined) {
     throw new Error(
       `[shared-schema-canonical] generate-init-schemas.ts does not expose SHARED_SCHEMA_TABLES in the expected shape; refusing to verify`,
     );
   }
-  return m[1]
+  return body
     .split(',')
     .map((s) => s.trim().replace(/['"]/g, ''))
     .filter((s) => /^[a-z_][a-z0-9_]*$/.test(s));
@@ -100,11 +101,17 @@ function readSharedTablesFromSql(): readonly string[] {
   const createRe =
     /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?shared\.([a-z_][a-z0-9_]*)/gi;
   let m: RegExpExecArray | null;
-  while ((m = createRe.exec(src)) !== null) names.add(m[1]);
+  while ((m = createRe.exec(src)) !== null) {
+    const name = m[1];
+    if (name !== undefined) names.add(name);
+  }
   // Match: ALTER TABLE public.foo SET SCHEMA shared
   const moveRe =
     /ALTER\s+TABLE\s+(?:public\.)?([a-z_][a-z0-9_]*)\s+SET\s+SCHEMA\s+shared/gi;
-  while ((m = moveRe.exec(src)) !== null) names.add(m[1]);
+  while ((m = moveRe.exec(src)) !== null) {
+    const name = m[1];
+    if (name !== undefined) names.add(name);
+  }
   return [...names].sort();
 }
 
@@ -164,5 +171,19 @@ describe('INVARIANT — shared-schema canonical SSoT parity (SHARED-SCHEMA-CRITI
           `Either add CREATE TABLE shared.<name> blocks to the SQL or remove the entry from generate-init-schemas.ts.`,
       );
     }
+  });
+
+  it('SchemaVersionGate derives its shared-table expectation from PROTECTED_TABLES (no hand-copied literal)', () => {
+    // 2026-07-13 outage class (ORPHAN-HIGH-387): the gate carried a numeric
+    // literal `EXPECTED_SHARED_TABLE_COUNT = 5`; when ADR-042 retired
+    // shared.user_permissions the bootstrap honestly recorded 4 while the
+    // gate still demanded 5, crash-looping every backend service. The
+    // expectation MUST be derived from the runtime canonical copy.
+    const gateSource = readFileSync(
+      resolve(REPO_ROOT, 'libs/backend-common/src/database/schema-version-gate.service.ts'),
+      'utf8',
+    );
+    expect(gateSource).not.toMatch(/EXPECTED_SHARED_TABLE_COUNT\s*=\s*\d/);
+    expect(gateSource).toMatch(/EXPECTED_SHARED_TABLE_COUNT\s*=\s*PROTECTED_TABLES/);
   });
 });

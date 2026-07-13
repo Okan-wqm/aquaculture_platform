@@ -2,6 +2,8 @@ import { Injectable, Logger, OnApplicationBootstrap, Type } from '@nestjs/common
 import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 
+import { PROTECTED_TABLES } from '../constants/protected-tables';
+
 import { resolveDbMigrateAuthoritativeFromConfig } from './db-migrate-authority.util';
 import { MIGRATION_LEDGER_TABLE, tenantMigrationLedgerTable } from './migration-ledger';
 import { createMigrationRunnerService, type MigrationRunnerOptions } from './migration-runner';
@@ -289,11 +291,21 @@ export function createSchemaVersionGate(
       }
 
       // Light sanity check on counts — a fully-applied bootstrap installs
-      // exactly 16 platform schemas, 4 platform functions, and 5 shared
-      // tables. Anything below means partial-apply state.
+      // exactly 16 platform schemas and 4 platform functions. Anything
+      // below means partial-apply state.
       const EXPECTED_SCHEMA_COUNT = 16;
       const EXPECTED_FUNCTION_COUNT = 4;
-      const EXPECTED_SHARED_TABLE_COUNT = 5;
+      // The shared-table expectation is DERIVED from PROTECTED_TABLES (the
+      // runtime copy of the canonical shared set, parity-enforced against
+      // generate-init-schemas + 006-shared-schema-tables.sql by
+      // tests/invariants/shared-schema-canonical.spec.ts). A hand-copied
+      // numeric literal here (was `= 5`) crash-looped EVERY backend service
+      // on 2026-07-13 when ADR-042 retired shared.user_permissions: the
+      // bootstrap honestly recorded 4 shared tables while this gate still
+      // demanded 5 (ORPHAN-HIGH-387).
+      const EXPECTED_SHARED_TABLE_COUNT = PROTECTED_TABLES.filter((table) =>
+        table.startsWith('shared.'),
+      ).length;
       const observedSchema = row.schema_count ?? 0;
       const observedFn = row.function_count ?? 0;
       const observedSharedTbl = row.shared_table_count ?? 0;

@@ -17,10 +17,11 @@ type ScriptValidator = (data: Record<string, unknown>) => void;
 
 /** Reach the private structural guard without constructing the full service. */
 function getValidator(): ScriptValidator {
-  const proto = ScadaPackageService.prototype as unknown as {
-    validateScripts: ScriptValidator;
-  };
-  return proto.validateScripts.bind(proto);
+  const proto = ScadaPackageService.prototype;
+  // The guard is a private method; reach it reflectively (typed to its
+  // signature) rather than widening the whole prototype with a double-assertion.
+  const validate = Reflect.get(proto, 'validateScripts') as ScriptValidator;
+  return validate.bind(proto);
 }
 
 const validateScripts = getValidator();

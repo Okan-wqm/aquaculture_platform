@@ -17,6 +17,25 @@ import type { ScadaScript } from '../../scada-types';
 
 const TENANT = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 
+/** Recursively-optional view of a type — a mock need only supply the fields
+ *  the test exercises, at any depth (e.g. the gateway's `server.emit`). */
+type DeepPartial<T> = T extends (...args: never[]) => unknown
+  ? T
+  : T extends object
+    ? { [K in keyof T]?: DeepPartial<T[K]> }
+    : T;
+
+/**
+ * Widen a deep-partial jest mock to its full collaborator type for constructor
+ * injection. London-school specs exercise only a few methods, so the mock is a
+ * strict subtype; this generic performs the single widening assertion in one
+ * type-checked place (`DeepPartial<T> → T`) instead of an unsafe
+ * double-assertion at every call site.
+ */
+function mockOf<T>(impl: DeepPartial<T>): T {
+  return impl as T;
+}
+
 interface Mocks {
   tagManager: jest.Mocked<Pick<TagManagerService, 'getTagValue' | 'writeTagValue' | 'getAllTagValues'>>;
   alarmEngine: jest.Mocked<Pick<AlarmEngineService, 'getTenantId' | 'getActiveAlarms' | 'acknowledgeAlarm'>>;
@@ -45,12 +64,12 @@ function buildService(): { service: ScriptEngineService; mocks: Mocks } {
   };
 
   const service = new ScriptEngineService(
-    mocks.tagManager as unknown as TagManagerService,
-    mocks.alarmEngine as unknown as AlarmEngineService,
-    mocks.notificationService as unknown as NotificationService,
-    mocks.alarmStorage as unknown as AlarmStorageService,
-    mocks.daqStorage as unknown as DaqStorageService,
-    mocks.gateway as unknown as ScadaRuntimeGateway,
+    mockOf<TagManagerService>(mocks.tagManager),
+    mockOf<AlarmEngineService>(mocks.alarmEngine),
+    mockOf<NotificationService>(mocks.notificationService),
+    mockOf<AlarmStorageService>(mocks.alarmStorage),
+    mockOf<DaqStorageService>(mocks.daqStorage),
+    mockOf<ScadaRuntimeGateway>(mocks.gateway),
   );
   service.setTenantId(TENANT);
   return { service, mocks };
@@ -180,12 +199,12 @@ describe('ScriptEngineService — tenant fail-closed', () => {
       gateway: { broadcastCommand: jest.fn(), server: { emit: jest.fn() } },
     };
     const service = new ScriptEngineService(
-      mocks.tagManager as unknown as TagManagerService,
-      mocks.alarmEngine as unknown as AlarmEngineService,
-      mocks.notificationService as unknown as NotificationService,
-      mocks.alarmStorage as unknown as AlarmStorageService,
-      mocks.daqStorage as unknown as DaqStorageService,
-      mocks.gateway as unknown as ScadaRuntimeGateway,
+      mockOf<TagManagerService>(mocks.tagManager),
+      mockOf<AlarmEngineService>(mocks.alarmEngine),
+      mockOf<NotificationService>(mocks.notificationService),
+      mockOf<AlarmStorageService>(mocks.alarmStorage),
+      mockOf<DaqStorageService>(mocks.daqStorage),
+      mockOf<ScadaRuntimeGateway>(mocks.gateway),
     );
     // Script itself completes; the tenant-scoped bridge swallows the unbound
     // error and never broadcasts to an unknown tenant.

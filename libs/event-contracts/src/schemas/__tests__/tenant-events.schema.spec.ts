@@ -128,16 +128,6 @@ const VALID_FIXTURES: Record<TenantEventType, Record<string, unknown>> = {
     subscriptionEndsAt: '2027-06-12T12:00:00.000Z',
     subscriptionStatus: 'active',
   }),
-  TenantSubscriptionRequested: withBase('TenantSubscriptionRequested', {
-    tenantName: 'Acme Aqua',
-    moduleIds: [MODULE_ID],
-    moduleQuantities: [{ moduleId: MODULE_ID, users: 25, sensors: 100 }],
-    trialDays: 14,
-    tier: 'PROFESSIONAL',
-    billingCycle: 'MONTHLY',
-    billingEmail: 'billing@acme.example',
-    createdBy: USER_ID,
-  }),
   TenantModulesAssigned: withBase('TenantModulesAssigned', {
     moduleIds: [MODULE_ID],
     moduleCodes: ['FARM', 'SENSOR'],
@@ -160,7 +150,7 @@ describe('validateTenantEvent (MEDIUM-007)', () => {
   const schemaKeys = Object.keys(TENANT_EVENT_SCHEMAS) as TenantEventType[];
 
   it('has a validator + fixture for every registered tenant event schema', () => {
-    expect(schemaKeys.length).toBe(17);
+    expect(schemaKeys.length).toBe(16);
     for (const key of schemaKeys) {
       expect(VALID_FIXTURES[key]).toBeDefined();
     }

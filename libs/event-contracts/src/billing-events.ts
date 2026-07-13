@@ -76,8 +76,9 @@ export interface SubscriptionCancelledEvent extends BaseEvent {
 
 /**
  * Subscription Provisioning Failed Event
- * Published when the billing service fails to create a subscription
- * from a TenantSubscriptionRequested event.
+ * Intended for admin alerting when the billing service fails to provision a
+ * subscription. NOTE (ORPHAN-LOW-396): currently has no emitter — its only
+ * emitter was the deleted event-driven handler; tracked for wire-up or removal.
  */
 export interface SubscriptionProvisioningFailedEvent extends BaseEvent {
   eventType: 'SubscriptionProvisioningFailed';

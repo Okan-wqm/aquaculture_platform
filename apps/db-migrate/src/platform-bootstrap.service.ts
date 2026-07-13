@@ -58,6 +58,8 @@ import 'reflect-metadata';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 
+import { PROTECTED_TABLES } from '@aquaculture/backend-common/constants';
+import { bootstrapSignalSchemas, platformFunctions } from '@platform/service-catalog';
 import { DataSource } from 'typeorm';
 import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
 
@@ -94,36 +96,29 @@ const SERVICE_ROLES: ReadonlyArray<{ readonly role: string; readonly passEnv: st
   { role: 'config_service',        passEnv: 'CONFIG_SERVICE_DB_PASS' },
 ] as const;
 
-/** Schemas the bootstrap targets — kept in sync with stage 003 SQL. */
-const PLATFORM_SCHEMAS: ReadonlyArray<string> = [
-  'auth', 'farm', 'sensor', 'hr', 'messaging', 'hydroponics', 'alert',
-  'billing', 'notification', 'ai', 'admin', 'observability',
-  'event_store', 'config', 'gateway', 'shared',
-] as const;
+/**
+ * Schemas counted in the bootstrap-signal post-condition — DERIVED from the
+ * platform-topology SSoT (@platform/service-catalog), never hand-copied. This
+ * is the writer half of the count contract the boot gate reads back; keeping
+ * both on one source is what closed the ORPHAN-HIGH-405 stale-literal class.
+ */
+const PLATFORM_SCHEMAS: ReadonlyArray<string> = bootstrapSignalSchemas();
 
-/** Platform functions installed in stage 005. */
-const PLATFORM_FUNCTIONS: ReadonlyArray<string> = [
-  'current_tenant_id',
-  'set_tenant_id',
-  'update_updated_at_column',
-  'audit_immutability_guard',
-] as const;
+/** Platform functions installed in stage 005 — DERIVED from the topology SSoT. */
+const PLATFORM_FUNCTIONS: ReadonlyArray<string> = platformFunctions();
 
 /**
- * Shared schema tables installed in stage 006.
- *
- * user_permissions was retired from the canonical set (ADR-042,
- * ORPHAN-HIGH-378): stage 006 no longer creates it, and the admin-api
- * migration 1801500000000-DropRetiredUserPermissions archives + drops the
- * live table. The post-condition count below only counts tables named in
- * this list, so behind-DBs that still carry the table pass unchanged.
+ * Shared schema tables installed in stage 006 — DERIVED from PROTECTED_TABLES'
+ * canonical `shared.*` set (the same source the boot gate's
+ * EXPECTED_SHARED_TABLE_COUNT reads, parity-enforced against generate-init-
+ * schemas + 006-shared-schema-tables.sql by shared-schema-canonical.spec.ts).
+ * user_permissions was retired from that set (ADR-042, ORPHAN-HIGH-378); the
+ * post-condition only counts tables named here, so behind-DBs still carrying
+ * the table pass unchanged.
  */
-const SHARED_SCHEMA_TABLES: ReadonlyArray<string> = [
-  'audit_logs',
-  'gdpr_data_requests',
-  'user_consents',
-  'access_logs',
-] as const;
+const SHARED_SCHEMA_TABLES: ReadonlyArray<string> = PROTECTED_TABLES.filter(
+  (table) => table.startsWith('shared.'),
+).map((table) => table.slice('shared.'.length));
 
 /** Advisory lock key for the platform-bootstrap atom. */
 const PLATFORM_BOOTSTRAP_LOCK_NAME = 'aqua-db-migrate:platform-bootstrap';

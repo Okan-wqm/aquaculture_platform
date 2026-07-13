@@ -39042,6 +39042,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "platform/libs/service-catalog/src/topology.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "platform/libs/service-catalog/tsconfig.eslint.json",
       "prettier_managed": true
     },
@@ -41179,6 +41185,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/platform-service-catalog-parity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/platform-topology-ssot.spec.ts",
       "prettier_managed": true
     },
     {
@@ -54024,10 +54036,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8853,
+  "file_count": 8855,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8672,
-  "managed_file_list_sha256": "a6ef6ec50035b9186fd77d8de2dfaea62a0ca85b0a1266063a885deb011bdea6",
+  "managed_count": 8674,
+  "managed_file_list_sha256": "02cbd388a62ea394a6286779f982c450338f5bd7a521656b4816bc9a947c3365",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -21,7 +21,12 @@ import {
   TenantSchemaCacheModule,
 } from '@aquaculture/backend-common/database';
 import { TenantExecutionContextModule } from '@aquaculture/backend-common/context';
-import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
+import {
+  RolesGuard,
+  ServiceIdentityGuard,
+  TenantGuard,
+  TenantPermissionGuard,
+} from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
 import {
@@ -368,6 +373,16 @@ interface ApolloGraphQLContext {
     {
       provide: APP_GUARD,
       useFactory: (reflector: Reflector): RolesGuard => new RolesGuard(reflector),
+      inject: [Reflector],
+    },
+    // SECURITY: Tenant-permission guard — enforces @RequireTenantPermission()
+    // fine-grained capabilities (e.g. hr_finance:view_salary). Opt-in: routes
+    // without the decorator pass through. Global registration is the SSoT so the
+    // decorator is never inert (SENSOR-HIGH-022 invariant).
+    {
+      provide: APP_GUARD,
+      useFactory: (reflector: Reflector): TenantPermissionGuard =>
+        new TenantPermissionGuard(reflector),
       inject: [Reflector],
     },
     /** SEC-M22: Register global audit logging for compliance — all mutations are tracked. */

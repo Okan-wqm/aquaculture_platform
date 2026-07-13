@@ -24,14 +24,20 @@ export interface TenantSubscription {
   currentPeriodStart: string;
   currentPeriodEnd: string;
   trialEndDate: string | null;
+  /** @deprecated Float — use `monthlyPriceDecimal` (exact decimal string, ADR-0004). */
   monthlyPrice: number;
+  /** Exact-decimal monthly price as a string (Decimal scalar). Parse with `parseMoney`. */
+  monthlyPriceDecimal: string;
   currency: string;
 }
 
 export interface TenantInvoice {
   id: string;
   invoiceNumber: string;
+  /** @deprecated Float — use `amountDecimal` (exact decimal string, ADR-0004). */
   amount: number;
+  /** Exact-decimal amount as a string (Decimal scalar). Parse with `parseMoney`. */
+  amountDecimal: string;
   currency: string;
   status: 'PAID' | 'PENDING' | 'OVERDUE' | 'DRAFT' | 'VOID';
   issuedAt: string;

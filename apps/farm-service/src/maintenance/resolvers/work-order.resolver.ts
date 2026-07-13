@@ -19,6 +19,7 @@ import {
   registerEnumType,
 } from '@nestjs/graphql';
 import { Logger, UseGuards } from '@nestjs/common';
+import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { Tenant, CurrentUser, Role, Roles } from '@aquaculture/backend-common/decorators';
 import { StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
@@ -99,8 +100,14 @@ export class WorkOrderStatisticsResponse {
   @Field(() => Float)
   avgCompletionTime!: number;
 
-  @Field(() => Float)
+  @Field(() => Float, {
+    deprecationReason: 'Use totalCostDecimal (exact decimal string, ADR-0004).',
+  })
   totalCost!: number;
+
+  /** Exact-decimal wire form of `totalCost` (ADR-0004 / DATA-MEDIUM-009). */
+  @Field(() => DecimalScalar)
+  totalCostDecimal!: number;
 
   @Field(() => Int)
   draft!: number;
@@ -240,6 +247,7 @@ export class WorkOrderResolver {
       completedOnTime: stats.completedOnTime,
       avgCompletionTime: stats.avgCompletionTime,
       totalCost: stats.totalCost,
+      totalCostDecimal: stats.totalCost,
       draft: stats.byStatus[WorkOrderStatus.DRAFT] || 0,
       pendingApproval: stats.byStatus[WorkOrderStatus.PENDING_APPROVAL] || 0,
       approved: stats.byStatus[WorkOrderStatus.APPROVED] || 0,

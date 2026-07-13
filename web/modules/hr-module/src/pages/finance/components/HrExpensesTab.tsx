@@ -2,6 +2,7 @@
  * HR Expenses tab — manual HR expense ledger (training, recruitment,
  * PPE, travel, custom) with dynamic category management.
  */
+import { parseMoney } from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 
 import {
@@ -153,7 +154,7 @@ export const HrExpensesTab: React.FC<HrExpensesTabProps> = ({ period }) => {
                   {entry.description ?? '—'}
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-gray-900 dark:text-gray-100">
-                  {formatMoney(entry.amount, entry.currency)}
+                  {formatMoney(parseMoney(entry.amountDecimal), entry.currency)}
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 text-right text-sm">
                   <span className="space-x-3">

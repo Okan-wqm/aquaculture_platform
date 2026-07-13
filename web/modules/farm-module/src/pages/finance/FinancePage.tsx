@@ -12,6 +12,7 @@
  * - Charts: cost trends (day/week/month/year), per-category, per-batch
  * - Settings: tenant default currency (SSoT) + fiscal year start
  */
+import { useAuth } from '@aquaculture/shared-ui';
 import React, { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -54,6 +55,10 @@ const PERIOD_PRESETS: Array<{ id: string; label: string; days: number; granulari
 ];
 
 const FinancePage: React.FC = () => {
+  const { hasAnyRole } = useAuth();
+  // Finance reads are MANAGER+ADMIN-gated on the backend; guard the route so a
+  // direct URL visit by a lower role sees an explicit message, not empty 403s.
+  const canView = hasAnyRole(['SUPER_ADMIN', 'TENANT_ADMIN', 'MODULE_MANAGER']);
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab') as TabId | null;
   const activeTab: TabId = tabParam && VALID_TABS.includes(tabParam) ? tabParam : DEFAULT_TAB;
@@ -77,6 +82,19 @@ const FinancePage: React.FC = () => {
       return next;
     });
   };
+
+  if (!canView) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+        <div role="alert" className="max-w-md rounded-md bg-white p-8 text-center shadow">
+          <h2 className="text-lg font-semibold text-gray-900">Finance is restricted</h2>
+          <p className="mt-2 text-sm text-gray-600">
+            You need a manager or admin role to view the finance tab.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">

@@ -42,11 +42,12 @@ export class Plan {
   @Column({ type: 'enum', enum: PlanTier })
   tier!: PlanTier;
 
-  // TODO: Migrate monetary GraphQL fields from Float to a custom Decimal scalar.
-  // IEEE 754 double-precision (GraphQL Float) causes rounding errors on monetary values.
-  // DB layer already stores as numeric(19,4) via MoneyColumn — only GraphQL serialization
-  // uses lossy Float. Tracked as PLAT-LOW-002.
-  @Field(() => Float)
+  // ADR-0004 / PLAT-LOW-002: basePriceDecimal (Decimal scalar, exact string) is
+  // the exact-precision wire representation; this Float field is retained during
+  // the additive-coexistence window and removed once all readers migrate.
+  @Field(() => Float, {
+    deprecationReason: 'Use basePriceDecimal (exact decimal string, ADR-0004).',
+  })
   @MoneyColumn({ name: 'base_price' })
   basePrice!: Decimal;
 

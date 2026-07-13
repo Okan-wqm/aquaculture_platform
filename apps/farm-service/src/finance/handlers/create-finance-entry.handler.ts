@@ -28,6 +28,7 @@ import { FinanceCategory } from '../entities/finance-category.entity';
 import { FinanceExpenseEntry } from '../entities/finance-expense-entry.entity';
 import { FinanceCategorySeedService } from '../services/finance-category-seed.service';
 import { FinanceSettingsService } from '../services/finance-settings.service';
+import { validateEntryDimensions } from './validate-entry-dimensions';
 
 @Injectable()
 @CommandHandler(CreateFinanceEntryCommand)
@@ -68,6 +69,11 @@ export class CreateFinanceEntryHandler
             'its value is derived at read time and cannot take manual entries',
         );
       }
+
+      await validateEntryDimensions(manager, tenantId, {
+        batchId: input.batchId,
+        siteId: input.siteId,
+      });
 
       // Every manual entry is booked in the tenant default currency (SSoT)
       // — the ledger is structurally single-currency.

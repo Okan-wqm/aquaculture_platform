@@ -26,6 +26,8 @@ import {
   BarChart3,
   Calendar,
 } from 'lucide-react';
+import { parseMoney } from '@aquaculture/shared-ui';
+
 import { useTenantBilling, type TenantInvoice } from '../hooks/useTenantBilling';
 
 // ============================================================================
@@ -276,7 +278,7 @@ const TenantBillingPage: React.FC = () => {
               <div className="text-right">
                 <p className="text-2xl font-bold text-gray-900">
                   {subscription.currency === 'USD' ? '$' : subscription.currency}
-                  {subscription.monthlyPrice.toFixed(2)}
+                  {parseMoney(subscription.monthlyPriceDecimal).toFixed(2)}
                 </p>
                 <p className="text-sm text-gray-500">
                   / {subscription.billingPeriod === 'MONTHLY' ? 'month' : 'year'}
@@ -435,7 +437,7 @@ const TenantBillingPage: React.FC = () => {
                       <td className="px-6 py-4 text-right">
                         <span className="text-sm font-medium text-gray-900">
                           {invoice.currency === 'USD' ? '$' : invoice.currency}
-                          {invoice.amount.toFixed(2)}
+                          {parseMoney(invoice.amountDecimal).toFixed(2)}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right">
@@ -500,7 +502,7 @@ const TenantBillingPage: React.FC = () => {
                         <td className="px-6 py-3 text-right">
                           <span className="text-sm font-medium text-green-600">
                             {invoice.currency === 'USD' ? '$' : invoice.currency}
-                            {invoice.amount.toFixed(2)}
+                            {parseMoney(invoice.amountDecimal).toFixed(2)}
                           </span>
                         </td>
                       </tr>

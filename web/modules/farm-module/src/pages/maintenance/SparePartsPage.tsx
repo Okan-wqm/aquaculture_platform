@@ -13,6 +13,7 @@ import {
   Spinner,
   Alert,
   formatCurrency as sharedFormatCurrency,
+  parseMoney,
   DEFAULT_CURRENCY,
 } from '@aquaculture/shared-ui';
 import {
@@ -333,7 +334,7 @@ export const SparePartsPage: React.FC = () => {
           </Card>
           <Card className="p-4">
             <div className="text-sm text-gray-500">Toplam Değer</div>
-            <div className="text-2xl font-bold text-blue-600">{formatCurrency(stockSummary.totalValue)}</div>
+            <div className="text-2xl font-bold text-blue-600">{formatCurrency(parseMoney(stockSummary.totalValueDecimal))}</div>
           </Card>
         </div>
       )}
@@ -435,7 +436,7 @@ export const SparePartsPage: React.FC = () => {
                         {item.minStock} / {item.maxStock}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {formatCurrency(item.unitPrice, item.currency)}
+                        {formatCurrency(parseMoney(item.unitPriceDecimal), item.currency)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <button

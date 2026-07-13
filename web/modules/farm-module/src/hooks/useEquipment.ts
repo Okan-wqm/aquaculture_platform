@@ -75,7 +75,9 @@ export interface Equipment {
   purchaseDate?: string;
   installationDate?: string;
   warrantyEndDate?: string;
+  /** @deprecated Float — use `purchasePriceDecimal` (exact decimal string, ADR-0004). */
   purchasePrice?: number;
+  purchasePriceDecimal?: string | null;
   supplierId?: string;
   notes?: string;
   isActive: boolean;
@@ -190,6 +192,7 @@ const EQUIPMENT_LIST_QUERY = `
         installationDate
         warrantyEndDate
         purchasePrice
+        purchasePriceDecimal
         notes
         isActive
         isVisibleInSensor

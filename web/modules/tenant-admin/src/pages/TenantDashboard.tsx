@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey, createTenantInvalidationKey, getTenantId } from '@aquaculture/shared-ui';
+import { createTenantQueryKey, createTenantInvalidationKey, getTenantId, parseMoney } from '@aquaculture/shared-ui';
 import {
   Users,
   Package,
@@ -345,7 +345,7 @@ const TenantDashboard: React.FC = () => {
             <div className="flex items-center gap-6">
               <div className="text-right">
                 <p className="text-2xl font-bold text-tenant-600">
-                  ${subscription.pricing.basePrice}
+                  ${parseMoney(subscription.pricing.basePriceDecimal)}
                   <span className="text-sm font-normal text-gray-500">/mo</span>
                 </p>
                 <p className="text-xs text-gray-500">

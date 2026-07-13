@@ -65,7 +65,9 @@ export class PaymentMethodDetails {
 
 @ObjectType()
 export class RefundInfo {
-  @Field(() => Float)
+  @Field(() => Float, {
+    deprecationReason: 'Use amountDecimal (exact decimal string, ADR-0004).',
+  })
   amount!: number;
 
   @Field()
@@ -114,7 +116,9 @@ export class Payment {
   @JoinColumn({ name: 'invoice_id' })
   invoice?: any;
 
-  @Field(() => Float)
+  @Field(() => Float, {
+    deprecationReason: 'Use amountDecimal (exact decimal string, ADR-0004).',
+  })
   // MoneyColumn: numeric(19,4) with lossless Decimal.js transformer.
   @MoneyColumn()
   amount!: Decimal;
@@ -160,7 +164,10 @@ export class Payment {
   @Column('jsonb', { nullable: true })
   refunds?: RefundInfo[];
 
-  @Field(() => Float, { defaultValue: 0 })
+  @Field(() => Float, {
+    defaultValue: 0,
+    deprecationReason: 'Use refundedAmountDecimal (exact decimal string, ADR-0004).',
+  })
   // MoneyColumn: numeric(19,4) with lossless Decimal.js transformer.
   // refundedAmount participates in remaining balance calculation (amount - refundedAmount).
   @MoneyColumn({ default: 0, name: 'refunded_amount' })

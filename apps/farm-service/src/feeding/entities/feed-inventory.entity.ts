@@ -23,6 +23,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import {
   ObjectType,
   Field,
@@ -173,13 +174,31 @@ export class FeedInventory {
   // FİYATLANDIRMA
   // -------------------------------------------------------------------------
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, {
+    nullable: true,
+    deprecationReason: 'Use unitPricePerKgDecimal (exact decimal string, ADR-0004).',
+  })
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   unitPricePerKg?: number;               // kg başına fiyat
 
-  @Field(() => Float, { nullable: true })
+  /** Exact-decimal wire form of `unitPricePerKg` (ADR-0004 / DATA-MEDIUM-009). */
+  @Field(() => DecimalScalar, { nullable: true })
+  get unitPricePerKgDecimal(): number | null {
+    return this.unitPricePerKg ?? null;
+  }
+
+  @Field(() => Float, {
+    nullable: true,
+    deprecationReason: 'Use totalValueDecimal (exact decimal string, ADR-0004).',
+  })
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   totalValue?: number;                   // Toplam değer
+
+  /** Exact-decimal wire form of `totalValue` (ADR-0004 / DATA-MEDIUM-009). */
+  @Field(() => DecimalScalar, { nullable: true })
+  get totalValueDecimal(): number | null {
+    return this.totalValue ?? null;
+  }
 
   @Field({ nullable: true })
   @Column({ length: 3, nullable: true })

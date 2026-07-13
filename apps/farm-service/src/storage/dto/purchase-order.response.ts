@@ -22,10 +22,16 @@ export class PurchaseOrderItemResponse {
   @Field()
   unit!: string;
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, {
+    nullable: true,
+    deprecationReason: 'Use unitPriceDecimal (exact decimal string, ADR-0004).',
+  })
   unitPrice?: number;
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, {
+    nullable: true,
+    deprecationReason: 'Use totalPriceDecimal (exact decimal string, ADR-0004).',
+  })
   totalPrice?: number;
 
   @Field(() => Float)
@@ -67,7 +73,10 @@ export class PurchaseOrderResponse {
   @Field({ nullable: true })
   notes?: string;
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, {
+    nullable: true,
+    deprecationReason: 'Use totalAmountDecimal (exact decimal string, ADR-0004).',
+  })
   totalAmount?: number;
 
   @Field()

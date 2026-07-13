@@ -24,6 +24,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import {
   ObjectType,
   Field,
@@ -467,9 +468,18 @@ export class HealthEvent {
   // MALİYET
   // -------------------------------------------------------------------------
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, {
+    nullable: true,
+    deprecationReason: 'Use estimatedCostDecimal (exact decimal string, ADR-0004).',
+  })
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   estimatedCost?: number;
+
+  /** Exact-decimal wire form of `estimatedCost` (ADR-0004 / DATA-MEDIUM-009). */
+  @Field(() => DecimalScalar, { nullable: true })
+  get estimatedCostDecimal(): number | null {
+    return this.estimatedCost ?? null;
+  }
 
   @Field({ nullable: true })
   @Column({ length: 3, nullable: true })

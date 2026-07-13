@@ -12,12 +12,22 @@ export class GetHrLabourCostQuery {
   ) {}
 }
 
+/** Headcount-only workforce projection (no salary) — HR-MEDIUM-005. */
+export class GetHrPersonnelTableQuery {
+  constructor(public readonly tenantId: string) {}
+}
+
 export class GetHrFinanceSummaryQuery {
   constructor(
     public readonly tenantId: string,
     public readonly from: Date,
     public readonly to: Date,
     public readonly granularity: HrFinanceGranularity,
+    /**
+     * Whether the caller may see per-department SALARY (HR-MEDIUM-005). When
+     * false the department salary is withheld; expenses + series are unaffected.
+     */
+    public readonly includeSalary: boolean = false,
   ) {}
 }
 

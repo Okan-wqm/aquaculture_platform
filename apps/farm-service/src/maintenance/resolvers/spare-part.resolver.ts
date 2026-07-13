@@ -19,6 +19,7 @@ import {
   registerEnumType,
 } from '@nestjs/graphql';
 import { Logger, UseGuards } from '@nestjs/common';
+import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
@@ -89,8 +90,14 @@ export class StockSummaryResponse {
   @Field(() => Int)
   totalParts!: number;
 
-  @Field(() => Float)
+  @Field(() => Float, {
+    deprecationReason: 'Use totalValueDecimal (exact decimal string, ADR-0004).',
+  })
   totalValue!: number;
+
+  /** Exact-decimal wire form of `totalValue` (ADR-0004 / DATA-MEDIUM-009). */
+  @Field(() => DecimalScalar)
+  totalValueDecimal!: number;
 
   @Field(() => Int)
   lowStockCount!: number;
@@ -245,6 +252,7 @@ export class SparePartResolver {
     return {
       totalParts: summary.totalParts,
       totalValue: summary.totalValue,
+      totalValueDecimal: summary.totalValue,
       lowStockCount: summary.lowStockCount,
       outOfStockCount: summary.outOfStockCount,
       inStockCount: summary.byStatus[SparePartStatus.IN_STOCK] || 0,

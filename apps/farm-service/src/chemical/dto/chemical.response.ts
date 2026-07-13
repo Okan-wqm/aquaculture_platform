@@ -222,7 +222,10 @@ export class ChemicalResponse {
   @Field(() => [ChemicalDocumentResponse], { nullable: true })
   documents?: ChemicalDocumentResponse[];
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, {
+    nullable: true,
+    deprecationReason: 'Use unitPriceDecimal (exact decimal string, ADR-0004).',
+  })
   unitPrice?: number;
 
   @Field()

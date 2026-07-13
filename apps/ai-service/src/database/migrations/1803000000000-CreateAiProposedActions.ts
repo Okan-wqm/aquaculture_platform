@@ -9,6 +9,13 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * MODULE_SCHEMAS['ai'].tables). A held `requiresConfirmation` tool call is
  * persisted here with the ORIGINAL requester's authorization context; the
  * confirm path executes the stored row, never client-supplied params.
+ *
+ * TENANT_AWARE_SOURCE_SCHEMA_DDL_OK: the `"ai"."ai_proposed_actions"` DDL is the
+ * intentional per-tenant TEMPLATE created in the `ai` SOURCE schema — the exact
+ * pattern the 1800000000000-Baseline uses for `agent_conversations` /
+ * `tenant_agent_configs`. TenantSchemaSyncService clones it into every
+ * tenant_<uuid> schema (registered in MODULE_SCHEMAS['ai'].tables), so the
+ * source-schema-qualified DDL is correct, not a tenant-routing bypass.
  */
 export class CreateAiProposedActions1803000000000 implements MigrationInterface {
   name = 'CreateAiProposedActions1803000000000';

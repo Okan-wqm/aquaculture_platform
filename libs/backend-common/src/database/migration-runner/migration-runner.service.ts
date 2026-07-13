@@ -144,12 +144,20 @@ export interface PostConditionAwareMigration {
  * export class DatabaseModule {}
  * ```
  *
- * Override auto-detection via the options bag if needed:
+ * Opt OUT of fan-out via the options bag if needed:
  *
  * ```ts
  * createMigrationRunnerService('farm', { tenantAware: false })  // source only
- * createMigrationRunnerService('auth', { tenantAware: true  })  // manual opt-in
  * ```
+ *
+ * Opting IN (`tenantAware: true`) is only legal for schemas already in
+ * the `TENANT_AWARE_SCHEMAS` SSoT — the factory throws otherwise. A
+ * platform-level schema (auth, billing, …) that fanned out would mint a
+ * stray `migrations_<schema>` journal inside every `tenant_<uuid>` schema
+ * (live incident ORPHAN-MEDIUM-386: `tenant_7f6b08ab….migrations_auth`).
+ * Making a schema genuinely schema-per-tenant is a one-line edit to
+ * `libs/backend-common/src/database/tenant-aware-schemas.ts`, which this
+ * factory then honors automatically.
  *
  * # SECURITY invariant preserved
  *
@@ -229,6 +237,26 @@ export function createMigrationRunnerService(
     throw new Error(
       `[createMigrationRunnerService] Unsafe sourceSchema identifier: "${sourceSchema}". ` +
         `Must match /^[a-zA-Z_][a-zA-Z0-9_]*$/.`,
+    );
+  }
+
+  // WHY (ORPHAN-MEDIUM-386): tenant fan-out records progress in a
+  // per-source journal named `migrations_<sourceSchema>` INSIDE each
+  // tenant schema. Only schemas in the TENANT_AWARE_SCHEMAS SSoT own
+  // per-tenant clones, so a manual `tenantAware: true` on any other
+  // schema would mint stray journals in every tenant schema (the exact
+  // artifact found live: `tenant_7f6b08ab90e246d3.migrations_auth`).
+  // Make the misconfiguration impossible at factory time instead of
+  // detectable at deploy time.
+  if (options?.tenantAware === true && !TENANT_AWARE_SCHEMAS.has(sourceSchema)) {
+    throw new Error(
+      `[createMigrationRunnerService] tenantAware=true is illegal for source schema ` +
+        `"${sourceSchema}" — it is not in the TENANT_AWARE_SCHEMAS SSoT ` +
+        `(libs/backend-common/src/database/tenant-aware-schemas.ts). Fanning a ` +
+        `platform-level schema out to tenant_<uuid> schemas would create a stray ` +
+        `"${tenantMigrationLedgerTable(sourceSchema)}" journal in every tenant schema ` +
+        `(ORPHAN-MEDIUM-386). If this schema is genuinely becoming schema-per-tenant, ` +
+        `add it to the SSoT set first.`,
     );
   }
 

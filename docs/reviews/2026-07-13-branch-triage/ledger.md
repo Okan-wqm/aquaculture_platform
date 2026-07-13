@@ -407,3 +407,22 @@ Dokunulmaz: `/var/lib/aqua/deploy/checkout`, kilitli `.claude/worktrees/agent-*`
 14 ölü worktree daha kaldırıldı (hepsi kaldırma öncesi `git status --porcelain` TEMİZ): wt-889, email-wt, heal-wt, wt-rbac, wt-934, wt-935, wt-deployfix, wt-drift-final, wt-gwbudget, wt-vfdcancel, wt-outbox-083, wt-perf-003, wt-registry-closeout, wt-socket-213.
 
 ### Durum: lokal 206→11, origin 92→22, worktree 37→13.
+
+---
+
+## Faz 4 yürütme kaydı — 2026-07-13 (M1 oturumu dilimi)
+
+### Tamamlanan
+- **#847 dependabot actions** → MERGED (2026-07-13T10:02Z). 6 action pin'inin SHA'sı gh api ile tag-tag doğrulandı; branch'in güncel head'i codeql v3→v4 pin-etiket düzeltmesini zaten taşıyordu → `dep-847-local` gereksizleşti (silinecek — worktree'si 78de149b oturumunda).
+- **#938 messaging-partition SSoT** → CLOSED (kanıtlı): kod içeriği #920 ile bayt-aynı main'de; kalan tek delta (ORPHAN-HIGH-338 kaydı) NNN çakışması nedeniyle **ORPHAN-HIGH-388** olarak yeniden numaralanıp bu PR'a (#967) taşındı. Origin branch silindi; lokal branch + wt-msgssot worktree'si 78de149b oturumu hâlâ aktif olabileceği için (index mtime 2026-07-13 04:55) DOKUNULMADI → Faz 5 devir notu.
+- **#968 audit-009 auth spec'leri** (bu programın salvage PR'ı): format-scope repin sonrası CI yeşil; merge-train'de sırada.
+- **#969 alert-engine suite realignment** (bu programın salvage PR'ı): #863'ün spec-only commit'i porta alındı — main'de 10 suite/102 test kırmızıydı (canlı doğrulandı), port sonrası 24/24-757/757 yeşil (4 koşu). FARM-HIGH-124 Closes taşıyor. Merge olunca #863 kapatılabilir.
+- **#808 mobile-messaging review**: 3 review-of-record dokümanı bu PR'a kurtarıldı; kod içeriği main'de (34/49 bayt-aynı, kalanlar main-ileri). KAPANIŞ ADAYI (kullanıcı onayı bekliyor).
+
+### Verdict verilen, sonraki oturuma sıralanan
+- **#936 aria-autonomous-mode** — INCOMPLETE-VALUABLE: gerçek iş (operator-gated Stage D; ADR-041 narrow-lane ile tutarlı, autonomous-merge ihlali yok). 185 geride; tazeleme + ARIA seremonisi (authority-hash regen, registry three-store) ayrı dilim ister.
+- **#934 finance-hardening-waves** — INCOMPLETE-VALUABLE: 142 dosya +4104 satır gerçek iş; kendi oturumunu hak ediyor. (İlişkili: beautiful-ptolemy içeriği #933 ile inmişti, silindi.)
+- **#871 RBAC adoption master plan** — doc-only 773 satır, main'de yok; açık kalması maliyetsiz. Sonraki oturumda RBAC-SSoT-sonrası güncelliği okunarak karar.
+- **#940 / #935 / #900 / #886** — dün/önceki güncellenmiş büyük DRAFT denetim hatları; sıralı derin denetim sonraki oturumlarda (plan M3-M4).
+- **#961 WASM / #962 admin-panels / #952 mobile-E2E** — BUGÜN güncellenmiş → muhtemelen canlı oturumların işi; ACTIVE çiti uygulanır, dokunulmaz.
+- **#959 dependabot cargo** — SHA'sız sürüm bump'ı; train'de #847 sonrası güncellendi, CI bekleniyor.

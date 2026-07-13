@@ -15,8 +15,12 @@ import {
  *
  * The SSoT flag STRIPE_BILLING_ENABLED reconciles graceful-boot with
  * fail-closed (#640): off (any env, incl. production) boots with a disabled
- * client that rejects at request time; on+key returns the real client; on+no-key
- * refuses to boot.
+ * client that rejects at request time; on+key returns the real client.
+ *
+ * Faz C (D6 / ORPHAN-397): enabled + NO key NO LONGER throws at boot — the
+ * 2026-06 Suderra outage cure. It binds a fail-closed-at-request client so the
+ * service always boots; the DynamicStripeClientProvider adds config-sourced keys
+ * and the WARN + SecurityEvent on this branch.
  *
  * ConfigService stub: a structurally-correct Partial<ConfigService> exposing
  * only the `get(key, default?)` overload the factory uses, narrowed once with a
@@ -55,9 +59,9 @@ describe('stripeClientFactory (STRIPE_BILLING_ENABLED SSoT)', () => {
 
     // The disabled sentinel fails closed the instant a Stripe call is made
     // (synchronous throw before any await), so no outbound traffic can leak.
-    expect(() =>
-      client.createCustomer({ email: 'a@b.test', ...requestArgs }),
-    ).toThrow(StripeNotConfiguredError);
+    expect(() => client.createCustomer({ email: 'a@b.test', ...requestArgs })).toThrow(
+      StripeNotConfiguredError,
+    );
     expect(() =>
       client.createSubscription({
         customerId: 'cus_1',
@@ -67,14 +71,17 @@ describe('stripeClientFactory (STRIPE_BILLING_ENABLED SSoT)', () => {
     ).toThrow(StripeNotConfiguredError);
   });
 
-  it('(c) enabled + no key → throws at boot, mentioning STRIPE_SECRET_KEY', () => {
+  it('(c) enabled + no key → boots (no throw) with a fail-closed-at-request client (Faz C: outage cure)', () => {
     const config = configStub({
       [STRIPE_BILLING_ENABLED_ENV]: 'true',
       NODE_ENV: 'production',
     });
 
-    expect(() => stripeClientFactory(config)).toThrow(
-      new RegExp(STRIPE_SECRET_KEY_ENV),
+    // No boot throw (the outage cure); the returned client fails closed at request.
+    const client = stripeClientFactory(config);
+    expect(client).toBeDefined();
+    expect(() => client.createCustomer({ email: 'a@b.test', ...requestArgs })).toThrow(
+      StripeNotConfiguredError,
     );
   });
 
@@ -126,8 +133,11 @@ describe('stripeClientFactory (STRIPE_BILLING_ENABLED SSoT)', () => {
     expect(stripeClientFactory(config)).toBeInstanceOf(MockBillingProvider);
   });
 
-  it('(h) BILLING_PROVIDER=stripe implies enabled → missing key throws at boot', () => {
+  it('(h) BILLING_PROVIDER=stripe implies enabled → missing key boots fail-closed (no boot throw)', () => {
     const config = configStub({ [BILLING_PROVIDER_ENV]: 'stripe', NODE_ENV: 'production' });
-    expect(() => stripeClientFactory(config)).toThrow(new RegExp(STRIPE_SECRET_KEY_ENV));
+    const client = stripeClientFactory(config);
+    expect(() =>
+      client.createSubscription({ customerId: 'cus_1', priceId: 'price_1', ...requestArgs }),
+    ).toThrow(StripeNotConfiguredError);
   });
 });

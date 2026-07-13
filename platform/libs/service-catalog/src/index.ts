@@ -662,7 +662,14 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     // Matches compose start_period: 60s.
     startupBudgetSeconds: 60,
     requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
-    requiredEnv: ['BILLING_SERVICE_DB_PASS'],
+    // Faz C (SEC-LOW-002): billing now SIGNS config-runtime reads, so the
+    // ServiceIdentity keyring + signing kid are hard runtime dependencies (both
+    // already present in the droplet compose + required-secrets.yaml).
+    requiredEnv: [
+      'BILLING_SERVICE_DB_PASS',
+      'SERVICE_IDENTITY_KEYRING',
+      'SERVICE_IDENTITY_SIGNING_KID',
+    ],
     gatewaySubgraph: subgraph(
       'billing',
       'billing-service',
@@ -967,8 +974,7 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
         // healthcheck, so 30s is a generous liveness budget. None of these
         // are CRITICAL backends (nginx is the only critical entry here and
         // sits at 30s ≤ SLA), so they never raise the readiness SLA.
-        startupBudgetSeconds:
-          serviceId === 'mosquitto' ? 10 : serviceId === 'minio' ? 15 : 30,
+        startupBudgetSeconds: serviceId === 'mosquitto' ? 10 : serviceId === 'minio' ? 15 : 30,
         criticality:
           serviceId === 'nginx'
             ? 'critical'

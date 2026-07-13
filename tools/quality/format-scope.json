@@ -5735,6 +5735,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/event-handlers/configuration-changed.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/handlers/__tests__/billing-admin-nats.handler.spec.ts",
       "prettier_managed": true
     },
@@ -6303,7 +6309,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/configuration/events/emit-configuration-changed.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/configuration/handlers/__tests__/config-runtime-nats.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/configuration/handlers/__tests__/upsert-overwrite-columns.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/configuration/handlers/config-runtime-nats.handler.ts",
       "prettier_managed": true
     },
     {
@@ -30175,6 +30199,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/recommendations/architectural-arbiter/2026-07-13-adr-0005-config-runtime-subject-namespace.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/recommendations/auth-security-expert/2026-04-06-guard-di-security-recommendations.md",
       "prettier_managed": true
     },
@@ -34444,7 +34474,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/billing/__tests__/dynamic-stripe-client.provider.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/billing/__tests__/stripe-api.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/billing/dynamic-stripe-client.provider.ts",
       "prettier_managed": true
     },
     {
@@ -34583,6 +34625,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/compliance/tenant-erasure/tenant-erasure-target.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/config-client/config-client.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/config-client/config-runtime.client.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/config-client/index.ts",
       "prettier_managed": true
     },
     {
@@ -36785,6 +36845,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/compliance-events.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/config-runtime.ts",
       "prettier_managed": true
     },
     {
@@ -42103,6 +42169,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/quality/closure-manifest.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
       "prettier_managed": true
     },
     {
@@ -53844,10 +53922,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8823,
+  "file_count": 8836,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8642,
-  "managed_file_list_sha256": "7db0d51a4995a0c7e2eacb1ae7f57764ea0157a58da1d786a0b1af8c5345636e",
+  "managed_count": 8655,
+  "managed_file_list_sha256": "0388d890c7a9b07bf68886f97c652e0bce7c687600f36945a6f6929c221e7a1d",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

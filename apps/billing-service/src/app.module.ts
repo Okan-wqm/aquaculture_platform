@@ -286,10 +286,11 @@ export class AppModule implements NestModule {
     consumer.apply(StripInternalHeadersMiddleware).forRoutes('*');
 
     // EXCLUDED from the Stripe webhook (controllers/stripe-webhook.controller.ts,
-    // @Controller('webhooks') → /api/v1/webhooks/stripe): Stripe authenticates
-    // with its own webhook signature and sends NO gateway service identity, so
-    // requiring one there would 500 the webhook. Both prefixed and
-    // prefix-stripped forms are excluded to fail safe.
+    // @Controller('webhooks') → /webhooks/stripe per the Faz C prefixExclusions in
+    // main.ts): Stripe authenticates with its own webhook signature and sends NO
+    // gateway service identity, so requiring one there would 500 the webhook. Both
+    // the prefix-stripped (/webhooks) and legacy prefixed (/api/v1/webhooks) forms
+    // are excluded to fail safe across the routing change.
     consumer
       .apply(VerifiedUserAssertionMiddleware)
       .exclude('webhooks', 'webhooks/{*path}', 'api/v1/webhooks', 'api/v1/webhooks/{*path}')

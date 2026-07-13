@@ -145,15 +145,19 @@ describe('INVARIANT (INFRA-CRITICAL-026): shared cross-tenant tables stay canoni
 
   it('platform bootstrap creates the canonical shared tables in shared schema', () => {
     const bootstrap = repoFile('apps/db-migrate/src/sql/platform-bootstrap/006-shared-schema-tables.sql');
+    // user_permissions retired 2026-07-12 (ADR-042, ORPHAN-HIGH-378) — stage
+    // 006 must no longer create it.
     for (const table of [
       'audit_logs',
       'gdpr_data_requests',
       'user_consents',
-      'user_permissions',
       'access_logs',
     ] as const) {
       expect(bootstrap).toMatch(new RegExp(`CREATE\\s+TABLE\\s+IF\\s+NOT\\s+EXISTS\\s+shared\\.${table}`, 'i'));
     }
+    // Retirement lock: recreating the retired catalog in bootstrap would
+    // resurrect the parallel-RBAC drift ADR-042 removed.
+    expect(bootstrap).not.toMatch(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?shared\.user_permissions/i);
   });
 });
 

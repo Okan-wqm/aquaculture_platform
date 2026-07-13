@@ -203,6 +203,18 @@ run_db_migrate_or_exit() {
   fi
 
   echo "  aqua-db-migrate completed successfully"
+
+  # ORPHAN-HIGH-381: record how many migrations this release actually applied.
+  # rollback_deployed_services uses this to refuse image rollback across a
+  # forward-migrated schema (old image + new schema = SchemaDriftValidator
+  # fatal crash-loop; the exact 2026-07-12 farm outage). Parse the runner's
+  # structured completion line; anything unparseable stays "unknown" and the
+  # rollback guard fails closed.
+  MIGRATIONS_APPLIED_THIS_RELEASE=$(docker logs aqua-db-migrate --tail 200 2>/dev/null \
+    | grep -o '"totalAppliedMigrations":[0-9]*' | tail -1 | cut -d: -f2 || true)
+  MIGRATIONS_APPLIED_THIS_RELEASE="${MIGRATIONS_APPLIED_THIS_RELEASE:-unknown}"
+  export MIGRATIONS_APPLIED_THIS_RELEASE
+  echo "  Migrations applied this release: ${MIGRATIONS_APPLIED_THIS_RELEASE}"
 }
 
 is_application_image_service() {
@@ -316,10 +328,26 @@ capture_rollback_manifest() {
   local svc
   local container_id
   local image_id
+  local health
+  local running
+  local restarts
   for svc in ${APPLICATION_IMAGE_SERVICES}; do
     [ "$svc" = "db-migrate" ] && continue
     container_id=$(docker compose -f docker-compose.droplet.yml ps -q "$svc" 2>/dev/null || true)
     if [ -z "${container_id}" ]; then
+      continue
+    fi
+    # ORPHAN-HIGH-381: a rollback point must be a PROVEN-GOOD image. Capturing a
+    # crash-looping container (2026-07-12: farm-service fatal at bootstrap) poisons
+    # the manifest, and every later rollback restores the broken image under the
+    # new release tag — a self-sustaining outage. Skip anything not verifiably
+    # healthy; rollback then leaves that service's tag unchanged (existing
+    # "no prior image" warning path), which is strictly safer.
+    health=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${container_id}" 2>/dev/null || echo "unknown")
+    running=$(docker inspect --format='{{.State.Running}}' "${container_id}" 2>/dev/null || echo "false")
+    restarts=$(docker inspect --format='{{.RestartCount}}' "${container_id}" 2>/dev/null || echo "0")
+    if [ "${running}" != "true" ] || { [ "${health}" != "healthy" ] && [ "${health}" != "none" ]; }; then
+      echo "  WARN: ${svc} is not a valid rollback point (running=${running} health=${health} restarts=${restarts}) — NOT captured."
       continue
     fi
     image_id=$(docker inspect --format='{{.Image}}' "${container_id}" 2>/dev/null || true)
@@ -347,6 +375,25 @@ rollback_deployed_services() {
   local reason="${1:-deploy failure}"
 
   echo "=== Rolling back application images (${reason}) ==="
+
+  # ORPHAN-HIGH-381: image rollback is only safe when the database did NOT move
+  # forward in this release. Migrations are forward-only (blue-green discipline);
+  # restoring a pre-release image against a schema that just dropped or reshaped
+  # its tables boots straight into a SchemaDriftValidator fatal and the service
+  # crash-loops until a human intervenes (2026-07-12 farm_documents outage).
+  # Fail closed on "unknown": every rollback caller runs after db-migrate, so an
+  # unparseable count means the boundary cannot be proven uncrossed.
+  if [ "${MIGRATIONS_APPLIED_THIS_RELEASE:-unknown}" = "unknown" ]; then
+    echo "::error::Rollback refused: applied-migration count for this release is unknown, so image rollback cannot be proven safe. Fix forward (repair the failing gate and redeploy)."
+    export ROLLBACK_SKIPPED_REASON="migration_boundary_unknown"
+    return 1
+  fi
+  if [ "${MIGRATIONS_APPLIED_THIS_RELEASE}" -gt 0 ] 2>/dev/null; then
+    echo "::error::Rollback refused: this release applied ${MIGRATIONS_APPLIED_THIS_RELEASE} database migration(s). Restoring pre-release images against a forward-migrated schema is the crash-loop class that took farm-service down on 2026-07-12 (ORPHAN-HIGH-381). Fix forward (repair the failing gate and redeploy this or a newer release)."
+    export ROLLBACK_SKIPPED_REASON="migration_boundary_crossed"
+    return 1
+  fi
+
   if [ ! -s "${ROLLBACK_MANIFEST}" ]; then
     echo "::error::No rollback manifest available; manual intervention required."
     return 1

@@ -109,12 +109,19 @@ const PLATFORM_FUNCTIONS: ReadonlyArray<string> = [
   'audit_immutability_guard',
 ] as const;
 
-/** Shared schema tables installed in stage 006. */
+/**
+ * Shared schema tables installed in stage 006.
+ *
+ * user_permissions was retired from the canonical set (ADR-042,
+ * ORPHAN-HIGH-378): stage 006 no longer creates it, and the admin-api
+ * migration 1801500000000-DropRetiredUserPermissions archives + drops the
+ * live table. The post-condition count below only counts tables named in
+ * this list, so behind-DBs that still carry the table pass unchanged.
+ */
 const SHARED_SCHEMA_TABLES: ReadonlyArray<string> = [
   'audit_logs',
   'gdpr_data_requests',
   'user_consents',
-  'user_permissions',
   'access_logs',
 ] as const;
 

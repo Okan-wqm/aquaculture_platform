@@ -28,6 +28,7 @@ import {
   type BillingAdminSubscriptionCommandResult,
   type BillingAdminVoidInvoiceCommand,
 } from '@platform/event-contracts';
+import { BypassRlsService } from '@aquaculture/backend-common/database';
 import { DataSource, EntityManager } from 'typeorm';
 
 import { ChangeSubscriptionPlanCommand } from '../commands/change-subscription-plan.command';
@@ -107,7 +108,47 @@ export class BillingAdminNatsHandler {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly dataSource: DataSource,
+    private readonly bypassRls: BypassRlsService,
   ) {}
+
+  /**
+   * Run a trusted platform-admin billing command under an AUDITED RLS bypass.
+   *
+   * WHY: every method on this controller is a cert-CN-authenticated,
+   * cross-tenant admin NATS command issued by admin-api-service. It arrives with
+   * NO HTTP request context — `TenantContextMiddleware` (which sets
+   * `app.current_tenant` from the JWT) only runs on the HTTP surface, so on the
+   * NATS path the RLS GUCs default to `app.current_tenant = ''` and
+   * `app.bypass_rls = 'off'`. billing's `tenant_isolation_policy`
+   * (`bypass OR "tenantId" = current_setting('app.current_tenant')`) then
+   * evaluates deny-by-default and rejects every write/read against the
+   * RLS-protected billing tables (command_receipts, subscriptions,
+   * subscription_module_items, invoices, payments). For provisioning that
+   * surfaced as `new row violates row-level security policy for table
+   * "command_receipts"`, aborting the whole SERIALIZABLE transaction and leaving
+   * billing.subscriptions at 0 rows despite active tenants (the 2nd half of the
+   * 0-subscriptions root cause).
+   *
+   * WHAT: `withBypass` sets `app.bypass_rls = 'on'` for the entire command via an
+   * AsyncLocalStorage frame that `RlsConnectionBootstrap` reads on every pool
+   * checkout — so a single grant covers the receipt AND every subsequent
+   * tenant-scoped write in the same transaction, PLUS the out-of-transaction
+   * failure-receipt write in the catch block. Each grant logs RLS BYPASS
+   * GRANTED/RELEASED [billing-admin:<op>] so the cross-tenant access stays
+   * auditable, mirroring how admin-api-service wraps its own reconcile endpoint.
+   *
+   * WHY bypass and NOT `app.current_tenant = command.tenantId`: plan resolution
+   * reads `billing.plans`, a cross-tenant CATALOG table with no tenantId column
+   * (and therefore no tenant RLS policy). A tenant GUC would not help that read
+   * and would still deny the RLS-bearing writes for any tenant the pooled
+   * connection did not happen to carry. Bypass is the correct primitive: every
+   * write here still sets `tenantId = command.tenantId` EXPLICITLY, so rows land
+   * in the correct tenant — the bypass only lets the write THROUGH, it never
+   * misroutes it.
+   */
+  private async runAsTrustedAdminBypass<T>(operation: string, work: () => Promise<T>): Promise<T> {
+    return this.bypassRls.withBypass(`billing-admin:${operation}`, work);
+  }
 
   @MessagePattern(BILLING_ADMIN_COMMAND_SUBJECTS.PROVISION_TENANT_SUBSCRIPTION)
   async provisionTenantSubscription(
@@ -128,285 +169,308 @@ export class BillingAdminNatsHandler {
       customPlanId: command.customPlanId,
     });
 
-    try {
-      // Boundary validation (ORPHAN-CRITICAL-393): admin-api resolves each
-      // module's code/name/price and passes priced `moduleItems`. If a command
-      // selects modules but carries no resolved items, reject at the boundary
-      // (VALIDATION_ERROR) — before the transaction opens, never mid-transaction
-      // after a subscription row is written (the silent-rollback class removed).
-      this.assertProvisioningModuleItems(command);
-      return await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
-        const receipt = await this.prepareBillingReceipt(
-          manager,
-          command,
-          commandType,
-          payloadHash,
-        );
-        if (receipt.status === 'SUCCEEDED') {
-          return this.replayProvisioningResult(manager, command, receipt);
-        }
+    // Trusted cross-tenant admin command with no HTTP tenant context — the
+    // whole command (receipt + subscription writes AND the catch-block failure
+    // receipt) runs under one audited RLS bypass. See runAsTrustedAdminBypass.
+    return this.runAsTrustedAdminBypass('provision-tenant-subscription', async () => {
+      try {
+        // Boundary validation (ORPHAN-CRITICAL-393): admin-api resolves each
+        // module's code/name/price and passes priced `moduleItems`. If a command
+        // selects modules but carries no resolved items, reject at the boundary
+        // (VALIDATION_ERROR) — before the transaction opens, never mid-transaction
+        // after a subscription row is written (the silent-rollback class removed).
+        this.assertProvisioningModuleItems(command);
+        return await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
+          const receipt = await this.prepareBillingReceipt(
+            manager,
+            command,
+            commandType,
+            payloadHash,
+          );
+          if (receipt.status === 'SUCCEEDED') {
+            return this.replayProvisioningResult(manager, command, receipt);
+          }
 
-        const plan = await this.resolveProvisioningPlan(manager, command);
-        const existing = await this.findActiveSubscription(manager, command.tenantId, true);
-        if (existing) {
-          await this.assertActiveSubscriptionReplayMatches(manager, command, existing, plan);
+          const plan = await this.resolveProvisioningPlan(manager, command);
+          const existing = await this.findActiveSubscription(manager, command.tenantId, true);
+          if (existing) {
+            await this.assertActiveSubscriptionReplayMatches(manager, command, existing, plan);
+            return this.markBillingReceiptSucceeded(manager, command, receipt.id, {
+              subscriptionId: existing.id,
+              status: existing.status,
+              moduleItemCount: await this.countSubscriptionModuleItems(manager, existing.id),
+              replayed: true,
+            });
+          }
+
+          // The subscription's recurring price is the sum of its priced module
+          // items (the scheduler bills solely off pricing.basePrice), so compute
+          // it from the command's real module totals — never the catalog base
+          // alone, which ignored the selected modules (ORPHAN-HIGH-394).
+          const moduleItemsMonthlyTotal = this.sumModuleItemsTotal(command.moduleItems);
+          const subscription = await this.createProvisioningSubscription(
+            manager,
+            command,
+            plan,
+            moduleItemsMonthlyTotal,
+          );
+          const moduleItemCount = await this.reconcileSubscriptionModuleItems(
+            manager,
+            subscription.id,
+            command.moduleItems,
+            plan.currency,
+            plan.tier === PlanTier.FREE,
+          );
+
           return this.markBillingReceiptSucceeded(manager, command, receipt.id, {
-            subscriptionId: existing.id,
-            status: existing.status,
-            moduleItemCount: await this.countSubscriptionModuleItems(manager, existing.id),
-            replayed: true,
+            subscriptionId: subscription.id,
+            status: subscription.status,
+            moduleItemCount,
+            replayed: false,
           });
-        }
-
-        // The subscription's recurring price is the sum of its priced module
-        // items (the scheduler bills solely off pricing.basePrice), so compute
-        // it from the command's real module totals — never the catalog base
-        // alone, which ignored the selected modules (ORPHAN-HIGH-394).
-        const moduleItemsMonthlyTotal = this.sumModuleItemsTotal(command.moduleItems);
-        const subscription = await this.createProvisioningSubscription(
-          manager,
-          command,
-          plan,
-          moduleItemsMonthlyTotal,
-        );
-        const moduleItemCount = await this.reconcileSubscriptionModuleItems(
-          manager,
-          subscription.id,
-          command.moduleItems,
-          plan.currency,
-          plan.tier === PlanTier.FREE,
-        );
-
-        return this.markBillingReceiptSucceeded(manager, command, receipt.id, {
-          subscriptionId: subscription.id,
-          status: subscription.status,
-          moduleItemCount,
-          replayed: false,
         });
-      });
-    } catch (err) {
-      await this.markBillingReceiptFailed(command, commandType, payloadHash, err);
-      return this.toProvisioningError(command, err);
-    }
+      } catch (err) {
+        await this.markBillingReceiptFailed(command, commandType, payloadHash, err);
+        return this.toProvisioningError(command, err);
+      }
+    });
   }
 
   @MessagePattern(BILLING_ADMIN_COMMAND_SUBJECTS.CREATE_INVOICE)
   async createInvoice(
     @Payload() command: BillingAdminCreateInvoiceCommand,
   ): Promise<BillingAdminInvoiceCommandResult> {
-    try {
-      const input: CreateInvoiceInput = {
-        ...command.input,
-      };
-      const invoice = await this.commandBus.execute<CreateInvoiceCommand, Invoice>(
-        new CreateInvoiceCommand(command.tenantId, input, command.actorId),
-      );
-      return { success: true, invoice: this.mapInvoice(invoice) };
-    } catch (err) {
-      return this.toInvoiceError('createInvoice', err);
-    }
+    return this.runAsTrustedAdminBypass('create-invoice', async () => {
+      try {
+        const input: CreateInvoiceInput = {
+          ...command.input,
+        };
+        const invoice = await this.commandBus.execute<CreateInvoiceCommand, Invoice>(
+          new CreateInvoiceCommand(command.tenantId, input, command.actorId),
+        );
+        return { success: true, invoice: this.mapInvoice(invoice) };
+      } catch (err) {
+        return this.toInvoiceError('createInvoice', err);
+      }
+    });
   }
 
   @MessagePattern(BILLING_ADMIN_COMMAND_SUBJECTS.MARK_INVOICE_PAID)
   async markInvoicePaid(
     @Payload() command: BillingAdminMarkInvoicePaidCommand,
   ): Promise<BillingAdminInvoiceCommandResult> {
-    try {
-      const tenantId = await this.getInvoiceTenantId(command.invoiceId);
-      const input: RecordPaymentInput = {
-        invoiceId: command.invoiceId,
-        amount: command.amount,
-        paymentMethod: PaymentMethod.OTHER,
-        notes: 'Recorded by platform admin',
-      };
-      await this.commandBus.execute<RecordPaymentCommand, Payment>(
-        new RecordPaymentCommand(tenantId, input, command.actorId),
-      );
-      const invoice = await this.getInvoiceSnapshot(command.invoiceId, tenantId);
-      return { success: true, invoice };
-    } catch (err) {
-      return this.toInvoiceError('markInvoicePaid', err);
-    }
+    return this.runAsTrustedAdminBypass('mark-invoice-paid', async () => {
+      try {
+        const tenantId = await this.getInvoiceTenantId(command.invoiceId);
+        const input: RecordPaymentInput = {
+          invoiceId: command.invoiceId,
+          amount: command.amount,
+          paymentMethod: PaymentMethod.OTHER,
+          notes: 'Recorded by platform admin',
+        };
+        await this.commandBus.execute<RecordPaymentCommand, Payment>(
+          new RecordPaymentCommand(tenantId, input, command.actorId),
+        );
+        const invoice = await this.getInvoiceSnapshot(command.invoiceId, tenantId);
+        return { success: true, invoice };
+      } catch (err) {
+        return this.toInvoiceError('markInvoicePaid', err);
+      }
+    });
   }
 
   @MessagePattern(BILLING_ADMIN_COMMAND_SUBJECTS.VOID_INVOICE)
   async voidInvoice(
     @Payload() command: BillingAdminVoidInvoiceCommand,
   ): Promise<BillingAdminInvoiceCommandResult> {
-    try {
-      const tenantId = await this.getInvoiceTenantId(command.invoiceId);
-      const invoice = await this.commandBus.execute<VoidInvoiceCommand, Invoice>(
-        new VoidInvoiceCommand(tenantId, command.invoiceId, command.reason, command.actorId),
-      );
-      return { success: true, invoice: this.mapInvoice(invoice) };
-    } catch (err) {
-      return this.toInvoiceError('voidInvoice', err);
-    }
+    return this.runAsTrustedAdminBypass('void-invoice', async () => {
+      try {
+        const tenantId = await this.getInvoiceTenantId(command.invoiceId);
+        const invoice = await this.commandBus.execute<VoidInvoiceCommand, Invoice>(
+          new VoidInvoiceCommand(tenantId, command.invoiceId, command.reason, command.actorId),
+        );
+        return { success: true, invoice: this.mapInvoice(invoice) };
+      } catch (err) {
+        return this.toInvoiceError('voidInvoice', err);
+      }
+    });
   }
 
   @MessagePattern(BILLING_ADMIN_COMMAND_SUBJECTS.RECORD_PAYMENT)
   async recordPayment(
     @Payload() command: BillingAdminRecordPaymentCommand,
   ): Promise<BillingAdminPaymentCommandResult> {
-    try {
-      const tenantId = await this.getInvoiceTenantId(command.input.invoiceId);
-      const paymentMethod = this.parsePaymentMethod(command.input.paymentMethod);
-      const input: RecordPaymentInput = {
-        ...command.input,
-        paymentMethod,
-      };
-      const payment = await this.commandBus.execute<RecordPaymentCommand, Payment>(
-        new RecordPaymentCommand(tenantId, input, command.actorId),
-      );
-      return { success: true, payment: this.mapPayment(payment) };
-    } catch (err) {
-      return this.toPaymentError('recordPayment', err);
-    }
+    return this.runAsTrustedAdminBypass('record-payment', async () => {
+      try {
+        const tenantId = await this.getInvoiceTenantId(command.input.invoiceId);
+        const paymentMethod = this.parsePaymentMethod(command.input.paymentMethod);
+        const input: RecordPaymentInput = {
+          ...command.input,
+          paymentMethod,
+        };
+        const payment = await this.commandBus.execute<RecordPaymentCommand, Payment>(
+          new RecordPaymentCommand(tenantId, input, command.actorId),
+        );
+        return { success: true, payment: this.mapPayment(payment) };
+      } catch (err) {
+        return this.toPaymentError('recordPayment', err);
+      }
+    });
   }
 
   @MessagePattern(BILLING_ADMIN_COMMAND_SUBJECTS.REFUND_PAYMENT)
   async refundPayment(
     @Payload() command: BillingAdminRefundPaymentCommand,
   ): Promise<BillingAdminPaymentCommandResult> {
-    try {
-      const tenantId = await this.getPaymentTenantId(command.input.paymentId);
-      const input: RefundPaymentInput = {
-        ...command.input,
-      };
-      const payment = await this.commandBus.execute<RefundPaymentCommand, Payment>(
-        new RefundPaymentCommand(tenantId, input, command.actorId),
-      );
-      return { success: true, payment: this.mapPayment(payment) };
-    } catch (err) {
-      return this.toPaymentError('refundPayment', err);
-    }
+    return this.runAsTrustedAdminBypass('refund-payment', async () => {
+      try {
+        const tenantId = await this.getPaymentTenantId(command.input.paymentId);
+        const input: RefundPaymentInput = {
+          ...command.input,
+        };
+        const payment = await this.commandBus.execute<RefundPaymentCommand, Payment>(
+          new RefundPaymentCommand(tenantId, input, command.actorId),
+        );
+        return { success: true, payment: this.mapPayment(payment) };
+      } catch (err) {
+        return this.toPaymentError('refundPayment', err);
+      }
+    });
   }
 
   @MessagePattern(BILLING_ADMIN_COMMAND_SUBJECTS.CHANGE_SUBSCRIPTION_PLAN)
   async changeSubscriptionPlan(
     @Payload() command: BillingAdminChangeSubscriptionPlanCommand,
   ): Promise<BillingAdminSubscriptionCommandResult> {
-    try {
-      const input: ChangeSubscriptionPlanInput = {
-        newPlanId: command.newPlanId,
-        immediate: command.immediate,
-        reason: command.reason,
-      };
-      await this.commandBus.execute<ChangeSubscriptionPlanCommand, Subscription>(
-        new ChangeSubscriptionPlanCommand(command.tenantId, input, command.actorId),
-      );
-      return { success: true, message: 'Subscription plan change applied' };
-    } catch (err) {
-      return this.toSubscriptionError('changeSubscriptionPlan', err);
-    }
+    return this.runAsTrustedAdminBypass('change-subscription-plan', async () => {
+      try {
+        const input: ChangeSubscriptionPlanInput = {
+          newPlanId: command.newPlanId,
+          immediate: command.immediate,
+          reason: command.reason,
+        };
+        await this.commandBus.execute<ChangeSubscriptionPlanCommand, Subscription>(
+          new ChangeSubscriptionPlanCommand(command.tenantId, input, command.actorId),
+        );
+        return { success: true, message: 'Subscription plan change applied' };
+      } catch (err) {
+        return this.toSubscriptionError('changeSubscriptionPlan', err);
+      }
+    });
   }
 
   @MessagePattern(BILLING_ADMIN_COMMAND_SUBJECTS.CANCEL_SUBSCRIPTION)
   async cancelSubscription(
     @Payload() command: BillingAdminCancelSubscriptionCommand,
   ): Promise<BillingAdminSubscriptionCommandResult> {
-    try {
-      const subscription = await this.getSubscription(command.tenantId);
-      const effectiveDate = command.cancelImmediately
-        ? new Date()
-        : new Date(subscription.currentPeriodEnd);
+    return this.runAsTrustedAdminBypass('cancel-subscription', async () => {
+      try {
+        const subscription = await this.getSubscription(command.tenantId);
+        const effectiveDate = command.cancelImmediately
+          ? new Date()
+          : new Date(subscription.currentPeriodEnd);
 
-      await this.dataSource.query(
-        `
-        UPDATE billing.subscriptions SET
-          status = $1,
-          cancelled_at = NOW(),
-          cancellation_reason = $2,
-          auto_renew = false,
-          end_date = $3,
-          "updatedAt" = NOW(),
-          updated_by = $4
-        WHERE tenant_id = $5 AND is_deleted = false
-        `,
-        [
-          command.cancelImmediately ? SubscriptionStatus.CANCELLED : subscription.status,
-          command.reason,
-          effectiveDate,
-          command.actorId,
-          command.tenantId,
-        ],
-      );
+        await this.dataSource.query(
+          `
+          UPDATE billing.subscriptions SET
+            status = $1,
+            cancelled_at = NOW(),
+            cancellation_reason = $2,
+            auto_renew = false,
+            end_date = $3,
+            "updatedAt" = NOW(),
+            updated_by = $4
+          WHERE tenant_id = $5 AND is_deleted = false
+          `,
+          [
+            command.cancelImmediately ? SubscriptionStatus.CANCELLED : subscription.status,
+            command.reason,
+            effectiveDate,
+            command.actorId,
+            command.tenantId,
+          ],
+        );
 
-      return {
-        success: true,
-        effectiveDate: effectiveDate.toISOString(),
-        message: command.cancelImmediately
-          ? 'Subscription cancelled immediately'
-          : `Subscription will be cancelled on ${effectiveDate.toISOString()}`,
-      };
-    } catch (err) {
-      return this.toSubscriptionError('cancelSubscription', err);
-    }
+        return {
+          success: true,
+          effectiveDate: effectiveDate.toISOString(),
+          message: command.cancelImmediately
+            ? 'Subscription cancelled immediately'
+            : `Subscription will be cancelled on ${effectiveDate.toISOString()}`,
+        };
+      } catch (err) {
+        return this.toSubscriptionError('cancelSubscription', err);
+      }
+    });
   }
 
   @MessagePattern(BILLING_ADMIN_COMMAND_SUBJECTS.REACTIVATE_SUBSCRIPTION)
   async reactivateSubscription(
     @Payload() command: BillingAdminReactivateSubscriptionCommand,
   ): Promise<BillingAdminSubscriptionCommandResult> {
-    try {
-      const subscription = await this.getSubscription(command.tenantId);
-      if (subscription.status !== SubscriptionStatus.CANCELLED) {
-        throw new BadRequestException('Can only reactivate cancelled subscriptions');
+    return this.runAsTrustedAdminBypass('reactivate-subscription', async () => {
+      try {
+        const subscription = await this.getSubscription(command.tenantId);
+        if (subscription.status !== SubscriptionStatus.CANCELLED) {
+          throw new BadRequestException('Can only reactivate cancelled subscriptions');
+        }
+
+        await this.dataSource.query(
+          `
+          UPDATE billing.subscriptions SET
+            status = 'active',
+            cancelled_at = NULL,
+            cancellation_reason = NULL,
+            auto_renew = true,
+            end_date = NULL,
+            "updatedAt" = NOW(),
+            updated_by = $1
+          WHERE tenant_id = $2 AND is_deleted = false
+          `,
+          [command.actorId, command.tenantId],
+        );
+
+        return { success: true, message: 'Subscription reactivated successfully' };
+      } catch (err) {
+        return this.toSubscriptionError('reactivateSubscription', err);
       }
-
-      await this.dataSource.query(
-        `
-        UPDATE billing.subscriptions SET
-          status = 'active',
-          cancelled_at = NULL,
-          cancellation_reason = NULL,
-          auto_renew = true,
-          end_date = NULL,
-          "updatedAt" = NOW(),
-          updated_by = $1
-        WHERE tenant_id = $2 AND is_deleted = false
-        `,
-        [command.actorId, command.tenantId],
-      );
-
-      return { success: true, message: 'Subscription reactivated successfully' };
-    } catch (err) {
-      return this.toSubscriptionError('reactivateSubscription', err);
-    }
+    });
   }
 
   @MessagePattern(BILLING_ADMIN_COMMAND_SUBJECTS.EXTEND_SUBSCRIPTION_TRIAL)
   async extendSubscriptionTrial(
     @Payload() command: BillingAdminExtendSubscriptionTrialCommand,
   ): Promise<BillingAdminSubscriptionCommandResult> {
-    try {
-      const subscription = await this.getSubscription(command.tenantId);
-      if (subscription.status !== SubscriptionStatus.TRIAL) {
-        throw new BadRequestException('Can only extend trial period for trial subscriptions');
+    return this.runAsTrustedAdminBypass('extend-subscription-trial', async () => {
+      try {
+        const subscription = await this.getSubscription(command.tenantId);
+        if (subscription.status !== SubscriptionStatus.TRIAL) {
+          throw new BadRequestException('Can only extend trial period for trial subscriptions');
+        }
+
+        const currentTrialEnd = subscription.trialEndDate
+          ? new Date(subscription.trialEndDate)
+          : new Date();
+        const newTrialEnd = new Date(currentTrialEnd);
+        newTrialEnd.setDate(newTrialEnd.getDate() + command.additionalDays);
+
+        await this.dataSource.query(
+          `
+          UPDATE billing.subscriptions SET
+            trial_end_date = $1,
+            current_period_end = $1,
+            "updatedAt" = NOW(),
+            updated_by = $2
+          WHERE tenant_id = $3 AND is_deleted = false
+          `,
+          [newTrialEnd, command.actorId, command.tenantId],
+        );
+
+        return { success: true, newTrialEnd: newTrialEnd.toISOString() };
+      } catch (err) {
+        return this.toSubscriptionError('extendSubscriptionTrial', err);
       }
-
-      const currentTrialEnd = subscription.trialEndDate
-        ? new Date(subscription.trialEndDate)
-        : new Date();
-      const newTrialEnd = new Date(currentTrialEnd);
-      newTrialEnd.setDate(newTrialEnd.getDate() + command.additionalDays);
-
-      await this.dataSource.query(
-        `
-        UPDATE billing.subscriptions SET
-          trial_end_date = $1,
-          current_period_end = $1,
-          "updatedAt" = NOW(),
-          updated_by = $2
-        WHERE tenant_id = $3 AND is_deleted = false
-        `,
-        [newTrialEnd, command.actorId, command.tenantId],
-      );
-
-      return { success: true, newTrialEnd: newTrialEnd.toISOString() };
-    } catch (err) {
-      return this.toSubscriptionError('extendSubscriptionTrial', err);
-    }
+    });
   }
 
   private async prepareBillingReceipt(

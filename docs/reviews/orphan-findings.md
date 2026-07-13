@@ -17,6 +17,7 @@
 **File:** `/tmp/edge-work/sens-api-gateway/Cargo.toml` lines 150-153
 
 **Evidence:**
+
 ```toml
 opentelemetry = { version = "0.27", optional = true }
 opentelemetry-otlp = { version = "0.27", features = ["trace"], optional = true }
@@ -29,12 +30,14 @@ tracing-opentelemetry = { version = "0.28", optional = true }
 **Risk:** Silent `cargo update` or dependabot PR upgrading only one crate → compile fail with cryptic type-mismatch errors across `tracing-opentelemetry` ↔ `opentelemetry_sdk` boundary.
 
 **Reproducibility:**
+
 1. `cargo update -p tracing-opentelemetry --precise 0.29`
 2. `cargo check --features telemetry`
 3. Expect: opaque type-level error in `tracing-opentelemetry::OpenTelemetryLayer` construction.
 
 **Recommendation:**
-- Add grouped comment block: *"OpenTelemetry coupled-release family — bump all four crates atomically OR none."*
+
+- Add grouped comment block: _"OpenTelemetry coupled-release family — bump all four crates atomically OR none."_
 - Consider dependabot group rule grouping these four crates.
 - Or switch to `opentelemetry-all-in-one` crate (if exists) that locks the version family.
 
@@ -49,6 +52,7 @@ tracing-opentelemetry = { version = "0.28", optional = true }
 **File:** `/tmp/edge-work/sens-api-gateway/Cargo.toml` lines 60-70 + `sens-api-gateway/src/modbus.rs` (referenced)
 
 **Evidence (existing comment in Cargo.toml):**
+
 ```
 # BUG-005 (version pin): The server-only TLS path in modbus.rs passes empty
 # Path::new("") for the client cert/key arguments to TlsClientConfig::full_pki().
@@ -61,16 +65,19 @@ tracing-opentelemetry = { version = "0.28", optional = true }
 **Problem:** `Path::new("")` empty-path workaround for "no client cert" in `TlsClientConfig::full_pki()` is not a documented API contract. Future rodbus patch version (even 1.4.x patch bump) could change this to validate Path non-empty → silent Modbus TLS failure in production.
 
 **Risk:**
+
 - Production Modbus TLS silently fails post-dependency update
 - SL-2 FR1 identification broken (mTLS required per deployment)
 - Pre-existing tech debt, tracked by BUG-005 but no architectural fix
 
 **Reproducibility:**
+
 1. Bump rodbus patch version to next minor (if available).
 2. `cargo check` + `cargo test --test modbus_tls_server_only`
 3. Expect: potential Path validation failure OR silent cert-skip in rodbus internals.
 
 **Recommendation:**
+
 - Plan §5 Faz 1 ARC-007 **already tracks this**: `rodbus = "~1.4.0"` (patch-level) + `enum TlsMode { Full{cert,key}, ServerOnly, None }`. Empty-path hack removed via explicit enum in modbus.rs refactor.
 - This orphan-finding confirms Faz 1 ARC-007 scope; architectural fix in Faz 1 Sprint 1.8.
 
@@ -85,11 +92,13 @@ tracing-opentelemetry = { version = "0.28", optional = true }
 **File:** `/tmp/edge-work/sens-api-gateway/Cargo.toml` line 209
 
 **Evidence:**
+
 ```toml
 nix = { version = "0.29", features = ["fs", "process", "signal", "user"] }
 ```
 
 **Problem:** `nix 0.29` capability wrappers (`prctl`, `capset`) are incomplete vs what ADR-019 §5 + ADR-020 §3a need. Expected implementation path:
+
 - `CAP_LINUX_IMMUTABLE` drop → likely via `libc::prctl(PR_CAPBSET_DROP, ...)` direct FFI (libc already imported line 196)
 - `fcntl(F_SETLK)` advisory lock → `nix::fcntl` covered
 - Signal handling → `nix::sys::signal` covered
@@ -100,8 +109,9 @@ nix = { version = "0.29", features = ["fs", "process", "signal", "user"] }
 **Reproducibility:** After Faz 2 Sprint 6.3 `src/keystore/hardening.rs` lands, `cargo tree -e features -p nix` will show unused symbols. Benchmark binary size with/without feature.
 
 **Recommendation:**
+
 - During Faz 2 Sprint 6.3 implementation: evaluate whether `libc` direct FFI replaces all `nix::process` needs.
-- If yes: drop `process` feature; comment update: *"Capability drop via libc::prctl direct FFI; nix::process feature not used."*
+- If yes: drop `process` feature; comment update: _"Capability drop via libc::prctl direct FFI; nix::process feature not used."_
 - If no: keep feature; add concrete usage comment.
 
 **Status:** OPEN → resolution deferred to Faz 2 Sprint 6.3 implementation (tracked).
@@ -115,11 +125,13 @@ nix = { version = "0.29", features = ["fs", "process", "signal", "user"] }
 **File:** `tools/gates/banned-phrase.ts`
 
 **Evidence:** Batch 1 Cargo.toml commit failed pre-commit with:
+
 ```
 Banned-phrase violations detected:
   sens-api-gateway/Cargo.toml:406:3  "temporary"
     > # Temporary directories for testing (v1.2.4)
 ```
+
 Line 406 pre-existed (v1.2.4 baseline); Batch 1 changes were in lines 132-368.
 
 **Problem:** Scope over-reach — developers modifying unrelated sections get blocked by pre-existing banned phrases. Encourages unrelated edits or EXEMPT_PATHS abuse.
@@ -137,20 +149,24 @@ Line 406 pre-existed (v1.2.4 baseline); Batch 1 changes were in lines 132-368.
 **File:** `sens-api-gateway/src/main.rs:1121-1122` + `:1247-1258`
 
 **Evidence:**
+
 ```rust
 let data_dir = std::env::var("SUDERRA_DATA_DIR").unwrap_or_else(|_| "/var/lib/suderra".to_string());
 let scada_db_path = format!("{}/scada/scada.db", data_dir);
 ```
+
 Same pattern for `retain.db`. No canonicalization, no allowlist, no path-root check.
 
 **Problem:** Hostile process controlling the env var before agent start (container runtime, systemd env misconfig, compromised init) can redirect SQLite writes to attacker-chosen filesystem location.
 
 **Risk:**
+
 - IEC 62443 FR5 (Restricted Data Flow) + FR3 (System Integrity) violation
 - systemd `ReadWritePaths=/var/lib/suderra` defense bypassed by env redirect
 - Write-amplification + state-exfil-via-path vectors
 
 **Reproducibility:**
+
 1. `SUDERRA_DATA_DIR=/tmp/attacker suderra-agent`
 2. Agent writes to attacker-owned path instead of expected location.
 
@@ -166,7 +182,8 @@ Same pattern for `retain.db`. No canonicalization, no allowlist, no path-root ch
 **Discovered:** 2026-04-20, Batch 2 audit (edge-expert)
 **File:** `sens-api-gateway/src/main.rs:1390-1396`
 
-**Evidence:** Graceful-shutdown sequence step 4 claims *"Flush offline queue to disk (WAL checkpoint + fsync)"*. Actual code:
+**Evidence:** Graceful-shutdown sequence step 4 claims _"Flush offline queue to disk (WAL checkpoint + fsync)"_. Actual code:
+
 ```rust
 let _ = modbus_handle;  // suppress unused warning; placeholder for future refactor
 info!("Offline queue flush step complete");
@@ -175,12 +192,14 @@ info!("Offline queue flush step complete");
 **Problem:** Advertised durability is a no-op. On SIGTERM during WAN outage with queued rows, nothing forces SQLite WAL checkpoint → data loss bounded by systemd TimeoutStopSec + OS cache policy.
 
 **Risk:**
+
 - Telemetry + audit entries queued during outage lost on shutdown
 - IEC 62443 FR6 Timely Response degraded
 - Log line audit-positive for action that did NOT happen — deceptive
 - Life-safety adjacent: force_value / safe_state audit entries in offline queue may be lost pre-cloud-sync
 
 **Reproducibility:**
+
 1. Start agent with MQTT broker unreachable.
 2. Trigger N commands queuing audit entries.
 3. `systemctl stop suderra-agent`.
@@ -199,6 +218,7 @@ info!("Offline queue flush step complete");
 **File:** `sens-api-gateway/src/main.rs:1647-1652`
 
 **Evidence:**
+
 ```rust
 let topic = &resolved.capabilities;  // &String
 if let Err(e) = mqtt.publish_raw(&topic, &payload).await {  // &&String
@@ -219,6 +239,7 @@ if let Err(e) = mqtt.publish_raw(&topic, &payload).await {  // &&String
 **File:** `sens-api-gateway/src/main.rs:1190-1208`
 
 **Evidence:**
+
 ```rust
 ProtocolConfig::Modbus { register, .. } => {
     if let Some(ref handle) = s.modbus_handle {
@@ -243,18 +264,21 @@ ProtocolConfig::Modbus { register, .. } => {
 **Problem:** `s.config.modbus.first()` unconditionally picks the first-declared Modbus device regardless of which tag is being written. In multi-PLC deployments (2+ PLCs sharing an edge — e.g. primary PLC for aeration + secondary PLC for chemistry dosing), every write addressed at a tag owned by PLC #2 is silently routed to PLC #1. The only hint that the routing is wrong is "register X doesn't exist on this device" from the upstream PLC — and for overlapping register ranges, the wrong PLC accepts the write and the wrong actuator fires.
 
 **Risk:**
+
 - Life-safety routing error: aerator write-command routes to chemistry PLC → wrong actuator fires during recovery.
 - Cross-class actuator collision (ADR-024 §2 class-binding defense bypassed downstream — the signed class binding cannot protect a write that reaches the WRONG device).
 - Audit trail mis-attribution: audit log records the command as delivered to tag X, but the actuator that fires is on a different PLC.
 - SL-2 FR3 (System Integrity) degraded under multi-PLC topologies.
 
 **Reproducibility:**
+
 1. `config.yaml` with two `modbus:` device blocks (`plc_primary`, `plc_secondary`)
 2. TagConfig with `ProtocolConfig::Modbus { register: 100 }` where the tag's documented owner is `plc_secondary`
 3. Issue `cmd_write` targeting that tag
 4. Expect write delivered to `plc_secondary`; observe write delivered to `plc_primary`.
 
 **Recommendation:**
+
 - Add explicit `device_name: String` field to `ProtocolConfig::Modbus` (OR resolve via the signed `ActuatorClassBindingEntry` when ADR-024 §2 lands).
 - Dispatch lookup: `s.config.modbus.iter().find(|d| d.name == target_device_name)`.
 - No-match → hard error, not silent fallback to `.first()`.
@@ -271,12 +295,14 @@ ProtocolConfig::Modbus { register, .. } => {
 **File:** `sens-api-gateway/src/main.rs:1199-1201`
 
 **Evidence:**
+
 ```rust
 let raw_value = reverse_scale(cmd.value, &config);
 handle.write_register(&device.name, *register, raw_value as u16).await
 ```
 
 **Problem:** `reverse_scale` returns `f32` (or at minimum a wider numeric type than `u16`). Casting to `u16` with `as` performs saturating-on-integer / wrapping-on-float truncation in Rust:
+
 - `f32::NAN as u16` → 0 (silent NaN → zero)
 - `f32::INFINITY as u16` → `u16::MAX`
 - Negative f32 → 0
@@ -285,18 +311,21 @@ handle.write_register(&device.name, *register, raw_value as u16).await
 Each case silently writes an out-of-range value to the PLC register — the operator-commanded value may wind up zero or at max duty with no operator-visible indication.
 
 **Risk:**
+
 - PWM duty 0 when operator commanded 25 → pump stops when commanded to slow.
 - PWM duty `u16::MAX` when operator commanded above-range → pump runs at full when commanded above spec.
 - Audit log captures the float input but the PLC receives a different number — investigation ambiguity.
 - ADR-024 §3 `BoundedRange` / `FailSafe::BoundedRange` contract bypass (the bound is enforced ON the type in-memory but erased at the boundary).
 
 **Reproducibility:**
+
 1. TagConfig with `scale: { min: 0.0, max: 100.0 }`
 2. Command with value `150.0` (out of range)
 3. Expect: reject with range error
 4. Observe: silent cast `150.0_f32 as u16 = 150`; wrong domain meaning (150/scale ≠ 150 engineering units)
 
 **Recommendation:**
+
 - Replace `raw_value as u16` with `u16::try_from(raw_value.round() as i32)` guarded by `match`; out-of-range → `Err(ModbusWriteError::ValueOutOfRegisterRange)`.
 - Reject non-finite inputs (`.is_finite()`) before rounding; NaN/±∞ → error, not zero.
 - Paired with ORPHAN-008: Modbus write handler becomes a validated transition, not an `as`-cast.
@@ -314,16 +343,19 @@ Each case silently writes an out-of-range value to the PLC register — the oper
 **Evidence:**
 
 `suderra-agent.service` pre-hardening:
+
 ```
 ReadWritePaths=/var/lib/suderra-agent /etc/suderra
 ```
 
 `src/main.rs:1127`:
+
 ```rust
 let data_dir = std::env::var("SUDERRA_DATA_DIR").unwrap_or_else(|_| "/var/lib/suderra".to_string());
 ```
 
 `src/scada_server.rs:62`:
+
 ```rust
 const SCADA_DIR: &str = "/var/lib/suderra/scada";
 ```
@@ -331,16 +363,19 @@ const SCADA_DIR: &str = "/var/lib/suderra/scada";
 **Problem:** systemd unit whitelists `/var/lib/suderra-agent` (no trailing content) for writes under `ProtectSystem=strict`, but every live write path in the agent targets `/var/lib/suderra` (no `-agent` suffix). Under the pre-Batch-4a loose sandbox (`ProtectSystem=strict` was present but without stricter layering), the mismatch was silently tolerated because `/var/lib/suderra` is not owned by another service and the agent ran with broader ambient permissions. Under the Batch-4a hardened sandbox (`ProtectKernelModules`, `ProtectHostname`, `SystemCallFilter`, `DevicePolicy=closed`), every agent write to `/var/lib/suderra/*` would become EROFS/EACCES — offline queue SQLCipher, scada deploy artifacts, firmware update staging, backups, LoRa session state all break.
 
 **Risk:**
+
 - Every SQLCipher open on offline_queue fails → telemetry + audit queue fails → cloud-sync gap → IEC 62443 FR6 timely-response violation.
 - Firmware update staging fails silently → operator thinks update succeeded, next boot rolls back → fleet-wide update stall.
 - Paired with ORPHAN-005 (SUDERRA_DATA_DIR redirect): hostile process sets `SUDERRA_DATA_DIR=/var/lib/suderra-agent` to align with the buggy ReadWritePaths — defense bypass.
 
 **Reproducibility:**
+
 1. Apply pre-Batch-4a systemd unit verbatim.
 2. Boot v1.6.0+ agent.
 3. Observe EROFS/EACCES in journal for every SQLCipher open.
 
 **Recommendation:**
+
 - **Source-of-truth:** code path wins (`/var/lib/suderra`).
 - systemd `ReadWritePaths=/var/lib/suderra /var/log/suderra`.
 - Remove `/etc/suderra` from ReadWritePaths — config is operator-owned and factory-signed (plan D-13), agent never writes to `/etc/suderra`.
@@ -357,6 +392,7 @@ const SCADA_DIR: &str = "/var/lib/suderra/scada";
 **File:** `sens-api-gateway/src/authz/permission.rs:165` (pre-Batch-5a)
 
 **Evidence (pre-Batch-5a):**
+
 ```rust
 pub struct TagId(pub String);
 ```
@@ -364,14 +400,17 @@ pub struct TagId(pub String);
 **Problem:** Batch 2 applied the sealed-newtype pattern to `DeviceId`, `TenantId`, `OperatorId`, `ModbusDeviceId`, `ModbusRegisterRange` — inner fields private, construction via `pub(crate) new_from_verified` or validated ctor. `TagId` escaped the pattern: the inner `String` was `pub`, so external tuple-ctor invocation `TagId("raw".to_string())` bypassed any future validation discipline (max length, charset, reserved-prefix). Not a security-critical leak (TagId is operator-facing inventory identifier without signing authority), but breaks the invariant that "every identifier newtype in `authz::` has a private inner field" and makes future validation addition a breaking change for external callers.
 
 **Risk:**
+
 - Type-consistency drift across the identifier family — reviewers reading `permission.rs` see `DeviceId([u8; 16])` sealed but `TagId(pub String)` open; cognitive load + seal-confidence erosion.
 - Future validation (e.g., max 256 char, no NUL bytes, no shell metacharacters for audit log safety) cannot be added without a breaking API change if external callers rely on tuple construction.
 - Inconsistent with ADR-018 §3 sealed-identifier discipline.
 
 **Reproducibility:**
+
 - grep `authz::permission::TagId\(` in downstream crates — currently 0 external callers, but the surface was open.
 
 **Recommendation:**
+
 - Seal: `pub struct TagId(String)` + `pub fn new(s: String) -> Self` + retain `impl From<String> for TagId` for idiomatic conversion.
 - Migrate any tuple-ctor call sites to `TagId::from(...)` or `TagId::new(...)`.
 - `#[serde(transparent)]` reaches the private field via `Deserialize` — that's the intended manifest-parse carve-out.
@@ -387,6 +426,7 @@ pub struct TagId(pub String);
 **Discovered:** Batch 68 Sprint 6.1 full-wire verification step — `cargo check --features health --tests` surfaced 18 compile errors while `cargo check --features health` (production) stayed green at the 153-warning baseline. Stashing Batch 68 changes + re-running reproduced the same 18 errors on HEAD — the drift PRE-EXISTED Batch 68.
 
 **Evidence (sample — pre-Batch-69):**
+
 ```rust
 // src/audit/entry.rs:684
 permission: Permission::ReadTag(crate::authz::TagId::from("x".to_string())),
@@ -399,17 +439,20 @@ let perm = Permission::WriteTag(TagId::from("pond3_aerator".to_string()));
 ```
 
 **Problem:**
+
 - Earlier batches refined `Permission::ReadTag` from `ReadTag(TagId)` → unit-variant `ReadTag` (tag-level read gating pushed to AuthorizationRequest layer).
 - `Permission::WriteTag` refined `WriteTag(TagId)` → struct-variant `WriteTag { tag_id: TagId }` (BATCH-002-FINDING-001 named-field discipline).
 - Test code in 5 modules still referenced the old tuple-variant shape → 12 compile errors.
 - `FileBackedAcceptance` (sealed-construction struct) never derived `Debug`; `.expect_err(...)` requires Ok-type Debug → 6 compile errors.
 
 **Why it matters:**
+
 - `cargo test --no-run` was silently broken for an unknown number of batches — the 91+ invariant tests added between Batch 63 and Batch 67 could not run in CI.
 - CI enforced `cargo check --features health` + `cargo clippy` but NOT `cargo check --tests`, which is why drift propagated unnoticed.
 - Tier-1 "make-it-impossible" invariant tests could have been silently broken across multiple batches.
 
 **Recommendation:**
+
 - RESOLVED-IN-BATCH-69: updated all 12 `Permission::ReadTag(...)` / `Permission::WriteTag(...)` test call sites + derived `#[derive(Debug)]` on `FileBackedAcceptance` (private fields preserved — Debug-prints don't enable fabrication; field values already round-trip through public `AcceptanceToken` shape).
 - CI HARDENING (follow-up): add `cargo check --features health --tests` gate to the 3-arch matrix so this drift class cannot recur silently.
 
@@ -431,14 +474,17 @@ let perm = Permission::WriteTag(TagId::from("pond3_aerator".to_string()));
 6. `st_validator::tests::test_parse_case_statement` (E100/E110 on CASE statement assign-vs-colon lexer disambiguation)
 
 **Problem:**
+
 - Each failure is in a module Batches 68+69 did NOT touch — pre-existing bugs masked by ORPHAN-HIGH-012 compile gate.
 - Semantic categories span HMAC chain tamper-detection, mutating-command sort invariant, CommandResponse serde shape, I2C bus enumeration, monotonic-clock anchor ordering, ST CASE parser.
 
 **Risk:**
+
 - Each failure = claim-against-invariant the test was written to protect but that CURRENTLY DOES NOT HOLD. Shipping in this state = shipping broken invariants.
 - Flaky MonotonicBackward worst-case: could mask real clock-authority regressions if treated as "known flake."
 
 **Recommendation:**
+
 - Triage each failure as separate batch (one-per-batch, small blast radius + finding-ID traceability).
 - Priority: (5) monotonic-clock flake → (1) HMAC tamper → (2) mutating sort → (3) CommandResponse serde → (6) ST CASE parser → (4) I2C enumeration.
 - Each fix commit carries `Closes: docs/reviews/orphan-findings.md#ORPHAN-HIGH-013-N`.
@@ -466,6 +512,7 @@ The fixes landed across multiple Sprint 6.x batches as the post-Batch-69 work pr
 **Discovered:** Batch 70 investigation — ORPHAN-HIGH-012 closure prompted "how did test-compile drift persist for 55+ batches" audit. Result: there is NO PR-time CI workflow referencing `sens-api-gateway/**`.
 
 **Evidence:**
+
 ```bash
 $ grep -l "sens-api-gateway\|cargo" .github/workflows/*.yml
 .github/workflows/edge-agent-release.yml   # ONLY match
@@ -474,17 +521,20 @@ $ grep -l "sens-api-gateway\|cargo" .github/workflows/*.yml
 `edge-agent-release.yml` triggers on `agent-v*` tags + manual `workflow_dispatch` only. The `v2.0.0-batch*` tags used during the Batch 13-69 session do NOT match the `agent-v*` pattern.
 
 **Problem:**
+
 - Every edge-agent PR landed without automated compile / clippy / test-compile validation.
 - ORPHAN-HIGH-012 (test-compile drift) is a direct consequence — no gate ran `cargo check --features health --tests` at PR time, so 18 errors accumulated silently across multiple batches.
 - Other classes of silent regression (license CVE, cargo-audit, binary size, missing feature flags) had the same zero-gate exposure.
 - The `ci-affected.yml` path-filter intentionally scopes apps/libs/web/deploy-config but omits `sens-api-gateway/**` — not a workflow bug, a workflow gap.
 
 **Risk:**
+
 - Every Rust-touching PR is a "merge and pray" — reviewer eyeballs are the only gate.
 - IEC 62443 SL-2 FR3 (System Integrity) requires automated verification of safety-critical code paths; manual review does not satisfy audit evidence requirements.
 - The release workflow only catches drift at TAG TIME — a broken batch can land on the branch and ONLY surface when someone tries to cut a release.
 
 **Recommendation:**
+
 - RESOLVED-IN-BATCH-70: added `.github/workflows/ci-edge.yml` with `cargo check --features health` + `cargo check --features health --tests` gates (latter closes ORPHAN-HIGH-012 recurrence vector).
 - Follow-up steps (post ORPHAN-HIGH-013 triage):
   - Add `cargo test --features health` unit-test job.
@@ -527,10 +577,11 @@ $ grep -l "sens-api-gateway\|cargo" .github/workflows/*.yml
 **Root cause:** The ruthless-assessment ran against conversation-context claims from prior Plan-mode prompts without re-verifying each claim against `ls docs/adr/`, `sens-api-gateway/systemd/`, `.github/workflows/` current state. 23 batches of earlier work already landed these artifacts. The assessment inherited the "primer gaps" shape from the original canonical plan §5 Faz 0 step 1 which LISTED the ADRs as to-open — plan wording did not get updated as the ADRs were authored in prior phases. A fresh `ls docs/adr/` would have caught this in seconds.
 
 **Impact on ultra-plan:**
+
 - Ultra-plan Batches #229-#234 (C-1a..C-1f) are mostly **VERIFICATION + ALIGNMENT** work, not net-new ADR authoring. Target: validate each existing ADR meets the canonical plan erratum target content + commit any content delta.
 - Ultra-plan Batch #249 (C-6 systemd hardening) is a LINT + verification pass, not net-new authoring. Target: `tools/gates/systemd-unit-lint.ts` over the existing file + CI gate.
 - Ultra-plan Batch #250 (C-7 CI matrix) genuinely missing the 5-variant matrix; remains net-new authoring.
-- Ultra-plan Batches #235 (C-2 finding board), #247 (C-4 STRIDE), #248 (C-5 supply chain SBOM + cosign + SLSA L3), #282-#288 (G-* cross-repo platform), #289-#300 (F-* E2E + release) remain as claimed — genuine net-new architectural work.
+- Ultra-plan Batches #235 (C-2 finding board), #247 (C-4 STRIDE), #248 (C-5 supply chain SBOM + cosign + SLSA L3), #282-#288 (G-_ cross-repo platform), #289-#300 (F-_ E2E + release) remain as claimed — genuine net-new architectural work.
 
 **Fix:** Ultra-plan `§5 Batch Design Blokları` bölümünde C-1a..C-1f + C-6 blok'ları "VERIFICATION ONLY (existing artifact covers)" annotasyonu ile işaretlenir ve `§2 Gap Matrisi` bu gap'leri `VERIFIED`/`PARTIAL` state'e güncellenir. Düzeltme commit'i bu orphan finding'in yazımıyla birlikte; ultra-plan'ın bir sonraki review iterasyonunda patch uygulanır.
 
@@ -625,6 +676,7 @@ $ grep -l "sens-api-gateway\|cargo" .github/workflows/*.yml
 **Why STEP 5 is blocked:** the address-space population needs the `DefaultTypeTree` mutation API + the per-tag-data-type→Variant mapping the existing `register_writable_tags` already encodes. Both are deep async-opcua addrspace knowledge surfaces. Wiring step 5 in a single batch alongside step 6 + 7 is the right architectural shape (no parallel paths during the swap), but requires the focused attention of a fresh session — running it half-wired in this session would risk an OPC UA address-space break that integration tests can't catch without a live HMI client.
 
 **Operator-visible state today (2026-04-25):**
+
 - HMI session-establish: STILL via async-opcua's default AuthManager (SensAuthManager not yet wired into ServerBuilder).
 - HMI writes: STILL flow through `add_write_callback` with the legacy hardcoded `actor: "opc-ua-anonymous"` (SensNodeManager not yet wired into ServerBuilder).
 - Net: ORPHAN-CRITICAL-021's user-visible behavior is UNCHANGED until Batch #267 lands.
@@ -690,6 +742,7 @@ The `mqtt.rs:865` Offline publish during graceful disconnect remains intentional
 **Scope:** `sens-api-gateway/src/opc_ua_sens_node_manager.rs` `async fn write` body, the post-typed-authz Allow branch. Specifically: after the typed-authz gate at `TypedAuthzPort.authorize_write` returns `Ok(AuthorizedContext)`, the Batch #265 implementation logs `info!` + sets `node.set_status(StatusCode::Good)` WITHOUT forwarding the verified write to the existing `crate::opc_ua_server::execute_opcua_write` orchestrator.
 
 **Symptom (architectural):** `execute_opcua_write` is the SSoT for the post-authz write pipeline:
+
 - `ForceRegistry` consultation (refuse writes to forced tags — Batch #194 Faz 6 invariant).
 - Process-image commit (the actual write that operators see post-write read-back).
 - Audit emission (HMAC-chained log entry per ADR-020 §1).
@@ -698,6 +751,7 @@ The `mqtt.rs:865` Offline publish during graceful disconnect remains intentional
 Bypassing it from `SensNodeManager::write` Allow path would create a **divergent write path** with NO audit, NO process-image commit, NO force-registry check — a regression hazard the moment Batch #267 wires SensNodeManager into the runtime.
 
 **Symptom (functional, post-Batch-267):** When the runtime swap lands and `SensNodeManager` replaces SimpleNodeManager, an Allow-path HMI write would:
+
 - Return `Good` to the HMI (so the operator believes the write succeeded).
 - NOT update the process image (so the next read-back returns the OLD value — operator confusion).
 - NOT emit an audit event (so the regulatory audit log misses the write — FDA 21 CFR 117.135 / SOC 2 CC4 violation potential).
@@ -711,6 +765,7 @@ Bypassing it from `SensNodeManager::write` Allow path would create a **divergent
 **Architectural fix:**
 
 Approach (1) — typed-principal end-to-end — is the correct architectural choice. The fix lands as part of Batch #267 because:
+
 - Batch #267 is the runtime-swap batch that DELETES the SimpleNodeManager path (the only other `execute_opcua_write` caller).
 - Without a parallel SimpleNodeManager call site, refactoring `execute_opcua_write`'s signature is a 1-call-site change.
 - The typed-principal flow is the architectural endpoint of the entire Gap A-3 + A-2b investment — bridging via string would be a step backward.
@@ -729,19 +784,19 @@ Plus the `ForceRegistry` + `ProcessImage` + `AuditSink` Arcs needed by `execute_
 
 ## ORPHAN-HIGH-024 — Batches #243-#280 dangling `Closes: ULTRA-HIGH-NNN` trailers; finding-registry hash chain not advanced (2026-04-25)
 
-**Status:** RESOLVED via architectural-outcome consolidation (verified 2026-04-26 in Batch #301 reconciliation). The 38 dangling trailers were architecturally consolidated into 5 high-value registry entries (ULTRA-HIGH-033..037) via Batch #282 PILOT — the per-module audit batches share the canonical "wire-status audit cycle" theme (ULTRA-HIGH-036) so finer per-batch entries would have produced redundant registry entries without architectural-pipeline value. The `commit-msg-validator` regex-widening (Batch #285 closure of ORPHAN-MEDIUM-025) prevents future-session recurrence: every `feat()` commit's `Closes:` trailer must now cite an ID that exists in the registry, surface-level. The original finding's "the chosen numbers OVERLAP with existing G-1..G-6 reservations" concern is moot post-PILOT because the consolidation chose distinct high-numbered IDs (033+) that did not collide with the G-* reservations. Registry chain tip currently `fb5a3147...` (post-Batch-#300, 123 entries, integrity verified).
+**Status:** RESOLVED via architectural-outcome consolidation (verified 2026-04-26 in Batch #301 reconciliation). The 38 dangling trailers were architecturally consolidated into 5 high-value registry entries (ULTRA-HIGH-033..037) via Batch #282 PILOT — the per-module audit batches share the canonical "wire-status audit cycle" theme (ULTRA-HIGH-036) so finer per-batch entries would have produced redundant registry entries without architectural-pipeline value. The `commit-msg-validator` regex-widening (Batch #285 closure of ORPHAN-MEDIUM-025) prevents future-session recurrence: every `feat()` commit's `Closes:` trailer must now cite an ID that exists in the registry, surface-level. The original finding's "the chosen numbers OVERLAP with existing G-1..G-6 reservations" concern is moot post-PILOT because the consolidation chose distinct high-numbered IDs (033+) that did not collide with the G-\* reservations. Registry chain tip currently `fb5a3147...` (post-Batch-#300, 123 entries, integrity verified).
 
 **Progress:**
 
 - ✅ **Batch #282 PILOT** registered the 5 highest-value architectural milestones into the finding-registry with full hash-chain integrity:
-  * **ULTRA-HIGH-033 (RESOLVED):** Gap A-3 OPC UA user-token enrollment chain (Batches #242-#250, +95 tests, 10 closing commits).
-  * **ULTRA-HIGH-034 (RESOLVED):** ARC-002 OfflineQueue + DrainTask production wire (Batches #251-#255 + #261 + #268, +17 tests, 8 closing commits).
-  * **ULTRA-HIGH-035 (PARTIAL_FIX):** A-2b SensNodeManager + SensAuthManager 4/5 part wire (Batches #263-#266, 4 closing commits, deadline 2026-05-15).
-  * **ULTRA-HIGH-036 (RESOLVED):** Edge-runtime module-level wire-status audit cycle (Batches #259 + #270-#280, 18+ modules, 10 closing commits).
-  * **ULTRA-HIGH-037 (RESOLVED):** C-7 shutdown-race fix + BUG-015 mutex-poison wire + ARC-001/003 cleanup (Batches #256-#258, 3 closing commits).
+  - **ULTRA-HIGH-033 (RESOLVED):** Gap A-3 OPC UA user-token enrollment chain (Batches #242-#250, +95 tests, 10 closing commits).
+  - **ULTRA-HIGH-034 (RESOLVED):** ARC-002 OfflineQueue + DrainTask production wire (Batches #251-#255 + #261 + #268, +17 tests, 8 closing commits).
+  - **ULTRA-HIGH-035 (PARTIAL_FIX):** A-2b SensNodeManager + SensAuthManager 4/5 part wire (Batches #263-#266, 4 closing commits, deadline 2026-05-15).
+  - **ULTRA-HIGH-036 (RESOLVED):** Edge-runtime module-level wire-status audit cycle (Batches #259 + #270-#280, 18+ modules, 10 closing commits).
+  - **ULTRA-HIGH-037 (RESOLVED):** C-7 shutdown-race fix + BUG-015 mutex-poison wire + ARC-001/003 cleanup (Batches #256-#258, 3 closing commits).
 - Registry chain tip advanced from `0af50f8c...d2247276` (pre-session, 103 entries) to `d6baee07...e365232` (post-PILOT, 108 entries). 5-entry hash-chain integrity verified via `finding-registry verify` → "OK: registry chain valid (108 entries)".
 
-**Remaining to close:** the per-module audit batches (Batches #270/#271/#273/#274/#275/#276/#278/#279/#280) were registered together as a SINGLE registry entry — ULTRA-HIGH-036 — because they share the canonical "wire-status audit cycle" theme; an alternative future batch could split them into per-batch entries for finer audit-pipeline visibility. The doc-only / metadata clarification commits (Batches #269/#272/#277/#281) closed existing ORPHAN-* findings via the orphan-findings tracker doc rather than minting new registry entries — design decision: tracker-doc closure is sufficient for resolved-orphan tracking, no registry duplication.
+**Remaining to close:** the per-module audit batches (Batches #270/#271/#273/#274/#275/#276/#278/#279/#280) were registered together as a SINGLE registry entry — ULTRA-HIGH-036 — because they share the canonical "wire-status audit cycle" theme; an alternative future batch could split them into per-batch entries for finer audit-pipeline visibility. The doc-only / metadata clarification commits (Batches #269/#272/#277/#281) closed existing ORPHAN-\* findings via the orphan-findings tracker doc rather than minting new registry entries — design decision: tracker-doc closure is sufficient for resolved-orphan tracking, no registry duplication.
 
 **Architectural choice ratified in #282 PILOT (path B per the original finding):**
 
@@ -751,7 +806,7 @@ The registry IDs (`ULTRA-HIGH-033..037`) DO NOT match the in-history Closes trai
 
 **Original scope (preserved for history):**
 
-**Scope:** Every commit footer in this session (Batches #242-#280 except batches that closed pre-existing ORPHAN-* findings via the orphan-findings tracker doc) carries a `Closes: docs/reviews/edge-plan/2026-04-19-edge-hardening.md#ULTRA-HIGH-NNN` trailer where `NNN` ranges 006..038. The finding-registry at `docs/reviews/_registry/findings.jsonl` (the SHA-256 hash-chained append-only registry) ends at `ULTRA-HIGH-032` (entry: "G-6: Contract tests canonical hash + ed25519 + policy + license") + has not been advanced for any of this session's 38 batches.
+**Scope:** Every commit footer in this session (Batches #242-#280 except batches that closed pre-existing ORPHAN-\* findings via the orphan-findings tracker doc) carries a `Closes: docs/reviews/edge-plan/2026-04-19-edge-hardening.md#ULTRA-HIGH-NNN` trailer where `NNN` ranges 006..038. The finding-registry at `docs/reviews/_registry/findings.jsonl` (the SHA-256 hash-chained append-only registry) ends at `ULTRA-HIGH-032` (entry: "G-6: Contract tests canonical hash + ed25519 + policy + license") + has not been advanced for any of this session's 38 batches.
 
 **Symptom (process):** The commit-msg validator (`tools/gates/commit-msg-validator.ts`) accepted the trailers because the regex format `{PREFIX}-{SEVERITY}-{NNN}` matched — but the validator does NOT cross-check against the registry. Net effect: every Closes trailer in this session points to a registry ID that doesn't exist; an audit running `finding-registry list --state RESOLVED` would not discover this session's work; the chain hash at the registry tail is unchanged from pre-session commit `0af50f8c...d2247276` (entry ULTRA-HIGH-032).
 
@@ -760,6 +815,7 @@ The registry IDs (`ULTRA-HIGH-033..037`) DO NOT match the in-history Closes trai
 **Symptom (tracking):** Operators running `finding-registry list --state OPEN` to triage open work would see ULTRA-HIGH-032 (G-6 contract tests) but not the architectural work this session landed (Gap A-3 closure via Batches #242-#250, ARC-002 OfflineQueue wire via Batches #251-#255, A-2b 4/5 part wire via Batches #263-#266, etc.). The session's progress is invisible to the registry-driven audit pipeline.
 
 **Root cause:** I (the assistant) chose new ID numbers (`ULTRA-HIGH-006` upward) for each batch without:
+
 1. Reading the registry to find the next available number (should have been `ULTRA-HIGH-033` onward).
 2. Adding registry entries via `npx ts-node tools/gates/finding-registry.ts add <stub.json>` to advance the hash chain.
 
@@ -821,7 +877,7 @@ The `commit-msg-validator.ts` gate should add a registry-existence check after t
 ```typescript
 // Pseudocode for the new gate step
 const registry = loadRegistry(); // existing helper from finding-registry.ts
-const ids_in_registry = new Set(registry.map(e => e.id));
+const ids_in_registry = new Set(registry.map((e) => e.id));
 for (const id of citedClosesIds) {
   if (!ids_in_registry.has(id)) {
     console.error(`Closes trailer cites unknown ID: ${id} (not in findings.jsonl)`);
@@ -922,7 +978,7 @@ mod opc_ua_type_debug; // diagnostic
 
 - Tier 1 (make it impossible) — DELETE the stub entirely. If a future developer needs an OPC UA type-introspection diagnostic, the canonical shape is a `#[cfg(feature = "opcua-type-debug")]`-gated module under `src/opc_ua/`, not a quarantine file outside the build graph. This finding documents the intent to delete; deletion is itself a 1-byte change in a future hygiene batch and does not need to block any plan-aligned arc.
 
-**Severity: LOW** — repo hygiene only. No correctness, security, or test-coverage implication. Documented per user policy: *gördüğüm hiçbir problemi senin ilgili olmasa bile not al*.
+**Severity: LOW** — repo hygiene only. No correctness, security, or test-coverage implication. Documented per user policy: _gördüğüm hiçbir problemi senin ilgili olmasa bile not al_.
 
 **Status:** OPEN. Slated for the next no-arc hygiene batch (no firm deadline; trigger-based rather than time-based — fold into the next session that already touches `sens-api-gateway/src/` for an unrelated reason).
 
@@ -987,6 +1043,7 @@ This change makes the gate fire ONLY on violations introduced by the diff — li
 - Module doc + usage notes updated to document the per-LINE semantic + cite the MEDIUM-034 closure rationale.
 
 **Live-fire results:**
+
 - Short-range test (`HEAD~5..HEAD`, includes Batch #344 Rust changes): 3 affected files / 241 affected lines, **0 errors. Gate passed.**
 - Full-branch test (`origin/main..HEAD`, 17-batch feature branch): 212 files / 91,025 lines / 69 errors. **Big improvement from per-FILE's 700 errors but real legacy debt remains** — the violations are on lines THIS branch added (e.g., process_hardening.rs is a brand-new file from origin/main's POV; every line in it is "added"). Long-lived feature branches accumulating multi-batch debt is a legitimate architectural concern that the gate now ACCURATELY surfaces.
 
@@ -1009,6 +1066,7 @@ Result: a multi-commit push of N new commits sees ONLY those N commits' line cha
 **Architectural fix (Tier-2 make-it-automatic):**
 
 New tooling shape:
+
 - `tools/gates/clippy-affected-prepush.ts` (or extend existing CLI with `--mode=prepush` reading stdin) — reads pre-push stdin lines, computes ranges, dispatches to the existing per-LINE filter.
 - `.husky/pre-push` calls the new mode + passes stdin through.
 
@@ -1022,6 +1080,7 @@ New tooling shape:
 - `.husky/pre-push` re-added with the correct stdin-piping invocation: `clippy-affected.ts --mode=prepush`.
 
 **Live-fire verification:**
+
 - Simulated stdin with `HEAD~3..HEAD` range (no Rust files): gate skipped ✓.
 - Simulated stdin with `HEAD~7..HEAD` range (Batch #344's Rust changes): 3 files / 241 lines / 0 errors ✓.
 
@@ -1052,7 +1111,7 @@ The pre-push hook now scopes the gate to "what's new in THIS push" — long-live
 
 The PRESENT state (untracked, no policy file) is the worst of both — engineers don't know if the file SHOULD be committed and may add or omit it inconsistently.
 
-**Severity: LOW** — git hygiene only. No correctness, security, or test-coverage implication. Documented per user policy: *gördüğüm hiçbir problemi senin ilgili olmasa bile not al*.
+**Severity: LOW** — git hygiene only. No correctness, security, or test-coverage implication. Documented per user policy: _gördüğüm hiçbir problemi senin ilgili olmasa bile not al_.
 
 **Status:** RESOLVED — closed by Batch #334 (this session). Per the workspace `.gitignore`'s explicit "Cargo.lock IS committed" policy (the canonical convention for binary-producing crates), the lockfile is now tracked. `fuzz/Cargo.lock` was 3814 lines + 382 packages at the time of commit — standard cargo-fuzz lockfile shape. The `??` no longer appears in `git status` and the workspace policy is uniformly applied across all binary crates in the repo.
 
@@ -1086,16 +1145,18 @@ Registry anchor note: `ORPHAN-HIGH-031` is the Phase 0.2 cipher-allowlist verifi
 
 **Severity: MEDIUM** — blocks the per-consumer migration arc but does not affect any deployed system (current consumers stay on v1 unless migration ships). Tracked in Batch #332's commit body but elevated to a standalone orphan finding for visibility.
 
-**Status:** RESOLVED — closed by Batch #341 (this session). ADR-031 written + landed at `docs/adr/031-keypurpose-sqlcipher-consumer-extension.md`. Two variants added to `KeyPurpose`: `SqlCipherLicenseCache` (hkdf_info `b"suderra:sqlcipher:license-cache:v2"`, deployment-instance UUID context) + `SqlCipherBytecodeRetain` (hkdf_info `b"suderra:sqlcipher:bytecode-retain:v1"`, program-artifact-SHA256 context). `KeyPurpose::is_sqlcipher_variant` extended to match all 4 SqlCipher* variants. Wire-status invariant 15 in `db_migration_wire_status.rs` extended to assert all 4 variants present. PR-195 consumer-migration arc unblocked.
+**Status:** RESOLVED — closed by Batch #341 (this session). ADR-031 written + landed at `docs/adr/031-keypurpose-sqlcipher-consumer-extension.md`. Two variants added to `KeyPurpose`: `SqlCipherLicenseCache` (hkdf_info `b"suderra:sqlcipher:license-cache:v2"`, deployment-instance UUID context) + `SqlCipherBytecodeRetain` (hkdf_info `b"suderra:sqlcipher:bytecode-retain:v1"`, program-artifact-SHA256 context). `KeyPurpose::is_sqlcipher_variant` extended to match all 4 SqlCipher\* variants. Wire-status invariant 15 in `db_migration_wire_status.rs` extended to assert all 4 variants present. PR-195 consumer-migration arc unblocked.
 
 **Linked plan:** Plan §5 Faz 2 D-3 (UH-017 parent finding); PR-195 D-3 closure arc (consumer-migration installment).
 
 ## ORPHAN-MEDIUM-210 — ARIA lacked model/effort cost-tiering, multi-judge consensus, belief decay, and autonomous-fix safety gates (Plans 023-031)
+
 Found 2026-06-28 during the ARIA gaps + cost-review sweep. The ARIA meta-system had capability gaps vs its design-of-record: no per-role model/effort tiering with consensus->human escalation (cost-runaway risk); single-judge finding verification (no >=2-judge fan-out / gold-set replay); no time-based belief decay; no proactive Impact x Opportunity prioritization; no runtime-signal bridge; and the autonomous-fix loop lacked a regression anchor, an oscillation guard, a burn-in->ladder bridge, and an expert-reviewer consensus gate. Status: RESOLVED (2026-06-28) — implemented across Plans 023-031 (model/effort tiering + consensus->human escalation; judge calibration; operator-resolution feedback; evidence-gated arbiter; >=2-judge fan-out + gold-set activation/replay; Rust/edge drift enums; belief decay; Impact x Opportunity prioritization; runtime-signal bridge; deterministic acceptance harness + agent lane; Gate A regression anchor + Gate B oscillation guard; burn-in->ladder bridge; expert-reviewer consensus gate). See docs/plans ARIA-023..031. (Inserted mid-file, not at the contended tail, to stay merge-train collision-immune; ID 210 reserved with margin.)
 
 ## ORPHAN-MEDIUM-032 — `git rev-parse --short HEAD` after a husky-rejected commit captures STALE HEAD; registry-close shell pipelines record the wrong closing SHA (2026-04-28)
 
 **Discovered by:** Batch #341 (this session) commit cycle. The shell pipeline:
+
 ```sh
 git commit -m "...batch body..."  # husky-rejected — files stay staged
 SHA=$(git rev-parse --short HEAD)  # ← captures PRIOR commit, not the failed one
@@ -1105,12 +1166,14 @@ finding-registry close UH-NNN $SHA
 When the first `git commit` is rejected by the husky `commit-msg` hook (e.g., trailer-validation failure), the staged files remain in the index but no commit lands. The next `git rev-parse --short HEAD` returns the SHA of the PREVIOUSLY-LANDED commit (often the prior batch's registry-close commit), NOT the would-be Batch SHA. The `finding-registry close <id> $SHA` call then records the WRONG SHA in `closing_commits[]`.
 
 **Symptom (concrete this session):**
+
 - Batch #341's first commit attempted `Closes: docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-031` + `Closes: docs/reviews/orphan-findings.md#ULTRA-HIGH-089` trailers. The commit-msg validator rejected the multi-`Closes:` shape (regex requires UH-`{PREFIX}-(CRITICAL|HIGH|MEDIUM|LOW)-NNN` only — `ORPHAN-` prefix is not in the regex).
 - The shell pipeline kept running. `git rev-parse --short HEAD` returned `076d52d0` (Batch #340's registry-close commit, the actual previous HEAD).
 - The `finding-registry close ULTRA-HIGH-089 076d52d0` call recorded the wrong SHA.
 - The follow-on `git commit -m "chore(registry): close UH-089..."` then committed BOTH the registry-close JSON edit AND the still-staged Batch #341 files in a single commit — under the wrong commit-message header.
 
 **Why this is a process-correctness problem (not a hot data-loss problem):**
+
 - Audit-trail traceability (CLAUDE.md "Review Finding Traceability") requires `closing_commits[]` to point at the commit that contains the actual fix. A wrong SHA breaks `git show <sha>` lookups for future archaeologists.
 - The bundled-content-under-wrong-message hides the commit's true scope from `git log` searches by message keyword.
 - The batch-body commit-message text is preserved nowhere on the branch — its `WHY` rationale is lost.
@@ -1129,7 +1192,7 @@ When the first `git commit` is rejected by the husky `commit-msg` hook (e.g., tr
 
 **Severity: MEDIUM** — process correctness + audit-trail integrity. Recoverable via re-running `finding-registry close` with the correct SHA (which appends, not overwrites — both SHAs end up in `closing_commits[]`, with future readers needing to disambiguate via `git show`). This session's UH-089 has the appended-fix applied; the wrong 076d52d0 entry stays in the array as an audit-trail of the race occurrence.
 
-**Status:** RESOLVED — closed by Batch #342 (this session). Root cause was NOT the regex (which already accepts ORPHAN-* prefixes via `[A-Z][A-Z0-9]+`) but the validator's `loadRegistryIds` only checked `findings.jsonl` — orphan IDs live in `orphan-findings.md` by architectural design. Fix: added `loadOrphanIds()` parsing `## ORPHAN-{SEV}-NNN` markdown headings + per-prefix routing in `validateCommit` so ORPHAN-* trailers validate against the orphan-findings doc while non-ORPHAN trailers continue to validate against the registry. Multi-Closes commits referencing both UH-NNN (registry) AND ORPHAN-NNN (markdown) now validate cleanly. Verified via 3 synthetic test commits: real ORPHAN-MEDIUM-031 passes, bogus ORPHAN-LOW-999 rejected with structured reason, multi-Closes (UH-089 + ORPHAN-031) passes.
+**Status:** RESOLVED — closed by Batch #342 (this session). Root cause was NOT the regex (which already accepts ORPHAN-_ prefixes via `[A-Z][A-Z0-9]+`) but the validator's `loadRegistryIds` only checked `findings.jsonl` — orphan IDs live in `orphan-findings.md` by architectural design. Fix: added `loadOrphanIds()` parsing `## ORPHAN-{SEV}-NNN` markdown headings + per-prefix routing in `validateCommit` so ORPHAN-_ trailers validate against the orphan-findings doc while non-ORPHAN trailers continue to validate against the registry. Multi-Closes commits referencing both UH-NNN (registry) AND ORPHAN-NNN (markdown) now validate cleanly. Verified via 3 synthetic test commits: real ORPHAN-MEDIUM-031 passes, bogus ORPHAN-LOW-999 rejected with structured reason, multi-Closes (UH-089 + ORPHAN-031) passes.
 
 **Linked plan:** none (cross-cutting tooling concern).
 
@@ -1149,6 +1212,7 @@ When the first `git commit` is rejected by the husky `commit-msg` hook (e.g., tr
 **Architectural fix (Tier-1 make-it-impossible):**
 
 Create a new wrapper module `crate::machine_id` that:
+
 1. Checks `SUDERRA_MACHINE_ID_PATH` env var (mirrors `SUDERRA_DB_KEY_PATH`).
 2. If set: reads the file at that path + trims whitespace + returns the contents as a string.
 3. If not set: falls back to `machine_uid::get()` for production parity.
@@ -1236,6 +1300,7 @@ docblock reminder.
 surfaced during a Phase 6 Step 2 type-check sweep.
 
 **Scope**:
+
 - `libs/backend-common/src/orchestrator-leader-election/leader-election.service.spec.ts`
 - `libs/backend-common/src/database/__tests__/watchdog.integration.spec.ts`
 
@@ -1279,6 +1344,7 @@ any v3 refactor commit.
 **Scope**: `libs/backend-common/src/database/__tests__/schema-manager.spec.ts`
 
 **Symptoms**:
+
 - `should drop schema on failure (rollback)` — fails with "Schema creation failed"
 - `should reset search_path to public using set_config` — fails
 - `should handle migration errors gracefully` — fails
@@ -1308,6 +1374,7 @@ reviewers know it's not a v3-introduced regression.
 ## 2026-04-20 ORPHAN-012 — `tools/gates/tsconfig.json` `ignoreDeprecations: "6.0"` rejected by TS 5.9.3 (all pre-commit gates fail)
 
 **Evidence:**
+
 - `tools/gates/tsconfig.json:12` — `"ignoreDeprecations": "6.0"`
 - `/var/aqua-saas/node_modules/typescript/package.json` — version 5.9.3
 - TS 5.9.3 compiler source (`_tsc.js:124516`): `if (ignoreDeprecations === "5.0")` — the ONLY value the compiler accepts at that version; anything else yields `TS5103: Invalid value for '--ignoreDeprecations'`.
@@ -1317,6 +1384,7 @@ reviewers know it's not a v3-introduced regression.
 **Problem:** All three pre-commit gates (`banned-phrase.ts`, `migration-sql-lint.ts`, `tier-claim-lint.ts`) crash before any staged-file scan runs, so every commit is blocked end-to-end. Stage 5/6/7 commits on `agentic-rust-faz2-sensor-ingestion` presumably landed because a transient npx cache was populated with TypeScript 6.0.3 (confirmed present at `~/.npm/_npx/1bf7c3c15bf47d04/node_modules/typescript/package.json:6.0.3` before this session cleared it). A 6.0 compiler accepts the `"6.0"` value; a 5.9 compiler does not. The hook's green/red behaviour therefore depends on which TS version npx happens to resolve — not on the code being committed. That is environment drift, not a discipline gate.
 
 **Risk:**
+
 - Tier-1 "make it impossible" violation — commits succeed or fail based on ambient npx state rather than staged content.
 - Future developer onboarding: a fresh clone + default `npx ts-node` pulls the 5.x workspace binary, every `git commit` fails with a wall of TypeScript 5103 noise, time-to-first-commit is catastrophic.
 - Any CI runner without the 6.0.3 npx cache treats every PR as failing the pre-commit gate locally, misleading reviewers about the actual gate signal.
@@ -1342,6 +1410,7 @@ The cherry-pick of stage 8 reverted the agent's `"5.0"` value back to
 TS 6.0.3 in npx. The orphan finding stays open until a real fix lands.
 
 **Real architectural fix (TBD, not in this commit):**
+
 - Add `ts-node` + `typescript` as explicit `devDependencies` of the
   repo root (or of `tools/gates/`) at a single pinned version so
   `npx ts-node` resolves the pinned binary deterministically.
@@ -1353,6 +1422,7 @@ TS 6.0.3 in npx. The orphan finding stays open until a real fix lands.
   pin-version drift blows up in CI, not in every developer's commit.
 
 **Follow-on tracking:**
+
 - Owner: Okan-Wqm.
 - Deadline: 2026-05-15 (out of scope for the Faz 2 PR; tracked here so
   the next plan-aware session can pick it up).
@@ -1380,11 +1450,13 @@ warning rather than a `TS5103` block.
 **Severity:** HIGH (silently miss every tenant-scoped publish)
 **Discovered:** 2026-04-20, Faz 2 stage 12 `NatsEventPublisher` implementation review
 **Files:**
+
 - `platform/libs/event-bus/src/nats/nats-event-bus.ts:310-312` — publisher `deriveSubject`
 - `apps/alert-engine/src/alert/event-handlers/sensor-reading.handler.ts:80-81` — subscriber
 - Cross-referenced: `docs/test-audits/tenant-isolation-auditor/2026-04-13-full-platform-e2e.md` lines 21-29
 
 **Evidence — publisher (3 segments):**
+
 ```typescript
 private deriveSubject(event: IEvent): string {
   const segment = event.tenantId ?? 'system';
@@ -1393,6 +1465,7 @@ private deriveSubject(event: IEvent): string {
 ```
 
 **Evidence — subscriber (2 segments after normalisation):**
+
 ```typescript
 // Must match the topic published by sensor-service: 'SensorReading'
 await this.eventBus.subscribe('SensorReading', this);
@@ -1402,10 +1475,12 @@ await this.eventBus.subscribe('SensorReading', this);
 **Problem:** NATS subjects use exact-segment matching. `events.<uuid>.SensorReading` (3 segments) and `events.SensorReading` (2 segments) are different subjects. The subscriber receives zero messages for tenant-scoped publishes.
 
 **Risk:**
+
 - Alert evaluation silently misses every sensor reading on the NATS wire layer — only the in-process EventBus or alternative transports keep alarms flowing.
 - The Rust sidecar (Faz 2 stage 12 `events::subject_for`) deliberately replicates the 3-segment publisher shape to stay byte-equivalent per ADR-025 dual-write equivalence. Sidecar emits valid wire shapes that downstream subscribers also miss until the drift is reconciled.
 
 **Architectural fix options (choose consciously):**
+
 1. **Subscriber-side wildcard** — change `subscribe('SensorReading')` to `events.*.SensorReading`. Tier-3 "make it detectable" once a contract test pins it.
 2. **Publisher-side flatten** — emit `events.{eventType}` + put `tenantId` in a NATS header. Tier-2 "make it automatic"; cost is rewriting every downstream consumer that filters by subject.
 3. **Both, behind `event-version: v2` header** — migrate one consumer at a time; cleanest, heaviest.
@@ -1414,6 +1489,7 @@ await this.eventBus.subscribe('SensorReading', this);
 The Faz 2 sidecar's job was to replicate the existing publisher contract byte-for-byte (the plan's dual-write equivalence test mandates this). Fixing the drift is a multi-service refactor changing the publisher's subject shape and every downstream subscriber in lockstep — out of scope for the sidecar PR.
 
 **Follow-on tracking:**
+
 - Owner: Okan-Wqm + sensor-service / alert-engine / event-bus maintainers (platform-wide subject contract change).
 - Deadline: TBD — wants a 30-min architectural review meeting to pick option 1, 2, or 3 before any fix lands.
 - Closure path: dedicated PR updates `nats-event-bus.ts` + every subscriber + the Rust sidecar's `events::subject_for` atomically, plus a contract test in `e2e/tests/integration/nats-subject-contract.spec.ts` pinning the chosen convention.
@@ -1437,6 +1513,7 @@ fixed semantic.
 **Files:** `apps/sensor-service/src/ingestion/__tests__/mqtt-listener.service.spec.ts`
 
 **Evidence:**
+
 ```
 # Faz 2 HEAD baseline (pre-Faz-3, /tmp/aqua-rust-faz2 worktree):
 $ jest --testPathPatterns=mqtt-listener
@@ -1452,16 +1529,19 @@ Tests:       6 failed, 127 passed, 133 total
 Same 6 failures, same suite (`MqttListenerService › Edge device handlers › Legacy edge/ handlers`), same root error pattern (`expect(jest.fn()).toHaveBeenCalledWith(...)` with `Number of calls: 0`). The Faz 3 stage 2 + 3 commit was VERIFIED not to introduce any new failure — 127 passing on top of the pre-existing 6.
 
 **Problem:**
+
 - The 6 pre-existing failures pollute the test signal: every Faz-3+ PR that touches `apps/sensor-service/src/ingestion/**` will see a red CI for these tests and reviewers will have to do the "is this regression mine or pre-existing?" disambiguation by hand.
 - The `Jest did not exit one second after the test run has completed` warning hints at an open handle (timer / unawaited promise) — likely the same root cause that flakes the 6 expectations.
 - Fixing 6 unrelated failures is out of scope for the Faz 3 plan, but living with them is a Tier-1 violation ("make it impossible" for false-negative signals).
 
 **Architectural fix (TBD, not in this commit):**
+
 - Run the failing 6 tests in isolation under `--detectOpenHandles` to pin the leak source.
 - Add a `beforeEach`/`afterEach` cleanup so the legacy-edge handler subscription is torn down between tests (suspected leak point: the `mqttClient.onMessage(handler)` registration that survives the test scope).
 - Once green, mark the suite as required in CI.
 
 **Follow-on tracking:**
+
 - Owner: Okan-Wqm + sensor-service maintainers.
 - Deadline: 2026-05-15 — must be reconciled before Faz 3 stage 4 (e2e dual-write equivalence) lands or the soak signal is inherently noisy.
 - Closure path: a dedicated `fix(sensor-service): mqtt-listener test isolation` commit that makes the 6 failures green AND adds the `beforeEach` teardown so future regression of the same class is impossible.
@@ -1496,6 +1576,7 @@ green.
 **Severity:** MEDIUM (1 pre-existing test failure on every PR touching alert-engine)
 **Discovered:** 2026-04-21, ORPHAN-013 fix validation run.
 **Files:**
+
 - `apps/alert-engine/src/alert/event-handlers/__tests__/sensor-reading.handler.spec.ts:215-223` (test)
 - `apps/alert-engine/src/alert/event-handlers/sensor-reading.handler.ts:45-53` (handler `extractReadingsFromEvent` + ARC-C01 flat-field assumption)
 
@@ -1511,6 +1592,7 @@ Verified pre-existing on `main` (HEAD `23b1362a`). Not introduced by ORPHAN-013 
 **Architectural fix (TBD, not in this PR):** rewrite the test to construct the event with flat `readingTemperature: 25, readingPh: 7.2` fields (the post-ARC-C01 shape) and assert the same flat shape in the `evaluateSensorReading` call args. Optionally add a SECOND test that exercises the upcaster path (legacy nested → flat) since the upcaster lives in `libs/event-contracts/src/upcasters/sensor-reading.upcaster.ts`.
 
 **Follow-on tracking:**
+
 - Owner: alert-engine maintainers.
 - Deadline: 2026-05-15.
 - Closure path: a `test(alert-engine):` commit that updates the test fixture + adds the upcaster-path companion test.
@@ -1657,6 +1739,7 @@ Verifying + (if needed) implementing the rollback path is runner-infrastructure 
 **Related:** `docs/runbooks/sensor-ingestion-rollback.md` (to be created by Rust plan Kör Nokta 14) depends on this runner capability.
 
 **Follow-on tracking:**
+
 - Owner: db-migrate / backend-common maintainers.
 - Deadline: 2026-05-30 (before PR-A-safety of Rust delta plan merges).
 - Closure path: `feat(db-migrate): bidirectional migration CLI + rollback CI workflow` + `Closes: docs/reviews/orphan-findings.md#ORPHAN-020`.
@@ -1683,6 +1766,7 @@ Additionally, every other service pushed by `deploy-digitalocean.yml` (backend N
 4. Extend `docs/runbooks/sensor-ingestion-deployment.md` §6 to a platform-wide section (or split into `docs/runbooks/platform-supply-chain.md`) once every service is covered.
 
 **Follow-on tracking:**
+
 - Owner: SRE + platform-infra team.
 - Deadline: 2026-06-30 (supply-chain hardening cross-platform rollout).
 - Closure path: `security(ci,deploy): cosign sign + verify every platform image` PR touching both deploy workflows + every Dockerfile with `sbom: true`, carrying `Closes: docs/reviews/orphan-findings.md#ORPHAN-021` when every image is under the same discipline.
@@ -1704,6 +1788,7 @@ These files are generated by Nx workspace generators (`nx generate @nx/nest:app 
 **Classification rule for future audits:**
 
 jscpd clusters where EVERY participating file is one of:
+
 - `tsconfig.build.json` with only `extends` + `compilerOptions.outDir` differing
 - `jest.config.ts` with only `displayName` + `coverageDirectory` differing
 - `project.json` Nx target definitions sharing the same `executor` with only `options.projectName` differing
@@ -1715,6 +1800,7 @@ jscpd clusters where EVERY participating file is one of:
 This orphan entry is the architectural tier-4 "document" fallback for `AUDIT-LOW-001` from the 2026-04-22 cold audit. The audit-tool `tools/audit/aggregate-hotspots.ts` does NOT currently filter these — a follow-up improvement (not tracked as a separate finding because the noise is informational only) would add an ignore glob.
 
 **Follow-on tracking:**
+
 - Owner: orchestrator.
 - No deadline — this is an informational classification, not an actionable fix.
 - Closure path: commit that adds this note carries `Closes: docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md#AUDIT-LOW-001`.
@@ -1738,13 +1824,15 @@ Applying Tier 1–3 (make-impossible / make-automatic / make-detectable) would m
 **Escalation rule (the Tier-3 half of this entry):**
 
 The next cold-audit cycle (2026-06 or earlier on a triggered audit) inspects these three surfaces AGAIN. If ANY of them shows:
-- churn *and* a correlated failing e2e test suite, OR
-- churn *and* a spike in open AUDIT-* findings on the same files, OR
-- churn *and* a rise in lint-warning count for the service,
+
+- churn _and_ a correlated failing e2e test suite, OR
+- churn _and_ a spike in open AUDIT-\* findings on the same files, OR
+- churn _and_ a rise in lint-warning count for the service,
 
 the relevant MEDIUM-NNN escalates to a HIGH-severity finding with the specific defect class it correlates with. The MONITOR classification is automatic — no human-review handoff needed — because the audit tooling (`tools/audit/aggregate-hotspots.ts`) can compute the correlation deterministically.
 
 **Follow-on tracking:**
+
 - Owner: orchestrator.
 - Deadline: next cold-audit cycle (tracked by the audit tooling itself, not a date).
 - Closure path: commit that adds this note carries `Closes: docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md#AUDIT-MEDIUM-001` + `#AUDIT-MEDIUM-004` + `#AUDIT-MEDIUM-010` trailers on separate lines.
@@ -1756,11 +1844,11 @@ the relevant MEDIUM-NNN escalates to a HIGH-severity finding with the specific d
 **Scope (now 4+ entities across 2 services):**
 
 sensor-service:
+
 1. `apps/sensor-service/src/edge-device/entities/device-io-config.entity.ts` — reachable only via parent `EdgeDevice`.
 2. `apps/sensor-service/src/automation/entities/program-variable.entity.ts` — reachable only via parent `AutomationProgram`.
 
-billing-service (added 2026-04-27 during PR #159 audit):
-3. `apps/billing-service/src/billing/entities/subscription-module-item.entity.ts` — reachable only via parent `Subscription` (scoped by `subscriptionId` FK).
+billing-service (added 2026-04-27 during PR #159 audit): 3. `apps/billing-service/src/billing/entities/subscription-module-item.entity.ts` — reachable only via parent `Subscription` (scoped by `subscriptionId` FK).
 
 (implicit) Any future child entity in any service that follows the same parent-scoped pattern. The architectural class is "child entity reachable only via parent FK; tenantId is inherited via JOIN, not stored locally."
 
@@ -1768,7 +1856,7 @@ None of these declare a `@Column` for `tenantId`. Rows are reachable only via th
 
 **Why the entity can't be wrapped by `tenantManagerRepo()`:**
 
-The scoped repo auto-injects `{ ..., tenantId }` into every save / update / create / delete. DeviceIoConfig has no `tenantId` column → the INSERT would fail at runtime with a `column "tenantId" does not exist` Postgres error. Wrapping with `tenantManagerRepo()` is therefore *structurally incorrect* until the column exists.
+The scoped repo auto-injects `{ ..., tenantId }` into every save / update / create / delete. DeviceIoConfig has no `tenantId` column → the INSERT would fail at runtime with a `column "tenantId" does not exist` Postgres error. Wrapping with `tenantManagerRepo()` is therefore _structurally incorrect_ until the column exists.
 
 **Current state:**
 
@@ -1792,12 +1880,14 @@ Until then this ORPHAN documents why the getRepository rule has a single sensor-
 **Status:** OPEN — surfaced during the SEC-REVIEW-003 invariant landing on `cold-audit/pr-8-security-hardening`.
 
 **Scope:**
+
 - `/var/aqua-saas/CONTRIBUTING.md` — 6070 bytes, Apr 25 timestamp, untracked.
 - `/var/aqua-saas/SECURITY.md` — 3120 bytes, Apr 25 timestamp, untracked.
 
 **Observation:**
 
 `git log --all --source --remotes -- CONTRIBUTING.md SECURITY.md` returns empty across every branch. The two files exist locally but have never been committed on any remote ref. Their content is well-formed:
+
 - `CONTRIBUTING.md` references CLAUDE.md as the platform invariant playbook, walks through the trunk-based dev model + commit format + finding traceability rules.
 - `SECURITY.md` documents an ISO/IEC 30111 + 29147 vulnerability handling policy, with a `security@suderra.example` placeholder address that must be replaced before external publication.
 
@@ -1840,6 +1930,7 @@ Pre-existing on `main` since the invariants suite was first sharded (Phase 14.3 
 **Closure path:**
 
 Single-line, mechanical fix:
+
 1. Add `"isolatedModules": true` to `tests/invariants/tsconfig.spec.json` `compilerOptions`.
 2. Remove `isolatedModules: true` from the ts-jest `transform` block in `jest.config.ts:73`.
 3. Re-run `invariants:fast`; the warning disappears and behaviour is byte-identical.
@@ -1857,6 +1948,7 @@ Carry `Closes: docs/reviews/orphan-findings.md#ORPHAN-TEST-INFRA-001` on the com
 PR #158 ("Lossless main refresh: 13 PRs (4 CI fix + 9 dependabot bumps)") is `MERGEABLE` per `git merge-tree` but `mergeStateStatus: UNSTABLE` per the GH API: `lint`, `type-check`, `test`, `build` are all FAILURE while every other gate (banned-phrase, schema-validation, dependency-review, cargo-deny, cargo-audit, secrets scan, k6 benchmark) is SUCCESS.
 
 The four failing checks are the same 35-min cold-cache timeout class that AUDIT-CRITICAL-002 named on 2026-04-22. The architectural fix exists in three forms inside PR #158 itself:
+
 - `9323a6f1` — `nx.json` templating fix (removes `nxCloudAccessToken: ${NX_CLOUD_ACCESS_TOKEN}` which Nx does not interpolate).
 - `ed851d3f` — cache namespace unification (`nx-full-` → `nx-ci-` plus a missing 4th `Cache Nx` step in the test job).
 - `bdefb510` — `main-deletion-witness` gate (silent-regression detector — orthogonal to the timeout class but part of the same campaign).
@@ -1909,14 +2001,14 @@ This entry serves as the historical record. No action needed once PR #159 merges
 
 The architectural surface SEC-REVIEW-007 names (handler accepts an arbitrary `tenantId` in body / header → wrapper writes a row with the wrong tenant) is already covered by SIX independent detection layers, each catching a different failure mode:
 
-| # | Layer | Defends against |
-|---|-------|-----------------|
-| 1 | ESLint `no-restricted-syntax` rule (`.eslintrc.json:101-128`) | direct `.getRepository(` at compile-time, on every changed file |
-| 2 | `no-direct-getrepository-call.spec.ts` invariant (PR #159) | direct `.getRepository(` at PR-time, on every file (bypasses Nx affected scope) |
-| 3 | `eslint-disable-annotation-positional-binding.spec.ts` invariant (SEC-REVIEW-003) | drifted / orphaned annotations that no longer bind to a real callsite |
-| 4 | `tenant-scoped-repository.spec.ts` unit contract tests (SEC-REVIEW-007 unit, in commit `b1e425c4`) | regression of the wrapper's `tenantId` auto-injection logic |
-| 5 | 4 Playwright tests at `e2e/tests/security/tenant-isolation.spec.ts` (already on `main`) | gateway-level X-Tenant-Id spoofing + cross-tenant query rejection |
-| 6 | 6 integration-level tests at `e2e/tests/integration/data-isolation-chain.spec.ts` (already on `main`) | end-to-end write-then-read cross-tenant invisibility |
+| #   | Layer                                                                                                 | Defends against                                                                 |
+| --- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| 1   | ESLint `no-restricted-syntax` rule (`.eslintrc.json:101-128`)                                         | direct `.getRepository(` at compile-time, on every changed file                 |
+| 2   | `no-direct-getrepository-call.spec.ts` invariant (PR #159)                                            | direct `.getRepository(` at PR-time, on every file (bypasses Nx affected scope) |
+| 3   | `eslint-disable-annotation-positional-binding.spec.ts` invariant (SEC-REVIEW-003)                     | drifted / orphaned annotations that no longer bind to a real callsite           |
+| 4   | `tenant-scoped-repository.spec.ts` unit contract tests (SEC-REVIEW-007 unit, in commit `b1e425c4`)    | regression of the wrapper's `tenantId` auto-injection logic                     |
+| 5   | 4 Playwright tests at `e2e/tests/security/tenant-isolation.spec.ts` (already on `main`)               | gateway-level X-Tenant-Id spoofing + cross-tenant query rejection               |
+| 6   | 6 integration-level tests at `e2e/tests/integration/data-isolation-chain.spec.ts` (already on `main`) | end-to-end write-then-read cross-tenant invisibility                            |
 
 **The proposed 6th-set of Playwright tests would have covered:**
 
@@ -1949,8 +2041,9 @@ The AUDIT-MEDIUM-005 codemod (`810eae97`) migrated then-existing root-barrel use
 Add `tests/invariants/no-root-barrel-import.spec.ts` that walks every tracked .ts file via `git ls-files` and asserts no `import ... from '@aquaculture/backend-common'` (root) AND no `import ... from '@platform/backend-common'` (root) appears. The exemption set is the per-subtree `/<name>` form (`/database`, `/auth`, `/audit`, etc.).
 
 The pattern mirrors `no-direct-getrepository-call.spec.ts` exactly:
+
 - Walks tracked source via `git ls-files`
-- Skips test/__tests__/__mocks__/migrations
+- Skips test/**tests**/**mocks**/migrations
 - Runs in `invariants:fast` (the always-on PR gate per AUDIT-CRITICAL-003)
 - Bypasses Nx affected scope entirely
 
@@ -1998,12 +2091,13 @@ Until either is done, this orphan entry is the canonical record of the pattern's
 **Where surfaced:** PR-195 Batch #16 (D-3 SQLCipher migration arc — manifest-aware consumer adoption planning).
 
 **Where it lives:** `sens-api-gateway/src/main.rs` boot sequence, current order:
+
 - L3209: `state_guard.init_offline_queue().await`
 - L3371: `state_guard.init_license_cache()`
 - L3383: `state_guard.init_bytecode_registry_store().await`
 - L3394: `state_guard.init_retain_persistence()`
 - L3405: `state_guard.init_force_registry_store().await`
-- L3492: `state_guard.init_keystore().await`  ← runs AFTER all consumers above
+- L3492: `state_guard.init_keystore().await` ← runs AFTER all consumers above
 
 **Why this is a real architectural concern (not just stylistic):**
 
@@ -2044,6 +2138,7 @@ The boot-order fix is separate from both. Tracking it here so a future architect
 **The architectural problem:**
 
 Per ADR-031, the four SQLCipher consumers split into two binding shapes:
+
 - DEVICE-BOUND: `OfflineQueue` + `LicenseCacheStore` — context = `deployment_uuid` (always available at boot via `config.device_id`).
 - PROGRAM-BOUND: `SqlitePersistence` + `BytecodeRegistryStore` — context = `program_artifact_sha256` of the currently-loaded program.
 
@@ -2052,6 +2147,7 @@ Programs deploy via the MQTT command path AFTER agent boot completes. At `init_r
 For pre-migration hosts (v1 manifest, or no manifest at all), the resolver's v1 path doesn't read program_sha — `init_X` works fine with empty/None program_sha because the v1 fallback ignores it.
 
 For post-migration hosts (v2 manifest):
+
 - The migration ceremony WAS run at some prior point.
 - The ceremony itself faced this same chicken-and-egg: which program SHA does the operator pass to the migration tool when migrating program-bound DBs?
 - If the migration tool ran with `program_sha = X`, the consumer DBs were rekeyed to a v2 key derived under `X`.
@@ -2082,6 +2178,7 @@ The choice between options 1 and 3 affects the migration ceremony's `KNOWN_SQLCI
 **Current state (post-Batch-16):**
 
 PR-195 has landed:
+
 - `run_migration_ceremony_with_context(argv, ctx: MigrationContext)` execute-capable CLI entry (Batch #12)
 - `crate::keystore::bootstrap::build_production_keystore_from_config(...)` SSoT helper (Batch #16)
 - All 4 per-consumer manifest-aware constructors (Batches #13-#15)
@@ -2091,6 +2188,7 @@ The dispatch arm at `main.rs:2823` still calls the LEGACY `run_migration_ceremon
 **Why not done in Batch #16:**
 
 Wiring the dispatch arm requires:
+
 1. Calling `AgentConfig::load()` inside the `--migrate-db` arm (currently config load is at L2987, AFTER the early subcommand dispatch).
 2. Building a clock-authority for the keystore (currently AppState owns this; CLI dispatch needs to pick its own).
 3. Building the keystore via `crate::keystore::bootstrap::build_production_keystore_from_config(...)`.
@@ -2155,7 +2253,7 @@ That's ~80-100 lines of wire-up code. Bundleable but interacts with the parallel
 
 **Severity rationale (HIGH not MEDIUM):** edge-expert reviewer flagged this — `provisioning.rs:218` carries the **single-use device-bootstrap token exchange** (the most security-critical of the four reqwest callsites). A successful TLS 1.2 cipher-suite-downgrade attack on that endpoint compromises a device's identity bootstrap. The other three (firmware download, scripting cloud fetches, telemetry posts) are also material attack surfaces. Severity reflects worst-case attack-surface impact, not just code-locality.
 
-**Impact:** Phase 0.2 narrows the *MQTT* transport to TLS 1.3 + 3-suite allowlist via explicit `builder_with_provider(suderra_provider)`. The `rustls::crypto::ring::default_provider().install_default()` call on line 963 still installs the **unrestricted** ring provider as the process-wide default. Anything that builds a rustls `ClientConfig` without an explicit provider — currently every cloud HTTPS reqwest client — pulls the unrestricted provider's full cipher list, including TLS 1.2 ECDHE suites. Cloud HTTPS does not honor the cipher allowlist or the TLS 1.3 pin.
+**Impact:** Phase 0.2 narrows the _MQTT_ transport to TLS 1.3 + 3-suite allowlist via explicit `builder_with_provider(suderra_provider)`. The `rustls::crypto::ring::default_provider().install_default()` call on line 963 still installs the **unrestricted** ring provider as the process-wide default. Anything that builds a rustls `ClientConfig` without an explicit provider — currently every cloud HTTPS reqwest client — pulls the unrestricted provider's full cipher list, including TLS 1.2 ECDHE suites. Cloud HTTPS does not honor the cipher allowlist or the TLS 1.3 pin.
 
 **WHY this is a finding, not part of Phase 0:** Phase 0 scope is "make Strict + custom-CA reachable" + "fix dead-code cipher gate on the MQTT path". Phase 1.1.3 in the approved plan owns "HTTPS outbound (cloud client) custom verifier wire" — that's the right place to plumb the Suderra provider into the cloud HTTPS path (via `reqwest::ClientBuilder::use_preconfigured_tls(rustls_config)` where the rustls_config is built with `ClientConfig::builder_with_provider(suderra_provider)`).
 
@@ -2499,18 +2597,18 @@ The split is clean: B-5 ships the primitive (architecturally complete + invarian
 
 **Scope:** Four production GitHub Actions workflow files outside the ARIA scope:
 
-* `.github/workflows/deploy-digitalocean.yml:316, :318, :330` — `${{ github.event.inputs.services }}` interpolated raw four times in the deploy-trigger conditional + IFS-read + branch-equality.
-* `.github/workflows/deploy-staging.yml:87, :88` — `${{ github.event.inputs.image_tag_override }}` interpolated raw twice in the image-tag resolver.
-* `.github/workflows/edge-agent-release.yml:164` — `${{ github.event.inputs.version }}` interpolated raw inside the workflow_dispatch tag-extract block.
-* `.github/workflows/sensor-ingestion-release.yml:74, :75` — `${{ github.event.inputs.tag }}` interpolated raw twice in the image-tag resolver.
+- `.github/workflows/deploy-digitalocean.yml:316, :318, :330` — `${{ github.event.inputs.services }}` interpolated raw four times in the deploy-trigger conditional + IFS-read + branch-equality.
+- `.github/workflows/deploy-staging.yml:87, :88` — `${{ github.event.inputs.image_tag_override }}` interpolated raw twice in the image-tag resolver.
+- `.github/workflows/edge-agent-release.yml:164` — `${{ github.event.inputs.version }}` interpolated raw inside the workflow_dispatch tag-extract block.
+- `.github/workflows/sensor-ingestion-release.yml:74, :75` — `${{ github.event.inputs.tag }}` interpolated raw twice in the image-tag resolver.
 
 **Audited surface:** Plan 024 v3 §B-3 invariant `tests/invariants/aria-workflow-input-injection.spec.ts` reports each of these four files as containing raw `${{ github.event.inputs.<name> }}` interpolations inside a `run:` shell block. Plan 024 §B-3 scope is intentionally limited to ARIA-owned workflows (`aria-*.yml`); the non-ARIA findings are surfaced here for follow-up.
 
 **Why this is acceptable for Plan 024 v3:**
 
-* **Scope discipline.** Plan 024 v3 closes 15 ARIA audit anchors. Extending the workflow-injection fix to non-ARIA production deploy / release pipelines is a different blast-radius batch — operator approval is needed for changes to deploy-digitalocean.yml + deploy-staging.yml because they govern cloud-side rollout.
-* **No regression vs pre-Plan-024.** These workflows shipped the raw interpolations long before Plan 024 was scoped; the invariant test is opt-in to the ARIA prefix specifically so the gate doesn't immediately red on baseline state.
-* **Operator-protected trigger surface.** The four workflows are gated by branch protection (push to `main`) or operator-approved `workflow_dispatch`. The injection class requires a malicious operator to type `'; rm -rf /` or similar; an operator with workflow_dispatch authority can already do worse via direct repo mutation.
+- **Scope discipline.** Plan 024 v3 closes 15 ARIA audit anchors. Extending the workflow-injection fix to non-ARIA production deploy / release pipelines is a different blast-radius batch — operator approval is needed for changes to deploy-digitalocean.yml + deploy-staging.yml because they govern cloud-side rollout.
+- **No regression vs pre-Plan-024.** These workflows shipped the raw interpolations long before Plan 024 was scoped; the invariant test is opt-in to the ARIA prefix specifically so the gate doesn't immediately red on baseline state.
+- **Operator-protected trigger surface.** The four workflows are gated by branch protection (push to `main`) or operator-approved `workflow_dispatch`. The injection class requires a malicious operator to type `'; rm -rf /` or similar; an operator with workflow_dispatch authority can already do worse via direct repo mutation.
 
 **HOW to resolve (platform-CI follow-up):**
 
@@ -2543,15 +2641,15 @@ PYTHONPATH=aria-kernel python3 -m aria_kernel --tools-dir aria-tools \
 
 **Surface evidence:**
 
-* `aria-tools/integrity_index.json` carries `bound_repo_root='/var/aqua-saas'` + a `tools_root_repo_hash` derived from the canonical `/var/aqua-saas` filesystem path.
-* When the operator runs ARIA from a git worktree (`/var/aqua-saas/.worktrees/snowball`) the canonical workspace root is the worktree path; `ensure_tools_binding` re-hashes `/var/aqua-saas/.worktrees/snowball` → different hash → `tools_root_repo_hash_mismatch` raise.
-* Mathematically the worktree IS the same git repo (shared `.git/common_dir`); `aria-tools/` reuse from a sibling worktree is NOT a cross-repo reuse, but the binding logic does not consult `git rev-parse --git-common-dir` to resolve worktree pointers to the canonical repo root.
+- `aria-tools/integrity_index.json` carries `bound_repo_root='/var/aqua-saas'` + a `tools_root_repo_hash` derived from the canonical `/var/aqua-saas` filesystem path.
+- When the operator runs ARIA from a git worktree (`/var/aqua-saas/.worktrees/snowball`) the canonical workspace root is the worktree path; `ensure_tools_binding` re-hashes `/var/aqua-saas/.worktrees/snowball` → different hash → `tools_root_repo_hash_mismatch` raise.
+- Mathematically the worktree IS the same git repo (shared `.git/common_dir`); `aria-tools/` reuse from a sibling worktree is NOT a cross-repo reuse, but the binding logic does not consult `git rev-parse --git-common-dir` to resolve worktree pointers to the canonical repo root.
 
 **Why this is acceptable for Plan 024 v3:**
 
-* Plan 024 v3 scope is the F-005 audit-anchor closure (15 architectural-quality gaps from the post-push audit). Worktree-aware binding is a runtime-discipline fix that surfaced ONLY when an operator ran the ARIA kernel against the corrective-arc HEAD as a smoke test post-sign-off.
-* No regression vs pre-Plan-024: this binding behavior shipped long before Plan 024 was scoped; the binding hash check landed in Plan 014/015 era as the tools-root cross-repo defense.
-* Operator workaround: run from the canonical repo root (`/var/aqua-saas/`) instead of the worktree; the binding hash matches the original bound path. ARIA cycle / discovery / spine baseline all work from the canonical root.
+- Plan 024 v3 scope is the F-005 audit-anchor closure (15 architectural-quality gaps from the post-push audit). Worktree-aware binding is a runtime-discipline fix that surfaced ONLY when an operator ran the ARIA kernel against the corrective-arc HEAD as a smoke test post-sign-off.
+- No regression vs pre-Plan-024: this binding behavior shipped long before Plan 024 was scoped; the binding hash check landed in Plan 014/015 era as the tools-root cross-repo defense.
+- Operator workaround: run from the canonical repo root (`/var/aqua-saas/`) instead of the worktree; the binding hash matches the original bound path. ARIA cycle / discovery / spine baseline all work from the canonical root.
 
 **HOW to resolve:**
 
@@ -2570,8 +2668,8 @@ The scope is mechanical: one helper to resolve worktree → canonical repo root,
 
 **Why this is acceptable for Plan 024 v3:**
 
-* Status field absence is observability degradation, not correctness loss. The cycle-lifecycle integrity check (`integrity verify` returns `cycle_lifecycle.incomplete_count: 0 / valid: true`) does not depend on the per-row status field; it walks the begin/end markers.
-* Operator scripts that grep `cycles.jsonl` for `status=ok|fail` see no signal because the field is never persisted.
+- Status field absence is observability degradation, not correctness loss. The cycle-lifecycle integrity check (`integrity verify` returns `cycle_lifecycle.incomplete_count: 0 / valid: true`) does not depend on the per-row status field; it walks the begin/end markers.
+- Operator scripts that grep `cycles.jsonl` for `status=ok|fail` see no signal because the field is never persisted.
 
 **HOW to resolve:**
 
@@ -2587,28 +2685,28 @@ Estimated effort ≈ 1 batch (≤ 1h).
 **Scope:** `aria-kernel/aria_kernel/cli.py` argparse subparser definitions across ~50 subcommands. Three distinct patterns observed during smoke test:
 
 1. **Pattern A — global `--tools-dir` accepted** (operator passes BEFORE the subcommand):
-   * `tool list`, `profile get`, `change list` — `python3 -m aria_kernel --tools-dir aria-tools tool list` works.
+   - `tool list`, `profile get`, `change list` — `python3 -m aria_kernel --tools-dir aria-tools tool list` works.
 2. **Pattern B — subcommand-level `--tools-dir TOOLS_DIR` REQUIRED** (operator passes AFTER the subcommand):
-   * `spine status`, `metrics dashboard`, `human-required list`, `integrity verify` — `python3 -m aria_kernel spine status --tools-dir aria-tools` works; `python3 -m aria_kernel --tools-dir aria-tools spine status` fails with "unrecognized arguments: --tools-dir aria-tools".
+   - `spine status`, `metrics dashboard`, `human-required list`, `integrity verify` — `python3 -m aria_kernel spine status --tools-dir aria-tools` works; `python3 -m aria_kernel --tools-dir aria-tools spine status` fails with "unrecognized arguments: --tools-dir aria-tools".
 3. **Pattern C — `--tools-dir` NOT accepted at all; workspace_root drives resolution**:
-   * `pressure list` — only `--workspace-root` accepted; aria-tools is resolved internally via `workspace_paths`.
+   - `pressure list` — only `--workspace-root` accepted; aria-tools is resolved internally via `workspace_paths`.
 
 **Reproducer matrix:**
 
-| Subcommand | `--tools-dir` BEFORE works | `--tools-dir` AFTER works |
-|---|---|---|
-| `tool list` | ✅ | ❌ |
-| `profile get` | ✅ | ❌ |
-| `spine status` | ❌ | ✅ |
-| `metrics dashboard` | ❌ | ✅ |
-| `human-required list` | ❌ | ✅ |
-| `integrity verify` | ✅ | ❌ |
-| `pressure list` | ❌ | ❌ (uses --workspace-root) |
+| Subcommand            | `--tools-dir` BEFORE works | `--tools-dir` AFTER works  |
+| --------------------- | -------------------------- | -------------------------- |
+| `tool list`           | ✅                         | ❌                         |
+| `profile get`         | ✅                         | ❌                         |
+| `spine status`        | ❌                         | ✅                         |
+| `metrics dashboard`   | ❌                         | ✅                         |
+| `human-required list` | ❌                         | ✅                         |
+| `integrity verify`    | ✅                         | ❌                         |
+| `pressure list`       | ❌                         | ❌ (uses --workspace-root) |
 
 **Why this is acceptable for Plan 024 v3:**
 
-* Operator UX degradation, not architectural correctness loss. Each subcommand still works given the right flag placement.
-* Pre-Plan-024 baseline carried the same inconsistency; the spec discipline of v1→v2→v3 plan validation did not include CLI surface-uniformity audit.
+- Operator UX degradation, not architectural correctness loss. Each subcommand still works given the right flag placement.
+- Pre-Plan-024 baseline carried the same inconsistency; the spec discipline of v1→v2→v3 plan validation did not include CLI surface-uniformity audit.
 
 **HOW to resolve:**
 
@@ -2622,7 +2720,7 @@ Estimated effort ≈ 2-3 batches (≤ 4h, requires touching every subparser defi
 
 **Status:** OPEN — owner: Okan-Wqm. Owner agent: future ARIA adapter-portfolio hardening plan. Deadline: best-effort.
 
-**Scope:** `aria-tools/registry.json` outbox-adapter row + the adapter's manifest under `tools/aria-adapters/outbox-adapter.tool.json`. The declared_scope / allowed_read_globs include patterns that match the entire `apps/hr-service/**` source tree (200+ files: jest.config.ts, src/aquaculture/**, src/training/**, src/scheduling/**, src/leave/**, src/performance/**, src/attendance/**, src/hr/**, src/health/**, src/database/**), even though the adapter's stated purpose is the @platform/outbox transactional outbox surface.
+**Scope:** `aria-tools/registry.json` outbox-adapter row + the adapter's manifest under `tools/aria-adapters/outbox-adapter.tool.json`. The declared_scope / allowed_read_globs include patterns that match the entire `apps/hr-service/**` source tree (200+ files: jest.config.ts, src/aquaculture/**, src/training/**, src/scheduling/**, src/leave/**, src/performance/**, src/attendance/**, src/hr/**, src/health/**, src/database/\*\*), even though the adapter's stated purpose is the @platform/outbox transactional outbox surface.
 
 **Reproducer:**
 
@@ -2642,8 +2740,8 @@ PYTHONPATH=aria-kernel python3 -m aria_kernel --tools-dir aria-tools \
 
 **Why this is acceptable for Plan 024 v3:**
 
-* Plan 024 v3 scope is the F-005 audit-anchor closure (15 architectural-quality gaps from the post-push audit). Adapter manifest correctness is a separate quality dimension that surfaced ONLY when an operator ran the kernel against the actual codebase post-sign-off.
-* The adapter is in SHADOW status; raw findings are not promoted to operator-facing emit. The scope_violation surface IS the architectural defense: tool_health.record_run flags the run, the operator audit chain captures the file list, and the adapter does not contaminate the operator queue.
+- Plan 024 v3 scope is the F-005 audit-anchor closure (15 architectural-quality gaps from the post-push audit). Adapter manifest correctness is a separate quality dimension that surfaced ONLY when an operator ran the kernel against the actual codebase post-sign-off.
+- The adapter is in SHADOW status; raw findings are not promoted to operator-facing emit. The scope_violation surface IS the architectural defense: tool_health.record_run flags the run, the operator audit chain captures the file list, and the adapter does not contaminate the operator queue.
 
 **HOW to resolve:**
 
@@ -2664,8 +2762,8 @@ Estimated effort ≈ 1 batch (≤ 2h).
 
 **Why this is acceptable for Plan 024 v3:**
 
-* `.claude/agents/**` is non-production source: it carries the Claude Code agent system prompts that power the agent dispatch lane. The agent-harness-security-adapter's stated purpose is harness security review (auth/authz, sandboxing, secrets handling) which lives in production code paths (auth-service, gateway-api, libs/backend-common/security/**). Including the agent .md files is non-production noise.
-* SHADOW status means no operator-facing emit; the scope_violation surface is the architectural defense.
+- `.claude/agents/**` is non-production source: it carries the Claude Code agent system prompts that power the agent dispatch lane. The agent-harness-security-adapter's stated purpose is harness security review (auth/authz, sandboxing, secrets handling) which lives in production code paths (auth-service, gateway-api, libs/backend-common/security/\*\*). Including the agent .md files is non-production noise.
+- SHADOW status means no operator-facing emit; the scope_violation surface is the architectural defense.
 
 **HOW to resolve:**
 
@@ -2683,6 +2781,7 @@ Estimated effort ≈ 1 batch shared with 059 (≤ 2-3h total for both).
 **Scope:** `aria-kernel/aria_kernel/architecture_spine_gate.py:284, 339` — both readers iterate `aria-tools/runs.jsonl` and on `(OSError, json.JSONDecodeError)` fall back to `latest = None` silently. F-006 evidence pointer originally claimed these were governance.jsonl callsites; Plan 025 §A.2 Planner-B's code-grounded validation corrected the count: `runs.jsonl` is a **separate ledger** with its own integrity contract, NOT inside Plan 025 §A.2 governance-reader scope.
 
 **Reproducer:**
+
 ```python
 # Direct Read at architecture_spine_gate.py:278-285 (_check_auth_security)
 for line in runs_path.read_text(encoding="utf-8").splitlines():
@@ -2699,8 +2798,8 @@ Identical pattern at lines 333-340 (`_check_harness_security`) for `tool_id == "
 
 **Why architectural shape parallels §A.2 but ledger differs:**
 
-* `runs.jsonl` is the adapter execution ledger (one row per adapter run); `governance.jsonl` is the audit/integrity-event ledger. Both are append-only and hash-chained, but their criticality and recovery semantics differ — a corrupt `runs.jsonl` row affects invariant measurement (one stale invariant for one cycle), whereas a corrupt `governance.jsonl` row affects audit replayability.
-* Single shared `read_*_rows(path, *, on_corruption=...)` API is correct, but the helper module name and default mode SHOULD be ledger-specific (a generic `read_jsonl_rows` would hide which ledger the operator is failing). Hence: parallel `read_runs_rows` helper sibling to `read_governance_rows`, NOT a unified one.
+- `runs.jsonl` is the adapter execution ledger (one row per adapter run); `governance.jsonl` is the audit/integrity-event ledger. Both are append-only and hash-chained, but their criticality and recovery semantics differ — a corrupt `runs.jsonl` row affects invariant measurement (one stale invariant for one cycle), whereas a corrupt `governance.jsonl` row affects audit replayability.
+- Single shared `read_*_rows(path, *, on_corruption=...)` API is correct, but the helper module name and default mode SHOULD be ledger-specific (a generic `read_jsonl_rows` would hide which ledger the operator is failing). Hence: parallel `read_runs_rows` helper sibling to `read_governance_rows`, NOT a unified one.
 
 **HOW to resolve (post-Plan-025):**
 
@@ -2756,6 +2855,7 @@ Estimated effort ≈ ¼ batch (single function + 1 unit test ≤ 1h).
 **Symptom:** `python3 -m unittest discover aria-kernel -p '*test*.py'` with shared ARIA_TEST_TMPDIR sometimes reports 1-4 failures across these two modules; running each module isolated returns 34/34 OK and 1/1 OK respectively.
 
 **Reproducer (intermittent):**
+
 ```bash
 ARIA_TEST_TMPDIR=/tmp/aria-tests-x ARIA_WORKSPACE_BASE=/tmp/aria-workspaces-x \
   PYTHONPATH=aria-kernel python3 -m unittest discover aria-kernel -p '*test*.py'
@@ -2765,6 +2865,7 @@ ARIA_TEST_TMPDIR=/tmp/aria-tests-x ARIA_WORKSPACE_BASE=/tmp/aria-workspaces-x \
 ```
 
 Isolated runs (deterministic OK):
+
 ```bash
 PYTHONPATH=aria-kernel python3 -m unittest aria-kernel.tests.test_tool_governance       # 34/34 OK
 PYTHONPATH=aria-kernel python3 -m unittest aria-kernel.tests.test_event_contracts_adapter_integration  # 1/1 OK in 87s
@@ -2772,8 +2873,8 @@ PYTHONPATH=aria-kernel python3 -m unittest aria-kernel.tests.test_event_contract
 
 **Why this is plan-independent:**
 
-* Test fixture state interference between modules — one test's tmpdir or governance.jsonl leaks into the next module's setUp. Module load order under `discover` is non-deterministic, so the flake reproduces or not depending on which module ran before the affected pair.
-* Plan 025 confirmed clean by isolated re-run: §E commit `4144f315` reported 1214 OK at a fresh tmpdir; sign-off-time `1ae1cd25` re-run (same tmpdir reused across multiple Plan 025 phases) intermittently reports 1-4 fails. Affected modules contain no Plan 025 surface call.
+- Test fixture state interference between modules — one test's tmpdir or governance.jsonl leaks into the next module's setUp. Module load order under `discover` is non-deterministic, so the flake reproduces or not depending on which module ran before the affected pair.
+- Plan 025 confirmed clean by isolated re-run: §E commit `4144f315` reported 1214 OK at a fresh tmpdir; sign-off-time `1ae1cd25` re-run (same tmpdir reused across multiple Plan 025 phases) intermittently reports 1-4 fails. Affected modules contain no Plan 025 surface call.
 
 **HOW to resolve (post-Plan-025):**
 
@@ -2785,6 +2886,7 @@ PYTHONPATH=aria-kernel python3 -m unittest aria-kernel.tests.test_event_contract
 Estimated effort ≈ ½ batch (audit + 2 module setUp rewrites + invariant test ≤ 2-3h).
 
 **Why this is NOT inside Plan 025 sign-off scope:** the affected tests do not exercise any Plan 025 code path; the flake reproduces on pre-Plan-025 HEADs. Closing Plan 025 §E sign-off at HEAD `1ae1cd25` is correct; Plan 026 (or a dedicated test-isolation plan) owns the harness fix.
+
 ## ORPHAN-HIGH-055 — auth-service migration history was squashed; baseline `CREATE TABLE auth.*` chain is missing, so fresh-volume bootstraps crash on later ALTER-COLUMN migrations (Phase: bootstrap-restoration, 2026-05-07)
 
 **Status:** OPEN — owner: Okan-Wqm. Owner agent: data-expert / auth-service maintainer. Deadline: gated on this orphan finding being closed by `apps/auth-service/src/migrations/1700000000000-CreateInitialSchema.ts` landing on `main` AND a fresh-volume bootstrap E2E proving the chain replays cleanly.
@@ -2801,7 +2903,7 @@ Estimated effort ≈ ½ batch (audit + 2 module setUp rewrites + invariant test 
 
 2. **Idempotent end-to-end** — every DDL statement uses `CREATE TABLE IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`, plus `DO $$ ... EXCEPTION WHEN duplicate_object` blocks for enum types and FK constraints. Production replay against an already-populated volume is a no-op; the migration ledger insert occurs once.
 
-3. **Topological order respected** — parents before FK children: `modules` / `mobile_user_settings` (no auth.* FKs) → `user_module_assignments` (FK to users + modules) → `refresh_tokens`, `webauthn_credentials` (FK to users) → `announcements` (FK to tenants) → `announcement_acknowledgments` (FK to announcements) → `message_threads` (FK to tenants) → `messages` (FK to message_threads) → `support_tickets` (FK to tenants) → `ticket_comments` (FK to support_tickets) → `audit_logs` (no FKs; standalone — audit rows must survive deletion of the entities they describe).
+3. **Topological order respected** — parents before FK children: `modules` / `mobile_user_settings` (no auth.\* FKs) → `user_module_assignments` (FK to users + modules) → `refresh_tokens`, `webauthn_credentials` (FK to users) → `announcements` (FK to tenants) → `announcement_acknowledgments` (FK to announcements) → `message_threads` (FK to tenants) → `messages` (FK to message_threads) → `support_tickets` (FK to tenants) → `ticket_comments` (FK to support_tickets) → `audit_logs` (no FKs; standalone — audit rows must survive deletion of the entities they describe).
 
 4. **Lint-chunk discipline (R3 exemption)** — every CREATE TABLE statement and its sibling CREATE INDEX statements are bundled into a single `queryRunner.query()` template literal. The migration-sql-lint `R3-create-index-not-concurrent` rule scans each `queryRunner.query` call as one independent SQL chunk; an index call without a sibling CREATE TABLE in the same chunk is flagged as "index on pre-existing table — must be CONCURRENTLY". Co-emitting the index with the CREATE TABLE inside one chunk lets R3 recognize the just-created-table exemption (the table is empty at index-creation time so ACCESS EXCLUSIVE is safe).
 
@@ -2854,6 +2956,7 @@ Estimated effort ≈ ½ batch (audit + 2 module setUp rewrites + invariant test 
 **File:** `docs/reviews/_registry/findings.jsonl` (entry id `FARM-DATAMIG-001`, appended 6b372511 on 2026-04-24)
 
 **Evidence:**
+
 - `docs/reviews/_registry/findings.jsonl.schema.json:22` — id pattern `^(DATA|SEC|PLAT|FE|EDGE|MT|FARM|...)-(CRITICAL|HIGH|MEDIUM|LOW|CVE)-[0-9]{3}$` requires CLASSIFIER ∈ {CRITICAL, HIGH, MEDIUM, LOW, CVE}.
 - `docs/reviews/_registry/findings.jsonl` line 97 — entry has `"id":"FARM-DATAMIG-001"` with `"severity":"HIGH"`. The CLASSIFIER segment is `DATAMIG`, a domain tag, not the entry's severity.
 - AJV failure observed via `npm run invariants:fast -- --testPathPatterns=finding-registry-integrity`: `instancePath:/id, schemaPath:#/properties/id/pattern, ... must match pattern`.
@@ -2865,9 +2968,11 @@ The entry is in a hash-chained append-only ledger. Editing the id rewrites `cont
 **Two architectural options:**
 
 1. **Extend the id pattern enum.** Add `DATAMIG` to the CLASSIFIER alternation:
+
    ```
    ^(DATA|SEC|PLAT|...)-(CRITICAL|HIGH|MEDIUM|LOW|CVE|DATAMIG)-[0-9]{3}$
    ```
+
    This admits the existing entry. But CLASSIFIER's whole purpose per the schema description is severity (or `CVE` as a stable upstream identifier). Adding a domain-tag value to the same slot conflates two orthogonal axes (severity vs. domain) and invites more drift later (someone next adds `MIGRATION`, `ROLLOUT`, etc.). Cheap, but architecturally weak.
 
 2. **Append a corrective re-issue.** Treat `FARM-DATAMIG-001` as schema-malformed-on-arrival and append a NEW entry `FARM-HIGH-NNN` (next available HIGH index for FARM) with `override_of: "FARM-DATAMIG-001"` and identical evidence/title/state. The original chain entry stays (cannot be rewritten); the override pointer documents the cure. Still leaves the historical id violating the schema, so the integrity test still fails on the entry's id — meaning option 2 alone does NOT close the test failure.
@@ -2877,6 +2982,7 @@ The entry is in a hash-chained append-only ledger. Editing the id rewrites `cont
 **Recommended:** Option 3 (named carve-out) — preserves the original CLASSIFIER convention for future writers, narrowly grandfathers the one bad entry, doesn't conflate severity with domain. Track and close in a follow-up commit.
 
 **Test coverage to add when closed:**
+
 - AJV must validate `FARM-DATAMIG-001` exactly (and only it) under the named carve-out.
 - A different malformed id (e.g. `FARM-FOOBAR-001`) must still fail.
 - The integrity test (`every entry conforms to findings.jsonl.schema.json`) must turn green end-to-end.
@@ -2890,6 +2996,7 @@ The entry is in a hash-chained append-only ledger. Editing the id rewrites `cont
 **File:** `web/apps/aquamobil/vite.config.ts` (resolve config), `infrastructure/docker/Dockerfile.aquamobil` (build context shape), `libs/farm-shared/src/components/DynamicMeasurementForm.tsx` (the importing module)
 
 **Evidence (Rollup error inside `infrastructure/docker/Dockerfile.aquamobil` build):**
+
 ```
 [vite]: Rollup failed to resolve import "react/jsx-runtime" from
         "/monorepo/libs/farm-shared/src/components/DynamicMeasurementForm.tsx"
@@ -2897,6 +3004,7 @@ ERROR: process "/bin/sh -c npx vite build" did not complete successfully: exit c
 ```
 
 Reproduced locally on 2026-05-10:
+
 - Run: `docker build -f infrastructure/docker/Dockerfile.aquamobil .` from a clean `origin/main`.
 - Result: identical Rollup error → buildx exits 1 → `build-frontend-images (aquamobil, ...)` job fails → `deploy` job blocked because it `needs: [build-frontend-images]`.
 
@@ -2917,6 +3025,7 @@ Reproduced locally on 2026-05-10:
 **File:** `.github/workflows/deploy-staging.yml`, `.github/workflows/deploy-digitalocean.yml`, `docs/adr/016-deploy-resilience-architecture.md` (Phase D contract)
 
 **Evidence (failure shape on a repo without `STAGING_DROPLET_HOST` set):**
+
 ```
 Run appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2
   with:
@@ -2942,6 +3051,7 @@ The `deploy` job inside `deploy-staging.yml` fails immediately on the SSH step. 
 2. `deploy-digitalocean.yml` — `staging-gate.enablement` step extended to read `secrets.STAGING_DROPLET_HOST` into env. Auto-bypass on EITHER signal: (a) `STAGING_ENABLED` repo variable not 'true' (operator intent), or (b) `STAGING_DROPLET_HOST` empty (structural truth — staging cannot physically deploy). The two checks together are belt-and-braces — operator can only enable Topology A (multi-droplet, gate enforces) when BOTH are configured, which makes accidental gating impossible.
 
 **Two architecturally-valid topologies, both first-class:**
+
 - **Topology A (multi-droplet):** secrets + opt-in flag set → full staging deploy → tag → prod gate enforces.
 - **Topology B (single-droplet):** either signal absent → staging skips → prod auto-bypasses → prod deploys directly.
 
@@ -2974,11 +3084,11 @@ Every prod-deploy run on main since d155d2a3 (`Merge branch 'worktree-ws10-phase
 
 **Root cause:** The architectural fix had already been done in commit `c92539b9` (`fix(deploy-digitalocean): extract ssh-action bash to avoid 21k expression limit`), which moved the entire SSH bash payload from the YAML `script: |` block into `scripts/deploy/droplet-up.sh`. The YAML script block was thereby reduced from ~530 lines to ~12. A subsequent merge from a parallel feature branch (`worktree-ws10-phase-1`, mainlined as commit d155d2a3) re-inlined the bash. Per-file diff history:
 
-| Commit  | script-block size | status |
-|---------|-------------------|--------|
-| `c92539b9` | 696 bytes / 12 lines | ✅ thin invoker (working) |
+| Commit             | script-block size       | status                         |
+| ------------------ | ----------------------- | ------------------------------ |
+| `c92539b9`         | 696 bytes / 12 lines    | ✅ thin invoker (working)      |
 | `d155d2a3` (merge) | 32163 bytes / 528 lines | ❌ regressed; 21K cap exceeded |
-| current main | 32163 bytes / 528 lines | ❌ persistent regression |
+| current main       | 32163 bytes / 528 lines | ❌ persistent regression       |
 
 The 32K block contains TLS cert generation, GHCR auth, healthcheck poll loops, rollback logic — all ALSO present in `scripts/deploy/droplet-up.sh` (571 lines, fully featured, untouched by the regression). The inlined logic and the script duplicate each other, with the inlined version winning because the YAML block executes first and the script is then bypassed (the regressed YAML never gets to `bash scripts/deploy/droplet-up.sh`).
 
@@ -2986,10 +3096,10 @@ The 32K block contains TLS cert generation, GHCR auth, healthcheck poll loops, r
 
 **Fix (Tier-1 Make-Impossible):** Restore the thin-invoker form from `c92539b9`. The YAML `script: |` block becomes ~12 lines: env var passthrough + `bash scripts/deploy/droplet-up.sh`. All deploy logic lives in the script file, which:
 
-  - is bash-shellcheckable
-  - is locally testable on a multipass / docker droplet stand-in
-  - has a single source of truth for cert / healthcheck / rollback flows
-  - cannot be silently re-inlined without re-triggering the same parse error at PR time (which is now visible because workflow parse runs in the PR's CI - Affected pre-flight gate)
+- is bash-shellcheckable
+- is locally testable on a multipass / docker droplet stand-in
+- has a single source of truth for cert / healthcheck / rollback flows
+- cannot be silently re-inlined without re-triggering the same parse error at PR time (which is now visible because workflow parse runs in the PR's CI - Affected pre-flight gate)
 
 **Why this is structurally durable, not just a revert:** The previous fix had no enforcement. The current state — where the architectural fix is restored AND the topology-aware deploy gate (ORPHAN-HIGH-056) makes prod parse failures visible at PR time — closes the loop. Future re-inline attempts will fail the PR's `pre-flight` validate-workflows step (already in place since PR #236 landed `chore(ci): rewire pre-flight to preflight-validate.ts`) before they can mainline.
 
@@ -3018,8 +3128,7 @@ The 32K block contains TLS cert generation, GHCR auth, healthcheck poll loops, r
 The failing migrations BOTH explicitly declare `transaction = false` at the class level (e.g. `apps/auth-service/src/migrations/1787300000000-AddTenantsCustomDomainPartialUnique.ts:47`):
 
 ```typescript
-export class AddTenantsCustomDomainPartialUnique1787300000000
-  implements MigrationInterface {
+export class AddTenantsCustomDomainPartialUnique1787300000000 implements MigrationInterface {
   // CREATE INDEX CONCURRENTLY cannot run inside a transaction block.
   transaction = false;
   // ...
@@ -3033,7 +3142,7 @@ This declaration is the documented TypeORM contract for opting out of the per-mi
 ```typescript
 for (const migration of pending) {
   await queryRunner.query(`SET search_path TO "${schema}", public`);
-  await queryRunner.startTransaction();  // <-- ALWAYS, ignoring instance.transaction
+  await queryRunner.startTransaction(); // <-- ALWAYS, ignoring instance.transaction
   try {
     await executor.executeMigration(migration);
     await queryRunner.commitTransaction();
@@ -3053,8 +3162,8 @@ if (instanceTx === undefined) migration.transaction = txModeDefault;
 else migration.transaction = instanceTx;
 // ...
 if (migration.transaction && !queryRunner.isTransactionActive) {
-    await queryRunner.startTransaction();
-    transactionStartedByUs = true;
+  await queryRunner.startTransaction();
+  transactionStartedByUs = true;
 }
 ```
 
@@ -3068,8 +3177,7 @@ The bug surfaced ONLY when the centralised `db-migrate` container ran on a fresh
 
 ```typescript
 const useTransaction =
-  (migration as { instance?: { transaction?: boolean } }).instance
-    ?.transaction !== false;
+  (migration as { instance?: { transaction?: boolean } }).instance?.transaction !== false;
 
 if (useTransaction) {
   await queryRunner.startTransaction();
@@ -3118,11 +3226,13 @@ The check is structural — it cannot regress silently because any future migrat
 **Fix (Tier-1 Make-Impossible):** convert CursorEdge<T> to a factory function CursorEdge(classRef: Type<T>) returning an abstract @ObjectType whose @Field(() => classRef) decorator passes the consumer-provided type explicitly. Concrete edges then extend CursorEdge(MyEntity). Plus expose ICursorEdge<T> structural interface for non-GraphQL consumers.
 
 **Status:** RESOLVED on chore/hr-cursor-edge-graphql-type. After redeploy, hr-service bootstraps and all CursorEdge-consuming services build a valid schema.
+
 ## ORPHAN-CRITICAL-059 — `apps/gateway-api/src/app.module.ts` registers `AuditedOperationModule.forRoot()` (which depends on TypeORM `DataSource`) but never imports `TypeOrmModule.forRoot()`; cold-boot DI resolution crashes the gateway
 
 **Severity:** CRITICAL — gateway-api is the platform's edge entry point. With the gateway in a crash loop, no client (web shell, mobile, integrations) can reach any backend. by-okan@live.com cannot log in; the platform is functionally offline even though every other backend service is up.
 **Discovered:** 2026-05-10, on the live droplet during the deploy that landed CRITICAL-058's orchestrator fix
 **File:** `apps/gateway-api/src/app.module.ts`
+
 ---
 
 ## ORPHAN-CRITICAL-061 — `docker-compose.droplet.yml` declares `NATS_TLS_CA` / `NATS_TLS_CERT` / `NATS_TLS_KEY` env on `observability-service` without mounting `./certs/nats/*` into the container; bootstrap crash-loops the service in production
@@ -3173,7 +3283,8 @@ Check that the deploy script mounts /etc/ssl/nats-ca.pem (or the path you
 configured) into the container from
 ./certs/nats/clients/observability_service-cert.pem (or whatever your cert
 directory is).
-```
+
+````
 
 **Root cause:** Configuration drift in `docker-compose.droplet.yml`. The `observability-service` block merges `<<: *nats-observability-env` (line 1306), which sets four NATS TLS env paths inside the container:
 
@@ -3183,7 +3294,7 @@ NATS_TLS_CA: /etc/ssl/nats-ca.pem
 NATS_TLS_CERT: /etc/ssl/nats-clients/observability_service-cert.pem
 NATS_TLS_KEY:  /etc/ssl/nats-clients/observability_service-key.pem
 NATS_TLS_ENABLED: "true"
-```
+````
 
 But the service was missing the corresponding `volumes:` block. Every other NATS-using service in this compose file (auth, farm, sensor, gateway, alert, billing, hr, hydroponics, messaging, notification, sensor-ingestion) mounts the same four anchors:
 
@@ -3241,11 +3352,11 @@ The drift was masked for >2 days because the older deployed image did not yet in
 
 **Fix (Tier-1 Make-Impossible):** centralise the policy-array provider in `StorageModule` so both `forRoot` and `forRootAsync` use the same fallback shape. Specifically:
 
-  1. Export a typed `UploadPolicy` interface and a token symbol `FILE_UPLOAD_POLICIES` from `libs/storage/src/file-upload-security.service.ts` (so consumers can import the canonical declaration without re-declaring).
-  2. Export a `DEFAULT_UPLOAD_POLICIES` constant (per-MIME-type rules sourced from the existing config) so the module has a sensible safe default.
-  3. Build a `Provider` shape in `storage.module.ts` that resolves either: (a) the operator-supplied `policies: UploadPolicy[]` from `forRoot(config)` arguments, or (b) `DEFAULT_UPLOAD_POLICIES` if absent.
-  4. Add the provider to BOTH `forRoot` and `forRootAsync` `providers[]` arrays.
-  5. Add a unit test (`__tests__/storage.module.spec.ts`) that asserts the module wires `FILE_UPLOAD_POLICIES` end-to-end so the regression is structurally caught at PR time.
+1. Export a typed `UploadPolicy` interface and a token symbol `FILE_UPLOAD_POLICIES` from `libs/storage/src/file-upload-security.service.ts` (so consumers can import the canonical declaration without re-declaring).
+2. Export a `DEFAULT_UPLOAD_POLICIES` constant (per-MIME-type rules sourced from the existing config) so the module has a sensible safe default.
+3. Build a `Provider` shape in `storage.module.ts` that resolves either: (a) the operator-supplied `policies: UploadPolicy[]` from `forRoot(config)` arguments, or (b) `DEFAULT_UPLOAD_POLICIES` if absent.
+4. Add the provider to BOTH `forRoot` and `forRootAsync` `providers[]` arrays.
+5. Add a unit test (`__tests__/storage.module.spec.ts`) that asserts the module wires `FILE_UPLOAD_POLICIES` end-to-end so the regression is structurally caught at PR time.
 
 **Status:** RESOLVED — `chore/farm-storage-policies-di` lands the policy-array provider with default fallback + unit test. After redeploy, farm-service bootstraps cleanly and the entire downstream-consumer surface is restored.
 
@@ -3323,6 +3434,7 @@ Root cause: entities relied on TypeORM synchronize=true in dev; production DATAB
 Fix: Tier-1 canonical migration matching entity column shapes 1:1 with idempotent CREATE patterns.
 
 Status: RESOLVED on chore/hr-payrolls-holidays-goals-migration.
+
 ## ORPHAN-CRITICAL-067 — `StorageResolver.storageInventoryByCursor`'s `@Args('input')` slot lacks an explicit `type: () => CursorPaginationInput`; farm-service GraphQL schema build crash-loops at bootstrap with "Undefined type error … parameter at index [2]"
 
 **Severity:** CRITICAL — farm-service is dead in production. Every consumer of farm data (storage, batches, tanks, water quality, feed, harvest, fish health, growth) is offline because the entire farm-service `AppModule` fails to bootstrap before any resolver is registered. The regression is the args-decorator-side counterpart of ORPHAN-CRITICAL-064 (which fixed the ObjectType emission side); the input-side gap remained because no concrete subclass of `CursorPaginationInput` was declared and the only call site relied on TypeScript reflection.
@@ -3374,6 +3486,7 @@ A platform-wide invariant follow-up (lint rule: "every `@Args` whose parameter t
 3. `docker-compose.droplet.yml:1355-1360` — `DATABASE_USER: ${GATEWAY_SERVICE_DB_USER:-gateway_service}` plus the explicit comment `"NOTE: config-service does not have a dedicated schema in 00-init-schemas.sh yet."` is **factually stale**: `00-init-schemas.sh:118 + 138-141 + 175 + 193 + 460-469` provisions the `config_service` role, creates the `config` schema with `AUTHORIZATION config_service`, and grants `ALL PRIVILEGES ON ALL TABLES IN SCHEMA config TO config_service`. Connecting as `gateway_service` (which has grants only on the `gateway` schema, not `config`) closes the privilege gap into a fail-stop wall on first boot.
 
 Meanwhile, the entity surface and migration body declared the architectural truth:
+
 - `apps/config-service/src/configuration/entities/configuration.entity.ts:52` — `@Entity('configurations', { schema: 'config' })`
 - `apps/config-service/src/configuration/entities/configuration.entity.ts:177` — `@Entity('configuration_history', { schema: 'config' })`
 - `apps/config-service/src/database/migrations/1789000000000-AlignConfigEntitySurface.ts:30 + 32 + 53 + 91 + 113` — every DDL statement schema-qualified to `config.*` plus `pinSearchPath(qr, 'config')` defence-in-depth
@@ -3408,6 +3521,7 @@ Fix: Tier-2 Make-Automatic. Mirror the MINIO env block from gateway/messaging �
 Status: RESOLVED on chore/farm-minio-env-compose.
 
 ## ORPHAN-CRITICAL-070 — farm-service entity-declared 42 tables have no migration; SourceSchemaBootstrap rejects cold-boot
+
 Severity: CRITICAL. farm-service crash-loops in production. Web login blocked.
 Discovered: 2026-05-10, on the live droplet after MINIO env wiring (ORPHAN-CRITICAL-065) unblocked the next layer of cold-boot validation.
 File: apps/farm-service/src entity tree vs. production farm schema.
@@ -3431,17 +3545,18 @@ Severity: CRITICAL. Every push-to-main deploy fails identically: sensor-ingestio
 Discovered: 2026-05-10/11, after 17 architectural cold-boot fix PRs landed but every deploy still failed at the same step.
 
 Evidence (deploy log pattern across runs 25637861685, 25642208052, 25655583156):
-  Image ghcr.io/okan-wqm/aquaculture_platform/sensor-ingestion:latest Error
-  no matching manifest for linux/amd64 in the manifest list entries:
-  failed to resolve reference \"ghcr.io/okan-wqm/.../sensor-ingestion:latest\": not found
-  ...
-  Error: 8 critical service(s) failed to reach healthy within 300s SLA.
+Image ghcr.io/okan-wqm/aquaculture_platform/sensor-ingestion:latest Error
+no matching manifest for linux/amd64 in the manifest list entries:
+failed to resolve reference \"ghcr.io/okan-wqm/.../sensor-ingestion:latest\": not found
+...
+Error: 8 critical service(s) failed to reach healthy within 300s SLA.
 
 Root cause: sensor-ingestion is a Rust sidecar (sens-api-gateway repo subdirectory, ADR-025 strangler-fig). The TypeScript/Node CI build matrix (.github/workflows/ci-affected.yml) does not include a Rust cargo build + Dockerfile build + GHCR push step for it. The compose file unconditionally references the GHCR image; deploy unconditionally tries to pull. The pull fails permanently because the image never exists.
 
 Architectural fix shape (Tier-1 Make-Impossible, two-part):
-  1. docker-compose.droplet.yml: add profiles: ["rust-sidecar"] to the sensor-ingestion service block. Default compose contexts (every deploy today) skip the service entirely — no pull attempt, no manifest error.
-  2. infrastructure/deploy/service-criticality.yaml: demote sensor-ingestion from level: critical → level: optional. Without the demotion, the 300s health check still reports it missing and rolls back.
+
+1. docker-compose.droplet.yml: add profiles: ["rust-sidecar"] to the sensor-ingestion service block. Default compose contexts (every deploy today) skip the service entirely — no pull attempt, no manifest error.
+2. infrastructure/deploy/service-criticality.yaml: demote sensor-ingestion from level: critical → level: optional. Without the demotion, the 300s health check still reports it missing and rolls back.
 
 Operator opt-in path (after CI Rust matrix lands): set COMPOSE_PROFILES=rust-sidecar in droplet .env and promote the criticality entry back to critical.
 
@@ -3458,11 +3573,11 @@ Severity: CRITICAL. Gateway crash-loop in production. Without supergraph composi
 Discovered: 2026-05-11.
 
 Evidence (gateway log attempt 1 of new boot):
-  A valid schema couldn't be composed. The following composition errors were found:
-  Type of field "Mutation.exportTenantData" is incompatible across subgraphs:
-  it has type "TenantExportBundleResponse!" in subgraph "farm"
-  but type "ExportJobType!" in subgraph "messaging".
-  Non-shareable field "Mutation.exportTenantData" is resolved from multiple subgraphs.
+A valid schema couldn't be composed. The following composition errors were found:
+Type of field "Mutation.exportTenantData" is incompatible across subgraphs:
+it has type "TenantExportBundleResponse!" in subgraph "farm"
+but type "ExportJobType!" in subgraph "messaging".
+Non-shareable field "Mutation.exportTenantData" is resolved from multiple subgraphs.
 
 Root cause: farm and messaging both defined Mutation.exportTenantData with different return types under the non-shareable default.
 
@@ -3480,8 +3595,8 @@ Discovered: 2026-05-11, on the deploy after PR #269 (sensor-ingestion compose pr
 
 Root cause: PR #269 added profiles: [rust-sidecar] to sensor-ingestion in docker-compose.droplet.yml AND demoted the service-criticality.yaml entry from level: critical to level: optional. Two issues:
 
-  1. level: 'optional' is NOT a valid CriticalityLevel — the validator type union is 'critical' | 'required' | 'warning' | 'ignored'. The yaml-side enum drifted from the code-side type.
-  2. Even if level were valid, the coverage check at check-service-health.ts:208-219 calls docker compose config --services WITHOUT any --profile flag, which intentionally hides profile-gated services. The validator then flags sensor-ingestion as referenced-but-missing and exits 2 before any health polling begins. Rollback is triggered.
+1. level: 'optional' is NOT a valid CriticalityLevel — the validator type union is 'critical' | 'required' | 'warning' | 'ignored'. The yaml-side enum drifted from the code-side type.
+2. Even if level were valid, the coverage check at check-service-health.ts:208-219 calls docker compose config --services WITHOUT any --profile flag, which intentionally hides profile-gated services. The validator then flags sensor-ingestion as referenced-but-missing and exits 2 before any health polling begins. Rollback is triggered.
 
 Fix (Tier-1 Make-Impossible): REMOVE the sensor-ingestion entry from service-criticality.yaml entirely while the service stays profile-gated. The manifest's coverage invariant is "every entry maps to a real default-compose service" — a profile-gated entry violates that invariant by construction. When the operator opts in (COMPOSE_PROFILES=rust-sidecar) AND the CI Rust build matrix publishes the multi-arch GHCR image, the manifest entry is restored as level: critical.
 
@@ -3491,27 +3606,27 @@ Status: RESOLVED on chore/sensor-ingestion-manifest-cleanup.
 
 ## ORPHAN-CRITICAL-075 — postgres docker-entrypoint init-scripts cannot re-evaluate after PGDATA non-empty; restart + DROP SCHEMA wipes platform DDL contract
 
-Severity: CRITICAL. Every postgres container restart with a non-empty PGDATA volume leaves the platform's schemas / roles / functions / shared.* tables in whatever state they were last manipulated, with no automatic recovery path. After any `DROP SCHEMA … CASCADE` operation (day-one reset, schema-recovery hand-run, blue-green migration testing) the postgres container's docker-entrypoint silently SKIPS `/docker-entrypoint-initdb.d/*.{sh,sql}` because PGDATA is detected as pre-initialized — the upstream Postgres image's documented contract is "init-scripts run ONCE on initdb, never again."
+Severity: CRITICAL. Every postgres container restart with a non-empty PGDATA volume leaves the platform's schemas / roles / functions / shared._ tables in whatever state they were last manipulated, with no automatic recovery path. After any `DROP SCHEMA … CASCADE` operation (day-one reset, schema-recovery hand-run, blue-green migration testing) the postgres container's docker-entrypoint silently SKIPS `/docker-entrypoint-initdb.d/_.{sh,sql}` because PGDATA is detected as pre-initialized — the upstream Postgres image's documented contract is "init-scripts run ONCE on initdb, never again."
 
 Discovered: 2026-05-18, during Faz 6 cutover #1. Operator dropped every per-service schema via psql, restarted postgres, manual init-script re-run partially completed, service boot found `auth` schema present but `farm` schema absent. Vault `pg_dump` rollback path also corrupt (stderr stream contaminated the dump file).
 
 Failure surface includes:
 
-  1. **2026-05-18 Faz 6 cutover #1**: postgres restart wiped the DROP-then-recreate state; init-scripts didn't fire; manual psql re-run was racey + partial; 13 schemas baseline-pending after deploy.
-  2. **2026-04-19 timescaledb-ha image swap (INFRA-CRITICAL-018)**: image-family PGDATA default divergence triggered the same class — new image's docker-entrypoint detected existing volume as pre-initialized, skipped init-scripts, SHARED_SCHEMA_TABLES freshly-added to `10-shared-schema.sql` never landed.
-  3. **2026-04-14 SHARED_SCHEMA_TABLES partial install**: init-scripts ran successfully against empty PGDATA but didn't include `access_logs` in the canonical list at the time. Adding the table later in `10-shared-schema.sql` meant existing environments never picked it up — there was no re-evaluation path.
+1. **2026-05-18 Faz 6 cutover #1**: postgres restart wiped the DROP-then-recreate state; init-scripts didn't fire; manual psql re-run was racey + partial; 13 schemas baseline-pending after deploy.
+2. **2026-04-19 timescaledb-ha image swap (INFRA-CRITICAL-018)**: image-family PGDATA default divergence triggered the same class — new image's docker-entrypoint detected existing volume as pre-initialized, skipped init-scripts, SHARED_SCHEMA_TABLES freshly-added to `10-shared-schema.sql` never landed.
+3. **2026-04-14 SHARED_SCHEMA_TABLES partial install**: init-scripts ran successfully against empty PGDATA but didn't include `access_logs` in the canonical list at the time. Adding the table later in `10-shared-schema.sql` meant existing environments never picked it up — there was no re-evaluation path.
 
-Root cause: the platform's DDL contract (extensions / roles / schemas / grants / functions / shared.* tables) was placed in `/docker-entrypoint-initdb.d/`, a single-shot mechanism owned by the postgres upstream contract. Mixing one-shot infrastructure (initdb) with restart-survive concerns (the platform DDL) was an architectural type error — the lifetimes were never compatible.
+Root cause: the platform's DDL contract (extensions / roles / schemas / grants / functions / shared.\* tables) was placed in `/docker-entrypoint-initdb.d/`, a single-shot mechanism owned by the postgres upstream contract. Mixing one-shot infrastructure (initdb) with restart-survive concerns (the platform DDL) was an architectural type error — the lifetimes were never compatible.
 
 Fix (Tier-1 Make-Impossible): platform DDL is now owned by the **Platform Bootstrap Atom** — Phase 0 of `aqua-db-migrate` (ADR-031). Every aqua-db-migrate container start runs the atom idempotently:
 
-  - 6 extensions (CREATE EXTENSION IF NOT EXISTS)
-  - 15 service roles (env-aware password sync, idempotent CREATE/ALTER ROLE)
-  - 16 schemas (CREATE SCHEMA IF NOT EXISTS + AUTHORIZATION)
-  - schema-level GRANT + ALTER DEFAULT PRIVILEGES (idempotent re-issue)
-  - 4 platform functions (CREATE OR REPLACE FUNCTION public.*)
-  - 5 SHARED_SCHEMA_TABLES + RLS + immutability triggers
-  - `platform.bootstrap_signal` boot-time precondition emitted
+- 6 extensions (CREATE EXTENSION IF NOT EXISTS)
+- 15 service roles (env-aware password sync, idempotent CREATE/ALTER ROLE)
+- 16 schemas (CREATE SCHEMA IF NOT EXISTS + AUTHORIZATION)
+- schema-level GRANT + ALTER DEFAULT PRIVILEGES (idempotent re-issue)
+- 4 platform functions (CREATE OR REPLACE FUNCTION public.\*)
+- 5 SHARED_SCHEMA_TABLES + RLS + immutability triggers
+- `platform.bootstrap_signal` boot-time precondition emitted
 
 `tests/invariants/init-scripts-no-schema-ddl.spec.ts` blocks any future regression — `CREATE SCHEMA / CREATE ROLE / CREATE TABLE / CREATE FUNCTION / CREATE POLICY / GRANT ... ON SCHEMA / ALTER SCHEMA / ALTER DEFAULT PRIVILEGES / ALTER TABLE` anywhere under `infrastructure/docker/init-scripts/*.{sh,sql}` fails CI. `SchemaVersionGate.probePlatformBootstrap()` refuses service boot if the signal row is missing or counts indicate partial-apply state.
 
@@ -3521,8 +3636,8 @@ Status: RESOLVED on platform-bootstrap-atom branch (this commit).
 
 Severity: CRITICAL. The Phase 0 atom (ADR-031) ships its first prod deploy at run #1113 (SHA `984eb61`) and the aqua-db-migrate container exits non-zero before service containers can start. The droplet log surfaced `aqua-db-migrate failed during full deploy — aborting BEFORE service containers start.` (`scripts/deploy/droplet-up.sh:80–85`). Two architectural gaps surface together:
 
-  1. **Silent random-password fallback.** `apps/db-migrate/src/platform-bootstrap.service.ts:191–207` (pre-fix) caught a missing/empty service-role password env var, generated a random 256-bit password, logged a warning, and continued. Phase 0 reported success but the random secret was NEVER shared with the service container that connects as that role — Phase 1+ services entered `password authentication failed` crash-loop, the criticality-gate dropped them, and the deploy rolled back. The smoking-gun symptom (db-migrate non-zero exit at the next attempt) hides the real cause (missing env var on the host).
-  2. **No early-exit diagnostic at Stage 004 GRANT.** `apps/db-migrate/src/sql/platform-bootstrap/004-schema-grants.sql` carries 45+ bare `GRANT … TO <role>` statements. If Stage 002 silently failed to create one of the 15 roles, Stage 004 surfaced an opaque single-line `role "<x>" does not exist` mid-file with no pointer at the upstream stage.
+1. **Silent random-password fallback.** `apps/db-migrate/src/platform-bootstrap.service.ts:191–207` (pre-fix) caught a missing/empty service-role password env var, generated a random 256-bit password, logged a warning, and continued. Phase 0 reported success but the random secret was NEVER shared with the service container that connects as that role — Phase 1+ services entered `password authentication failed` crash-loop, the criticality-gate dropped them, and the deploy rolled back. The smoking-gun symptom (db-migrate non-zero exit at the next attempt) hides the real cause (missing env var on the host).
+2. **No early-exit diagnostic at Stage 004 GRANT.** `apps/db-migrate/src/sql/platform-bootstrap/004-schema-grants.sql` carries 45+ bare `GRANT … TO <role>` statements. If Stage 002 silently failed to create one of the 15 roles, Stage 004 surfaced an opaque single-line `role "<x>" does not exist` mid-file with no pointer at the upstream stage.
 
 Discovered: 2026-05-18, after deploy run #1113 (manual `workflow_dispatch` against main HEAD `984eb61`). PR #290's commit body explicitly noted "NOT done in this commit: aqua-db-migrate image rebuild + production deploy (separate ops step)" — this finding is the prod-readiness work that gap implicitly tracks.
 
@@ -3530,9 +3645,9 @@ Root cause: the atom's password-resolution contract was lax-on-write (random fal
 
 Fix (Tier-1 Make-Impossible + Tier-3 Make-Detectable):
 
-  1. **`buildRolesSql` collects every missing/empty env and throws** with a structured diagnostic that names every offending env var, points at the host file (`/var/aqua-saas/.env`) and the provisioning script (`scripts/deploy/droplet-up.sh:421–424` for full deploy, `:564–570` for selective). Phase 0 now refuses to ship random passwords that no service can ever know.
-  2. **Stage 004 carries a role-existence pre-check** — a `DO $platform_bootstrap_stage_004_precheck$` block scans `pg_catalog.pg_roles` for every expected service role BEFORE issuing the first GRANT, and `RAISE EXCEPTION` with a structured message identifying the missing role + the upstream stage to inspect. Wrapping each GRANT in `EXECUTE … EXCEPTION WHEN undefined_object` was rejected as 200+ statement EXECUTE bodies break the SQL-level audit shape ADR-011 reviewers expect.
-  3. **Integration spec gains two new contexts:** `platform-bootstrap.integration.spec.ts` now exercises (a) Phase 0 against a database pre-populated with the archived `10-shared-schema.sql` artifacts (the actual prod state at deploy run #1113) and (b) the fail-fast path for missing/empty env vars. The two pre-existing tests had only covered clean apply, idempotent re-run, and `DROP SCHEMA` round-trip.
+1. **`buildRolesSql` collects every missing/empty env and throws** with a structured diagnostic that names every offending env var, points at the host file (`/var/aqua-saas/.env`) and the provisioning script (`scripts/deploy/droplet-up.sh:421–424` for full deploy, `:564–570` for selective). Phase 0 now refuses to ship random passwords that no service can ever know.
+2. **Stage 004 carries a role-existence pre-check** — a `DO $platform_bootstrap_stage_004_precheck$` block scans `pg_catalog.pg_roles` for every expected service role BEFORE issuing the first GRANT, and `RAISE EXCEPTION` with a structured message identifying the missing role + the upstream stage to inspect. Wrapping each GRANT in `EXECUTE … EXCEPTION WHEN undefined_object` was rejected as 200+ statement EXECUTE bodies break the SQL-level audit shape ADR-011 reviewers expect.
+3. **Integration spec gains two new contexts:** `platform-bootstrap.integration.spec.ts` now exercises (a) Phase 0 against a database pre-populated with the archived `10-shared-schema.sql` artifacts (the actual prod state at deploy run #1113) and (b) the fail-fast path for missing/empty env vars. The two pre-existing tests had only covered clean apply, idempotent re-run, and `DROP SCHEMA` round-trip.
 
 Status: RESOLVED on `claude/fix-digitalocean-deploy-kL46A` branch (this commit).
 
@@ -3544,9 +3659,9 @@ Discovered: 2026-05-18, during root-cause investigation of deploy run #1113. The
 
 Three concrete consequences:
 
-  1. **Staging-gate by-pass is the default**, not the exception. Operators dispatch prod deploy without waiting for the `deployed/staging-<sha>` tag because there is no automated path that would enforce the gate. The `staging-gate` job's `bypass_staging_gate` input is the safety valve for the rare emergency — without an automated trigger, the safety valve becomes the only path.
-  2. **The 2026-04-14 cascade failure mode is reachable again** even though the workflow's staging-gate job would catch it: a manual operator dispatch on a SHA where staging is broken would route the gate's "skip on Topology B" path (operator forgot to set STAGING_ENABLED) or trip the bypass path (operator paste-types `true` to clear a stuck gate).
-  3. **The deploy-workflow's own change validation is broken.** A workflow author who pushes a fix to `scripts/deploy/droplet-up.sh` or to `deploy-digitalocean.yml` itself cannot exercise the fix through the merge-driven chain — the chain physically does not exist. PR-level CI green is the only signal until an operator manually dispatches the deploy, by which point the broken commit is already on main.
+1. **Staging-gate by-pass is the default**, not the exception. Operators dispatch prod deploy without waiting for the `deployed/staging-<sha>` tag because there is no automated path that would enforce the gate. The `staging-gate` job's `bypass_staging_gate` input is the safety valve for the rare emergency — without an automated trigger, the safety valve becomes the only path.
+2. **The 2026-04-14 cascade failure mode is reachable again** even though the workflow's staging-gate job would catch it: a manual operator dispatch on a SHA where staging is broken would route the gate's "skip on Topology B" path (operator forgot to set STAGING_ENABLED) or trip the bypass path (operator paste-types `true` to clear a stuck gate).
+3. **The deploy-workflow's own change validation is broken.** A workflow author who pushes a fix to `scripts/deploy/droplet-up.sh` or to `deploy-digitalocean.yml` itself cannot exercise the fix through the merge-driven chain — the chain physically does not exist. PR-level CI green is the only signal until an operator manually dispatches the deploy, by which point the broken commit is already on main.
 
 Root cause: the workflow_call invocation was authored as a comment of intent at file creation (commit `4d87539`) but the matching `ci-affected.yml` `deploy:` job that would call it never landed in any subsequent commit. The header comment claim and the actual trigger graph drifted from day one. Subsequent fixes (workflow_run → workflow_call refactor, staging-gate topology, criticality manifest gate) all assumed the chain existed and patched their own corners of it; nobody re-checked the caller side.
 
@@ -3569,9 +3684,9 @@ Root cause: `docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772` is in
 
 Fix (Tier 1 Make-Automatic):
 
-  1. Set `strategy.fail-fast: false` on `build-backend-images` + `build-frontend-images` so a single shard's transient failure does NOT abort the entire matrix. (The matrix already has `max-parallel: 6`; fail-fast is the orthogonal toggle.) Already present on `build-backend-images` per the source — verify presence on the frontend matrix.
-  2. Wrap the `docker/login-action` invocation in a retry loop or step-level retry. Easiest implementation: use `nick-fields/retry@*` SHA-pinned (already used elsewhere in the workflow per the SHA-pinning audit) with `max_attempts: 3` and `retry_on: error` against the login step. GHA does not have a native step-retry primitive yet (only job-retry via `continue-on-error`), so a wrapper action is the load-bearing path.
-  3. Optional Tier-2 add-on: alert on consecutive GHCR-login failures so operators see the class is escalating before it blocks a real deploy.
+1. Set `strategy.fail-fast: false` on `build-backend-images` + `build-frontend-images` so a single shard's transient failure does NOT abort the entire matrix. (The matrix already has `max-parallel: 6`; fail-fast is the orthogonal toggle.) Already present on `build-backend-images` per the source — verify presence on the frontend matrix.
+2. Wrap the `docker/login-action` invocation in a retry loop or step-level retry. Easiest implementation: use `nick-fields/retry@*` SHA-pinned (already used elsewhere in the workflow per the SHA-pinning audit) with `max_attempts: 3` and `retry_on: error` against the login step. GHA does not have a native step-retry primitive yet (only job-retry via `continue-on-error`), so a wrapper action is the load-bearing path.
+3. Optional Tier-2 add-on: alert on consecutive GHCR-login failures so operators see the class is escalating before it blocks a real deploy.
 
 Status: RESOLVED — `.github/workflows/deploy-digitalocean.yml` now wraps `docker login` in a 3-attempt shell retry loop with 5s/10s/15s backoff. The third-party `docker/login-action` dependency was removed in the same change; the supply-chain surface narrowed by one action. Tier 1 property: single-flake transient is absorbed inside the build step; sustained outage still fails loud with the rc of the third attempt.
 
@@ -3707,7 +3822,7 @@ Status: OPEN (2026-06-11; sahip: data-expert; kuyruktaki provisioner/compliance 
 
 Güncelleme (2026-06-11, DATA-HIGH-006 PR'ı): **messaging-partition dilimi SSOT'a bağlandı** — provisioner APPLYING_GRANTS artık `grantTenantMessagingPartitionAuthority` ile her yeni tenant şemasında messaging-domain ilişkilerini `messaging_schema_owner`'a re-own edip şema USAGE+CREATE veriyor; Stage-010 mevcut şemaları idempotent backfill'liyor. Kalan kapsam (diğer servislerin runtime-DML grant SSOT'u) bu bulguda AÇIK durmaya devam ediyor.
 
-## ORPHAN-MEDIUM-089 — messaging-service /metrics serves only the domain registry; http_*/nodejs_* families absent
+## ORPHAN-MEDIUM-089 — messaging-service /metrics serves only the domain registry; http*\*/nodejs*\* families absent
 
 Severity: MEDIUM. `apps/messaging-service/src/metrics/metrics.controller.ts` serves `MessagingMetricsService`'s private registry only. The platform HTTP families (`http_request_duration_seconds`, `http_requests_total`, `http_requests_in_flight`) and Node.js runtime metrics are never collected or exposed for messaging-service — request-latency SLO dashboards have a blind spot on a criticality-critical service.
 
@@ -3715,7 +3830,7 @@ Root cause: messaging built its scrape endpoint before the canonical `ServiceMet
 
 Fix direction: replace the bespoke controller with the canonical `ServiceMetricsModule` import and surface the messaging domain registry through `ServiceMetricsService.registerContributor('messaging-domain', registry)` — exactly the farm-service pattern landed in OBS-HIGH-001 (`apps/farm-service/src/common/metrics/farm-metrics.module.ts` is the reference). Scrape path and metric names are unchanged, output becomes a superset; the metrics-endpoint-adoption invariant accepts both shapes throughout the transition.
 
-Status: RESOLVED (2026-06-26 — messaging MetricsModule now imports ServiceMetricsModule (owns /metrics + default http_/nodejs_ collectors) and contributes its domain registry via contributeTo in onModuleInit (mirrors farm OBS-HIGH-001); bespoke MetricsController deleted. Locked by metrics-service-module-ratchet.spec.ts. Systemic siblings (auth/gateway/sensor) tracked as ORPHAN-185) (2026-06-11; owner: messaging-expert; surfaced during OBS-HIGH-001 Wave B1 verification).
+Status: RESOLVED (2026-06-26 — messaging MetricsModule now imports ServiceMetricsModule (owns /metrics + default http*/nodejs* collectors) and contributes its domain registry via contributeTo in onModuleInit (mirrors farm OBS-HIGH-001); bespoke MetricsController deleted. Locked by metrics-service-module-ratchet.spec.ts. Systemic siblings (auth/gateway/sensor) tracked as ORPHAN-185) (2026-06-11; owner: messaging-expert; surfaced during OBS-HIGH-001 Wave B1 verification).
 
 ## ORPHAN-HIGH-090 — Droplet production runs NO metrics collector; every /metrics endpoint is unscraped
 
@@ -3737,7 +3852,7 @@ Root cause: eslint project-selection order. Fix (highest tier first): (1) reorde
 
 Discovered while driving A3 (NATS v3, PR #424) to green. The `eslint-disable` is removable once the project-order fix lands.
 
-Status: OPEN (2026-06-13; owner: infra-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-093.
+Status: OPEN (2026-06-13; owner: infra-expert). Registered: docs/reviews/\_registry/findings.jsonl#ORPHAN-MEDIUM-093.
 
 ---
 
@@ -3749,7 +3864,7 @@ Root cause direction: container/service readiness race — the Jest global setup
 
 Discovered while gating B2 (#411). Pairs with ORPHAN-MEDIUM-055 (same E2E Postgres log surface).
 
-Status: RESOLVED (2026-06-13; #441 b4f484130). The heavy one-time bootstrap moved to Jest `globalSetup` (outside the 60s per-hook budget) behind a Postgres readiness poll with a loud explicit failure; the per-spec beforeAll is now a fast idempotent no-op. Root cause (boot cost inside the hook budget) eliminated. NOTE: flake-RATE reduction confirms over several post-merge E2E runs (the suite was ~50%; one green run is necessary but not sufficient) — re-open if cancellations persist. Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-092.
+Status: RESOLVED (2026-06-13; #441 b4f484130). The heavy one-time bootstrap moved to Jest `globalSetup` (outside the 60s per-hook budget) behind a Postgres readiness poll with a loud explicit failure; the per-spec beforeAll is now a fast idempotent no-op. Root cause (boot cost inside the hook budget) eliminated. NOTE: flake-RATE reduction confirms over several post-merge E2E runs (the suite was ~50%; one green run is necessary but not sufficient) — re-open if cancellations persist. Registered: docs/reviews/\_registry/findings.jsonl#ORPHAN-HIGH-092.
 
 ---
 
@@ -3761,7 +3876,7 @@ Fix evidence: PR #482 / squash `0d95df9a7f76` changed the E2E NATS request-reply
 
 Traceability note: `0d95df9a7f76` legitimately closes `ORPHAN-HIGH-092` in its commit message, not this successor id. The `ORPHAN-HIGH-116` registry row must therefore use a post-merge traceability commit that carries `Closes: docs/reviews/orphan-findings.md#ORPHAN-HIGH-116` as its `closing_commits` evidence, while keeping `0d95df9a7f76` in the narrative as the real code fix. This avoids amending merged history and avoids a false `closing_commits` edge.
 
-Status: RESOLVED (2026-06-15; post-merge traceability correction). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-116.
+Status: RESOLVED (2026-06-15; post-merge traceability correction). Registered: docs/reviews/\_registry/findings.jsonl#ORPHAN-HIGH-116.
 
 ---
 
@@ -3773,7 +3888,7 @@ Effect: the quality-format-scope gate is red at the branch base. A gate that is 
 
 Fix direction: run `node tools/quality/quality.mjs format-scope generate`, commit the regenerated `tools/quality/format-scope.json` in a dedicated infra/quality-tooling change, and keep the drift check in CI so this file stays synchronized with the source tree.
 
-Status: RESOLVED (2026-06-29) — regenerated `tools/quality/format-scope.json` via `node tools/quality/quality.mjs format-scope generate` (+1984/-22; new migrations/specs + removed eslint configs reconciled), so `format-scope check` is green at HEAD. To stop silent re-drift, the drift check is now a PR gate: a `Run format-scope drift gate` step (`npm run quality:format-scope:check`) in `.github/workflows/quality-gates.yml` (`banned-phrase-gate` job, alongside the ESLint-rules dist drift check), plus the previously-dangling `quality:format-scope:{generate,check}` npm scripts the gate's own error message referenced. Unblocks ORPHAN-MEDIUM-121 (the dead-dir removal can now regenerate the manifest cleanly). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-117.
+Status: RESOLVED (2026-06-29) — regenerated `tools/quality/format-scope.json` via `node tools/quality/quality.mjs format-scope generate` (+1984/-22; new migrations/specs + removed eslint configs reconciled), so `format-scope check` is green at HEAD. To stop silent re-drift, the drift check is now a PR gate: a `Run format-scope drift gate` step (`npm run quality:format-scope:check`) in `.github/workflows/quality-gates.yml` (`banned-phrase-gate` job, alongside the ESLint-rules dist drift check), plus the previously-dangling `quality:format-scope:{generate,check}` npm scripts the gate's own error message referenced. Unblocks ORPHAN-MEDIUM-121 (the dead-dir removal can now regenerate the manifest cleanly). Registered: docs/reviews/\_registry/findings.jsonl#ORPHAN-MEDIUM-117.
 
 ---
 
@@ -3785,7 +3900,7 @@ Query↔migration drift: either the `embedding` column migration is missing from
 
 Discovered in the E2E Messaging logs during B2 (#411) gating. Pairs with ORPHAN-HIGH-092.
 
-Status: RESOLVED (2026-06-13; #441 b4f484130). Root cause was query↔migration drift: the E2E migration array stopped at 1800600000000 and omitted `1800700000000-AddMessagesEmbeddingColumn` (#423), so the E2E schema lacked `messages.embedding` while the backfill sweep filtered on it. Added the migration to the E2E path (`e2e-setup.ts`) → E2E schema in lockstep with production, column present, no more `m.embedding does not exist`. Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-055.
+Status: RESOLVED (2026-06-13; #441 b4f484130). Root cause was query↔migration drift: the E2E migration array stopped at 1800600000000 and omitted `1800700000000-AddMessagesEmbeddingColumn` (#423), so the E2E schema lacked `messages.embedding` while the backfill sweep filtered on it. Added the migration to the E2E path (`e2e-setup.ts`) → E2E schema in lockstep with production, column present, no more `m.embedding does not exist`. Registered: docs/reviews/\_registry/findings.jsonl#ORPHAN-MEDIUM-055.
 
 ---
 
@@ -3797,7 +3912,7 @@ Root cause: contract contradiction. The generator's comment (lines 43-48) claime
 
 Fix (RESOLVED, Tier-1 per architectural-arbiter): `callers`/`audiences` are NON-secret policy with a single SSoT — the service-catalog. New `serviceIdentityCallers()` (`platform/libs/service-catalog/src/index.ts`); `resolveVerificationKey` now derives the caller allowlist from the catalog when an entry carries no explicit policy (`entry.callers ?? serviceIdentityCallers()`), staying fail-closed (unknown caller rejected). The keyring JSON stays pure secret transport, so policy cannot drift from the catalog. Bridge test added (`service-identity.util.spec.ts`) reproducing the policy-less-entry shape.
 
-Status: RESOLVED (2026-06-13; owner: auth-security-expert; branch `fix/service-identity-keyring-catalog-policy`). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-CRITICAL-094.
+Status: RESOLVED (2026-06-13; owner: auth-security-expert; branch `fix/service-identity-keyring-catalog-policy`). Registered: docs/reviews/\_registry/findings.jsonl#ORPHAN-CRITICAL-094.
 
 ---
 
@@ -3807,7 +3922,7 @@ Severity: HIGH. `docker-compose.droplet.yml` injects `SERVICE_IDENTITY_KEYRING` 
 
 Fix (RESOLVED): added both vars (`:?`-required, matching the auth/farm pattern) to the `messaging-service` env block, closing the 12-of-13 gap.
 
-Status: RESOLVED (2026-06-13; owner: infra-expert; branch `fix/service-identity-keyring-catalog-policy`). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-095.
+Status: RESOLVED (2026-06-13; owner: infra-expert; branch `fix/service-identity-keyring-catalog-policy`). Registered: docs/reviews/\_registry/findings.jsonl#ORPHAN-HIGH-095.
 
 ---
 
@@ -3817,7 +3932,7 @@ Severity: HIGH (architectural / tracked hardening — NOT fixed here, deliberate
 
 Fix direction: per-service keyrings (distinct kid+secret per signer, narrow `callers`/`audiences`) so possession of one service's secret cannot forge another's identity — meaningful only once identity is unforgeable, i.e. paired with mTLS-bound service identity (cert CN = identity, mirroring ADR-015 for NATS). Large blast radius (TLS termination, cert minting, every signer/verifier) → requires a `proposed` ADR + security review; do NOT mask the gap with a wildcard allowlist.
 
-Status: IN-PROGRESS (2026-06-27 — decision framed in docs/adr/039-http-service-identity-mtls.md (Proposed) — phased: Phase 1 = per-service keyring entries (W3 T2.3, removes cross-service forgery, no infra change), Phase 2 = per-service mTLS (cert-CN-is-identity mirroring ADR-015, Node-native on the single-host droplet, dual-mode cutover, retire HMAC). Phase 2 needs infra (HTTP cert minting from the internal CA) + security review) (2026-06-13; owner: auth-security-expert; escalated from the ORPHAN-CRITICAL-094 fix review). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-096.
+Status: IN-PROGRESS (2026-06-27 — decision framed in docs/adr/039-http-service-identity-mtls.md (Proposed) — phased: Phase 1 = per-service keyring entries (W3 T2.3, removes cross-service forgery, no infra change), Phase 2 = per-service mTLS (cert-CN-is-identity mirroring ADR-015, Node-native on the single-host droplet, dual-mode cutover, retire HMAC). Phase 2 needs infra (HTTP cert minting from the internal CA) + security review) (2026-06-13; owner: auth-security-expert; escalated from the ORPHAN-CRITICAL-094 fix review). Registered: docs/reviews/\_registry/findings.jsonl#ORPHAN-HIGH-096.
 
 ---
 
@@ -3827,7 +3942,7 @@ Severity: MEDIUM. The same `entry.callers`/`entry.audiences` keyring field was r
 
 Fix (RESOLVED): `resolveVerificationKey` now resolves absent caller policy from the catalog SSoT (fail-closed) and defers absent audience policy to `matchesExpectedAudience`, aligning both verifiers on one coherent semantic (explicit list honored; absent ⇒ catalog/expected-audience derived).
 
-Status: RESOLVED (2026-06-13; owner: auth-security-expert; branch `fix/service-identity-keyring-catalog-policy`). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-097.
+Status: RESOLVED (2026-06-13; owner: auth-security-expert; branch `fix/service-identity-keyring-catalog-policy`). Registered: docs/reviews/\_registry/findings.jsonl#ORPHAN-MEDIUM-097.
 
 ---
 
@@ -3837,7 +3952,7 @@ Severity: MEDIUM. `service-identity.guard.ts:130-134` maps every non-`missing-he
 
 Fix direction: keep the generic CLIENT message (no leak), but emit a distinct, non-sensitive operator signal (structured log field already present + a metric label by `reason`) so an authorization/config failure is not indistinguishable from a tamper attempt in dashboards.
 
-Status: RESOLVED (2026-06-26 — ServiceIdentityGuard now emits the raw machine-readable reasonCode (missing-headers/bad-hmac/stale-timestamp/caller-not-allowed/audience-not-allowed/key-not-found/key-not-active) on the publishServiceIdentityRejected security event — a structured field distinct from the human reason sentence, so dashboards/alerts can branch on the exact cause; the client ForbiddenException stays deliberately generic (no info leak). Guard spec proves the reasonCode flows through (5/5). Turning the event into a Prometheus label is downstream observability work) (2026-06-13; owner: auth-security-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-098.
+Status: RESOLVED (2026-06-26 — ServiceIdentityGuard now emits the raw machine-readable reasonCode (missing-headers/bad-hmac/stale-timestamp/caller-not-allowed/audience-not-allowed/key-not-found/key-not-active) on the publishServiceIdentityRejected security event — a structured field distinct from the human reason sentence, so dashboards/alerts can branch on the exact cause; the client ForbiddenException stays deliberately generic (no info leak). Guard spec proves the reasonCode flows through (5/5). Turning the event into a Prometheus label is downstream observability work) (2026-06-13; owner: auth-security-expert). Registered: docs/reviews/\_registry/findings.jsonl#ORPHAN-MEDIUM-098.
 
 ---
 
@@ -3847,7 +3962,7 @@ Severity: LOW. `scripts/deploy/lib/required-env-secrets.sh` claimed "five drople
 
 Fix (RESOLVED): corrected both comments to state twelve services and that policy lives in the service-catalog SSoT (verifier-enforced, fail-closed), with an explicit "do not re-add policy fields to this generator" note.
 
-Status: RESOLVED (2026-06-13; owner: infra-expert; branch `fix/service-identity-keyring-catalog-policy`). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-LOW-099.
+Status: RESOLVED (2026-06-13; owner: infra-expert; branch `fix/service-identity-keyring-catalog-policy`). Registered: docs/reviews/\_registry/findings.jsonl#ORPHAN-LOW-099.
 
 ---
 
@@ -3858,6 +3973,7 @@ Status: RESOLVED (2026-06-13; owner: infra-expert; branch `fix/service-identity-
 **Found while:** wiring the canonical TenantStatus for W3.1 (MT-HIGH-003).
 
 **Problem:** `libs/shared-contracts` advertises itself (its `index.ts` header) as "the single source of truth for cross-cutting domain concepts," but:
+
 - it has NO `tsconfig.base.json` path alias and NO nx `project.json`, so it is not in the affected-graph and backend services cannot import `@aquaculture/shared-contracts` through the normal alias;
 - its own `tsconfig.json` is deliberately isolated (`baseUrl: "."`, only `@/*` → `src/*`), so it cannot import any other lib — a re-export from it to `@platform/event-contracts` fails type-check with TS2307;
 - a repo-wide grep finds ZERO real importers of `@aquaculture/shared-contracts` / `@platform/shared-contracts` in `apps/`, `web/`, or `libs/` (the one farm-service "reference" is a code comment).
@@ -3877,6 +3993,7 @@ It still declares its own copies of `PlanTier`, `SubscriptionStatus`, `BillingCy
 **Found while:** wiring the admin-api-service consumer of the TenantStatus machine (MT-HIGH-003 W3.1). Running `nx test admin-api-service` at the wave3 base surfaced dozens of failures UNRELATED to the TenantStatus work; confirmed pre-existing via `git stash` A/B at 596e63595.
 
 **Problem (distinct root causes observed):**
+
 - **58×** `Nest can't resolve dependencies of CreateTenantHandler … "EVENT_BUS" at index [1]`. CreateTenantHandler was migrated to `@Inject('EVENT_BUS')` (platform IEventBus) but `create-tenant.handler.spec.ts`, `tenant-creation.spec.ts`, and `tenant.integration.spec.ts` still provide the `EventBus` (cqrs) class token — a spec-vs-production DI drift from the enterprise-train lineage.
 - **83×** `Nest can't resolve dependencies of DatabaseExplorerController … "explorer-readonlyDataSource"` — missing custom DataSource token provider in that controller's spec.
 - **39×** `EmailSenderService … this.settingsService.getEmailConfigForSending is not a function` — stale mock (the settings service gained a method the spec mock lacks).
@@ -3893,10 +4010,12 @@ It still declares its own copies of `PlanTier`, `SubscriptionStatus`, `BillingCy
 **Found while:** running the diff-lint gate (`scripts/ci/lint-changed-files.mjs`) over the Wave-3 branch (W3.4). The gate reported 32 new error-level findings across six auth-service files that the Wave-3 consumer refactors touched: `user-lifecycle.service.ts` (the bulk) plus the `invitation`, `webauthn-credential`, `module`, and `mobile-user-settings` entities and `tenant-update-consolidation.spec.ts`.
 
 **Problem (two lineages, same files):**
+
 - **Branch-introduced (import-order):** the DATA-HIGH-001 outbox migration swapped `@Inject('EVENT_BUS') IEventBus` for `BestEffortEventPublisher` and the MT-HIGH-003/DATA-HIGH-002 entity work changed entity imports — both reshuffled import blocks without re-running `import/order`. 8 import-order errors in `user-lifecycle.service.ts` + one each in the five other files; `tenant-update-consolidation.spec.ts` also imported `Role` from the non-canonical `@platform/backend-common` barrel (no-restricted-imports).
 - **Pre-existing type-safety debt surfaced by the diff (type-aware rules):** `require('crypto')` (no-require-imports + 3× unsafe-call/member), a non-null assertion `input.moduleIds!`, an `: boolean` inferrable annotation, an untyped `dataSource.query` result feeding `insertResult[0].id` (unsafe-assignment/member), and four `string === Role` enum comparisons (`no-unsafe-enum-comparison`) that became visible once `Role`/`TenantStatus` were typed as the canonical enums.
 
 **Fix (DONE in this commit — Tier-1/Tier-3, behavior-preserving):**
+
 - import-order auto-fixed across all six files; the spec's `Role` import re-pointed to the canonical `@aquaculture/backend-common/decorators`.
 - `require('crypto')` → the file's existing ESM `import * as crypto` (closes the ORPHAN-HIGH-090 adjacent-cleanup note).
 - a module-level `isCanonicalRole(value): value is Role` type guard replaces the `(Object.values(Role) as string[]).includes(...)` validation at both invite/create sites; the throwing negative branch narrows `input.role` to `Role`, which structurally removes the four `string === Role` comparisons AND three `as Role` assertions (Tier-1 make-impossible).
@@ -3914,10 +4033,12 @@ It still declares its own copies of `PlanTier`, `SubscriptionStatus`, `BillingCy
 **Found while:** MT-MEDIUM-002 (W3.4) touched `tenant-detail.service.ts` (real-source farm/sensor counting) and the two tenant provisioning specs (fixture caller-update). The blocking diff-lint gate (`scripts/ci/lint-changed-files.sh`; `ci-affected.yml` line 209 — "lint failures must block PR merge") re-lints any touched file head-vs-base. Its base worktree cannot run type-aware ESLint rules (the TS project is not built there), so it reports `base=0` for every type-aware rule and flags each touched file's FULL pre-existing type-aware debt as "new." Touching these files therefore dragged their unrelated, pre-existing debt into the gate.
 
 **Problem:**
+
 - `tenant-detail.service.ts` (production): `getUserStats` / `getModuleUsage` / `getResourceUsage` used untyped `dataSource.query` (an `any` leak feeding `result[0].x` / `result.map`), two `t.status === 'ACTIVE' | 'SUSPENDED'` string-literal comparisons (`no-unsafe-enum-comparison` vs the canonical `TenantStatus` enum), and two unused `catch (error)` bindings.
 - `tenant-api.integration.spec.ts` + `tenant-provisioning.service.spec.ts` (admin-api **quarantined broken test debt — ORPHAN-MEDIUM-088**, one crashes at runtime on an unhandled rejection): deep mock `any` (`as any`, `callback: any`, untyped `jest.fn()`), non-null assertions, and unused imports.
 
 **Fix:**
+
 - `tenant-detail.service.ts` (DONE — Tier-3 type, behavior-preserving): typed all three query results with local row types (`UserStatsRow`, `ModuleUsageRow`, `{ calls_24h; calls_7d }`) via the `dataSource.query<T>()` generic, dropping the field-level `as` casts in the `.map`; `'ACTIVE'`/`'SUSPENDED'` → `TenantStatus.ACTIVE` / `TenantStatus.SUSPENDED`; logged the previously-discarded `getModuleUsage` catch error (consistency with the `getUserStats` BUG-007 pattern) and bare-caught the genuinely-ignored metrics catch. 0 lint errors; admin-api type-check clean.
 - the two provisioning specs (REVERTED to origin/main): the MT-MEDIUM-002 fixture edit only removed the now-phantom `farmCount: 0` / `sensorCount: 0` lines from an `Object.assign(tenant, {...})` that tolerates excess props harmlessly. Cleaning their full pre-existing mock-`any` debt is high-churn / high-risk surgery on quarantined broken specs owned by ORPHAN-MEDIUM-088 — out of MT-MEDIUM-002's scope. Reverting returns them to a net-zero diff (out of the gate). The reverted fixtures still set `farmCount`/`sensorCount` via `Object.assign` — a harmless phantom property after the entity drop, to be removed when the admin-api specs are de-quarantined (ORPHAN-MEDIUM-088).
 
@@ -3927,7 +4048,8 @@ It still declares its own copies of `PlanTier`, `SubscriptionStatus`, `BillingCy
 
 **Found while:** resolving the diff-lint cascade that MT-MEDIUM-001 / MT-MEDIUM-002 kept hitting (3× this session). Every time a commit touched a file that already carried lint debt, the blocking diff-lint gate (`scripts/ci/lint-changed-files.mjs`; `ci-affected.yml` line 209 — "lint failures must block PR merge") reported that file's FULL pre-existing debt as "new error-level findings" (e.g. 72 findings across two admin-api specs the MT-MEDIUM-001 entity drop forced me to touch).
 
-**Problem (root cause):** the gate measures whether a change introduces *new* lint errors by linting each changed file at base and at head and diffing the per-rule counts. But it linted the two sides with DIFFERENT configs:
+**Problem (root cause):** the gate measures whether a change introduces _new_ lint errors by linting each changed file at base and at head and diffing the per-rule counts. But it linted the two sides with DIFFERENT configs:
+
 - **head** — in the real repo, with head's `.eslintrc.json` + head's tsconfigs.
 - **base** — in a detached worktree checked out at `origin/main`, with **origin/main's** config.
 
@@ -3946,6 +4068,7 @@ This branch (a) modified `.eslintrc.json` and (b) sits on a `tsconfig.base.json`
 ## ORPHAN-CRITICAL-100 — token.service + tenant-role.service query auth-role tables in the OLD per-tenant schema after they were centralized into `auth`
 
 Severity: CRITICAL. Discovered during W4 (PERF-HIGH-001). Migration `apps/admin-api-service/src/migrations/1800500000000-TenantProvisioningTopology.ts` MOVES `user_role_assignments` / `tenant_role_permissions` / `tenant_roles` from per-tenant `tenant_<uuid>` schemas into the shared `auth` schema (INSERT then `DROP TABLE ... tenant_<schema>.*`, lines 311-313) and its post-condition RAISEs if any tenant copy remains (line 333). But two auth-service consumers still query the OLD per-tenant schema:
+
 - `apps/auth-service/src/modules/authentication/services/token.service.ts` `getUserResourcePermissions` — the LOGIN hot path.
 - `apps/auth-service/src/modules/tenant/services/tenant-role.service.ts` — ALL 10 methods (read AND write: getTenantRoles/getRoleById/getDefaultRole/createRole/updateRole/deleteRole/seedDefaultRoles/assignRoleToUser/removeRoleFromUser), lines 296-1053, reachable via tenant-role.resolver (GraphQL CRUD) + tenant-user-management/user-lifecycle.
 
@@ -3991,7 +4114,7 @@ Status: RESOLVED (2026-06-26 — added @Index(idx_tenant_role_permissions_role_i
 
 ## ORPHAN-HIGH-100 — 6 custom `aquaculture/*` architectural-invariant lint kuralı, 31 root:true per-project projede İNERT
 
-Severity: HIGH. A2 (ESLint 8→9 flat migration) sırasında firsthand keşfedildi: `tools/eslint-rules`'deki 6 mimari-invariant kuralı (`require-entity-schema`, `no-bare-tenant-query-key`, `no-direct-event-publish`, `no-high-cardinality-metric-label`, `no-claude-sdk-raw-call`, `no-bare-graphql-query-string`) root `.eslintrc.json`'da **override** olarak tanımlıydı; ama her proje (apps/*, libs/event-contracts, libs/node-components, web/*, mcp/*, scripts, tests/invariants, tools/eslint-rules — 31 dizin) kendi `root: true` `.eslintrc.cjs`'ine sahip olduğundan eslintrc cascade proje sınırında DURUYORDU → bu kurallar proje dosyalarına HİÇ uygulanmadı. ESLint 8 `calculateConfigForFile` ile doğrulandı: `aquaculture/require-entity-schema` + `no-direct-event-publish` 55 proje-probe'unun **0**'ında tanımlı. Kurallar yalnız non-cjs zonlarda (`platform/libs/**`, `libs/backend-common/**`, `web/apps/aquamobil/**`) canlı.
+Severity: HIGH. A2 (ESLint 8→9 flat migration) sırasında firsthand keşfedildi: `tools/eslint-rules`'deki 6 mimari-invariant kuralı (`require-entity-schema`, `no-bare-tenant-query-key`, `no-direct-event-publish`, `no-high-cardinality-metric-label`, `no-claude-sdk-raw-call`, `no-bare-graphql-query-string`) root `.eslintrc.json`'da **override** olarak tanımlıydı; ama her proje (apps/_, libs/event-contracts, libs/node-components, web/_, mcp/\*, scripts, tests/invariants, tools/eslint-rules — 31 dizin) kendi `root: true` `.eslintrc.cjs`'ine sahip olduğundan eslintrc cascade proje sınırında DURUYORDU → bu kurallar proje dosyalarına HİÇ uygulanmadı. ESLint 8 `calculateConfigForFile` ile doğrulandı: `aquaculture/require-entity-schema` + `no-direct-event-publish` 55 proje-probe'unun **0**'ında tanımlı. Kurallar yalnız non-cjs zonlarda (`platform/libs/**`, `libs/backend-common/**`, `web/apps/aquamobil/**`) canlı.
 
 Sonuç: `require-entity-schema` (her `@Entity()` şema disiplinini zorlar — ADR-011) HİÇBİR `apps/*/src/**/*.entity.ts` üzerinde çalışmıyor; tenant-IDOR'a karşı `no-bare-tenant-query-key` hiçbir web modülünde çalışmıyor. PR-1 bu kurallar için RuleTester unit'leri ekledi (izole doğru çalışıyorlar) ama CI lint'inde tetiklenmiyorlar.
 
@@ -4021,7 +4144,7 @@ Root cause: a TS-heavy CI step without a heap ceiling sized for the project-grap
 
 Discovered gating C1 PR-1a (#429): the 10-file federation lint surface (8 `vite.config.ts` + `federationSharedConfig.ts` + a spec) tipped the type-aware lint over the default heap; the prior C1 iteration's lint job failed identically. Fixed in the same C1 commit that surfaced it (C1 is blocked by it); the A2 ESLint flat-config wave owns broader lint configuration but does not modify this step.
 
-Status: OPEN (2026-06-13; owner: infra-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-094.
+Status: OPEN (2026-06-13; owner: infra-expert). Registered: docs/reviews/\_registry/findings.jsonl#ORPHAN-MEDIUM-094.
 
 ---
 
@@ -4030,14 +4153,15 @@ Status: OPEN (2026-06-13; owner: infra-expert). Registered: docs/reviews/_regist
 Severity: MEDIUM. Discovered 2026-06-13 while implementing Wave-6 M2 (mobile read-cursor), messaging-expert.
 
 **Problem:** The two unread-count code paths apply different sender semantics:
+
 - `message.service.ts` `incrementUnreadForChannelMembers(channelId, senderId, tenantId)` increments the per-user Redis HASH for all members **except the sender** — so the Redis-backed `getUnreadCount` (total badge, also used for push `badge:`) EXCLUDES the user's own messages.
 - `get-channels.handler.ts:60` computes the per-channel badge as `SELECT COUNT(*) FROM messages m WHERE ... AND m."createdAt" > COALESCE(membership."lastReadAt", '1970-01-01')` — **no `senderId` filter** — so it INCLUDES the user's own messages until `lastReadAt` passes them. The DB fallback `getUnreadCountFromDb` shares this no-sender-filter shape.
 
-**Effect:** A user who sends a message can see a non-zero per-channel unread badge (DB subquery counts their own send) while the global Redis badge shows zero, until their read cursor advances past their own message. The two surfaces disagree. Wave-6 M2 masks the user-visible symptom (the mobile client now advances `lastReadAt` to the newest message *including own sends*, so the badge clears on view), but the underlying server-side inconsistency remains: anything that reads the DB subquery without an advanced cursor (e.g. a freshly-sent-then-backgrounded channel, or a non-mobile client) still mis-counts.
+**Effect:** A user who sends a message can see a non-zero per-channel unread badge (DB subquery counts their own send) while the global Redis badge shows zero, until their read cursor advances past their own message. The two surfaces disagree. Wave-6 M2 masks the user-visible symptom (the mobile client now advances `lastReadAt` to the newest message _including own sends_, so the badge clears on view), but the underlying server-side inconsistency remains: anything that reads the DB subquery without an advanced cursor (e.g. a freshly-sent-then-backgrounded channel, or a non-mobile client) still mis-counts.
 
 **Fix direction (architectural, not masked):** make the two paths agree on sender semantics. Either (a) add `AND m."senderId" <> membership."userId"` to the `get-channels` + `getUnreadCountFromDb` subqueries so the DB matches Redis (own messages never count as unread — the semantically correct choice), or (b) decide own-messages DO count and increment Redis for the sender too. Option (a) is preferred: a user's own message is never "unread" to them. Requires updating both subqueries + a regression test asserting own-message sends do not inflate the per-channel badge.
 
-Status: RESOLVED (2026-06-26 — all three unread paths now share ONE predicate: extracted unreadMessagePredicateSql (message/unread-message.predicate.ts, excludes member-own + soft-deleted + read), consumed by BOTH get-channels.handler badge subquery AND getUnreadCountFromDb; the channel-list subquery previously omitted the senderId exclusion. Locked by messaging-unread-count-ssot.spec.ts + helper unit test) (2026-06-13; owner: messaging-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-100.
+Status: RESOLVED (2026-06-26 — all three unread paths now share ONE predicate: extracted unreadMessagePredicateSql (message/unread-message.predicate.ts, excludes member-own + soft-deleted + read), consumed by BOTH get-channels.handler badge subquery AND getUnreadCountFromDb; the channel-list subquery previously omitted the senderId exclusion. Locked by messaging-unread-count-ssot.spec.ts + helper unit test) (2026-06-13; owner: messaging-expert). Registered: docs/reviews/\_registry/findings.jsonl#ORPHAN-MEDIUM-100.
 
 ---
 
@@ -4079,7 +4203,7 @@ Root cause: time-of-publication, not a code change — a fresh RustSec advisory 
 
 Discovered gating R1's Rust CI (#450); affects the whole repo. Fixed in branch `security/rustsec-2026-postgres`. Only the root workspace is affected (sens-api-gateway does not use these crates).
 
-Status: OPEN (2026-06-14; owner: infra-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-101.
+Status: OPEN (2026-06-14; owner: infra-expert). Registered: docs/reviews/\_registry/findings.jsonl#ORPHAN-HIGH-101.
 
 ---
 
@@ -4092,6 +4216,7 @@ Severity: CRITICAL. Discovered + RESOLVED 2026-06-14 during Wave-5 closeout (aut
 **Fix (RESOLVED, this PR):** repointed all role-table SQL to `"auth"."<table>"` tenant-scoped — `tenant_roles` by `AND tr."tenantId" = $x`; child tables (`user_role_assignments`, `tenant_role_permissions`, no tenantId column) by a write-side `JOIN/FROM "auth"."tenant_roles" tr ... AND tr."tenantId" = $x` so every WRITE carries its own tenant guard. Load-bearing corrections from the adversarial review swarm: (a) `assignRoleToUser` re-keyed to the global `UNIQUE(user_id)` (one-row-per-user re-point, never a 2nd INSERT) + a tenant-scoped `SELECT 1 FROM auth.users WHERE id=$1 AND "tenantId"=$2` user pre-validation (blocks attaching a foreign-tenant user to a tenant role); (b) `is_default` unset-writes carry `AND "tenantId"=$x` (else platform-wide default-role corruption); (c) only GROUND-TRUTH columns (auth.user_role_assignments has NO `updated_by`/`removed_by`/`removed_at`); (d) `assertRoleGrantAuthority` actor lookup tenant-pinned; (e) `audit-log.service.log()` gained a manager-aware overload so in-transaction audits are atomic with the mutation. Verified firsthand on every axis (columns, cross-tenant-write guard, interpolation=0, param-index, actor-pin, audit manager-threading) + 121/121 unit/regression tests.
 
 **Tracked follow-ups (NOT this PR):**
+
 - token.service `getUserResourcePermissions` repoint — owned by W4 PR #440 (intentionally not touched here to avoid a merge conflict on the same method).
 - Stale-row edge (MEDIUM): `assignRoleToUser`/`createRoleAssignment` existing-row SELECT JOINs `tr."tenantId"`, so a user whose single `user_role_assignments` row points to a non-current-tenant or NULL-tenant role is missed → falls to INSERT → `UNIQUE(user_id)` violation. Fails LOUD on anomalous data (the user pre-validation already blocks the cross-tenant write); robust fix = read the user's row by `user_id` alone. Owner: auth-security-expert.
 - DB-layer backstops (data-expert): partial `UNIQUE INDEX ON auth.tenant_roles ("tenantId") WHERE is_default` (single-default invariant is app-enforced only); NULL-tenant (platform-global) role semantics for equality predicates.
@@ -4108,6 +4233,7 @@ Status: RESOLVED (2026-06-14, this PR — tenant-role/tenant-user-management/use
 **NOT a D2 regression:** D2 (#457) only touches `apps/gateway-api` + `libs/backend-common/src/rate-limit` and never imports messaging-service. #457's branch was cut from old `main` (pre-D1/PR-2/Tier-4/D3/#453), so this is pre-existing platform E2E debt that #457's CI surfaced.
 
 **Root-cause TODO (owner: messaging-expert):**
+
 1. Verify whether current `main` (0c2370b04) still reproduces — re-run the `E2E Tests` job or boot one messaging E2E spec locally.
 2. If so, find the undefined base: grep the messaging E2E test base class + its import chain for a circular dependency or a barrel (`index.ts`) that re-exports the base before it is defined. The fix is usually to import the base from its concrete module (not the barrel) or break the cycle.
 
@@ -4131,7 +4257,7 @@ It is **mock-completeness drift**, not a cycle: A3 PR-B (#438) added `class Nats
 
 Status: RESOLVED (PR #473; pending registry close on merge). Owner: messaging-expert. Registry: `ORPHAN-HIGH-102` in `docs/reviews/_registry/findings.jsonl`.
 
-> **D2 / CRITICAL-002 traceability note (not a registry close):** the gateway rate-limit consolidation (PR #457, `0c2370b04`) — which also fixed the gateway's fail-OPEN Redis store — is fully traced by its own commit message + PR. It is NOT seeded as a closable registry finding because the three-store invariant requires a closing commit to carry a `Closes: …#<id>` trailer *at commit time*; a finding seeded post-merge cannot be closed against an already-merged commit (no amend/force-push). The SEC-MEDIUM-001/002 closes in this same registry pass ARE valid because D1's commit (`bc79457d5`) carried their `Closes:` trailers.
+> **D2 / CRITICAL-002 traceability note (not a registry close):** the gateway rate-limit consolidation (PR #457, `0c2370b04`) — which also fixed the gateway's fail-OPEN Redis store — is fully traced by its own commit message + PR. It is NOT seeded as a closable registry finding because the three-store invariant requires a closing commit to carry a `Closes: …#<id>` trailer _at commit time_; a finding seeded post-merge cannot be closed against an already-merged commit (no amend/force-push). The SEC-MEDIUM-001/002 closes in this same registry pass ARE valid because D1's commit (`bc79457d5`) carried their `Closes:` trailers.
 
 ## ORPHAN-MEDIUM-106 — platform/configs typed config-schema SSoT is empty; services read process.env ad-hoc
 
@@ -4143,7 +4269,7 @@ Severity: MEDIUM. Discovered 2026-06-13 during the AquaMobil e2e audit, frontend
 
 **Fix direction (architectural, separate initiative):** populate `platform/configs/` with a typed, validated config-schema module (a Zod/joi schema per service, or a shared schema with per-service slices) loaded once at bootstrap with fail-fast validation (reject boot on a missing/malformed required key), and replace ad-hoc `process.env` / untyped `configService.get` reads with typed accessors derived from that schema. A CI invariant then asserts no service reads `process.env` outside the config layer. Tier-1 "make-it-impossible": a consumer cannot reference an undeclared key because the typed schema is the only access path.
 
-Status: RESOLVED (2026-06-26 — CONVERGED: the real typed-config SSoT is the already-wired per-concern factory pattern (typeorm-config.factory + event-bus-config.factory), both fail-fast; the empty central platform/configs was an unbuilt aspiration whose resurrection would just rebuild the Potemkin-SSoT anti-pattern. Locked drift growth via tests/invariants/config-env-access-ratchet.spec.ts (raw process.env file count ratcheted at baseline 5, allowlisting the TypeORM-CLI data-source.ts + main.ts). 14/20 raw reads were legit CLI; 1 was comment-only. Per-service migration of the 5 grandfathered boundary reads is ratchet-locked to only shrink. Duplicate of the config ORPHAN-MEDIUM-109) (2026-06-13; owner: frontend-expert → platform; separate initiative). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-104.
+Status: RESOLVED (2026-06-26 — CONVERGED: the real typed-config SSoT is the already-wired per-concern factory pattern (typeorm-config.factory + event-bus-config.factory), both fail-fast; the empty central platform/configs was an unbuilt aspiration whose resurrection would just rebuild the Potemkin-SSoT anti-pattern. Locked drift growth via tests/invariants/config-env-access-ratchet.spec.ts (raw process.env file count ratcheted at baseline 5, allowlisting the TypeORM-CLI data-source.ts + main.ts). 14/20 raw reads were legit CLI; 1 was comment-only. Per-service migration of the 5 grandfathered boundary reads is ratchet-locked to only shrink. Duplicate of the config ORPHAN-MEDIUM-109) (2026-06-13; owner: frontend-expert → platform; separate initiative). Registered: docs/reviews/\_registry/findings.jsonl#ORPHAN-MEDIUM-104.
 
 ---
 
@@ -4175,7 +4301,7 @@ Severity: MEDIUM. Discovered 2026-06-14 while wiring the farm_workers PII-at-res
 
 **Problem:** `e2e/tests/integration/entity-migration-parity.spec.ts` is supposed to enforce two invariants — MA2 (every `@Entity('<table>')` has a `CREATE TABLE` migration) and MA3 (every entity column appears in the migration's CREATE TABLE body). It currently enforces neither, for three compounding reasons:
 
-1. **`ENTITY_NAME_RE` recognizes zero entities (backreference bug).** The regex is `/@Entity\(\s*(?:(?:['"])([a-z_][a-z0-9_]*)\1|...)/i`. The quote alternation `(?:['"])` is NON-capturing, so capture group 1 is the *table-name* group, and the trailing `\1` therefore demands the table name appear twice consecutively. No real `@Entity('farm_workers')` (or any of the canonical forms, including `@Entity({ name: '...' })`) matches. Verified: the regex returns NO MATCH against every canonical `@Entity` form, so `collectAll()` yields `entities.length === 0`; the "lists at least one entity (sanity)" assertion fails and both `it.each(...)` blocks throw `.each` called with an empty Array. The regex is byte-identical since its introduction in commit 2a1906bba — the spec has been red since birth.
+1. **`ENTITY_NAME_RE` recognizes zero entities (backreference bug).** The regex is `/@Entity\(\s*(?:(?:['"])([a-z_][a-z0-9_]*)\1|...)/i`. The quote alternation `(?:['"])` is NON-capturing, so capture group 1 is the _table-name_ group, and the trailing `\1` therefore demands the table name appear twice consecutively. No real `@Entity('farm_workers')` (or any of the canonical forms, including `@Entity({ name: '...' })`) matches. Verified: the regex returns NO MATCH against every canonical `@Entity` form, so `collectAll()` yields `entities.length === 0`; the "lists at least one entity (sanity)" assertion fails and both `it.each(...)` blocks throw `.each` called with an empty Array. The regex is byte-identical since its introduction in commit 2a1906bba — the spec has been red since birth.
 
 2. **The CREATE TABLE body parser assumes one-column-per-line.** Even with the regex fixed, `parseMigration` splits the captured body on `\n` and matches `"<name>" <type>` per line. The farm baseline (and others) emit each `CREATE TABLE` on a SINGLE 1000+ char line (`farm_workers` CREATE TABLE is 1089 chars on one line), so the parser recognizes only the first column (`id`). A regex-only fix surfaces 215 MA3 "violations" across every service — all pre-existing, none introduced by PII work.
 
@@ -4188,6 +4314,7 @@ Severity: MEDIUM. Discovered 2026-06-14 while wiring the farm_workers PII-at-res
 **Why not fixed in the PII PR:** Making MA3 genuinely green requires (a) fixing `ENTITY_NAME_RE` (make the quote group capturing: `(['"])([a-z_][a-z0-9_]*)\1`), (b) parsing single-line CREATE TABLE bodies (split on commas at paren-depth 0, not on `\n`), and (c) merging `ALTER TABLE ... ADD COLUMN` columns into each table's column set so ALTER-added columns (`tanks.containerKind`, `farm_workers.emailHash`) satisfy parity. Steps (a)+(b) then surface 215 pre-existing cross-service violations that must each be triaged (real drift vs parser limitation vs name-override needed). That is a platform-wide parser rewrite plus a 215-item cross-service triage — categorically outside a farm PII-at-rest change, and re-architecting a dead invariant under a security PR would be unbounded scope creep with a large blast radius. Hand-editing the frozen baseline or excluding `farm_workers` was explicitly forbidden and would weaken the invariant.
 
 **Fix direction (minimal correct resolution, dedicated PR):**
+
 1. Fix `ENTITY_NAME_RE` so the closing quote is a backreference to a CAPTURED quote group; re-confirm `collectAll()` finds all ~245 entities.
 2. Rewrite `parseMigration` body tokenizer to handle single-line CREATE TABLE bodies (paren-depth-aware comma split).
 3. Extend the migration parser to also collect `ALTER TABLE [schema.]"<table>" ADD COLUMN [IF NOT EXISTS] "<name>"` and merge those column names into the matching table's column set — making ALTER-add the sanctioned way an ALTER-added entity column satisfies MA3 (this is what `tanks.containerKind` and `farm_workers.emailHash` both need).
@@ -4233,6 +4360,7 @@ Surfaced by FARM-HIGH-059 (Phase 2 feed-empty, farm-expert audit). `DailyFeeding
 **Symptom**: Under `ARIA_DRY_RUN=true CLAUDE_CODE_MOCK=true unshare --net -- python3 -m aria_kernel autonomy run --max-cycles 5 --profile strict` the orchestrator completes cycle 1 (`cycle_started → next_cycle_queued → cycle_completed`) then idles for 25+ minutes without starting cycle 2. `planner_dispatch_iteration_started`/`_completed` events continue ~once/second (mock-mode planner spinning) but `autonomy_state.jsonl` records exactly 1 unique `cycle_id`. The cycle deadline (1800s per cycle × 5 = 9000s max) never elapses because individual cycles complete fast — the orchestrator just doesn't auto-advance.
 
 **Evidence at termination (sandbox `/tmp/aria-smoke-20260519-185437`)**:
+
 - `autonomy_state.jsonl`: 3 entries, all for `cyc-20260519T185510Z-auto` (started/queued/completed).
 - `governance.jsonl`: 179 events, 18 kinds. 1 × `autonomy_orchestrator_started` for the new run + 1 × `autonomy_orchestrator_exit` from the PRIOR May-18 run (no new exit fired).
 - `next_cycle_queued` event implies cycle 2 should be next, but no new `cycle_started` follows.
@@ -4242,12 +4370,14 @@ Surfaced by FARM-HIGH-059 (Phase 2 feed-empty, farm-expert audit). `DailyFeeding
 **Hypothesis**: the orchestrator's cycle-2 trigger depends on either (a) a pressure-source signal that mock-mode never produces, or (b) a planner_dispatch follow-up event that exit_1 short-circuits. The runbook documents `cycle_runner_no_pressure` as the expected dry-run idle signal, but THAT event never fires either — the cycle progression event taxonomy may have drifted since V3.1-F was originally written.
 
 **Why filed as ORPHAN and NOT a V3.1-F2 follow-up commit**:
+
 - Cycle 1 completing end-to-end is sufficient verification that the V3.1-F2 adapter fix works architecturally (was the gate before).
 - V10.3-A task #113 already validated 5-cycle smoke under real LLM (strict profile); the regression appears mock-mode-specific.
 - V10.3-B endurance runs REAL Claude + REAL gh API; it bypasses the mock-mode stall path entirely.
 - Tracing the stall requires reading the entire cycle-progression state machine (CyclePipeline + 5 phase modules per V3.1-0) — multi-hour investigation outside the V10.3-B prereq scope.
 
 **Suggested investigation when prioritized**:
+
 1. Add `cycle_runner_iteration_started` + `_completed` envelope events at the top of `aria_kernel/cycle_pipeline.py` so the next attempt at this smoke shows WHICH phase is stuck.
 2. Read `planner_dispatch_executor_exit_1` event payload (currently invisible — likely a process state issue under `CLAUDE_CODE_MOCK=true`).
 3. Compare the cycle-progression event taxonomy in `aria_kernel/autonomy_orchestrator.py:run_autonomy_orchestrator()` against the F-5 acceptance script's expected events (`plan_candidate_source_selected`, `cycle_runner_no_pressure`) — those names may have been renamed during V3.1-0 extraction.
@@ -4266,7 +4396,7 @@ Severity: MEDIUM. Discovered 2026-06-13 during the AquaMobil e2e audit, frontend
 
 **Fix direction (architectural, separate initiative):** populate `platform/configs/` with a typed, validated config-schema module (a Zod/joi schema per service, or a shared schema with per-service slices) loaded once at bootstrap with fail-fast validation (reject boot on a missing/malformed required key), and replace ad-hoc `process.env` / untyped `configService.get` reads with typed accessors derived from that schema. A CI invariant then asserts no service reads `process.env` outside the config layer. Tier-1 "make-it-impossible": a consumer cannot reference an undeclared key because the typed schema is the only access path.
 
-Status: RESOLVED (2026-06-26 — duplicate of ORPHAN-MEDIUM-106 — resolved together (per-concern factory SSoT + config-env-access-ratchet invariant). See 106) (2026-06-13; owner: frontend-expert → platform; separate initiative). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-104.
+Status: RESOLVED (2026-06-26 — duplicate of ORPHAN-MEDIUM-106 — resolved together (per-concern factory SSoT + config-env-access-ratchet invariant). See 106) (2026-06-13; owner: frontend-expert → platform; separate initiative). Registered: docs/reviews/\_registry/findings.jsonl#ORPHAN-MEDIUM-104.
 
 ---
 
@@ -4289,6 +4419,7 @@ Status: RESOLVED (2026-06-13; fixed in the aquamobil-msg-federation merge commit
 Severity: MEDIUM. Discovered 2026-06-14 while standing up the AquaMobil graphql-codegen client-contract SSoT (S1-CODEGEN). Out of the S1 scope (S1 is the AquaMobil client contract + messaging enum-casing) — recorded here per the every-found-finding-is-registered rule.
 
 **Problem:** the shell/module GraphQL documents contain operations/fragments that reference fields the composed supergraph no longer exposes. Running `graphql-codegen` against the real supergraph surfaces (at minimum) in `web/modules/hr-module/src/graphql/`:
+
 - `fragments.ts` — `Payroll.earnings` and `Payroll.deductions` do not exist (schema has `deductionsTax`/`deductionsOther`/`deductionsTotal`); `PerformanceGoal.keyResults` and `.milestones` are selected without subfields (they are object lists `[KeyResult!]` / `[GoalMilestone!]`).
 - `performance.operations.ts` — operations that spread those broken fragments inherit the same validation errors.
 
@@ -4353,6 +4484,7 @@ Status: OPEN (2026-06-15; owner: hr-service maintainer; tracked follow-up). Regi
 Severity: MEDIUM. Discovered 2026-06-16 during the CLAUDE.md steering-file back-test (multi-tenant-saas-expert lead; lead-verified firsthand).
 
 **Problem:** `apps/farm-service/src/__tests__/e2e/tenant-schema-routing.architecture.spec.ts` allowlists only `outbox/farm-outbox.entity.ts` (lines 14-18) as permitted to declare `@Entity(... schema: 'farm' ...)`, but its discovery regex (`/@Entity\([^)]*schema:\s*'farm'/`, ~line 49) ALSO matches the comma-form decorator on two legitimately cross-tenant farm tables that DO declare `schema: 'farm'`:
+
 - `farm_audit_logs` — `apps/farm-service/src/database/entities/audit-log.entity.ts:45` → `@Entity('farm_audit_logs', { schema: 'farm' })`
 - `tenant_erasure_audit` — `apps/farm-service/src/compliance/entities/tenant-erasure-audit.entity.ts:61` → `@Entity('tenant_erasure_audit', { schema: 'farm' })`
 
@@ -4423,11 +4555,12 @@ Severity: MEDIUM. Discovered 2026-06-16 (operator-reported) after PR #490 merged
 Status: RESOLVED (2026-06-16; owner: lead; closed by this commit). Registry: orphan-findings.md only.
 
 ---
+
 ## ORPHAN-MEDIUM-123 — Tailwind v4 default palette shifts sRGB-hex → oklch (C3 migration accepts it; only custom tokens pinned)
 
 Severity: MEDIUM. Discovered 2026-06-16 by the C3 post-migration adversarial audit (frontend-expert lens).
 
-**Problem:** the C3 Tailwind-4 migration pins every *custom* design-system token (primary/secondary/accent/neutral/status palettes, fonts, type scale, radius, shadows, animations) to its exact v3 value, plus the WCAG-AA `--color-gray-400: #6b7280` override. But the *default* Tailwind palette — `gray-50…900`, `red/green/blue/yellow/orange-*` used pervasively in `@apply bg-green-100 text-green-800` status badges and inline classes — is NOT pinned, so v4 emits it in **oklch** (e.g. `--color-gray-200: oklch(92.8% .006 264.531)`, `--color-red-100: oklch(93.6% .032 17.717)`) where v3 emitted sRGB hex. The two are perceptually close but not pixel-identical, and oklch can render more saturated on wide-gamut (P3) displays.
+**Problem:** the C3 Tailwind-4 migration pins every _custom_ design-system token (primary/secondary/accent/neutral/status palettes, fonts, type scale, radius, shadows, animations) to its exact v3 value, plus the WCAG-AA `--color-gray-400: #6b7280` override. But the _default_ Tailwind palette — `gray-50…900`, `red/green/blue/yellow/orange-*` used pervasively in `@apply bg-green-100 text-green-800` status badges and inline classes — is NOT pinned, so v4 emits it in **oklch** (e.g. `--color-gray-200: oklch(92.8% .006 264.531)`, `--color-red-100: oklch(93.6% .032 17.717)`) where v3 emitted sRGB hex. The two are perceptually close but not pixel-identical, and oklch can render more saturated on wide-gamut (P3) displays.
 
 **Effect:** subtle, repo-wide color drift on default-palette shades. Invisible to `vite build` (the CSS compiles either way). This is the single largest appearance-fidelity gap in the migration and is exactly what the still-pending **plan-S7 Playwright screenshot diff** must adjudicate.
 
@@ -4461,7 +4594,7 @@ Severity: LOW. Discovered 2026-06-16 by the C3 post-migration audit (frontend-ex
 
 **Problem:** `libs/farm-shared/src/components/DynamicMeasurementForm.tsx` and `libs/node-components/**` render Tailwind utility classes, but `libs/` was never listed in any v3 `tailwind.config.js` `content` glob and is not in the C3 v4 `@source` set either (the migration faithfully reproduced the v3 globs: shell + modules + shared-ui). Their classes generate only because they coincidentally overlap classes already emitted from scanned source (`bg-gray-*`, `text-gray-*`, etc.).
 
-**Effect:** none today (the overlapping common classes are always present). The latent risk: a lib that introduces a class used *nowhere else* (e.g. an unusual `bg-fuchsia-300`) would silently fail to render. Pre-existing — identical behavior under v3.
+**Effect:** none today (the overlapping common classes are always present). The latent risk: a lib that introduces a class used _nowhere else_ (e.g. an unusual `bg-fuchsia-300`) would silently fail to render. Pre-existing — identical behavior under v3.
 
 **Why not fixed in C3:** C3 is an appearance-preserving migration; adding `libs/` to `@source` would change which classes are emitted vs v3 (scope creep + bundle-size delta), so it is deliberately out of the faithful-migration scope.
 
@@ -4506,7 +4639,8 @@ Status: RESOLVED (2026-06-17; fix branch `fix/shared-contracts-tsconfig-lib-type
 Severity: MEDIUM. Discovered 2026-06-17 (root-causing ORPHAN-MEDIUM-127).
 
 **Problem:** the two type-check gates govern the same file under DIFFERENT tsconfigs, so they can disagree:
-- **Deploy gate** (`release-verification` → `npm run type-check` → `tools/scripts/type-check-all.mjs`) type-checks each project's *canonical* config — `tsconfig.app.json`/`tsconfig.lib.json`/`tsconfig.json`, first match. For a lib whose base `tsconfig.json` does `include: ["src"]` and has NO lib/app variant, that canonical config sweeps `src/__tests__/*.spec.ts` *without* test types.
+
+- **Deploy gate** (`release-verification` → `npm run type-check` → `tools/scripts/type-check-all.mjs`) type-checks each project's _canonical_ config — `tsconfig.app.json`/`tsconfig.lib.json`/`tsconfig.json`, first match. For a lib whose base `tsconfig.json` does `include: ["src"]` and has NO lib/app variant, that canonical config sweeps `src/__tests__/*.spec.ts` _without_ test types.
 - **PR-CI** never sees this: (a) `nx affected -t type-check` SKIPS any project lacking a `type-check` Nx target (shared-contracts' `project.json` has only `test` + `lint` → the canonical config is never type-checked pre-merge), and (b) `scripts/ci/type-check-changed-files.mjs` resolves a changed `.spec.ts` to `tsconfig.spec.json` (jest types present) → passes.
 
 So a production-tsconfig type error in any lib that (1) lacks a `tsconfig.lib.json`/`tsconfig.app.json` AND (2) lacks a `type-check` Nx target reaches `main` green and only fails at the deploy-only gate — fail-closed, but blocking production until hotfixed (exactly [[ORPHAN-MEDIUM-127]]).
@@ -4595,13 +4729,13 @@ Status: IN-PROGRESS (2026-06-24; branch `feat/login-suderra-rebuild`). Registry:
 
 ---
 
-## ORPHAN-MEDIUM-134 — login surface uses raw blue-* utilities + a global `!important` `.backdrop-blur-md input` hack instead of design tokens
+## ORPHAN-MEDIUM-134 — login surface uses raw blue-\* utilities + a global `!important` `.backdrop-blur-md input` hack instead of design tokens
 
 Severity: MEDIUM (design-system integrity / cascade leak). Discovered 2026-06-24 during the Suderra login rebuild.
 
 **Problem:** `LoginPage.tsx` uses 25+ raw `blue-*` Tailwind utilities instead of the `--color-primary-*` SSoT, and `web/shell/src/styles/index.css` (lines ~442-473) force auth field/label/button colors via a global `.backdrop-blur-md input { … !important }` block. The `!important` selector keys off a generic blur utility, so it leaks to ANY `backdrop-blur-md` container app-wide and fights the shared-ui `Input`/`Button` components — exactly the patch-over-architecture pattern the repo forbids.
 
-**Resolution (Suderra login rebuild plan):** a scoped `.surface-glass` component-token block in the design-system SSoT (`theme.css`) + an opt-in `surface="glass"` variant on `Input`/`Button`/`Checkbox`; the page consumes tokens and the `!important` block is deleted. Phase 1 lands the tokens/variants; Phase 3 deletes the hack and removes the raw blue-*.
+**Resolution (Suderra login rebuild plan):** a scoped `.surface-glass` component-token block in the design-system SSoT (`theme.css`) + an opt-in `surface="glass"` variant on `Input`/`Button`/`Checkbox`; the page consumes tokens and the `!important` block is deleted. Phase 1 lands the tokens/variants; Phase 3 deletes the hack and removes the raw blue-\*.
 
 Status: IN-PROGRESS (2026-06-24; branch `feat/login-suderra-rebuild`). Registry: orphan-findings.md only.
 
@@ -4812,6 +4946,7 @@ Status: OPEN (2026-06-23; owner: edge/supply-chain Rust). Registry: orphan-findi
 Severity: HIGH. Discovered 2026-06-24 from a live browser error reported by the operator: `[useAvailableTanks] GraphQLClientError: Unknown argument "siteId" on field "Query.availableTanks"` (HTTP 400), with the symptom "data sometimes loads, sometimes doesn't".
 
 **Problem:** Two farm-service resolvers registered the same root field name `availableTanks`:
+
 - `apps/farm-service/src/batch/resolvers/batch.resolver.ts:192` `listAvailableTanks(siteId, departmentId, excludeFullTanks) → [AvailableTankResponse!]!` — the complete contract the frontend (`web/modules/farm-module/src/hooks/useBatches.ts` `useAvailableTanks` / `AVAILABLE_TANKS_QUERY`) targets, including the capacity/site fields it selects.
 - `apps/farm-service/src/tank/resolvers/tank.resolver.ts:226` `getAvailableTanks(departmentId) → [Tank!]!` — a stale, incomplete duplicate routing to `ListTanksQuery`, with NO `siteId`/`excludeFullTanks`.
 
@@ -4828,6 +4963,7 @@ Status: RESOLVED (2026-06-24; this commit carries `Closes: ...#ORPHAN-HIGH-143`)
 Severity: MEDIUM. Discovered 2026-06-24 while type-checking `tests/invariants` during the ORPHAN-HIGH-143 fix (`tsc --noEmit -p tests/invariants/tsconfig.spec.json`).
 
 **Problem:** The invariant Jest config (`tests/invariants/jest.config.ts`) runs ts-jest with `isolatedModules` (syntactic transpile only, no full type-check, for the <15s `invariants:fast` SLO). A standalone `tsc --noEmit -p tests/invariants/tsconfig.spec.json` (which IS `strict: true`) is currently RED with strict-null violations in pre-existing specs that the Jest run never surfaces:
+
 - `no-boot-time-tenant-schema-ddl.spec.ts:122` (TS2532)
 - `pii-events-mandatory-crypto-shred.spec.ts:125,140,154,164` (TS2322)
 - `rls-predicate-canonical.spec.ts:178,182,186,188` (TS18048/TS2345)
@@ -4846,6 +4982,7 @@ Status: OPEN (2026-06-24; owner: invariants/build). Registry: orphan-findings.md
 Severity: HIGH. Discovered 2026-06-24 from a live operator report: the admin panel (RoleManagementPage, UserManagementPage) failed with HTTP 429 "Too many requests" while ONLY ONE operator was connected — `/api/users/roles/*`, `/api/users/stats`, `/api/users`, `/api/admin/tenants` all 429.
 
 **Problem:** a `request.user` shape contract mismatch between the writer and the reader inside admin-api-service.
+
 - Writer — `apps/admin-api-service/src/guards/platform-admin.guard.ts` set `request.user = { id: payload.sub, ... }` (only `id`, never the canonical `sub`).
 - Reader — the shared `libs/backend-common/src/security/throttler/throttler.guard.ts` (global APP_GUARD in admin-api) reads identity as `request.user?.sub ?? request.user?.userId`:
   - `getThrottleConfig`: `isAuthenticated = !!user.sub || !!user.userId` → **false** → applies `THROTTLE_ANONYMOUS_LIMIT` (20) instead of `THROTTLE_DEFAULT_LIMIT` (100).
@@ -4866,6 +5003,7 @@ Severity: MEDIUM. Discovered 2026-06-24 while root-causing ORPHAN-HIGH-145.
 **Problem:** gateway-api populates `request.user` via the shared `UserContextMiddleware` (canonical `{ sub, tenantId, roles, ... }`), but admin-api-service has NO such middleware (its `AppModule` does not implement `configure()`); identity is attached ad-hoc by `PlatformAdminGuard` in a bespoke `{ id, ... }` shape. Because no SHARED type binds the writer (service guard) to the readers (shared ThrottlerGuard, `@CurrentUser('sub')`), the two silently drifted — undetectable at compile time. ORPHAN-HIGH-145 is one symptom; any other backend-common consumer keying off `sub` would misbehave the same way in admin-api.
 
 **Fix (tier-1 make-it-impossible):** the canonical type already existed — `JwtUser` (`libs/backend-common/src/types/tenant-request.interface.ts`, identity = REQUIRED `sub`), the `user` field of the canonical `TenantRequest`. The drift was that neither side consumed it:
+
 - READER: the shared `ThrottlerGuard` redeclared a private `{ sub?, userId?, tenantId? }` request shape. Rebound it to `TenantRequest` (`user: JwtUser`) and dropped the dead `userId` fallback (no runtime writer ever set `userId` — verified across all services; canonical writers like `verified-user-assertion.middleware` set `sub`). The shared READER now keys off the SSoT's `sub`.
 - WRITER: admin-api's `shared/authenticated-request.ts` `AuthenticatedUser` now `extends JwtUser` (so `sub` is compiler-REQUIRED) + keeps the admin-api-local `id`/`name`. `PlatformAdminGuard` dropped its bespoke local `AdminRequest` and types `request` as the shared `AuthenticatedRequest`, so its `request.user = { ... }` assignment fails type-check if it omits `sub`. A guard that forgets `sub` can no longer compile.
 
@@ -4908,6 +5046,7 @@ Status: RESOLVED (2026-06-24; this commit carries `Closes: ...#ORPHAN-MEDIUM-148
 Severity: LOW (CI/tooling SSoT gap). Discovered 2026-06-24 when the login-rebuild PR's CI `lint` + `type-check` jobs went red.
 
 **Problem (two root causes):**
+
 1. **Lint:** a package-root `vitest.config.ts` is not registered in that package's `tsconfig.node.json` / `tsconfig.eslint.json` the way `vite.config.ts` is, so the eslint typed parser (`parserOptions.project`) cannot find it and emits a FATAL `Parsing error`. The diff-based CI lint flags this for any NEW config.ts; the pre-existing `web/shared-ui/vitest.config.ts` had the same latent fatal but was masked (unchanged → not in the diff). The eslint config-file ignore (`*.config.{js,mjs,cjs}`) does not cover `.ts`.
 2. **Type-check:** the new shared-ui spec files imported `React` while using only JSX. Under the automatic JSX runtime (`jsx: react-jsx`) the import is unused, so the changed-files type-check (`scripts/ci/type-check-changed-files.mjs`, `noUnusedLocals`) failed with `TS6133`. Local `tsc -p tsconfig.json` missed it because that config EXCLUDES specs.
 
@@ -4938,6 +5077,7 @@ Severity: LOW (UX / visual polish). Discovered 2026-06-24 (operator-requested af
 **Problem:** (1) the login surface rendered in the app's auto-detected locale (Turkish by default for this platform), but the entry screen should be **English** for an international product. (2) The aquarium login background looked unfinished — only fish, thin seaweed, and no other marine life.
 
 **Resolution (this commit):**
+
 - English login: `AuthLayout` now wraps the auth surface in a nested `<I18nProvider locale="en">` (split into a `AuthChrome` inner so chrome + forms both read EN), overriding the locale for the auth subtree ONLY — the rest of the app keeps its auto-detected language.
 - Richer, more realistic aquarium (`FishBackground`): rewrote kelp (multi-frond, depth-graded blades + float) and seaweed (branching fronds), added eelgrass (`SeaGrass`) clumps; added floor fauna (`StarFish`, `Crab`); added a drifting/pulsing `Jellyfish` ambient layer and rising `bubbles` (all CSS, added to the `prefers-reduced-motion` opt-out + the FishBackground rAF guard).
 - New swimmers: `Shrimp` (aquaculture species) and `BluefinTuna` — the bluefin is drawn to a higher standard (crescent caudal, yellow finlets, sickle pectoral) and given a MUCH faster speed trait (2.45 vs ≤1.12) with a stiff low-wobble body, per operator request.
@@ -5021,7 +5161,7 @@ Status: RESOLVED (2026-06-25; cookie-encoding SSoT + canonical-decode). Registry
 
 Severity: HIGH (cross-tenant data exposure). Found while validating the tenant-context stabilization plan against the code.
 
-**Root cause:** `apps/auth-service/src/modules/tenant/services/tenant-admin.service.ts:getTableData` treated ONLY the snake_case `tenant_id` column as the tenant filter (`hasTenantId = columns.includes('tenant_id')`). A table reachable via an allowed *module/shared* schema whose tenant column is the camelCase quoted `"tenantId"` (the TypeORM default for many entities) — or that has no tenant column at all — was read with NO `WHERE` clause, returning EVERY tenant's rows to one tenant-admin.
+**Root cause:** `apps/auth-service/src/modules/tenant/services/tenant-admin.service.ts:getTableData` treated ONLY the snake_case `tenant_id` column as the tenant filter (`hasTenantId = columns.includes('tenant_id')`). A table reachable via an allowed _module/shared_ schema whose tenant column is the camelCase quoted `"tenantId"` (the TypeORM default for many entities) — or that has no tenant column at all — was read with NO `WHERE` clause, returning EVERY tenant's rows to one tenant-admin.
 
 **Fix (this commit):** detect the tenant column under both names (`tenant_id` | `tenantId`, hard-coded literals so interpolation stays injection-safe); the tenant's DEDICATED `tenant_<uuid>` schema is itself the isolation boundary (no row filter needed); every other (shared module) schema MUST be tenant-filtered and **FAILS CLOSED** (`ForbiddenException`) when no tenant column exists, rather than returning another tenant's data. Unit tests cover camelCase-filtered / snake-filtered / fail-closed / dedicated-schema-unfiltered.
 
@@ -5043,7 +5183,7 @@ Status: RESOLVED (2026-06-25). Registry: orphan-findings.md only.
 
 ## ORPHAN-HIGH-164 - FE tenant-scoped pages/hooks fire GraphQL before the tenant context is ready
 
-Severity: HIGH (intermittent empty/401 on tenant-scoped pages). Found validating the tenant-context stabilization plan; contributes to the operator's "data comes and goes" on /sites and /sensor/*.
+Severity: HIGH (intermittent empty/401 on tenant-scoped pages). Found validating the tenant-context stabilization plan; contributes to the operator's "data comes and goes" on /sites and /sensor/\*.
 
 **Root cause:** several tenant-scoped surfaces issue their GraphQL load from a bare mount `useEffect` with NO auth-readiness guard, so they fire BEFORE `token`/`tenantId` resolve — racing the auth lifecycle (401/empty) and querying with a null tenant. The correct pattern (e.g. `web/modules/sensor-module/src/hooks/useEdgeDevices.ts`) gates on `enabled: !!token`. Offenders: `web/modules/farm-module/src/pages/MapViewPage.tsx` (the /sites/map view), and `web/modules/sensor-module/src/hooks/{useSensorList,useScadaPackage(useScadaPackages+useScadaPackageById),useProcess(useActiveProcesses+useProcessById)}.ts`.
 
@@ -5062,6 +5202,7 @@ Severity: HIGH (weaker-than-necessary tenant trust boundary). Found validating t
 **Root cause:** only `farm` + `config` mounted `VerifiedUserAssertionMiddleware`; the other seven tenant-scoped subgraphs (`sensor`, `billing`, `hr`, `hydroponics`, `alert-engine`, `messaging`, `ai`) resolved `req.user`/`req.tenantId` from the legacy path (raw JWT via the auth guard + a separately-trusted `x-tenant-id` header) rather than the gateway-signed `x-verified-user-assertion`, which binds the user AND the effective tenant into one HMAC-signed blob. Functionally they worked, but the surface was larger than the SSoT design (SEC-HIGH-156). The shared middleware also carried farm-specific names/messages (`FarmVerifiedIdentity`, "Farm request requires service identity") despite living in `backend-common`.
 
 **Fix (this commit):**
+
 - Mounted `VerifiedUserAssertionMiddleware` on all seven, after `StripInternalHeadersMiddleware` (which sets `req.verifiedIdentity`) and before `UserContextMiddleware`. `sensor` and `billing` use a 3-way split so the middleware is `.exclude()`d from their non-gateway public routes — sensor `/mqtt/*` (Mosquitto go-auth) and billing `/api/v1/webhooks/*` (Stripe) — which carry no gateway service identity and would otherwise 500 (both prefixed + prefix-stripped forms excluded, fail-safe). The other five take a simple insert.
 - Genericized the shared contract: `FarmVerifiedIdentity` → `VerifiedUserAssertion`; "Farm request…" / "gateway farm requests" → neutral "Subgraph request…" / "gateway subgraph requests".
 - New invariant `tests/invariants/verified-user-assertion-mounted.spec.ts` enforces the mount + order on all nine subgraphs so it cannot regress.
@@ -5092,12 +5233,13 @@ Status: RESOLVED for C1 + point-5 (2026-06-25); switchTenant retirement tracked.
 **Discovered:** 2026-06-25, during SSOT-C-13 plan-limit SSoT collapse (ADR-037)
 **Note:** renumbered from a transient 160 (merge-train NNN collision with ORPHAN-HIGH-160).
 **Files:**
+
 - `apps/gateway-api/src/middleware/tenant-context.middleware.ts` (`PLAN_FEATURES`)
 - `apps/gateway-api/src/services/tenant-lookup.service.ts` (`PLAN_FEATURES`, byte-identical copy)
 
-**Problem:** While collapsing the FIVE per-plan *limit* catalogs into the canonical
+**Problem:** While collapsing the FIVE per-plan _limit_ catalogs into the canonical
 `PLAN_CATALOG` SSoT (ADR-037, `libs/event-contracts/src/billing/plan-catalog.ts`),
-a sibling drift remains: per-plan *feature* booleans (`TenantFeatures`:
+a sibling drift remains: per-plan _feature_ booleans (`TenantFeatures`:
 `advancedAnalytics`, `alertEngine`, `iotIntegration`, `apiAccess`, `customReports`,
 `multiSite`, `whiteLabeling`, `ssoEnabled`) are still hand-copied across the gateway
 middleware and tenant-lookup service. Same hand-copied-catalog anti-pattern, one layer
@@ -5307,6 +5449,7 @@ Status: RESOLVED (2026-06-26; both farm caches now evicted + guarded). Registry:
 Severity: LOW (FE GraphQL contract correctness — each drifted op 400s/partially-fails at the gateway). First slice of task #3 (burn down the 130-op `scripts/ci/graphql-fe-drift.baseline.json` per module; audit `docs/reviews/2026-06-24-graphql-fe-be-contract-drift-audit.md`).
 
 **Fixed (FE over-selected fields the schema doesn't have → corrected; baseline 130 → 127):**
+
 - `GetBatchFeedAssignment` (`useBatchFeedAssignments.ts`): removed `version` (not on `BatchFeedAssignmentResponse`) + the dead interface field. No reader.
 - `CloseBatch` (`useBatches.ts`): removed `closedAt` (not on `Batch`); only reader was mock report data.
 - `UpdateBatch` (`useBatches.ts`, SELECTION-SHAPE): flattened `fcr { target actual }` → `fcr` — `fcr` is a `JSON!` scalar, so sub-selection is invalid; the runtime value is unchanged (the FE's `batch.fcr?.target/.actual` JSON-object access still works). farm-module `tsc` clean.
@@ -5314,6 +5457,7 @@ Severity: LOW (FE GraphQL contract correctness — each drifted op 400s/partiall
 **Tracked, NOT a simple removal (2 remain in baseline) — backend gap, not FE over-reach:** `ListSubEquipmentByParent` (`useSubEquipment.ts`) + `GetSubEquipmentByParent` (`useTankFeeders.ts`) query `category` on `SubEquipmentTypeResponse` and pass it as a `subEquipmentByParent` arg, but the backend DTO (`apps/farm-service/src/equipment/dto/sub-equipment.response.ts`) has no `category` (only id/name/code/compatibleEquipmentTypeCodes). The FE legitimately needs it — `useTankFeeders.ts:68` filters feeders by `subEquipmentType.category === 'feeder'`. Correct fix is a BACKEND decision: expose `category` (or `isFeeder`) on `SubEquipmentTypeResponse` + the resolver arg, OR derive feeder-ness from `code`. Deferred to a backend slice; left baselined so it stays tracked + shrinking.
 
 **Slice 2 — mcp/farm-management (all 13 fixed; baseline 127 → 114):** the MCP server's hand-written queries selected renamed/removed schema fields. Fixed query + every TS consumer, verified against `apps/farm-service/schema.graphql`, `tsc` clean:
+
 - `batches.ts` (GetBatch/ListBatches): `species`→`speciesId`, `initialAvgWeightG`→`currentAvgWeightG`, `targetFCR`→removed, `tankAllocations{tank{…}}`→`locations{tankId…}` (BatchLocation has no nested tank — consumer joins tankId→name via the fetched tank list).
 - `health.ts` (HealthEvents/HealthEventsByBatch/CriticalHealthEvents): `startDate`/`endDate`→`eventDate`, `affectedCount`/`mortalityCount`/`hasMore`→removed (consumers degrade gracefully).
 - `maintenance.ts` + `tasks.ts` (WorkOrder): `workOrderType`→`type` (audit's `workOrderCode` was semantically WRONG — type≠code; the MCP's separate `code` field maps to the real `workOrderCode`); `siteId`→`assetId`; `assigneeId`→`assignedTo`; `scheduledStartDate`→`plannedStartDate`; `completedDate`→`completedAt`; `estimatedDurationHours`→`estimatedDurationMinutes` + `actualDurationHours`→`actualDurationMinutes` (UNIT change — metric relabeled minutes, NOT shown as hours); `departmentId`/`startedAt`/`actualCost`→removed.
@@ -5322,6 +5466,7 @@ Severity: LOW (FE GraphQL contract correctness — each drifted op 400s/partiall
 **Follow-up (NOT a gate-drift — runtime input bug, filed for a later slice):** the MCP `HealthEventFilter`/feeding/wq/growth filter interfaces use `startDate`/`endDate` keys but the schema's `*FilterInput` use `fromDate`/`toDate` (`detect-anomalies.ts:344-359`). The static op-validation gate does not catch variable VALUES, so it isn't in the baseline, but the gateway would 400 on the input at runtime. Owner: mcp/farm. Tracked here.
 
 **Slice 3 — sensor-module (33 of 35 fixed; baseline 114 → 81):** verified against the sensor backend DTOs/entities (`apps/sensor-service/src/**`). Key SSoT discovery: the `sensor(id)` query composes to entity `Sensor` (has `protocolId`/`protocol`, `connectionStatus` as JSON, `status`, `lastCalibratedAt`) while `sensors` composes to `RegisteredSensorType` (has `protocolCode`, `connectionStatus` as an ObjectType, NO `status`) — the field-map is consistent with that split.
+
 - VFD: `VfdCommandResult` drop `command`/`executionTimeMs` (7 ops); `VfdReading`/brands/protocols/readings JSON scalars → bare (delete sub-selections); `VfdReadResultDto` drop `id`/`quality`; `VfdFilterInput`→`VfdDeviceFilterInput`; drop `latestReading`.
 - Sensor registration: drop `status` from `RegisteredSensorType` (5 ops); `protocolCode`→`protocolId`; `SensorFilter`→`SensorFilterInput`, `Pagination`→`SensorPaginationInput`; `byType`/`byProtocol` JSON → bare.
 - Channels (RENAMES, not gaps): `createSensorDataChannel`→`createDataChannel` (+ `CreateDataChannelInput`), update/delete likewise.
@@ -5331,6 +5476,7 @@ Severity: LOW (FE GraphQL contract correctness — each drifted op 400s/partiall
 **Slice 4 — tenant-admin + aquamobil clean ops (4; baseline 81 → 77):** `EdgeDevice` (×2: device-queries.ts + useDevicePolling.ts) drop `unit` (not on `DeviceIoConfig`); aquamobil `EditMessage`/`DeleteMessage` var `$id: String!` → `ID!` (the mutation arg is `ID!`). tenant-admin + aquamobil `tsc` 0.
 
 **Assessment — the clean FE-fix phase is largely exhausted.** Slices 1-4 burned the easy MISSING-FIELD/SELECTION-SHAPE/clean-rename drifts (53 ops). The remaining 77 are predominantly NOT FE-only fixes:
+
 - **hr-module (60):** mostly MISSING-ROOT-OP — `workArea`/`workRotation`/`leaveType`/`updateShift`/`startTraining` ops the schema does not expose → a BACKEND feature decision (implement the ops or remove the FE features), not a rename.
 - **tenant-admin (8):** `communication-queries.ts` uses an entire THREAD-based messaging API (`myThreads`/`thread`/`threadMessages`/`createThread`/`closeThread`/`Message.threadId`/`ThreadStatus`/`CreateThreadInput`) that the schema does not have — the schema is message-based (`messages`/`searchMessages`). Needs rework to the real API OR removal if the feature is dead. + `MyTenantModules` `module { … }`→`moduleId` (consumer needs module details the type lacks).
 - **aquamobil (3):** `aiConsentStatus`→`myConsentStatus`?, `toggleAiConsent`→`withdrawConsent`? (toggle≠withdraw), `stockAtLocation`→`storageLocation`? — semantic renames needing per-op verification.
@@ -5355,6 +5501,7 @@ Status: RESOLVED (2026-06-26) — 8 ops fixed, baseline 77 → 69. Cumulative #3
 ---
 
 ## ORPHAN-MEDIUM-183 — billing-scheduler monthly-invoice totals not rounded to 2dp (33.333 instead of 33.33)
+
 3 pre-existing RED tests in `apps/billing-service/src/billing/__tests__/billing-scheduler.service.spec.ts` (`should round invoice totals to 2 decimal places`, `should multiply base price by cycle months for non-monthly billing`, `should generate an invoice for ACTIVE subscription with expired period`): `generateMonthlyInvoices` produces `total/subtotal/amountDue` as the unrounded string `"33.333"` where the test expects the rounded number `33.33`. Verified pre-existing on HEAD (fail under `git stash`, independent of ORPHAN-174). Likely a Money/decimal-rounding gap in the monthly-invoice path (decimal column read back as string + no `.toFixed(2)`/`Money.round`). Owner: billing. Status: OPEN. Found 2026-06-26 while fixing ORPHAN-174. Why: invoices billed to a financial schema must be exact to the cent; an unrounded total is a revenue-accuracy + reconciliation defect. How to fix: route the monthly-invoice total through the canonical `Money` rounding (as the immediate path does) and assert numeric (not string) equality.
 
 ---
@@ -5370,12 +5517,14 @@ Severity: MEDIUM (60 hr FE ops 400 at the gateway — hr feature areas partly no
 **DECISION — IMPLEMENT-BACKEND (legit HR features built ahead of the backend; a prioritized roadmap, NOT a blind 40-op sprint):** `UpdateShift` is the quick win — `UpdateShiftInput` DTO already exists (`attendance/dto/create-shift.input.ts:122`), only the `@Mutation updateShift` resolver is missing (~15 LoC) + it's UI-wired (SchedulingSettingsPage). The rest are coherent domain features, mostly unwired today: leave-admin (`CreateLeaveType`/`UpdateLeaveType`/`AdjustLeaveBalance`/`WithdrawLeaveRequest`/`CarryOverLeaveBalances` — routes exist as PlaceholderPages), certification/training-admin (type CRUD, training lifecycle, compliance analytics), performance analytics (`GetTeamPerformanceOverview`/`GetDepartmentKPIs`/`GetReviewCycleStatus`/`BulkCreateReviews`), rotations analytics (occupancy/calendar/upcoming/changeovers), and detail-by-id queries (`GetWorkArea`/`GetWorkRotation`/`GetShift`/`GetCertificationType`/`GetTrainingCourse` — thin singular resolvers). Each needs backend design+tests; track as hr-backend feature-debt and implement by product priority. UpdateShift recommended first.
 
 **EXECUTED (slices 7-8, this PR):**
+
 - **REMOVE-FE (16 dead ops; baseline 64 → 48):** deleted the superseded `Schedule`/`ScheduleEntry` set (8), the dead `GetOffshoreHeadcount`/`GetSeaLandSplit` exports (2; the live client-aggregation hooks preserved), `BulkCreateRotations` (1), and the unwired shape-incompatible safety-training cluster (5) — plus their orphaned hooks/types. 461 LoC removed; hr-module `tsc` + eslint clean.
 - **IMPLEMENT-BACKEND `updateShift` (baseline 48 → 47):** added `UpdateShiftCommand` + `UpdateShiftHandler` + the `@Mutation updateShift(input: UpdateShiftInput!)` resolver (guards/audit mirror `createShift`), registered the handler, exported `parseTimeString` as the shared HH:mm SSoT. Tenant-scoped via `tenantManagerRepo` + transactional QueryRunner like create; recomputes `totalMinutes` on time change; `NotFoundException` cross-tenant. 6/6 handler tests pass; hr-service `tsc` + eslint clean. FE was already correctly wired.
 
 Status: RESOLVED for slices 6-8 — 5 renames + 16 dead removed + `updateShift` implemented = **hr 69 → 47** (22 ops). Cumulative #3 burndown: **130 → 47 (83 ops)**. Tracked: 38 hr IMPLEMENT-BACKEND features remain (roadmap — leave/cert/training/performance/rotations analytics + detail-by-id; backend feature-debt by product priority). Registry: orphan-findings.md + graphql-fe-drift.baseline.json.
 
-## ORPHAN-MEDIUM-185 — auth/gateway/sensor metrics served from bespoke @Controller('metrics') miss default http_/nodejs_ series (089-siblings)
+## ORPHAN-MEDIUM-185 — auth/gateway/sensor metrics served from bespoke @Controller('metrics') miss default http*/nodejs* series (089-siblings)
+
 Found 2026-06-26 while fixing ORPHAN-089 for messaging. Same defect class: `apps/auth-service/src/metrics/metrics.controller.ts`, `apps/gateway-api/src/metrics/metrics.controller.ts`, and `apps/sensor-service/src/metrics/metrics.controller.ts` each expose `@Controller('metrics')` over a private prom-client Registry and do NOT import the platform `ServiceMetricsModule`, so their `/metrics` scrape omits the default `http_request_duration_seconds` + `nodejs_*` runtime series (verified: these three are absent from the ServiceMetricsModule-importer list). observability-service's `prometheus.controller.ts` is the legitimate aggregator — exempt. Fix (mirror messaging ORPHAN-089 / farm OBS-HIGH-001): add a `contributeTo(serviceMetrics)` to each service's domain metrics service, import `ServiceMetricsModule`, delete the bespoke controller, and plug the domain registry in `onModuleInit`. Ratchet `tests/invariants/metrics-service-module-ratchet.spec.ts` caps bespoke controllers at 4 and drops as each migrates. Owner: observability/platform. Status: OPEN.
 
 ---
@@ -5385,12 +5534,14 @@ Found 2026-06-26 while fixing ORPHAN-089 for messaging. Same defect class: `apps
 Final slice of the #3 burndown — the 9 hardest "flagged tail" drifts (mixed renames / consumer reworks / dead code / backend gaps). Each was verified against the real backend resolver/DTO SSoT before acting. 4 modules `tsc` 0 (sensor-module, tenant-admin, farm-module, admin-panel); dead-contract ratchet spec green.
 
 **RESOLVED — 5 ops removed from the drift baseline (47 → 42):**
+
 - **`GetSensorChannels`** (sensor) — RENAME: `Sensor.dataChannels` (no such field) → root `dataChannelsBySensor(sensorId: ID!) → [DataChannelType]`; mapped fields (`operationalMin/Max`→`minValue/maxValue`, dropped non-existent `unitSymbol`→`unit`, `alertThresholds`/`displaySettings` scalar→structured subfields); consumer `ChannelManagerPanel.tsx` updated.
 - **`MyTenantModules`** (tenant-admin) — REWORK: `TenantModule` exposes scalar `moduleId`, not a nested `module {…}` relation (no `@Field`, and the selection also referenced a non-existent `category`). No component read `.module.*` (catalog details come from the separate `myModules` query). Dropped the nested selection + the dead `Module` type + its re-exports.
 - **`ListSubEquipmentByParent`** + **`GetSubEquipmentByParent`** (farm) — REWORK: `SubEquipmentTypeResponse` has no `category` (absent at entity/DTO/schema); `subEquipmentByParent` has no `category` arg. Dropped the `category` selection + the undeclared `$category` arg. Fixed **two latent bugs**: a stray `enabled: !!tenantId` literal inside the GraphQL variables object (syntax), and an always-true filter clause (`!se.subEquipmentType?.category`) that had degenerated `useTankFeeders` into returning ALL sub-equipment instead of feeders — feeder narrowing now matches on `subEquipmentType.name`/`name` containing "feeder".
 - **`AdminBulkCreateThreads`** (admin-panel) — REMOVE-FE (dead code): no `bulkCreateThreads` mutation / `BulkCreateThreadsInput` exists in auth-service messaging (only single `createSupportThread`); the `useBulkCreateThreads` hook had zero consumers. Deleted the op const + dead hook + dead input interface + import. Not in the dead-contract baseline (the const was hook-referenced); removal leaves no orphan.
 
 **GAP — 4 ops kept baselined (genuine backend/product decisions, NOT FE-fixable):**
+
 - **`CancelVfdChangeSet`** (sensor) — IMPLEMENT-BACKEND. "Cancel" ≠ "reject": the FE Cancel button is on DRAFT + APPROVED changesets, while `rejectVfdChangeSet` asserts `PENDING_APPROVAL`. Backend has no `cancelVfdChangeSet` + no `CANCELLED` status (the FE enum has it). Wired to a live page. Recommend implementing `cancelVfdChangeSet` + a `CANCELLED` state (DRAFT/APPROVED→CANCELLED) on sensor-service.
 - **`GetAiConsentStatus` + `ToggleAiConsent`** (aquamobil) — PRODUCT-DECISION. The GDPR consent API (`user-consent.resolver`) has a fixed `ConsentType` enum with no AI type + no tenant `isAiEnabled` concept; the hook needs both. Shapes incompatible; the hook self-documents this + fails closed. Wired to a live "AI Analysis" toggle. Recommend: add an `AI_ANALYSIS` ConsentType + tenant-AI flag + dedicated resolver, OR remove the mobile AI-consent surface.
 - **`StockAtLocation`** (aquamobil) — REWORK-CANDIDATE. No `stockAtLocation(locationId)`; the real inventory query is `farmStockInventory(filter) → FarmStockInventoryConnection`. Re-pointing requires a connection reshape (`items`→`nodes`), a filter-arg mapping, field-parity verification, and adapting the page's offline-cache logic — not a clean rename. Live page (`/operations/stock`). Recommend a dedicated rework PR.
@@ -5408,6 +5559,7 @@ Status: RESOLVED for slice 9 — 5 resolved (4 fixed + 1 dead-removed), baseline
 **Severity:** HIGH
 **Discovered:** 2026-06-26, user-reported runtime bug ("data loads then vanishes, data that isn't mine appears" on the tenant panel; data verified present in the database)
 **Files:**
+
 - `apps/hr-service/src/app.module.ts`, `apps/sensor-service/src/app.module.ts`, `apps/hydroponics-service/src/app.module.ts`, `apps/messaging-service/src/app.module.ts`, `apps/ai-service/src/app.module.ts`, `apps/alert-engine/src/app.module.ts`
 - `libs/backend-common/src/middleware/tenant-schema.middleware.ts:92`
 - `libs/backend-common/src/database/tenant-connection-bootstrap.service.ts:116-154`
@@ -5431,6 +5583,7 @@ Status: RESOLVED for slice 9 — 5 resolved (4 fixed + 1 dead-removed), baseline
 **Severity:** MEDIUM
 **Discovered:** 2026-06-26, while answering "yeni oluşturulan tenant'larda da aynı problem olmamalı" (new tenants must not have the same problem) — extends ORPHAN-HIGH-329.
 **Files:**
+
 - `libs/backend-common/src/middleware/tenant-schema.middleware.ts`
 - `libs/backend-common/src/database/schema-lru-cache.ts`
 - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts` (publishes `TenantProvisioned`)
@@ -5442,34 +5595,39 @@ Status: RESOLVED for slice 9 — 5 resolved (4 fixed + 1 dead-removed), baseline
 **Reproducibility:** Issue a tenant-scoped request carrying tenant X's id while X is still provisioning (schema not yet created), then create the schema; subsequent requests for X within 30s still receive "Tenant not provisioned" until the negative TTL expires.
 
 **Fix (RESOLVED 2026-06-26):** Root-cause, make-it-automatic — NOT a TTL tweak. Extracted the schema-existence cache into an injectable app-singleton `TenantSchemaCacheService`; `createTenantSchemaMiddleware` now resolves it via DI instead of constructing a private `new SchemaLRUCache`. A new `TenantSchemaCacheInvalidationSubscriber` (in `TenantSchemaCacheModule`) subscribes to `TenantProvisioned` and invalidates the `tenant_<uuid>` entry on the SAME shared instance, so a freshly provisioned tenant's stale negative entry is cleared the instant provisioning completes. All seven tenant-scoped services (farm, sensor, hr, hydroponics, messaging, ai, alert) import the module once; invariant `tests/invariants/tenant-schema-cache-module-registered.spec.ts` enforces the wiring (and catches the runtime-DI coupling statically). End-to-end behavior proven by `libs/backend-common/src/database/tenant-schema-cache/tenant-schema-cache-invalidation.subscriber.spec.ts`. Status: RESOLVED.
+
 ## ORPHAN-HIGH-187 - production deploy systemically rolled back (2 critical services miss the 300s health SLA) — dual root cause + SSoT fix
 
 Severity: HIGH (every main deploy since ~#660 failed `deploy-production/deploy` with "2 critical service(s) failed to reach healthy within 300s SLA → rollback"; production kept serving only via per-service rollback to stale images — backend pinned at #664, **billing pinned at #628**, so NO recent code reached prod). Diagnosed via a 9-agent workflow (parallel investigate → synthesize → 3-lens adversarial verify); the adversarial pass corrected the initial design's blind-spots (image-bake gap, a 2nd SLA literal, a fabricated secret-mount, /health/ready coverage) BEFORE implementation.
 
-> **RUNTIME CORRECTION (2026-06-27, after live verification — the static analysis below was partly wrong).** `docker inspect aqua-billing` + `docker logs` on the droplet PROVE billing does **NOT** boot-crash: its env has `NODE_ENV=production` + `STRIPE_API_KEY` + **NO `STRIPE_SECRET_KEY`**, yet the log says "Nest application successfully started" — so the Stripe factory does NOT throw at boot (the provider is lazily resolved, not eager). Both the workflow AND the adversarial review reasoned from CODE and wrongly called billing "the dominant deterministic boot crash"; the running system refutes it. Consequences for this finding: (1) the **dominant active cause is NOT billing** — it is the **GATEWAY composition-blocks-liveness fragility** (cause #2 below: `/health/live` waits for all-or-nothing live supergraph composition → race-prone under deploy load; deploys went green or red by *winning/losing that race* — #666 won at f6437a6bb and the droplet is currently 29/29 healthy on it). (2) The billing change (A) is therefore **latent-bug + hardening, NOT an active-crash fix**: the env-name mismatch is a real repo bug (the factory reads `STRIPE_SECRET_KEY`, compose injects `STRIPE_API_KEY`, so Stripe can never be enabled via compose) and the flag makes the no-Stripe state explicit + crash-proof against the theoretical throw — but billing was already booting fine (Stripe effectively disabled). No deploy was ever pinned by a billing crash; the stale-image observation was the gateway race, not billing. The load-bearing fix is **B (gateway liveness ≠ composition)**; A/C/D are correct hardening/hygiene. Severity effectively MEDIUM (intermittent race + latent bugs), not HIGH-deterministic.
+> **RUNTIME CORRECTION (2026-06-27, after live verification — the static analysis below was partly wrong).** `docker inspect aqua-billing` + `docker logs` on the droplet PROVE billing does **NOT** boot-crash: its env has `NODE_ENV=production` + `STRIPE_API_KEY` + **NO `STRIPE_SECRET_KEY`**, yet the log says "Nest application successfully started" — so the Stripe factory does NOT throw at boot (the provider is lazily resolved, not eager). Both the workflow AND the adversarial review reasoned from CODE and wrongly called billing "the dominant deterministic boot crash"; the running system refutes it. Consequences for this finding: (1) the **dominant active cause is NOT billing** — it is the **GATEWAY composition-blocks-liveness fragility** (cause #2 below: `/health/live` waits for all-or-nothing live supergraph composition → race-prone under deploy load; deploys went green or red by _winning/losing that race_ — #666 won at f6437a6bb and the droplet is currently 29/29 healthy on it). (2) The billing change (A) is therefore **latent-bug + hardening, NOT an active-crash fix**: the env-name mismatch is a real repo bug (the factory reads `STRIPE_SECRET_KEY`, compose injects `STRIPE_API_KEY`, so Stripe can never be enabled via compose) and the flag makes the no-Stripe state explicit + crash-proof against the theoretical throw — but billing was already booting fine (Stripe effectively disabled). No deploy was ever pinned by a billing crash; the stale-image observation was the gateway race, not billing. The load-bearing fix is **B (gateway liveness ≠ composition)**; A/C/D are correct hardening/hygiene. Severity effectively MEDIUM (intermittent race + latent bugs), not HIGH-deterministic.
 
 **Root cause = TWO independent defects that reinforce each other (NOT a too-tight SLA):**
-1. **BILLING env-name mismatch (latent bug — claimed "dominant boot crash" but RUNTIME-REFUTED, see correction above):** `libs/backend-common/src/billing/stripe-client.factory.ts` *would* throw at module init in prod on a missing `STRIPE_SECRET_KEY`, and `docker-compose.droplet.yml` injects `STRIPE_API_KEY` (wrong name) + Helm too — a real hand-copied env-name SSoT fracture (Stripe can never be enabled via compose). BUT the live container boots fine ("Nest application successfully started" with no key), so the factory is NOT eagerly resolved → no boot crash. This is a latent bug (Stripe is effectively unconfigurable), not the deploy-breaker. The 2026-04-14 "graceful-boot" vs #640 "fail-closed" contract collision is real and worth reconciling regardless.
+
+1. **BILLING env-name mismatch (latent bug — claimed "dominant boot crash" but RUNTIME-REFUTED, see correction above):** `libs/backend-common/src/billing/stripe-client.factory.ts` _would_ throw at module init in prod on a missing `STRIPE_SECRET_KEY`, and `docker-compose.droplet.yml` injects `STRIPE_API_KEY` (wrong name) + Helm too — a real hand-copied env-name SSoT fracture (Stripe can never be enabled via compose). BUT the live container boots fine ("Nest application successfully started" with no key), so the factory is NOT eagerly resolved → no boot crash. This is a latent bug (Stripe is effectively unconfigurable), not the deploy-breaker. The 2026-04-14 "graceful-boot" vs #640 "fail-closed" contract collision is real and worth reconciling regardless.
 2. **GATEWAY liveness conflated with composition (secondary, cascades from #1):** `/health/live` only answered after `NestFactory.create()`, which was blocked by `RetryableIntrospectAndCompose` composing all ~11 subgraphs all-or-nothing from the live network (≈83-94s budget). Because composition includes billing, and billing crash-looped, the gateway could never compose → never healthy. Even absent #1, simultaneous cold-boot on the 7GB box raced the window.
 3. **Enabler (why it stayed invisible):** the physical invariant `start_period ≤ readiness SLA` was unenforced — the 300s SLA was a Potemkin literal in TWO spots (`generate-artifacts.ts` emitter + `check-service-health.ts` `?? 300` consumer fallback) and per-service `start_period`s were hand-typed, none linked to the catalog.
 
 **Architectural SSoT fix (4 axes, no patch/silencing/duplicate — blind 300s bump, healthcheck-loosening, criticality-demotion, and a defensive try/catch around the fail-closed throw were all explicitly rejected):**
+
 - **A. Stripe env-name + contract SSoT:** ONE canonical secret name `STRIPE_SECRET_KEY` everywhere (factory + `PLATFORM_SECRET_ENV_VARS` + compose + Helm); ONE intent flag `STRIPE_BILLING_ENABLED` (default false) reconciles both contracts — off→billing BOOTS with a disabled client that fails closed at REQUEST time (`StripeNotConfiguredError`), on+key→real client, on+no-key→boot fails closed (#640 honoured). Factory + spec (5/5) + compose + Helm updated.
 - **B. Gateway liveness ≠ composition:** `BackgroundCompositionManager` returns a real (composed-via `@apollo/composition`) placeholder supergraph immediately so the listener + `/health/live` bind in <1s, then runs the unchanged `RetryableIntrospectAndCompose` in the BACKGROUND and hot-swaps via Apollo's `update()`. `/health/ready` extended to verify composition + auth + all-subgraph reachability (was auth-only — the deploy already sweeps `/health/ready`). compose gateway `start_period` 120s→30s. NOT the static-SDL migration (review: artifact not baked into the image + separate Apollo-Router ADR). gateway suite 969/969.
 - **C. Startup-timing SSoT:** added `startupBudgetSeconds` to the service-catalog (the proven criticality-SSoT pattern); `readiness_sla_seconds` now DERIVED = `max(critical startupBudgetSeconds)+180` (lands at 300, catalog-driven) — both literals collapsed (the `?? 300` consumer fallback now fails loud); new invariant `tests/invariants/deploy-startup-budget-ssot.spec.ts` asserts every critical service's compose `start_period` ≤ the derived SLA (detectable drift). compose start_period codegen-emission left as a guarded follow-up (the invariant is the current guard).
 - **D. Disk preflight:** `FULL_WARN_FREE_GIB` 50→45 (the cosmetic warn fired every deploy on a healthy box; non-blocking).
 
-Verification: billing + gateway + service-catalog `tsc` 0; billing factory 5/5; gateway 969/969; registry/catalog invariant shard green incl. the new one. Regenerated provenance artifacts (apollo-router/* + deploy/* + federated-subgraphs.generated.ts) are mechanical hash re-pins (no topology/functional change).
+Verification: billing + gateway + service-catalog `tsc` 0; billing factory 5/5; gateway 969/969; registry/catalog invariant shard green incl. the new one. Regenerated provenance artifacts (apollo-router/_ + deploy/_ + federated-subgraphs.generated.ts) are mechanical hash re-pins (no topology/functional change).
 
 Status: RESOLVED (2026-06-27) — fix implemented + locally verified; greens the deploy by fixing the two real causes and makes the failure class detectable (timing invariant) + impossible-to-misname (Stripe SSoT). Pending merge + live deploy-verify. Registry: orphan-findings.md.
 
 ---
 
 ## ORPHAN-MEDIUM-188 — frontend amplifies a gateway 502 into data-blanking + reconnect storms
+
 Found 2026-06-27 during the app.suderra.com outage (gateway 502 from the billing-boot/STRIPE_SECRET_KEY drift; backend restore tracked separately as ORPHAN-HIGH-187 / PR #672). The frontend turns a transient/total gateway 502 into "data loads, then disappears, then errors": (1) `web/shared-ui/src/utils/api-client.ts` GraphQL request called `response.json()` with NO status check, so a 502 HTML body threw a bare SyntaxError that callers couldn't classify → react-query marked the query failed → cached UI blanked; (2) two sockets used `reconnectionAttempts: Infinity` (`web/apps/aquamobil/.../useMessageSocket.ts`, `web/modules/sensor-module/.../ScadaSocketService.ts`) → an outage was stormed forever against the dead upstream. **Status: RESOLVED (2026-06-27 — api-client now short-circuits a 5xx to a TYPED GraphQLClientError (BACKEND_UNAVAILABLE) before parsing, so callers keep cached data; both sockets bounded Infinity→20. shared-ui/aquamobil/sensor-module tsc clean; api-client spec 59/59 incl. a new 502→typed-error test).** Follow-up (not in this fix): a shared circuit-breaker/health gate to pause refetchOnWindowFocus/refetchOnReconnect during a detected outage.
 
 ## ORPHAN-HIGH-189 — deploy gate never tests the real public /graphql path (let the outage ship)
-Found 2026-06-27 during the app.suderra.com outage. The deploy verification (`scripts/deploy/post-deploy-verify.sh`) only ran `docker exec aqua-gateway curl http://localhost:3000/health/live` + `/health/ready` — INSIDE the container, bypassing nginx, and never POSTing a GraphQL query. So a deploy could promote (and did) while `nginx → gateway-api:3000` returned 502 for every real request: `/health/live` passes in-container even when the supergraph never composes (a subgraph like billing down) and the gateway serves no public traffic. **Status: RESOLVED (2026-06-27 — added a real public-path smoke THROUGH nginx in BOTH gates: `droplet-up.sh` runs it pre-promotion (a 502/non-JSON body triggers rollback before `record_release_ledger "promoted"`), and `post-deploy-verify.sh` runs it in the CI post-deploy workflow. The smoke does `POST {Host: app.suderra.com}/graphql {__typename}` and asserts HTTP 200 AND a valid GraphQL JSON body (data.__typename), plus a `/socket.io/?EIO=4` handshake. Configurable via PUBLIC_SMOKE_HOST/PUBLIC_SMOKE_ORIGIN. bash -n + 18/18 deploy-ssot invariants green).** This is the make-it-detectable control: this exact outage now fails the deploy instead of promoting.
+
+Found 2026-06-27 during the app.suderra.com outage. The deploy verification (`scripts/deploy/post-deploy-verify.sh`) only ran `docker exec aqua-gateway curl http://localhost:3000/health/live` + `/health/ready` — INSIDE the container, bypassing nginx, and never POSTing a GraphQL query. So a deploy could promote (and did) while `nginx → gateway-api:3000` returned 502 for every real request: `/health/live` passes in-container even when the supergraph never composes (a subgraph like billing down) and the gateway serves no public traffic. **Status: RESOLVED (2026-06-27 — added a real public-path smoke THROUGH nginx in BOTH gates: `droplet-up.sh` runs it pre-promotion (a 502/non-JSON body triggers rollback before `record_release_ledger "promoted"`), and `post-deploy-verify.sh` runs it in the CI post-deploy workflow. The smoke does `POST {Host: app.suderra.com}/graphql {__typename}` and asserts HTTP 200 AND a valid GraphQL JSON body (data.\_\_typename), plus a `/socket.io/?EIO=4` handshake. Configurable via PUBLIC_SMOKE_HOST/PUBLIC_SMOKE_ORIGIN. bash -n + 18/18 deploy-ssot invariants green).** This is the make-it-detectable control: this exact outage now fails the deploy instead of promoting.
 
 ---
 
@@ -5484,12 +5642,17 @@ Severity: MEDIUM (blocked ALL production deploys at the PRE-droplet `deploy-prod
 Verification: `validate-criticality-manifest` OK (35 services); `service-catalog:check` + `graphql:generate-registry-artifacts --check` drift-clean; 99 catalog/criticality/registry invariant tests pass; service-catalog `tsc` 0; swc gate simulation matches. Unblocks the deploy so the ORPHAN-HIGH-187 health-SLA fix can finally reach the droplet.
 
 Status: RESOLVED (2026-06-27) — both release-verification blockers fixed + locally gate-green. Pending merge + the deploy that finally lands #187. Registry: orphan-findings.md.
+
 ## ORPHAN-MEDIUM-191 — SCADA real-time has no route to sensor-service (nginx sends all /socket.io to gateway)
+
 Found 2026-06-27 (outage plan P5). The frontend SCADA client connects to the `/scada` Socket.IO namespace, but `/scada` is served by sensor-service (`apps/sensor-service/src/scada-runtime/scada-runtime.gateway.ts`, internal-network-only port 3000), while nginx routes ALL default `/socket.io/` traffic to gateway-api — which serves only /farms,/messaging,/sensors,/st-language, NOT /scada. So a SCADA handshake reaches the gateway, finds no /scada namespace, and real-time never reaches the device runtime. (During the gateway-502 outage this was masked; it is a standing gap once the gateway is healthy.) **Status: RESOLVED (2026-06-27 — Option A, dedicated path: the SCADA socket.io now uses engine.io path `/scada-ws/` on BOTH the client (web ScadaSocketService) and the sensor-service @WebSocketGateway, and nginx gained an `upstream sensor-service { server sensor-service:3000 }` + `location /scada-ws/` → sensor-service. nginx + sensor-service share aqua-internal so the proxy resolves. Additive — the gateway's /socket.io/ (/farms,/sensors,/messaging,/st-language) is untouched. sensor-service + sensor-module tsc 0, eslint 0, nginx braces balanced. DEPLOY ORDER: nginx first (backward-compatible), then frontend + sensor-service together (the path must match on both ends)).** Rejected: embedding ScadaRuntimeGateway in the gateway (breaks service autonomy) and reusing /sensors (different protocol — tag subscribe/write vs raw readings).
 
 ## ORPHAN-MEDIUM-192 — no frontend circuit-breaker; outages keep storming refetch (ORPHAN-188 follow-up)
+
 Found 2026-06-27 (outage plan P4c; the follow-up ORPHAN-188 flagged). ORPHAN-188 stopped a 502 from BLANKING cached data (typed BACKEND_UNAVAILABLE), but `refetchOnWindowFocus`/`refetchOnReconnect` (web/shell bootstrap QueryClient) still re-fired on every tab focus + network blip during an outage — surfacing an error over loaded data and hammering the dead gateway. No health/circuit gate existed anywhere. **Status: RESOLVED (2026-06-27 — added `backendHealthCircuit` (web/shared-ui/src/utils/backend-health-circuit.ts): a dependency-free 3-state breaker (closed→open after 3 consecutive TRANSPORT failures→half-open after a 15s cooldown so a probe can recover). The GraphQL client records a failure on a 5xx and a success on any parsed 200; the shell QueryClient gates refetchOnReconnect+refetchOnWindowFocus on `refetchWhenBackendHealthy` so the focus/reconnect storm is suppressed during a detected outage and resumes on recovery. Only transport failures count (GraphQL errors on a 200 don't); react-query's retry + refetchInterval still probe so recovery never depends solely on the half-open. shared-ui+shell tsc 0; 64/64 specs (api-client 59 incl. no-regression + 5 new circuit incl. fake-timer cooldown); eslint 0).** HR nested QueryClient + tenant-admin query-key drift remain separately tracked.
+
 ## ORPHAN-MEDIUM-193 — billing has no functional provider for keyless demo tenants (BILLING_PROVIDER=mock unwired)
+
 Found 2026-06-27 (app.suderra.com outage P1). After #672 decoupled billing boot from the Stripe key (STRIPE_BILLING_ENABLED → UnconfiguredStripeClient), a keyless droplet BOOTS but every billing call THROWS StripeNotConfiguredError — so demo/test tenants (app.suderra.com, operator-stated) cannot use billing at all. A MockBillingProvider existed only as an UNTRACKED draft (never committed, nothing wired it; the factory consulted only NODE_ENV/STRIPE_BILLING_ENABLED). **Status: RESOLVED (2026-06-27 — BILLING_PROVIDER is now the explicit provider SSoT in stripeClientFactory, reconciled with STRIPE_BILLING_ENABLED: `mock`→a functional local MockBillingProvider (committed; implements all 9 IStripeApiClient methods, empty Stripe ids, NO SDK/network — enforced by stripe-calls-via-canonical-client invariant + a source-level spec assertion), `stripe`→real adapter (implies enabled, key mandatory, fail-closed at boot), unset→#672 fallback. docker-compose.droplet.yml defaults BILLING_PROVIDER=mock for the demo droplet (never makes a real charge; flipping to stripe is a deliberate key-bearing act). billing stays a CRITICAL federation subgraph — mock just lets it serve real GraphQL. factory spec (a)-(h) + mock spec = 12/12 green; backend-common+billing tsc 0; banned-construct clean).** Net effect: app.suderra.com billing works locally without Stripe, gateway composes.
 
 ---
@@ -5505,7 +5668,8 @@ Severity: MEDIUM (the make-it-detectable smoke gate added in #674/ORPHAN-189 fal
 Status: RESOLVED (2026-06-27) — the smoke tests the real https path; deploys stop false-failing/rolling-back on the redirect, so #672/#677 land with a SUCCESS verdict. Registry: orphan-findings.md.
 
 ## ORPHAN-MEDIUM-195 — HR nested QueryClient + tenant-admin query keys not tenant-scoped (P4c follow-up)
-Found 2026-06-27 (outage P4c follow-up). Two web SSoT violations (web/CLAUDE.md): (1) hr-module Module.tsx created its OWN `new QueryClient` (PERF-002) instead of using the host's — splitting cache from the shell AND silently opting HR out of the new backend-health circuit-breaker (P4c/#679); farm/sensor modules correctly rely on the shell's. (2) tenant-admin query keys were NOT tenant-scoped: TenantDashboard used raw `['dashboard',…]`, useDevicePolling `['edgeDevice', deviceId]`, and the key factories (useTenantData tenantKeys, useTenantRoles role/userKeys, useTenantAuditLog auditLogKeys) prefixed a LITERAL 'tenant'/'tenant-roles'/… not the actual tenantId — the FE-CRITICAL-014/015/016 cross-tenant cache-leak class. **Status: RESOLVED (2026-06-27 — HR Module.tsx drops its nested client (host owns the single QueryClient; PII bounded by logout-cleanup); every tenant-admin key now routes through the createTenantQueryKey SSoT (['tenant', tenantId, …]) — factories' `.all` kept as the bare prefix for broad invalidation where it stays a valid prefix, else converted to a function + call sites updated. tenant-admin tsc 0; 59/59 specs (3 shared-ui test mocks gained createTenantQueryKey/getTenantId; the role-key assertion updated to the scoped shape); hr-module 2/2; eslint 0). Note: lib/query-keys.ts is dead (no importer) and still literal-'tenant' — flagged for deletion, not load-bearing.** 
+
+Found 2026-06-27 (outage P4c follow-up). Two web SSoT violations (web/CLAUDE.md): (1) hr-module Module.tsx created its OWN `new QueryClient` (PERF-002) instead of using the host's — splitting cache from the shell AND silently opting HR out of the new backend-health circuit-breaker (P4c/#679); farm/sensor modules correctly rely on the shell's. (2) tenant-admin query keys were NOT tenant-scoped: TenantDashboard used raw `['dashboard',…]`, useDevicePolling `['edgeDevice', deviceId]`, and the key factories (useTenantData tenantKeys, useTenantRoles role/userKeys, useTenantAuditLog auditLogKeys) prefixed a LITERAL 'tenant'/'tenant-roles'/… not the actual tenantId — the FE-CRITICAL-014/015/016 cross-tenant cache-leak class. **Status: RESOLVED (2026-06-27 — HR Module.tsx drops its nested client (host owns the single QueryClient; PII bounded by logout-cleanup); every tenant-admin key now routes through the createTenantQueryKey SSoT (['tenant', tenantId, …]) — factories' `.all` kept as the bare prefix for broad invalidation where it stays a valid prefix, else converted to a function + call sites updated. tenant-admin tsc 0; 59/59 specs (3 shared-ui test mocks gained createTenantQueryKey/getTenantId; the role-key assertion updated to the scoped shape); hr-module 2/2; eslint 0). Note: lib/query-keys.ts is dead (no importer) and still literal-'tenant' — flagged for deletion, not load-bearing.**
 
 ---
 
@@ -5514,14 +5678,15 @@ Found 2026-06-27 (outage P4c follow-up). Two web SSoT violations (web/CLAUDE.md)
 Severity: MEDIUM (architectural; the proximate cause of ORPHAN-194's "droplet checkout mismatch" post-deploy-verify failure, and a standing deploy↔session conflict). The prod deploy used `/var/aqua-saas` — the SAME git working tree interactive Claude sessions checkout feature branches into — as its source of truth: `deploy-digitalocean.yml` (capacity-preflight + deploy SSH blocks) did `cd /var/aqua-saas; git fetch; git checkout -f "$DEPLOY_SHA"`, droplet-up.sh + post-deploy-verify.sh ran from there, and the verify asserted `git rev-parse HEAD == TARGET_SHA`. So the deploy's force-checkout fought sessions (discarding their WIP / switching their branch) AND the verify false-failed whenever a session drifted HEAD after promotion (the live incident: verify `expected=<sha> actual=<feature-branch>` while the deployed images + app were correct).
 
 **Architectural SSoT fix (microservice-appropriate — the deployed artifacts come from ONE immutable, deploy-owned, SHA-pinned source, fully decoupled from interactive scratch):**
+
 - **New SSoT snippet `scripts/deploy/deploy-paths.sh`** (sourced, not executed): single definitions of `DEPLOY_SOURCE_REPO=/var/aqua-saas`, `DEPLOY_CHECKOUT_DIR=/var/lib/aqua/deploy/checkout` (deploy already owns `/var/lib/aqua/deploy`), `DEPLOY_ENV_FILE`, `DEPLOY_CERTS_DIR`, plus an idempotent `materialize_deploy_checkout <sha>` (fetch the shared object store — never the interactive HEAD — then `git worktree add --detach --force` / `checkout -f --detach` the SHA into the dedicated worktree; prune + clear stale index.lock + recreate-if-corrupt; symlink the persistent `.env`/`certs/` in). 6-case sandbox-validated.
 - **`COMPOSE_PROJECT_NAME=aqua-saas` pinned in the SSoT (DATA-LOSS GUARD):** compose derives its project name — and every named volume (postgres data, NATS JetStream, MinIO, redis) — from the cwd basename; running from the isolated checkout (basename `checkout`) without the pin would create empty `checkout_*` volumes = catastrophic data loss. Pinned to the live `aqua-saas` identity so volumes/networks/containers are reused. Enforced by the invariant.
 - **All deploy entry points run from the isolated checkout:** both `deploy-digitalocean.yml` SSH blocks + droplet-up.sh + post-deploy-verify.sh source the snippet, materialize, and `cd "$DEPLOY_CHECKOUT_DIR"`. `/var/aqua-saas` is now ONLY the persistent secrets/certs SSoT + the fetch source — never force-checked-out, so sessions and the deploy stop colliding and the verify can't false-fail on drift.
 - **Tier-3 invariant `tests/invariants/deploy-isolated-checkout-ssot.spec.ts` (8 tests):** single checkout-dir definition, the SSoT vars, the materializer shape (detached pin / prune / lock-clear / recreate / symlinks), no `cd /var/aqua-saas` / `git checkout -f` of the deploy source in the scripts or SSH blocks, the COMPOSE_PROJECT_NAME pin, and preservation of rollback + health-gate + the #681 https smoke.
 
-Verification: `bash -n` clean (all deploy scripts); the new invariant 8/8 + deploy-ssot/repo-hygiene/active-path/reachability regressions green. **CANNOT be validated without a real production deploy** — first-deploy watch items: (1) certs/JWT resolve through the symlinked `DEPLOY_CERTS_DIR` (NATS mTLS / postgres-TLS / JWT handshakes), (2) compose reuses the existing `aqua-saas_*` volumes (the COMPOSE_PROJECT_NAME pin should ensure this — verify no empty `checkout_*` volumes appear), (3) one-time worktree creation disk/time.
+Verification: `bash -n` clean (all deploy scripts); the new invariant 8/8 + deploy-ssot/repo-hygiene/active-path/reachability regressions green. **CANNOT be validated without a real production deploy** — first-deploy watch items: (1) certs/JWT resolve through the symlinked `DEPLOY_CERTS_DIR` (NATS mTLS / postgres-TLS / JWT handshakes), (2) compose reuses the existing `aqua-saas_*` volumes (the COMPOSE*PROJECT_NAME pin should ensure this — verify no empty `checkout*\*` volumes appear), (3) one-time worktree creation disk/time.
 
-Status: RESOLVED (2026-06-27) — implemented + locally gate-green; PR for review, NOT auto-deployed (live-deploy mechanism change needs close first-deploy watching with the rollback net). Registry: orphan-findings.md. **UPDATE (2026-06-28, #686 merged + deployed):** isolated-checkout LIVE-VALIDATED — worktree materialized at `/var/lib/aqua/deploy/checkout` (SHA-pinned), the COMPOSE_PROJECT_NAME pin HELD (canary clean: 0 `checkout_*` volumes, all 9 `aqua-saas_*` data volumes preserved — NO data loss), app healthy on the new images + 200. The deploy job still reported the ORPHAN-187 "critical service health check → rollback" race (services nonetheless landed healthy on the new SHA) — likely amplified by the one-time worktree-creation load on this first isolated deploy; a 2nd deploy (worktree exists → only re-pin) should confirm it's transitional. The 300s-SLA race is NOT fully eliminated by #672 (gateway) alone — tracked as remaining ORPHAN-187 tail.
+Status: RESOLVED (2026-06-27) — implemented + locally gate-green; PR for review, NOT auto-deployed (live-deploy mechanism change needs close first-deploy watching with the rollback net). Registry: orphan-findings.md. **UPDATE (2026-06-28, #686 merged + deployed):** isolated-checkout LIVE-VALIDATED — worktree materialized at `/var/lib/aqua/deploy/checkout` (SHA-pinned), the COMPOSE*PROJECT_NAME pin HELD (canary clean: 0 `checkout*_`volumes, all 9`aqua-saas\__` data volumes preserved — NO data loss), app healthy on the new images + 200. The deploy job still reported the ORPHAN-187 "critical service health check → rollback" race (services nonetheless landed healthy on the new SHA) — likely amplified by the one-time worktree-creation load on this first isolated deploy; a 2nd deploy (worktree exists → only re-pin) should confirm it's transitional. The 300s-SLA race is NOT fully eliminated by #672 (gateway) alone — tracked as remaining ORPHAN-187 tail.
 
 ---
 
@@ -5530,6 +5695,7 @@ Status: RESOLVED (2026-06-27) — implemented + locally gate-green; PR for revie
 Severity: MEDIUM (the hr-module Leave-admin UI defined 9 GraphQL ops + hooks the hr-service never exposed → every call 400s; the "FE built ahead of backend" drift class, IMPLEMENT-BACKEND per ORPHAN-183). The leave domain was already rich (`apps/hr-service/src/leave/`: leave-type/balance/request entities, a create/submit/approve/reject/cancel CQRS lifecycle, `leave-accrual.service`, `leave-state-machine`, queries) — only the admin/management ops were missing.
 
 **Implemented (mirroring the established CQRS + state-machine + accrual SSoT; tenant-scoped like every existing leave handler; no `as any`/`?.`):**
+
 - `CreateLeaveType`/`UpdateLeaveType` (TENANT_ADMIN/MODULE_MANAGER; per-tenant `code` uniqueness; code immutable on update).
 - `AdjustLeaveBalance` (signed delta into the entity's `adjustment` accumulator; pessimistic lock; fail-closed below-zero).
 - `CarryOverLeaveBalances` — **refactored `leave-accrual.service` to extract `carryOverWithinSchema()` as the SSoT** for year-end rollover, and the existing cron now delegates to it (no duplicated balance math).
@@ -5550,6 +5716,7 @@ Severity: MEDIUM (every recent deploy reports `deploy-production/deploy` failure
 **Root cause (NOT composition-blocking — #672 works):** the gateway boots fast — `BackgroundCompositionManager` backgrounds composition, `Nest application successfully started` at ~+2s, `/health/live` answers `200 5ms`. BUT the deploy gate measures Docker `healthy`, and the Docker healthcheck (`curl -sf /health/live`, **timeout 10s**) **timed out at ~+70s** (probe exit -1) and the container only flipped `healthy` at ~+100s. During the simultaneous cold-boot of ~14 NestJS services + postgres on the 4-CPU droplet, the gateway process is CPU-starved, so a normally-5ms probe exceeds the 10s curl timeout. The catalog's `startupBudgetSeconds: 40` (set assuming composition-background = fast, on an unloaded box) under-counted the real ~100s under-thundering-herd time → the gate fails the gateway → "rollback".
 
 **Fix (targeted, SSoT, data-driven — reflect the real under-load timing):**
+
 - compose gateway healthcheck `timeout` 10s→30s + `start_period` 30s→60s (tolerate the transient CPU starvation; early storm-probes don't count toward `retries`).
 - service-catalog `gateway-api.startupBudgetSeconds` 40→120 (real under-herd time). The derived `readiness_sla_seconds` stays 300 (gateway 120 ties the existing farm 120 max; +180 margin). Regenerated all catalog/registry artifacts.
 - The `start_period ≤ SLA` invariant still holds (60 ≤ 300).
@@ -5563,27 +5730,35 @@ Status: RESOLVED (2026-06-28) — gateway budget + healthcheck reflect the real 
 ---
 
 ## ORPHAN-MEDIUM-200 — tenant query keys lack a cache-generation epoch (SUPER_ADMIN A→B→A serves stale cache)
+
 Found 2026-06-28 (tenant-panel WS-2 gap audit vs main). `createTenantQueryKey` isolates tenant A's cache from B's via the `['tenant', tenantId, …]` prefix, but does NOT distinguish two SESSIONS of the same tenant: on a SUPER_ADMIN impersonation round-trip (A→B→A), switching back to A reproduces A's exact keys, so React Query serves A's PRE-switch (possibly stale) cache. The 502-resilience / refetch-storm / HR-nested-QC / transport gaps were already closed by #673/#679/#682; this cache-generation gap remained. **Status: RESOLVED (2026-06-28 — added `web/shared-ui/src/utils/session-epoch.ts`: a monotonic counter bumped on every actual tenant change (`api-client.setTenantId`) and on logout (`clearSession`); `createTenantQueryKey` now APPENDS `{ __sessionEpoch }` as the LAST key segment so each tenant (re)entry gets a fresh cache generation (the prior is orphaned/GC'd), while `domain` stays at index 2 — `resolveStaleTime` and prefix invalidations are unaffected. shared-ui is a federation singleton so the epoch is shared across remotes. 3/3 vitest + tsc clean.)** The full unified SessionSnapshot SSoT (token-lifecycle tenant-verified `ready` + `useTenantQuery` hook) remains a larger follow-up; the epoch closes the impersonation cache-freshness hole.
 
 ## ORPHAN-MEDIUM-201 — farm DepartmentsTab shows false "Not associated with any site" (2nd-query join, not dept.site)
+
 Found 2026-06-27 (tenant-panel WS-5 gap audit vs main #681). The departments table rendered the site-name cell from a SECOND `useSiteList()` query — `web/modules/farm-module/src/pages/setup/tabs/DepartmentsTab.tsx:341` `sites.find(s => s.id === dept.siteId)` — so whenever that list was still loading, empty, or past its `limit:100`, a department with a valid `siteId` falsely rendered "Not associated with any site", even though `useDepartments` already fetches the nested `site { id name }` on each department row. **Status: RESOLVED (2026-06-27 — the name cell now renders `dept.site?.name` directly from the department's own fetched field; the `sites.find` join is dropped (the `sites`/`useSiteList` list stays for the filter + edit-form dropdowns). The red orphan-row highlight already keyed on `!dept.siteId`, so a genuinely site-less department still shows the red state.)** Tenant-panel WS-5. (Renumbered from ORPHAN-MEDIUM-195 at merge — main's 195 was concurrently taken by the HR/tenant-admin query-key finding.)
 
 ## ORPHAN-MEDIUM-202 — equipment_types mixed contract: global @SkipTenantGuard read + tenant-blind in-process cache (cross-tenant leak)
-Found 2026-06-28 (tenant-panel WS-5 gap audit vs main). equipment_types is cloned PER-TENANT (the entity omits `schema:`, MODULE_SCHEMAS clones it into each `tenant_<uuid>`), and the EquipmentTypeLookupService reads the per-tenant copy under tenant context — but the GraphQL `equipmentTypes`/`equipmentType` resolvers carried `@SkipTenantGuard` (`apps/farm-service/src/equipment/equipment.resolver.ts:162,176`) and the handler cached results in a process-wide Map keyed by the serialized FILTER ONLY (`get-equipment-types.handler.ts:47`), so the FIRST tenant's result was served to EVERY other tenant. Two read paths (GraphQL global vs lookup per-tenant) hit different physical tables. **Operator decision: per-tenant catalog. Status: RESOLVED (2026-06-28 — removed `@SkipTenantGuard` from both resolvers so they run tenant-scoped (search_path → `tenant_<uuid>.equipment_types`, the same table the lookup service reads); DELETED the tenant-blind in-process cache (the leak's root cause — equipment_types is small reference data and React Query already caches it per-tenant client-side via a tenant-scoped query key); gated the FE `useEquipmentTypes` hook on `!!token && !!tenantId`. The `farm-service-tenant-isolation` invariant already allows equipmentType repo reads without a tenantId where-clause (search_path isolation), so the change is invariant-safe.)** Note: that invariant's allowlist comment still calls equipmentType a "global catalogue" — semantically stale post-change (doc only). (Renumbered from ORPHAN-MEDIUM-196 at merge — main's 196 was concurrently taken by the deploy isolated-checkout finding.)
+
+Found 2026-06-28 (tenant-panel WS-5 gap audit vs main). equipment*types is cloned PER-TENANT (the entity omits `schema:`, MODULE_SCHEMAS clones it into each `tenant*<uuid>`), and the EquipmentTypeLookupService reads the per-tenant copy under tenant context — but the GraphQL `equipmentTypes`/`equipmentType`resolvers carried`@SkipTenantGuard` (`apps/farm-service/src/equipment/equipment.resolver.ts:162,176`) and the handler cached results in a process-wide Map keyed by the serialized FILTER ONLY (`get-equipment-types.handler.ts:47`), so the FIRST tenant's result was served to EVERY other tenant. Two read paths (GraphQL global vs lookup per-tenant) hit different physical tables. **Operator decision: per-tenant catalog. Status: RESOLVED (2026-06-28 — removed `@SkipTenantGuard`from both resolvers so they run tenant-scoped (search_path →`tenant\_<uuid>.equipment_types`, the same table the lookup service reads); DELETED the tenant-blind in-process cache (the leak's root cause — equipment_types is small reference data and React Query already caches it per-tenant client-side via a tenant-scoped query key); gated the FE `useEquipmentTypes`hook on`!!token && !!tenantId`. The `farm-service-tenant-isolation` invariant already allows equipmentType repo reads without a tenantId where-clause (search_path isolation), so the change is invariant-safe.)\*\* Note: that invariant's allowlist comment still calls equipmentType a "global catalogue" — semantically stale post-change (doc only). (Renumbered from ORPHAN-MEDIUM-196 at merge — main's 196 was concurrently taken by the deploy isolated-checkout finding.)
 
 ## ORPHAN-MEDIUM-203 — farm species list silently truncated at 20 (server default limit, no FE pagination)
+
 Found 2026-06-28 (tenant-panel WS-5 gap audit vs main). SpeciesTab called `useSpeciesList()` with no pagination, and the backend `SpeciesFilterInput.limit` defaults to 20 (`list-species.handler.ts:25` `?? 20`), so a tenant with >20 species only ever fetched the first 20 (alphabetical) — the rest silently vanished after a refetch/focus, even though the `speciesList` response already returns `hasNextPage`/`totalPages`. **Status: RESOLVED (2026-06-28 — `useSpeciesList` accepts an explicit `limit`/`offset`; SpeciesTab requests `limit: 100` (the SpeciesFilterInput @Max, which covers a setup catalog) and renders a disclosure banner when `hasNextPage` so any overflow beyond 100 is surfaced, never silently dropped. Client-side search/category/water-type/status filtering is unchanged.)** Follow-up if a tenant exceeds 100 species: promote search/filter to server-side + a full paginator (the input already supports limit/offset). (Renumbered from ORPHAN-MEDIUM-197 at merge — main's 197 was concurrently taken by the hr leave-admin GraphQL finding.)
 
 ## ORPHAN-MEDIUM-198 — GraphQL FE-drift baseline has no hard no-grow gate (new 400-drift can be silently baselined)
+
 Found 2026-06-28 (tenant-panel FE-DRIFT gap audit vs main). `scripts/ci/graphql-fe-drift.baseline.json` is a 42-op burn-down ratchet of known FE↔supergraph drifts (FE documents the deployed supergraph rejects → HTTP 400 in the browser — the tenant-panel `/graphql` 400 class). `validate-graphql-operations.mjs` blocks NEW drift not in the baseline, and the baseline's `$schema` says it "MUST only shrink" — but nothing ENFORCED that: `--update-baseline` (intended for after-fix regen) silently absorbs a new drift if one is present, growing the count and re-opening the 400-class. **Status: RESOLVED (2026-06-28 — added `tests/invariants/graphql-fe-drift-baseline-no-grow.spec.ts` (jest layer-1): asserts the baseline `count === operations.length`, `count <= BASELINE_CEILING` (42 high-water mark that may only be LOWERED — a review-visible ratchet edit), and all op keys unique. Growing the baseline now fails CI; the active #655/#663 burn-down keeps shrinking it.)** The full platform-wide farm-style FE↔BE parity INVARIANT (vs the gql:validate-ops script gate) remains a larger follow-up.
 
 ## ORPHAN-MEDIUM-204 — frontend enforcement gates: nested-QueryClient ban + raw-fetch ratchet (A7 debt tracked)
+
 Found 2026-06-28 (tenant-panel PR-E). Two regression-proofing invariants added to lock in the merged WS-2 fixes:
+
 1. **`tests/invariants/web-remotes-no-nested-queryclient.spec.ts`** — bans `QueryClientProvider`/`new QueryClient()` in federated remote code (excludes the `main.tsx` standalone dev entry + test dirs). Locks in the hr-module A6 fix (#682): a nested provider gets a SEPARATE cache the shell's tenant-logout `clear()`/invalidation never reach → stale/cross-tenant data after a switch/logout. GREEN on main.
 2. **`tests/invariants/web-no-raw-graphql-rest-fetch.spec.ts`** — bans NEW raw `fetch('/graphql'|'/api')` in `web/modules` + `web/shell/src`; raw transport bypasses the shared client's auth-barrier wait / JWT / `x-tenant-id` / 502-handling (the `/graphql` 400 + missing-tenant + refetch-storm class). Shrink-only ratchet over a frozen `KNOWN_OFFENDERS` list; a baselined file that stops offending FAILS the ratchet test until removed (can't go stale).
-**A7 DEBT (the 4 baselined offenders — tracked, NOT silenced):** the pre-auth forms (`ForgotPassword`/`Reset`/`AcceptInvitation`, raw `/graphql`) need a sanctioned **`publicGraphqlClient`** (barrier-skipping, no auth/tenant header) which does NOT yet exist in shared-ui; farm `useChemicals` uploads (2× `/api`) need **`restClient` multipart** (restClient is JSON-only today, `api-client.ts:758`). **Status: gates RESOLVED + green; A7 burndown OPEN** — migrate the 4 files through the sanctioned clients, then remove each from `KNOWN_OFFENDERS` (the ratchet forces removal once fixed). The gate makes the debt detectable + regression-proof while A7 lands — make-detectable tier, not a patch.
+   **A7 DEBT (the 4 baselined offenders — tracked, NOT silenced):** the pre-auth forms (`ForgotPassword`/`Reset`/`AcceptInvitation`, raw `/graphql`) need a sanctioned **`publicGraphqlClient`** (barrier-skipping, no auth/tenant header) which does NOT yet exist in shared-ui; farm `useChemicals` uploads (2× `/api`) need **`restClient` multipart** (restClient is JSON-only today, `api-client.ts:758`). **Status: gates RESOLVED + green; A7 burndown OPEN** — migrate the 4 files through the sanctioned clients, then remove each from `KNOWN_OFFENDERS` (the ratchet forces removal once fixed). The gate makes the debt detectable + regression-proof while A7 lands — make-detectable tier, not a patch.
 
 ## ORPHAN-MEDIUM-205 — A7 step 1: pre-auth forms migrated off raw fetch to publicGraphqlClient (ratchet 4→1)
+
 Found 2026-06-28 (tenant-panel A7 — burndown of ORPHAN-204's raw-fetch debt). The 3 shell pre-auth forms (ForgotPassword / ResetPassword / AcceptInvitation) POSTed to `/graphql` via raw `fetch` because no sanctioned pre-auth GraphQL client existed. **Status: RESOLVED (2026-06-28 — added `publicGraphqlClient` (`web/shared-ui/src/utils/api-client.ts`): a barrier-skipping pre-auth client that sends NO `Authorization`/`X-Tenant-Id` header (the ops are unauthenticated + tenant-agnostic) and keeps the typed 5xx transport-error handling — a 502 during forgot-password now surfaces `BACKEND_UNAVAILABLE` instead of a JSON-parse crash. Migrated all 4 pre-auth fetch calls across the 3 forms; removed them from the `web-no-raw-graphql-rest-fetch` ratchet's `KNOWN_OFFENDERS` (4→1). 3/3 vitest + ratchet green + tsc clean.)** A7 step 2 (the last offender — farm `useChemicals` 2× `/api` upload) needs `restClient` multipart support (JSON-only today); tracked, the ratchet still enforces it.
 
 ---
@@ -5591,6 +5766,7 @@ Found 2026-06-28 (tenant-panel A7 — burndown of ORPHAN-204's raw-fetch debt). 
 ## ORPHAN-MEDIUM-206 - GraphQL FE↔supergraph drift burndown COMPLETE (139 → 0; ratchet locked at 0)
 
 The #3 burndown is finished. The audit started at ~139 FE GraphQL ops the FE issued but the composed supergraph could not resolve (every one a 400 in production); the SSoT count is `scripts/ci/graphql-fe-drift.baseline.json`. Burned via #623 (dashboard) → #650/#654/#655/#663/#665 (farm/mcp/sensor/tenant-admin/aquamobil clean-rename + consumer-rework + dead-code + orphan) → #688 (hr leave-admin, 9) → and this final PR which implemented EVERY remaining "FE built ahead of backend" op against its (already rich) backend domain:
+
 - **hr certification/training (15):** create/update/get CertificationType + TrainingCourse, RenewCertification, Start/WithdrawFromTraining, BulkEnrollInTraining, employee/compliance/work-area/mandatory status reports, and **GetTrainingCalendar** — which required a NEW per-tenant `TrainingSession` sub-domain (entity + blue-green migration + MODULE_SCHEMAS clone-list registration + tenant RLS).
 - **hr rotation/work-area (8):** GetWorkArea/GetWorkRotation by-id, work-area occupancy (single + all), current/upcoming rotations, rotation calendar + changeovers — computed from existing entities + the rotation-state-machine.
 - **hr performance + attendance (6):** GetShift by-id; team-performance overview, department KPIs, review-cycle status, goal-progress trend, BulkCreateReviews.
@@ -5634,9 +5810,11 @@ The isolated-checkout SSoT (#686) deliberately stopped the deploy from `git chec
 Status: RESOLVED (2026-06-28) — bootstrap reads deploy-paths.sh from the SHA; PR for review + the deploy of this fix re-validates it (GitHub reads the workflow from main, so the fixed bootstrap runs on the next deploy). Registry: orphan-findings.md. Follow-up: a stale `/var/aqua-saas` no longer breaks deploys, but consider a periodic `git fetch` housekeeping so its objects stay warm.
 
 ## ORPHAN-MEDIUM-212 — socket lifecycle (PR-B2): tenant-switch teardown + /scada connect tenant-gating
+
 Found 2026-06-28 (tenant-panel PR-B2 vs main). (1) socketFactory pooled Socket.IO connections (keyed `${url}::${tenantId}`) were torn down only on LOGOUT (`registerLogoutCleanup`) — on a tenant switch A→B the leaving tenant's sockets lingered refcounted in the pool, still delivering tenant-A realtime events (sensor / alarm / edge I/O) into the tenant-B session on the same browser. (2) `ScadaSocketService.connect()` gated on token only, not tenant. **Status: RESOLVED (2026-06-28 — socketFactory registers `onTenantChange(teardownTenantSockets)`: on a switch it disconnects + removeAllListeners + evicts every pool entry whose key ends with `::oldTenantId`; `ScadaSocketService.connect()` now also requires `getTenantId()` (silent defer otherwise, matching socketFactory + the sibling sockets). 5/5 vitest (`socketFactory.tenant-teardown` + `ScadaSocketService.connect-gating`) + tsc clean.)** B4 (bounded backoff) was already in place — `reconnectionAttempts: 20`, not `Infinity` (the v4 plan claim was stale). The releaseSocket refcount residual is [[ORPHAN-MEDIUM-213]].
 
 ## ORPHAN-MEDIUM-213 — socketFactory releaseSocket re-derives the CURRENT tenant (refcount mis-target after a switch)
+
 Found 2026-06-28 (tenant-panel PR-B2). `releaseSocket(url)` computes its pool key from `getTenantId()` AT RELEASE TIME, not from the tenant the caller acquired under. After a tenant switch, an A-bound hook's cleanup `releaseSocket(url)` targets `::B` (the current tenant) and can decrement — and prematurely tear down — tenant B's socket. ORPHAN-212's `onTenantChange` teardown already severs the LEAK (A's sockets), so this is a narrower refcount-accuracy race, not a residency leak. **Status: RESOLVED (2026-06-29 — `releaseSocket(socket: Socket | null)` now releases by socket IDENTITY (`entry.socket === socket`); the tenant-derived path is REMOVED entirely, so the ambient `getTenantId()` can no longer mis-target. All 7 callsites (useEdgeIoSocket / useSensorSocket / useAlarmRuntime ×4 / useScadaLiveData) thread the socket they hold — tsc-enforced (a string arg is now a type error, so no caller can be missed). A release after an A→B switch tears down A's entry, never B's. Full sensor-module 1249/1249 incl. a switch-immune identity unit test + a null no-op test.)**
 
 ---
@@ -5646,18 +5824,20 @@ Found 2026-06-28 (tenant-panel PR-B2). `releaseSocket(url)` computes its pool ke
 Severity: HIGH (cross-service privilege-boundary breach — `admin_service` currently holds INSERT/UPDATE/DELETE on the authoritative tenant SSoT table). Discovered 2026-06-28 while root-causing the `POST /api/v1/tenants` 500 ("Database operation failed") on app.suderra.com.
 
 **Problem:** Per D14/SEC-015, `auth.tenants` is owned by auth-service and admin-api may only READ it (`admin_service` = SELECT). But admin-api locks/over-reaches `auth.tenants` directly via the `Tenant` entity (`@Entity('tenants', { schema: 'auth' })`):
+
 - `apps/admin-api-service/src/tenant/handlers/suspend-tenant.handler.ts` — the four lifecycle handlers (suspend/activate/deactivate/archive) take `lock: { mode: 'pessimistic_write' }` (`FOR UPDATE`) on `auth.tenants` (lines 61/175/283/369). They mutate the entity **in memory only** (`tenant.status = …`) — there is no `manager.save(Tenant)` on any of the four; the actual status write is delegated to auth-service (`authProvisioningClient.*`) and admin-local lifecycle metadata already persists to `admin.tenant_activities`. So the boundary breach is the **`FOR UPDATE` lock** (which needs the UPDATE privilege), not an actual UPDATE statement.
 - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts` `assertNoDuplicateTenant` took `lock: { mode: 'pessimistic_read' }` (`FOR SHARE`) on `auth.tenants` (FIXED in the create-500 PR — lock removed; uniqueness is enforced by auth-service `reserveTenant` + the `auth.tenants` unique constraints).
 
 PostgreSQL requires the UPDATE privilege to take ANY row lock (`FOR SHARE`/`FOR UPDATE`). So the intended `REVOKE INSERT, UPDATE, DELETE ON auth.tenants FROM admin_service` (SEC-015 least-privilege) cannot be applied while these `FOR UPDATE` locks exist — it would turn every suspend/activate/deactivate/archive into a `permission denied for table tenants` 500.
 
-**Additional latent auth.* over-privilege from the SAME in-place edit (e147c9dfb→42695736f):** the deployed (pre-edit) `1800400000000` ALSO `GRANT`ed `admin_service` full DML on `auth.tenants` and ran `GRANT CREATE ON DATABASE … TO admin_service`; the edit removed both (privilege-tightening) but, like the REVOKE, it never landed. So on the droplet `admin_service` currently holds INSERT/UPDATE/DELETE on `auth.tenants` AND `CREATE ON DATABASE` (verified read-only: `has_table_privilege('admin_service','auth.tenants','UPDATE')` = `t`) — both must be revoked as part of the capstone.
+**Additional latent auth.\* over-privilege from the SAME in-place edit (e147c9dfb→42695736f):** the deployed (pre-edit) `1800400000000` ALSO `GRANT`ed `admin_service` full DML on `auth.tenants` and ran `GRANT CREATE ON DATABASE … TO admin_service`; the edit removed both (privilege-tightening) but, like the REVOKE, it never landed. So on the droplet `admin_service` currently holds INSERT/UPDATE/DELETE on `auth.tenants` AND `CREATE ON DATABASE` (verified read-only: `has_table_privilege('admin_service','auth.tenants','UPDATE')` = `t`) — both must be revoked as part of the capstone.
 
-**Dead auth.* writers (re-introduction landmines):** `apps/admin-api-service/src/users/services/tenant-role.service.ts` (raw writes to `auth.tenant_roles` + `auth.tenant_role_permissions`) and `apps/admin-api-service/src/users/services/user-role-assignment.service.ts` (writes to `auth.user_role_assignments`) write auth.* directly. Both are currently dead/unwired (registered in no `*.module.ts`, reached by no controller), so not an active breach — but `auth.tenant_roles` is in the intended REVOKE set, so a future wiring would silently re-breach. Delete these dead services (tier-1 make-it-impossible) as part of the capstone.
+**Dead auth.\* writers (re-introduction landmines):** `apps/admin-api-service/src/users/services/tenant-role.service.ts` (raw writes to `auth.tenant_roles` + `auth.tenant_role_permissions`) and `apps/admin-api-service/src/users/services/user-role-assignment.service.ts` (writes to `auth.user_role_assignments`) write auth._ directly. Both are currently dead/unwired (registered in no `_.module.ts`, reached by no controller), so not an active breach — but `auth.tenant_roles` is in the intended REVOKE set, so a future wiring would silently re-breach. Delete these dead services (tier-1 make-it-impossible) as part of the capstone.
 
 **How to fix (capstone of "admin-api read-only on auth.tenants"):**
+
 1. Refactor the four lifecycle handlers: drop the `FOR UPDATE` lock + the dead in-memory `tenant.status` mutation; the auth-service command is already the SSoT write — re-read the snapshot for the return value. No new admin metadata table is needed (`admin.tenant_activities` already holds it).
-2. Delete the dead auth.* writer services above; audit for any other admin-api writers/locks of `auth.*`.
+2. Delete the dead auth._ writer services above; audit for any other admin-api writers/locks of `auth._`.
 3. Ship a NEW forward migration re-applying the full SEC-015 read-only posture on `auth.*` (GRANT SELECT; REVOKE INSERT/UPDATE/DELETE) AND revoking `CREATE ON DATABASE` from `admin_service` — only AFTER (1)+(2) deploy (expand/contract: code first, REVOKE second, so no in-flight old container hits a denied lock).
 4. Add a boot-time/CI assertion that `admin_service` has no write privilege on `auth.*` and no `CREATE` on the database.
 5. (Optional, cosmetic) Map PG `23505` on the `auth.tenants` slug/customDomain unique constraints to `ConflictException` inside auth-service `reserveTenant` so a true concurrent-insert race surfaces a clean conflict on the status URL rather than a raw `QueryFailedError`.
@@ -5673,7 +5853,8 @@ Severity: HIGH (production: every `POST /api/v1/tenants` failed). Discovered + f
 **Problem:** Migration `apps/admin-api-service/src/migrations/1800400000000-TenantProvisioningWorkflow.ts` was hand-edited IN PLACE (commit `42695736f` edited the file created by `e147c9dfb`) AFTER it had already been recorded in the deployed `admin.migrations` ledger. TypeORM's `MigrationExecutor` keys the ledger by migration NAME, so an already-recorded migration is never re-run — the edit's DDL silently never landed on the droplet. The deployed `admin.tenant_provisioning_runs` was frozen in its pre-edit shape (missing `leaseToken`/`leasedBy`/`heartbeatAt`/`leaseExpiresAt`, missing `stepOrder` on steps, missing `tenant_onboarding_acks`, missing the `RESERVING` state value, and still carrying `fk_tenant_provisioning_runs_tenant` which breaks the run-before-tenant INSERT). Runtime code (built from the edited source) referenced `leaseToken`, so `createTenantOperation`'s first statement raised `QueryFailedError: column "leaseToken" does not exist` → the admin-api global filter's generic QueryFailedError branch → a redacted 500 "Database operation failed". Confirmed firsthand via live droplet logs (`docker logs aqua-admin-api`) + DB inspection, which disambiguated this (H1, SQLSTATE 42703) from the privilege hypothesis (H2).
 
 **Resolution (this PR):**
-1. New forward migration `1801200000000-TenantProvisioningWorkflowLeaseAndOnboardingAcks.ts` idempotently completes the workflow surface (lease columns, RESERVING check, indexes, stepOrder, onboarding-ack ledger, DROP of the run→tenant FK, admin.* grants). Applied to the live droplet DB and verified (replays idempotently; full create path unblocked).
+
+1. New forward migration `1801200000000-TenantProvisioningWorkflowLeaseAndOnboardingAcks.ts` idempotently completes the workflow surface (lease columns, RESERVING check, indexes, stepOrder, onboarding-ack ledger, DROP of the run→tenant FK, admin.\* grants). Applied to the live droplet DB and verified (replays idempotently; full create path unblocked).
 2. Removed the useless cross-boundary `FOR SHARE` lock in `assertNoDuplicateTenant` (uniqueness SSoT = auth-service `reserveTenant` + auth.tenants unique constraints).
 3. NEW systemic guard `tools/gates/migration-immutability-witness.ts` + `tests/invariants/migration-immutability.spec.ts` + CI job: an in-place edit of an already-shipped migration now fails CI, closing the bug class.
 
@@ -5682,20 +5863,24 @@ The remaining least-privilege drift (admin_service over-privileged on auth.tenan
 Status: RESOLVED (2026-06-28; fix branch `fix/tenant-provisioning-schema-drift`). Registry: orphan-findings.md only.
 
 ## ORPHAN-MEDIUM-216 — PR-A core start: useTenantQuery / useTenantMutation SSoT hooks (A2) + first adoptions
+
 Found 2026-06-29 (tenant-panel PR-A core). Every tenant-scoped query hand-assembles three things — the `createTenantQueryKey(tenantId, …)` prefix, the `!!token && !!tenantId` enabled gate, and (missing almost everywhere) `placeholderData: keepPreviousData` — so any one is a latent cross-tenant leak / missing-tenant fetch / blank-on-error UX bug. **Status: RESOLVED — hooks landed + first adoptions (2026-06-29 — added `web/shared-ui/src/hooks/useTenantQuery.ts`: `useTenantQuery(segments, queryFn, options)` bakes in the tenant prefix + the auth enabled-gate (ANDed with a caller's `enabled`) + `keepPreviousData` (A5 — stop blanking on a transient error); `useTenantMutation(mutationFn, { invalidate })` standardizes tenant-scoped invalidation (declare DOMAIN segments, the tenant prefix is added automatically). Exported from the barrel; 5/5 renderHook vitest. Adopted in 2 farm hooks (`useEquipmentTypes`, `useSpeciesList`) as real proof — NOT unused machinery; farm-module 44/44 + tsc clean on shared-ui + farm-module. Dropped a redundant double-`tenantId` key segment in useSpeciesList.)** REMAINING (next PR-A pieces, tracked): migrate the rest of the tenant query/mutation callsites incrementally; the **A1** unified SessionSnapshot read-model (+ AuthContext-pushed `tenantStatus` for a tenant-VERIFIED `ready`); an E-series enforcement gate to require `useTenantQuery` over bare `useQuery` + `createTenantQueryKey`.
 
 ## ORPHAN-MEDIUM-217 — PR-A migration batch 1: 4 farm query hooks → useTenantQuery (+ latent species-detail invalidation fix)
+
 Found 2026-06-29 (tenant-panel PR-A incremental migration of [[ORPHAN-MEDIUM-216]]). Migrated `useEquipmentList`, `useEquipmentDeletePreview`, `useSpecies` (detail), `useActiveSpecies` from hand-rolled `useQuery` + `createTenantQueryKey` + manual `enabled` to `useTenantQuery` — each now gets `keepPreviousData` (A5) + a consistent tenant gate. **Status: RESOLVED (2026-06-29 — 4 hooks migrated; removed the now-unused `useQuery` + `createTenantQueryKey` imports; farm-module 44/44 + tsc + eslint clean.)** Also fixed a LATENT bug: `useSpecies`/`useActiveSpecies` keys carried a redundant extra `tenantId` segment (`createTenantQueryKey(tid,'species','detail',tid,id)`), so the mutation invalidation `createTenantInvalidationKey(tid,'species','detail',id)` NEVER matched the detail query (position-4 mismatch: `id` vs `tid`) — species detail was not being invalidated after an update. Dropping the redundant segment makes the prefix invalidation match. Remaining migration (other modules + mutations → `useTenantMutation`) continues under ORPHAN-216.
 
 ## ORPHAN-MEDIUM-218 — PR-A A1: SessionSnapshot read-model + first consumer (socket-gate consolidation)
+
 Found 2026-06-29 (tenant-panel PR-A A1, continues [[ORPHAN-MEDIUM-216]]). The non-React layers scatter `getAccessToken() && getTenantId()` checks to answer "is there an authenticated tenant session". **Status: RESOLVED — read-model landed + consumed (2026-06-29 — added `web/shared-ui/src/utils/session-snapshot.ts`: `getSessionSnapshot()` composes `accessToken` + `effectiveTenantId` + `sessionEpoch` + `tokenState` from the existing authorities, with `ready = !!accessToken && !!effectiveTenantId`. Exported from the barrel. CONSUMED (not Potemkin): `socketFactory.getSocket` now reads one `getSessionSnapshot()` instead of separate `getAccessToken()`/`getTenantId()` gates (the `getTenantId` import dropped). 3/3 session-snapshot vitest + full sensor-module 1249/1249 + tsc clean.)** SCOPE: the tenant-VERIFIED `ready` (`tenantStatus===ACTIVE`) + `userId`/`role` need AuthContext to PUSH the server-resolved status + a reactive subscribe `tokenLifecycle` doesn't expose — a later piece; backend `EffectiveTenantMiddleware` (PR-C / #667) is the tenant-status authority. Remaining (under ORPHAN-216): consume in the other gates (`ScadaSocketService.connect`, api-client) + the AuthContext push.
 
 ## ORPHAN-MEDIUM-219 — PR-E adoption gate: useTenantQuery ratchet (raw createTenantQueryKey may only shrink)
+
 Found 2026-06-29 (tenant-panel PR-E / E-series, completes the A2 SSoT). Tenant hooks should use `useTenantQuery`/`useTenantMutation`, not hand-roll `useQuery` + `createTenantQueryKey` (where the cross-tenant-leak / missing-tenant / blank-on-error bugs hide). **Status: RESOLVED (2026-06-29 — added `tests/invariants/web-usetenantquery-adoption-ratchet.spec.ts` (jest layer-1): counts raw `createTenantQueryKey(` usages in `web/modules` + `web/shell/src` (excl tests), asserts `<= BASELINE_CEILING` 282 — the EXACT current count, so the ratchet is tight. A NEW raw usage fails CI → new tenant hooks must use the SSoT; migrating hooks lowers the count + the ceiling in lockstep. Green at 282/282.)** Complements the existing `aquaculture/no-bare-tenant-query-key` ESLint rule (warn — ensures tenant-SCOPING; this ratchet drives SSoT ADOPTION). The 282-usage migration backlog is tracked under [[ORPHAN-MEDIUM-216]].
 
 ## ORPHAN-MEDIUM-252 — ARIA mechanical drift compares TS entities against ARCHIVED (superseded) migrations → 100% phantom drifts
-Found 2026-06-29 (while testing the ARIA system end-to-end via the kernel CLI + acceptance harness). `tools/aria-poc/poc.py::detect_sql_enums` extracted `CREATE TYPE ... AS ENUM` from EVERY path containing `/database/migrations/`, including re-baselined migrations parked under `apps/<svc>/src/database/migrations/.archive/<timestamp>/`. Those archived files are git-tracked history but no longer describe the active schema, so the TS-vs-SQL value-set comparison ran against superseded enums and emitted phantom drift. Concretely measured on `origin/main`: 9/9 `drifts_above_threshold` cited a `.archive/` SQL ref; the acceptance harness even graded 5 of them `true_positive` (its deterministic check can only confirm "ref resolves + values differ + no gate", not "the SQL is superseded" — exactly the borderline `aria-accept`'s agent-validator layer is documented to downgrade). Proof: the harness-labelled-TP `goal` drift (`missing_in_ts: partially_completed`) is NOT a drift — the active `1800000000000-Baseline.ts` declares `hr.goals_status_enum` as `{NOT_STARTED,IN_PROGRESS,COMPLETED,CANCELLED,DEFERRED}`, byte-identical to the `GoalStatus` TS entity; `partially_completed` exists only in the archived migration. **Status: RESOLVED (2026-06-29 — added `is_archived_migration_path()` to `tools/shared/excluded_paths.py` as a file-level predicate and a guard in `detect_sql_enums` that skips archived migrations from the drift value-set corpus ONLY (they stay walked + fated by discovery, so git↔fs reconciliation is unaffected; `.archive` deliberately NOT added to `BASE_EXCLUDED_DIRS`). Tier-1: the phantom-drift class is now structurally impossible. Validation: `drifts_above_threshold` 9→0 on origin/main, acceptance harness OVERALL ACCEPT (drift_output_validation checked=0, unverifiable=0), 17/17 poc unit tests incl. 2 new regression tests, find_drifts real-repo bound + 15 shared-exclusion invariants green.)** Note: `aria-kernel/aria_kernel/discovery.py` migration COUNTS (`migration_ts_count`/`migration_sql_count`) also include archived files; that is a descriptive fingerprint stat, not a finding-producer, so it was left unchanged (separate decision if the count should exclude archives).
----
+
+## Found 2026-06-29 (while testing the ARIA system end-to-end via the kernel CLI + acceptance harness). `tools/aria-poc/poc.py::detect_sql_enums` extracted `CREATE TYPE ... AS ENUM` from EVERY path containing `/database/migrations/`, including re-baselined migrations parked under `apps/<svc>/src/database/migrations/.archive/<timestamp>/`. Those archived files are git-tracked history but no longer describe the active schema, so the TS-vs-SQL value-set comparison ran against superseded enums and emitted phantom drift. Concretely measured on `origin/main`: 9/9 `drifts_above_threshold` cited a `.archive/` SQL ref; the acceptance harness even graded 5 of them `true_positive` (its deterministic check can only confirm "ref resolves + values differ + no gate", not "the SQL is superseded" — exactly the borderline `aria-accept`'s agent-validator layer is documented to downgrade). Proof: the harness-labelled-TP `goal` drift (`missing_in_ts: partially_completed`) is NOT a drift — the active `1800000000000-Baseline.ts` declares `hr.goals_status_enum` as `{NOT_STARTED,IN_PROGRESS,COMPLETED,CANCELLED,DEFERRED}`, byte-identical to the `GoalStatus` TS entity; `partially_completed` exists only in the archived migration. **Status: RESOLVED (2026-06-29 — added `is_archived_migration_path()` to `tools/shared/excluded_paths.py` as a file-level predicate and a guard in `detect_sql_enums` that skips archived migrations from the drift value-set corpus ONLY (they stay walked + fated by discovery, so git↔fs reconciliation is unaffected; `.archive` deliberately NOT added to `BASE_EXCLUDED_DIRS`). Tier-1: the phantom-drift class is now structurally impossible. Validation: `drifts_above_threshold` 9→0 on origin/main, acceptance harness OVERALL ACCEPT (drift_output_validation checked=0, unverifiable=0), 17/17 poc unit tests incl. 2 new regression tests, find_drifts real-repo bound + 15 shared-exclusion invariants green.)** Note: `aria-kernel/aria_kernel/discovery.py` migration COUNTS (`migration_ts_count`/`migration_sql_count`) also include archived files; that is a descriptive fingerprint stat, not a finding-producer, so it was left unchanged (separate decision if the count should exclude archives).
 
 ## ORPHAN-HIGH-250 — production deploy health-gate crashes on `ERR_MODULE_NOT_FOUND: js-yaml`: deploy checkout never provisions node_modules → false `critical_health` + `rollback_failed` on every deploy
 
@@ -5722,176 +5907,244 @@ Severity: MEDIUM (non-fatal — admin-api stays healthy — but a scheduled job 
 Status: OPEN (owner: admin-expert / messaging-expert / multi-tenant-saas-expert). Registry: orphan-findings.md only.
 
 ## ORPHAN-MEDIUM-252 — #687 epoch regression: createTenantQueryKey-based invalidations match nothing for LIST queries
+
 Found 2026-06-29 (while continuing the PR-A migration backlog). #687 (session-epoch) appended a `{__sessionEpoch}` segment to `createTenantQueryKey`. A hook invalidating a LIST query via `invalidateQueries({ queryKey: createTenantQueryKey(tid, 'domain') })` now produces the prefix `['tenant', tid, 'domain', {epoch}]` — but the list query is `['tenant', tid, 'domain', filter, {epoch}]`, so the epoch lands at the filter's index and the prefix NO LONGER MATCHES: the invalidation silently hits nothing and create/update/delete stop refreshing their lists (detail/exact-match invalidations still work). `createTenantInvalidationKey` (the epoch-less prefix) is the correct helper. ~66 line-based / 68 true such callsites across sensor / tenant-admin / hr / shell. **Status: SSoT + biggest offender fixed + gated (2026-06-29 — (1) `useTenantMutation` now invalidates with `createTenantInvalidationKey`, + a functional regression test (a real list query is now invalidated) + a contract spec `tenant-invalidation-key.contract.spec.ts` pinning createTenantInvalidationKey-matches vs createTenantQueryKey-does-not; (2) fixed the biggest offender `useEdgeDevices` (24 invalidations); (3) added the ratchet gate `tests/invariants/web-no-createtenantquerykey-in-invalidate.spec.ts` (ceiling 44) so NO new broken invalidation lands + the remaining 44 burn down, and tightened the adoption ratchet 282→258. shared-ui 8/8 + sensor 1249/1249 + tsc clean.)** Remaining 44 callsites (sensor usePlcControl / useLoRaDevices / useAlertRules + tenant-admin / hr / shell + automation pages) burn down under the ratchet.
 
 ## ORPHAN-MEDIUM-253 — ARIA live LLM runtime migrated from Codex CLI to Claude Code CLI
+
 Found 2026-06-29 (operator directive: ARIA's autonomous executor must run on the Claude Code CLI — the same `claude` binary an operator drives — not Codex). The prior runtime (`tools/aria-poc/codex_runtime.py`, `codex exec --json -c model_reasoning_effort="xhigh"`, ChatGPT-managed Codex auth) is being replaced by a Claude Code CLI runtime (`claude -p --output-format stream-json --verbose --model <opus> --dangerously-skip-permissions`, managed Claude Code session auth, API-key/proxy-billing gated). **Status: IN-PROGRESS — landing in slices, each green.** Slice 1 (this PR): `tools/aria-poc/claude_runtime.py` runtime contract module + `aria-kernel/tests/test_claude_runtime_contract.py`, live-validated against the real Claude Code CLI v2.1.195 stream-json shape (system/assistant/result events; final text in `result`, token usage in `usage`). Model tier resolves from agent frontmatter via `resolve_claude_model` (fail-safe opus, consistent with the ARIA always-opus rule). Follow-up slices: rewire `ci_executor.py`/`worker_executor.py` + the proven-contract doc + GH `aria-agent-executor.yml` + the I-V3-21 argv / cost-record / preflight invariants (atomic, green); then delete `codex_runtime.py`, sweep kernel codex string refs, update CURRENT_STATE.md/CONTRACTS.md, and write the ADR superseding ADR-035. Reverses the 2026-05-25 Codex migration decision; historical Codex plan/review docs are kept as superseded design-history evidence per the ARIA authority chain.
 
 ## ORPHAN-MEDIUM-254 — ARIA autonomous-write needs a non-root (or sandboxed) Claude Code runner; preflight now fails closed
+
 Found 2026-06-29 (live-running the post-migration Claude Code CLI runtime). The Claude Code CLI REFUSES `--dangerously-skip-permissions` under root/sudo ("cannot be used with root/sudo privileges for security reasons"). ARIA's autonomous-write executor uses that full bypass to edit its assigned worktree, so on a ROOT runner (e.g. this droplet) every autonomous-write turn died with a cryptic `returncode 1` and empty stream-json. Read-only judge/scout turns (`skip_permissions=False`) are unaffected and worked live. **Status: CODE-SIDE RESOLVED + OPS-SIDE OPEN.** Code (this PR): `claude_runtime` gained `assert_write_runner_ok` (fail-closed at preflight for the full bypass AND `bypassPermissions` under root, with operator-actionable guidance instead of the cryptic exit), a configurable `permission_mode`, and `ARIA_CLAUDE_SANDBOX=1` → passes `IS_SANDBOX=1` to the CLI for a genuine isolated sandbox; documented in ADR-040; 8 contract tests. **Live-verified 2026-06-29:** `--dangerously-skip-permissions` AND `--permission-mode bypassPermissions` are BOTH root-blocked; `--permission-mode acceptEdits` is the root-COMPATIBLE autonomous-write lever — `run_claude_exec(permission_mode='acceptEdits')` autonomously wrote a real file (`ARIA_AUTONOMOUS_WRITE_OK`) as root in an isolated dir, returncode 0. **OPS-SIDE (owner: infra/operator, OPEN):** the production autonomous-write runner MUST be provisioned **non-root** (the recommended path — the flag then works with zero extra config) OR run inside an acknowledged sandbox. This is a deployment/runner-provisioning decision, not a code change. Validation that the non-root path works live is tracked as the follow-up to this finding (a dedicated non-root user + isolated worktree).
 
 ## ORPHAN-MEDIUM-255 — ARIA's own seeded beliefs/pressures used a glob evidence_ref → every full cycle failed the memory phase
+
 Found 2026-06-29 (running a full ARIA cycle live on the real repo). `aria-kernel/aria_kernel/memory.py` seeded the belief `repo-has-recurring-typeorm-migration-surface` and `pressure.py` the `migration_surface_repeat` pressure with `evidence(_refs)=["apps/*/src/database/migrations/*.ts"]` — a GLOB. ARIA's own L1 Grounded-Evidence verifier (`evidence_trust.classify_evidence_ref`) resolves a glob to `missing`, so the memory phase raised `evidence_ref_not_repo_verified` and **every full `cycle run` on the real repo ended `status=failed`** (the cycle fail-closed on its OWN unverifiable seed — discipline correct, seed evidence wrong). All sibling seed beliefs (`nx.json`, `package.json`, `web-modules-missing-project-json`) already used concrete refs; the migration belief was the lone glob. **Status: RESOLVED (architectural, this PR).** `discovery._repo_fingerprint` now surfaces `migration_evidence_paths` — a bounded list of CONCRETE active (non-`.archive`) migration `.ts` paths, exactly mirroring the `web_modules_missing_project_json` SSoT pattern; `memory.py` + `pressure.py` seed from those paths (gated on non-empty). Regression made impossible (Tier-3): `test_seed_evidence_concrete.py` asserts the fingerprint paths are concrete + repo-verifiable AND statically forbids any `*`-glob in an `evidence`/`evidence_refs` literal in the kernel seed sites — so no future seed site can reintroduce the class. **Verified live:** the full cycle now `status=completed` (failed_phases=[]); the belief carries real evidence (`apps/ai-service/src/database/migrations/1800000000000-Baseline.ts`, …).
 
 ## ORPHAN-MEDIUM-256 — ARIA cycle had no live observability (black box until completion); added --progress live stream
+
 Found 2026-06-30 (operator could not see ARIA's logs while a cycle runs). A `cycle run` computes every phase IN MEMORY and writes its ledgers atomically at the END — empirically verified: during a full run governance.jsonl stays at 2 rows, stderr is empty, and the tools-dir file count never changes until completion, when the final JSON envelope lands on stdout. So an operator watching a ~2.5-minute run (the per-file fate+content-hash scan of ~9553 files dominates) sees nothing but a black box. **Status: RESOLVED (this PR).** New `aria_kernel.cycle_progress.emit_progress` streams one structured JSON line per phase boundary to STDERR (flushed), gated by `ARIA_CYCLE_PROGRESS` / `cycle run --progress`; default OFF → zero behaviour change, and the emitter NEVER raises (observability must not break a cycle). Wired ticks: `cycle_started` → `discovery` (+ `discovery_scan scanned=N/total` every 2000 files during the long walk) → `tools` → `memory` → `pressure` → `reflection` → `cycle_completed{status}`. Stdout still carries ONLY the final envelope, so `2> progress.log` (tail -f / Monitor) gives a live view without corrupting the machine-readable result. **Verified live:** the scan now streams `scanned=0/2000/4000/6000/8000/9553` in real time (was total silence). 5 emitter tests; the snapshot comprehension→loop change keeps fates byte-identical (201 discovery/snapshot/cycle tests green).
 
 ## ORPHAN-MEDIUM-257 — per-service impact-graph-ordered analysis primitive (whole-repo-at-once → dependency-ordered service lens)
+
 Found 2026-06-30 (operator design review: ARIA examined the repo as one whole-repo snapshot with no first-class per-service, dependency-ordered examination stage). discovery MUST scan the whole repo once (it builds the snapshot + the project dependency graph), but the examination stage then benefits from a per-service lens walked in TOPOLOGICAL dependency order — upstream foundational layers first — so a downstream service is analysed with its upstream already understood and an upstream change's ripple reaches its dependents. **Status: PRIMITIVE LANDED (this PR); per-service phase-wiring is the next slice.** `impact_graph.build_service_analysis_order(graph)` orders the existing project dependency graph (`{projects, dependencies}` from the nx graph or local import scan) into topological layers (layer 0 = no in-graph deps), name-sorted within a layer for determinism, cycles broken by forcing the smallest stuck node (recorded in `cycle_broken_projects`) so the order is always TOTAL + STABLE; each entry carries `depends_on` (already-understood context) + `dependents` (ripple targets). `plan_service_analysis_order(workspace_root, changed_files=…)` annotates each service with its changed-file count and surfaces `impacted_projects` = changed services ∪ their downstream reverse-closure (the cross-service ripple). Surfaced via `aria-kernel impact service-order [--nx-graph <f>] [--changed-file <p>]` (operator-observable; `--nx-graph` is the authoritative fast source, local import-scan the fallback). NOT wired into the per-cycle path: the import scan is a second full filesystem pass and would roughly double cycle time, and the order only changes when project structure/imports change — so it is on-demand. 6 invariants lock validity (valid topological order, complete, deterministic, cycle-total, self/unknown-edge handling, real-layout ripple). Realizes the operator's "full scan → split per-service in logical order, cross-service ripple via dependents" model; the next slice consumes this order in the pressure/finding examination phases.
 
 ## ORPHAN-MEDIUM-258 — cycle now produces a per-service dependency-ordered examination plan (slice 2: consume the order in-cycle)
+
 Found 2026-06-30 (slice 2 of ORPHAN-MEDIUM-257). Slice 1 landed the topological service order primitive but did not consume it in the cycle. Now `run_enterprise_cycle` produces a `service_examination` in its state: when this cycle changed files (`cycle_diff.changed_paths`), it maps changes to services and surfaces the **changed services + their downstream ripple** (`impacted_projects` = changed ∪ reverse-closure) in **dependency (topological) order** so the examination walks upstream-before-downstream (each entry tagged `reason`=changed|downstream_impact). **Status: RESOLVED.** `impact_graph.cycle_service_examination` reuses `cached_service_analysis_order` — the order is cached in a plain `tools/impact/service-order-cache.json` keyed by a cheap `_graph_fingerprint` (sorted project roots + tsconfig.base.json; NO `*.ts` read), so the expensive import scan runs ONLY when the project layout/aliases change (verified: 2nd call hits the cache, no re-scan). No per-cycle regression: skipped on a no-change baseline (so CI `discovery run` and baseline cycles pay nothing), wrapped in try/except (never fails the cycle), and the cache `.json` is NOT a declared ledger so `verify_artifacts`/`integrity verify` ignore it (verified exit 0). **Verified live on the real repo:** an upstream `libs/event-contracts` change ripples to 21 services examined L0→L9 (event-contracts first → … → backend-common L6 → platform-event-bus L7 → leaf apps L9). 10 invariants (cache hit/invalidation, ripple-in-dependency-order, no-change-empty). Next: consume `service_examination` inside the pressure/finding emitters to scope findings per-service.
 
 ## ORPHAN-MEDIUM-259 — pressures scoped per-service + grouped in dependency order (slice 3: consume the order in the emitters)
+
 Found 2026-06-30 (slice 3 of ORPHAN-MEDIUM-257/258). Slices 1-2 built the topological service order + a per-service examination plan, but pressures were still whole-repo. Now `cycle_service_examination(pressures=…)` scopes EACH pressure to the service(s) its `evidence` paths map to (`affected_services`) and emits `per_service_pressures` — pressures grouped per-service in the SAME dependency (topological) order (upstream first); a pressure whose evidence maps to no project lands in `global_pressures` (cross-cutting). The cycle passes its pressure-phase output in and runs the scope when there is a change OR a pressure (no per-cycle regression: cached order, skipped on a truly empty cycle, try/except, no new ledger). **Verified live on the real repo:** the `migration_surface_repeat` pressure (concrete ai-service/alert-engine migration evidence from ORPHAN-MEDIUM-255) is now scoped to `ai-service` (L3) + `alert-engine` (L4) and grouped in dependency order; cycle `status=completed`. 14 invariants across slices 1-3. **Status: RESOLVED.** The operator's "full scan → split per-service in logical order, cross-service ripple, scope the findings per-service" model is now realized end-to-end (discovery global → examination per-service-in-dependency-order → pressures scoped per-service). Next natural step: scope tool-emitted findings (finding.py) the same way and let the per-service plan drive WHICH tools run per service.
 
 ## ORPHAN-MEDIUM-260 — per-service plan routes to the owning domain agent + flags coverage gaps as genesis candidates (slice 4)
+
 Found 2026-06-30 (slice 4 of the per-service line; ORPHAN-MEDIUM-257/258/259). The per-service examination plan listed services + pressures but did not say WHICH agent should examine each. Now each `examination_order` entry carries `recommended_agents` = {primary, also_notify}, read from the **Lane-A routing SSoT** (`.claude/shared/orchestrator-routing-table.md`) — the SAME table the orchestrator dispatches from, not a new map. A service whose project root matches no routing glob has empty `primary` → it is surfaced in `agent_coverage_gaps`, which is exactly an **agent-genesis candidate** (verified: ARIA can write agents/skills via `agent_genesis.draft_agent_from_gap`→sandbox→DRAFT-PR, gated by genesis_policy: 0.80 existing-coverage threshold, signed operator feedback, real-sandbox lanes, 14-day/5-clean-cycle/10-eval shadow, 0.95 precision, human acknowledge — 78 genesis tests green). **Verified live on the real repo:** an upstream `libs/event-contracts` change → 21 services each routed to its owner (event-contracts→data-expert, alert-engine→alert-engine-expert, backend-common→8 agents, billing→billing-expert, sensor→sensor-expert) in dependency order, with `migration-harness` correctly flagged as a real coverage gap (no owning agent). `agent_routing.py` parses the markdown table (99 rows), strips placeholders/parentheticals, matches project roots to globs (whole-project, sub-area, and broader-surface). **Status: RESOLVED.** The operator's full model is now realized end-to-end: discovery (global) → examination (per-service, dependency-ordered) → pressures (scoped per-service) → recommended agents (routing SSoT) → coverage gaps (genesis candidates). 11 invariants. Next: let the cycle auto-open a genesis request for a confirmed coverage gap (still human-approved per genesis_policy).
 
 ## ORPHAN-MEDIUM-261 — coverage-gap → genesis candidate (slice 5: routing coverage gaps feed the human-gated genesis flow)
+
 Found 2026-06-30 (slice 5; continues ORPHAN-MEDIUM-257..260, plan serialized-plotting-flute). Slice 4 surfaced services with no owning routing-table agent (`agent_coverage_gaps`) but did not act on them. Now `capability_gap.detect_capability_gaps` has a new source `_gaps_from_coverage_gaps`: a service whose routing-table `primary` owner is empty (`agent_routing.unowned_projects`, whole-repo, reuses the slice-2 cache — no rescan) AND that carries an active pressure this cycle becomes an agent-genesis candidate. It routes to `existing_agent_extension` when `related_agents_for_paths` finds a neighbour (prefer extension), else `agent_gap`; evidence = the routing table + the service's pressure evidence; score 75 (≥ genesis `pressure_min_score` 70). It feeds the EXISTING human-gated flow (`learning._skill_or_agent_genesis` → `request_agent_genesis` → draft → real sandbox → `approve_agent_pr(operator_approval_ref)` → DRAFT PR → `materialize_agent_draft(AutoActionGate)`), governed by `genesis_policy` (0.80 coverage, ≥3 evidence, 14d/5-clean/10-eval shadow, 0.95 precision, human acknowledge). **Status: RESOLVED.** Requiring active pressure keeps it low-noise (an inert unowned lib files nothing). No new ledger surface, no new cycle plumbing. **Observe-safe by structural proof:** `burn_in.py` calls `triage_policy_apply` (discovery/memory/pressure/triage only) and has ZERO references to `detect_capability_gaps`/`_skill_or_agent_genesis` — the new source is unreachable from a burn-in observe run, so it cannot grow an action-class surface there. Verified: 6 invariants + 111 capability/learning/genesis/routing tests green; full cycle `status=completed`; `integrity verify` exit 0. Next (slice 6): wire burn-in PASS → autonomy unlock ladder + operator CLI for L3 two-stage approval.
 
 ## ORPHAN-MEDIUM-262 — burn-in → autonomy unlock ladder bridge (slice 6a)
+
 Found 2026-06-30 (slice 6a; plan serialized-plotting-flute Part 2). The autonomy ladder existed (`autonomy_unlock` acceptance events + L1/L2/L3 thresholds; `policy_approval` L3 two-stage; `merge_authority` 9 gates) but had a documented unwired gap: `run_observe_burn_in` produced an evidence-only `autonomy-burn-in-report.json` and **never called `record_acceptance_event`**, so a passing observe burn-in did not advance the unlock ladder (the `autonomy_ladder.record_clean_cycle` bridge was only exercised in tests). **Status: RESOLVED.** New `autonomy_ladder.record_burn_in_acceptance(report, mode, base_dir)` bridges a PASSED burn-in into the ladder by recording one `observe_success` per valid cycle (each valid cycle IS a harness-accepted clean observe). Safety posture: **fail-closed** (a report whose `acceptance_verdict != "passed"` records nothing), **idempotent** (each event carries reason `burn_in_observe:<cycle_id>`; re-running the bridge skips already-recorded cycles — verified re-run records 0/skips N), and **operator-invoked, NOT auto-called from `run_observe_burn_in`** so advancing the ladder stays an explicit reviewed step. It records ladder PROGRESS only — it never grants autonomous merge: `DEFAULT_PROFILE` stays `standard`, `pr_merge` still needs the `autonomous` profile, and the full ladder (L1 30 observe → L2 → L3 +5 two-stage approvals +3 rollback +0 critical) plus `policy_approval` two-stage human gate remain. This PR touches `aria-kernel/**` (the L3 risk lane) but removes/weakens no gate. 7 invariants + 39 autonomy/burn-in/ladder/unlock tests green. Next (slice 6b): operator CLI for `autonomy unlock status`, `autonomy burn-in accept` (invokes this bridge), and `policy-approval record/verify`.
 
 ## ORPHAN-MEDIUM-263 — operator CLI for the autonomy ladder + L3 approval (slice 6b)
+
 Found 2026-06-30 (slice 6b; completes plan serialized-plotting-flute Part 2). The burn-in→ladder bridge (slice 6a) + the L3 two-stage `policy_approval` existed as library functions but had NO operator CLI — the L3 human-approval path was not operable from the command line. **Status: RESOLVED.** Added three operator surfaces to `cli.py`: (1) `aria-kernel autonomy burn-in accept --report <path> [--mode real|mock]` invokes `record_burn_in_acceptance` (fail-closed: rc 2 + records nothing when the report verdict is not `passed`); (2) `aria-kernel autonomy unlock status --lane L1|L2|L3` prints the read-only `evaluate_autonomy_unlock` view (lane, unlocked, counts, requirements, reasons); (3) `aria-kernel policy-approval record/verify` drives the L3 two-stage approval — `record` files one stage (`risk_owner`|`exception_owner`, state=approved), `verify` requires both stages by DISTINCT actors (separation of duties) on a matching pr/head_sha/policy_hash, unexpired. All three are in `_TOOLS_DIR_REQUIRED_COMMANDS` (explicit `--tools-dir`, no walk-up for the autonomy control plane) and their dests registered in `_command_path`. `record` catches `GovernanceError` → clean JSON error + rc 2 (e.g. `policy_approval_head_sha_must_be_full_sha`, `policy_hash` must be `sha256:`-prefixed). **Records ladder progress / approvals only — grants no autonomous merge** (DEFAULT_PROFILE stays `standard`; full ladder + the two-stage gate remain). L3-lane change (`aria-kernel/**`). 8 invariants + 68 cli/autonomy/policy-approval/ladder tests green; live E2E verified (accept→status reflects N; two distinct actors → verify valid; same actor → separation-of-duties fail; invalid input → clean rc 2). The plan's two named thresholds (coverage-gap→genesis #764, burn-in→L3 line #765 + this) are now both wired, every consequential step human-gated and fail-closed.
 
 ## ORPHAN-MEDIUM-264 — farm read-boundary stragglers (3 reads bypassed runInTenantRead) — RESOLVED
+
 Found 2026-06-30 by data-readback-auditor (lead-verified firsthand). Three farm reads used `InjectRepository(...).findOne({where:{id,tenantId}})` on the SHARED pool, not the fail-closed `runInTenantRead` boundary — so a lost/wrong pooled-connection `search_path` silently resolves the wrong schema or RLS-denies to empty (the "data appears then disappears" mode): `batch/query-handlers/get-batch-performance.handler.ts:45` (+ its species fallback), `growth/resolvers/growth.resolver.ts:416` (`growthMeasurement(id)`), `feeding/resolvers/feeding.resolver.ts:936` (`feedingRecord(id)`). **Fix:** migrated all three to `runInTenantRead(this.dataSource,'farm',tenantId,qr=>qr.manager.findOne(...))` (canonical pattern `batch/query-handlers/get-batch.handler.ts:30`); removed `get-batch-performance` from the read-boundary deferral allowlist (now enforced). **Make-it-detectable:** extended `tests/invariants/farm-read-boundary-ssot.spec.ts` — the existing invariant only scanned `*.handler.ts`/IQueryHandler, missing resolver-level reads; added a resolver scan flagging any farm `*.resolver.ts` with a direct `this.<x>Repository.find*` tenant read, with growth+feeding now enforced. 4/4 invariant green; tsc + eslint clean. PR fix/farm-read-boundary-stragglers.
 
 ## ORPHAN-MEDIUM-265 — 6 farm resolvers still do direct-pool tenant reads (tracked deferral)
+
 Found 2026-06-30 (companion to ORPHAN-MEDIUM-264). The new resolver read-boundary invariant tracks 6 farm resolvers that still read tenant entities directly off `@InjectRepository` instead of `runInTenantRead`/the query bus: `feeding/resolvers/feeding-program.resolver.ts` (36 direct reads), `batch/resolvers/cleaner-fish.resolver.ts` (3), `tank/resolvers/tank.resolver.ts` (2), `feed/feed.resolver.ts` (1), `chemical/chemical.resolver.ts` (1), `supplier/supplier.resolver.ts` (1). They are allowlisted in `farm-read-boundary-ssot.spec.ts` (RESOLVER_READ_BOUNDARY_ALLOWLIST) and the allowlist-honest test forces the list to SHRINK as each migrates. Deepest fix per resolver: route the read through `runInTenantRead` or move it to a CQRS query-handler. Owner: farm; deadline: next farm read-boundary slice.
 
 ## ORPHAN-MEDIUM-266 — stock-movement events bypassed the outbox (at-most-once) — RESOLVED
+
 Found 2026-06-30 by farm-expert (lead-verified firsthand). `storage/handlers/record-stock-movement.handler.ts` published `StockMovementRecorded` + `LowStockDetected` via direct `eventBus.publish` in a swallow-catch AFTER the transaction committed — at-most-once: a NATS outage between commit and publish silently drops the event, and for stock-reducing movements that drop includes the LowStockDetected **reorder alert** (a traceability/alerting path the rest of the domain guarantees transactionally). The docstring even claimed "Outbox-pattern principle" while not using the outbox. **Fix:** enqueue both events via `OutboxPublisher.enqueue(event, manager)` INSIDE the movement transaction (canonical pattern `batch/handlers/create-batch.handler.ts:549`), so the outbox row commits atomically with the inventory write (at-least-once; a relay worker delivers them). Removed the `@Optional() EVENT_BUS` dependency + the lossy try/catch; the low-stock feed read moved inside the transaction (`manager.findOne(Feed,…)`). OutboxPublisher is reachable via the `@Global()` FarmOutboxModule (no module change). **Make-it-detectable:** new `tests/invariants/farm-outbox-publish-ssot.spec.ts` (registered in the layer-3 jest project) fails the build if any farm `ICommandHandler` reintroduces a direct `eventBus.publish(` (comments stripped first); all farm command-handlers are now clean. 4-case behavior spec proves the enqueue/idempotent/low-stock paths; tsc + eslint clean. PR fix/farm-stock-movement-outbox.
+
 ## ORPHAN-MEDIUM-267 — WQ template "overwrite" was a destructive replace that wiped tenant data — RESOLVED
+
 Found 2026-06-30 by farm-expert (lead-verified firsthand). `water-quality/handlers/bulk-create-from-template.handler.ts` overwrite mode ran `queryRunner.manager.delete(WaterQualityParameterConfig,{tenantId})` then bulk-inserted template defaults — destroying every tenant-tuned per-parameter threshold (optimal/warning/critical Min/Max, speciesLimits) AND every CUSTOM (non-template) parameter. **Fix:** replaced delete-all + insert with **update-or-insert per parameter BY CODE** inside the tenant transaction — an existing row is updated in place (id preserved), a missing one is inserted, and rows whose code is not in the template (custom params) are left untouched. No delete. **Make-it-detectable:** new `tests/invariants/farm-wq-template-nondestructive-ssot.spec.ts` (registered in the layer-3 jest project) fails the build if any water-quality handler reintroduces a tenant-wide `delete(WaterQualityParameterConfig,{tenantId})`. Updated the handler unit spec: the old "deletes existing configs" test → "upserts by code, never deletes, preserves custom params" (asserts delete not called, custom param absent from the save set, existing template-code row keeps its id). 3/3 spec + invariant green; tsc + eslint clean. PR fix/farm-wq-template-nondestructive.
+
 ## ORPHAN-MEDIUM-268 — growth performance graded on abs(variance), conflating under/over — RESOLVED
+
 Found 2026-06-30 by farm-expert (lead-verified firsthand). `growth/entities/growth-measurement.entity.ts:586` `evaluatePerformance()` took `Math.abs(variancePercent)` for the middle bands, so a batch 15% BELOW theoretical scored the same band as 15% ABOVE — masking the earliest underperformance signal (e.g. -8% under graded AVERAGE instead of BELOW_AVERAGE). **Fix:** signed bands — over-target is good→excellent, under-target degrades by magnitude: `>10` EXCELLENT, `0..+10` GOOD, `-5..0` AVERAGE, `-15..-5` BELOW_AVERAGE, `<-15` POOR; updated the GrowthPerformance enum comments (the in-code SSoT) to match. **Make-it-detectable:** a logic bug's guard is a regression spec — new `growth-measurement-performance.entity.spec.ts` pins each band + explicitly asserts gradeFor(8) != gradeFor(-8) and gradeFor(15) != gradeFor(-15) (the exact abs() conflation). 4/4 new spec + 8/8 existing record-growth-sample spec green; tsc + eslint clean. PR fix/farm-growth-signed-performance-bands.
+
 ## ORPHAN-MEDIUM-269 — Sentinel-Hub had no token cache → per-tile OAuth + DB-write storm — RESOLVED
+
 Found 2026-06-30 by farm-expert (lead-verified firsthand). `sentinel-hub/sentinel-hub.service.ts` `getAccessToken()` did a fresh CDSE `client_credentials` OAuth POST on EVERY call, and the credential read it requires (`getDecryptedCredentialsInternal`) opened a `runInTenantTransaction` that wrote `usageCount`/`lastUsed` each time; the proxy controller invokes it per request, so a single map pan (dozens of WMS tiles) fired dozens of OAuth round-trips + DB write transactions — no tenant-scoped cache, no in-flight dedup, burning the Sentinel Hub rate quota. **Fix:** per-tenant token cache (`Map<tenantId,{accessToken,expiresAt}>`) served until `TOKEN_REFRESH_MARGIN_MS` (60s) before expiry + in-flight refresh dedup (`Map<tenantId,Promise>`) so concurrent refreshes share ONE OAuth call. The expensive path moved to `fetchFreshToken`; `getAccessToken` is the cache/dedup wrapper. Cache invalidated on credential change (`saveSettings`). The per-request `usageCount` write now happens per token-fetch (cache miss), not per tile. **Make-it-detectable:** a perf/cache fix's guard is a regression spec — new `sentinel-hub-token-cache.service.spec.ts` pins cache-hit-serves-without-refetch, concurrent-dedup, invalidate-re-authenticates, and tenant isolation. 4/4 spec green; existing sentinel specs green; tsc + eslint clean. PR fix/farm-sentinel-token-cache.
+
 ## ORPHAN-MEDIUM-270 — feedingSummary read-back contract drift (dead feeding-summary tab) — RESOLVED
+
 Found 2026-06-30 by data-readback-auditor (lead-verified firsthand). `feeding/resolvers/feeding.resolver.ts:998` `feedingSummary` returned the flat `FeedingSummaryResult` from the queryBus UNMAPPED, but the GraphQL `FeedingSummaryResponse` requires differently-named/absent non-nullable fields (startDate/endDate, totalFeedGivenKg=totalActualKg, totalFeedings=totalFeedingsCount, avgFeedingKg=avgDailyFeedingKg, totalCost=totalFeedCost, varianceKg=totalVarianceKg, variancePercent=avgVariancePercent, byFeedType=feedTypeDistribution+cost) → GraphQL "Cannot return null for non-nullable field" → the feeding-summary tab errored for every entity though FeedingRecords exist. **Fix (backend-only, no schema change → no codegen/FE ripple):** added a `toFeedingSummaryResponse` mapper in the resolver; extended the handler to carry the effective period (startDate/endDate from the requested range, else the records' own min/max feedingDate) and per-feed-type `cost` (accumulated from `record.feedCost`); added both to `FeedingSummaryResult`. **Make-it-detectable:** new `feeding-summary-response-contract.spec.ts` mocks the queryBus and asserts the resolver returns a FULLY-populated response (every non-nullable @Field defined + correctly renamed, byFeedType[].cost present) — the exact prior failure mode. 2/2 contract spec + 2/2 existing handler spec green; tsc + eslint clean. Companion: growth `growthAnalysis` (ORPHAN A1) is the larger sibling (needs ~10 computed nested fields) — tracked separately. PR fix/farm-feeding-summary-readback.
+
 ## ORPHAN-MEDIUM-271 — no cross-surface real-time sync on mobile (stale tank counts) — mobile side RESOLVED
+
 Found 2026-07-01 (operator: mobile app showed 719/83/98 fish while the web tenant panel /sites/tanks showed 900/83/180 for the same tanks; changes on one surface do not reflect on another until a poll/refetch). Two causes: (1) count-SSoT drift (batchDetails[] stale — being fixed by the parallel TankBatch-SSoT stream #776/#777/#778/#779), and (2) NO frontend consumer of the live farm event stream. The backend already broadcasts 23+ farm events to the tenant Socket.IO room `/farms` (command → outbox → NATS → FarmNatsBridge → FarmGateway) but nothing on the frontend listened, so caches stayed stale until the 1-min staleTime. **Mobile side RESOLVED (this PR):** new `web/apps/aquamobil/src/hooks/useFarmRealtimeSync.ts` subscribes to `/farms` (JWT auth, gateway auto-joins tenant room) and, on each farm event, invalidates the mapped React Query keys via `farm-realtime-invalidation.ts` (the cross-surface analogue of `offline-sync-invalidation.ts`: mortalityRecorded/cullRecorded/batchTransferred/batchAllocatedToTank/feedingRecorded → ['tanks'],['dailyOpsCounts'],['stockEventsSummary'], etc.); reconnect invalidates the whole farm namespace to catch missed events. Mounted in MobileLayout so it is active on all farm screens. Now any mutation anywhere → outbox event → /farms broadcast → this app refetches within ~1s (mobile↔mobile + web→mobile). 5 vitest cases pin the event→queryKey map + tenant-prefix + reconnect union; tsc + eslint clean. **Sibling still open:** the web farm-module needs the same `/farms` listener for web↔web + mobile→web (follow-up PR). Depends on deploy (prod is stale) + the parallel count-SSoT fix for the numbers to fully converge. PR feat/farm-realtime-sync-mobile.
 
-
 ## ORPHAN-HIGH-272 — harvest bypassed the TankBatch SSoT writer (stale batchDetails, mobile↔web count drift) — RESOLVED
+
 Found 2026-07-01 while completing the tank-count SSoT (operator: web /sites/tanks showed 900, mobile 719). The parallel TankBatch-SSoT stream routed allocate/mortality/cull/transfer through TankBatchService.applyBatchDelta (#776/#777/#778/#779), but **harvest was missed**: `create-harvest-record.handler.ts` and `delete-harvest-record.handler.ts` still decremented/incremented `TankBatch.totalQuantity`/`currentQuantity`/`totalBiomassKg` by hand and never touched `batchDetails[]` — the per-batch SSoT the web (batchDetails[].quantity) + mobile (projection) read models render. So harvesting fish left batchDetails stale = the same 719-vs-900 divergence class, for harvested tanks. **RESOLVED (this PR):** both handlers route through `applyBatchDelta` (signed delta — negative on harvest, positive on the cancellation reversal); it decrements/restores batchDetails[] and derives every aggregate in lock-step, removing the batch from the composition at zero. Regression specs assert each handler calls applyBatchDelta with the correct signed delta (create 9/9, delete 7/7 green). Reuses the parallel stream's SSoT writer — no duplicate writer.
 **Coordinated follow-up (NOT done here, harmony):** a systemic make-it-detectable invariant that NO farm HANDLER mutates TankBatch.totalQuantity/currentQuantity/batchDetails/totalBiomassKg directly (all count writes through TankBatchService) — deferred to the TankBatch-SSoT stream owner because it must allowlist the legitimate initial-creation sites (create-batch.handler, batch.service.ts) + the service-level biomass update in daily-feeding-execution.service.ts:890 (a separate biomass-drift finding). Owner: farm TankBatch-SSoT stream; the guard locks in #776-779 + this PR.
+
 ## ORPHAN-MEDIUM-273 — carbonic-acid K1/K2 used a seawater-only fit → Deffeyes chart wrong in fresh/brackish water — RESOLVED
+
 Found 2026-07-01 (verified firsthand: ran the water-chemistry SSoT reference — the desktop PyQt `wq`/`carbon` classes — against the repo TS engine on an identical (T,S,pH,ALK) grid via a tsx harness). `libs/aquaculture-engines/src/water-chemistry/water-quality.ts` `getK1`/`getK2` used a linear-in-S ("Millero 2010 Table 2") fit with NO √S term — a seawater-calibrated parameterization. It matched the reference at S≈35 (Δp*K* ≈ 0.004/0.01) but drifted badly toward freshwater: at S=0.5 p*K*₂ was ~0.9 LOW (K₂ ~8× too high), and at S=0 it gave p*K*₁=6.12/p*K*₂=9.41 vs the thermodynamic pure-water 6.35/10.33. This propagated to α₀/α₁/α₂, phLineSlope, DIC, and CO₂ — i.e. every Deffeyes isoline / operating-point DIC / CO₂ readout was materially wrong in fresh & brackish water (measured downstream error at S=0.5: DIC 11%, CO₂ 35%; at S=5: CO₂ 9%). All OTHER constants (KS, KF, Kw, KB, activity coeff, all pH-scale conversions, KNH4/NH₃) already matched the reference exactly. **Fix:** replaced both bodies with the genuine Millero (2010) estuarine √S fit (pure-water term `-126.34048 + 6320.813/T + 19.568224·lnT` + √S salinity terms), valid S=0–50 — the exact formulation the SSoT desktop app uses. SWS-scale return + the existing `swsToFree` conversion chain are unchanged, so no scale semantics move. Post-fix the tsx harness shows TS==reference to ≤1e-7 at ALL salinities (freshwater downstream error 35% → 0.00%). **Make-it-detectable:** new `__tests__/k-constants.spec.ts` — literature-anchored p*K* at S=0/35, a REGRESSION GUARD asserting p*K*₂(25,0.5) > 9.9 + monotonic-in-salinity (fails loudly if a linear-in-S seawater fit is reintroduced), and end-to-end freshwater speciation goldens (α₂, DIC, CO₂) pinned to the reference. 11/11 engine tests + tsc + eslint clean.
+
 ## ORPHAN-MEDIUM-274 — hydroponics PID-simulator carbonate engine is a hand-copied duplicate (SSoT drift) — TRACKED
+
 Found 2026-07-01 (companion to ORPHAN-MEDIUM-273). `web/modules/hydroponics-module/src/pages/pid-simulator/engine/carbonate-chemistry.ts` is a self-described "fully self-contained" hand-copy of the `@platform/aquaculture-engines` water-quality core (getK1/getK2/calcKw/ionic-strength/pH-scale/alphas/Deffeyes calcs). It carried the SAME wrong seawater-only K1/K2 as 273 — worse here because hydroponics runs at S≈0, exactly where the fit fails. Its K1/K2 have been corrected in place to match the fixed SSoT (verified via tsx: p*K*₂(25,0.5)=10.008). Two residual drifts remain in this copy: (a) the duplication itself — a web module CAN import the engine (farm-module's WaterChemistryPage and ai-service already do; the engine is browser-safe), so the copy should be deleted and re-exported from `@platform/aquaculture-engines` (tier-1 "make it impossible" — kills the drift class + inherits the engine's tests); (b) its `calcKw` constant reads `148.9802` vs the SSoT/reference `148.9652` (small pKw drift, not touched this pass to keep the change K1/K2-scoped). The module has NO vitest target wired, so it currently has no test guard. Deepest fix: dedupe against the engine (which brings the k-constants guard with it). Owner: hydroponics/frontend; deadline: next hydroponics chemistry slice.
+
 ## ORPHAN-MEDIUM-275 — dosing recipes: uncurated hard cap dropped practical recipes — RESOLVED
+
 Found 2026-07-01 (verified firsthand: ran the reference desktop tool's recipe formulas against the repo TS `calculateDosingRecipes` on identical DIC/ALK operating points). The per-recipe dosing MATH is exact — TS reproduces every reference recipe to the gram (CO₂+NaHCO₃ 42.004/22.005, CO₂+Na₂CO₃ 26.497/33.008, CO₂+NaOH 19.998/44.010, CO₂+CaCO₃ 25.022/33.008, CO₂+Ca(OH)₂ 18.523/44.010, CO₂+CaO 14.019/44.010). The defect was enumeration/curation: `reagents.ts` enumerated all reagent pairs and returned `recipes.slice(0, 6)` with NO ranking, so when the operator also selected HCl, geometrically-feasible-but-counter-productive recipes (add a base to overshoot ALK, then HCl to trim the excess: NaHCO₃+HCl, Na₂CO₃+HCl) consumed cap slots and DISPLACED the practical lime recipes (CaO, Ca(OH)₂). The reference never shows these because it only pairs each base with CO₂. **Fix (tier-2, make the practical default): `isCounterProductiveRecipe` drops any two-reagent recipe whose steps push alkalinity in OPPOSITE directions (one adds, one removes — CO₂ is ALK-neutral so base+CO₂/acid+CO₂ are never flagged), UNLESS it is the only feasible option (fallback so the operator still gets an answer); the survivors are ranked by `recipePriority` (reagent position in the curated REAGENTS list, NaHCO₃-first) BEFORE the 6-cap.** Removed the dead `pairKey` no-op. **Make-it-detectable:** new `__tests__/reagents.spec.ts` (6 cases) — asserts no counter-productive HCl recipe survives when practical ones exist, CaO+Ca(OH)₂ are kept, NaHCO₃+CO₂ ranks first, the per-recipe goldens are unchanged, the sole-option fallback still returns a recipe, and at-target returns []. 21/21 engine tests + tsc + eslint clean. Note: the newer PyQt reference does NOT compute acid/alkalinity-LOWERING recipes (`else: "work continues"`) whereas TS does (geometric) — TS is the superset there; and H₃PO₄ + acid-SPGR density conversion existed only in an older reference snippet, absent from both the current reference and TS (a feature add, not a parity gap).
+
 ## ORPHAN-MEDIUM-276 — water-chemistry page had two pH knobs; H₂S must use the single realtime pH — RESOLVED
+
 Found 2026-07-01 (operator report on app.suderra.com/sites/water-chemistry, verified in code). The Realtime panel exposed TWO pH inputs: the water `pH` and a separate `h2sMeasuredAtPH` ("H₂S pH", default 7.0), resolved via `resolveH2SMeasuredAtPH`. Every H₂S calc (toxic-zone boundary, `calcTotalSulfide`, `currentH2S`, status, critical pH) ran off that separate pH, while CO₂ and NH₃ ran off `inputs.pH` — so H₂S could silently diverge from the rest of the chart. H₂S is measured in-situ, so its measurement pH IS the tank's current pH. **Fix:** removed the separate `h2sMeasuredAtPH` input + `resolveH2SMeasuredAtPH`; `WaterChemistryPage` now sets `h2sMeasuredAtPH = inputs.pH` so H₂S/CO₂/NH₃ all share the single realtime pH. Dropped the redundant "H₂S measured at pH" readout row + `ResultsPanel` prop; simplified the "@ pH" subtitle annotations; updated README. The engine's `ToxicLimits.h2sMeasuredAtPH` param is unchanged (still general for library callers) — only the page always feeds the one pH. **Make-it-detectable:** the spec that exercised the old input was rewritten to assert the separate 'H₂S pH' input and its readout are GONE. farm-module water-chemistry specs green; tsc + eslint clean. (See also the H₂S scale analysis: the engine computes H₂S on the FREE scale correctly — this finding is about the UI having one vs two pH knobs, not the scale.)
+
 ## ORPHAN-MEDIUM-277 — NH₃ (UIA) safety-zone shading vanished when critical pH left the chart domain — RESOLVED
+
 Found 2026-07-01 (operator report: the UIA-N (NH₃) vs pH chart's red/yellow/green shading "no longer colors"; a background sub-agent ruled out deploy-lag — the feature ships in the live bundle `Module-C9OeNU8n.js` — and pinned the cause). Unlike the H₂S chart (which clamps its bands via `getVisibleH2SChartZones`), the UIA chart inlined its `<ReferenceArea>` zones with raw `toxicNH3pH ± 0.2` and hardcoded `x1={6.0} x2={9.5}`. When the critical NH₃ pH falls OUTSIDE the [6.0, 9.5] chart domain (reachable via high TAN / low NH₃-limit / high salinity-temp — e.g. crit < 6 makes the danger band `x1 > x2`, crit > 9.5 pushes the safe band off-domain), Recharts' default `ifOverflow="discard"` silently drops the off-domain areas and the chart renders UNSHADED — exactly the reported symptom. **Fix:** added `getVisibleNH3ChartZones` (mirror of the H₂S helper, but danger-on-the-high-pH-side since NH₃ is toxic ABOVE crit) that clamps to [6.0, 9.5] and returns full-range danger (crit ≤ floor) or full-range safe (crit ≥ ceiling); the UIA chart now renders `nh3ChartZones.{safe,alert,danger}` and gates the critical line on `nh3ChartZones.showCriticalLine`. **Make-it-detectable:** 3 unit tests on `getVisibleNH3ChartZones` (absent/above → full safe; below → full danger; in-domain → safe/alert/danger split) mirroring the existing H₂S zone tests. farm-module water-chemistry specs green (22/22); tsc + eslint clean. **Companion observation (NOT a code bug):** the reported dosing-arrow disappearance (#3) is neither deploy-lag nor a reproducible main bug — `createOnDemandArrowLayer` + the `<Line>` `od-seg` path are present in the live bundle and correct; the On-Demand arrows are user-gated (enter a gram amount in the InputPanel "Simulator" tab, with the chart's "On-Demand" layer toggle on) and the checkbox reagent-direction wedge only draws for exactly 1–2 selected reagents. Most likely a stale browser cache or a page-level runtime error on specific inputs; live check (hard-refresh + DevTools console) recommended before any code change.
 
-
 ## ORPHAN-HIGH-273 — reconcile existing stale tank_batches.batchDetails (A3) — RESOLVED
+
 Found 2026-07-01 (data-repair follow-up to ORPHAN-HIGH-272). The write-side SSoT (applyBatchDelta) now keeps batchDetails[] in lock-step going forward (#776-779 + #784, deployed 8ddf96465), but rows mutated BEFORE that landed carry stale batchDetails (the live 719-vs-900 tank: totalQuantity=719 decremented, batchDetails[].quantity=900 stale). applyBatchDelta self-heals only EMPTY batchDetails on the next mutation; stale-POPULATED rows never touched again stay wrong. **RESOLVED (this PR):** migration `1801700000000-BackfillStaleTankBatchDetails` — per-tenant (search_path-pinned, to_regclass-guarded), single-batch EXACT reconciliation (the lone detail = the live totals; quantity/biomass/avgWeightG/percentageOfTank derived), idempotent (only rows where sum≠totalQuantity), down=no-op. **Multi-batch stale rows are NOT guessed** (the migration cannot know which batch a past mortality removed fish from) — counted + RAISE NOTICE for coordinated domain review. 4 London-school shape specs (per-tenant guard, single-batch-only, no multi-batch UPDATE, idempotent WHERE, down no-op). **COORDINATION: must merge + deploy BEFORE #782 (event-driven projection rebuild) so the snapshot derives from reconciled batchDetails, not stale (per the parallel-stream agent's note).**
+
 ## ORPHAN-HIGH-274 — boot-signal window (120s) false-failed the deploy gate into rollback — RESOLVED
+
 Found 2026-07-01 deploying 8ddf96465. All 25 containers booted HEALTHY (app.suderra.com 200) but the deploy recorded status=rolled_back phase=boot_signal: farm-service emitted its schema_drift_clean + nats_auth_mode_mtls boot signals ~220s in (the 77-entity × per-tenant schema-drift scan under a contended single-droplet cold-start + gateway supergraph composition retrying while auth-service warmed) — PAST the 120s default window in infrastructure/deploy/required-signals.yaml → "Missing boot signals" → rollback, despite every service being healthy (the boot drift-check itself was status:ok, warningViolations:49, error:0). assert-service-signals.ts POLLS and passes the instant all signals appear, so the window is only a MAX-wait ceiling — widening it is free for fast services and only stops false-fails for healthy-but-slow boots. **RESOLVED (this PR):** raised the generated default window_seconds 120→300 (the value db-migrate already used) in the GENERATOR scripts/service-catalog/generate-artifacts.ts (required-signals.yaml is generated — "do not edit by hand"), regenerated, removed the now-redundant db-migrate special-case. service-catalog:check + validate-signals-manifest green (14×3 consistent). Perf follow-up (separate): the schema_drift_clean scan taking ~220s on the heaviest service is slow — worth profiling, but not a deploy blocker once the window fits reality.
+
 ## ORPHAN-MEDIUM-278 — per-tank / per-loop water-chemistry MONITORING (customer-driven flexible model) — IN-PROGRESS (mock frontend)
+
 Found 2026-07-01 (customer feedback: the water-chemistry model assumed a single tank — one pH/salinity/temp for the whole system — but real farms are multi-tank RAS with shared treatment ("3 biofilters"): each tank needs its own view, parameters mixed between shared-loop and tank-specific with per-tank overrides). Feature-tracking finding for a net-new LIVE, multi-scope, provenance-annotated MONITORING view under sensor-module (plan `/root/.claude/plans/sprightly-chasing-creek.md`, 3-agent validated: farm + sensor + frontend). **Design:** a "chart" is the projection of a RESOLVED parameter set for a scope (tank | loop | site) through the reused `@platform/aquaculture-engines` engine (unchanged). Flexibility = cascade (`tank → loop(System) → site`, most-specific-non-null; Site=`department.siteId`; loop-sharing gated on `System.type ∈ {ras,biofloc,aquaponics}`) + source binding (`sensor|manual|inherit|derived`, inherit non-terminal) + provenance/staleness. **Delivered this PR (P0+P1, MOCK frontend only, `web/modules/sensor-module/src/pages/water-chemistry/`):** contract types; real-entity-shaped mock fixtures; async `resolveScope`/`resolveTanks` cascade resolver via `useTenantQuery`; engine-adapter (resolved-set→engine inputs, **engineReady guard so a loop's non-self-consistent tuple never feeds the engine** — the critical farm-expert fix); tank-status grid (recharts-free DOM badges); tank drill-down (lean Deffeyes isolines+operating-point + UIA/CO₂ charts from engine data); provenance table; lazy route + engine vite alias. 10 vitest cases lock the cascade/override/System.type-gate/freshness/engineReady invariants; lint + isolated type-check green. **Real-phase follow-ups (NOT this PR, flagged in the plan):** promote DeffeyesChart→shared-ui (full zone-shaded chart, no fork); backend shared-water-loop model + config-driven `sharingScope` + GraphQL `resolveScope` extending WaterQualityParamEquipment; cross-service federation resolver; architectural-arbiter on the monitoring-vs-calculator ownership split. alkalinity/TAN/H₂S stay manual/derived (not in the sensor pipeline; no fabricated live values).
 
-
 ## ORPHAN-HIGH-275 — harvest handlers injected TankBatchService but HarvestModule didn't provide it → farm-service DI crash-loop → deploy rollback — RESOLVED
+
 Found 2026-07-01 root-causing why two prod deploys (8ddf96465, 812da3885) rolled back at the boot-signal gate. #784 added `TankBatchService` to `CreateHarvestRecordHandler` (index 11) + `DeleteHarvestRecordHandler` (index 6) constructors, but `HarvestModule` did not import/provide it — `TankBatchService` was a NON-exported provider of `BatchModule`. So farm-service crash-looped at boot ("Nest can't resolve dependencies of the CreateHarvestRecordHandler ... TankBatchService at index [11] is available in the HarvestModule"), never emitted its boot signals, and the deploy false-failed → rollback (prod ran the rolled-back pre-#784 image; the harvest SSoT-write fix was NOT live; the #786 backfill DID apply — forward-only). The handler UNIT specs passed because they construct the handler directly with a mocked TankBatchService; nothing compiled the module DI graph. **NOTE: #787 (boot-signal window 120→300) MISDIAGNOSED this crash-loop as a slow boot — harmless robustness, but not the fix.** **RESOLVED (this PR):** extracted TankBatchService into `apps/farm-service/src/batch/tank-batch.module.ts` (providers+exports, dep-free, mirrors RestoreModule/BackdatePolicyModule) — the SSoT writer as one shared instance; BatchModule + HarvestModule both import it. Make-it-detectable: new static invariant `batch/__tests__/tank-batch-module-di.spec.ts` — every farm module registering a TankBatchService-consuming handler MUST import TankBatchModule (proven red-before/green-after, exact #784 message). tsc-spec (release-verification gate) + eslint + 16/16 handler specs green. After merge+redeploy farm boots cleanly, the boot-signal gate passes, and the harvest SSoT write goes live.
 
 ## ORPHAN-MEDIUM-279 — ARIA writer agents carry no repo coding standards; contract prose drifted from kernel truth — RESOLVED (PR #799, 292e28c77)
+
 Found 2026-07-01 (operator-commissioned ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-MEDIUM-279). implementer/gap-fixer/drafter reference no per-diff repo standards; safety-contract prose contradicts agent_contract.SATISFACTION_VERDICTS (boolean vs enum), counts 15 vs the 16-entry HARD_FAIL_CHECKS registry, mentions Codex CLI (runtime is Claude Code per ADR-040), hardcodes the per-cycle cap dollar value. **Remediation:** slice B1 — shared `_shared/aria-code-writing-standards.md` + writer wiring + prose corrections.
 
 ## ORPHAN-MEDIUM-280 — challenger-planner claims cross_review/implementation_review roles the kernel never routes to it — RESOLVED (PR #800, d2dd2a98c)
+
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-MEDIUM-280). cross_review single mint point is aria-cross-reviewer (cross_review_bridge.py:48); the challenger-planner body still documents both pre-V8 run modes — dead prompt weight + dual-ownership audit hazard; body at 2750/2800 of the Tier-2 token budget. **Remediation:** slice B2.
 
 ## ORPHAN-LOW-281 — banned-phrase discipline and refusal sections missing from judge/acceptance bodies — RESOLVED (PR #800, d2dd2a98c)
-Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-LOW-281). Judges constrain banned phrases only in refusal text (agent_contract._check_banned_phrases also scans rationale/notes); the 4 acceptance-lane agents document no refusal/stop conditions. **Remediation:** slice B2.
+
+Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-LOW-281). Judges constrain banned phrases only in refusal text (agent_contract.\_check_banned_phrases also scans rationale/notes); the 4 acceptance-lane agents document no refusal/stop conditions. **Remediation:** slice B2.
 
 ## ORPHAN-MEDIUM-282 — no end-to-end ARIA pipeline SSoT; prompt-writer mandate stale — RESOLVED (PR #802, bad35ebda)
+
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-MEDIUM-282). Lane flows reconstructable only from kernel source; prompt-writer roster paragraph stale, model render rule hardcoded (bypasses tier registry), lacks code-writing-standards + prompt-shape-economy clauses for agents/skills ARIA authors itself. **Remediation:** slice B3 (PIPELINES.md + mandate clauses 12/13 + authoring rules).
 
 ## ORPHAN-HIGH-283 — kernel model set frozen pre-Fable; frontmatter effort never delivered to the CLI — RESOLVED (PR #803, 39f92174a)
+
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-HIGH-283). VALID_MODELS={opus,sonnet,haiku} → `model: fable` parses default_invalid; resolved effort: computed then dropped (CLI 2.1.197 ships --effort); REQUIRED_CLAUDE_VERSION=2.1.0 predates the fable alias. **Remediation:** slice K1.
 
 ## ORPHAN-HIGH-284 — no refusal detection on the ARIA CLI executor path — RESOLVED (PR #804, 7255595c3)
+
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-HIGH-284). parse_claude_jsonl never inspects stop_reason; a Fable safety-classifier refusal surfaces as a generic failure — no audited fallback, no HUMAN_REQUIRED, no ledger row distinguishing it from an outage. **Remediation:** slice K2 (detect + one audited opus retry + HUMAN_REQUIRED on double refusal).
 
 ## ORPHAN-HIGH-285 — kernel dispatches two agents that have no agent files; WRITE_TIER sets diverge — RESOLVED (PR #806, cce2c9508)
+
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-HIGH-285). aria-autonomy-planner + aria-worker are whitelisted envelope targets with no .md files (silent default_missing_file fallback, zero invariant coverage); jest ARIA_WRITE_TIER contains aria-acceptance-gap-fixer while python WRITE_TIER_AGENTS does not. **Remediation:** slice K3.
 
 ## ORPHAN-MEDIUM-286 — ARIA budget caps and estimates are opus-calibrated, not model-aware — RESOLVED (PR #807, 3ee3e2c9a)
-Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-MEDIUM-286). _estimate_envelope_cost_usd hardcodes opus-priced estimates; the $1.50 per-cycle cap assumes opus decision nodes — at fable 2× pricing the reservation math undercounts and the cap fires mid-cycle. **Remediation:** slice K4.
+
+Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-MEDIUM-286). \_estimate_envelope_cost_usd hardcodes opus-priced estimates; the $1.50 per-cycle cap assumes opus decision nodes — at fable 2× pricing the reservation math undercounts and the cap fires mid-cycle. **Remediation:** slice K4.
 
 ## ORPHAN-MEDIUM-287 — acceptance lane outside the canonical envelope profile; drafter refusals bypass the refusal ledger — RESOLVED (PR #810, 7e8b227c5)
+
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-MEDIUM-287). The 4 dispatch:ad-hoc acceptance agents emit results in no documented envelope profile; DRAFTER_REFUSAL sentinels never render as aria/agent-refusal/v1 ledger rows. **Remediation:** slice K6.
 
 ## ORPHAN-MEDIUM-288 — ARIA tier assignments predate the operator capability policy — RESOLVED (PR #809, e2aab7dae)
+
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-MEDIUM-288). Operator policy 2026-07-01: decision nodes fable, judge layer opus; current frontmatter 12 opus + 6 sonnet; dispatcher_factory defaults opus + 600s subprocess timeout (too tight for fable turn lengths). **Remediation:** slice K5 (tier flip, single-revert unit).
 
 ## ORPHAN-LOW-289 — build-validator body cites a repo-external memory file — RESOLVED (PR #801, 0beecb4e3)
+
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-LOW-289). build-validator.md:66 cites feedback_webpack_nestjs.md — an operator-session memory file absent from the repo; the webpack/NestJS-DI claim is correct but must anchor to in-repo evidence. **Remediation:** wave W-A.
 
 ## ORPHAN-MEDIUM-290 — orchestrator roster describes database-reviewer as primary schema owner while the routing table dispatches it secondary-only — RESOLVED (PR #801, 0beecb4e3)
+
 Found 2026-07-01 (wave W-A of the ARIA modernization roster verification; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#wave-w-a-verification-record). orchestrator.md roster row read "All schema sources — state health audit" (primary-ownership phrasing) while orchestrator-routing-table.md — the authoritative primary-ownership registry per agent-ownership-uniqueness.spec.ts — routes database-reviewer as SECONDARY on all four schema globs. An operator reading the roster would expect a primary dispatch that never fires. **Remediation:** align the roster row to secondary-only phrasing (same PR).
 
 ## ORPHAN-LOW-291 — contract-parity-enforcer cites the dead infra/openapi path — RESOLVED (PR #812, 24f7f483e)
+
 Found 2026-07-02 (wave W-B1 roster verification; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#wave-w-b-verification-record). Agent body (lines 32/45) and orchestrator-routing-table.md glob route `infra/openapi/**`, but the OpenAPI specs live at `docs/api/openapi/*.yaml` — spec changes never dispatched the parity reviewer. **Remediation:** path + glob corrected to docs/api/openapi (same PR); the forward-declared `contract-parity.spec.ts` Phase-4 deliverable markers stay (honest declarations, not dead refs).
 
 ## ORPHAN-LOW-292 — security-reviewer pins a brittle research-file count — RESOLVED (PR #812, 24f7f483e)
+
 Found 2026-07-02 (wave W-B1). Body claimed "7 research files" in docs/research/security-reviewer/ while the directory holds 8 — the drift class agent-prompt-accuracy.spec.ts exists to prevent. **Remediation:** count-free phrasing (same PR).
 
 ## ORPHAN-MEDIUM-293 — product-audit routing anchors job-queue-auditor to a non-existent shared queue lib — RESOLVED (PR #812, 24f7f483e)
+
 Found 2026-07-02 (wave W-B2). product-audit-orchestrator-routing.md:38 routed `libs/backend-common/src/queue/**`, which does not exist; the real shared async-work surface is `platform/libs/outbox/**`. **Remediation:** glob corrected (same PR).
 
 ## ORPHAN-MEDIUM-294 — ORPHAN-EDGE finding ids are cited 240+ times but no ledger defines them — RESOLVED (PR #812, 24f7f483e)
+
 Found 2026-07-02 (wave W-B3). ORPHAN-EDGE-001..014 are a live cross-reference system across the 13 edge-docs agents AND the delivered Siemens documentation package (SOC2 Type-II blocker anchors, protocol roadmap tracking), minted during the Lane-C 12-producer run (ed8184ead), but the defining ledger never landed — an auditor following a citation finds nothing. Renaming is wrong (breaks 121 delivered docs + auditor-facing anchors). **Remediation:** reconstruct the ledger at `sens-api-gateway/docs/reviews/edge-orphan-findings.md` from the inline usage contexts (same PR); protocol-reference-writer also gains the missing dispatch anchor.
 
 ## ORPHAN-MEDIUM-295 — aria-operational-proof summary heredoc lacks PYTHONPATH; proof lane fails after a successful burn-in — RESOLVED (PR #814, 9e8367c81; green-lane proof: run 28554897185 SUCCESS on the flipped runtime)
+
 Found 2026-07-02 during the supervised post-flip run (run 28553640728 — the workflow's FIRST-ever invocation): the 30-cycle observe burn-in completed (18 min) but the proof-summary heredoc (`python3 - <<PY` importing aria_kernel.burn_in) runs without the per-invocation `PYTHONPATH=aria-kernel:.` prefix the sibling CLI calls carry → ModuleNotFoundError, job red, proof bundle never verified. **Remediation:** PYTHONPATH moved to the step env block so every invocation (heredocs included) inherits it (same PR); re-run proves the lane green.
 
 ## ORPHAN-MEDIUM-296 — ARIA has no scheduled cycle producer; the executor cron drains an always-empty queue — RESOLVED (PR #816, 73f1458f2)
+
 Found 2026-07-02 (operator-approved operationalization plan, item 1). aria-agent-executor runs nightly at 02:00 UTC but only DRAINS the agent-request queue; nothing ever schedules `aria-kernel autonomy run` (the producer: discovery → pressure → triage → planner/bridge/worker drains), so the queue is permanently empty and the enterprise acceptance ledger never accumulates ladder evidence. **Remediation (same PR):** new `.github/workflows/aria-auto-cycle.yml` — 01:00 UTC nightly standard-profile cycle ($3.00/cycle + $20.00/run caps, no auto-merge) with full ADR-036 WorkflowContract registration, executor-parity preflights (CLI floor, managed-auth, cross-host lease, kill-switch), aria-tools-state artifact round-trip for cross-night state, and a `mode=burn-in-observe` dispatch branch that runs a REAL 30-cycle observe burn-in and bridges `record_burn_in_acceptance(mode="real")` into the L1 unlock ladder.
 
 ## ORPHAN-MEDIUM-297 — proven-drift seed pool was stale worktree pollution; no tool derives aria-findings from repo truth — RESOLVED (PR #816, 73f1458f2)
+
 Found 2026-07-02 (plan item 2). The May PoC artifact claimed 126 above-threshold enum drifts, but 112 of them referenced `.worktrees/` checkouts and a fresh scan at HEAD (6ca2c91b7) yields 0 TS<->SQL drifts + 1 promoted UI dropdown drift (leaverequest filter missing draft/withdrawn) — seeding from the stored file would have manufactured ~125 phantom findings. **Remediation (same PR):** `tools/aria-poc/seed_drift_findings.py` re-runs the mechanical scanner at HEAD (staleness structurally impossible), emits deterministic `aria-findings/F-1XX.json` + `_index.json` in the exact shape `cycle_guard._open_finding_count` reads, and is wired as a nightly workflow step (aria-findings is gitignored by design — runtime cycle writes must not dirty the discovery tree — so seeds are re-derived, not committed).
 
 ## ORPHAN-MEDIUM-298 — no operator lever biases cycles toward a drift class; pressure source weights are hardcoded — RESOLVED (PR #817, 31b4a886a)
+
 Found 2026-07-02 (plan item 2, permanent lever). SOURCE_WEIGHTS in pressure.py is a hardcoded constant; the operator had no way to say "weight schema-drift 2x this month" without a code change. **Remediation (same PR):** `drift_class_weights` block in the genesis policy (neutral 1.0 defaults — behaviour bit-identical), `DRIFT_CLASS_BY_SOURCE` total mapping (every source has a class, pinned by test so new sources cannot escape the lever), `_apply_drift_class_weights` post-scoring multiplier (re-capped at 100, applied multiplier recorded on the row for audit), threaded from `run_enterprise_cycle` via the existing fail-soft policy loader; operator override via `aria-config/genesis_policy.json`.
 
 ## ORPHAN-MEDIUM-299 — daily anchor has no merged-value-per-dollar metric; cost and merge ledgers were never joined — RESOLVED (PR #818, dd5356b61)
+
 Found 2026-07-02 (plan item 1, metric leg). The runtime writes per-invocation cost rows (cost-attribution monthly shards, V10.4) and merged-PR rows (pr-lifecycle.jsonl, Plan 025 §E) but nothing joins them — the operator cannot see what a cycle costs against what it merges. **Remediation (same PR):** `roi` block in `build_daily_anchor` (day + month-to-date cost, LLM calls, cycles-with-spend, merged PRs, `usd_per_merge` — null until the day's first merge), rendered into the daily anchor markdown; additive frontmatter key, I-26 parseability untouched; fail-soft on missing ledgers.
 
 ## ORPHAN-MEDIUM-300 — narrow autonomous-merge lane lacked a decision record, activation ceremony, and executable inactive-today proof — RESOLVED (PR #819, ae7c6941f)
+
 Found 2026-07-02 (plan item 3). Implementation review showed the executable policy surface already correct — risk-policy L1 lane = exactly the approved docs/test scope, `auto_merge_candidate_lanes=["L1"]`, master switch shipped off, L3→L2→L1 precedence routes `docs/aria/policy/**` to the control-plane lane — but a draft runbook had conflated the autonomy-unlock LADDER L1/L2/L3 with the risk-lane L1/L2/L3 (opposite meanings of "L3"), and nothing pinned the closed gates. **Remediation (same PR):** ADR-041 (terminology table, decision, 5-step activation ceremony, rollback) + `test_narrow_lane_inactive_until_unlock.py` (8 pins: lane routing, precedence, mixed-lane block, secrets block, empty-ladder refusal, master switch off, no runtime globs).
 
 ## ORPHAN-LOW-301 — git fixture repos spawn background auto-gc racing TemporaryDirectory cleanup — RESOLVED (PR #819, ae7c6941f)
+
 Found 2026-07-02 (CI run 28558877068, burn-in suite): detached `git gc --auto` still writing `.git/objects/pack` while teardown rmtree ran → flaky "Directory not empty" OSError. **Remediation (same PR):** `make_local_git_repo` sets `gc.auto=0`, `gc.autoDetach=false`, `maintenance.auto=false` — the background writer is structurally impossible for every fixture consumer.
 
-
 ## ORPHAN-HIGH-276 — tank_batches.currentQuantity drifted from totalQuantity (the ACTUAL live 719-vs-900) — RESOLVED
+
 Found 2026-07-02 by live read-only forensics of the reported tank (verifying the harvest fix). The divergence was NOT batchDetails (NULL on these rows) — it was two SCALAR columns: tank 30f0a5dc had `totalQuantity=719` but `currentQuantity=900` (and f642e76a 98-vs-180). Batch-level proof: batch B-2026-00001 currentQuantity=900 (initial 1000, QUARANTINE); sum(totalQuantity) over its 3 tanks = 719+98+83 = 900 = the batch's live count → **totalQuantity(719) is CORRECT; currentQuantity(900) is a stale batch-total leak.** The web resolver reads `currentQuantity ?? totalQuantity` (equipment.resolver.ts:404) → showed the wrong 900; the mobile projection reads totalQuantity → showed the correct 719. currentQuantity/currentBiomassKg are denormalized MIRRORS — applyBatchDelta always sets `currentQuantity = totalQuantity` — so any divergence is legacy drift from the pre-applyBatchDelta handlers. **#786's batchDetails backfill did NOT cover these (their batchDetails is NULL, not populated-stale) — the gap.** **RESOLVED (this PR):** migration `1801800000000-BackfillTankBatchCurrentQuantityMirror` sets currentQuantity:=totalQuantity + currentBiomassKg:=totalBiomassKg for every divergent row (per-tenant to_regclass-guard, idempotent IS-DISTINCT-FROM incl. NULL mirrors, down no-op). Fixes the live 719-vs-900 → web now shows 719 (aligned with mobile + the batch truth). 4 shape specs; drift-repair-naming + tsc-spec + eslint green. Note: a live harvest test was infeasible (all 3 tanks hold the QUARANTINE batch → harvest-eligibility rejects); the read-only batch reconciliation gave the definitive answer instead.
 
 ## ORPHAN-LOW-302 — aria-auto-cycle omits the kernel dependency-install step; fresh tool-cache Python lacks yaml — RESOLVED (PR #821, 334158b7d)
+
 Found 2026-07-02: the first live run on the freshly registered self-hosted runner (28572191761) failed at "Persist enterprise workflow preflight" with ModuleNotFoundError: yaml — setup-python provisions a bare tool-cache interpreter and the workflow never installed the kernel's pyproject dependencies (the operational-proof workflow does). **Remediation (same PR):** the same "Install aria-kernel dependencies" step (pip install from aria-kernel/pyproject.toml) inserted before the first kernel import.
 
 ## ORPHAN-LOW-303 — artifact restore forwards the GitHub auth header into the 302 blob redirect — RESOLVED (PR #822, 5f4710054)
+
 Found 2026-07-02 (second live run of aria-auto-cycle): the Actions artifact download endpoint answers 302 to blob storage, and urllib's default redirect handler re-sent the `Authorization: Bearer` header to the storage host, which rejects it — restore fails exactly when a prior artifact EXISTS (first-night bootstrap masked it). **Remediation (same PR):** manual redirect resolution — authorized first hop with redirects suppressed, bare second hop to the presigned blob URL.
 
 ## ORPHAN-LOW-304 — burn-in-observe mode passed a workspace-internal tools dir; kernel isolation guard refuses — RESOLVED (PR #823, e3354e7c7)
+
 Found 2026-07-02 (third live run): `autonomy burn-in observe` fail-closed with `observe_burn_in_tools_dir_must_be_outside_workspace_root` — the workflow handed it the workspace `aria-tools/` tree, but the kernel requires burn-in isolation from the workspace root (the operational-proof lane always used RUNNER_TEMP). **Remediation (same PR):** burn-in gets its own RUNNER_TEMP tools root; the ladder bridge (`record_burn_in_acceptance(mode="real", base_dir="aria-tools")`) keeps writing acceptance events into the artifact-persisted workspace tree, and the evidence bundle is copied alongside the ledger.
 
 ## ORPHAN-LOW-305 — burn-in output dir must live under the burn-in tools root; second layout guard refused — RESOLVED (PR #825, ac8bb6ae2)
+
 Found 2026-07-02 (fourth live run): after the tools-root isolation fix, `observe_burn_in_output_dir_must_be_under_tools_burn_in` refused the RUNNER_TEMP-adjacent output dir. **Remediation (same PR):** output moves to `$BURN_TOOLS/burn-in/run-<id>` (operational-proof layout); a local 3-cycle probe validated the full layout pre-PR — only the 30-cycle count guard remains, which CI satisfies.
 
 ## ORPHAN-LOW-306 — committed .gitignore lacks top-level aria-tools/ and aria-findings/ rules; runtime state dirties the CI worktree — RESOLVED (PR #826, 80f6f0d15)
+
 Found 2026-07-02 (fifth live run): `observe_burn_in_pre_worktree_not_clean: 2 path(s)` — the design treats both trees as gitignored runtime state (cycle_guard reads them, cycles write them, discovery/burn-in guards demand a clean tree), but the committed .gitignore listed only SUBPATHS (`aria-tools/.archive/`, `impact-graphs/`, ...); local checkouts masked the gap via ad-hoc state. **Remediation (same PR):** top-level `aria-tools/` + `aria-findings/` ignore rules, `PYTHONDONTWRITEBYTECODE` job env (kernel-workflow parity), and a pre-burn-in `git status --porcelain` printout so any future dirty path names itself in the log.
 
 ## ORPHAN-MEDIUM-307 — kernel debt-index refresh clobbers the committed audit index when the uncommitted events ledger is absent — RESOLVED (PR #827, 6889d511e)
+
 Found 2026-07-02 (sixth live run of the burn-in lane; pre-existing kernel defect the fresh CI checkout exposed): `aria-debts/_index.json` is COMMITTED audit content (6 real debts), but `_refresh_index` derives it from the UNCOMMITTED `debt-events.jsonl` — on a fresh checkout the ledger is absent, so any kernel command touching the debt surface (here: `handoff snapshot`) silently truncated the committed index to `[]`, mutating a tracked file and tripping the burn-in clean-tree guard (`1 path(s)`). **Remediation (same PR):** absent-ledger + existing-index is now read-only (returns the committed truth, writes nothing); empty-fresh repos still derive; present-ledger rebuild unchanged. Proven by 3 pinned tests + an end-to-end fresh-clone sim (handoff no longer dirties the tree).
 
 ## ORPHAN-HIGH-308 — pre-auth security events lost: auth.audit_logs INSERT violates RLS on locked-account login — IN-PROGRESS (fix in the ORPHAN-HIGH-318 PR)
@@ -5918,49 +6171,67 @@ the audit write failing should surface as an ERROR metric, not a debug log.
 **Completion addendum (2026-07-02 evening, this PR):** the INSERT policy is necessary but NOT sufficient — post-deploy live verification showed standalone audit writes STILL failing: TypeORM `save()` always emits `INSERT … RETURNING` (to reload generated columns) and PostgreSQL applies the SELECT policy's USING clause to rows read back via RETURNING, so a pre-auth/SUPER_ADMIN session (no tenant GUC) was rejected at the RETURNING step (probe under `SET ROLE auth_service`: bare INSERT passes, `INSERT … RETURNING` fails). Completed by running the standalone `AuditLogService.log` path in a transaction whose first statement is `set_config('app.bypass_rls','on', true)` — the same audited system primitive the outbox dispatcher uses (ORPHAN-HIGH-321). Manager-passed (caller-transaction) writes are unchanged.
 
 ## ORPHAN-MEDIUM-309 — aria-auto-cycle burn-in mode killed by a flat 50-minute job timeout; the workload>timeout class was structurally undetectable — IN-PROGRESS
+
 Found 2026-07-02 (seventh live run of the burn-in lane): run 28577469404 passed every guard for the first time, executed ~17/30 REAL observe cycles (~2.5 min/cycle measured) and was cancelled at the flat 50-minute job limit copied from single-cycle precedents (executor/proof: 35 min). Because the acceptance verdict is all-or-nothing (kernel pins 30 cycle attempts), the truncation produced ZERO ladder evidence — ~50 minutes of runner work silently destroyed, L1 unlock blocked. **Remediation (same PR):** mode-aware timeout expression (`burn-in-observe && 150 || 50`) in the workflow + `WorkflowJobContract.burn_in_timeout_floor_minutes` (aria-auto-cycle: 120, aria-operational-proof mock: 30) enforced by the contract verifier in BOTH directions — a burn-in step in a job whose contract declares no floor rejects, a declared floor without a burn-in step rejects, and both int and mode-expression timeout forms are parsed against the floor. An unexamined inherited timeout can no longer reach a burn-in job.
 
 ## ORPHAN-MEDIUM-308 — admin-panel TenantManagementPage.spec.tsx is 16/33 red independent of jest-dom wiring — IN-PROGRESS (wiring fix done, pending merge; 16 residual failures untouched)
+
 Found 2026-07-02 while completing an orphaned untracked `web/modules/admin-panel/src/test-setup.ts` (jest-dom matcher registration, left uncommitted since ~2026-06-21 with nothing wiring it into `vite.config.ts`'s `test.setupFiles`). Wiring it in is a genuine fix — `TenantManagementPage.spec.tsx` went from 31/33 failing to 16/33 failing, since `toBeInTheDocument()`/`toHaveClass()` etc. were previously undefined matchers — but 16 tests remain red for an unrelated reason: `waitFor(() => screen.getByText('Ocean Farms Ltd'))`-style assertions across Search/Filter, Tenant Actions, Bulk Operations, Tenant Detail Modal, and Stats Display never see the fixture tenant row render, suggesting the test's data-fetch mock (MSW handler or fetch mock) no longer matches what `TenantManagementPage` actually calls — a genuine pre-existing component/test drift, confirmed unrelated to jest-dom (same 16 tests are the SUBSET that survives once matcher-registration errors are removed). Root cause not yet diagnosed. Owner: whoever next touches admin-panel tenant management or its test suite.
 
 ## ORPHAN-MEDIUM-314 — gateway-api reimplements unknown-rejection normalization ad hoc at 9 sites, one variant losing the object case — IN-PROGRESS
+
 Found 2026-07-02 while completing an orphaned untracked `apps/gateway-api/src/common/error-normalization.ts` (a `toError()` helper, left uncommitted since ~2026-06-21, never wired to any call site). Repo-wide grep confirmed no equivalent existed in gateway-api or backend-common. 9 call sites across `upload.controller.ts` (5x), `circuit-breaker.service.ts`, `timeout.middleware.ts`, and `redis-io.adapter.ts` (2x) each independently reimplemented `error instanceof Error ? error : new Error(String(error))` (or the log-message variant `error instanceof Error ? error.message : String(error)`) — the latter loses information for non-Error/non-string rejections (`String({...})` → `"[object Object]"`) where `toError`'s `JSON.stringify` fallback preserves the payload. **Remediation:** adopted `toError()` at all 9 sites; added `error-normalization.spec.ts`. **Renumbered from ORPHAN-MEDIUM-309 during merge-train collision resolution** — PR #831 (merged before this branch) independently claimed ORPHAN-MEDIUM-309 for an unrelated ARIA finding (see above). Commit `b622d2366`'s `Closes:` trailer still cites the original id; this heading is the authoritative record.
 
 ## ORPHAN-MEDIUM-310 — RedisService.keyPrefix uses `||` instead of `??`, silently discarding an explicit empty-string prefix — IN-PROGRESS
+
 Found 2026-07-02 while completing an orphaned untracked `libs/backend-common/src/redis/redis-options.builder.spec.ts` + `redis.service.spec.ts`. `RedisModuleOptions.keyPrefix?: string` explicitly types empty string as a valid "I own my own key namespacing" signal, but `redis.service.ts`'s constructor did `this.keyPrefix = options.keyPrefix || 'aqua:'` — a falsy check, not a nullish check — so `keyPrefix: ''` silently became the default `'aqua:'` prefix. No current `RedisService` consumer hits this in production (checked all `buildRedisOptions(...)` call sites across every service; none pass an empty override, and `apps/messaging-service` uses a separate raw-ioredis client unaffected by this class), but it's a live trap for any future consumer needing an owned namespace, and the untracked spec had already pinned the correct behavior. **Remediation:** `options.keyPrefix ?? 'aqua:'`.
 
 ## ORPHAN-MEDIUM-311 — e2e TestDatabase hardcoded DEFAULT_DATABASE_URL silently drifted from the actual docker-compose port — IN-PROGRESS
+
 Found 2026-07-02 while completing an orphaned untracked `e2e/helpers/env.helper.ts` (a `.env`/docker-compose credential resolver, left uncommitted since ~2026-06-21, never wired into `db.helper.ts`). `db.helper.ts`'s `TestDatabase` fell back to a hardcoded `postgresql://aquaculture:aquaculture@localhost:5432/aquaculture` whenever `DATABASE_URL` wasn't already set in the environment. Live verification against the actual `docker-compose.infra.yml` showed the real mapping is `"5433:5432"` (host:container) — the hardcoded default's port 5432 was WRONG relative to the compose file actually in use. **Remediation:** `db.helper.ts` now resolves via `env.helper.ts`'s `getRequiredE2eDatabaseUrl()` (env var → `.env`/`.env.local` → docker-compose-derived) before falling back to the hardcoded literal, so the default can no longer silently diverge from the running compose file.
 
 ## ORPHAN-MEDIUM-312 — aquamobil silently swallowed 9 background-operation failures with zero observability — IN-PROGRESS
+
 Found 2026-07-02 while completing an orphaned untracked `web/apps/aquamobil/src/utils/async-action.ts` (a logging fire-and-forget wrapper, left uncommitted since ~2026-06-21, never imported anywhere). 9 sites across `useAuth.tsx` (6, spanning the Promise.all logout-cleanup array, push teardown, and the server logout-notify fetch), `useChannels.ts`, `useMessages.ts`, and `messaging-sw.ts` did `.catch(() => undefined)` — permissions-cache cleanup failures, offline-fallback caching failures, push teardown failures, and SW background cache-revalidation failures were all invisible to field support with no way to diagnose a report of "logout left stale data" or "offline mode showed nothing." **Remediation:** 8 sites (which stay `await`ed / part of `Promise.all`) got inline `logger.error(...)` catches preserving their existing control flow; the 1 genuinely fire-and-forget site (logout server-notify) now uses `runAsyncAction()`. A much larger, separate surface (~65 `void asyncCall()` sites across ~25 files) was found during the same sweep but intentionally NOT touched — different shape, different risk profile, flagged to the operator as a distinct decision rather than swept blind.
 
 ## ORPHAN-MEDIUM-322 — aquamobil: 10 of ~65 void-wrapped async calls were genuinely unguarded (2 broke their own "never throws" contract) — IN-PROGRESS
+
 Found 2026-07-02 during a follow-up sweep of the ~65-site `void asyncCall()` surface flagged (but intentionally not touched) in ORPHAN-MEDIUM-321. Systematically checked every site's underlying function for internal error handling: 55 are genuinely safe (27 are `queryClient.invalidateQueries`/`refetch`/`fetchNextPage` — TanStack Query does not propagate query-fetch errors through those promises, confirmed via the app's QueryClient config carrying no `throwOnError`; the rest already have their own try/catch). 10 were not: `InstallPrompt.tsx`'s `handleInstall`, `NotificationsPage.tsx`'s `markAllAsRead`/`handleNotificationPress`, `RecordFeedingPage.tsx`'s cached-seed load, `ChatRoomPage.tsx`'s `sendMessage`, and `AiChatPage.tsx`'s `handleSend` (×2 call sites) had no guard at all. Two were worse: `useMarkRead.ts` and `useEditMessage.ts` both explicitly document "never throws — degrades to the offline queue" in their own JSDoc/inline comments, but their offline path and catch-fallback path both called `addToQueue()` (which throws when `tenantId` is missing) completely unguarded — the documented contract was false. `AccountPage.tsx`'s "Clear Offline Queue" action had no error handling or user-facing error message at all, unlike its sibling "Log Out" dialog (MT-MEDIUM-050) which does. **Remediation:** `useMarkRead`/`useEditMessage` now genuinely honor their "never throws" contract (internal try/catch around every `addToQueue` call, logged on failure); `handleClearQueue` now follows the same try/catch + `errorMessage` state pattern as `handleLogout`; the other 6 call sites use the (already-adopted) `runAsyncAction()` helper. `sendMessage`'s failure path was left as `onError`-driven UI state (already correct — `_status: 'failed'` on the optimistic message) with only the separate unhandled-promise-rejection gap closed via `runAsyncAction` at the call site. **Renumbered from the originally-assigned ORPHAN-MEDIUM-313 during merge-train collision resolution** — main independently claimed ORPHAN-MEDIUM-313 for an unrelated ARIA finding (see below).
 
 ## ORPHAN-MEDIUM-315 — 5 real CI failures surfaced by PR #830 (registry state-machine violation + 2 tsconfig-scope gaps + 1 finding-registry hygiene issue) — IN-PROGRESS
+
 Found 2026-07-02 from PR #830's own CI run. (1) `docs/reviews/_registry/findings.jsonl`: 6 findings (ORPHAN-MEDIUM-308,310-314) were created with `state: RESOLVED` and empty `closing_commits` before merge — the registry's own `close` CLI refuses branch-local SHAs specifically because RESOLVED requires a merged, main-reachable commit; corrected to IN-PROGRESS, `docs/plans/2026-06-18-enterprise-grade-debt-closure/manifest.json`'s pinned counts recomputed from the rechained registry. (2) `e2e/helpers/env.helper.ts`'s `loadYaml` call tripped `no-unsafe-call`/`no-unsafe-assignment` in CI specifically — the lint job never runs `npm --prefix e2e ci`, so `@types/js-yaml` (declared but not installed there) was absent; the ambient declaration was added to the already-in-scope `e2e/types.d.ts` instead of a repo-root `types/` directory e2e's tsconfig never included. (3) `tools/testing/vitest-resource-policy.ts` had no tsconfig owner (every `tools/*` subdir needs one); added `tools/testing/tsconfig.json` with ESNext/bundler module (its siblings are CommonJS, but this file needs `import.meta.url`). (4) aquamobil's `tsconfig.sw.json` scopes `types` to `vite-plugin-pwa/client` only; importing the shared `logger` util (which reads `import.meta.env.DEV`) into the service worker broke under that narrow config even though the value is real at runtime — added `vite/client` to the SW config's types.
+
 ## ORPHAN-MEDIUM-316 — e2e/project.json registration silently exposed live-infra-dependent test scripts to the generic nx affected test sweep — IN-PROGRESS
+
 Found 2026-07-02 from PR #830's own CI run. Nx auto-infers a target from every `package.json` script for any recognized project — registering `e2e/project.json` (bringing e2e into `nx affected` for the first time, per ORPHAN-MEDIUM-315's sibling Nx-backfill work) therefore also exposed `test`, `test:security`, `test:node`, etc. as Nx targets, even though only `lint` was explicitly declared. The generic CI `test` job (no Postgres provisioned — only the dedicated `farm-water-chemistry-e2e` job provisions e2e's infra) then ran `@aquaculture/e2e-tests:test`, which failed immediately: `global-setup.ts` can't reach `localhost:5433`. **Remediation:** `"nx": { "includedScripts": [] }` in `e2e/package.json` disables Nx's package.json-script auto-inference entirely, leaving only the explicit `lint` target from `project.json`. The dedicated e2e CI job is unaffected — it invokes `npm --prefix e2e run test:water-chemistry` directly, never through Nx.
 
 ## ORPHAN-HIGH-310 — ARIA plan convergence measures agreement, not coverage; the impact closure was never kernel-verified — RESOLVED (PR #832, 3afc83e8f)
+
 Found 2026-07-02 (operator question: "both planners can under-read the codebase — how is end-to-end plan coverage guaranteed?"). Verified: the planner prompts demand recursive-impact tracing "to the most extreme affected node", but NOTHING in the kernel checks it — `_validate_plan_content` is shape-only, and the primary + challenger share model and search habits, so two planners routinely share one blind spot and CONVERGE on it. **Remediation (PR-1 of the coverage initiative, same PR):** deterministic impact-closure witness `tools/gates/plan-coverage-witness.ts` (nx reverse-dependent BFS + NATS consumer matching from services.yaml + entity→migration coupling; exit 0/1/2 contract) + `aria_kernel/plan_coverage.py` fail-closed wrapper (toolchain/timeout/garbage → `environment_unable`, never a silent pass) + `coverage_computed` annotation event + verdict-driven gate in `_evaluate_cross_review_state` for `schema_version >= 2` plans (missing verdict / environment_unable → HUMAN_REQUIRED; gaps → round loop with round-scoped `COV-R{N}-*` material risks and `coverage:<node>` must_satisfy feed-forward) + `request_implementation` defense-in-depth closing the critique-only-path bypass. PR-2 (completeness-critic adjudicating waivers; PR-1 machine-accepts non-empty waiver reasons as a documented staged loosening) follows in the same initiative.
 
 ## ORPHAN-HIGH-311 — cost attribution hardcodes estimated_usd=0.0 under managed auth; USD caps toothless, ROI reads $0 — RESOLVED (PR #833, f3faac619)
+
 Found 2026-07-02 on the FIRST real production cycle (run 28586601819): a claude-fable-5 dispatch consumed 15,801 input + 27,294 output tokens and was attributed as `estimated_usd: 0.0` — `_record_claude_cli_usage` hardcoded the zero by design comment ("managed-session auth, not API-key billing"). Consequence: the operator's $3/cycle + $20/run budget caps can never bind on real dispatches, and the daily-report ROI metric (usd_per_merge) reads $0 forever — a governance control that exists but cannot fire. **Remediation (same PR):** `budget.MODEL_PRICING_USD_PER_MTOK` notional-pricing SSoT + `estimate_tokens_usd` (prefix-matches dated model ids); executor resolution order = actual CLI `total_cost_usd` (billed accounts) > notional token pricing (subscription capacity is rate-limited, not free) > LOUD zero (`cost_pricing_unknown_model` governance event — a silent zero is the defect class). The defective dispatch reprices to ~$1.52 notional, comfortably under the $3 cycle cap.
 
-## ORPHAN-MEDIUM-312 — first real challenger dispatch cited repo-unverifiable evidence (.cargo/*); rejected fail-closed, prompt/evidence-contract mismatch to diagnose — OPEN
+## ORPHAN-MEDIUM-312 — first real challenger dispatch cited repo-unverifiable evidence (.cargo/\*); rejected fail-closed, prompt/evidence-contract mismatch to diagnose — OPEN
+
 Found 2026-07-02, run 28586601819: seeded finding F-101 (leaverequest UI drift) drove the first real plan; the challenger (claude-fable-5, 27k output tokens) submitted a plan whose evidence_refs cited `.cargo/audit.toml` + `.cargo/config.toml` → `evidence_ref_not_repo_verified:worktree_candidate` → result REJECTED, `challenger_drafted_poll_timeout` (300s), convergence failed closed (CORRECT posture — zero merge risk, full audit trail). Open question: why a UI-drift plan cites Rust workspace config — prompt scoping, envelope evidence availability, or validator strictness on gitignored-but-present paths. Diagnose from the stored transcript (`agent-invocations/outputs/plan-cyc-20260702T113123Z-auto/`) before relying on nightly convergence throughput. **Owner:** aria-acceptance-gap-hunter. **Deadline:** 2026-07-16.
 
 ## ORPHAN-MEDIUM-321 — aquamobil silently swallowed 9 background-operation failures with zero observability — IN-PROGRESS
+
 Found 2026-07-02 while completing an orphaned untracked `web/apps/aquamobil/src/utils/async-action.ts` (a logging fire-and-forget wrapper, left uncommitted since ~2026-06-21, never imported anywhere). 9 sites across `useAuth.tsx` (6, spanning the Promise.all logout-cleanup array, push teardown, and the server logout-notify fetch), `useChannels.ts`, `useMessages.ts`, and `messaging-sw.ts` did `.catch(() => undefined)` — permissions-cache cleanup failures, offline-fallback caching failures, push teardown failures, and SW background cache-revalidation failures were all invisible to field support with no way to diagnose a report of "logout left stale data" or "offline mode showed nothing." **Remediation:** 8 sites (which stay `await`ed / part of `Promise.all`) got inline `logger.error(...)` catches preserving their existing control flow; the 1 genuinely fire-and-forget site (logout server-notify) now uses `runAsyncAction()`. A much larger, separate surface (~65 `void asyncCall()` sites across ~25 files) was found during the same sweep but intentionally NOT touched — different shape, different risk profile, flagged to the operator as a distinct decision rather than swept blind. **Renumbered from the originally-assigned ORPHAN-MEDIUM-312 during merge-train collision resolution** — main independently claimed ORPHAN-MEDIUM-312 for an unrelated ARIA finding (see above). Commit `b41dc13f3`'s `Closes:` trailer still cites the original id.
+
 ## ORPHAN-MEDIUM-313 — plan-coverage PR-1 staged loosening: waivers machine-accepted on any non-empty reason — RESOLVED (PR #834, 2336b5669)
+
 Documented in ORPHAN-HIGH-310's remediation as the PR-1/PR-2 split: PR-1 (#832) machine-accepts any non-empty `coverage.waivers` reason, so a planner can dress a blind spot as a waiver and pass the gate. **Remediation (same PR):** the `aria-completeness-critic` role (Read/Grep/Glob-only) adjudicates EVERY waived node — accept only with repo-verified grounds, reject with a concrete `path:line` reason; the drainer mints the critic envelope only when a round computes `covered_with_waivers`, folds the verdict into the `coverage_computed` payload BEFORE recording, and every failure mode (omission, timeout, refusal, malformed response, ARIA_STOP) fails closed to `gaps` via `waiver_unadjudicated` with fresh round-scoped `COV-R{N}-*` material risks. Role plumbing is annotation-only by design (NOT a planner-bridge role — no plan-state mutation on submit). 17th HardFailCheck (`plan_coverage_witness_verified`) catalogs the implementation-seam enforcement.
 
 ## ORPHAN-LOW-314 — challenger independence was read-order-only; correlated blindness unaddressed — RESOLVED (PR #834, 2336b5669)
+
 Companion to ORPHAN-HIGH-310: the challenger planner's independence rested on reading the same evidence in a different ORDER with the same model and the same code-forward habits — so both planners routinely shared one blind spot and converged on it. **Remediation (same PR):** the independence discipline now assigns an explicit REVERSED LENS — the challenger starts from the consumer/contract end (event subscribers, API consumers, migration surfaces, frontend usage) and meets the changed code last. Cheapest arm against correlated blindness; the deterministic coverage witness (ORPHAN-HIGH-310) remains the enforcement layer.
 
 ## ORPHAN-MEDIUM-323 — CURRENT_STATE.md's pinned ARIA authority hash went stale after merging main's ARIA changes, breaking invariants-fast + aria-merge-authority — IN-PROGRESS
+
 Found 2026-07-02 from PR #830's own CI run. `tests/invariants/aria-doc-runtime-ssot.spec.ts`'s `ariaAuthorityHash()` computes a sha256 over every tracked file under `docs/aria`, `aria-kernel`, `tools/aria-poc`, plus `.github/workflows/aria-*.yml`, and asserts it matches the hash pinned in `docs/aria/CURRENT_STATE.md`. Merging main's concurrent ARIA landings (#832 coverage witness, #834 completeness critic, #833 cost attribution) into this branch changed files inside that authority set, so the branch's pinned hash (still the pre-merge value) no longer matched the merged tree's freshly-computed hash — failing both `invariants-fast` and `aria-merge-authority` identically (same assertion, two CI jobs). **Remediation:** regenerated the pinned hash from the current merged tree (`ade7ed09e20c398c834d61c510242678d8da2a0f02510bcc3a05f5646a7facba`), matching the documented per-PR regen requirement for this SSoT.
 
 ## ORPHAN-HIGH-321 — farm outbox dispatcher is RLS-blind: forced tenant_isolation_policy on the outbox tables hides every pending row from the worker, so domain events are written but NEVER dispatched — IN-PROGRESS (this PR)
@@ -5972,7 +6243,7 @@ Found 2026-07-02 from PR #830's own CI run. `tests/invariants/aria-doc-runtime-s
 **Residual:** the 28 stuck farm rows will drain on the first post-deploy poll; verify with the stream census. ORPHAN-MEDIUM-324 tracks the audit-ledger side of the same table class.
 **Owner:** platform-kernel-expert + farm-expert. **Deadline:** 2026-07-16.
 
-## ORPHAN-HIGH-317 — NATS grants SSoT drifted platform-wide onto the legacy AQUACULTURE_EVENTS.* subject scheme; every auth/hr/billing/notification/hydroponics domain-event publish and 10+ RPC subjects denied at the broker — IN-PROGRESS (this PR)
+## ORPHAN-HIGH-317 — NATS grants SSoT drifted platform-wide onto the legacy AQUACULTURE_EVENTS.\* subject scheme; every auth/hr/billing/notification/hydroponics domain-event publish and 10+ RPC subjects denied at the broker — IN-PROGRESS (this PR)
 
 **Discovered:** 2026-07-02, live prod (while diagnosing the codex-test tenant-admin lockout; every successful login logged `Permissions Violation for Publish to "events.system.UserLoggedIn"`).
 **Evidence (live):** `aqua-auth` — publish denials on every LOGIN_SUCCESS; `aqua-billing` — `Permissions Violation for Subscription to "request.billing.tenant.provisionSubscription"` (tenant provisioning cannot create subscriptions); `aqua-messaging` — subscription denial on `request.messaging.getMessageForBroadcast` (WS broadcast bridge dead); `aqua-sensor` — subscription denial on `sensor.lookup.by-topic` (Rust-sidecar cache-miss responder dead). JetStream census: the AQUACULTURE_EVENTS stream contains **4 messages EVER (last 2026-06-07)** while 54 durable consumers wait at delivered≈4 — the platform event backbone is dark.
@@ -5991,7 +6262,7 @@ Found 2026-07-02 from PR #830's own CI run. `tests/invariants/aria-doc-runtime-s
 
 ## ORPHAN-MEDIUM-319 — real client IP never reaches auth-service: gateway forwards no client-IP header and the resolver prefers the socket peer, so every audit row and users.lastLoginIp record the gateway container IP — IN-PROGRESS (this PR)
 
-**Discovered:** 2026-07-02, live prod (codex-test lockout investigation — every LOGIN_* audit payload and `users.lastLoginIp` showed `::ffff:172.18.0.25`, the gateway container; the actual actors — a Windows/Chrome browser at 193.212.164.37 and a curl client at 104.248.134.38 — were only recoverable from nginx access logs by timestamp correlation).
+**Discovered:** 2026-07-02, live prod (codex-test lockout investigation — every LOGIN\_\* audit payload and `users.lastLoginIp` showed `::ffff:172.18.0.25`, the gateway container; the actual actors — a Windows/Chrome browser at 193.212.164.37 and a curl client at 104.248.134.38 — were only recoverable from nginx access logs by timestamp correlation).
 **Evidence:** `apps/gateway-api/src/federation/authenticated-data-source.ts` `willSendRequest()` forwarded authorization/cookie/x-tenant-id/correlation/trace headers but no client-IP header; `apps/auth-service/src/modules/authentication/resolvers/auth.resolver.ts` computed `request.ip || x-forwarded-for` — the socket peer (always the gateway) won even if a forwarded header had been present. The subgraph-side `user-agent` header is likewise the gateway's internal fetcher (minipass-fetch), not the browser's.
 **Root cause:** the client network identity was never made part of the gateway→subgraph contract; the resolver's fallback ordering hid the omission instead of failing loudly.
 **Remediation (this PR):** two trust tiers, chosen to require NO change to the fixed 14-field v2 signing canonical (whose byte-layout is pinned by the R1 Rust coprocessor golden vectors): (1) authenticated requests carry `clientIp`/`clientUserAgent` INSIDE the gateway assertion — integrity-protected by `X-Service-Assertion-Hash` exactly like assignedSiteIds/planLevel; (2) EVERY forwarded request (pre-auth login/refresh included) carries gateway-minted `x-client-ip`/`x-client-user-agent` headers — the gateway sets them itself (overwrite semantics on the federation path; inbound copies are in BLOCKED_FORWARDED_HEADERS on the REST-proxy path), and `StripInternalHeadersMiddleware` deletes them from any request lacking a verified service identity, so an external sender can never plant them. New SSoT reader `resolveClientNetworkContext()` (`@aquaculture/backend-common/http`) applies the precedence signed-assertion → gateway-gated-header → direct socket, and all four auth resolver sites (login, acceptInvitation, forgotPassword, resetPassword) consume it — audit rows and lastLoginIp now record the true actor. Pinned by unit specs on the helper, the assertion middleware round-trip/fail-closed validation, and the gateway data-source (header minted pre-auth; claim bound into the assertion when authenticated).
@@ -6002,11 +6273,12 @@ Found 2026-07-02 from PR #830's own CI run. `tests/invariants/aria-doc-runtime-s
 **Discovered:** 2026-07-02, live prod — the operator spent the morning unable to log in as a tenant-admin test account with the CORRECT password (verified: peppered bcrypt compare matches; the same credentials succeed end-to-end once unlocked) because earlier wrong-password submissions from a browser had tripped the 5-attempt/30-minute lock, and every subsequent correct-password attempt returned the same generic `GENERIC_AUTH_ERROR_MSG` as a wrong password. The only remediation was raw SQL against auth.users.
 **Root cause:** the anti-enumeration posture was applied without a compensating legitimate-owner channel — the design conflated "don't tell the ATTACKER" with "don't tell ANYONE".
 **Remediation (this PR — the wire response deliberately stays generic):**
+
 1. **Owner notification:** new `UserAccountLockedEvent` contract (no PII; audit-log-backed → best-effort path, allowlisted) emitted on the threshold-crossing attempt; notification-service consumes it cross-tenant and emails the owner (address resolved at delivery time via the authenticated internal PII endpoint, CRITICAL-001/002 discipline): unlock instant + "wasn't you → reset your password" guidance. NATS publish grant `events.*.UserAccountLocked` added (canonical scheme; full grant migration is ORPHAN-HIGH-317).
 2. **Operator unlock surface:** `unlockTenantUser` mutation (`@TenantAdminOrHigher`) → `TenantAdminService.unlockUser` — tenant-scoped, clears `failedLoginAttempts`/`lockedUntil`, audit-logs `USER_UNLOCKED` (who/whom/previous lock). TENANT_ADMIN targets deliberately allowed: lockout is an availability incident and a locked admin cannot unlock themselves. `users.lockedUntil` exposed to GraphQL; tenant-admin user management shows a "Locked" badge and a one-click Unlock action.
 3. **Reset clears lock:** verified pre-existing — `resetPassword` already zeroes `failedLoginAttempts`/`lockedUntil`; the notification email points owners at that self-service path.
-**Depends on:** ORPHAN-HIGH-318 (this PR stacks on it — the lock-trigger hook only fires once the RETURNING misread is fixed).
-**Owner:** auth-security-expert + admin-expert. **Deadline:** 2026-07-31.
+   **Depends on:** ORPHAN-HIGH-318 (this PR stacks on it — the lock-trigger hook only fires once the RETURNING misread is fixed).
+   **Owner:** auth-security-expert + admin-expert. **Deadline:** 2026-07-31.
 
 ## ORPHAN-MEDIUM-324 — 24 audit/outbox infrastructure tables carry forced tenant RLS contrary to the installer's own excludeTables design intent — RESOLVED (audit-ledger side, this PR; outbox side #841)
 
@@ -6018,13 +6290,14 @@ Found 2026-07-02 from PR #830's own CI run. `tests/invariants/aria-doc-runtime-s
 **Resolution (2026-07-07, this PR) — SSoT-driven infrastructure-ledger RLS architecture:**
 The root cause is categorical: cross-tenant append-only AUDIT LEDGERS (in `infrastructureTables` by design) were swept into `tenant_isolation_policy` by the authoritative db-migrate installer, which passed NO `excludeTables` (the SSoT bridge `getRlsExcludeTablesForService` was only wired into the runtime bootstrap, which is fail-fast-disabled in prod). A cross-tenant table can never satisfy a per-tenant predicate from a no-tenant-context writer, so every system/pre-auth/NULL-tenant/webhook INSERT was silently RLS-denied (auth = ORPHAN-HIGH-308; the confirmed AT-RISK set: `alert.alert_audit_log`, `hr.payroll_audit` [rolled back the whole payroll txn], `sensor.sensor_audit_logs`, `ai.tool_execution_audit`, `shared.audit_logs` [billing Stripe webhook]).
 Fixed with ONE canonical policy, SSoT-driven, applied by the authoritative installer so it self-heals every deploy — NOT six hand-copied write-side bypass patches:
+
 - **SSoT**: `INFRASTRUCTURE_AUDIT_LEDGERS` (`libs/backend-common/src/database/rls/infrastructure-ledger.ssot.ts`) — the cross-tenant append-only ledgers per schema, coupled by `tests/invariants/infrastructure-ledger-ssot.spec.ts` to `PROTECTED_TABLES` (immutability) + `MODULE_SCHEMAS[].infrastructureTables` (cross-tenant), with a `/audit/`-name DRIFT CATCH so a new ledger cannot ship without the policy.
 - **Canonical helper**: `applyInfrastructureLedgerRls` — ENABLE+FORCE RLS, DROP `tenant_isolation_policy` + the prior `audit_append_system`, CREATE `infra_ledger_append` (INSERT WITH CHECK true) + `infra_ledger_read` (SELECT USING `bypass OR no-tenant-context OR tenantCol=GUC` — system writes incl. `INSERT … RETURNING` land, tenant reads keep defense-in-depth), and NO update/delete policy (immutable, RLS + trigger). db-migrate-authority-gated, idempotent.
 - **Wiring**: db-migrate `runSchemaPostMigrationHardening` derives the ledgers from the SSoT (`getInfrastructureAuditLedgers`) and runs the pass AFTER the tenant sweep (which now excludes them) for every hardened schema (auth/farm/hr/alert/ai/sensor); `shared.audit_logs` (platform-bootstrap Phase 0, raw SQL) gets a byte-identical policy in `006-shared-schema-tables.sql`.
 - **Closed a real gap surfaced by the invariant**: `sensor.sensor_audit_logs` ships an immutability trigger naming "protected-tables-guard" but was never in `PROTECTED_TABLES` — added.
 - **NOT touched (documented)**: `admin.audit_logs` (never had tenant_isolation_policy — append trigger + REVOKE only; admin writes bypass via AdminBypassRlsInterceptor); per-tenant audit tables (`messaging.compliance_audit_log`, `sensor.vfd_parameter_audit_logs`, `sensor.audit_archive_v1` — fan-out cloned, schema-isolated, correctly tenant-RLS'd); outbox/inbox/DLQ (ORPHAN-HIGH-321 worker bypass).
 - **Now-redundant (follow-up)**: auth's #845 write-side `set_config('app.bypass_rls')` in AuditLogService is superseded by `infra_ledger_read` (which permits the RETURNING re-read). Left in place as harmless defense-in-depth to avoid deploy-ordering coupling; can be simplified once the policy has deployed. Tracked as ORPHAN-LOW-337b.
-Validation: helper unit spec 5/5 (exact DDL + authority guard), SSoT invariant 6/6, platform-bootstrap integration updated to assert `shared.audit_logs` carries the infra pair and NOT `tenant_isolation_policy`. Live droplet verification after deploy.
+  Validation: helper unit spec 5/5 (exact DDL + authority guard), SSoT invariant 6/6, platform-bootstrap integration updated to assert `shared.audit_logs` carries the infra pair and NOT `tenant_isolation_policy`. Live droplet verification after deploy.
 
 ## ORPHAN-MEDIUM-325 — the advertised NATS SSoT CI invariant never ran in any workflow AND was 16/18 red against the artifacts it was meant to pin — RESOLVED (this PR)
 
@@ -6042,7 +6315,7 @@ Validation: helper unit spec 5/5 (exact DDL + authority guard), SSoT invariant 6
 **Remediation (this PR):** `SCHEMA_MIGRATION_SUBJECT_PREFIX` → `events.platform.schema-migration` (and the observability consumer now DERIVES its subscribe subject + getEventType label from that same constant — publisher and consumer structurally cannot drift); `SecurityEventService` forms the wire subject as `events.${enumValue}` at the publish boundary (enum values stay the semantic identifiers carried in payloads/metrics); the misleading consumer comment corrected. Contract pins: sink spec asserts all four `events.platform.schema-migration.*` subjects, the prefix-pin spec asserts the canonical value, and a new `security-event-subject-contract.spec.ts` asserts the wire subject and that every enum value maps inside the consumer wildcard space. Publish grants for both spaces were provisioned platform-wide by ORPHAN-HIGH-317 (PR #837), so this lands against a ready broker. Pre-existing lint errors in the touched sink spec (import order, require-await, non-null assertions) fixed in passing.
 **Owner:** platform-kernel-expert. **Deadline:** 2026-07-24.
 
-## ORPHAN-HIGH-327 — main deploy pipeline blocked since #830: alert-engine __tests__ support mocks leak into the app tsconfig and fail release-verification — IN-PROGRESS (this PR)
+## ORPHAN-HIGH-327 — main deploy pipeline blocked since #830: alert-engine **tests** support mocks leak into the app tsconfig and fail release-verification — IN-PROGRESS (this PR)
 
 **Discovered:** 2026-07-02 during the event-backbone merge train: every `ci-affected` run on main since 8d1b342ed (#830) fails at `deploy-production / release-verification`, so NO merged commit has deployed to the droplet since — including the #837/#838/#839/#841/#842 remediation train.
 **Root cause:** #830 committed the previously-untracked jest support mocks under `apps/alert-engine/src/__tests__/support/` (`*.mock.ts` — deliberately not `*.spec.ts`). `tsconfig.app.json` excludes only `*.spec.ts`/`*.test.ts`, so the strict release-verification type-check compiled the mocks WITHOUT jest types → `TS2503/TS2304 Cannot find namespace/name 'jest'`. Silent-severity mismatch: the PR's own CI was green (per-PR jobs don't run release-verification), so the breakage only manifests on main pushes.
@@ -6056,31 +6329,37 @@ Validation: helper unit spec 5/5 (exact DDL + authority guard), SSoT invariant 6
 Deep read of the sensor domain (backend + frontend + Rust edge) surfaced six HIGH structural findings, closed across the six-phase enterprise plan on PR #811 (branch `claude/sense-sensor-module-arch-oguq01`). Registry entries carry the authoritative state; this section is the human-readable cross-reference the review-anchor invariant requires. Registry close ceremony runs post-merge.
 
 ## SENSOR-HIGH-001 — `program_variables` has no `tenant_id` column (ORPHAN-DIC-001 class) — RESOLVED (Faz 1)
+
 **Evidence:** automation `program_variables` rows were tenant-scoped only transitively through their parent program, so RLS and scoped repositories could not act on variables directly.
 **Rule:** per-tenant rows must carry a first-class `tenantId` so isolation is enforceable without joining through the parent.
 **Remediation:** blue-green-safe migration (nullable → backfill from parent program → NOT NULL); `ProgramVariable` entity + scoped queries updated. Owner: sensor-expert.
 
 ## SENSOR-HIGH-002 — SCADA package serializer data loss + builder/operator tag-binding key mismatch — RESOLVED (Faz 2)
+
 **Evidence:** `toScadaPackageJSON` dropped widget-level `name/visible/zIndex/permissions`; the builder read `config.tagName` while the operator read `config.tagId`, so one widget bound different tags in the two runtimes.
 **Rule:** persistence roundtrip must be lossless and one widget must resolve one tag binding in every runtime.
 **Remediation:** serializer fix + 54-widget roundtrip spec; single `getWidgetTagBinding` accessor (canonical `tagRef` → legacy keys); `ScadaPackageDocV2` schema + V1→V2 upcaster + save-time validation + upcast-on-read. Owner: sensor-expert.
 
 ## SENSOR-HIGH-003 — deploys retain no artifact snapshot; rollback is a label; process deploys unlogged + hardcoded version 1 — RESOLVED (Faz 3)
+
 **Evidence:** rollback flipped a status with nothing to restore; process deploys wrote no log and shipped `version: 1`.
 **Rule:** deploy pipeline must be auditable and reversible — every payload retained as an immutable checksummed snapshot; rollback restores a concrete artifact.
 **Remediation:** content-addressed `deploy_artifacts` per-tenant table (sha256, append-only, dedupe); all deploy paths snapshot; deploy logs carry `artifact_id` + `checksum`; `rollbackScadaPackageDeploy` republishes a retained artifact. Owner: sensor-expert.
 
 ## SENSOR-HIGH-004 — cloud→edge deploy contract unpinned (TS↔Rust drift; SCADA/process shipped unsigned) — RESOLVED (Faz 4)
+
 **Evidence:** no publish-boundary validation; hand-mirrored TS↔Rust shapes drifted (camelCase `fbType/onError/intervalSecs/ptMs/delayMs` silently dropped or parse-failed on the edge); SCADA/process deploys unsigned while ST bytecode required ed25519.
 **Rule:** trust-boundary payloads need a canonical machine-enforced contract on both sides + integrity protection matching the platform signing posture.
 **Remediation:** canonical JSON Schemas AJV-enforced at every MQTT publish boundary; shared fixtures consumed by both a TS spec and a Rust in-crate test + parity CI script; ed25519 deploy signatures (`deploy_sig.rs`, domain tags `scada-pkg-v1`/`process-v1`, tenant-bound canonical bytes, cross-language pinned vector). Owner: sensor-expert / edge-expert.
 
 ## SENSOR-HIGH-005 — unified SCADA+automation deploy is N+1 fire-and-forget MQTT with no atomicity/staging/confirmation — RESOLVED (Faz 5)
+
 **Evidence:** a crash or broker outage mid-sequence left a device half-deployed with no record.
 **Rule:** multi-artifact industrial deploys must be transactional end-to-end — transactional dispatch (outbox), edge verify-before-apply staging, atomic apply, operator-visible confirmed/failed lifecycle.
 **Remediation:** `release_bundles` per-tenant table + guarded `PENDING→STAGED→CONFIRMED(→ROLLED_BACK)/FAILED` machine; `deployScadaWithAutomation` → bundle builder with signed manifest (ed25519 `bundle-v1`, signature required) committed transactionally with a `DeployBundleRequested` outbox event; edge `cmd_deploy_bundle` pure verify → staged ack → atomic apply → confirmed/failed. Owner: sensor-expert / edge-expert.
 
 ## SENSOR-HIGH-006 — two parallel live-data generations + skeleton unified editor — IN-PROGRESS (Faz 6, PR #811)
+
 **Evidence:** the builder preview canvas ran the legacy `/sensors` device-code path while operator/runtime ran the canonical `/scada` tag path; `UnifiedEditorPage` HMI mode was an iframe-overlay skeleton whose layout never persisted and whose Deploy menu was a no-op; the `/scada` gateway accepted any subscribe key un-tenant-scoped.
 **Rule:** a product surface must have ONE live-data plane and ONE canvas — builder, operator and unified editor share the registry-gated `/scada` path and the real ScreenCanvas, and the unified shell persists HMI layout + deploys through the canonical dialog.
 **Remediation (landed):** tenant-fenced `/scada` subscribe gate (registry-validated TagRefs); builder preview migrated to Layer-B and Layer A deleted (empty guard); unified HMI mounts the real ScreenCanvas with dual-target save + canonical deploy; idempotent V2 backfill; builder⇄operator binding-parity spec.
@@ -6091,11 +6370,13 @@ Deep read of the sensor domain (backend + frontend + Rust edge) surfaced six HIG
 Reading the Faz-5 edge `cmd_deploy_bundle` path end-to-end (the command dispatch, RBAC/audit catalog, and the stage→apply loop) surfaced two HIGH findings. Registry entries carry the authoritative state; this section is the human-readable cross-reference the review-anchor invariant requires.
 
 ## EDGE-HIGH-007 — `deploy_bundle` had a dispatch arm but no catalog entry, so it lost its RBAC class and audit taxonomy to the fallback — RESOLVED (this PR)
+
 **Evidence:** `cmd_deploy_bundle` is routed by an explicit match arm (`dispatch_lifecycle.rs:317`) so it always executed, but it was absent from `COMMAND_CATALOG`. `permission_for_command` therefore returned the `.unwrap_or(Some(SafeStateTrigger))` fallback (`catalog.rs:889`) and — critically — `audit_action_for_command` returned `None` (`catalog.rs:914`), so a bundle apply produced no `ProgramDeploy` audit record. `SafeStateTrigger` also requires two-person integrity, so the security floor held, but the permission class was wrong for a deploy.
 **Rule:** every wire command with a dispatch arm must carry an explicit catalog entry so its permission class, signature legacy-policy and audit taxonomy are declared, not inherited from the fail-safe fallback (dispatch audit SSoT; ADR-018 edge RBAC/ABAC).
 **Remediation:** `deploy_bundle` catalog entry mirroring sibling `deploy_scada_package` exactly (`DeployProgram` permission, `ProgramDeploy` audit actions, `DenyUnsignedInEnforcing`); added to `MUTATING_WIRE_NAMES` (keeps the mutating-name invariants green); `deploy_bundle_resolves_like_deploy_scada_package` regression test pins permission + audit + legacy-policy parity with the artifacts the bundle groups. Owner: edge-expert.
 
 ## EDGE-HIGH-008 — bundle apply phase is not all-or-nothing on a runtime apply fault — RESOLVED (this PR, Option A rollback)
+
 **Evidence:** the verify/stage phase is genuinely pure (a bad checksum/signature/tenant-binding fails staging and applies nothing — SENSOR-HIGH-005's "broken checksum applies nothing" holds), but once staged the apply loop (`bundle_deploy.rs`) wrote each artifact and, on the first `Err`, returned `{ phase: "failed", stage: "apply", applied* }` WITHOUT restoring the already-applied artifacts (old comment: "instead of pretending atomicity"). SENSOR-HIGH-005 is RESOLVED with a note claiming "atomic apply", so that claim was overstated for the apply-phase-fault case, and the Faz-5 plan's "FAILED → hiçbir şey uygulanmaz" was not met when a fault hit mid-apply.
 **Rule:** a release bundle billed as an atomic edge apply must be all-or-nothing — after a mid-apply fault the device is rolled back to its pre-bundle state; honest partial-apply reporting is not atomicity.
 **Remediation (Option A — true rollback):** before the apply loop `cmd_deploy_bundle` captures a pre-image of exactly the sinks the bundle touches (program `ProgramState`, process, package — nothing else is read or written); on the first apply `Err` it restores each touched sink to its pre-image in reverse apply order (`deploy_package`/`deploy_process` for a `Some` pre-image, new `ScadaState::clear_package`/`clear_process` for a `None` pre-image i.e. a program-/scada-less device, and `CommandHandler::restore_program_state` re-materialising the prior program's script). It then acks `phase: "rolled_back"` when every restore succeeds (device at exact pre-bundle state, nothing applied net) or `phase: "failed"` (stage `rollback`, offending sinks named) when a restore itself faults and the device is in a mixed state needing operator intervention. `deploy_program_locked` remains self-atomic on its own failure; the pre-images cover the cross-artifact case (earlier artifact applied, later one faulted). The `rolled_back`/`failed` ack decision is a pure `summarize_apply_rollback` helper, unit-pinned. Operates at the same persistence layer as `deploy_program_locked`'s existing rollback-on-persist-failure precedent. Owner: edge-expert.
@@ -6103,42 +6384,50 @@ Reading the Faz-5 edge `cmd_deploy_bundle` path end-to-end (the command dispatch
 # Sensor domain review MEDIUM findings — SENSOR-MEDIUM-001 … SENSOR-MEDIUM-002
 
 ## SENSOR-MEDIUM-001 — V2 packageData backfill had a lost-update race — RESOLVED (this PR)
+
 **Evidence:** `backfillPackageDocsToV2` did `find({tenantId})` to load every package, then per row upcast and `scadaPackageRepository.save(pkg)`. A user editing a package (`updateScadaPackage` bumps `version` + `save`) in the window between the backfill's read and its write was overwritten by the upcast of the STALE snapshot — a silent lost update during a maintenance run. `ScadaPackage.version` is a manual counter, not a TypeORM `@VersionColumn`, so `save()` is a blind PK update with no concurrency check.
 **Rule:** a read-modify-write over rows that can be concurrently edited must be serialized (row lock / optimistic version guard) so a maintenance batch cannot overwrite a user's in-flight edit.
 **Remediation:** enumerate ids only, then per-row `scadaPackageRepository.manager.transaction` with `manager.findOne(ScadaPackage, { where:{id,tenantId}, lock:{ mode:'pessimistic_write' } })` — the authoritative read + upcast + save all happen under the row lock, so a concurrent user update either lands before (re-read: already V2 → skip, or still V1 → migrate the user's latest) or is blocked until our txn commits. Mirrors the codebase's existing tenant-safe `manager.transaction` idiom (release-bundle PENDING write). Row deleted between enumeration and lock counts as skipped. New unit tests pin the locked re-read, the concurrent-edit-not-clobbered case, and the deleted-row case. Owner: sensor-expert.
 
 ## SENSOR-MEDIUM-002 — `openWidgetConfig` canvas message handled but never emitted — OPEN (tracked)
+
 **Evidence:** both editors handle `case 'openWidgetConfig'` from the iframe and render `WidgetConfigModal` (a deploy-test simulates the message so the receive side is proven), but a grep of all `web/` finds NO `postMessage` that emits `openWidgetConfig` — only the two receive-side handlers. The center canvas is a ReactFlow app loaded via `getCanvasUrl()` into an iframe; the emitter lives in that iframe's source, which is not in `web/` (likely a separate/bundled canvas asset), so the modal is correct-and-ready but unreachable through the real canvas.
 **Rule:** a receive-side handler + modal wired for a canvas event is dead unless the canvas actually emits it — wire the emitter or remove the misleading dead surface.
 **Resolution (tracked):** either wire the P&ID canvas source to emit `openWidgetConfig` on a widget's config action, or — if that canvas is retired for the real ScreenCanvas HMI path — remove the handler. Owner: sensor-expert. Deadline: 2026-07-22.
 
 ## EDGE-MEDIUM-003 — deploy_bundle has no version-monotonicity floor (signed-but-stale replay downgrade) — OPEN (tracked)
+
 **Evidence:** `verify_bundle` (`bundle_deploy.rs`) gates manifest-hash + ed25519 signature + tenant binding + per-artifact checksum + bundleId, but performs NO version check — the manifest carries per-artifact `version` yet the edge never compares it to what is already deployed. Near-term replay is defended by the envelope JTI dedup table (bounded VecDeque, `mod.rs`), so a fresh replay within the window is rejected; but a validly-signed OLDER bundle replayed AFTER its JTI evicts is applied, downgrading the device.
 **Rule:** a signed deploy artifact carrying a version must be gated by a monotonic floor (highest-applied ≥ incoming) — signature validity attests authorship, not freshness.
 **Resolution (design-laden, tracked):** the same shape `cert_pinning.rs` already documents for cert-pinning manifests ('Cloud-signed manifest version monotonicity', Phase 1.2 defense-in-depth). Needs a persisted highest-applied version floor on the edge (mirror of `RbacManifestStore::version_store`) + a monotonic gate, plus a cloud-side decision on the version authority (bundle-level vs per-artifact). Owner: edge-expert. Deadline: 2026-07-22.
 
 ## EDGE-MEDIUM-004 — the Faz-4 deploy-contract parity gate script is wired into no CI workflow — RESOLVED (this PR)
+
 **Evidence:** `tools/scripts/check-sensor-contract-parity.ts` is the Faz-4 gate that fails CI when the shared fixtures diverge between the TS AJV canonical schemas and the Rust serde structs, but a grep of `.github/workflows` + `package.json` + nx targets found it referenced only in nx's internal file-map and the ephemeral changed-files typecheck tsconfigs — NO workflow step ran it. Its sibling `check-codec-drift.ts` IS wired (`rust-ci.yml` drift job). So the plan's Faz-4.2 deliverable ("parity CI job must go red on a deliberate Rust struct change") was dormant.
 **Rule:** a gate script authored to fail CI on contract drift must be invoked by a workflow — a gate no job runs is dead assurance.
 **Remediation:** added a `sensor deploy-contract parity` step to the `rust-ci.yml` drift job (Rust toolchain + Node 22 already present), invoking the script the identical way as codec-drift. Verified the script passes locally (exit 0, both TS and Rust legs) before wiring, so activation does not red the pipeline. Owner: edge-expert.
 
 ## SENSOR-MEDIUM-003 — process-editor canvas crashed on load (missing react/jsx-runtime dep + unpinned CDN versions) — RESOLVED (this PR)
+
 **Evidence:** the P&ID canvas iframe (`process-editor-canvas.html`) crashed with `Cannot read properties of undefined (reading 'jsx')` inside the `@xyflow/react@12.11.0` UMD. The file is byte-identical to main (pre-existing, not introduced by this branch). xyflow's UMD factory reads `t(…, e.jsxRuntime, e.React, e.ReactDOM)` — four declared deps — but the HTML provided only `React` + `ReactDOM` globals, never `jsxRuntime` (react/jsx-runtime); the unpinned `react@18` is why it surfaced now (a patch drifted the UMD).
 **Rule:** a hand-managed CDN `<script>` dependency graph must be complete and version-pinned, or it is nondeterministic and silently breaks.
 **Remediation (tier-2 root-cause):** pin every CDN version exactly (react/react-dom/react-is 18.3.1, prop-types 15.8.1; xyflow already 12.11.0), and materialise the genuinely-missing `react/jsx-runtime` global from the already-loaded React (`jsx`/`jsxs` = `React.createElement` with the key hoisted out of props — faithful to react/jsx-runtime's production contract, not a behavioural shim), plus a loud guard that throws a clear message if the graph is ever incomplete again. Unverifiable in the headless env (no browser, proxy blocks unpkg) — requires in-browser confirmation. Owner: sensor-expert.
 
 ## SENSOR-MEDIUM-004 — process-editor canvas hand-managed its dep graph via CDN scripts instead of a build — RESOLVED (this PR, supersedes the SENSOR-MEDIUM-003 CDN patch)
+
 **Evidence:** `process-editor-canvas.html` was a ~1300-line hand-authored HTML whose React app loaded all deps via ordered CDN `<script>` tags with no build-time resolution; it also shipped `cdn.tailwindcss.com` in production and ran the iframe `sandbox=allow-scripts allow-same-origin`. A deep investigation (headless-Chromium repro + build-artifact diff) proved the actual "still broken after the tier-2 fix" cause was a STALE `dist/` artifact: the CDN html lived in `public/`, copied to `dist/` only by a build, and no build had run after the tier-2 edit — so `/remotes/sensor-module/process-editor-canvas.html` served the pre-fix file. The `public/`↔`dist/` copy split + CDN graph is the structural flaw.
 **Rule:** a shipped React app's dependency graph must be resolved + pinned at build time by the bundler, not hand-ordered CDN scripts — build-time resolution makes it complete-by-construction, deterministic, offline-capable, and CSP-clean, and eliminates the stale hand-copied artifact.
 **Remediation (tier-1, verified):** the inline app moved to a bundled Vite entry (`canvas/main.jsx` + `canvas.css`, entry `process-editor-canvas.html`) that imports React 19, `@xyflow/react`, `recharts`, and `@aquaculture/node-components` from `node_modules` — NO CDN, no jsx-runtime shim, no hand-managed globals; a missing dep is now a BUILD error, not a runtime crash. Built by `vite.canvas.config.ts` (relative base → dev+prod-symmetric asset URLs) into `public/` (gitignored, regenerated), run before both `vite build` and `vite` (dev) via the `package.json` scripts and gated by a `@aquaculture/node-components:build` `dependsOn` — so the served canvas can never be a stale hand-copied file. Verified in headless Chromium against the real `nx build` dist: the ReactFlow canvas renders (`.react-flow` present, `#root` populated) with **0 external/CDN requests** and no errors; `nx build sensor-module` emits both `remoteEntry.js` (MF intact) and the bundled canvas. Owner: sensor-expert.
 **Remaining sibling (tracked under this ID):** `scada-viewer-canvas.html` (the legacy flag-gated `ScadaViewer`) has the same CDN-UMD pattern; convert it the same way or delete it when the `VITE_SENSOR_LEGACY_SCADA_VIEWER` retirement flag is removed.
 
 ## SENSOR-MEDIUM-005 — host↔canvas iframe boundary had no contract SSoT — RESOLVED (this PR)
+
 **Evidence:** THREE hand-rolled `getCanvasUrl()` copies (`UnifiedEditorPage.tsx:579`, `ProcessEditorPage.tsx:389`, `ScadaViewer.tsx:32`) — two carrying a dead `localhost:3006` port sniff that matched no real dev port (module dev is 3005, shell 3000), so the "dev" branch never executed and all real traffic used the prod path anyway (the module's Vite `base` is `/remotes/sensor-module/` in BOTH dev and prod) — plus FOURTEEN stringly-typed `'process-editor-host'`/`'process-editor-canvas'` postMessage literals across six files on both sides of the wire. Renaming any one silently broke the ready/setNodes handshake.
 **Rule:** a cross-boundary wire contract (URLs + message envelope source tags) must have a single machine-enforced source of truth consumed by both sides.
 **Remediation:** `src/canvas-contract.ts` is now the one contract SSoT (`CANVAS_SOURCE`/`HOST_SOURCE`, `SENSOR_MODULE_BASE`-derived canonical URLs, `CanvasMessageEnvelope`), imported by BOTH worlds — the TS host side (UnifiedEditorPage, ProcessEditorPage, ScreenManager, processStore, ScadaViewer) and the bundled canvas app (`canvas/main.jsx`) through the same Vite build. Enforced by `src/__tests__/canvas-contract.spec.ts` (URL constants pinned to the actual `vite.config.ts` base; zero protocol literals or hand-rolled URL builders outside the contract; canvas app free of window-global dep reads and CDN hosts; entry HTML a pure module entry; build+dev scripts run the canvas pre-build) and by `assert-canvas-artifact.mjs`, a post-build gate that makes a dist without a bundled CDN-free canvas unproducible through the build target CI and the Docker image consume (closing the stale-dist class at the pipeline level). Wire behavior re-verified in headless Chromium after the swap: ready handshake, setNodes round-trip, node render, nodesChange feedback — zero errors, zero external requests. Owner: sensor-expert.
 
 ## Not investigated / dropped this cycle
+
 - **Bundle apply order** (candidate): NOT a defect — the cloud builder pushes program refs before the package ref (`scada-package.service.ts:919-959`) and the edge applies in manifest order, so programs-before-package holds by design (documented "enforced by manifest order + edge apply"). No independent edge re-sort is needed given the rollback (EDGE-HIGH-008) makes any order safe on failure. Dropped.
 
 ## ORPHAN-HIGH-328 — INFRA-CRITICAL-029 registry-closeout PR (#713) left one of 217 state flips unapplied: its own closing evidence only satisfies the sibling-trailer pattern, not the automated reachability/trailer check
@@ -6150,30 +6439,37 @@ Reading the Faz-5 edge `cmd_deploy_bundle` path end-to-end (the command dispatch
 **Owner:** data-expert. **Deadline:** 2026-07-16.
 
 ## ORPHAN-MEDIUM-329 — Fable credit exhaustion silently stalls the autonomous loop; no automatic fallback to a separate-pool tier — IN-PROGRESS
-Operatör 2026-07-03: Fable 5 kredisi tükendi. Fable birincil tier kalırsa gece cron'u her dispatch'te yetersiz-kredi hatası alır ve bu EXTERNAL_OUTAGE requeue yoluna gider (aynı boş havuzu N kez dener) — döngü sessizce durur. Kredi-tükenmesi refusal gibi *deterministik + havuz-özel*: yalnız farklı tier'ın havuzu çözer. **Remediation (same PR):** `claude_runtime.extract_credit_exhaustion` (detection-only, `extract_refusal` kardeşi; `returncode!=0` + konservatif `CREDIT_EXHAUSTION_MARKERS` SSoT, transient sinyaller — overloaded/429/network — hariç) + `ClaudeRunResult.credit_exhaustion` alanı; `ci_executor` + `worker_executor` refusal dalının yanına kredi-fallback dalı — tek denetimli fable→opus retry @ xhigh ("ultra code") effort (opus ayrı kredi havuzu), governance-audited (`model_credit_fallback_attempted` eşleşen marker'ı taşır → operatör seti üretimden ayarlar), opus'ta fail-closed (guard `model=="fable"`), refusal ile paylaşılan tek-retry bütçesi (`_fell_back_to_opus`). Fable birincil kalır; frontmatter/default/invariant pinleri değişmez. Takip: circuit-breaker (N ardışık kredi-fallback sonrası effektif default'u opus'a çevir) ayrı izlenir.
+
+Operatör 2026-07-03: Fable 5 kredisi tükendi. Fable birincil tier kalırsa gece cron'u her dispatch'te yetersiz-kredi hatası alır ve bu EXTERNAL_OUTAGE requeue yoluna gider (aynı boş havuzu N kez dener) — döngü sessizce durur. Kredi-tükenmesi refusal gibi _deterministik + havuz-özel_: yalnız farklı tier'ın havuzu çözer. **Remediation (same PR):** `claude_runtime.extract_credit_exhaustion` (detection-only, `extract_refusal` kardeşi; `returncode!=0` + konservatif `CREDIT_EXHAUSTION_MARKERS` SSoT, transient sinyaller — overloaded/429/network — hariç) + `ClaudeRunResult.credit_exhaustion` alanı; `ci_executor` + `worker_executor` refusal dalının yanına kredi-fallback dalı — tek denetimli fable→opus retry @ xhigh ("ultra code") effort (opus ayrı kredi havuzu), governance-audited (`model_credit_fallback_attempted` eşleşen marker'ı taşır → operatör seti üretimden ayarlar), opus'ta fail-closed (guard `model=="fable"`), refusal ile paylaşılan tek-retry bütçesi (`_fell_back_to_opus`). Fable birincil kalır; frontmatter/default/invariant pinleri değişmez. Takip: circuit-breaker (N ardışık kredi-fallback sonrası effektif default'u opus'a çevir) ayrı izlenir.
 
 ## ORPHAN-HIGH-330 — credit-fallback detection missed the real CLI usage-limit message; loop stalled on live Fable exhaustion — IN-PROGRESS
+
 Canlı kanıt (manuel cycle 28647813607, 2026-07-03): ARIA'nın managed Fable havuzu **tükendi**; challenger dispatch'i **"You've reached your Fable 5 limit. Run /usage-credits to continue or switch models with /model."** mesajını **exit 0'da temiz-tamamlandı içeriği** olarak döndürdü (0 token, terminal_reason=completed) → aşağı akışta reddedildi (doğrulanamaz kanıt), kredi-fallback'e YÖNLENDİRİLMEDİ. #849 detection iki şekilde kaçırdı: (a) marker'lar API sözcüklerini (credit balance/insufficient/quota) varsaydı ama gerçek mesaj usage-credits/reached-your-limit/switch-models; (b) `returncode!=0` gate'i exit-0'da gelen mesajı atladı. **Remediation (same PR):** `extract_credit_exhaustion` artık TÜM cevap metnini (stderr + final_message + assistant blokları + result event) tarıyor ve `USAGE_LIMIT_MARKERS` (usage-credits, switch models with /model) + reached-your-…-limit birlikte-oluşumunu `returncode`'dan BAĞIMSIZ eşliyor; API-hata marker'ları returncode!=0-gate'li kalıyor (temiz koşuda "billing" bahsine false-positive yok). Ayrıca fable→opus fallback'i `claude_runtime.run_with_model_fallback` SSoT helper'ına DRY'lanıp **davranışsal** test süitiyle (fable+kredi→opus@xhigh, tek-retry bütçesi, opus-primary-fallback-yok, kredi-önceliği) kaynak-pinleri değiştirildi. Bu, #849 kredi-fallback'inin gerçek failure-mode'da fiilen ateşlenmesini sağlar.
 
 ## ORPHAN-HIGH-331 — convergence envelopes carry no target_sha; evidence-validator rejects every real ref (worktree_candidate) — IN-PROGRESS
+
 Canlı katman-4 blokör'ü (ORPHAN-312 düzeltilir düzeltilmez ortaya çıktı, cycle 28656402488): challenger doğru şekilde `web/modules/hr-module/src/pages/leaves/LeavesPage.tsx:346` gösterdi (gerçek kod, 437 satırlık dosya, geçerli satır) ama evidence-validator yine reddetti — `evidence_ref_not_repo_verified:...:worktree_candidate`. KÖK: `evidence_trust.classify_evidence_ref` bir ref'i ancak içerik-hash'i **çözülmüş bir target_sha**'daki git blob'uyla eşleşince `repo_verified` notlar; challenger request `target_sha=None` taşıyordu (envelope mint'leri hiç set etmiyordu), `_resolve_target_sha` None döndü, her gerçek dosya `worktree_candidate`'e düştü, `require_repo_verified` reddetti. Bu, kanıt ne kadar doğru olursa olsun convergence'ı **yapısal olarak imkânsız** kılıyordu. **Remediation (same PR):** convergence drainer workspace HEAD sha'sını bir kez çözüyor (`_resolve_workspace_head_sha`) ve `target_sha`'yı 4 envelope mint'ine threadliyor (challenger/primary/cross_review/completeness_critic; `create_agent_invocation_request`'in target_sha alanı zaten vardı, hiç doldurulmuyordu). Davranışsal kanıt: target_sha=HEAD → repo_verified; None → worktree_candidate.
 
 ## ORPHAN-HIGH-332 — re-dispatched planner request refuses to overwrite its prior on-disk output (cross_review requeue-loop → human_required) — IN-PROGRESS
+
 Canlı katman-6 blokör'ü (cycle 28659464267, ORPHAN-331 sonrası evidence-gate'i GEÇEN ilk cycle): cross-reviewer'ın İLK dispatch'i geçerli bir cross_review üretti (opus, challenger revizyonunu onaylayan doğru verdict) ama poll timeout requeue etti. Re-dispatch'te opus (Read tools + expected output path söylenmiş) önceki attempt'in `status:submitted` envelope'unu diskte buldu ve repo'nun "look before you write / don't overwrite existing work" disiplinine uyarak yeniden üretmeyi REDDETTİ — `agent_text`: "The expected output file already exists on disk ... the work is already done and submitted", cross_review JSON'unu top-level obje yerine prose içine gömdü → `plan_content_invalid:cross_review:absent_or_not_object` → requeue (count 3) → `agent_human_required`, cycle max_cycles'te takıldı. **Fix (same PR):** `invoke_claude_cli` her dispatch'ten önce stale output+transcript'i temizliyor (`_clear_stale_dispatch_artifacts`) → her attempt taze schema-geçerli envelope yazıyor; worker lane `worker-result` ile submit ediyor, etkilenmiyor. **İKİNCİL (izlenen, bu PR'da değil):** 300s `--challenger-timeout-seconds` default'u kredi→opus fallback altında (opus yavaş) sıkışık; canlı doğrulama valid-ama-geç sonuçların hâlâ requeue olduğunu gösterirse eşleşen cycle-deadline/job-timeout ile büyüt.
 
 ## ORPHAN-LOW-333 — sensor-temperature projection opens a per-event tenant transaction platform-wide — OPEN
+
 `SensorTemperatureProjectionListener` subscribes to `events.*.SensorReading` across all tenants and, per temperature-bearing reading, runs a full `runInTenantTransaction` (connection + BEGIN + upsert + COMMIT) to refresh one cache row. Bounded today by temperature-probe reporting frequency; a large frequently-reporting fleet would generate sustained farm-service write/transaction load solely for cache refresh. Remediation when load materializes: per-sensor coalescing/debounce (≥1/min) or a single autocommit upsert (statement is already idempotent newest-wins). Owner: farm-expert. Found by 2026-07-05 final-sweep audit (FARM-LOW-003).
 
 ## ORPHAN-LOW-334 — NATS payload tenantId is not bound to the delivery subject's tenant token — OPEN
+
 Wildcard consumers (`FarmStockProjectionListener`, `SensorTemperatureProjectionListener`) route writes off `event.tenantId` (payload) without asserting it equals the `events.{tenantId}.*` subject segment; `isValidUUID` proves format, not provenance. Only reachable via a compromised/buggy AUTHENTICATED publisher (NATS is mTLS cert-is-identity), hence LOW. Proper fix needs the event-bus handler interface to expose the delivery subject (platform/libs/event-bus change) so consumers can assert subject↔payload equality — aligns with the gateway→subgraph HMAC tenant-binding principle. Owner: platform-kernel-expert. Found by 2026-07-05 security sweep (GSEC-LOW-004).
 
 ## ORPHAN-LOW-335 — recordManualTemperature does not verify tankId belongs to the tenant — OPEN
+
 A bogus/foreign tankId creates an orphan measurement INSIDE the caller's own tenant (write carries JWT tenantId on the tenant-pinned connection; reads filter tenantId+tankId — no cross-tenant impact, confirmed). Data-quality gap only. Remediation: resolve tankId via the tank lookup used by the full create() path and reject unknown ids. Owner: farm-expert. Found by 2026-07-05 security sweep (GSEC-LOW-005).
 
 ## ORPHAN-MEDIUM-336 — request.farm.getTankRegistry responder is tenantId-keyed, but KnowledgeExtractionService still calls it with tenantSchema — RESOLVED (this PR)
+
 Faz 3a built the `request.farm.getTankRegistry` responder (`apps/farm-service/src/tank/responders/get-tank-registry.responder.ts`) tenantId(UUID)-keyed, using the fully-sanctioned RLS-safe `runInTenantRead`. The ai-service `get_farm_tanks` read tool calls it correctly (ctx.tenantId). But messaging-service `KnowledgeExtractionService.fetchTankRegistry` (`apps/messaging-service/src/ai/services/knowledge-extraction.service.ts:352`) still sends `{tenantSchema}` — a lossy `tenant_<16hex>` it cannot map back to a tenantId (it iterates `listTenantSchemas`, which returns schema strings; the tenant record lives cross-service in `auth.tenants`). The responder validates the payload and returns [] for a non-UUID, so knowledge-extraction degrades exactly as before (it was already non-functional — no responder existed) — this change does NOT regress it, but it does NOT yet enable it either. **Proper fix (Faz 3 focused effort):** add a `runInTenantReadBySchema(dataSource, sourceSchema, tenantSchema, fn)` helper to `libs/backend-common/src/database` — build on `validateTenantSchemaName` (schema-manager.service.ts:841) + a validated `search_path` pin + the RLS session context — so schema-iterating callers (knowledge-extraction, and the AI tool via ctx.schemaName) share ONE read path; then point both consumers at it. This touches the tenant-isolation-guarded surface (farm-service-tenant-isolation.spec, tenant-transaction) so it warrants dedicated review. Owner: platform-kernel-expert + data-expert. Found while building Faz 3a farm read tools 2026-07-06.
 **Resolution (2026-07-07, this PR):** the prescribed `runInTenantReadBySchema` bypass primitive turned out to be unnecessary AND weaker than the existing path — `KnowledgeExtractionService` already has the AUTHORITATIVE tenant UUID in hand: every message row it sweeps carries `Message.tenantId` (MSG-HIGH-010, NOT NULL), and all rows in a pinned `tenant_<uuid>` schema share it. So the sweep now selects `m."tenantId"` and passes that canonical UUID to `fetchTankRegistry`, feeding the responder's UNCHANGED, fully fail-closed `runInTenantRead` (which ASSERTS the RLS GUC == tenantId). This is strictly stronger than a schema-keyed bypass read (which would trade the GUC assertion for schema-boundary-only isolation) and adds no speculative isolation surface — the responder stays tenantId-keyed by design (the UUID is the canonical tenant key; a `tenant_<16hex>` name lossily truncates it). A defensive guard skips the fetch if a swept schema somehow yields a null tenantId (data-integrity break). Pinned by a new payload-shape test (`knowledge-extraction.tank-registry.spec.ts`) + the existing responder contract spec.
-
 
 ## ORPHAN-HIGH-337 — GDPR self-service anonymization was broken end-to-end: request.auth.verifyPassword had no responder — RESOLVED (this PR)
 
@@ -6181,13 +6477,15 @@ Faz 3a built the `request.farm.getTankRegistry` responder (`apps/farm-service/sr
 **Evidence:** messaging's `GdprService.verifyPassword` (`apps/messaging-service/src/gdpr/gdpr.service.ts`) issues `natsClient.send('request.auth.verifyPassword', {userId, password})` as the FIRST step of `anonymizeMyData` (the GraphQL mutation `message.resolver.ts` exposes to users, rate-limited caller-side). No `@MessagePattern('request.auth.verifyPassword')` existed anywhere in auth-service (or any service) — `git log -S` shows the subject literal was only ever added on the messaging side; the responder was written speculatively and never built. Consequently every `anonymizeMyData` call timed out at the password-confirmation step and threw `BadRequestException('Unable to verify password…')` — the Article-17 self-erasure right was unusable in production.
 **Root cause:** a cross-service credential-confirmation contract with a caller but no responder. Not dead code (the caller gates an irreversible action correctly) and not a wrong subject (no existing auth subject verifies a current password — the `request.auth.user.*` surface is deliberately no-credential/no-PII).
 **Remediation (this PR):** implemented the responder in auth-service (the credential SSoT):
+
 - SSoT contract `AUTH_CREDENTIAL_SUBJECTS.VERIFY_PASSWORD` + `VerifyPasswordQuery` + AJV trust-boundary schema in `@platform/event-contracts` (replaces the messaging-local hardcoded literal + interface).
 - `AuthCredentialNatsHandler` responder: AJV validation → per-user Redis sliding-window rate limit (defence-in-depth vs a compromised caller) → `AuthenticationService.confirmUserPassword` → security audit → **bare boolean** reply. Errors/rate-limit surface as an `RpcException` so the caller fails CLOSED (blocks the erasure), never a `false` indistinguishable from a wrong password. Bare-boolean reply is also the rollout-safety lock (the existing caller does `send<boolean>` + `result === true`; a result OBJECT would make `!!obj` true for a wrong password during any deploy skew).
 - `confirmUserPassword` is a RE-confirmation, not a login: timing-equalized (dummy-hash verify + min-duration → no user enumeration), lazily migrates a legacy hash on match, and does NOT touch `failedLoginAttempts`/`lockedUntil` (locking an account on a mistyped GDPR confirmation would turn a data-subject right into a self-DoS).
 - messaging caller repointed to the SSoT constant + typed query.
-**No-oracle controls:** NATS cert-CN (only messaging can publish) + AJV shape gate + per-user rate limit + timing-safe verify + boolean-only reply + no lockout mutation.
-**Validation:** responder spec 9/9 (match/no-match, fail-closed on malformed/rate-limit/internal, TTL window, Redis-absent degrade), `confirmUserPassword` service spec 3/3 (no-lockout + enumeration-safe), messaging gdpr spec 9/9 unchanged. Grants already present (messaging publish + auth `request.auth.>` subscribe, #837).
-**Owner:** auth-security-expert. **Deadline:** closed by this PR's merge.
+  **No-oracle controls:** NATS cert-CN (only messaging can publish) + AJV shape gate + per-user rate limit + timing-safe verify + boolean-only reply + no lockout mutation.
+  **Validation:** responder spec 9/9 (match/no-match, fail-closed on malformed/rate-limit/internal, TTL window, Redis-absent degrade), `confirmUserPassword` service spec 3/3 (no-lockout + enumeration-safe), messaging gdpr spec 9/9 unchanged. Grants already present (messaging publish + auth `request.auth.>` subscribe, #837).
+  **Owner:** auth-security-expert. **Deadline:** closed by this PR's merge.
+
 ## ORPHAN-LOW-337b — auth AuditLogService write-side RLS bypass is now redundant given the infra-ledger policy — OPEN (intentional — owner+deadline+ID tracked)
 
 Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_logs`, the transaction-scoped `SELECT set_config('app.bypass_rls','on',true)` that `apps/auth-service/src/audit/audit-log.service.ts` runs before a standalone audit write (added by #845 to make `INSERT … RETURNING` pass under the old `tenant_isolation_policy`) is no longer load-bearing — the policy itself now permits the RETURNING re-read from any context. It is left in place ON PURPOSE as harmless defense-in-depth: removing it in the same change would couple correctness to db-migrate-runs-before-auth-boot deploy ordering. Simplify it (drop the bypass, keep the manager-passed path) in a follow-up once the policy has been live for one deploy cycle. **Owner:** auth-security-expert. **Deadline:** 2026-08-14.
@@ -6212,7 +6510,7 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 ## ORPHAN-HIGH-340 — SCADA runtime engine is a process-wide singleton, not genuinely multi-tenant — OPEN (owner+deadline+ID tracked)
 
 **Discovered:** 2026-07-11 (surfaced while closing ORPHAN-CRITICAL-339).
-**Evidence:** `AlarmEngineService` (`apps/sensor-service/src/scada-runtime/services/alarm-engine.service.ts`) is an `@Injectable()` singleton with ONE 1 Hz eval loop, ONE `rules` set, and ONE bound `tenantId`; `ScriptEngineService` likewise binds a single tenant. After ORPHAN-CRITICAL-339 the persistence layer is tenant-safe and fail-closed, so no data can cross tenants — but the engine can only be *activated* for one tenant per process at a time. Serving multiple concurrent tenants from one sensor-service process would require the second tenant's activation to overwrite the first's `setTenantId`/`setAlarmRules`.
+**Evidence:** `AlarmEngineService` (`apps/sensor-service/src/scada-runtime/services/alarm-engine.service.ts`) is an `@Injectable()` singleton with ONE 1 Hz eval loop, ONE `rules` set, and ONE bound `tenantId`; `ScriptEngineService` likewise binds a single tenant. After ORPHAN-CRITICAL-339 the persistence layer is tenant-safe and fail-closed, so no data can cross tenants — but the engine can only be _activated_ for one tenant per process at a time. Serving multiple concurrent tenants from one sensor-service process would require the second tenant's activation to overwrite the first's `setTenantId`/`setAlarmRules`.
 **Root cause:** the FUXA-derived single-project runtime shape was never converted to the platform's multi-tenant model (per-tenant engine instances or tenant-routed evaluation).
 **Why deferred:** genuinely multi-tenant SCADA evaluation is a subsystem redesign well beyond the CRITICAL leak fix; the storage layer is now safe-by-construction and the engine fails closed rather than defaulting to a shared tenant, so there is no correctness/security risk in the interim — only a single-active-tenant activation limitation. **Owner:** sensor-expert. **Deadline:** 2026-09-30.
 
@@ -6314,31 +6612,33 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 **Discovered:** 2026-07-11 (Lane-D db-audit — the immutable-log half of DB-INFRA-HIGH-003; see [[ORPHAN-HIGH-351]]).
 **Context:** `stored_events` is an immutable append-only event log whose `payload`/`metadata` jsonb can embed PII; it cannot be row-deleted (breaks event-sourcing). GDPR erasure = crypto-shred (per-tenant key destruction).
 **Remediation (this PR — the tested, isolated core + design):**
+
 - Design + STRIDE threat model + staged-rollout/backfill plan: `docs/plans/2026-07-12-event-store-crypto-shred-design.md`.
 - `event_store.tenant_payload_keys` key store (entity + `CreateTenantPayloadKeys` migration; registered in `MODULE_SCHEMAS['event_store'].infrastructureTables`) — one KEK-wrapped per-tenant DEK per row.
 - `TenantPayloadCryptoService` (envelope encryption; AES-256-GCM matching the platform primitive): `encrypt`/`decrypt`/`shred`/`isShredded`, per-tenant DEKs, fail-closed on a shredded/absent key. Pinned by `tenant-payload-crypto.service.spec` (6/6: roundtrip, cross-tenant isolation, shred→permanently-unrecoverable, idempotent+scoped shred, legacy-plaintext passthrough, fresh-instance refuses a shredded tenant).
 - `CryptoShredModule` registered in event-store `app.module` — inert (not called by the live path yet).
-**DELIBERATELY NOT DONE (gated on security review — stated per CLAUDE.md):** wiring `encrypt` into `appendToStream`, `decrypt` (+ shredded-tombstone) into the read path, the erasure handler `shred` step, and the one-time backfill of existing plaintext events. Mis-encrypting a live event-sourcing write path corrupts replay irrecoverably, so the core is proven in isolation first; the design doc sequences the reviewed rollout (steps 2–4).
-**Validation:** crypto spec 6/6; full `tests/invariants` 1858/1858; type-check + migration SQL-lint clean.
-**Owner:** security-architecture / data-expert. **Deadline:** rollout steps 2–4 tracked (2026-10-15).
+  **DELIBERATELY NOT DONE (gated on security review — stated per CLAUDE.md):** wiring `encrypt` into `appendToStream`, `decrypt` (+ shredded-tombstone) into the read path, the erasure handler `shred` step, and the one-time backfill of existing plaintext events. Mis-encrypting a live event-sourcing write path corrupts replay irrecoverably, so the core is proven in isolation first; the design doc sequences the reviewed rollout (steps 2–4).
+  **Validation:** crypto spec 6/6; full `tests/invariants` 1858/1858; type-check + migration SQL-lint clean.
+  **Owner:** security-architecture / data-expert. **Deadline:** rollout steps 2–4 tracked (2026-10-15).
 
 ## ORPHAN-HIGH-353 — tank fish-count read from the stale currentQuantity mirror (5 read paths) instead of the totalQuantity SSoT (DB-FARMPROD-HIGH-001) — RESOLVED read-side (this PR)
 
 **Discovered:** 2026-07-11 (Lane-D db-audit, `db-audit-farm-production` — DB-FARMPROD-HIGH-001). See [[project_batch_lifecycle_ssot]].
 **Context:** the tank fish-count is persisted in four places — `tank_batches.totalQuantity` (the SSoT, derived from `batchDetails[]` by the single writer `TankBatchService.applyBatchDelta`), the `tank_batches.currentQuantity` mirror, `tanks.currentCount`, and `equipment.currentCount`. The write side is already single-writer (`applyBatchDelta` derives currentQuantity + currentCount = totalQuantity; guarded by [[farm-count-single-writer.spec]]) and self-heals pre-SSoT rows via `TankCountReconcileService`.
 **Evidence (the read side — the actual live bug):** five read paths preferred the `currentQuantity` mirror (`currentQuantity ?? totalQuantity`), so when the mirror lagged the SSoT the operator saw 900 on one surface and 719 on another for the same tank —
+
 - `tank/resolvers/tank.resolver.ts:362` (`batchMetrics.pieces`, mobile),
 - `equipment/equipment.resolver.ts:444` (`pieces`, web equipment panel — a second divergence channel),
 - `tank/handlers/get-tank-batches.handler.ts:61`,
 - `tank/handlers/get-tank-capacity.handler.ts:45`,
 - `feeding/services/daily-feeding-execution.service.ts:955` (fed the WRONG count into growth accrual).
-**Root cause:** the count mirror is redundant, but readers preferred it over the SSoT; nothing forbade the mirror-preference so it spread to five call sites.
-**Remediation (this PR — read-side collapse):** every fish-COUNT read now reads `tankBatch.totalQuantity` directly. New CI guard `tests/invariants/farm-tank-count-ssot.spec.ts` (Tier-3 make-detectable) fails the build if any farm-service read reintroduces `currentQuantity ?? …totalQuantity`, and asserts the writer keeps deriving the count mirrors from the SSoT.
-**Deliberate ASYMMETRY (NOT a bug — do not "fix"):** biomass reads keep `currentBiomassKg ?? totalBiomassKg`. Unlike count, `currentBiomassKg` is the growth-tracked live value (`daily-feeding-execution` accrues feeding weight-gain into it) while `totalBiomassKg` is only the batchDetails baseline; collapsing it would drop growth and under-report capacity. The invariant guards this asymmetry so a future cleanup cannot mistake biomass for the count mirror. Biomass-SSoT unification (flow growth into batchDetails) is separately tracked.
-**DELIBERATELY NOT DONE (blue-green phased — stated per CLAUDE.md):** the physical drop of the now-write-only `tank_batches.currentQuantity`/`currentBiomassKg` columns. Dropping a still-written column in the same deploy that stops writing it is not blue-green safe (rolling old pods would read/write the missing column). The correct sequence is: (1) this PR — all reads → SSoT + invariant (done); (2) a follow-up after this deploys — stop the mirror writes in `applyBatchDelta` and simplify the reconcile service's stale-mirror heal (now moot); (3) a final migration drops the columns. Also deferred: consolidating the derive-from-SSoT `currentCount` writers in `allocate-to-tank`/`create-batch` (already correct, not drift — noted by [[farm-count-single-writer.spec]]).
-**Validation:** `farm-tank-count-ssot` 5/5; `farm-count-single-writer` 3/3; `invariant-reachability` green; zero `currentQuantity ?? …totalQuantity` remain in farm-service.
-**Owner:** farm-expert / data-expert. **Deadline:** read-side closed by this PR's merge; the phased column drop (steps 2–3) is a tracked follow-on (2026-10-15).
-**STEPS 2–3 RESOLVED (Faz 5, feat/a1-mirror-retirement):** the read-side fix deployed with #939, so the retirement completed — (2) `applyBatchDelta` no longer writes the count mirror (`currentBiomassKg` deliberately still written: growth-tracked live biomass, re-baselined per delta until the biomass unification); `TankCountReconcileService` lost its stale-mirror diagnostics/heal (`mirrorQuantity` removed from the GraphQL row; the zero-delta heal remains for missing batchDetails); (3) migration `1805400000000-DropTankBatchCurrentQuantityMirror` (current_schema-relative fan-out, no data guard — the column is redundant by design and `totalQuantity` is the truth on every environment) drops the column; the `TankBatch.currentQuantity` entity field + GraphQL field removed (BREAKING CHANGE footer on the commit); supergraph re-composed + generated types regenerated. `farm-tank-count-ssot.spec` now asserts the mirror is NEVER written. NOTE: `currentBiomassKg` intentionally survives (the asymmetry guard covers it); its unification into batchDetails growth-flow stays separately tracked.
+  **Root cause:** the count mirror is redundant, but readers preferred it over the SSoT; nothing forbade the mirror-preference so it spread to five call sites.
+  **Remediation (this PR — read-side collapse):** every fish-COUNT read now reads `tankBatch.totalQuantity` directly. New CI guard `tests/invariants/farm-tank-count-ssot.spec.ts` (Tier-3 make-detectable) fails the build if any farm-service read reintroduces `currentQuantity ?? …totalQuantity`, and asserts the writer keeps deriving the count mirrors from the SSoT.
+  **Deliberate ASYMMETRY (NOT a bug — do not "fix"):** biomass reads keep `currentBiomassKg ?? totalBiomassKg`. Unlike count, `currentBiomassKg` is the growth-tracked live value (`daily-feeding-execution` accrues feeding weight-gain into it) while `totalBiomassKg` is only the batchDetails baseline; collapsing it would drop growth and under-report capacity. The invariant guards this asymmetry so a future cleanup cannot mistake biomass for the count mirror. Biomass-SSoT unification (flow growth into batchDetails) is separately tracked.
+  **DELIBERATELY NOT DONE (blue-green phased — stated per CLAUDE.md):** the physical drop of the now-write-only `tank_batches.currentQuantity`/`currentBiomassKg` columns. Dropping a still-written column in the same deploy that stops writing it is not blue-green safe (rolling old pods would read/write the missing column). The correct sequence is: (1) this PR — all reads → SSoT + invariant (done); (2) a follow-up after this deploys — stop the mirror writes in `applyBatchDelta` and simplify the reconcile service's stale-mirror heal (now moot); (3) a final migration drops the columns. Also deferred: consolidating the derive-from-SSoT `currentCount` writers in `allocate-to-tank`/`create-batch` (already correct, not drift — noted by [[farm-count-single-writer.spec]]).
+  **Validation:** `farm-tank-count-ssot` 5/5; `farm-count-single-writer` 3/3; `invariant-reachability` green; zero `currentQuantity ?? …totalQuantity` remain in farm-service.
+  **Owner:** farm-expert / data-expert. **Deadline:** read-side closed by this PR's merge; the phased column drop (steps 2–3) is a tracked follow-on (2026-10-15).
+  **STEPS 2–3 RESOLVED (Faz 5, feat/a1-mirror-retirement):** the read-side fix deployed with #939, so the retirement completed — (2) `applyBatchDelta` no longer writes the count mirror (`currentBiomassKg` deliberately still written: growth-tracked live biomass, re-baselined per delta until the biomass unification); `TankCountReconcileService` lost its stale-mirror diagnostics/heal (`mirrorQuantity` removed from the GraphQL row; the zero-delta heal remains for missing batchDetails); (3) migration `1805400000000-DropTankBatchCurrentQuantityMirror` (current_schema-relative fan-out, no data guard — the column is redundant by design and `totalQuantity` is the truth on every environment) drops the column; the `TankBatch.currentQuantity` entity field + GraphQL field removed (BREAKING CHANGE footer on the commit); supergraph re-composed + generated types regenerated. `farm-tank-count-ssot.spec` now asserts the mirror is NEVER written. NOTE: `currentBiomassKg` intentionally survives (the asymmetry guard covers it); its unification into batchDetails growth-flow stays separately tracked.
 
 ## ORPHAN-LOW-354 — admin `GlobalConfig` dead undecorated entity class removed (DB P3 dead-code cleanup) — RESOLVED (this PR)
 
@@ -6354,14 +6654,15 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 **Discovered:** 2026-07-12 (Lane-D db-audit P3 verification — the CLAUDE.md "look at the target before deleting" gate caught this). Corrects [[docs/reviews/db-audit/2026-07-11-database-e2e-audit-synthesis]] rows A10 + §B.
 **Original (incorrect) finding:** INFRA-HIGH-002 classified `alert_incidents` as a no-FE orphan duplicate of `alert_history` and proposed dropping it, collapsing the "fired-alert lifecycle" onto `alert_history`.
 **What the code actually shows (verified firsthand):**
+
 - `alert_incidents` (`apps/alert-engine/src/database/entities/alert-incident.entity.ts`, `@Entity('alert_incidents')` + `@ObjectType`) is a rich **incident-lifecycle** model: `IncidentStatus` NEW→ACKNOWLEDGED→INVESTIGATING→RESOLVED→CLOSED/SUPPRESSED, a timeline, assignment, escalation.
 - It is **read AND written** by the live pipeline: `alert-evaluation.service.ts:390` `findOne(AlertIncident)` (dedup of an open incident) → `:402/:448/:611` create/update; `escalation-manager.service.ts` injects `Repository<AlertIncident>` and transitions status on escalation. Also written by mortality/water-quality alert services.
 - It is **FK-referenced** by the farm domain: `web/modules/farm-module/src/hooks/useHealthEvents.ts` carries `alertIncidentId` on health events (5 sites).
 - `alert_history` (`alert/entities/alert-history.entity.ts`, "records triggered alerts for audit and tracking") is a SEPARATE concern: the triggered-alert audit + cooldown log (`@Index(['ruleId','triggeredAt'])` for the cooldown query), and it IS the resolver-exposed one (`alert.resolver.ts`).
 - The two are **complementary, not duplicates**. Dropping `alert_incidents` would break incident dedup + escalation and orphan the farm `alertIncidentId` references.
-**Correct classification:** `alert_incidents` is a live, internally-consumed model whose only true gap is that its `@ObjectType` is **not exposed by any resolver** — i.e., there is no incident-read GraphQL surface + no incident-management UI. That is a **feature gap** (build the read resolver + FE), NOT a dead-table cleanup. Tracked as such; out of scope for a cleanup pass (needs product direction on the incident-management UX).
-**Action this PR:** did NOT drop anything. Annotated the synthesis (A10 + §B) so neither this session's nor a future engineer's "cleanup" acts on the wrong remediation.
-**Owner:** alert-engine-expert (incident-read resolver/FE, feature-gap) / data-expert (finding hygiene). **Deadline:** correction landed this PR; the incident-read surface is an unscheduled feature (needs product direction).
+  **Correct classification:** `alert_incidents` is a live, internally-consumed model whose only true gap is that its `@ObjectType` is **not exposed by any resolver** — i.e., there is no incident-read GraphQL surface + no incident-management UI. That is a **feature gap** (build the read resolver + FE), NOT a dead-table cleanup. Tracked as such; out of scope for a cleanup pass (needs product direction on the incident-management UX).
+  **Action this PR:** did NOT drop anything. Annotated the synthesis (A10 + §B) so neither this session's nor a future engineer's "cleanup" acts on the wrong remediation.
+  **Owner:** alert-engine-expert (incident-read resolver/FE, feature-gap) / data-expert (finding hygiene). **Deadline:** correction landed this PR; the incident-read surface is an unscheduled feature (needs product direction).
 
 ## ORPHAN-HIGH-356 — P3 orphan-table verification pass: the remaining "drop these" candidates are NOT safe unilateral drops (verified) (this PR)
 
@@ -6382,12 +6683,13 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 
 **Decision:** platform owner chose wire-up over drop for `shared.access_logs` (the architecture's evident intent — a canonical, protected, bootstrapped table with a complete PII-masked writer subsystem that was simply never mounted, leaving a false sense of request-level audit coverage).
 **Remediation (this PR):**
+
 - **Mount at the single external ingress (gateway-api):** imported `AccessLogModule.forRoot()`, added `AccessLogEntity` to the gateway's explicit TypeORM `entities` (so `getRepository` resolves on its `search_path='shared'` connection — `gateway_service` already holds shared DML via `006-shared-schema-tables.sql`'s `GRANT … ON ALL TABLES IN SCHEMA shared TO PUBLIC`), and applied `AccessLogMiddleware` in `configure()` right after security headers. One authoritative row per external request — including the 401/403/CSRF/throttle rejections that never reach a subgraph — fire-and-forget so a persistence blip never surfaces into a response.
 - **Retention (prevents the newly-active writer from growing unbounded):** registered a `shared.access_logs.90d` policy in admin-api's `AdminApiRetentionBootstrapModule` alongside the existing `shared.audit_logs.7y` — reuses the canonical single `RetentionEnforcementService` daily cron (03:00 UTC), no new cron. 90-day observability horizon, no legal-hold clause (access logs are not SOC 2 evidence).
 - **Closed the "cited invariant test absent" gap:** created `tests/invariants/access-log-middleware-mounted.spec.ts` (the exact path `AccessLogModule`/`AccessLogEntity` docstrings had cited but never shipped). It asserts the barrel re-exports the middleware, the gateway imports+lists+applies it, and the access_logs retention policy is registered — so the wiring can never silently regress. Also exported `AccessLogMiddleware` from the middleware barrel.
-**Validation:** `access-log-middleware-mounted` 3/3 + `invariant-reachability` green; gateway-api + admin-api `tsc --noEmit` clean. NOTE: repo-wide `eslint` could not be run locally this session — the droplet is under memory pressure from multiple concurrent Claude sessions (system OOM-kills eslint's type-aware pass); the changes are import/export/registration-shape only (no new constructs) and CI lint validates on the PR.
-**Remaining under [[ORPHAN-HIGH-356]]:** `farm_documents` (keep-and-wire vs drop — product) and the `config` engine adjudication are still open; `feeding_tables` remains another session's WIP.
-**Owner:** auth-security / observability. **Deadline:** wire-up + retention + invariant landed this PR; the retention DELETE runs nightly once deployed.
+  **Validation:** `access-log-middleware-mounted` 3/3 + `invariant-reachability` green; gateway-api + admin-api `tsc --noEmit` clean. NOTE: repo-wide `eslint` could not be run locally this session — the droplet is under memory pressure from multiple concurrent Claude sessions (system OOM-kills eslint's type-aware pass); the changes are import/export/registration-shape only (no new constructs) and CI lint validates on the PR.
+  **Remaining under [[ORPHAN-HIGH-356]]:** `farm_documents` (keep-and-wire vs drop — product) and the `config` engine adjudication are still open; `feeding_tables` remains another session's WIP.
+  **Owner:** auth-security / observability. **Deadline:** wire-up + retention + invariant landed this PR; the retention DELETE runs nightly once deployed.
 
 ## ORPHAN-HIGH-358 — hr Payroll subgraph exposes nested earnings/deductions again (resolves the payroll half of DB-PEOPLE-HIGH-001) (this PR)
 
@@ -6427,29 +6729,32 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 **Discovered:** 2026-07-11 (Lane-D db-audit, `db-audit-platform-admin` — DB-ADMIN-MEDIUM-002). P3 governance / registry-completeness.
 **Defect:** 13 `@Entity(..., { schema: 'admin' })` tables were absent from `MODULE_SCHEMAS['admin']` (`schema-manager.service.ts`): `discount_codes`, `module_pricing`, `plan_definitions`, `plan_module_assignments`, `threat_intelligence`, `retention_policies`, `retired_schema_backups`, `database_metrics`, `slow_query_logs`, `ingest_backend_policy_state`, `announcements`, `job_queues`, `system_versions`. The ADR-012 drift validator + orphan-drop presence checks iterate that registry, so an unregistered real table is neither reconciled nor protected — and no invariant covered platform-service entity↔registry parity, so the drift went undetected.
 **Fix (this PR):**
+
 - **Data:** added all 13 to the admin registry — 12 domain tables to `tables`, and `retired_schema_backups` to `infrastructureTables` (same schema-lifecycle class as `schema_backups`/`schema_restores`). Verified COMPLETE: a full diff of every `schema:'admin'` `@Entity` table name (58) against the registry is now empty — these 13 were the exact missing set.
 - **Make-detectable (Tier-3):** new `tests/invariants/admin-entity-registry-parity.spec.ts` asserts every admin-schema entity table is in the admin registry block, so this drift cannot silently recur. The finding recommended exactly this guard.
-**Validation:** the new parity spec + `entity-schema-declaration` + `tenant-fanout-entity-parity` + `platform-service-catalog-parity` + `admin-api-schema-boundaries` + `entity-diff-implies-migration` + `tenant-erasure-ssot` + `invariant-reachability` all green (51 tests); the registry change is string-literal additions only (tsc-neutral, exercised by the specs that compile schema-manager).
-**Follow-on (noted, not done):** extend the parity guard to the other platform-level services (billing/auth/notification/config/event_store/observability/gateway) — DB-ADMIN-MEDIUM-002 named only admin; a general platform-service parity invariant would catch the same drift class elsewhere.
-**Owner:** admin-expert / data-expert. **Deadline:** admin registry + guard closed this PR; the cross-service parity extension is a tracked follow-on (2026-10-15).
+  **Validation:** the new parity spec + `entity-schema-declaration` + `tenant-fanout-entity-parity` + `platform-service-catalog-parity` + `admin-api-schema-boundaries` + `entity-diff-implies-migration` + `tenant-erasure-ssot` + `invariant-reachability` all green (51 tests); the registry change is string-literal additions only (tsc-neutral, exercised by the specs that compile schema-manager).
+  **Follow-on (noted, not done):** extend the parity guard to the other platform-level services (billing/auth/notification/config/event_store/observability/gateway) — DB-ADMIN-MEDIUM-002 named only admin; a general platform-service parity invariant would catch the same drift class elsewhere.
+  **Owner:** admin-expert / data-expert. **Deadline:** admin registry + guard closed this PR; the cross-service parity extension is a tracked follow-on (2026-10-15).
 
 ## ORPHAN-MEDIUM-362 — generalized the registry-parity guard across platform services + fixed billing's 2 gaps; observability tracked (extends [[ORPHAN-MEDIUM-361]]) (this PR)
 
 **Discovered:** 2026-07-12 (Lane-D db-audit, continuation of DB-ADMIN-MEDIUM-002 — the "extend to other platform services" follow-on of [[ORPHAN-MEDIUM-361]]).
 **What the generalization found:** running the same entity↔registry diff across every platform-level service surfaced more drift of the same class —
+
 - **billing:** `plans` + `stripe_webhook_events` were absent from `MODULE_SCHEMAS['billing']`. Added both to `tables` (stripe_webhook_events is a webhook-idempotency ledger, same class as `command_receipts`). Verified: billing entity↔registry parity is now complete.
 - **notification / config / event_store:** already complete (config + event_store were registered earlier this session during the GDPR-erasure onboarding).
 - **observability:** has `schema: 'observability'` entities (`emergency_overrides`, `migration_backfill_progress`, `migration_events`, `schema_object_history`) but **NO `MODULE_SCHEMAS['observability']` entry at all** — a larger fix (a whole new registry entry + drift-validator wiring + boot validation of observability-service, which this memory-constrained no-run session cannot safely validate). Tracked as a follow-on, NOT done.
-**Fix (this PR):** replaced the admin-only guard (ORPHAN-MEDIUM-361) with `tests/invariants/platform-entity-registry-parity.spec.ts`, a per-schema `it.each` over admin/billing/notification/config/event_store that fails listing any entity whose table is unregistered. It also carries a `KNOWN_UNREGISTERED = ['observability']` list with an assertion that those services genuinely still lack an entry — so the exclusion is honest and the guard fails the moment observability gains an entry without being moved into coverage.
-**Validation:** `platform-entity-registry-parity` 8/8 (5 services + the honest-exclusion check) + `invariant-reachability` green.
-**Follow-on (tracked):** give observability-service a `MODULE_SCHEMAS['observability']` entry (classify its 4 tables — they look like schema/migration infra) + wire its drift validator, then move it from KNOWN_UNREGISTERED into COVERED.
-**Owner:** observability-expert / data-expert. **Deadline:** billing + platform-wide guard closed this PR; the observability registry entry is a tracked follow-on (2026-10-15).
+  **Fix (this PR):** replaced the admin-only guard (ORPHAN-MEDIUM-361) with `tests/invariants/platform-entity-registry-parity.spec.ts`, a per-schema `it.each` over admin/billing/notification/config/event_store that fails listing any entity whose table is unregistered. It also carries a `KNOWN_UNREGISTERED = ['observability']` list with an assertion that those services genuinely still lack an entry — so the exclusion is honest and the guard fails the moment observability gains an entry without being moved into coverage.
+  **Validation:** `platform-entity-registry-parity` 8/8 (5 services + the honest-exclusion check) + `invariant-reachability` green.
+  **Follow-on (tracked):** give observability-service a `MODULE_SCHEMAS['observability']` entry (classify its 4 tables — they look like schema/migration infra) + wire its drift validator, then move it from KNOWN_UNREGISTERED into COVERED.
+  **Owner:** observability-expert / data-expert. **Deadline:** billing + platform-wide guard closed this PR; the observability registry entry is a tracked follow-on (2026-10-15).
 
 ## ORPHAN-INFO-363 — LIVE-VERIFIED against the running droplet database (read-only) — findings + fixes confirmed with real data (this PR)
 
 **Discovered:** 2026-07-12. This session runs ON the droplet (`aqua-postgres` container, PG16, DB `aquaculture`); the deployed image is `c7edad031` (this branch is NOT deployed). Read-only queries as superuser confirm the audit findings + that the fixes target real gaps. NOTE: the droplet holds ONE nearly-empty E2E/staging tenant (`tenant_7f6b08ab90e246d3`, tanks named `E2E-Cage-*`), so "0 rows" means "unused in THIS env", weaker than a busy-prod signal.
 
 **Fixes/findings confirmed live:**
+
 - `shared.access_logs` = **0 rows** → the canonical table is genuinely never written (built-but-unmounted, IDENT-HIGH-002 / [[ORPHAN-HIGH-357]]) — the gateway wire-up addresses a real gap.
 - admin registry: all **13/13** added tables exist in `admin` schema; billing: both `plans` + `stripe_webhook_events` exist ([[ORPHAN-MEDIUM-361]]/[[ORPHAN-MEDIUM-362]]) — the registry additions are for REAL tables, not phantom.
 - `auth.tenants` has **no `suspendedAt`/`suspended_at` column** → DB-ADMIN-HIGH-003 confirmed: the suspend handler writes a transient prop TypeORM drops (data goes nowhere).
@@ -6465,29 +6770,32 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 **Discovered:** 2026-07-12, by a reverse-drift check the code-only audit structurally could not do — enumerating actual DB tables (running droplet) and diffing against entities + registry. The forward checks (entity→registry, [[ORPHAN-MEDIUM-361]]/[[ORPHAN-MEDIUM-362]]) can't see a table that has no entity. The live DB can.
 **Clean checks first (both hold):** `public` schema has **0** tables (CLAUDE.md "no domain tables in public" holds live); `shared` schema has **exactly the 5** canonical tables (access_logs, audit_logs, gdpr_data_requests, user_consents, user_permissions) — no unauthorized shared table.
 **The gap — `admin` schema has 72 base tables but only 58 entities; 6 have neither an `@Entity` nor a `MODULE_SCHEMAS['admin']` entry** (registry=0 for all six), so the drift validator + orphan-drop presence checks are blind to them (and under `strictOwnership` they would be DROP targets):
+
 - `global_configs` — **0 rows, RETIRED.** The physical remnant of the `GlobalConfig` entity removed this session ([[ORPHAN-LOW-354]]); the class went, the table stayed. Empty → safe to drop in an admin-api migration (blue-green: the write path is already a 410 Gone).
 - `tenant_configurations` — **1 row, RETIRED.** admin-api direct writes were retired to config-service (the GoneException in `tenant-configuration.service`); the table lingers. Drop or hydrate-from-config-service — a decision.
 - `system_settings` — **35 rows, DATA-BEARING, no entity, unregistered.** The most concerning: a live-data table managed outside the entity/registry system entirely (raw SQL). Needs investigation — what reads/writes it, and should it get an entity + registration (protect it) or is it legacy?
 - `tenant_provisioning_runs` (2 rows) / `tenant_provisioning_steps` (0) / `tenant_onboarding_acks` (0) — the TenantProvisioningWorkflow tables (migrations 1800400/1800500/1801200), legitimately raw-SQL/migration-managed with no TypeORM entity. Should be added to `MODULE_SCHEMAS['admin'].infrastructureTables` so the drift validator + orphan-drop recognize them (same protection gap, but these are legitimate infra, not dead).
-**Why not fixed here:** dropping `global_configs`/`tenant_configurations` needs an admin-api migration (prod DDL, blue-green, migration-lint) this hostile-environment no-build session should not author blind; registering the provisioning tables risks the entity↔registry-parity invariant unless verified (they have no entity, so adding them to `tables` could trip a reverse check) — needs a run to confirm. And `system_settings` needs a code investigation first. All are safe to LEAVE (nothing is actively broken); this records the reverse-drift so it is not lost.
-**Follow-ons:** (1) admin-api migration dropping `global_configs` (empty, retired) — completes ORPHAN-LOW-354; (2) decide `tenant_configurations` drop-vs-hydrate; (3) investigate + classify `system_settings` (35 rows); (4) register the 3 provisioning tables in `infrastructureTables`; (5) consider a periodic live-DB reverse-drift check (can't be a static CI invariant — needs a database).
-**Owner:** admin-expert / data-expert. **Deadline:** discovery recorded this PR; each follow-on is a tracked migration/decision (2026-10-15).
-**RESOLUTION UPDATE (Faz 2a, feat/legacy-config-store-drop):** follow-ons 1-3 CLOSED by migration `1801400000000-DropRetiredLegacyConfigStores` — archive-before-drop into `admin.retired_config_backups` (jsonb, per-table idempotent, count-asserted; registered in `MODULE_SCHEMAS['admin'].infrastructureTables`), then guarded DROP of `global_configs` + `system_settings` + `tenant_configurations` (+ the two `system_settings_*` enums behind a pg_depend gate). `system_settings` needed NO further investigation: `SystemSetting` was another undecorated class with a GoneException service (same family). Code: the dead `SystemSetting` class removed; `TenantConfiguration` converted from an undecorated class to a plain interface (its read path legitimately serves synthesized defaults at runtime — contract kept, ORM illusion gone). Follow-on 4 (provisioning tables) closed by [[ORPHAN-HIGH-366]]. Incidental: `settings/__tests__/reliability/email-circuit-breaker.spec.ts` fails 10/14 on the UNMODIFIED base too (pre-existing, quarantined-suite class — unrelated to this change; needs its own pass).
+  **Why not fixed here:** dropping `global_configs`/`tenant_configurations` needs an admin-api migration (prod DDL, blue-green, migration-lint) this hostile-environment no-build session should not author blind; registering the provisioning tables risks the entity↔registry-parity invariant unless verified (they have no entity, so adding them to `tables` could trip a reverse check) — needs a run to confirm. And `system_settings` needs a code investigation first. All are safe to LEAVE (nothing is actively broken); this records the reverse-drift so it is not lost.
+  **Follow-ons:** (1) admin-api migration dropping `global_configs` (empty, retired) — completes ORPHAN-LOW-354; (2) decide `tenant_configurations` drop-vs-hydrate; (3) investigate + classify `system_settings` (35 rows); (4) register the 3 provisioning tables in `infrastructureTables`; (5) consider a periodic live-DB reverse-drift check (can't be a static CI invariant — needs a database).
+  **Owner:** admin-expert / data-expert. **Deadline:** discovery recorded this PR; each follow-on is a tracked migration/decision (2026-10-15).
+  **RESOLUTION UPDATE (Faz 2a, feat/legacy-config-store-drop):** follow-ons 1-3 CLOSED by migration `1801400000000-DropRetiredLegacyConfigStores` — archive-before-drop into `admin.retired_config_backups` (jsonb, per-table idempotent, count-asserted; registered in `MODULE_SCHEMAS['admin'].infrastructureTables`), then guarded DROP of `global_configs` + `system_settings` + `tenant_configurations` (+ the two `system_settings_*` enums behind a pg_depend gate). `system_settings` needed NO further investigation: `SystemSetting` was another undecorated class with a GoneException service (same family). Code: the dead `SystemSetting` class removed; `TenantConfiguration` converted from an undecorated class to a plain interface (its read path legitimately serves synthesized defaults at runtime — contract kept, ORM illusion gone). Follow-on 4 (provisioning tables) closed by [[ORPHAN-HIGH-366]]. Incidental: `settings/__tests__/reliability/email-circuit-breaker.spec.ts` fails 10/14 on the UNMODIFIED base too (pre-existing, quarantined-suite class — unrelated to this change; needs its own pass).
 
 ## ORPHAN-HIGH-365 — reverse-drift, cross-schema: `compliance` + `platform` schemas exist in the live DB with NO MODULE_SCHEMAS entry (this PR)
 
 **Discovered:** 2026-07-12, extending the [[ORPHAN-HIGH-364]] reverse-drift scan across every non-tenant schema on the running droplet. Per-schema table counts flagged two schemas absent from the service registry entirely:
+
 - **`compliance` schema — `legal_holds` table, HAS an `@Entity('legal_holds', { schema: 'compliance' })`, but NO `MODULE_SCHEMAS['compliance']` entry** (same class as observability [[ORPHAN-MEDIUM-362]]). This is the "register `compliance` in the schema registry" gap the audit plan named. It matters more than observability: `legal_holds` is litigation/GDPR-critical (legal-hold precedence gates every destructive path). Unregistered → the drift validator + orphan-drop are blind to it; under a strictOwnership sweep it could even be a DROP target. It needs a proper `MODULE_SCHEMAS['compliance']` entry + PLATFORM_LEVEL_MODULES membership + drift-validator wiring.
 - **`platform` schema — 3 tables (`bootstrap_signal`, `release_ledger`, `tenant_schema_jobs`), no entity, no registry entry.** These are db-migrate/bootstrap-managed platform infrastructure (the bootstrap signal, the release ledger, the tenant-schema-provisioner job queue) — legitimately raw-SQL, but likewise invisible to the registry. Lower concern (bootstrap owns them), but worth an explicit `platform`-schema registry entry (infrastructureTables) for completeness.
-**Positive confirmations from the same scan:** `public`=0 tables, `shared`=exactly 5 canonical; ai/alert/auth/billing/config/event_store/notification/sensor table counts are consistent with their entity+infra surface (no obvious extra-table hotspot beyond admin's 6 and these 2 schemas).
-**Why not fixed here:** registering a whole schema (compliance/platform) is a new MODULE_SCHEMAS entry + PLATFORM_LEVEL_MODULES + drift-validator wiring + boot validation — the same larger, must-run-to-verify fix deferred for observability; unsafe to author blind in this no-build session.
-**Follow-ons:** (1) add `MODULE_SCHEMAS['compliance']` (legal_holds + its outbox/infra) — HIGH, litigation-critical; (2) add `MODULE_SCHEMAS['platform']` for the 3 bootstrap tables; (3) fold both into the observability registry-onboarding follow-on so the platform-service registry is finally complete.
-**Owner:** compliance-expert / data-expert (compliance) + platform-kernel-expert (platform). **Deadline:** discovery recorded this PR; the registry entries are tracked follow-ons (2026-10-15).
+  **Positive confirmations from the same scan:** `public`=0 tables, `shared`=exactly 5 canonical; ai/alert/auth/billing/config/event_store/notification/sensor table counts are consistent with their entity+infra surface (no obvious extra-table hotspot beyond admin's 6 and these 2 schemas).
+  **Why not fixed here:** registering a whole schema (compliance/platform) is a new MODULE_SCHEMAS entry + PLATFORM_LEVEL_MODULES + drift-validator wiring + boot validation — the same larger, must-run-to-verify fix deferred for observability; unsafe to author blind in this no-build session.
+  **Follow-ons:** (1) add `MODULE_SCHEMAS['compliance']` (legal_holds + its outbox/infra) — HIGH, litigation-critical; (2) add `MODULE_SCHEMAS['platform']` for the 3 bootstrap tables; (3) fold both into the observability registry-onboarding follow-on so the platform-service registry is finally complete.
+  **Owner:** compliance-expert / data-expert (compliance) + platform-kernel-expert (platform). **Deadline:** discovery recorded this PR; the registry entries are tracked follow-ons (2026-10-15).
 
 ## ORPHAN-HIGH-366 — registry completeness sweep: compliance + platform + observability MODULE_SCHEMAS entries, admin provisioning tables, billing classification (resolves [[ORPHAN-HIGH-365]] + the ORPHAN-MEDIUM-362 observability follow-on + part of [[ORPHAN-HIGH-364]]) — RESOLVED (this PR)
 
 **Source:** Faz 1 of the DB-audit remediation plan (post-#939). Live-DB verified: every registered table name exists in `information_schema`.
 **Delivered:**
+
 - **`MODULE_SCHEMAS['compliance']`** — `legal_holds` (litigation/GDPR-critical, previously invisible to the drift validator + orphan-drop). Owner facts: the `LegalHold` entity is a backend-common shared-lib entity (`libs/backend-common/src/compliance/legal-hold/legal-hold.entity.ts`); admin-api's migration created the physical schema; admin-api's boot validator covers it.
 - **`MODULE_SCHEMAS['observability']`** — the 4 migration/schema-observability infra tables (`emergency_overrides`, `migration_backfill_progress`, `migration_events`, `schema_object_history`) + `migrations`. observability-service already registers `SchemaDriftModule.forRoot`; the registry surface now matches.
 - **`MODULE_SCHEMAS['platform']`** — the 3 db-migrate/bootstrap raw-SQL tables (`bootstrap_signal`, `release_ledger`, `tenant_schema_jobs`); no entities/service by design, entry documents ownership so no sweep mistakes them for orphans.
@@ -6495,9 +6803,9 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 - **`PLATFORM_LEVEL_MODULES`** += `billing` (the audit's "billing in NEITHER classification set" A-item), `compliance`, `observability`, `platform`.
 - **Guards updated:** `platform-entity-registry-parity.spec` — observability + compliance moved into COVERED (compliance scans `libs/backend-common/src`), platform asserted as a registered raw-SQL schema with zero entities (the KNOWN_UNREGISTERED escape hatch is gone — the guard now covers every platform schema); e2e `schema-invariants` `PLATFORM_LEVEL_SCHEMAS` += compliance/platform (B.5b zero-tenant-clone check now covers them).
 - **`tenant-isolation-static.spec` redesigned to its actual subject (tenant isolation):** the old spec hard-required `tables.length>0` on every entry, forbade same-named tables across ALL modules, and pinned a whole-registry total of 170 — all three had drifted (total was actually 250+ before this sweep; the suite appears CI-quarantined so nobody saw it fail). Now: every entry must declare tables OR infrastructureTables; duplicate-name checks scope to the tenant-scoped fan-out namespace (platform schemas are schema-qualified — `admin.messages` vs per-tenant `messages` is legitimate); pins cover the TENANT-SCOPED surface only (fan-out total 183; per-module counts updated sensor 46 / farm 86 / hr 29).
-**Validation:** full invariants 1876/1876; parity spec 8/8 (8 schemas); tenant-isolation-static 17/17; admin-api tsc clean; live-DB `information_schema` existence for all 11 newly-registered tables.
-**Deferred (unchanged):** runtime cold-start drift-validator confirmation on the droplet happens with this PR's deploy (services boot with the new entries — verify `schema_drift_clean` emits for admin/observability).
-**Owner:** data-expert. **Deadline:** closed this PR; deploy-time validator check rides the release.
+  **Validation:** full invariants 1876/1876; parity spec 8/8 (8 schemas); tenant-isolation-static 17/17; admin-api tsc clean; live-DB `information_schema` existence for all 11 newly-registered tables.
+  **Deferred (unchanged):** runtime cold-start drift-validator confirmation on the droplet happens with this PR's deploy (services boot with the new entries — verify `schema_drift_clean` emits for admin/observability).
+  **Owner:** data-expert. **Deadline:** closed this PR; deploy-time validator check rides the release.
 
 ## ORPHAN-HIGH-367 — access_logs INSERTs blocked by RLS tenant_isolation_policy in prod (live deploy verification of [[ORPHAN-HIGH-357]]) — RESOLVED via INFRASTRUCTURE_AUDIT_LEDGERS (this PR)
 
@@ -6524,30 +6832,32 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 
 ## ORPHAN-HIGH-369 — farm_documents DROP (FARMPLAT-HIGH-001; owner decision: drop) — RESOLVED (this PR)
 
-**Scope:** platform owner chose DROP over wire ([[ORPHAN-HIGH-356]] item 2; live DB: 0 rows). Remove the orphan DMS: `document/` domain dir (entity+module), farm_documents references in `common/file-cleanup/*` + scheduler cron wiring, `MODULE_SCHEMAS['farm']` registration if present, and a NEW drop migration (never edit `CreateFarmDocuments` — immutability) with a 0-row guard (ABORT if any environment has data) + tenant-fanout drop across tenant schemas.
-**RESOLVED (this PR, lead-verified):** migration `1805300000000-DropFarmDocuments` — `current_schema()`-relative (no cross-schema DDL; avoids the #926 outage class — db-migrate fan-out delivers the farm pass + each tenant pass), guards: skip-if-absent, `RAISE EXCEPTION` if ANY rows (data-loss guard for other environments), `DROP TABLE IF EXISTS` with DESTRUCTIVE marker, per-type pg_depend zero-dependents probe for the three `farm_documents_*` enums (live catalog showed they are per-schema-LOCAL — each tenant clone references its own copies), `postCondition()` refuses the ledger row unless the table is gone. **The exact shipped SQL was exercised in a throwaway pg16 container** (row-guard abort, farm-pass isolation, dependent-enum skip, idempotent replay, postCondition — all verified; live DB untouched). Code: `document/` dir + farm-document cleanup provider removed; file-cleanup framework intact (BatchDocument + Chemical providers live); cron tenant-discovery re-anchored; `MODULE_SCHEMAS['farm']` entry removed; tenant-isolation pins 86→85 / 183→182. Validation: full invariants 1876/1876; farm + backend-common tsc clean; file-cleanup/minio-orphan specs 9/9.
+**Scope:** platform owner chose DROP over wire ([[ORPHAN-HIGH-356]] item 2; live DB: 0 rows). Remove the orphan DMS: `document/` domain dir (entity+module), farm*documents references in `common/file-cleanup/*` + scheduler cron wiring, `MODULE_SCHEMAS['farm']` registration if present, and a NEW drop migration (never edit `CreateFarmDocuments` — immutability) with a 0-row guard (ABORT if any environment has data) + tenant-fanout drop across tenant schemas.
+**RESOLVED (this PR, lead-verified):** migration `1805300000000-DropFarmDocuments` — `current_schema()`-relative (no cross-schema DDL; avoids the #926 outage class — db-migrate fan-out delivers the farm pass + each tenant pass), guards: skip-if-absent, `RAISE EXCEPTION` if ANY rows (data-loss guard for other environments), `DROP TABLE IF EXISTS` with DESTRUCTIVE marker, per-type pg_depend zero-dependents probe for the three `farm_documents*\*`enums (live catalog showed they are per-schema-LOCAL — each tenant clone references its own copies),`postCondition()`refuses the ledger row unless the table is gone. **The exact shipped SQL was exercised in a throwaway pg16 container** (row-guard abort, farm-pass isolation, dependent-enum skip, idempotent replay, postCondition — all verified; live DB untouched). Code:`document/`dir + farm-document cleanup provider removed; file-cleanup framework intact (BatchDocument + Chemical providers live); cron tenant-discovery re-anchored;`MODULE_SCHEMAS['farm']` entry removed; tenant-isolation pins 86→85 / 183→182. Validation: full invariants 1876/1876; farm + backend-common tsc clean; file-cleanup/minio-orphan specs 9/9.
 **Owner:** farm-expert. **Deadline:** closed by this PR's merge.
 
 ## ORPHAN-HIGH-370 — admin-panel P2 contract repairs: impersonation FE rename + tenant list tier/counts (DB-ADMIN-HIGH-001/005) — RESOLVED (this PR)
 
 **Scope (evidence in [[ORPHAN-HIGH-360]] + the plan's Faz 4):**
+
 - HIGH-001: rename the FE impersonation types to the backend `SafeImpersonationSession` contract — surface is ONE page (`ImpersonationPage.tsx`) + `services/api/impersonation.ts` + `services/types/impersonation.ts`; status `'revoked'→'terminated'`; UI's numeric `actionsPerformed` → `actionCount`; DELETE unused `sessionToken`/`originalUserId`/`lastActivityAt` from the FE types (sessionToken must never be expected on reads — HIGH-002).
 - HIGH-005: `ListTenantsHandler` maps to the existing `TenantListItemDto` with `tier` (from `plan`) and `farmCount`/`sensorCount` via ONE batched round-trip (single SQL across the page's tenant schemas with information_schema existence guards — the batched form of `countTenantResource`; no per-row N+1).
-**RESOLVED (this PR, lead-verified) — the lane found the surface was worse than audited:**
+  **RESOLVED (this PR, lead-verified) — the lane found the surface was worse than audited:**
 - Impersonation **start was fully broken in prod-shape** (the FE sent `adminId`-era fields; the backend `StartImpersonationDto` + `forbidNonWhitelisted` rejected the payload) and the session **list always rendered empty** (FE read `.data` where the backend returns `{items,total}`). Both fixed with the contract rename; a 7-value reason enum select added to match the DTO.
 - **Four MORE token-leak read paths** the DB-ADMIN-HIGH-002 sweep missed: `endImpersonation`/`terminateSession`/`extendSession`/`getImpersonationStats.recentSessions` returned raw entities (plaintext `originalSessionToken` + token hash). All now return `toSafeImpersonationSession(...)`, pinned by the extended token-redaction spec.
 - Tenant list: `PaginatedResult<TenantListItemDto>` with `tier` materialized as an own property (serialization proven via JSON round-trip spec) + farm/sensor counts in exactly 2 round-trips/page (information_schema existence probe + one UNION ALL count over existing schemas only; ids `isValidUUID`-checked → canonical `getTenantSchemaName` → `assertSafeSchemaName` before inlining; unprovisioned tenant → 0). Specs pin the batching (query called exactly 2×/1×/0×).
 - Validation: admin-api tsc 0; admin-panel tsc 0; impersonation suites 124/124; list suites green.
-**Owner:** admin-expert. **Deadline:** closed by this PR's merge.
+  **Owner:** admin-expert. **Deadline:** closed by this PR's merge.
 
 ## ORPHAN-MEDIUM-372 — admin impersonation/tenant surfaces: four pre-existing contract defects surfaced by the Faz 4 lane (OPEN)
 
 **Discovered:** 2026-07-12 by the Faz 4 lane while repairing DB-ADMIN-HIGH-001/005 (all verified pre-existing on the base; none introduced or fixed by that PR):
+
 1. `tenant/__tests__/tenant.integration.spec.ts` fails on the base: `SuspendTenantHandler` requires `OutboxPublisher` which the spec's TestingModule never provides (28 tests) — the handler gained the dependency after the spec was written. Fix = provide the publisher mock (or a factory) in the TestingModule; belongs with the Faz 3 auth.tenants work that touches these handlers anyway.
 2. `ImpersonationPermission` FE read model is invented (FE `tenantName`/`grantedByEmail`/`allowedActions`/`revokedAt` vs backend `allowedTenants`/`maxSessionDurationMinutes`/`isActive`), and FE `revokePermission` passes `permission.id` where the backend path param is `superAdminId` — the permissions half of DB-ADMIN-HIGH-001, untouched by the sessions repair.
 3. Backend `queryPermissions` returns `{data,total,page,limit}` without `totalPages`; the FE `PaginatedResult` type declares it required (currently unused by the page — type-level drift).
 4. FE `getSessionActions` is a documented throw: no backend GET endpoint exposes a session's action log even though the data exists in `actionsPerformed` — a small read-endpoint gap.
-**Owner:** admin-expert (2-4) + the Faz 3 lane (1). **Deadline:** tracked (2026-10-15); item 1 folds into Faz 3.
+   **Owner:** admin-expert (2-4) + the Faz 3 lane (1). **Deadline:** tracked (2026-10-15); item 1 folds into Faz 3.
 
 ## ORPHAN-HIGH-373 — Faz 2b: config-service WIRE — seed the legacy settings + first real consumer (INFRA-HIGH-001; owner decision: wire) — RESOLVED (this PR)
 
@@ -6605,12 +6915,13 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 ## ORPHAN-HIGH-381 — deploy rollback re-tags releases across destructive-migration boundaries and captures crash-looping containers as rollback points (self-sustaining prod outage) — RESOLVED (this PR)
 
 **Discovered:** 2026-07-13 ~02:00Z while diagnosing the farm-service crash-loop recurrence (whole-GraphQL 503 for ~3h). Forensics on the droplet: EVERY local farm release tag (f995d8e540326, 27dfb0aa9, e8a67919b, latest, plus four `rollback-*` retags) pointed at ONE image ID `2f132659b842` — the pre-#946 image whose `farm_documents` entity can never boot against the forward-migrated DB — while the registry held distinct, healthy builds for those same tags (verified by digest and by direct dist inspection of e8a67919b = clean). Mechanism, from `scripts/deploy/droplet-up.sh`:
+
 1. `capture_rollback_manifest` captures whatever containers are running — INCLUDING crash-looping ones — as "the previous good image" (no health gate).
 2. `rollback_deployed_services` re-tags `<svc>:<release-sha>` to that captured image ID on any post-deploy gate failure — even when db-migrate just applied a destructive migration (#946 dropped `farm.farm_documents`), so the restored image is structurally incompatible with the DB and crash-loops.
 3. The next deploy captures the crash-looping image as its rollback point → every subsequent gate failure restores the same broken image under the newest tag. Death spiral; release-verification failed for 31088c459 exactly this way.
-**Live recovery (user-approved, 2026-07-13 ~02:15Z):** re-tagged the registry-pulled clean image locally (`incident-clean-e8a67919b` = 24bc4d28) + compose override pin → farm HEALTHY (restarts=0); gateway restart → supergraph composed, `/health/ready` 200. Login smoke green.
-**Fix (this PR):** (1) `capture_rollback_manifest` refuses to capture non-running/unhealthy containers — a broken image can never become a restore target; (2) `rollback_deployed_services` refuses image rollback when this release applied ≥1 DB migration (count parsed from db-migrate's structured completion line; fail-closed on unparseable) — forward-only DB means forward-only images, fix-forward is the only safe recovery; (3) `workflow_dispatch`/`workflow_call` input `no_cache` on deploy-digitalocean.yml for operator-triggered clean rebuilds. NOT fixed here, left tracked: droplet-side GHCR pull auth expires outside deploy windows (`docker pull` → denied), which forced the local-retag recovery path; owner infra-expert, deadline 2026-10-15.
-**Owner:** infra-expert. **Deadline:** RESOLVED on merge of this PR.
+   **Live recovery (user-approved, 2026-07-13 ~02:15Z):** re-tagged the registry-pulled clean image locally (`incident-clean-e8a67919b` = 24bc4d28) + compose override pin → farm HEALTHY (restarts=0); gateway restart → supergraph composed, `/health/ready` 200. Login smoke green.
+   **Fix (this PR):** (1) `capture_rollback_manifest` refuses to capture non-running/unhealthy containers — a broken image can never become a restore target; (2) `rollback_deployed_services` refuses image rollback when this release applied ≥1 DB migration (count parsed from db-migrate's structured completion line; fail-closed on unparseable) — forward-only DB means forward-only images, fix-forward is the only safe recovery; (3) `workflow_dispatch`/`workflow_call` input `no_cache` on deploy-digitalocean.yml for operator-triggered clean rebuilds. NOT fixed here, left tracked: droplet-side GHCR pull auth expires outside deploy windows (`docker pull` → denied), which forced the local-retag recovery path; owner infra-expert, deadline 2026-10-15.
+   **Owner:** infra-expert. **Deadline:** RESOLVED on merge of this PR.
 
 ## ORPHAN-HIGH-382 — LoRaWAN `CodecType::Custom` was a dead decoder slot; per-vendor payload formats had nowhere to run
 
@@ -6634,7 +6945,7 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 
 ## ORPHAN-MEDIUM-382 — billing.tenant_usage_metrics dead parallel usage model retired; usage_aggregations declared SSoT (A6 / DB-IDENT-MEDIUM-002)
 
-**Discovered:** 2026-07-11 by the Lane-D database E2E audit (db-audit-identity-billing, DB-IDENT-MEDIUM-002). billing carried TWO overlapping usage-metering models: (a) `billing.tenant_usage_metrics` (TenantUsageMetrics entity, per-module `ModuleUsageMetrics` jsonb, `includedQuantities`/`overageQuantities`) and (b) `billing.usage_aggregations` + `billing.usage_hourly_data` (metering module). Model (a) had NO writer anywhere in the codebase — `UsageMeteringService.recordUsage` feeds only the in-memory meter state + `usage.recorded` events, which `UsageAggregatorService.persistDirtyData()` upserts into model (b) — and 0 live rows on the production droplet. Every read surface of (a) therefore always rendered the zero-state: `GetTenantBillingHandler` (tenant-admin billing page usage cards + planLimits current*) and admin-api's `GET /billing/usage/tenant/:tenantId/metrics` (readonly projection with zero frontend callers). Model (b) is the one invoices are calculated from (`MeteredBillingService.calculateBilling`) and the one the admin usage dashboard reads — two persisted authorities, one unread and unwritten = split-brain by construction.
+**Discovered:** 2026-07-11 by the Lane-D database E2E audit (db-audit-identity-billing, DB-IDENT-MEDIUM-002). billing carried TWO overlapping usage-metering models: (a) `billing.tenant_usage_metrics` (TenantUsageMetrics entity, per-module `ModuleUsageMetrics` jsonb, `includedQuantities`/`overageQuantities`) and (b) `billing.usage_aggregations` + `billing.usage_hourly_data` (metering module). Model (a) had NO writer anywhere in the codebase — `UsageMeteringService.recordUsage` feeds only the in-memory meter state + `usage.recorded` events, which `UsageAggregatorService.persistDirtyData()` upserts into model (b) — and 0 live rows on the production droplet. Every read surface of (a) therefore always rendered the zero-state: `GetTenantBillingHandler` (tenant-admin billing page usage cards + planLimits current\*) and admin-api's `GET /billing/usage/tenant/:tenantId/metrics` (readonly projection with zero frontend callers). Model (b) is the one invoices are calculated from (`MeteredBillingService.calculateBilling`) and the one the admin usage dashboard reads — two persisted authorities, one unread and unwritten = split-brain by construction.
 **Fix (this PR):** `usage_aggregations`/`usage_hourly_data` declared the single persisted usage SSoT. `GetTenantBillingHandler` repointed to it — month-to-date sums + gauge levels via new DB-backed `UsageAggregatorService.getPersistedMonthUsage()` (hourly buckets, the granularity the live event path writes), included quantities from `MeteredBillingService.getPricingModel(planTier)` (the same source billing calculates against; the old `sub.limits.maxSensors` fallback conflated sensor COUNT with a readings/month quota, and `maxStorage` was a hardcoded 0). GraphQL contract shape unchanged — tenant-admin FE untouched. Admin-api's dead read surface deleted (endpoint + service method + `TenantUsageMetricsReadOnly` entity + module wiring; admin-panel never called it). Billing migration `1801700000000-DropRetiredTenantUsageMetrics` archives any rows into new `billing.retired_usage_metrics_backup` (jsonb, count-asserted, idempotent — same shape as admin's 1801400000000) then drops the table + its orphaned periodtype enum behind a no-dependents gate. `MODULE_SCHEMAS['billing']` updated both ways (table removed, backup ledger registered). Handler regression spec added.
 **Residual (pre-existing, explicitly NOT widened by this PR):** the metering pipeline is wired but unfed — no domain producer calls `recordUsage` yet, and `performRollup`/`cleanupOldAggregations` have no scheduler despite `rollupConfigs[].aggregateOnSchedule: true` — so `usage_aggregations` also holds 0 live rows today. That is a missing-producer/scheduler gap in the ONE remaining model, not a second model; tracked as part of the metering activation work (BILLING-CRITICAL-003 Redis-backed redesign lineage). **Owner:** billing-expert. **Deadline:** 2026-09-30.
 **Owner:** billing-expert + data-expert. **Status:** RESOLVED (this PR).
@@ -6665,6 +6976,7 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 **Discovered:** 2026-07-13 by an adversarial verification of the ORPHAN-HIGH-383 alarm-core kernel (three lenses: completeness / correctness / integration). The completeness lens caught a THIRD alarm engine that ORPHAN-HIGH-383 never touched: the IEC 62682 `AlarmManager` in `sens-api-gateway/src/alarms.rs`, which runs concurrently with the migrated `alarm_engine.rs` in the same edge crate (`AppState.alarm_manager`, invoked on every IO-poll tick via `AlarmManager::process_source`). Its `AlarmDefinition::is_triggered` (High/Low/Deviation) and `AlarmInstance::process_value` delay gate re-implemented the SAME condition/deadband/delay math by hand, and had drifted on the exact axis the kernel exists to kill: it cleared active High/Low alarms on the INCLUSIVE deadband boundary (`value > setpoint - deadband`) while the kernel is EXCLUSIVE. Not biting today only because the wired seeding path uses `deadband=0`/`delay=0`, but the `with_deadband`/`with_delay_ms` builders and the `Deviation` branch are live code that would drift the moment a non-zero band is configured. The correctness lens additionally found the kernel's `!=` deadband boundary was INCLUSIVE (`<=`), contradicting the module's own "boundaries are EXCLUSIVE" contract, and that NaN values, negative deadband, and the exact epsilon edge were unpinned by any fixture.
 
 **Fix (this PR):** `alarms.rs::is_triggered` and the delay gate now route ALL value/threshold/time math through `alarm_core` (`evaluate_condition`, `is_outside_deadband`, `delay_elapsed`); the inline math is deleted. Only this engine's own concerns stay local (the `enabled` gate, trigger-vs-clear edge selection, the `Deviation` two-level hysteresis band, and the 7-state machine). The kernel's `!=` deadband boundary is corrected to EXCLUSIVE (`<`) so `==`/`!=` stay exact complements at the edge; NaN fail-safe behaviour, the non-negative-deadband contract (`debug_assert!`), and the epsilon/`!=` edges are pinned by new shared fixtures + Rust/TS unit tests. Also fixed a cluster of latent CI-blockers on the WASM-adoption branch that CI had not exercised (CI stopped triggering mid-branch, and the nx project-name collision below broke the graph so `nx affected` never ran the affected suites since Phase 2):
+
 - the `crates/protocol-codec` nx project name collided with the new `libs/protocol-codec` TS lib (renamed the crate's nx project to `protocol-codec-rs`, matching the `event-contracts-rs` convention; cargo package name unchanged);
 - a `f64 as u64` cast in the alarm-core fixture harness that `pedantic + -D warnings` rejects (reads the JSON integers as `u64` directly);
 - the `alarm-core` path dependency in `sens-api-gateway/Cargo.toml` + `crates/alarm-core-wasm` carried no version, which the edge `deny.toml` `wildcards = "deny"` ban rejects — pinned to `version = "0.1.0"` (lock unchanged);
@@ -6681,9 +6993,10 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 
 **Discovered:** 2026-07-13, live-verified on the prod droplet: `tenant_7f6b08ab90e246d3.migrations_auth` — a TypeORM migration journal named for the AUTH source schema sitting inside a TENANT schema, 1 row (`Baseline1800000000000`). db-migrate warned on EVERY release: "Tenant schema contains tables registered by NO module — unknownTables:[migrations_auth]". Live enumeration confirmed the tenant's other 7 `migrations_<svc>` tables are the LEGITIMATE fan-out ledgers (farm/sensor/hr/messaging/alert/ai/hydroponics — exactly `TENANT_AWARE_SCHEMAS`); only the auth one is stray. `auth.migrations` (17 rows) is the authoritative auth journal.
 
-**Root cause (forensic, git-verified):** NOT the migration runners' search_path — both runners have always schema-qualified the journal on the live paths (`libs/backend-common/src/database/migration-runner/migration-runner.service.ts` sets `migrationsSchema` + `driver.buildTableName(ledger, schema)` on the executor; `apps/db-migrate/src/migration-orchestrator.ts` pins `schema` on the per-run DataSource so TypeORM builds `"<schema>"."<ledger>"`; every raw ledger DML in both files is `"${schema}"."${table}"`-qualified). The creator was the RETIRED runtime seeding path: `SchemaManagerService.seedMigrationsHistory` (renamed to the `migrations_<src>` ledger naming in 87d1bb116, 2026-05-19) iterated EVERY module a tenant requested — including the platform-level `auth` module resolved from `auth.tenant_modules` by the era `tenant-provisioning.service.ts` — with no tenant-scoped filter, creating `tenant_….migrations_auth` and copying `auth.migrations` into it (exactly 1 row at that time: the post-baseline-reset ledger). That path is dead (`createTenantSchema`/`syncTenantSchema` refuse runtime DDL; provisioning is owned by aqua-db-migrate), and every CURRENT journal creator is gated on `TENANT_AWARE_SCHEMAS` (db-migrate backfill + fan-out, tenant-schema-provisioner, Nest runner Phase 2). The one remaining structural hole: `createMigrationRunnerService('<platform-schema>', { tenantAware: true })` was a documented manual opt-in that would re-mint stray journals in every tenant schema.
+**Root cause (forensic, git-verified):** NOT the migration runners' search*path — both runners have always schema-qualified the journal on the live paths (`libs/backend-common/src/database/migration-runner/migration-runner.service.ts` sets `migrationsSchema` + `driver.buildTableName(ledger, schema)` on the executor; `apps/db-migrate/src/migration-orchestrator.ts` pins `schema` on the per-run DataSource so TypeORM builds `"<schema>"."<ledger>"`; every raw ledger DML in both files is `"${schema}"."${table}"`-qualified). The creator was the RETIRED runtime seeding path: `SchemaManagerService.seedMigrationsHistory` (renamed to the `migrations*<src>`ledger naming in 87d1bb116, 2026-05-19) iterated EVERY module a tenant requested — including the platform-level`auth`module resolved from`auth.tenant*modules`by the era`tenant-provisioning.service.ts`— with no tenant-scoped filter, creating`tenant*….migrations_auth`and copying`auth.migrations` into it (exactly 1 row at that time: the post-baseline-reset ledger). That path is dead (`createTenantSchema`/`syncTenantSchema`refuse runtime DDL; provisioning is owned by aqua-db-migrate), and every CURRENT journal creator is gated on`TENANT_AWARE_SCHEMAS`(db-migrate backfill + fan-out, tenant-schema-provisioner, Nest runner Phase 2). The one remaining structural hole:`createMigrationRunnerService('<platform-schema>', { tenantAware: true })` was a documented manual opt-in that would re-mint stray journals in every tenant schema.
 
 **Fix (this PR):**
+
 1. **Make it impossible** — `createMigrationRunnerService` now throws at factory time when `tenantAware: true` is forced on a schema outside the `TENANT_AWARE_SCHEMAS` SSoT (docblock updated; opt-out stays legal). Spec pins the gate + the journal's explicit schema-qualification for both source and tenant phases against a schema-less driver (`migration-runner.factory.spec.ts`).
 2. **Make it automatic (self-heal)** — new db-migrate phase (`apps/db-migrate/src/stray-tenant-journal-heal.ts`, wired before the tenant-privilege gate in `main.ts`) drops `migrations_<svc>` journals inside `tenant_*` schemas ONLY when (a) the name matches `^migrations_[a-z_]+$` in a `tenant_<uuid16>` schema, (b) the source schema is NOT tenant-aware (fan-out ledgers are never touched), and (c) the owning source schema still has its authoritative `migrations` journal. Idempotent; logs every dropped journal with its destroyed entries; unattributable candidates are kept + warned (fail-closed). Non-fatal by contract. London-school spec: `stray-tenant-journal-heal.spec.ts`.
 
@@ -6735,6 +7048,29 @@ Severity: HIGH (recurrence enabler for the 2026-07-07 messaging outage class). #
 **Discovered:** 2026-07-13 immediately after the ORPHAN-HIGH-391 NATS fix deployed: the recreated event-store logs `Redis connection error ... ECONNREFUSED 127.0.0.1:6379` ~30×/min. `app.module.ts:72` registers `RedisModule` (`buildRedisOptions(..., 'optional')`); with no `REDIS_URL` in the compose block the client falls back to localhost and retries forever — no fail-fast exists for Redis (unlike the event-bus SSoT that surfaced 391), so the gap is pure log-spam + silent degradation of whatever rides Redis in the service. Same root family as 391: the event-store compose block was never fully provisioned when the service became a first-class platform participant.
 **Fix (this PR):** `REDIS_URL` (same shape as every other service) + `redis: service_healthy` depends_on.
 **Residual (owner platform-kernel-expert, deadline 2026-10-15):** `buildRedisOptions`'s 'optional' mode should distinguish "deliberately not configured" (skip client entirely) from "configured-by-default localhost in production" (fail fast like the event-bus SSoT) — a third service could regrow this class silently.
+
+## ORPHAN-CRITICAL-393 — billing subscription provisioning silently rolls back on a schema-unqualified cross-schema `modules` query (3 tenants / 0 subscriptions live) — RESOLVED (this PR)
+
+**Discovered:** 2026-07-13 (Billing Revival Faz A). Live prod: `auth.tenants`=3, `billing.subscriptions`=0. Root cause (file:line verified): the provisioning saga step `create_subscription` (`apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts` → `createTenantSubscription` → `billingCommandClient.provisionTenantSubscription`) sends NATS `PROVISION_TENANT_SUBSCRIPTION`, handled by `apps/billing-service/src/billing/handlers/billing-admin-nats.handler.ts` `provisionTenantSubscription`, which runs a SERIALIZABLE tx: create subscription THEN `reconcileSubscriptionModuleItems`. That method executed `SELECT id, code, name FROM modules WHERE id = ANY($1::uuid[])` — schema-UNQUALIFIED. `billing.modules` does not exist (live-verified `to_regclass('billing.modules')` = NULL) and the `billing_service` role has NO grant on `auth.modules` (live-verified: zero rows in `role_table_grants`), so the query threw → `NotFoundException` → the whole tx (including the just-inserted subscription row) ROLLED BACK, while the `auth.tenants` row (reserved earlier at `reserve_auth_tenant`) survived. Every tenant creation lost its subscription silently.
+**Fix (this PR, Tier-1 make-it-structurally-impossible):** admin-api OWNS `admin.module_pricing` + `PricingCalculatorService` + module code/name resolution (`auth.modules` via its own grant). The provisioning command now carries a resolved, priced `moduleItems[]` (`{moduleId, code, name, quantities, lineItems, subtotal, discountAmount, total}`); billing writes the module rows directly from the command — the cross-schema `modules` SELECT is DELETED. billing no longer reaches across a schema boundary it has no grant for, so the rollback class cannot recur. The residual empty/missing-`moduleItems` case is a boundary VALIDATION_ERROR raised before the transaction opens (no partial subscription possible).
+**Owner:** billing-expert. **Status:** RESOLVED (this PR).
+
+## ORPHAN-HIGH-394 — subscription module items were written with subtotal/discount/total hardcoded to 0 (invented $0 price; admin.module_pricing never read) — RESOLVED (this PR)
+
+**Discovered:** 2026-07-13 (Billing Revival Faz A). `reconcileSubscriptionModuleItems` inserted every `billing.subscription_module_items` row with `subtotal, discount_amount, total` = `0, 0, 0` (hardcoded literals) and `line_items = '[]'`, ignoring `admin.module_pricing` entirely — even on the paths where the tx did not roll back, a provisioned subscription would carry $0 module lines and the subscription's own `pricing.basePrice` reflected only the catalog plan base, never the selected modules. The recurring-invoice scheduler bills solely off `subscription.pricing.basePrice`, so tenants would have been invoiced for the plan base with the module charges structurally invisible (revenue leak).
+**Fix (this PR):** admin-api computes each module's real price via `PricingCalculatorService.calculatePricing` (reads `admin.module_pricing`, honours `moduleQuantities` + tier) and passes the per-module `subtotal/discountAmount/total/lineItems` in the command. billing writes those real values. The subscription's `pricing.basePrice` is wired to `sum(moduleItems.total)` so the stored monthly price and the scheduler's recurring invoice reflect the actual module-based charge. Modules with no `admin.module_pricing` catalog entry legitimately price at 0 (free/core tier) WITHOUT throwing — the fix that removed the rollback (393) is not reintroduced as a hard failure.
+**Owner:** billing-expert. **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-395 — dead event-driven subscription-provisioning path (unregistered handler + $25 hardcode + @Cron retry loop + retry table with zero emitters) — RESOLVED (this PR)
+
+**Discovered:** 2026-07-13 (Billing Revival Faz A). `TenantSubscriptionRequestedHandler` (`apps/billing-service/src/billing/event-handlers/tenant-subscription-requested.handler.ts`) was registered NOWHERE (`billing.module.ts` `EventHandlers: never[] = []`) and the `TenantSubscriptionRequested` event had ZERO emitters repo-wide (the live provisioning path uses the NATS request-reply command, not this event). The dead handler carried its own `$25`-per-module hardcode, a `@Cron('*/2 * * * *')` retry loop, and a `billing.subscription_provisioning_retries` table (live-verified 0 rows). This is a Potemkin second pricing/provisioning model competing with the real one.
+**Fix (this PR):** deleted the handler + its `mapToPlanTier`/`DEFAULT_PRICING`/retry machinery. Removed `subscription_provisioning_retries` from `MODULE_SCHEMAS['billing'].tables` and dropped the table (migration `1801800000000-DropSubscriptionProvisioningRetries`, no archive — live 0 rows, evidence stated in the docblock). Removed the orphaned `TenantSubscriptionRequestedEvent` contract + its JSON-Schema validator + `ModuleQuantityConfig` (all provably unused after the handler delete) and updated the two stale doc-comments that named the deleted class. `SubscriptionProvisioningFailedEvent` retained (see ORPHAN-LOW-396) as it is a distinct contract; the tenant-provisioning-ssot invariant already asserts `billing.module.ts` contains no `TenantSubscriptionRequestedHandler`.
+**Owner:** billing-expert. **Status:** RESOLVED (this PR).
+
+## ORPHAN-LOW-396 — SubscriptionProvisioningFailedEvent orphaned after the dead-handler delete (its only emitter is gone; no consumers) — OPEN
+
+**Discovered:** 2026-07-13 (Billing Revival Faz A, incidental). `SubscriptionProvisioningFailedEvent` (`libs/event-contracts/src/billing-events.ts`) was emitted ONLY by the now-deleted `TenantSubscriptionRequestedHandler` and has no consumer/subscriber anywhere in the repo. Removing it is additional event-contract-union blast radius orthogonal to the subscription-break fix, so it is left in place and tracked rather than removed in this PR. It is now a dead contract (an admin-alerting failure event that nothing emits and nothing reads).
+**Owner:** billing-expert. **Deadline:** 2026-09-30 — either wire a real emitter (billing provisioning command failure → alert) + a consumer, or remove the contract from `billing-events.ts` + the `BillingEvent` union.
 **Owner:** infra-expert. **Deadline:** RESOLVED on merge.
 
 ## ORPHAN-HIGH-397 — Stripe billing could not use operator-entered keys at runtime; enabled-but-keyless crashed boot (D6) — RESOLVED (this PR)
@@ -6754,6 +7090,17 @@ Severity: HIGH (recurrence enabler for the 2026-07-07 messaging outage class). #
 **Discovered:** 2026-07-13 (Faz C). Unlike `billing.stripe_enabled/public_key/secret_key`, the Stripe *webhook signing* secret (`STRIPE_WEBHOOK_SECRET`) is read ONLY from env (`stripe-webhook.controller.ts`). An operator who flips Stripe on via the panel cannot also set the webhook secret without a redeploy — the webhook verification then rejects every event. Follow-up: add a `platform/billing.stripe_webhook_secret` seed row (config-service `1805400000000` seed pattern), a config-runtime GET_SECRET allowlist entry (`billing-service → platform/billing.stripe_webhook_secret`), and have the webhook controller read it via `ConfigRuntimeClient.getSecret` with an env fallback.
 **Owner:** billing-expert. **Deadline:** 2026-09-30.
 
+## ORPHAN-HIGH-400 — billing had no FREE tier: `free` was silently coerced to `starter`, threw in the pricing model, and had no $0 catalog row (Billing Revival Faz B / D4) — RESOLVED (this PR)
+
+**Discovered:** 2026-07-13 while implementing Billing Revival Faz B. The canonical `TenantPlan`/`PLAN_CATALOG` (`libs/event-contracts`) already carried FREE, but billing did not: (1) `apps/billing-service/.../subscription.entity.ts` `PlanTier` enum lacked FREE (STARTER|PROFESSIONAL|ENTERPRISE|CUSTOM) and the DB enums `billing.subscriptions_plan_tier_enum` + `billing.plans_tier_enum` had no `'free'` label so a FREE provisioning insert would fail 22P02; (2) admin-api's `toModulePlanTier`/`toBillingCommandPlanTier` (`tenant-provisioning-workflow.service.ts`) mapped `free` to `starter`, silently upgrading a FREE tenant to a paid tier on the wire; (3) `metered-billing.service.ts` built pricing models only for STARTER/PROFESSIONAL/ENTERPRISE, so `calculateBilling` threw "No pricing model found for plan tier: free"; (4) `plan-seed.service.ts` had no $0 FREE row, so `resolveProvisioningPlan` threw "No active billing catalog plan for tier=free"; (5) admin-api's `PricingCalculatorService.calculateModulePrice` charged FREE at full price (absent `free` tier multiplier defaults to 1.0).
+
+**Fix (this PR, Tier-1/2):** FREE is now a first-class billing tier end-to-end. `PlanTier` enum + event-contracts `PlanTier` type gain `free`; migration `1801900000000-AddPlanTierFreeEnumValue` adds `'free'` to both billing enums (additive, `transaction=false`, `IF NOT EXISTS`, fail-closed postcondition). `plan-seed` seeds a permanent $0 `Free` plan (limits projected from PLAN_CATALOG FREE via `billingPlanLimitsFor`). `metered-billing` gains a FREE model where every meter is priced at 0 on a single open-ended tier (no usage bills), `includedUnits` sourced from `resolvePlanLimits(TenantPlan.FREE)`. Both coercion mappers pass `free` through. `PricingCalculatorService.calculateModulePrice` short-circuits FREE to an all-zero breakdown (also removes the latent 0-multiplier divide-by-zero). The provisioning handler (`billing-admin-nats.handler.ts`) enforces FREE invariants as the billing SSoT: status always `active` (never `trial`), no trial window, and every price clamped to $0 (subscription base + each module item), regardless of what the command carried. NO Stripe object is created on the provisioning path (verified: `createProvisioningSubscription` is a pure INSERT, so the Stripe-gating concern in the task was a no-op).
+
+**FREE-module-charge decision:** FREE clamps ALL module charges to $0, not just the platform fee. Rationale: the user decision is "FREE = permanent, fully free"; the billing subscription is the SSoT for billing state (D14), and the invoice scheduler bills off `pricing.basePrice`, so a non-$0 module total on a FREE subscription would produce real charges. Enforced at THREE layers (make-it-impossible): admin pricing calculator ($0 breakdown produces $0 resolved items), billing handler clamp (base + items), FE `calculatedTotal` short-circuit.
+
+**Tests:** `metered-billing.service.spec.ts` (+2: FREE model $0 + calculateBilling FREE $0), `pricing-calculator-free-tier.spec.ts` (new), `plan-seed.service.spec.ts` (new).
+**Owner:** billing-expert. **Status:** RESOLVED (this PR).
+
 ## ORPHAN-LOW-400 — gateway `ServiceProxyService.proxyRequest` has no caller (dead REST proxy) — OPEN
 
 **Discovered:** 2026-07-13 while mapping the webhook ingress path (Faz C). `apps/gateway-api/src/proxy/service-proxy.service.ts` `proxyRequest(...)` (~:284) has no production caller — the gateway routes GraphQL + a few REST paths but does not use this generic Express proxy. Dead code that implies a routing capability the gateway does not actually offer; either wire it or delete it so the webhook/REST ingress story stays legible.
@@ -6763,6 +7110,12 @@ Severity: HIGH (recurrence enabler for the 2026-07-07 messaging outage class). #
 
 **Discovered:** 2026-07-13 (Faz C, same file as ORPHAN-400). `service-proxy.service.ts` (~:640) forwards a non-string body via `JSON.stringify(proxyRequest.body)` — re-serializing the V8-parsed body, which does NOT reproduce the original wire bytes (numeric-key ordering, `1.0`→`1`, whitespace). Any signature-sensitive payload proxied through this path (Stripe/HMAC bodies) would fail verification downstream. The Faz C webhook route deliberately bypasses this proxy (direct nginx→billing) so the raw body survives, but the corruption class remains for any future REST proxy use. Fix: forward `req.rawBody` (Nest `rawBody:true`) byte-for-byte instead of re-stringifying.
 **Owner:** infra-expert. **Deadline:** 2026-10-31.
+
+## ORPHAN-LOW-402 — CUSTOM plan tier still throws in `metered-billing.getPricingModel` (same gap class as the FREE fix) — OPEN
+
+**Discovered:** 2026-07-13 while adding the FREE pricing model (Faz B / D4). `billing.PlanTier` has a `CUSTOM` value, but `metered-billing.service.ts` builds pricing models only for STARTER/PROFESSIONAL/ENTERPRISE and now FREE, so a CUSTOM-tier subscription would still throw "No pricing model found for plan tier: custom" in `calculateBilling`. This is the same class the FREE fix closed, deliberately NOT scoped into this PR (the task said leave CUSTOM as-is; enterprise custom plans travel via `customPlanId` and their metered model is a separate design question). No CUSTOM tenant is provisioned on the tested path today, so this is latent.
+**Recommendation:** derive the CUSTOM metered model from the resolved custom plan's own pricing rather than a static tier map, OR gate CUSTOM subscriptions out of usage-metered billing explicitly.
+**Owner:** billing-expert. **Deadline:** 2026-10-15. **Status:** OPEN.
 
 ## ORPHAN-CRITICAL-402 — the shared `_INBOX.>` reply subject exposes every request-reply payload to all service certs — OPEN
 

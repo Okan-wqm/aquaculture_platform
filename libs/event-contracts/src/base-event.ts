@@ -159,17 +159,20 @@ export interface BaseEvent {
  * The architectural-arbiter approves additions; compliance-expert
  * is the CATCHER for the per-event PII categorisation decision.
  */
-export const PII_BEARING_EVENT_TYPES: readonly string[] = [
-  'PasswordResetRequested',
-] as const;
+export const PII_BEARING_EVENT_TYPES: readonly string[] = ['PasswordResetRequested'] as const;
 
 // ==================== Shared Literal Types ====================
 
 /**
  * Canonical plan tier values used across tenant and billing events.
  * All services MUST use these values for tier fields.
+ *
+ * `free` is a permanent $0 tier (Billing Revival Faz B): a real, non-trial
+ * subscription with FREE-plan limits and no Stripe object. It is a first-class
+ * tier in the provisioning command so admin-api can no longer silently coerce
+ * `free` down to `starter` on the wire.
  */
-export type PlanTier = 'starter' | 'professional' | 'enterprise';
+export type PlanTier = 'free' | 'starter' | 'professional' | 'enterprise';
 
 /**
  * Canonical billing cycle values.
@@ -194,8 +197,16 @@ export type BillingCycle = 'monthly' | 'quarterly' | 'semi_annual' | 'annual';
 export function createBaseEvent<T extends BaseEvent>(
   eventType: T['eventType'],
   tenantId: string,
-  overrides?: Partial<Pick<BaseEvent, 'correlationId' | 'causationId' | 'userId' | 'version' | 'aggregateId' | 'aggregateType'>>,
-): Pick<BaseEvent, 'eventId' | 'timestamp' | 'tenantId' | 'version' | 'aggregateId' | 'aggregateType'> & { eventType: T['eventType'] } & Partial<BaseEvent> {
+  overrides?: Partial<
+    Pick<
+      BaseEvent,
+      'correlationId' | 'causationId' | 'userId' | 'version' | 'aggregateId' | 'aggregateType'
+    >
+  >,
+): Pick<
+  BaseEvent,
+  'eventId' | 'timestamp' | 'tenantId' | 'version' | 'aggregateId' | 'aggregateType'
+> & { eventType: T['eventType'] } & Partial<BaseEvent> {
   return {
     eventId: crypto.randomUUID() as EventId,
     eventType,
@@ -205,7 +216,10 @@ export function createBaseEvent<T extends BaseEvent>(
     aggregateId: '',
     aggregateType: '',
     ...overrides,
-  } as Pick<BaseEvent, 'eventId' | 'timestamp' | 'tenantId' | 'version' | 'aggregateId' | 'aggregateType'> & { eventType: T['eventType'] } & Partial<BaseEvent>;
+  } as Pick<
+    BaseEvent,
+    'eventId' | 'timestamp' | 'tenantId' | 'version' | 'aggregateId' | 'aggregateType'
+  > & { eventType: T['eventType'] } & Partial<BaseEvent>;
 }
 
 /**

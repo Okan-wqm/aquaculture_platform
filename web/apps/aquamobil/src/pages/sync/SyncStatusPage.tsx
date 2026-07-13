@@ -3,8 +3,10 @@ import { Navbar, Block, BlockTitle, Button, List, ListItem } from 'konsta/react'
 import { Cloud, CloudOff, RefreshCw, Trash2, CheckCircle, AlertCircle, Clock, RotateCcw } from 'lucide-react';
 import type { JSX } from 'react';
 
+import { DataFreshness } from '@/components/DataFreshness';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { MAX_RETRY_COUNT } from '@/pwa/offline-queue';
+import { getLastSyncAt } from '@/utils/last-sync';
 
 // WHY: Every OperationType must have a friendly label so the sync status page
 // shows human-readable operation names. Without this, messaging and other operations
@@ -53,6 +55,13 @@ export function SyncStatusPage(): JSX.Element {
   return (
     <>
       <Navbar title="Sync Status" />
+
+      {/* MOB-LOW-011: the global last-synced clock — every drain (auto or
+          manual) updates the stamp; DataFreshness colors its age. */}
+      <div className="flex items-center justify-center gap-1.5 pt-2">
+        <span className="text-xs text-gray-500 dark:text-gray-400">Last synced:</span>
+        <DataFreshness timestamp={getLastSyncAt()} />
+      </div>
 
       {/* Connection Status */}
       <Block className="!mt-0">
@@ -168,7 +177,8 @@ export function SyncStatusPage(): JSX.Element {
                       {statusIcon}
                       <button
                         onClick={() => { void removeFromQueue(op.id); }}
-                        className="p-2 text-red-500 touch-feedback"
+                        aria-label="Remove queued operation"
+                        className="min-h-touch min-w-touch flex items-center justify-center text-red-500 touch-feedback"
                       >
                         <Trash2 size={18} />
                       </button>

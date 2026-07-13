@@ -9,14 +9,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Card,
-  Button,
-  Badge,
-  Input,
-  Select,
-  Alert,
-} from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Select, Alert, RadioGroup } from '@aquaculture/shared-ui';
 import {
   tenantsApi,
   modulesApi,
@@ -42,6 +35,31 @@ import {
 
 // Tier'ı burada tanımlıyoruz (fix plan yok, sadece indirim oranları için)
 type PricingTier = 'free' | 'starter' | 'professional' | 'enterprise' | 'custom';
+
+// Selectable pricing tiers surfaced in the wizard (Billing Revival Faz B). FREE
+// is a permanent $0 tier; the paid tiers keep their existing pricing behaviour.
+const TIER_OPTIONS: { value: PricingTier; label: string; description: string }[] = [
+  { value: 'free', label: 'Free', description: 'Permanent $0 — no platform or module fees' },
+  { value: 'starter', label: 'Starter', description: 'Small farms getting started' },
+  {
+    value: 'professional',
+    label: 'Professional',
+    description: 'Growing operations — reports + API access',
+  },
+  { value: 'enterprise', label: 'Enterprise', description: 'Unlimited scale, every capability' },
+];
+
+// FREE-tier allowances surfaced when Free is selected. This is descriptive UI
+// copy only — the authoritative limits are enforced server-side by the canonical
+// PLAN_CATALOG FREE entry (billing.subscriptions.limits). Kept here because web
+// modules do not import @platform/event-contracts.
+const FREE_TIER_LIMITS = {
+  maxUsers: 3,
+  maxFarms: 1,
+  maxPonds: 5,
+  maxSensors: 10,
+  dataRetentionDays: 30,
+} as const;
 
 interface ModuleConfig {
   moduleId: string;
@@ -169,7 +187,9 @@ const hashString = (value: string): string => {
   return (hash >>> 0).toString(16).padStart(8, '0');
 };
 
-const getTenantCreateIdempotency = (payload: CreateTenantDto): { key: string; storageKey?: string } => {
+const getTenantCreateIdempotency = (
+  payload: CreateTenantDto,
+): { key: string; storageKey?: string } => {
   const storageKey = `${TENANT_CREATE_IDEMPOTENCY_PREFIX}${hashString(stableStringify(payload))}`;
 
   if (typeof window === 'undefined') {
@@ -204,20 +224,27 @@ const StepIndicator: React.FC<{
                 index < currentStep
                   ? 'bg-green-500 text-white'
                   : index === currentStep
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-gray-200 text-gray-500'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-200 text-gray-500'
               }`}
             >
               {index < currentStep ? (
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M5 13l4 4L19 7"
+                  />
                 </svg>
               ) : (
                 index + 1
               )}
             </div>
             <div className="mt-2 text-center">
-              <p className={`text-sm font-medium ${index <= currentStep ? 'text-gray-900' : 'text-gray-500'}`}>
+              <p
+                className={`text-sm font-medium ${index <= currentStep ? 'text-gray-900' : 'text-gray-500'}`}
+              >
                 {step.label}
               </p>
               <p className="text-xs text-gray-500 hidden sm:block">{step.description}</p>
@@ -256,7 +283,9 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
   const metrics = pricing?.pricingMetrics || [];
 
   return (
-    <Card className={`p-4 transition-all ${config.enabled ? 'ring-2 ring-indigo-500 bg-indigo-50/50' : 'bg-white'}`}>
+    <Card
+      className={`p-4 transition-all ${config.enabled ? 'ring-2 ring-indigo-500 bg-indigo-50/50' : 'bg-white'}`}
+    >
       {/* Module Header */}
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-start gap-3">
@@ -271,8 +300,18 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
             }`}
           >
             {config.enabled && (
-              <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+              <svg
+                className="w-4 h-4 text-white"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={3}
+                  d="M5 13l4 4L19 7"
+                />
               </svg>
             )}
           </button>
@@ -282,7 +321,9 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
           </div>
         </div>
         {config.enabled && (
-          <Badge variant="success" size="sm">Active</Badge>
+          <Badge variant="success" size="sm">
+            Active
+          </Badge>
         )}
       </div>
 
@@ -379,7 +420,8 @@ const CreateTenantPage: React.FC = () => {
   const [calculatingPrice, setCalculatingPrice] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const [provisioningOperation, setProvisioningOperation] = useState<CreateTenantAcceptedResponse | null>(null);
+  const [provisioningOperation, setProvisioningOperation] =
+    useState<CreateTenantAcceptedResponse | null>(null);
   const [pollNonce, setPollNonce] = useState(0);
   const quoteRequestSeq = useRef(0);
   const pollFailureCount = useRef(0);
@@ -404,7 +446,6 @@ const CreateTenantPage: React.FC = () => {
 
         // Initialize module configs from pricings with includedQuantity as defaults
         const configs: ModuleConfig[] = safePricings.map((p) => {
-
           // Extract includedQuantity from pricing metrics as default values
           const defaultQuantities: ModuleQuantities = {
             users: 1,
@@ -431,12 +472,14 @@ const CreateTenantPage: React.FC = () => {
 
           // Set defaults from includedQuantity in pricing metrics (BUG-020: typed instead of any)
           if (metrics && Array.isArray(metrics)) {
-            (metrics as Array<{ type: string; includedQuantity?: number; price?: number }>).forEach((metric) => {
-              const field = getQuantityField(metric.type);
-              if (field && metric.includedQuantity && metric.includedQuantity > 0) {
-                defaultQuantities[field] = metric.includedQuantity;
-              }
-            });
+            (metrics as Array<{ type: string; includedQuantity?: number; price?: number }>).forEach(
+              (metric) => {
+                const field = getQuantityField(metric.type);
+                if (field && metric.includedQuantity && metric.includedQuantity > 0) {
+                  defaultQuantities[field] = metric.includedQuantity;
+                }
+              },
+            );
           }
 
           return {
@@ -497,19 +540,21 @@ const CreateTenantPage: React.FC = () => {
     enabledModules.forEach((config) => {
       const pricing = modulePricings.find((p) => p.moduleId === config.moduleId);
       if (pricing?.pricingMetrics && Array.isArray(pricing.pricingMetrics)) {
-        pricing.pricingMetrics.forEach((metric: { type: string; price?: number; includedQuantity?: number }) => {
-          if (isBasePrice(metric.type)) {
-            localTotal += metric.price || 0;
-          } else {
-            const field = getQuantityField(metric.type);
-            if (field) {
-              const qty = config.quantities[field] ?? 0;
-              const included = metric.includedQuantity ?? 0;
-              const billable = Math.max(0, qty - included);
-              localTotal += billable * (metric.price || 0);
+        pricing.pricingMetrics.forEach(
+          (metric: { type: string; price?: number; includedQuantity?: number }) => {
+            if (isBasePrice(metric.type)) {
+              localTotal += metric.price || 0;
+            } else {
+              const field = getQuantityField(metric.type);
+              if (field) {
+                const qty = config.quantities[field] ?? 0;
+                const included = metric.includedQuantity ?? 0;
+                const billable = Math.max(0, qty - included);
+                localTotal += billable * (metric.price || 0);
+              }
             }
-          }
-        });
+          },
+        );
       }
     });
 
@@ -592,39 +637,43 @@ const CreateTenantPage: React.FC = () => {
   }, []);
 
   // Handlers
-  const updateFormData = useCallback(<K extends keyof TenantFormData>(
-    key: K,
-    value: TenantFormData[K]
-  ) => {
-    setFormData((prev) => ({ ...prev, [key]: value }));
-  }, []);
+  const updateFormData = useCallback(
+    <K extends keyof TenantFormData>(key: K, value: TenantFormData[K]) => {
+      setFormData((prev) => ({ ...prev, [key]: value }));
+    },
+    [],
+  );
 
-  const updateContactField = useCallback((field: keyof TenantFormData['primaryContact'], value: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      primaryContact: { ...prev.primaryContact, [field]: value },
-    }));
-  }, []);
+  const updateContactField = useCallback(
+    (field: keyof TenantFormData['primaryContact'], value: string) => {
+      setFormData((prev) => ({
+        ...prev,
+        primaryContact: { ...prev.primaryContact, [field]: value },
+      }));
+    },
+    [],
+  );
 
   const toggleModule = useCallback((moduleId: string) => {
     setFormData((prev) => ({
       ...prev,
       moduleConfigs: prev.moduleConfigs.map((c) =>
-        c.moduleId === moduleId ? { ...c, enabled: !c.enabled } : c
+        c.moduleId === moduleId ? { ...c, enabled: !c.enabled } : c,
       ),
     }));
   }, []);
 
-  const updateModuleQuantity = useCallback((moduleId: string, field: keyof ModuleQuantities, value: number) => {
-    setFormData((prev) => ({
-      ...prev,
-      moduleConfigs: prev.moduleConfigs.map((c) =>
-        c.moduleId === moduleId
-          ? { ...c, quantities: { ...c.quantities, [field]: value } }
-          : c
-      ),
-    }));
-  }, []);
+  const updateModuleQuantity = useCallback(
+    (moduleId: string, field: keyof ModuleQuantities, value: number) => {
+      setFormData((prev) => ({
+        ...prev,
+        moduleConfigs: prev.moduleConfigs.map((c) =>
+          c.moduleId === moduleId ? { ...c, quantities: { ...c.quantities, [field]: value } } : c,
+        ),
+      }));
+    },
+    [],
+  );
 
   // Validate slug format (BUG-009)
   const validateSlug = (slug: string): string | null => {
@@ -632,7 +681,8 @@ const CreateTenantPage: React.FC = () => {
     if (slug.length > 63) return 'Slug must be at most 63 characters (hostname limit)';
     if (slug.startsWith('-') || slug.endsWith('-')) return 'Slug cannot start or end with a hyphen';
     if (/--/.test(slug)) return 'Slug cannot contain consecutive hyphens';
-    if (!/^[a-z0-9-]+$/.test(slug)) return 'Slug may only contain lowercase letters, numbers, and hyphens';
+    if (!/^[a-z0-9-]+$/.test(slug))
+      return 'Slug may only contain lowercase letters, numbers, and hyphens';
     return null;
   };
 
@@ -711,7 +761,10 @@ const CreateTenantPage: React.FC = () => {
         name: formData.name,
         slug: formData.slug || undefined,
         description: formData.description || undefined,
-        tier: formData.pricingTier === 'free' ? TenantTier.STARTER : formData.pricingTier as TenantTier,
+        // FREE is a first-class tier now (Billing Revival Faz B) — pass the real
+        // selection through instead of the old free→STARTER coercion, so the
+        // backend provisions a genuine plan_tier='free' subscription.
+        tier: formData.pricingTier as TenantTier,
         domain: formData.domain.trim().toLowerCase() || undefined,
         country: formData.country.trim().toUpperCase() || undefined,
         region: formData.region.trim() || undefined,
@@ -722,7 +775,14 @@ const CreateTenantPage: React.FC = () => {
           role: 'Admin', // Required field
         },
         billingEmail: formData.billingEmail || formData.primaryContact.email,
-        trialDays: formData.trialDays > 0 ? formData.trialDays : undefined,
+        // FREE is permanent, never a trial — omit trialDays so the subscription
+        // is created `active`, not `trial`.
+        trialDays:
+          formData.pricingTier === 'free'
+            ? undefined
+            : formData.trialDays > 0
+              ? formData.trialDays
+              : undefined,
         maxStorage: formData.maxStorage !== -1 ? formData.maxStorage : undefined,
         // NEW: Include moduleIds for backend to assign during creation
         moduleIds: enabledModulesForCreation.map((m) => m.moduleId),
@@ -781,9 +841,12 @@ const CreateTenantPage: React.FC = () => {
 
     if (
       !isTerminalProvisioningStatus(provisioningOperation.status) &&
-      (!Number.isFinite(provisioningOperation.retryAfterMs) || provisioningOperation.retryAfterMs <= 0)
+      (!Number.isFinite(provisioningOperation.retryAfterMs) ||
+        provisioningOperation.retryAfterMs <= 0)
     ) {
-      setError('Tenant provisioning status contract error: retryAfterMs must be positive while operation is running');
+      setError(
+        'Tenant provisioning status contract error: retryAfterMs must be positive while operation is running',
+      );
       return;
     }
 
@@ -840,11 +903,16 @@ const CreateTenantPage: React.FC = () => {
   // Enabled modules count and total
   const enabledModules = useMemo(
     () => formData.moduleConfigs.filter((c) => c.enabled),
-    [formData.moduleConfigs]
+    [formData.moduleConfigs],
   );
 
   // Calculate total price directly from enabled modules (reliable, no API dependency)
   const calculatedTotal = useMemo(() => {
+    // FREE is a permanent $0 tier (Billing Revival Faz B): the platform fee and
+    // every module charge are waived, so the wizard must never show a paid amount.
+    // Short-circuit before summing module metrics.
+    if (formData.pricingTier === 'free') return 0;
+
     let total = 0;
 
     enabledModules.forEach((config) => {
@@ -868,7 +936,7 @@ const CreateTenantPage: React.FC = () => {
       }
     });
     return total;
-  }, [enabledModules, modulePricings]);
+  }, [enabledModules, modulePricings, formData.pricingTier]);
 
   if (provisioningOperation && !success) {
     const isFailed = provisioningOperation.status === TenantProvisioningState.FAILED;
@@ -880,13 +948,9 @@ const CreateTenantPage: React.FC = () => {
           <div className="flex items-start justify-between gap-4 mb-6">
             <div>
               <h2 className="text-2xl font-bold text-gray-900">Tenant Provisioning</h2>
-              <p className="text-gray-600 mt-1">
-                {formData.name} is being provisioned.
-              </p>
+              <p className="text-gray-600 mt-1">{formData.name} is being provisioned.</p>
             </div>
-            <Badge variant={isFailed ? 'error' : 'warning'}>
-              {provisioningOperation.status}
-            </Badge>
+            <Badge variant={isFailed ? 'error' : 'warning'}>{provisioningOperation.status}</Badge>
           </div>
 
           {error && (
@@ -911,16 +975,23 @@ const CreateTenantPage: React.FC = () => {
                 Retry
               </Button>
             ) : (
-              <Button variant="outline" onClick={async () => {
-                setError(null);
-                try {
-                  const latest = await tenantsApi.getProvisioningOperationByStatusUrl(provisioningOperation.statusUrl);
-                  pollFailureCount.current = 0;
-                  setProvisioningOperation(latest);
-                } catch (err) {
-                  setError(err instanceof Error ? err.message : 'Failed to refresh provisioning status');
-                }
-              }}>
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  setError(null);
+                  try {
+                    const latest = await tenantsApi.getProvisioningOperationByStatusUrl(
+                      provisioningOperation.statusUrl,
+                    );
+                    pollFailureCount.current = 0;
+                    setProvisioningOperation(latest);
+                  } catch (err) {
+                    setError(
+                      err instanceof Error ? err.message : 'Failed to refresh provisioning status',
+                    );
+                  }
+                }}
+              >
                 Refresh
               </Button>
             )}
@@ -936,11 +1007,23 @@ const CreateTenantPage: React.FC = () => {
       <div className="max-w-2xl mx-auto">
         <Card className="p-8 text-center">
           <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            <svg
+              className="w-8 h-8 text-green-600"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M5 13l4 4L19 7"
+              />
             </svg>
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Tenant Provisioned Successfully!</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">
+            Tenant Provisioned Successfully!
+          </h2>
           <p className="text-gray-600 mb-4">
             Tenant <strong>{formData.name}</strong> has been created and provisioned.
           </p>
@@ -963,9 +1046,7 @@ const CreateTenantPage: React.FC = () => {
             <Button variant="outline" onClick={() => navigate('/admin/tenants')}>
               Tenant List
             </Button>
-            <Button onClick={() => window.location.reload()}>
-              Create Another
-            </Button>
+            <Button onClick={() => window.location.reload()}>Create Another</Button>
           </div>
         </Card>
       </div>
@@ -1014,7 +1095,9 @@ const CreateTenantPage: React.FC = () => {
                 <Input
                   label="Slug (URL)"
                   value={formData.slug}
-                  onChange={(e) => updateFormData('slug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                  onChange={(e) =>
+                    updateFormData('slug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))
+                  }
                   placeholder="ocean-farm"
                   helperText="Short name to be used in URLs"
                 />
@@ -1124,8 +1207,31 @@ const CreateTenantPage: React.FC = () => {
               <div className="flex items-center justify-between border-b pb-2">
                 <div>
                   <h3 className="text-lg font-semibold">Module Selection & Pricing</h3>
-                  <p className="text-sm text-gray-500">Define the required metrics for each module</p>
+                  <p className="text-sm text-gray-500">
+                    Define the required metrics for each module
+                  </p>
                 </div>
+              </div>
+
+              {/* Plan tier selector (Billing Revival Faz B). FREE = permanent $0. */}
+              <div className="p-4 bg-white rounded-lg border">
+                <RadioGroup
+                  label="Plan Tier"
+                  name="pricingTier"
+                  vertical={false}
+                  options={TIER_OPTIONS}
+                  value={formData.pricingTier}
+                  onChange={(value) => updateFormData('pricingTier', value as PricingTier)}
+                />
+                {formData.pricingTier === 'free' && (
+                  <Alert type="info" className="mt-4">
+                    <span className="font-medium">Free plan — permanent $0.</span> No platform fee
+                    and no module charges. Included allowances: up to {FREE_TIER_LIMITS.maxUsers}{' '}
+                    users, {FREE_TIER_LIMITS.maxFarms} farm, {FREE_TIER_LIMITS.maxPonds} ponds,{' '}
+                    {FREE_TIER_LIMITS.maxSensors} sensors, {FREE_TIER_LIMITS.dataRetentionDays}-day
+                    data retention. The tenant can be upgraded to a paid plan later.
+                  </Alert>
+                )}
               </div>
 
               {dataLoading ? (
@@ -1142,7 +1248,9 @@ const CreateTenantPage: React.FC = () => {
                         config={config}
                         pricing={pricing}
                         onToggle={() => toggleModule(config.moduleId)}
-                        onQuantityChange={(field, value) => updateModuleQuantity(config.moduleId, field, value)}
+                        onQuantityChange={(field, value) =>
+                          updateModuleQuantity(config.moduleId, field, value)
+                        }
                       />
                     );
                   })}
@@ -1184,12 +1292,16 @@ const CreateTenantPage: React.FC = () => {
                     )}
                     <div className="flex justify-between">
                       <dt className="text-gray-500">Storage:</dt>
-                      <dd>{formData.maxStorage === -1 ? 'Unlimited' : `${formData.maxStorage} GB`}</dd>
+                      <dd>
+                        {formData.maxStorage === -1 ? 'Unlimited' : `${formData.maxStorage} GB`}
+                      </dd>
                     </div>
                     {formData.country && (
                       <div className="flex justify-between">
                         <dt className="text-gray-500">Location:</dt>
-                        <dd>{formData.country} {formData.region && `/ ${formData.region}`}</dd>
+                        <dd>
+                          {formData.country} {formData.region && `/ ${formData.region}`}
+                        </dd>
                       </div>
                     )}
                   </dl>
@@ -1228,7 +1340,9 @@ const CreateTenantPage: React.FC = () => {
                       <div key={config.moduleId} className="p-3 bg-white rounded border">
                         <div className="flex items-center justify-between">
                           <span className="font-medium">{config.moduleName}</span>
-                          <Badge variant="success" size="sm">Active</Badge>
+                          <Badge variant="success" size="sm">
+                            Active
+                          </Badge>
                         </div>
                         {hasQuantities && (
                           <div className="mt-2 flex flex-wrap gap-2">
@@ -1261,18 +1375,15 @@ const CreateTenantPage: React.FC = () => {
               </div>
 
               <Alert type="info">
-                Tenant provisioning will create the workspace, admin access, module assignments, and billing subscription for <strong>{formData.primaryContact.email}</strong>.
+                Tenant provisioning will create the workspace, admin access, module assignments, and
+                billing subscription for <strong>{formData.primaryContact.email}</strong>.
               </Alert>
             </div>
           )}
 
           {/* Navigation Buttons */}
           <div className="flex justify-between mt-8 pt-6 border-t">
-            <Button
-              variant="outline"
-              onClick={handlePrevious}
-              disabled={currentStep === 0}
-            >
+            <Button variant="outline" onClick={handlePrevious} disabled={currentStep === 0}>
               Back
             </Button>
 
@@ -1301,9 +1412,14 @@ const CreateTenantPage: React.FC = () => {
                   {/* Selected Modules */}
                   <div className="space-y-2">
                     {enabledModules.map((config) => (
-                      <div key={config.moduleId} className="flex items-center justify-between text-sm">
+                      <div
+                        key={config.moduleId}
+                        className="flex items-center justify-between text-sm"
+                      >
                         <span className="text-gray-600 truncate">{config.moduleName}</span>
-                        <Badge variant="info" size="sm">Active</Badge>
+                        <Badge variant="info" size="sm">
+                          Active
+                        </Badge>
                       </div>
                     ))}
                   </div>
@@ -1337,9 +1453,7 @@ const CreateTenantPage: React.FC = () => {
                     </div>
                   </div>
 
-                  <p className="text-xs text-gray-500 pt-2">
-                    * Prices are shown excluding taxes
-                  </p>
+                  <p className="text-xs text-gray-500 pt-2">* Prices are shown excluding taxes</p>
                 </div>
               )}
             </Card>

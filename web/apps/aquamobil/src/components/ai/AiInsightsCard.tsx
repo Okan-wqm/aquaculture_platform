@@ -83,7 +83,7 @@ function RiskGauge({ score }: { score: number }): ReactElement {
         <span className={clsx('text-2xl font-bold tabular-nums', colors.text)}>
           {score}
         </span>
-        <span className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider">
+        <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
           Risk
         </span>
       </div>

@@ -280,7 +280,7 @@ export function VoicePlayer({
           <span
             className={clsx(
               'text-[10px] tabular-nums',
-              isOwn ? 'text-white/60' : 'text-gray-400 dark:text-gray-500',
+              isOwn ? 'text-white/75' : 'text-gray-400 dark:text-gray-500',
             )}
           >
             {formatDuration(currentTime)}
@@ -288,7 +288,7 @@ export function VoicePlayer({
           <span
             className={clsx(
               'text-[10px] tabular-nums',
-              isOwn ? 'text-white/60' : 'text-gray-400 dark:text-gray-500',
+              isOwn ? 'text-white/75' : 'text-gray-400 dark:text-gray-500',
             )}
           >
             {formatDuration(duration)}

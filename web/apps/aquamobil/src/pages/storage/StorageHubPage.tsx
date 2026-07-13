@@ -283,7 +283,7 @@ export function StorageHubPage(): JSX.Element {
                   >
                     <Icon className="text-white mb-3" size={32} />
                     <span className="text-sm font-bold text-white">{action.label}</span>
-                    <span className="text-xs text-white/70 mt-0.5">{action.description}</span>
+                    <span className="text-xs text-white/85 mt-0.5">{action.description}</span>
                   </button>
                 );
               })}

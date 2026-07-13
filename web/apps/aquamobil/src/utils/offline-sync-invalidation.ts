@@ -21,6 +21,9 @@ const SYNC_INVALIDATION_SEGMENTS = {
   createWaterQuality: [['tanks'], ['equipment-params'], ['waterQuality'], ['dailyOpsCounts'], ['ai']],
   recordStockMovement: [['stockEventsSummary'], ['stock-at-location'], ['warehouseSummary']],
   transferStock: [['stockEventsSummary'], ['stock-at-location'], ['warehouseSummary']],
+  // MOB-HIGH-006: a synced offline ack must clear the unacked badge/banner
+  // read models immediately, not after staleTime.
+  acknowledgeAlert: [['alerts']],
   // FARM-HIGH-214: synced field-capture records feed the scheduled report
   // drafts — invalidate the mobile reports-due read models so a subsequent
   // draft refresh/review reflects the new source rows.

@@ -96,7 +96,23 @@ export class AiChatResponder {
       return {
         content: result.message,
         conversationId: result.conversationId,
-        metadata: { persona: chatRequest.persona, tokenUsage: result.tokenUsage },
+        // MOB-HIGH-001: a held actuation rides the metadata in EXACTLY the
+        // shape confirmAiAction's lookup expects on the stored AI message
+        // (status:'proposed' + actionType/params) plus the actionId that keys
+        // the persisted proposal — the executable SSoT on confirm.
+        metadata: {
+          persona: chatRequest.persona,
+          tokenUsage: result.tokenUsage,
+          ...(result.proposedAction
+            ? {
+                status: 'proposed',
+                actionId: result.proposedAction.actionId,
+                actionType: result.proposedAction.actionType,
+                params: result.proposedAction.params,
+                actionDescription: result.proposedAction.description,
+              }
+            : {}),
+        },
         toolCalls: result.toolCalls,
       };
     } catch (error) {

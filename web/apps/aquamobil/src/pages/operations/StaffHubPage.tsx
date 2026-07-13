@@ -98,7 +98,7 @@ export function StaffHubPage(): JSX.Element {
       label: 'Status',
       value: isClockedIn ? 'On Duty' : 'Off Duty',
       ariaLabel: isClockedIn ? 'Attendance status: on duty' : 'Attendance status: off duty',
-      valueColor: isClockedIn ? 'text-green-300' : 'text-white/50',
+      valueColor: isClockedIn ? 'text-green-300' : 'text-white/75',
       isLoading,
     },
     {

@@ -1,9 +1,6 @@
 import * as crypto from 'crypto';
 
-import {
-  getTenantSchemaName,
-  queryRowsNormalized,
-} from '@aquaculture/backend-common/database';
+import { getTenantSchemaName, queryRowsNormalized } from '@aquaculture/backend-common/database';
 import {
   BadRequestException,
   ConflictException,
@@ -28,7 +25,10 @@ import {
   PlanTier as ModulePlanTier,
 } from '../../billing/entities/plan-definition.entity';
 import { BillingAdminCommandClientService } from '../../billing/services/billing-admin-command-client.service';
-import { ModuleAssignmentService } from '../../modules/tenant-management/services/module-assignment.service';
+import {
+  ModuleAssignmentService,
+  type ModuleQuantities,
+} from '../../modules/tenant-management/services/module-assignment.service';
 import {
   CreateTenantAcceptedResponse,
   CreateTenantDto,
@@ -357,9 +357,7 @@ export class TenantProvisioningWorkflowService {
 
       const tenant = await this.findTenantById(run.tenantId);
       if (!tenant) {
-        throw new NotFoundException(
-          `Tenant '${run.tenantId}' not found after auth reservation`,
-        );
+        throw new NotFoundException(`Tenant '${run.tenantId}' not found after auth reservation`);
       }
 
       // W3.3-c: PENDING → PROVISIONING before any provisioning work, so the
@@ -390,16 +388,19 @@ export class TenantProvisioningWorkflowService {
 
       await this.runStep(run.id, leaseToken, 'publish_provisioning_requested', async () => {
         await this.requestDbMigrateTenantSchemaProvisioning(run, tenant, payload);
-        await this.enqueueEvent({
-          ...createBaseEvent('TenantProvisioningRequested', tenant.id, {
-            aggregateId: tenant.id,
-            aggregateType: 'Tenant',
-          }),
-          slug: tenant.slug,
-          name: tenant.name,
-          operationId: run.id,
-          moduleIds: payload.moduleIds,
-        }, 'tenant-provisioning-requested:' + run.id);
+        await this.enqueueEvent(
+          {
+            ...createBaseEvent('TenantProvisioningRequested', tenant.id, {
+              aggregateId: tenant.id,
+              aggregateType: 'Tenant',
+            }),
+            slug: tenant.slug,
+            name: tenant.name,
+            operationId: run.id,
+            moduleIds: payload.moduleIds,
+          },
+          'tenant-provisioning-requested:' + run.id,
+        );
       });
 
       await this.runStep(run.id, leaseToken, 'wait_for_db_migrate_provisioner', async () => {
@@ -449,16 +450,19 @@ export class TenantProvisioningWorkflowService {
       });
 
       await this.runStep(run.id, leaseToken, 'publish_onboarding_requested', async () => {
-        await this.enqueueEvent({
-          ...createBaseEvent('TenantOnboardingRequested', tenant.id, {
-            aggregateId: tenant.id,
-            aggregateType: 'Tenant',
-          }),
-          operationId: run.id,
-          slug: tenant.slug,
-          name: tenant.name,
-          moduleIds: payload.moduleIds,
-        }, 'tenant-onboarding-requested:' + run.id);
+        await this.enqueueEvent(
+          {
+            ...createBaseEvent('TenantOnboardingRequested', tenant.id, {
+              aggregateId: tenant.id,
+              aggregateType: 'Tenant',
+            }),
+            operationId: run.id,
+            slug: tenant.slug,
+            name: tenant.name,
+            moduleIds: payload.moduleIds,
+          },
+          'tenant-onboarding-requested:' + run.id,
+        );
       });
 
       await this.runStep(run.id, leaseToken, 'wait_for_onboarding_ack', async () => {
@@ -466,24 +470,30 @@ export class TenantProvisioningWorkflowService {
       });
 
       await this.runStep(run.id, leaseToken, 'publish_tenant_provisioned', async () => {
-        await this.enqueueEvent({
-          ...createBaseEvent('TenantProvisioned', tenant.id, {
-            aggregateId: tenant.id,
-            aggregateType: 'Tenant',
-          }),
-          operationId: run.id,
-          slug: tenant.slug,
-          name: tenant.name,
-        }, 'tenant-provisioned:' + run.id);
+        await this.enqueueEvent(
+          {
+            ...createBaseEvent('TenantProvisioned', tenant.id, {
+              aggregateId: tenant.id,
+              aggregateType: 'Tenant',
+            }),
+            operationId: run.id,
+            slug: tenant.slug,
+            name: tenant.name,
+          },
+          'tenant-provisioned:' + run.id,
+        );
 
-        await this.enqueueEvent({
-          ...createBaseEvent('TenantCreated', tenant.id, {
-            aggregateId: tenant.id,
-            aggregateType: 'Tenant',
-          }),
-          slug: tenant.slug,
-          name: tenant.name,
-        }, 'tenant-created-final:' + run.id);
+        await this.enqueueEvent(
+          {
+            ...createBaseEvent('TenantCreated', tenant.id, {
+              aggregateId: tenant.id,
+              aggregateType: 'Tenant',
+            }),
+            slug: tenant.slug,
+            name: tenant.name,
+          },
+          'tenant-created-final:' + run.id,
+        );
       });
 
       await this.markRunSucceeded(run.id, leaseToken);
@@ -579,7 +589,9 @@ export class TenantProvisioningWorkflowService {
     const trimmed = idempotencyKey?.trim();
     if (trimmed && trimmed.length >= 16 && trimmed.length <= 128) return trimmed;
 
-    throw new BadRequestException('Idempotency-Key is required for tenant creation and must be 16-128 characters');
+    throw new BadRequestException(
+      'Idempotency-Key is required for tenant creation and must be 16-128 characters',
+    );
   }
 
   private hashPayload(payload: CreateTenantDto): string {
@@ -589,7 +601,11 @@ export class TenantProvisioningWorkflowService {
   private async assertTenantOnboardingAcks(operationId: string): Promise<void> {
     const requiredServices = this.requiredOnboardingServices();
 
-    const rows = await this.queryRows<{ service: string; status: 'ACK' | 'FAILED'; error: string | null }>(
+    const rows = await this.queryRows<{
+      service: string;
+      status: 'ACK' | 'FAILED';
+      error: string | null;
+    }>(
       `SELECT service, status, error
          FROM admin.tenant_onboarding_acks
         WHERE "operationId" = $1`,
@@ -649,7 +665,10 @@ export class TenantProvisioningWorkflowService {
     }
 
     if (this.isRecord(value)) {
-      return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${this.stableStringify(value[key])}`).join(',')}}`;
+      return `{${Object.keys(value)
+        .sort()
+        .map((key) => `${JSON.stringify(key)}:${this.stableStringify(value[key])}`)
+        .join(',')}}`;
     }
 
     return JSON.stringify(value);
@@ -865,19 +884,21 @@ export class TenantProvisioningWorkflowService {
   }
 
   private tenantFromSnapshot(
-    snapshot: {
-      id?: string;
-      name?: string;
-      slug?: string;
-      status?: string;
-      plan?: string;
-      customDomain?: string | null;
-      contactEmail?: string | null;
-      contactPhone?: string | null;
-      settings?: TenantSettings | null;
-      createdAt?: string;
-      updatedAt?: string;
-    } | undefined,
+    snapshot:
+      | {
+          id?: string;
+          name?: string;
+          slug?: string;
+          status?: string;
+          plan?: string;
+          customDomain?: string | null;
+          contactEmail?: string | null;
+          contactPhone?: string | null;
+          settings?: TenantSettings | null;
+          createdAt?: string;
+          updatedAt?: string;
+        }
+      | undefined,
     fallback: Tenant,
   ): Tenant {
     if (!snapshot) return fallback;
@@ -953,7 +974,162 @@ export class TenantProvisioningWorkflowService {
       throw new BadRequestException('At least one module must be selected for tenant provisioning');
     }
 
-    const modules = moduleIds.map((moduleId) => {
+    const result = await this.moduleAssignmentService.assignModulesToTenant({
+      tenantId: tenant.id,
+      modules: this.buildModuleQuantityInputs(data),
+      assignedBy,
+      tier: this.toModulePlanTier(tenant.tier),
+      billingCycle: this.toModuleBillingCycle(data.billingCycle),
+    });
+
+    if (!result.success) {
+      throw new Error(
+        `Module assignment failed: ${result.failedModules.map((f) => `${f.moduleId}:${f.error}`).join(', ')}`,
+      );
+    }
+  }
+
+  private async createTenantSubscription(
+    run: TenantProvisioningRunRow,
+    tenant: Tenant,
+    data: CreateTenantDto,
+  ): Promise<void> {
+    // ORPHAN-CRITICAL-393 / ORPHAN-HIGH-394: resolve each module's code, name,
+    // and REAL price (admin.module_pricing via PricingCalculatorService) in
+    // admin-api — the schema owner of that data — and pass priced moduleItems in
+    // the command. billing writes the module rows directly from these values, so
+    // it never runs the schema-unqualified `modules` query that failed (no
+    // billing grant on auth.modules) and rolled the whole subscription back, and
+    // never invents $0 module prices.
+    const moduleItems = await this.moduleAssignmentService.resolveProvisioningModuleItems({
+      modules: this.buildModuleQuantityInputs(data),
+      tier: this.toModulePlanTier(tenant.tier),
+      billingCycle: this.toModuleBillingCycle(data.billingCycle),
+    });
+
+    const result = await this.billingCommandClient.provisionTenantSubscription({
+      operationId: run.id,
+      tenantId: tenant.id,
+      idempotencyKey: `${run.idempotencyKey}:ProvisionTenantSubscription:${run.requestHash}`,
+      requestPayloadHash: run.requestHash,
+      actorId: run.actorUserId,
+      tenantName: tenant.name,
+      tier: this.toBillingCommandPlanTier(tenant.tier),
+      billingCycle: this.toBillingCommandCycle(data.billingCycle),
+      moduleIds: data.moduleIds ?? [],
+      moduleQuantities: data.moduleQuantities,
+      moduleItems,
+      trialDays: data.trialDays,
+      catalogVersionId: data.catalogVersionId,
+      quoteId: data.quoteId,
+      customPlanId: data.customPlanId,
+    });
+
+    if (!result.subscriptionId || !result.receiptId) {
+      throw new Error('Billing provisioning completed without subscription receipt evidence');
+    }
+  }
+
+  /**
+   * Idempotent backfill: create the missing billing subscription for an already
+   * provisioned tenant by REUSING the fixed provisioning command path.
+   *
+   * WHY a command, not a SQL migration: the correct subscription price is the
+   * sum of module prices computed by PricingCalculatorService (admin.module_pricing).
+   * Reimplementing that in a migration's SQL would resurrect the parallel pricing
+   * model this PR deletes. Instead we resolve the tenant's assigned modules
+   * (auth.tenant_modules) into priced moduleItems and send the SAME
+   * PROVISION_TENANT_SUBSCRIPTION command tenant creation now uses.
+   *
+   * Idempotent: billing short-circuits on an existing active subscription
+   * (`findActiveSubscription` + the partial unique index UQ_subscriptions_tenantId_active)
+   * and on the command receipt, so re-invoking for a tenant that already has a
+   * subscription replays rather than duplicating. Safe to run against live money
+   * data. Invoked by the lead post-deploy (POST /admin/tenants/:id/reconcile-subscription)
+   * for the 3 pre-existing tenants that were created while the provisioning tx
+   * silently rolled back (ORPHAN-CRITICAL-393).
+   */
+  async reconcileTenantSubscription(
+    tenantId: string,
+    actorId: string,
+  ): Promise<{
+    tenantId: string;
+    subscriptionId?: string;
+    status?: string;
+    moduleItemCount?: number;
+    replayed?: boolean;
+  }> {
+    const tenant = await this.findTenantById(tenantId);
+    if (!tenant) {
+      throw new NotFoundException(`Tenant '${tenantId}' not found`);
+    }
+
+    const assignedModules =
+      await this.moduleAssignmentService.getTenantModulesWithPricing(tenantId);
+    const billingCycle: CreateTenantDto['billingCycle'] = 'monthly';
+    const moduleItems = await this.moduleAssignmentService.resolveProvisioningModuleItems({
+      modules: assignedModules.map((module) => ({
+        moduleId: module.moduleId,
+        quantities: module.quantities,
+      })),
+      tier: this.toModulePlanTier(tenant.tier),
+      billingCycle: this.toModuleBillingCycle(billingCycle),
+    });
+
+    // Deterministic operation identity so repeated reconciles converge on ONE
+    // billing command receipt (the subscription itself is deduped regardless).
+    const seed = `reconcile-subscription:${tenantId}`;
+    const operationId = this.deterministicUuid(seed);
+    const requestPayloadHash = crypto
+      .createHash('sha256')
+      .update(
+        this.stableStringify({
+          tenantId,
+          tier: tenant.tier,
+          billingCycle,
+          moduleIds: assignedModules.map((module) => module.moduleId),
+        }),
+      )
+      .digest('hex');
+
+    const result = await this.billingCommandClient.provisionTenantSubscription({
+      operationId,
+      tenantId,
+      idempotencyKey: seed,
+      requestPayloadHash,
+      actorId,
+      tenantName: tenant.name,
+      tier: this.toBillingCommandPlanTier(tenant.tier),
+      billingCycle: this.toBillingCommandCycle(billingCycle),
+      moduleIds: assignedModules.map((module) => module.moduleId),
+      moduleItems,
+    });
+
+    return {
+      tenantId,
+      subscriptionId: result.subscriptionId,
+      status: result.status,
+      moduleItemCount: result.moduleItemCount,
+      replayed: result.replayed,
+    };
+  }
+
+  private deterministicUuid(seed: string): string {
+    const hex = crypto.createHash('sha256').update(seed).digest('hex');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+  }
+
+  /**
+   * Build the per-module quantity inputs shared by the assign_modules step
+   * (auth-service module assignment + pricing) and the create_subscription step
+   * (billing module-item pricing resolution). A single builder keeps both saga
+   * steps deriving quantities identically from the same request payload.
+   */
+  private buildModuleQuantityInputs(
+    data: CreateTenantDto,
+  ): Array<{ moduleId: string; quantities: ModuleQuantities }> {
+    const moduleIds = data.moduleIds ?? [];
+    return moduleIds.map((moduleId) => {
       const quantityConfig = data.moduleQuantities?.find((q) => q.moduleId === moduleId);
       return {
         moduleId,
@@ -979,47 +1155,6 @@ export class TenantProvisioningWorkflowService {
             },
       };
     });
-
-    const result = await this.moduleAssignmentService.assignModulesToTenant({
-      tenantId: tenant.id,
-      modules,
-      assignedBy,
-      tier: this.toModulePlanTier(tenant.tier),
-      billingCycle: this.toModuleBillingCycle(data.billingCycle),
-    });
-
-    if (!result.success) {
-      throw new Error(
-        `Module assignment failed: ${result.failedModules.map((f) => `${f.moduleId}:${f.error}`).join(', ')}`,
-      );
-    }
-  }
-
-  private async createTenantSubscription(
-    run: TenantProvisioningRunRow,
-    tenant: Tenant,
-    data: CreateTenantDto,
-  ): Promise<void> {
-    const result = await this.billingCommandClient.provisionTenantSubscription({
-      operationId: run.id,
-      tenantId: tenant.id,
-      idempotencyKey: `${run.idempotencyKey}:ProvisionTenantSubscription:${run.requestHash}`,
-      requestPayloadHash: run.requestHash,
-      actorId: run.actorUserId,
-      tenantName: tenant.name,
-      tier: this.toBillingCommandPlanTier(tenant.tier),
-      billingCycle: this.toBillingCommandCycle(data.billingCycle),
-      moduleIds: data.moduleIds ?? [],
-      moduleQuantities: data.moduleQuantities,
-      trialDays: data.trialDays,
-      catalogVersionId: data.catalogVersionId,
-      quoteId: data.quoteId,
-      customPlanId: data.customPlanId,
-    });
-
-    if (!result.subscriptionId || !result.receiptId) {
-      throw new Error('Billing provisioning completed without subscription receipt evidence');
-    }
   }
 
   private async enqueueEvent<TEvent extends BaseEvent>(
@@ -1039,7 +1174,9 @@ export class TenantProvisioningWorkflowService {
     } catch (error) {
       await queryRunner.rollbackTransaction();
       if ((error as { code?: string }).code === '23505') {
-        this.logger.warn(`Outbox idempotency key already exists; treating as completed: ${idempotencyKey}`);
+        this.logger.warn(
+          `Outbox idempotency key already exists; treating as completed: ${idempotencyKey}`,
+        );
         return;
       }
       throw error;
@@ -1049,10 +1186,16 @@ export class TenantProvisioningWorkflowService {
   }
 
   private toModulePlanTier(value: string | undefined): ModulePlanTier {
+    // FREE is a first-class tier (Billing Revival Faz B) — it must pass through,
+    // NOT collapse to STARTER. The FREE multiplier is $0 in module-pricing, so a
+    // FREE tenant's resolved module items price to $0 rather than being charged
+    // at STARTER rates. CUSTOM/ENTERPRISE keep their existing mapping.
     const tierMap: Record<string, ModulePlanTier> = {
+      free: ModulePlanTier.FREE,
       starter: ModulePlanTier.STARTER,
       professional: ModulePlanTier.PROFESSIONAL,
       enterprise: ModulePlanTier.ENTERPRISE,
+      custom: ModulePlanTier.CUSTOM,
     };
     return tierMap[value?.toLowerCase() ?? 'starter'] ?? ModulePlanTier.STARTER;
   }
@@ -1068,7 +1211,13 @@ export class TenantProvisioningWorkflowService {
   }
 
   private toBillingCommandPlanTier(value: string | undefined): BillingCommandPlanTier {
+    // FREE passes through on the wire (Billing Revival Faz B): the billing
+    // command's PlanTier now legitimately accepts 'free', so a FREE tenant
+    // provisions a real plan_tier='free' subscription instead of being silently
+    // downgraded to 'starter'. (CUSTOM is not a billing-command tier — enterprise
+    // custom plans travel via customPlanId, so it is intentionally absent here.)
     const tierMap: Record<string, BillingCommandPlanTier> = {
+      free: 'free',
       starter: 'starter',
       professional: 'professional',
       enterprise: 'enterprise',
@@ -1076,7 +1225,9 @@ export class TenantProvisioningWorkflowService {
     return tierMap[value?.toLowerCase() ?? 'starter'] ?? 'starter';
   }
 
-  private toBillingCommandCycle(value: CreateTenantDto['billingCycle']): BillingCommandBillingCycle {
+  private toBillingCommandCycle(
+    value: CreateTenantDto['billingCycle'],
+  ): BillingCommandBillingCycle {
     const cycleMap: Record<string, BillingCommandBillingCycle> = {
       monthly: 'monthly',
       quarterly: 'quarterly',
@@ -1152,9 +1303,9 @@ export class TenantProvisioningWorkflowService {
       );
     }
     if (
-      schemaRow.schemaName !== expectedSchemaName
-      || schemaRow.evidenceOperationId !== operationId
-      || schemaRow.jobStatus !== 'COMMITTED'
+      schemaRow.schemaName !== expectedSchemaName ||
+      schemaRow.evidenceOperationId !== operationId ||
+      schemaRow.jobStatus !== 'COMMITTED'
     ) {
       throw new Error(
         `db-migrate tenant provisioner wrote mismatched schema evidence for operation ${operationId} tenant ${tenantId}`,
@@ -1216,10 +1367,7 @@ export class TenantProvisioningWorkflowService {
    * real, observable status and the canonical TenantStatusMachine governs the
    * lifecycle with no PENDING→ACTIVE skip. auth-service is the sole writer.
    */
-  private async beginProvisioning(
-    run: TenantProvisioningRunRow,
-    tenantId: string,
-  ): Promise<void> {
+  private async beginProvisioning(run: TenantProvisioningRunRow, tenantId: string): Promise<void> {
     await this.authProvisioningClient.beginProvisioning({
       ...this.buildAuthCommandMetadata(
         'BeginProvisioning',
@@ -1328,10 +1476,7 @@ export class TenantProvisioningWorkflowService {
     return `${process.env.HOSTNAME ?? 'admin-api'}:${process.pid}`;
   }
 
-  private async extendLease(
-    runId: string,
-    leaseToken: string | null | undefined,
-  ): Promise<void> {
+  private async extendLease(runId: string, leaseToken: string | null | undefined): Promise<void> {
     if (!leaseToken) {
       throw new Error('Provisioning run does not have a lease token');
     }
@@ -1539,12 +1684,7 @@ export class TenantProvisioningWorkflowService {
               "completedAt" = NULL,
               "updatedAt" = now()
         WHERE "runId" = $1 AND "stepName" = $2`,
-      [
-        runId,
-        'wait_for_db_migrate_provisioner',
-        TenantProvisioningState.QUEUED,
-        error.message,
-      ],
+      [runId, 'wait_for_db_migrate_provisioner', TenantProvisioningState.QUEUED, error.message],
     );
 
     this.logger.log(
@@ -1602,17 +1742,20 @@ export class TenantProvisioningWorkflowService {
     const message = this.errorMessage(error);
     this.logger.error(`Tenant provisioning operation ${run.id} failed: ${message}`);
 
-    await this.enqueueEvent({
-      ...createBaseEvent('TenantProvisioningFailed', run.tenantId, {
-        aggregateId: run.tenantId,
-        aggregateType: 'Tenant',
-        version: 4,
-      }),
-      operationId: run.id,
-      error: message,
-      currentStep: run.currentStep ?? undefined,
-      attempt: run.attempts,
-    }, 'tenant-provisioning-failed:' + run.id + ':' + run.attempts);
+    await this.enqueueEvent(
+      {
+        ...createBaseEvent('TenantProvisioningFailed', run.tenantId, {
+          aggregateId: run.tenantId,
+          aggregateType: 'Tenant',
+          version: 4,
+        }),
+        operationId: run.id,
+        error: message,
+        currentStep: run.currentStep ?? undefined,
+        attempt: run.attempts,
+      },
+      'tenant-provisioning-failed:' + run.id + ':' + run.attempts,
+    );
   }
 
   private async requeueStaleRuns(): Promise<void> {
@@ -1668,7 +1811,10 @@ export class TenantProvisioningWorkflowService {
         ),
         reason: run.lastError ?? 'Operation exceeded max attempts after worker interruption',
       });
-      await this.publishFailure(run, run.lastError ?? 'Operation exceeded max attempts after worker interruption');
+      await this.publishFailure(
+        run,
+        run.lastError ?? 'Operation exceeded max attempts after worker interruption',
+      );
     }
 
     if (retryRows.length > 0 || failedRows.length > 0) {

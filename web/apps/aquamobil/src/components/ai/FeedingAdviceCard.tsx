@@ -57,7 +57,7 @@ export function FeedingAdviceCard({ tankId }: FeedingAdviceCardProps): ReactElem
             <div className="text-lg font-bold text-purple-700 dark:text-purple-300 tabular-nums">
               {advice.recommendedAmount.toFixed(1)}
             </div>
-            <div className="text-[9px] text-purple-500 dark:text-purple-400 font-semibold uppercase tracking-wider">
+            <div className="text-[10px] text-purple-500 dark:text-purple-400 font-semibold uppercase tracking-wider">
               kg/feeding
             </div>
           </div>
@@ -65,7 +65,7 @@ export function FeedingAdviceCard({ tankId }: FeedingAdviceCardProps): ReactElem
             <div className="text-lg font-bold text-purple-700 dark:text-purple-300">
               {advice.feedType}
             </div>
-            <div className="text-[9px] text-purple-500 dark:text-purple-400 font-semibold uppercase tracking-wider">
+            <div className="text-[10px] text-purple-500 dark:text-purple-400 font-semibold uppercase tracking-wider">
               Feed Type
             </div>
           </div>
@@ -73,7 +73,7 @@ export function FeedingAdviceCard({ tankId }: FeedingAdviceCardProps): ReactElem
             <div className="text-lg font-bold text-purple-700 dark:text-purple-300 tabular-nums">
               {advice.feedingFrequency}x
             </div>
-            <div className="text-[9px] text-purple-500 dark:text-purple-400 font-semibold uppercase tracking-wider">
+            <div className="text-[10px] text-purple-500 dark:text-purple-400 font-semibold uppercase tracking-wider">
               Per Day
             </div>
           </div>

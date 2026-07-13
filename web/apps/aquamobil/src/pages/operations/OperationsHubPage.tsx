@@ -170,7 +170,7 @@ export function OperationsHubPage(): JSX.Element {
             <h1 className="text-lg font-bold tracking-tight">Operations</h1>
           </div>
         </div>
-        {/* Curved bottom edge -- consistent with HomePage and RecordHubPage */}
+        {/* Curved bottom edge -- consistent with HomePage */}
         <div className="relative">
           <svg viewBox="0 0 400 20" fill="none" className="w-full block" preserveAspectRatio="none">
             <path d="M0 20V0c100 15 200 15 400 0v20z" className="fill-gray-50 dark:fill-gray-950" />

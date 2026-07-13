@@ -26,13 +26,14 @@ import { useWebAuthn, storeBiometricEmail } from '@/hooks/useWebAuthn';
 import { clearCache, clearAllOperations } from '@/pwa/offline-queue';
 import type { Role } from '@/types';
 import { runAsyncAction } from '@/utils/async-action';
+import { getLastSyncAt } from '@/utils/last-sync';
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-/** localStorage key for the last successful sync timestamp */
-const LAST_SYNC_KEY = 'aquamobil_last_sync_at';
+// MOB-LOW-011: the last-sync stamp lives in the shared util (single SSoT —
+// useOfflineQueue.syncNow records it at the drain convergence point).
 
 /** App version sourced from build-time env variable */
 const APP_VERSION = (import.meta.env.VITE_APP_VERSION as string | undefined) ?? '1.0.0';
@@ -93,13 +94,7 @@ function formatRelativeTime(isoString: string | null): string {
 /**
  * Retrieve the last sync timestamp from localStorage.
  */
-function getLastSyncTime(): string | null {
-  try {
-    return localStorage.getItem(LAST_SYNC_KEY);
-  } catch {
-    return null;
-  }
-}
+
 
 // ============================================================================
 // Confirmation Dialog Sub-component
@@ -419,7 +414,7 @@ export function AccountPage(): JSX.Element {
   const [showClearQueueDialog, setShowClearQueueDialog] = useState(false);
   const [showBiometricPanel, setShowBiometricPanel] = useState(false);
   const [storageMb, setStorageMb] = useState<string | null>(null);
-  const [lastSyncLabel, setLastSyncLabel] = useState(() => formatRelativeTime(getLastSyncTime()));
+  const [lastSyncLabel, setLastSyncLabel] = useState(() => formatRelativeTime(getLastSyncAt()));
 
   // Estimate storage usage via the Storage API — only available in secure
   // contexts (HTTPS / localhost). Display as "X.X MB" for operator awareness.
@@ -442,7 +437,7 @@ export function AccountPage(): JSX.Element {
   // Refresh the "last synced" label every 30 seconds so it stays up to date
   useEffect(() => {
     const timer = setInterval(() => {
-      setLastSyncLabel(formatRelativeTime(getLastSyncTime()));
+      setLastSyncLabel(formatRelativeTime(getLastSyncAt()));
     }, 30_000);
     return () => clearInterval(timer);
   }, []);
@@ -451,12 +446,8 @@ export function AccountPage(): JSX.Element {
   const handleSyncNow = useCallback(async () => {
     const result = await syncNow();
     if (result.success > 0) {
-      try {
-        localStorage.setItem(LAST_SYNC_KEY, new Date().toISOString());
-      } catch {
-        // non-critical
-      }
-      setLastSyncLabel(formatRelativeTime(new Date().toISOString()));
+      // syncNow already recorded the shared last-sync stamp (MOB-LOW-011).
+      setLastSyncLabel(formatRelativeTime(getLastSyncAt()));
     }
   }, [syncNow]);
 

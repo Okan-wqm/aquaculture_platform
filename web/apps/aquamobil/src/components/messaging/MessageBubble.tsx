@@ -343,7 +343,7 @@ export function MessageBubble({
           <div
             className={clsx(
               'flex items-center gap-1.5 mb-1.5 text-[10px]',
-              isOwn ? 'text-white/60' : 'text-gray-400 dark:text-gray-500',
+              isOwn ? 'text-white/75' : 'text-gray-400 dark:text-gray-500',
             )}
           >
             <CornerUpRight size={12} />
@@ -371,7 +371,7 @@ export function MessageBubble({
             <p className={clsx('font-bold truncate', isOwn ? 'text-white/90' : 'text-ocean-600 dark:text-ocean-400')}>
               {replyTo.senderName}
             </p>
-            <p className={clsx('truncate', isOwn ? 'text-white/70' : 'text-gray-500 dark:text-gray-400')}>
+            <p className={clsx('truncate', isOwn ? 'text-white/85' : 'text-gray-500 dark:text-gray-400')}>
               {replyTo.text}
             </p>
           </div>
@@ -439,7 +439,7 @@ export function MessageBubble({
               <p className={clsx('text-xs font-semibold truncate', isOwn ? 'text-white' : 'text-gray-900 dark:text-gray-100')}>
                 {file.name}
               </p>
-              <p className={clsx('text-[10px]', isOwn ? 'text-white/60' : 'text-gray-400')}>
+              <p className={clsx('text-[10px]', isOwn ? 'text-white/75' : 'text-gray-400')}>
                 {file.size}
               </p>
             </div>
@@ -454,7 +454,7 @@ export function MessageBubble({
         )}
 
         {/* Timestamp + edited + read receipt */}
-        <div className={clsx('flex items-center justify-end gap-1 mt-1', isOwn ? 'text-white/60' : 'text-gray-400 dark:text-gray-500')}>
+        <div className={clsx('flex items-center justify-end gap-1 mt-1', isOwn ? 'text-white/75' : 'text-gray-400 dark:text-gray-500')}>
           {isEdited && <span className="text-[10px] italic">(edited)</span>}
           <span className="text-[10px] tabular-nums">{timeStr}</span>
           {isOwn && status && <ReadReceipt status={status} />}

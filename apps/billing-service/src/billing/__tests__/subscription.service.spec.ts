@@ -137,10 +137,26 @@ describe('Subscription Service', () => {
         const compareFeatures = (
           plan1: PlanLimits,
           plan2: PlanLimits,
-        ): Record<string, { plan1: number | boolean; plan2: number | boolean; better: 'plan1' | 'plan2' | 'equal' }> => {
-          const comparison: Record<string, { plan1: number | boolean; plan2: number | boolean; better: 'plan1' | 'plan2' | 'equal' }> = {};
+        ): Record<
+          string,
+          { plan1: number | boolean; plan2: number | boolean; better: 'plan1' | 'plan2' | 'equal' }
+        > => {
+          const comparison: Record<
+            string,
+            {
+              plan1: number | boolean;
+              plan2: number | boolean;
+              better: 'plan1' | 'plan2' | 'equal';
+            }
+          > = {};
 
-          const keys: (keyof PlanLimits)[] = ['maxFarms', 'maxPonds', 'maxSensors', 'maxUsers', 'dataRetentionDays'];
+          const keys: (keyof PlanLimits)[] = [
+            'maxFarms',
+            'maxPonds',
+            'maxSensors',
+            'maxUsers',
+            'dataRetentionDays',
+          ];
 
           keys.forEach((key) => {
             const v1 = plan1[key];
@@ -217,6 +233,19 @@ describe('Subscription Service', () => {
       it('should validate plan selection', () => {
         const validatePlanSelection = (tier: PlanTier, currentUsage: PlanLimits): boolean => {
           const planLimits: Record<PlanTier, PlanLimits> = {
+            // FREE — permanent $0 tier (Billing Revival Faz B); limits mirror
+            // PLAN_CATALOG FREE (maxUsers 3 / maxFarms 1 / maxPonds 5 / maxSensors 10).
+            [PlanTier.FREE]: {
+              maxFarms: 1,
+              maxPonds: 5,
+              maxSensors: 10,
+              maxUsers: 3,
+              dataRetentionDays: 30,
+              alertsEnabled: true,
+              reportsEnabled: false,
+              apiAccessEnabled: false,
+              customIntegrationsEnabled: false,
+            },
             [PlanTier.STARTER]: {
               maxFarms: 1,
               maxPonds: 10,
@@ -341,7 +370,11 @@ describe('Subscription Service', () => {
         };
       };
 
-      const subscription = createSubscription('tenant-1', PlanTier.PROFESSIONAL, BillingCycle.MONTHLY);
+      const subscription = createSubscription(
+        'tenant-1',
+        PlanTier.PROFESSIONAL,
+        BillingCycle.MONTHLY,
+      );
 
       expect(subscription.tenantId).toBe('tenant-1');
       expect(subscription.planTier).toBe(PlanTier.PROFESSIONAL);
@@ -377,11 +410,12 @@ describe('Subscription Service', () => {
     });
 
     it('should calculate first invoice proration', () => {
-      const calculateFirstInvoiceProration = (
-        startDate: Date,
-        monthlyPrice: number,
-      ): number => {
-        const daysInMonth = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0).getDate();
+      const calculateFirstInvoiceProration = (startDate: Date, monthlyPrice: number): number => {
+        const daysInMonth = new Date(
+          startDate.getFullYear(),
+          startDate.getMonth() + 1,
+          0,
+        ).getDate();
         const remainingDays = daysInMonth - startDate.getDate() + 1;
         const dailyRate = monthlyPrice / daysInMonth;
         return Math.round(dailyRate * remainingDays * 100) / 100;
@@ -567,11 +601,7 @@ describe('Subscription Service', () => {
     it('should send upgrade notification', async () => {
       const notifications: { type: string; tenantId: string }[] = [];
 
-      const notifyUpgrade = (
-        tenantId: string,
-        oldPlan: PlanTier,
-        newPlan: PlanTier,
-      ): void => {
+      const notifyUpgrade = (tenantId: string, oldPlan: PlanTier, newPlan: PlanTier): void => {
         notifications.push({
           type: 'plan_upgraded',
           tenantId,
@@ -738,7 +768,10 @@ describe('Subscription Service', () => {
   // ============================================================================
   describe('Subscription Cancellation', () => {
     it('should perform immediate cancellation', () => {
-      const cancelImmediately = (subscription: Partial<Subscription>, reason: string): Partial<Subscription> => {
+      const cancelImmediately = (
+        subscription: Partial<Subscription>,
+        reason: string,
+      ): Partial<Subscription> => {
         return {
           ...subscription,
           status: SubscriptionStatus.CANCELLED,
@@ -759,7 +792,10 @@ describe('Subscription Service', () => {
     });
 
     it('should schedule end-of-period cancellation', () => {
-      const scheduleCancel = (subscription: Partial<Subscription>, reason: string): Partial<Subscription> => {
+      const scheduleCancel = (
+        subscription: Partial<Subscription>,
+        reason: string,
+      ): Partial<Subscription> => {
         return {
           ...subscription,
           cancelAtPeriodEnd: true,
@@ -937,10 +973,7 @@ describe('Subscription Service', () => {
     });
 
     it('should send renewal notification in advance', () => {
-      const shouldSendRenewalNotice = (
-        currentPeriodEnd: Date,
-        daysBefore: number = 7,
-      ): boolean => {
+      const shouldSendRenewalNotice = (currentPeriodEnd: Date, daysBefore: number = 7): boolean => {
         const noticeDate = new Date(currentPeriodEnd);
         noticeDate.setDate(noticeDate.getDate() - daysBefore);
         return new Date() >= noticeDate && new Date() < currentPeriodEnd;
@@ -1068,7 +1101,9 @@ describe('Subscription Service', () => {
     });
 
     it('should automatically resume after pause', () => {
-      const checkAutoResume = (subscription: Partial<Subscription>): Partial<Subscription> | null => {
+      const checkAutoResume = (
+        subscription: Partial<Subscription>,
+      ): Partial<Subscription> | null => {
         if (
           subscription.status === SubscriptionStatus.SUSPENDED &&
           subscription.scheduledResumeDate &&
@@ -1152,10 +1187,7 @@ describe('Subscription Service', () => {
     });
 
     it('should send trial ending notification', () => {
-      const shouldSendTrialEndingNotice = (
-        trialEnd: Date,
-        daysBefore: number = 3,
-      ): boolean => {
+      const shouldSendTrialEndingNotice = (trialEnd: Date, daysBefore: number = 3): boolean => {
         const noticeDate = new Date(trialEnd);
         noticeDate.setDate(noticeDate.getDate() - daysBefore);
         return new Date() >= noticeDate && new Date() < trialEnd;
@@ -1174,9 +1206,21 @@ describe('Subscription Service', () => {
   describe('Subscription Status', () => {
     it('should have valid status transitions', () => {
       const validTransitions: Record<SubscriptionStatus, SubscriptionStatus[]> = {
-        [SubscriptionStatus.TRIAL]: [SubscriptionStatus.ACTIVE, SubscriptionStatus.CANCELLED, SubscriptionStatus.EXPIRED],
-        [SubscriptionStatus.ACTIVE]: [SubscriptionStatus.PAST_DUE, SubscriptionStatus.SUSPENDED, SubscriptionStatus.CANCELLED],
-        [SubscriptionStatus.PAST_DUE]: [SubscriptionStatus.ACTIVE, SubscriptionStatus.SUSPENDED, SubscriptionStatus.CANCELLED],
+        [SubscriptionStatus.TRIAL]: [
+          SubscriptionStatus.ACTIVE,
+          SubscriptionStatus.CANCELLED,
+          SubscriptionStatus.EXPIRED,
+        ],
+        [SubscriptionStatus.ACTIVE]: [
+          SubscriptionStatus.PAST_DUE,
+          SubscriptionStatus.SUSPENDED,
+          SubscriptionStatus.CANCELLED,
+        ],
+        [SubscriptionStatus.PAST_DUE]: [
+          SubscriptionStatus.ACTIVE,
+          SubscriptionStatus.SUSPENDED,
+          SubscriptionStatus.CANCELLED,
+        ],
         [SubscriptionStatus.CANCELLED]: [],
         [SubscriptionStatus.SUSPENDED]: [SubscriptionStatus.ACTIVE, SubscriptionStatus.CANCELLED],
         [SubscriptionStatus.EXPIRED]: [SubscriptionStatus.ACTIVE],
@@ -1239,7 +1283,11 @@ describe('Subscription Service', () => {
 
       const timeline: TimelineEvent[] = [
         { date: new Date('2024-01-01'), event: 'trial_started', details: 'Started 14-day trial' },
-        { date: new Date('2024-01-10'), event: 'converted_to_paid', details: 'Converted to Professional plan' },
+        {
+          date: new Date('2024-01-10'),
+          event: 'converted_to_paid',
+          details: 'Converted to Professional plan',
+        },
         { date: new Date('2024-03-01'), event: 'upgraded', details: 'Upgraded to Enterprise plan' },
         { date: new Date('2024-06-01'), event: 'renewed', details: 'Subscription renewed' },
       ];

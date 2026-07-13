@@ -10,6 +10,7 @@ import { useSwNavigation } from './hooks/useSwNavigation';
 import { MobileLayout } from './layouts/MobileLayout';
 import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/LoginPage';
+import { NotFoundPage } from './pages/NotFoundPage';
 import { isFeatureAccessible } from './utils/feature-access';
 
 /**
@@ -68,6 +69,10 @@ const AccountPage = lazy(() =>
 );
 const NotificationsPage = lazy(() =>
   import('./pages/notifications/NotificationsPage').then((m) => ({ default: m.NotificationsPage }))
+);
+// MOB-HIGH-006: mobile alarm surface (alert-engine history + acknowledge)
+const AlertsPage = lazy(() =>
+  import('./pages/alerts/AlertsPage').then((m) => ({ default: m.AlertsPage }))
 );
 const RecordTransferPage = lazy(() =>
   import('./pages/transfer/RecordTransferPage').then((m) => ({ default: m.RecordTransferPage }))
@@ -309,6 +314,7 @@ export function App(): ReactElement {
                       <Route path="/hr" element={<Navigate to="/operations" replace />} />
                       <Route path="/more" element={<Navigate to="/account" replace />} />
                       <Route path="/notifications" element={<NotificationsPage />} />
+                      <Route path="/alerts" element={<AlertsPage />} />
                       <Route
                         path="/mortality/record"
                         element={
@@ -545,7 +551,10 @@ export function App(): ReactElement {
                       />
                       <Route path="/sync" element={<SyncStatusPage />} />
 
-                      <Route path="*" element={<Navigate to="/" replace />} />
+                      {/* MOB-LOW-001: unknown paths render a 404 page instead of a
+                          silent redirect home — broken deep links stay observable
+                          (BUG-16 was hidden by the old catch-all). */}
+                      <Route path="*" element={<NotFoundPage />} />
                       </Routes>
                     </Suspense>
                   </ErrorBoundary>

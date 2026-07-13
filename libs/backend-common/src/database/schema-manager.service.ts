@@ -643,6 +643,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // `1802100000000-CreateConversationTurns`; append-only at the
       // service layer (TurnLedgerService).
       'conversation_turns',
+      // MOB-HIGH-001: held actuation proposals (human-in-the-loop confirm
+      // flow) — migration 1803000000000-CreateAiProposedActions.
+      'ai_proposed_actions',
     ],
   },
   {
@@ -695,7 +698,10 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'scheduled_plan_changes',
       'usage_aggregations',
       'usage_hourly_data',
-      'subscription_provisioning_retries',
+      // subscription_provisioning_retries retired 2026-07-13 (ORPHAN-MEDIUM-395):
+      // backed the dead event-driven TenantSubscriptionRequestedHandler (never
+      // registered, zero emitters). Dropped by migration 1801800000000; the live
+      // provisioning path is the PROVISION_TENANT_SUBSCRIPTION command receipt.
       'command_receipts',
       // DB registry completeness (same class as DB-ADMIN-MEDIUM-002): billing
       // domain tables that had drifted out of the registry — `plans` (plan

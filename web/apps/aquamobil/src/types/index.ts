@@ -323,7 +323,7 @@ export interface CreateLeaveRequestInput {
 // a reference to a recorded/selected Blob persisted in the dedicated binary
 // store. Its in-app sync replay runs the 3-step online flow that cannot happen
 // offline: requestMediaUpload (presign) → PUT blob → sendMessage(storageKey).
-export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'clockIn' | 'clockOut' | 'createLeaveRequest' | 'completeTask' | 'startTask' | 'setChecklistItem' | 'recordTransfer' | 'createWaterQuality' | 'recordStockMovement' | 'transferStock' | 'recordLiceCount' | 'recordWelfareAssessment' | 'recordEscapeIncident' | 'sendMessage' | 'editMessage' | 'deleteMessage' | 'markMessagesRead' | 'uploadAndSendMessage';
+export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'clockIn' | 'clockOut' | 'createLeaveRequest' | 'completeTask' | 'startTask' | 'setChecklistItem' | 'recordTransfer' | 'createWaterQuality' | 'recordStockMovement' | 'transferStock' | 'recordLiceCount' | 'recordWelfareAssessment' | 'recordEscapeIncident' | 'acknowledgeAlert' | 'sendMessage' | 'editMessage' | 'deleteMessage' | 'markMessagesRead' | 'uploadAndSendMessage';
 
 /**
  * FARM-HIGH-057 — offline payload for an idempotent checklist SET.
@@ -380,8 +380,19 @@ export interface UploadAndSendMessageOfflinePayload {
   parentId?: string;
 }
 
+/**
+ * MOB-HIGH-006 — offline payload for an alert acknowledgement. Naturally
+ * idempotent on replay (re-acking converges); AcknowledgeAlertInput extends
+ * MobileCommandEnvelopeInput on the backend so the injected envelope passes
+ * validation.
+ */
+export interface AcknowledgeAlertInputPayload {
+  alertId: string;
+  note?: string;
+}
+
 export type OperationPayload = (
-  MortalityInput | CullInput | HarvestInput | FeedingInput | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | ChecklistItemSetInput | TransferInput | CreateWaterQualityInput | StockMovementInput | StockTransferInput | LiceCountInput | WelfareAssessmentInput | EscapeIncidentInput | MessagingOfflinePayload | UploadAndSendMessageOfflinePayload
+  MortalityInput | CullInput | HarvestInput | FeedingInput | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | ChecklistItemSetInput | TransferInput | CreateWaterQualityInput | StockMovementInput | StockTransferInput | LiceCountInput | WelfareAssessmentInput | EscapeIncidentInput | AcknowledgeAlertInputPayload | MessagingOfflinePayload | UploadAndSendMessageOfflinePayload
 ) & MobileCommandEnvelope;
 
 export interface QueuedOperation {

@@ -42,7 +42,6 @@ export type TenantEventType =
   | 'TenantErased'
   | 'TenantProvisioningFailed'
   | 'TenantSubscriptionChanged'
-  | 'TenantSubscriptionRequested'
   | 'TenantModulesAssigned';
 
 const STRING = {
@@ -98,33 +97,6 @@ const TENANT_ERASURE_TARGET_SERVICE = {
 const TENANT_ERASURE_BLOCK_SOURCE = {
   type: 'string',
   enum: [...TENANT_ERASURE_TARGET_SERVICES, 'platform-orchestrator'],
-} as const;
-
-// Per-module quantity configuration carried by TenantSubscriptionRequested.
-const MODULE_QUANTITY_CONFIG = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    moduleId: UUID_SCHEMA,
-    users: NON_NEGATIVE_INT,
-    farms: NON_NEGATIVE_INT,
-    ponds: NON_NEGATIVE_INT,
-    sensors: NON_NEGATIVE_INT,
-    employees: NON_NEGATIVE_INT,
-    devices: NON_NEGATIVE_INT,
-    storageGb: NON_NEGATIVE_INT,
-    apiCalls: NON_NEGATIVE_INT,
-    alerts: NON_NEGATIVE_INT,
-    reports: NON_NEGATIVE_INT,
-    integrations: NON_NEGATIVE_INT,
-  },
-  required: ['moduleId'],
-} as const;
-
-const MODULE_QUANTITY_ARRAY = {
-  type: 'array',
-  items: MODULE_QUANTITY_CONFIG,
-  maxItems: 1000,
 } as const;
 
 function tenantEventSchema(
@@ -285,20 +257,6 @@ export const TENANT_EVENT_SCHEMAS = {
       subscriptionStatus: STRING,
     },
     ['previousPlan', 'newPlan', 'effectiveDate'],
-  ),
-  TenantSubscriptionRequested: tenantEventSchema(
-    'TenantSubscriptionRequested',
-    {
-      tenantName: LONG_STRING,
-      moduleIds: UUID_ARRAY,
-      moduleQuantities: MODULE_QUANTITY_ARRAY,
-      trialDays: NON_NEGATIVE_INT,
-      tier: STRING,
-      billingCycle: STRING,
-      billingEmail: STRING,
-      createdBy: UUID_SCHEMA,
-    },
-    ['tenantName', 'moduleIds', 'tier', 'billingCycle', 'createdBy'],
   ),
   TenantModulesAssigned: tenantEventSchema(
     'TenantModulesAssigned',

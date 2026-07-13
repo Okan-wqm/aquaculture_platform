@@ -26,6 +26,48 @@ export interface BillingAdminCommandMeta {
   correlationId?: string;
 }
 
+export interface BillingModuleQuantities {
+  moduleId: string;
+  users?: number;
+  farms?: number;
+  ponds?: number;
+  sensors?: number;
+  employees?: number;
+  devices?: number;
+  storageGb?: number;
+  apiCalls?: number;
+  alerts?: number;
+  reports?: number;
+  integrations?: number;
+}
+
+/**
+ * Fully resolved, priced module line for a provisioning command.
+ *
+ * admin-api OWNS `admin.module_pricing`, `PricingCalculatorService`, and module
+ * code/name resolution (`auth.modules`, via its own grant). It resolves each
+ * selected module into this shape BEFORE sending the provisioning command so
+ * billing can write `billing.subscription_module_items` rows directly — with no
+ * cross-schema `modules` lookup (billing has no grant on `auth.modules`) and no
+ * invented $0 prices. When `moduleItems` is present it is the authoritative
+ * source for module rows and the subscription's computed monthly price;
+ * `moduleIds`/`moduleQuantities` remain for back-compat during the transition.
+ *
+ * A module with no `admin.module_pricing` catalog entry legitimately resolves to
+ * subtotal/discountAmount/total = 0 (free/core tier) — an absent price is not an
+ * error and must never fail provisioning.
+ */
+export interface BillingProvisioningModuleItem {
+  moduleId: string;
+  code: string;
+  name: string;
+  quantities?: BillingModuleQuantities;
+  lineItems?: unknown[];
+  subtotal: number;
+  discountAmount: number;
+  total: number;
+}
+
 export interface BillingTenantProvisioningCommand {
   operationId: string;
   tenantId: string;
@@ -36,20 +78,14 @@ export interface BillingTenantProvisioningCommand {
   tier: PlanTier;
   billingCycle: BillingCycle;
   moduleIds: string[];
-  moduleQuantities?: Array<{
-    moduleId: string;
-    users?: number;
-    farms?: number;
-    ponds?: number;
-    sensors?: number;
-    employees?: number;
-    devices?: number;
-    storageGb?: number;
-    apiCalls?: number;
-    alerts?: number;
-    reports?: number;
-    integrations?: number;
-  }>;
+  moduleQuantities?: BillingModuleQuantities[];
+  /**
+   * Authoritative source for subscription module rows + computed price when
+   * present. admin-api populates this on every provisioning command; billing
+   * writes each row's code/name/quantities/subtotal/discountAmount/total from
+   * here (real values, never 0) instead of a schema-unqualified `modules` query.
+   */
+  moduleItems?: BillingProvisioningModuleItem[];
   trialDays?: number;
   catalogVersionId?: string;
   quoteId?: string;

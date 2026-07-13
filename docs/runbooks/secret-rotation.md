@@ -31,15 +31,17 @@ Consumed by `apps/billing-service/src/billing/controllers/stripe-webhook.control
 
 **Rollback**: if a post-roll endpoint rejects valid events, re-deploy with the previous `STRIPE_WEBHOOK_SECRET` value (Stripe still accepts old secret during overlap). Root-cause the verification failure before retrying.
 
-## Stripe server-side API key (`STRIPE_API_KEY`)
+## Stripe server-side API key (`STRIPE_SECRET_KEY`)
 
-Consumed by billing-service's Stripe client for outbound API calls (checkout, subscription, refunds). Use **restricted keys** in production — never the full-access secret key.
+Consumed by billing-service's Stripe client for outbound API calls (checkout, subscription, refunds). The **canonical env var name is `STRIPE_SECRET_KEY`** — it is the single source of truth read by the client factory at `libs/backend-common/src/billing/stripe-client.factory.ts` (`STRIPE_SECRET_KEY_ENV = 'STRIPE_SECRET_KEY'`). Use **restricted keys** in production — never the full-access secret key.
+
+> **Historical name drift — do NOT use `STRIPE_API_KEY`.** Earlier compose/Helm manifests injected the outbound key as `STRIPE_API_KEY`, a name the factory never reads. Because the factory keys off `STRIPE_SECRET_KEY`, injecting `STRIPE_API_KEY` silently leaves Stripe **unconfigurable** — this env-name fracture contributed to the 2026-06 Suderra billing outage (see `docs/reviews/orphan-findings.md`, the 2026-06-27 runtime correction). Always stage the outbound key under `STRIPE_SECRET_KEY`; grep deploy manifests for stray `STRIPE_API_KEY` and migrate them.
 
 **Steps:**
 
 1. Stripe Dashboard → Developers → API keys → "Create restricted key".
 2. Grant only the resources billing-service actually uses: Customers (write), Subscriptions (write), Invoices (read), Checkout Sessions (write), Webhook Endpoints (read). Deny everything else.
-3. Stage in the same secret store as the webhook secret (step 2 above). Roll billing-service.
+3. Stage as `STRIPE_SECRET_KEY` in the same secret store as the webhook secret (step 2 above). Roll billing-service.
 4. Verify by creating a subscription in staging — expect 200 from Stripe. Check billing logs for `Stripe API call succeeded`.
 5. Revoke the old key in Stripe dashboard after staging verification — no overlap needed for API keys (no signature verification latency).
 
@@ -95,7 +97,7 @@ Closes `docs/reviews/infra-expert/2026-04-14-infrastructure-hardening.md#INFRA-R
 |---|---|---|---|---|
 | `JWT_PRIVATE_KEY` + `JWT_PUBLIC_KEY` (RS256 keypair) | 90 days | 14 days | auth-service oncall | §"JWT signing keys" once the zero-downtime rollout runbook is written; until then, treat as an annual planned outage |
 | `STRIPE_WEBHOOK_SECRET` | 90 days | 14 days | billing oncall | §"Stripe webhook signing secret" |
-| `STRIPE_API_KEY` (restricted) | 90 days | 14 days | billing oncall | §"Stripe server-side API key" |
+| `STRIPE_SECRET_KEY` (restricted) | 90 days | 14 days | billing oncall | §"Stripe server-side API key" |
 | Per-service DB passwords | 90 days | 14 days | data oncall | §"Database passwords (per-service)" |
 | `PASSWORD_PEPPER` | 180 days (or on incident) | 30 days | auth-service oncall | §"Password pepper" (incident-response only outside cadence) |
 | `REDIS_PASSWORD` | 180 days | 30 days | infra oncall | roll via droplet env + `docker compose up -d redis` |

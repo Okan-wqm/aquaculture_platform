@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { DataSource } from 'typeorm';
 import {
   UsageAggregatorService,
   AggregationPeriod,
@@ -28,10 +29,34 @@ describe('UsageAggregatorService', () => {
     removeListener: jest.fn(),
   };
 
+  // UsageAggregatorService is a cross-tenant aggregator that resolves its
+  // repositories from the DataSource in onModuleInit and hydrates from the DB.
+  // The unit suite exercises the in-memory aggregation/rollup logic, so the
+  // repository is a no-op stub that returns nothing to load.
+  const mockAggregationRepository = {
+    find: jest.fn().mockResolvedValue([]),
+    create: jest.fn((entity: unknown) => entity),
+    upsert: jest.fn().mockResolvedValue(undefined),
+  };
+  const mockHourlyDataRepository = {
+    find: jest.fn().mockResolvedValue([]),
+    create: jest.fn((entity: unknown) => entity),
+    upsert: jest.fn().mockResolvedValue(undefined),
+  };
+  const mockDataSource = {
+    getRepository: jest.fn((entity: { name?: string }) =>
+      entity?.name === 'UsageHourlyData' ? mockHourlyDataRepository : mockAggregationRepository,
+    ),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsageAggregatorService,
+        {
+          provide: DataSource,
+          useValue: mockDataSource,
+        },
         {
           provide: UsageMeteringService,
           useValue: mockUsageMeteringService,

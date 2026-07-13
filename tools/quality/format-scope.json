@@ -6111,6 +6111,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/modules/metering/__tests__/usage-aggregator.scheduler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/modules/metering/__tests__/usage-aggregator.service.spec.ts",
       "prettier_managed": true
     },
@@ -53904,10 +53910,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8833,
+  "file_count": 8834,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8652,
-  "managed_file_list_sha256": "bfaafeb767e4cb83685944274aa693aa74583afee31f152cdc0e9ba5153cadd0",
+  "managed_count": 8653,
+  "managed_file_list_sha256": "dc6ead9dac23d5b5bf535cbf59328062432ef41c4c88ce4a307f3bfeeb9d9cc8",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

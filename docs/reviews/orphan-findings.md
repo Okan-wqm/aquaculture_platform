@@ -7091,6 +7091,23 @@ Severity: HIGH (recurrence enabler for the 2026-07-07 messaging outage class). #
 **Owner:** billing-expert. **Deadline:** 2026-09-30 — either wire a real emitter (billing provisioning command failure → alert) + a consumer, or remove the contract from `billing-events.ts` + the `BillingEvent` union.
 **Owner:** infra-expert. **Deadline:** RESOLVED on merge.
 
+## ORPHAN-HIGH-397 — Stripe billing could not use operator-entered keys at runtime; enabled-but-keyless crashed boot (D6) — RESOLVED (this PR)
+
+**Discovered:** 2026-07-13 (Billing Revival Faz C). Operators enter Stripe keys in the admin-panel SystemSettings Billing tab; they are written encrypted to config-service (`service='platform'`, `billing.stripe_*`). But billing-service only ever read Stripe config from ENV at boot (`stripe-client.factory.ts`), so the entered keys were inert until a redeploy, and the env factory's `enabled-but-keyless` branch THREW at boot — the 2026-06 Suderra outage root cause (a keyless-but-enabled droplet crash-looped and rolled the deploy back).
+**Fix (this PR):** config-runtime NATS read path (`config.runtime.get` / `get_secret`) on config-service (ServiceIdentity HMAC-v2 + per-caller key allowlist + nonce-replay + mandatory audit; the secret NEVER leaves via GraphQL, which masks it). `DynamicStripeClient` delegator behind `STRIPE_API_CLIENT` + `DynamicStripeClientProvider` (TTL snapshot, secret in memory only) resolves the effective client from config with an env fallback, so keys take effect WITHOUT a redeploy. The boot `throw` is deleted — enabled-but-keyless now binds a fail-closed-at-request client + WARN + SecurityEvent, never crashes boot. `ConfigurationChanged` outbox signal invalidates the snapshot on save. Stripe stays MOCK in prod; this only makes it *able* to flip to real.
+**Owner:** billing-expert. **Deadline:** RESOLVED on merge.
+
+## ORPHAN-MEDIUM-398 — no gateway route for the Stripe webhook (D7) — RESOLVED (this PR)
+
+**Discovered:** 2026-07-13 (Faz C). The billing Stripe webhook controller existed but no nginx route reached it, and it mounted under `/api/v1/webhooks/stripe` (behind the versioned prefix), so a real Stripe webhook could never be delivered once billing flips to real.
+**Fix (this PR):** `location = /webhooks/stripe` in `infrastructure/nginx/droplet.conf` proxies verbatim to billing-service (raw body → Stripe HMAC survives; `Stripe-Signature` forwarded). billing `main.ts` excludes `webhooks`/`webhooks/(.*)` from the `/api/v1` prefix so the controller mounts at `/webhooks/stripe`.
+**Owner:** infra-expert. **Deadline:** RESOLVED on merge.
+
+## ORPHAN-MEDIUM-399 — STRIPE_WEBHOOK_SECRET is env-only, absent from the config-service seed — OPEN
+
+**Discovered:** 2026-07-13 (Faz C). Unlike `billing.stripe_enabled/public_key/secret_key`, the Stripe *webhook signing* secret (`STRIPE_WEBHOOK_SECRET`) is read ONLY from env (`stripe-webhook.controller.ts`). An operator who flips Stripe on via the panel cannot also set the webhook secret without a redeploy — the webhook verification then rejects every event. Follow-up: add a `platform/billing.stripe_webhook_secret` seed row (config-service `1805400000000` seed pattern), a config-runtime GET_SECRET allowlist entry (`billing-service → platform/billing.stripe_webhook_secret`), and have the webhook controller read it via `ConfigRuntimeClient.getSecret` with an env fallback.
+**Owner:** billing-expert. **Deadline:** 2026-09-30.
+
 ## ORPHAN-HIGH-400 — billing had no FREE tier: `free` was silently coerced to `starter`, threw in the pricing model, and had no $0 catalog row (Billing Revival Faz B / D4) — RESOLVED (this PR)
 
 **Discovered:** 2026-07-13 while implementing Billing Revival Faz B. The canonical `TenantPlan`/`PLAN_CATALOG` (`libs/event-contracts`) already carried FREE, but billing did not: (1) `apps/billing-service/.../subscription.entity.ts` `PlanTier` enum lacked FREE (STARTER|PROFESSIONAL|ENTERPRISE|CUSTOM) and the DB enums `billing.subscriptions_plan_tier_enum` + `billing.plans_tier_enum` had no `'free'` label so a FREE provisioning insert would fail 22P02; (2) admin-api's `toModulePlanTier`/`toBillingCommandPlanTier` (`tenant-provisioning-workflow.service.ts`) mapped `free` to `starter`, silently upgrading a FREE tenant to a paid tier on the wire; (3) `metered-billing.service.ts` built pricing models only for STARTER/PROFESSIONAL/ENTERPRISE, so `calculateBilling` threw "No pricing model found for plan tier: free"; (4) `plan-seed.service.ts` had no $0 FREE row, so `resolveProvisioningPlan` threw "No active billing catalog plan for tier=free"; (5) admin-api's `PricingCalculatorService.calculateModulePrice` charged FREE at full price (absent `free` tier multiplier defaults to 1.0).
@@ -7102,16 +7119,33 @@ Severity: HIGH (recurrence enabler for the 2026-07-07 messaging outage class). #
 **Tests:** `metered-billing.service.spec.ts` (+2: FREE model $0 + calculateBilling FREE $0), `pricing-calculator-free-tier.spec.ts` (new), `plan-seed.service.spec.ts` (new).
 **Owner:** billing-expert. **Status:** RESOLVED (this PR).
 
-## ORPHAN-MEDIUM-401 — tenant-create wizard could not select FREE and hard-coerced `free` to `STARTER` at submit; tenant-admin billing had no upgrade affordance (Billing Revival Faz B / D5) — RESOLVED (this PR)
+## ORPHAN-LOW-400 — gateway `ServiceProxyService.proxyRequest` has no caller (dead REST proxy) — OPEN
 
-**Discovered:** 2026-07-13 (Faz B). `web/modules/admin-panel/.../CreateTenantPage.tsx` declared `pricingTier` in form state and defaulted it to `'starter'` but NEVER let the operator change it, and the submit path coerced `formData.pricingTier === 'free' ? TenantTier.STARTER : ...`, so FREE was unreachable from the UI even though the backend (post-D4) supports it. The tenant-admin billing page (`web/modules/tenant-admin/.../TenantBillingPage.tsx`) was read-only with no visible upgrade path for FREE/trial tenants.
+**Discovered:** 2026-07-13 while mapping the webhook ingress path (Faz C). `apps/gateway-api/src/proxy/service-proxy.service.ts` `proxyRequest(...)` (~:284) has no production caller — the gateway routes GraphQL + a few REST paths but does not use this generic Express proxy. Dead code that implies a routing capability the gateway does not actually offer; either wire it or delete it so the webhook/REST ingress story stays legible.
+**Owner:** infra-expert. **Deadline:** 2026-10-31.
 
-**Fix (this PR):** Step 3 of the wizard gains a plan-tier selector (`RadioGroup` from `@aquaculture/shared-ui`, reused not hand-rolled) wiring `formData.pricingTier`; the `free` to `STARTER` coercion is deleted (the real tier passes through). Selecting FREE forces `calculatedTotal` to $0, omits `trialDays` (so the subscription is `active`, not `trial`), and surfaces the FREE allowances (3 users / 1 farm / 5 ponds / 10 sensors / 30-day retention). `TenantBillingPage` renders a visible "Upgrade plan" CTA for FREE/trial subscriptions that routes to the existing `/tenant/support` flow; the payment action itself wires up in Faz C and the page stays read-only (no billing mutation).
-**Tests:** `CreateTenantPage.spec.tsx` (+1: FREE produces $0, tier passes through, no trial).
-**Owner:** admin-expert / frontend-expert. **Status:** RESOLVED (this PR).
+## ORPHAN-MEDIUM-401 — gateway REST proxy re-serializes the request body (raw-byte corruption) — OPEN
+
+**Discovered:** 2026-07-13 (Faz C, same file as ORPHAN-400). `service-proxy.service.ts` (~:640) forwards a non-string body via `JSON.stringify(proxyRequest.body)` — re-serializing the V8-parsed body, which does NOT reproduce the original wire bytes (numeric-key ordering, `1.0`→`1`, whitespace). Any signature-sensitive payload proxied through this path (Stripe/HMAC bodies) would fail verification downstream. The Faz C webhook route deliberately bypasses this proxy (direct nginx→billing) so the raw body survives, but the corruption class remains for any future REST proxy use. Fix: forward `req.rawBody` (Nest `rawBody:true`) byte-for-byte instead of re-stringifying.
+**Owner:** infra-expert. **Deadline:** 2026-10-31.
 
 ## ORPHAN-LOW-402 — CUSTOM plan tier still throws in `metered-billing.getPricingModel` (same gap class as the FREE fix) — OPEN
 
 **Discovered:** 2026-07-13 while adding the FREE pricing model (Faz B / D4). `billing.PlanTier` has a `CUSTOM` value, but `metered-billing.service.ts` builds pricing models only for STARTER/PROFESSIONAL/ENTERPRISE and now FREE, so a CUSTOM-tier subscription would still throw "No pricing model found for plan tier: custom" in `calculateBilling`. This is the same class the FREE fix closed, deliberately NOT scoped into this PR (the task said leave CUSTOM as-is; enterprise custom plans travel via `customPlanId` and their metered model is a separate design question). No CUSTOM tenant is provisioned on the tested path today, so this is latent.
 **Recommendation:** derive the CUSTOM metered model from the resolved custom plan's own pricing rather than a static tier map, OR gate CUSTOM subscriptions out of usage-metered billing explicitly.
 **Owner:** billing-expert. **Deadline:** 2026-10-15. **Status:** OPEN.
+
+## ORPHAN-CRITICAL-402 — the shared `_INBOX.>` reply subject exposes every request-reply payload to all service certs — OPEN
+
+**Discovered:** 2026-07-13 (Faz C dual review, SEC-CRITICAL-001). Core-NATS request-reply returns replies on `_INBOX.<nuid>`, and EVERY service in `infrastructure/nats/services.yaml` holds `subscribe: "_INBOX.>"`. A compromised non-owner service can therefore passively read the reply payload of ANY request-reply exchange it did not initiate — including auth password-reset / user-data replies and (pre-cure) the decrypted Stripe secret. Faz C isolated ONLY the config-secret path onto a scoped token (`_INBOXBILLINGCFG.>`, granted to billing↔config alone; see ADR-0005) to bound the blast radius without a fleet-wide change. The systemic weakness remains for every other request-reply consumer. Fix: give each service a per-service scoped inbox prefix (e.g. `_INBOX_<service>.`) minted at NatsV3Client registration + narrow `_INBOX.>` grants to the owning CN, then add an nats-invariant asserting no two services share an inbox token. This is a platform-wide change with rolling-deploy sequencing — deliberately NOT taken in the Faz C PR (risk).
+**Owner:** infra-expert + security-reviewer. **Deadline:** 2026-09-15.
+
+## ORPHAN-MEDIUM-403 — config `stripe_enabled=false` (reachable) routes to the ENV fallback, so env can silently re-enable Stripe the operator turned off — OPEN
+
+**Discovered:** 2026-07-13 (Faz C dual review, SEC-MEDIUM-003). `DynamicStripeClientProvider.resolveSettings` treats a reachable-but-disabled config (`billing.stripe_enabled=false`) as "defer to env" — matching the boot-decouple contract. But that means a droplet env with `BILLING_PROVIDER=stripe` + `STRIPE_SECRET_KEY` would keep charging even after an operator explicitly disabled Stripe in the admin panel. Faz C's warm-loss guard (ARCH-HIGH-002) is orthogonal — it only covers UNREACHABLE config. The precedence question — should a reachable explicit `stripe_enabled=false` HARD-disable (bind Unconfigured) rather than fall to env? — needs a product+security decision, since it changes the config-vs-env authority model. Today's droplet defaults to `BILLING_PROVIDER=mock` so there is no live exposure, but a `BILLING_PROVIDER=stripe` deployment would be surprised.
+**Owner:** billing-expert + multi-tenant-saas-expert. **Deadline:** 2026-09-30.
+
+## ORPHAN-LOW-404 — sk_live_-outside-prod rejection is bucketed as `enabled-but-keyless` in the dynamic provider — OPEN
+
+**Discovered:** 2026-07-13 (Faz C dual review, SEC-LOW-001). When config carries an `sk_live_` key outside production, `DynamicStripeClientProvider.doRefresh` catches the classify throw, emits a `stripe-config-rejected` SecurityEvent (correct), but then reuses the `{kind:'unconfigured', reason:'enabled-but-keyless'}` decision to build the fail-closed client — so the *reason code* on the bound client mislabels a live-key-safety rejection as a missing-key. Behaviour is correct (fail-closed + distinct SecurityEvent); only the internal reason label is imprecise. Fix: add a dedicated `reason:'live-key-outside-prod'` to the unconfigured decision union.
+**Owner:** billing-expert. **Deadline:** 2026-10-31.

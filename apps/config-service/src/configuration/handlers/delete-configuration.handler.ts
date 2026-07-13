@@ -7,8 +7,10 @@ import {
 } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import { DeleteConfigurationCommand } from '../commands/delete-configuration.command';
 import { Configuration } from '../entities/configuration.entity';
+import { emitConfigurationChanged } from '../events/emit-configuration-changed';
 import { ConfigurationService } from '../services/configuration.service';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
@@ -22,6 +24,7 @@ export class DeleteConfigurationHandler
   constructor(
     private readonly dataSource: DataSource,
     private readonly configurationService: ConfigurationService,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: DeleteConfigurationCommand): Promise<boolean> {
@@ -56,6 +59,15 @@ export class DeleteConfigurationHandler
         await configRepo.save(configuration);
         this.logger.log(`Configuration soft deleted: ${configurationId} by user ${userId}`);
       }
+
+      // ARCH-MEDIUM-003: a soft-delete IS a change — emit the signal atomically
+      // with the write so a deleted secret key also invalidates a cached snapshot.
+      await emitConfigurationChanged(
+        this.outboxPublisher,
+        queryRunner.manager,
+        configuration,
+        userId,
+      );
 
       await queryRunner.commitTransaction();
 

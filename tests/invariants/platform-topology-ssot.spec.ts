@@ -35,6 +35,11 @@ function sorted(list: readonly string[]): string[] {
   return [...list].sort();
 }
 
+/** Capture group 1 of every match, dropping any that failed to capture. */
+function captures(source: string, re: RegExp): string[] {
+  return [...source.matchAll(re)].map((m) => m[1]).filter((s): s is string => s !== undefined);
+}
+
 describe('platform schema topology SSoT', () => {
   it('has no duplicate schema entries', () => {
     const names = PLATFORM_SCHEMA_TOPOLOGY.map((s) => s.schema);
@@ -43,21 +48,19 @@ describe('platform schema topology SSoT', () => {
 
   it('bootstrapCreatedSchemas() matches 003-schemas.sql CREATE SCHEMA', () => {
     const sql = read('apps/db-migrate/src/sql/platform-bootstrap/003-schemas.sql');
-    const created = [...sql.matchAll(/CREATE SCHEMA IF NOT EXISTS\s+([a-z_]+)/gi)].map((m) => m[1]);
+    const created = captures(sql, /CREATE SCHEMA IF NOT EXISTS\s+([a-z_]+)/gi);
     expect(sorted(bootstrapCreatedSchemas())).toEqual(sorted(created));
   });
 
   it('migrationRunnerSchemas() matches SCHEMA_REGISTRY schema entries', () => {
     const registry = read('apps/db-migrate/src/schema-registry.ts');
-    const schemas = [...registry.matchAll(/^\s{4}schema:\s+'([a-z_]+)'/gm)].map((m) => m[1]);
+    const schemas = captures(registry, /^\s{4}schema:\s+'([a-z_]+)'/gm);
     expect(sorted(migrationRunnerSchemas())).toEqual(sorted(schemas));
   });
 
   it('moduleManifestSchemas() matches MODULE_SCHEMAS sourceSchema set', () => {
     const mgr = read('libs/backend-common/src/database/schema-manager.service.ts');
-    const schemas = [
-      ...new Set([...mgr.matchAll(/sourceSchema:\s+'([a-z_]+)'/g)].map((m) => m[1])),
-    ];
+    const schemas = [...new Set(captures(mgr, /sourceSchema:\s+'([a-z_]+)'/g))];
     expect(sorted(moduleManifestSchemas())).toEqual(sorted(schemas));
   });
 

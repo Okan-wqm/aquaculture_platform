@@ -60,13 +60,7 @@
 
 #![cfg_attr(not(test), forbid(unsafe_code))]
 #![cfg_attr(not(test), deny(missing_docs))]
-#![cfg_attr(
-    test,
-    allow(
-        clippy::unwrap_used,
-        clippy::float_cmp,
-    )
-)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::float_cmp,))]
 
 /// Default `==` / `!=` comparison tolerance for sensor floats.
 ///

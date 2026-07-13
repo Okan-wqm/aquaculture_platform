@@ -97,6 +97,9 @@ fn every_alarm_decision_fixture_matches() {
         count += 1;
     }
 
-    assert!(count >= 20, "expected a substantial fixture suite, got {count}");
+    assert!(
+        count >= 20,
+        "expected a substantial fixture suite, got {count}"
+    );
     println!("[alarm-core] {count} decision fixtures asserted");
 }

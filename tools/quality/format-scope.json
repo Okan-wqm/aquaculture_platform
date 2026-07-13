@@ -40980,6 +40980,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/nats-boot-dependency.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/nats-config-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -53946,10 +53952,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8840,
+  "file_count": 8841,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8659,
-  "managed_file_list_sha256": "9c0ad7974b440dc1ed7a99a7c99f4eee0e091972284204b6e38fdb7992fad579",
+  "managed_count": 8660,
+  "managed_file_list_sha256": "547df29586d81c55aa5a2467a606c0de8242f821ea7a256d6592f4d399a66c6d",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

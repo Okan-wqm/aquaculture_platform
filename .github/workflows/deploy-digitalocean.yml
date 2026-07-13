@@ -61,6 +61,11 @@ on:
         required: false
         type: string
         default: ''
+      no_cache:
+        description: 'Build images without the registry buildcache (clean rebuild for suspected stale/poisoned cache layers).'
+        required: false
+        type: string
+        default: 'false'
   workflow_dispatch:
     inputs:
       services:
@@ -87,6 +92,12 @@ on:
         description: 'Required when bypass_staging_gate=true. Why is staging being skipped? (e.g. "staging droplet offline; CVE-XXXX-YYYY fix")'
         required: false
         default: ''
+      # `type: string` — same single-bash-check contract as the workflow_call
+      # inputs above (see the TRACK A note on bypass_staging_gate).
+      no_cache:
+        description: 'Build images without the registry buildcache (clean rebuild for suspected stale/poisoned cache layers).'
+        required: false
+        default: 'false'
 
 # Permissions are declared explicitly here so workflow_call invocations
 # from ci-affected.yml (which restricts to `contents: read`) can still
@@ -877,6 +888,9 @@ jobs:
           build-args: |
             SERVICE_NAME=${{ matrix.service }}
           # ARCH-CI-002: Namespaced buildcache tag to avoid collision with cd-production.yml
+          # ORPHAN-HIGH-381 tooling: operator-triggered clean rebuild when a
+          # cached layer is suspected stale/poisoned.
+          no-cache: ${{ inputs.no_cache == 'true' }}
           cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache-main-v2
           # ORPHAN-HIGH-079 — GHCR cache-write transient class.
           # `cache-to: type=registry` writes a buildcache manifest to GHCR
@@ -984,6 +998,7 @@ jobs:
           build-args: |
             MODULE_PATH=${{ matrix.module_path }}
           # ARCH-CI-002: Namespaced buildcache tag to avoid collision with cd-production.yml
+          no-cache: ${{ inputs.no_cache == 'true' }}
           cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-main-v2
           # ORPHAN-HIGH-079 — same cache-write transient class as backend matrix above.
           cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-main-v2,mode=max,ignore-error=true
@@ -1035,6 +1050,7 @@ jobs:
           tags: |
             ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:${{ env.TAG }}
             ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:latest
+          no-cache: ${{ inputs.no_cache == 'true' }}
           cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:buildcache-main-v2
           cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:buildcache-main-v2,mode=max,ignore-error=true
 

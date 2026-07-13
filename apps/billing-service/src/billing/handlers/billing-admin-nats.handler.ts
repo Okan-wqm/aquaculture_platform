@@ -174,6 +174,7 @@ export class BillingAdminNatsHandler {
           subscription.id,
           command.moduleItems,
           plan.currency,
+          plan.tier === PlanTier.FREE,
         );
 
         return this.markBillingReceiptSucceeded(manager, command, receipt.id, {
@@ -573,22 +574,30 @@ export class BillingAdminNatsHandler {
       throw new ConflictException('Trial period cannot exceed 30 days');
     }
 
+    // FREE is a permanent $0 tier (Billing Revival Faz B) and billing is the SSoT
+    // for subscription state (D14): enforce its invariants HERE rather than trust
+    // the caller. A FREE subscription is always `active` (never `trial` — FREE is
+    // not a time-boxed preview), carries no trial window, and its recurring charge
+    // is $0 regardless of any module totals the command carried.
+    const isFree = plan.tier === PlanTier.FREE;
+
     const startDate = new Date();
     const currentPeriodEnd = this.calculatePeriodEnd(startDate, plan.billingCycle);
     const trialEndDate =
-      command.trialDays && command.trialDays > 0
+      !isFree && command.trialDays && command.trialDays > 0
         ? this.addDays(startDate, command.trialDays)
         : null;
     const status = trialEndDate ? SubscriptionStatus.TRIAL : SubscriptionStatus.ACTIVE;
     // basePrice is the recurring monthly charge the invoice scheduler bills off
     // (billing-scheduler.service.ts) — set it to the real sum of the priced
     // module items (ORPHAN-HIGH-394), not the catalog plan base, which ignored
-    // the selected modules. The per-unit rates stay as catalog reference.
+    // the selected modules. The per-unit rates stay as catalog reference. FREE
+    // clamps every price to 0 so no FREE tenant is ever billed.
     const pricing = {
-      basePrice: moduleItemsMonthlyTotal,
-      perFarmPrice: plan.pricing.perFarmPrice ?? 0,
-      perSensorPrice: plan.pricing.perSensorPrice ?? 0,
-      perUserPrice: plan.pricing.perUserPrice ?? 0,
+      basePrice: isFree ? 0 : moduleItemsMonthlyTotal,
+      perFarmPrice: isFree ? 0 : (plan.pricing.perFarmPrice ?? 0),
+      perSensorPrice: isFree ? 0 : (plan.pricing.perSensorPrice ?? 0),
+      perUserPrice: isFree ? 0 : (plan.pricing.perUserPrice ?? 0),
       currency: plan.currency,
     };
 
@@ -765,12 +774,19 @@ export class BillingAdminNatsHandler {
     subscriptionId: string,
     moduleItems: BillingTenantProvisioningCommand['moduleItems'],
     currency: string,
+    isFree = false,
   ): Promise<number> {
     if (!moduleItems || moduleItems.length === 0) return 0;
 
     for (const item of moduleItems) {
       const quantities = item.quantities ?? { moduleId: item.moduleId };
-      const lineItems = item.lineItems ?? [];
+      // FREE tenants keep the module (quantities/line record) but every price is
+      // clamped to 0 — billing is the SSoT and must not depend on the caller
+      // having zeroed the item (Billing Revival Faz B).
+      const lineItems = isFree ? [] : (item.lineItems ?? []);
+      const subtotal = isFree ? 0 : item.subtotal;
+      const discountAmount = isFree ? 0 : item.discountAmount;
+      const total = isFree ? 0 : item.total;
       await manager.query(
         `INSERT INTO billing.subscription_module_items (
            subscription_id,
@@ -821,9 +837,9 @@ export class BillingAdminNatsHandler {
           item.name,
           JSON.stringify(quantities),
           JSON.stringify(lineItems),
-          item.subtotal,
-          item.discountAmount,
-          item.total,
+          subtotal,
+          discountAmount,
+          total,
           currency,
         ],
       );

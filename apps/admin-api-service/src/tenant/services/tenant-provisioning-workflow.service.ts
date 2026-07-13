@@ -1186,10 +1186,16 @@ export class TenantProvisioningWorkflowService {
   }
 
   private toModulePlanTier(value: string | undefined): ModulePlanTier {
+    // FREE is a first-class tier (Billing Revival Faz B) — it must pass through,
+    // NOT collapse to STARTER. The FREE multiplier is $0 in module-pricing, so a
+    // FREE tenant's resolved module items price to $0 rather than being charged
+    // at STARTER rates. CUSTOM/ENTERPRISE keep their existing mapping.
     const tierMap: Record<string, ModulePlanTier> = {
+      free: ModulePlanTier.FREE,
       starter: ModulePlanTier.STARTER,
       professional: ModulePlanTier.PROFESSIONAL,
       enterprise: ModulePlanTier.ENTERPRISE,
+      custom: ModulePlanTier.CUSTOM,
     };
     return tierMap[value?.toLowerCase() ?? 'starter'] ?? ModulePlanTier.STARTER;
   }
@@ -1205,7 +1211,13 @@ export class TenantProvisioningWorkflowService {
   }
 
   private toBillingCommandPlanTier(value: string | undefined): BillingCommandPlanTier {
+    // FREE passes through on the wire (Billing Revival Faz B): the billing
+    // command's PlanTier now legitimately accepts 'free', so a FREE tenant
+    // provisions a real plan_tier='free' subscription instead of being silently
+    // downgraded to 'starter'. (CUSTOM is not a billing-command tier — enterprise
+    // custom plans travel via customPlanId, so it is intentionally absent here.)
     const tierMap: Record<string, BillingCommandPlanTier> = {
+      free: 'free',
       starter: 'starter',
       professional: 'professional',
       enterprise: 'enterprise',

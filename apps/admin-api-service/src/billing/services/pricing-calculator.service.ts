@@ -112,9 +112,9 @@ const BILLING_CYCLE_MONTHS: Record<BillingCycle, number> = {
  */
 const BILLING_CYCLE_DISCOUNTS: Record<BillingCycle, number> = {
   [BillingCycle.MONTHLY]: 0,
-  [BillingCycle.QUARTERLY]: 0.05,    // 5% discount
-  [BillingCycle.SEMI_ANNUAL]: 0.10,  // 10% discount
-  [BillingCycle.ANNUAL]: 0.15,       // 15% discount
+  [BillingCycle.QUARTERLY]: 0.05, // 5% discount
+  [BillingCycle.SEMI_ANNUAL]: 0.1, // 10% discount
+  [BillingCycle.ANNUAL]: 0.15, // 15% discount
 };
 
 /**
@@ -156,11 +156,7 @@ export class PricingCalculatorService {
         continue;
       }
 
-      const breakdown = this.calculateModulePrice(
-        moduleSelection,
-        pricing,
-        tier,
-      );
+      const breakdown = this.calculateModulePrice(moduleSelection, pricing, tier);
 
       moduleBreakdowns.push(breakdown);
       subtotal += breakdown.subtotal;
@@ -231,6 +227,25 @@ export class PricingCalculatorService {
     pricing: ModulePricing,
     tier: PlanTier,
   ): ModulePriceBreakdown {
+    // FREE tier is permanently $0 (Billing Revival Faz B): base price and every
+    // metered charge are waived, so the module contributes nothing to the
+    // subscription total. Returning an explicit all-zero breakdown — rather than
+    // relying on a per-module `free` tier multiplier that may be absent (and would
+    // default to 1.0 → full price) — guarantees a FREE tenant is never charged,
+    // and avoids the multiplier-reconstruction divide below that a 0 multiplier
+    // would turn into 0/0 = NaN.
+    if (tier === PlanTier.FREE) {
+      return {
+        moduleId: selection.moduleId,
+        moduleCode: selection.moduleCode,
+        moduleName: selection.moduleName || selection.moduleCode,
+        lineItems: [],
+        subtotal: 0,
+        tierDiscount: 0,
+        total: 0,
+      };
+    }
+
     const lineItems: PricingLineItem[] = [];
     let subtotal = 0;
 
@@ -256,8 +271,7 @@ export class PricingCalculatorService {
       const billableQuantity = Math.max(0, quantity - includedQuantity);
 
       // For base price, always charge full (no included concept)
-      const effectiveQuantity =
-        metric.type === PricingMetricType.BASE_PRICE ? 1 : billableQuantity;
+      const effectiveQuantity = metric.type === PricingMetricType.BASE_PRICE ? 1 : billableQuantity;
 
       const unitPrice = metric.price * tierMultiplier;
       const lineTotal = effectiveQuantity * unitPrice; // Tier discount applied to line item
@@ -279,7 +293,7 @@ export class PricingCalculatorService {
     // Tier discount is already applied in line items, so tierDiscount = 0 for display
     // But we track the original discount amount for reporting
     const originalSubtotal = lineItems.reduce(
-      (sum, item) => sum + (item.billableQuantity * (item.unitPrice / item.tierMultiplier)),
+      (sum, item) => sum + item.billableQuantity * (item.unitPrice / item.tierMultiplier),
       0,
     );
     const tierDiscount = originalSubtotal - subtotal;
@@ -305,7 +319,12 @@ export class PricingCalculatorService {
   ): Promise<{ amount: number; percent: number; description: string } | null> {
     try {
       // Use validateCode method - pass empty tenantId since we're just checking the code
-      const validation = await this.discountCodeService.validateCode(code, 'system-quote', undefined, subtotal);
+      const validation = await this.discountCodeService.validateCode(
+        code,
+        'system-quote',
+        undefined,
+        subtotal,
+      );
 
       if (!validation.valid) {
         this.logger.warn(`Invalid discount code: ${code} - ${validation.message}`);
@@ -379,9 +398,7 @@ export class PricingCalculatorService {
 
     const difference = pricing2.monthlyTotal - pricing1.monthlyTotal;
     const percentDifference =
-      pricing1.monthlyTotal > 0
-        ? (difference / pricing1.monthlyTotal) * 100
-        : 0;
+      pricing1.monthlyTotal > 0 ? (difference / pricing1.monthlyTotal) * 100 : 0;
 
     let recommendation = 'Both options are comparable.';
     if (difference > 0) {

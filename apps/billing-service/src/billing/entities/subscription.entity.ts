@@ -30,6 +30,11 @@ export enum BillingCycle {
 }
 
 export enum PlanTier {
+  // FREE — permanent $0 tier (Billing Revival Faz B). Aligns billing's PlanTier
+  // with the canonical event-contracts TenantPlan (which already carries FREE)
+  // so a FREE tenant persists a real subscription row (plan_tier='free') instead
+  // of the provisioning path throwing on an unknown tier or coercing to STARTER.
+  FREE = 'free',
   STARTER = 'starter',
   PROFESSIONAL = 'professional',
   ENTERPRISE = 'enterprise',

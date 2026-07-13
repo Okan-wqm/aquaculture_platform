@@ -33,8 +33,12 @@ export interface PurchaseOrderItem {
   itemCode?: string;
   quantity: number;
   unit: string;
+  /** @deprecated Float — use `unitPriceDecimal` (exact decimal string, ADR-0004). */
   unitPrice?: number;
+  unitPriceDecimal?: string | null;
+  /** @deprecated Float — use `totalPriceDecimal` (exact decimal string, ADR-0004). */
   totalPrice?: number;
+  totalPriceDecimal?: string | null;
   quantityReceived: number;
   isFullyReceived: boolean;
   notes?: string;
@@ -50,7 +54,9 @@ export interface PurchaseOrder {
   expectedDeliveryDate?: string;
   actualDeliveryDate?: string;
   notes?: string;
+  /** @deprecated Float — use `totalAmountDecimal` (exact decimal string, ADR-0004). */
   totalAmount?: number;
+  totalAmountDecimal?: string | null;
   currency: string;
   // Maker-checker audit trail (SOC2 CC3.4) — populated once the PO is APPROVED.
   approvedBy?: string;
@@ -108,6 +114,7 @@ const PO_FIELDS = `
   actualDeliveryDate
   notes
   totalAmount
+  totalAmountDecimal
   currency
   approvedBy
   approvedByName
@@ -120,7 +127,9 @@ const PO_FIELDS = `
     quantity
     unit
     unitPrice
+    unitPriceDecimal
     totalPrice
+    totalPriceDecimal
     quantityReceived
     isFullyReceived
     notes

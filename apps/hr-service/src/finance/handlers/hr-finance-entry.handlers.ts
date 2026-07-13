@@ -213,6 +213,7 @@ export class DeleteHrFinanceEntryHandler
 
       entry.isDeleted = true;
       entry.deletedAt = new Date();
+      entry.deletedBy = userId;
       entry.updatedBy = userId;
       await manager.save(entry);
 

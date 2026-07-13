@@ -27,6 +27,7 @@ import { UseGuards } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { runInTenantRead } from '@aquaculture/backend-common/database';
+import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import { Roles, Role, CurrentTenant, CurrentUser } from '@aquaculture/backend-common/decorators';
 import { StandardPaginationInput, StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
@@ -569,8 +570,14 @@ export class FeedingSummaryResponse {
   @Field(() => Float)
   avgFeedingKg!: number;
 
-  @Field(() => Float)
+  @Field(() => Float, {
+    deprecationReason: 'Use totalCostDecimal (exact decimal string, ADR-0004).',
+  })
   totalCost!: number;
+
+  /** Exact-decimal wire form of `totalCost` (ADR-0004 / DATA-MEDIUM-009). */
+  @Field(() => DecimalScalar)
+  totalCostDecimal!: number;
 
   @Field({ nullable: true })
   currency?: string;
@@ -593,8 +600,14 @@ export class FeedTypeSummary {
   @Field(() => Float)
   percentage!: number;
 
-  @Field(() => Float)
+  @Field(() => Float, {
+    deprecationReason: 'Use costDecimal (exact decimal string, ADR-0004).',
+  })
   cost!: number;
+
+  /** Exact-decimal wire form of `cost` (ADR-0004 / DATA-MEDIUM-009). */
+  @Field(() => DecimalScalar)
+  costDecimal!: number;
 }
 
 @ObjectType()
@@ -1032,6 +1045,7 @@ export class FeedingResolver {
       totalFeedings: result.totalFeedingsCount,
       avgFeedingKg: result.avgDailyFeedingKg,
       totalCost: result.totalFeedCost,
+      totalCostDecimal: result.totalFeedCost,
       currency: undefined,
       byFeedType: result.feedTypeDistribution.map((feedType) => ({
         feedId: feedType.feedId,
@@ -1039,6 +1053,7 @@ export class FeedingResolver {
         totalKg: feedType.totalKg,
         percentage: feedType.percentage,
         cost: feedType.cost,
+        costDecimal: feedType.cost,
       })),
     };
   }

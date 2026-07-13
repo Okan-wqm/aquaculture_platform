@@ -42,8 +42,16 @@ export interface PayrollCostRates {
 export interface LabourCostRow {
   category: LaborCategory | null;
   headcount: number;
-  annualSalaryTotal: number;
-  avgAnnualSalary: number;
+  /** null when suppressed for small-cell privacy (see salarySuppressed). */
+  annualSalaryTotal: number | null;
+  /** null when suppressed for small-cell privacy (see salarySuppressed). */
+  avgAnnualSalary: number | null;
+  /**
+   * True when this row's per-category salary is withheld because the cell is
+   * too small to disclose without effectively revealing an individual's salary
+   * (HR-HIGH-001). Headcount is always returned; only the money is suppressed.
+   */
+  salarySuppressed: boolean;
 }
 
 export interface LabourCostResult {
@@ -60,6 +68,16 @@ export interface LabourCostResult {
 }
 
 const MONTHS_PER_YEAR = 12;
+
+/**
+ * k-anonymity threshold for per-category salary disclosure (HR-HIGH-001).
+ * A category whose active headcount is below this reveals an individual's
+ * (k=1) or a pair's (k=2) salary once combined with the headcount, so its
+ * per-category salary is withheld. baseSalary is `@HideField()` on Employee
+ * precisely so individual pay is never queryable — the aggregate must not
+ * re-derive it through a small cell.
+ */
+export const SMALL_CELL_MIN_HEADCOUNT = 3;
 
 /** GraphQL Float projection of a Money value, rounded to 2 decimals. */
 const toNumber = (money: Money): number =>
@@ -83,8 +101,16 @@ export class LabourCostCalculator {
         headcount: aggregate.headcount,
         annualSalaryTotal: toNumber(annualTotal),
         avgAnnualSalary: toNumber(avg),
+        salarySuppressed: false,
       };
     });
+
+    // Small-cell suppression (HR-HIGH-001). Withhold per-category salary for any
+    // cell with 0 < headcount < k. Complementary suppression: if EXACTLY one cell
+    // is suppressed while the grand total (annualSalaryTotal below) is still
+    // published, that one cell = total − Σ(visible), i.e. trivially derivable —
+    // so also suppress the smallest remaining disclosed cell, leaving ≥2 unknowns.
+    this.applySmallCellSuppression(rows);
 
     const annualSalaryTotal = aggregates.reduce(
       (sum, aggregate) =>
@@ -117,5 +143,32 @@ export class LabourCostCalculator {
       otherCost: toNumber(otherCost),
       totalPayroll: toNumber(totalPayroll),
     };
+  }
+
+  /**
+   * Mutates `rows`, blanking the per-category salary of any cell too small to
+   * disclose safely (HR-HIGH-001). Zero-headcount rows are never suppressed
+   * (no individual to protect). Applies complementary suppression so a lone
+   * small cell cannot be recovered from the published grand total.
+   */
+  private applySmallCellSuppression(rows: LabourCostRow[]): void {
+    const suppress = (row: LabourCostRow): void => {
+      row.annualSalaryTotal = null;
+      row.avgAnnualSalary = null;
+      row.salarySuppressed = true;
+    };
+
+    for (const row of rows) {
+      if (row.headcount > 0 && row.headcount < SMALL_CELL_MIN_HEADCOUNT) {
+        suppress(row);
+      }
+    }
+
+    const disclosed = rows.filter((r) => !r.salarySuppressed && r.headcount > 0);
+    const suppressedCount = rows.filter((r) => r.salarySuppressed).length;
+    if (suppressedCount === 1 && disclosed.length > 0) {
+      const smallest = disclosed.reduce((a, b) => (b.headcount < a.headcount ? b : a));
+      suppress(smallest);
+    }
   }
 }

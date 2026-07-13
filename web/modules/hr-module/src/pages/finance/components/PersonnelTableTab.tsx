@@ -8,11 +8,11 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 
-import type { HrLabourCost } from '../../../hooks/useHrFinance';
+import type { HrPersonnelTable } from '../../../hooks/useHrFinance';
 import { laborCategoryLabel } from './financeFormat';
 
 interface PersonnelTableTabProps {
-  data: HrLabourCost | undefined;
+  data: HrPersonnelTable | undefined;
   isLoading: boolean;
   error: unknown;
 }

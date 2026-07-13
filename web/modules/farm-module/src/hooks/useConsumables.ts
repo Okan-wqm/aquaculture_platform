@@ -39,7 +39,9 @@ export interface Consumable {
   quantity: number;
   minStock: number;
   status: ConsumableStatus;
+  /** @deprecated Float — use `unitPriceDecimal` (exact decimal string, ADR-0004). */
   unitPrice?: number;
+  unitPriceDecimal?: string | null;
   currency: string;
   storageTempMin?: number;
   storageTempMax?: number;
@@ -105,6 +107,7 @@ const CONSUMABLES_LIST_QUERY = `
         minStock
         status
         unitPrice
+        unitPriceDecimal
         currency
         storageTempMin
         storageTempMax
@@ -140,6 +143,7 @@ const CONSUMABLE_QUERY = `
       minStock
       status
       unitPrice
+      unitPriceDecimal
       currency
       storageTempMin
       storageTempMax

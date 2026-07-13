@@ -14,6 +14,7 @@ import {
   VersionColumn,
 } from 'typeorm';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import {
   ObjectType,
   Field,
@@ -144,9 +145,18 @@ export class SparePart {
   @Column({ type: 'jsonb', nullable: true })
   location?: StorageLocation;
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, {
+    nullable: true,
+    deprecationReason: 'Use unitPriceDecimal (exact decimal string, ADR-0004).',
+  })
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   unitPrice?: number;
+
+  /** Exact-decimal wire form of `unitPrice` (ADR-0004 / DATA-MEDIUM-009). */
+  @Field(() => DecimalScalar, { nullable: true })
+  get unitPriceDecimal(): number | null {
+    return this.unitPrice ?? null;
+  }
 
   @Field()
   @Column({ length: 3, default: 'TRY' })

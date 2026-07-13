@@ -23,6 +23,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import { ObjectType, Field, ID, Float, Int, Directive } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 // Type-only imports to avoid circular dependency at runtime
@@ -192,7 +193,9 @@ export class Batch {
   })
   totalFeedConsumed!: number; // Toplam yem tüketimi (kg)
 
-  @Field(() => Float)
+  @Field(() => Float, {
+    deprecationReason: 'Use totalFeedCostDecimal (exact decimal string, ADR-0004).',
+  })
   @Column({
     type: 'decimal',
     precision: 15,
@@ -201,6 +204,12 @@ export class Batch {
     transformer: new DecimalTransformer(),
   })
   totalFeedCost!: number; // Toplam yem maliyeti
+
+  /** Exact-decimal wire form of `totalFeedCost` (ADR-0004 / DATA-MEDIUM-009). */
+  @Field(() => DecimalScalar)
+  get totalFeedCostDecimal(): number {
+    return this.totalFeedCost;
+  }
 
   @Field(() => Float, { nullable: true })
   @Column({
@@ -222,7 +231,10 @@ export class Batch {
   })
   sgr?: number; // Spesifik büyüme oranı (SGR)
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, {
+    nullable: true,
+    deprecationReason: 'Use costPerKgDecimal (exact decimal string, ADR-0004).',
+  })
   @Column({
     type: 'decimal',
     precision: 10,
@@ -231,6 +243,12 @@ export class Batch {
     transformer: new DecimalTransformer(),
   })
   costPerKg?: number; // kg başına maliyet
+
+  /** Exact-decimal wire form of `costPerKg` (ADR-0004 / DATA-MEDIUM-009). */
+  @Field(() => DecimalScalar, { nullable: true })
+  get costPerKgDecimal(): number | null {
+    return this.costPerKg ?? null;
+  }
 
   // -------------------------------------------------------------------------
   // AĞIRLIK TAKİBİ - ÇİFT KAYIT
@@ -300,7 +318,10 @@ export class Batch {
   @Column({ length: 100, nullable: true })
   supplierBatchNumber?: string; // Tedarikçi parti numarası
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, {
+    nullable: true,
+    deprecationReason: 'Use purchaseCostDecimal (exact decimal string, ADR-0004).',
+  })
   @Column({
     type: 'decimal',
     precision: 15,
@@ -309,6 +330,12 @@ export class Batch {
     transformer: new DecimalTransformer(),
   })
   purchaseCost?: number; // Satın alma maliyeti
+
+  /** Exact-decimal wire form of `purchaseCost` (ADR-0004 / DATA-MEDIUM-009). */
+  @Field(() => DecimalScalar, { nullable: true })
+  get purchaseCostDecimal(): number | null {
+    return this.purchaseCost ?? null;
+  }
 
   @Field({ nullable: true })
   @Column({ length: 3, nullable: true })

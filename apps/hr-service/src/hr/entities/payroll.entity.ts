@@ -11,6 +11,7 @@ import {
 } from 'typeorm';
 import { ObjectType, Field, ID, Int, registerEnumType, Float } from '@nestjs/graphql';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import { Employee } from './employee.entity';
 
 export enum PayrollStatus {
@@ -155,54 +156,54 @@ export class Payroll {
   // 3. Schema enforcement: database rejects invalid types at write time
   // @see DB-MEDIUM-004
 
-  @Field(() => Float)
+  @Field(() => Float, { deprecationReason: 'Use earningsBaseSalaryDecimal (exact decimal string, ADR-0004).' })
   @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
   earningsBaseSalary!: number;
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, { nullable: true, deprecationReason: 'Use earningsOvertimeDecimal (exact decimal string, ADR-0004).' })
   @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   earningsOvertime?: number;
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, { nullable: true, deprecationReason: 'Use earningsBonusDecimal (exact decimal string, ADR-0004).' })
   @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   earningsBonus?: number;
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, { nullable: true, deprecationReason: 'Use earningsCommissionDecimal (exact decimal string, ADR-0004).' })
   @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   earningsCommission?: number;
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, { nullable: true, deprecationReason: 'Use earningsAllowancesDecimal (exact decimal string, ADR-0004).' })
   @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   earningsAllowances?: number;
 
-  @Field(() => Float)
+  @Field(() => Float, { deprecationReason: 'Use earningsGrossPayDecimal (exact decimal string, ADR-0004).' })
   @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
   earningsGrossPay!: number;
 
   // ── Flattened Deductions Columns ──
   // @see DB-MEDIUM-004
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, { nullable: true, deprecationReason: 'Use deductionsTaxDecimal (exact decimal string, ADR-0004).' })
   @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   deductionsTax?: number;
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, { nullable: true, deprecationReason: 'Use deductionsSocialSecurityDecimal (exact decimal string, ADR-0004).' })
   @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   deductionsSocialSecurity?: number;
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, { nullable: true, deprecationReason: 'Use deductionsHealthInsuranceDecimal (exact decimal string, ADR-0004).' })
   @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   deductionsHealthInsurance?: number;
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, { nullable: true, deprecationReason: 'Use deductionsRetirementDecimal (exact decimal string, ADR-0004).' })
   @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   deductionsRetirement?: number;
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, { nullable: true, deprecationReason: 'Use deductionsOtherDecimal (exact decimal string, ADR-0004).' })
   @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   deductionsOther?: number;
 
-  @Field(() => Float)
+  @Field(() => Float, { deprecationReason: 'Use deductionsTotalDecimal (exact decimal string, ADR-0004).' })
   @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
   deductionsTotal!: number;
 
@@ -245,12 +246,80 @@ export class Payroll {
     };
   }
 
-  @Field(() => Float)
+  @Field(() => Float, { deprecationReason: 'Use netPayDecimal (exact decimal string, ADR-0004).' })
   // DecimalTransformer: netPay = earningsGrossPay - deductionsTotal.
   // Both operands are now typed decimal columns (not JSONB), eliminating
   // the NaN risk from string arithmetic.
   @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
   netPay!: number;
+
+  // ── Exact-decimal wire representation (ADR-0004 / DATA-MEDIUM-009) ──
+  // Getters (not columns) so TypeORM ignores them; each serialises the same
+  // value as its deprecated Float sibling through the Decimal scalar.
+  @Field(() => DecimalScalar)
+  get earningsBaseSalaryDecimal(): number {
+    return this.earningsBaseSalary;
+  }
+
+  @Field(() => DecimalScalar, { nullable: true })
+  get earningsOvertimeDecimal(): number | null {
+    return this.earningsOvertime ?? null;
+  }
+
+  @Field(() => DecimalScalar, { nullable: true })
+  get earningsBonusDecimal(): number | null {
+    return this.earningsBonus ?? null;
+  }
+
+  @Field(() => DecimalScalar, { nullable: true })
+  get earningsCommissionDecimal(): number | null {
+    return this.earningsCommission ?? null;
+  }
+
+  @Field(() => DecimalScalar, { nullable: true })
+  get earningsAllowancesDecimal(): number | null {
+    return this.earningsAllowances ?? null;
+  }
+
+  @Field(() => DecimalScalar)
+  get earningsGrossPayDecimal(): number {
+    return this.earningsGrossPay;
+  }
+
+  @Field(() => DecimalScalar, { nullable: true })
+  get deductionsTaxDecimal(): number | null {
+    return this.deductionsTax ?? null;
+  }
+
+  @Field(() => DecimalScalar, { nullable: true })
+  get deductionsSocialSecurityDecimal(): number | null {
+    return this.deductionsSocialSecurity ?? null;
+  }
+
+  @Field(() => DecimalScalar, { nullable: true })
+  get deductionsHealthInsuranceDecimal(): number | null {
+    return this.deductionsHealthInsurance ?? null;
+  }
+
+  @Field(() => DecimalScalar, { nullable: true })
+  get deductionsRetirementDecimal(): number | null {
+    return this.deductionsRetirement ?? null;
+  }
+
+  @Field(() => DecimalScalar, { nullable: true })
+  get deductionsOtherDecimal(): number | null {
+    return this.deductionsOther ?? null;
+  }
+
+  @Field(() => DecimalScalar)
+  get deductionsTotalDecimal(): number {
+    return this.deductionsTotal;
+  }
+
+  @Field(() => DecimalScalar)
+  get netPayDecimal(): number {
+    return this.netPay;
+  }
 
   @Field()
   @Column({ default: 'USD' })

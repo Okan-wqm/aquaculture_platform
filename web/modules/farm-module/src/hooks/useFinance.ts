@@ -52,7 +52,10 @@ export interface FinanceEntry {
   entryDate: string;
   periodStart?: string | null;
   periodEnd?: string | null;
+  /** @deprecated Float — use `amountDecimal` (exact decimal string, ADR-0004). */
   amount: number;
+  /** Exact-decimal amount as a string (Decimal scalar). Parse with `parseMoney`. */
+  amountDecimal: string;
   currency: string;
   description?: string | null;
   siteId?: string | null;
@@ -68,7 +71,10 @@ export interface FinanceLineItem {
   categoryCode?: string | null;
   categoryName: string;
   kind: FinanceCategoryKind;
+  /** @deprecated Float — use `amountDecimal` (exact decimal string, ADR-0004). */
   amount: number;
+  /** Exact-decimal amount as a string (Decimal scalar). Parse with `parseMoney`. */
+  amountDecimal: string;
   currency: string;
   entryDate: string;
   batchId?: string | null;
@@ -88,28 +94,30 @@ export interface FinanceCategoryTotal {
   kind: FinanceCategoryKind;
   isComputed: boolean;
   isDerived: boolean;
-  total: number;
+  // Money crosses as exact decimal STRINGS via the Decimal scalar (ADR-0004);
+  // parse with `parseMoney` at the display/arithmetic boundary.
+  totalDecimal: string;
 }
 
 export interface FinanceTimeBucket {
   bucketStart: string;
-  totalExpense: number;
-  totalRevenue: number;
+  totalExpenseDecimal: string;
+  totalRevenueDecimal: string;
 }
 
 export interface FinanceSummary {
   currency: string;
-  totalExpense: number;
-  totalRevenue: number;
-  netResult: number;
+  totalExpenseDecimal: string;
+  totalRevenueDecimal: string;
+  netResultDecimal: string;
   byCategory: FinanceCategoryTotal[];
   series: FinanceTimeBucket[];
 }
 
 export interface FinanceBatchTotal {
   batchId: string;
-  totalExpense: number;
-  totalRevenue: number;
+  totalExpenseDecimal: string;
+  totalRevenueDecimal: string;
 }
 
 export interface FinanceSettings {
@@ -236,7 +244,24 @@ export function useFinanceSettings() {
 // prefix on success (declare domain segments; the tenant prefix is added).
 // ============================================================================
 
-const INVALIDATE_FINANCE: ReadonlyArray<readonly unknown[]> = [['finance']];
+// Scoped invalidation — a mutation refetches only the queries it actually
+// affects, not the entire finance surface (PERF-005). Entry mutations move the
+// ledger + aggregates; category mutations also move the catalogue; a settings
+// change (currency/fiscal year) moves everything that renders in that currency.
+const AGG_KEYS = [
+  ['finance', 'ledger'],
+  ['finance', 'summary'],
+  ['finance', 'batchTotals'],
+] as const;
+const INVALIDATE_ENTRIES: ReadonlyArray<readonly unknown[]> = AGG_KEYS;
+const INVALIDATE_CATEGORIES: ReadonlyArray<readonly unknown[]> = [
+  ['finance', 'categories'],
+  ...AGG_KEYS,
+];
+const INVALIDATE_SETTINGS: ReadonlyArray<readonly unknown[]> = [
+  ['finance', 'settings'],
+  ...AGG_KEYS,
+];
 
 export function useCreateFinanceEntry() {
   return useTenantMutation(
@@ -247,7 +272,7 @@ export function useCreateFinanceEntry() {
       );
       return data.createFinanceEntry;
     },
-    { invalidate: INVALIDATE_FINANCE },
+    { invalidate: INVALIDATE_ENTRIES },
   );
 }
 
@@ -260,7 +285,7 @@ export function useUpdateFinanceEntry() {
       );
       return data.updateFinanceEntry;
     },
-    { invalidate: INVALIDATE_FINANCE },
+    { invalidate: INVALIDATE_ENTRIES },
   );
 }
 
@@ -273,7 +298,7 @@ export function useDeleteFinanceEntry() {
       );
       return data.deleteFinanceEntry;
     },
-    { invalidate: INVALIDATE_FINANCE },
+    { invalidate: INVALIDATE_ENTRIES },
   );
 }
 
@@ -286,7 +311,7 @@ export function useCreateFinanceCategory() {
       );
       return data.createFinanceCategory;
     },
-    { invalidate: INVALIDATE_FINANCE },
+    { invalidate: INVALIDATE_CATEGORIES },
   );
 }
 
@@ -299,7 +324,7 @@ export function useUpdateFinanceCategory() {
       );
       return data.updateFinanceCategory;
     },
-    { invalidate: INVALIDATE_FINANCE },
+    { invalidate: INVALIDATE_CATEGORIES },
   );
 }
 
@@ -312,7 +337,7 @@ export function useArchiveFinanceCategory() {
       );
       return data.archiveFinanceCategory;
     },
-    { invalidate: INVALIDATE_FINANCE },
+    { invalidate: INVALIDATE_CATEGORIES },
   );
 }
 
@@ -325,7 +350,7 @@ export function useRestoreFinanceCategory() {
       );
       return data.restoreFinanceCategory;
     },
-    { invalidate: INVALIDATE_FINANCE },
+    { invalidate: INVALIDATE_CATEGORIES },
   );
 }
 
@@ -338,6 +363,6 @@ export function useUpdateFinanceSettings() {
       );
       return data.updateFinanceSettings;
     },
-    { invalidate: INVALIDATE_FINANCE },
+    { invalidate: INVALIDATE_SETTINGS },
   );
 }

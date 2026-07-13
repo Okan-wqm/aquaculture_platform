@@ -226,12 +226,12 @@ export class BatchPerformanceResponse {
   @Field(() => Float) targetDailyGrowthG!: number;
   @Field(() => Float) growthVariancePercent!: number;
   @Field(() => Float) totalFeedConsumedKg!: number;
-  @Field(() => Float) totalFeedCost!: number;
+  @Field(() => Float, { deprecationReason: 'Use totalFeedCostDecimal (exact decimal string, ADR-0004).' }) totalFeedCost!: number;
   @Field(() => Float) avgDailyFeedKg!: number;
-  @Field(() => Float) purchaseCost!: number;
-  @Field(() => Float) totalCost!: number;
-  @Field(() => Float) costPerKg!: number;
-  @Field(() => Float) costPerFish!: number;
+  @Field(() => Float, { deprecationReason: 'Use purchaseCostDecimal (exact decimal string, ADR-0004).' }) purchaseCost!: number;
+  @Field(() => Float, { deprecationReason: 'Use totalCostDecimal (exact decimal string, ADR-0004).' }) totalCost!: number;
+  @Field(() => Float, { deprecationReason: 'Use costPerKgDecimal (exact decimal string, ADR-0004).' }) costPerKg!: number;
+  @Field(() => Float, { deprecationReason: 'Use costPerFishDecimal (exact decimal string, ADR-0004).' }) costPerFish!: number;
   @Field({ nullable: true }) projectedHarvestDate?: Date;
   @Field(() => Float, { nullable: true }) projectedHarvestWeightG?: number;
   @Field(() => Int, { nullable: true }) daysToHarvest?: number;

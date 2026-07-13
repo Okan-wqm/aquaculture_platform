@@ -1,5 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
+
+import { tenantAwareMigrationGlobs } from '../../platform/libs/service-catalog/src';
 
 /**
  * Bans an unguarded `DROP TYPE` in the `up()` of a tenant-aware migration
@@ -25,23 +27,31 @@ import { join, relative, resolve } from 'node:path';
  */
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
-// Services whose migrations fan out into tenant_<uuid> clones (the schemas where
-// a source-schema enum becomes a cross-referenced shared type). auth/billing/
-// admin/etc. are platform-level (no tenant clones) and out of scope.
-const TENANT_AWARE_SERVICES = [
-  'farm-service',
-  'sensor-service',
-  'hr-service',
-  'messaging-service',
-  'hydroponics-service',
-  'ai-service',
-  'alert-engine',
-];
+/**
+ * Directories holding tenant-aware migrations — DERIVED from the platform
+ * catalog's `migrationGlobs` (via `tenantAwareMigrationGlobs()`), never a
+ * hand-copied service list + path. WHY: this gate hard-coded
+ * `src/database/migrations` and was 100% blind to messaging-service, whose 11
+ * live migrations sit in `src/migrations` (ORPHAN-HIGH-406). The catalog is the
+ * SSoT the runtime + migration-runner already use, and it carries messaging's
+ * dual path, so the gate can never miss a real migration directory again. We
+ * reduce each glob to its directory prefix and scan that (the glob's file
+ * pattern is always numeric-prefixed migrations).
+ */
+function tenantAwareMigrationDirs(): string[] {
+  const dirs = new Set<string>();
+  for (const glob of tenantAwareMigrationGlobs()) {
+    // glob e.g. `apps/messaging-service/src/migrations/[0-9]*{.ts,.js}` →
+    // directory prefix is everything up to the last path segment.
+    dirs.add(dirname(glob));
+  }
+  return [...dirs];
+}
 
 function migrationFiles(): string[] {
   const files: string[] = [];
-  for (const service of TENANT_AWARE_SERVICES) {
-    const dir = join(REPO_ROOT, 'apps', service, 'src', 'database', 'migrations');
+  for (const relDir of tenantAwareMigrationDirs()) {
+    const dir = join(REPO_ROOT, relDir);
     if (!existsSync(dir)) continue;
     for (const entry of readdirSync(dir)) {
       if (/^\d.*\.ts$/.test(entry)) files.push(join(dir, entry));

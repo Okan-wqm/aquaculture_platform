@@ -131,6 +131,7 @@ export default {
         '<rootDir>/deploy-ssot-contract.spec.ts',
         '<rootDir>/schema-role-drift-ssot.spec.ts',
         '<rootDir>/no-unguarded-drop-type-in-migration.spec.ts',
+        '<rootDir>/platform-topology-ssot.spec.ts',
         '<rootDir>/deploy-isolated-checkout-ssot.spec.ts',
         '<rootDir>/script-graphql-client-ssot.spec.ts',
         '<rootDir>/graphql-fe-drift-baseline-no-grow.spec.ts',

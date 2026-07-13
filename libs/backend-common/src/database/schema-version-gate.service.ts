@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnApplicationBootstrap, Type } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { bootstrapSignalSchemas, platformFunctions } from '@platform/service-catalog';
 import { DataSource } from 'typeorm';
 
 import { PROTECTED_TABLES } from '../constants/protected-tables';
@@ -290,19 +291,26 @@ export function createSchemaVersionGate(
         );
       }
 
-      // Light sanity check on counts — a fully-applied bootstrap installs
-      // exactly 16 platform schemas and 4 platform functions. Anything
-      // below means partial-apply state.
-      const EXPECTED_SCHEMA_COUNT = 16;
-      const EXPECTED_FUNCTION_COUNT = 4;
-      // The shared-table expectation is DERIVED from PROTECTED_TABLES (the
-      // runtime copy of the canonical shared set, parity-enforced against
-      // generate-init-schemas + 006-shared-schema-tables.sql by
-      // tests/invariants/shared-schema-canonical.spec.ts). A hand-copied
-      // numeric literal here (was `= 5`) crash-looped EVERY backend service
-      // on 2026-07-13 when ADR-042 retired shared.user_permissions: the
-      // bootstrap honestly recorded 4 shared tables while this gate still
-      // demanded 5 (ORPHAN-HIGH-387).
+      // Count expectations are DERIVED from the platform-topology SSoT
+      // (@platform/service-catalog) + PROTECTED_TABLES — never hand-copied
+      // literals. WHY: on 2026-07-13 a hand-copied `EXPECTED_SHARED_TABLE_COUNT
+      // = 5` crash-looped EVERY backend service when ADR-042 retired
+      // shared.user_permissions (bootstrap honestly recorded 4, the gate still
+      // demanded 5 — ORPHAN-HIGH-387). Its siblings `= 16` / `= 4` were the
+      // same latent class (ORPHAN-HIGH-405); all three now derive from a
+      // single source so a schema/function/table retirement can never leave a
+      // stale literal behind.
+      //
+      // NOTE — this count check does NOT detect a real partial-apply: the
+      // bootstrap writer refuses to write `bootstrap_signal` unless its counts
+      // already equal its own expectation, so a present row is always complete
+      // and `observed < EXPECTED` only ever fires on a stale gate literal (the
+      // crash class above) or cross-image version skew. Genuine partial-apply
+      // is caught by the writer's post-conditions + the replay DDL guard. The
+      // value of deriving these is removing the stale-literal crash, not
+      // strengthening detection.
+      const EXPECTED_SCHEMA_COUNT = bootstrapSignalSchemas().length;
+      const EXPECTED_FUNCTION_COUNT = platformFunctions().length;
       const EXPECTED_SHARED_TABLE_COUNT = PROTECTED_TABLES.filter((table) =>
         table.startsWith('shared.'),
       ).length;

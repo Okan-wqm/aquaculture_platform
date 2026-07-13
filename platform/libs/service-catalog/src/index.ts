@@ -1,3 +1,10 @@
+// Platform schema topology SSoT — WHICH schemas exist + their role flags.
+// Consumers (db-migrate bootstrap writer, boot gate, migration runner, RLS,
+// tenant-fanout) DERIVE their subset from here instead of hand-copying it.
+import { tenantAwareSchemas } from './topology';
+
+export * from './topology';
+
 export type DeployTarget = 'droplet' | 'staging' | 'unsupported';
 export type DeploymentStatus = 'active' | 'inactive';
 export type ServiceClassification =
@@ -1094,6 +1101,23 @@ export function serviceDbRolePrefixes(): readonly string[] {
     .filter((role): role is string => Boolean(role))
     .map((role) => role.replace(/_service$/, '').toUpperCase())
     .sort();
+}
+
+/**
+ * Migration glob patterns for every TENANT-AWARE service, derived from the
+ * catalog's own `migrationGlobs`. This is the SSoT for "which migration files
+ * fan out into tenant_<uuid> clones" — the set the unguarded-DROP-TYPE gate
+ * must scan. WHY derived, not hand-listed: the gate previously hard-coded
+ * `src/database/migrations` and was 100% blind to messaging-service, whose 11
+ * live migrations live in `src/migrations` (ORPHAN-HIGH-406). The catalog
+ * already carries messaging's dual-path globs, so deriving from it can never
+ * miss a service's real migration directory again.
+ */
+export function tenantAwareMigrationGlobs(): readonly string[] {
+  const tenantSchemas = new Set(tenantAwareSchemas());
+  return PLATFORM_SERVICE_CATALOG.filter(
+    (entry) => entry.dbSchema !== undefined && tenantSchemas.has(entry.dbSchema),
+  ).flatMap((entry) => entry.migrationGlobs ?? []);
 }
 
 export function readinessServices(): readonly { serviceId: string; port: number }[] {

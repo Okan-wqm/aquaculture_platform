@@ -39,4 +39,14 @@ describe('ConfigurationResolver public GraphQL contract', () => {
     expect(source).not.toMatch(/headers\s*\[\s*['"]x-tenant-id['"]\s*\]/);
     expect(source).not.toContain('@Headers');
   });
+
+  it('resolves tenantless platform admins to the SYSTEM scope, gated on the admin role vocabulary', () => {
+    // SUPER_ADMIN is the platform's only tenantless principal; its scope is
+    // the SYSTEM tenant (platform-scope configuration rows), never a header.
+    expect(source).toContain('SYSTEM_TENANT_ID');
+    expect(source).toContain('hasPlatformAdminRole');
+    // The same role list must gate setConfiguration and the system-scope
+    // resolution so the two checks cannot drift apart.
+    expect(source).toContain('PLATFORM_ADMIN_ROLES');
+  });
 });

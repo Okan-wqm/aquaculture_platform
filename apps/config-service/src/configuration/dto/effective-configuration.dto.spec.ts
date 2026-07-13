@@ -55,4 +55,21 @@ describe('toEffectiveConfigurationDto', () => {
     expect(dto.secretMode).toBe('redacted');
     expect(dto.cachePolicy).toEqual({ cacheable: false, ttlSeconds: 60 });
   });
+
+  it('returns null for an empty secret so clients can tell "unset" from "redacted"', () => {
+    // The seeded email.smtp_password row ships with an empty value; the
+    // redaction sentinel would fabricate the existence of a stored secret.
+    const dto = toEffectiveConfigurationDto(
+      SYSTEM_TENANT_ID,
+      configuration({
+        valueType: ConfigValueType.SECRET,
+        value: '',
+        isSecret: true,
+      }),
+    );
+
+    expect(dto.value).toBeNull();
+    expect(dto.secretMode).toBe('redacted');
+    expect(dto.cachePolicy).toEqual({ cacheable: false, ttlSeconds: 60 });
+  });
 });

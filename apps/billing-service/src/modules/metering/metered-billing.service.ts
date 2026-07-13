@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit, BadRequestException } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { TenantPlan, resolvePlanLimits } from '@platform/event-contracts';
 import {
@@ -161,24 +162,33 @@ export class MeteredBillingService implements OnModuleInit {
     await this.initializeTaxRates();
     await this.initializeExchangeRates();
 
-    // Periodically warn when hardcoded exchange rates have gone stale.
-    // Rates should be replaced with a live feed (e.g. Open Exchange Rates) in production.
-    setInterval(
-      () => {
-        const now = Date.now();
-        for (const [pair, rate] of this.exchangeRates) {
-          const ageHours = (now - rate.updatedAt.getTime()) / (1000 * 60 * 60);
-          if (ageHours > 24) {
-            this.logger.warn(
-              `Exchange rate ${pair} is ${Math.floor(ageHours)}h old — update via updateExchangeRate() or integrate a live FX feed.`,
-            );
-          }
-        }
-      },
-      60 * 60 * 1000,
-    ); // check every hour
-
     this.logger.log('MeteredBillingService initialized successfully');
+  }
+
+  /**
+   * Periodically warn when hardcoded exchange rates have gone stale (Billing
+   * Revival Faz E).
+   *
+   * WHY `@Cron` not `setInterval`: the previous `setInterval` was created in
+   * `onModuleInit` but its handle was never stored and never cleared — a timer
+   * leak that outlived the module. `@Cron` registers with Nest's
+   * SchedulerRegistry, so the billing app owns its lifecycle and stops it on
+   * shutdown.
+   *
+   * WHAT: hourly, warn for any exchange rate older than 24h. Rates should be
+   * replaced with a live feed (e.g. Open Exchange Rates) in production.
+   */
+  @Cron(CronExpression.EVERY_HOUR, { name: 'metered-billing-stale-fx-warn' })
+  warnOnStaleExchangeRates(): void {
+    const now = Date.now();
+    for (const [pair, rate] of this.exchangeRates) {
+      const ageHours = (now - rate.updatedAt.getTime()) / (1000 * 60 * 60);
+      if (ageHours > 24) {
+        this.logger.warn(
+          `Exchange rate ${pair} is ${Math.floor(ageHours)}h old — update via updateExchangeRate() or integrate a live FX feed.`,
+        );
+      }
+    }
   }
 
   /**
@@ -1356,9 +1366,17 @@ export class MeteredBillingService implements OnModuleInit {
    */
   clearCache(subscriptionId?: string): void {
     if (subscriptionId) {
+      // The cache key is the tenant-scoped shape built in calculateBilling:
+      //   cache:metered-billing:<tenant>:billing-calculation:<subscriptionId>-<start>-<end>
+      // so the subscriptionId is NOT the key prefix — matching on the exact
+      // `:billing-calculation:<subscriptionId>-` segment is required. (A prior
+      // `key.startsWith(subscriptionId)` match silently cleared nothing after
+      // the BILLING-MEDIUM-006 key reshape, so the MED-02 subscription-change
+      // invalidation @OnEvent path never actually flushed stale calculations.)
+      const marker = `:billing-calculation:${subscriptionId}-`;
       const keysToDelete: string[] = [];
       for (const key of this.calculationCache.keys()) {
-        if (key.startsWith(subscriptionId)) {
+        if (key.includes(marker)) {
           keysToDelete.push(key);
         }
       }

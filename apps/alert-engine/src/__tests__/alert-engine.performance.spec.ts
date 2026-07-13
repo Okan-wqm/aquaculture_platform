@@ -11,6 +11,8 @@ import { SeverityClassifierService } from '../risk-scoring/severity-classifier.s
 import { NotificationDispatcherService, type ChannelHandler } from '../notification/notification-dispatcher.service';
 import { ChannelRouterService } from '../notification/channel-router.service';
 import { TemplateRendererService } from '../notification/template-renderer.service';
+import { RedisService } from '@aquaculture/backend-common/redis';
+import { createRedisServiceMock } from './support/redis-service.mock';
 
 // EvaluationContext lives on rule-evaluator.service (was originally
 // re-exported from rules-engine.service). LogicalOperator was removed
@@ -61,11 +63,36 @@ describe('Alert Engine Performance', () => {
           useValue: {
             findOne: jest.fn(),
             find: jest.fn(),
+            // Rule loading moved to a tenant-scoped query builder; delegate
+            // getMany() back to the `find` mock so the existing rule seeding
+            // (find.mockResolvedValue([...])) still feeds evaluateRules.
+            createQueryBuilder: jest.fn(() => {
+              let boundTenantId: string | undefined;
+              const qb: any = {
+                where: (_sql: string, params?: Record<string, unknown>) => {
+                  if (typeof params?.tenantId === 'string') {
+                    boundTenantId = params.tenantId;
+                  }
+                  return qb;
+                },
+                andWhere: () => qb,
+                getMany: async () =>
+                  alertRuleRepository.find({
+                    where: { tenantId: boundTenantId, isActive: true },
+                  }),
+              };
+              return qb;
+            }),
           },
         },
         {
           provide: EventEmitter2,
           useValue: { emit: jest.fn() },
+        },
+        {
+          // Distributed rate-limiting moved ChannelRouterService onto RedisService.
+          provide: RedisService,
+          useValue: createRedisServiceMock(),
         },
       ],
     }).compile();

@@ -35,11 +35,11 @@ import { ChannelAvatar } from '@/components/messaging/ChannelAvatar';
 import { ConfirmDialog } from '@/components/messaging/ConfirmDialog';
 import { MemberRow } from '@/components/messaging/MemberRow';
 import { SentimentBadge } from '@/components/messaging/SentimentBadge';
-import type { SentimentTrend } from '@/components/messaging/SentimentBadge';
 import { useAiConsent } from '@/hooks/useAiConsent';
 import { useAuth } from '@/hooks/useAuth';
 import { useChannelActions } from '@/hooks/useChannelActions';
 import { useChannelDetail } from '@/hooks/useChannelDetail';
+import { useSentimentTrends } from '@/hooks/useSentimentTrends';
 import { useTenantUsers } from '@/hooks/useTenantUsers';
 import type { NotificationPreference } from '@/types/messaging';
 
@@ -121,8 +121,13 @@ export function ChannelSettingsPage(): JSX.Element {
   const isOwner = myRole === 'OWNER';
   const isTenantAdmin = user?.role === 'TENANT_ADMIN';
 
-  // Sentiment trend (TODO: fetch from backend when AI analysis is live)
-  const sentimentTrend: SentimentTrend = 'neutral';
+  // MOB-MEDIUM-003: real weekly sentiment from the messaging subgraph
+  // (message_analyses aggregates). Fetch only when the badge could render —
+  // tenant admin viewer, AI enabled, consent granted.
+  const { latest: latestSentiment } = useSentimentTrends(
+    channelId,
+    isTenantAdmin && isAiEnabled && hasConsented,
+  );
 
   // Current notification preference (UPPERCASE GraphQL enum NAME wire form).
   const myNotifPref = myMembership?.notificationPreference ?? 'ALL';
@@ -454,13 +459,15 @@ export function ChannelSettingsPage(): JSX.Element {
               </div>
             </div>
 
-            {/* Sentiment Badge (only if analysis enabled) */}
-            {isAiEnabled && hasConsented && (
+            {/* Sentiment Badge — TENANT_ADMIN only (matches the backend gate),
+                and only when analysis rows actually exist. No rows → no badge,
+                never a fabricated verdict (MOB-MEDIUM-003). */}
+            {latestSentiment !== null && (
               <div className="px-4 py-3 flex items-center justify-between">
                 <span className="text-sm text-gray-600 dark:text-gray-300">
                   Weekly Sentiment
                 </span>
-                <SentimentBadge trend={sentimentTrend} />
+                <SentimentBadge trend={latestSentiment.badge} />
               </div>
             )}
           </div>

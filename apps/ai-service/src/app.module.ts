@@ -86,6 +86,8 @@ import { AiOutboxModule } from './outbox/ai-outbox.module';
 
 // Entities
 import { AgentConversation } from './conversation/conversation.entity';
+import { ActionsModule } from './actions/actions.module';
+import { ProposedAction } from './actions/proposed-action.entity';
 import { TenantAgentConfig } from './tenant-config/agent-config.entity';
 import { ToolExecutionAudit } from './audit/tool-execution-audit.entity';
 import { ConversationTurn } from './cost/conversation-turn.entity';
@@ -142,6 +144,7 @@ type QueryComplexityOperationContext = {
             ToolExecutionAudit,
             ConversationTurn,
             AiOutbox,
+            ProposedAction,
           ],
           migrations: [__dirname + '/database/migrations/[0-9]*.{js,ts}'],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
@@ -290,6 +293,9 @@ type QueryComplexityOperationContext = {
     AuditModule,
     CostModule,
     ChatModule,
+    // MOB-HIGH-001: human-in-the-loop actuation — proposal persistence +
+    // the request.ai.executeAction responder.
+    ActionsModule,
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
     // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor.

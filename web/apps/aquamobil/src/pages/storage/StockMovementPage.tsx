@@ -32,6 +32,8 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import type { JSX } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
+import { BarcodeScanButton } from '@/components/BarcodeScanButton';
+import { VirtualList } from '@/components/VirtualList';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
@@ -510,16 +512,20 @@ export function StockMovementPage(): JSX.Element {
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
               Choose the specific product from your inventory.
             </p>
-            {/* Search bar */}
-            <div className="relative mb-4">
-              <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search items..."
-                value={itemSearch}
-                onChange={(e) => setItemSearch(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-              />
+            {/* Search bar + scan-to-find (MOB-MEDIUM-010): a scanned barcode/QR
+                fills the search, matching items by their printed code. */}
+            <div className="flex items-stretch gap-2 mb-4">
+              <div className="relative flex-1">
+                <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search items..."
+                  value={itemSearch}
+                  onChange={(e) => setItemSearch(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+              <BarcodeScanButton onScan={setItemSearch} />
             </div>
             {itemsLoading ? (
               <div className="flex items-center justify-center py-12">
@@ -532,10 +538,15 @@ export function StockMovementPage(): JSX.Element {
                 <p className="text-sm">{items.length === 0 ? 'No items found for this type' : 'No matches'}</p>
               </div>
             ) : (
-              <div className="space-y-2 max-h-[50vh] overflow-y-auto">
-                {filteredItems.map((item) => (
+              /* MOB-MEDIUM-012: virtualized — inventories can be hundreds of SKUs. */
+              <VirtualList
+                items={filteredItems}
+                getKey={(item) => item.id}
+                estimateSize={() => 76}
+                gapPx={8}
+                className="max-h-[50vh]"
+                renderItem={(item) => (
                   <button
-                    key={item.id}
                     onClick={() => setSelectedItemId(item.id)}
                     className={clsx(
                       'w-full p-4 rounded-xl border-2 text-left transition-all touch-feedback',
@@ -554,8 +565,8 @@ export function StockMovementPage(): JSX.Element {
                       {item.code} &middot; {item.unit}
                     </span>
                   </button>
-                ))}
-              </div>
+                )}
+              />
             )}
           </div>
         )}

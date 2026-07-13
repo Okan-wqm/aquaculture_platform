@@ -21,7 +21,7 @@
       "type": "string",
       "oneOf": [
         {
-          "pattern": "^(DATA|SEC|PLAT|FE|EDGE|MT|FARM|SENSOR|HR|MSG|ADMIN|ANTI|ADR|AUDIT|CTX|INFRA|PROC|P0|COMPLIANCE|PERF|OBS|SUPPLY|CONTRACT|CIRCUIT|MEM|CLAUDE|BILLING|ALERT|LEGAL|AUDITTRAIL|TENANTCOST|AISAFETY|PRODUCT|DEPLOY|RUST|ULTRA|ORPHAN)-(CRITICAL|HIGH|MEDIUM|LOW|CVE)-[0-9]{3}$"
+          "pattern": "^(DATA|SEC|PLAT|FE|EDGE|MT|FARM|SENSOR|HR|MSG|ADMIN|ANTI|ADR|AUDIT|CTX|INFRA|PROC|P0|COMPLIANCE|PERF|OBS|SUPPLY|CONTRACT|CIRCUIT|MEM|CLAUDE|BILLING|ALERT|LEGAL|AUDITTRAIL|TENANTCOST|AISAFETY|PRODUCT|DEPLOY|RUST|ULTRA|ORPHAN|MOB)-(CRITICAL|HIGH|MEDIUM|LOW|CVE)-[0-9]{3}$"
         },
         {
           "$comment": "Named carve-out grandfathering FARM-DATAMIG-001 (commit 6b372511, appended 2026-04-24) per docs/reviews/orphan-findings.md#ORPHAN-012. The CLASSIFIER alternation in the sibling pattern branch requires CLASSIFIER ∈ {CRITICAL, HIGH, MEDIUM, LOW, CVE} but this single historical entry uses the domain tag `DATAMIG` as its CLASSIFIER. Because findings.jsonl is a hash-chained append-only ledger, rewriting the entry would invalidate every subsequent prev_hash pointer (the exact corruption pattern the integrity invariant exists to detect — see tests/invariants/finding-registry-integrity.spec.ts hash-chain checks). The const branch ONLY admits this exact literal id; different malformed ids (e.g. FARM-FOOBAR-001) still fail because they match neither branch. Do NOT add DATAMIG to the sibling pattern alternation — that would conflate severity-classifier with domain-tag and invite further drift. If a second one-off grandfather case ever arises, append another const branch here, not a regex relax.",

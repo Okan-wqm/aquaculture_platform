@@ -4,6 +4,7 @@ import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { AiInsightsCard } from '@/components/ai';
+import { AlertsBell } from '@/components/AlertsBell';
 import { TankCard } from '@/components/cards/TankCard';
 import { NotificationBell } from '@/components/NotificationBell';
 import { useAuth } from '@/hooks/useAuth';
@@ -146,8 +147,9 @@ export function HomePage(): JSX.Element {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <AlertsBell />
               <NotificationBell />
-              <button onClick={() => void logout()} className="p-2.5 bg-white/10 rounded-xl touch-feedback hover:bg-white/20 transition-colors">
+              <button onClick={() => void logout()} className="min-h-touch min-w-touch flex items-center justify-center bg-white/10 rounded-xl touch-feedback hover:bg-white/20 transition-colors">
                 <LogOut size={18} />
               </button>
             </div>
@@ -254,7 +256,7 @@ export function HomePage(): JSX.Element {
               </p>
               <p className="text-amber-100 text-xs mt-0.5">Tap to view</p>
             </div>
-            <div className="text-white/70">
+            <div className="text-white/85">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="m9 18 6-6-6-6" />
               </svg>

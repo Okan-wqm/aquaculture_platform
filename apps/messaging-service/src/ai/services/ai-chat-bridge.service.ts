@@ -260,11 +260,15 @@ export class AiChatBridgeService {
       return false;
     }
 
-    // Execute the action via NATS
+    // Execute the action via NATS. MOB-HIGH-001: `actionId` keys the proposal
+    // row ai-service persisted when it held the actuation — the responder
+    // executes THAT stored row (tool + params + requester context), so the
+    // metadata's actionType/params are an advisory echo, not the executable.
     const response = await firstValueFrom(
       this.natsClient
         .send<{ success: boolean; result: string }>('request.ai.executeAction', {
           tenantId,
+          actionId: metadata['actionId'],
           actionType: metadata['actionType'],
           params: metadata['params'],
           confirmedBy: userId,

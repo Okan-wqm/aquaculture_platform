@@ -31,7 +31,9 @@ import type {
   UploadAndSendMessageOfflinePayload,
 } from '@/types';
 import type { MediaUploadResponse } from '@/types/messaging';
+import { recordLastSyncAt } from '@/utils/last-sync';
 import { logger } from '@/utils/logger';
+import { applyOptimisticKpiBump } from '@/utils/offline-optimistic';
 import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
 
 
@@ -235,10 +237,17 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
       // credentials are confirmed valid, preventing auth-failure retryCount inflation.
       const hasValidAuth = Boolean(accessToken && tenantId && user);
       const result = await queueOperation(tenantId, type, payload, hasValidAuth, clientCommandId);
+      // MOB-LOW-011: flip the tenant-scoped KPI aggregates the moment a FRESH
+      // operation is queued (a deduped double-tap must not double-count) so an
+      // offline record is visible on the hub cards immediately; the post-sync
+      // invalidation reconciles with server truth.
+      if (result.status === 'queued') {
+        applyOptimisticKpiBump(queryClient, tenantId, type);
+      }
       await refreshQueue();
       return result;
     },
-    [refreshQueue, accessToken, tenantId, user]
+    [refreshQueue, accessToken, tenantId, user, queryClient]
   );
 
   const executeGraphQL = useCallback(
@@ -391,6 +400,13 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
         .filter((op) => !remainingIds.has(op.id))
         .map((op) => op.type);
       await invalidateSyncedOperationQueries(queryClient, tenantId, syncedOperationTypes);
+
+      // MOB-LOW-011: the drain convergence point owns the global last-synced
+      // clock — every successful drain (auto or manual) updates it, not just
+      // the Account page's manual button.
+      if (result.success > 0) {
+        recordLastSyncAt();
+      }
 
       // FE-HIGH-051: no manual guard reset here. The reconnect auto-sync guard
       // is keyed on the monotonic queue version, which refreshQueue() (called

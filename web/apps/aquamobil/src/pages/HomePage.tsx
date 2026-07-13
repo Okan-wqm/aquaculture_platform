@@ -149,7 +149,7 @@ export function HomePage(): JSX.Element {
             <div className="flex items-center gap-2">
               <AlertsBell />
               <NotificationBell />
-              <button onClick={() => void logout()} className="p-2.5 bg-white/10 rounded-xl touch-feedback hover:bg-white/20 transition-colors">
+              <button onClick={() => void logout()} className="min-h-touch min-w-touch flex items-center justify-center bg-white/10 rounded-xl touch-feedback hover:bg-white/20 transition-colors">
                 <LogOut size={18} />
               </button>
             </div>

@@ -195,7 +195,7 @@ export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
                   {/* WHY: Badge count on tab icons — immediate visibility of pending items without
                       navigating to the tab. Red badge follows platform convention for actionable items. */}
                   {badge > 0 && (
-                    <span className="absolute -top-1.5 -right-2 bg-coral-500 text-white text-[9px] font-bold rounded-full min-w-[16px] h-[16px] flex items-center justify-center px-1 shadow-sm border border-white dark:border-gray-900">
+                    <span className="absolute -top-1.5 -right-2 bg-coral-500 text-white text-[10px] font-bold rounded-full min-w-[16px] h-[16px] flex items-center justify-center px-1 shadow-sm border border-white dark:border-gray-900">
                       {badge > 99 ? '99+' : badge}
                     </span>
                   )}

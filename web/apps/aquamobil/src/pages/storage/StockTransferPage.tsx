@@ -28,6 +28,7 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { BarcodeScanButton } from '@/components/BarcodeScanButton';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
@@ -398,7 +399,8 @@ export function StockTransferPage(): JSX.Element {
             {/* Item list */}
             {selectedItemType && (
               <>
-                <div className="relative mb-3">
+                <div className="flex items-stretch gap-2 mb-3">
+                  <div className="relative flex-1">
                   <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                   <input
                     type="text"
@@ -407,6 +409,8 @@ export function StockTransferPage(): JSX.Element {
                     onChange={(e) => setItemSearch(e.target.value)}
                     className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
+                </div>
+                  <BarcodeScanButton onScan={setItemSearch} />
                 </div>
                 {itemsLoading ? (
                   <div className="flex items-center justify-center py-8">

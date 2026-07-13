@@ -130,7 +130,7 @@ export const ChannelAvatar = React.memo(function ChannelAvatar({
           {secondImageUrl ? (
             <img src={secondImageUrl} alt="" className="w-full h-full object-cover" />
           ) : (
-            <span className="w-full h-full flex items-center justify-center text-white text-[9px] font-bold">
+            <span className="w-full h-full flex items-center justify-center text-white text-[10px] font-bold">
               {initials[1] ?? initials[0]}
             </span>
           )}
@@ -142,7 +142,7 @@ export const ChannelAvatar = React.memo(function ChannelAvatar({
             bgColor,
           )}
         >
-          <span className="w-full h-full flex items-center justify-center text-white text-[9px] font-bold">
+          <span className="w-full h-full flex items-center justify-center text-white text-[10px] font-bold">
             {initials[0]}
           </span>
         </div>

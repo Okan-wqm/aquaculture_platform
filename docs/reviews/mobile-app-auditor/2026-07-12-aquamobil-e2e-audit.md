@@ -85,7 +85,25 @@ Fix: Faz 3.1 (Tailwind touch token + static invariant spec).
 ### MOB-MEDIUM-010 — no photo capture on incident flows, no barcode/QR on stock flows
 Camera/`BarcodeDetector` exist only in messaging attachments; Escape/Welfare/
 Mortality/Lice records take no evidence photos; stock pages are manual
-selects. Fix: Faz 3.2 (reuse media pipeline + offline blob lane).
+selects. Resolution split (2026-07-12): the BARCODE half shipped in Faz 3.2
+(BarcodeScanButton — progressive enhancement over BarcodeDetector, wired into
+StockMovement/StockTransfer scan-to-find). The PHOTO half turned out to require
+a farm-service media pipeline that does not exist (the messaging presign is
+channel-scoped and unusable for farm records) — tracked as MOB-HIGH-014 below.
+
+### MOB-HIGH-014 — farm-service has no media/attachment pipeline (blocks incident photo capture)
+Verified 2026-07-12: farm-service exposes NO presigned-upload mutation and the
+incident record inputs (RecordEscapeIncidentInput, RecordWelfareAssessmentInput,
+RecordMortalityInput, RecordLiceCountInput) carry no attachment/media-key
+fields. The messaging media pipeline (requestMediaUpload) is channel-scoped and
+cannot serve farm records. Evidence photos on regulatory incident records
+(escape/welfare/mortality/lice) therefore need: a farm-scoped presign mutation
+backed by @platform/storage, `attachments`/`mediaKeys` columns + DTO fields on
+the four record entities (blue-green migration), offline blob-lane replay for
+the farm lane, and the mobile PhotoCaptureField. OWNER: farm-service
+maintainers (farm-expert lane). DEADLINE: next farm-service feature cycle —
+2026-08-15. STATUS: OPEN. The mobile capture UI lands together with the backend
+pipeline; shipping a camera button with nowhere to upload would be a fake.
 
 ### MOB-LOW-011 — offline UX polish: no global last-synced clock, no optimistic farm writes
 `aquamobil_last_sync_at` is written but never surfaced; farm records are

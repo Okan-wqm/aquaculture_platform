@@ -71,7 +71,7 @@ export function NotificationsPage(): JSX.Element {
       <div className="bg-gradient-to-r from-amber-600 to-amber-500 text-white">
         <div className="flex items-center justify-between px-4 py-4 pt-safe-top">
           <div className="flex items-center gap-3">
-            <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
+            <button onClick={() => navigate(-1)} className="min-h-touch min-w-touch flex items-center justify-center -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
               <ArrowLeft size={22} />
             </button>
             <div className="flex items-center gap-2.5">

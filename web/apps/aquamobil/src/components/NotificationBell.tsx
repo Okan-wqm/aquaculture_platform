@@ -21,7 +21,7 @@ export function NotificationBell(): ReactElement {
     <button
       onClick={() => navigate('/notifications')}
       aria-label={ariaLabel}
-      className="p-2.5 bg-white/10 rounded-xl touch-feedback hover:bg-white/20 transition-colors relative"
+      className="min-h-touch min-w-touch flex items-center justify-center bg-white/10 rounded-xl touch-feedback hover:bg-white/20 transition-colors relative"
     >
       <Bell size={18} />
       {isCountError ? (

@@ -1233,6 +1233,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/billing/__tests__/pricing-calculator-free-tier.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/billing/billing.controller.ts",
       "prettier_managed": true
     },
@@ -5885,6 +5891,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/seed/__tests__/plan-seed.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/seed/plan-seed.service.ts",
       "prettier_managed": true
     },
@@ -6046,6 +6058,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/database/migrations/1801800000000-DropSubscriptionProvisioningRetries.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/database/migrations/1801900000000-AddPlanTierFreeEnumValue.ts",
       "prettier_managed": true
     },
     {
@@ -53820,10 +53838,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8819,
+  "file_count": 8822,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8638,
-  "managed_file_list_sha256": "42aa4b3bec30d9016debd7712e2102081a5e014de579a1d9a7df31531c5af7e8",
+  "managed_count": 8641,
+  "managed_file_list_sha256": "7143a879e8b36d573ec3f16fa174420ef4f1e19ca9eb9c79b144c2825f8be579",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -9,6 +9,7 @@
  */
 
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   CreditCard,
   FileText,
@@ -25,6 +26,7 @@ import {
   Waves,
   BarChart3,
   Calendar,
+  ArrowUpCircle,
 } from 'lucide-react';
 import { parseMoney } from '@aquaculture/shared-ui';
 
@@ -38,43 +40,46 @@ import { useTenantBilling, type TenantInvoice } from '../hooks/useTenantBilling'
  * Subscription status badge
  */
 const SubscriptionStatusBadge: React.FC<{ status: string }> = ({ status }) => {
-  const config: Record<string, { bg: string; text: string; icon: React.ReactNode; label: string }> = {
-    ACTIVE: {
-      bg: 'bg-green-100',
-      text: 'text-green-700',
-      icon: <CheckCircle className="w-3.5 h-3.5" />,
-      label: 'Active',
-    },
-    TRIAL: {
-      bg: 'bg-blue-100',
-      text: 'text-blue-700',
-      icon: <Clock className="w-3.5 h-3.5" />,
-      label: 'Trial',
-    },
-    PAST_DUE: {
-      bg: 'bg-yellow-100',
-      text: 'text-yellow-700',
-      icon: <AlertTriangle className="w-3.5 h-3.5" />,
-      label: 'Past Due',
-    },
-    CANCELLED: {
-      bg: 'bg-gray-100',
-      text: 'text-gray-700',
-      icon: <XCircle className="w-3.5 h-3.5" />,
-      label: 'Cancelled',
-    },
-    SUSPENDED: {
-      bg: 'bg-red-100',
-      text: 'text-red-700',
-      icon: <AlertCircle className="w-3.5 h-3.5" />,
-      label: 'Suspended',
-    },
-  };
+  const config: Record<string, { bg: string; text: string; icon: React.ReactNode; label: string }> =
+    {
+      ACTIVE: {
+        bg: 'bg-green-100',
+        text: 'text-green-700',
+        icon: <CheckCircle className="w-3.5 h-3.5" />,
+        label: 'Active',
+      },
+      TRIAL: {
+        bg: 'bg-blue-100',
+        text: 'text-blue-700',
+        icon: <Clock className="w-3.5 h-3.5" />,
+        label: 'Trial',
+      },
+      PAST_DUE: {
+        bg: 'bg-yellow-100',
+        text: 'text-yellow-700',
+        icon: <AlertTriangle className="w-3.5 h-3.5" />,
+        label: 'Past Due',
+      },
+      CANCELLED: {
+        bg: 'bg-gray-100',
+        text: 'text-gray-700',
+        icon: <XCircle className="w-3.5 h-3.5" />,
+        label: 'Cancelled',
+      },
+      SUSPENDED: {
+        bg: 'bg-red-100',
+        text: 'text-red-700',
+        icon: <AlertCircle className="w-3.5 h-3.5" />,
+        label: 'Suspended',
+      },
+    };
 
   const c = config[status] || config.ACTIVE;
 
   return (
-    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium ${c.bg} ${c.text}`}>
+    <span
+      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium ${c.bg} ${c.text}`}
+    >
       {c.icon}
       {c.label}
     </span>
@@ -96,7 +101,9 @@ const InvoiceStatusBadge: React.FC<{ status: string }> = ({ status }) => {
   const c = config[status] || config.DRAFT;
 
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${c.bg} ${c.text}`}>
+    <span
+      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${c.bg} ${c.text}`}
+    >
       {status}
     </span>
   );
@@ -125,7 +132,9 @@ const UsageBar: React.FC<{
           <span className="text-sm font-medium text-gray-700">{label}</span>
         </div>
         <span className="text-sm text-gray-500">
-          {current.toLocaleString()}{unit} / {limit.toLocaleString()}{unit}
+          {current.toLocaleString()}
+          {unit} / {limit.toLocaleString()}
+          {unit}
         </span>
       </div>
       <div className="w-full bg-gray-200 rounded-full h-2">
@@ -204,15 +213,19 @@ const BillingSkeleton: React.FC = () => (
 // ============================================================================
 
 const TenantBillingPage: React.FC = () => {
-  const {
-    subscription,
-    invoices,
-    planLimits,
-    usageMetrics,
-    isLoading,
-    error,
-    refetch,
-  } = useTenantBilling();
+  const navigate = useNavigate();
+  const { subscription, invoices, planLimits, usageMetrics, isLoading, error, refetch } =
+    useTenantBilling();
+
+  // A FREE ($0) or trialing tenant is upgrade-eligible. The upgrade PAYMENT flow
+  // wires up in Billing Revival Faz C; this CTA surfaces a visible affordance that
+  // routes to the existing support channel (page stays read-only; no billing
+  // mutation happens here). BILLING-SAFETY: read-only preserved.
+  const isUpgradeable =
+    subscription != null &&
+    (subscription.status === 'TRIAL' ||
+      subscription.plan?.toLowerCase().includes('free') === true ||
+      parseMoney(subscription.monthlyPriceDecimal) === 0);
 
   if (isLoading) {
     return <BillingSkeleton />;
@@ -269,9 +282,7 @@ const TenantBillingPage: React.FC = () => {
                   <CreditCard className="w-6 h-6 text-tenant-600" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold text-gray-900">
-                    {subscription.plan} Plan
-                  </h2>
+                  <h2 className="text-lg font-bold text-gray-900">{subscription.plan} Plan</h2>
                   <SubscriptionStatusBadge status={subscription.status} />
                 </div>
               </div>
@@ -309,6 +320,30 @@ const TenantBillingPage: React.FC = () => {
               </div>
             )}
           </div>
+          {isUpgradeable && (
+            <div className="p-6 border-t border-gray-100 bg-gradient-to-r from-tenant-50/50 to-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-tenant-100">
+                  <ArrowUpCircle className="w-5 h-5 text-tenant-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">Ready for more?</p>
+                  <p className="text-sm text-gray-500 mt-0.5">
+                    You&apos;re on the {subscription.status === 'TRIAL' ? 'trial' : 'Free'} plan.
+                    Upgrade to unlock higher limits, reports, and API access.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate('/tenant/support')}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-tenant-600 text-white text-sm font-medium hover:bg-tenant-700 focus:outline-none focus:ring-2 focus:ring-tenant-500 focus:ring-offset-2 whitespace-nowrap"
+              >
+                <ArrowUpCircle className="w-4 h-4" />
+                Upgrade plan
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-gray-100 p-8 text-center">
@@ -484,7 +519,10 @@ const TenantBillingPage: React.FC = () => {
                   {invoices
                     .filter((inv) => inv.paidAt)
                     .map((invoice) => (
-                      <tr key={`payment-${invoice.id}`} className="hover:bg-gray-50 transition-colors">
+                      <tr
+                        key={`payment-${invoice.id}`}
+                        className="hover:bg-gray-50 transition-colors"
+                      >
                         <td className="px-6 py-3">
                           <div className="flex items-center gap-2">
                             <CheckCircle className="w-4 h-4 text-green-500" />
@@ -495,7 +533,9 @@ const TenantBillingPage: React.FC = () => {
                           <div className="flex items-center gap-2">
                             <Calendar className="w-3.5 h-3.5 text-gray-500" />
                             <span className="text-sm text-gray-600">
-                              {invoice.paidAt ? new Date(invoice.paidAt).toLocaleDateString() : '--'}
+                              {invoice.paidAt
+                                ? new Date(invoice.paidAt).toLocaleDateString()
+                                : '--'}
                             </span>
                           </div>
                         </td>

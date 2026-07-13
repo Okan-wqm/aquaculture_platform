@@ -9,7 +9,11 @@ import {
   MeterBillingBreakdown,
   InvoicePreview,
 } from '../metered-billing.service';
-import { UsageAggregatorService, AggregationPeriod, AggregatedUsage } from '../usage-aggregator.service';
+import {
+  UsageAggregatorService,
+  AggregationPeriod,
+  AggregatedUsage,
+} from '../usage-aggregator.service';
 import { MeterType } from '../usage-metering.service';
 import { BillingCycle, PlanTier } from '../../../billing/entities/subscription.entity';
 
@@ -72,13 +76,13 @@ describe('MeteredBillingService', () => {
           BillingCycle.MONTHLY,
           new Date('2024-06-01'),
           new Date('2024-06-30'),
-          99.00,
+          99.0,
           'US',
           'USD',
         );
 
         expect(calculation).toBeDefined();
-        expect(calculation.basePlanFee).toBe(99.00);
+        expect(calculation.basePlanFee).toBe(99.0);
         expect(calculation.subtotalMetered).toBe(0);
       });
 
@@ -99,7 +103,7 @@ describe('MeteredBillingService', () => {
           BillingCycle.MONTHLY,
           new Date('2024-06-01'),
           new Date('2024-06-30'),
-          99.00,
+          99.0,
           'US',
           'USD',
         );
@@ -172,7 +176,7 @@ describe('MeteredBillingService', () => {
           BillingCycle.MONTHLY,
           new Date('2024-06-01'),
           new Date('2024-06-30'),
-          99.00,
+          99.0,
           'US',
           'USD',
         );
@@ -202,7 +206,7 @@ describe('MeteredBillingService', () => {
           BillingCycle.MONTHLY,
           new Date('2024-06-01'),
           new Date('2024-06-30'),
-          99.00,
+          99.0,
           'US',
           'USD',
         );
@@ -234,7 +238,7 @@ describe('MeteredBillingService', () => {
           BillingCycle.MONTHLY,
           new Date('2024-06-01'),
           new Date('2024-06-30'),
-          99.00,
+          99.0,
           'US',
           'USD',
         );
@@ -271,7 +275,7 @@ describe('MeteredBillingService', () => {
           BillingCycle.MONTHLY,
           new Date('2024-06-01'),
           new Date('2024-06-30'),
-          99.00,
+          99.0,
           'US',
           'USD',
         );
@@ -301,7 +305,7 @@ describe('MeteredBillingService', () => {
           BillingCycle.MONTHLY,
           new Date('2024-06-01'),
           new Date('2024-06-30'),
-          99.00,
+          99.0,
           'US',
           'USD',
         );
@@ -331,7 +335,7 @@ describe('MeteredBillingService', () => {
           BillingCycle.MONTHLY,
           new Date('2024-06-01'),
           new Date('2024-06-30'),
-          99.00,
+          99.0,
           'US',
           'USD',
         );
@@ -375,6 +379,49 @@ describe('MeteredBillingService', () => {
         expect(apiPricing?.includedUnits).toBe(1000000);
       });
 
+      it('should have a $0 pricing model for FREE plan (Faz B)', () => {
+        const pricingModel = service.getPricingModel(PlanTier.FREE);
+
+        expect(pricingModel).toBeDefined();
+        expect(pricingModel?.size).toBeGreaterThan(0);
+
+        // includedUnits sourced from the canonical PLAN_CATALOG FREE entry.
+        const apiPricing = pricingModel?.get(MeterType.API_CALLS);
+        expect(apiPricing?.includedUnits).toBe(1000);
+
+        // Every meter is priced at 0 on a single open-ended tier — no usage bills.
+        for (const model of pricingModel!.values()) {
+          expect(model.tiers.every((t) => t.pricePerUnit === 0)).toBe(true);
+        }
+      });
+
+      it('should NOT throw for FREE plan and bills $0 regardless of usage (Faz B)', async () => {
+        mockUsageAggregator.getAggregationsInRange.mockReturnValueOnce([
+          {
+            tenantId: 'tenant-free',
+            meterType: MeterType.API_CALLS,
+            totalUsage: 5_000_000,
+            period: AggregationPeriod.MONTHLY,
+          } as AggregatedUsage,
+        ]);
+
+        const result = await service.calculateBilling(
+          'sub-free',
+          'tenant-free',
+          PlanTier.FREE,
+          BillingCycle.MONTHLY,
+          new Date('2024-06-01'),
+          new Date('2024-06-30'),
+          0,
+          'US',
+          'USD',
+        );
+
+        expect(result.subtotalMetered).toBe(0);
+        expect(result.total).toBe(0);
+        expect(result.finalTotal).toBe(0);
+      });
+
       it('should throw error for unknown plan tier', async () => {
         await expect(
           service.calculateBilling(
@@ -384,7 +431,7 @@ describe('MeteredBillingService', () => {
             BillingCycle.MONTHLY,
             new Date('2024-06-01'),
             new Date('2024-06-30'),
-            99.00,
+            99.0,
             'US',
             'USD',
           ),
@@ -394,35 +441,57 @@ describe('MeteredBillingService', () => {
 
     describe('Volume-based Pricing', () => {
       it('should decrease per-unit cost at higher volumes', async () => {
-        const lowVolumeUsage = [{
-          tenantId: 'tenant-1',
-          meterType: MeterType.API_CALLS,
-          totalUsage: 30000,
-          period: AggregationPeriod.MONTHLY,
-        } as AggregatedUsage];
+        const lowVolumeUsage = [
+          {
+            tenantId: 'tenant-1',
+            meterType: MeterType.API_CALLS,
+            totalUsage: 30000,
+            period: AggregationPeriod.MONTHLY,
+          } as AggregatedUsage,
+        ];
 
-        const highVolumeUsage = [{
-          tenantId: 'tenant-1',
-          meterType: MeterType.API_CALLS,
-          totalUsage: 200000,
-          period: AggregationPeriod.MONTHLY,
-        } as AggregatedUsage];
+        const highVolumeUsage = [
+          {
+            tenantId: 'tenant-1',
+            meterType: MeterType.API_CALLS,
+            totalUsage: 200000,
+            period: AggregationPeriod.MONTHLY,
+          } as AggregatedUsage,
+        ];
 
         mockUsageAggregator.getAggregationsInRange.mockReturnValue(lowVolumeUsage);
         const lowCalc = await service.calculateBilling(
-          'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-          new Date('2024-06-01'), new Date('2024-06-30'), 0, 'US', 'USD',
+          'sub-1',
+          'tenant-1',
+          PlanTier.STARTER,
+          BillingCycle.MONTHLY,
+          new Date('2024-06-01'),
+          new Date('2024-06-30'),
+          0,
+          'US',
+          'USD',
         );
 
         service.clearCache();
         mockUsageAggregator.getAggregationsInRange.mockReturnValue(highVolumeUsage);
         const highCalc = await service.calculateBilling(
-          'sub-2', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-          new Date('2024-06-01'), new Date('2024-06-30'), 0, 'US', 'USD',
+          'sub-2',
+          'tenant-1',
+          PlanTier.STARTER,
+          BillingCycle.MONTHLY,
+          new Date('2024-06-01'),
+          new Date('2024-06-30'),
+          0,
+          'US',
+          'USD',
         );
 
-        const lowBreakdown = lowCalc.meterBreakdowns.find((b) => b.meterType === MeterType.API_CALLS);
-        const highBreakdown = highCalc.meterBreakdowns.find((b) => b.meterType === MeterType.API_CALLS);
+        const lowBreakdown = lowCalc.meterBreakdowns.find(
+          (b) => b.meterType === MeterType.API_CALLS,
+        );
+        const highBreakdown = highCalc.meterBreakdowns.find(
+          (b) => b.meterType === MeterType.API_CALLS,
+        );
 
         const lowCostPerUnit = lowBreakdown!.subtotal / lowBreakdown!.billableUnits;
         const highCostPerUnit = highBreakdown!.subtotal / highBreakdown!.billableUnits;
@@ -445,7 +514,7 @@ describe('MeteredBillingService', () => {
           'sub-1',
           'tenant-1',
           PlanTier.PROFESSIONAL,
-          199.00,
+          199.0,
           new Date('2024-06-01'),
           new Date('2024-06-30'),
           new Date('2024-06-15'), // Mid-cycle start
@@ -467,7 +536,7 @@ describe('MeteredBillingService', () => {
           'sub-1',
           'tenant-1',
           PlanTier.STARTER,
-          100.00,
+          100.0,
           new Date('2024-06-01'),
           new Date('2024-06-30'),
           new Date('2024-06-20'), // 10 days
@@ -491,7 +560,7 @@ describe('MeteredBillingService', () => {
           'sub-1',
           'tenant-1',
           PlanTier.STARTER,
-          99.00,
+          99.0,
           new Date('2024-06-01'),
           new Date('2024-06-30'),
           new Date('2024-06-01'),
@@ -513,7 +582,7 @@ describe('MeteredBillingService', () => {
           'sub-1',
           'tenant-1',
           PlanTier.STARTER,
-          99.00,
+          99.0,
           new Date('2024-06-01'),
           new Date('2024-06-30'),
           new Date('2024-06-10'),
@@ -524,7 +593,7 @@ describe('MeteredBillingService', () => {
         );
 
         expect(calculation.proRataAdjustment).toBeDefined();
-        expect(calculation.finalTotal).toBeLessThan(99.00);
+        expect(calculation.finalTotal).toBeLessThan(99.0);
       });
     });
 
@@ -536,7 +605,7 @@ describe('MeteredBillingService', () => {
           'sub-1',
           'tenant-1',
           PlanTier.STARTER,
-          99.00,
+          99.0,
           new Date('2024-06-01'),
           new Date('2024-06-30'),
           new Date('2024-06-01'),
@@ -555,7 +624,7 @@ describe('MeteredBillingService', () => {
       it('should calculate daily pro-rata accurately', async () => {
         mockUsageAggregator.getAggregationsInRange.mockReturnValue([]);
 
-        const baseFee = 100.00;
+        const baseFee = 100.0;
 
         const calculation = await service.calculateProRataBilling(
           'sub-1',
@@ -595,7 +664,7 @@ describe('MeteredBillingService', () => {
           BillingCycle.MONTHLY,
           new Date('2024-06-01'),
           new Date('2024-06-30'),
-          100.00,
+          100.0,
           'TR',
           'USD',
         );
@@ -603,7 +672,7 @@ describe('MeteredBillingService', () => {
         expect(calculation.taxes.length).toBeGreaterThan(0);
         expect(calculation.taxes[0]?.rate).toBe(18);
         expect(calculation.taxes[0]?.name).toBe('KDV');
-        expect(calculation.totalTax).toBe(18.00);
+        expect(calculation.totalTax).toBe(18.0);
       });
 
       it('should apply German VAT (19%)', async () => {
@@ -616,7 +685,7 @@ describe('MeteredBillingService', () => {
           BillingCycle.MONTHLY,
           new Date('2024-06-01'),
           new Date('2024-06-30'),
-          100.00,
+          100.0,
           'DE',
           'USD',
         );
@@ -635,7 +704,7 @@ describe('MeteredBillingService', () => {
           BillingCycle.MONTHLY,
           new Date('2024-06-01'),
           new Date('2024-06-30'),
-          100.00,
+          100.0,
           'GB',
           'USD',
         );
@@ -653,7 +722,7 @@ describe('MeteredBillingService', () => {
           BillingCycle.MONTHLY,
           new Date('2024-06-01'),
           new Date('2024-06-30'),
-          100.00,
+          100.0,
           'JP',
           'USD',
         );
@@ -671,7 +740,7 @@ describe('MeteredBillingService', () => {
           BillingCycle.MONTHLY,
           new Date('2024-06-01'),
           new Date('2024-06-30'),
-          100.00,
+          100.0,
           'AU',
           'USD',
         );
@@ -683,8 +752,15 @@ describe('MeteredBillingService', () => {
         mockUsageAggregator.getAggregationsInRange.mockReturnValue([]);
 
         const calcCA = await service.calculateBilling(
-          'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-          new Date('2024-06-01'), new Date('2024-06-30'), 100.00, 'US-CA', 'USD',
+          'sub-1',
+          'tenant-1',
+          PlanTier.STARTER,
+          BillingCycle.MONTHLY,
+          new Date('2024-06-01'),
+          new Date('2024-06-30'),
+          100.0,
+          'US-CA',
+          'USD',
         );
 
         expect(calcCA.taxes[0]?.rate).toBe(7.25);
@@ -700,7 +776,7 @@ describe('MeteredBillingService', () => {
           BillingCycle.MONTHLY,
           new Date('2024-06-01'),
           new Date('2024-06-30'),
-          100.00,
+          100.0,
           'US', // No federal sales tax
           'USD',
         );
@@ -754,7 +830,7 @@ describe('MeteredBillingService', () => {
           BillingCycle.MONTHLY,
           new Date('2024-06-01'),
           new Date('2024-06-30'),
-          100.00,
+          100.0,
           'TR',
           'USD',
         );
@@ -775,8 +851,15 @@ describe('MeteredBillingService', () => {
         mockUsageAggregator.getAggregationsInRange.mockReturnValue([]);
 
         const calculation = await service.calculateBilling(
-          'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-          new Date('2024-06-01'), new Date('2024-06-30'), 100.00, 'US', 'USD',
+          'sub-1',
+          'tenant-1',
+          PlanTier.STARTER,
+          BillingCycle.MONTHLY,
+          new Date('2024-06-01'),
+          new Date('2024-06-30'),
+          100.0,
+          'US',
+          'USD',
         );
 
         expect(calculation.currency).toBe('USD');
@@ -786,8 +869,15 @@ describe('MeteredBillingService', () => {
         mockUsageAggregator.getAggregationsInRange.mockReturnValue([]);
 
         const calculation = await service.calculateBilling(
-          'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-          new Date('2024-06-01'), new Date('2024-06-30'), 100.00, 'US', 'EUR',
+          'sub-1',
+          'tenant-1',
+          PlanTier.STARTER,
+          BillingCycle.MONTHLY,
+          new Date('2024-06-01'),
+          new Date('2024-06-30'),
+          100.0,
+          'US',
+          'EUR',
         );
 
         expect(calculation.currency).toBe('EUR');
@@ -798,8 +888,15 @@ describe('MeteredBillingService', () => {
         mockUsageAggregator.getAggregationsInRange.mockReturnValue([]);
 
         const calculation = await service.calculateBilling(
-          'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-          new Date('2024-06-01'), new Date('2024-06-30'), 100.00, 'TR', 'TRY',
+          'sub-1',
+          'tenant-1',
+          PlanTier.STARTER,
+          BillingCycle.MONTHLY,
+          new Date('2024-06-01'),
+          new Date('2024-06-30'),
+          100.0,
+          'TR',
+          'TRY',
         );
 
         expect(calculation.currency).toBe('TRY');
@@ -810,8 +907,15 @@ describe('MeteredBillingService', () => {
         mockUsageAggregator.getAggregationsInRange.mockReturnValue([]);
 
         const calculation = await service.calculateBilling(
-          'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-          new Date('2024-06-01'), new Date('2024-06-30'), 100.00, 'GB', 'GBP',
+          'sub-1',
+          'tenant-1',
+          PlanTier.STARTER,
+          BillingCycle.MONTHLY,
+          new Date('2024-06-01'),
+          new Date('2024-06-30'),
+          100.0,
+          'GB',
+          'GBP',
         );
 
         expect(calculation.currency).toBe('GBP');
@@ -821,8 +925,15 @@ describe('MeteredBillingService', () => {
         mockUsageAggregator.getAggregationsInRange.mockReturnValue([]);
 
         const calculation = await service.calculateBilling(
-          'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-          new Date('2024-06-01'), new Date('2024-06-30'), 100.00, 'JP', 'JPY',
+          'sub-1',
+          'tenant-1',
+          PlanTier.STARTER,
+          BillingCycle.MONTHLY,
+          new Date('2024-06-01'),
+          new Date('2024-06-30'),
+          100.0,
+          'JP',
+          'JPY',
         );
 
         expect(calculation.currency).toBe('JPY');
@@ -892,7 +1003,7 @@ describe('MeteredBillingService', () => {
         'tenant-1',
         PlanTier.STARTER,
         BillingCycle.MONTHLY,
-        99.00,
+        99.0,
         new Date('2024-06-01'),
         new Date('2024-06-30'),
         'US',
@@ -919,7 +1030,7 @@ describe('MeteredBillingService', () => {
         'tenant-1',
         PlanTier.STARTER,
         BillingCycle.MONTHLY,
-        99.00,
+        99.0,
         new Date('2024-06-01'),
         new Date('2024-06-30'),
         'US',
@@ -940,28 +1051,42 @@ describe('MeteredBillingService', () => {
       mockUsageAggregator.getAggregationsInRange.mockReturnValue([]);
 
       const calculation = await service.calculateBilling(
-        'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-        new Date('2024-06-01'), new Date('2024-06-30'), 100.00, 'US', 'USD',
+        'sub-1',
+        'tenant-1',
+        PlanTier.STARTER,
+        BillingCycle.MONTHLY,
+        new Date('2024-06-01'),
+        new Date('2024-06-30'),
+        100.0,
+        'US',
+        'USD',
       );
 
-      const withCredit = service.applyCredits(calculation, 25.00, 'Promotional credit');
+      const withCredit = service.applyCredits(calculation, 25.0, 'Promotional credit');
 
-      expect(withCredit.credits?.amount).toBe(25.00);
+      expect(withCredit.credits?.amount).toBe(25.0);
       expect(withCredit.credits?.reason).toBe('Promotional credit');
-      expect(withCredit.finalTotal).toBe(75.00);
+      expect(withCredit.finalTotal).toBe(75.0);
     });
 
     it('should not apply credit greater than total', async () => {
       mockUsageAggregator.getAggregationsInRange.mockReturnValue([]);
 
       const calculation = await service.calculateBilling(
-        'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-        new Date('2024-06-01'), new Date('2024-06-30'), 50.00, 'US', 'USD',
+        'sub-1',
+        'tenant-1',
+        PlanTier.STARTER,
+        BillingCycle.MONTHLY,
+        new Date('2024-06-01'),
+        new Date('2024-06-30'),
+        50.0,
+        'US',
+        'USD',
       );
 
-      const withCredit = service.applyCredits(calculation, 100.00, 'Large credit');
+      const withCredit = service.applyCredits(calculation, 100.0, 'Large credit');
 
-      expect(withCredit.credits?.amount).toBe(50.00); // Capped at total
+      expect(withCredit.credits?.amount).toBe(50.0); // Capped at total
       expect(withCredit.finalTotal).toBe(0);
     });
   });
@@ -971,37 +1096,58 @@ describe('MeteredBillingService', () => {
       mockUsageAggregator.getAggregationsInRange.mockReturnValue([]);
 
       const calculation = await service.calculateBilling(
-        'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-        new Date('2024-06-01'), new Date('2024-06-30'), 100.00, 'US', 'USD',
+        'sub-1',
+        'tenant-1',
+        PlanTier.STARTER,
+        BillingCycle.MONTHLY,
+        new Date('2024-06-01'),
+        new Date('2024-06-30'),
+        100.0,
+        'US',
+        'USD',
       );
 
       const withDiscount = service.applyDiscount(calculation, 'SAVE20', 'percentage', 20);
 
       expect(withDiscount.discounts?.[0]?.code).toBe('SAVE20');
       expect(withDiscount.discounts?.[0]?.type).toBe('percentage');
-      expect(withDiscount.discounts?.[0]?.amount).toBe(20.00);
+      expect(withDiscount.discounts?.[0]?.amount).toBe(20.0);
     });
 
     it('should apply fixed amount discount', async () => {
       mockUsageAggregator.getAggregationsInRange.mockReturnValue([]);
 
       const calculation = await service.calculateBilling(
-        'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-        new Date('2024-06-01'), new Date('2024-06-30'), 100.00, 'US', 'USD',
+        'sub-1',
+        'tenant-1',
+        PlanTier.STARTER,
+        BillingCycle.MONTHLY,
+        new Date('2024-06-01'),
+        new Date('2024-06-30'),
+        100.0,
+        'US',
+        'USD',
       );
 
       const withDiscount = service.applyDiscount(calculation, 'FLAT25', 'fixed', 25);
 
       expect(withDiscount.discounts?.[0]?.type).toBe('fixed');
-      expect(withDiscount.discounts?.[0]?.amount).toBe(25.00);
+      expect(withDiscount.discounts?.[0]?.amount).toBe(25.0);
     });
 
     it('should recalculate tax after discount', async () => {
       mockUsageAggregator.getAggregationsInRange.mockReturnValue([]);
 
       const calculation = await service.calculateBilling(
-        'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-        new Date('2024-06-01'), new Date('2024-06-30'), 100.00, 'TR', 'USD',
+        'sub-1',
+        'tenant-1',
+        PlanTier.STARTER,
+        BillingCycle.MONTHLY,
+        new Date('2024-06-01'),
+        new Date('2024-06-30'),
+        100.0,
+        'TR',
+        'USD',
       );
 
       const originalTax = calculation.totalTax;
@@ -1010,15 +1156,22 @@ describe('MeteredBillingService', () => {
 
       // Tax should be recalculated on discounted amount
       expect(withDiscount.totalTax).toBeLessThan(originalTax);
-      expect(withDiscount.totalTax).toBeCloseTo(9.00, 2); // 18% of 50
+      expect(withDiscount.totalTax).toBeCloseTo(9.0, 2); // 18% of 50
     });
 
     it('should apply multiple discounts', async () => {
       mockUsageAggregator.getAggregationsInRange.mockReturnValue([]);
 
       const calculation = await service.calculateBilling(
-        'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-        new Date('2024-06-01'), new Date('2024-06-30'), 100.00, 'US', 'USD',
+        'sub-1',
+        'tenant-1',
+        PlanTier.STARTER,
+        BillingCycle.MONTHLY,
+        new Date('2024-06-01'),
+        new Date('2024-06-30'),
+        100.0,
+        'US',
+        'USD',
       );
 
       let withDiscounts = service.applyDiscount(calculation, 'FIRST10', 'percentage', 10);
@@ -1036,13 +1189,27 @@ describe('MeteredBillingService', () => {
       mockUsageAggregator.getAggregationsInRange.mockReturnValue([]);
 
       const first = await service.calculateBilling(
-        'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-        new Date('2024-06-01'), new Date('2024-06-30'), 100.00, 'US', 'USD',
+        'sub-1',
+        'tenant-1',
+        PlanTier.STARTER,
+        BillingCycle.MONTHLY,
+        new Date('2024-06-01'),
+        new Date('2024-06-30'),
+        100.0,
+        'US',
+        'USD',
       );
 
       const second = await service.calculateBilling(
-        'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-        new Date('2024-06-01'), new Date('2024-06-30'), 100.00, 'US', 'USD',
+        'sub-1',
+        'tenant-1',
+        PlanTier.STARTER,
+        BillingCycle.MONTHLY,
+        new Date('2024-06-01'),
+        new Date('2024-06-30'),
+        100.0,
+        'US',
+        'USD',
       );
 
       // Should return cached result
@@ -1053,15 +1220,29 @@ describe('MeteredBillingService', () => {
       mockUsageAggregator.getAggregationsInRange.mockReturnValue([]);
 
       await service.calculateBilling(
-        'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-        new Date('2024-06-01'), new Date('2024-06-30'), 100.00, 'US', 'USD',
+        'sub-1',
+        'tenant-1',
+        PlanTier.STARTER,
+        BillingCycle.MONTHLY,
+        new Date('2024-06-01'),
+        new Date('2024-06-30'),
+        100.0,
+        'US',
+        'USD',
       );
 
       service.clearCache('sub-1');
 
       await service.calculateBilling(
-        'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-        new Date('2024-06-01'), new Date('2024-06-30'), 100.00, 'US', 'USD',
+        'sub-1',
+        'tenant-1',
+        PlanTier.STARTER,
+        BillingCycle.MONTHLY,
+        new Date('2024-06-01'),
+        new Date('2024-06-30'),
+        100.0,
+        'US',
+        'USD',
       );
 
       expect(mockUsageAggregator.getAggregationsInRange).toHaveBeenCalledTimes(2);
@@ -1071,20 +1252,41 @@ describe('MeteredBillingService', () => {
       mockUsageAggregator.getAggregationsInRange.mockReturnValue([]);
 
       await service.calculateBilling(
-        'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-        new Date('2024-06-01'), new Date('2024-06-30'), 100.00, 'US', 'USD',
+        'sub-1',
+        'tenant-1',
+        PlanTier.STARTER,
+        BillingCycle.MONTHLY,
+        new Date('2024-06-01'),
+        new Date('2024-06-30'),
+        100.0,
+        'US',
+        'USD',
       );
 
       await service.calculateBilling(
-        'sub-2', 'tenant-2', PlanTier.STARTER, BillingCycle.MONTHLY,
-        new Date('2024-06-01'), new Date('2024-06-30'), 100.00, 'US', 'USD',
+        'sub-2',
+        'tenant-2',
+        PlanTier.STARTER,
+        BillingCycle.MONTHLY,
+        new Date('2024-06-01'),
+        new Date('2024-06-30'),
+        100.0,
+        'US',
+        'USD',
       );
 
       service.clearCache();
 
       await service.calculateBilling(
-        'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-        new Date('2024-06-01'), new Date('2024-06-30'), 100.00, 'US', 'USD',
+        'sub-1',
+        'tenant-1',
+        PlanTier.STARTER,
+        BillingCycle.MONTHLY,
+        new Date('2024-06-01'),
+        new Date('2024-06-30'),
+        100.0,
+        'US',
+        'USD',
       );
 
       expect(mockUsageAggregator.getAggregationsInRange).toHaveBeenCalledTimes(3);
@@ -1099,8 +1301,15 @@ describe('MeteredBillingService', () => {
       mockUsageAggregator.getAggregationsInRange.mockReturnValue([]);
 
       await service.calculateBilling(
-        'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-        new Date('2024-06-01'), new Date('2024-06-30'), 100.00, 'US', 'USD',
+        'sub-1',
+        'tenant-1',
+        PlanTier.STARTER,
+        BillingCycle.MONTHLY,
+        new Date('2024-06-01'),
+        new Date('2024-06-30'),
+        100.0,
+        'US',
+        'USD',
       );
 
       expect(mockEventEmitter.emit).toHaveBeenCalledWith(
@@ -1116,10 +1325,17 @@ describe('MeteredBillingService', () => {
       mockUsageAggregator.getAggregationsInRange.mockReturnValue([]);
 
       await service.calculateProRataBilling(
-        'sub-1', 'tenant-1', PlanTier.STARTER, 100.00,
-        new Date('2024-06-01'), new Date('2024-06-30'),
-        new Date('2024-06-15'), new Date('2024-06-30'),
-        'upgrade', 'US', 'USD',
+        'sub-1',
+        'tenant-1',
+        PlanTier.STARTER,
+        100.0,
+        new Date('2024-06-01'),
+        new Date('2024-06-30'),
+        new Date('2024-06-15'),
+        new Date('2024-06-30'),
+        'upgrade',
+        'US',
+        'USD',
       );
 
       expect(mockEventEmitter.emit).toHaveBeenCalledWith(
@@ -1153,8 +1369,15 @@ describe('MeteredBillingService', () => {
       mockUsageAggregator.getAggregationsInRange.mockReturnValue([]);
 
       const calculation = await service.calculateBilling(
-        'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-        new Date('2024-06-01'), new Date('2024-06-30'), 99.00, 'US', 'USD',
+        'sub-1',
+        'tenant-1',
+        PlanTier.STARTER,
+        BillingCycle.MONTHLY,
+        new Date('2024-06-01'),
+        new Date('2024-06-30'),
+        99.0,
+        'US',
+        'USD',
       );
 
       expect(calculation).toBeDefined();
@@ -1164,8 +1387,15 @@ describe('MeteredBillingService', () => {
       mockUsageAggregator.getAggregationsInRange.mockReturnValue([]);
 
       const calculation = await service.calculateBilling(
-        'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.QUARTERLY,
-        new Date('2024-04-01'), new Date('2024-06-30'), 297.00, 'US', 'USD',
+        'sub-1',
+        'tenant-1',
+        PlanTier.STARTER,
+        BillingCycle.QUARTERLY,
+        new Date('2024-04-01'),
+        new Date('2024-06-30'),
+        297.0,
+        'US',
+        'USD',
       );
 
       expect(calculation).toBeDefined();
@@ -1175,8 +1405,15 @@ describe('MeteredBillingService', () => {
       mockUsageAggregator.getAggregationsInRange.mockReturnValue([]);
 
       const calculation = await service.calculateBilling(
-        'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.ANNUAL,
-        new Date('2024-01-01'), new Date('2024-12-31'), 1188.00, 'US', 'USD',
+        'sub-1',
+        'tenant-1',
+        PlanTier.STARTER,
+        BillingCycle.ANNUAL,
+        new Date('2024-01-01'),
+        new Date('2024-12-31'),
+        1188.0,
+        'US',
+        'USD',
       );
 
       expect(calculation).toBeDefined();
@@ -1189,14 +1426,33 @@ describe('MeteredBillingService', () => {
   describe('Meter Breakdowns', () => {
     it('should include all meter types in breakdown', async () => {
       mockUsageAggregator.getAggregationsInRange.mockReturnValue([
-        { tenantId: 'tenant-1', meterType: MeterType.API_CALLS, totalUsage: 50000 } as AggregatedUsage,
-        { tenantId: 'tenant-1', meterType: MeterType.DATA_STORAGE, totalUsage: 20 } as AggregatedUsage,
-        { tenantId: 'tenant-1', meterType: MeterType.SENSOR_READINGS, totalUsage: 500000 } as AggregatedUsage,
+        {
+          tenantId: 'tenant-1',
+          meterType: MeterType.API_CALLS,
+          totalUsage: 50000,
+        } as AggregatedUsage,
+        {
+          tenantId: 'tenant-1',
+          meterType: MeterType.DATA_STORAGE,
+          totalUsage: 20,
+        } as AggregatedUsage,
+        {
+          tenantId: 'tenant-1',
+          meterType: MeterType.SENSOR_READINGS,
+          totalUsage: 500000,
+        } as AggregatedUsage,
       ]);
 
       const calculation = await service.calculateBilling(
-        'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-        new Date('2024-06-01'), new Date('2024-06-30'), 99.00, 'US', 'USD',
+        'sub-1',
+        'tenant-1',
+        PlanTier.STARTER,
+        BillingCycle.MONTHLY,
+        new Date('2024-06-01'),
+        new Date('2024-06-30'),
+        99.0,
+        'US',
+        'USD',
       );
 
       expect(calculation.meterBreakdowns.length).toBeGreaterThan(0);
@@ -1209,12 +1465,23 @@ describe('MeteredBillingService', () => {
 
     it('should include tier breakdown for each meter', async () => {
       mockUsageAggregator.getAggregationsInRange.mockReturnValue([
-        { tenantId: 'tenant-1', meterType: MeterType.API_CALLS, totalUsage: 100000 } as AggregatedUsage,
+        {
+          tenantId: 'tenant-1',
+          meterType: MeterType.API_CALLS,
+          totalUsage: 100000,
+        } as AggregatedUsage,
       ]);
 
       const calculation = await service.calculateBilling(
-        'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-        new Date('2024-06-01'), new Date('2024-06-30'), 99.00, 'US', 'USD',
+        'sub-1',
+        'tenant-1',
+        PlanTier.STARTER,
+        BillingCycle.MONTHLY,
+        new Date('2024-06-01'),
+        new Date('2024-06-30'),
+        99.0,
+        'US',
+        'USD',
       );
 
       const apiBreakdown = calculation.meterBreakdowns.find(
@@ -1227,12 +1494,23 @@ describe('MeteredBillingService', () => {
 
     it('should show correct units in breakdown', async () => {
       mockUsageAggregator.getAggregationsInRange.mockReturnValue([
-        { tenantId: 'tenant-1', meterType: MeterType.API_CALLS, totalUsage: 50000 } as AggregatedUsage,
+        {
+          tenantId: 'tenant-1',
+          meterType: MeterType.API_CALLS,
+          totalUsage: 50000,
+        } as AggregatedUsage,
       ]);
 
       const calculation = await service.calculateBilling(
-        'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-        new Date('2024-06-01'), new Date('2024-06-30'), 99.00, 'US', 'USD',
+        'sub-1',
+        'tenant-1',
+        PlanTier.STARTER,
+        BillingCycle.MONTHLY,
+        new Date('2024-06-01'),
+        new Date('2024-06-30'),
+        99.0,
+        'US',
+        'USD',
       );
 
       const apiBreakdown = calculation.meterBreakdowns.find(
@@ -1251,12 +1529,23 @@ describe('MeteredBillingService', () => {
   describe('Edge Cases', () => {
     it('should handle very large usage numbers', async () => {
       mockUsageAggregator.getAggregationsInRange.mockReturnValue([
-        { tenantId: 'tenant-1', meterType: MeterType.API_CALLS, totalUsage: 100000000 } as AggregatedUsage,
+        {
+          tenantId: 'tenant-1',
+          meterType: MeterType.API_CALLS,
+          totalUsage: 100000000,
+        } as AggregatedUsage,
       ]);
 
       const calculation = await service.calculateBilling(
-        'sub-1', 'tenant-1', PlanTier.ENTERPRISE, BillingCycle.MONTHLY,
-        new Date('2024-06-01'), new Date('2024-06-30'), 999.00, 'US', 'USD',
+        'sub-1',
+        'tenant-1',
+        PlanTier.ENTERPRISE,
+        BillingCycle.MONTHLY,
+        new Date('2024-06-01'),
+        new Date('2024-06-30'),
+        999.0,
+        'US',
+        'USD',
       );
 
       expect(calculation.subtotalMetered).toBeGreaterThan(0);
@@ -1265,12 +1554,23 @@ describe('MeteredBillingService', () => {
 
     it('should handle decimal usage values', async () => {
       mockUsageAggregator.getAggregationsInRange.mockReturnValue([
-        { tenantId: 'tenant-1', meterType: MeterType.DATA_STORAGE, totalUsage: 10.5 } as AggregatedUsage,
+        {
+          tenantId: 'tenant-1',
+          meterType: MeterType.DATA_STORAGE,
+          totalUsage: 10.5,
+        } as AggregatedUsage,
       ]);
 
       const calculation = await service.calculateBilling(
-        'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-        new Date('2024-06-01'), new Date('2024-06-30'), 99.00, 'US', 'USD',
+        'sub-1',
+        'tenant-1',
+        PlanTier.STARTER,
+        BillingCycle.MONTHLY,
+        new Date('2024-06-01'),
+        new Date('2024-06-30'),
+        99.0,
+        'US',
+        'USD',
       );
 
       const storageBreakdown = calculation.meterBreakdowns.find(
@@ -1282,12 +1582,23 @@ describe('MeteredBillingService', () => {
 
     it('should handle zero base plan fee', async () => {
       mockUsageAggregator.getAggregationsInRange.mockReturnValue([
-        { tenantId: 'tenant-1', meterType: MeterType.API_CALLS, totalUsage: 50000 } as AggregatedUsage,
+        {
+          tenantId: 'tenant-1',
+          meterType: MeterType.API_CALLS,
+          totalUsage: 50000,
+        } as AggregatedUsage,
       ]);
 
       const calculation = await service.calculateBilling(
-        'sub-1', 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-        new Date('2024-06-01'), new Date('2024-06-30'), 0, 'US', 'USD',
+        'sub-1',
+        'tenant-1',
+        PlanTier.STARTER,
+        BillingCycle.MONTHLY,
+        new Date('2024-06-01'),
+        new Date('2024-06-30'),
+        0,
+        'US',
+        'USD',
       );
 
       expect(calculation.basePlanFee).toBe(0);
@@ -1299,8 +1610,15 @@ describe('MeteredBillingService', () => {
 
       const promises = Array.from({ length: 10 }, (_, i) =>
         service.calculateBilling(
-          `sub-${i}`, 'tenant-1', PlanTier.STARTER, BillingCycle.MONTHLY,
-          new Date('2024-06-01'), new Date('2024-06-30'), 99.00, 'US', 'USD',
+          `sub-${i}`,
+          'tenant-1',
+          PlanTier.STARTER,
+          BillingCycle.MONTHLY,
+          new Date('2024-06-01'),
+          new Date('2024-06-30'),
+          99.0,
+          'US',
+          'USD',
         ),
       );
 

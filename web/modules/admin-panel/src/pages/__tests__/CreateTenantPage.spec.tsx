@@ -188,7 +188,9 @@ describe('CreateTenantPage', () => {
 
   it('submits a provisioning operation with idempotency and full module quantities', async () => {
     const user = userEvent.setup();
-    vi.mocked(tenantsApi.create).mockResolvedValue(accepted(TenantProvisioningState.SUCCEEDED) as never);
+    vi.mocked(tenantsApi.create).mockResolvedValue(
+      accepted(TenantProvisioningState.SUCCEEDED) as never,
+    );
 
     renderWithRouter();
     await completeFormToReview(user);
@@ -229,7 +231,9 @@ describe('CreateTenantPage', () => {
 
   it('shows an in-progress provisioning operation and refreshes to success', async () => {
     const user = userEvent.setup();
-    vi.mocked(tenantsApi.create).mockResolvedValue(accepted(TenantProvisioningState.RUNNING) as never);
+    vi.mocked(tenantsApi.create).mockResolvedValue(
+      accepted(TenantProvisioningState.RUNNING) as never,
+    );
     vi.mocked(tenantsApi.getProvisioningOperationByStatusUrl).mockResolvedValue(
       accepted(TenantProvisioningState.SUCCEEDED) as never,
     );
@@ -239,7 +243,9 @@ describe('CreateTenantPage', () => {
     await user.click(screen.getByRole('button', { name: /create tenant/i }));
 
     expect(await screen.findByText('Tenant Provisioning')).toBeTruthy();
-    expect(screen.getByText('/tenants/provisioning/22222222-2222-4222-8222-222222222222')).toBeTruthy();
+    expect(
+      screen.getByText('/tenants/provisioning/22222222-2222-4222-8222-222222222222'),
+    ).toBeTruthy();
 
     await user.click(screen.getByRole('button', { name: /refresh/i }));
 
@@ -282,5 +288,58 @@ describe('CreateTenantPage', () => {
     await user.click(await screen.findByRole('button', { name: /cancel/i }));
 
     expect(mockNavigate).toHaveBeenCalledWith('/admin/tenants');
+  });
+
+  it('provisions a FREE tenant at $0 with no trial and no free→starter coercion (Faz B)', async () => {
+    const user = userEvent.setup();
+    vi.mocked(tenantsApi.create).mockResolvedValue(
+      accepted(TenantProvisioningState.SUCCEEDED) as never,
+    );
+
+    renderWithRouter();
+    await screen.findByText('Create New Tenant');
+
+    // Step 1 — basic info
+    await user.type(screen.getByLabelText(/company name/i), 'Free Co');
+    await user.type(screen.getByLabelText(/domain/i), 'free.example.com');
+    await user.type(screen.getByLabelText(/country/i), 'tr');
+    await user.click(screen.getByRole('button', { name: /continue/i }));
+
+    // Step 2 — admin contact
+    await screen.findByText('Admin Information');
+    await user.type(screen.getByLabelText(/full name/i), 'Free Admin');
+    await user.type(screen.getByLabelText(/e-posta/i), 'free@example.com');
+    await user.click(screen.getByRole('button', { name: /continue/i }));
+
+    // Step 3 — select the Free tier, then enable a PAID module
+    await screen.findByText('Module Selection & Pricing');
+    await user.click(screen.getByRole('radio', { name: /free/i }));
+    // Banner text unique to the FREE-selected Alert (the radio option description
+    // also mentions "permanent $0", so match the allowances line instead).
+    expect(screen.getByText(/included allowances/i)).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: /enable farm management/i }));
+
+    // Price summary is $0.00 even though a $100-base module is enabled.
+    await waitFor(() => {
+      expect(screen.getByText('Monthly Total')).toBeTruthy();
+    });
+    expect(screen.getAllByText(/\$0\.00/).length).toBeGreaterThan(0);
+
+    // Submit
+    await user.click(screen.getByRole('button', { name: /continue/i }));
+    await screen.findByRole('heading', { name: 'Confirmation' });
+    await user.click(screen.getByRole('button', { name: /create tenant/i }));
+
+    await waitFor(() => {
+      expect(tenantsApi.create).toHaveBeenCalledTimes(1);
+    });
+
+    const createArg = vi.mocked(tenantsApi.create).mock.calls[0][0];
+    // The real tier passes through (no free→STARTER coercion) ...
+    expect(createArg.tier).toBe(TenantTier.FREE);
+    // ... and FREE is never a trial.
+    expect(createArg.trialDays).toBeUndefined();
+    expect(createArg.moduleIds).toEqual(['module-farm']);
   });
 });

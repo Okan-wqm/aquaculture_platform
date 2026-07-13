@@ -125,4 +125,32 @@ describe('INVARIANT (SSOT-C-13): PLAN_CATALOG is the only per-plan limits catalo
       );
     }
   });
+
+  // ── Faz D (D9): the admin-api projection derives from PLAN_CATALOG ──────────
+  // admin's 17-field PlanLimits shape is now produced by a projection util
+  // symmetric with billing's `billingPlanLimitsFor`. Proving the util DERIVES
+  // its numbers from the canonical resolver (rather than snapshotting values) is
+  // stronger than a value comparison: the numbers CANNOT drift because they are
+  // computed from the SSoT at every call. The map-detection test above already
+  // guards the whole tree, including this util, against a re-hardcoded catalog.
+  it('the admin plan-limits projection derives from PLAN_CATALOG (no drifted numbers)', () => {
+    const UTIL_REL = 'apps/admin-api-service/src/billing/plan-limits.util.ts';
+    const util = readFileSync(resolve(REPO_ROOT, UTIL_REL), 'utf8');
+
+    // (a) it projects from the canonical resolver, not a local table.
+    expect(util).toMatch(/resolvePlanLimits\s*\(/);
+    // (b) it applies the single admin field-name divergence maxStorageGb → storageGB.
+    expect(util).toMatch(/storageGB\s*:\s*limits\.maxStorageGb/);
+    // (c) the billing-only CUSTOM tier maps to a real TenantPlan catalog key
+    //     (it has no catalog entry of its own — inherits ENTERPRISE by default).
+    expect(util).toMatch(/\[BillingPlanTier\.CUSTOM\]\s*:\s*TenantPlan\.\w+/);
+    // (d) it declares NO hard-coded per-plan numeric limit — every number comes
+    //     from resolvePlanLimits(), so admin cannot silently drift from billing.
+    expect(util).not.toMatch(/\bmax(?:Users|Farms|Ponds|Sensors|Modules)\s*:\s*-?\d+/);
+    // (e) the service delegates to the util rather than re-projecting inline.
+    const SERVICE_REL =
+      'apps/admin-api-service/src/billing/services/plan-definition.service.ts';
+    const service = readFileSync(resolve(REPO_ROOT, SERVICE_REL), 'utf8');
+    expect(service).toMatch(/return\s+adminPlanLimitsFor\s*\(\s*tier\s*\)/);
+  });
 });

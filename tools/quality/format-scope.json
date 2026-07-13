@@ -1311,6 +1311,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/billing/plan-limits.util.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/billing/seed-module-pricing.service.ts",
       "prettier_managed": true
     },
@@ -36838,6 +36844,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/billing/billing-plan-tier.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/billing/plan-catalog.ts",
       "prettier_managed": true
     },
@@ -41305,6 +41317,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/three-store-invariants.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/tier-enum-ssot.spec.ts",
       "prettier_managed": true
     },
     {
@@ -53910,10 +53928,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8834,
+  "file_count": 8837,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8653,
-  "managed_file_list_sha256": "dc6ead9dac23d5b5bf535cbf59328062432ef41c4c88ce4a307f3bfeeb9d9cc8",
+  "managed_count": 8656,
+  "managed_file_list_sha256": "54427043f7cb0dfffad4ba11a27c2da058af3167a5b746c0347c998176890e39",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

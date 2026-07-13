@@ -111,8 +111,25 @@ queue-then-invalidate only. Fix: Faz 3.3.
 
 ### MOB-MEDIUM-012 — zero list virtualization
 No react-window/react-virtual anywhere; chat history, notifications, tank and
-stock lists render fully — jank/memory risk on low-end field devices. Fix:
-Faz 4.1.
+stock lists render fully — jank/memory risk on low-end field devices.
+Resolution split (2026-07-12): the shared VirtualList (@tanstack/react-virtual,
+dynamic measurement) now backs the lists that grow without user action —
+notifications and the stock SKU pickers (StockMovement/StockTransfer). The
+home tank cards deliberately stay plain (bounded by physical farm size;
+nesting a scroll region inside the dashboard hurts one-handed use more than a
+few dozen cards hurt memory — rationale on VirtualList). Chat-history
+virtualization is carved out as MOB-MEDIUM-015 below.
+
+### MOB-MEDIUM-015 — ChatRoomPage message-list virtualization needs browser-verified delivery
+The chat DOM is bounded only by user-driven pagination (each "load older" adds
+a page; a determined scroll mounts thousands of nodes). Virtualizing it means
+rewriting reverse-scroll anchoring (scrollHeight-delta restoration on prepend),
+at-bottom detection feeding the read-cursor advance (Wave-6 M2), and optimistic
+send pinning — semantics that CANNOT be verified blind: they need the
+messaging-smoke Playwright lane (this branch) running against a live stack.
+OWNER: messaging-expert lane / aquamobil maintainers. DEADLINE: 2026-08-15.
+STATUS: OPEN. Guard when delivered: extend e2e/tests/mobile/messaging-smoke.spec.ts
+with a long-history scroll case.
 
 ### MOB-HIGH-013 — zero browser E2E coverage for the mobile app
 The repo Playwright suite has no aquamobil/`/mobile/` reference; mobile is

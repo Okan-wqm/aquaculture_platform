@@ -11,6 +11,14 @@
  * (MOB-MEDIUM-002): it passes via the foreground auto-sync lane and pins that
  * behavior so the service-worker replay work cannot regress the reopened-app
  * path it builds on.
+ *
+ * CLOSED-APP VARIANT — documented limitation: Playwright cannot fire a
+ * Background Sync `sync` event into a service worker with zero window clients
+ * (no CDP surface for SyncManager), so the SW replay lane is not browser-
+ * drivable. It is guarded instead by its unit contract
+ * (web/apps/aquamobil/src/pwa/__tests__/sw-replay.spec.ts — zero-client gate,
+ * cookie refresh, tenant scoping, blob skip) plus the sw-build-artifact
+ * invariant proving the replay code ships in dist/messaging-sw.js.
  */
 
 import { test, expect } from '@playwright/test';

@@ -29,6 +29,7 @@ import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { BarcodeScanButton } from '@/components/BarcodeScanButton';
+import { VirtualList } from '@/components/VirtualList';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
@@ -423,10 +424,15 @@ export function StockTransferPage(): JSX.Element {
                     <p className="text-sm">No items found</p>
                   </div>
                 ) : (
-                  <div className="space-y-2 max-h-[40vh] overflow-y-auto">
-                    {filteredItems.map((item) => (
+                  /* MOB-MEDIUM-012: virtualized — inventories can be hundreds of SKUs. */
+                  <VirtualList
+                    items={filteredItems}
+                    getKey={(item) => item.id}
+                    estimateSize={() => 72}
+                    gapPx={8}
+                    className="max-h-[40vh]"
+                    renderItem={(item) => (
                       <button
-                        key={item.id}
                         onClick={() => setSelectedItemId(item.id)}
                         className={clsx(
                           'w-full p-3.5 rounded-xl border-2 text-left transition-all touch-feedback',
@@ -445,8 +451,8 @@ export function StockTransferPage(): JSX.Element {
                           {item.code} &middot; {item.unit}
                         </span>
                       </button>
-                    ))}
-                  </div>
+                    )}
+                  />
                 )}
               </>
             )}

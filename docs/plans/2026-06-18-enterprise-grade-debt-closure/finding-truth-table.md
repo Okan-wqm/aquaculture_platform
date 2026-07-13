@@ -35,12 +35,18 @@ the active table below (the table mirrors `active_critical_ids` exactly; the
 contract invariant enforces the bijection). 8 active CRITICALs remain.
 
 Updated 2026-07-12: reconciling the unified-SCADA-editor audit entries (PR #941)
-onto the chain adds three active CRITICALs whose fixes land in that same PR but
-whose registry rows stay IN-PROGRESS until the post-merge close ceremony records
-a main-reachable closing commit (PROC-HIGH-001, `close` refuses branch-local
-SHAs): `SENSOR-CRITICAL-004` (WS RS256→HS256 confusion bypass),
-`SENSOR-CRITICAL-005` (TAG_WRITE tenant fence), `SENSOR-CRITICAL-006`
-(server-side control-security PIN). All three are `already-fixed-needs-close`.
+onto the chain temporarily added three active CRITICALs
+(`SENSOR-CRITICAL-004/005/006`) as `already-fixed-needs-close` while their
+registry rows awaited the post-merge close ceremony.
+
+Updated 2026-07-12 (close ceremony): PR #941 merged to main
+(merge `f8974ea3`, a true merge — every fix commit is main-reachable), and the
+post-merge close ceremony recorded a main-reachable closing commit for each of
+the 42 findings that PR fixed. `SENSOR-CRITICAL-004` (68299d3d),
+`SENSOR-CRITICAL-005` (a5edc846), and `SENSOR-CRITICAL-006` (ed3685e8) are now
+RESOLVED and leave the active table below (the table mirrors
+`active_critical_ids` exactly; the contract invariant enforces the bijection).
+8 active CRITICALs remain.
 
 Allowed truth buckets:
 
@@ -61,9 +67,6 @@ Allowed truth buckets:
 | `DATA-CRITICAL-001`  | OPEN           | —            | data-expert  | real-open    |
 | `FARM-CRITICAL-153`  | OPEN           | 4.1          | farm-expert  | already-fixed-needs-close |
 | `INFRA-CRITICAL-039` | OPEN           | —            | infra-expert | already-fixed-needs-close |
-| `SENSOR-CRITICAL-004` | IN-PROGRESS   | —            | sensor-expert | already-fixed-needs-close |
-| `SENSOR-CRITICAL-005` | IN-PROGRESS   | —            | sensor-expert | already-fixed-needs-close |
-| `SENSOR-CRITICAL-006` | IN-PROGRESS   | —            | sensor-expert | already-fixed-needs-close |
 
 ## Mutation Rules
 

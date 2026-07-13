@@ -1,6 +1,12 @@
 import * as crypto from 'crypto';
 
-import { BadRequestException, ConflictException, Controller, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Controller,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import {
@@ -36,7 +42,12 @@ import { RefundPaymentInput } from '../dto/refund-payment.input';
 import { Invoice } from '../entities/invoice.entity';
 import { Payment, PaymentMethod } from '../entities/payment.entity';
 import { Plan } from '../entities/plan.entity';
-import { BillingCycle, PlanTier, Subscription, SubscriptionStatus } from '../entities/subscription.entity';
+import {
+  BillingCycle,
+  PlanTier,
+  Subscription,
+  SubscriptionStatus,
+} from '../entities/subscription.entity';
 
 interface TenantLookupRow {
   tenantId: string;
@@ -110,6 +121,7 @@ export class BillingAdminNatsHandler {
       billingCycle: command.billingCycle,
       moduleIds: command.moduleIds,
       moduleQuantities: command.moduleQuantities,
+      moduleItems: command.moduleItems,
       trialDays: command.trialDays,
       catalogVersionId: command.catalogVersionId,
       quoteId: command.quoteId,
@@ -117,8 +129,19 @@ export class BillingAdminNatsHandler {
     });
 
     try {
+      // Boundary validation (ORPHAN-CRITICAL-393): admin-api resolves each
+      // module's code/name/price and passes priced `moduleItems`. If a command
+      // selects modules but carries no resolved items, reject at the boundary
+      // (VALIDATION_ERROR) — before the transaction opens, never mid-transaction
+      // after a subscription row is written (the silent-rollback class removed).
+      this.assertProvisioningModuleItems(command);
       return await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
-        const receipt = await this.prepareBillingReceipt(manager, command, commandType, payloadHash);
+        const receipt = await this.prepareBillingReceipt(
+          manager,
+          command,
+          commandType,
+          payloadHash,
+        );
         if (receipt.status === 'SUCCEEDED') {
           return this.replayProvisioningResult(manager, command, receipt);
         }
@@ -135,12 +158,21 @@ export class BillingAdminNatsHandler {
           });
         }
 
-        const subscription = await this.createProvisioningSubscription(manager, command, plan);
+        // The subscription's recurring price is the sum of its priced module
+        // items (the scheduler bills solely off pricing.basePrice), so compute
+        // it from the command's real module totals — never the catalog base
+        // alone, which ignored the selected modules (ORPHAN-HIGH-394).
+        const moduleItemsMonthlyTotal = this.sumModuleItemsTotal(command.moduleItems);
+        const subscription = await this.createProvisioningSubscription(
+          manager,
+          command,
+          plan,
+          moduleItemsMonthlyTotal,
+        );
         const moduleItemCount = await this.reconcileSubscriptionModuleItems(
           manager,
           subscription.id,
-          command.moduleIds,
-          command.moduleQuantities,
+          command.moduleItems,
           plan.currency,
         );
 
@@ -457,9 +489,8 @@ export class BillingAdminNatsHandler {
         tenantId: command.tenantId,
         subscriptionId: summary['subscriptionId'],
         status: typeof summary['status'] === 'string' ? summary['status'] : undefined,
-        moduleItemCount: typeof summary['moduleItemCount'] === 'number'
-          ? summary['moduleItemCount']
-          : undefined,
+        moduleItemCount:
+          typeof summary['moduleItemCount'] === 'number' ? summary['moduleItemCount'] : undefined,
         receiptId: receipt.id,
         resultHash: this.hashBillingPayload(summary),
         replayed: true,
@@ -468,7 +499,9 @@ export class BillingAdminNatsHandler {
 
     const existing = await this.findActiveSubscription(manager, command.tenantId, true);
     if (!existing) {
-      throw new ConflictException('Billing receipt is marked successful but subscription evidence is missing');
+      throw new ConflictException(
+        'Billing receipt is marked successful but subscription evidence is missing',
+      );
     }
     return this.markBillingReceiptSucceeded(manager, command, receipt.id, {
       subscriptionId: existing.id,
@@ -485,7 +518,9 @@ export class BillingAdminNatsHandler {
     const tier = this.parsePlanTier(command.tier);
     const billingCycle = this.parseBillingCycle(command.billingCycle);
     if (tier === PlanTier.ENTERPRISE && !command.quoteId && !command.customPlanId) {
-      throw new BadRequestException('Enterprise provisioning requires an approved billing quote or custom plan');
+      throw new BadRequestException(
+        'Enterprise provisioning requires an approved billing quote or custom plan',
+      );
     }
     if (command.quoteId && !command.customPlanId) {
       throw new BadRequestException('Billing quote resolution requires a customPlanId');
@@ -532,6 +567,7 @@ export class BillingAdminNatsHandler {
     manager: EntityManager,
     command: BillingTenantProvisioningCommand,
     plan: Plan,
+    moduleItemsMonthlyTotal: number,
   ): Promise<{ id: string; status: SubscriptionStatus }> {
     if (command.trialDays && command.trialDays > 30) {
       throw new ConflictException('Trial period cannot exceed 30 days');
@@ -539,12 +575,17 @@ export class BillingAdminNatsHandler {
 
     const startDate = new Date();
     const currentPeriodEnd = this.calculatePeriodEnd(startDate, plan.billingCycle);
-    const trialEndDate = command.trialDays && command.trialDays > 0
-      ? this.addDays(startDate, command.trialDays)
-      : null;
+    const trialEndDate =
+      command.trialDays && command.trialDays > 0
+        ? this.addDays(startDate, command.trialDays)
+        : null;
     const status = trialEndDate ? SubscriptionStatus.TRIAL : SubscriptionStatus.ACTIVE;
+    // basePrice is the recurring monthly charge the invoice scheduler bills off
+    // (billing-scheduler.service.ts) — set it to the real sum of the priced
+    // module items (ORPHAN-HIGH-394), not the catalog plan base, which ignored
+    // the selected modules. The per-unit rates stay as catalog reference.
     const pricing = {
-      basePrice: Number(plan.basePrice),
+      basePrice: moduleItemsMonthlyTotal,
       perFarmPrice: plan.pricing.perFarmPrice ?? 0,
       perSensorPrice: plan.pricing.perSensorPrice ?? 0,
       perUserPrice: plan.pricing.perUserPrice ?? 0,
@@ -610,7 +651,9 @@ export class BillingAdminNatsHandler {
         'Active billing subscription exists but its catalog plan does not match the provisioning command',
       );
     }
-    const rows = await manager.query<Array<{ moduleId: string; quantities: Record<string, unknown> }>>(
+    const rows = await manager.query<
+      Array<{ moduleId: string; quantities: Record<string, unknown> }>
+    >(
       `SELECT module_id as "moduleId", quantities
          FROM billing.subscription_module_items
         WHERE subscription_id = $1
@@ -627,7 +670,9 @@ export class BillingAdminNatsHandler {
     const commandDigest = this.hashBillingPayload(
       [...new Set(command.moduleIds)].sort().map((moduleId) => ({
         moduleId,
-        quantities: command.moduleQuantities?.find((item) => item.moduleId === moduleId) ?? { moduleId },
+        quantities: command.moduleQuantities?.find((item) => item.moduleId === moduleId) ?? {
+          moduleId,
+        },
       })),
     );
     if (existingDigest !== commandDigest) {
@@ -704,35 +749,28 @@ export class BillingAdminNatsHandler {
     return rows[0] ?? null;
   }
 
+  /**
+   * Write one billing.subscription_module_items row per resolved module item.
+   *
+   * ORPHAN-CRITICAL-393 / ORPHAN-HIGH-394: the module code/name AND real prices
+   * come straight from `command.moduleItems` (resolved by admin-api, the schema
+   * owner of auth.modules + admin.module_pricing). There is NO cross-schema
+   * `SELECT ... FROM modules` here — billing has no grant on auth.modules, and
+   * the failed query used to abort the whole SERIALIZABLE transaction, silently
+   * discarding the just-created subscription. Prices are the command's real
+   * values (subtotal/discountAmount/total), never hardcoded 0.
+   */
   private async reconcileSubscriptionModuleItems(
     manager: EntityManager,
     subscriptionId: string,
-    moduleIds: string[],
-    moduleQuantities: BillingTenantProvisioningCommand['moduleQuantities'],
+    moduleItems: BillingTenantProvisioningCommand['moduleItems'],
     currency: string,
   ): Promise<number> {
-    if (moduleIds.length === 0) return 0;
+    if (!moduleItems || moduleItems.length === 0) return 0;
 
-    const moduleRows = await manager.query<Array<{ id: string; code: string; name: string }>>(
-      `SELECT id, code, name FROM modules WHERE id = ANY($1::uuid[])`,
-      [moduleIds],
-    );
-    const moduleMap = new Map(moduleRows.map((row) => [row.id, row]));
-    const missing = moduleIds.filter((moduleId) => !moduleMap.has(moduleId));
-    if (missing.length > 0) {
-      throw new NotFoundException(`Missing module metadata for billing reconciliation: ${missing.join(', ')}`);
-    }
-
-    for (const moduleId of moduleIds) {
-      const moduleInfo = moduleMap.get(moduleId);
-      if (!moduleInfo) {
-        // Unreachable after the missing-module check above; explicit guard
-        // keeps the read null-safe without a non-null assertion.
-        throw new NotFoundException(
-          `Missing module metadata for billing reconciliation: ${moduleId}`,
-        );
-      }
-      const quantities = moduleQuantities?.find((item) => item.moduleId === moduleId) ?? { moduleId };
+    for (const item of moduleItems) {
+      const quantities = item.quantities ?? { moduleId: item.moduleId };
+      const lineItems = item.lineItems ?? [];
       await manager.query(
         `INSERT INTO billing.subscription_module_items (
            subscription_id,
@@ -755,11 +793,11 @@ export class BillingAdminNatsHandler {
            $3,
            $4,
            $5::jsonb,
-           '[]'::jsonb,
-           0,
-           0,
-           0,
-           $6,
+           $6::jsonb,
+           $7,
+           $8,
+           $9,
+           $10,
            'active',
            NOW(),
            NOW(),
@@ -769,21 +807,52 @@ export class BillingAdminNatsHandler {
            quantities = EXCLUDED.quantities,
            module_code = EXCLUDED.module_code,
            module_name = EXCLUDED.module_name,
+           line_items = EXCLUDED.line_items,
+           subtotal = EXCLUDED.subtotal,
+           discount_amount = EXCLUDED.discount_amount,
+           total = EXCLUDED.total,
            currency = EXCLUDED.currency,
            status = 'active',
            "updatedAt" = NOW()`,
         [
           subscriptionId,
-          moduleId,
-          moduleInfo.code,
-          moduleInfo.name,
+          item.moduleId,
+          item.code,
+          item.name,
           JSON.stringify(quantities),
+          JSON.stringify(lineItems),
+          item.subtotal,
+          item.discountAmount,
+          item.total,
           currency,
         ],
       );
     }
 
     return this.countSubscriptionModuleItems(manager, subscriptionId);
+  }
+
+  /**
+   * Reject a provisioning command that selects modules but carries no resolved
+   * priced items (ORPHAN-CRITICAL-393). Validated at the boundary before the
+   * transaction opens so a malformed command can never create a subscription and
+   * then fail mid-transaction. admin-api always populates moduleItems.
+   */
+  private assertProvisioningModuleItems(command: BillingTenantProvisioningCommand): void {
+    const hasModules = (command.moduleIds?.length ?? 0) > 0;
+    const hasItems = (command.moduleItems?.length ?? 0) > 0;
+    if (hasModules && !hasItems) {
+      throw new BadRequestException(
+        'Provisioning command selects modules but carries no resolved moduleItems',
+      );
+    }
+  }
+
+  private sumModuleItemsTotal(
+    moduleItems: BillingTenantProvisioningCommand['moduleItems'],
+  ): number {
+    if (!moduleItems || moduleItems.length === 0) return 0;
+    return moduleItems.reduce((sum, item) => sum + Number(item.total ?? 0), 0);
   }
 
   private async countSubscriptionModuleItems(
@@ -918,7 +987,10 @@ export class BillingAdminNatsHandler {
     }
     if (value !== null && typeof value === 'object') {
       const record = value as Record<string, unknown>;
-      return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${this.stableStringify(record[key])}`).join(',')}}`;
+      return `{${Object.keys(record)
+        .sort()
+        .map((key) => `${JSON.stringify(key)}:${this.stableStringify(record[key])}`)
+        .join(',')}}`;
     }
     return JSON.stringify(value);
   }
@@ -1082,19 +1154,13 @@ export class BillingAdminNatsHandler {
     return value instanceof Date ? value.toISOString() : value;
   }
 
-  private toInvoiceError(
-    operation: string,
-    err: unknown,
-  ): BillingAdminInvoiceCommandResult {
+  private toInvoiceError(operation: string, err: unknown): BillingAdminInvoiceCommandResult {
     const { errorCode, message } = this.mapError(err);
     this.logger.warn(`${operation} failed: code=${errorCode}, reason=${message}`);
     return { success: false, errorCode, error: message };
   }
 
-  private toPaymentError(
-    operation: string,
-    err: unknown,
-  ): BillingAdminPaymentCommandResult {
+  private toPaymentError(operation: string, err: unknown): BillingAdminPaymentCommandResult {
     const { errorCode, message } = this.mapError(err);
     this.logger.warn(`${operation} failed: code=${errorCode}, reason=${message}`);
     return { success: false, errorCode, error: message };

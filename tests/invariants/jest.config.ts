@@ -243,6 +243,7 @@ export default {
         '<rootDir>/service-criticality-profile-contract.spec.ts',
         '<rootDir>/deploy-startup-budget-ssot.spec.ts',
         '<rootDir>/edge-v2-plan-contract.spec.ts',
+        '<rootDir>/edge-device-dual-model-guard.spec.ts',
         '<rootDir>/platform-service-catalog-parity.spec.ts',
         '<rootDir>/platform-entity-registry-parity.spec.ts',
         '<rootDir>/farm-service-migration-array-completeness.spec.ts',

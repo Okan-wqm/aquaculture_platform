@@ -20,8 +20,16 @@ describe('TurnLedgerService (ORPHAN-MEDIUM-380)', () => {
   const conversationId = '11111111-2222-3333-4444-555555555555';
 
   let repositoryMock: {
-    create: jest.Mock;
-    save: jest.Mock;
+    create: jest.Mock<Partial<ConversationTurn>, [Partial<ConversationTurn>]>;
+    save: jest.Mock<Promise<Partial<ConversationTurn>>, [Partial<ConversationTurn>]>;
+  };
+
+  const savedRow = (): Partial<ConversationTurn> => {
+    const args = repositoryMock.save.mock.calls[0];
+    if (!args) {
+      throw new Error('expected repository save to have been called');
+    }
+    return args[0];
   };
 
   const buildService = async (): Promise<TurnLedgerService> => {
@@ -56,7 +64,7 @@ describe('TurnLedgerService (ORPHAN-MEDIUM-380)', () => {
 
     expect(persisted).toBe(true);
     expect(repositoryMock.save).toHaveBeenCalledTimes(1);
-    const row = repositoryMock.save.mock.calls[0][0] as Partial<ConversationTurn>;
+    const row = savedRow();
     // TenantScopedRepository force-sets tenantId — cross-tenant rows are
     // structurally impossible through this path.
     expect(row.tenantId).toBe(tenantId);
@@ -87,7 +95,7 @@ describe('TurnLedgerService (ORPHAN-MEDIUM-380)', () => {
       flaggedCategories: ['input:role_confusion', 'output:pii_redacted'],
     });
 
-    const row = repositoryMock.save.mock.calls[0][0] as Partial<ConversationTurn>;
+    const row = savedRow();
     expect(row.flaggedCategories).toEqual(['input:role_confusion', 'output:pii_redacted']);
     expect(row.personaId).toBeNull();
   });
@@ -132,7 +140,7 @@ describe('TurnLedgerService (ORPHAN-MEDIUM-380)', () => {
 
     expect(persisted).toBe(true);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('experimental-model-x'));
-    const row = repositoryMock.save.mock.calls[0][0] as Partial<ConversationTurn>;
+    const row = savedRow();
     // Default Sonnet-tier attribution — never a free-looking turn.
     expect(row.costUsd).toBe('0.003000');
   });

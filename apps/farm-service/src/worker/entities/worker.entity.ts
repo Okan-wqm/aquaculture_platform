@@ -1,6 +1,12 @@
 /**
  * Worker Entity - Farm workers for farm-service
- * Maps to the 'farm_workers' table (separate from HR service's 'employees' table)
+ * Maps to the 'farm_workers' table (separate from HR service's 'employees' table).
+ *
+ * SCOPE (ORPHAN-MEDIUM-379): this is an OPERATIONAL roster, not a personnel
+ * record — deep worker PII (address, date of birth, national ID, employment
+ * terms, salary) belongs to hr.employees, the platform's worker-PII SSoT.
+ * This entity carries only the fields the farm surfaces actually read back:
+ * identity (name/email/phone), position, department, vet attribution, status.
  */
 import {
   Entity,
@@ -13,13 +19,12 @@ import {
   BeforeInsert,
   BeforeUpdate,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   createEncryptedColumnTransformer,
   createBlindIndex,
 } from '@aquaculture/backend-common/security';
 
-/** Env var holding the AES-256 key for at-rest PII encryption (shared with nationalId). */
+/** Env var holding the AES-256 key for at-rest PII encryption (shared with hr PII). */
 const PII_KEY_ENV = 'EMPLOYEE_PII_ENCRYPTION_KEY';
 
 /**
@@ -29,20 +34,12 @@ const PII_KEY_ENV = 'EMPLOYEE_PII_ENCRYPTION_KEY';
  */
 const emailBlindIndex = createBlindIndex('EMPLOYEE_PII_BLIND_INDEX_KEY');
 
-/** Shapes for the encrypted JSONB PII columns (round-tripped via { json: true }). */
+/** Shape for the encrypted JSON PII column (round-tripped via { json: true }). */
 export interface WorkerContactInfo {
   email: string;
   phone: string;
   emergencyContact?: string;
   emergencyPhone?: string;
-}
-
-export interface WorkerAddress {
-  street: string;
-  city: string;
-  state: string;
-  postalCode: string;
-  country: string;
 }
 
 @Entity('farm_workers')
@@ -90,37 +87,12 @@ export class Worker {
   @Column({ type: 'text' })
   emailHash!: string;
 
-  /** SECURITY (pii-at-rest): JSONB PII encrypted at rest (JSON serialized, then AES-256-GCM). */
+  /** SECURITY (pii-at-rest): JSON PII (email/phone) encrypted at rest (JSON serialized, then AES-256-GCM). */
   @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_KEY_ENV, { json: true }) })
   contactInfo!: WorkerContactInfo;
 
-  /** SECURITY (pii-at-rest): JSONB PII encrypted at rest (JSON serialized, then AES-256-GCM). */
-  @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_KEY_ENV, { json: true }) })
-  address!: WorkerAddress;
-
-  /**
-   * SECURITY (pii-at-rest): date-of-birth encrypted at rest. Stored as text
-   * ciphertext. The encryption transformer round-trips strings, so the honest
-   * type at this boundary is an ISO-8601 date string (`YYYY-MM-DD`) — NOT a
-   * `Date`. Typing it `Date` would be a lie the moment the transformer's
-   * `from()` returns a decrypted string. Callers write a normalized ISO date.
-   */
-  @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_KEY_ENV) })
-  dateOfBirth!: string;
-
-  /**
-   * SECURITY: Government ID encrypted at rest with AES-256-GCM.
-   * DB column stores ciphertext; application decrypts on read.
-   * @see DB-CRITICAL-001
-   */
-  @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_KEY_ENV) })
-  nationalId!: string;
-
   @Column({ type: 'varchar', default: 'active' })
   status!: string;
-
-  @Column({ type: 'varchar' })
-  employmentType!: string;
 
   @Column({ type: 'varchar' })
   department!: string;
@@ -130,9 +102,6 @@ export class Worker {
 
   @Column({ type: 'date' })
   hireDate!: Date;
-
-  @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
-  baseSalary!: number;
 
   @Column({ default: 'USD' })
   currency!: string;

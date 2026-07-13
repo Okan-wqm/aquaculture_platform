@@ -9291,6 +9291,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1805500000000-DropFarmWorkerPlaceholderPii.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -31981,6 +31987,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/orphan-findings.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/orphan-findings.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/platform-kernel-expert/2026-04-10-full-repo-audit.md",
       "prettier_managed": true
     },
@@ -41479,6 +41497,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/quality/closure-manifest.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
       "prettier_managed": true
     },
     {
@@ -53058,10 +53088,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8697,
+  "file_count": 8702,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8522,
-  "managed_file_list_sha256": "533d3432acc554009f4fbb429a69672a75cf7f775bc33ae29686b8b7394fc683",
+  "managed_count": 8527,
+  "managed_file_list_sha256": "70d902d540df4a89faf7910c7491aaa9f7bfe474b5a6c3797826db5920c4e708",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

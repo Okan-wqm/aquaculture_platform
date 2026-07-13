@@ -1,0 +1,98 @@
+# Mobile Messaging E2E Review — Sprint A1 (Waves 1–3) Findings
+
+**Cycle:** `2026-07-01-mobile-messaging-e2e` · **Method:** 9 read-only specialist agents (3 per wave) + lead first-hand verification of every CRITICAL/HIGH marked ✅. Candidate IDs below are provisional until the Wave-6 registry batch; canonical registration happens there (MSG-CRITICAL-055 was already registered in Wave 0).
+
+## Severity roll-up
+
+| Wave | CRITICAL | HIGH | MEDIUM | LOW |
+|---|---|---|---|---|
+| W1 outbound | 1 | 4 | 4 | 1 |
+| W2 inbound/realtime | (055 pre-registered) | 6 | 8 | 1 |
+| W3 push | 1 conflict-pending | 4 | 8 | 3 |
+
+**Wave verdict (realtime-sync-auditor): BLOCK** — the inbound live path into an open chat is non-converging on four independent axes; outbound offline replay loses data on three op types; the push pipeline has a possible cross-tenant PII presentation path.
+
+---
+
+## Wave 1 — Outbound (mobile → backend writes)
+
+| ID (candidate) | Sev | Finding | Evidence | Verified |
+|---|---|---|---|---|
+| MSG-CRITICAL-057 | CRITICAL | Reconnect refresh race wipes the offline queue: `useOfflineQueue` calls `refreshAuth()` directly (bypassing the single-flight `refreshAuthForInterceptor` lane) → two concurrent rotations of one refresh cookie → server reuse-detection → forced logout → `clearAllOperations()` (no tenant arg) destroys ALL queued unsynced writes | `useOfflineQueue.tsx:540,544`; `useAuth.tsx:490` vs `:554`; `useAuth.tsx:184,438`; `authenticated-fetch.ts:151` | ✅ lead |
+| MSG-HIGH-058 | HIGH | Offline `markMessagesRead` replay永rejected — `MarkReadInput` doesn't extend `MobileCommandEnvelopeInput`; queue injects envelope unconditionally → GraphQL coercion 400 → offline reads never advance the cursor (Wave-6 M2 condition returns for offline) | `mark-read.input.ts:8`; `offline-queue.ts:317`; `useOfflineQueue.tsx:448-450` | ✅ lead |
+| MSG-HIGH-059 | HIGH | Offline `editMessage` replay rejected — `EditMessageInput` same gap; edit branch spreads envelope into `input` → edit silently lost after 5 futile retries (no UI feedback; agent consensus: user-content data loss, severity escalation to CRITICAL is a W6 arbiter call) | `edit-message.input.ts:8`; `useOfflineQueue.tsx:443-445` | ✅ lead |
+| MSG-HIGH-068 | HIGH | Sync executor runs the batch on a stale token closure via raw `fetch` (no 401→refresh→retry lane); the pre-sync freshness check can't reach the in-flight batch → 401 storms misclassified as retryable + feeds the CRITICAL-057 race | `useOfflineQueue.tsx:452-465,540,561,610` | ✅ lead (family of 057) |
+| MSG-HIGH-069 | HIGH | `sendMessage` online transient failure is neither queued nor retried (unlike edit/markRead siblings) AND failed sends render as perpetual "pending" (failed→pending mapping, no retry affordance, no offline optimistic bubble) → silent message loss with false UI | `useSendMessage.ts:196-217,253`; `ChatRoomPage.tsx:601-609` | ✅ lead (onError path) |
+| MSG-HIGH-057 | HIGH | `editMessage` handler has NO legal-hold guard (delete does) and no edit-history — held content overwritten in place = spoliation of litigation-held evidence | `edit-message.handler.ts:51-53` vs `delete-message.handler.ts:32,61` | ✅ lead |
+| MSG-MEDIUM-058 | MEDIUM | DM get-or-create TOCTOU: concurrent create → loser gets `QueryFailedError` 500 instead of the existing DM (unique `dmPairKey` preserves integrity) | `create-channel.handler.ts:120-131,158-169,180`; `channel.entity.ts:89` | |
+| MSG-MEDIUM-059 | MEDIUM | Messaging rate-limiter fails OPEN on partial Redis results even for declared fail-closed actions (`sendMessage`, `createChannel`, `anonymizeMyData`) | `messaging-rate-limit.interceptor.ts:259,263` vs `:88-97,199-215` | |
+| MSG-MEDIUM-076 | MEDIUM | Offline dedup is a NO-OP for `sendMessage`/`uploadAndSendMessage`: per-attempt `crypto.randomUUID()` idempotencyKey is inside the hashed payload → double-tap = two distinct server messages (the code comment claiming universal dedup is false for the send lanes) | `offline-queue.ts:292,297-303,198-202`; `useSendMessage.ts:235`; `ChatRoomPage.tsx:329` | |
+| MSG-LOW-053 | LOW | `isRetryableError` misses GraphQL coercion errors ("is not defined by type", "got invalid value") → 5 wasted retries on structurally invalid payloads | `offline-queue.ts:870-888` | |
+| MSG-LOW-057 | LOW | `uploadAndSendMessage` retry re-presigns + re-PUTs to a NEW storageKey after a lost send-response → orphaned MinIO objects (send itself stays at-most-once) | `useOfflineQueue.tsx:257-314` | |
+
+**W1 verified SOUND:** send idempotency ordering (DB ledger in-tx authoritative — seed #6 REFUTED), mark-read tx + replay idempotency, delete/forward handlers, add-member fail-closed admission, outbox tx-binding, sendMessage online parity + offline envelope, deleteMessage replay (envelope rides as unused top-level vars — exactly why delete works and edit/markRead don't), enum wire casing all inputs, queue tenant isolation.
+
+---
+
+## Wave 2 — Inbound (outbox → NATS → Socket.IO → mobile)
+
+MSG-CRITICAL-055 blast radius (supplements its registry evidence; no new ID): AiChatPage (AI replies never render live — `newMessage` also doesn't invalidate the messages family), MediaViewerPage `useChannelMedia`, live edit/delete, receipt ticks, M3 in-room reconcile, `ChatRoomPage.tsx:305` delete-invalidate (channelId sits in the user.id slot → prefix-match FAILS), `useSendMessage.ts:75` false-SSoT comment. Specs pinning the wrong key: `useMessageSocket-reconnect.spec.ts:150`, `useMessageSocket-sender-enrichment.spec.ts:104`. Tier-1 fix shape (Sprint R1): co-located `messagesKey(tid,userId,channelId)` factory + REQUIRED userId param on `upsertMessageIntoChannelCache` + spec fixes + same-key invariant test. Farm-realtime (`useFarmRealtimeSync`) is immune (invalidate-only model) — the reference architecture.
+
+| ID (candidate) | Sev | Finding | Evidence | Verified |
+|---|---|---|---|---|
+| MSG-HIGH-060 | HIGH | Dropped hydration broadcast = permanent staleness while socket stays connected: bridge is core-NATS (no ack/redelivery); gateway 5s hydration timeout → warn + drop; recovery ONLY via disconnect-triggered M3 | `messaging.gateway.ts:488-523`; `messaging-nats-bridge.service.ts:117`; `useMessages.ts:150` | ✅ lead |
+| MSG-HIGH-052 (re-baselined) | HIGH | Shared-socket kill: `io(..., {forceNew:false})` multiplexes ONE Socket across 3 pages; each unmount cleanup calls unconditional `disconnect()`; explicit disconnect ≠ auto-reconnect → list→room navigation leaves the room page on a dead socket claiming connected. (Original "duplicate inserts" facet is neutralized by the idempotent upsert; THIS is the live facet.) | `useMessageSocket.ts:299-310,342-468,473-480` | ✅ lead (code read) |
+| MSG-HIGH-061 | HIGH | Reconnect watermark seeded from CLIENT clock (`new Date()` on first connect) vs server `createdAt` filtering → forward skew silently and permanently skips messages from the delta drain | `useMessageSocket.ts:331,224-248,361-364` | |
+| MSG-HIGH-062 | HIGH | `joinChannel` fire-and-forget: server ack (incl. `{success:false}` on NATS-blip verify failure) is never consumed → client believes it's in the room, receives nothing, no error, rejoin repeats the pattern | `useMessageSocket.ts:320-321,504-508`; `messaging.gateway.ts:266-301,716-741` | |
+| MSG-HIGH-063 | HIGH | Global unread HASH never decremented: `totalUnreadMessageCount` reads a HASH that only ever HINCRBYs on send; `decrementUnread` has zero production callers; mark-read recalc writes a DIFFERENT dead string key → global badge grows monotonically, permanently diverges from per-channel DB badges (ORPHAN-MEDIUM-100 recurrence — escalated) | `message.service.ts:51-52,60-80,104,118-130`; `mark-read.handler.ts:228-229` | ✅ lead |
+| MSG-HIGH-064 | HIGH | `allMessagesSince` keyset tie-break is dead code: unconditional `> :cursorDate` subsumes the `(= AND id >)` branch → same-timestamp boundary messages silently dropped from sync forever (correct pattern exists in `get-messages.handler.ts:104`) | `message.resolver.ts:296-303` | ✅ lead |
+| MSG-HIGH-065 | HIGH | No eviction on membership removal: no `channelMemberRemoved`/`channelEvent` client handler → kicked-while-in-room keeps rendering full history; channel stays in the list until a focus refetch (access-revocation not propagated to the read model) | `useMessageSocket.ts:340-450` (absent handler); `useChannels.ts:141` | |
+| MSG-MEDIUM-061 | MEDIUM | `newMessage` before initial fetch resolves is dropped (`if (!old?.pages?.length) return old`) — load-window race, self-heals only on remount | `useMessageSocket.ts:75-76` | |
+| MSG-MEDIUM-062 | MEDIUM | Live channel-list refresh structurally dead (3 converging defects, one family): client listens `channelUpdated` which gateway never emits (gateway emits `channelEvent`/`channelMemberRemoved`, both absent from the `websocket-envelopes.ts` SSoT); AND the only `useChannels` caller passes no socketRef so the subscription never arms; AND added members get no live push of the new channel | `useChannels.ts:147-159`; `ChannelListPage.tsx:188`; `messaging.gateway.ts:538,564`; `websocket-envelopes.ts:189-206` | |
+| MSG-MEDIUM-063 | MEDIUM | Sync delta is insert-only: edits/soft-deletes during a disconnect never propagate (redacted/moderated content stays visible on device until manual refetch) — compliance-relevant | `get-messages-since.handler.ts:63-64`; `message.resolver.ts:295-296` | |
+| MSG-MEDIUM-064 | MEDIUM | `messagesSince` silently truncates at 500 — no `hasMore`, no cursor; >500-message gap = silent history loss | `get-messages-since.handler.ts:11,58-68` | |
+| MSG-MEDIUM-065 | MEDIUM | Push badge count inherits the broken HASH (surface of HIGH-063) | `messaging-push.service.ts:138` | |
+| MSG-MEDIUM-066 | MEDIUM | `userPresence.lastSeenAt` always null — the lastseen Redis key has no production writer (gateway broadcasts but never persists; messaging-service setters have no callers) | `presence.service.ts:52,74,162-172`; `messaging.gateway.ts:625-626` | |
+| MSG-MEDIUM-067 | MEDIUM | `readReceipt` omits the channels invalidation → cross-device per-channel unread pill stays stale while the total badge converges | `useMessageSocket.ts:411-417` vs `useMarkRead.ts:84` | |
+| MSG-LOW-054 | LOW | `batchLoadMemberUsers` stale TODO contradicts the (sound) federation design in the same file — doc drift inviting misdiagnosis | `channel.resolver.ts:546-564` | |
+
+**W2 verified SOUND:** presence key parity (seed #3 REFUTED — key/TTL identical), envelope field parity (readAt/isTyping/isOnline), bridge resubscribe hygiene, queue group, read-receipt SSoT, token-rotation in-band reAuth, M3 syncToken robustness, get-messages keyset, ORPHAN-100 DB-path unification, allMessagesSince tenant/membership scoping, federation user stitching, offline cache never shadows fresh fetches. Policy question for W6: `allMessagesSince` returns pre-join history (no `joinedAt` bound) — intended?
+
+---
+
+## Wave 3 — Push (MessageSent → FCM → SW)
+
+**⚠️ CROSS-AGENT CONFLICT (W6 arbiter ruling required):** the server always sends an FCM `notification:{title,body}` block (`push.service.ts:343-354`, lead-verified). mobile-app-auditor's finding "background pushes silently dropped by the in-memory `activeUserId` gate" assumes display is controlled solely by `onBackgroundMessage`; tenant-isolation-auditor correctly notes notification-payload messages can be auto-presented by the FCM SDK/browser INDEPENDENT of that gate. Both cannot hold simultaneously — either background pushes show (bypassing the cross-user gate → possible cross-tenant PII CRITICAL) or they drop (delivery dead). **The remediation is identical either way and is one architectural cluster: data-only FCM messages (drop the `notification` block), `activeUserId` persisted in FCM-SW IndexedDB, notificationRef deep-link implemented in the FCM SW's `notificationclick`, badge count carried in `data.badge`.**
+
+| ID (candidate) | Sev | Finding | Evidence | Verified |
+|---|---|---|---|---|
+| MSG-CRITICAL-056 | CRITICAL (conflict-pending) | FCM SW ↔ app state/contract desync cluster: (a) `activeUserId` is an in-memory SW global set once at registration — SW termination resets it to null while the server now stamps `userId` on EVERY push → gate drops all background pushes on a cold SW; (b) simultaneously the server's `notification` block may auto-present bypassing the gate entirely (cross-user/tenant title + badge on shared devices — tenant-isolation escalation path); final behavior needs a device-truth ruling, the defect either way is the dual-contract desync | `firebase-messaging-sw.js:75,93-96,155`; `useFirebaseMessaging.ts:169`; `notification-command.handler.ts:84-87`; `push.service.ts:343-354` | ✅ lead (all four code facts) |
+| MSG-HIGH-066 | HIGH | Push tap opens app ROOT: FCM SW `notificationclick` reads only `data.url/route`; server sends only `notificationRef`; the entire ref-resolution deep-link chain lives in the workbox SW which never handles FCM pushes | `firebase-messaging-sw.js:190,220`; handler template `notification-command.handler.ts:272-283` | ✅ lead |
+| MSG-HIGH-067 | HIGH | Push fan-out swallows ALL errors (outer catch) → JetStream NAK/max_deliver/DLQ machinery is dead for this consumer; transient DB blip = whole channel's pushes permanently lost with zero redelivery | `messaging-push.service.ts:206-211`; `messaging-push-nats.handler.ts:50-52`; contract `nats-event-bus.ts:939-963` | ✅ lead |
+| NOTIF-HIGH-060 | HIGH | PushService health reports GREEN with `firebase-admin` absent (optional peer dep never probed at init; lazy require only throws per-send) → 100% push failure behind a healthy status | `push.service.ts:96,123-174,179-193,302-318` | ✅ lead |
+| MT-MEDIUM-051 | MEDIUM | LOGOUT never reaches the FCM SW (posted only to the workbox controller; FCM SW is a different scope) + offline teardown failure swallowed → warm SW keeps `activeUserId=A` and live subscription after A's offline logout | `useAuth.tsx:449`; `useFirebaseMessaging.ts:160,221-223`; `useAuth.tsx:408` | |
+| MSG-MEDIUM-069 | MEDIUM | Badge field mismatch: server writes count to `webpush.notification.badge` (an icon-URL slot); SW reads `data.badge` → NaN→0→`clearAppBadge()` on every push; icon badge diverges from in-app badge by construction | `push.service.ts:352`; `firebase-messaging-sw.js:164,180,104-113` | |
+| MSG-MEDIUM-070 | MEDIUM | No FCM token-rotation or late-permission re-registration: `getToken` once per login; rotation mid-session silently kills push until next login | `useFirebaseMessaging.ts:97-98,171,174` | |
+| MSG-MEDIUM-071 | MEDIUM | Tokenless user (the common non-PWA case) = retryable-looking failure storm: no-token THROW → dedup+ref rollback → full pipeline re-runs per message per user forever; terminal condition never converges | `notification-command.handler.ts:190-192`; `messaging-push.service.ts:187-200` | |
+| MSG-MEDIUM-072 | MEDIUM | Presence guard fail-OPEN vs dedup fail-CLOSED on the same Redis client — incoherent behavior under partial Redis degradation | `presence.service.ts:126-156`; `messaging-push.service.ts:113-117,223-230` | |
+| MSG-MEDIUM-073 | MEDIUM | Serial per-recipient dispatch × 10s NATS timeout can exceed 30s ack_wait on large channels → whole-message redelivery thrash (final dupes blocked by command receipts, but wasted work on the hottest path) | `messaging-push.service.ts:32,125-201`; `nats-event-bus.ts:864` | |
+| MSG-MEDIUM-074 | MEDIUM | Single-device push (seed #5 CONFIRMED): `findOne` newest token per (tenant,user) — multi-device users miss pushes everywhere else | `notification-command.handler.ts:183-192` | |
+| MSG-MEDIUM-075 | MEDIUM | Cron retry re-sends failed chat pushes as generic ALERT pushes — `notificationRef` AND the shared-device `userId` guard both dropped → mis-routed tap + gate bypass on retries | `retry-scheduler.service.ts:31-56`; `notification-dispatcher.service.ts:876-893,1062-1074` | |
+| MT-MEDIUM-052 | MEDIUM | Push `notification` block carries tenant-A sender name + unread count with the client SW gate as the ONLY suppression line (no server-side minimization / second line) — escalates to CRITICAL if auto-presentation confirmed (see conflict above; merges into the MSG-CRITICAL-056 cluster remediation) | `push.service.ts:343-354`; `notification-command.handler.ts:276-283` | ✅ lead (server side) |
+| MT-MEDIUM-053 | MEDIUM | Socket re-auth validates `sub` continuity but never re-asserts `tenantId`; rooms frozen from handshake — defense-in-depth gap | `messaging.gateway.ts:444-449` | |
+| MSG-LOW-055 | LOW | Unconfigured Firebase / denied permission degrades to no-push with zero user disclosure | `useFirebaseMessaging.ts:99,171-172,233-237` | |
+| MSG-LOW-056 | LOW | DeviceToken ordering `lastSeenAt DESC` = NULLS FIRST → never-used token beats the active device (compounds MEDIUM-074) | `device-token.entity.ts:36-37`; `notification-command.handler.ts:188` | |
+| MT-LOW-050 | LOW | `device_tokens` has no staleness/TTL reaping — failed-teardown rows live forever, widening the shared-device window | `device-token.entity.ts:33-37` | |
+| MSG-LOW-058 | LOW | `typing` broadcast skips channel-membership verification (within-tenant spoofed indicators only) | `messaging.gateway.ts:327-364` | |
+
+**W3 verified SOUND:** notificationRef mint/resolve fully tenant+user partitioned, single-consume, JWT-derived identities (server side is exemplary); ref written BEFORE send (no dead-ref push); dedup fail-closed; per-recipient isolation; durable consumer identity; command-receipt idempotency (FCM dupes structurally blocked); preference parity + mention override; dual-consumer coordination (no double user-visible notification); all socket rooms tenant-prefixed; bridge derives tenant from validated events; handshake JWT-only; foreground duplicate suppression; token single-active-owner transactional steal.
+
+---
+
+## Sprint R1 shape emerging (preview — final in Wave 6)
+
+1. **Messages cache-key SSoT** (055 + blast radius) — key factory + required userId + spec fixes + invariant.
+2. **Offline replay contract family** (057/058/059/068/069) — envelope on all enveloped inputs (or strip at replay), ONE refresh lane, send parity + truthful states.
+3. **FCM data-only cluster** (056/066/069/MT-MEDIUM-051/052) — data-only push, IDB-persisted active user, ref deep-link in FCM SW, `data.badge`.
+4. **Unread SSoT** (063/065-push-surface/067) — retire or wire the HASH; single unread authority.
+5. **Live-stream convergence** (060/061/062/064/065) — ack'd join, server watermark, sync tie-break `>=`, membership eviction, channelEvent SSoT.

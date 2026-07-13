@@ -196,6 +196,37 @@ export async function getBatchCounters(
   return data.batch;
 }
 
+/**
+ * Wait for a tenant-schema table clone to exist, provoking lazy provisioning.
+ *
+ * Fixture tenants are direct auth.tenants rows — their tenant_<uuid> table
+ * clones are created by each service's TenantSchemaSyncService only once a
+ * request for that tenant reaches it. Specs that seed tenant tables via direct
+ * SQL must first PROVOKE the owning service (any authenticated query) and wait
+ * for the clone, or the INSERT races provisioning and fails on a missing table.
+ */
+export async function ensureTenantTable(
+  db: TestDatabase,
+  schemaName: string,
+  table: string,
+  provoke: () => Promise<unknown>,
+  timeoutMs = 60_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const result = await db.query<{ reg: string | null }>(
+      `SELECT to_regclass($1)::text AS reg`,
+      [`"${schemaName}"."${table}"`],
+    );
+    if (result.rows[0]?.reg) return;
+    if (Date.now() > deadline) {
+      throw new Error(`Tenant table ${schemaName}.${table} was never provisioned`);
+    }
+    await provoke().catch(() => undefined);
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 1_000));
+  }
+}
+
 /** Shared DB handle for mobile specs. */
 export function createDb(): TestDatabase {
   return new TestDatabase();

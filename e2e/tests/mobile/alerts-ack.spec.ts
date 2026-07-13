@@ -10,9 +10,12 @@
 import { test, expect } from '@playwright/test';
 
 import { TestDatabase } from '../../helpers/db.helper';
+import { GraphQLTestClient } from '../../helpers/graphql-client';
+import { generateTestToken } from '../../helpers/jwt.helper';
 
 import {
   FIXTURE_PASSWORD,
+  ensureTenantTable,
   loginAsFieldWorker,
   seedMobileWorker,
   type MobileWorkerSeed,
@@ -23,13 +26,30 @@ let seed: MobileWorkerSeed;
 let alertId: string;
 
 test.describe('AquaMobil alerts acknowledge roundtrip', () => {
-  test.beforeAll(async () => {
+  test.beforeAll(async ({ request }) => {
     db = new TestDatabase();
     await db.connect();
     seed = await seedMobileWorker(db);
+    const schema = seed.tenant.schemaName;
+
+    // Provoke alert-engine so it provisions this fixture tenant's table
+    // clones before the direct SQL seed below (see ensureTenantTable).
+    const workerToken = generateTestToken({
+      userId: seed.user.id,
+      email: seed.user.email,
+      role: 'MODULE_MANAGER',
+      tenantId: seed.tenant.id,
+    });
+    const client = new GraphQLTestClient(request);
+    await ensureTenantTable(db, schema, 'alert_history', () =>
+      client.query(
+        `query ProvisionAlerts { alertHistory(page: 1, limit: 1) { id } }`,
+        {},
+        { token: workerToken },
+      ),
+    );
 
     // Seed an unacked CRITICAL alert into the tenant's alert_history clone.
-    const schema = seed.tenant.schemaName;
     const inserted = await db.query<{ id: string }>(
       `INSERT INTO "${schema}"."alert_history"
         ("rule_id", "rule_name", "tenant_id", "severity", "message", "triggering_data", "triggered_at")

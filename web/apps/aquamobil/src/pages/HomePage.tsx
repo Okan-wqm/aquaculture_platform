@@ -256,7 +256,7 @@ export function HomePage(): JSX.Element {
               </p>
               <p className="text-amber-100 text-xs mt-0.5">Tap to view</p>
             </div>
-            <div className="text-white/70">
+            <div className="text-white/85">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="m9 18 6-6-6-6" />
               </svg>

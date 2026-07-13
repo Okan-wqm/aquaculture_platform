@@ -137,6 +137,31 @@ validated only by unit/component specs. Fix: Faz 0.5 scaffold (login +
 offline-sync roundtrip first — the guard for MOB-MEDIUM-002) + Faz 4.2 full
 coverage.
 
+### MOB-MEDIUM-016 — mobile E2E lane: CI wiring + feeding/WQ form coverage (blocked on full-stack CI env)
+Plan-review finding (2026-07-13). The mobile Playwright lane exists and runs
+locally/against any deployed stack (`npm run test:e2e:mobile`, 8 tests), but
+CI wiring cannot mirror the water-chemistry lane as planned: that job serves
+STATIC frontend builds only (`e2e/scripts/serve-water-chemistry-shell.mjs` —
+the water-chemistry page is a client-side calculation engine), while the
+mobile lane needs the FULL platform (Postgres, NATS, Redis, MinIO, gateway +
+auth/farm/alert/messaging/ai services) which no CI job currently provides for
+browser tests. Also outstanding: feeding and water-quality record-form specs
+(the shipped mortality/cull specs pin the shared RecordEntityPage scaffold,
+but RecordFeedingPage and the DynamicMeasurementForm WQ flow are separate
+scaffolds needing feed-inventory/equipment seed helpers verified against a
+live stack). OWNER: infra-expert lane (CI stack) + aquamobil maintainers
+(specs). DEADLINE: 2026-08-31. STATUS: OPEN.
+
+### MOB-LOW-017 — real-time alert push independent of FCM (gateway socket bridge)
+The CriticalAlertBanner is fed by the 30s alertHistory poll + FCM foreground
+pushes. Neither `/farms` nor `/sensors` socket namespaces bridge tenant-level
+`AlertTriggered` events, so a device without FCM (no Firebase config, denied
+notification permission) sees a new critical alarm only on the next poll tick
+(≤30s). Enhancement: a NATS→socket.io bridge in the gateway following the
+`farm-nats-bridge.service.ts` pattern. OWNER: alert-engine/gateway
+maintainers. DEADLINE: 2026-09-15. STATUS: OPEN (explicitly optional for the
+MVP — the poll + push lanes ship in this cycle).
+
 ## Verified clean (for the record)
 No `as any`/ts-suppressions in production source; auth/tenant handling solid
 (single-flight 401 refresh, tenant-partitioned encrypted queue); AI insight

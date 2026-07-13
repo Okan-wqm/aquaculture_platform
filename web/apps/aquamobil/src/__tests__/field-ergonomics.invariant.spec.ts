@@ -73,6 +73,13 @@ describe('field-ergonomics invariant (MOB-MEDIUM-009)', () => {
     expect(countOccurrences(/text-\[[0-9](?:px|\.[0-9]+px)\]/g)).toBe(0);
   });
 
+  it('bans sub-75% white text on gradient headers (sunlight contrast floor)', () => {
+    // text-white/70 and lower is unreadable outdoors on the ocean-gradient
+    // headers; 75% is the floor (MOB-MEDIUM-009 outdoor-readability pass —
+    // the audit's flagged /70s were raised to /85, the /40-/60s to /75).
+    expect(countOccurrences(/text-white\/(?:[1-6][0-9]|7[0-4])\b/g)).toBe(0);
+  });
+
   it('ratchets 10–11px arbitrary text — shrink only, never grow', () => {
     const current = countOccurrences(/text-\[1[01]px\]/g);
     expect(

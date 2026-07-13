@@ -62,7 +62,9 @@ test.describe('AquaMobil messaging smoke', () => {
 
     const composer = page.getByPlaceholder(/message/i).first();
     await composer.fill('Feeding done on tank 3 — heading to tank 4.');
-    await composer.press('Enter');
+    // Plain Enter inserts a newline by design (MessageInput: multi-line field
+    // messages) — sending is the button (or Ctrl+Enter on desktop).
+    await page.getByRole('button', { name: 'Send message' }).click();
 
     // Rendered in the room…
     await expect(page.getByText('Feeding done on tank 3 — heading to tank 4.')).toBeVisible({

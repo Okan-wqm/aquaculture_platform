@@ -86,7 +86,7 @@ export function ReportsDuePage(): JSX.Element {
             </div>
             <div>
               <h1 className="text-lg font-bold tracking-tight">Reports Due</h1>
-              <p className="text-xs text-white/70">Mattilsynet scheduled drafts</p>
+              <p className="text-xs text-white/85">Mattilsynet scheduled drafts</p>
             </div>
           </div>
         </div>

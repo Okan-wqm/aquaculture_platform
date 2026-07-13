@@ -22,6 +22,7 @@ import { generateTestToken } from '../../helpers/jwt.helper';
 
 import {
   FIXTURE_PASSWORD,
+  ensureTenantTable,
   loginAsFieldWorker,
   seedMobileWorker,
   type MobileWorkerSeed,
@@ -60,6 +61,13 @@ test.describe('AquaMobil AI action confirm', () => {
       { token: workerToken },
     );
     channelId = created.createChannel.id;
+
+    // createChannel provisioned the MESSAGING tenant clone; provoke the AI
+    // subgraph the same way so ai_proposed_actions exists before the seed.
+    await ensureTenantTable(db, schema, 'ai_proposed_actions', () =>
+      client.query(`query ProvisionAi { aiServiceHealth }`, {}, { token: workerToken }),
+    );
+    await ensureTenantTable(db, schema, 'messages', () => Promise.resolve());
 
     // The persisted proposal — the executable SSoT the responder runs.
     proposalId = randomUUID();

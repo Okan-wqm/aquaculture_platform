@@ -2945,6 +2945,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/agent/__tests__/agent-runner-cost-ledger.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/agent/__tests__/persona-authorization.spec.ts",
       "prettier_managed": true
     },
@@ -3125,7 +3131,31 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/cost/__tests__/model-pricing.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/cost/__tests__/turn-ledger.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/cost/conversation-turn.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/cost/cost.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/cost/model-pricing.ts",
       "prettier_managed": true
     },
     {
@@ -3138,6 +3168,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/cost/token-budget.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/cost/turn-ledger.service.ts",
       "prettier_managed": true
     },
     {
@@ -3179,6 +3215,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/database/migrations/1802000000000-AddByokTenantAiCredentials.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/database/migrations/1802100000000-CreateConversationTurns.ts",
       "prettier_managed": true
     },
     {
@@ -53064,10 +53106,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8698,
+  "file_count": 8705,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8523,
-  "managed_file_list_sha256": "d834b031d63680156320edaa46b40e341d2a9d5f7af9dc4cc5d93e18eec4e921",
+  "managed_count": 8530,
+  "managed_file_list_sha256": "d4fa02b932c15a16ba1b6f5d0cd4316faec66fa32fbb4ce474d7f509588f166f",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

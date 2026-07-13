@@ -638,6 +638,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // tenant_<uuid> schema by TenantSchemaSyncService.
       'agent_conversations',
       'tenant_agent_configs',
+      // Durable per-invocation AI cost ledger (ORPHAN-MEDIUM-380 /
+      // DB-PEOPLE-MEDIUM-002) — created current_schema-relative by
+      // `1802100000000-CreateConversationTurns`; append-only at the
+      // service layer (TurnLedgerService).
+      'conversation_turns',
     ],
   },
   {

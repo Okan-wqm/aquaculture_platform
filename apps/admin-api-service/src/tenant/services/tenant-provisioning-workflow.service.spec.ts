@@ -116,3 +116,103 @@ describe('TenantProvisioningWorkflowService — duplicate pre-check is unlocked 
     }
   });
 });
+
+/**
+ * Backfill path (ORPHAN-CRITICAL-393): reconcileTenantSubscription resolves the
+ * tenant's assigned modules into priced moduleItems and passes them to the
+ * billing provisioning command — the same fixed path tenant creation uses.
+ */
+describe('TenantProvisioningWorkflowService.reconcileTenantSubscription', () => {
+  const TENANT_ID = '22222222-2222-4222-8222-222222222222';
+  const MODULE_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+  let service: TenantProvisioningWorkflowService;
+  let provisionTenantSubscription: jest.Mock;
+  let resolveProvisioningModuleItems: jest.Mock;
+
+  const resolvedItems = [
+    {
+      moduleId: MODULE_A,
+      code: 'FARM',
+      name: 'Farm Management',
+      quantities: { moduleId: MODULE_A, farms: 2 },
+      lineItems: [],
+      subtotal: 100,
+      discountAmount: 0,
+      total: 100,
+    },
+  ];
+
+  beforeEach(async () => {
+    jest.spyOn(Logger.prototype, 'log').mockImplementation();
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    jest.spyOn(Logger.prototype, 'error').mockImplementation();
+
+    const mockDataSource = {
+      // findTenantById → SELECT ... FROM auth.tenants
+      query: jest.fn().mockResolvedValue([
+        {
+          id: TENANT_ID,
+          name: 'Acme Aqua',
+          slug: 'acme-aqua',
+          status: 'ACTIVE',
+          plan: 'starter',
+        },
+      ]),
+      createQueryRunner: jest.fn(),
+    };
+
+    resolveProvisioningModuleItems = jest.fn().mockResolvedValue(resolvedItems);
+    provisionTenantSubscription = jest.fn().mockResolvedValue({
+      subscriptionId: 'sub-1',
+      receiptId: 'receipt-1',
+      status: 'active',
+      moduleItemCount: 1,
+      replayed: false,
+    });
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        TenantProvisioningWorkflowService,
+        { provide: getDataSourceToken(), useValue: mockDataSource },
+        { provide: OutboxPublisher, useValue: {} },
+        { provide: AuditLogService, useValue: {} },
+        { provide: TenantProvisioningService, useValue: {} },
+        {
+          provide: ModuleAssignmentService,
+          useValue: {
+            getTenantModulesWithPricing: jest
+              .fn()
+              .mockResolvedValue([{ moduleId: MODULE_A, quantities: { farms: 2 } }]),
+            resolveProvisioningModuleItems,
+          },
+        },
+        { provide: AuthTenantProvisioningClientService, useValue: {} },
+        { provide: BillingAdminCommandClientService, useValue: { provisionTenantSubscription } },
+      ],
+    }).compile();
+
+    service = moduleRef.get(TenantProvisioningWorkflowService);
+  });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it('resolves priced moduleItems and passes them to the billing provisioning command', async () => {
+    const result = await service.reconcileTenantSubscription(TENANT_ID, 'actor-9');
+
+    expect(resolveProvisioningModuleItems).toHaveBeenCalledTimes(1);
+    expect(provisionTenantSubscription).toHaveBeenCalledTimes(1);
+
+    const command = provisionTenantSubscription.mock.calls[0][0] as {
+      tenantId: string;
+      moduleItems: unknown;
+      moduleIds: string[];
+    };
+    expect(command.tenantId).toBe(TENANT_ID);
+    expect(command.moduleItems).toEqual(resolvedItems);
+    expect(command.moduleIds).toEqual([MODULE_A]);
+
+    expect(result.subscriptionId).toBe('sub-1');
+    expect(result.replayed).toBe(false);
+  });
+});

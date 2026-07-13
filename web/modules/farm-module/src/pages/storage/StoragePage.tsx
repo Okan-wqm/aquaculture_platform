@@ -2,6 +2,7 @@
  * Storage & Stock Management Page
  * 8-tab page for warehouse, inventory, and procurement management
  */
+import { parseMoney } from '@aquaculture/shared-ui';
 import React from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useStorageOverview } from '../../hooks/useStorageInventory';
@@ -175,7 +176,7 @@ const StoragePage: React.FC = () => {
             <div>
               <div className="text-xs text-gray-500">Total Stock Value</div>
               <div className="text-lg font-bold text-gray-900">
-                {overviewLoading ? '...' : formatCurrency(overview?.totalStockValue ?? 0, 'NOK')}
+                {overviewLoading ? '...' : formatCurrency(parseMoney(overview?.totalStockValueDecimal), 'NOK')}
               </div>
             </div>
           </div>

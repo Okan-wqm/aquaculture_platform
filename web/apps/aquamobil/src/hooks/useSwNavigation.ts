@@ -27,10 +27,22 @@ interface NavigateToNotificationRefMessage {
   notificationRef?: string;
 }
 
+/**
+ * MOB-MEDIUM-007: posted by the FCM SW when an alert notification (or its
+ * Acknowledge action button) is tapped while an app window is open. The
+ * authenticated app performs the ack via /alerts?ack=<id> (offline-safe).
+ */
+interface NavigateToAlertsMessage {
+  type: 'NAVIGATE_TO_ALERTS';
+  alertId?: string;
+  acknowledge?: boolean;
+}
+
 /** Union of all SW navigation message types. Extend as new event types are added. */
 type SwNavigationMessage =
   | NavigateToChannelMessage
-  | NavigateToNotificationRefMessage;
+  | NavigateToNotificationRefMessage
+  | NavigateToAlertsMessage;
 
 /** Type guard: narrows unknown MessageEvent data to a known SW navigation message. */
 function isSwNavigationMessage(data: unknown): data is SwNavigationMessage {
@@ -38,7 +50,8 @@ function isSwNavigationMessage(data: unknown): data is SwNavigationMessage {
   const msg = data as { type?: unknown };
   return (
     msg.type === 'NAVIGATE_TO_CHANNEL' ||
-    msg.type === 'NAVIGATE_TO_NOTIFICATION_REF'
+    msg.type === 'NAVIGATE_TO_NOTIFICATION_REF' ||
+    msg.type === 'NAVIGATE_TO_ALERTS'
   );
 }
 
@@ -76,6 +89,15 @@ export function useSwNavigation(): void {
           const path = event.data.notificationRef
             ? `/messages?notificationRef=${encodeURIComponent(event.data.notificationRef)}`
             : '/messages';
+          navigate(path);
+          break;
+        }
+        case 'NAVIGATE_TO_ALERTS': {
+          const { alertId, acknowledge } = event.data;
+          const path =
+            acknowledge && alertId
+              ? `/alerts?ack=${encodeURIComponent(alertId)}`
+              : '/alerts';
           navigate(path);
           break;
         }

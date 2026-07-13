@@ -34,6 +34,7 @@ import {
 } from './query-handlers/get-hr-finance-catalog.handlers';
 import { GetHrFinanceSummaryHandler } from './query-handlers/get-hr-finance-summary.handler';
 import { GetHrLabourCostHandler } from './query-handlers/get-hr-labour-cost.handler';
+import { GetHrPersonnelTableHandler } from './query-handlers/get-hr-personnel-table.handler';
 import { HrFinanceCategory } from './entities/hr-finance-category.entity';
 import { HrFinanceEntry } from './entities/hr-finance-entry.entity';
 import { PayrollCostSettings } from './entities/payroll-cost-settings.entity';
@@ -56,6 +57,7 @@ const CommandHandlers = [
 
 const QueryHandlers = [
   GetHrLabourCostHandler,
+  GetHrPersonnelTableHandler,
   GetHrFinanceSummaryHandler,
   GetHrFinanceCategoriesHandler,
   GetHrFinanceEntriesHandler,

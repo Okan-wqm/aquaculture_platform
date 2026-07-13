@@ -101,7 +101,7 @@ export function GrowthPredictionCard({ batchId }: GrowthPredictionCardProps): Re
             <div className="text-sm font-bold text-gray-900 dark:text-white tabular-nums">
               {prediction.predictedSGR.toFixed(2)}
             </div>
-            <div className="text-[9px] text-gray-400 font-semibold uppercase tracking-wider">
+            <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">
               SGR %/d
             </div>
           </div>
@@ -109,7 +109,7 @@ export function GrowthPredictionCard({ batchId }: GrowthPredictionCardProps): Re
             <div className="text-sm font-bold text-gray-900 dark:text-white tabular-nums">
               {prediction.predictedFCR.toFixed(2)}
             </div>
-            <div className="text-[9px] text-gray-400 font-semibold uppercase tracking-wider">
+            <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">
               FCR
             </div>
           </div>
@@ -119,7 +119,7 @@ export function GrowthPredictionCard({ batchId }: GrowthPredictionCardProps): Re
                 ? `${(prediction.estimatedBiomass30d / 1000).toFixed(1)}t`
                 : `${prediction.estimatedBiomass30d.toFixed(0)}kg`}
             </div>
-            <div className="text-[9px] text-gray-400 font-semibold uppercase tracking-wider">
+            <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">
               Est. Biomass
             </div>
           </div>

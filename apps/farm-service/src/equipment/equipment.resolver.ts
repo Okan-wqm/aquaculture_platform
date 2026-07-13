@@ -19,6 +19,7 @@ import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-co
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { TenantContextError } from '@aquaculture/backend-common/database';
+import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import { getTenantSchemaName } from '../common/utils/schema-sanitizer';
 import { FarmGraphQLContext } from '../common/types/graphql-context.types';
 import {
@@ -221,6 +222,15 @@ export class EquipmentResolver {
    * Note: For list queries, department is already loaded via JOIN in ListEquipmentHandler.
    * This resolver only makes a separate query if department is not already loaded.
    */
+  /**
+   * Exact-decimal wire form of `purchasePrice` (ADR-0004 / DATA-MEDIUM-009).
+   * The Decimal scalar serialises the number to an exact decimal string.
+   */
+  @ResolveField(() => DecimalScalar, { nullable: true })
+  purchasePriceDecimal(@Parent() equipment: EquipmentResponse): number | null {
+    return equipment.purchasePrice ?? null;
+  }
+
   @ResolveField(() => DepartmentResponse, { nullable: true })
   async department(@Parent() equipment: Equipment): Promise<DepartmentResponse | null> {
     // If department is already loaded (e.g., from JOIN in list query), return it directly

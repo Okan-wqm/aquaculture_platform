@@ -1233,6 +1233,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/billing/__tests__/pricing-calculator-free-tier.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/billing/billing.controller.ts",
       "prettier_managed": true
     },
@@ -2129,6 +2135,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/modules/tenant-management/services/__tests__/module-assignment.resolve-provisioning.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/tenant-management/services/module-assignment.service.ts",
       "prettier_managed": true
     },
@@ -2933,6 +2945,42 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/actions/__tests__/action-proposal.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/actions/__tests__/ai-action.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/actions/action-proposal.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/actions/actions.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/actions/ai-action.responder.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/actions/proposed-action.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/agent/__tests__/agent-profile-model.spec.ts",
       "prettier_managed": true
     },
@@ -2940,6 +2988,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/agent/__tests__/agent-runner-cost-ledger.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/__tests__/agent-runner-held-actuation.spec.ts",
       "prettier_managed": true
     },
     {
@@ -3221,6 +3275,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/database/migrations/1802100000000-CreateConversationTurns.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/database/migrations/1803000000000-CreateAiProposedActions.ts",
       "prettier_managed": true
     },
     {
@@ -3641,6 +3701,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/alert-engine/src/alert/alert.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/alert/dto/__tests__/acknowledge-alert-envelope-parity.spec.ts",
       "prettier_managed": true
     },
     {
@@ -5471,6 +5537,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/billing-decimal.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/billing-scheduler.service.ts",
       "prettier_managed": true
     },
@@ -5663,7 +5735,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/billing-service/src/billing/event-handlers/tenant-subscription-requested.handler.ts",
+      "path": "apps/billing-service/src/billing/handlers/__tests__/billing-admin-nats.handler.spec.ts",
       "prettier_managed": true
     },
     {
@@ -5814,6 +5886,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/billing/query-handlers/get-tenant-billing.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/billing/seed/__tests__/plan-seed.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -5974,6 +6052,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/database/migrations/1801700000000-DropRetiredTenantUsageMetrics.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/database/migrations/1801800000000-DropSubscriptionProvisioningRetries.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/database/migrations/1801900000000-AddPlanTierFreeEnumValue.ts",
       "prettier_managed": true
     },
     {
@@ -7750,6 +7840,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/batch/resolvers/batch-decimal.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/batch/resolvers/batch-feed-assignment.resolver.ts",
       "prettier_managed": true
     },
@@ -8494,12 +8590,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/farm-service/src/database/__tests__/base.entity.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/farm-service/src/database/__tests__/code-generator.service.spec.ts",
       "prettier_managed": true
     },
@@ -8519,12 +8609,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/database/entities/audit-log.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/database/entities/base.entity.ts",
       "prettier_managed": true
     },
     {
@@ -9376,6 +9460,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/database/migrations/1805500000000-DropFarmWorkerPlaceholderPii.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1805600000000-AddFinanceEntryDeletedBy.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1805700000000-AddWorkOrderEffectiveCostDateIndex.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1805800000000-FinanceEntrySoftDeletePartialIndexes.ts",
       "prettier_managed": true
     },
     {
@@ -10971,6 +11073,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/finance/__tests__/finance-aggregation-union.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/finance/__tests__/finance-cache-metadata.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/finance/__tests__/finance-category-seed.service.spec.ts",
       "prettier_managed": true
     },
@@ -11133,6 +11247,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/finance/handlers/validate-entry-dimensions.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/finance/queries/get-finance-batch-totals.query.ts",
       "prettier_managed": true
     },
@@ -11200,6 +11320,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/finance/query-handlers/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/finance/resolvers/finance-decimal.mapper.ts",
       "prettier_managed": true
     },
     {
@@ -14356,6 +14482,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/storage/resolvers/inventory-count-response.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/resolvers/storage-decimal.resolver.ts",
       "prettier_managed": true
     },
     {
@@ -17745,6 +17877,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/hr-service/src/database/migrations/1801900000000-AddHrFinanceEntryDeletedBy.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/hr-service/src/database/migrations/1802000000000-ReclassifyTechnicalLeads.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/hr-service/src/database/migrations/1802100000000-HrFinanceEntrySoftDeletePartialIndexes.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/hr-service/src/database/migrations/hr-owned-entities.ts",
       "prettier_managed": true
     },
@@ -17758,6 +17908,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/hr-service/src/finance/__tests__/labour-cost-calculator.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/hr-service/src/finance/__tests__/merge-department-costs.spec.ts",
       "prettier_managed": true
     },
     {
@@ -17842,6 +17998,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/hr-service/src/finance/query-handlers/get-hr-labour-cost.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/hr-service/src/finance/query-handlers/get-hr-personnel-table.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/hr-service/src/finance/resolvers/hr-finance-decimal.mapper.ts",
       "prettier_managed": true
     },
     {
@@ -24509,6 +24677,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/sensor/resolvers/__tests__/sensor-raw-list-tank-filter.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/sensor/resolvers/__tests__/sensor-reading.resolver.spec.ts",
       "prettier_managed": true
     },
@@ -29989,6 +30163,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/recommendations/architectural-arbiter/2026-07-11-adr-0004-money-wire-representation.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/recommendations/auth-security-expert/2026-04-06-guard-di-security-recommendations.md",
       "prettier_managed": true
     },
@@ -32005,6 +32185,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/mobile-app-auditor/2026-07-12-aquamobil-e2e-audit.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/mobile-messaging-e2e/2026-07-01-findings.md",
       "prettier_managed": true
     },
@@ -33135,6 +33321,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "e2e/playwright.aquamobil.config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "e2e/playwright.config.ts",
       "prettier_managed": true
     },
@@ -33238,6 +33430,48 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "e2e/tests/integration/token-lifecycle.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "e2e/tests/mobile/ai-action-confirm.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "e2e/tests/mobile/alerts-ack.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "e2e/tests/mobile/helpers/mobile-helpers.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "e2e/tests/mobile/login.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "e2e/tests/mobile/messaging-smoke.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "e2e/tests/mobile/offline-sync-roundtrip.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "e2e/tests/mobile/record-forms.spec.ts",
       "prettier_managed": true
     },
     {
@@ -35369,6 +35603,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/finding-registry/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/graphql/decimal.scalar.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/graphql/decimal.scalar.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/graphql/index.ts",
       "prettier_managed": true
     },
     {
@@ -38334,7 +38586,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "4438dccf0c90310514c6c4621e59391978dace97bbdf60c10efa0d09fa26d9b1",
+      "content_sha256": "82dede0c7ce48f3c2a48fa73e29a127cc27be8c791925e3fbfdaff2031d912f5",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -40104,6 +40356,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/billing-money-decimal-coexistence.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/billing-webhook-redis-required.spec.ts",
       "prettier_managed": true
     },
@@ -40441,6 +40699,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/helpers/farm-graphql-surface.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/hr-graphql-fe-be-parity.spec.ts",
       "prettier_managed": true
     },
     {
@@ -42149,7 +42413,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "6ba8f544dc4a0d6a136deceeb3e510a46d049b7b29b7f1fbcc4595d53156ba46",
+      "content_sha256": "a70a087f4c4b7d38519c357163847c3f166b6cec34104323713bb316d8235fb9",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "web/apps/aquamobil/package-lock.json",
@@ -42191,7 +42455,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/__tests__/field-ergonomics.invariant.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/App.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/__tests__/BarcodeScanButton.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/__tests__/DataFreshness.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -42204,6 +42486,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/components/__tests__/IdentityBoundary.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/__tests__/NotificationBell.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/__tests__/VirtualList.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -42239,6 +42533,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/components/AlertsBell.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/BarcodeScanButton.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/components/cards/TankCard.tsx",
       "prettier_managed": true
     },
@@ -42246,6 +42552,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/components/cards/TaskCard.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/CriticalAlertBanner.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/DataFreshness.tsx",
       "prettier_managed": true
     },
     {
@@ -42306,6 +42624,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/components/InstallPrompt.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/LiveReadingsCard.tsx",
       "prettier_managed": true
     },
     {
@@ -42465,8 +42789,14 @@
       "prettier_managed": true
     },
     {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/VirtualList.tsx",
+      "prettier_managed": true
+    },
+    {
       "class": "generated",
-      "content_sha256": "7976e50ab44a049f65010f5e080282e0332d1580879ad54c95de29f37dbce165",
+      "content_sha256": "bebf49546a7c3238f0525be43da9fe77810511e2e7c374fca2cab226cb8a4b6f",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/apps/aquamobil/src/generated/graphql.ts",
@@ -42479,6 +42809,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/graphql/ai-insights.queries.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/graphql/alert-operations.ts",
       "prettier_managed": true
     },
     {
@@ -42497,6 +42833,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/graphql/operations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/graphql/sensor-operations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/__tests__/useAiChat-actions.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/__tests__/useAlerts.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -42533,6 +42887,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/__tests__/useLatestReadings.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -42622,6 +42982,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/__tests__/useSentimentTrends.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/__tests__/useTanks-pagination.spec.ts",
       "prettier_managed": true
     },
@@ -42653,6 +43019,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/useAiInsights.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/useAlerts.ts",
       "prettier_managed": true
     },
     {
@@ -42730,6 +43102,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/useLatestReadings.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/useLeave.ts",
       "prettier_managed": true
     },
@@ -42797,6 +43175,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/useSendMessage.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/useSentimentTrends.ts",
       "prettier_managed": true
     },
     {
@@ -42886,6 +43270,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/__tests__/NotFoundPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/pages/_shared/__tests__/RecordEntityPage.spec.tsx",
       "prettier_managed": true
     },
@@ -42905,6 +43295,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/pages/account/AccountPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/alerts/AlertsPage.tsx",
       "prettier_managed": true
     },
     {
@@ -42953,12 +43349,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/pages/HomePage.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/apps/aquamobil/src/pages/hr/HrHubPage.tsx",
       "prettier_managed": true
     },
     {
@@ -43048,13 +43438,13 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/apps/aquamobil/src/pages/more/MorePage.tsx",
+      "path": "web/apps/aquamobil/src/pages/mortality/RecordMortalityPage.tsx",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/apps/aquamobil/src/pages/mortality/RecordMortalityPage.tsx",
+      "path": "web/apps/aquamobil/src/pages/NotFoundPage.tsx",
       "prettier_managed": true
     },
     {
@@ -43085,12 +43475,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/pages/operations/StockEventsHubPage.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/apps/aquamobil/src/pages/record/RecordHubPage.tsx",
       "prettier_managed": true
     },
     {
@@ -43210,7 +43594,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/pwa/__tests__/operation-registry.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/pwa/__tests__/sw-build-artifact.invariant.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pwa/__tests__/sw-replay.spec.ts",
       "prettier_managed": true
     },
     {
@@ -43223,6 +43619,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/pwa/offline-queue.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pwa/operation-registry.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pwa/sw-replay.ts",
       "prettier_managed": true
     },
     {
@@ -43312,6 +43720,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/utils/__tests__/offline-ux.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/utils/__tests__/role-rank.spec.ts",
       "prettier_managed": true
     },
@@ -43354,6 +43768,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/utils/last-sync.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/utils/logger.ts",
       "prettier_managed": true
     },
@@ -43379,6 +43799,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/utils/normalize-role.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/utils/offline-optimistic.ts",
       "prettier_managed": true
     },
     {
@@ -52742,7 +53168,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "00c8ae989bebbb735a9b3425c0960aecd5ba3e8b8059ae36f6050883bf658237",
+      "content_sha256": "19d80206752ebe251a1c91e55a2433c5b8a77b7644682e190ce38f8ffafddf6d",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",
@@ -53412,10 +53838,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8751,
+  "file_count": 8822,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8570,
-  "managed_file_list_sha256": "1be7adb117aad1cf973ae4e4444627015fcf40960d75d14018f462e48c757b79",
+  "managed_count": 8641,
+  "managed_file_list_sha256": "7143a879e8b36d573ec3f16fa174420ef4f1e19ca9eb9c79b144c2825f8be579",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

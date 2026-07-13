@@ -400,13 +400,17 @@ export interface TenantBillingData {
     currentPeriodStart: string;
     currentPeriodEnd: string;
     trialEndDate: string | null;
+    /** @deprecated Float — use `monthlyPriceDecimal` (exact decimal string, ADR-0004). */
     monthlyPrice: number;
+    monthlyPriceDecimal: string;
     currency: string;
   } | null;
   invoices: Array<{
     id: string;
     invoiceNumber: string;
+    /** @deprecated Float — use `amountDecimal` (exact decimal string, ADR-0004). */
     amount: number;
+    amountDecimal: string;
     currency: string;
     status: string;
     issuedAt: string;

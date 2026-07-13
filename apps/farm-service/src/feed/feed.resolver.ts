@@ -1,8 +1,9 @@
 /**
  * Feed GraphQL Resolver
  */
-import { Resolver, Query, Mutation, Args, ID, Float } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, Float, ResolveField, Parent } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
+import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -37,6 +38,18 @@ export class FeedResolver {
     private readonly feedRepository: Repository<Feed>,
     private readonly restoreService: RestoreService,
   ) {}
+
+  /** Exact-decimal wire form of `pricePerKg` (ADR-0004 / DATA-MEDIUM-009). */
+  @ResolveField(() => DecimalScalar, { nullable: true })
+  pricePerKgDecimal(@Parent() feed: FeedResponse): number | null {
+    return feed.pricePerKg ?? null;
+  }
+
+  /** Exact-decimal wire form of `unitPrice` (ADR-0004 / DATA-MEDIUM-009). */
+  @ResolveField(() => DecimalScalar, { nullable: true })
+  unitPriceDecimal(@Parent() feed: FeedResponse): number | null {
+    return feed.unitPrice ?? null;
+  }
 
   /**
    * Create a new feed

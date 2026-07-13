@@ -19,7 +19,7 @@ import {
   FileText,
   TrendingUp,
 } from 'lucide-react';
-import { cn, useAuth, SearchableSelect, formatCurrency as sharedFormatCurrency, DEFAULT_CURRENCY } from '@aquaculture/shared-ui';
+import { cn, useAuth, SearchableSelect, formatCurrency as sharedFormatCurrency, parseMoney, DEFAULT_CURRENCY } from '@aquaculture/shared-ui';
 import {
   usePayrolls,
   usePendingPayrolls,
@@ -527,7 +527,7 @@ const PayrollPage: React.FC = () => {
         const start = new Date(p.payPeriodStart);
         return start.getMonth() === currentMonth && start.getFullYear() === currentYear;
       })
-      .reduce((sum, p) => sum + (p.netPay || 0), 0);
+      .reduce((sum, p) => sum + parseMoney(p.netPayDecimal), 0);
   }, [allPayrolls?.items]);
 
   // Client-side search filter
@@ -609,7 +609,7 @@ const PayrollPage: React.FC = () => {
         align: 'right',
         accessor: (row) => (
           <span className="font-medium text-gray-900 dark:text-white">
-            {formatCurrency(row.earnings?.grossPay, row.currency)}
+            {formatCurrency(parseMoney(row.earningsGrossPayDecimal), row.currency)}
           </span>
         ),
       },
@@ -619,7 +619,7 @@ const PayrollPage: React.FC = () => {
         align: 'right',
         accessor: (row) => (
           <span className="text-red-600 dark:text-red-400">
-            {formatCurrency(row.deductions?.totalDeductions, row.currency)}
+            {formatCurrency(parseMoney(row.deductionsTotalDecimal), row.currency)}
           </span>
         ),
       },
@@ -629,7 +629,7 @@ const PayrollPage: React.FC = () => {
         align: 'right',
         accessor: (row) => (
           <span className="font-semibold text-green-700 dark:text-green-400">
-            {formatCurrency(row.netPay, row.currency)}
+            {formatCurrency(parseMoney(row.netPayDecimal), row.currency)}
           </span>
         ),
       },

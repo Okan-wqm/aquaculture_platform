@@ -74,7 +74,16 @@ export type FrontendMutationName =
   // Scope A Phase 4.4.2 — supplier ↔ site approvals
   | 'setSupplierApprovedSites'
   // Scope A Phase 4.4.3 — per-site contact upsert
-  | 'upsertSiteContacts';
+  | 'upsertSiteContacts'
+  // Finance capability — farm finance tab mutations
+  | 'createFinanceEntry'
+  | 'updateFinanceEntry'
+  | 'deleteFinanceEntry'
+  | 'createFinanceCategory'
+  | 'updateFinanceCategory'
+  | 'archiveFinanceCategory'
+  | 'restoreFinanceCategory'
+  | 'updateFinanceSettings';
 
 /**
  * Source-of-frontend-truth role matrix. Mirrors the backend's
@@ -120,4 +129,13 @@ export const FRONTEND_MUTATION_ROLES: Readonly<
   setSupplierApprovedSites: ['MODULE_MANAGER', 'TENANT_ADMIN'],
   // Scope A Phase 4.4.3 — per-site contact upsert
   upsertSiteContacts: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+  // Finance capability — mirrors apps/farm-service/src/common/authz/permission-matrix.ts
+  createFinanceEntry: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+  updateFinanceEntry: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+  deleteFinanceEntry: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+  createFinanceCategory: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+  updateFinanceCategory: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+  archiveFinanceCategory: ['TENANT_ADMIN'],
+  restoreFinanceCategory: ['TENANT_ADMIN'],
+  updateFinanceSettings: ['TENANT_ADMIN'],
 });

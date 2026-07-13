@@ -14,7 +14,14 @@ import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { Args, Context, ID, Int, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 
-import { Role, Roles } from '@aquaculture/backend-common/decorators';
+import {
+  AuditLog,
+  RequireTenantPermission,
+  Role,
+  Roles,
+  hasResourcePermission,
+  type ResourcePermissionUser,
+} from '@aquaculture/backend-common/decorators';
 import { RolesGuard } from '@aquaculture/backend-common/guards';
 
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
@@ -35,7 +42,7 @@ import {
   UpdateHrFinanceEntryInput,
   UpdatePayrollCostSettingsInput,
 } from '../dto/hr-finance-inputs.dto';
-import { HrFinanceSummary, HrLabourCost } from '../dto/hr-finance-outputs.dto';
+import { HrFinanceSummary, HrLabourCost, HrPersonnelTable } from '../dto/hr-finance-outputs.dto';
 import { HrFinanceCategory } from '../entities/hr-finance-category.entity';
 import { HrFinanceEntry } from '../entities/hr-finance-entry.entity';
 import { PayrollCostSettings } from '../entities/payroll-cost-settings.entity';
@@ -44,15 +51,24 @@ import {
   GetHrFinanceEntriesQuery,
   GetHrFinanceSummaryQuery,
   GetHrLabourCostQuery,
+  GetHrPersonnelTableQuery,
   GetPayrollCostSettingsQuery,
 } from '../queries/hr-finance.queries';
 import { HrFinanceGranularity } from '../query-handlers/get-hr-finance-summary.handler';
+import { withLabourCostDecimals, withSummaryDecimals } from './hr-finance-decimal.mapper';
 
 interface GraphQLContext {
-  req: { user?: { sub: string; tenantId: string } };
+  req: { user?: ({ sub: string; tenantId: string } & ResourcePermissionUser) | undefined };
 }
 
 const MAX_ENTRY_PAGE = 200;
+
+/**
+ * Salary-visibility capability (HR-MEDIUM-005). SUPER_ADMIN / TENANT_ADMIN
+ * bypass; any other role sees salary only if the tenant admin granted this
+ * permission to it — the tenant decides who sees pay, not a hardcoded role.
+ */
+const VIEW_SALARY_PERMISSION = 'hr_finance:view_salary';
 
 @UseGuards(GqlAuthGuard)
 @Resolver(() => HrFinanceEntry)
@@ -82,15 +98,36 @@ export class HrFinanceResolver {
   // Queries
   // ==========================================================================
 
+  /**
+   * Headcount-only workforce projection — MANAGER + ADMIN, no salary permission
+   * needed. The Personnel Table renders from this so a manager without
+   * `hr_finance:view_salary` still sees headcounts (HR-MEDIUM-005).
+   */
+  @Query(() => HrPersonnelTable, { name: 'hrPersonnelTable' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async hrPersonnelTable(@Context() ctx: GraphQLContext): Promise<HrPersonnelTable> {
+    return this.queryBus.execute(new GetHrPersonnelTableQuery(this.getTenantId(ctx)));
+  }
+
+  /**
+   * Salary-bearing labour-cost snapshot. Gated by `hr_finance:view_salary`
+   * (TenantPermissionGuard) so a MODULE_MANAGER reaches it only when the tenant
+   * admin granted the capability; TENANT_ADMIN / SUPER_ADMIN bypass.
+   */
   @Query(() => HrLabourCost, { name: 'hrLabourCost' })
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @RequireTenantPermission(VIEW_SALARY_PERMISSION)
   async hrLabourCost(
     @Context() ctx: GraphQLContext,
     @Args('year', { type: () => Int, nullable: true }) year?: number,
   ): Promise<HrLabourCost> {
     const resolvedYear = year ?? new Date().getUTCFullYear();
-    return this.queryBus.execute(new GetHrLabourCostQuery(this.getTenantId(ctx), resolvedYear));
+    const result = await this.queryBus.execute<GetHrLabourCostQuery, HrLabourCost>(
+      new GetHrLabourCostQuery(this.getTenantId(ctx), resolvedYear),
+    );
+    return withLabourCostDecimals(result);
   }
 
   @Query(() => HrFinanceSummary, { name: 'hrFinanceSummary' })
@@ -106,9 +143,13 @@ export class HrFinanceResolver {
     })
     granularity: HrFinanceGranularity,
   ): Promise<HrFinanceSummary> {
-    return this.queryBus.execute(
-      new GetHrFinanceSummaryQuery(this.getTenantId(ctx), from, to, granularity),
+    // Expenses + series are MANAGER-visible; per-department SALARY is withheld
+    // unless the caller holds `hr_finance:view_salary` (HR-MEDIUM-005).
+    const includeSalary = hasResourcePermission(ctx.req.user, VIEW_SALARY_PERMISSION);
+    const result = await this.queryBus.execute<GetHrFinanceSummaryQuery, HrFinanceSummary>(
+      new GetHrFinanceSummaryQuery(this.getTenantId(ctx), from, to, granularity, includeSalary),
     );
+    return withSummaryDecimals(result);
   }
 
   @Query(() => [HrFinanceCategory], { name: 'hrFinanceCategories' })
@@ -161,6 +202,7 @@ export class HrFinanceResolver {
   @Mutation(() => HrFinanceEntry)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'CREATE_HR_FINANCE_ENTRY', resource: 'HrFinanceEntry', description: 'Book an HR finance entry' })
   async createHrFinanceEntry(
     @Context() ctx: GraphQLContext,
     @Args('input') input: CreateHrFinanceEntryInput,
@@ -173,6 +215,7 @@ export class HrFinanceResolver {
   @Mutation(() => HrFinanceEntry)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'UPDATE_HR_FINANCE_ENTRY', resource: 'HrFinanceEntry', description: 'Update an HR finance entry' })
   async updateHrFinanceEntry(
     @Context() ctx: GraphQLContext,
     @Args('id', { type: () => ID }) id: string,
@@ -186,6 +229,7 @@ export class HrFinanceResolver {
   @Mutation(() => Boolean)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'DELETE_HR_FINANCE_ENTRY', resource: 'HrFinanceEntry', description: 'Soft-delete an HR finance entry' })
   async deleteHrFinanceEntry(
     @Context() ctx: GraphQLContext,
     @Args('id', { type: () => ID }) id: string,
@@ -198,6 +242,7 @@ export class HrFinanceResolver {
   @Mutation(() => HrFinanceCategory)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'CREATE_HR_FINANCE_CATEGORY', resource: 'HrFinanceCategory', description: 'Create an HR finance category' })
   async createHrFinanceCategory(
     @Context() ctx: GraphQLContext,
     @Args('input') input: CreateHrFinanceCategoryInput,
@@ -210,6 +255,7 @@ export class HrFinanceResolver {
   @Mutation(() => HrFinanceCategory)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'UPDATE_HR_FINANCE_CATEGORY', resource: 'HrFinanceCategory', description: 'Update an HR finance category' })
   async updateHrFinanceCategory(
     @Context() ctx: GraphQLContext,
     @Args('id', { type: () => ID }) id: string,
@@ -223,6 +269,7 @@ export class HrFinanceResolver {
   @Mutation(() => HrFinanceCategory)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN)
+  @AuditLog({ action: 'ARCHIVE_HR_FINANCE_CATEGORY', resource: 'HrFinanceCategory', description: 'Archive an HR finance category' })
   async archiveHrFinanceCategory(
     @Context() ctx: GraphQLContext,
     @Args('id', { type: () => ID }) id: string,
@@ -235,6 +282,7 @@ export class HrFinanceResolver {
   @Mutation(() => HrFinanceCategory)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN)
+  @AuditLog({ action: 'RESTORE_HR_FINANCE_CATEGORY', resource: 'HrFinanceCategory', description: 'Restore an HR finance category' })
   async restoreHrFinanceCategory(
     @Context() ctx: GraphQLContext,
     @Args('id', { type: () => ID }) id: string,
@@ -247,6 +295,7 @@ export class HrFinanceResolver {
   @Mutation(() => PayrollCostSettings)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN)
+  @AuditLog({ action: 'UPDATE_PAYROLL_COST_SETTINGS', resource: 'PayrollCostSettings', description: 'Update payroll cost settings' })
   async updatePayrollCostSettings(
     @Context() ctx: GraphQLContext,
     @Args('input') input: UpdatePayrollCostSettingsInput,

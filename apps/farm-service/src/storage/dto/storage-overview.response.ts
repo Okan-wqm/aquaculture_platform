@@ -8,7 +8,9 @@ export class CategoryTotal {
   @Field(() => Float)
   totalQuantity!: number;
 
-  @Field(() => Float)
+  @Field(() => Float, {
+    deprecationReason: 'Use totalValueDecimal (exact decimal string, ADR-0004).',
+  })
   totalValue!: number;
 
   @Field(() => Int)
@@ -62,7 +64,9 @@ export class LowStockAlert {
 
 @ObjectType()
 export class StorageOverviewResponse {
-  @Field(() => Float)
+  @Field(() => Float, {
+    deprecationReason: 'Use totalStockValueDecimal (exact decimal string, ADR-0004).',
+  })
   totalStockValue!: number;
 
   @Field(() => Int)

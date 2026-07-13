@@ -134,6 +134,19 @@ describe('FE-CRITICAL-050-SW: deployed service worker artifact', () => {
     expect(clickListener).toBe(true);
   });
 
+  it('MOB-MEDIUM-002: bundles the closed-app queue replay (cookie refresh + drain lock)', () => {
+    // The sync handler must ship the REAL replay lane, not just the client
+    // notification: the RefreshToken document (cookie-based token mint), the
+    // shared Web Lock name serializing SW and foreground drains, and the
+    // queued-mutation registry all have to survive into the artifact. If the
+    // sw-replay import is dropped (or tree-shaken), background sync silently
+    // degrades back to the notify-only no-op this finding flagged.
+    expect(swSource).toContain('refreshToken');
+    expect(swSource).toContain('aquamobil-queue-drain');
+    // A representative registry document proves OPERATION_MUTATIONS bundled.
+    expect(swSource).toContain('RecordMortality');
+  });
+
   it('does NOT register a raw "push" listener (FCM owns push via firebase-messaging-sw.js — FE-HIGH-057)', () => {
     // Push for AquaMobil is delivered by FCM through firebase-messaging-sw.js's
     // onBackgroundMessage, NOT as a raw `push` event in this workbox worker. A

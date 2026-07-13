@@ -28,6 +28,8 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { BarcodeScanButton } from '@/components/BarcodeScanButton';
+import { VirtualList } from '@/components/VirtualList';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
@@ -398,7 +400,8 @@ export function StockTransferPage(): JSX.Element {
             {/* Item list */}
             {selectedItemType && (
               <>
-                <div className="relative mb-3">
+                <div className="flex items-stretch gap-2 mb-3">
+                  <div className="relative flex-1">
                   <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                   <input
                     type="text"
@@ -407,6 +410,8 @@ export function StockTransferPage(): JSX.Element {
                     onChange={(e) => setItemSearch(e.target.value)}
                     className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
+                </div>
+                  <BarcodeScanButton onScan={setItemSearch} />
                 </div>
                 {itemsLoading ? (
                   <div className="flex items-center justify-center py-8">
@@ -419,10 +424,15 @@ export function StockTransferPage(): JSX.Element {
                     <p className="text-sm">No items found</p>
                   </div>
                 ) : (
-                  <div className="space-y-2 max-h-[40vh] overflow-y-auto">
-                    {filteredItems.map((item) => (
+                  /* MOB-MEDIUM-012: virtualized — inventories can be hundreds of SKUs. */
+                  <VirtualList
+                    items={filteredItems}
+                    getKey={(item) => item.id}
+                    estimateSize={() => 72}
+                    gapPx={8}
+                    className="max-h-[40vh]"
+                    renderItem={(item) => (
                       <button
-                        key={item.id}
                         onClick={() => setSelectedItemId(item.id)}
                         className={clsx(
                           'w-full p-3.5 rounded-xl border-2 text-left transition-all touch-feedback',
@@ -441,8 +451,8 @@ export function StockTransferPage(): JSX.Element {
                           {item.code} &middot; {item.unit}
                         </span>
                       </button>
-                    ))}
-                  </div>
+                    )}
+                  />
                 )}
               </>
             )}

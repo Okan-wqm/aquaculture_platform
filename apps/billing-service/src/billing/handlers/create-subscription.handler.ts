@@ -32,8 +32,8 @@ export class CreateSubscriptionHandler
    * D09-F01: Minimum base price per plan tier.
    * Prevents clients from submitting arbitrarily low prices via the GraphQL mutation.
    * CUSTOM tier has no minimum — pricing is negotiated externally.
-   * The NATS event handler (TenantSubscriptionRequestedHandler) uses its own
-   * DEFAULT_PRICING and is not subject to this validation.
+   * Tenant provisioning prices modules via admin-api's PricingCalculatorService
+   * (admin.module_pricing) and is not subject to this GraphQL-mutation minimum.
    */
   private static readonly MIN_PRICES: Partial<Record<PlanTier, number>> = {
     [PlanTier.STARTER]: 49,

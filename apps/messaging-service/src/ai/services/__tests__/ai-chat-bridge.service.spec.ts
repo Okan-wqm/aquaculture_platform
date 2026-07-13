@@ -314,10 +314,11 @@ describe('AiChatBridgeService', () => {
   // -----------------------------------------------------------------------
   it('confirms and executes a proposed AI action', async () => {
     const actionMsgId = fakeUuid('msg');
+    const proposalId = fakeUuid('proposal');
     const actionMsg = createMockMessage({
       id: actionMsgId,
       senderId: AI_USER_ID,
-      metadata: { status: 'proposed', actionType: 'create_alert', params: {} },
+      metadata: { status: 'proposed', actionId: proposalId, actionType: 'create_alert', params: {} },
     });
     messageRepo.findOne.mockResolvedValue(actionMsg);
     // confirmAiAction now verifies the requesting user is an active member of the
@@ -339,6 +340,9 @@ describe('AiChatBridgeService', () => {
       'request.ai.executeAction',
       expect.objectContaining({
         tenantId,
+        // MOB-HIGH-001: the proposal id keys the persisted row ai-service
+        // executes — the responder never runs client-echoed params.
+        actionId: proposalId,
         actionType: 'create_alert',
         confirmedBy: senderId,
       }),

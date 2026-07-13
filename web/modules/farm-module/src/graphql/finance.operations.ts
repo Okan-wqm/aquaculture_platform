@@ -30,6 +30,7 @@ const FINANCE_ENTRY_FIELDS = `
   periodStart
   periodEnd
   amount
+  amountDecimal
   currency
   description
   siteId
@@ -46,6 +47,7 @@ const FINANCE_LINE_ITEM_FIELDS = `
   categoryName
   kind
   amount
+  amountDecimal
   currency
   entryDate
   batchId
@@ -108,9 +110,9 @@ export const GET_FINANCE_SUMMARY = `
   query GetFinanceSummary($from: DateTime!, $to: DateTime!, $granularity: FinanceGranularity) {
     financeSummary(from: $from, to: $to, granularity: $granularity) {
       currency
-      totalExpense
-      totalRevenue
-      netResult
+      totalExpenseDecimal
+      totalRevenueDecimal
+      netResultDecimal
       byCategory {
         categoryId
         categoryCode
@@ -119,12 +121,12 @@ export const GET_FINANCE_SUMMARY = `
         kind
         isComputed
         isDerived
-        total
+        totalDecimal
       }
       series {
         bucketStart
-        totalExpense
-        totalRevenue
+        totalExpenseDecimal
+        totalRevenueDecimal
       }
     }
   }
@@ -134,8 +136,8 @@ export const GET_FINANCE_BATCH_TOTALS = `
   query GetFinanceBatchTotals($from: DateTime!, $to: DateTime!) {
     financeBatchTotals(from: $from, to: $to) {
       batchId
-      totalExpense
-      totalRevenue
+      totalExpenseDecimal
+      totalRevenueDecimal
     }
   }
 `;

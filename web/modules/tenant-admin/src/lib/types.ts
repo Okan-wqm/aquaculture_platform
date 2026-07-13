@@ -255,7 +255,9 @@ export interface SubscriptionInfo {
   currentPeriodEnd: string;
   trialEndDate?: string;
   pricing: {
+    /** @deprecated Float — use `basePriceDecimal` (exact decimal string, ADR-0004). */
     basePrice: number;
+    basePriceDecimal: string;
     currency: string;
   };
   moduleItems?: Array<{

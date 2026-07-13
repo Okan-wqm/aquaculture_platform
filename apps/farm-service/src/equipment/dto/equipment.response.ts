@@ -322,7 +322,10 @@ export class EquipmentResponse {
   @Field({ nullable: true })
   warrantyEndDate?: Date;
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Float, {
+    nullable: true,
+    deprecationReason: 'Use purchasePriceDecimal (exact decimal string, ADR-0004).',
+  })
   purchasePrice?: number;
 
   @Field(() => EquipmentStatus)

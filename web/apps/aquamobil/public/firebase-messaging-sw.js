@@ -218,6 +218,40 @@ function isAllowedNotificationUrl(url) {
   }
 }
 
+/**
+ * MOB-MEDIUM-007: severity-driven presentation for ALERT pushes. The
+ * notification-service already puts `data: { type: 'alert', alertId, severity }`
+ * on the wire (push.service.ts sendAlertPush) but every push was shown like a
+ * chat message — a life-safety CRITICAL alarm could be swiped away unseen. The
+ * options here make severity real at the OS level:
+ *   - CRITICAL/HIGH: requireInteraction (persists on screen until dismissed),
+ *     an alarm vibration pattern, and Acknowledge/View action buttons — the ack
+ *     is performed by the AUTHENTICATED app via /alerts?ack=<id> (offline-safe
+ *     through the queue), so this worker never needs credentials.
+ *   - WARNING/MEDIUM: a shorter vibration, no forced persistence.
+ *   - tag + renotify: re-triggers of the same alert replace (and re-alert) the
+ *     existing notification instead of stacking duplicates.
+ */
+function alertNotificationOptions(data) {
+  if (!data || data.type !== 'alert') return {};
+  const severity = String(data.severity || '').toUpperCase();
+  const options = {
+    tag: data.alertId ? `alert-${data.alertId}` : 'alert',
+    renotify: true,
+  };
+  if (severity === 'CRITICAL' || severity === 'HIGH') {
+    options.requireInteraction = true;
+    options.vibrate = [200, 100, 200, 100, 200];
+    options.actions = [
+      { action: 'ack', title: 'Acknowledge' },
+      { action: 'view', title: 'View' },
+    ];
+  } else if (severity === 'WARNING' || severity === 'MEDIUM') {
+    options.vibrate = [150, 80, 150];
+  }
+  return options;
+}
+
 messaging.onBackgroundMessage((payload) => {
   // FE-HIGH-009: Validate any URL in the notification data
   const notificationData = { ...payload.data };
@@ -254,6 +288,9 @@ messaging.onBackgroundMessage((payload) => {
         body,
         icon: `${APP_BASENAME}/icons/icon-192x192.png`,
         data: notificationData,
+        // MOB-MEDIUM-007: alert pushes escalate by severity (persistence,
+        // vibration, ack/view actions); non-alert pushes get no extra options.
+        ...alertNotificationOptions(notificationData),
       }),
       updateBadgeCount(Number.isFinite(badgeCount) ? badgeCount : 0),
     ]);
@@ -267,6 +304,36 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   const data = event.notification.data || {};
+
+  // MOB-MEDIUM-007: alert notifications deep-link into the alarm surface. The
+  // 'ack' action carries ?ack=<alertId> — the AUTHENTICATED app performs the
+  // acknowledge (offline-safe via the queue); this worker holds no credentials.
+  if (data.type === 'alert') {
+    const alertId = data.alertId && UUID_PATTERN.test(data.alertId) ? data.alertId : undefined;
+    const alertsPath =
+      event.action === 'ack' && alertId
+        ? `${APP_BASENAME}/alerts?ack=${encodeURIComponent(alertId)}`
+        : `${APP_BASENAME}/alerts`;
+    const alertsUrl = new URL(alertsPath, self.location.origin).href;
+    event.waitUntil(
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+        for (const client of clientList) {
+          if (client.url.includes(APP_BASENAME) && 'focus' in client) {
+            client.postMessage({
+              type: 'NAVIGATE_TO_ALERTS',
+              alertId,
+              acknowledge: event.action === 'ack',
+            });
+            return client.focus();
+          }
+        }
+        if (self.clients.openWindow) {
+          return self.clients.openWindow(alertsUrl);
+        }
+      })
+    );
+    return;
+  }
 
   // MSG-HIGH-069: the messaging chat push carries an opaque `notificationRef`
   // (never a channelId/messageId — those must not leak through FCM's servers).

@@ -12,6 +12,7 @@
  * button hands the same data to the pure HTML builder and a hidden-iframe
  * print (batchTraceabilityReportExport.ts).
  */
+import { parseMoney } from '@aquaculture/shared-ui';
 import React, { useMemo } from 'react';
 
 import type { Batch } from '../../../hooks/useBatches';
@@ -124,7 +125,7 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
         <KpiCard label="Total Feed" value={`${summary.totalFeedKg.toFixed(1)} kg`} />
         <KpiCard
           label="Total Feed Cost"
-          value={summary.totalFeedCost !== null ? summary.totalFeedCost.toFixed(2) : '—'}
+          value={summary.totalFeedCostDecimal !== null ? parseMoney(summary.totalFeedCostDecimal).toFixed(2) : '—'}
         />
         <KpiCard
           label="FCR (actual)"
@@ -228,7 +229,7 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
                     <td className="px-3 py-2 text-gray-700">{feed.feedCode ?? '—'}</td>
                     <td className="px-3 py-2 text-gray-700">{formatDecimal(feed.totalKg)}</td>
                     <td className="px-3 py-2 text-gray-700">
-                      {formatDecimal(feed.totalCost, 2)}
+                      {formatDecimal(feed.totalCostDecimal != null ? parseMoney(feed.totalCostDecimal) : null, 2)}
                     </td>
                   </tr>
                 ))

@@ -3,10 +3,12 @@ import {
   StripeApiModule,
   STRIPE_API_CLIENT,
   STRIPE_AUDIT_RECORDER,
-  stripeClientFactory,
+  DynamicStripeClient,
+  DynamicStripeClientProvider,
 } from '@aquaculture/backend-common/billing';
+import { ConfigClientModule } from '@aquaculture/backend-common/config-client';
+import { SecurityEventService } from '@aquaculture/backend-common/security';
 import { Module } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { CqrsModule } from '@nestjs/cqrs';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -23,6 +25,7 @@ import { ScheduledPlanChange } from './entities/scheduled-plan-change.entity';
 import { StripeWebhookEventEntity } from './entities/stripe-webhook-event.entity';
 import { SubscriptionModuleItem } from './entities/subscription-module-item.entity';
 import { Subscription } from './entities/subscription.entity';
+import { ConfigurationChangedHandler } from './event-handlers/configuration-changed.handler';
 import { BillingAdminNatsHandler } from './handlers/billing-admin-nats.handler';
 import { CancelSubscriptionHandler } from './handlers/cancel-subscription.handler';
 import { ChangeSubscriptionPlanHandler } from './handlers/change-subscription-plan.handler';
@@ -71,7 +74,15 @@ const EventHandlers: never[] = [];
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Subscription, Invoice, Payment, SubscriptionModuleItem, Plan, ScheduledPlanChange, StripeWebhookEventEntity]),
+    TypeOrmModule.forFeature([
+      Subscription,
+      Invoice,
+      Payment,
+      SubscriptionModuleItem,
+      Plan,
+      ScheduledPlanChange,
+      StripeWebhookEventEntity,
+    ]),
     CqrsModule,
     ScheduleModule,
     // A6 / DB-IDENT-MEDIUM-002: GetTenantBillingHandler reads tenant usage
@@ -79,21 +90,27 @@ const EventHandlers: never[] = [];
     // and included quantities from MeteredBillingService's pricing model —
     // the retired billing.tenant_usage_metrics parallel model is gone.
     MeteringModule,
-    // W1.1 (ADR-016 / BILLING-CRITICAL-001): bind the canonical Stripe client so
-    // money handlers get a REAL outbound StripeApiService when billing is on.
-    // The factory is gated by the STRIPE_BILLING_ENABLED SSoT flag (default
-    // off) and reconciles graceful-boot with fail-closed: disabled (any env,
-    // incl. production) → boots with a fail-closed-at-request sentinel client;
-    // enabled + STRIPE_SECRET_KEY → the real adapter; enabled + no key → throws
-    // at boot. NODE_ENV no longer gates boot. Audit rows are written via the
-    // @Global AuditLogService (IAuditRecorder-compatible).
+    // Faz C (D6, ADR-016 / BILLING-CRITICAL-001): bind the canonical Stripe
+    // client behind the DynamicStripeClient delegator so operator-entered keys
+    // (config-service `platform/billing.*`) take effect at runtime WITHOUT a
+    // redeploy and WITHOUT the enabled-but-keyless boot crash (2026-06 Suderra
+    // outage). Precedence: config-enabled+secret → Real; config-enabled+no-secret
+    // → fail-closed-at-request (boots); config-disabled/unreachable → env fallback
+    // (mock on the droplet). The DynamicStripeClientProvider owns the TTL snapshot
+    // + secret-in-memory; ConfigClientModule provides the trusted ConfigRuntimeClient.
     StripeApiModule.forRoot({
+      imports: [ConfigClientModule.forRoot({ consumerService: 'billing-service' })],
+      providers: [DynamicStripeClientProvider, SecurityEventService],
       clientProvider: {
         provide: STRIPE_API_CLIENT,
-        useFactory: stripeClientFactory,
-        inject: [ConfigService],
+        useFactory: (provider: DynamicStripeClientProvider): DynamicStripeClient =>
+          new DynamicStripeClient(provider),
+        inject: [DynamicStripeClientProvider],
       },
       auditProvider: { provide: STRIPE_AUDIT_RECORDER, useExisting: AuditLogService },
+      // Export the provider so the ConfigurationChanged handler (billing.module
+      // providers) can inject it to invalidate the snapshot on a key change.
+      exports: [DynamicStripeClientProvider],
     }),
   ],
   // BillingAdminNatsHandler must be a controller so Nest microservice
@@ -105,6 +122,9 @@ const EventHandlers: never[] = [];
     BillingSchedulerService,
     StripeWebhookService,
     PlanSeedService,
+    // Faz C: invalidates the DynamicStripeClientProvider snapshot when an
+    // operator saves a platform/billing.* config row (subscribes in onModuleInit).
+    ConfigurationChangedHandler,
     ...CommandHandlers,
     ...QueryHandlers,
     ...EventHandlers,

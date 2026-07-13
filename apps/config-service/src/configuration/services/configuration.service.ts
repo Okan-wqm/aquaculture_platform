@@ -51,13 +51,55 @@ export class ConfigurationService implements OnModuleInit {
     key: string,
     defaultValue?: T,
   ): Promise<T> {
+    const config = await this.resolveActiveConfig(tenantId, service, key);
+    if (!config) {
+      if (defaultValue !== undefined) {
+        return defaultValue;
+      }
+      throw new Error(`Configuration not found: ${service}/${key}`);
+    }
+    return this.getDecryptedTypedValue<T>(config);
+  }
+
+  /**
+   * Resolve the effective value AND its secret classification in one call
+   * (SEC-MEDIUM-001). The config-runtime GET (non-secret) handler uses the
+   * `isSecret` flag to STRUCTURALLY refuse to return a secret over the
+   * non-secret path — independent of any key allowlist. Returns null when the
+   * row is absent/inactive (never throws for not-found).
+   */
+  async getEffectiveWithMeta(
+    tenantId: string,
+    service: string,
+    key: string,
+  ): Promise<{ value: string; isSecret: boolean } | null> {
+    const config = await this.resolveActiveConfig(tenantId, service, key);
+    if (!config) {
+      return null;
+    }
+    return {
+      value: this.getDecryptedTypedValue<string>(config),
+      isSecret: this.isSecretConfig(config),
+    };
+  }
+
+  /**
+   * Resolve the active Configuration ENTITY (L1 → L2 → L3 with tenant/system
+   * fallback + tombstone), or null when absent/inactive. The single lookup path
+   * shared by `get()` and `getEffectiveWithMeta()` so the two can never drift.
+   */
+  private async resolveActiveConfig(
+    tenantId: string,
+    service: string,
+    key: string,
+  ): Promise<Configuration | null> {
     const cacheKey = this.cacheKey(tenantId, service, key, ConfigEnvironment.ALL);
 
     // ── L1: in-memory cache ──
     const cached = this.cache.get(cacheKey);
     if (cached && cached.expiry > Date.now()) {
       cached.lastAccessed = Date.now();
-      return this.getDecryptedTypedValue<T>(cached.value);
+      return cached.value;
     }
 
     // ── L2: Redis cache (cross-pod) ──
@@ -69,7 +111,7 @@ export class ConfigurationService implements OnModuleInit {
           const config = JSON.parse(redisValue) as Configuration;
           // Promote to L1
           this.setCacheEntry(cacheKey, config);
-          return this.getDecryptedTypedValue<T>(config);
+          return config;
         }
       } catch (err) {
         // Redis unavailable: fall through to DB — graceful degradation
@@ -102,16 +144,13 @@ export class ConfigurationService implements OnModuleInit {
           : systemConfig;
 
     if (!config || config.isActive === false) {
-      if (defaultValue !== undefined) {
-        return defaultValue;
-      }
-      throw new Error(`Configuration not found: ${service}/${key}`);
+      return null;
     }
 
     // Update cache with LRU eviction
     this.setCacheEntry(cacheKey, config);
 
-    return this.getDecryptedTypedValue<T>(config);
+    return config;
   }
 
   /**
@@ -130,12 +169,14 @@ export class ConfigurationService implements OnModuleInit {
         ...(environment && { environment }),
       },
       ...(tenantId !== SYSTEM_TENANT_ID
-        ? [{
-            tenantId: SYSTEM_TENANT_ID,
-            service,
-            isActive: true,
-            ...(environment && { environment }),
-          }]
+        ? [
+            {
+              tenantId: SYSTEM_TENANT_ID,
+              service,
+              isActive: true,
+              ...(environment && { environment }),
+            },
+          ]
         : []),
     ];
 
@@ -211,13 +252,19 @@ export class ConfigurationService implements OnModuleInit {
 
       if (tenantId === SYSTEM_TENANT_ID) {
         // Purge all tenant-specific Redis entries for this service:key
-        this.redisService.deletePattern(`config:*:${service}:${key}:${ConfigEnvironment.ALL}`).catch((err) => {
-          this.logger.warn(`Failed to invalidate Redis pattern for ${service}:${key}: ${err}`);
-        });
+        this.redisService
+          .deletePattern(`config:*:${service}:${key}:${ConfigEnvironment.ALL}`)
+          .catch((err) => {
+            this.logger.warn(`Failed to invalidate Redis pattern for ${service}:${key}: ${err}`);
+          });
       } else {
-        this.redisService.del(`config:${this.cacheKey(SYSTEM_TENANT_ID, service, key, ConfigEnvironment.ALL)}`).catch((err) => {
-          this.logger.warn(`Failed to invalidate Redis system cache for ${service}:${key}: ${err}`);
-        });
+        this.redisService
+          .del(`config:${this.cacheKey(SYSTEM_TENANT_ID, service, key, ConfigEnvironment.ALL)}`)
+          .catch((err) => {
+            this.logger.warn(
+              `Failed to invalidate Redis system cache for ${service}:${key}: ${err}`,
+            );
+          });
       }
     }
   }
@@ -290,7 +337,11 @@ export class ConfigurationService implements OnModuleInit {
     let rawValue = config.value;
 
     // Decrypt if secret and encryption is available
-    if (this.isSecretConfig(config) && this.encryptionService.isAvailable() && this.encryptionService.isEncrypted(rawValue)) {
+    if (
+      this.isSecretConfig(config) &&
+      this.encryptionService.isAvailable() &&
+      this.encryptionService.isEncrypted(rawValue)
+    ) {
       try {
         // PLAT-HIGH-003: AAD binding validates tenant + key context
         rawValue = this.encryptionService.decrypt(rawValue, config.tenantId, config.key);

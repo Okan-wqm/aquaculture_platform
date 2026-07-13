@@ -53,8 +53,20 @@
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
 
+import {
+  CONFIG_RUNTIME_INBOX_PREFIX,
+  CONFIG_RUNTIME_NONSECRET_ALLOWLIST,
+  CONFIG_RUNTIME_SECRET_ALLOWLIST,
+  CONFIG_RUNTIME_SUBJECTS,
+} from '@platform/event-contracts';
 import Ajv from 'ajv';
 import { parse as yamlParse } from 'yaml';
+
+// Faz C (ARCH-HIGH-001 / ARCH-MEDIUM-004): the config-runtime caller allowlists +
+// scoped-inbox token are the SSoT the config-service handler enforces; importing
+// them here binds the NATS ACL grants to that same SSoT (the generic RPC scan
+// cannot reach these — the send-site lives in libs/backend-common, and the
+// config.runtime.* namespace is outside the scanned prefix set).
 
 const REPO_ROOT = join(__dirname, '..', '..', '..');
 
@@ -232,11 +244,15 @@ function loadContractSubjectConstants(): Map<string, string> {
       continue; // contract file split/renamed — literals still covered below
     }
     // KEY: 'subject.with.dots'  (object members)
-    for (const m of text.matchAll(/([A-Z][A-Z0-9_]+):\s*'((?:request|commands|events|sensor|st|policy)\.[^']+)'/g)) {
+    for (const m of text.matchAll(
+      /([A-Z][A-Z0-9_]+):\s*'((?:request|commands|events|sensor|st|policy)\.[^']+)'/g,
+    )) {
       constants.set(m[1], m[2]);
     }
     // export const SOME_SUBJECT = 'subject.with.dots'
-    for (const m of text.matchAll(/export const ([A-Z][A-Z0-9_]+)\s*=\s*'((?:request|commands|events|sensor|st|policy)\.[^']+)'/g)) {
+    for (const m of text.matchAll(
+      /export const ([A-Z][A-Z0-9_]+)\s*=\s*'((?:request|commands|events|sensor|st|policy)\.[^']+)'/g,
+    )) {
       constants.set(m[1], m[2]);
     }
   }
@@ -274,7 +290,8 @@ function extractRpcUsage(appDir: string, constants: Map<string, string>): RpcUsa
   const resolveRef = (ref: string): string | undefined => {
     const literal = /^'([^']+)'$/.exec(ref);
     if (literal) return literal[1];
-    const constRef = /^[A-Za-z0-9_$]+\.([A-Z][A-Z0-9_]+)$/.exec(ref) ?? /^([A-Z][A-Z0-9_]+)$/.exec(ref);
+    const constRef =
+      /^[A-Za-z0-9_$]+\.([A-Z][A-Z0-9_]+)$/.exec(ref) ?? /^([A-Z][A-Z0-9_]+)$/.exec(ref);
     if (constRef) return constants.get(constRef[1]);
     return undefined;
   };
@@ -455,9 +472,7 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
 
   describe('publish coverage — every code-buildable event type has a grant (ORPHAN-HIGH-317)', () => {
     const appsDir = join(REPO_ROOT, 'apps');
-    const appDirs = readdirSync(appsDir).filter((d) =>
-      statSync(join(appsDir, d)).isDirectory(),
-    );
+    const appDirs = readdirSync(appsDir).filter((d) => statSync(join(appsDir, d)).isDirectory());
 
     it('every apps/ directory has an explicit APP_TO_SERVICE mapping', () => {
       const unmapped = appDirs.filter(
@@ -561,9 +576,7 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
     const targetApps = readdirSync(appsDir)
       .filter(
         (d) =>
-          statSync(join(appsDir, d)).isDirectory() &&
-          APP_TO_SERVICE[d] &&
-          wiresErasureTarget(d),
+          statSync(join(appsDir, d)).isDirectory() && APP_TO_SERVICE[d] && wiresErasureTarget(d),
       )
       .map((d) => [d, APP_TO_SERVICE[d]] as [string, string]);
 
@@ -576,9 +589,7 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
       (app, serviceName) => {
         const svc = serviceByName.get(serviceName);
         if (!svc) throw new Error(`APP_TO_SERVICE maps ${app} → unknown service ${serviceName}`);
-        const missing = PROOF_EVENTS.filter(
-          (e) => !isCovered(`events.system.${e}`, svc.publish),
-        );
+        const missing = PROOF_EVENTS.filter((e) => !isCovered(`events.system.${e}`, svc.publish));
         if (missing.length > 0) {
           throw new Error(
             `apps/${app} wires TenantErasureTargetModule.forService but "${serviceName}" ` +
@@ -633,9 +644,7 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
           );
         }
         if (missingPub.length > 0) {
-          problems.push(
-            `sent subjects with NO publish grant:\n    ${missingPub.join('\n    ')}`,
-          );
+          problems.push(`sent subjects with NO publish grant:\n    ${missingPub.join('\n    ')}`);
         }
         if (problems.length > 0) {
           throw new Error(
@@ -663,5 +672,117 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
         }
       },
     );
+  });
+
+  describe('config-runtime secret-read grants (ARCH-HIGH-001 + ARCH-MEDIUM-004 + SEC-CRITICAL-001)', () => {
+    // Representative subject under the scoped reply-inbox token — createInbox
+    // appends `.<nuid>`, so any real reply subject is `_INBOXBILLINGCFG.<nuid>`.
+    const scopedInboxSubject = `${CONFIG_RUNTIME_INBOX_PREFIX}.reply`;
+
+    const requireService = (name: string): Service => {
+      const svc = serviceByName.get(name);
+      if (!svc) throw new Error(`services.yaml is missing the "${name}" service`);
+      return svc;
+    };
+
+    it('billing_service PUBLISHES both config.runtime subjects; config_service SUBSCRIBES both (pinned)', () => {
+      const billing = requireService('billing_service');
+      const config = requireService('config_service');
+      for (const subject of [CONFIG_RUNTIME_SUBJECTS.GET, CONFIG_RUNTIME_SUBJECTS.GET_SECRET]) {
+        if (!isCovered(subject, billing.publish)) {
+          throw new Error(`billing_service is missing the PUBLISH grant for "${subject}"`);
+        }
+        if (!isCovered(subject, config.subscribe)) {
+          throw new Error(`config_service is missing the SUBSCRIBE grant for "${subject}"`);
+        }
+      }
+    });
+
+    it('the decrypted-secret reply inbox is scoped to billing↔config ONLY (SEC-CRITICAL-001)', () => {
+      const billing = requireService('billing_service');
+      const config = requireService('config_service');
+      // billing subscribes the scoped inbox; config publishes replies to it.
+      if (!isCovered(scopedInboxSubject, billing.subscribe)) {
+        throw new Error(`billing_service is missing SUBSCRIBE for the scoped secret-reply inbox`);
+      }
+      if (!isCovered(scopedInboxSubject, config.publish)) {
+        throw new Error(`config_service is missing PUBLISH for the scoped secret-reply inbox`);
+      }
+      // The broad `_INBOX.>` must NOT match the scoped token (first-token distinctness) —
+      // this is the whole point: a `_INBOX.>` holder cannot read the secret reply.
+      if (isCovered(scopedInboxSubject, ['_INBOX.>'])) {
+        throw new Error(
+          `${CONFIG_RUNTIME_INBOX_PREFIX} must be a DISTINCT first token from _INBOX so the ` +
+            'platform-wide _INBOX.> grant cannot match the scoped secret-reply subject',
+        );
+      }
+      // No OTHER service may grant the scoped inbox token, on publish or subscribe.
+      for (const svc of servicesDoc.services) {
+        if (svc.name === 'billing_service' || svc.name === 'config_service') continue;
+        const leaks = [...svc.publish, ...svc.subscribe].filter(
+          (g) => g.startsWith(CONFIG_RUNTIME_INBOX_PREFIX) || isCovered(scopedInboxSubject, [g]),
+        );
+        if (leaks.length > 0) {
+          throw new Error(
+            `${svc.name} must NOT hold any grant on the scoped secret-reply inbox ` +
+              `(${CONFIG_RUNTIME_INBOX_PREFIX}) — it could passively read the plaintext ` +
+              `Stripe secret. Offending grants: ${leaks.join(', ')}`,
+          );
+        }
+      }
+    });
+
+    it('no service outside {billing,config} holds ANY config.runtime.* grant', () => {
+      for (const svc of servicesDoc.services) {
+        if (svc.name === 'billing_service' || svc.name === 'config_service') continue;
+        const leaks = [...svc.publish, ...svc.subscribe].filter((g) =>
+          g.startsWith('config.runtime.'),
+        );
+        if (leaks.length > 0) {
+          throw new Error(
+            `${svc.name} must NOT hold a config.runtime.* grant: ${leaks.join(', ')}`,
+          );
+        }
+      }
+    });
+
+    it('every allowlisted caller holds the matching config.runtime.* PUBLISH grant (ARCH-MEDIUM-004)', () => {
+      const check = (
+        allowlist: Readonly<Record<string, readonly string[]>>,
+        subject: string,
+      ): void => {
+        for (const caller of Object.keys(allowlist)) {
+          const cn = APP_TO_SERVICE[caller];
+          if (!cn) {
+            throw new Error(
+              `config-runtime allowlist caller "${caller}" has no APP_TO_SERVICE (cert-CN) mapping`,
+            );
+          }
+          const svc = serviceByName.get(cn);
+          if (!svc || !isCovered(subject, svc.publish)) {
+            throw new Error(
+              `config-runtime allowlist caller "${caller}" (CN "${cn}") lacks the PUBLISH ` +
+                `grant for "${subject}" — the handler would authorize a caller the broker refuses.`,
+            );
+          }
+        }
+      };
+      check(CONFIG_RUNTIME_SECRET_ALLOWLIST, CONFIG_RUNTIME_SUBJECTS.GET_SECRET);
+      check(CONFIG_RUNTIME_NONSECRET_ALLOWLIST, CONFIG_RUNTIME_SUBJECTS.GET);
+    });
+
+    it('secret and non-secret allowlists are DISJOINT per caller (a secret key can never ride the GET path)', () => {
+      for (const caller of Object.keys(CONFIG_RUNTIME_SECRET_ALLOWLIST)) {
+        const secretKeys = new Set(CONFIG_RUNTIME_SECRET_ALLOWLIST[caller]);
+        const nonSecretKeys = CONFIG_RUNTIME_NONSECRET_ALLOWLIST[caller] ?? [];
+        const overlap = nonSecretKeys.filter((k) => secretKeys.has(k));
+        if (overlap.length > 0) {
+          throw new Error(
+            `caller "${caller}" lists key(s) on BOTH the secret and non-secret allowlists ` +
+              `(${overlap.join(', ')}) — the non-secret GET path would then be able to serve a secret`,
+          );
+        }
+      }
+    });
   });
 });

@@ -379,11 +379,21 @@ services:
       - "events.*.TenantErasureBlocked"
       - "events.platform.schema-migration.>"
       - "events.security.events.>"
+      # Faz C (D6): billing is the ONLY CN allowed to PUBLISH the config-runtime
+      # read subjects — the get_secret grant is the cert-CN half of the
+      # defense-in-depth around the plaintext Stripe secret. Reply arrives on
+      # billing's own _INBOX.> (already granted).
+      - "config.runtime.get"
+      - "config.runtime.get_secret"
       - "$JS.API.>"
       - "_INBOX.>"
     subscribe:
       - "request.billing.admin.>"
       - "request.billing.tenant.>"
+      # Faz C (SEC-CRITICAL-001): SCOPED reply inbox for the config-runtime secret
+      # read — billing is the ONLY CN that subscribes this token, so the decrypted
+      # Stripe secret never returns on the platform-wide `_INBOX.>` every cert holds.
+      - "_INBOXBILLINGCFG.>"
       - "$JS.API.>"
       - "_INBOX.>"
 
@@ -561,16 +571,26 @@ services:
   # JetStream pull consumer ($JS.API.> + _INBOX.>) and publishes the erasure
   # proof events via its own outbox worker (own cert). No domain events.
   - name: config_service
-    description: Dynamic per-tenant configuration — GDPR tenant-erasure target (proof publisher)
+    description: Dynamic per-tenant configuration — GDPR tenant-erasure target (proof publisher); config-runtime read responder
     publish:
       - "events.*.TenantDataErased"
       - "events.*.TenantDataErasureFailed"
       - "events.*.TenantErasureBlocked"
+      # Faz C (D6): metadata-only config-change signal, emitted via config_outbox
+      # on every mutating config write (consumers filter). NEVER carries the value/secret.
+      - "events.*.ConfigurationChanged"
+      # Faz C (SEC-CRITICAL-001): config replies to billing's SCOPED secret-read
+      # inbox — config is the ONLY CN that publishes this token.
+      - "_INBOXBILLINGCFG.>"
       - "events.platform.schema-migration.>"
       - "events.security.events.>"
       - "$JS.API.>"
       - "_INBOX.>"
     subscribe:
+      # Faz C (D6): config-runtime request-reply responder subjects. The secret
+      # reply is published back on the caller's SCOPED `_INBOXBILLINGCFG.>` inbox.
+      - "config.runtime.get"
+      - "config.runtime.get_secret"
       - "$JS.API.>"
       - "_INBOX.>"
 

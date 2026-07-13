@@ -7,12 +7,14 @@ import {
 } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import { UpdateConfigurationCommand } from '../commands/update-configuration.command';
 import {
   Configuration,
   ConfigurationHistory,
   ConfigValueType,
 } from '../entities/configuration.entity';
+import { emitConfigurationChanged } from '../events/emit-configuration-changed';
 import { ConfigurationService } from '../services/configuration.service';
 import { ConfigurationValidationService } from '../services/configuration-validation.service';
 import { EncryptionService } from '../services/encryption.service';
@@ -30,6 +32,7 @@ export class UpdateConfigurationHandler
     private readonly configurationService: ConfigurationService,
     private readonly validationService: ConfigurationValidationService,
     private readonly encryptionService: EncryptionService,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: UpdateConfigurationCommand): Promise<Configuration> {
@@ -86,7 +89,11 @@ export class UpdateConfigurationHandler
       // PLAT-HIGH-003: Pass tenantId + key as AAD to bind ciphertext to context
       if (input.value !== undefined) {
         if (nextWillBeSecret && this.encryptionService.isAvailable()) {
-          configuration.value = this.encryptionService.encrypt(input.value, configuration.tenantId, configuration.key);
+          configuration.value = this.encryptionService.encrypt(
+            input.value,
+            configuration.tenantId,
+            configuration.key,
+          );
         } else {
           configuration.value = input.value;
         }
@@ -123,6 +130,14 @@ export class UpdateConfigurationHandler
 
         await historyRepo.save(history);
       }
+
+      // ARCH-MEDIUM-003: emit the change signal atomically with the write.
+      await emitConfigurationChanged(
+        this.outboxPublisher,
+        queryRunner.manager,
+        savedConfig,
+        userId,
+      );
 
       await queryRunner.commitTransaction();
 

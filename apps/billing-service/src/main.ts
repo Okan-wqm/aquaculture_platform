@@ -11,4 +11,10 @@ bootstrapService(AppModule, {
   hasGraphQL: true,
   natsTransport: { queue: 'billing-service' },
   nestFactoryOptions: { rawBody: true, bodyParser: true },
+  // Faz C (D7): mount the Stripe webhook controller at /webhooks/stripe (not
+  // /api/v1/webhooks/stripe) so the gateway nginx `location = /webhooks/stripe`
+  // proxies it verbatim (raw body → Stripe HMAC survives). The default
+  // exclusions (health/metrics) are preserved; graphql is auto-added by the
+  // bootstrap since hasGraphQL is true.
+  prefixExclusions: ['health', 'health/(.*)', 'metrics', 'webhooks', 'webhooks/(.*)'],
 });

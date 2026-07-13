@@ -286,6 +286,19 @@ const LEGACY_TRAILER_DRIFT: ReadonlyArray<[string, string]> = [
   // commits but the strict trailer was on the principal finding only.
   ['AUDIT-MEDIUM-013', '2cd0a7bb'],
   ['AUDIT-LOW-001', '77660392'],
+  // ORPHAN-MEDIUM-314/321/322: the untracked-worktree remediation batch
+  // 8d1b342ed (PR #830) fixed all three, but its strict Closes: trailers
+  // cite the PRE-RENUMBERING ids ORPHAN-MEDIUM-309 (→314), 312 (→321), and
+  // 313 (→322). The findings were renumbered during merge-train collision
+  // resolution AFTER that commit merged — main independently claimed
+  // 309/312/313 for unrelated ARIA findings (documented in each entry's
+  // notes + docs/reviews/orphan-findings.md headings). Same sibling/
+  // renumbered-trailer shape as ORPHAN-MEDIUM-016 / RUST-CVE-001 above;
+  // the commit is the genuine closer and stays as-is.
+  // PHASE-12.1-FIX: re-annotate registry entry; commit stays as-is.
+  ['ORPHAN-MEDIUM-314', '8d1b342ed7538d4bc9fbc4074881eb34b079402c'],
+  ['ORPHAN-MEDIUM-321', '8d1b342ed7538d4bc9fbc4074881eb34b079402c'],
+  ['ORPHAN-MEDIUM-322', '8d1b342ed7538d4bc9fbc4074881eb34b079402c'],
 ];
 
 const LEGACY_DRIFT_SET: ReadonlySet<string> = new Set(

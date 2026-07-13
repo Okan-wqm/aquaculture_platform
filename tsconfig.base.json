@@ -55,6 +55,9 @@
         "libs/backend-common/src/bootstrap/index.ts"
       ],
       "@aquaculture/backend-common/config": ["libs/backend-common/src/config/index.ts"],
+      "@aquaculture/backend-common/config-client": [
+        "libs/backend-common/src/config-client/index.ts"
+      ],
       "@aquaculture/backend-common/constants": [
         "libs/backend-common/src/constants/index.ts"
       ],

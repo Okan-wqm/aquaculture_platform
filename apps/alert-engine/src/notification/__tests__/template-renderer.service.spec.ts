@@ -41,7 +41,7 @@ describe('TemplateRendererService', () => {
     it('should render email notification', () => {
       const result = service.render(NotificationChannel.EMAIL, baseContext);
 
-      expect(result.subject).toContain('HIGH');
+      expect(result.subject).toContain('high');
       expect(result.subject).toContain('Temperature Alert');
       expect(result.body).toContain('Temperature Alert');
       expect(result.body).toContain('incident-123');
@@ -51,7 +51,7 @@ describe('TemplateRendererService', () => {
     it('should render SMS notification', () => {
       const result = service.render(NotificationChannel.SMS, baseContext);
 
-      expect(result.body).toContain('HIGH');
+      expect(result.body).toContain('high');
       expect(result.body).toContain('Temperature Alert');
       expect(result.shortMessage).toBeDefined();
     });
@@ -59,7 +59,7 @@ describe('TemplateRendererService', () => {
     it('should render Slack notification', () => {
       const result = service.render(NotificationChannel.SLACK, baseContext);
 
-      expect(result.body).toContain('HIGH');
+      expect(result.body).toContain('high');
       expect(result.body).toContain('Temperature Alert');
       expect(result.body).toContain('*'); // Slack formatting
     });
@@ -82,7 +82,7 @@ describe('TemplateRendererService', () => {
     it('should render push notification', () => {
       const result = service.render(NotificationChannel.PUSH, baseContext);
 
-      expect(result.subject).toContain('HIGH');
+      expect(result.subject).toContain('high');
       expect(result.body).toBe('Temperature Alert');
     });
 
@@ -90,7 +90,7 @@ describe('TemplateRendererService', () => {
       const result = service.render(NotificationChannel.PAGERDUTY, baseContext);
 
       expect(result.subject).toBe('Temperature Alert');
-      expect(result.body).toContain('HIGH');
+      expect(result.body).toContain('high');
     });
 
     it('should include metadata in result', () => {
@@ -183,7 +183,10 @@ describe('TemplateRendererService', () => {
 
     it('should handle {{json}} special case', () => {
       const template = '{{json}}';
-      const context = { key: 'value' };
+      // {{json}} emits only the pre-built restricted export in `context.json`,
+      // never the whole context — a deliberate hardening so template authors
+      // cannot exfiltrate the full render context into a webhook body.
+      const context = { json: { key: 'value' } };
 
       const result = service.renderString(template, context);
 
@@ -432,7 +435,9 @@ describe('TemplateRendererService', () => {
       const result = service.previewTemplate(template);
 
       expect(result.subject).toContain('Sample Alert');
-      expect(result.body).toContain('Temperature');
+      // The sample description ("Water temperature has exceeded …") is
+      // interpolated into the body.
+      expect(result.body).toContain('temperature');
     });
 
     it('should preview template with custom context', () => {

@@ -104,7 +104,12 @@ impl AlarmEngine {
                 None => continue, // Tag not in process image, skip
             };
 
-            let condition_met = self.check_condition(tag_value, &rule.condition, rule.value);
+            let condition_met = alarm_core::evaluate_condition(
+                &rule.condition,
+                tag_value,
+                rule.value,
+                alarm_core::DEFAULT_EPSILON,
+            );
             let deadband = rule.deadband.unwrap_or(0.0);
             let delay_secs = rule.delay.unwrap_or(0);
 
@@ -115,13 +120,17 @@ impl AlarmEngine {
                 // Check deadband: if alarm was previously cleared, require value to cross
                 // threshold + deadband before re-triggering
 
-                // Check delay
+                // Check delay — millisecond precision via the shared kernel (no
+                // integer-second truncation). The rule stores whole seconds; the
+                // monotonic elapsed time is measured in ms.
                 if delay_secs > 0 {
                     let start = self
                         .delay_start
                         .entry(rule.id.clone())
                         .or_insert_with(Instant::now);
-                    if start.elapsed().as_secs() < delay_secs as u64 {
+                    let elapsed_ms = start.elapsed().as_millis() as u64;
+                    let delay_ms = u64::from(delay_secs) * 1000;
+                    if !alarm_core::delay_elapsed(elapsed_ms, delay_ms) {
                         continue; // Not enough time elapsed
                     }
                 }
@@ -165,14 +174,15 @@ impl AlarmEngine {
                 self.delay_start.remove(&rule.id);
                 events.push(AlarmEvent::Triggered(alarm));
             } else if !condition_met && is_active {
-                // Check deadband for clearing: value must be beyond threshold ± deadband
-                let clear = match rule.condition.as_str() {
-                    "<" | "<=" => tag_value >= rule.value + deadband,
-                    ">" | ">=" => tag_value <= rule.value - deadband,
-                    "==" => (tag_value - rule.value).abs() > deadband.max(0.01),
-                    "!=" => (tag_value - rule.value).abs() <= deadband.max(0.01),
-                    _ => true,
-                };
+                // Check deadband for clearing via the shared kernel: the value
+                // must be STRICTLY past threshold ± deadband (exclusive
+                // hysteresis; no hidden floor; deadband 0 clears immediately).
+                let clear = alarm_core::is_outside_deadband(
+                    &rule.condition,
+                    tag_value,
+                    rule.value,
+                    deadband,
+                );
 
                 if clear {
                     if let Some(alarm) = self.active_alarms.remove(&rule.id) {
@@ -202,22 +212,6 @@ impl AlarmEngine {
         }
 
         events
-    }
-
-    /// Check if a condition is met
-    fn check_condition(&self, tag_value: f64, condition: &str, threshold: f64) -> bool {
-        match condition {
-            "<" => tag_value < threshold,
-            ">" => tag_value > threshold,
-            "==" => (tag_value - threshold).abs() < f64::EPSILON,
-            "!=" => (tag_value - threshold).abs() >= f64::EPSILON,
-            "<=" => tag_value <= threshold,
-            ">=" => tag_value >= threshold,
-            _ => {
-                warn!("Unknown alarm condition: {}", condition);
-                false
-            }
-        }
     }
 
     /// Acknowledge an active alarm

@@ -27,4 +27,4 @@ pnpm-lock.yaml
 CHANGELOG.md
 /.nx/workspace-data
 # Generated wasm-bindgen bindings (protocol-codec) — do not reformat
-libs/protocol-codec/src/generated/
+libs/**/src/generated/

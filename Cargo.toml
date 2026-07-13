@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/protocol-codec",
+    "crates/alarm-core",
     "crates/tenant-context",
     "crates/event-contracts-rs",
     "crates/nats-client",
@@ -22,6 +23,9 @@ exclude = [
     # native workspace build. Excluded so `cargo build --workspace`,
     # clippy, and tests stay on the native target.
     "crates/protocol-codec-wasm",
+    # alarm-core wasm binding crate — built standalone via `wasm-pack`-style
+    # cargo + wasm-bindgen for the NestJS SCADA runtime, same as protocol-codec-wasm.
+    "crates/alarm-core-wasm",
     # Vendored upstream fork (RUST-CVE-001) — consumed only via
     # [patch.crates-io] at the bottom of this file. Excluded so upstream
     # code is not subject to our workspace lints/tests; provenance and

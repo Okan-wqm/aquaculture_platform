@@ -54,6 +54,12 @@ import type {
   NotificationConfig,
 } from '../scada-types';
 
+import {
+  evaluateCondition as coreEvaluateCondition,
+  isOutsideDeadband as coreIsOutsideDeadband,
+  delayElapsed as coreDelayElapsed,
+} from '@platform/alarm-core';
+
 import { ScadaRuntimeGateway } from '../scada-runtime.gateway';
 import { TagManagerService } from './tag-manager.service';
 import { AlarmStorageService } from './alarm-storage.service';
@@ -260,10 +266,11 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
           state.conditionTrueAt = now;
         }
 
-        const delay = (rule.timeDelay ?? 0) * 1000;
-        const elapsed = now - state.conditionTrueAt;
+        const delayMs = (rule.timeDelay ?? 0) * 1000;
+        const elapsedMs = now - state.conditionTrueAt;
 
-        if (elapsed >= delay) {
+        // Shared alarm-core kernel: `elapsedMs >= delayMs` (ms precision).
+        if (coreDelayElapsed(elapsedMs, delayMs)) {
           // Delay satisfied — activate alarm
           this.activateAlarm(rule, rawValue, now, state);
         }
@@ -653,39 +660,18 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
     condition: AlarmRuleRuntime['condition'],
     threshold: number,
   ): boolean {
-    switch (condition) {
-      case '>':  return value > threshold;
-      case '<':  return value < threshold;
-      case '>=': return value >= threshold;
-      case '<=': return value <= threshold;
-      case '==': return Math.abs(value - threshold) < 0.0001;
-      case '!=': return Math.abs(value - threshold) >= 0.0001;
-      default:   return false;
-    }
+    // Delegates to the drift-zero alarm-core kernel (shared with the Rust edge
+    // engine via WebAssembly). `==`/`!=` use the canonical 1e-4 epsilon.
+    return coreEvaluateCondition(condition, value, threshold);
   }
 
   /**
    * Returns true if the value is far enough from the threshold to
-   * allow the alarm to clear (deadband hysteresis).
+   * allow the alarm to clear (deadband hysteresis) — delegated to the shared
+   * alarm-core kernel (exclusive boundaries, no hidden floor, deadband 0 clears).
    */
   private isOutsideDeadband(value: number, rule: AlarmRuleRuntime): boolean {
-    const deadband = rule.deadband ?? 0;
-    if (deadband === 0) return true;
-
-    switch (rule.condition) {
-      case '>':
-      case '>=':
-        return value < rule.threshold - deadband;
-      case '<':
-      case '<=':
-        return value > rule.threshold + deadband;
-      case '==':
-        return Math.abs(value - rule.threshold) > deadband;
-      case '!=':
-        return Math.abs(value - rule.threshold) <= deadband;
-      default:
-        return true;
-    }
+    return coreIsOutsideDeadband(rule.condition, value, rule.threshold, rule.deadband ?? 0);
   }
 
   /* ---------------------------------------------------------------- */

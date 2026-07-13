@@ -32071,18 +32071,6 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
-      "path": "docs/reviews/orphan-findings.md",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_docs",
-      "owner": "docs",
-      "path": "docs/reviews/orphan-findings.md",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_docs",
-      "owner": "docs",
       "path": "docs/reviews/platform-kernel-expert/2026-04-10-full-repo-audit.md",
       "prettier_managed": true
     },
@@ -33764,6 +33752,87 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "jest.preset.js",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/alarm-core/jest.config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/alarm-core/package.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/alarm-core/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/alarm-core/src/decision-core.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "generated",
+      "content_sha256": "ce4c0526eafb541388591d9886129b9ff138b2448846a969ee59f14c350735e5",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "libs/alarm-core/src/generated/alarm_core_wasm_bg.wasm.d.ts",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
+    },
+    {
+      "class": "generated",
+      "content_sha256": "be2fcdb1a5c960b45c94ad69f482dd166d327bf0972d2c40bb427849ba41a5ab",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "libs/alarm-core/src/generated/alarm_core_wasm.d.ts",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
+    },
+    {
+      "class": "generated",
+      "content_sha256": "e51ac12d9f5910965856e704afec48c2671d8e742725ab2cc0d935680cae3412",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "libs/alarm-core/src/generated/alarm_core_wasm.js",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/alarm-core/src/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/alarm-core/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/alarm-core/tsconfig.lib.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/alarm-core/tsconfig.spec.json",
       "prettier_managed": true
     },
     {
@@ -37366,6 +37435,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/sensor-contracts/fixtures/alarm/decision-core.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/sensor-contracts/fixtures/command-envelope.json",
       "prettier_managed": true
     },
@@ -38169,7 +38244,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "9a1b5591497e1da3308f5cc1ed7c1f36e312d040074e7145be69bddeb1c0441d",
+      "content_sha256": "4438dccf0c90310514c6c4621e59391978dace97bbdf60c10efa0d09fa26d9b1",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -53241,10 +53316,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8725,
+  "file_count": 8735,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8547,
-  "managed_file_list_sha256": "4816a295956dccc3d80210443e74a9c667011b53f653e76dd0475c0e2219cbac",
+  "managed_count": 8554,
+  "managed_file_list_sha256": "6d249b33c11b96df515b534cac253f3ad7f3578f136db329503a13327ec6eeef",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

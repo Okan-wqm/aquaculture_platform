@@ -17,6 +17,11 @@ exclude = ["fuzz"]
 tokio = { version = "1.43", features = ["full"] }
 futures = "0.3"
 
+# Drift-zero alarm decision core — the SAME condition / deadband / delay math the
+# NestJS SCADA runtime evaluates (via the alarm-core wasm build). See
+# crates/alarm-core.
+alarm-core = { path = "../crates/alarm-core" }
+
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

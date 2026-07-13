@@ -1,11 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ClientsModule } from '@nestjs/microservices';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { NatsV3Client } from '@aquaculture/backend-common/nats';
 
 import { SettingsModule } from '../settings/settings.module';
 
-import { UserPermissions } from './entities/user-permissions.entity';
 import { RoleTemplateService } from './services/role-template.service';
 import { UserProvisioningService } from './services/user-provisioning.service';
 import { UsersController } from './users.controller';
@@ -14,13 +12,6 @@ import { UsersService } from './users.service';
 
 @Module({
   imports: [
-    // RBAC-HIGH-009: UserPermissions is retained ONLY as the persistence
-    // mapping for the canonical protected `shared.user_permissions` table so
-    // the schema-drift validator keeps a shape for it. It has NO service,
-    // controller, or authorization consumer — the phantom store's write/read
-    // paths were removed. Dropping the table (and this entity) is governed
-    // (ADR + architectural-arbiter) and tracked separately.
-    TypeOrmModule.forFeature([UserPermissions]),
     SettingsModule,
     /**
      * NATS client for auth-service delegation.

@@ -1,94 +1,105 @@
 /**
  * Impersonation domain types
  *
- * RBAC-MEDIUM-010 (M12): these types MIRROR the admin-api entities and DTOs
- * (`apps/admin-api-service/src/impersonation/`) field-for-field. The previous
- * shapes were an invented read model (tenantName/adminEmail/startedAt/
- * sessionToken/…) that matched NOTHING the backend returns — every list
- * rendered empty or undefined and the start call 400'd. Keep these in
- * lockstep with the backend entity; do not re-invent field names client-side.
+ * WHY these shapes: the read model mirrors the backend `SafeImpersonationSession`
+ * (admin-api `impersonation-session.entity.ts`) field-for-field. Read responses
+ * NEVER carry token columns (DB-ADMIN-HIGH-002); the raw impersonation token is
+ * revealed exactly once, on the start response (DB-ADMIN-HIGH-001). Request
+ * types mirror the controller DTOs — the super-admin identity always comes from
+ * the verified JWT, never from the request body.
  */
 
-/** Mirrors admin-api ImpersonationStatus. */
+/** Mirrors backend `ImpersonationStatus` — there is no 'revoked'; operator override is 'terminated'. */
 export type ImpersonationSessionStatus = 'active' | 'ended' | 'expired' | 'terminated';
 
-/** Mirrors admin-api ImpersonationReason (StartImpersonationDto.reason enum). */
-export const IMPERSONATION_REASONS = [
-  'support_request',
-  'debugging',
-  'configuration',
-  'onboarding_assistance',
-  'security_investigation',
-  'data_verification',
-  'other',
-] as const;
-export type ImpersonationReasonValue = (typeof IMPERSONATION_REASONS)[number];
+/** Mirrors backend `ImpersonationReason` — the start endpoint validates against this enum. */
+export type ImpersonationReasonCode =
+  | 'support_request'
+  | 'debugging'
+  | 'configuration'
+  | 'onboarding_assistance'
+  | 'security_investigation'
+  | 'data_verification'
+  | 'other';
+
+export interface ImpersonationPermission {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  grantedBy: string;
+  grantedByEmail: string;
+  grantedAt: string;
+  expiresAt?: string;
+  maxSessionDuration: number;
+  allowedActions: string[];
+  isActive: boolean;
+  reason?: string;
+  revokedAt?: string;
+  revokedBy?: string;
+}
 
 /**
- * Mirrors admin-api IMPERSONATION_MAX_SESSION_MINUTES (the 1-hour policy
- * ceiling enforced by the backend DTOs and service clamps — RBAC-MEDIUM-009).
+ * Read model for GET /impersonation/sessions* — the backend's
+ * SafeImpersonationSession. Optionality follows the entity's nullable columns.
+ * `actionsPerformed` (the action array) is intentionally omitted: the UI only
+ * consumes the numeric `actionCount`.
  */
-export const IMPERSONATION_MAX_SESSION_MINUTES = 60;
-
-/** Mirrors the ImpersonationPermissions jsonb on sessions/permissions. */
-export interface ImpersonationCapabilities {
-  [key: string]: unknown;
-}
-
-/** One entry of the session's append-only actionsPerformed jsonb log. */
-export interface ImpersonationAction {
-  action: string;
-  resource: string;
-  resourceId?: string;
-  details?: Record<string, unknown>;
-  timestamp: string;
-}
-
-/** Mirrors admin-api ImpersonationSession (admin.impersonation_sessions). */
 export interface ImpersonationSession {
   id: string;
   superAdminId: string;
-  superAdminEmail?: string | null;
+  superAdminEmail?: string;
   targetTenantId: string;
-  targetTenantName?: string | null;
-  targetUserId?: string | null;
-  targetUserEmail?: string | null;
+  targetTenantName?: string;
+  targetUserId?: string;
+  targetUserEmail?: string;
   status: ImpersonationSessionStatus;
-  reason: ImpersonationReasonValue;
-  reasonDetails?: string | null;
-  ticketReference?: string | null;
-  permissions?: ImpersonationCapabilities | null;
-  ipAddress?: string | null;
-  userAgent?: string | null;
+  reason: ImpersonationReasonCode;
+  reasonDetails?: string;
+  ticketReference?: string;
+  ipAddress?: string;
+  userAgent?: string;
   mfaCompleted: boolean;
   expiresAt: string;
-  endedAt?: string | null;
-  endReason?: string | null;
-  actionsPerformed?: ImpersonationAction[] | null;
+  endedAt?: string;
+  endReason?: string;
   actionCount: number;
   createdAt: string;
   updatedAt: string;
 }
 
-/** Mirrors admin-api ImpersonationPermission (admin.impersonation_permissions). */
-export interface ImpersonationPermission {
-  id: string;
-  superAdminId: string;
-  superAdminEmail?: string | null;
-  canImpersonate: boolean;
-  isActive: boolean;
-  allowedTenants?: string[] | null;
-  restrictedTenants?: string[] | null;
-  defaultPermissions?: ImpersonationCapabilities | null;
-  maxSessionDurationMinutes: number;
-  maxConcurrentSessions: number;
-  requireReason: boolean;
-  requireTicketReference: boolean;
-  notifyTenantAdmin: boolean;
-  grantedBy?: string | null;
-  grantedAt?: string | null;
-  expiresAt?: string | null;
-  notes?: string | null;
-  createdAt: string;
-  updatedAt: string;
+/**
+ * POST /impersonation/sessions/start response — the ONLY response that carries
+ * the raw impersonation token (revealed once; reads never echo it back).
+ */
+export interface StartImpersonationResponse extends ImpersonationSession {
+  impersonationToken: string;
+}
+
+/**
+ * POST /impersonation/sessions/start request body (backend StartImpersonationDto).
+ * No admin identity fields: the backend derives superAdminId from the JWT and
+ * rejects unknown properties (forbidNonWhitelisted).
+ */
+export interface StartImpersonationRequest {
+  targetTenantId: string;
+  targetTenantName?: string;
+  targetUserId?: string;
+  targetUserEmail?: string;
+  reason: ImpersonationReasonCode;
+  reasonDetails?: string;
+  ticketReference?: string;
+  durationMinutes?: number;
+}
+
+/**
+ * One entry of a session's action log — mirrors the backend `ImpersonationAction`
+ * interface ({ action, resource, resourceId?, timestamp, details? }); the
+ * log-action endpoint validates exactly these fields.
+ */
+export interface ImpersonationAction {
+  action: string;
+  resource: string;
+  resourceId?: string;
+  timestamp: string;
+  details?: Record<string, unknown>;
 }

@@ -29,6 +29,9 @@ import { meetsRoleFloor } from '@/utils/role-rank';
 // the server will reject. Harvest === createHarvestRecord (MODULE_MANAGER+).
 const FEATURE_ROLE_FLOOR: Partial<Record<MobileFeature, Role>> = {
   harvest: 'MODULE_MANAGER',
+  // FARM-HIGH-214: report drafts are reviewed/approved by managers only —
+  // mirrors @Roles(TENANT_ADMIN, MODULE_MANAGER) on RegulatoryReportDraftResolver.
+  reports: 'MODULE_MANAGER',
 };
 
 /**

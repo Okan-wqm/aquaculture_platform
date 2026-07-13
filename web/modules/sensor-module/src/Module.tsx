@@ -37,6 +37,9 @@ const ScadaOperatorPage = lazy(() => import('./pages/scada/ScadaOperatorPage'));
 // Unified SCADA Editor (lazy loaded)
 const UnifiedEditorPage = lazy(() => import('./pages/unified/UnifiedEditorPage'));
 
+// Tag Registry (lazy loaded) — SP-001: the registry's product surface
+const TagRegistryPage = lazy(() => import('./pages/tags/TagRegistryPage'));
+
 // Automation Pages (lazy loaded)
 const AutomationProgramsPage = lazy(() => import('./pages/automation/AutomationProgramsPage'));
 const AutomationProgramEditorPage = lazy(() => import('./pages/automation/AutomationProgramEditorPage'));
@@ -135,6 +138,9 @@ const SensorModule: React.FC = () => {
         {/* Unified SCADA Editor */}
         <Route path="unified-editor/new" element={<UnifiedEditorPage />} />
         <Route path="unified-editor/:processId" element={<UnifiedEditorPage />} />
+
+        {/* Tag Registry — discover, browse, live-link registry tags (SP-001) */}
+        <Route path="tags" element={<TagRegistryPage />} />
 
         {/* Automation Programs */}
         <Route path="automation" element={<AutomationProgramsPage />} />

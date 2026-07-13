@@ -86,6 +86,7 @@ import {
 import { reclaimPostFanoutOrphanTypes } from './orphan-type-reclamation';
 import { runPlatformBootstrap, resolvePlatformBootstrapSqlDir } from './platform-bootstrap.service';
 import { SCHEMA_REGISTRY, type SchemaPostMigrationHardening } from './schema-registry';
+import { healStrayTenantMigrationJournals } from './stray-tenant-journal-heal';
 import { runTenantSchemaProvisioner } from './tenant-schema-provisioner';
 
 /**
@@ -594,6 +595,30 @@ async function verifyTenantPrivilegesOrFail(
     await dataSource.destroy();
   }
   return ok;
+}
+
+/**
+ * Drop stray `migrations_<svc>` journals left inside tenant schemas by the
+ * retired runtime seeding path (ORPHAN-MEDIUM-386 — see
+ * stray-tenant-journal-heal.ts for the guard rails). Runs on its own control
+ * connection after the fan-out, BEFORE the tenant-privilege verification, so
+ * the same release that heals the stray also stops warning about it.
+ * Non-fatal: a blocked DROP (lock contention) must not fail an otherwise
+ * green deploy — the stray only feeds the unknown-table warning.
+ */
+async function healStrayTenantJournalsAfterFanout(
+  database: RunSchemaOptions['database'],
+): Promise<void> {
+  const dataSource = createControlDataSource(database);
+  await dataSource.initialize();
+  const queryRunner = dataSource.createQueryRunner();
+  try {
+    await queryRunner.connect();
+    await healStrayTenantMigrationJournals(queryRunner, log);
+  } finally {
+    await queryRunner.release();
+    await dataSource.destroy();
+  }
 }
 
 /**
@@ -1302,6 +1327,26 @@ async function main(): Promise<number> {
           stack: err instanceof Error ? err.stack : undefined,
         });
         return 1;
+      }
+    }
+
+    // ── Phase 1.4 — Stray tenant-journal self-heal (ORPHAN-MEDIUM-386) ──────
+    // Drops `migrations_<svc>` journals inside tenant schemas whose source
+    // schema is NOT tenant-aware (journal bookkeeping the retired runtime
+    // seeding path left behind, e.g. tenant_7f6b08ab….migrations_auth). Runs
+    // before the privilege gate below so this release's unknown-table warning
+    // reflects the healed state. Non-fatal by contract.
+    if (tenantSchemas.length > 0) {
+      try {
+        await healStrayTenantJournalsAfterFanout(database);
+      } catch (err: unknown) {
+        log({
+          level: 'warn',
+          message:
+            'Stray tenant-journal self-heal failed (non-fatal) — stray journal left for a later release',
+          context: 'DbMigrateStrayJournalHeal',
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     }
 

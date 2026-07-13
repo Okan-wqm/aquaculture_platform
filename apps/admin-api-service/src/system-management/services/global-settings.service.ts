@@ -11,11 +11,7 @@ import {
   FeatureToggleStatus,
   FeatureCondition,
 } from '../entities/feature-toggle.entity';
-import {
-  GlobalConfig,
-  ConfigCategory,
-  ConfigValueType,
-} from '../entities/global-config.entity';
+import { ConfigCategory, ConfigValueType } from '../entities/global-config.entity';
 import {
   MaintenanceMode,
   MaintenanceScope,
@@ -779,7 +775,9 @@ export class GlobalSettingsService implements OnModuleInit {
     search?: string;
     page?: number;
     limit?: number;
-  }): { items: GlobalConfig[]; total: number } {
+    // Return type is `never[]`: the global_configs surface is retired, so this
+    // always yields an empty page (the GlobalConfig entity no longer exists).
+  }): { items: never[]; total: number } {
     void params;
     return { items: [], total: 0 };
   }

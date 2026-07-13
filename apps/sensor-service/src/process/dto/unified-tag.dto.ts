@@ -1,9 +1,17 @@
 import { InputType, ObjectType, Field, ID, Int, Float } from '@nestjs/graphql';
-import { IsString, IsOptional, IsEnum, IsUUID, IsNumber, MaxLength, IsObject, Validate, ValidatorConstraint, ValidatorConstraintInterface, ValidationArguments } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsUUID, IsNumber, MaxLength, Matches, IsObject, Validate, ValidatorConstraint, ValidatorConstraintInterface, ValidationArguments } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
 import { StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
+import { TAG_REF_PATTERN } from '@platform/sensor-contracts';
 
 import { TagDirection, TagIoType, TagDataType, TagStatus } from '../entities/unified-tag.entity';
+
+// The registry FQN is a canonical TagRef (`deviceCode/localName`). Validating it
+// at the DTO boundary keeps unresolvable "ghost" rows out of the registry — an
+// fqn that violates the grammar can never be resolved at deploy/subscribe time.
+const FQN_REGEX = new RegExp(TAG_REF_PATTERN);
+const FQN_GRAMMAR_MESSAGE =
+  'fqn must be a canonical TagRef of the form deviceCode/localName (e.g. EDGE-AABB1122/tank1.do)';
 
 @ValidatorConstraint({ name: 'jsonMaxSize', async: false })
 class JsonMaxSizeConstraint implements ValidatorConstraintInterface {
@@ -27,6 +35,7 @@ export class CreateTagInput {
   @Field()
   @IsString()
   @MaxLength(500)
+  @Matches(FQN_REGEX, { message: FQN_GRAMMAR_MESSAGE })
   fqn!: string;
 
   @Field()
@@ -121,6 +130,7 @@ export class UpdateTagInput {
   @IsOptional()
   @IsString()
   @MaxLength(500)
+  @Matches(FQN_REGEX, { message: FQN_GRAMMAR_MESSAGE })
   fqn?: string;
 
   @Field({ nullable: true })

@@ -46,11 +46,19 @@ export interface Tank {
   currentBiomass: number;
   maxBiomass: number;
   batchMetrics: BatchMetrics | null;
+  /** FARM-HIGH-214: the tank's siteId (from the inventory container snapshot) —
+   * the regulatory field-capture inputs (lice/welfare/escape) are site-scoped,
+   * so the site is resolved from the selected tank, never asked of the operator. */
+  siteId: string | null;
 }
 
 export interface BatchMetrics {
   batchId: string | null;
   batchNumber: string | null;
+  /** FARM-HIGH-214: primary batch species from the tank-composition ledger —
+   * escape incidents are recorded against the species actually in the pen. */
+  speciesId: string | null;
+  speciesName: string | null;
   pieces: number | null;
   avgWeight: number | null;
   biomass: number | null;
@@ -125,6 +133,70 @@ export interface HarvestInput {
   pricePerKg?: number;
   buyerName?: string;
   lotNumber?: string;
+  notes?: string;
+}
+
+// ============================================================================
+// Regulatory field-capture types (FARM-HIGH-214 / RPT-019)
+// ============================================================================
+
+/**
+ * Matches backend RecordLiceCountInput exactly (fish-health field capture).
+ * The lice_counts SSoT upserts on (tenant, tank, countDate) — a replayed or
+ * re-submitted count for the same pen/day corrects the row, never duplicates.
+ */
+export interface LiceCountInput {
+  siteId: string;
+  tankId: string;
+  batchId?: string;
+  /** Counting date, yyyy-mm-dd. */
+  countDate: string;
+  adultFemaleLice: number;
+  mobileLice: number;
+  attachedLice: number;
+  fishSampled: number;
+  seaTemperatureC?: number;
+  notes?: string;
+}
+
+/** Matches backend RecordWelfareAssessmentInput exactly (scores 0–3). */
+export interface WelfareAssessmentInput {
+  siteId: string;
+  tankId: string;
+  batchId?: string;
+  /** Assessment date, yyyy-mm-dd. */
+  assessedAt: string;
+  fishSampled: number;
+  gillScore: number;
+  finScore: number;
+  woundScore: number;
+  deformityScore: number;
+  notes?: string;
+}
+
+/** GraphQL EscapeIncidentCause enum KEYS (wire names, FARM-MEDIUM-166 parity). */
+export type EscapeIncidentCause =
+  | 'HOLE_IN_NET'
+  | 'HANDLING'
+  | 'PREDATOR'
+  | 'STRUCTURAL_FAILURE'
+  | 'OPERATIONAL'
+  | 'UNKNOWN'
+  | 'OTHER';
+
+/** Matches backend RecordEscapeIncidentInput exactly. */
+export interface EscapeIncidentInput {
+  siteId: string;
+  tankId?: string;
+  batchId?: string;
+  /** ISO timestamp of detection. */
+  detectedAt: string;
+  speciesId: string;
+  estimatedCount: number;
+  avgWeightG?: number;
+  cause?: EscapeIncidentCause;
+  causeDetails?: string;
+  recoveryOngoing?: boolean;
   notes?: string;
 }
 
@@ -251,7 +323,7 @@ export interface CreateLeaveRequestInput {
 // a reference to a recorded/selected Blob persisted in the dedicated binary
 // store. Its in-app sync replay runs the 3-step online flow that cannot happen
 // offline: requestMediaUpload (presign) → PUT blob → sendMessage(storageKey).
-export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'clockIn' | 'clockOut' | 'createLeaveRequest' | 'completeTask' | 'startTask' | 'setChecklistItem' | 'recordTransfer' | 'createWaterQuality' | 'recordStockMovement' | 'transferStock' | 'sendMessage' | 'editMessage' | 'deleteMessage' | 'markMessagesRead' | 'uploadAndSendMessage';
+export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'clockIn' | 'clockOut' | 'createLeaveRequest' | 'completeTask' | 'startTask' | 'setChecklistItem' | 'recordTransfer' | 'createWaterQuality' | 'recordStockMovement' | 'transferStock' | 'recordLiceCount' | 'recordWelfareAssessment' | 'recordEscapeIncident' | 'sendMessage' | 'editMessage' | 'deleteMessage' | 'markMessagesRead' | 'uploadAndSendMessage';
 
 /**
  * FARM-HIGH-057 — offline payload for an idempotent checklist SET.
@@ -309,7 +381,7 @@ export interface UploadAndSendMessageOfflinePayload {
 }
 
 export type OperationPayload = (
-  MortalityInput | CullInput | HarvestInput | FeedingInput | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | ChecklistItemSetInput | TransferInput | CreateWaterQualityInput | StockMovementInput | StockTransferInput | MessagingOfflinePayload | UploadAndSendMessageOfflinePayload
+  MortalityInput | CullInput | HarvestInput | FeedingInput | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | ChecklistItemSetInput | TransferInput | CreateWaterQualityInput | StockMovementInput | StockTransferInput | LiceCountInput | WelfareAssessmentInput | EscapeIncidentInput | MessagingOfflinePayload | UploadAndSendMessageOfflinePayload
 ) & MobileCommandEnvelope;
 
 export interface QueuedOperation {

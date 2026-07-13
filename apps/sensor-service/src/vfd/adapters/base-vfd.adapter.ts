@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { crc16Modbus } from '@platform/protocol-codec';
 
 import { VfdParameters, VfdStatusBits } from '../entities/vfd-reading.entity';
 import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
@@ -419,23 +420,14 @@ export abstract class BaseVfdAdapter {
   }
 
   /**
-   * Calculate CRC16 for Modbus RTU
+   * Calculate CRC16 for Modbus RTU.
+   *
+   * Delegates to the `protocol-codec` WebAssembly build (ADR-026 drift-zero
+   * SSoT) rather than re-implementing the bit-by-bit loop, so the edge gateway,
+   * the ingestion sidecar and this adapter share one verified CRC.
    */
   protected calculateCRC16(buffer: Buffer): number {
-    let crc = 0xffff;
-
-    for (let i = 0; i < buffer.length; i++) {
-      crc ^= buffer[i] ?? 0;
-      for (let j = 0; j < 8; j++) {
-        if (crc & 0x0001) {
-          crc = (crc >> 1) ^ 0xa001;
-        } else {
-          crc >>= 1;
-        }
-      }
-    }
-
-    return crc;
+    return crc16Modbus(buffer);
   }
 
   /**

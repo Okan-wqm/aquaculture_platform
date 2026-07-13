@@ -7,7 +7,7 @@
  * - Returns a stable, memoized values object.
  */
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, useId } from 'react';
 import { useDataProvider } from '../providers';
 import type { TagValueChange } from '../types/scada-runtime.types';
 
@@ -19,6 +19,12 @@ export interface RealtimeDataResult {
 
 export function useRealtimeData(tagIds: string[]): RealtimeDataResult {
   const provider = useDataProvider();
+
+  // Stable, unique per hook instance — the provider/subscription manager
+  // ref-counts each consumer's tag set under this id. A shared id would make
+  // concurrent consumers (screen widgets, header, charts) stomp each other's
+  // subscriptions (SENSOR-HIGH-040).
+  const componentId = useId();
 
   // Stable serialised key used as the useEffect dependency so the effect
   // only re-runs when the tag list actually changes by value.
@@ -69,7 +75,7 @@ export function useRealtimeData(tagIds: string[]): RealtimeDataResult {
     pendingRef.current = { ...pendingRef.current, ...initial };
     scheduleFlush();
 
-    provider.subscribeToTags(currentTagIds);
+    provider.subscribeToTags(componentId, currentTagIds);
 
     // Poll for updates: in the current provider layer the subscription pushes
     // values into the context store and we read via getTagValue.  A polling
@@ -94,10 +100,10 @@ export function useRealtimeData(tagIds: string[]): RealtimeDataResult {
         cancelAnimationFrame(rafHandleRef.current);
         rafHandleRef.current = null;
       }
-      provider.unsubscribeFromTags(currentTagIds);
+      provider.unsubscribeFromTags(componentId);
     };
    
-  }, [tagIdsKey, provider, scheduleFlush]);
+  }, [tagIdsKey, provider, scheduleFlush, componentId]);
 
   const isConnected = provider.connectionState === 'connected';
 

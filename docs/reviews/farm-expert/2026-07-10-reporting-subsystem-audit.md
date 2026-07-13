@@ -496,3 +496,52 @@ and Oslo/DST-safe deadline computation; rollover `ON CONFLICT` idempotency; the 
 frontend tenant-scoped query-key cache hygiene; no `console.*`, no secrets logged; the authz matrix
 (global fail-closed RolesGuard + PermissionMatrixGuard) and `saveOverrides` RECORDS/SENSOR rejection;
 per-tenant exception isolation in the sweeps; MODULE_SCHEMAS registration + RLS on `regulatory_reports`.
+
+## Phase 6 — mobile field capture + report surface (2026-07-11)
+
+### FARM-HIGH-214 — AquaMobil had zero regulatory field-capture or report surface (RPT-019)
+
+The Mattilsynet source tables (`lice_counts`, `welfare_assessments`, `escape_incidents`) were
+desktop-only while the observations happen AT the pen, and report drafts due could not be
+reviewed/approved from the field. Remediated in this branch: offline-first capture pages
+(lice stage averages, 4×0–3 welfare score dials, escape with the "varsling is legally
+IMMEDIATE" banner + priority queue drain), the three inputs extended with the
+`MobileCommandEnvelopeInput` at-most-once envelope (welfare/escape dedup via
+`farm_mobile_command_receipts`; lice counts keep the stronger natural
+`(tenant, tank, countDate)` upsert idempotency), species/site enrichment of the inventory
+read model (`farm_stock_batch_snapshots.speciesId/speciesName`, migration `1805200000000`),
+the auth `liceCount`/`welfare`/`escape`/`reports` feature flags (+ column-default migration
+`1805300000000`), and the ONLINE-ONLY Reports Due / Report Review pages gated on a
+`MODULE_MANAGER` role floor mirroring the draft resolver's `@Roles` matrix.
+
+### FARM-MEDIUM-215 — tenant-admin MobileSettings toggle UI drifted from the feature vocabulary (tracked)
+
+Found while implementing FARM-HIGH-214: `web/modules/tenant-admin/src/components/settings/MobileSettings.tsx`
+renders/saves only 6 of the 16 `MobileAllowedFeatures` flags (transfer/schedule/attendance/
+leave/tasks/storage and the Phase-6 additions are not admin-toggleable) and its local
+`DEFAULT_ALLOWED_FEATURES` contradicts the auth-service `DEFAULT_MOBILE_FEATURES`
+(feeding/waterQuality false vs true). The API layer is fixed in this branch (the update DTOs
+now cover the full vocabulary via one abstract base); the admin UI rework is TRACKED with
+owner (admin-expert) + deadline (2026-09-30) — root-cause fix is deriving the toggle list +
+defaults from the shared vocabulary instead of a hand-maintained copy.
+
+### Phase-6 pre-merge re-review (2026-07-11) — MERGE-READY, two LOWs fixed in-branch
+
+The farm-expert adversarial re-review of the Phase-6 diff confirmed the receipt-ledger
+transaction boundaries (no double-write, no event re-enqueue on replay), projection UNION
+alignment, tenant scoping on every new path, and payload↔input contract parity. Two LOW
+findings were raised and fixed in the same branch:
+
+- **FARM-LOW-216** — mixed-batch containers had no deterministic primary batch on the mobile
+  read path (projection wrote isPrimary=false for all detail rows; handler ordered
+  batchNumber-only; the mobile mapper took batches[0]). Fixed: the projection derives
+  isPrimary from the ledger's primaryBatchId per detail row, the inventory handler orders
+  isPrimary DESC first, and the mobile mapper prefers the explicit isPrimary row.
+- **FARM-LOW-217** — a dead GetTanksWithBatches document (zero importers) had silently
+  desynced from the Tank type's newer fields. Fixed: deleted with its unused generated-type
+  imports; the live tank source is farmStockInventory.
+
+Informational (accepted, no change): escape capture's millisecond detectedAt makes the 5s
+offline content-dedup window inert for escapes — the isSubmitting guard + server receipt
+dedup are the real double-submit protections, and a genuine re-entry is legitimately a new
+observation.

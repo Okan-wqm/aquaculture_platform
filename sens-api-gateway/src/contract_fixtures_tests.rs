@@ -56,6 +56,8 @@ fn all_fixtures_parse_as_command_envelope() {
         "deploy-process.json",
         "deploy-program.json",
         "deploy-scada-package.json",
+        "deploy-scada-package-unsupported-widget.json",
+        "undeploy-scada-package.json",
         "deploy-bundle.json",
     ] {
         let envelope = envelope_of(name);
@@ -156,14 +158,61 @@ fn deploy_scada_package_fixture_deserializes_as_scada_package() {
         package.meta.edge_device_id.as_deref(),
         Some("9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d")
     );
-    assert_eq!(package.screens.len(), 1);
-    assert_eq!(package.screens[0].widgets.len(), 2);
+    assert_eq!(package.screens.len(), 2);
+    assert_eq!(package.screens[0].widgets.len(), 12);
+    assert_eq!(package.screens[1].widgets.len(), 4);
     assert_eq!(package.alarm_rules.len(), 1);
     assert_eq!(
         package.control_permissions.security_levels.confirm,
         vec!["widget-2".to_string()]
     );
     assert_eq!(package.trend_config.retention_days, Some(7));
+
+    // CONTRACT-H-002 parity pin: the fixture exercises EVERY member of
+    // EDGE_SUPPORTED_WIDGET_TYPES (the TS spec asserts exactly that over
+    // the same bytes) — none may fall into the Unknown tolerance bucket,
+    // which mechanically proves EDGE_SUPPORTED ⊆ the Rust WidgetType enum.
+    for screen in &package.screens {
+        for widget in &screen.widgets {
+            assert!(
+                !matches!(widget.widget_type, crate::scada_types::WidgetType::Unknown),
+                "edge-supported widget {} deserialized to Unknown — cloud/edge enum drift",
+                widget.id
+            );
+        }
+    }
+}
+
+/// CONTRACT-H-002 tolerance pin over shared bytes: the raw fixture FAILS
+/// the cloud's strict publish schema (the TS leg asserts that), yet the
+/// SAME bytes still deserialize here — the unsupported widget lands in the
+/// `Unknown` bucket instead of failing the whole package. This is the
+/// rollback path for pre-transform artifacts.
+#[cfg(feature = "scada-display")]
+#[test]
+fn unsupported_widget_fixture_parses_with_unknown_bucket() {
+    let envelope = envelope_of("deploy-scada-package-unsupported-widget.json");
+    assert_eq!(envelope.command, "deploy_scada_package");
+
+    let package: crate::scada_types::ScadaPackage = serde_json::from_value(envelope.params)
+        .expect("unsupported-widget params must still parse as ScadaPackage");
+
+    let widgets = &package.screens[0].widgets;
+    assert_eq!(widgets.len(), 2);
+    assert!(
+        !matches!(
+            widgets[0].widget_type,
+            crate::scada_types::WidgetType::Unknown
+        ),
+        "gauge must parse as a known type"
+    );
+    assert!(
+        matches!(
+            widgets[1].widget_type,
+            crate::scada_types::WidgetType::Unknown
+        ),
+        "staticText must land in the Unknown tolerance bucket"
+    );
 }
 
 /// Faz 5: the deploy-bundle fixture must clear the FULL edge
@@ -226,6 +275,21 @@ fn deploy_bundle_fixture_clears_full_edge_verification() {
     )
     .expect_err("wrong tenant must fail");
     assert!(err.contains("signature verification failed"));
+}
+
+/// WF-011: the undeploy fixture deserializes into the handler's params
+/// struct with the load-bearing fields POPULATED (the TS leg proves the
+/// same bytes satisfy UNDEPLOY_SCADA_PACKAGE_PARAMS_SCHEMA).
+#[test]
+fn undeploy_scada_package_fixture_parses_with_populated_params() {
+    let envelope = envelope_of("undeploy-scada-package.json");
+    assert_eq!(envelope.command, "undeploy_scada_package");
+
+    let params: crate::commands::UndeployScadaPackageParams =
+        serde_json::from_value(envelope.params)
+            .expect("undeploy-scada-package params must parse as UndeployScadaPackageParams");
+    assert_eq!(params.package_id, "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d");
+    assert_eq!(params.reason.as_deref(), Some("package_deleted"));
 }
 
 /// The signature material rides in the SAME positions the Faz 4 edge

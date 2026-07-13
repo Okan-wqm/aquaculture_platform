@@ -155,12 +155,13 @@ export class ChannelDetectionService {
       const channelRepo = tenantManagerRepo(manager, SensorDataChannel, tenantId);
       const logRepo = tenantManagerRepo(manager, ChannelDetectionLog, tenantId);
 
-      // Batch create channels
+      // Batch create channels. Plain literals on purpose: saveMany runs the
+      // repository's create() (and forces tenantId) itself — wrapping each
+      // element in channelRepo.create() here constructed every entity twice.
       const channelEntities = channelsToCreate
         .filter(chDef => !existingKeys.has(chDef.channelKey))
-        .map(chDef => channelRepo.create({
+        .map(chDef => ({
           sensorId: proposal.sensorId,
-          tenantId,
           channelKey: chDef.channelKey,
           displayLabel: chDef.displayLabel,
           description: chDef.description,

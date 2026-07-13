@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `58be916a78a93b1145e3635192ef8944d708b50f760f319d7a1252e57d015b60`
+Registry tip: `6fc71a53c5bae231864dc86791c369602590858ad87a0d64bd7fc19ab9b300c6`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -27,15 +27,20 @@ post-merge close ceremony records a main-reachable closing commit (PROC-HIGH-001
 by the W1 network-security workstream) and `SENSOR-CRITICAL-003` (VFD tab
 visibility, closed by the W5 frontend workstream). Both are `already-fixed-needs-close`.
 
-Updated 2026-07-11: the tenant/superadmin RBAC end-to-end audit
-(`2026-07-11-rbac-e2e-audit`) registered three new active CRITICALs whose
-architectural fixes landed on this branch but whose registry rows stay OPEN
-until the post-merge close ceremony records a main-reachable closing commit
-(PROC-HIGH-001, `close` refuses branch-local SHAs): `RBAC-CRITICAL-001`
-(override-only role update skipped the grant-authority guard),
-`RBAC-CRITICAL-002` (no "cannot grant more than you have" invariant / catalogue
-whitelist on tenant-role write paths), and `RBAC-CRITICAL-003` (role-definition
-mutations wrote zero audit rows). All three are `already-fixed-needs-close`.
+Updated 2026-07-11: the reporting-line post-merge close ceremony (PRs #929/#937
+merged; ceremony commit records main-reachable closing commits) RESOLVED six of
+the audit-era criticals that sat in `already-fixed-needs-close` —
+`FARM-CRITICAL-161`, `-163`, `-165`, `-168`, `-169`, `-171` — so their rows leave
+the active table below (the table mirrors `active_critical_ids` exactly; the
+contract invariant enforces the bijection). 8 active CRITICALs remain.
+
+Updated 2026-07-12: reconciling the unified-SCADA-editor audit entries (PR #941)
+onto the chain adds three active CRITICALs whose fixes land in that same PR but
+whose registry rows stay IN-PROGRESS until the post-merge close ceremony records
+a main-reachable closing commit (PROC-HIGH-001, `close` refuses branch-local
+SHAs): `SENSOR-CRITICAL-004` (WS RS256→HS256 confusion bypass),
+`SENSOR-CRITICAL-005` (TAG_WRITE tenant fence), `SENSOR-CRITICAL-006`
+(server-side control-security PIN). All three are `already-fixed-needs-close`.
 
 Allowed truth buckets:
 
@@ -55,16 +60,13 @@ Allowed truth buckets:
 | `SENSOR-CRITICAL-003` | OPEN           | —            | sensor-expert | already-fixed-needs-close |
 | `DATA-CRITICAL-001`  | OPEN           | —            | data-expert  | real-open    |
 | `FARM-CRITICAL-153`  | OPEN           | 4.1          | farm-expert  | already-fixed-needs-close |
-| `FARM-CRITICAL-161`  | OPEN           | —            | farm-expert  | already-fixed-needs-close |
-| `FARM-CRITICAL-163`  | OPEN           | —            | farm-expert  | already-fixed-needs-close |
-| `FARM-CRITICAL-165`  | OPEN           | —            | frontend-expert | already-fixed-needs-close |
-| `FARM-CRITICAL-168`  | OPEN           | —            | farm-expert  | already-fixed-needs-close |
-| `FARM-CRITICAL-169`  | OPEN           | —            | data-expert  | already-fixed-needs-close |
-| `FARM-CRITICAL-171`  | OPEN           | —            | infra-expert | already-fixed-needs-close |
 | `INFRA-CRITICAL-039` | OPEN           | —            | infra-expert | already-fixed-needs-close |
-| `RBAC-CRITICAL-001`  | OPEN           | —            | auth-security-expert | already-fixed-needs-close |
-| `RBAC-CRITICAL-002`  | OPEN           | —            | auth-security-expert | already-fixed-needs-close |
-| `RBAC-CRITICAL-003`  | OPEN           | —            | auth-security-expert | already-fixed-needs-close |
+| `SENSOR-CRITICAL-004` | IN-PROGRESS   | —            | sensor-expert | already-fixed-needs-close |
+| `SENSOR-CRITICAL-005` | IN-PROGRESS   | —            | sensor-expert | already-fixed-needs-close |
+| `SENSOR-CRITICAL-006` | IN-PROGRESS   | —            | sensor-expert | already-fixed-needs-close |
+| `RBAC-CRITICAL-001` | OPEN            | 1.2          | auth-security-expert | already-fixed-needs-close |
+| `RBAC-CRITICAL-002` | OPEN            | 1.2          | auth-security-expert | already-fixed-needs-close |
+| `RBAC-CRITICAL-003` | OPEN            | 1.2          | auth-security-expert | already-fixed-needs-close |
 
 ## Mutation Rules
 
@@ -99,27 +101,6 @@ Allowed truth buckets:
   `createTenantQueryKey` pattern and wired the DevicesPage VFD tab and detail route
   to VFD data, so registered drives are visible. The registry row stays OPEN only
   until the post-merge close ceremony records a main-reachable closing commit.
-
-- `RBAC-CRITICAL-001` (updateUserRole ran the grant-authority guard only inside
-  `if (roleId changed)`, so an override-only update escalated unchecked): the
-  self-target + level-ceiling guard now runs unconditionally on `updateUserRole`
-  and override grants are validated through `CapabilityAuthorityService`
-  (`apps/auth-service/src/modules/tenant/services/tenant-user-management.service.ts`,
-  `capability-authority.ts`). The registry row stays OPEN only until the
-  post-merge close ceremony records a main-reachable closing commit.
-- `RBAC-CRITICAL-002` (no "cannot grant more than you have" invariant and no
-  catalogue whitelist on any tenant-role write path): `CapabilityAuthorityService`
-  is the sole producer of the branded `GrantablePermissionSet`/`ValidatedOverrideSet`
-  the persistence helpers require (tier-1 make-it-impossible), and the catalogue
-  whitelist lives in `permission-catalogue.ts` (`CATALOGUE_CAPABILITIES`). The
-  registry row stays OPEN only until the post-merge close ceremony records a
-  main-reachable closing commit.
-- `RBAC-CRITICAL-003` (role-definition mutations wrote zero audit rows):
-  `TenantRoleService` injects `AuditLogService` and writes
-  `ROLE_CREATED/ROLE_UPDATED/ROLE_DELETED/ROLE_SET_DEFAULT/ROLES_SEEDED` on the
-  same SERIALIZABLE transaction via `queryRunner.manager` (fail-closed). The
-  registry row stays OPEN only until the post-merge close ceremony records a
-  main-reachable closing commit.
 
 The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
 `already-fixed-needs-close`; reconciled items moved to `Resolved Evidence`.
@@ -396,3 +377,21 @@ src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx` passed 28/28 on
   `109563f`. The messaging-service Jest run above passed the
   `SendMessageInput` envelope regression, proving offline `sendMessage` accepts
   the mobile command envelope while rejecting unknown fields.
+- `SENSOR-CRITICAL-004` (WS control-plane RS256→HS256 algorithm-confusion
+  bypass): PR #941 routes SCADA socket JWT verification through the platform
+  RS256-only path and broadens `tests/invariants/jwt-rs256-only.spec.ts`.
+  Reproducible proof: the sensor-service scada-runtime auth specs + the JWT
+  invariant pass on the branch. The row stays IN-PROGRESS until the post-merge
+  close ceremony records the main-reachable closing commit.
+- `SENSOR-CRITICAL-005` (WS `TAG_WRITE` accepted without a tenant fence):
+  PR #941 tenant-fences TAG_WRITE, resolves targets against the unified tag
+  registry, and replaces the fake ack with an honest `queued` result.
+  Reproducible proof: `apps/sensor-service/src/scada-runtime` gateway specs on
+  the branch. IN-PROGRESS until the post-merge close ceremony.
+- `SENSOR-CRITICAL-006` (control-security PINs stored plaintext and compared
+  client-side): PR #941 moves the secret server-side (scrypt `pinHash` at save,
+  read-path redaction, `PIN_VERIFY` socket verification with lockout, tag-keyed
+  TAG_WRITE elevation). Reproducible proof:
+  `apps/sensor-service/src/process/services/__tests__/pin-control-security.spec.ts`
+  + gateway elevation specs on the branch. IN-PROGRESS until the post-merge
+  close ceremony.

@@ -1,9 +1,13 @@
 /**
- * Palette widget category definitions used by UnifiedLeftPanel search,
- * favorites, and recently-used features.
+ * Palette widget category definitions — the single source of truth for the
+ * SCADA widget palette, consumed by UnifiedLeftPanel (search, favorites,
+ * recently-used). Uses string icon keys instead of JSX to stay
+ * framework-agnostic in a constants file; UnifiedLeftPanel resolves each
+ * `iconKey` against its ICONS registry.
  *
- * Mirrors the WIDGET_CATEGORIES in WidgetPalette.tsx — uses string icon
- * keys instead of JSX to stay framework-agnostic in a constants file.
+ * This list must stay a superset of every renderable widget type. The
+ * palette-parity invariant test asserts every `type` here resolves in the
+ * WidgetRenderer lazy-map and every equipment `symbolMap` key is present.
  */
 
 import type { ScadaWidgetType } from '../types/scada-widget.types';
@@ -33,9 +37,13 @@ export const PALETTE_CATEGORIES: PaletteCategory[] = [
     { type: 'numericInput', label: 'NumericInput', iconKey: 'Keyboard' },
     { type: 'pushButton', label: 'PushButton', iconKey: 'CircleDot' },
     { type: 'emergencyStop', label: 'EmergencyStop', iconKey: 'OctagonAlert' },
+    { type: 'knob', label: 'Knob', iconKey: 'Disc3' },
+    { type: 'dropdownSelect', label: 'Dropdown Select', iconKey: 'ChevronDownSquare' },
   ]},
-  { name: 'Trend', widgets: [
+  { name: 'Charts', widgets: [
     { type: 'trendChart', label: 'TrendChart', iconKey: 'TrendingUp' },
+    { type: 'barChart', label: 'Bar Chart', iconKey: 'BarChart3' },
+    { type: 'pieChart', label: 'Pie Chart', iconKey: 'PieChart' },
   ]},
   { name: 'Alarm', widgets: [
     { type: 'alarmBanner', label: 'AlarmBanner', iconKey: 'Bell' },
@@ -72,6 +80,11 @@ export const PALETTE_CATEGORIES: PaletteCategory[] = [
   { name: 'Automation', widgets: [
     { type: 'scheduler', label: 'Scheduler', iconKey: 'Calendar' },
   ]},
+  { name: 'Data & Embedding', widgets: [
+    { type: 'dataTable', label: 'Data Table', iconKey: 'Table2' },
+    { type: 'iframe', label: 'IFrame', iconKey: 'Globe' },
+    { type: 'progressBar', label: 'Progress Bar', iconKey: 'BarChart3' },
+  ]},
   { name: 'Media', widgets: [
     { type: 'videoStream', label: 'Video Stream', iconKey: 'Video' },
     { type: 'mapView', label: 'Map View', iconKey: 'MapPinned' },
@@ -95,6 +108,12 @@ export const PALETTE_CATEGORIES: PaletteCategory[] = [
     { type: 'equipment' as ScadaWidgetType, label: 'Piston Pump', iconKey: 'Circle', defaultConfig: { equipmentSubType: 'pistonPump' } },
     { type: 'equipment' as ScadaWidgetType, label: 'Submersible Pump', iconKey: 'Circle', defaultConfig: { equipmentSubType: 'submersiblePump' } },
     { type: 'equipment' as ScadaWidgetType, label: 'Vacuum Pump', iconKey: 'Circle', defaultConfig: { equipmentSubType: 'vacuumPump' } },
+    { type: 'equipment' as ScadaWidgetType, label: 'Turbine Pump', iconKey: 'Circle', defaultConfig: { equipmentSubType: 'turbinePump' } },
+    { type: 'equipment' as ScadaWidgetType, label: 'Screw Pump', iconKey: 'Circle', defaultConfig: { equipmentSubType: 'screwPump' } },
+    { type: 'equipment' as ScadaWidgetType, label: 'Peristaltic Pump', iconKey: 'Circle', defaultConfig: { equipmentSubType: 'peristalticPump' } },
+    { type: 'equipment' as ScadaWidgetType, label: 'Blower Pump', iconKey: 'Circle', defaultConfig: { equipmentSubType: 'blowerPump' } },
+    { type: 'equipment' as ScadaWidgetType, label: 'Jet Pump', iconKey: 'Circle', defaultConfig: { equipmentSubType: 'jetPump' } },
+    { type: 'equipment' as ScadaWidgetType, label: 'Vane Pump', iconKey: 'Circle', defaultConfig: { equipmentSubType: 'vanePump' } },
   ]},
   { name: 'Valves', widgets: [
     { type: 'equipment' as ScadaWidgetType, label: 'Gate Valve', iconKey: 'Diamond', defaultConfig: { equipmentSubType: 'gateValve' } },
@@ -106,6 +125,10 @@ export const PALETTE_CATEGORIES: PaletteCategory[] = [
     { type: 'equipment' as ScadaWidgetType, label: 'Control Valve', iconKey: 'Diamond', defaultConfig: { equipmentSubType: 'controlValve' } },
     { type: 'equipment' as ScadaWidgetType, label: 'Needle Valve', iconKey: 'Diamond', defaultConfig: { equipmentSubType: 'needleValve' } },
     { type: 'equipment' as ScadaWidgetType, label: 'Solenoid Valve', iconKey: 'Diamond', defaultConfig: { equipmentSubType: 'solenoidValve' } },
+    { type: 'equipment' as ScadaWidgetType, label: 'Three-Way Valve', iconKey: 'Diamond', defaultConfig: { equipmentSubType: 'threeWayValve' } },
+    { type: 'equipment' as ScadaWidgetType, label: 'Pinch Valve', iconKey: 'Diamond', defaultConfig: { equipmentSubType: 'pinchValve' } },
+    { type: 'equipment' as ScadaWidgetType, label: 'Diaphragm Valve', iconKey: 'Diamond', defaultConfig: { equipmentSubType: 'diaphragmValve' } },
+    { type: 'equipment' as ScadaWidgetType, label: 'Plug Valve', iconKey: 'Diamond', defaultConfig: { equipmentSubType: 'plugValve' } },
   ]},
   { name: 'Tank / Vessel', widgets: [
     { type: 'equipment' as ScadaWidgetType, label: 'Vertical Tank', iconKey: 'Square', defaultConfig: { equipmentSubType: 'verticalTank' } },
@@ -121,6 +144,32 @@ export const PALETTE_CATEGORIES: PaletteCategory[] = [
     { type: 'equipment' as ScadaWidgetType, label: 'Air Cooler', iconKey: 'Square', defaultConfig: { equipmentSubType: 'airCooler' } },
     { type: 'equipment' as ScadaWidgetType, label: 'Condenser', iconKey: 'Square', defaultConfig: { equipmentSubType: 'condenser' } },
     { type: 'equipment' as ScadaWidgetType, label: 'Evaporator', iconKey: 'Square', defaultConfig: { equipmentSubType: 'evaporator' } },
+  ]},
+  { name: 'Compressors', widgets: [
+    { type: 'equipment' as ScadaWidgetType, label: 'Piston Compressor', iconKey: 'Circle', defaultConfig: { equipmentSubType: 'pistonCompressor' } },
+    { type: 'equipment' as ScadaWidgetType, label: 'Screw Compressor', iconKey: 'Circle', defaultConfig: { equipmentSubType: 'screwCompressor' } },
+    { type: 'equipment' as ScadaWidgetType, label: 'Centrifugal Compressor', iconKey: 'Circle', defaultConfig: { equipmentSubType: 'centrifugalCompressor' } },
+    { type: 'equipment' as ScadaWidgetType, label: 'Diaphragm Compressor', iconKey: 'Circle', defaultConfig: { equipmentSubType: 'diaphragmCompressor' } },
+  ]},
+  { name: 'Motors', widgets: [
+    { type: 'equipment' as ScadaWidgetType, label: 'AC Motor', iconKey: 'Circle', defaultConfig: { equipmentSubType: 'acMotor' } },
+    { type: 'equipment' as ScadaWidgetType, label: 'VFD Motor', iconKey: 'Circle', defaultConfig: { equipmentSubType: 'vfdMotor' } },
+    { type: 'equipment' as ScadaWidgetType, label: 'Servo Motor', iconKey: 'Circle', defaultConfig: { equipmentSubType: 'servoMotor' } },
+  ]},
+  { name: 'Filters', widgets: [
+    { type: 'equipment' as ScadaWidgetType, label: 'Bag Filter', iconKey: 'Square', defaultConfig: { equipmentSubType: 'bagFilter' } },
+    { type: 'equipment' as ScadaWidgetType, label: 'Drum Filter', iconKey: 'Square', defaultConfig: { equipmentSubType: 'drumFilter' } },
+    { type: 'equipment' as ScadaWidgetType, label: 'Membrane Filter', iconKey: 'Square', defaultConfig: { equipmentSubType: 'membraneFilter' } },
+  ]},
+  { name: 'Instruments', widgets: [
+    { type: 'equipment' as ScadaWidgetType, label: 'Pressure Transmitter', iconKey: 'Gauge', defaultConfig: { equipmentSubType: 'pressureTransmitter' } },
+    { type: 'equipment' as ScadaWidgetType, label: 'Flow Transmitter', iconKey: 'Gauge', defaultConfig: { equipmentSubType: 'flowTransmitter' } },
+    { type: 'equipment' as ScadaWidgetType, label: 'Level Transmitter', iconKey: 'Gauge', defaultConfig: { equipmentSubType: 'levelTransmitter' } },
+    { type: 'equipment' as ScadaWidgetType, label: 'Temperature Transmitter', iconKey: 'Gauge', defaultConfig: { equipmentSubType: 'temperatureTransmitter' } },
+  ]},
+  { name: 'Animated', widgets: [
+    { type: 'equipment' as ScadaWidgetType, label: 'Animated Gear', iconKey: 'Activity', defaultConfig: { equipmentSubType: 'animatedGear' } },
+    { type: 'equipment' as ScadaWidgetType, label: 'Animated Conveyor', iconKey: 'Activity', defaultConfig: { equipmentSubType: 'animatedConveyor' } },
   ]},
   { name: 'VFD / Motor Drives', widgets: [
     { type: 'vfdDrive' as ScadaWidgetType, label: 'VFD Drive', iconKey: 'Zap', defaultConfig: { brand: 'ABB', demoState: 'RUNNING' } },

@@ -1,17 +1,25 @@
 import { createHash, randomUUID } from 'crypto';
 
 import { Injectable, Logger, NotFoundException, BadRequestException, Inject, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, ILike, In } from 'typeorm';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
-import { upcastScadaPackageDoc } from '@platform/sensor-contracts';
+import {
+  transformScadaDocForEdgeDeploy,
+  upcastScadaPackageDoc,
+  type EdgeDeployWidgetRef,
+  type ScadaPackageDocV2,
+} from '@platform/sensor-contracts';
 import {
   formatValidationErrors,
   validateCommandEnvelope,
   validateDeployScadaPackageParams,
+  validateEdgeScadaPackageDoc,
   validateScadaPackageDocV2,
+  validateUndeployScadaPackageParams,
 } from '@platform/sensor-contracts/validators';
 
 import { AutomationService } from '../../automation/automation.service';
@@ -36,8 +44,10 @@ import {
 import { ProcessPaginationInput } from '../dto/process.dto';
 import { Process } from '../entities/process.entity';
 import { ScadaPackage, ScadaPackageStatus } from '../entities/scada-package.entity';
+import { ScadaDeployLog, ScadaDeployStatus } from '../entities/scada-deploy-log.entity';
 import { ScadaDeployLogService } from './scada-deploy-log.service';
 import { TagResolutionService } from './tag-resolution.service';
+import { hashPin, isPinHash, verifyPin } from './pin-hash.util';
 
 @Injectable()
 export class ScadaPackageService {
@@ -45,6 +55,15 @@ export class ScadaPackageService {
 
   /** Max packageData size: 1 MB */
   private static readonly MAX_PACKAGE_DATA_BYTES = 1_048_576;
+
+  /** Max source size of a single SCADA script (`code` field): 64 KiB. */
+  private static readonly MAX_SCRIPT_CODE_BYTES = 65_536;
+
+  /** Max number of scripts a single package may carry. */
+  private static readonly MAX_SCRIPTS_PER_PACKAGE = 50;
+
+  /** Modes a stored script may declare. */
+  private static readonly VALID_SCRIPT_MODES = new Set(['server', 'client']);
 
   private validatePackageDataSize(data: Record<string, unknown>): void {
     const size = Buffer.byteLength(JSON.stringify(data), 'utf8');
@@ -68,6 +87,50 @@ export class ScadaPackageService {
             throw new BadRequestException('Each screen.widgets must be an array');
           }
         }
+      }
+    }
+  }
+
+  /**
+   * Bound the script surface at the write boundary.
+   *
+   * SCADA scripts run as untrusted tenant code inside the QuickJS sandbox at
+   * runtime (`ScriptEngineService`); the sandbox is memory- and CPU-bounded, but
+   * accepting unbounded source at rest is still a denial-of-service and storage
+   * vector. Reject (never truncate) oversized code, over-large script counts, or
+   * an unknown execution mode so malformed packages cannot be persisted.
+   */
+  private validateScripts(data: Record<string, unknown>): void {
+    if (data.scripts === undefined) {
+      return;
+    }
+    if (!Array.isArray(data.scripts)) {
+      throw new BadRequestException('packageData.scripts must be an array');
+    }
+    if (data.scripts.length > ScadaPackageService.MAX_SCRIPTS_PER_PACKAGE) {
+      throw new BadRequestException(
+        `packageData.scripts exceeds the maximum of ${ScadaPackageService.MAX_SCRIPTS_PER_PACKAGE} scripts`,
+      );
+    }
+    for (const entry of data.scripts) {
+      if (!entry || typeof entry !== 'object') {
+        throw new BadRequestException('Each packageData.scripts entry must be an object');
+      }
+      const scriptEntry = entry as Record<string, unknown>;
+      const { code, mode } = scriptEntry;
+      if (typeof code !== 'string') {
+        throw new BadRequestException('Each script must have a string `code` field');
+      }
+      const codeBytes = Buffer.byteLength(code, 'utf8');
+      if (codeBytes > ScadaPackageService.MAX_SCRIPT_CODE_BYTES) {
+        throw new BadRequestException(
+          `Script "${String(scriptEntry.name ?? scriptEntry.id ?? 'unnamed')}" code exceeds the maximum size (${(
+            codeBytes / 1024
+          ).toFixed(0)} KB > ${ScadaPackageService.MAX_SCRIPT_CODE_BYTES / 1024} KB)`,
+        );
+      }
+      if (mode !== undefined && (typeof mode !== 'string' || !ScadaPackageService.VALID_SCRIPT_MODES.has(mode))) {
+        throw new BadRequestException("Script `mode` must be 'server' or 'client'");
       }
     }
   }
@@ -119,19 +182,49 @@ export class ScadaPackageService {
   private sanitizePackageData(pkg: ScadaPackage): ScadaPackage {
     const data = pkg.packageData;
     const controlPermissions = data.controlPermissions as Record<string, unknown> | undefined;
-    if (controlPermissions?.pinHash) {
-      // Return a copy — do not mutate the original entity that may be cached by TypeORM
-      const clone = Object.assign(Object.create(Object.getPrototypeOf(pkg)), pkg);
-      clone.packageData = {
-        ...data,
-        controlPermissions: {
-          ...controlPermissions,
-          pinHash: '[REDACTED]',
-        },
-      };
-      return clone;
-    }
-    return pkg;
+
+    // Legacy rows: widget config.pin is a PLAINTEXT secret readable by any
+    // tenant member (SENSOR-CRITICAL-006). Strip it on read, keeping the
+    // requirePin trigger so the operator UI still prompts (verification is
+    // server-side via PIN_VERIFY).
+    const screens = Array.isArray(data.screens) ? data.screens : [];
+    const hasWidgetPin = screens.some((screen) => {
+      const widgets = (screen as { widgets?: unknown[] })?.widgets;
+      return Array.isArray(widgets) && widgets.some((w) => {
+        const pin = (w as { config?: Record<string, unknown> })?.config?.pin;
+        return typeof pin === 'string' && pin.length > 0;
+      });
+    });
+
+    if (!controlPermissions?.pinHash && !hasWidgetPin) return pkg;
+
+    // Return a copy — do not mutate the original entity that may be cached by TypeORM
+    const clone = Object.assign(Object.create(Object.getPrototypeOf(pkg)), pkg);
+    clone.packageData = {
+      ...data,
+      ...(hasWidgetPin
+        ? {
+            screens: screens.map((screen) => {
+              const sc = screen as Record<string, unknown> & { widgets?: unknown[] };
+              if (!Array.isArray(sc.widgets)) return screen;
+              return {
+                ...sc,
+                widgets: sc.widgets.map((w) => {
+                  const widget = w as Record<string, unknown> & { config?: Record<string, unknown> };
+                  const pin = widget.config?.pin;
+                  if (typeof pin !== 'string' || pin.length === 0) return w;
+                  const { pin: _stripped, ...restConfig } = widget.config!;
+                  return { ...widget, config: { ...restConfig, requirePin: true } };
+                }),
+              };
+            }),
+          }
+        : {}),
+      ...(controlPermissions?.pinHash
+        ? { controlPermissions: { ...controlPermissions, pinHash: '[REDACTED]' } }
+        : {}),
+    };
+    return clone;
   }
 
   constructor(
@@ -172,12 +265,142 @@ export class ScadaPackageService {
     @Optional()
     @Inject(OutboxPublisher)
     private readonly outboxPublisher: OutboxPublisher | null,
+    @Optional()
+    @Inject(ConfigService)
+    private readonly configService: ConfigService | null,
   ) {}
 
   /**
    * Collect the tag-name strings widgets bind to (`config.tagName`, legacy
    * `config.tag`) from every screen in the package document.
    */
+  /* ── Control-security PIN (SENSOR-CRITICAL-006) ─────────────────────── */
+
+  /**
+   * Harden control security at the SAVE boundary — plaintext can never
+   * persist through a save:
+   *  - every plaintext `widget.config.pin` is stripped, replaced with
+   *    `config.requirePin = true`, its widget id recorded in
+   *    `controlPermissions.securityLevels.pin`, and the PIN itself hashed
+   *    into the package-level `controlPermissions.pinHash` (scrypt, salted);
+   *  - a plaintext value written into `pinHash` by the builder is hashed too;
+   *  - a null/absent incoming `pinHash` (the read path redacts it) preserves
+   *    the stored hash so a load→edit→save roundtrip cannot wipe the PIN.
+   */
+  private hardenControlSecurity(
+    data: Record<string, unknown>,
+    existingPinHash?: string | null,
+  ): void {
+    const cp = (data.controlPermissions ??= {
+      securityLevels: { none: [], confirm: [], pin: [] },
+      pinHash: null,
+      emergencyStop: null,
+    }) as Record<string, unknown>;
+    const levels = (cp.securityLevels ??= { none: [], confirm: [], pin: [] }) as Record<string, unknown>;
+    const pinLevel: unknown[] = Array.isArray(levels.pin) ? levels.pin : (levels.pin = []);
+
+    let plaintextPin: string | null = null;
+    const screens = Array.isArray(data.screens) ? data.screens : [];
+    for (const screen of screens) {
+      const widgets = (screen as { widgets?: unknown[] })?.widgets;
+      if (!Array.isArray(widgets)) continue;
+      for (const widget of widgets) {
+        const w = widget as { id?: string; config?: Record<string, unknown> };
+        const pin = w.config?.pin;
+        if (typeof pin === 'string' && pin.length > 0 && w.config) {
+          plaintextPin ??= pin;
+          delete w.config.pin;
+          w.config.requirePin = true;
+          if (w.id && !pinLevel.includes(w.id)) pinLevel.push(w.id);
+        }
+      }
+    }
+
+    if (cp.pinHash === '[REDACTED]') {
+      // Roundtripped read-path redaction marker — restore the stored hash.
+      cp.pinHash = existingPinHash ?? null;
+    } else if (typeof cp.pinHash === 'string' && cp.pinHash.length > 0 && !isPinHash(cp.pinHash)) {
+      // The builder wrote a raw PIN into the hash field — never store it as-is.
+      cp.pinHash = hashPin(cp.pinHash);
+    }
+    if (plaintextPin) {
+      cp.pinHash = hashPin(plaintextPin);
+    } else if ((cp.pinHash == null || cp.pinHash === '') && existingPinHash) {
+      cp.pinHash = existingPinHash;
+    }
+  }
+
+  /** Extract the stored pinHash from a raw (unredacted) packageData. */
+  private extractPinHash(data: Record<string, unknown>): string | null {
+    const cp = data.controlPermissions as { pinHash?: unknown } | undefined;
+    return typeof cp?.pinHash === 'string' && cp.pinHash.length > 0 ? cp.pinHash : null;
+  }
+
+  /**
+   * Verify a PIN against a package's stored hash (PIN_VERIFY socket flow).
+   * Legacy rows saved before hardening carry only plaintext widget pins —
+   * those compare directly and harden on their next save.
+   */
+  async verifyPackagePin(packageId: string, tenantId: string, pin: string): Promise<boolean> {
+    const pkg = await this.scadaPackageRepository.findOne({ where: { id: packageId, tenantId } });
+    if (!pkg) return false;
+    const stored = this.extractPinHash(pkg.packageData);
+    if (stored) {
+      return isPinHash(stored) ? verifyPin(pin, stored) : stored === pin;
+    }
+    // Legacy: per-widget plaintext pins (pre-hardening rows).
+    const screens = Array.isArray(pkg.packageData.screens) ? pkg.packageData.screens : [];
+    for (const screen of screens) {
+      const widgets = (screen as { widgets?: unknown[] })?.widgets;
+      if (!Array.isArray(widgets)) continue;
+      for (const widget of widgets) {
+        const wpin = (widget as { config?: Record<string, unknown> })?.config?.pin;
+        if (typeof wpin === 'string' && wpin.length > 0 && wpin === pin) return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * The tenant-wide set of tag keys whose writes require PIN elevation:
+   * every tag bound to a pin-protected widget (securityLevels.pin membership,
+   * `config.requirePin`, or a legacy plaintext `config.pin`) across the
+   * tenant's non-archived packages. The gateway enforces against this set so
+   * a caller cannot opt out by omitting package context.
+   */
+  async getPinProtectedTagKeys(tenantId: string): Promise<Set<string>> {
+    const packages = await this.scadaPackageRepository.find({ where: { tenantId } });
+    const keys = new Set<string>();
+    for (const pkg of packages) {
+      if (pkg.status === ScadaPackageStatus.ARCHIVED) continue;
+      const data = pkg.packageData;
+      const cp = data.controlPermissions as { securityLevels?: { pin?: unknown[] } } | undefined;
+      const pinWidgetIds = new Set(
+        (Array.isArray(cp?.securityLevels?.pin) ? cp.securityLevels.pin : []).filter(
+          (x): x is string => typeof x === 'string',
+        ),
+      );
+      const screens = Array.isArray(data.screens) ? data.screens : [];
+      for (const screen of screens) {
+        const widgets = (screen as { widgets?: unknown[] })?.widgets;
+        if (!Array.isArray(widgets)) continue;
+        for (const widget of widgets) {
+          const w = widget as { id?: string; config?: Record<string, unknown> };
+          const protectedWidget =
+            (w.id && pinWidgetIds.has(w.id)) ||
+            w.config?.requirePin === true ||
+            (typeof w.config?.pin === 'string' && w.config.pin.length > 0);
+          if (!protectedWidget || !w.config) continue;
+          for (const key of ['tagRef', 'tagId', 'tagName', 'tag'] as const) {
+            const v = w.config[key];
+            if (typeof v === 'string' && v.length > 0) keys.add(v);
+          }
+        }
+      }
+    }
+    return keys;
+  }
+
   private collectWidgetTagNames(data: Record<string, unknown>): string[] {
     const names = new Set<string>();
     const screens = Array.isArray(data.screens) ? data.screens : [];
@@ -206,7 +429,9 @@ export class ScadaPackageService {
 
     this.validatePackageDataSize(input.packageData);
     this.validatePackageDataStructure(input.packageData);
+    this.validateScripts(input.packageData);
     const packageData = await this.upcastAndValidatePackageData(input.packageData, tenantId);
+    this.hardenControlSecurity(packageData);
 
     if (input.processId) {
       const process = await this.processRepository.findOne({
@@ -253,13 +478,17 @@ export class ScadaPackageService {
     if (input.packageData !== undefined) {
       this.validatePackageDataSize(input.packageData);
       this.validatePackageDataStructure(input.packageData);
+      this.validateScripts(input.packageData);
+      const existingPinHash = this.extractPinHash(pkg.packageData);
       pkg.packageData = await this.upcastAndValidatePackageData(input.packageData, tenantId);
+      this.hardenControlSecurity(pkg.packageData, existingPinHash);
     }
 
     if (input.name !== undefined) pkg.name = input.name;
     if (input.description !== undefined) pkg.description = input.description;
     if (input.processId !== undefined) pkg.processId = input.processId;
-    if (input.status !== undefined) pkg.status = input.status;
+    // `status` is intentionally not applied here — it is owned by the lifecycle
+    // methods (create/deploy/delete), not by a client update (see DTO comment).
 
     pkg.version = pkg.version + 1;
     pkg.updatedBy = userId;
@@ -422,12 +651,245 @@ export class ScadaPackageService {
     await this.scadaPackageRepository.save(pkg);
   }
 
-  async deleteScadaPackage(id: string, tenantId: string): Promise<boolean> {
+  /**
+   * Delete (archive) a package — and take it OFF the devices it runs on
+   * (WF-011). Archive alone left every deployed device rendering, alarming
+   * and actuating from a package the tenant believed deleted.
+   *
+   * Undeploy is BEST-EFFORT and the archive happens REGARDLESS: blocking
+   * delete on an offline device would make decommissioning impossible, and
+   * an archived package can never be re-deployed (`assertPackageDeployable`).
+   * Per-device outcomes are returned so the caller can report honestly.
+   * Idempotent: re-deleting an ARCHIVED package is a no-op (already swept).
+   */
+  async deleteScadaPackage(
+    id: string,
+    tenantId: string,
+    userId?: string,
+  ): Promise<DeleteScadaPackageResult> {
     const pkg = await this.scadaPackageRepository.findOne({ where: { id, tenantId } });
     if (!pkg) throw new NotFoundException(`ScadaPackage ${id} not found`);
+
+    if (pkg.status === ScadaPackageStatus.ARCHIVED) {
+      return { archived: true, undeploy: [] };
+    }
+
+    const undeploy = await this.undeployPackageFromDevices(pkg, tenantId, userId);
+
     pkg.status = ScadaPackageStatus.ARCHIVED;
     await this.scadaPackageRepository.save(pkg);
-    return true;
+    return { archived: true, undeploy };
+  }
+
+  /**
+   * Fan an `undeploy_scada_package` command out to every device whose
+   * LATEST deploy-log row says this package is (or may be) running there.
+   * Devices whose latest row is FAILED / ROLLED_BACK / UNDEPLOY_SENT /
+   * UNDEPLOYED are skipped — nothing of this package runs there. A failure
+   * on device A never stops device B (each result is recorded).
+   */
+  private async undeployPackageFromDevices(
+    pkg: ScadaPackage,
+    tenantId: string,
+    userId?: string,
+  ): Promise<UndeployDeviceResult[]> {
+    if (!this.scadaDeployLogService) {
+      // No deploy history available — degrade to archive-only (nothing to
+      // derive targets from; the optional dep is absent in slim setups).
+      return [];
+    }
+
+    let logs: ScadaDeployLog[];
+    try {
+      logs = await this.scadaDeployLogService.getByPackage(pkg.id, tenantId);
+    } catch (error) {
+      this.logger.error(
+        `undeploy fan-out: deploy logs unavailable for package ${pkg.id}: ${(error as Error).message}`,
+      );
+      return [];
+    }
+
+    // getByPackage orders sentAt DESC — first row per device is its latest.
+    const latestByDevice = new Map<string, ScadaDeployStatus>();
+    for (const log of logs) {
+      if (!latestByDevice.has(log.deviceId)) {
+        latestByDevice.set(log.deviceId, log.status);
+      }
+    }
+
+    const nothingRunning = new Set<ScadaDeployStatus>([
+      ScadaDeployStatus.FAILED,
+      ScadaDeployStatus.ROLLED_BACK,
+      ScadaDeployStatus.UNDEPLOY_SENT,
+      ScadaDeployStatus.UNDEPLOYED,
+    ]);
+
+    const results: UndeployDeviceResult[] = [];
+    for (const [deviceId, latestStatus] of latestByDevice) {
+      if (nothingRunning.has(latestStatus)) continue;
+      results.push(await this.sendUndeployCommand(pkg, deviceId, tenantId, userId));
+    }
+    return results;
+  }
+
+  /** Publish one undeploy command; every failure mode becomes a result note. */
+  private async sendUndeployCommand(
+    pkg: ScadaPackage,
+    deviceId: string,
+    tenantId: string,
+    userId?: string,
+  ): Promise<UndeployDeviceResult> {
+    if (!this.edgeDeviceService || !this.mqttClient) {
+      return {
+        deviceId,
+        sent: false,
+        message: 'undeploy altyapısı mevcut değil (MQTT/device servisi) — yalnızca arşivlendi',
+      };
+    }
+
+    let device: Awaited<ReturnType<EdgeDeviceService['findByIdOrFail']>>;
+    try {
+      device = await this.edgeDeviceService.findByIdOrFail(deviceId, tenantId);
+    } catch {
+      return { deviceId, sent: false, message: `cihaz ${deviceId} bulunamadı` };
+    }
+    if (!device.isOnline) {
+      return {
+        deviceId: device.id,
+        sent: false,
+        message: `${device.deviceCode} çevrimdışı — undeploy gönderilemedi`,
+      };
+    }
+    if (!this.mqttClient.isConnectedToBroker()) {
+      return { deviceId: device.id, sent: false, message: 'MQTT broker bağlantısı yok' };
+    }
+
+    const commandId = randomUUID();
+    const params = { packageId: pkg.id, reason: 'package_deleted' };
+    const payload = {
+      commandId,
+      command: 'undeploy_scada_package',
+      params,
+      timestamp: new Date().toISOString(),
+    };
+    // Publish-boundary contract validation — same canonical schemas the
+    // Rust agent is parity-tested against (deploy-path discipline).
+    if (!validateUndeployScadaPackageParams(params) || !validateCommandEnvelope(payload)) {
+      const detail =
+        formatValidationErrors(validateUndeployScadaPackageParams) ||
+        formatValidationErrors(validateCommandEnvelope);
+      return {
+        deviceId: device.id,
+        sent: false,
+        message: `undeploy payload kontrat ihlali: ${detail}`,
+      };
+    }
+
+    if (this.scadaDeployLogService) {
+      try {
+        await this.scadaDeployLogService.createLog({
+          tenantId,
+          packageId: pkg.id,
+          deviceId: device.id,
+          commandId,
+          version: pkg.version,
+          deployedBy: userId,
+          status: ScadaDeployStatus.UNDEPLOY_SENT,
+        });
+      } catch (logError) {
+        this.logger.error(
+          `Failed to create undeploy log for device ${device.id}: ${(logError as Error).message}`,
+        );
+      }
+    }
+
+    try {
+      await this.mqttClient.publish(`tenants/${tenantId}/devices/${device.id}/commands`, payload);
+      this.logger.log(
+        `undeploy_scada_package sent for package ${pkg.id} to device ${device.deviceCode} (command: ${commandId})`,
+      );
+      return { deviceId: device.id, sent: true, message: `${device.deviceCode}: undeploy gönderildi` };
+    } catch (error) {
+      const msg = (error as Error).message;
+      this.logger.error(`Failed to publish undeploy to device ${device.id}: ${msg}`);
+      return { deviceId: device.id, sent: false, message: `${device.deviceCode}: publish hatası — ${msg}` };
+    }
+  }
+
+  /**
+   * Deploy tag-gate mode (WF-003 / SENSOR-HIGH-051). `enforce` blocks a deploy
+   * whose tag bindings do not fully resolve against the registry; the default
+   * `warn` only logs, so tenants whose registry is not yet populated keep
+   * deploying while ops flips the flag per environment after backfill.
+   */
+  private isTagGateEnforced(): boolean {
+    // Config rides through Nest ConfigService (config-env-access-ratchet);
+    // without a ConfigService (slim test modules) the gate stays at `warn`.
+    const mode = this.configService?.get<string>('SCADA_DEPLOY_TAG_GATE') ?? 'warn';
+    return mode.toLowerCase() === 'enforce';
+  }
+
+  /**
+   * Handle an unresolved tag-binding set at a deploy boundary: throw in
+   * enforce mode (each unresolved ref + reason named), warn otherwise.
+   */
+  private handleUnresolvedBindings(
+    context: string,
+    unresolved: ReadonlyArray<{ ref: string; reason: string }>,
+    totalRefs: number,
+  ): void {
+    if (unresolved.length === 0) return;
+    const detail = `${unresolved.length}/${totalRefs} tag binding çözülemedi: ${JSON.stringify(unresolved)}`;
+    if (this.isTagGateEnforced()) {
+      throw new BadRequestException(`${context}: ${detail} — deploy engellendi (SCADA_DEPLOY_TAG_GATE=enforce)`);
+    }
+    this.logger.warn(`${context}: ${detail}`);
+  }
+
+  /**
+   * Publish-boundary widget transform (CONTRACT-H-002). The edge runtime
+   * parses a closed 16-type widget set; everything else either STRIPS
+   * (decorative / display-only — losing it on the device costs pixels,
+   * not behaviour) or REJECTS the deploy (control-semantics widgets whose
+   * silent removal would change what the operator can actuate). Rejects
+   * throw with EVERY violating widget named; strips are warn-logged and
+   * returned so callers can surface a summary.
+   */
+  private transformForEdgeOrThrow(
+    context: string,
+    doc: ScadaPackageDocV2,
+  ): { doc: ScadaPackageDocV2; stripped: EdgeDeployWidgetRef[] } {
+    const transform = transformScadaDocForEdgeDeploy(doc);
+    if (!transform.ok) {
+      const detail = transform.rejected
+        .map((r) => `${r.widgetType} (widget ${r.widgetId}, ekran ${r.screenId})`)
+        .join(', ');
+      throw new BadRequestException(
+        `${context}: ${transform.rejected.length} widget edge runtime'da desteklenmiyor ve kontrol semantiği taşıdığı için sessizce çıkarılamaz: ${detail}. Bu widget'ları kaldırın veya edge-destekli karşılıklarıyla değiştirin.`,
+      );
+    }
+    if (transform.stripped.length > 0) {
+      this.logger.warn(
+        `${context}: ${transform.stripped.length} display-only/decorative widget edge payload'ından çıkarıldı (kayıtlı paket değişmedi): ` +
+          transform.stripped.map((r) => `${r.widgetType}#${r.widgetId}`).join(', '),
+      );
+    }
+    return { doc: transform.doc, stripped: transform.stripped };
+  }
+
+  /**
+   * A package that has been soft-deleted (ARCHIVED) must never be pushed to a
+   * device. Deploy is the moment the package starts running physical hardware,
+   * so an archived (deleted) package reaching the edge is a state-machine
+   * violation, not a recoverable warning. Every device-push entrypoint guards
+   * on this before touching the broker.
+   */
+  private assertPackageDeployable(pkg: ScadaPackage): void {
+    if (pkg.status === ScadaPackageStatus.ARCHIVED) {
+      throw new BadRequestException(
+        `ScadaPackage ${pkg.id} is archived (deleted) and cannot be deployed`,
+      );
+    }
   }
 
   async deployScadaPackageToEdge(
@@ -438,6 +900,7 @@ export class ScadaPackageService {
   ): Promise<{ success: boolean; message: string }> {
     const pkg = await this.scadaPackageRepository.findOne({ where: { id: packageId, tenantId } });
     if (!pkg) throw new NotFoundException(`ScadaPackage ${packageId} not found`);
+    this.assertPackageDeployable(pkg);
 
     if (!this.edgeDeviceService) {
       throw new BadRequestException('Edge device service not available');
@@ -464,19 +927,27 @@ export class ScadaPackageService {
       deviceCode: device.deviceCode,
     });
 
-    // Tag SSoT raporu (Faz 1, warn-only): widget tag bağlamalarını
-    // `${deviceCode}/${tagName}` olarak registry'ye karşı çöz; çözülemeyenleri
-    // logla. Bloklamaz — Faz 4 bunu deploy gate'ine çevirir.
+    // Edge widget transform (CONTRACT-H-002) — AFTER upcast (tagRef
+    // promotion first), BEFORE the tag gate (stripped widgets' bindings
+    // must not gate a payload they are no longer part of).
+    const { doc: edgeDoc, stripped } = this.transformForEdgeOrThrow(
+      `deploy_scada_package ${packageId}`,
+      packageDoc,
+    );
+
+    // Tag SSoT gate (WF-003): widget tag bağlamalarını `${deviceCode}/${tagName}`
+    // olarak registry'ye karşı çöz. enforce modunda çözülmeyen binding deploy'u
+    // BLOKLAR; warn modunda (default — registry'si dolmamış tenant'lar) loglar.
     if (this.tagResolutionService) {
-      const tagNames = this.collectWidgetTagNames(packageDoc);
+      const tagNames = this.collectWidgetTagNames(edgeDoc);
       if (tagNames.length > 0) {
         const refs = tagNames.map((name) => `${device.deviceCode}/${name}`);
         const resolution = await this.tagResolutionService.resolve(tenantId, refs);
-        if (resolution.unresolved.length > 0) {
-          this.logger.warn(
-            `deploy_scada_package ${packageId}: ${resolution.unresolved.length}/${refs.length} widget tag binding registry'de çözülemedi: ${JSON.stringify(resolution.unresolved)}`,
-          );
-        }
+        this.handleUnresolvedBindings(
+          `deploy_scada_package ${packageId}`,
+          resolution.unresolved,
+          refs.length,
+        );
       }
     }
 
@@ -491,8 +962,10 @@ export class ScadaPackageService {
       try {
         artifact = await this.artifactService.snapshot(tenantId, {
           artifactType: DeployArtifactType.SCADA_PACKAGE,
-          content: packageDoc,
-          schemaVersion: packageDoc.meta.schemaVersion,
+          // The snapshot archives EXACTLY what ships (the transformed edge
+          // doc) so rollback republishes device-parseable content verbatim.
+          content: edgeDoc,
+          schemaVersion: edgeDoc.meta.schemaVersion,
           sourceEntityId: pkg.id,
           sourceEntityVersion: pkg.version,
           createdBy: userId,
@@ -517,9 +990,9 @@ export class ScadaPackageService {
         : null;
 
     const packagePayload = {
-      ...packageDoc,
+      ...edgeDoc,
       meta: {
-        ...packageDoc.meta,
+        ...edgeDoc.meta,
         // Server-side fields MUST come last to prevent client override
         version: pkg.version,
         packageVersion: `${pkg.version}.0.0`,
@@ -581,7 +1054,13 @@ export class ScadaPackageService {
       this.logger.log(
         `SCADA package "${pkg.name}" v${pkg.version} deployed to device ${device.deviceCode} (command: ${commandId})`,
       );
-      return { success: true, message: 'SCADA package deployed successfully' };
+      // Honest success: name what was stripped so the operator is never
+      // surprised by widgets present in the builder but absent on the HMI.
+      const strippedNote =
+        stripped.length > 0
+          ? ` (${stripped.length} görüntü-amaçlı widget dağıtımdan çıkarıldı — pakette korunuyor: ${stripped.map((r) => r.widgetType).join(', ')})`
+          : '';
+      return { success: true, message: `SCADA package deployed successfully${strippedNote}` };
     } catch (error) {
       const msg = (error as Error).message;
       this.logger.error(`Failed to deploy SCADA package: ${msg}`);
@@ -629,6 +1108,11 @@ export class ScadaPackageService {
     // Rollback republishes signed content: same artifact sha256, same
     // domain tag — the edge cannot distinguish (nor needs to) a rollback
     // from a fresh deploy at the signature layer.
+    // CONTRACT-H-002: deliberately NO widget transform here — the payload
+    // must stay byte-faithful to the signed artifact (the signature binds
+    // the content hash). Unknown widget types inside PRE-transform-era
+    // artifacts are absorbed by the edge's #[serde(other)] Unknown
+    // tolerance instead of failing deserialization.
     const signature = this.deploySigningService
       ? this.deploySigningService.signDeployArtifact(
           'scada-package',
@@ -866,6 +1350,7 @@ export class ScadaPackageService {
   ): Promise<UnifiedDeployResult> {
     const pkg = await this.scadaPackageRepository.findOne({ where: { id: packageId, tenantId } });
     if (!pkg) throw new NotFoundException(`ScadaPackage ${packageId} not found`);
+    this.assertPackageDeployable(pkg);
 
     // Determine which programs ride the bundle
     const meta = pkg.packageData.meta as Record<string, unknown> | undefined;
@@ -1062,24 +1547,34 @@ export class ScadaPackageService {
       );
     }
 
-    // Tag SSoT warn report — same coverage as the single-command path.
+    // Edge widget transform (CONTRACT-H-002) — same ordering as the
+    // single-command path: after upcast, before the tag gate.
+    const { doc: edgeDoc } = this.transformForEdgeOrThrow(
+      `bundle package ${pkg.id}`,
+      packageDoc,
+    );
+    if (!validateEdgeScadaPackageDoc(edgeDoc)) {
+      throw new BadRequestException(
+        `bundle package failed edge-deploy validation: ${formatValidationErrors(validateEdgeScadaPackageDoc)}`,
+      );
+    }
+
+    // Tag SSoT gate (WF-003) — same coverage as the single-command path.
     if (this.tagResolutionService) {
-      const tagNames = this.collectWidgetTagNames(packageDoc);
+      const tagNames = this.collectWidgetTagNames(edgeDoc);
       if (tagNames.length > 0) {
         const refs = tagNames.map((name) => `${device.deviceCode}/${name}`);
         const resolution = await this.tagResolutionService.resolve(tenantId, refs);
-        if (resolution.unresolved.length > 0) {
-          this.logger.warn(
-            `bundle package ${pkg.id}: ${resolution.unresolved.length}/${refs.length} widget tag binding registry'de çözülemedi: ${JSON.stringify(resolution.unresolved)}`,
-          );
-        }
+        this.handleUnresolvedBindings(`bundle package ${pkg.id}`, resolution.unresolved, refs.length);
       }
     }
 
     const artifact = await this.artifactService.snapshot(tenantId, {
       artifactType: DeployArtifactType.SCADA_PACKAGE,
-      content: packageDoc,
-      schemaVersion: packageDoc.meta.schemaVersion,
+      // Bundle artifacts also archive EXACTLY what ships (the transformed
+      // edge doc) — the edge stages this content verbatim on confirmation.
+      content: edgeDoc,
+      schemaVersion: edgeDoc.meta.schemaVersion,
       sourceEntityId: pkg.id,
       sourceEntityVersion: pkg.version,
       createdBy: userId,
@@ -1113,6 +1608,19 @@ export class ScadaPackageService {
 // ==========================================================================
 // Interfaces
 // ==========================================================================
+
+/** Per-device outcome of the best-effort undeploy fan-out on delete (WF-011). */
+export interface UndeployDeviceResult {
+  deviceId: string;
+  sent: boolean;
+  message: string;
+}
+
+/** Result of deleteScadaPackage: archive always happens; undeploy is per-device. */
+export interface DeleteScadaPackageResult {
+  archived: boolean;
+  undeploy: UndeployDeviceResult[];
+}
 
 /** Shape of a single automation binding in packageData.meta.automationBindings */
 interface AutomationBinding {

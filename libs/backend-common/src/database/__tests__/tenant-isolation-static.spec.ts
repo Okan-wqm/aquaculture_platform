@@ -13,15 +13,27 @@ describe('Tenant Isolation Static Analysis', () => {
       expect(moduleNames).toEqual(expect.arrayContaining(DEFAULT_TENANT_MODULES));
     });
 
-    it('every module should have at least 1 table', () => {
+    it('every module declares at least one table (per-tenant OR infrastructure)', () => {
+      // Registry-completeness entries for raw-SQL/infra-only schemas
+      // (compliance, platform, observability — ORPHAN-HIGH-365) legitimately
+      // have tables: [] because nothing fans out per-tenant; they still MUST
+      // declare their surface via infrastructureTables.
       for (const mod of MODULE_SCHEMAS) {
-        expect(mod.tables.length).toBeGreaterThan(0);
+        expect(mod.tables.length + (mod.infrastructureTables?.length ?? 0)).toBeGreaterThan(0);
       }
     });
 
-    it('no duplicate table names across modules', () => {
-      const allTables = MODULE_SCHEMAS.flatMap(m => m.tables);
-      const duplicates = allTables.filter((t, i) => allTables.indexOf(t) !== i);
+    it('no duplicate table names within the tenant-scoped fan-out namespace', () => {
+      // Uniqueness matters where names share ONE physical namespace: the
+      // tenant_<uuid> schema every tenant-scoped module fans out into. A
+      // platform-level schema reusing a name (admin.messages vs the tenant
+      // messaging tables, admin.retention_policies vs messaging's) is
+      // schema-qualified and legitimate — the old all-modules check
+      // false-positived on exactly those.
+      const tenantTables = MODULE_SCHEMAS
+        .filter(m => TENANT_SCOPED_MODULES.has(m.moduleName))
+        .flatMap(m => m.tables);
+      const duplicates = tenantTables.filter((t, i) => tenantTables.indexOf(t) !== i);
       expect(duplicates).toEqual([]);
     });
 
@@ -33,9 +45,20 @@ describe('Tenant Isolation Static Analysis', () => {
       }
     });
 
-    it('total table count should be 170', () => {
-      const total = MODULE_SCHEMAS.reduce((sum, m) => sum + m.tables.length, 0);
-      expect(total).toBe(170);
+    it('tenant-scoped fan-out table count is pinned (consciousness check)', () => {
+      // Pinned to the TENANT-SCOPED total only: that is the per-tenant DDL
+      // surface (CREATE TABLE LIKE fan-out) a new table silently expands.
+      // Platform-level `tables` lists churn with registry completeness and are
+      // not fan-out relevant — the old whole-registry total (170) had drifted
+      // far from reality without anyone noticing (quarantined test).
+      const tenantTotal = MODULE_SCHEMAS
+        .filter(m => TENANT_SCOPED_MODULES.has(m.moduleName))
+        .reduce((sum, m) => sum + m.tables.length, 0);
+      // 183 → 182: farm_documents dropped (ORPHAN-HIGH-369, owner decision;
+      // DropFarmDocuments1805300000000 removed the unwired orphan DMS table).
+      // 182 → 183: ai conversation_turns added (ORPHAN-MEDIUM-380 durable
+      // per-turn AI cost ledger; CreateConversationTurns1802100000000).
+      expect(tenantTotal).toBe(183);
     });
 
     it('every module should have a sourceSchema', () => {
@@ -75,21 +98,25 @@ describe('Tenant Isolation Static Analysis', () => {
       expect(names).toEqual(unique);
     });
 
-    it('should have expected module table counts', () => {
+    it('should have expected tenant-scoped module table counts', () => {
       const counts: Record<string, number> = {};
       for (const mod of MODULE_SCHEMAS) {
         counts[mod.moduleName] = mod.tables.length;
       }
-      // These are the known counts from the codebase
-      expect(counts['sensor']).toBe(45);
-      expect(counts['farm']).toBe(73);
-      expect(counts['hr']).toBe(25);
+      // Pinned counts for the tenant-scoped (fan-out) modules — update
+      // deliberately when a migration adds/removes a per-tenant table.
+      // (Platform-level modules are intentionally not pinned here; their
+      // `tables` lists churn with registry completeness, not fan-out.)
+      expect(counts['sensor']).toBe(46);
+      // 86 → 85: farm_documents dropped (ORPHAN-HIGH-369, owner decision).
+      expect(counts['farm']).toBe(85);
+      expect(counts['hr']).toBe(29);
       expect(counts['hydroponics']).toBe(1);
       expect(counts['alert']).toBe(4);
-      expect(counts['ai']).toBe(2);
+      // 2 → 3: conversation_turns added (ORPHAN-MEDIUM-380 durable per-turn
+      // AI cost ledger).
+      expect(counts['ai']).toBe(3);
       expect(counts['messaging']).toBe(15);
-      expect(counts['auth']).toBe(3);
-      expect(counts['notification']).toBe(2);
     });
   });
 
@@ -131,9 +158,14 @@ describe('Tenant Isolation Static Analysis', () => {
   });
 
   describe('Cross-module reference integrity', () => {
-    it('no table should appear in multiple modules', () => {
+    it('no table should appear in multiple TENANT-SCOPED modules (shared fan-out namespace)', () => {
+      // Same scoping rationale as the duplicate check above: only tenant-scoped
+      // modules share the tenant_<uuid> physical namespace. Platform-level
+      // schemas reusing a name (admin.messages vs messaging's per-tenant
+      // messages) are schema-qualified and legitimate.
       const tablesToModules = new Map<string, string[]>();
       for (const mod of MODULE_SCHEMAS) {
+        if (!TENANT_SCOPED_MODULES.has(mod.moduleName)) continue;
         for (const table of mod.tables) {
           const existing = tablesToModules.get(table) ?? [];
           existing.push(mod.moduleName);

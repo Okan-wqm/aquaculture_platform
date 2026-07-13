@@ -2,55 +2,41 @@
  * System Settings Page
  *
  * Platform configuration and settings management for Super Admin.
- * Uses custom hooks for cleaner state management.
+ *
+ * Data layer (ORPHAN-HIGH-373): settings are read from and written to
+ * config-service through the gateway's federated GraphQL
+ * (effectiveConfigurationsByService / setConfiguration) via
+ * hooks/usePlatformConfiguration.ts — the legacy admin-api settings
+ * endpoints are retired (410 Gone). Only the SMTP test send and the
+ * system-info panel remain on live admin-api REST endpoints.
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Card, Button, Input, Select, Alert } from '@aquaculture/shared-ui';
 import { useAsyncData } from '../hooks';
+import {
+  usePlatformSettings,
+  useSavePlatformSettings,
+} from '../hooks/usePlatformConfiguration';
+import {
+  DEFAULT_PLATFORM_SETTINGS,
+  buildBillingWrites,
+  buildEmailWrites,
+  buildGeneralWrites,
+  buildRateLimitWrites,
+  buildSecurityWrites,
+} from '../services/api/platform-configuration';
+import type {
+  BillingConfig,
+  EmailConfig,
+  RateLimitsConfig,
+  SecurityConfig,
+} from '../services/api/platform-configuration';
 import { settingsApi } from '../services/adminApi';
 
 // ============================================================================
 // Types
 // ============================================================================
-
-interface EmailConfig {
-  smtpHost: string;
-  smtpPort: number;
-  smtpSecure: boolean;
-  smtpUsername: string;
-  smtpPassword?: string;
-  hasSmtpPassword?: boolean;
-  fromAddress: string;
-  fromName: string;
-}
-
-interface SecurityConfig {
-  sessionTimeoutMinutes: number;
-  maxLoginAttempts: number;
-  lockoutDurationMinutes: number;
-  passwordMinLength: number;
-  passwordRequireUppercase: boolean;
-  passwordRequireNumbers: boolean;
-  passwordRequireSymbols: boolean;
-  mfaEnabled: boolean;
-  enforceHttps: boolean;
-}
-
-interface BillingConfig {
-  stripeEnabled: boolean;
-  stripePublicKey: string;
-  stripeSecretKey: string;
-  defaultCurrency: string;
-  taxRate: number;
-}
-
-interface RateLimitsConfig {
-  globalRpm: number;
-  perUserRpm: number;
-  perTenantRpm: number;
-  apiKeyRpm: number;
-}
 
 interface SystemInfo {
   platform?: Record<string, unknown>;
@@ -73,48 +59,10 @@ const TABS: Array<{ id: TabId; label: string; icon: string }> = [
   { id: 'system', label: 'System Info', icon: 'server' },
 ];
 
-const DEFAULT_EMAIL_CONFIG: EmailConfig = {
-  smtpHost: '',
-  smtpPort: 587,
-  smtpSecure: false,
-  smtpUsername: '',
-  smtpPassword: '',
-  hasSmtpPassword: false,
-  fromAddress: '',
-  fromName: '',
-};
-
 const SMTP_SECURE_OPTIONS = [
   { value: 'false', label: 'STARTTLS / Auto' },
   { value: 'true', label: 'SSL/TLS' },
 ];
-
-const DEFAULT_SECURITY_CONFIG: SecurityConfig = {
-  sessionTimeoutMinutes: 480,
-  maxLoginAttempts: 5,
-  lockoutDurationMinutes: 30,
-  passwordMinLength: 8,
-  passwordRequireUppercase: true,
-  passwordRequireNumbers: true,
-  passwordRequireSymbols: false,
-  mfaEnabled: false,
-  enforceHttps: true,
-};
-
-const DEFAULT_BILLING_CONFIG: BillingConfig = {
-  stripeEnabled: false,
-  stripePublicKey: '',
-  stripeSecretKey: '',
-  defaultCurrency: 'USD',
-  taxRate: 0,
-};
-
-const DEFAULT_RATE_LIMITS: RateLimitsConfig = {
-  globalRpm: 1000,
-  perUserRpm: 100,
-  perTenantRpm: 500,
-  apiKeyRpm: 60,
-};
 
 const CURRENCY_OPTIONS = [
   { value: 'USD', label: 'USD - US Dollar' },
@@ -232,14 +180,25 @@ const InfoGrid: React.FC<InfoGridProps> = ({ data, columns = 4 }) => (
 // ============================================================================
 
 interface GeneralTabProps {
+  platformName: string;
+  platformVersion: string;
   maintenanceMode: boolean;
   onMaintenanceChange: (enabled: boolean) => void;
+  onSave: () => void;
+  saving: boolean;
 }
 
-const GeneralTab: React.FC<GeneralTabProps> = ({ maintenanceMode, onMaintenanceChange }) => (
-  <FormSection title="General Settings">
-    <Input label="Platform Name" value="Aquaculture Platform" disabled />
-    <Input label="Platform Version" value="1.0.0" disabled />
+const GeneralTab: React.FC<GeneralTabProps> = ({
+  platformName,
+  platformVersion,
+  maintenanceMode,
+  onMaintenanceChange,
+  onSave,
+  saving,
+}) => (
+  <FormSection title="General Settings" onSave={onSave} saving={saving}>
+    <Input label="Platform Name" value={platformName} disabled />
+    <Input label="Platform Version" value={platformVersion} disabled />
     <CheckboxField
       label="Maintenance Mode (Only Super Admin can access when enabled)"
       checked={maintenanceMode}
@@ -521,47 +480,41 @@ const SystemInfoTab: React.FC<SystemInfoTabProps> = ({ info, onRefresh }) => {
 const SystemSettingsPage: React.FC = () => {
   // Tab state
   const [activeTab, setActiveTab] = useState<TabId>('general');
-  const [saving, setSaving] = useState(false);
   const [testingEmail, setTestingEmail] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Form states
-  const [maintenanceMode, setMaintenanceMode] = useState(false);
-  const [emailConfig, setEmailConfig] = useState<EmailConfig>(DEFAULT_EMAIL_CONFIG);
-  const [securityConfig, setSecurityConfig] = useState<SecurityConfig>(DEFAULT_SECURITY_CONFIG);
-  const [billingConfig, setBillingConfig] = useState<BillingConfig>(DEFAULT_BILLING_CONFIG);
-  const [rateLimits, setRateLimits] = useState<RateLimitsConfig>(DEFAULT_RATE_LIMITS);
+  // Form states (locally edited copies of the loaded snapshot)
+  const [maintenanceMode, setMaintenanceMode] = useState(
+    DEFAULT_PLATFORM_SETTINGS.general.maintenanceMode,
+  );
+  const [emailConfig, setEmailConfig] = useState<EmailConfig>(DEFAULT_PLATFORM_SETTINGS.email);
+  const [securityConfig, setSecurityConfig] = useState<SecurityConfig>(
+    DEFAULT_PLATFORM_SETTINGS.security,
+  );
+  const [billingConfig, setBillingConfig] = useState<BillingConfig>(
+    DEFAULT_PLATFORM_SETTINGS.billing,
+  );
+  const [rateLimits, setRateLimits] = useState<RateLimitsConfig>(
+    DEFAULT_PLATFORM_SETTINGS.rateLimits,
+  );
 
-  // Fetch all settings
-  const fetchSettings = useCallback(async () => {
-    const results = await Promise.allSettled([
-      settingsApi.getEmailConfig(),
-      settingsApi.getSecurityConfig(),
-      settingsApi.getBillingConfig(),
-      settingsApi.getRateLimits(),
-    ]);
+  // config-service read (federated GraphQL through the gateway)
+  const { settings, isLoading, error: loadError, refetch } = usePlatformSettings();
+  const saveSettings = useSavePlatformSettings();
 
-    if (results[0].status === 'fulfilled') {
-      setEmailConfig({
-        ...DEFAULT_EMAIL_CONFIG,
-        ...(results[0].value as unknown as EmailConfig),
-        smtpPassword: '',
-      });
-    }
-    if (results[1].status === 'fulfilled') setSecurityConfig(results[1].value as unknown as SecurityConfig);
-    if (results[2].status === 'fulfilled') setBillingConfig(results[2].value as unknown as BillingConfig);
-    if (results[3].status === 'fulfilled') setRateLimits(results[3].value as unknown as RateLimitsConfig);
+  // Sync editable form state whenever a fresh snapshot lands (initial load and
+  // post-save invalidation refetch). Secrets stay write-only empty inputs.
+  useEffect(() => {
+    if (!settings) return;
+    setMaintenanceMode(settings.general.maintenanceMode);
+    setEmailConfig({ ...settings.email, smtpPassword: '' });
+    setSecurityConfig(settings.security);
+    setBillingConfig({ ...settings.billing, stripeSecretKey: '' });
+    setRateLimits(settings.rateLimits);
+  }, [settings]);
 
-    return { email: results[0], security: results[1], billing: results[2], rateLimits: results[3] };
-  }, []);
-
-  const { loading, refresh: refreshSettings } = useAsyncData(fetchSettings, {
-    cacheKey: 'system-settings',
-    cacheTTL: 60000,
-  });
-
-  // Fetch system info
+  // Fetch system info (still a live admin-api REST endpoint)
   const fetchSystemInfo = useCallback(async () => {
     return settingsApi.getSystemInfo() as Promise<SystemInfo>;
   }, []);
@@ -580,7 +533,6 @@ const SystemSettingsPage: React.FC = () => {
     saveFn: () => Promise<unknown>,
     successMessage: string
   ): Promise<void> => {
-    setSaving(true);
     setError(null);
     setSuccess(null);
     try {
@@ -588,19 +540,22 @@ const SystemSettingsPage: React.FC = () => {
       setSuccess(successMessage);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed');
-    } finally {
-      setSaving(false);
     }
   };
 
-  const handleSaveEmail = () => {
-    const { smtpPassword, hasSmtpPassword: _hasSmtpPassword, ...safeConfig } = emailConfig;
-    const payload: Record<string, unknown> = { ...safeConfig };
-    if (smtpPassword && smtpPassword.trim().length > 0) {
-      payload.smtpPassword = smtpPassword;
-    }
-    return saveWithFeedback(() => settingsApi.updateEmailConfig(payload), 'Email settings saved');
-  };
+  const saving = saveSettings.isPending;
+
+  const handleSaveGeneral = () =>
+    saveWithFeedback(
+      () => saveSettings.mutateAsync(buildGeneralWrites(maintenanceMode)),
+      'General settings saved',
+    );
+
+  const handleSaveEmail = () =>
+    saveWithFeedback(
+      () => saveSettings.mutateAsync(buildEmailWrites(emailConfig)),
+      'Email settings saved',
+    );
 
   const handleTestEmail = async () => {
     setTestingEmail(true);
@@ -620,16 +575,25 @@ const SystemSettingsPage: React.FC = () => {
   };
 
   const handleSaveSecurity = () =>
-    saveWithFeedback(() => settingsApi.updateSecurityConfig(securityConfig as unknown as Record<string, unknown>), 'Security settings saved');
+    saveWithFeedback(
+      () => saveSettings.mutateAsync(buildSecurityWrites(securityConfig)),
+      'Security settings saved',
+    );
 
   const handleSaveBilling = () =>
-    saveWithFeedback(() => settingsApi.updateBillingConfig(billingConfig as unknown as Record<string, unknown>), 'Billing settings saved');
+    saveWithFeedback(
+      () => saveSettings.mutateAsync(buildBillingWrites(billingConfig)),
+      'Billing settings saved',
+    );
 
   const handleSaveRateLimits = () =>
-    saveWithFeedback(() => settingsApi.updateRateLimits(rateLimits as unknown as Record<string, unknown>), 'Rate limit settings saved');
+    saveWithFeedback(
+      () => saveSettings.mutateAsync(buildRateLimitWrites(rateLimits)),
+      'Rate limit settings saved',
+    );
 
   // Loading skeleton
-  if (loading) {
+  if (isLoading && !settings) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
@@ -648,9 +612,9 @@ const SystemSettingsPage: React.FC = () => {
         <Button
           variant="outline"
           onClick={() => {
-            void refreshSettings();
+            refetch();
           }}
-          disabled={loading}
+          disabled={isLoading}
         >
           <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -660,6 +624,11 @@ const SystemSettingsPage: React.FC = () => {
       </div>
 
       {/* Alerts */}
+      {loadError && (
+        <Alert type="error">
+          Failed to load platform settings: {loadError.message}
+        </Alert>
+      )}
       {error && (
         <Alert type="error" dismissible onDismiss={() => setError(null)}>
           {error}
@@ -695,8 +664,12 @@ const SystemSettingsPage: React.FC = () => {
       <div className="mt-6">
         {activeTab === 'general' && (
           <GeneralTab
+            platformName={settings?.general.platformName ?? DEFAULT_PLATFORM_SETTINGS.general.platformName}
+            platformVersion={settings?.general.platformVersion ?? DEFAULT_PLATFORM_SETTINGS.general.platformVersion}
             maintenanceMode={maintenanceMode}
             onMaintenanceChange={setMaintenanceMode}
+            onSave={handleSaveGeneral}
+            saving={saving}
           />
         )}
 

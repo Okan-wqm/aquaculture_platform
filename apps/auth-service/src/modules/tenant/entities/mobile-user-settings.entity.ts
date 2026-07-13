@@ -61,6 +61,27 @@ export class MobileAllowedFeatures {
       from the warehouse floor without returning to a desktop computer. */
   @Field(() => Boolean, { defaultValue: true })
   storage!: boolean;
+
+  /** WHY (FARM-HIGH-214): weekly lakselus counts happen AT the pen — field capture
+      writes the lice_counts SSoT the Mattilsynet assembler reads. */
+  @Field(() => Boolean, { defaultValue: true })
+  liceCount!: boolean;
+
+  /** WHY (FARM-HIGH-214): welfare scoring (gill/fin/wound/deformity) is a physical
+      fish-sample inspection performed tank-side. */
+  @Field(() => Boolean, { defaultValue: true })
+  welfare!: boolean;
+
+  /** WHY (FARM-HIGH-214): escape detection happens in the field and the rømming
+      varsling is legally immediate — capture must not wait for a desktop. */
+  @Field(() => Boolean, { defaultValue: true })
+  escape!: boolean;
+
+  /** WHY (FARM-HIGH-214): managers review/approve scheduled report drafts from
+      mobile (online-only). The client also enforces a MODULE_MANAGER role floor
+      mirroring the draft resolver's @Roles matrix. */
+  @Field(() => Boolean, { defaultValue: true })
+  reports!: boolean;
 }
 
 /**
@@ -88,6 +109,10 @@ export const DEFAULT_MOBILE_FEATURES: MobileAllowedFeatures = {
   leave: true,
   tasks: true,
   storage: true,
+  liceCount: true,
+  welfare: true,
+  escape: true,
+  reports: true,
 };
 
 /**

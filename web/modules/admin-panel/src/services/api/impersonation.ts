@@ -1,42 +1,31 @@
 /**
  * Impersonation API
  *
- * RBAC-MEDIUM-010 (M12): every function here speaks the EXACT admin-api
- * controller contract (impersonation.controller.ts DTOs + service return
- * shapes). The previous version sent an invented payload
- * ({tenantId, adminId, reason: string}) that the whitelist ValidationPipe
- * rejected with 400, read `.data` from endpoints that return {items, total},
- * and threw "Not implemented" from getSessionActions even though the backend
- * stores the action log on the session row. Keep signatures in lockstep with
- * the backend DTOs.
+ * WHY the shapes below: every path, query param, request body, and response
+ * envelope mirrors the backend ImpersonationController + ImpersonationService
+ * contract (DB-ADMIN-HIGH-001). Reads return SafeImpersonationSession (no token
+ * columns); only startSession's response carries the raw impersonation token.
  */
 
 import { apiFetch, buildQueryString } from '../http-client';
 import type {
+  PaginatedResult,
   PaginationParams,
   ImpersonationPermission,
   ImpersonationSession,
-  ImpersonationAction,
-  ImpersonationReasonValue,
   ImpersonationSessionStatus,
+  ImpersonationReasonCode,
+  StartImpersonationRequest,
+  StartImpersonationResponse,
+  ImpersonationAction,
 } from '../types';
-
-/** Backend list shape: querySessions/queryPermissions return { items, total }. */
-export interface ImpersonationListResult<T> {
-  items: T[];
-  total: number;
-}
 
 export const impersonationApi = {
   // Permissions
   getPermissions: (params?: { tenantId?: string; isActive?: boolean } & PaginationParams) =>
-    apiFetch<ImpersonationListResult<ImpersonationPermission>>(
-      `/impersonation/permissions?${buildQueryString(params || {})}`,
-    ),
-  getPermission: (superAdminId: string) =>
-    apiFetch<ImpersonationPermission>(`/impersonation/permissions/${superAdminId}`),
-  // Mirrors GrantPermissionDto (superAdminId comes from the caller's admin
-  // context; the backend re-derives grantedBy from the verified JWT).
+    apiFetch<PaginatedResult<ImpersonationPermission>>(`/impersonation/permissions?${buildQueryString(params || {})}`),
+  // Fix: backend uses superAdminId as path param (GET /permissions/:superAdminId)
+  getPermission: (superAdminId: string) => apiFetch<ImpersonationPermission>(`/impersonation/permissions/${superAdminId}`),
   grantPermission: (data: {
     superAdminId: string;
     superAdminEmail?: string;
@@ -51,73 +40,50 @@ export const impersonationApi = {
     expiresAt?: string;
     notes?: string;
   }) =>
-    apiFetch<ImpersonationPermission>('/impersonation/permissions', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  revokePermission: (superAdminId: string) =>
+    apiFetch<ImpersonationPermission>('/impersonation/permissions', { method: 'POST', body: JSON.stringify(data) }),
+  // TODO: No backend PUT endpoint for updating permissions (only POST grant and POST revoke)
+  updatePermission: (_id: string, _data: Partial<ImpersonationPermission>) => {
+    throw new Error('Not implemented: no backend PUT endpoint for /impersonation/permissions/:id. Use grant/revoke instead.');
+  },
+  // Fix: backend uses POST /permissions/:superAdminId/revoke (no body needed, auth from JWT)
+  revokePermission: (superAdminId: string, _revokedBy?: string, _reason?: string) =>
     apiFetch<void>(`/impersonation/permissions/${superAdminId}/revoke`, { method: 'POST' }),
-  checkPermission: (adminId: string, tenantId: string) =>
-    apiFetch<{ allowed: boolean; reason?: string }>(
-      `/impersonation/permissions/${adminId}/check/${tenantId}`,
-    ),
+  // Fix: backend uses path params GET /permissions/:superAdminId/check/:tenantId (not query params)
+  checkPermission: (tenantId: string, adminId: string) =>
+    apiFetch<{ hasPermission: boolean; permission?: ImpersonationPermission }>(`/impersonation/permissions/${adminId}/check/${tenantId}`),
 
-  // Sessions — QuerySessionsDto param names (superAdminId/targetTenantId).
+  // Sessions
+  // Query params mirror backend QuerySessionsDto (superAdminId/targetTenantId,
+  // not adminId/tenantId); the list envelope is { items, total } — the backend
+  // does not wrap sessions in the page/limit/totalPages shape.
   getSessions: (
     params?: {
       superAdminId?: string;
       targetTenantId?: string;
       status?: ImpersonationSessionStatus;
+      reason?: ImpersonationReasonCode;
     } & PaginationParams,
   ) =>
-    apiFetch<ImpersonationListResult<ImpersonationSession>>(
-      `/impersonation/sessions?${buildQueryString(params || {})}`,
-    ),
+    apiFetch<{ items: ImpersonationSession[]; total: number }>(`/impersonation/sessions?${buildQueryString(params || {})}`),
   getSession: (id: string) => apiFetch<ImpersonationSession>(`/impersonation/sessions/${id}`),
-  // Mirrors StartImpersonationDto: targetTenantId + enum reason are REQUIRED;
-  // free text travels as reasonDetails. adminId is NEVER sent — the backend
-  // derives the admin identity from the verified JWT.
-  startSession: (data: {
-    targetTenantId: string;
-    targetUserId?: string;
-    reason: ImpersonationReasonValue;
-    reasonDetails?: string;
-    ticketReference?: string;
-    durationMinutes?: number;
-  }) =>
-    apiFetch<ImpersonationSession>('/impersonation/sessions/start', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  endSession: (id: string, reason?: string) =>
-    apiFetch<ImpersonationSession>(`/impersonation/sessions/${id}/end`, {
-      method: 'POST',
-      body: JSON.stringify(reason ? { reason } : {}),
-    }),
+  startSession: (data: StartImpersonationRequest) =>
+    apiFetch<StartImpersonationResponse>('/impersonation/sessions/start', { method: 'POST', body: JSON.stringify(data) }),
+  endSession: (id: string) =>
+    apiFetch<ImpersonationSession>(`/impersonation/sessions/${id}/end`, { method: 'POST' }),
   extendSession: (id: string, additionalMinutes: number) =>
-    apiFetch<ImpersonationSession>(`/impersonation/sessions/${id}/extend`, {
-      method: 'POST',
-      body: JSON.stringify({ additionalMinutes }),
-    }),
-  // Mirrors TerminateSessionDto: { reason } is REQUIRED (and the only field —
-  // the whitelist pipe rejects extras; the backend derives who from the JWT).
-  terminateSession: (id: string, reason: string) =>
-    apiFetch<ImpersonationSession>(`/impersonation/sessions/${id}/terminate`, {
-      method: 'POST',
-      body: JSON.stringify({ reason }),
-    }),
+    apiFetch<ImpersonationSession>(`/impersonation/sessions/${id}/extend`, { method: 'POST', body: JSON.stringify({ additionalMinutes }) }),
+  // Backend TerminateSessionDto accepts ONLY { reason } (required); the
+  // terminating admin's identity comes from the JWT, never the body.
+  revokeSession: (id: string, reason: string) =>
+    apiFetch<ImpersonationSession>(`/impersonation/sessions/${id}/terminate`, { method: 'POST', body: JSON.stringify({ reason }) }),
   getActiveSessions: () => apiFetch<ImpersonationSession[]>('/impersonation/sessions/active'),
-  // The action log lives ON the session row (actionsPerformed jsonb) — read
-  // it through GET /sessions/:id instead of a nonexistent /actions endpoint.
-  getSessionActions: async (sessionId: string): Promise<ImpersonationAction[]> => {
-    const session = await apiFetch<ImpersonationSession>(`/impersonation/sessions/${sessionId}`);
-    return session.actionsPerformed ?? [];
+  // TODO: No backend GET endpoint for session actions
+  getSessionActions: (_sessionId: string): Promise<ImpersonationAction[]> => {
+    throw new Error('Not implemented: no backend GET endpoint for /impersonation/sessions/:id/actions');
   },
+  // Fix: backend uses POST /sessions/:id/log-action (not /sessions/:id/actions)
   logAction: (sessionId: string, data: Omit<ImpersonationAction, 'timestamp'>) =>
-    apiFetch<void>(`/impersonation/sessions/${sessionId}/log-action`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
+    apiFetch<void>(`/impersonation/sessions/${sessionId}/log-action`, { method: 'POST', body: JSON.stringify(data) }),
 
   // Dashboard
   getImpersonationStats: () =>

@@ -63,98 +63,111 @@ describe('VfdCommandResolver', () => {
     registerMappingService = module.get(VfdRegisterMappingService);
   });
 
+  // DB-SENSOR-HIGH-003: mutations now capture the acting user for the command
+  // audit trail; the resolver maps @CurrentUser → { userId, email }.
+  const mockUser = { sub: 'user-1', email: 'u@test.com', tenantId, roles: [] } as never;
+  const expectedActor = { userId: 'user-1', email: 'u@test.com' };
+
   describe('Command Mutations', () => {
     describe('sendCommand', () => {
       it('should send a command to VFD device', async () => {
         const result = await resolver.sendCommand(
           'device-123',
           { command: VfdCommandType.START },
-          tenantId
+          tenantId,
+          mockUser
         );
 
         expect(result.success).toBe(true);
         expect(commandService.executeCommand).toHaveBeenCalledWith(
           'device-123',
           tenantId,
-          { command: VfdCommandType.START }
+          { command: VfdCommandType.START },
+          expectedActor
         );
       });
     });
 
     describe('startVfd', () => {
       it('should send START command', async () => {
-        const result = await resolver.startVfd('device-123', tenantId);
+        const result = await resolver.startVfd('device-123', tenantId, mockUser);
 
         expect(result.success).toBe(true);
         expect(commandService.executeCommand).toHaveBeenCalledWith(
           'device-123',
           tenantId,
-          { command: VfdCommandType.START }
+          { command: VfdCommandType.START },
+          expectedActor
         );
       });
     });
 
     describe('stopVfd', () => {
       it('should send STOP command', async () => {
-        const result = await resolver.stopVfd('device-123', tenantId);
+        const result = await resolver.stopVfd('device-123', tenantId, mockUser);
 
         expect(result.success).toBe(true);
         expect(commandService.executeCommand).toHaveBeenCalledWith(
           'device-123',
           tenantId,
-          { command: VfdCommandType.STOP }
+          { command: VfdCommandType.STOP },
+          expectedActor
         );
       });
     });
 
     describe('setFrequency', () => {
       it('should send SET_FREQUENCY command with value', async () => {
-        const result = await resolver.setFrequency('device-123', 45.0, tenantId);
+        const result = await resolver.setFrequency('device-123', 45.0, tenantId, mockUser);
 
         expect(result.success).toBe(true);
         expect(commandService.executeCommand).toHaveBeenCalledWith(
           'device-123',
           tenantId,
-          { command: VfdCommandType.SET_FREQUENCY, value: 45.0 }
+          { command: VfdCommandType.SET_FREQUENCY, value: 45.0 },
+          expectedActor
         );
       });
     });
 
     describe('setSpeed', () => {
       it('should send SET_SPEED command with percentage', async () => {
-        const result = await resolver.setSpeed('device-123', 75.0, tenantId);
+        const result = await resolver.setSpeed('device-123', 75.0, tenantId, mockUser);
 
         expect(result.success).toBe(true);
         expect(commandService.executeCommand).toHaveBeenCalledWith(
           'device-123',
           tenantId,
-          { command: VfdCommandType.SET_SPEED, value: 75.0 }
+          { command: VfdCommandType.SET_SPEED, value: 75.0 },
+          expectedActor
         );
       });
     });
 
     describe('resetFault', () => {
       it('should send FAULT_RESET command', async () => {
-        const result = await resolver.resetFault('device-123', tenantId);
+        const result = await resolver.resetFault('device-123', tenantId, mockUser);
 
         expect(result.success).toBe(true);
         expect(commandService.executeCommand).toHaveBeenCalledWith(
           'device-123',
           tenantId,
-          { command: VfdCommandType.FAULT_RESET }
+          { command: VfdCommandType.FAULT_RESET },
+          expectedActor
         );
       });
     });
 
     describe('emergencyStop', () => {
       it('should send EMERGENCY_STOP command', async () => {
-        const result = await resolver.emergencyStop('device-123', tenantId);
+        const result = await resolver.emergencyStop('device-123', tenantId, mockUser);
 
         expect(result.success).toBe(true);
         expect(commandService.executeCommand).toHaveBeenCalledWith(
           'device-123',
           tenantId,
-          { command: VfdCommandType.EMERGENCY_STOP }
+          { command: VfdCommandType.EMERGENCY_STOP },
+          expectedActor
         );
       });
     });

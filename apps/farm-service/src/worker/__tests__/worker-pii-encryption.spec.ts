@@ -3,7 +3,10 @@
  *
  * Proves:
  *  1. The encrypted PII columns round-trip through the SSoT transformer
- *     (firstName/lastName/email/dateOfBirth as text, contactInfo/address as JSON).
+ *     (firstName/lastName/email as text, contactInfo as JSON — the entity's
+ *     current surface; dateOfBirth/address were dropped as placeholder-only
+ *     columns by DropFarmWorkerPlaceholderPii1805500000000, ORPHAN-MEDIUM-379,
+ *     and appear below only as the immutable backfill migration's behaviour).
  *  2. The email blind index is deterministic and normalization-insensitive, and
  *     the entity lifecycle hook keeps emailHash in lock-step with email.
  *  3. The backfill migration encrypts plaintext, computes emailHash, is

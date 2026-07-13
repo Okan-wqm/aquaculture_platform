@@ -1,4 +1,6 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 
 import {
   createVfdAdapter,
@@ -6,6 +8,7 @@ import {
   VfdConnectionHandle,
 } from '../adapters';
 import { VFD_BRAND_COMMANDS } from '../brand-configs';
+import { VfdCommandAuditLog } from '../entities/vfd-command-audit-log.entity';
 import { VfdDevice } from '../entities/vfd-device.entity';
 import { VfdCommandType, VfdDeviceStatus } from '../entities/vfd.enums';
 
@@ -18,6 +21,16 @@ import { VfdRegisterMappingService } from './vfd-register-mapping.service';
 export interface VfdCommandInput {
   command: VfdCommandType;
   value?: number; // For SET_FREQUENCY, SET_SPEED, SET_TORQUE
+}
+
+/**
+ * Who dispatched a command — captured on the audit record (DB-SENSOR-HIGH-003).
+ * Optional so internal/system callers (automation) can pass a system identity.
+ */
+export interface VfdCommandActor {
+  userId: string;
+  email?: string;
+  source?: string; // 'operator' (default) | 'automation' | 'system'
 }
 
 /**
@@ -55,7 +68,9 @@ export class VfdCommandService {
 
   constructor(
     private readonly vfdDeviceService: VfdDeviceService,
-    private readonly registerMappingService: VfdRegisterMappingService
+    private readonly registerMappingService: VfdRegisterMappingService,
+    @InjectRepository(VfdCommandAuditLog)
+    private readonly commandAuditRepo: Repository<VfdCommandAuditLog>
   ) {}
 
   /**
@@ -64,7 +79,8 @@ export class VfdCommandService {
   async executeCommand(
     deviceId: string,
     tenantId: string,
-    commandInput: VfdCommandInput
+    commandInput: VfdCommandInput,
+    actor?: VfdCommandActor
   ): Promise<VfdCommandExecutionResult> {
     const device = await this.vfdDeviceService.findById(deviceId, tenantId);
 
@@ -80,6 +96,7 @@ export class VfdCommandService {
       (commandInput.value !== undefined ? ` with value ${commandInput.value}` : '')
     );
 
+    let executionResult: VfdCommandExecutionResult;
     try {
       // Get or create connection
       const { adapter, handle } = await this.getOrCreateConnection(device);
@@ -118,6 +135,10 @@ export class VfdCommandService {
           result = await this.executeFaultReset(device, adapter, handle);
           break;
 
+        case VfdCommandType.QUICK_STOP:
+          result = await this.executeQuickStop(device, adapter, handle);
+          break;
+
         case VfdCommandType.EMERGENCY_STOP:
           result = await this.executeEmergencyStop(device, adapter, handle);
           break;
@@ -130,11 +151,20 @@ export class VfdCommandService {
           result = await this.executeJog(device, adapter, handle, 'reverse');
           break;
 
-        default:
-          throw new BadRequestException(`Unknown command: ${commandInput.command}`);
+        case VfdCommandType.COAST_STOP:
+          result = await this.executeCoastStop(device, adapter, handle);
+          break;
+
+        default: {
+          // Compile-time exhaustiveness: adding a VfdCommandType member
+          // without a dispatch case is a type error, not a runtime
+          // "Unknown command" (QUICK_STOP/COAST_STOP shipped exactly that way).
+          const unhandled: never = commandInput.command;
+          throw new BadRequestException(`Unknown command: ${String(unhandled)}`);
+        }
       }
 
-      return {
+      executionResult = {
         success: result.success,
         command: commandInput.command,
         value: commandInput.value,
@@ -148,7 +178,7 @@ export class VfdCommandService {
         error
       );
 
-      return {
+      executionResult = {
         success: false,
         command: commandInput.command,
         value: commandInput.value,
@@ -156,6 +186,66 @@ export class VfdCommandService {
         executedAt: new Date(),
       };
     }
+
+    // DB-SENSOR-HIGH-003: every dispatched actuator command leaves a durable,
+    // immutable audit record (success AND failure). Best-effort: a command —
+    // especially EMERGENCY_STOP — must never be blocked by an audit-store
+    // outage, so an audit-write failure is logged loudly but does not change
+    // the command result.
+    await this.recordCommandAudit(deviceId, tenantId, commandInput, executionResult, actor);
+
+    return executionResult;
+  }
+
+  /**
+   * Persist an immutable audit row for a dispatched VFD control command.
+   * Never throws — audit durability must not gate industrial actuation.
+   */
+  private async recordCommandAudit(
+    deviceId: string,
+    tenantId: string,
+    commandInput: VfdCommandInput,
+    result: VfdCommandExecutionResult,
+    actor?: VfdCommandActor
+  ): Promise<void> {
+    try {
+      await this.commandAuditRepo.save(
+        this.commandAuditRepo.create({
+          tenantId,
+          vfdDeviceId: deviceId,
+          command: commandInput.command,
+          value: commandInput.value,
+          success: result.success,
+          error: result.error,
+          performedBy: actor?.userId ?? 'system',
+          performedByEmail: actor?.email,
+          source: actor?.source ?? 'operator',
+          latencyMs: result.latencyMs,
+        })
+      );
+    } catch (auditError) {
+      this.logger.error(
+        `AUDIT GAP: failed to persist command audit for ${commandInput.command} on device ${deviceId} ` +
+          `(command result success=${result.success}) — ${(auditError as Error).message}`
+      );
+    }
+  }
+
+  /**
+   * Read the immutable command-audit trail for a device (tenant-scoped),
+   * newest first. Surfaces the audit log to the product (parity — the table is
+   * not write-only).
+   */
+  async getCommandAuditLog(
+    deviceId: string,
+    tenantId: string,
+    limit = 100
+  ): Promise<VfdCommandAuditLog[]> {
+    return this.commandAuditRepo.find({
+      where: { vfdDeviceId: deviceId, tenantId },
+      order: { timestamp: 'DESC' },
+      take: Math.min(Math.max(limit, 1), 500),
+    });
   }
 
   /**
@@ -229,15 +319,28 @@ export class VfdCommandService {
       throw new BadRequestException(`Speed reference mapping not found for brand ${device.brand}`);
     }
 
-    // Validate frequency range
-    if (speedRefMapping.minValue != null && frequencyHz < speedRefMapping.minValue) {
+    if (!Number.isFinite(frequencyHz)) {
+      throw new BadRequestException(`Invalid frequency value: ${frequencyHz}`);
+    }
+
+    // Validate frequency range. Mapping-configured bounds win (Rockwell's
+    // signed -500..500 stays legitimate); an UNBOUNDED mapping falls back to
+    // a conservative absolute envelope instead of passing anything to the
+    // drive — the mapping columns are nullable, so without the fallback
+    // 600 Hz or -10 Hz reached physical hardware unvalidated. 0..400 Hz is
+    // the widest Hz bound in the shipped brand register data (Danfoss,
+    // Yaskawa both cap at 400 Hz); min 0 because SET_FREQUENCY is a
+    // magnitude — direction is the REVERSE command.
+    const minFrequencyHz = speedRefMapping.minValue ?? 0;
+    const maxFrequencyHz = speedRefMapping.maxValue ?? 400;
+    if (frequencyHz < minFrequencyHz) {
       throw new BadRequestException(
-        `Frequency ${frequencyHz} Hz is below minimum ${speedRefMapping.minValue} Hz`
+        `Frequency ${frequencyHz} Hz is below minimum ${minFrequencyHz} Hz`
       );
     }
-    if (speedRefMapping.maxValue != null && frequencyHz > speedRefMapping.maxValue) {
+    if (frequencyHz > maxFrequencyHz) {
       throw new BadRequestException(
-        `Frequency ${frequencyHz} Hz is above maximum ${speedRefMapping.maxValue} Hz`
+        `Frequency ${frequencyHz} Hz is above maximum ${maxFrequencyHz} Hz`
       );
     }
 
@@ -307,6 +410,51 @@ export class VfdCommandService {
     const resetCommand = brandCommands?.['FAULT_RESET'] || brandCommands?.['RESET'] || 0x0080;
 
     return adapter.writeControlWord(handle, resetCommand, controlWordMapping.registerAddress);
+  }
+
+  /**
+   * Execute QUICK_STOP command — controlled fast ramp-down. In CiA402 /
+   * PROFIdrive the quick-stop control word IS the fieldbus e-stop
+   * mechanism, so brands that define QUICK_STOP share the wire value with
+   * EMERGENCY_STOP; the distinct command types preserve operator intent
+   * in results and audit trails.
+   */
+  private async executeQuickStop(
+    device: VfdDevice,
+    adapter: ReturnType<typeof createVfdAdapter>,
+    handle: VfdConnectionHandle
+  ): Promise<VfdCommandResult> {
+    const controlWordMapping = await this.registerMappingService.getControlWordMapping(device.brand);
+    if (!controlWordMapping) {
+      throw new BadRequestException(`Control word mapping not found for brand ${device.brand}`);
+    }
+
+    const brandCommands = VFD_BRAND_COMMANDS[device.brand];
+    // CiA402 QUICK_STOP (OFF3) control word is 0x0002 (VFD_CONTROL_COMMANDS.QUICK_STOP)
+    const quickStopCommand = brandCommands?.['QUICK_STOP'] || 0x0002;
+
+    return adapter.writeControlWord(handle, quickStopCommand, controlWordMapping.registerAddress);
+  }
+
+  /**
+   * Execute COAST_STOP command — remove output voltage and let the motor
+   * freewheel (CiA402 OFF2 / DISABLE_VOLTAGE).
+   */
+  private async executeCoastStop(
+    device: VfdDevice,
+    adapter: ReturnType<typeof createVfdAdapter>,
+    handle: VfdConnectionHandle
+  ): Promise<VfdCommandResult> {
+    const controlWordMapping = await this.registerMappingService.getControlWordMapping(device.brand);
+    if (!controlWordMapping) {
+      throw new BadRequestException(`Control word mapping not found for brand ${device.brand}`);
+    }
+
+    const brandCommands = VFD_BRAND_COMMANDS[device.brand];
+    // 0x0000 = CiA402 DISABLE_VOLTAGE (OFF2 coast)
+    const coastCommand = brandCommands?.['COAST'] || brandCommands?.['COAST_STOP'] || 0x0000;
+
+    return adapter.writeControlWord(handle, coastCommand, controlWordMapping.registerAddress);
   }
 
   /**

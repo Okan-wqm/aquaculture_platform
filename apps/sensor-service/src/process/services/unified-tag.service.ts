@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, ILike, In, QueryFailedError } from 'typeorm';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
@@ -19,8 +19,19 @@ import {
   TagDataType,
   TagDirection,
   TagSource,
+  TagStatus,
   TagHierarchy,
 } from '../entities/unified-tag.entity';
+
+/**
+ * Convert an optional numeric column to `number | undefined`, PRESERVING zero.
+ * A truthiness guard (`v ? Number(v) : undefined`) silently drops legitimate
+ * zero-valued engineering ranges and alarm limits (e.g. a 0-100% level sensor's
+ * engMin=0, or a low-low alarm at 0), which the edge then never enforces.
+ */
+function numberOrUndefined(value: number | null | undefined): number | undefined {
+  return value != null ? Number(value) : undefined;
+}
 
 @Injectable()
 export class UnifiedTagService {
@@ -86,11 +97,69 @@ export class UnifiedTagService {
     return this.tagRepository.findOne({ where: { id, tenantId } });
   }
 
+  /**
+   * Reverse lookup: which registry FQNs are fed by this sensor/channel?
+   *
+   * Live-data fan-out (SENSOR-HIGH-046) keys socket subscriptions by canonical
+   * TagRef (`deviceCode/localName` — the registry fqn), while the ingestion
+   * plane keys values by `sensorId/channelId`. `TagSource` carries the optional
+   * `sensorId`/`channelId` linkage, so this resolves an incoming metric to the
+   * fqn(s) subscribers actually listen under. A tag whose source names the
+   * sensor but no channel is a sensor-level tag and matches every channel.
+   * RETIRED tags never fan out.
+   */
+  async findFqnsBySensorSource(
+    tenantId: string,
+    sensorId: string,
+    channelId: string,
+  ): Promise<string[]> {
+    const rows = await this.tagRepository
+      .createQueryBuilder('tag')
+      .select('tag.fqn', 'fqn')
+      .where('tag.tenantId = :tenantId', { tenantId })
+      .andWhere(`tag.source ->> 'sensorId' = :sensorId`, { sensorId })
+      .andWhere(
+        `(tag.source ->> 'channelId' = :channelId OR tag.source ->> 'channelId' IS NULL)`,
+        { channelId },
+      )
+      .andWhere('tag.status != :retired', { retired: TagStatus.RETIRED })
+      .getRawMany<{ fqn: string }>();
+    return rows.map((r) => r.fqn);
+  }
+
+  /**
+   * Hard delete — ONLY for DRAFT tags (SENSOR-HIGH-050). An ACTIVE tag may be
+   * referenced by widget bindings / deploy artifacts (references are FQN
+   * strings inside JSONB documents — no FK to scan), so the structural
+   * guarantee is lifecycle-based: anything past DRAFT can only be RETIRED,
+   * which resolution already reports as unresolved. A referenced tag can
+   * therefore never silently vanish.
+   */
   async deleteTag(id: string, tenantId: string): Promise<boolean> {
     const tag = await this.tagRepository.findOne({ where: { id, tenantId } });
     if (!tag) throw new NotFoundException(`Tag ${id} not found`);
+    if (tag.status !== TagStatus.DRAFT) {
+      throw new ForbiddenException(
+        `Tag ${tag.fqn} is ${tag.status} and cannot be hard-deleted — retire it instead`,
+      );
+    }
     await this.tagRepository.remove(tag);
     return true;
+  }
+
+  /**
+   * Retire a tag: the terminal lifecycle state. The row stays for audit and
+   * resolution reports RETIRED bindings as unresolved (deploy/subscribe gates
+   * see them); the live fan-out skips retired tags. Idempotent.
+   */
+  async retireTag(id: string, tenantId: string): Promise<UnifiedTag> {
+    const tag = await this.tagRepository.findOne({ where: { id, tenantId } });
+    if (!tag) throw new NotFoundException(`Tag ${id} not found`);
+    if (tag.status === TagStatus.RETIRED) return tag;
+    tag.status = TagStatus.RETIRED;
+    // Registry edit → revision bump so binding snapshots detect staleness.
+    tag.revision += 1;
+    return this.tagRepository.save(tag);
   }
 
   async listTags(
@@ -183,7 +252,6 @@ export class UnifiedTagService {
       : [];
     const existingFqnMap = new Map(existingTags.map(t => [t.fqn, t]));
 
-    const tags: UnifiedTag[] = [...existingTags];
     const newTags: UnifiedTag[] = [];
 
     for (const io of ioConfigs) {
@@ -199,13 +267,13 @@ export class UnifiedTagService {
         dataType: this.mapDataType(io.dataType),
         direction: this.inferDirection(io.ioType),
         engUnit: io.engUnit,
-        engMin: io.engMin ? Number(io.engMin) : undefined,
-        engMax: io.engMax ? Number(io.engMax) : undefined,
-        alarmHH: io.alarmHH ? Number(io.alarmHH) : undefined,
-        alarmH: io.alarmH ? Number(io.alarmH) : undefined,
-        alarmL: io.alarmL ? Number(io.alarmL) : undefined,
-        alarmLL: io.alarmLL ? Number(io.alarmLL) : undefined,
-        deadband: io.deadband ? Number(io.deadband) : undefined,
+        engMin: numberOrUndefined(io.engMin),
+        engMax: numberOrUndefined(io.engMax),
+        alarmHH: numberOrUndefined(io.alarmHH),
+        alarmH: numberOrUndefined(io.alarmH),
+        alarmL: numberOrUndefined(io.alarmL),
+        alarmLL: numberOrUndefined(io.alarmLL),
+        deadband: numberOrUndefined(io.deadband),
         source: {
           type: 'edge_device',
           edgeDeviceId: deviceId,
@@ -216,11 +284,27 @@ export class UnifiedTagService {
     }
 
     if (newTags.length > 0) {
-      const saved = await this.tagRepository.save(newTags);
-      tags.push(...saved);
+      // ON CONFLICT DO NOTHING: a concurrent discovery of the same device (or a
+      // re-run) races on the unique (tenantId, fqn) index. A plain bulk save
+      // throws 23505 and rolls back the WHOLE batch; orIgnore skips only the
+      // rows another transaction already created, so discovery is idempotent
+      // and concurrent-safe (BE-004).
+      await this.tagRepository
+        .createQueryBuilder()
+        .insert()
+        .into(UnifiedTag)
+        .values(newTags)
+        .orIgnore()
+        .execute();
     }
 
-    const createdCount = newTags.length;
+    // Re-read the full set by fqn so the result reflects rows persisted here AND
+    // any that a concurrent discovery won the insert race for (our orIgnore then
+    // skipped). This is also what gives the newly-inserted rows their ids.
+    const tags = fqns.length > 0
+      ? await this.tagRepository.find({ where: { tenantId, fqn: In(fqns) } })
+      : [];
+    const createdCount = Math.max(0, tags.length - existingTags.length);
     this.logger.log(`Discovered ${discoveredCount} I/O configs, created ${createdCount} new tags`);
     return { discoveredCount, createdCount, tags };
   }

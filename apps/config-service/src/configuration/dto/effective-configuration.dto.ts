@@ -78,7 +78,13 @@ function contentHash(configuration: Configuration): string {
 
 function effectiveValue(configuration: Configuration): unknown {
   if (configuration.valueType === ConfigValueType.SECRET || configuration.isSecret) {
-    return CONFIG_SECRET_REDACTED_VALUE;
+    // WHY the null for an empty secret: an empty stored value means "no secret
+    // configured yet" (e.g. the seeded email.smtp_password placeholder).
+    // Returning the redaction sentinel for it would fabricate the existence of
+    // a stored secret — clients must be able to distinguish "a secret exists
+    // (redacted)" from "no secret set". secretMode stays 'redacted' either way
+    // because the FIELD is secret regardless of whether a value is present.
+    return configuration.value === '' ? null : CONFIG_SECRET_REDACTED_VALUE;
   }
   return configuration.getTypedValue();
 }

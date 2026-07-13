@@ -4,11 +4,21 @@
  * varsling and internal welfare trends consume these records instead of
  * free-string symptom arrays.
  *
+ * Phase 6 (FARM-HIGH-214): recording is a plain insert (multiple assessments
+ * per tank/date are legitimate — different samples), so mobile offline-queue
+ * replays are deduplicated through the farm_mobile_command_receipts ledger:
+ * begin() inside the write transaction either starts a receipt, or returns the
+ * previously stored response for a replayed clientCommandId.
+ *
  * @module FishHealth
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import {
+  MobileCommandReceiptService,
+  mobileCommandEnvelopeFromInput,
+} from '@aquaculture/backend-common/mobile-command';
 
 import { WelfareAssessment } from '../entities/welfare-assessment.entity';
 import { RecordWelfareAssessmentInput } from '../dto/field-capture.inputs';
@@ -17,7 +27,10 @@ import { RecordWelfareAssessmentInput } from '../dto/field-capture.inputs';
 export class WelfareAssessmentService {
   private readonly logger = new Logger(WelfareAssessmentService.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly mobileCommandReceipts: MobileCommandReceiptService,
+  ) {}
 
   async record(
     tenantId: string,
@@ -26,6 +39,26 @@ export class WelfareAssessmentService {
   ): Promise<WelfareAssessment> {
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const repo = tenantManagerRepo(queryRunner.manager, WelfareAssessment, tenantId);
+
+      const receipt = await this.mobileCommandReceipts.begin(queryRunner.manager, {
+        tableName: 'farm_mobile_command_receipts',
+        tenantId,
+        envelope: mobileCommandEnvelopeFromInput(input),
+        operationType: 'recordWelfareAssessment',
+        responseType: 'WelfareAssessment',
+      });
+      if (receipt.mode === 'replay') {
+        const replayed = receipt.responseId
+          ? await repo.findOne({ where: { id: receipt.responseId, tenantId } })
+          : null;
+        if (!replayed) {
+          throw new NotFoundException(
+            'Replayed welfare assessment no longer exists for this command receipt',
+          );
+        }
+        return replayed;
+      }
+
       const saved = await repo.save(
         repo.create({
           tenantId,
@@ -42,6 +75,15 @@ export class WelfareAssessmentService {
           notes: input.notes,
         }),
       );
+
+      await this.mobileCommandReceipts.complete(queryRunner.manager, {
+        tableName: 'farm_mobile_command_receipts',
+        receipt,
+        responseType: 'WelfareAssessment',
+        responseId: saved.id,
+        responsePayload: { id: saved.id },
+      });
+
       this.logger.log(
         `Recorded welfare assessment ${saved.id} (tank ${input.tankId}, ${saved.assessedAt})`,
       );

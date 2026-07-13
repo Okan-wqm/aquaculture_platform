@@ -56,6 +56,10 @@ import { AddWelfareLiceCheckConstraints1804900000000 } from './1804900000000-Add
 // (migrations are append-only + ordered).
 import { ApplyRlsToRegulatoryReportDrafts1805000000000 } from './1805000000000-ApplyRlsToRegulatoryReportDrafts';
 import { AddTenantErasureRetainedColumns1805100000000 } from './1805100000000-AddTenantErasureRetainedColumns';
+import { AddFarmStockBatchSnapshotSpecies1805200000000 } from './1805200000000-AddFarmStockBatchSnapshotSpecies';
+import { DropFarmDocuments1805300000000 } from './1805300000000-DropFarmDocuments';
+import { DropTankBatchCurrentQuantityMirror1805400000000 } from './1805400000000-DropTankBatchCurrentQuantityMirror';
+import { DropFarmWorkerPlaceholderPii1805500000000 } from './1805500000000-DropFarmWorkerPlaceholderPii';
 
 /**
  * Canonical farm-service migration class list.
@@ -118,4 +122,8 @@ export const FARM_MIGRATIONS = [
   AddWelfareLiceCheckConstraints1804900000000,
   ApplyRlsToRegulatoryReportDrafts1805000000000,
   AddTenantErasureRetainedColumns1805100000000,
+  AddFarmStockBatchSnapshotSpecies1805200000000,
+  DropFarmDocuments1805300000000,
+  DropTankBatchCurrentQuantityMirror1805400000000,
+  DropFarmWorkerPlaceholderPii1805500000000,
 ] as const;

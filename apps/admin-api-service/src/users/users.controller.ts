@@ -7,7 +7,6 @@ import {
   Get,
   HttpCode,
   HttpStatus,
-  Logger,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -34,9 +33,6 @@ import {
   Matches,
 } from 'class-validator';
 
-import { PlatformAdminOnly } from '../decorators/roles.decorator';
-
-import { InviteUserDto } from './dto/invite-user.dto';
 import { ResetPasswordByAdminDto } from './dto/reset-password.dto';
 import {
   RoleTemplateService,
@@ -204,8 +200,6 @@ export class ListUsersQueryDto {
 @ApiTags('Users')
 @Controller('users')
 export class UsersController {
-  private readonly logger = new Logger(UsersController.name);
-
   constructor(
     private readonly usersService: UsersService,
     private readonly userProvisioningService: UserProvisioningService,
@@ -473,82 +467,4 @@ export class UsersController {
   getRolePermissions(@Param('roleCode') roleCode: string): string[] {
     return this.roleTemplateService.getRolePermissions(roleCode);
   }
-
-  // ============================================
-  // User Permission Management Endpoints
-  // (platform-admin only — SUPER_ADMIN; see PlatformAdminOnly / RBAC-LOW-001)
-  // ============================================
-
-  /**
-   * Invite a new user with specific permissions (platform-admin / SUPER_ADMIN).
-   */
-  @ThrottleSensitive()
-  @Post('tenant/invite')
-  @PlatformAdminOnly()
-  @HttpCode(HttpStatus.CREATED)
-  async inviteUserWithPermissions(
-    @Body() dto: InviteUserDto,
-    @Req() req: { user: { id: string; tenantId?: string } },
-  ): Promise<{ success: boolean; userId?: string; deliveryStatus: 'queued' | 'not_requested'; message: string }> {
-    const tenantId = req.user.tenantId;
-    if (!tenantId) {
-      throw new BadRequestException('Tenant context required for this operation');
-    }
-
-    // Check user limit for tenant
-    const limitCheck = await this.userProvisioningService.checkUserLimit(tenantId);
-    if (!limitCheck.canCreate) {
-      throw new BadRequestException(
-        `User limit reached. Current: ${limitCheck.currentCount}/${limitCheck.limit}`,
-      );
-    }
-
-    // Create the user via provisioning service
-    const provisioningDto: ProvisioningInviteUserDto = {
-      tenantId,
-      email: dto.email,
-      firstName: dto.firstName,
-      lastName: dto.lastName,
-      role: 'MODULE_USER', // Default role for invited users
-      invitedBy: req.user.id,
-      sendInvitation: dto.sendInvitationEmail !== false,
-    };
-
-    const result = await this.userProvisioningService.inviteUser(provisioningDto);
-
-    if (!result.success || !result.userId) {
-      throw new BadRequestException(result.error || 'Failed to invite user');
-    }
-
-    // RBAC-HIGH-009: the former `shared.user_permissions` write here had ZERO
-    // authorization effect — no guard or token-mint path reads that table;
-    // enforcement is the auth-service tenant-RBAC (auth.tenant_role_permissions
-    // folded into the JWT `resourcePermissions` claim). Writing it made the
-    // operator believe a capability was granted/revoked when nothing changed.
-    // The invited user's real authority comes from the role assigned by the
-    // provisioning flow above; the phantom permission write is removed.
-
-    const deliveryStatus =
-      dto.sendInvitationEmail === false ? 'not_requested' : result.deliveryStatus ?? 'queued';
-
-    return {
-      success: true,
-      userId: result.userId,
-      deliveryStatus,
-      message: deliveryStatus === 'queued'
-        ? 'User invited successfully. Notification delivery queued.'
-        : 'User invited successfully. Notification delivery was not requested.',
-    };
-  }
-
-  // RBAC-HIGH-009: the phantom-permission endpoints (permission-categories,
-  // GET/PUT :id/permissions, tenant/users-with-permissions) were REMOVED.
-  // They read/wrote `shared.user_permissions`, a store NO guard or token-mint
-  // path consumes — enforcement is the auth-service tenant-RBAC folded into the
-  // JWT `resourcePermissions` claim — so toggling them changed no real access
-  // (security theater). They were also structurally unreachable: gated
-  // @PlatformAdminOnly() (SUPER_ADMIN) yet requiring `req.user.tenantId`, which
-  // a SUPER_ADMIN never carries, so every call already 400'd. The `shared`
-  // table itself is a canonical protected table; its removal is governed
-  // (ADR + architectural-arbiter) and tracked separately.
 }

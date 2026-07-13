@@ -77,6 +77,14 @@ export interface StEditorPanelProps {
   onSave?: () => void;
   /** Embedded mode: callback for validate button */
   onValidate?: () => void;
+  /** Deploy action (F9 / Deploy button) — e.g. open the automation deploy modal */
+  onDeploy?: () => void;
+  /**
+   * Floating (popup) presentation: fill the host dialog's height, no bottom
+   * dock chrome (resize handle / collapse). Persistence semantics stay
+   * standalone — only the layout changes.
+   */
+  floating?: boolean;
   /** Validation results from parent */
   validationResult?: {
     errors: DiagnosticItem[];
@@ -113,8 +121,12 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
   hideActions = [],
   onSave,
   onValidate,
+  onDeploy,
+  floating = false,
   validationResult,
 }) => {
+  // Docked = the legacy bottom-panel presentation (standalone, not floating).
+  const docked = !embedded && !floating;
   // Standalone mode: use editor mode store for collapse/expand
   const isBottomPanelOpen = useEditorModeStore((s) => s.isBottomPanelOpen);
   const toggleBottomPanel = useEditorModeStore((s) => s.toggleBottomPanel);
@@ -122,10 +134,10 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
 
   // Auto-open panel on mount in standalone mode so the editor is visible
   useEffect(() => {
-    if (!embedded) {
+    if (docked) {
       setBottomPanelOpen(true);
     }
-  }, [embedded, setBottomPanelOpen]);
+  }, [docked, setBottomPanelOpen]);
 
   const {
     programs,
@@ -137,6 +149,8 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
     updateSource: internalUpdateSource,
     isDirty,
     save,
+    isSaving,
+    saveError,
     compileStatus,
     diagnostics,
     compile,
@@ -153,6 +167,10 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
   } = useStEditor({
     initialSource: embedded && value != null ? value : undefined,
     onSourceChange: embedded ? onChange : undefined,
+    // Standalone (PLC mode): programs hydrate from + save to the backend
+    // AutomationProgram store. Embedded consumers own persistence themselves.
+    persist: !embedded,
+    onDeploy,
   });
 
   // In embedded mode with controlled value, sync external value -> internal state
@@ -243,9 +261,9 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
     };
   }, []);
 
-  // Ctrl+J toggle (standalone mode only)
+  // Ctrl+J toggle (docked bottom-panel mode only — the popup has no dock)
   useEffect(() => {
-    if (embedded) return;
+    if (!docked) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === 'j') {
         e.preventDefault();
@@ -254,7 +272,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [embedded, toggleBottomPanel]);
+  }, [docked, toggleBottomPanel]);
 
   // Resize handlers
   const handleResizeStart = useCallback(
@@ -402,10 +420,10 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
     [updateSource],
   );
 
-  const panelStyle = useMemo(() => (embedded ? undefined : { height: panelHeight }), [embedded, panelHeight]);
+  const panelStyle = useMemo(() => (docked ? { height: panelHeight } : undefined), [docked, panelHeight]);
 
   // Standalone collapsed state
-  if (!embedded && !isBottomPanelOpen) {
+  if (docked && !isBottomPanelOpen) {
     return (
       <button
         onClick={() => setBottomPanelOpen(true)}
@@ -419,11 +437,11 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
 
   return (
     <div
-      className={`flex flex-col bg-gray-900 ${embedded ? 'flex-1 min-h-0' : 'border-t border-gray-700'}`}
+      className={`flex flex-col bg-gray-900 ${docked ? 'border-t border-gray-700' : 'flex-1 min-h-0'}`}
       style={panelStyle}
     >
-      {/* Resize handle (standalone mode only) */}
-      {!embedded && (
+      {/* Resize handle (docked bottom-panel mode only) */}
+      {docked && (
         <div
           onMouseDown={handleResizeStart}
           className="h-1 bg-gray-700 hover:bg-cyan-600 cursor-row-resize flex-shrink-0"
@@ -480,10 +498,13 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
           <>
             <div className="w-px h-4 bg-gray-600 mx-1" />
 
-            {/* Deploy */}
+            {/* Deploy — opens the parent-owned deploy flow (UI-004: this
+                button used to render with NO onClick, an inert control). */}
             <button
-              className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
-              title="Deploy (F9)"
+              onClick={onDeploy}
+              disabled={!onDeploy}
+              className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1 disabled:opacity-50"
+              title={onDeploy ? 'Deploy (F9)' : 'Deploy is not available here'}
             >
               <Upload className="w-3.5 h-3.5" />
               Deploy
@@ -498,11 +519,12 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
             {/* Save */}
             <button
               onClick={save}
-              className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
+              disabled={isSaving}
+              className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1 disabled:opacity-50"
               title="Save (Ctrl+S)"
             >
-              <Save className="w-3.5 h-3.5" />
-              Save
+              <Save className={`w-3.5 h-3.5 ${isSaving ? 'animate-pulse' : ''}`} />
+              {isSaving ? 'Saving…' : 'Save'}
             </button>
           </>
         )}
@@ -542,6 +564,13 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
         {/* Spacer */}
         <div className="flex-1" />
 
+        {/* Save error — the write is async; this is its observable failure */}
+        {saveError && (
+          <span className="text-xs text-red-400 max-w-64 truncate" title={saveError}>
+            {saveError}
+          </span>
+        )}
+
         {/* Program name + dirty */}
         <span className="text-xs text-gray-500 flex items-center gap-1">
           <FileText className="w-3.5 h-3.5" />
@@ -552,8 +581,8 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
         {/* Compile status badge */}
         <CompileStatusBadge status={compileStatus} count={diagnostics.length} />
 
-        {/* Collapse (standalone mode only) */}
-        {!embedded && (
+        {/* Collapse (docked bottom-panel mode only) */}
+        {docked && (
           <button
             onClick={toggleBottomPanel}
             className="px-1.5 py-1 text-gray-500 hover:text-white hover:bg-gray-700 rounded"

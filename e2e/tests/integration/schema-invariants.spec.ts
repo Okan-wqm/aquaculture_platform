@@ -24,7 +24,7 @@
  *
  *   2. The `shared` schema contains exactly the four genuinely
  *      cross-service tables (audit_logs, gdpr_data_requests,
- *      user_consents, user_permissions).
+ *      user_consents, access_logs).
  *
  *   3. Every table that was moved during P6-P9 lives in its expected
  *      owning schema (and NOT in public).
@@ -91,6 +91,11 @@ const PLATFORM_LEVEL_SCHEMAS: ReadonlyArray<string> = [
   'config',
   'gateway',
   'shared',
+  // Registry-completeness sweep (ORPHAN-HIGH-365): compliance (legal_holds,
+  // admin-api-owned) + platform (db-migrate bootstrap tables) — single
+  // cross-tenant schemas, never per-tenant cloned.
+  'compliance',
+  'platform',
 ];
 
 const TENANT_FANOUT_TABLES_BY_SCHEMA: ReadonlyMap<string, ReadonlyArray<string>> = new Map(
@@ -210,8 +215,9 @@ const ALLOWED_PUBLIC_TABLES = new Set<string>([
 // PROTECTED_TABLES SSoT (libs/backend-common/.../protected-tables.ts) instead of
 // hand-copying it (this was the 4th unguarded copy). PROTECTED_TABLES already
 // carries the `shared.*` entries — audit_logs (7y), gdpr_data_requests,
-// user_consents, user_permissions, access_logs (request-level, 90d; survives
+// user_consents, access_logs (request-level, 90d; survives
 // tenant deletion for forensics). One list, no drift.
+// user_permissions retired 2026-07-12 (ADR-042, ORPHAN-HIGH-378).
 const SHARED_SCHEMA_TABLES = new Set<string>(
   PROTECTED_TABLES.filter((t) => t.startsWith('shared.')).map((t) =>
     t.slice('shared.'.length),
@@ -294,10 +300,11 @@ describe('Schema Invariants (2026-04-14 public-schema teardown)', () => {
     }
   });
 
-  it('shared schema strict allow-list (B.3) — exactly the 5 canonical cross-service tables', async () => {
-    // Wave 4-A.2 Dalga 5 — B.3 strict allow-list at 5 entries.
-    // The 5 canonical tables are: audit_logs, gdpr_data_requests,
-    // user_consents, user_permissions, access_logs. A 6th requires
+  it('shared schema strict allow-list (B.3) — exactly the 4 canonical cross-service tables', async () => {
+    // Wave 4-A.2 Dalga 5 — B.3 strict allow-list, reduced to 4 entries by
+    // ADR-042 (user_permissions retired, ORPHAN-HIGH-378).
+    // The 4 canonical tables are: audit_logs, gdpr_data_requests,
+    // user_consents, access_logs. A 5th requires
     // an ADR per ADR-011 + architectural-arbiter approval (W5
     // `add-shared-table` skill gate — BLOCKER-15).
     const result = await db.query<{ tablename: string }>(
@@ -322,7 +329,7 @@ describe('Schema Invariants (2026-04-14 public-schema teardown)', () => {
       throw new Error(
         `shared schema layout drift — ${parts.join('; ')}. ` +
           `The shared schema is the strict allow-list of ${SHARED_SCHEMA_TABLES.size} tables. ` +
-          `A 6th cross-service table requires an ADR drafted under docs/adr/ ` +
+          `A new cross-service table requires an ADR drafted under docs/adr/ ` +
           `(template at docs/adr/011-schema-ownership-model.md) plus ` +
           `architectural-arbiter approval — see W5 add-shared-table skill gate ` +
           `(BLOCKER-15). Update SHARED_SCHEMA_TABLES only after the ADR lands.`,

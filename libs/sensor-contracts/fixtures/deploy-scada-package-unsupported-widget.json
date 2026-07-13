@@ -1,0 +1,39 @@
+{
+  "commandId": "8d9e0f1a-2b3c-4d5e-9f6a-7b8c9d0e1f2a",
+  "command": "deploy_scada_package",
+  "params": {
+    "meta": {
+      "schemaVersion": 2,
+      "name": "Pre-transform HMI (unsupported widget)",
+      "version": 4,
+      "packageVersion": "4.0.0",
+      "deployedBy": "user-1",
+      "deployedAt": "2026-07-12T10:00:00.000Z",
+      "edgeDeviceId": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+    },
+    "screens": [
+      {
+        "id": "screen-1",
+        "name": "Overview",
+        "screenType": "dashboard",
+        "isDefault": true,
+        "widgets": [
+          {
+            "id": "widget-1",
+            "widgetType": "gauge",
+            "position": { "col": 0, "row": 0, "w": 4, "h": 3 },
+            "config": { "tagRef": "EDGE-01/water_temp", "min": 0, "max": 40 }
+          },
+          {
+            "id": "widget-2",
+            "widgetType": "staticText",
+            "position": { "col": 4, "row": 0, "w": 4, "h": 1 },
+            "config": { "text": "Tank 1 — main loop" }
+          }
+        ]
+      }
+    ],
+    "alarmRules": []
+  },
+  "timestamp": "2026-07-12T10:00:00.000Z"
+}

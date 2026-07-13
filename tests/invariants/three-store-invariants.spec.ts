@@ -101,6 +101,27 @@ function commitExists(sha: string): boolean {
   }
 }
 
+/**
+ * A shallow clone (CI `fetch-depth` limited, or a fresh remote-execution
+ * checkout) does not contain deep historical commits — a Phase-0 closing SHA
+ * from months ago is legitimately absent, not lost. The SHA-existence check
+ * must stay STRICT on a full clone (where absence means a genuinely lost
+ * commit) but tolerant on a shallow one (where absence is a clone-depth
+ * limitation). `git rev-parse --is-shallow-repository` distinguishes the two.
+ */
+function isShallowClone(): boolean {
+  try {
+    return (
+      execSync('git rev-parse --is-shallow-repository', {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+      }).trim() === 'true'
+    );
+  } catch {
+    return false;
+  }
+}
+
 function commitMessage(sha: string): string {
   try {
     return readCommitMessage(REPO_ROOT, sha);
@@ -473,6 +494,10 @@ describe('three-store invariants', () => {
           // registry edits that haven't been rechained yet.
           if (sha === 'pending' || sha.length < 7) continue;
           if (!commitExists(sha)) {
+            // On a shallow clone the SHA may be deep history that was never
+            // fetched — absence there is a clone-depth limitation, not a lost
+            // commit, so skip. Stay strict on a full clone.
+            if (isShallowClone()) continue;
             throw new Error(
               `Registry entry ${e.id} references closing_commit SHA ${sha} which is NOT in git history. ` +
                 `Either the commit was lost (rebase?) or the SHA is stale.`,

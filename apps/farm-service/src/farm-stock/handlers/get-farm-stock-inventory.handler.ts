@@ -73,10 +73,14 @@ export class GetFarmStockInventoryHandler
         .getMany();
 
       const containerIds = containers.map((container) => container.containerId);
+      // FARM-LOW-216: primary batch FIRST — consumers (the mobile tank mapper
+      // in particular) treat batches[0] as the container's primary batch for
+      // species/batch attribution. Alphabetical-only ordering made that pick
+      // non-deterministic on mixed-batch containers.
       const batches = containerIds.length
         ? await queryRunner.manager.find(FarmStockBatchSnapshot, {
             where: { tenantId, containerId: In(containerIds) },
-            order: { batchNumber: 'ASC' },
+            order: { isPrimary: 'DESC', batchNumber: 'ASC' },
           })
         : [];
 

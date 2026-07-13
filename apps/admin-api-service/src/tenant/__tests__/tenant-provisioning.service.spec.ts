@@ -888,7 +888,10 @@ describe('TenantProvisioningService', () => {
       expect(result.error).toContain('missing user id');
     });
 
-    it('lastActivityAt güncellenir', async () => {
+    // Renamed from 'lastActivityAt güncellenir': the assertion always pinned
+    // the ActivateTenant delegation metadata, and the lastActivityAt prop was
+    // removed from the tenant entity (DB-ADMIN-HIGH-003 cleanup).
+    it('provisioning finalizes via the owner ActivateTenant command with audit metadata', async () => {
       // Arrange
       const tenant = createMockTenant({ status: TenantStatus.PENDING });
       tenantRepository.findOne.mockResolvedValue(tenant);

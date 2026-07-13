@@ -22,7 +22,7 @@ export class CreateAiProposedActions1803000000000 implements MigrationInterface 
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
-      `CREATE TABLE "ai"."ai_proposed_actions" (
+      `CREATE TABLE IF NOT EXISTS "ai"."ai_proposed_actions" (
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
         "tenantId" uuid NOT NULL,
         "toolName" character varying(100) NOT NULL,
@@ -42,7 +42,7 @@ export class CreateAiProposedActions1803000000000 implements MigrationInterface 
       )`,
     );
     await queryRunner.query(
-      `CREATE INDEX "IDX_ai_proposed_actions_tenant_status" ON "ai"."ai_proposed_actions" ("tenantId", "status", "createdAt")`,
+      `CREATE INDEX IF NOT EXISTS "IDX_ai_proposed_actions_tenant_status" ON "ai"."ai_proposed_actions" ("tenantId", "status", "createdAt")`,
     );
 
     // RLS: same canonical tenant predicate the baseline applied schema-wide —
@@ -54,7 +54,11 @@ export class CreateAiProposedActions1803000000000 implements MigrationInterface 
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX "ai"."IDX_ai_proposed_actions_tenant_status"`);
-    await queryRunner.query(`DROP TABLE "ai"."ai_proposed_actions"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "ai"."IDX_ai_proposed_actions_tenant_status"`);
+    // DESTRUCTIVE: down()-only rollback of CreateAiProposedActions1803000000000 —
+    // drops the ai.ai_proposed_actions template table this same migration created
+    // (no production data depends on it pre-merge; it is the migration's own
+    // inverse). Forward recreate path is re-running up(), not a separate rollback.
+    await queryRunner.query(`DROP TABLE IF EXISTS "ai"."ai_proposed_actions"`);
   }
 }

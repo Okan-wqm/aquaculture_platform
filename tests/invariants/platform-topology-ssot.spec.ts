@@ -52,6 +52,27 @@ describe('platform schema topology SSoT', () => {
     expect(sorted(bootstrapCreatedSchemas())).toEqual(sorted(created));
   });
 
+  it('003-schemas.sql internal verification list + count match its CREATE SCHEMA set', () => {
+    // 003-schemas.sql carries the schema list THREE times: the CREATE SCHEMA
+    // statements, the `required_schemas TEXT[]` verification array, and the
+    // "All N platform schemas verified" NOTICE. These are hand-maintained SQL
+    // (a TS codegen would over-reach for a role-bearing DO-block file), so pin
+    // them to each other here — a schema added to CREATE SCHEMA but not the
+    // verification array would otherwise slip through unverified, and the count
+    // notice would go stale (the ORPHAN-HIGH-405 within-file mini-drift).
+    const sql = read('apps/db-migrate/src/sql/platform-bootstrap/003-schemas.sql');
+    const created = captures(sql, /CREATE SCHEMA IF NOT EXISTS\s+([a-z_]+)/gi);
+
+    const arrayBlock = /required_schemas\s+TEXT\[\]\s*:=\s*ARRAY\[([\s\S]*?)\]/i.exec(sql);
+    expect(arrayBlock).not.toBeNull();
+    const verified = captures(arrayBlock?.[1] ?? '', /'([a-z_]+)'/g);
+    expect(sorted(verified)).toEqual(sorted(created));
+
+    const noticeMatch = /All\s+(\d+)\s+platform schemas verified/.exec(sql);
+    expect(noticeMatch).not.toBeNull();
+    expect(Number(noticeMatch?.[1])).toBe(created.length);
+  });
+
   it('migrationRunnerSchemas() matches SCHEMA_REGISTRY schema entries', () => {
     const registry = read('apps/db-migrate/src/schema-registry.ts');
     const schemas = captures(registry, /^\s{4}schema:\s+'([a-z_]+)'/gm);

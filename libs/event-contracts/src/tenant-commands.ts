@@ -448,6 +448,17 @@ export interface PublicResetPasswordResult {
   error?: string;
 }
 
+/**
+ * Snapshot of an auth.modules catalogue row.
+ *
+ * WHY no price field: billing owns all subscription pricing (platform rule
+ * D14). Per-module prices live in the module-pricing catalog
+ * (admin.module_pricing, managed by admin-api's ModulePricingService) and
+ * plan/subscription pricing lives in billing.plans / billing.subscriptions.
+ * auth.modules carries catalogue metadata only (code/name/description/
+ * enablement). isCore stays: it is catalogue metadata ("included in every
+ * plan"), not a price input.
+ */
 export interface AuthModuleSnapshot {
   id: string;
   code: string;
@@ -457,7 +468,6 @@ export interface AuthModuleSnapshot {
   icon: string | null;
   isCore: boolean;
   isActive: boolean;
-  price: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -469,7 +479,6 @@ export interface AdminCreateModuleCommand {
   defaultRoute: string;
   icon?: string | null;
   isCore?: boolean;
-  price?: number;
   correlationId?: string;
 }
 
@@ -487,7 +496,6 @@ export interface AdminUpdateModuleCommand {
   defaultRoute?: string;
   icon?: string | null;
   isActive?: boolean;
-  price?: number;
   correlationId?: string;
 }
 

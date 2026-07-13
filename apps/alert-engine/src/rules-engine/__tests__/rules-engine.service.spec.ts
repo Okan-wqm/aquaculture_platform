@@ -428,7 +428,11 @@ describe('RulesEngineService', () => {
       ruleRepository.delete.mockResolvedValue({ affected: 1, raw: [] });
 
       await expect(service.deleteRule('rule-123', 'tenant-1')).resolves.toBeUndefined();
-      expect(ruleRepository.delete).toHaveBeenCalledWith('rule-123');
+      // Delete is tenant-scoped so one tenant cannot remove another's rule.
+      expect(ruleRepository.delete).toHaveBeenCalledWith({
+        id: 'rule-123',
+        tenantId: 'tenant-1',
+      });
     });
 
     it('should throw error for non-existent rule', async () => {

@@ -176,7 +176,7 @@ const mockTenantRepository = {
   findOne: jest.fn(),
 };
 
-// ADR-042 (SEC-MEDIUM): the enrollment gate reads the user's WebAuthn credential
+// ADR-045 (SEC-MEDIUM): the enrollment gate reads the user's WebAuthn credential
 // count to decide whether a passkey satisfies MFA enforcement. Default 0 (no
 // credential) so a non-TOTP user in an enforcing tenant is unsatisfied unless a
 // test opts in.
@@ -240,7 +240,7 @@ const mockTokenService = {
 const mockMfaService = {
   isMfaAvailable: jest.fn().mockReturnValue(true),
   generateMfaChallenge: jest.fn().mockReturnValue({ mfaToken: 'mock-mfa-token' }),
-  // ADR-042: the enforcement gate mints a pre-session enrollment token when
+  // ADR-045: the enforcement gate mints a pre-session enrollment token when
   // the tenant enforces MFA and the user has none enrolled.
   generateMfaSetupToken: jest.fn().mockReturnValue('mock-mfa-setup-token'),
 };
@@ -283,7 +283,7 @@ const mockDataSource = {
         if (entity === User) {
           return mockUserRepository;
         }
-        // ADR-042: rotation reads the tenant session-timeout policy.
+        // ADR-045: rotation reads the tenant session-timeout policy.
         if (entity === Tenant) {
           return mockTenantRepository;
         }
@@ -353,7 +353,7 @@ describe('AuthenticationService', () => {
       if (entity === User) return mockUserRepository;
       if (entity === Invitation) return mockInvitationRepository;
       if (entity === ActionToken) return mockActionTokenRepository;
-      // ADR-042: rotation re-reads the tenant session-timeout policy through
+      // ADR-045: rotation re-reads the tenant session-timeout policy through
       // the transaction manager (resolveTenantSessionTimeout).
       if (entity === Tenant) return mockTenantRepository;
       return {};
@@ -671,7 +671,7 @@ describe('AuthenticationService', () => {
       // token.service.spec.ts where the collaborator lives.
       expect(result.accessToken).toBe('mock-access-token');
       // ORPHAN-LOW-135: login threads the rememberMe choice (default false) into issuance.
-      // ADR-042: the session-timeout clamp is now resolved INSIDE
+      // ADR-045: the session-timeout clamp is now resolved INSIDE
       // generateTokens (the chokepoint), so login threads NO policy param.
       expect(mockTokenService.generateTokens).toHaveBeenCalledWith(user, '127.0.0.1', 'test-agent', {
         rememberMe: false,
@@ -703,9 +703,9 @@ describe('AuthenticationService', () => {
   });
 
   // ==========================================================================
-  // ADR-042 — tenant MFA-enforcement login gate + session-timeout threading
+  // ADR-045 — tenant MFA-enforcement login gate + session-timeout threading
   // ==========================================================================
-  describe('login() — ADR-042 tenant MFA-enforcement gate', () => {
+  describe('login() — ADR-045 tenant MFA-enforcement gate', () => {
     const validInput = { email: 'test@example.com', password: 'ValidP@ss1' };
 
     it('enforced + user WITHOUT MFA → NO tokens, mfaSetupRequired + mfaSetupToken instead', async () => {
@@ -820,7 +820,7 @@ describe('AuthenticationService', () => {
       });
     });
 
-    it('ADR-042: login threads NO session-timeout param — the clamp is resolved inside generateTokens', async () => {
+    it('ADR-045: login threads NO session-timeout param — the clamp is resolved inside generateTokens', async () => {
       const user = createMockUser();
       mockUserRepository.findOne.mockResolvedValue(user);
       // Even with a tenant policy set, login does not thread it: the chokepoint
@@ -843,9 +843,9 @@ describe('AuthenticationService', () => {
   });
 
   // ==========================================================================
-  // acceptInvitation() — ADR-042 MFA-enforcement gate
+  // acceptInvitation() — ADR-045 MFA-enforcement gate
   // ==========================================================================
-  describe('acceptInvitation() — ADR-042 MFA-enforcement gate', () => {
+  describe('acceptInvitation() — ADR-045 MFA-enforcement gate', () => {
     // Purpose-built transaction manager: the accept flow locks the action /
     // invitation rows via query builders and resolves the just-onboarded user.
     const wireTransaction = (user: User): void => {

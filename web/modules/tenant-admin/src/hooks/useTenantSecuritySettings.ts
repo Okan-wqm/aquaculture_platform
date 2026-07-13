@@ -1,5 +1,5 @@
 /**
- * Tenant security policy + localization preferences — read + update (ADR-042).
+ * Tenant security policy + localization preferences — read + update (ADR-045).
  *
  * Uses the useTenantQuery / useTenantMutation SSoT (tenant-scoped keys +
  * invalidation are handled for you — web/ CLAUDE.md cross-tenant cache rule).

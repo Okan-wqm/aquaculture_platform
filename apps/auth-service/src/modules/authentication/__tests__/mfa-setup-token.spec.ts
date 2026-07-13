@@ -19,7 +19,7 @@ import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
 
 /**
- * ADR-042 — mfa_setup (enrollment) token mechanics.
+ * ADR-045 — mfa_setup (enrollment) token mechanics.
  *
  * The setup token is the pre-session credential login returns when a tenant
  * enforces MFA and the user has none enrolled. This suite pins its full
@@ -80,7 +80,7 @@ const mockConfigService = {
 const mockAuditLogService = { log: jest.fn().mockResolvedValue(undefined) };
 const mockTokenService = { generateTokens: jest.fn() };
 
-describe('MfaService — mfa_setup token (ADR-042)', () => {
+describe('MfaService — mfa_setup token (ADR-045)', () => {
   let service: MfaService;
 
   beforeEach(async () => {
@@ -196,7 +196,7 @@ describe('MfaService — mfa_setup token (ADR-042)', () => {
   });
 });
 
-describe('MfaResolver — enrollment subject resolution (ADR-042)', () => {
+describe('MfaResolver — enrollment subject resolution (ADR-045)', () => {
   const mfaServiceStub = {
     setupMfa: jest.fn().mockResolvedValue({ secret: 's', qrCodeUri: 'q', recoveryCodes: [] }),
     verifyMfaSetup: jest.fn().mockResolvedValue({ success: true }),
@@ -281,7 +281,7 @@ describe('MfaResolver — enrollment subject resolution (ADR-042)', () => {
   });
 });
 
-describe('MfaResolver — enrollment surface contract (ADR-042)', () => {
+describe('MfaResolver — enrollment surface contract (ADR-045)', () => {
   const metadataOf = <T>(method: string, key: string): T | undefined => {
     const descriptor = Object.getOwnPropertyDescriptor(MfaResolver.prototype, method);
     if (!descriptor?.value) return undefined;

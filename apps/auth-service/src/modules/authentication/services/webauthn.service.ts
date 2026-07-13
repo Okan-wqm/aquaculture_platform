@@ -404,7 +404,7 @@ export class WebAuthnService {
       ipAddress,
     });
 
-    // ADR-042: a successful WebAuthn assertion IS a satisfied MFA factor, so no
+    // ADR-045: a successful WebAuthn assertion IS a satisfied MFA factor, so no
     // enrollment gate applies here (SEC-MEDIUM — WebAuthn counts as MFA). The
     // tenant session-timeout clamp is applied automatically inside
     // generateTokens (resolved from the user's own tenant), so this mint path

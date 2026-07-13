@@ -320,7 +320,7 @@ export class TenantConfigurationService {
     this.throwLegacyGone();
   }
 
-  // ADR-042: the summary no longer carries `mfaRequired` — tenant
+  // ADR-045: the summary no longer carries `mfaRequired` — tenant
   // MFA-enforcement is owned + enforced by auth-service; this adapter must
   // not fabricate a value for it (ADMIN-HIGH-010).
   getConfigurationSummary(tenantId: string): {

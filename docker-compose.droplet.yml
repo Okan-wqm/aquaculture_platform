@@ -115,6 +115,19 @@ x-nats-ai-env: &nats-ai-env
   NATS_TLS_KEY: /etc/ssl/nats-clients/ai_service-key.pem
   NATS_TLS_ENABLED: 'true'
 
+# event-store publishes GDPR erasure-proof + outbox events (INFRA-HIGH-003
+# onboarding) but never received NATS wiring — the gap stayed latent until the
+# event-bus config SSoT fail-fast (correctly) refused the localhost default in
+# production and the service crash-looped (ORPHAN-HIGH-391). CN is already
+# minted in infrastructure/nats/services.yaml (event_store_service) and the
+# client cert pair ships with the deploy checkout like every other service.
+x-nats-event-store-env: &nats-event-store-env
+  NATS_URL: tls://nats:4222
+  NATS_TLS_CA: /etc/ssl/nats-ca.pem
+  NATS_TLS_CERT: /etc/ssl/nats-clients/event_store_service-cert.pem
+  NATS_TLS_KEY: /etc/ssl/nats-clients/event_store_service-key.pem
+  NATS_TLS_ENABLED: 'true'
+
 x-nats-hydroponics-env: &nats-hydroponics-env
   NATS_URL: tls://nats:4222
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
@@ -1422,8 +1435,21 @@ services:
       DATABASE_MIGRATIONS_RUN: 'false'
       SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING is required}
       SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
+      # ORPHAN-MEDIUM-392: app.module registers RedisModule ('optional' mode);
+      # without this URL the client fell back to localhost and retried forever
+      # (ECONNREFUSED spam, Redis-backed paths silently degraded) — the second
+      # under-provisioned-block gap after the NATS one (ORPHAN-HIGH-391).
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      <<: *nats-event-store-env
+    volumes:
+      - *nats-ca-mount
+      - *nats-clients-mount
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
         condition: service_healthy
       db-migrate:
         condition: service_completed_successfully

@@ -1,17 +1,22 @@
 -- ============================================================================
 -- Platform Bootstrap — Stage 6 of 7: Shared Schema Tables (SHARED_SCHEMA_TABLES)
 --
--- The 5 cross-tenant tables that live in the `shared` schema (ADR-011):
+-- The 4 cross-tenant tables that live in the `shared` schema (ADR-011):
 --
 --   1. shared.audit_logs         — semantic-action audit (7-year forensic horizon)
 --   2. shared.gdpr_data_requests — GDPR Art 17 / Art 20 request ledger
 --   3. shared.user_consents      — consent ledger (GDPR Art 7)
---   4. shared.user_permissions   — RBAC permissions, read by every service
---   5. shared.access_logs        — low-level HTTP access stream (90-day horizon)
+--   4. shared.access_logs        — low-level HTTP access stream (90-day horizon)
+--
+-- shared.user_permissions was RETIRED from the canonical list (ADR-042,
+-- ORPHAN-HIGH-378): it was a dead parallel permission catalog; the live RBAC
+-- SSoT is auth.tenant_role_permissions.panel_permissions. This stage no longer
+-- creates it; the admin-api migration 1801500000000-DropRetiredUserPermissions
+-- archives + drops the live table.
 --
 -- Source-of-truth for the canonical list:
---   scripts/schema-registry/generate-init-schemas.ts:87 (SHARED_SCHEMA_TABLES)
---   e2e/tests/integration/schema-invariants.spec.ts:51-56 (SHARED_SCHEMA_TABLES)
+--   scripts/schema-registry/generate-init-schemas.ts (SHARED_SCHEMA_TABLES)
+--   e2e/tests/integration/schema-invariants.spec.ts (SHARED_SCHEMA_TABLES)
 --   libs/backend-common/src/constants/protected-tables.ts
 --
 -- Column shapes are MIRRORED from the entity files. If an entity changes,
@@ -35,8 +40,9 @@ END
 $$;
 
 -- Grant shared_schema_owner to every service that reads or writes the
--- 5 shared tables. This is every backend service because user_permissions
--- is platform-wide RBAC — every tenant-scoped query path consults it.
+-- 4 shared tables. This is every backend service because shared.audit_logs
+-- is the platform-wide audit surface — every service writes to it via
+-- backend-common's AuditLogModule.
 GRANT shared_schema_owner TO auth_service;
 GRANT shared_schema_owner TO farm_service;
 GRANT shared_schema_owner TO sensor_service;
@@ -69,8 +75,7 @@ DECLARE
   t text;
 BEGIN
   FOREACH t IN ARRAY ARRAY[
-    'audit_logs', 'gdpr_data_requests', 'user_consents',
-    'user_permissions', 'access_logs'
+    'audit_logs', 'gdpr_data_requests', 'user_consents', 'access_logs'
   ]
   LOOP
     IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = t)
@@ -440,30 +445,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS "UQ_consent_user_type_version"
   ON shared.user_consents ("userId", "consentType", version);
 
 -- ──────────────────────────────────────────────────────────────────────────
--- shared.user_permissions
--- Mirrors apps/admin-api-service/src/users/entities/user-permissions.entity.ts
--- ──────────────────────────────────────────────────────────────────────────
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname IN ('public','shared') AND tablename = 'user_permissions') THEN
-    CREATE TABLE IF NOT EXISTS shared.user_permissions (
-      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      "userId"     UUID         NOT NULL,
-      "tenantId"   UUID         NOT NULL,
-      permissions  JSONB        NOT NULL DEFAULT '{}'::jsonb,
-      "isActive"   BOOLEAN      NOT NULL DEFAULT true,
-      "grantedBy"  UUID,
-      "createdAt"  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-      "updatedAt"  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
-    );
-    CREATE INDEX        idx_user_permissions_user   ON shared.user_permissions ("userId");
-    CREATE INDEX        idx_user_permissions_tenant ON shared.user_permissions ("tenantId");
-    CREATE UNIQUE INDEX idx_user_permissions_user_tenant_unique ON shared.user_permissions ("userId", "tenantId");
-  END IF;
-END
-$$;
-
--- ──────────────────────────────────────────────────────────────────────────
 -- shared.access_logs — low-level HTTP request stream
 -- Mirrors libs/backend-common/src/audit/access-log.entity.ts (AUDITTRAIL-HIGH-004)
 -- ──────────────────────────────────────────────────────────────────────────
@@ -532,8 +513,7 @@ DECLARE
   t text;
 BEGIN
   FOREACH t IN ARRAY ARRAY[
-    'audit_logs', 'gdpr_data_requests', 'user_consents',
-    'user_permissions', 'access_logs'
+    'audit_logs', 'gdpr_data_requests', 'user_consents', 'access_logs'
   ]
   LOOP
     IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'shared' AND tablename = t) THEN
@@ -550,8 +530,8 @@ $$;
 -- Canonical predicate from
 -- libs/backend-common/src/database/rls/apply-tenant-rls.helper.ts.
 --
--- shared.audit_logs is DELIBERATELY EXCLUDED here (ORPHAN-HIGH-308 /
--- ORPHAN-MEDIUM-324): it is a CROSS-TENANT append-only audit ledger written
+-- shared.audit_logs AND shared.access_logs are DELIBERATELY EXCLUDED here
+-- (ORPHAN-HIGH-308 / ORPHAN-MEDIUM-324 / ORPHAN-HIGH-367): it is a CROSS-TENANT append-only audit ledger written
 -- from no-tenant-context paths (billing's unauthenticated Stripe webhook,
 -- cross-service admin actions, platform SUPER_ADMIN with tenantId NULL). Under
 -- tenant_isolation_policy those INSERTs are silently RLS-denied — the exact
@@ -567,9 +547,7 @@ BEGIN
   FOR entry IN
     SELECT * FROM (VALUES
       ('gdpr_data_requests', 'tenantId'),
-      ('user_consents',      'tenantId'),
-      ('user_permissions',   'tenantId'),
-      ('access_logs',        'tenantId')
+      ('user_consents',      'tenantId')
     ) AS t(tbl, tcol)
   LOOP
     IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'shared' AND tablename = entry.tbl) THEN
@@ -611,6 +589,36 @@ BEGIN
     CREATE POLICY infra_ledger_append ON shared.audit_logs
       FOR INSERT WITH CHECK (true);
     CREATE POLICY infra_ledger_read ON shared.audit_logs
+      FOR SELECT USING (
+        current_setting('app.bypass_rls', true) = 'on'
+        OR NULLIF(current_setting('app.current_tenant', true), '') IS NULL
+        OR "tenantId" = NULLIF(current_setting('app.current_tenant', true), '')::uuid
+      );
+  END IF;
+END
+$$;
+
+-- ──────────────────────────────────────────────────────────────────────────
+-- Canonical INFRASTRUCTURE-LEDGER policy for shared.access_logs
+-- (ORPHAN-HIGH-367, live-verified 2026-07-12): the gateway's AccessLogMiddleware
+-- writes one row per HTTP request for ALL tenants + anonymous (tenantId NULL)
+-- requests on a single no-tenant-GUC connection — under tenant_isolation_policy
+-- every INSERT failed ("new row violates row-level security policy",
+-- ACCESS_LOG_FAILURE in prod gateway logs). Same append-ledger class as
+-- shared.audit_logs above; NOTE the per-schema db-migrate hardening pass does
+-- NOT cover `shared` (main.ts routes shared here, to platform-bootstrap), so
+-- THIS block — not INFRASTRUCTURE_AUDIT_LEDGERS alone — is what heals the live
+-- table on each deploy.
+-- ──────────────────────────────────────────────────────────────────────────
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'shared' AND tablename = 'access_logs') THEN
+    DROP POLICY IF EXISTS tenant_isolation_policy ON shared.access_logs;
+    DROP POLICY IF EXISTS infra_ledger_append ON shared.access_logs;
+    DROP POLICY IF EXISTS infra_ledger_read ON shared.access_logs;
+    CREATE POLICY infra_ledger_append ON shared.access_logs
+      FOR INSERT WITH CHECK (true);
+    CREATE POLICY infra_ledger_read ON shared.access_logs
       FOR SELECT USING (
         current_setting('app.bypass_rls', true) = 'on'
         OR NULLIF(current_setting('app.current_tenant', true), '') IS NULL

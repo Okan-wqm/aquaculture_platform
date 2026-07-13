@@ -76,12 +76,16 @@ describe('INVARIANT: farm tank fish-count reads the totalQuantity SSoT (DB-FARMP
     );
   });
 
-  it('the single writer derives every count mirror from the totalQuantity SSoT (never an independent source)', () => {
+  it('the retired currentQuantity mirror is never written again (A1 step 2, ORPHAN-HIGH-353)', () => {
+    // The mirror column is dropped (DropTankBatchCurrentQuantityMirror); a
+    // reappearing `x.currentQuantity =` write against a TankBatch would be the
+    // quad-persistence creeping back. (Batch.currentQuantity is a DIFFERENT
+    // domain column — scope this to the single-writer service, the only file
+    // that ever wrote the TankBatch mirror.)
     const writer = read('apps/farm-service/src/batch/services/tank-batch.service.ts');
-    // The tank_batches.currentQuantity mirror is written = totalQuantity here...
-    expect(writer).toMatch(/currentQuantity\s*=\s*tankBatch\.totalQuantity/);
-    // ...and tanks/equipment.currentCount is seeded from the same computed total,
-    // so the four count columns cannot diverge as long as this is the writer.
+    expect(writer).not.toMatch(/\.currentQuantity\s*=/);
+    // tanks/equipment.currentCount is still seeded from the computed total, so
+    // the remaining count columns cannot diverge as long as this is the writer.
     expect(writer).toMatch(/currentCount:\s*tankBatch\.totalQuantity/);
   });
 

@@ -1001,7 +1001,7 @@ export async function updateAiProviderSettings(
 }
 
 // ============================================================================
-// Tenant security policy + localization preferences (ADR-042 — auth subgraph)
+// Tenant security policy + localization preferences (ADR-045 — auth subgraph)
 // ============================================================================
 
 /**

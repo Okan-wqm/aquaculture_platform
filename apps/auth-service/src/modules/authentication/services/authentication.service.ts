@@ -97,7 +97,7 @@ export class AuthenticationService {
     private readonly actionTokenRepository: Repository<ActionToken>,
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
-    // ADR-042 (SEC-MEDIUM): the MFA-enrollment gate treats a registered
+    // ADR-045 (SEC-MEDIUM): the MFA-enrollment gate treats a registered
     // WebAuthn credential as satisfying tenant MFA enforcement, so the gate
     // must read the user's passkey/security-key count.
     @InjectRepository(WebAuthnCredential)
@@ -344,7 +344,7 @@ export class AuthenticationService {
       // non-operational status is blocked by default, not by remembering to
       // add it here. SUPER_ADMIN users (tenantId null) are exempt.
       // The row is hoisted (not scoped to this block) because it also drives
-      // the ADR-042 enforcement points below: the MFA-enforcement login gate
+      // the ADR-045 enforcement points below: the MFA-enforcement login gate
       // and the session-timeout clamp threaded into token issuance.
       let tenant: Tenant | null = null;
       if (user.tenantId) {
@@ -451,7 +451,7 @@ export class AuthenticationService {
       }
 
       // ----------------------------------------------------------------
-      // ADR-042 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014, SEC-MEDIUM-003):
+      // ADR-045 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014, SEC-MEDIUM-003):
       // the tenant requires MFA but this user has NEITHER TOTP nor a
       // WebAuthn credential enrolled. resolveMfaEnrollmentGate is the
       // single shared assertion every token-minting caller funnels
@@ -570,7 +570,7 @@ export class AuthenticationService {
           tenantId: user.tenantId,
           userId: user.id,
         };
-        // ADR-042: TokenService resolves this tenant's session-timeout policy
+        // ADR-045: TokenService resolves this tenant's session-timeout policy
         // itself and clamps the refresh TTL — the caller threads no policy.
         return await requestContextStorage.run(scopedContext, () =>
           this.tokenService.generateTokens(user, ipAddress, userAgent, {
@@ -736,7 +736,7 @@ export class AuthenticationService {
       ),
     ]);
 
-    // ADR-042 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014): gate token issuance on MFA
+    // ADR-045 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014): gate token issuance on MFA
     // enrollment via the same shared assertion login uses. The invitation is
     // already accepted and the password committed above (only token ISSUANCE is
     // gated). A freshly-onboarded user has no factor, so an enforcing tenant
@@ -874,7 +874,7 @@ export class AuthenticationService {
       refreshToken.revokedReason = 'Token refreshed';
       await tokenRepo.save(refreshToken);
 
-      // ADR-042: the refresh-TTL clamp (sliding idle timeout) is applied inside
+      // ADR-045: the refresh-TTL clamp (sliding idle timeout) is applied inside
       // TokenService.generateTokens, which re-reads this tenant's policy on
       // every rotation — the caller threads no policy.
       // Preserve the rememberMe choice across rotation so a remembered session
@@ -990,7 +990,7 @@ export class AuthenticationService {
       matchedToken.revokedReason = 'Token refreshed';
       await tokenRepo.save(matchedToken);
 
-      // ADR-042: the refresh-TTL clamp (sliding idle timeout) is applied inside
+      // ADR-045: the refresh-TTL clamp (sliding idle timeout) is applied inside
       // TokenService.generateTokens, which re-reads this tenant's policy on
       // every rotation.
       // SECURITY (SEC-MEDIUM-003): the rotated token inherits the family of
@@ -1009,7 +1009,7 @@ export class AuthenticationService {
   }
 
   /**
-   * ADR-042: load the user's tenant row for the MFA-enrollment gate on the
+   * ADR-045: load the user's tenant row for the MFA-enrollment gate on the
    * password-backed token-minting paths (acceptInvitation, resetPassword).
    * auth.tenants is cross-tenant by design (D14) and readable without a tenant
    * context — the same direct read login performs for its tenant-status gate.
@@ -1025,7 +1025,7 @@ export class AuthenticationService {
   }
 
   /**
-   * ADR-042 (SEC-MEDIUM): a user SATISFIES tenant MFA enforcement when they
+   * ADR-045 (SEC-MEDIUM): a user SATISFIES tenant MFA enforcement when they
    * have TOTP MFA enrolled (`mfaEnabled`) OR at least one registered WebAuthn
    * credential. WebAuthn is a first-class second factor, so a passkey /
    * security-key user must NOT be forced onto TOTP enrollment. The credential
@@ -1043,7 +1043,7 @@ export class AuthenticationService {
   }
 
   /**
-   * ADR-042 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014, SEC-MEDIUM-003) — the single
+   * ADR-045 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014, SEC-MEDIUM-003) — the single
    * shared assertion every password-backed token-minting caller funnels through
    * (login, acceptInvitation, resetPassword). Returns:
    *
@@ -1689,7 +1689,7 @@ export class AuthenticationService {
       ),
     ]);
 
-    // ADR-042 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014): gate token issuance on MFA
+    // ADR-045 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014): gate token issuance on MFA
     // enrollment via the same shared assertion login/acceptInvitation use. The
     // password reset AND the full session/refresh-token revocation above have
     // already committed; if the tenant enforces MFA and this user has neither

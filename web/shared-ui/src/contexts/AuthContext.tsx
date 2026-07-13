@@ -127,7 +127,7 @@ export interface MfaChallengeResult {
 }
 
 /**
- * MFA-setup-required result (ADR-042) — returned when the tenant ENFORCES MFA
+ * MFA-setup-required result (ADR-045) — returned when the tenant ENFORCES MFA
  * but this user has none enrolled. No session tokens are issued; the
  * short-lived mfaSetupToken authorizes ONLY setupMfa + verifyMfaSetup so the
  * user can enroll and then log in again. A completable path, not a lockout.
@@ -495,7 +495,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
         };
       }
 
-      // ADR-042: tenant enforces MFA and this user has none enrolled. No tokens
+      // ADR-045: tenant enforces MFA and this user has none enrolled. No tokens
       // are issued — hand back the setup token so the UI can drive enrollment
       // (setupMfa + verifyMfaSetup) and then send the user back to log in.
       if (response.login.mfaSetupRequired && response.login.mfaSetupToken) {

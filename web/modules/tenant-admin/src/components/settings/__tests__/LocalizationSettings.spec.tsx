@@ -1,5 +1,5 @@
 /**
- * LocalizationSettings tests (ADR-042, ADMIN-MEDIUM-010).
+ * LocalizationSettings tests (ADR-045, ADMIN-MEDIUM-010).
  *
  * The hook module is mocked to control the loaded preferences + capture the
  * update mutation. Covers: timezone + date-format save wiring (wire enum

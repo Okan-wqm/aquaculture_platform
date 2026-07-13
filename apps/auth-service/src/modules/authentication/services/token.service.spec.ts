@@ -718,7 +718,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     });
   });
 
-  // ADR-042 (ADMIN-HIGH-015): the tenant session-timeout policy clamps the
+  // ADR-045 (ADMIN-HIGH-015): the tenant session-timeout policy clamps the
   // refresh-token TTL — MIN(configured TTL incl. rememberMe, policy). The
   // policy is now resolved INSIDE generateTokens (the single mint chokepoint)
   // from the user's own tenant (auth.tenants.session_timeout_minutes), NOT
@@ -726,7 +726,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
   // step-up, invitation acceptance, password reset, WebAuthn) is clamped and no
   // caller can forget it. These tests drive the clamp via the mocked
   // auth.tenants read, exactly as it happens at runtime for every caller.
-  describe('tenant session-timeout clamp (ADR-042 — resolved inside the chokepoint)', () => {
+  describe('tenant session-timeout clamp (ADR-045 — resolved inside the chokepoint)', () => {
     const minutesFromNow = (d: Date): number => (d.getTime() - Date.now()) / 60_000;
 
     // Route the auth.tenants read to a plan + session_timeout_minutes row.

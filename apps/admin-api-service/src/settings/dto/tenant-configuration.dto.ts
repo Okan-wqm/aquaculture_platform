@@ -211,7 +211,7 @@ export class UpdateWebhookDto {
 // ============================================================================
 
 export class UpdateTenantSecurityDto {
-  // ADR-042: no `mfaRequired` / `sessionTimeoutMinutes` fields — tenant
+  // ADR-045: no `mfaRequired` / `sessionTimeoutMinutes` fields — tenant
   // MFA-enforcement and session-timeout policy are owned + enforced by
   // auth-service (updateTenantSecurityPolicy). This legacy write path
   // returns 410 Gone; keeping the fields would silently accept policy

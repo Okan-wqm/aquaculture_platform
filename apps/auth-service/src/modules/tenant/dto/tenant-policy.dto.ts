@@ -17,7 +17,7 @@ import {
 import { TENANT_DATE_FORMATS, TenantDateFormat } from '../entities/tenant.entity';
 
 /**
- * ADR-042 — tenant auth-security policy + localization preferences surface.
+ * ADR-045 — tenant auth-security policy + localization preferences surface.
  *
  * Two deliberately SEPARATE containers: the security policy (enforced by the
  * login gate + refresh-TTL clamp) and the localization preferences
@@ -34,11 +34,11 @@ export enum TenantDateFormatEnum {
 
 registerEnumType(TenantDateFormatEnum, {
   name: 'TenantDateFormat',
-  description: 'Tenant date-format preference (ADR-042)',
+  description: 'Tenant date-format preference (ADR-045)',
 });
 
 /**
- * IANA-timezone sanity validator (ADR-042).
+ * IANA-timezone sanity validator (ADR-045).
  *
  * Tier-1 placement: validation lives ON the input DTO, so an invalid zone can
  * never reach the service. `Intl.DateTimeFormat` is the runtime's own tz
@@ -74,7 +74,7 @@ function IsIanaTimezone(validationOptions?: ValidationOptions): PropertyDecorato
 }
 
 // ============================================================================
-// Security policy (enforced — ADR-042)
+// Security policy (enforced — ADR-045)
 // ============================================================================
 
 @ObjectType()

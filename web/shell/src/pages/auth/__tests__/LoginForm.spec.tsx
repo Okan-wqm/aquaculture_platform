@@ -60,7 +60,7 @@ describe('LoginForm remember-me wiring', () => {
     );
   });
 
-  it('routes into MFA setup when login returns mfaSetupRequired (ADR-042)', async () => {
+  it('routes into MFA setup when login returns mfaSetupRequired (ADR-045)', async () => {
     login.mockResolvedValueOnce({ mfaSetupRequired: true, mfaSetupToken: 'setup-tok' });
     publicRequest.mockResolvedValueOnce({
       setupMfa: {

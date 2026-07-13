@@ -52,7 +52,7 @@ describe('TenantAdminResolver — Guard Decorators', () => {
     expect(roles).not.toContain(Role.MODULE_USER);
   });
 
-  // ADR-042: the tenant auth-security policy + localization surfaces are
+  // ADR-045: the tenant auth-security policy + localization surfaces are
   // TENANT_ADMIN-gated writes/reads on the caller's OWN tenant.
   it.each([
     'tenantSecurityPolicy',

@@ -1,13 +1,13 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
- * AddTenantSecurityLocalizationPolicy1807100000000 (ADR-042 —
+ * AddTenantSecurityLocalizationPolicy1807100000000 (ADR-045 —
  * ADMIN-HIGH-010 / ADMIN-MEDIUM-010)
  *
  * WHY: tenant MFA-enforcement and session-timeout policy previously existed
  * only as fabricated defaults synthesized by admin-api's retired
  * tenant-configuration adapter — a policy surface with zero enforcement.
- * ADR-042 makes auth-service the owner AND enforcer: the policy lives as
+ * ADR-045 makes auth-service the owner AND enforcer: the policy lives as
  * typed nullable columns on auth.tenants (the D14 tenant-record SSoT), read
  * by the login MFA-enforcement gate and the refresh-TTL clamp. The
  * localization preferences (timezone/date_format) are separate PREFERENCE

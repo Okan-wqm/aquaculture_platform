@@ -57,7 +57,7 @@ export class AuthPayload {
   mfaToken?: string;
 
   /**
-   * ADR-042: when true, the tenant enforces MFA and this user has none
+   * ADR-045: when true, the tenant enforces MFA and this user has none
    * enrolled. accessToken/refreshToken are empty; mfaSetupToken is provided so
    * the user can complete enrollment (setupMfa + verifyMfaSetup) and then log
    * in again. A completable path — not a lockout.
@@ -66,7 +66,7 @@ export class AuthPayload {
   mfaSetupRequired?: boolean;
 
   /**
-   * ADR-042: short-lived (10 min) JWT (type 'mfa_setup') that authorizes ONLY
+   * ADR-045: short-lived (10 min) JWT (type 'mfa_setup') that authorizes ONLY
    * setupMfa + verifyMfaSetup for this user. Rejected as a bearer credential
    * everywhere (enforceAccessTokenType) and rejected by verifyMfaLogin.
    * Only present when mfaSetupRequired=true.

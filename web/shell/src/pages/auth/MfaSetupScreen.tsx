@@ -1,5 +1,5 @@
 /**
- * MFA setup screen — the pre-session enrollment path (ADR-042).
+ * MFA setup screen — the pre-session enrollment path (ADR-045).
  *
  * Reached from the login flow when the tenant ENFORCES MFA but the user has none
  * enrolled: login returns `mfaSetupRequired` + a short-lived `mfaSetupToken`

@@ -32,6 +32,7 @@ describe('GdprService', () => {
   let natsClient: MockNatsClient;
   let outboxPublisher: { enqueue: jest.Mock };
   let attachmentPurge: { purgeObjects: jest.Mock };
+  let metricsService: { incrementGdprErasure: jest.Mock; incrementGdprCascadeEmitFailure: jest.Mock };
   let messageQb: jest.Mocked<SelectQueryBuilder<Message>>;
 
   const tenantId = '00000000-0000-4000-8000-000000000001';
@@ -45,6 +46,10 @@ describe('GdprService', () => {
     redisClient = createMockRedis();
     natsClient = createMockNatsClient();
     outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    metricsService = {
+      incrementGdprErasure: jest.fn(),
+      incrementGdprCascadeEmitFailure: jest.fn(),
+    };
     attachmentPurge = {
       purgeObjects: jest.fn().mockResolvedValue({ requested: 0, deleted: 0, skipped: 0, failed: 0 }),
     };
@@ -65,7 +70,7 @@ describe('GdprService', () => {
         { provide: 'NATS_SERVICE', useValue: natsClient },
         { provide: LegalHoldService, useValue: { isUnderLegalHold: jest.fn().mockResolvedValue(false) } },
         { provide: ComplianceAuditService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
-        { provide: MessagingMetricsService, useValue: { incrementGdprErasure: jest.fn() } },
+        { provide: MessagingMetricsService, useValue: metricsService },
         { provide: OutboxPublisher, useValue: outboxPublisher },
         { provide: AttachmentObjectPurgeService, useValue: attachmentPurge },
       ],
@@ -229,6 +234,97 @@ describe('GdprService', () => {
       expect.objectContaining({ eventType: 'UserDataAnonymized', tenantId, userId }),
       queryRunner.manager,
     );
+  });
+
+  // -----------------------------------------------------------------------
+  // ADR-044 / INC-MSG-1: agent_conversations belongs to ai-service — the
+  // cascade crosses the boundary by event only, never by cross-service SQL.
+  // -----------------------------------------------------------------------
+  it('never issues cross-service SQL against agent_conversations', async () => {
+    natsClient.send.mockReturnValue(of(true));
+
+    await service.anonymizeMyData(userId, tenantId, 'correct-password');
+
+    const touchedAgentConversations = queryRunner.query.mock.calls.some((call) =>
+      (call[0] as string).includes('agent_conversations'),
+    );
+    expect(touchedAgentConversations).toBe(false);
+  });
+
+  it('publishes a contract-conformant GdprAnonymizeRequested cascade event via outbox', async () => {
+    natsClient.send.mockReturnValue(of(true));
+
+    await service.anonymizeMyData(userId, tenantId, 'correct-password');
+
+    const cascadeCall = outboxPublisher.enqueue.mock.calls.find(
+      (call) => (call[0] as { eventType: string }).eventType === 'GdprAnonymizeRequested',
+    );
+    expect(cascadeCall).toBeDefined();
+    const event = cascadeCall![0] as Record<string, unknown>;
+    // Contract-required payload (libs/event-contracts GdprAnonymizeRequestedEvent).
+    expect(event['tenantId']).toBe(tenantId);
+    expect(event['userId']).toBe(userId);
+    expect(event['requestId']).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+    expect(typeof event['fulfilByIso']).toBe('string');
+    expect(Number.isNaN(Date.parse(event['fulfilByIso'] as string))).toBe(false);
+    // The pre-fix off-contract fields must be gone (schemas enforce
+    // additionalProperties:false at trust boundaries).
+    expect(event).not.toHaveProperty('targetService');
+    expect(event).not.toHaveProperty('targetEntity');
+    expect(event).not.toHaveProperty('anonymizedAt');
+    expect(cascadeCall![1]).toBe(queryRunner.manager);
+  });
+
+  it('publishes UserDataAnonymized with contract-required method and initiatedBy', async () => {
+    natsClient.send.mockReturnValue(of(true));
+
+    await service.anonymizeMyData(userId, tenantId, 'correct-password');
+
+    expect(outboxPublisher.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'UserDataAnonymized',
+        tenantId,
+        userId,
+        method: 'pii-fields-nulled',
+        initiatedBy: 'user',
+      }),
+      queryRunner.manager,
+    );
+  });
+
+  it('records the cascade requestId in the compliance audit log row', async () => {
+    natsClient.send.mockReturnValue(of(true));
+
+    await service.anonymizeMyData(userId, tenantId, 'correct-password');
+
+    const cascadeCall = outboxPublisher.enqueue.mock.calls.find(
+      (call) => (call[0] as { eventType: string }).eventType === 'GdprAnonymizeRequested',
+    );
+    const requestId = (cascadeCall![0] as { requestId: string }).requestId;
+
+    const auditCall = queryRunner.query.mock.calls.find((call) =>
+      (call[0] as string).includes('INSERT INTO compliance_audit_log'),
+    );
+    expect(auditCall).toBeDefined();
+    const details = JSON.parse((auditCall![1] as string[])[5]!) as Record<string, unknown>;
+    expect(details['cascadeRequestId']).toBe(requestId);
+  });
+
+  it('fails loud when the cascade event cannot be enqueued: metric + rollback + rejection', async () => {
+    natsClient.send.mockReturnValue(of(true));
+    outboxPublisher.enqueue.mockRejectedValueOnce(new Error('outbox unavailable'));
+
+    await expect(
+      service.anonymizeMyData(userId, tenantId, 'correct-password'),
+    ).rejects.toThrow('outbox unavailable');
+
+    expect(metricsService.incrementGdprCascadeEmitFailure).toHaveBeenCalledWith(tenantId);
+    expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
+    // The erasure never counts as completed when the cascade request was lost.
+    expect(metricsService.incrementGdprErasure).not.toHaveBeenCalled();
+    expect(attachmentPurge.purgeObjects).not.toHaveBeenCalled();
   });
 
   // -----------------------------------------------------------------------

@@ -562,17 +562,23 @@ describe('Frontend-Backend Contract Validation', () => {
   // --------------------------------------------------------------------------
 
   describe('H12 Critical Path Endpoints', () => {
-    it('settings key path should match: /settings/key/:key', () => {
-      // H19 fix: frontend /settings/${key} -> /settings/key/${key}
-      const fe = frontendEndpoints.find(
-        e => e.url === '/settings/key/:param' && e.method === 'GET',
-      );
-      expect(fe).toBeDefined();
-
+    it('settings key path: backend exposes /settings/key/:key and no FE call uses the pre-H19 shape', () => {
+      // Post main-merge: the admin-panel migrated generic settings-by-key reads
+      // to the platform-configuration API (SystemSettingsPage), so the FE no
+      // longer calls /settings/key/:key. The backend route remains a triaged
+      // orphan, which the directional parity invariant permits (it only forbids
+      // FE calls without a backend route, not backend routes without an FE
+      // caller). Preserve the H19 regression guard: no FE call may target the
+      // pre-fix /settings/:key shape.
       const be = backendEndpoints.find(
         e => matchPath(e.path, '/settings/key/:key') && e.method === 'GET',
       );
       expect(be).toBeDefined();
+
+      const preFixMismatch = frontendEndpoints.find(
+        e => e.url === '/settings/:param' && e.method === 'GET',
+      );
+      expect(preFixMismatch).toBeUndefined();
     });
 
     it('announcement unpublish should use /cancel path', () => {

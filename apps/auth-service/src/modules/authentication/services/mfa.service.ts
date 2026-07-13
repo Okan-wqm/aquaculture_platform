@@ -59,10 +59,10 @@ const MFA_LOCKOUT_DURATION_MINUTES = 15;
 /** MFA token JWT subject prefix to distinguish from regular tokens */
 const MFA_TOKEN_PREFIX = 'mfa:';
 
-/** ADR-042: MFA setup (enrollment) token TTL in seconds — 10 minutes. */
+/** ADR-045: MFA setup (enrollment) token TTL in seconds — 10 minutes. */
 const MFA_SETUP_TOKEN_TTL_SECONDS = 600;
 
-/** ADR-042: MFA setup token JWT subject prefix (mirrors MFA_TOKEN_PREFIX). */
+/** ADR-045: MFA setup token JWT subject prefix (mirrors MFA_TOKEN_PREFIX). */
 const MFA_SETUP_TOKEN_PREFIX = 'mfa_setup:';
 
 /** Base32 alphabet for TOTP secret encoding */
@@ -554,7 +554,7 @@ export class MfaService {
   }
 
   /**
-   * ADR-042: mint the short-lived MFA SETUP (enrollment) token returned by
+   * ADR-045: mint the short-lived MFA SETUP (enrollment) token returned by
    * login when the tenant enforces MFA and the user has none enrolled.
    *
    * Mirrors generateMfaChallenge: same signing keypair, same canonical `type`
@@ -581,7 +581,7 @@ export class MfaService {
   }
 
   /**
-   * ADR-042: resolve the user identified by an MFA setup token (the
+   * ADR-045: resolve the user identified by an MFA setup token (the
    * pre-session enrollment credential minted by generateMfaSetupToken).
    *
    * Follows verifyMfaLogin's consumption pattern for the challenge token:

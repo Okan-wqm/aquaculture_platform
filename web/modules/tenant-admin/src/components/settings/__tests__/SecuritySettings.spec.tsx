@@ -1,5 +1,5 @@
 /**
- * SecuritySettings tests (ADR-042, ADMIN-HIGH-010).
+ * SecuritySettings tests (ADR-045, ADMIN-HIGH-010).
  *
  * The hook module is mocked to control the loaded policy + capture the update
  * mutation; shared-ui is mocked for useToast + the Switch that the module's

@@ -34,7 +34,7 @@ registerEnumType(TenantStatus, {
 });
 
 /**
- * Canonical tenant date-format vocabulary (ADR-042). A closed union (not a free
+ * Canonical tenant date-format vocabulary (ADR-045). A closed union (not a free
  * string) so an unknown format is a compile-time error at every producer.
  */
 export const TENANT_DATE_FORMATS = ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'] as const;
@@ -210,6 +210,37 @@ export class Tenant {
   @Column({ type: 'varchar', length: 255, nullable: true })
   customDomain?: string | null;
 
+  // ============================================
+  // Suspension audit (DB-ADMIN-HIGH-003)
+  // ============================================
+  // WHY here: auth-service is the single writer of auth.tenants
+  // (DB-ADMIN-HIGH-004), so the suspension audit trio is persisted by
+  // transitionTenantStatus on the SUSPENDED transition and cleared on the
+  // ACTIVE transition — never written by admin-api (its entity maps these
+  // columns read-only; enforced by
+  // tests/invariants/admin-no-auth-tenants-writes.spec.ts).
+
+  /**
+   * When the tenant was suspended (NULL when not suspended).
+   */
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
+  suspendedAt?: Date | null;
+
+  /**
+   * Operator-supplied reason for the suspension (NULL when not suspended).
+   */
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'text', nullable: true })
+  suspendedReason?: string | null;
+
+  /**
+   * Actor (user id) that requested the suspension (NULL when not suspended).
+   */
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'uuid', nullable: true })
+  suspendedBy?: string | null;
+
   /**
    * Tenant settings (JSON)
    */
@@ -225,7 +256,7 @@ export class Tenant {
   createdBy?: string | null;
 
   // ============================================
-  // Tenant auth-security policy + localization preferences (ADR-042)
+  // Tenant auth-security policy + localization preferences (ADR-045)
   //
   // NOT @Field-decorated (like `version` below): these columns never enter the
   // public GraphQL Tenant ObjectType. The TENANT_ADMIN-guarded policy surface
@@ -235,7 +266,7 @@ export class Tenant {
   // ============================================
 
   /**
-   * ADR-042: when true, every user of this tenant MUST have MFA enrolled to
+   * ADR-045: when true, every user of this tenant MUST have MFA enrolled to
    * receive tokens at login (AuthenticationService login gate). Enforced —
    * not advisory. NULL/false = not enforced.
    */
@@ -243,7 +274,7 @@ export class Tenant {
   enforceMfa?: boolean | null;
 
   /**
-   * ADR-042: idle-session timeout in minutes (5..1440, validated at the
+   * ADR-045: idle-session timeout in minutes (5..1440, validated at the
    * mutation DTO). Clamps the refresh-token TTL at issuance AND rotation
    * (MIN(configured TTL incl. rememberMe, this) — tenant policy wins), giving
    * sliding idle-timeout semantics. NULL = configured platform TTL applies.
@@ -252,7 +283,7 @@ export class Tenant {
   sessionTimeoutMinutes?: number | null;
 
   /**
-   * ADR-042: IANA timezone preference (e.g. 'Europe/Istanbul'). A
+   * ADR-045: IANA timezone preference (e.g. 'Europe/Istanbul'). A
    * localization PREFERENCE column — deliberately not part of the security
    * policy container.
    */
@@ -260,7 +291,7 @@ export class Tenant {
   timezone?: string | null;
 
   /**
-   * ADR-042: date-format preference. Closed vocabulary (TENANT_DATE_FORMATS);
+   * ADR-045: date-format preference. Closed vocabulary (TENANT_DATE_FORMATS);
    * the mutation DTO enum-validates writes.
    */
   @Column({ type: 'varchar', length: 10, nullable: true, name: 'date_format' })

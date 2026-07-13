@@ -178,7 +178,7 @@ export class TenantAdminResolver {
   }
 
   // =========================================================
-  // Tenant auth-security policy + localization preferences (ADR-042)
+  // Tenant auth-security policy + localization preferences (ADR-045)
   //
   // tenantId ALWAYS comes from the caller's JWT — never an argument — so a
   // TENANT_ADMIN can only ever read/write their OWN tenant's policy. A
@@ -186,7 +186,7 @@ export class TenantAdminResolver {
   // =========================================================
 
   /**
-   * ADR-042: the caller's own tenant is the ONLY addressable tenant on this
+   * ADR-045: the caller's own tenant is the ONLY addressable tenant on this
    * surface. SUPER_ADMIN JWTs carry tenantId=null — reject rather than guess.
    */
   private requireTenantContext(tenantId: string | null | undefined): string {
@@ -199,7 +199,7 @@ export class TenantAdminResolver {
   }
 
   /**
-   * Effective tenant auth-security policy (ADR-042): enforceMfa collapses
+   * Effective tenant auth-security policy (ADR-045): enforceMfa collapses
    * NULL → false; sessionTimeoutMinutes stays nullable (null = platform TTL).
    */
   @Query(() => TenantSecurityPolicy)
@@ -213,7 +213,7 @@ export class TenantAdminResolver {
   }
 
   /**
-   * ADR-042 policy write. enforceMfa flip false/NULL→true revokes the refresh
+   * ADR-045 policy write. enforceMfa flip false/NULL→true revokes the refresh
    * tokens of this tenant's non-MFA users (see TenantAdminService); a
    * sessionTimeoutMinutes reduction applies on the next token rotation.
    */
@@ -231,7 +231,7 @@ export class TenantAdminResolver {
   }
 
   /**
-   * Tenant localization preferences (ADR-042 — separate from security).
+   * Tenant localization preferences (ADR-045 — separate from security).
    */
   @Query(() => TenantLocalizationPreferences)
   @TenantAdminOrHigher()

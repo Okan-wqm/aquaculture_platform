@@ -140,7 +140,7 @@ export const UPDATE_TENANT_MUTATION = `
 export const UPDATE_TENANT_SETTINGS_MUTATION = UPDATE_TENANT_MUTATION;
 
 // ============================================================================
-// Tenant security policy + localization preferences (ADR-042)
+// Tenant security policy + localization preferences (ADR-045)
 //
 // TENANT_ADMIN-guarded auth-service subgraph. The security policy is ENFORCED
 // (login MFA gate + refresh-TTL clamp); the localization preferences are

@@ -42,7 +42,7 @@ Depends on: `layer-1-core.md`, `layer-1-nestjs.md`. Shared schema + tenant patte
 
 - **Schema-per-tenant services (7)** — farm, sensor, hr, messaging, hydroponics, alert-engine, ai. Each tenant gets a dedicated schema (e.g., `farm_tenant_abc123`). Defined in `PER_TENANT_SCHEMA_SERVICES` constant (`tests/invariants/_constants.ts`).
 - **Shared-schema services (6)** — auth, billing, admin-api, event-store, config, notification. Cross-tenant by nature; tenant scoping enforced at the query layer via `TenantScopedRepository` + RLS policies.
-- **Shared tables (4 canonical, per CLAUDE.md)** — `audit_logs`, `gdpr_data_requests`, `user_consents`, `user_permissions` in the `shared` schema. Adding a 5th requires ADR + architectural-arbiter approval (`add-shared-table` skill W5 — BLOCKER-15).
+- **Shared tables (4 canonical, per ADR-011 as amended by ADR-042)** — `audit_logs`, `gdpr_data_requests`, `user_consents`, `access_logs` in the `shared` schema (`user_permissions` retired 2026-07-12, ADR-042). Adding a 5th requires ADR + architectural-arbiter approval (`add-shared-table` skill W5 — BLOCKER-15).
 - **RLS policies** — currently on 2 of 7 per-tenant services (farm, messaging). Other 5 rely on search_path alone (MT-HIGH-003 defense-in-depth gap). W5-W6 fix via `add-rls-policy` skill template.
 
 ## References

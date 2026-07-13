@@ -1,5 +1,6 @@
 ---
 name: db-audit-farm-operations
+pedagogy-tier: 2
 description: Lane-D database E2E audit — farm-service operations partition (feed, feeding, storage, farm-stock, consumable, supplier, chemical, finance) incl. the feed-inventory→storage-ledger convergence state — column provenance, parity, incidental defect capture.
 model: opus
 effort: xhigh

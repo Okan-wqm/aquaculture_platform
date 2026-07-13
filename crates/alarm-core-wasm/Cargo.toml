@@ -1,0 +1,18 @@
+[package]
+name = "alarm-core-wasm"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+authors = ["Aquaculture Platform Team <platform@aquaculture.dev>"]
+license = "Proprietary"
+repository = "https://github.com/Okan-wqm/aquaculture_platform"
+publish = false
+description = "wasm-bindgen bindings over alarm-core — one drift-zero alarm decision core shared by the Rust edge engine and the NestJS SCADA runtime."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+alarm-core = { path = "../alarm-core", version = "0.1.0" }
+wasm-bindgen = "=0.2.100"

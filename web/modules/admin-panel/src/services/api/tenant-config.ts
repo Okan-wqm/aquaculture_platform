@@ -101,7 +101,7 @@ export interface BrandingConfig {
 }
 
 export interface TenantSecurityConfig {
-  // ADR-042: `mfaRequired` and `sessionTimeoutMinutes` are deliberately
+  // ADR-045: `mfaRequired` and `sessionTimeoutMinutes` are deliberately
   // absent — tenant MFA-enforcement and session-timeout policy are owned +
   // enforced by auth-service and managed by the tenant's own admin
   // (tenant-admin module), not by SUPER_ADMIN here.

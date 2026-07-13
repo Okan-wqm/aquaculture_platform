@@ -1299,12 +1299,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/billing/entities/tenant-usage-metrics-readonly.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/billing/entities/usage-aggregation-readonly.entity.ts",
       "prettier_managed": true
     },
@@ -2099,6 +2093,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1801500000000-DropRetiredUserPermissions.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -2849,37 +2849,13 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/users/__tests__/user-permissions.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/users/dto/invite-user.dto.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/users/dto/reset-password.dto.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/users/entities/user-permissions.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/users/services/role-template.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/users/services/user-permissions.service.ts",
       "prettier_managed": true
     },
     {
@@ -2958,6 +2934,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/agent/__tests__/agent-profile-model.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/__tests__/agent-runner-cost-ledger.spec.ts",
       "prettier_managed": true
     },
     {
@@ -3119,6 +3101,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/conversation/__tests__/conversation-privacy-event.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/conversation/conversation-privacy-event.handler.ts",
       "prettier_managed": true
     },
@@ -3143,7 +3131,31 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/cost/__tests__/model-pricing.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/cost/__tests__/turn-ledger.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/cost/conversation-turn.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/cost/cost.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/cost/model-pricing.ts",
       "prettier_managed": true
     },
     {
@@ -3156,6 +3168,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/cost/token-budget.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/cost/turn-ledger.service.ts",
       "prettier_managed": true
     },
     {
@@ -3197,6 +3215,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/database/migrations/1802000000000-AddByokTenantAiCredentials.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/database/migrations/1802100000000-CreateConversationTurns.ts",
       "prettier_managed": true
     },
     {
@@ -4122,6 +4146,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/__tests__/entity-schema-routing.architecture.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/app.module.ts",
       "prettier_managed": true
     },
@@ -4463,6 +4493,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/migrations/1807100000000-AddTenantSuspensionAudit.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/migrations/1807200000000-DropModulePriceFromAuthModules.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/announcement/__tests__/announcement.service.spec.ts",
       "prettier_managed": true
     },
@@ -4715,6 +4757,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/guards/jwt-auth.guard.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/guards/jwt-auth.guard.ts",
       "prettier_managed": true
     },
@@ -4788,6 +4836,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/services/token.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/services/webauthn.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -5147,6 +5201,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/services/__tests__/tenant-lifecycle-suspension.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/services/__tests__/unlock-user.spec.ts",
       "prettier_managed": true
     },
@@ -5364,6 +5424,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/billing/__tests__/finalize-invoice.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/billing/__tests__/get-tenant-billing.handler.spec.ts",
       "prettier_managed": true
     },
     {
@@ -5592,12 +5658,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/billing/entities/subscription.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/billing-service/src/billing/entities/tenant-usage-metrics.entity.ts",
       "prettier_managed": true
     },
     {
@@ -5913,6 +5973,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/database/migrations/1801700000000-DropRetiredTenantUsageMetrics.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/filters/global-exception.filter.ts",
       "prettier_managed": true
     },
@@ -6057,6 +6123,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/configuration/__tests__/configuration.resolver.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/configuration/__tests__/graphql-schema-build.spec.ts",
       "prettier_managed": true
     },
@@ -6135,6 +6207,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/configuration/handlers/__tests__/upsert-overwrite-columns.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/configuration/handlers/create-configuration.handler.ts",
       "prettier_managed": true
     },
@@ -6201,6 +6279,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/database/__tests__/platform-configuration-seed.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/database/__tests__/rls-scoped-session.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/database/data-source.ts",
       "prettier_managed": true
     },
@@ -6254,6 +6344,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/config-service/src/database/migrations/1801000000000-EnsureConfigTenantErasureProofLedger.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/database/migrations/1805400000000-SeedPlatformConfigurations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/database/rls-scoped-session.ts",
       "prettier_managed": true
     },
     {
@@ -6367,6 +6469,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/db-migrate/src/__tests__/stray-tenant-journal-heal.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/db-migrate/src/__tests__/tenant-schema-provisioner.contract.spec.ts",
       "prettier_managed": true
     },
@@ -6404,6 +6512,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/db-migrate/src/schema-registry.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/db-migrate/src/stray-tenant-journal-heal.ts",
       "prettier_managed": true
     },
     {
@@ -9250,6 +9364,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/database/migrations/1805300000000-DropFarmDocuments.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1805400000000-DropTankBatchCurrentQuantityMirror.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1805500000000-DropFarmWorkerPlaceholderPii.ts",
       "prettier_managed": true
     },
     {
@@ -23675,6 +23801,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/process/services/__tests__/scada-package-script-validation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/process/services/__tests__/scada-package-undeploy-on-delete.spec.ts",
       "prettier_managed": true
     },
@@ -23724,6 +23856,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/process/services/unified-tag.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/protocol/adapters/__tests__/protocol-codec-golden.spec.ts",
       "prettier_managed": true
     },
     {
@@ -24197,6 +24335,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/scada-runtime/services/__tests__/quickjs-sandbox.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/scada-runtime/services/__tests__/script-engine.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/scada-runtime/services/alarm-ack.events.ts",
       "prettier_managed": true
     },
@@ -24228,6 +24378,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/scada-runtime/services/notification.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/scada-runtime/services/quickjs-sandbox.ts",
       "prettier_managed": true
     },
     {
@@ -25862,6 +26018,24 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/adr/041-aria-narrow-autonomous-merge-lane.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/adr/042-retire-shared-user-permissions.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/adr/043-support-conversation-boundary.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/adr/044-ai-conversation-content-ownership.md",
       "prettier_managed": true
     },
     {
@@ -30937,6 +31111,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/2026-07-13-branch-triage/ledger.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/admin-expert/2026-04-05-s2-high-findings.md",
       "prettier_managed": true
     },
@@ -31052,6 +31232,18 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/circuit-breaker-auditor/2026-04-28-core-platform-review.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-13-protocol-codec-wasm.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-13-scada-script-sandbox.md",
       "prettier_managed": true
     },
     {
@@ -31808,6 +32000,24 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/messaging-expert/2026-06-13-wave2-closeout.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/mobile-messaging-e2e/2026-07-01-findings.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/mobile-messaging-e2e/2026-07-01-sprint-a1-waves-1-3.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/mobile-messaging-e2e/2026-07-01-wave0-baseline.md",
       "prettier_managed": true
     },
     {
@@ -33625,6 +33835,87 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/alarm-core/jest.config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/alarm-core/package.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/alarm-core/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/alarm-core/src/decision-core.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "generated",
+      "content_sha256": "ce4c0526eafb541388591d9886129b9ff138b2448846a969ee59f14c350735e5",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "libs/alarm-core/src/generated/alarm_core_wasm_bg.wasm.d.ts",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
+    },
+    {
+      "class": "generated",
+      "content_sha256": "8135ecf76b76a405a9d3c8fdd927569b145b9252cdc5282c37244038fe6cf791",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "libs/alarm-core/src/generated/alarm_core_wasm.d.ts",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
+    },
+    {
+      "class": "generated",
+      "content_sha256": "5be6d0debdeea884a376c0d1f94c3ee022776c2decc1f67138fd8b730edb81c2",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "libs/alarm-core/src/generated/alarm_core_wasm.js",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/alarm-core/src/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/alarm-core/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/alarm-core/tsconfig.lib.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/alarm-core/tsconfig.spec.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/aquaculture-engines/package.json",
       "prettier_managed": true
     },
@@ -34424,6 +34715,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/database/migration-logger.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/migration-runner/__tests__/migration-runner.factory.spec.ts",
       "prettier_managed": true
     },
     {
@@ -37099,6 +37396,87 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/protocol-codec/jest.config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/protocol-codec/package.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/protocol-codec/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "generated",
+      "content_sha256": "b23d7a754fba47890bda7b6f3870054e8c70b2e6d55c5be0043e1cd8e882cbab",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "libs/protocol-codec/src/generated/protocol_codec_wasm_bg.wasm.d.ts",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
+    },
+    {
+      "class": "generated",
+      "content_sha256": "cb5d4bbc10ad01a68d9e23e75f82509f308e2890db64cda42a44744df00237b5",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "libs/protocol-codec/src/generated/protocol_codec_wasm.d.ts",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
+    },
+    {
+      "class": "generated",
+      "content_sha256": "409caeea16245bf79a94b88300657bf589a818c35a13b0fd0ac91fd9035ea7af",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "libs/protocol-codec/src/generated/protocol_codec_wasm.js",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/protocol-codec/src/index.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/protocol-codec/src/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/protocol-codec/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/protocol-codec/tsconfig.lib.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/protocol-codec/tsconfig.spec.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/sdk/typescript/README.md",
       "prettier_managed": true
     },
@@ -37142,6 +37520,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/sensor-automation-types/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/sensor-contracts/fixtures/alarm/decision-core.json",
       "prettier_managed": true
     },
     {
@@ -37950,7 +38334,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "0324908ff79fb6e031a801f22fb28cf0a1d7172f9459d2fabb56410cea9d625c",
+      "content_sha256": "4438dccf0c90310514c6c4621e59391978dace97bbdf60c10efa0d09fa26d9b1",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -39426,6 +39810,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "sensorprotocols/wasm-decoder-template/README.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/e2e/v11-compat/forroutes-wildcard.e2e-spec.ts",
       "prettier_managed": true
     },
@@ -39553,6 +39943,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/admin-billing-runtime-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/admin-no-auth-tenants-writes.spec.ts",
       "prettier_managed": true
     },
     {
@@ -39805,6 +40201,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/drift-repair-naming.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/edge-device-dual-model-guard.spec.ts",
       "prettier_managed": true
     },
     {
@@ -43138,6 +43540,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/graphql/platform-configuration-operations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/hooks/__tests__/useAsyncData.spec.ts",
       "prettier_managed": true
     },
@@ -43205,6 +43613,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/hooks/usePagination.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/hooks/usePlatformConfiguration.ts",
       "prettier_managed": true
     },
     {
@@ -43570,6 +43984,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/services/api/__tests__/platform-configuration.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/services/api/analytics.ts",
       "prettier_managed": true
     },
@@ -43619,6 +44039,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/services/api/modules.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/services/api/platform-configuration.ts",
       "prettier_managed": true
     },
     {
@@ -52316,7 +52742,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "c44a3bad7c790430aaaa64417908091c3b96bab1b8cbe9b04637c773d8437876",
+      "content_sha256": "00c8ae989bebbb735a9b3425c0960aecd5ba3e8b8059ae36f6050883bf658237",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",
@@ -52986,10 +53412,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8685,
+  "file_count": 8751,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8510,
-  "managed_file_list_sha256": "46da3e07f2fb037e05ac333bd77d59226aa33c0ea751c1ece89975b7ee626555",
+  "managed_count": 8570,
+  "managed_file_list_sha256": "1be7adb117aad1cf973ae4e4444627015fcf40960d75d14018f462e48c757b79",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -14,7 +14,7 @@ export class VerifyMfaSetupInput {
   code!: string;
 
   /**
-   * ADR-042: pre-session enrollment credential from login
+   * ADR-045: pre-session enrollment credential from login
    * (mfaSetupRequired=true). Identifies the user when no authenticated
    * session exists; ignored when the caller is authenticated.
    */

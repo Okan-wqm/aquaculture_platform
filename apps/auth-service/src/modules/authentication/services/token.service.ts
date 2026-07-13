@@ -77,7 +77,7 @@ export interface JwtPayload {
    * access tokens, and vice versa. The gateway's AuthGuard rejects any token
    * where `type !== 'access'`, ensuring that short-lived MFA challenge tokens,
    * MFA setup (enrollment) tokens, and opaque refresh tokens cannot be
-   * replayed as bearer credentials. 'mfa_setup' (ADR-042) authorizes ONLY the
+   * replayed as bearer credentials. 'mfa_setup' (ADR-045) authorizes ONLY the
    * setupMfa + verifyMfaSetup enrollment pair (MfaService positively requires
    * it there); enforceAccessTokenType rejects it on every bearer surface.
    */
@@ -212,7 +212,7 @@ export class TokenService {
    * Enforces session limits, creates DB-persisted refresh token, and
    * returns a full AuthPayload ready for the client.
    *
-   * ADR-042 (chokepoint): the tenant's idle-session policy
+   * ADR-045 (chokepoint): the tenant's idle-session policy
    * (auth.tenants.session_timeout_minutes) is resolved INSIDE this method
    * (resolveTenantTokenPolicy) from the user's own tenant and clamps the
    * refresh-token TTL. Because the clamp lives at the single mint chokepoint —
@@ -344,7 +344,7 @@ export class TokenService {
       ? this.rememberMeRefreshTokenExpiryDays
       : this.refreshTokenExpiryDays;
 
-    // ADR-042: effective refresh TTL = MIN(configured TTL incl. rememberMe,
+    // ADR-045: effective refresh TTL = MIN(configured TTL incl. rememberMe,
     // tenant session-timeout policy) — the tenant policy WINS, including over
     // a rememberMe extension. The policy is resolved INSIDE this chokepoint
     // (resolveTenantTokenPolicy, from the user's own tenant) rather than
@@ -543,7 +543,7 @@ export class TokenService {
    *     no tenant) so the claim is omitted; an unrecognised plan string falls
    *     back to 0 (FREE-equivalent) so a data anomaly can never silently
    *     unlock a paid tier.
-   *   - `sessionTimeoutMinutes` — the ADR-042 idle-session policy that clamps
+   *   - `sessionTimeoutMinutes` — the ADR-045 idle-session policy that clamps
    *     the refresh-token TTL. Resolved HERE (inside the token chokepoint)
    *     rather than threaded by callers, so every mint path is clamped and no
    *     caller can forget it. null = no tenant policy (platform TTL applies).

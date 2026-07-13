@@ -247,7 +247,16 @@ impl AlarmDefinition {
         self
     }
 
-    /// Check if value triggers this alarm
+    /// Check if value triggers this alarm.
+    ///
+    /// All value/threshold/deadband comparison math is delegated to the shared
+    /// `alarm-core` kernel — the SAME predicates the edge `alarm_engine.rs` and
+    /// the NestJS SCADA runtime use — so this IEC 62682 engine cannot drift on
+    /// the canonical semantics (epsilon equality, EXCLUSIVE deadband clear
+    /// boundaries, no hidden floor). Only this engine's own concerns stay local:
+    /// the `enabled` gate, the trigger-vs-clear edge selection driven by
+    /// `current_state`, the `Deviation` band derivation, and (below) the 7-state
+    /// machine.
     pub fn is_triggered(&self, value: f64, current_state: AlarmState) -> bool {
         if !self.enabled {
             return false;
@@ -256,29 +265,46 @@ impl AlarmDefinition {
         let is_active = matches!(current_state, AlarmState::Active | AlarmState::Acknowledged);
 
         match self.alarm_type {
+            // Directional limits: trigger when the raw condition holds; once
+            // active, stay latched until the value is STRICTLY past the deadband
+            // margin (clear = outside deadband ⇒ not triggered).
             AlarmType::High | AlarmType::HighHigh => {
                 if is_active {
-                    // Use deadband for return to normal
-                    value > (self.setpoint - self.deadband)
+                    !alarm_core::is_outside_deadband(">", value, self.setpoint, self.deadband)
                 } else {
-                    value > self.setpoint
+                    alarm_core::evaluate_condition(
+                        ">",
+                        value,
+                        self.setpoint,
+                        alarm_core::DEFAULT_EPSILON,
+                    )
                 }
             }
             AlarmType::Low | AlarmType::LowLow => {
                 if is_active {
-                    // Use deadband for return to normal
-                    value < (self.setpoint + self.deadband)
+                    !alarm_core::is_outside_deadband("<", value, self.setpoint, self.deadband)
                 } else {
-                    value < self.setpoint
+                    alarm_core::evaluate_condition(
+                        "<",
+                        value,
+                        self.setpoint,
+                        alarm_core::DEFAULT_EPSILON,
+                    )
                 }
             }
+            // Deviation-from-setpoint with a two-level hysteresis band that is
+            // this engine's own policy: trigger when the deviation exceeds the
+            // full deadband, clear only once it falls back within HALF the band.
+            // The derived deviation magnitude and half-band are local; the
+            // comparison operator is routed through the kernel.
             AlarmType::Deviation => {
                 let deviation = (value - self.setpoint).abs();
-                if is_active {
-                    deviation > (self.deadband / 2.0)
+                let band = if is_active {
+                    self.deadband / 2.0
                 } else {
-                    deviation > self.deadband
-                }
+                    self.deadband
+                };
+                alarm_core::evaluate_condition(">", deviation, band, alarm_core::DEFAULT_EPSILON)
             }
             _ => false, // Other types need special handling
         }
@@ -353,7 +379,8 @@ impl AlarmInstance {
             (AlarmState::Normal, true) => {
                 if self.definition.delay_ms > 0 {
                     if let Some(pending) = self.pending_since {
-                        if pending.elapsed() >= Duration::from_millis(self.definition.delay_ms) {
+                        let elapsed_ms = pending.elapsed().as_millis() as u64;
+                        if alarm_core::delay_elapsed(elapsed_ms, self.definition.delay_ms) {
                             self.state = AlarmState::Active;
                             self.activated_at = Some(Instant::now());
                             self.pending_since = None;
@@ -906,6 +933,66 @@ mod tests {
         // Drop to 74 (below deadband) - should return
         let event = manager.process_value("temp_high", 74.0);
         assert!(matches!(event, Some(AlarmEvent::Returned { .. })));
+    }
+
+    #[test]
+    fn test_alarm_deadband_clear_boundary_is_exclusive() {
+        // High alarm at 80, deadband 5 → the clear-band edge is exactly 75.0.
+        let mut manager = AlarmManager::new();
+        manager.register(
+            AlarmDefinition::high_limit("temp_high", "temperature", 80.0).with_deadband(5.0),
+        );
+
+        // Activate at 85.
+        manager.process_value("temp_high", 85.0);
+        assert_eq!(manager.get("temp_high").unwrap().state, AlarmState::Active);
+
+        // Exactly at the band edge (80 - 5 = 75.0): the shared kernel clears on
+        // EXCLUSIVE boundaries, so the alarm STAYS active here (a previous
+        // hand-rolled inclusive `>` would have cleared). No event, still Active.
+        let event = manager.process_value("temp_high", 75.0);
+        assert!(event.is_none());
+        assert_eq!(manager.get("temp_high").unwrap().state, AlarmState::Active);
+
+        // Strictly past the edge clears.
+        let event = manager.process_value("temp_high", 74.999);
+        assert!(matches!(event, Some(AlarmEvent::Returned { .. })));
+    }
+
+    #[test]
+    fn test_deviation_alarm_two_level_hysteresis() {
+        // Deviation alarm: trigger when |value - setpoint| exceeds the full
+        // deadband; clear only once it falls back within HALF the deadband.
+        let mut manager = AlarmManager::new();
+        manager.register(AlarmDefinition {
+            id: "dev1".to_string(),
+            name: "ph deviation".to_string(),
+            description: String::new(),
+            alarm_type: AlarmType::Deviation,
+            priority: AlarmPriority::Medium,
+            source: "ph".to_string(),
+            setpoint: 7.0,
+            deadband: 1.0,
+            delay_ms: 0,
+            enabled: true,
+            require_ack: false,
+        });
+
+        // deviation 0.5 (< deadband 1.0) — no trigger.
+        assert!(manager.process_value("dev1", 7.5).is_none());
+        // deviation 1.5 (> deadband) — trigger.
+        assert!(matches!(
+            manager.process_value("dev1", 8.5),
+            Some(AlarmEvent::Activated { .. })
+        ));
+        // deviation 0.6 (> deadband/2 = 0.5) — stays active (upper hysteresis band).
+        assert!(manager.process_value("dev1", 7.6).is_none());
+        assert_eq!(manager.get("dev1").unwrap().state, AlarmState::Active);
+        // deviation 0.4 (< deadband/2) — clears.
+        assert!(matches!(
+            manager.process_value("dev1", 7.4),
+            Some(AlarmEvent::Returned { .. })
+        ));
     }
 
     #[test]

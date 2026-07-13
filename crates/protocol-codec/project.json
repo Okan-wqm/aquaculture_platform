@@ -1,5 +1,5 @@
 {
-  "name": "protocol-codec",
+  "name": "protocol-codec-rs",
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "projectType": "library",
   "sourceRoot": "crates/protocol-codec/src",

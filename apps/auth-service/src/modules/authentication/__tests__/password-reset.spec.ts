@@ -150,12 +150,12 @@ const mockTokenService = {
 const mockMfaService = {
   isMfaAvailable: jest.fn().mockReturnValue(false),
   generateMfaChallenge: jest.fn(),
-  // ADR-042: the enrollment gate mints a pre-session setup token when the tenant
+  // ADR-045: the enrollment gate mints a pre-session setup token when the tenant
   // enforces MFA and the user has none enrolled.
   generateMfaSetupToken: jest.fn().mockReturnValue('mock-mfa-setup-token'),
 };
 
-// ADR-042 (SEC-MEDIUM): enrollment gate reads the user's WebAuthn credential
+// ADR-045 (SEC-MEDIUM): enrollment gate reads the user's WebAuthn credential
 // count. Default 0 — the reset/accept paths don't gate unless a test opts in.
 const mockWebAuthnCredentialRepository = {
   count: jest.fn().mockResolvedValue(0),
@@ -591,12 +591,12 @@ describe('AuthenticationService - Password Reset Flow', () => {
     });
 
     // ========================================================================
-    // ADR-042 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014) — resetPassword must gate
+    // ADR-045 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014) — resetPassword must gate
     // token issuance for a non-MFA user in an enforcing tenant, via the SAME
     // shared assertion login uses. Only ISSUANCE is gated; the password reset
     // and session revocation side effects still commit.
     // ========================================================================
-    describe('ADR-042 MFA-enforcement gate', () => {
+    describe('ADR-045 MFA-enforcement gate', () => {
       const setupValidReset = (user: User): void => {
         (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(user);
         mockUserRepository.save.mockResolvedValue(user);

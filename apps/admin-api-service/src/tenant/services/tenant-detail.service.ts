@@ -118,7 +118,6 @@ export class TenantDetailService {
       createdAt: tenant.createdAt,
       updatedAt: tenant.updatedAt,
       createdBy: tenant.createdBy,
-      lastActivityAt: tenant.lastActivityAt,
     };
   }
 

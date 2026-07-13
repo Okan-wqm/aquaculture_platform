@@ -48,7 +48,7 @@ const LoginForm: React.FC = () => {
   const [useRecoveryCode, setUseRecoveryCode] = useState(false);
   const mfaInputRef = useRef<HTMLInputElement>(null);
 
-  // ADR-042: tenant enforces MFA but this user has none enrolled. Login returns
+  // ADR-045: tenant enforces MFA but this user has none enrolled. Login returns
   // a setup token (no session) → drive enrollment before completing login.
   const [mfaSetup, setMfaSetup] = useState<MfaSetupRequiredResult | null>(null);
   const [postSetupNotice, setPostSetupNotice] = useState('');
@@ -181,7 +181,7 @@ const LoginForm: React.FC = () => {
     [clearError],
   );
 
-  // ── MFA Setup Screen (ADR-042 — tenant enforces MFA, user must enroll) ─────
+  // ── MFA Setup Screen (ADR-045 — tenant enforces MFA, user must enroll) ─────
   if (mfaSetup) {
     return <MfaSetupScreen challenge={mfaSetup} onBackToLogin={handleBackFromSetup} />;
   }

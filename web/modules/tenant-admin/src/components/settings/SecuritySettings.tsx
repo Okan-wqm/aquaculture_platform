@@ -10,7 +10,7 @@ import { logError, createErrorToastOptions } from '../../utils/error-handling';
 import { Toggle } from './Toggle';
 
 /**
- * SecuritySettings — real, ENFORCED tenant security controls (ADR-042,
+ * SecuritySettings — real, ENFORCED tenant security controls (ADR-045,
  * ADMIN-HIGH-010).
  *
  * Replaces the old "not yet available" stub. Only the two controls the backend

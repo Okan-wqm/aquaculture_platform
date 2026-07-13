@@ -1,5 +1,6 @@
 ---
 name: db-audit-identity-billing
+pedagogy-tier: 2
 description: Lane-D database E2E audit — identity/billing partition (auth-service incl. tenant RBAC, billing-service, the shared-schema canonical tables, libs shared entities) and the tenant-admin frontend — column provenance, parity, incidental defect capture.
 model: opus
 effort: xhigh
@@ -30,7 +31,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 
 ## Partition Scope
 
-Backend — `apps/auth-service` (platform-level `auth`, ~20 entities: users, tenants, refresh tokens, MFA, and the tenant-RBAC set — permission catalogue, tenant roles/permissions/assignments); `apps/billing-service` (`billing`, ~12 entities: subscriptions, invoices, Stripe webhook state); the `shared` schema's 5 canonical tables (`audit_logs`, `gdpr_data_requests`, `user_consents`, `user_permissions`, `access_logs` — allowlist-guarded; verify each is actually written AND read cross-service); and the ~25 shared `@Entity` classes under `libs/**` (easy to miss — they back backend-common runtime features).
+Backend — `apps/auth-service` (platform-level `auth`, ~20 entities: users, tenants, refresh tokens, MFA, and the tenant-RBAC set — permission catalogue, tenant roles/permissions/assignments); `apps/billing-service` (`billing`, ~12 entities: subscriptions, invoices, Stripe webhook state); the `shared` schema's 4 canonical tables (`audit_logs`, `gdpr_data_requests`, `user_consents`, `access_logs` — allowlist-guarded; `user_permissions` retired per ADR-042; verify each is actually written AND read cross-service); and the ~25 shared `@Entity` classes under `libs/**` (easy to miss — they back backend-common runtime features).
 
 Frontend — `web/modules/tenant-admin/src/**` (tenant settings, users, roles — GraphQL) and the shell/login auth surface. Note the tenant-RBAC FE: members must only see granted actions; verify the role/permission tables that drive it are the ones actually read by token issuance and guards.
 

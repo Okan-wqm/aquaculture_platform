@@ -82,6 +82,32 @@ Rejected. Couples cloud-side schema authorship to the Rust edge-agent's release 
 - ADR-022 §5 cryptographic erasure: carried forward verbatim.
 - ADR-022 §3 RLS: replaced by Faz 1.7 RLS canonical predicate invariant — sensor-service per-tenant tables already use it; the 7 v2 tables inherit by being part of sensor schema.
 
+## Coexistence: v1 `edge_devices` ↔ v2 `devices` during the cutover (DB-SENSOR-MEDIUM-003)
+
+Added 2026-07-13 (database E2E audit remediation Faz 8-A11, tracked as
+`docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-390`). Both device models are
+registered in `apps/sensor-service/src/edge-device/edge-device.module.ts` at
+the same time — this is DISCLOSED work-in-progress mid-cutover, not drift:
+
+- **v1 (`edge_devices`, entity `EdgeDevice`) is production-active.** All
+  runtime writes (`edge-device.service.ts`, `provisioning.service.ts`,
+  `mqtt-auth.service.ts`) and the GraphQL surface operate on v1. v1 is NOT
+  retired outside the planned cutover.
+- **v2 (the 7-table family above, entity `EdgeDeviceV2` et al.) is the
+  target model.** It is migration-created and module-registered so tenant
+  fan-out, RLS, and `SchemaDriftValidator` cover it from day one, but it has
+  no runtime write path yet.
+- **Single-writer-per-model rule:** no service file may write both the v1
+  and the v2 device row. The cutover is a routing flip at a single seam, not
+  an interleaved dual-write scattered across handlers — interleaving is how
+  split-brain rows are born. Enforced at PR time by
+  `tests/invariants/edge-device-dual-model-guard.spec.ts` (grep-based: a
+  file acquiring both models' repositories, or issuing writes against both
+  tables, fails the invariant unless explicitly allowlisted with a WHY).
+- The coexistence contract is mirrored in the `EdgeDeviceV2` entity
+  docblock (`apps/sensor-service/src/edge-device/entities/v2/device-v2.entity.ts`)
+  so it is visible at the point of use.
+
 ## Open Items
 
 - **OPEN-ADR-034-1:** `audit_archive_v1` partition-count budget under per-tenant scaling. Tracked as a Faz 8 monitoring signal: if partition count crosses a threshold operationally relevant on production (target: > 50k partitions OR pg_class oid pressure), revisit the global `event_store` placement option.

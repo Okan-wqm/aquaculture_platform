@@ -27,7 +27,7 @@ import {
 /**
  * The exact request/response surface this resolver touches (structural
  * narrowing of express Request/Response). `user` is attached by JwtAuthGuard
- * (authenticated routes AND best-effort on @Public routes — ADR-042) or by
+ * (authenticated routes AND best-effort on @Public routes — ADR-045) or by
  * the gateway-forwarded x-user-payload middleware.
  */
 interface GqlContext {
@@ -80,11 +80,11 @@ export class MfaResolver {
   }
 
   // ==========================================================================
-  // MFA Setup (Authenticated session OR ADR-042 mfa_setup token)
+  // MFA Setup (Authenticated session OR ADR-045 mfa_setup token)
   // ==========================================================================
 
   /**
-   * ADR-042: resolve the subject of an MFA enrollment operation from EITHER
+   * ADR-045: resolve the subject of an MFA enrollment operation from EITHER
    * an authenticated session OR a valid mfa_setup token — never both, never
    * neither.
    *
@@ -112,7 +112,7 @@ export class MfaResolver {
    * Initiate MFA setup — generates TOTP secret, QR code URI, and recovery codes.
    * MFA is NOT enabled until verifyMfaSetup succeeds.
    *
-   * ADR-042: @Public so the pre-session enrollment path (tenant enforces MFA,
+   * ADR-045: @Public so the pre-session enrollment path (tenant enforces MFA,
    * user has none — login returned mfaSetupRequired + mfaSetupToken) can reach
    * it. An authenticated session keeps working unchanged: JwtAuthGuard
    * attaches optional identity on public routes, and resolveMfaSubject gives
@@ -147,7 +147,7 @@ export class MfaResolver {
    * Verify the first TOTP code to complete MFA setup.
    * This enables MFA on the account.
    *
-   * ADR-042: also reachable with input.mfaSetupToken (pre-session enrollment).
+   * ADR-045: also reachable with input.mfaSetupToken (pre-session enrollment).
    * On success via setup token NO tokens are issued — the response is only
    * `{ success: true }`. The user then logs in again: with MFA now enrolled,
    * login takes the normal mfa_challenge flow. This deliberate extra login

@@ -109,7 +109,7 @@ describe('DailyFeedingExecutionService.applyPendingDailyGrowth', () => {
     const pending = [execFixture('e1', 10, 2.0), execFixture('e2', 6, 1.5)];
     const tankBatch = mock<TankBatch>({
       tankId: 'tank-1',
-      currentQuantity: 1000,
+      totalQuantity: 1000,
       currentBiomassKg: 100,
       totalBiomassKg: 100,
     });
@@ -156,7 +156,7 @@ describe('DailyFeedingExecutionService.applyPendingDailyGrowth', () => {
     });
     const tankBatch = mock<TankBatch>({
       tankId: 'tank-1',
-      currentQuantity: 1000,
+      totalQuantity: 1000,
       currentBiomassKg: 100,
       totalBiomassKg: 100,
     });
@@ -183,7 +183,7 @@ describe('DailyFeedingExecutionService.applyPendingDailyGrowth', () => {
     const pending = [execFixture('e1', 0, 2.0)];
     const tankBatch = mock<TankBatch>({
       tankId: 'tank-1',
-      currentQuantity: 1000,
+      totalQuantity: 1000,
       currentBiomassKg: 100,
       totalBiomassKg: 100,
     });

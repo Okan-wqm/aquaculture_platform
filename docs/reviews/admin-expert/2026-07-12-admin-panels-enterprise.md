@@ -189,6 +189,28 @@ resetPassword, acceptInvitation, WebAuthn verifyLogin) enforces it — a WebAuth
 satisfies enforcement; a non-MFA user in an enforcing tenant is refused tokens (returns the same
 `mfaSetupRequired` outcome where a login-shaped response exists, else a typed refusal).
 
+## ADMIN-HIGH-015 — tenant session-timeout clamp omitted on 5 of 7 token-mint paths
+
+**State:** OPEN → fixed in this cycle
+
+Sibling finding to ADMIN-HIGH-014, from the same auth-security co-review. The session-timeout
+clamp (idle-session semantics: `MIN(tenant sessionTimeoutMinutes, rememberMe TTL)` applied to the
+refresh-token TTL) was passed as an optional `sessionTimeoutMinutes` parameter that callers could
+omit, so it was applied on only 2 of the 7 mint paths. The 5 unclamped paths —
+`verifyMfaLogin` (the primary MFA login path), `verifyStepUp`, `acceptInvitation`, `resetPassword`,
+and `verifyWebAuthnLogin` — issued a `rememberMe` refresh token good for up to 30 days regardless
+of a tenant's 5-minute idle policy.
+
+Evidence:
+- apps/auth-service/src/modules/authentication/services/mfa.service.ts:724
+- apps/auth-service/src/modules/authentication/services/mfa.service.ts:820
+- apps/auth-service/src/modules/authentication/services/token.service.ts:352
+
+Resolution: resolve `sessionTimeoutMinutes` inside `TokenService.generateTokens` (the single mint
+chokepoint) and delete the optional parameter, so every mint path is clamped by construction —
+no caller can omit it. Same root-cause pattern as ADMIN-HIGH-014 (enforce at the chokepoint, not
+the caller); documented in ADR-045.
+
 ## ADMIN-HIGH-011 — live admin-panel pages call broken REST paths
 
 **State:** OPEN → fixed in this cycle

@@ -532,7 +532,14 @@ export const PERFORMANCE_REVIEW_FRAGMENT = gql`
     managerAssessment
     managerRating
     finalRating
-    competencyRatings
+    competencyRatings {
+      competencyId
+      competencyName
+      selfRating
+      managerRating
+      finalRating
+      comments
+    }
     strengths
     areasForImprovement
     developmentPlan

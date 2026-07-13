@@ -10,7 +10,7 @@ import {
 import { logError, createErrorToastOptions } from '../../utils/error-handling';
 
 /**
- * LocalizationSettings — real timezone + date-format preferences (ADR-042,
+ * LocalizationSettings — real timezone + date-format preferences (ADR-045,
  * ADMIN-MEDIUM-010). Replaces the "coming soon" stub.
  *
  * No language selector: the platform is an English-only surface by decision, so

@@ -122,7 +122,7 @@ export interface BrandingConfig {
 export interface TenantSecurityConfig {
   // Authentication
   //
-  // ADR-042: `mfaRequired` and `sessionTimeoutMinutes` are deliberately
+  // ADR-045: `mfaRequired` and `sessionTimeoutMinutes` are deliberately
   // ABSENT. Tenant MFA-enforcement and session-timeout policy are owned AND
   // enforced by auth-service (typed columns on auth.tenants, TENANT_ADMIN
   // GraphQL surface). This synthesized adapter must not fabricate values for
@@ -154,7 +154,7 @@ export interface TenantSecurityConfig {
   allowedCountries: string[];
   blockedCountries: string[];
 
-  // Session Management (sessionTimeoutMinutes: see ADR-042 note above —
+  // Session Management (sessionTimeoutMinutes: see ADR-045 note above —
   // auth-service owns it)
   maxLoginAttempts: number;
   lockoutDurationMinutes: number;
@@ -336,7 +336,7 @@ export function createDefaultTenantConfiguration(tenantId: string): Partial<Tena
       showPoweredBy: true,
     },
     securityConfig: {
-      // ADR-042: no mfaRequired / sessionTimeoutMinutes here — auth-service
+      // ADR-045: no mfaRequired / sessionTimeoutMinutes here — auth-service
       // owns + enforces those; fabricating defaults is exactly the
       // ADMIN-HIGH-010 defect this omission cures.
       mfaRequiredForAdmins: false,

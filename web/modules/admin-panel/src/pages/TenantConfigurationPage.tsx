@@ -1176,7 +1176,7 @@ const TenantConfigurationPage: React.FC = () => {
       <div className="space-y-6">
         <Card title="Multi-Factor Authentication (MFA)">
           <div className="space-y-4">
-            {/* ADR-042: "Require MFA for All Users" is managed by the tenant's
+            {/* ADR-045: "Require MFA for All Users" is managed by the tenant's
                 own admin (tenant-admin module → auth-service policy), not by
                 SUPER_ADMIN. The old checkbox wrote to a fabricated field that
                 nothing enforced. */}
@@ -1265,7 +1265,7 @@ const TenantConfigurationPage: React.FC = () => {
                 onChange={(e) => setSecurityConfig({ ...securityConfig, lockoutDurationMinutes: parseInt(e.target.value) || 0 })}
               />
             </div>
-            {/* ADR-042: session timeout is managed by the tenant's own admin
+            {/* ADR-045: session timeout is managed by the tenant's own admin
                 (auth-service policy — it clamps refresh-token TTL); the old
                 input wrote to a fabricated field that nothing enforced. */}
             <div>

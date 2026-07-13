@@ -53,7 +53,7 @@ export class JwtAuthGuard {
     ]);
 
     if (isPublic) {
-      // ADR-042: public surfaces get OPTIONAL identity. setupMfa /
+      // ADR-045: public surfaces get OPTIONAL identity. setupMfa /
       // verifyMfaSetup are @Public so the pre-session enrollment path
       // (mfa_setup token) can reach them, but the same mutations must keep
       // working for an authenticated session presenting a normal Bearer
@@ -109,7 +109,7 @@ export class JwtAuthGuard {
   }
 
   /**
-   * ADR-042: best-effort identity attachment for @Public routes.
+   * ADR-045: best-effort identity attachment for @Public routes.
    *
    * Runs the EXACT verification chain the authenticated path runs (RS256 +
    * issuer/audience via getJwtVerifyOptions, access-type discriminator,

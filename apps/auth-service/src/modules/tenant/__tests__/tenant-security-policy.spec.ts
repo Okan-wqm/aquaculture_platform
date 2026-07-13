@@ -12,7 +12,7 @@ import { Tenant } from '../entities/tenant.entity';
 import { TenantAdminService } from '../services/tenant-admin.service';
 
 /**
- * ADR-042 — tenant auth-security policy + localization preferences
+ * ADR-045 — tenant auth-security policy + localization preferences
  * (ADMIN-HIGH-010 / ADMIN-MEDIUM-010).
  *
  * London-school: TenantAdminService is exercised against mocked repository
@@ -32,13 +32,13 @@ const buildTenant = (overrides: Partial<Tenant> = {}): Tenant =>
     ...overrides,
   });
 
-describe('TenantAdminService — tenant security policy (ADR-042)', () => {
+describe('TenantAdminService — tenant security policy (ADR-045)', () => {
   const tenantRepository = { findOne: jest.fn(), save: jest.fn() };
   const userRepository = { findOne: jest.fn(), find: jest.fn() };
   const refreshTokenRepository = { update: jest.fn() };
   const auditLogService = { log: jest.fn().mockResolvedValue(undefined) };
 
-  // Only the collaborators the ADR-042 methods touch are real mocks; the
+  // Only the collaborators the ADR-045 methods touch are real mocks; the
   // rest of the constructor surface is inert.
   const buildService = (): TenantAdminService =>
     new TenantAdminService(
@@ -202,7 +202,7 @@ describe('TenantAdminService — tenant security policy (ADR-042)', () => {
   });
 });
 
-describe('UpdateTenantSecurityPolicyInput — validation bounds (ADR-042)', () => {
+describe('UpdateTenantSecurityPolicyInput — validation bounds (ADR-045)', () => {
   const buildInput = (
     overrides: Partial<UpdateTenantSecurityPolicyInput>,
   ): UpdateTenantSecurityPolicyInput =>
@@ -224,7 +224,7 @@ describe('UpdateTenantSecurityPolicyInput — validation bounds (ADR-042)', () =
   });
 });
 
-describe('UpdateTenantLocalizationPreferencesInput — validation (ADR-042)', () => {
+describe('UpdateTenantLocalizationPreferencesInput — validation (ADR-045)', () => {
   const buildInput = (
     overrides: Partial<UpdateTenantLocalizationPreferencesInput>,
   ): UpdateTenantLocalizationPreferencesInput =>

@@ -694,7 +694,7 @@ describe('MfaService', () => {
   });
 
   // ==========================================================================
-  // verifyStepUp — ADR-042: mints through the generateTokens chokepoint, so the
+  // verifyStepUp — ADR-045: mints through the generateTokens chokepoint, so the
   // tenant session-timeout clamp is applied automatically (no policy threaded).
   // ==========================================================================
   describe('verifyStepUp', () => {

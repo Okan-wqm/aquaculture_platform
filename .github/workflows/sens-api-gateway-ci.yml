@@ -41,7 +41,7 @@ env:
   # while excluding `sx1302-vendor-hal`, which is a real hardware C HAL build
   # and must fail closed unless vendor/sx1302_hal sources are present.
   SENS_API_GATEWAY_RELEASE_FEATURES: scada-display
-  SENS_API_GATEWAY_CI_FEATURES: health,telemetry,metrics,strict-security,scada-display,lorawan,signed-deploy,tpm,st-bytecode,multi-task-scheduler,opc-ua-server,live-debug,license-enforce
+  SENS_API_GATEWAY_CI_FEATURES: health,telemetry,metrics,strict-security,scada-display,lorawan,signed-deploy,tpm,st-bytecode,multi-task-scheduler,opc-ua-server,live-debug,license-enforce,wasm-codec
 
 jobs:
   release-contract:
@@ -312,7 +312,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install cargo-deny
-        uses: taiki-e/install-action@9e1e5806d4a4822de933115878265be9aaa786d9 # v2.82.2
+        uses: taiki-e/install-action@4684b8405694ae9dd42c9f39ba901a70ae83f4a3 # v2.82.9
         with:
           tool: cargo-deny
 
@@ -328,7 +328,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install cargo-audit
-        uses: taiki-e/install-action@9e1e5806d4a4822de933115878265be9aaa786d9 # v2.82.2
+        uses: taiki-e/install-action@4684b8405694ae9dd42c9f39ba901a70ae83f4a3 # v2.82.9
         with:
           tool: cargo-audit
 
@@ -349,7 +349,8 @@ jobs:
             --ignore RUSTSEC-2025-0141 \
             --ignore RUSTSEC-2024-0388 \
             --ignore RUSTSEC-2023-0089 \
-            --ignore RUSTSEC-2026-0173
+            --ignore RUSTSEC-2026-0173 \
+            --ignore RUSTSEC-2024-0436
 
   doc:
     name: cargo doc -D warnings

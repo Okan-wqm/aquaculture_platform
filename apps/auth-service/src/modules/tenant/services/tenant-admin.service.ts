@@ -779,7 +779,7 @@ export class TenantAdminService {
   }
 
   // =========================================================
-  // Tenant auth-security policy + localization preferences (ADR-042)
+  // Tenant auth-security policy + localization preferences (ADR-045)
   // =========================================================
 
   private async findTenantOrFail(tenantId: string): Promise<Tenant> {
@@ -791,7 +791,7 @@ export class TenantAdminService {
   }
 
   /**
-   * Read the EFFECTIVE tenant auth-security policy (ADR-042). The nullable
+   * Read the EFFECTIVE tenant auth-security policy (ADR-045). The nullable
    * enforce_mfa column collapses to its enforced meaning here (NULL → false)
    * so consumers never re-implement the default.
    */
@@ -804,7 +804,7 @@ export class TenantAdminService {
   }
 
   /**
-   * Update the tenant auth-security policy (ADR-042).
+   * Update the tenant auth-security policy (ADR-045).
    *
    * REVOCATION-ON-FLIP: when enforceMfa transitions false/NULL → true, the
    * refresh tokens of this tenant's users WITHOUT MFA enrolled are revoked
@@ -880,7 +880,7 @@ export class TenantAdminService {
   }
 
   /**
-   * ADR-042 revocation-on-flip helper: revoke every active refresh token of
+   * ADR-045 revocation-on-flip helper: revoke every active refresh token of
    * this tenant's users who have NOT enrolled MFA. Uses the same bulk
    * `refreshTokenRepository.update({ isRevoked: false } → revoked)` primitive
    * as logout-all / deactivateUser. Users WITH MFA keep their sessions —
@@ -906,7 +906,7 @@ export class TenantAdminService {
   }
 
   /**
-   * Read the tenant localization preferences (ADR-042 — a PREFERENCE
+   * Read the tenant localization preferences (ADR-045 — a PREFERENCE
    * container, deliberately separate from the security policy).
    */
   async getLocalizationPreferences(tenantId: string): Promise<TenantLocalizationPreferences> {
@@ -918,7 +918,7 @@ export class TenantAdminService {
   }
 
   /**
-   * Update the tenant localization preferences (ADR-042). Timezone is
+   * Update the tenant localization preferences (ADR-045). Timezone is
    * IANA-sanity-validated and dateFormat enum-validated at the input DTO.
    */
   async updateLocalizationPreferences(

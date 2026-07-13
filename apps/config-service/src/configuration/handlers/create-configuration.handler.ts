@@ -7,8 +7,10 @@ import {
 } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import { CreateConfigurationCommand } from '../commands/create-configuration.command';
 import { Configuration, ConfigValueType } from '../entities/configuration.entity';
+import { emitConfigurationChanged } from '../events/emit-configuration-changed';
 import { ConfigurationService } from '../services/configuration.service';
 import { ConfigurationValidationService } from '../services/configuration-validation.service';
 import { EncryptionService } from '../services/encryption.service';
@@ -26,16 +28,13 @@ export class CreateConfigurationHandler
     private readonly configurationService: ConfigurationService,
     private readonly validationService: ConfigurationValidationService,
     private readonly encryptionService: EncryptionService,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: CreateConfigurationCommand): Promise<Configuration> {
     const { tenantId, input, userId } = command;
 
-    this.validationService.validateValue(
-      input.value,
-      input.valueType,
-      input.validationRules,
-    );
+    this.validationService.validateValue(input.value, input.valueType, input.validationRules);
 
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -87,6 +86,15 @@ export class CreateConfigurationHandler
       });
 
       const savedConfig = await configRepo.save(configuration);
+
+      // ARCH-MEDIUM-003: emit the change signal atomically with the write.
+      await emitConfigurationChanged(
+        this.outboxPublisher,
+        queryRunner.manager,
+        savedConfig,
+        userId,
+      );
+
       await queryRunner.commitTransaction();
 
       this.configurationService.invalidateCache(tenantId, savedConfig.service, savedConfig.key);

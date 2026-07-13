@@ -1,14 +1,16 @@
-import {
-  Injectable,
-  Logger,
-  InternalServerErrorException,
-} from '@nestjs/common';
+import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { OutboxPublisher } from '@platform/outbox';
 import { pinRlsTenantScope } from '../../database/rls-scoped-session';
 import { UpsertConfigurationCommand } from '../commands/upsert-configuration.command';
-import { Configuration, ConfigurationHistory, ConfigValueType } from '../entities/configuration.entity';
+import {
+  Configuration,
+  ConfigurationHistory,
+  ConfigValueType,
+} from '../entities/configuration.entity';
+import { emitConfigurationChanged } from '../events/emit-configuration-changed';
 import { ConfigurationService } from '../services/configuration.service';
 import { EncryptionService } from '../services/encryption.service';
 
@@ -52,6 +54,7 @@ export class UpsertConfigurationHandler
     private readonly dataSource: DataSource,
     private readonly configurationService: ConfigurationService,
     private readonly encryptionService: EncryptionService,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: UpsertConfigurationCommand): Promise<Configuration> {
@@ -105,10 +108,12 @@ export class UpsertConfigurationHandler
           createdBy: userId,
           updatedBy: userId,
         })
-        .orUpdate(
-          resolveUpsertOverwriteColumns(canonicalIsSecret),
-          ['tenant_id', 'service', 'key', 'environment'],
-        )
+        .orUpdate(resolveUpsertOverwriteColumns(canonicalIsSecret), [
+          'tenant_id',
+          'service',
+          'key',
+          'environment',
+        ])
         .returning('*')
         .execute();
 
@@ -125,9 +130,7 @@ export class UpsertConfigurationHandler
         const previousWasSecret =
           existingConfig.isSecret || existingConfig.valueType === ConfigValueType.SECRET;
         const newIsSecret = canonicalIsSecret;
-        const previousDisplayValue = previousWasSecret
-          ? '[REDACTED]'
-          : existingConfig.value;
+        const previousDisplayValue = previousWasSecret ? '[REDACTED]' : existingConfig.value;
         const newDisplayValue = newIsSecret ? '[REDACTED]' : value;
 
         const history = historyRepo.create({
@@ -144,10 +147,16 @@ export class UpsertConfigurationHandler
 
         await historyRepo.save(history);
 
-        this.logger.debug(
-          `Configuration history recorded for upsert: ${service}/${key}`,
-        );
+        this.logger.debug(`Configuration history recorded for upsert: ${service}/${key}`);
       }
+
+      // Faz C (D6): enqueue a metadata-only ConfigurationChanged signal into the
+      // config_outbox IN THE SAME TRANSACTION as the config write — atomic, so a
+      // committed change always emits and a rolled-back one never does. Shared
+      // emit path across create/update/delete/upsert (ARCH-MEDIUM-003). The event
+      // NEVER carries the value/secret; a consumer (billing) uses it to
+      // invalidate its cached snapshot and re-fetch on demand via GET_SECRET.
+      await emitConfigurationChanged(this.outboxPublisher, queryRunner.manager, saved, userId);
 
       await queryRunner.commitTransaction();
       this.configurationService.invalidateCache(tenantId, service, key);

@@ -1,5 +1,7 @@
-import { DynamicModule, Module, Provider } from '@nestjs/common';
+import { DynamicModule, Module, Provider, Type, ForwardReference } from '@nestjs/common';
+
 import { CircuitBreakerModule } from '../resilience/circuit-breaker';
+
 import { StripeApiService } from './stripe-api.service';
 import { STRIPE_API_CLIENT, STRIPE_AUDIT_RECORDER } from './stripe-api.types';
 
@@ -36,18 +38,36 @@ export class StripeApiModule {
   static forRoot(opts: {
     clientProvider: Provider;
     auditProvider: Provider;
+    /**
+     * Extra modules the client/audit providers depend on (e.g. the Faz C
+     * ConfigClientModule that provides the ConfigRuntimeClient the
+     * DynamicStripeClientProvider injects). Merged after CircuitBreakerModule so
+     * the clientProvider's `inject` tokens resolve inside StripeApiModule's scope.
+     */
+    imports?: Array<Type<unknown> | DynamicModule | ForwardReference>;
+    /**
+     * Extra providers registered in StripeApiModule's scope (e.g. the
+     * DynamicStripeClientProvider the clientProvider factory injects).
+     */
+    providers?: Provider[];
+    /**
+     * Extra exports so an importing module (billing) can inject a provider
+     * declared here (e.g. DynamicStripeClientProvider → the ConfigurationChanged handler).
+     */
+    exports?: Array<Provider | symbol | string | Type<unknown>>;
   }): DynamicModule {
     // Sanity: the two provider tuples MUST target the canonical tokens —
     // otherwise StripeApiService cannot resolve its dependencies.
     return {
       module: StripeApiModule,
-      imports: [CircuitBreakerModule],
+      imports: [CircuitBreakerModule, ...(opts.imports ?? [])],
       providers: [
+        ...(opts.providers ?? []),
         opts.clientProvider,
         opts.auditProvider,
         StripeApiService,
       ],
-      exports: [StripeApiService],
+      exports: [StripeApiService, ...(opts.exports ?? [])],
     };
   }
 }

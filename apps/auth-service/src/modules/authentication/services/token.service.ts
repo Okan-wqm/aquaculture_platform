@@ -211,6 +211,13 @@ export class TokenService {
    *
    * Enforces session limits, creates DB-persisted refresh token, and
    * returns a full AuthPayload ready for the client.
+   *
+   * ADR-042 (chokepoint): the tenant's idle-session policy
+   * (auth.tenants.session_timeout_minutes) is resolved INSIDE this method
+   * (resolveTenantTokenPolicy) from the user's own tenant and clamps the
+   * refresh-token TTL. Because the clamp lives at the single mint chokepoint —
+   * not in each caller — NO mint path (login, rotation, MFA verify, step-up,
+   * invitation acceptance, password reset, WebAuthn) can forget it.
    */
   async generateTokens(
     user: User,
@@ -220,19 +227,6 @@ export class TokenService {
       mfaVerified?: boolean;
       familyId?: string;
       rememberMe?: boolean;
-      /**
-       * ADR-042: the tenant's idle-session policy (auth.tenants.
-       * session_timeout_minutes), threaded EXPLICITLY by the caller (login /
-       * rotation) — this service performs no hidden tenant reads. When set,
-       * the refresh-token TTL is clamped to
-       * MIN(configured TTL incl. rememberMe, policy): tenant policy wins.
-       * Applied at issuance AND rotation, so the policy behaves as a SLIDING
-       * idle timeout. Access-token TTL is untouched. Callers that do not
-       * thread it (MFA verify/step-up, invitation acceptance) mint with the
-       * configured TTL and converge on the clamp at the first rotation.
-       * null/undefined = no tenant policy.
-       */
-      sessionTimeoutMinutes?: number | null;
     },
   ): Promise<AuthPayload> {
     // SSoT: the effective tenant this token is scoped to — the user's own tenant.
@@ -271,15 +265,16 @@ export class TokenService {
     // JWT claim), the user's assigned site ids (SEC-HIGH-051) and enabled mobile
     // features (SEC-HIGH-052) are independent, so a single Promise.all keeps
     // token mint to one read latency instead of five serial round-trips.
-    const [modules, resourcePermissions, planLevel, assignedSiteIds, mobileFeatures] =
+    const [modules, resourcePermissions, tenantPolicy, assignedSiteIds, mobileFeatures] =
       await Promise.all([
         this.getUserModules(user),
         this.getUserResourcePermissions(user),
-        this.resolveTenantPlanLevel(effectiveTenantId),
+        this.resolveTenantTokenPolicy(effectiveTenantId),
         this.getUserAssignedSiteIds(user),
         this.getUserMobileFeatures(user),
       ]);
     const moduleCodes = modules.map((m) => m.code);
+    const planLevel = tenantPolicy.planLevel;
 
     // Generate JWT ID for token blacklisting
     const jti = crypto.randomUUID();
@@ -351,13 +346,16 @@ export class TokenService {
 
     // ADR-042: effective refresh TTL = MIN(configured TTL incl. rememberMe,
     // tenant session-timeout policy) — the tenant policy WINS, including over
-    // a rememberMe extension. Applied on every mint (login AND rotation), so
-    // a tenant idle timeout slides forward with activity and a policy
-    // REDUCTION takes effect at the next rotation.
+    // a rememberMe extension. The policy is resolved INSIDE this chokepoint
+    // (resolveTenantTokenPolicy, from the user's own tenant) rather than
+    // threaded by callers, so no mint path can forget the clamp. Applied on
+    // every mint (issuance AND rotation), so a tenant idle timeout slides
+    // forward with activity and a policy REDUCTION takes effect at the next
+    // rotation. Access-token TTL is untouched.
     const configuredTtlMs = expiryDays * 24 * 60 * 60 * 1000;
     const policyTtlMs =
-      options?.sessionTimeoutMinutes != null
-        ? options.sessionTimeoutMinutes * 60 * 1000
+      tenantPolicy.sessionTimeoutMinutes != null
+        ? tenantPolicy.sessionTimeoutMinutes * 60 * 1000
         : null;
     const effectiveTtlMs =
       policyTtlMs !== null ? Math.min(configuredTtlMs, policyTtlMs) : configuredTtlMs;
@@ -539,26 +537,45 @@ export class TokenService {
   }
 
   /**
-   * Resolve the tenant's plan-tier ordinal for the JWT `planLevel` claim
-   * (MT-MEDIUM-001). Platform accounts with no tenant (SUPER_ADMIN) have no
-   * plan, so the claim is omitted. An unrecognised plan string falls back to 0
-   * (FREE-equivalent) so a data anomaly can never silently unlock a paid tier.
+   * Resolve the per-mint tenant policy in a SINGLE auth.tenants read:
+   *   - `planLevel` — the tenant's plan-tier ordinal for the JWT `planLevel`
+   *     claim (MT-MEDIUM-001). Undefined for platform accounts (SUPER_ADMIN,
+   *     no tenant) so the claim is omitted; an unrecognised plan string falls
+   *     back to 0 (FREE-equivalent) so a data anomaly can never silently
+   *     unlock a paid tier.
+   *   - `sessionTimeoutMinutes` — the ADR-042 idle-session policy that clamps
+   *     the refresh-token TTL. Resolved HERE (inside the token chokepoint)
+   *     rather than threaded by callers, so every mint path is clamped and no
+   *     caller can forget it. null = no tenant policy (platform TTL applies).
+   *
+   * This widens by one column the same cross-tenant auth.tenants read the
+   * planLevel claim already performed on every mint (D14 — auth.tenants is
+   * cross-tenant by design), so it inherits the caller's RLS context (the
+   * login scoped frame / the rotation audited bypass) exactly as before.
    */
-  private async resolveTenantPlanLevel(
+  private async resolveTenantTokenPolicy(
     tenantId: string | null,
-  ): Promise<number | undefined> {
+  ): Promise<{ planLevel?: number; sessionTimeoutMinutes: number | null }> {
     if (!tenantId) {
-      return undefined;
+      return { sessionTimeoutMinutes: null };
     }
-    const rows = await this.dataSource.query<Array<{ plan: string }>>(
-      `SELECT plan FROM auth.tenants WHERE id = $1 LIMIT 1`,
+    const rows = await this.dataSource.query<
+      Array<{ plan: string; session_timeout_minutes: number | string | null }>
+    >(
+      `SELECT plan, session_timeout_minutes FROM auth.tenants WHERE id = $1 LIMIT 1`,
       [tenantId],
     );
-    const plan = rows[0]?.plan as TenantPlan | undefined;
-    if (!plan) {
-      return undefined;
+    const row = rows[0];
+    if (!row) {
+      return { sessionTimeoutMinutes: null };
     }
-    return PLAN_LEVEL[plan] ?? 0;
+    const plan = row.plan as TenantPlan | undefined;
+    const planLevel = plan ? PLAN_LEVEL[plan] ?? 0 : undefined;
+    // session_timeout_minutes is an int column (pg returns a JS number); coerce
+    // defensively so a string form still yields a number for the clamp.
+    const sessionTimeoutMinutes =
+      row.session_timeout_minutes != null ? Number(row.session_timeout_minutes) : null;
+    return { planLevel, sessionTimeoutMinutes };
   }
 
   /**

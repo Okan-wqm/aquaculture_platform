@@ -718,18 +718,35 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     });
   });
 
-  // ADR-042: tenant session-timeout policy clamps the refresh-token TTL —
-  // MIN(configured TTL incl. rememberMe, policy). Threaded explicitly by the
-  // caller; no hidden tenant reads happen here.
-  describe('tenant session-timeout clamp (ADR-042)', () => {
+  // ADR-042 (ADMIN-HIGH-015): the tenant session-timeout policy clamps the
+  // refresh-token TTL — MIN(configured TTL incl. rememberMe, policy). The
+  // policy is now resolved INSIDE generateTokens (the single mint chokepoint)
+  // from the user's own tenant (auth.tenants.session_timeout_minutes), NOT
+  // threaded by callers — so EVERY mint path (login, rotation, MFA verify,
+  // step-up, invitation acceptance, password reset, WebAuthn) is clamped and no
+  // caller can forget it. These tests drive the clamp via the mocked
+  // auth.tenants read, exactly as it happens at runtime for every caller.
+  describe('tenant session-timeout clamp (ADR-042 — resolved inside the chokepoint)', () => {
     const minutesFromNow = (d: Date): number => (d.getTime() - Date.now()) / 60_000;
 
-    it('clamps the refresh TTL to the tenant policy when policy < configured', async () => {
-      service = await createService({ config: { REFRESH_TOKEN_EXPIRY_DAYS: 7 } });
-
-      await service.generateTokens(buildUser({}), undefined, undefined, {
-        sessionTimeoutMinutes: 30,
+    // Route the auth.tenants read to a plan + session_timeout_minutes row.
+    const tenantPolicyQuery = (sessionTimeoutMinutes: number | null): jest.Mock =>
+      jest.fn((sql: string) => {
+        if (typeof sql === 'string' && sql.includes('FROM auth.tenants')) {
+          return Promise.resolve([
+            { plan: 'professional', session_timeout_minutes: sessionTimeoutMinutes },
+          ]);
+        }
+        return Promise.resolve([]);
       });
+
+    it('clamps the refresh TTL to the tenant policy when policy < configured', async () => {
+      service = await createService({
+        config: { REFRESH_TOKEN_EXPIRY_DAYS: 7 },
+        query: tenantPolicyQuery(30),
+      });
+
+      await service.generateTokens(buildUser({}));
 
       const savedRow = refreshSave.mock.calls[0]?.[0] as { expiresAt: Date };
       expect(minutesFromNow(savedRow.expiresAt)).toBeGreaterThan(29);
@@ -739,11 +756,11 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     it('tenant policy WINS over the rememberMe extension', async () => {
       service = await createService({
         config: { REFRESH_TOKEN_EXPIRY_DAYS: 7, REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30 },
+        query: tenantPolicyQuery(60),
       });
 
       await service.generateTokens(buildUser({}), undefined, undefined, {
         rememberMe: true,
-        sessionTimeoutMinutes: 60,
       });
 
       const savedRow = refreshSave.mock.calls[0]?.[0] as {
@@ -757,11 +774,12 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     });
 
     it('unset policy (null) → configured TTL applies unchanged', async () => {
-      service = await createService({ config: { REFRESH_TOKEN_EXPIRY_DAYS: 7 } });
-
-      await service.generateTokens(buildUser({}), undefined, undefined, {
-        sessionTimeoutMinutes: null,
+      service = await createService({
+        config: { REFRESH_TOKEN_EXPIRY_DAYS: 7 },
+        query: tenantPolicyQuery(null),
       });
+
+      await service.generateTokens(buildUser({}));
 
       const savedRow = refreshSave.mock.calls[0]?.[0] as { expiresAt: Date };
       const days = (savedRow.expiresAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000);
@@ -770,13 +788,14 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     });
 
     it('never EXTENDS the TTL: MIN semantics when policy > configured', async () => {
-      // Configured 1 day (1440 min); policy allows 1440 min too — but with a
-      // shorter configured TTL the configured value must win.
-      service = await createService({ config: { REFRESH_TOKEN_EXPIRY_DAYS: 1 } });
-
-      await service.generateTokens(buildUser({}), undefined, undefined, {
-        sessionTimeoutMinutes: 1440 * 2, // hypothetically larger than configured
+      // Configured 1 day (1440 min); policy allows 2880 min — the shorter
+      // configured value must win.
+      service = await createService({
+        config: { REFRESH_TOKEN_EXPIRY_DAYS: 1 },
+        query: tenantPolicyQuery(1440 * 2),
       });
+
+      await service.generateTokens(buildUser({}));
 
       const savedRow = refreshSave.mock.calls[0]?.[0] as { expiresAt: Date };
       const days = (savedRow.expiresAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000);
@@ -784,13 +803,31 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     });
 
     it('access-token expiresIn is untouched by the policy clamp', async () => {
-      service = await createService({ config: { JWT_EXPIRES_IN: '15m' } });
-
-      const result = await service.generateTokens(buildUser({}), undefined, undefined, {
-        sessionTimeoutMinutes: 5,
+      service = await createService({
+        config: { JWT_EXPIRES_IN: '15m' },
+        query: tenantPolicyQuery(5),
       });
 
+      const result = await service.generateTokens(buildUser({}));
+
       expect(result.expiresIn).toBe(15 * 60);
+    });
+
+    it('a platform account (no tenant) reads no policy and is not clamped', async () => {
+      const q = tenantPolicyQuery(5);
+      service = await createService({ config: { REFRESH_TOKEN_EXPIRY_DAYS: 7 }, query: q });
+
+      await service.generateTokens(buildUser({ role: Role.SUPER_ADMIN, tenantId: null }));
+
+      // No tenant → auth.tenants is never read, so no clamp is applied.
+      expect(q).not.toHaveBeenCalledWith(
+        expect.stringContaining('FROM auth.tenants'),
+        expect.anything(),
+      );
+      const savedRow = refreshSave.mock.calls[0]?.[0] as { expiresAt: Date };
+      const days = (savedRow.expiresAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000);
+      expect(days).toBeGreaterThan(6);
+      expect(days).toBeLessThanOrEqual(7);
     });
   });
 });

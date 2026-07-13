@@ -36,6 +36,7 @@ import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
+import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 import { AuthenticationService } from '../services/authentication.service';
 import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
@@ -154,6 +155,7 @@ describe('AuthenticationService — refresh-token reuse (hashed path, SEC-MEDIUM
         { provide: getRepositoryToken(ActionToken), useValue: {} },
         { provide: getRepositoryToken(UserModuleAssignment), useValue: { find: jest.fn() } },
         { provide: getRepositoryToken(Tenant), useValue: {} },
+        { provide: getRepositoryToken(WebAuthnCredential), useValue: { count: jest.fn() } },
         { provide: DataSource, useValue: mockDataSource },
         { provide: JwtService, useValue: { signAsync: jest.fn() } },
         { provide: ConfigService, useValue: mockConfigService },

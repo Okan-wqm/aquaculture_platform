@@ -33,6 +33,7 @@ import { ActionToken, ActionTokenPurpose, ActionTokenStatus } from '../entities/
 import { Invitation, InvitationStatus } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { User } from '../entities/user.entity';
+import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 
 import { MfaService } from './mfa.service';
 import { TokenService, parseExpiresIn } from './token.service';
@@ -96,6 +97,11 @@ export class AuthenticationService {
     private readonly actionTokenRepository: Repository<ActionToken>,
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
+    // ADR-042 (SEC-MEDIUM): the MFA-enrollment gate treats a registered
+    // WebAuthn credential as satisfying tenant MFA enforcement, so the gate
+    // must read the user's passkey/security-key count.
+    @InjectRepository(WebAuthnCredential)
+    private readonly webAuthnCredentialRepository: Repository<WebAuthnCredential>,
     private readonly dataSource: DataSource,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
@@ -445,54 +451,28 @@ export class AuthenticationService {
       }
 
       // ----------------------------------------------------------------
-      // ADR-042 MFA-ENFORCEMENT GATE: the tenant requires MFA but this
-      // user has none enrolled. Fail closed on token issuance — NO
-      // access/refresh tokens — but hand back a completable enrollment
-      // path instead of a lockout: a short-lived (10 min) 'mfa_setup'
-      // token that authorizes ONLY setupMfa + verifyMfaSetup. After
-      // verifyMfaSetup succeeds the user logs in again and walks the
-      // normal MFA challenge flow.
-      //
-      // The gate runs only when the MFA service is available: in
-      // production-like environments MFA availability is guaranteed at
-      // boot (MfaService fails fast without MFA_ENCRYPTION_KEY), so the
-      // no-key fallthrough below is reachable only in local/dev where
-      // enforcement without an enrollment path would be a hard lockout.
+      // ADR-042 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014, SEC-MEDIUM-003):
+      // the tenant requires MFA but this user has NEITHER TOTP nor a
+      // WebAuthn credential enrolled. resolveMfaEnrollmentGate is the
+      // single shared assertion every token-minting caller funnels
+      // through (login / acceptInvitation / resetPassword): it hands back
+      // a completable enrollment outcome (mfaSetupRequired + a 10-min
+      // mfa_setup token, no access/refresh) instead of a lockout, and
+      // FAILS CLOSED (throws + CRITICAL audit) when MFA is unavailable so
+      // enforcement never depends on the boot env heuristic. A user who
+      // ALREADY satisfies enforcement (TOTP above, or a WebAuthn passkey)
+      // returns null here and proceeds to a full session.
       // ----------------------------------------------------------------
-      if (
-        !user.mfaEnabled &&
-        tenant &&
-        tenant.enforceMfa === true &&
-        this.mfaService.isMfaAvailable()
-      ) {
+      const enrollmentGate = await this.resolveMfaEnrollmentGate(user, tenant, {
+        ipAddress,
+        userAgent,
+      });
+      if (enrollmentGate) {
         // Persist the reset failed-attempt counters, but NOT lastLoginAt —
         // like the MFA challenge branch, this is not yet a completed login.
         await this.userRepository.save(user);
-
-        const mfaSetupToken = this.mfaService.generateMfaSetupToken(user);
-
-        await this.logSecurityEvent('LOGIN_MFA_SETUP_REQUIRED', {
-          userId: user.id,
-          email: user.email,
-          tenantId: user.tenantId,
-          ipAddress,
-          userAgent,
-          success: true,
-          reason: 'Password valid; tenant enforces MFA and user has none enrolled',
-        });
-
         await this.ensureMinDuration(startTime);
-
-        return {
-          accessToken: '',
-          refreshToken: '',
-          user,
-          expiresIn: 0,
-          tokenType: 'Bearer',
-          redirectUrl: '',
-          mfaSetupRequired: true,
-          mfaSetupToken,
-        };
+        return enrollmentGate;
       }
 
       // No MFA — proceed with full login.
@@ -590,24 +570,21 @@ export class AuthenticationService {
           tenantId: user.tenantId,
           userId: user.id,
         };
-        // ADR-042: the tenant idle-session policy rides along explicitly —
-        // TokenService clamps the refresh TTL to MIN(configured, policy).
-        const sessionTimeoutMinutes = tenant ? tenant.sessionTimeoutMinutes ?? null : null;
+        // ADR-042: TokenService resolves this tenant's session-timeout policy
+        // itself and clamps the refresh TTL — the caller threads no policy.
         return await requestContextStorage.run(scopedContext, () =>
           this.tokenService.generateTokens(user, ipAddress, userAgent, {
             rememberMe: input.rememberMe ?? false,
-            sessionTimeoutMinutes,
           }),
         );
       }
       // SUPER_ADMIN: audited bypass for platform-level session creation.
-      // No tenant → no tenant session-timeout policy (ADR-042).
+      // No tenant → the chokepoint resolves no policy (platform TTL applies).
       return await this.bypassRls.withBypass(
         'auth-service:super-admin-login-tokens',
         () =>
           this.tokenService.generateTokens(user, ipAddress, userAgent, {
             rememberMe: input.rememberMe ?? false,
-            sessionTimeoutMinutes: null,
           }),
       );
     } catch (error) {
@@ -759,6 +736,19 @@ export class AuthenticationService {
       ),
     ]);
 
+    // ADR-042 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014): gate token issuance on MFA
+    // enrollment via the same shared assertion login uses. The invitation is
+    // already accepted and the password committed above (only token ISSUANCE is
+    // gated). A freshly-onboarded user has no factor, so an enforcing tenant
+    // returns the completable mfaSetupRequired outcome instead of a full
+    // session; a user who satisfies enforcement mints normally (clamp applied
+    // inside generateTokens).
+    const tenant = await this.resolveTenantForUser(result.tenantId);
+    const enrollmentGate = await this.resolveMfaEnrollmentGate(result, tenant, { ipAddress });
+    if (enrollmentGate) {
+      return enrollmentGate;
+    }
+
     return this.tokenService.generateTokens(result, ipAddress);
   }
 
@@ -884,21 +874,16 @@ export class AuthenticationService {
       refreshToken.revokedReason = 'Token refreshed';
       await tokenRepo.save(refreshToken);
 
-      // ADR-042: re-read the tenant policy at EVERY rotation (explicit
-      // caller-side read — TokenService performs no hidden repo reads) so
-      // the refresh-TTL clamp gives sliding idle-timeout semantics.
-      const sessionTimeoutMinutes = await this.resolveTenantSessionTimeout(
-        manager,
-        user.tenantId,
-      );
-
+      // ADR-042: the refresh-TTL clamp (sliding idle timeout) is applied inside
+      // TokenService.generateTokens, which re-reads this tenant's policy on
+      // every rotation — the caller threads no policy.
       // Preserve the rememberMe choice across rotation so a remembered session
       // stays persistent (the resolver re-issues a persistent vs session cookie).
       return this.tokenService.generateTokens(
         user,
         refreshToken.ipAddress ?? undefined,
         refreshToken.userAgent ?? undefined,
-        { rememberMe: refreshToken.rememberMe, sessionTimeoutMinutes },
+        { rememberMe: refreshToken.rememberMe },
       );
     }));
   }
@@ -1005,14 +990,9 @@ export class AuthenticationService {
       matchedToken.revokedReason = 'Token refreshed';
       await tokenRepo.save(matchedToken);
 
-      // ADR-042: same explicit rotation-time policy read as the non-hashed
-      // path — the clamp is what turns session_timeout_minutes into a
-      // SLIDING idle timeout.
-      const sessionTimeoutMinutes = await this.resolveTenantSessionTimeout(
-        manager,
-        user.tenantId,
-      );
-
+      // ADR-042: the refresh-TTL clamp (sliding idle timeout) is applied inside
+      // TokenService.generateTokens, which re-reads this tenant's policy on
+      // every rotation.
       // SECURITY (SEC-MEDIUM-003): the rotated token inherits the family of
       // the token it replaces, so reuse-detection can scope revocation to
       // this lineage instead of the whole user.
@@ -1023,37 +1003,124 @@ export class AuthenticationService {
         {
           familyId: matchedToken.familyId ?? undefined,
           rememberMe: matchedToken.rememberMe,
-          sessionTimeoutMinutes,
         },
       );
     });
   }
 
   /**
-   * ADR-042: resolve the tenant's idle-session policy (session_timeout_minutes)
-   * for a token-issuance caller. Lives HERE — at the caller — by design: the
-   * policy is threaded into TokenService.generateTokens as an explicit
-   * parameter, so TokenService stays free of hidden repository reads and the
-   * clamp is testable as pure input → output.
-   *
-   * Runs inside the rotation transaction's manager so the read shares the
-   * rotation's RLS-bypass context (the tenant row is cross-tenant by design —
-   * D14). Platform users (tenantId NULL) have no tenant policy.
+   * ADR-042: load the user's tenant row for the MFA-enrollment gate on the
+   * password-backed token-minting paths (acceptInvitation, resetPassword).
+   * auth.tenants is cross-tenant by design (D14) and readable without a tenant
+   * context — the same direct read login performs for its tenant-status gate.
+   * Platform users (tenantId NULL) have no tenant.
    */
-  private async resolveTenantSessionTimeout(
-    manager: EntityManager,
+  private async resolveTenantForUser(
     tenantId: string | null | undefined,
-  ): Promise<number | null> {
+  ): Promise<Tenant | null> {
     if (!tenantId) {
       return null;
     }
-    const tenant = await this.preTenantAuthRepository(manager, Tenant).findOne({
-      where: { id: tenantId },
+    return this.tenantRepository.findOne({ where: { id: tenantId } });
+  }
+
+  /**
+   * ADR-042 (SEC-MEDIUM): a user SATISFIES tenant MFA enforcement when they
+   * have TOTP MFA enrolled (`mfaEnabled`) OR at least one registered WebAuthn
+   * credential. WebAuthn is a first-class second factor, so a passkey /
+   * security-key user must NOT be forced onto TOTP enrollment. The credential
+   * read only runs for non-TOTP users (short-circuit), and only the gate calls
+   * this — for a tenant that does not enforce MFA it is never reached.
+   */
+  private async userSatisfiesMfaEnforcement(user: User): Promise<boolean> {
+    if (user.mfaEnabled) {
+      return true;
+    }
+    const credentialCount = await this.webAuthnCredentialRepository.count({
+      where: { userId: user.id },
     });
-    if (!tenant) {
+    return credentialCount > 0;
+  }
+
+  /**
+   * ADR-042 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014, SEC-MEDIUM-003) — the single
+   * shared assertion every password-backed token-minting caller funnels through
+   * (login, acceptInvitation, resetPassword). Returns:
+   *
+   *   - `null` → the caller MAY mint a full session: the tenant does not
+   *     enforce MFA, or the user already satisfies enforcement (TOTP OR a
+   *     WebAuthn credential).
+   *   - an `AuthPayload` carrying `mfaSetupRequired` + a 10-minute `mfa_setup`
+   *     token (no access/refresh) → the tenant enforces MFA, the user has
+   *     NEITHER factor, and MFA is available: a completable enrollment path,
+   *     not a lockout.
+   *
+   * Throws (fail-closed, SEC-MEDIUM-003) when the tenant enforces MFA, the user
+   * is unenrolled, AND the MFA service is UNAVAILABLE: enrollment is impossible
+   * so a full session must NEVER be issued, and a CRITICAL security-audit event
+   * records it. Enforcement therefore never depends on a boot-time env
+   * heuristic — it fails closed locally.
+   *
+   * WHY the assertion lives here and NOT inside the generateTokens clamp
+   * chokepoint: producing the graceful `mfaSetupRequired` outcome requires
+   * minting an `mfa_setup` token via MfaService, and TokenService cannot depend
+   * on MfaService without reintroducing the exact TokenService<->MfaService
+   * cycle TokenService was extracted to break. So the enforcement is a single
+   * shared, greppable helper rather than an in-chokepoint throw.
+   */
+  private async resolveMfaEnrollmentGate(
+    user: User,
+    tenant: Tenant | null,
+    audit: { ipAddress?: string; userAgent?: string },
+  ): Promise<AuthPayload | null> {
+    if (!tenant || tenant.enforceMfa !== true) {
       return null;
     }
-    return tenant.sessionTimeoutMinutes ?? null;
+    if (await this.userSatisfiesMfaEnforcement(user)) {
+      return null;
+    }
+
+    // Unenrolled user in an enforcing tenant.
+    if (!this.mfaService.isMfaAvailable()) {
+      // SEC-MEDIUM-003 fail-closed: no MFA key → the user cannot enroll, so a
+      // full session must not be issued. Deny + CRITICAL audit — this mirrors
+      // the enrolled-but-unavailable branch in login() and removes the
+      // dependence on the boot env heuristic.
+      await this.logSecurityEvent('LOGIN_BLOCKED_MFA_UNAVAILABLE', {
+        userId: user.id,
+        email: user.email,
+        tenantId: user.tenantId,
+        ipAddress: audit.ipAddress,
+        userAgent: audit.userAgent,
+        success: false,
+        reason:
+          'Tenant enforces MFA, user has no factor enrolled, and MFA service is unavailable',
+      }, AuditLogSeverity.CRITICAL);
+      throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
+    }
+
+    const mfaSetupToken = this.mfaService.generateMfaSetupToken(user);
+
+    await this.logSecurityEvent('LOGIN_MFA_SETUP_REQUIRED', {
+      userId: user.id,
+      email: user.email,
+      tenantId: user.tenantId,
+      ipAddress: audit.ipAddress,
+      userAgent: audit.userAgent,
+      success: true,
+      reason: 'Password valid; tenant enforces MFA and user has none enrolled',
+    });
+
+    return {
+      accessToken: '',
+      refreshToken: '',
+      user,
+      expiresIn: 0,
+      tokenType: 'Bearer',
+      redirectUrl: '',
+      mfaSetupRequired: true,
+      mfaSetupToken,
+    };
   }
 
   /**
@@ -1621,6 +1688,21 @@ export class AuthenticationService {
         createBaseEvent('PasswordResetCompleted', user.tenantId ?? 'system', { aggregateId: user.id, aggregateType: 'User', userId: user.id }),
       ),
     ]);
+
+    // ADR-042 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014): gate token issuance on MFA
+    // enrollment via the same shared assertion login/acceptInvitation use. The
+    // password reset AND the full session/refresh-token revocation above have
+    // already committed; if the tenant enforces MFA and this user has neither
+    // TOTP nor a WebAuthn credential, hand back the completable mfaSetupRequired
+    // outcome instead of a session (only token ISSUANCE is gated).
+    const tenant = await this.resolveTenantForUser(user.tenantId);
+    const enrollmentGate = await this.resolveMfaEnrollmentGate(user, tenant, {
+      ipAddress,
+      userAgent,
+    });
+    if (enrollmentGate) {
+      return enrollmentGate;
+    }
 
     // Generate new tokens so user is immediately logged in
     return this.tokenService.generateTokens(user, ipAddress, userAgent);

@@ -18,6 +18,7 @@ import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
+import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 import { AuthenticationService } from '../services/authentication.service';
 import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
@@ -149,6 +150,15 @@ const mockTokenService = {
 const mockMfaService = {
   isMfaAvailable: jest.fn().mockReturnValue(false),
   generateMfaChallenge: jest.fn(),
+  // ADR-042: the enrollment gate mints a pre-session setup token when the tenant
+  // enforces MFA and the user has none enrolled.
+  generateMfaSetupToken: jest.fn().mockReturnValue('mock-mfa-setup-token'),
+};
+
+// ADR-042 (SEC-MEDIUM): enrollment gate reads the user's WebAuthn credential
+// count. Default 0 — the reset/accept paths don't gate unless a test opts in.
+const mockWebAuthnCredentialRepository = {
+  count: jest.fn().mockResolvedValue(0),
 };
 
 const mockDataSource = {
@@ -186,6 +196,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
         { provide: getRepositoryToken(ActionToken), useValue: mockActionTokenRepository },
         { provide: getRepositoryToken(UserModuleAssignment), useValue: mockUserModuleAssignmentRepository },
         { provide: getRepositoryToken(Tenant), useValue: mockTenantRepository },
+        { provide: getRepositoryToken(WebAuthnCredential), useValue: mockWebAuthnCredentialRepository },
         { provide: DataSource, useValue: mockDataSource },
         { provide: JwtService, useValue: mockJwtService },
         { provide: ConfigService, useValue: mockConfigService },
@@ -577,6 +588,89 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
       expect(savedUser.password).toBe('NewPass123!');
+    });
+
+    // ========================================================================
+    // ADR-042 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014) — resetPassword must gate
+    // token issuance for a non-MFA user in an enforcing tenant, via the SAME
+    // shared assertion login uses. Only ISSUANCE is gated; the password reset
+    // and session revocation side effects still commit.
+    // ========================================================================
+    describe('ADR-042 MFA-enforcement gate', () => {
+      const setupValidReset = (user: User): void => {
+        (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(user);
+        mockUserRepository.save.mockResolvedValue(user);
+        mockRefreshTokenRepository.update.mockResolvedValue({ affected: 1 });
+        mockRefreshTokenRepository.create.mockReturnValue({ id: 'rt-1' });
+        mockRefreshTokenRepository.save.mockResolvedValue({ id: 'rt-1' });
+        mockUserModuleAssignmentRepository.find.mockResolvedValue([]);
+      };
+
+      const enforcingTenant = (): Tenant =>
+        Object.assign(new Tenant(), { id: 'tenant-uuid-123', enforceMfa: true });
+
+      it('enforced + user WITHOUT any factor → mfaSetupRequired, NO full tokens (password still reset)', async () => {
+        const user = createMockUser({
+          mfaEnabled: false,
+          passwordResetToken: tokenHash,
+          passwordResetExpires: new Date(Date.now() + 60 * 60 * 1000),
+        });
+        setupValidReset(user);
+        mockTenantRepository.findOne.mockResolvedValue(enforcingTenant());
+        mockMfaService.isMfaAvailable.mockReturnValue(true);
+        mockWebAuthnCredentialRepository.count.mockResolvedValue(0);
+
+        const result = await service.resetPassword(plainToken, 'NewPass123!');
+
+        expect(result.mfaSetupRequired).toBe(true);
+        expect(result.mfaSetupToken).toBe('mock-mfa-setup-token');
+        expect(result.accessToken).toBe('');
+        expect(result.refreshToken).toBe('');
+        expect(mockTokenService.generateTokens).not.toHaveBeenCalled();
+        // Password reset side effects still committed (only issuance is gated).
+        const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
+        expect(savedUser.password).toBe('NewPass123!');
+        expect(mockRefreshTokenRepository.update).toHaveBeenCalledWith(
+          { userId: 'user-uuid-123', isRevoked: false },
+          expect.objectContaining({ revokedReason: 'Password reset' }),
+        );
+      });
+
+      it('enforced + user WITH a WebAuthn credential → full tokens (WebAuthn satisfies enforcement)', async () => {
+        const user = createMockUser({
+          mfaEnabled: false,
+          passwordResetToken: tokenHash,
+          passwordResetExpires: new Date(Date.now() + 60 * 60 * 1000),
+        });
+        setupValidReset(user);
+        mockTenantRepository.findOne.mockResolvedValue(enforcingTenant());
+        mockMfaService.isMfaAvailable.mockReturnValue(true);
+        mockWebAuthnCredentialRepository.count.mockResolvedValue(1);
+
+        const result = await service.resetPassword(plainToken, 'NewPass123!');
+
+        expect(result.accessToken).toBe('mock-access-token');
+        expect(result.mfaSetupRequired).toBeUndefined();
+        expect(mockMfaService.generateMfaSetupToken).not.toHaveBeenCalled();
+        expect(mockTokenService.generateTokens).toHaveBeenCalled();
+      });
+
+      it('non-enforcing tenant → full tokens (gate is a passthrough)', async () => {
+        const user = createMockUser({
+          mfaEnabled: false,
+          passwordResetToken: tokenHash,
+          passwordResetExpires: new Date(Date.now() + 60 * 60 * 1000),
+        });
+        setupValidReset(user);
+        mockTenantRepository.findOne.mockResolvedValue(
+          Object.assign(new Tenant(), { id: 'tenant-uuid-123', enforceMfa: false }),
+        );
+
+        const result = await service.resetPassword(plainToken, 'NewPass123!');
+
+        expect(result.accessToken).toBe('mock-access-token');
+        expect(mockTokenService.generateTokens).toHaveBeenCalled();
+      });
     });
   });
 });

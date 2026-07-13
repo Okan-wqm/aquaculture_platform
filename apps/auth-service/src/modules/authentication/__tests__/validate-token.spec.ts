@@ -20,6 +20,7 @@ import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
+import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 import { AuthenticationService } from '../services/authentication.service';
 import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
@@ -82,6 +83,7 @@ describe('AuthenticationService.validateToken (SEC-MEDIUM-004)', () => {
         { provide: getRepositoryToken(ActionToken), useValue: {} },
         { provide: getRepositoryToken(UserModuleAssignment), useValue: { find: jest.fn() } },
         { provide: getRepositoryToken(Tenant), useValue: {} },
+        { provide: getRepositoryToken(WebAuthnCredential), useValue: { count: jest.fn() } },
         { provide: DataSource, useValue: { transaction: jest.fn(), query: jest.fn() } },
         { provide: JwtService, useValue: jwtService },
         { provide: ConfigService, useValue: mockConfigService },

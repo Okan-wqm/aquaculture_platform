@@ -39,6 +39,7 @@ import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
+import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 import {
   AuthenticationService,
   decodeRefreshTokenTransport,
@@ -173,6 +174,14 @@ const mockUserModuleAssignmentRepository = {
 
 const mockTenantRepository = {
   findOne: jest.fn(),
+};
+
+// ADR-042 (SEC-MEDIUM): the enrollment gate reads the user's WebAuthn credential
+// count to decide whether a passkey satisfies MFA enforcement. Default 0 (no
+// credential) so a non-TOTP user in an enforcing tenant is unsatisfied unless a
+// test opts in.
+const mockWebAuthnCredentialRepository = {
+  count: jest.fn().mockResolvedValue(0),
 };
 
 const mockJwtService = {
@@ -375,6 +384,7 @@ describe('AuthenticationService', () => {
         { provide: getRepositoryToken(ActionToken), useValue: mockActionTokenRepository },
         { provide: getRepositoryToken(UserModuleAssignment), useValue: mockUserModuleAssignmentRepository },
         { provide: getRepositoryToken(Tenant), useValue: mockTenantRepository },
+        { provide: getRepositoryToken(WebAuthnCredential), useValue: mockWebAuthnCredentialRepository },
         { provide: DataSource, useValue: mockDataSource },
         { provide: JwtService, useValue: mockJwtService },
         { provide: ConfigService, useValue: mockConfigService },
@@ -661,10 +671,10 @@ describe('AuthenticationService', () => {
       // token.service.spec.ts where the collaborator lives.
       expect(result.accessToken).toBe('mock-access-token');
       // ORPHAN-LOW-135: login threads the rememberMe choice (default false) into issuance.
-      // ADR-042: and the tenant session-timeout policy (unset here → null).
+      // ADR-042: the session-timeout clamp is now resolved INSIDE
+      // generateTokens (the chokepoint), so login threads NO policy param.
       expect(mockTokenService.generateTokens).toHaveBeenCalledWith(user, '127.0.0.1', 'test-agent', {
         rememberMe: false,
-        sessionTimeoutMinutes: null,
       });
     });
 
@@ -755,11 +765,12 @@ describe('AuthenticationService', () => {
       expect(mockMfaService.generateMfaSetupToken).not.toHaveBeenCalled();
     });
 
-    it('enforced but MFA service unavailable → passthrough (dev-only; prod fails boot without the MFA key)', async () => {
-      // WHY pinned: in production-like environments MfaService throws at boot
-      // without MFA_ENCRYPTION_KEY, so this branch is reachable only in
-      // local/dev — where blocking would be a hard lockout with no
-      // enrollment path.
+    it('SEC-MEDIUM-003: enforced + unenrolled + MFA service unavailable → FAILS CLOSED (deny + CRITICAL audit)', async () => {
+      // WHY changed from the old passthrough: enforcement must never depend on
+      // the boot env heuristic. When the tenant enforces MFA, the user has no
+      // factor, and MFA is unavailable (no enrollment path), issuance is denied
+      // and a CRITICAL security-audit event is written — the symmetric
+      // fail-closed branch to the enrolled-but-unavailable case.
       const user = createMockUser({ mfaEnabled: false });
       mockUserRepository.findOne.mockResolvedValue(user);
       mockTenantRepository.findOne.mockResolvedValue(
@@ -771,15 +782,49 @@ describe('AuthenticationService', () => {
       mockBcryptCompare.mockResolvedValue(true);
       mockUserRepository.save.mockResolvedValue(user);
 
-      const result = await service.login(validInput);
+      await expect(service.login(validInput)).rejects.toThrow(UnauthorizedException);
+
+      expect(mockTokenService.generateTokens).not.toHaveBeenCalled();
+      expect(mockMfaService.generateMfaSetupToken).not.toHaveBeenCalled();
+      expect(mockAuditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'LOGIN_BLOCKED_MFA_UNAVAILABLE',
+          severity: 'critical',
+        }),
+      );
+    });
+
+    it('SEC-MEDIUM: enforced + no TOTP but a registered WebAuthn credential → WebAuthn satisfies enforcement, full tokens', async () => {
+      const user = createMockUser({ mfaEnabled: false });
+      mockUserRepository.findOne.mockResolvedValue(user);
+      mockTenantRepository.findOne.mockResolvedValue(
+        createMockTenant({ enforceMfa: true }),
+      );
+      // The user has >=1 active WebAuthn credential → enrollment satisfied.
+      mockWebAuthnCredentialRepository.count.mockResolvedValueOnce(1);
+      mockBcryptCompare.mockResolvedValue(true);
+      mockUserRepository.save.mockResolvedValue(user);
+
+      const result = await service.login(validInput, '127.0.0.1', 'test-agent');
 
       expect(result.accessToken).toBe('mock-access-token');
       expect(result.mfaSetupRequired).toBeUndefined();
+      expect(mockMfaService.generateMfaSetupToken).not.toHaveBeenCalled();
+      // The credential population was consulted for the enforcement decision.
+      expect(mockWebAuthnCredentialRepository.count).toHaveBeenCalledWith({
+        where: { userId: user.id },
+      });
+      // And a full session was minted (clamp is resolved inside generateTokens).
+      expect(mockTokenService.generateTokens).toHaveBeenCalledWith(user, '127.0.0.1', 'test-agent', {
+        rememberMe: false,
+      });
     });
 
-    it('threads the tenant session-timeout policy into token issuance (ADR-042 clamp input)', async () => {
+    it('ADR-042: login threads NO session-timeout param — the clamp is resolved inside generateTokens', async () => {
       const user = createMockUser();
       mockUserRepository.findOne.mockResolvedValue(user);
+      // Even with a tenant policy set, login does not thread it: the chokepoint
+      // (TokenService.generateTokens, mocked here) resolves it from the tenant.
       mockTenantRepository.findOne.mockResolvedValue(
         createMockTenant({ sessionTimeoutMinutes: 30 }),
       );
@@ -792,8 +837,86 @@ describe('AuthenticationService', () => {
         user,
         '127.0.0.1',
         'test-agent',
-        { rememberMe: false, sessionTimeoutMinutes: 30 },
+        { rememberMe: false },
       );
+    });
+  });
+
+  // ==========================================================================
+  // acceptInvitation() — ADR-042 MFA-enforcement gate
+  // ==========================================================================
+  describe('acceptInvitation() — ADR-042 MFA-enforcement gate', () => {
+    // Purpose-built transaction manager: the accept flow locks the action /
+    // invitation rows via query builders and resolves the just-onboarded user.
+    const wireTransaction = (user: User): void => {
+      const invitation: Record<string, unknown> = {
+        canBeAccepted: () => true,
+        isExpired: () => false,
+        status: 'PENDING',
+      };
+      const buildQb = (getOne: unknown) => ({
+        setLock: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(getOne),
+      });
+      const manager = {
+        getRepository: jest.fn((entity: unknown) => {
+          if (entity === ActionToken) return { createQueryBuilder: () => buildQb(null) };
+          if (entity === Invitation) return { createQueryBuilder: () => buildQb(invitation) };
+          if (entity === User) return { findOne: jest.fn().mockResolvedValue(user) };
+          return {};
+        }),
+        save: jest.fn().mockResolvedValue(undefined),
+      };
+      mockDataSource.transaction.mockImplementation(
+        async (cb: (m: unknown) => Promise<unknown>) => cb(manager),
+      );
+    };
+
+    const onboardedUser = (): User =>
+      createMockUser({ mfaEnabled: false, invitationToken: 'inv-hash', password: undefined });
+
+    it('enforced + user WITHOUT any factor → mfaSetupRequired, NO full tokens (invitation still accepted)', async () => {
+      const user = onboardedUser();
+      wireTransaction(user);
+      mockTenantRepository.findOne.mockResolvedValue(createMockTenant({ enforceMfa: true }));
+      mockMfaService.isMfaAvailable.mockReturnValue(true);
+      mockWebAuthnCredentialRepository.count.mockResolvedValue(0);
+
+      const result = await service.acceptInvitation('inv-token', 'NewPass123!');
+
+      expect(result.mfaSetupRequired).toBe(true);
+      expect(result.mfaSetupToken).toBe('mock-mfa-setup-token');
+      expect(result.accessToken).toBe('');
+      expect(result.refreshToken).toBe('');
+      expect(mockTokenService.generateTokens).not.toHaveBeenCalled();
+    });
+
+    it('enforced + user WITH a WebAuthn credential → full tokens (WebAuthn satisfies enforcement)', async () => {
+      const user = onboardedUser();
+      wireTransaction(user);
+      mockTenantRepository.findOne.mockResolvedValue(createMockTenant({ enforceMfa: true }));
+      mockMfaService.isMfaAvailable.mockReturnValue(true);
+      mockWebAuthnCredentialRepository.count.mockResolvedValue(1);
+
+      const result = await service.acceptInvitation('inv-token', 'NewPass123!');
+
+      expect(result.accessToken).toBe('mock-access-token');
+      expect(result.mfaSetupRequired).toBeUndefined();
+      expect(mockMfaService.generateMfaSetupToken).not.toHaveBeenCalled();
+      expect(mockTokenService.generateTokens).toHaveBeenCalled();
+    });
+
+    it('non-enforcing tenant → full tokens (gate is a passthrough)', async () => {
+      const user = onboardedUser();
+      wireTransaction(user);
+      mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
+
+      const result = await service.acceptInvitation('inv-token', 'NewPass123!');
+
+      expect(result.accessToken).toBe('mock-access-token');
+      expect(mockTokenService.generateTokens).toHaveBeenCalled();
     });
   });
 

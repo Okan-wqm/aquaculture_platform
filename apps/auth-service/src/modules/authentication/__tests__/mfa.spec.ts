@@ -694,6 +694,43 @@ describe('MfaService', () => {
   });
 
   // ==========================================================================
+  // verifyStepUp — ADR-042: mints through the generateTokens chokepoint, so the
+  // tenant session-timeout clamp is applied automatically (no policy threaded).
+  // ==========================================================================
+  describe('verifyStepUp', () => {
+    it('mints an elevated token through generateTokens (clamp resolved inside the chokepoint)', async () => {
+      const secretBase32 = 'JBSWY3DPEHPK3PXP';
+      const validCode = generateTestTOTP(base32Decode(secretBase32));
+      const user = createMockUser({ mfaEnabled: true, mfaSecret: secretBase32 });
+      mockUserRepository.findOne.mockResolvedValue(user);
+
+      const result = await service.verifyStepUp('user-uuid-123', validCode, '127.0.0.1');
+
+      expect(result.accessToken).toBe('full-access-token');
+      // Routes through the single mint chokepoint with mfaVerified. No
+      // sessionTimeoutMinutes is threaded — the clamp is resolved INSIDE
+      // generateTokens from the user's tenant, so the step-up mint is clamped
+      // like every other path.
+      expect(mockTokenService.generateTokens).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'user-uuid-123' }),
+        '127.0.0.1',
+        undefined,
+        { mfaVerified: true },
+      );
+    });
+
+    it('rejects an invalid step-up code without minting', async () => {
+      const user = createMockUser({ mfaEnabled: true, mfaSecret: 'JBSWY3DPEHPK3PXP' });
+      mockUserRepository.findOne.mockResolvedValue(user);
+
+      await expect(
+        service.verifyStepUp('user-uuid-123', '000000', '127.0.0.1'),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(mockTokenService.generateTokens).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==========================================================================
   // regenerateRecoveryCodes
   // ==========================================================================
   describe('regenerateRecoveryCodes', () => {

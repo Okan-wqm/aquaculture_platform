@@ -362,6 +362,12 @@ aws-lc-sys = { version = "0.40", features = ["bindgen"] }
 aes = { version = "0.8", optional = true }
 cmac = { version = "0.7", optional = true }
 lorawan = { version = "0.9", optional = true }
+
+# wasmi — sandboxed interpreter for custom LoRaWAN payload decoders (optional,
+# activated by the `wasm-codec` feature). Pure-Rust, no JIT — the right fit for
+# the memory-constrained aarch64 edge target. Pinned exact per deny.toml wildcard
+# policy. Apache-2.0/MIT (allow-listed).
+wasmi = { version = "=0.36.5", optional = true }
 # Constant-time comparison for MIC verification + PIN verification (timing side-channel protection)
 subtle = "2"
 # EDGE-MEDIUM-003: Promoted from optional (lorawan-only) to required dependency.
@@ -433,6 +439,15 @@ edge-rc4 = ["scada-display"]
 # sources. Real concentrator builds must enable `sx1302-vendor-hal` explicitly.
 # EDGE-MEDIUM-003: dep:zeroize removed — zeroize is now a required dependency
 lorawan = ["dep:aes", "dep:cmac", "dep:lorawan"]
+
+# WHY: Custom LoRaWAN payload decoders (ADR-026 follow-on) — per-vendor formats
+#      run as sandboxed wasm instead of native code on the edge device.
+# WHAT: Fills the `CodecType::Custom` arm in src/lora/codec.rs via a wasmi engine
+#       (src/lora/wasm_decoder.rs) with a per-invocation fuel + memory bound.
+#       Implies `lorawan` (the whole lora module is lorawan-gated).
+# INVARIANT: Feature OFF → no wasmi symbols in binary; custom codecs stay a
+#            warn+empty no-op (feature-off symbol-absence test).
+wasm-codec = ["lorawan", "dep:wasmi"]
 
 # 2026-04-30: Enterprise feature split for Semtech SX1302 hardware builds.
 # WHAT: enables bindgen/cc against vendor/sx1302_hal C sources.
@@ -517,6 +532,10 @@ tempfile = "3.10"
 #       precursor to cargo-fuzz targets (bytecode, envelope, policy, modbus parsers).
 criterion = { version = "0.5", features = ["html_reports"] }
 proptest = "1.5"
+
+# wat — assembles WebAssembly text fixtures inline for the wasm-codec decoder
+# tests, so no pre-built binary blobs are committed for unit coverage.
+wat = "1"
 
 [profile.release]
 opt-level = "z"     # Optimize for size

@@ -29815,18 +29815,6 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
-      "path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/manifest.json",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_docs",
-      "owner": "docs",
-      "path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/manifest.json",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_docs",
-      "owner": "docs",
       "path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/README.md",
       "prettier_managed": true
     },
@@ -53820,10 +53808,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8819,
+  "file_count": 8817,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8638,
-  "managed_file_list_sha256": "e629a8da6204794a46f04c9e86fba119ec1d9740f2cfdb0021378047d6ec80f1",
+  "managed_count": 8636,
+  "managed_file_list_sha256": "8ce16bf0f05324115aec7473efea00319bc853385e5c78b93982624cdd9aa423",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

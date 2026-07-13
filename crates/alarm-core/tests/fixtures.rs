@@ -39,6 +39,12 @@ fn f64_of(v: &Value, key: &str) -> f64 {
         .unwrap_or_else(|| panic!("case missing numeric '{key}': {v}"))
 }
 
+fn u64_of(v: &Value, key: &str) -> u64 {
+    v.get(key)
+        .and_then(Value::as_u64)
+        .unwrap_or_else(|| panic!("case missing integer '{key}': {v}"))
+}
+
 fn str_of<'a>(v: &'a Value, key: &str) -> &'a str {
     v.get(key)
         .and_then(Value::as_str)
@@ -83,8 +89,8 @@ fn every_alarm_decision_fixture_matches() {
     }
 
     for case in &suite.delay {
-        let elapsed = f64_of(case, "elapsed_ms") as u64;
-        let delay = f64_of(case, "delay_ms") as u64;
+        let elapsed = u64_of(case, "elapsed_ms");
+        let delay = u64_of(case, "delay_ms");
         let got = delay_elapsed(elapsed, delay);
         let want = case.get("expected").and_then(Value::as_bool).unwrap();
         assert_eq!(got, want, "delay case '{}'", name_of(case));

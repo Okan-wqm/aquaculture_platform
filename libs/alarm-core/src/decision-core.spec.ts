@@ -79,3 +79,19 @@ describe('alarm-core wasm façade — decision fixture parity', () => {
     },
   );
 });
+
+// NaN cannot be encoded in the shared JSON fixture, so its fail-safe contract is
+// pinned here (and by the twin Rust unit test `nan_value_is_fail_safe`) so the
+// two engines stay aligned on a garbage sample.
+describe('alarm-core wasm façade — NaN is fail-safe', () => {
+  it('raises no condition for a NaN reading (every operator)', () => {
+    for (const op of ['<', '>', '<=', '>=', '==', '!=']) {
+      expect(evaluateCondition(op, NaN, 50.0, epsilon)).toBe(false);
+    }
+  });
+
+  it('never clears an active alarm on a NaN reading', () => {
+    expect(isOutsideDeadband('>', NaN, 50.0, 2.0)).toBe(false);
+    expect(isOutsideDeadband('==', NaN, 50.0, 2.0)).toBe(false);
+  });
+});

@@ -42,6 +42,21 @@
 //!   * The delay gate is millisecond-precision with NO integer-second
 //!     truncation; the caller supplies elapsed-ms and delay-ms from its own
 //!     (monotonic edge / wall-clock runtime) source.
+//!
+//! EDGE-CASE CONTRACT (explicit so it cannot silently regress):
+//!   * `deadband` MUST be non-negative — it is a magnitude, not a signed
+//!     offset. A negative deadband would invert the hysteresis (an alarm could
+//!     "clear" while still past the threshold), so callers validate it at the
+//!     rule boundary. [`is_outside_deadband`] carries a `debug_assert!` that
+//!     catches a negative deadband in tests; release builds trust the contract.
+//!   * `NaN` values are fail-safe: a `NaN` reading makes [`evaluate_condition`]
+//!     return `false` for EVERY operator (no spurious alarm) and
+//!     [`is_outside_deadband`] return `false` for every operator (an active
+//!     alarm stays latched rather than clearing on garbage). Upstream ingestion
+//!     is expected to filter `NaN`; this is the defence in depth if it does not.
+//!   * The `!=` deadband clear boundary is EXCLUSIVE like every other operator:
+//!     at exactly `|value − threshold| == deadband` the alarm stays latched, so
+//!     `==` and `!=` remain exact complements at the band edge (no chatter).
 
 #![cfg_attr(not(test), forbid(unsafe_code))]
 #![cfg_attr(not(test), deny(missing_docs))]
@@ -67,7 +82,8 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// `operator` is the wire symbol as stored in a rule (`"<"`, `">"`, `"=="`,
 /// `"!="`, `"<="`, `">="`). Equality (`==`) and inequality (`!=`) compare within
 /// `epsilon` (see [`DEFAULT_EPSILON`]). An unrecognised operator yields `false`
-/// (no alarm) — matching both engines' fail-safe default.
+/// (no alarm) — matching both engines' fail-safe default. A `NaN` `value`
+/// yields `false` for every operator (fail-safe: no alarm on a garbage sample).
 #[must_use]
 pub fn evaluate_condition(operator: &str, value: f64, threshold: f64, epsilon: f64) -> bool {
     match operator {
@@ -86,11 +102,22 @@ pub fn evaluate_condition(operator: &str, value: f64, threshold: f64, epsilon: f
 ///
 /// The caller invokes this only after finding the raw condition no longer met;
 /// this predicate adds the hysteresis margin so the alarm does not chatter near
-/// the threshold. Boundaries are EXCLUSIVE (strictly past `threshold ± deadband`).
-/// A `deadband` of `0` means no hysteresis and returns `true`. An unrecognised
-/// operator yields `true` (allow clear) — matching both engines' default.
+/// the threshold. Boundaries are EXCLUSIVE for every operator (strictly past
+/// `threshold ± deadband`), including the two-sided `==` / `!=` family — at
+/// exactly `|value − threshold| == deadband` the alarm stays latched, so `==`
+/// and `!=` remain exact complements at the edge. A `deadband` of `0` means no
+/// hysteresis and returns `true`. An unrecognised operator yields `true` (allow
+/// clear) — matching both engines' default. A `NaN` `value` yields `false`
+/// (fail-safe: an active alarm stays latched rather than clearing on garbage).
+///
+/// `deadband` must be non-negative (it is a magnitude); a negative value is a
+/// caller contract violation caught by `debug_assert!` in test builds.
 #[must_use]
 pub fn is_outside_deadband(operator: &str, value: f64, threshold: f64, deadband: f64) -> bool {
+    debug_assert!(
+        deadband >= 0.0 || deadband.is_nan(),
+        "deadband must be non-negative; callers validate at the rule boundary"
+    );
     if deadband == 0.0 {
         return true;
     }
@@ -98,7 +125,7 @@ pub fn is_outside_deadband(operator: &str, value: f64, threshold: f64, deadband:
         ">" | ">=" => value < threshold - deadband,
         "<" | "<=" => value > threshold + deadband,
         "==" => (value - threshold).abs() > deadband,
-        "!=" => (value - threshold).abs() <= deadband,
+        "!=" => (value - threshold).abs() < deadband,
         _ => true,
     }
 }
@@ -173,5 +200,42 @@ mod tests {
         assert!(delay_elapsed(2_001, 2_000));
         // No whole-second truncation: 1900 ms does NOT satisfy a 2 s delay.
         assert!(!delay_elapsed(1_900, 2_000));
+    }
+
+    #[test]
+    fn ne_deadband_boundary_is_exclusive_complement_of_eq() {
+        // At exactly |value - threshold| == deadband, '!=' stays latched (false)
+        // just as '==' does — the two remain exact complements at the band edge.
+        assert!(!is_outside_deadband("!=", 52.0, 50.0, 2.0)); // edge — stays latched
+        assert!(!is_outside_deadband("==", 52.0, 50.0, 2.0)); // mirror at the same edge
+        // Strictly within the band: '!=' clears (value has returned toward threshold).
+        assert!(is_outside_deadband("!=", 51.0, 50.0, 2.0));
+    }
+
+    #[test]
+    fn nan_value_is_fail_safe() {
+        // A NaN reading raises NO condition (no spurious alarm) …
+        assert!(!evaluate_condition(">", f64::NAN, 50.0, EPS));
+        assert!(!evaluate_condition("<", f64::NAN, 50.0, EPS));
+        assert!(!evaluate_condition("==", f64::NAN, 50.0, EPS));
+        assert!(!evaluate_condition("!=", f64::NAN, 50.0, EPS));
+        // … and never clears an active alarm (stays latched on garbage).
+        assert!(!is_outside_deadband(">", f64::NAN, 50.0, 2.0));
+        assert!(!is_outside_deadband("==", f64::NAN, 50.0, 2.0));
+    }
+
+    #[test]
+    fn equality_epsilon_boundary_is_exclusive() {
+        // At exactly |value - threshold| == epsilon, '==' is NOT satisfied
+        // (the boundary is exclusive, `< epsilon`), and '!=' IS satisfied.
+        assert!(!evaluate_condition("==", 50.0 + EPS, 50.0, EPS));
+        assert!(evaluate_condition("!=", 50.0 + EPS, 50.0, EPS));
+    }
+
+    #[test]
+    #[should_panic(expected = "deadband must be non-negative")]
+    fn negative_deadband_trips_debug_assert() {
+        // Contract guard: a negative deadband is a caller bug, caught in tests.
+        let _ = is_outside_deadband(">", 48.0, 50.0, -2.0);
     }
 }

@@ -35,6 +35,12 @@ pub fn is_outside_deadband(operator: &str, value: f64, threshold: f64, deadband:
 /// Return `true` when `elapsed_ms >= delay_ms` (millisecond precision, no
 /// integer-second truncation). Values are integer milliseconds passed as `f64`
 /// (exact for any realistic duration).
+///
+/// The `f64 → u64` conversion is saturating and floors: `.max(0.0)` maps
+/// negatives AND `NaN` to `0`, and `as u64` saturates at `u64::MAX` (no UB, no
+/// panic). Under the integer-millisecond contract this is a no-op; a *fractional*
+/// `delay_ms` would be floored (fire up to ~1 ms early), which callers avoid by
+/// passing whole milliseconds.
 #[wasm_bindgen(js_name = delayElapsed)]
 #[must_use]
 pub fn delay_elapsed(elapsed_ms: f64, delay_ms: f64) -> bool {

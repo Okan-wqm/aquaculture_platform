@@ -13,6 +13,8 @@
     { "name": "eq_exact_not_required", "operator": "==", "value": 5.0, "threshold": 5.0, "expected": true },
     { "name": "ne_within_epsilon_false", "operator": "!=", "value": 5.00005, "threshold": 5.0, "expected": false },
     { "name": "ne_outside_epsilon_true", "operator": "!=", "value": 5.001, "threshold": 5.0, "expected": true },
+    { "name": "eq_at_epsilon_edge_exclusive", "operator": "==", "value": 0.0001, "threshold": 0.0, "expected": false },
+    { "name": "ne_at_epsilon_edge_true", "operator": "!=", "value": 0.0001, "threshold": 0.0, "expected": true },
     { "name": "unknown_operator_false", "operator": "><", "value": 1.0, "threshold": 2.0, "expected": false }
   ],
   "deadband": [
@@ -27,6 +29,7 @@
     { "name": "eq_outside_band_clears", "operator": "==", "value": 53.0, "threshold": 50.0, "deadband": 2.0, "expected": true },
     { "name": "eq_at_edge_stays_latched", "operator": "==", "value": 52.0, "threshold": 50.0, "deadband": 2.0, "expected": false },
     { "name": "ne_within_band_clears", "operator": "!=", "value": 51.0, "threshold": 50.0, "deadband": 2.0, "expected": true },
+    { "name": "ne_at_edge_stays_latched", "operator": "!=", "value": 52.0, "threshold": 50.0, "deadband": 2.0, "expected": false },
     { "name": "small_deadband_no_hidden_floor", "operator": "==", "value": 50.005, "threshold": 50.0, "deadband": 0.001, "expected": true },
     { "name": "small_deadband_within_honoured", "operator": "==", "value": 50.0005, "threshold": 50.0, "deadband": 0.001, "expected": false },
     { "name": "unknown_operator_allows_clear", "operator": "><", "value": 1.0, "threshold": 2.0, "deadband": 1.0, "expected": true }

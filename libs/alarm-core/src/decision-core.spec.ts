@@ -50,7 +50,7 @@ const FIXTURE = join(
   'decision-core.json',
 );
 
-const suite: Suite = JSON.parse(readFileSync(FIXTURE, 'utf8'));
+const suite = JSON.parse(readFileSync(FIXTURE, 'utf8')) as Suite;
 const epsilon = suite.epsilon ?? DEFAULT_EPSILON;
 
 describe('alarm-core wasm façade — decision fixture parity', () => {

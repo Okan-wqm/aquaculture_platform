@@ -6069,6 +6069,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/configuration/__tests__/configuration.resolver.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/configuration/__tests__/graphql-schema-build.spec.ts",
       "prettier_managed": true
     },
@@ -6147,6 +6153,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/configuration/handlers/__tests__/upsert-overwrite-columns.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/configuration/handlers/create-configuration.handler.ts",
       "prettier_managed": true
     },
@@ -6213,6 +6225,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/database/__tests__/platform-configuration-seed.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/database/__tests__/rls-scoped-session.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/database/data-source.ts",
       "prettier_managed": true
     },
@@ -6266,6 +6290,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/config-service/src/database/migrations/1801000000000-EnsureConfigTenantErasureProofLedger.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/database/migrations/1805400000000-SeedPlatformConfigurations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/database/rls-scoped-session.ts",
       "prettier_managed": true
     },
     {
@@ -9267,7 +9303,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1805400000000-DropTankBatchCurrentQuantityMirror.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/1805500000000-DropFarmWorkerPlaceholderPii.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/manifest.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
     {
@@ -31957,6 +32011,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/orphan-findings.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/orphan-findings.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/platform-kernel-expert/2026-04-10-full-repo-audit.md",
       "prettier_managed": true
     },
@@ -41466,6 +41532,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/quality/lint-target-inventory.json",
       "prettier_managed": true
     },
@@ -43162,6 +43240,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/graphql/platform-configuration-operations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/hooks/__tests__/useAsyncData.spec.ts",
       "prettier_managed": true
     },
@@ -43229,6 +43313,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/hooks/usePagination.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/hooks/usePlatformConfiguration.ts",
       "prettier_managed": true
     },
     {
@@ -43594,6 +43684,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/services/api/__tests__/platform-configuration.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/services/api/analytics.ts",
       "prettier_managed": true
     },
@@ -43643,6 +43739,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/services/api/modules.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/services/api/platform-configuration.ts",
       "prettier_managed": true
     },
     {
@@ -52340,7 +52442,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "a86f22efa69c9709c00d5b66307499be7cc06db4afd009990a96ec3f59f979fd",
+      "content_sha256": "00c8ae989bebbb735a9b3425c0960aecd5ba3e8b8059ae36f6050883bf658237",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",
@@ -53010,10 +53112,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8689,
+  "file_count": 8706,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8514,
-  "managed_file_list_sha256": "59ab38f2dfdfe01c9fbd33e0c0aedce1a552228fad5558fa6a114b4c08faeedb",
+  "managed_count": 8531,
+  "managed_file_list_sha256": "5b62ada2995cd60a6d49e46a2305d3f1e8161ce75b857d04b081445c07bd0f8f",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

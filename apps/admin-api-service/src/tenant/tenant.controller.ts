@@ -78,9 +78,7 @@ interface AdminUser {
 export class TenantPublicController {
   private readonly logger = new Logger(TenantPublicController.name);
 
-  constructor(
-    private readonly provisioningWorkflowService: TenantProvisioningWorkflowService,
-  ) {}
+  constructor(private readonly provisioningWorkflowService: TenantProvisioningWorkflowService) {}
 
   @Post()
   @ApiOperation({ summary: 'Create a new tenant provisioning operation' })
@@ -142,6 +140,7 @@ export class TenantAdminController {
     private readonly queryBus: QueryBus,
     private readonly detailService: TenantDetailService,
     private readonly activityService: TenantActivityService,
+    private readonly provisioningWorkflowService: TenantProvisioningWorkflowService,
   ) {}
 
   @Get()
@@ -180,26 +179,18 @@ export class TenantAdminController {
     @Query('q') searchTerm: string,
     @Query('limit') limit?: number,
   ): Promise<Tenant[]> {
-    return this.queryBus.execute(
-      new SearchTenantsQuery(searchTerm, limit || 20),
-    );
+    return this.queryBus.execute(new SearchTenantsQuery(searchTerm, limit || 20));
   }
 
   @Get('approaching-limits')
   @ApiOperation({ summary: 'Get tenants approaching usage limits' })
-  async getTenantsApproachingLimits(
-    @Query('threshold') threshold?: number,
-  ): Promise<Tenant[]> {
-    return this.queryBus.execute(
-      new GetTenantsApproachingLimitsQuery(threshold || 80),
-    );
+  async getTenantsApproachingLimits(@Query('threshold') threshold?: number): Promise<Tenant[]> {
+    return this.queryBus.execute(new GetTenantsApproachingLimitsQuery(threshold || 80));
   }
 
   @Get('expiring-trials')
   @ApiOperation({ summary: 'Get tenants with expiring trial periods' })
-  async getExpiringTrials(
-    @Query('withinDays') withinDays?: number,
-  ): Promise<Tenant[]> {
+  async getExpiringTrials(@Query('withinDays') withinDays?: number): Promise<Tenant[]> {
     return this.queryBus.execute(new GetExpiringTrialsQuery(withinDays || 7));
   }
 
@@ -246,25 +237,19 @@ export class TenantAdminController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get tenant by ID' })
-  async getTenantById(
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<Tenant> {
+  async getTenantById(@Param('id', ParseUUIDPipe) id: string): Promise<Tenant> {
     return this.queryBus.execute(new GetTenantByIdQuery(id));
   }
 
   @Get(':id/detail')
   @ApiOperation({ summary: 'Get detailed tenant information' })
-  async getTenantDetail(
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<TenantDetailDto> {
+  async getTenantDetail(@Param('id', ParseUUIDPipe) id: string): Promise<TenantDetailDto> {
     return this.detailService.getTenantDetail(id);
   }
 
   @Get(':id/usage')
   @ApiOperation({ summary: 'Get tenant resource usage' })
-  async getTenantUsage(
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<TenantUsageDto> {
+  async getTenantUsage(@Param('id', ParseUUIDPipe) id: string): Promise<TenantUsageDto> {
     return this.queryBus.execute(new GetTenantUsageQuery(id));
   }
 
@@ -275,11 +260,7 @@ export class TenantAdminController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ): Promise<{ data: TenantActivity[]; total: number; totalPages: number }> {
-    return this.detailService.getActivitiesTimeline(
-      id,
-      page || 1,
-      limit || 20,
-    );
+    return this.detailService.getActivitiesTimeline(id, page || 1, limit || 20);
   }
 
   @Get(':id/notes')
@@ -373,9 +354,7 @@ export class TenantAdminController {
     @Body() dto: DeactivateTenantDto,
     @CurrentUser() user: AdminUser,
   ): Promise<Tenant> {
-    return this.commandBus.execute(
-      new DeactivateTenantCommand(id, dto.reason, user.id),
-    );
+    return this.commandBus.execute(new DeactivateTenantCommand(id, dto.reason, user.id));
   }
 
   @Delete(':id')
@@ -400,5 +379,30 @@ export class TenantAdminController {
     return this.commandBus.execute(
       new RequestTenantErasureCommand(id, dto.reason, user.id, dto.dryRun ?? false),
     );
+  }
+
+  /**
+   * Idempotent backfill for a tenant that has no billing subscription
+   * (ORPHAN-CRITICAL-393): tenants created while the provisioning transaction
+   * silently rolled back have an auth.tenants row but no billing.subscriptions
+   * row. This resolves the tenant's assigned modules into priced items and runs
+   * the same PROVISION_TENANT_SUBSCRIPTION command tenant creation uses — safe
+   * to re-invoke (billing dedups on the active subscription + command receipt).
+   */
+  @ThrottleSensitive()
+  @Post(':id/reconcile-subscription')
+  @ApiOperation({ summary: 'Idempotently create a missing tenant billing subscription' })
+  @HttpCode(HttpStatus.OK)
+  async reconcileTenantSubscription(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AdminUser,
+  ): Promise<{
+    tenantId: string;
+    subscriptionId?: string;
+    status?: string;
+    moduleItemCount?: number;
+    replayed?: boolean;
+  }> {
+    return this.provisioningWorkflowService.reconcileTenantSubscription(id, user.id);
   }
 }

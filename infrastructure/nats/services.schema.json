@@ -67,10 +67,10 @@
     },
     "subject": {
       "type": "string",
-      "pattern": "^(events\\.|commands\\.|request\\.|sensor\\.|st\\.language\\.|policy\\.|\\$JS\\.API\\.|_INBOX\\.)[A-Za-z0-9_.*>-]+$",
+      "pattern": "^(events\\.|commands\\.|request\\.|config\\.runtime\\.|sensor\\.|st\\.language\\.|policy\\.|\\$JS\\.API\\.|_INBOX\\.)[A-Za-z0-9_.*>-]+$",
       "minLength": 3,
       "maxLength": 120,
-      "description": "NATS subject pattern. Must begin with one of: events., commands., request., sensor., st.language., policy., $JS.API., _INBOX. \u2014 platform subject-space conventions enforced by SSoT. The legacy AQUACULTURE_EVENTS. prefix is STRUCTURALLY REJECTED (ORPHAN-HIGH-317): it is the JetStream stream NAME, never a subject prefix \u2014 grants written in that scheme are dead weight that silently deny the real events.* publishes. The `policy.` namespace carries dynamic-policy propagation (e.g. policy.ingest_backend.> \u2014 ADR-027 per-tenant toggle + ADR-031 request-reply snapshot); `sensor.lookup.by-topic` is the Rust sidecar cache-miss RPC (ADR-029)."
+      "description": "NATS subject pattern. Must begin with one of: events., commands., request., config.runtime., sensor., st.language., policy., $JS.API., _INBOX. \u2014 platform subject-space conventions enforced by SSoT. The legacy AQUACULTURE_EVENTS. prefix is STRUCTURALLY REJECTED (ORPHAN-HIGH-317): it is the JetStream stream NAME, never a subject prefix \u2014 grants written in that scheme are dead weight that silently deny the real events.* publishes. The `policy.` namespace carries dynamic-policy propagation (e.g. policy.ingest_backend.> \u2014 ADR-027 per-tenant toggle + ADR-031 request-reply snapshot); `sensor.lookup.by-topic` is the Rust sidecar cache-miss RPC (ADR-029); `config.runtime.get`/`config.runtime.get_secret` are config-service's request-reply reads for effective configuration (Billing Revival Faz C / D6) \u2014 the get_secret subject is granted to exactly one CN (billing_service)."
     }
   }
 }

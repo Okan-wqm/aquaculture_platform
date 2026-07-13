@@ -370,3 +370,40 @@ Dokunulmaz: `/var/lib/aqua/deploy/checkout`, kilitli `.claude/worktrees/agent-*`
 - Bulgu: origin feeding hattı (`protocol-batch-feeding-ssot-v2`, `daily-plan-protocol-ssot`, `feeding-growth-mode`, `water-temperature-feed-rate`, `feeding-tab-swap`, `combine-batch-visibility`) **B çıktı** — içerik main'de zaten mevcut; Faz 2 tema-7 kapsamı daraldı.
 - Skip edilenler (aktif lane, dokunulmadı): `fix/a5-pricing-ssot` (PR #963 bu sabah merge oldu), `fix/a6-usage-metering-ssot`, `fix/stray-tenant-migration-journal`, `fix/schema-gate-derive-shared-count` (yeni açık PR), kilitli `.claude/worktrees/agent-*`.
 - Kalan: 100 lokal branch (C/D + aktif lane), 42 origin branch'i.
+
+---
+
+## Faz 2 + Faz 3 yürütme kaydı — 2026-07-13
+
+İnceleme: 6 paralel read-only ajan (tema: ARIA/farm/AI-service/orphan+auth/deploy-CI/tekil) + Sınıf-D 9 gövdenin lead tarafından birinci elden derin denetimi. Her VALUABLE/WORTHLESS ve kritik SUPERSEDED verdikti lead tarafından ayrıca doğrulandı (dosya-bazlı `git diff <branch> origin/main -- <path>` birebir kıyas yöntemi).
+
+### Verdict özeti
+- **SUPERSEDED (silindi): 85 lokal + 21 origin ikizi/teki.** Ana kanıt sınıfları: (a) merge edilmiş PR'ların stale ikizleri (ARIA 33/33 — ORPHAN ID'leri main kod yorumlarında birebir; farm 17/17; orphan/auth 9; deploy-CI 10; AI 4); (b) squash-merge nedeniyle patch-id kaymışlar (`fix/untracked-worktree-remediation` → PR #830; `fix/mobile-messaging-merge` → 40/49 dosya bayt-aynı); (c) 13-PR bölünmesinin ana gövdesi (`claude/farm-ssot-diagnostics-arch-x5457y` → backend yüzeyi bayt-aynı, FE semantiği main'de).
+- **WORTHLESS (silindi): 5** — `fix/user-email-nullable-federation` (bilinçli reddedilen nullable yaklaşımı; #930 PublicUserProfile split kazandı), `chore/eslint-aquamobil` (718 commit bayat mekanik fix; sinyal ORPHAN-MEDIUM-112'de OPEN duruyor), `chore/registry-closeout-schema-drift` (registry churn), `feature/finance-ci-live{,-2}` (kendinden "[throwaway] Not for merge" etiketli).
+- **VALUABLE (tutuldu): 3**
+  - `feat/feed-dual-ssot-phase2` — **ARŞİV, MERGE ETME.** ORPHAN-HIGH-114 Phase-B feed-ledger convergence'ının kayıpsız arşivi (stash `phase2-feed-dual-BLOCKED-data-loss`). Migration bilinçli GÜVENSİZ: 5 ön-koşul defekti + migration-timestamp çakışması kayıtlı (db-audit synthesis §77). Origin ikizi de duruyor.
+  - `feat/auth-security-primitive-specs-audit-009` — 446 satır test-only spec (jwt-auth.guard, webauthn.service, entity-schema-routing) main'de YOK; taze branch'e port + PR planlandı (bu program içinde).
+  - `dep-847-local` — Faz-4 girdisi: dependabot #847 bump'ı + codeql v3→v4 pin-etiket düzeltmesi (dependabot'un yanlış bıraktığı `# v3.28.1` yorumu). #847 merge edilirken bu düzeltme birlikte taşınmalı.
+- **Aktif lane (dokunulmadı):** `fix/a5-pricing-ssot` (PR #963 merge oldu), `fix/a6-usage-metering-ssot`, `fix/stray-tenant-migration-journal`, `fix/schema-gate-derive-shared-count`, kilitli agent worktree'leri.
+- **PR head'leri (Faz 4'e):** `refactor/messaging-partition-authority-ssot` (#938), `feat/aria-autonomous-mode` (#936), 12 `claude/*` head'i, 2 dependabot.
+
+### Düzeltilen ajan tespiti (lead doğrulaması)
+- Orphan+auth ajanı `fix/untracked-worktree-remediation`'ın aquamobil-322 fix'lerini "unmerged" saymıştı; birinci elden kontrol PR #830 squash-merge'ünü buldu (asyncAction helper + 10 unhandled-rejection fix'i main'de; 4 fark dosyasının tümü main'in daha yeni evrimi). Verdict SUPERSEDED olarak düzeltildi.
+
+### Faz 3 gövde kararları (9/9)
+| Gövde | Verdict | Kanıt |
+|---|---|---|
+| `feat/ai-service-deploy` (11p) | SUPERSEDED | main `141c73ff0` konsolide aktivasyon; silmeler + `DropTenantAiSettings` + runbook "complete on main" |
+| `feat/feed-dual-ssot-phase2` (9p) | VALUABLE-ARŞİV | ORPHAN-HIGH-114 Phase-B taşıyıcısı; 8/9 commit'in hardening içeriği main'de (#476/#524 hattı + `buildRegulatoryIdentity`) |
+| `fix/untracked-worktree-remediation` (14p) | SUPERSEDED | PR #830 squash `8d1b342ed` |
+| `fix/mobile-messaging-merge` (17p) | SUPERSEDED | 40/49 bayt-aynı; farklar main'in FARM-HIGH-214 + #930 evrimi |
+| `claude/farm-ssot-diagnostics-arch` (33p) | SUPERSEDED | 13-PR bölünmesi; backend bayt-aynı; TanksPage stale-on-error main'de |
+| `feat/panel-messaging-module` (6p) | SUPERSEDED | messaging-module dizini + shell remote kaydı + service-catalog main'de |
+| `fix/public-user-profile-federation` (6p) | SUPERSEDED | PR #930; `publicUserProfile` query main'de |
+| `feat/tenant-rbac-ssot` (6p) | SUPERSEDED | 2 güvenlik commit'inin tüm dosyaları bayt-aynı; sidebar linki main'de daha yeni haliyle |
+| `fix/auth-verify-password-responder` (4p) | SUPERSEDED | PR #911; `auth-credential-nats.handler.ts` main'de |
+
+### Worktree temizliği (Faz 2/3 kapsamında)
+14 ölü worktree daha kaldırıldı (hepsi kaldırma öncesi `git status --porcelain` TEMİZ): wt-889, email-wt, heal-wt, wt-rbac, wt-934, wt-935, wt-deployfix, wt-drift-final, wt-gwbudget, wt-vfdcancel, wt-outbox-083, wt-perf-003, wt-registry-closeout, wt-socket-213.
+
+### Durum: lokal 206→11, origin 92→22, worktree 37→13.

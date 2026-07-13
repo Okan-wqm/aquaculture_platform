@@ -390,6 +390,10 @@ services:
     subscribe:
       - "request.billing.admin.>"
       - "request.billing.tenant.>"
+      # Faz C (SEC-CRITICAL-001): SCOPED reply inbox for the config-runtime secret
+      # read — billing is the ONLY CN that subscribes this token, so the decrypted
+      # Stripe secret never returns on the platform-wide `_INBOX.>` every cert holds.
+      - "_INBOXBILLINGCFG.>"
       - "$JS.API.>"
       - "_INBOX.>"
 
@@ -573,15 +577,18 @@ services:
       - "events.*.TenantDataErasureFailed"
       - "events.*.TenantErasureBlocked"
       # Faz C (D6): metadata-only config-change signal, emitted via config_outbox
-      # on every upsert (consumers filter). NEVER carries the value/secret.
+      # on every mutating config write (consumers filter). NEVER carries the value/secret.
       - "events.*.ConfigurationChanged"
+      # Faz C (SEC-CRITICAL-001): config replies to billing's SCOPED secret-read
+      # inbox — config is the ONLY CN that publishes this token.
+      - "_INBOXBILLINGCFG.>"
       - "events.platform.schema-migration.>"
       - "events.security.events.>"
       - "$JS.API.>"
       - "_INBOX.>"
     subscribe:
-      # Faz C (D6): config-runtime request-reply responder subjects. The reply is
-      # published back on the caller's _INBOX.> (already granted above).
+      # Faz C (D6): config-runtime request-reply responder subjects. The secret
+      # reply is published back on the caller's SCOPED `_INBOXBILLINGCFG.>` inbox.
       - "config.runtime.get"
       - "config.runtime.get_secret"
       - "$JS.API.>"

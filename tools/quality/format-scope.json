@@ -6219,6 +6219,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/configuration/events/emit-configuration-changed.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/configuration/handlers/__tests__/config-runtime-nats.handler.spec.ts",
       "prettier_managed": true
     },
@@ -30097,6 +30103,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/recommendations/architectural-arbiter/2026-07-13-adr-0005-config-runtime-subject-namespace.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/recommendations/auth-security-expert/2026-04-06-guard-di-security-recommendations.md",
       "prettier_managed": true
     },
@@ -53586,10 +53598,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8780,
+  "file_count": 8782,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8599,
-  "managed_file_list_sha256": "82303dd70c5cc7d35e274825064951a6a3ea96a4d2ababf7ba5fd3dc680642b4",
+  "managed_count": 8601,
+  "managed_file_list_sha256": "15c6c5da37e71429958c5872457f196a059e330c367ea2f309b2c8c749743eeb",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

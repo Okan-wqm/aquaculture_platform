@@ -163,13 +163,27 @@ function createSwExecutor(auth: SwAuthIdentity) {
  * The minimal surface of the SW global this module needs — typed narrowly so
  * the replay is unit-testable without a real ServiceWorkerGlobalScope.
  */
+/**
+ * The single Web Locks capability the closed-app drain depends on. Interface
+ * segregation: this lane calls only `request` (never `query`), so narrowing to
+ * exactly what is used keeps the scope — and its test doubles — honest. A real
+ * `LockManager` structurally satisfies it.
+ */
+export interface QueueDrainLockManager {
+  request(
+    name: string,
+    options: { ifAvailable?: boolean },
+    callback: (lock: unknown) => Promise<void>,
+  ): Promise<void>;
+}
+
 export interface BackgroundSyncScope {
   clients: {
     matchAll(options: { type: 'window'; includeUncontrolled: boolean }): Promise<
       ReadonlyArray<{ postMessage(message: unknown): void }>
     >;
   };
-  navigator: { locks?: LockManager };
+  navigator: { locks?: QueueDrainLockManager };
 }
 
 async function notifyClients(swSelf: BackgroundSyncScope): Promise<boolean> {

@@ -272,12 +272,16 @@ export function buildOperationVariables(
   type: Exclude<OperationType, 'uploadAndSendMessage'>,
   payload: OperationPayload,
 ): Record<string, unknown> {
+  // Every OperationPayload member is an object intersected with
+  // MobileCommandEnvelope, so a spread yields a plain string-keyed record —
+  // no cast needed to reach the mutation-variable shape.
+  const record: Record<string, unknown> = { ...payload };
   if (type === 'editMessage') {
-    const { id, content, ...rest } = payload as unknown as Record<string, unknown>;
+    const { id, content, ...rest } = record;
     return { id, input: { content, ...rest } };
   }
   if (type === 'deleteMessage') {
-    return payload as unknown as Record<string, unknown>;
+    return record;
   }
   return { input: payload };
 }

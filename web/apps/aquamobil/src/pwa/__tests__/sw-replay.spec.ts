@@ -61,7 +61,7 @@ vi.mock('@/utils/logger', () => ({
 vi.stubGlobal('crypto', webcrypto);
 
 import { getPendingOperations, queueOperation } from '../offline-queue';
-import { handleBackgroundSyncEvent } from '../sw-replay';
+import { handleBackgroundSyncEvent, type BackgroundSyncScope } from '../sw-replay';
 
 // --------------------------------------------------------------------------
 // Fake SW global
@@ -74,7 +74,7 @@ interface FakeSwOptions {
 }
 
 function fakeSw(options: FakeSwOptions = {}): {
-  sw: Parameters<typeof handleBackgroundSyncEvent>[0];
+  sw: BackgroundSyncScope;
   clients: Array<{ postMessage: ReturnType<typeof vi.fn> }>;
 } {
   const clients = options.clients ?? [];
@@ -94,12 +94,12 @@ function fakeSw(options: FakeSwOptions = {}): {
             },
           ),
         };
-  const sw = {
+  const sw: BackgroundSyncScope = {
     clients: {
       matchAll: vi.fn(() => Promise.resolve(clients)),
     },
     navigator: locks ? { locks } : {},
-  } as unknown as Parameters<typeof handleBackgroundSyncEvent>[0];
+  };
   return { sw, clients };
 }
 

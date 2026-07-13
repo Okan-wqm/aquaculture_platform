@@ -101,8 +101,12 @@ export function BarcodeScanButton({ onScan }: { onScan: (value: string) => void 
 
       {isScanning && (
         <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center">
-          {/* eslint-disable-next-line jsx-a11y/media-has-caption -- live camera viewfinder, no audio track exists */}
-          <video ref={videoRef} className="w-full max-h-[70vh] object-contain" playsInline muted />
+          <video ref={videoRef} className="w-full max-h-[70vh] object-contain" playsInline muted>
+            {/* Live camera viewfinder: no audio, hence no spoken content to
+                caption. An empty captions track satisfies media-has-caption
+                honestly instead of suppressing the rule. */}
+            <track kind="captions" />
+          </video>
           <p className="text-white text-sm font-medium mt-4">Point the camera at a barcode or QR code</p>
           <button
             type="button"

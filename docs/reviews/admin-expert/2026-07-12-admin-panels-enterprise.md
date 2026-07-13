@@ -165,6 +165,30 @@ auth-security-expert co-review before merge.
 Deliberate simplification (backlog): `enforce_mfa` is a boolean; the retired contract's
 `mfaRequiredForAdmins` (admins-only) intermediate is not modeled in this cycle.
 
+## ADMIN-HIGH-014 — tenant MFA enforcement fail-open via un-gated token-mint siblings
+
+**State:** OPEN → fixed in this cycle
+
+Found by the arbiter-mandated (ARCH-MEDIUM-002) auth-security co-review of the ADMIN-HIGH-010
+commit. The enforcement gate was placed in `login()` only, not at the single `generateTokens()`
+chokepoint, so two sibling mint paths issue a full access+refresh pair to a non-MFA user in an
+`enforceMfa=true` tenant with no gate: `resetPassword` (`authentication.service.ts:1626`) and
+`acceptInvitation` (`:762`). `resetPassword` additionally **defeats revocation-on-flip** — a user
+signed out by enabling enforcement self-serves a password reset and is durably back in, MFA-free,
+via rotation. WebAuthn `verifyLogin` (`webauthn.service.ts:407`) is a related MEDIUM: the gate
+predicate keys only on TOTP `mfaEnabled`, so a WebAuthn credential neither satisfies nor is
+required by the policy.
+
+Evidence:
+- apps/auth-service/src/modules/authentication/services/authentication.service.ts:1626
+- apps/auth-service/src/modules/authentication/services/authentication.service.ts:762
+- apps/auth-service/src/modules/authentication/services/webauthn.service.ts:407
+
+Resolution: centralize `assertMfaEnrollmentSatisfied(user, tenant)` so every mint caller (login,
+resetPassword, acceptInvitation, WebAuthn verifyLogin) enforces it — a WebAuthn credential
+satisfies enforcement; a non-MFA user in an enforcing tenant is refused tokens (returns the same
+`mfaSetupRequired` outcome where a login-shaped response exists, else a typed refusal).
+
 ## ADMIN-HIGH-011 — live admin-panel pages call broken REST paths
 
 **State:** OPEN → fixed in this cycle

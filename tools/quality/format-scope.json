@@ -42192,18 +42192,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "tools/quality/format-scope.json",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "tools/quality/format-scope.json",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "tools/quality/lint-target-inventory.json",
       "prettier_managed": true
     },
@@ -53934,10 +53922,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8838,
+  "file_count": 8836,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8657,
-  "managed_file_list_sha256": "767b9c3361f0d303f5ff6761f480cd5d83f129985b4324ec0ca6c10fb493ef3e",
+  "managed_count": 8655,
+  "managed_file_list_sha256": "e5476ef80118451fd56ff84d894d581e8be16315bf077fd38bf439805272cc38",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

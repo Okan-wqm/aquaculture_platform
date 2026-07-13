@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 
 import { PROTECTED_TABLES } from '../constants/protected-tables';
+
 import { resolveDbMigrateAuthoritativeFromConfig } from './db-migrate-authority.util';
 import { MIGRATION_LEDGER_TABLE, tenantMigrationLedgerTable } from './migration-ledger';
 import { createMigrationRunnerService, type MigrationRunnerOptions } from './migration-runner';

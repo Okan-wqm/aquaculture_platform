@@ -12,8 +12,9 @@ import { billingPlanLimitsFor } from '../plan-limits.util';
  * Uses upsert semantics: existing plans (matched by name) are NOT overwritten,
  * so manual edits via the admin CRUD API are preserved.
  *
- * This replaces the hardcoded DEFAULT_PRICING / DEFAULT_LIMITS constants
- * in the TenantSubscriptionRequestedHandler with database-driven plan definitions.
+ * Plans are database-driven; provisioning resolves subscription pricing from
+ * admin-api's PricingCalculatorService (admin.module_pricing), not from any
+ * hardcoded per-tier constants.
  */
 @Injectable()
 export class PlanSeedService implements OnModuleInit {

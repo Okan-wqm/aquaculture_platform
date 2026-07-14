@@ -34,7 +34,7 @@ function mockOf<T>(impl: DeepPartial<T>): T {
 interface Mocks {
   tagManager: jest.Mocked<Pick<TagManagerService, 'getTagValue' | 'writeTagValue'>>;
   gateway: jest.Mocked<Pick<ScadaRuntimeGateway, 'pushAlarmStatus'>>;
-  storage: jest.Mocked<Pick<AlarmStorageService, 'saveAlarm' | 'saveToChronicle' | 'deleteAlarm'>>;
+  storage: jest.Mocked<Pick<AlarmStorageService, 'flushTenantBatch'>>;
   notification: jest.Mocked<Pick<NotificationService, 'processAlarm' | 'clearAlarmRecords'>>;
 }
 
@@ -60,9 +60,7 @@ function build(): { engine: AlarmEngineService; mocks: Mocks } {
     tagManager: { getTagValue: jest.fn(), writeTagValue: jest.fn() },
     gateway: { pushAlarmStatus: jest.fn() },
     storage: {
-      saveAlarm: jest.fn().mockResolvedValue(undefined),
-      saveToChronicle: jest.fn().mockResolvedValue(undefined),
-      deleteAlarm: jest.fn().mockResolvedValue(undefined),
+      flushTenantBatch: jest.fn().mockResolvedValue(undefined),
     },
     notification: {
       processAlarm: jest.fn().mockResolvedValue(undefined),
@@ -174,5 +172,25 @@ describe('AlarmEngineService — multi-tenant isolation', () => {
     jest.advanceTimersByTime(1000);
     expect(mocks.gateway.pushAlarmStatus).not.toHaveBeenCalled();
     expect(mocks.tagManager.getTagValue).not.toHaveBeenCalled();
+  });
+
+  it('coalesces a tenant per-tick writes into ONE batched flush (no per-write storm)', () => {
+    mocks.tagManager.getTagValue.mockImplementation(tenantValue(100, 0));
+    // Three rules on the same tenant all trip in the same tick.
+    engine.setAlarmRules(TENANT_A, [
+      rule({ id: 'rule-1' }),
+      rule({ id: 'rule-2' }),
+      rule({ id: 'rule-3' }),
+    ]);
+
+    jest.advanceTimersByTime(1000);
+
+    // ONE flush for the tenant this tick, carrying all three activations —
+    // not three separate transactions.
+    expect(mocks.storage.flushTenantBatch).toHaveBeenCalledTimes(1);
+    const [tenantId, batch] = mocks.storage.flushTenantBatch.mock.calls[0]!;
+    expect(tenantId).toBe(TENANT_A);
+    expect(batch.upserts).toHaveLength(3);
+    expect(batch.deleteIds).toHaveLength(0);
   });
 });

@@ -263,6 +263,46 @@ describe('INVARIANT: sites setup remediation plan is durable and registry-backed
     expect(farmGateway).toContain('broadcastFeederCalibrationsSaved');
   });
 
+  it('routes tank-like equipment writes through the Tank aggregate, not generic equipment persistence (FARM-HIGH-003 Phase 4.3)', () => {
+    const createEquipment = read(
+      'apps/farm-service/src/equipment/handlers/create-equipment.handler.ts',
+    );
+    const updateEquipment = read(
+      'apps/farm-service/src/equipment/handlers/update-equipment.handler.ts',
+    );
+    const deleteEquipment = read(
+      'apps/farm-service/src/equipment/handlers/delete-equipment.handler.ts',
+    );
+    const adapter = read(
+      'apps/farm-service/src/equipment/services/tank-equipment-adapter.service.ts',
+    );
+
+    // Every equipment write path must delegate tank-like categories to the Tank
+    // aggregate via TankEquipmentAdapterService — tank/pond/cage identity is
+    // canonical in `tanks`, so a tank-like row must never be persisted as a
+    // generic equipment row. This pins the already-correct routing so a
+    // reintroduction of a direct tank-like equipment write fails loudly.
+    for (const source of [createEquipment, updateEquipment, deleteEquipment]) {
+      expect(source).toContain('TankEquipmentAdapterService');
+      expect(source).toContain('tankEquipmentAdapter');
+    }
+    expect(createEquipment).toContain('isTankLike');
+    expect(createEquipment).toContain('createFromEquipment');
+    expect(updateEquipment).toContain('updateFromEquipment');
+    expect(deleteEquipment).toContain('deleteFromEquipment');
+
+    // The adapter dispatches Tank commands through the CommandBus (which run the
+    // tenant-transaction + audit + outbox contract), never a direct equipment
+    // write for tank-like categories.
+    expect(adapter).toContain('CreateTankCommand');
+    expect(adapter).toContain('UpdateTankCommand');
+    expect(adapter).toContain('DeleteTankCommand');
+    expect(adapter).toContain('commandBus.execute');
+    expect(adapter).toMatch(/EquipmentCategory\.TANK/);
+    expect(adapter).toMatch(/EquipmentCategory\.POND/);
+    expect(adapter).toMatch(/EquipmentCategory\.CAGE/);
+  });
+
   it('keeps existing-tenant runtime DDL repair fail-closed outside explicit test bootstrap', () => {
     const schemaManager = read('libs/backend-common/src/database/schema-manager.service.ts');
     const adminSchemaService = read(

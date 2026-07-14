@@ -35470,7 +35470,13 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "libs/backend-common/src/database/source-schema-write-guard.ts",
+      "path": "libs/backend-common/src/database/source-schema-write-guard-reconciler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/source-schema-write-guard-reconciler.ts",
       "prettier_managed": true
     },
     {
@@ -41358,7 +41364,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/source-schema-write-guard-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/spec-module-mode.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/ssrf-safe-fetch-ssot.spec.ts",
       "prettier_managed": true
     },
     {
@@ -41796,6 +41814,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/eslint-rules/dist/rules/no-unpinned-ssrf-fetch.d.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/eslint-rules/dist/rules/no-unpinned-ssrf-fetch.js",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/eslint-rules/dist/rules/require-entity-schema.d.ts",
       "prettier_managed": true
     },
@@ -41851,6 +41881,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/eslint-rules/rules/no-high-cardinality-metric-label.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/eslint-rules/rules/no-unpinned-ssrf-fetch.ts",
       "prettier_managed": true
     },
     {
@@ -54048,10 +54084,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8857,
+  "file_count": 8863,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8676,
-  "managed_file_list_sha256": "fa19772d9a94c9dc7b2e7c1af85a8ae22281dae6614607b9b6d57b17b9356d76",
+  "managed_count": 8682,
+  "managed_file_list_sha256": "1e181a5fc24bfe858db4317e1e509c7c88686f9afdb678eb1d1ae87a4116aad5",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

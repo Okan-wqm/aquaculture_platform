@@ -992,8 +992,6 @@ export class NotificationDispatcherService implements OnModuleInit {
       // Don't log the full URL for security reasons
       this.logger.error(`Webhook failed: ${errorMessage}`);
       throw new Error(`Webhook failed: ${errorMessage}`);
-    } finally {
-      timeout.clear();
     }
   }
 

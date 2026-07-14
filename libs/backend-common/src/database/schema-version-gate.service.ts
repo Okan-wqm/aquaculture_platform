@@ -429,11 +429,15 @@ export function createSchemaVersionGate(
           release_id: string;
           expected_ts: string | null;
           expected_name: string | null;
+          source_ts: string | null;
+          source_name: string | null;
           fanout_evidence: unknown;
         }> = await this.dataSource.query(
           `SELECT release_id,
                   expected_heads #>> ARRAY['tenants', $1, $2, 'timestamp'] AS expected_ts,
                   expected_heads #>> ARRAY['tenants', $1, $2, 'name'] AS expected_name,
+                  expected_heads #>> ARRAY['schemas', $2, 'timestamp'] AS source_ts,
+                  expected_heads #>> ARRAY['schemas', $2, 'name'] AS source_name,
                   tenant_fanout #> ARRAY[$2, 'tenants', $1] AS fanout_evidence
              FROM platform.release_ledger
             WHERE status = ANY($3::text[])
@@ -451,11 +455,41 @@ export function createSchemaVersionGate(
           );
         }
         if (!row.expected_ts || !row.expected_name) {
-          throw new Error(
-            `[SchemaVersionGate:${sourceSchema}] Release ${row.release_id} does not declare an expected ` +
-              `tenant head for "${tenantSchema}" source schema "${sourceSchema}". Service boot refused.`,
+          // ORPHAN-HIGH-410 — a tenant onboarded AFTER the newest release was
+          // provisioned by the runtime tenant-schema-provisioner, so that
+          // release row carries no per-tenant head for it. Refusing boot here
+          // crash-loops every tenant-aware service on the next restart (OOM,
+          // reschedule, reboot) until the following full deploy re-enumerates
+          // all tenants. Instead DEGRADE: the provisioner replays the SAME
+          // migrations as the source schema, so validate the tenant against the
+          // release's SOURCE head. If it matches, the tenant is at the release's
+          // migration level (correctly provisioned post-release) and boot is
+          // allowed; a real lag still fails below. We deliberately do NOT write
+          // this tenant into release_ledger from this runtime path — a non-deploy
+          // context mutating the deployment SSoT could shadow the gate's
+          // newest-row selection and crash-loop the fleet (the writer approach
+          // rejected in review).
+          if (!row.source_ts || !row.source_name) {
+            throw new Error(
+              `[SchemaVersionGate:${sourceSchema}] Release ${row.release_id} declares no source head for ` +
+                `"${sourceSchema}", so a post-release tenant "${tenantSchema}" cannot be validated. Service boot refused.`,
+            );
+          }
+          if (row.source_ts !== actual.timestamp || row.source_name !== actual.name) {
+            throw new Error(
+              `[SchemaVersionGate:${sourceSchema}] Post-release tenant "${tenantSchema}" is behind the release ` +
+                `source head. release=${row.release_id} source-expected=${row.source_name}@${row.source_ts} ` +
+                `actual=${actual.name}@${actual.timestamp}. Run aqua-db-migrate tenant fan-out for this tenant.`,
+            );
+          }
+          this.logger.log(
+            `Tenant "${tenantSchema}" was onboarded after release ${row.release_id}; validated against the ` +
+              `source head ${row.source_name}@${row.source_ts} (no per-tenant head in the release row is expected).`,
           );
+          return;
         }
+        // Deploy-provisioned tenant: enforce the strict per-tenant head +
+        // fan-out-evidence contract the deploy recorded.
         if (row.fanout_evidence === null || row.fanout_evidence === undefined) {
           throw new Error(
             `[SchemaVersionGate:${sourceSchema}] Release ${row.release_id} does not declare tenant fan-out ` +

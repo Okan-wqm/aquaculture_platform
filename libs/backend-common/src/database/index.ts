@@ -155,8 +155,8 @@ export type {
 // Tenant Schema Sync (auto-provisioning)
 export * from './tenant-schema-sync.service';
 
-// Source Schema Write Guard (DB-level tenant isolation trigger)
-export * from './source-schema-write-guard';
+// Source Schema Write Guard reconciler (DB-level tenant-isolation trigger SSoT)
+export * from './source-schema-write-guard-reconciler';
 
 // Watchdog system (source contamination scanner, cross-tenant probe, drift detector)
 export * from './watchdog';

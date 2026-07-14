@@ -15,7 +15,6 @@ import {
   CircuitBreakerService,
   DEFAULT_BREAKER_OPTIONS,
 } from '@aquaculture/backend-common/resilience';
-import { createAbortSignalTimeout } from '@aquaculture/backend-common/utils';
 import {
   NotificationLog,
   NotificationStatus,
@@ -917,12 +916,7 @@ export class NotificationDispatcherService implements OnModuleInit {
       throw new Error(`Invalid webhook URL: ${validation.reason}`);
     }
 
-    const timeout = createAbortSignalTimeout(10000);
-
     try {
-      // SECURITY: Merge safe fetch options (redirect: 'error') with request config
-      const safeFetchOptions = this.ssrfValidator.getSafeFetchOptions();
-
       // CIRCUIT-HIGH-003 cure: webhook fetch rides through the canonical
       // sliding-window breaker. Per-tenant key (tenantId from alertData)
       // isolates noisy-neighbor; failureMode='fail-open-degraded' with a
@@ -945,10 +939,18 @@ export class NotificationDispatcherService implements OnModuleInit {
           message: alertData.message,
           timestamp: alertData.timestamp || new Date(),
         }),
-        signal: timeout.signal,
-        // SECURITY: Never follow redirects — prevents SSRF via open redirect
-        redirect: safeFetchOptions.redirect,
       };
+      // SENSOR-CRITICAL-002 residual class: safeFetch validates the webhook host
+      // (80/443 allowlist + private/metadata IP denylist) and PINS the socket to
+      // the validated IP, closing the DNS-rebinding window a plain fetch(hostname)
+      // leaves open. Redirects are refused; the 10s timeout replaces the prior
+      // AbortController. The up-front validateUrl above still hard-rejects unsafe
+      // URLs OUTSIDE the breaker so an SSRF attempt is not masked as a breaker trip.
+      const doFetch = (): Promise<Response> =>
+        this.ssrfValidator.safeFetch(webhookUrl, fetchInit, {
+          portPolicy: 'standard',
+          timeoutMs: 10000,
+        });
       const response = this.breaker
         ? await this.breaker.execute({
             serviceName: 'customer-webhook',
@@ -957,7 +959,7 @@ export class NotificationDispatcherService implements OnModuleInit {
               ...DEFAULT_BREAKER_OPTIONS,
               failureMode: 'fail-open-degraded',
             },
-            fn: () => fetch(webhookUrl, fetchInit),
+            fn: doFetch,
             fallback: () =>
               new Response(
                 JSON.stringify({
@@ -967,7 +969,7 @@ export class NotificationDispatcherService implements OnModuleInit {
                 { status: 503, statusText: 'Service Unavailable' },
               ),
           })
-        : await fetch(webhookUrl, fetchInit);
+        : await doFetch();
 
       // Consume response body to release the socket
       try {

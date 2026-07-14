@@ -539,6 +539,26 @@ export default [
     rules: { 'aquaculture/no-bare-graphql-query-string': 'warn' },
   },
 
+  // ── override 14: no-unpinned-ssrf-fetch (NON-project only) ──
+  // Set to 'error' (not the usual progressive-rollout 'warn'): every existing
+  // operator/tenant-controlled fetch was migrated to SsrfValidatorService.safeFetch
+  // in the same change, so there are zero violations to burn down and the guarantee
+  // (no unpinned fetch on a dynamic URL in an adapter/webhook file; no reintroduced
+  // getSafeFetchOptions) should hold from the first commit. SENSOR-CRITICAL-002.
+  {
+    files: ['apps/**/src/**/*.ts', 'libs/**/src/**/*.ts'],
+    ignores: [
+      ...CUSTOM_LIB_IGNORES,
+      '**/*.spec.ts',
+      '**/*.test.ts',
+      '**/*.e2e.ts',
+      '**/__tests__/**',
+      '**/__mocks__/**',
+    ],
+    plugins: { aquaculture },
+    rules: { 'aquaculture/no-unpinned-ssrf-fetch': 'error' },
+  },
+
   // ── override 13: JS files get @nx/javascript under eslintrc; its flat preset
   //    pulls the typescript-eslint meta-package (not installed). The only nx
   //    rule relied on (@nx/enforce-module-boundaries) is wired in override 1

@@ -16,7 +16,6 @@ import {
   isSchemaDdlOwnedByDbMigrate,
   SchemaDriftModule,
   SourceSchemaBootstrapService,
-  SourceSchemaWriteGuardService,
   TenantSchemaSyncService,
   TenantSchemaCacheModule,
 } from '@aquaculture/backend-common/database';
@@ -396,8 +395,6 @@ interface ApolloGraphQLContext {
     TenantConnectionBootstrap,
     // Auto-sync tenant schemas with source schema (creates missing tables/columns)
     TenantSchemaSyncService,
-    // DB-level write guards on source schema (defense-in-depth)
-    SourceSchemaWriteGuardService,
   ],
 })
 export class AppModule implements NestModule {

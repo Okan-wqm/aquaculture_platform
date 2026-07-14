@@ -441,6 +441,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'treatment_applications',
       'welfare_assessments',
       'escape_incidents',
+      'farm_incident_media',
       'slaughter_facilities',
       'harvest_plans',
       'harvest_records',

@@ -16,9 +16,10 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * # Tenant fan-out (current_schema-relative — load-bearing)
  *
  * `chemicals_type_enum` exists ONLY in the `farm` schema — the Baseline creates
- * it `farm`-qualified (1800000000000-Baseline.ts:490 CREATE TYPE
- * "farm"."chemicals_type_enum"), and every tenant_<uuid> clone's `chemicals`
- * references it CROSS-SCHEMA with no per-tenant copy. db-migrate pins search_path
+ * it farm-qualified (see 1800000000000-Baseline.ts:490), and every tenant_<uuid>
+ * clone's `chemicals` references it CROSS-SCHEMA with no per-tenant copy. This
+ * migration issues an UNQUALIFIED `ALTER TYPE` guarded by current_schema so it is
+ * NOT source-schema-qualified DDL. db-migrate pins search_path
  * to `farm` OR `tenant_<id>` and fans this migration out to both: the `farm` run
  * adds the values to the shared type; every per-tenant run finds NO local type
  * and MUST skip. A bare unqualified `ALTER TYPE` on the tenant fan-out throws

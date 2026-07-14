@@ -60,6 +60,7 @@ import { bootInvariantSignalRecord } from '@aquaculture/backend-common/constants
 import {
   applyInfrastructureLedgerRls,
   applyTenantRlsToSchema,
+  assertSourceSchemaWriteGuards,
   assertTenantSchemaPrivileges,
   convertAuditColumnsToTimestamptz,
   getInfrastructureAuditLedgers,
@@ -69,6 +70,7 @@ import {
   tenantMigrationLedgerTable,
   TENANT_AWARE_SCHEMAS,
   TENANT_SCHEMA_NAME_RE,
+  verifySourceSchemaWriteGuards,
   verifyTenantSchemaPrivileges,
 } from '@aquaculture/backend-common/database';
 import { DataSource, QueryRunner } from 'typeorm';
@@ -587,6 +589,81 @@ async function verifyTenantPrivilegesOrFail(
           context: 'DbMigrate',
           tenantSchema,
           violations: verification.violations,
+        });
+      }
+    }
+  } finally {
+    await queryRunner.release();
+    await dataSource.destroy();
+  }
+  return ok;
+}
+
+/**
+ * Reconcile the source-schema `guard_source_write` triggers to the
+ * registry-derived SSoT (ORPHAN-HIGH-087; completes FARM-CRITICAL-061).
+ * Installs the guard on exactly a source schema's per-tenant DATA tables
+ * (tables − referenceDataTables − infrastructureTables) and drops it from
+ * every other table, so a stray guard on a cross-tenant ledger (the
+ * `farm.farm_audit_logs` incident) self-heals. Runs on the SOURCE schema only —
+ * tenant clones inherit no trigger (`LIKE INCLUDING ALL` skips triggers), so the
+ * legitimate tenant-scoped write path is unaffected. Bootstrap (superuser)
+ * connection, under the caller's release-wide advisory lock.
+ */
+async function reconcileSourceSchemaWriteGuards(
+  database: RunSchemaOptions['database'],
+  sourceSchema: string,
+  log: (record: Record<string, unknown>) => void,
+): Promise<void> {
+  const dataSource = createControlDataSource(database);
+  await dataSource.initialize();
+  const queryRunner = dataSource.createQueryRunner();
+  try {
+    await queryRunner.connect();
+    const report = await assertSourceSchemaWriteGuards(queryRunner, sourceSchema);
+    log({
+      level: 'info',
+      message: 'Source-schema write guards reconciled',
+      context: 'DbMigrate',
+      sourceSchema,
+      installed: report.installed.length,
+      absentTables: report.absentTables,
+      droppedMisplaced: report.droppedMisplaced,
+    });
+  } finally {
+    await queryRunner.release();
+    await dataSource.destroy();
+  }
+}
+
+/**
+ * Deploy-blocking source-schema write-guard drift gate (make-it-detectable half
+ * of ORPHAN-HIGH-087 / FARM-CRITICAL-061): re-read pg_catalog and fail the
+ * deploy if any tenant-aware source schema is missing the guard on a per-tenant
+ * data table, or carries a MISplaced guard on a reference/infrastructure table
+ * (the class that broke every farm mutation).
+ */
+async function verifySourceSchemaWriteGuardsOrFail(
+  database: RunSchemaOptions['database'],
+  log: (record: Record<string, unknown>) => void,
+): Promise<boolean> {
+  const dataSource = createControlDataSource(database);
+  await dataSource.initialize();
+  const queryRunner = dataSource.createQueryRunner();
+  let ok = true;
+  try {
+    await queryRunner.connect();
+    for (const sourceSchema of TENANT_AWARE_SCHEMAS) {
+      const verification = await verifySourceSchemaWriteGuards(queryRunner, sourceSchema);
+      if (verification.missing.length > 0 || verification.misplaced.length > 0) {
+        ok = false;
+        log({
+          level: 'error',
+          message: 'Source-schema write-guard drift detected — aborting deploy',
+          context: 'DbMigrate',
+          sourceSchema,
+          missing: verification.missing,
+          misplaced: verification.misplaced,
         });
       }
     }
@@ -1247,6 +1324,10 @@ async function main(): Promise<number> {
         sourceHeads.set(entry.schema, result.head);
 
         if (TENANT_AWARE_SCHEMAS.has(entry.schema)) {
+          // Reconcile source-schema write guards to the registry SSoT before the
+          // fan-out (ORPHAN-HIGH-087 / FARM-CRITICAL-061). Independent of tenant
+          // presence — the guard lives on the source template tables.
+          await reconcileSourceSchemaWriteGuards(database, entry.schema, log);
           if (tenantSchemas.length === 0) {
             log({
               level: 'info',
@@ -1362,6 +1443,24 @@ async function main(): Promise<number> {
       log({
         level: 'error',
         message: 'Tenant-schema privilege verification failed — aborting deploy',
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      return 1;
+    }
+
+    // Deploy-blocking source-schema write-guard drift gate (ORPHAN-HIGH-087 /
+    // FARM-CRITICAL-061): every tenant-aware source schema must carry the guard
+    // on exactly its per-tenant data tables and on NO reference/infra table.
+    try {
+      const guardsOk = await verifySourceSchemaWriteGuardsOrFail(database, log);
+      if (!guardsOk) {
+        return 1;
+      }
+    } catch (err: unknown) {
+      log({
+        level: 'error',
+        message: 'Source-schema write-guard verification failed — aborting deploy',
         error: err instanceof Error ? err.message : String(err),
         stack: err instanceof Error ? err.stack : undefined,
       });

@@ -11,33 +11,22 @@
  *
  * # Why onApplicationBootstrap (not onModuleInit)
  *
- * The seed writes reference-data rows into `farm.*` tables that are
- * protected by `SourceSchemaWriteGuardService`'s BEFORE triggers. The
- * guard exempts tables listed in `MODULE_SCHEMAS[farm].referenceDataTables`
+ * The seed writes reference-data rows into `farm.*` reference tables
  * (equipment_types, chemical_types, supplier_types, feed_types, species,
- * ...) by dropping any existing trigger on them and skipping the
- * reinstall loop. The guard runs its install at
- * `SourceSchemaWriteGuardService.onModuleInit`, which means the stale
- * trigger cleanup (Phase 12.2) only completes AFTER onModuleInit has
- * fully run for that provider.
+ * ...). Those tables are declared in `MODULE_SCHEMAS[farm].referenceDataTables`
+ * and are therefore EXCLUDED from the source-schema write guard by
+ * construction: the deploy-time reconciler (`assertSourceSchemaWriteGuards`,
+ * owned by aqua-db-migrate) derives the guarded set as
+ * `tables − referenceDataTables − infrastructureTables`, so a
+ * `guard_source_write` trigger is never installed on a reference table and
+ * these seed writes cannot be blocked. (This replaces the historical
+ * boot-time `SourceSchemaWriteGuardService`, whose onModuleInit install once
+ * raced this seed and rejected `farm.species` writes.)
  *
- * If this seed service also runs in onModuleInit, NestJS can initialise
- * providers in any order — and empirically on farm-service it did
- * initialise `FarmSeedService.onModuleInit` BEFORE
- * `SourceSchemaWriteGuardService.onModuleInit`. The seed then hit the
- * stale `farm.species` trigger from the PREVIOUS deploy (when species
- * was not yet exempt) and failed with
- * `TENANT_ISOLATION_VIOLATION: Direct write to source schema farm.species blocked`.
- *
- * Moving to `onApplicationBootstrap` fixes this: that phase fires
- * after EVERY `onModuleInit` provider in the app, including the write
- * guard's clean-slate trigger reinstall. The seed then runs against a
- * schema where the exemption is effective.
- *
- * The service will ALSO only receive requests (via its Nest app
- * context) after onApplicationBootstrap completes, so moving the seed
- * here does not expose a window where the application is "up" but
- * reference data isn't loaded.
+ * `onApplicationBootstrap` (rather than onModuleInit) is kept because the
+ * service only receives requests via its Nest app context after that phase
+ * completes, so seeding here does not expose a window where the application
+ * is "up" but reference data isn't loaded.
  *
  * Seeds reference data (all environments) and test data (dev only):
  * - EquipmentTypes, ChemicalTypes, SupplierTypes, Species (reference/system-wide)

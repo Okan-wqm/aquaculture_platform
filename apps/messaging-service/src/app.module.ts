@@ -32,7 +32,6 @@ import {
   getRlsExcludeTablesForService,
   SchemaDriftModule,
   SourceSchemaBootstrapService,
-  SourceSchemaWriteGuardService,
   TenantSchemaSyncService,
   TenantSchemaCacheModule,
 } from '@aquaculture/backend-common/database';
@@ -397,11 +396,10 @@ type QueryComplexityOperationContext = {
     // runner is the SSoT for migration execution.
     MessagingMigrationRunnerService,
 
-    // Tenant infrastructure providers (all 5 required — see ADR-012 section 6.1)
+    // Tenant infrastructure providers (all 4 required — see ADR-012 section 6.1)
     SourceSchemaBootstrapService,
     TenantConnectionBootstrap,
     TenantSchemaSyncService,
-    SourceSchemaWriteGuardService,
   ],
 })
 export class AppModule implements NestModule {

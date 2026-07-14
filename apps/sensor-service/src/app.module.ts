@@ -75,7 +75,6 @@ import {
   createTenantConnectionBootstrap,
   createSchemaVersionGate,
   TenantSchemaSyncService,
-  SourceSchemaWriteGuardService,
   SchemaDriftModule,
   TenantSchemaCacheModule,
 } from '@aquaculture/backend-common/database';
@@ -499,8 +498,6 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
     TenantConnectionBootstrap,
     // Auto-sync tenant schemas with source schema (creates missing tables/columns)
     TenantSchemaSyncService,
-    // DB-level write guards on source schema (defense-in-depth)
-    SourceSchemaWriteGuardService,
   ],
 })
 export class AppModule implements NestModule {

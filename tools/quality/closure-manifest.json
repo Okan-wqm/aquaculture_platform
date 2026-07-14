@@ -1,7 +1,7 @@
 {
   "entrypoints": {
-    "gates:all": "node tools/quality/quality.mjs closure-run --profile gates-all",
-    "gates:enterprise-closure": "ts-node --project tools/gates/tsconfig.runtime.json tools/gates/enterprise-closure.ts"
+    "gates:enterprise-closure": "ts-node --project tools/gates/tsconfig.runtime.json tools/gates/enterprise-closure.ts",
+    "quality:closure-run": "node tools/quality/quality.mjs closure-run --profile gates-all"
   },
   "generated_by": "tools/quality/quality.mjs closure-manifest generate",
   "no_skip_acceptance": true,
@@ -10,130 +10,256 @@
       "readiness_claim_allowed": true,
       "steps": [
         {
-          "command": ["git", "status", "--short"],
+          "command": [
+            "git",
+            "status",
+            "--short"
+          ],
           "name": "pre-clean-status",
           "require_empty_stdout": true
         },
         {
-          "command": ["node", "tools/quality/quality.mjs", "format-scope", "check"],
+          "command": [
+            "node",
+            "tools/quality/quality.mjs",
+            "format-scope",
+            "check"
+          ],
           "name": "quality-format-scope"
         },
         {
-          "command": ["node", "tools/quality/quality.mjs", "lint-inventory", "check"],
+          "command": [
+            "node",
+            "tools/quality/quality.mjs",
+            "lint-inventory",
+            "check"
+          ],
           "name": "quality-lint-inventory"
         },
         {
-          "command": ["node", "tools/quality/quality.mjs", "rust-toolchain", "check"],
+          "command": [
+            "node",
+            "tools/quality/quality.mjs",
+            "rust-toolchain",
+            "check"
+          ],
           "name": "quality-rust-toolchain"
         },
         {
-          "command": ["node", "tools/quality/quality.mjs", "closure-manifest", "check"],
+          "command": [
+            "node",
+            "tools/quality/quality.mjs",
+            "closure-manifest",
+            "check"
+          ],
           "name": "quality-closure-manifest"
         },
         {
-          "command": ["npm", "run", "gates:tools-typecheck"],
+          "command": [
+            "npm",
+            "run",
+            "gates:tools-typecheck"
+          ],
           "name": "tools-gates-typecheck"
         },
         {
-          "command": ["npm", "run", "gates:banned-phrase"],
+          "command": [
+            "npm",
+            "run",
+            "gates:banned-phrase"
+          ],
           "name": "banned-phrase"
         },
         {
-          "command": ["npm", "run", "gates:migration-sql"],
+          "command": [
+            "npm",
+            "run",
+            "gates:migration-sql"
+          ],
           "name": "migration-sql"
         },
         {
-          "command": ["npm", "run", "gates:tier-claim"],
+          "command": [
+            "npm",
+            "run",
+            "gates:tier-claim"
+          ],
           "name": "tier-claim"
         },
         {
-          "command": ["npm", "run", "gates:type-check-spec"],
+          "command": [
+            "npm",
+            "run",
+            "gates:type-check-spec"
+          ],
           "name": "type-check-spec"
         },
         {
-          "command": ["npm", "run", "gates:schema-drift-registration"],
+          "command": [
+            "npm",
+            "run",
+            "gates:schema-drift-registration"
+          ],
           "name": "schema-drift-registration"
         },
         {
-          "command": ["npm", "run", "gates:signals-manifest"],
+          "command": [
+            "npm",
+            "run",
+            "gates:signals-manifest"
+          ],
           "name": "signals-manifest"
         },
         {
-          "command": ["npm", "run", "gates:criticality-manifest"],
+          "command": [
+            "npm",
+            "run",
+            "gates:criticality-manifest"
+          ],
           "name": "criticality-manifest"
         },
         {
-          "command": ["npm", "run", "gates:required-secrets"],
+          "command": [
+            "npm",
+            "run",
+            "gates:required-secrets"
+          ],
           "name": "required-secrets"
         },
         {
-          "command": ["npm", "run", "gates:dependency-policy"],
+          "command": [
+            "npm",
+            "run",
+            "gates:dependency-policy"
+          ],
           "name": "dependency-policy"
         },
         {
-          "command": ["npm", "run", "gates:gha-sha-pin"],
+          "command": [
+            "npm",
+            "run",
+            "gates:gha-sha-pin"
+          ],
           "name": "gha-sha-pin"
         },
         {
-          "command": ["npm", "ci", "--dry-run", "--ignore-scripts", "--no-audit"],
+          "command": [
+            "npm",
+            "ci",
+            "--dry-run",
+            "--ignore-scripts",
+            "--no-audit"
+          ],
           "heavy": true,
           "name": "npm-ci-dry-run"
         },
         {
-          "command": ["npm", "ci", "--ignore-scripts"],
+          "command": [
+            "npm",
+            "ci",
+            "--ignore-scripts"
+          ],
           "heavy": true,
           "name": "npm-ci-ignore-scripts"
         },
         {
-          "command": ["npm", "ls", "--package-lock-only", "--all"],
+          "command": [
+            "npm",
+            "ls",
+            "--package-lock-only",
+            "--all"
+          ],
           "heavy": true,
           "name": "npm-ls-lock"
         },
         {
-          "command": ["npm", "audit", "--audit-level=moderate", "--omit=dev"],
+          "command": [
+            "npm",
+            "audit",
+            "--audit-level=moderate",
+            "--omit=dev"
+          ],
           "heavy": true,
           "name": "npm-audit"
         },
         {
-          "command": ["npm", "run", "format:check"],
+          "command": [
+            "npm",
+            "run",
+            "format:check"
+          ],
           "name": "format-check"
         },
         {
-          "command": ["npm", "run", "lint:all", "--", "--max-warnings=0"],
+          "command": [
+            "npm",
+            "run",
+            "lint:all",
+            "--",
+            "--max-warnings=0"
+          ],
           "heavy": true,
           "name": "lint-all"
         },
         {
-          "command": ["npm", "run", "type-check"],
+          "command": [
+            "npm",
+            "run",
+            "type-check"
+          ],
           "heavy": true,
           "name": "type-check"
         },
         {
-          "command": ["npm", "run", "aria:acceptance"],
+          "command": [
+            "npm",
+            "run",
+            "aria:acceptance"
+          ],
           "heavy": true,
           "name": "aria-acceptance"
         },
         {
-          "command": ["npm", "run", "invariants:full"],
+          "command": [
+            "npm",
+            "run",
+            "invariants:full"
+          ],
           "heavy": true,
           "name": "invariants-full"
         },
         {
-          "command": ["npm", "run", "test:all"],
+          "command": [
+            "npm",
+            "run",
+            "test:all"
+          ],
           "heavy": true,
           "name": "test-all"
         },
         {
-          "command": ["npm", "run", "build:all"],
+          "command": [
+            "npm",
+            "run",
+            "build:all"
+          ],
           "heavy": true,
           "name": "build-all"
         },
         {
-          "command": ["git", "diff", "--check"],
+          "command": [
+            "git",
+            "diff",
+            "--check"
+          ],
           "name": "diff-whitespace"
         },
         {
-          "command": ["git", "status", "--short"],
+          "command": [
+            "git",
+            "status",
+            "--short"
+          ],
           "name": "post-clean-status",
           "require_empty_stdout": true
         }
@@ -143,63 +269,127 @@
       "readiness_claim_allowed": false,
       "steps": [
         {
-          "command": ["node", "tools/quality/quality.mjs", "format-scope", "check"],
+          "command": [
+            "node",
+            "tools/quality/quality.mjs",
+            "format-scope",
+            "check"
+          ],
           "name": "quality-format-scope"
         },
         {
-          "command": ["node", "tools/quality/quality.mjs", "lint-inventory", "check"],
+          "command": [
+            "node",
+            "tools/quality/quality.mjs",
+            "lint-inventory",
+            "check"
+          ],
           "name": "quality-lint-inventory"
         },
         {
-          "command": ["node", "tools/quality/quality.mjs", "rust-toolchain", "check"],
+          "command": [
+            "node",
+            "tools/quality/quality.mjs",
+            "rust-toolchain",
+            "check"
+          ],
           "name": "quality-rust-toolchain"
         },
         {
-          "command": ["node", "tools/quality/quality.mjs", "closure-manifest", "check"],
+          "command": [
+            "node",
+            "tools/quality/quality.mjs",
+            "closure-manifest",
+            "check"
+          ],
           "name": "quality-closure-manifest"
         },
         {
-          "command": ["npm", "run", "gates:tools-typecheck"],
+          "command": [
+            "npm",
+            "run",
+            "gates:tools-typecheck"
+          ],
           "name": "tools-gates-typecheck"
         },
         {
-          "command": ["npm", "run", "gates:banned-phrase"],
+          "command": [
+            "npm",
+            "run",
+            "gates:banned-phrase"
+          ],
           "name": "banned-phrase"
         },
         {
-          "command": ["npm", "run", "gates:migration-sql"],
+          "command": [
+            "npm",
+            "run",
+            "gates:migration-sql"
+          ],
           "name": "migration-sql"
         },
         {
-          "command": ["npm", "run", "gates:tier-claim"],
+          "command": [
+            "npm",
+            "run",
+            "gates:tier-claim"
+          ],
           "name": "tier-claim"
         },
         {
-          "command": ["npm", "run", "gates:type-check-spec"],
+          "command": [
+            "npm",
+            "run",
+            "gates:type-check-spec"
+          ],
           "name": "type-check-spec"
         },
         {
-          "command": ["npm", "run", "gates:schema-drift-registration"],
+          "command": [
+            "npm",
+            "run",
+            "gates:schema-drift-registration"
+          ],
           "name": "schema-drift-registration"
         },
         {
-          "command": ["npm", "run", "gates:signals-manifest"],
+          "command": [
+            "npm",
+            "run",
+            "gates:signals-manifest"
+          ],
           "name": "signals-manifest"
         },
         {
-          "command": ["npm", "run", "gates:criticality-manifest"],
+          "command": [
+            "npm",
+            "run",
+            "gates:criticality-manifest"
+          ],
           "name": "criticality-manifest"
         },
         {
-          "command": ["npm", "run", "gates:required-secrets"],
+          "command": [
+            "npm",
+            "run",
+            "gates:required-secrets"
+          ],
           "name": "required-secrets"
         },
         {
-          "command": ["npm", "run", "gates:dependency-policy"],
+          "command": [
+            "npm",
+            "run",
+            "gates:dependency-policy"
+          ],
           "name": "dependency-policy"
         },
         {
-          "command": ["npm", "run", "gates:gha-sha-pin"],
+          "command": [
+            "npm",
+            "run",
+            "gates:gha-sha-pin"
+          ],
           "name": "gha-sha-pin"
         }
       ]

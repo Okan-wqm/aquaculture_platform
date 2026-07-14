@@ -59,10 +59,9 @@ const config: Config = {
     '^@platform/outbox$': '<rootDir>/../platform/libs/outbox/src/index.ts',
     '^@platform/event-bus$': '<rootDir>/../platform/libs/event-bus/src/index.ts',
     '^@platform/cqrs$': '<rootDir>/../platform/libs/cqrs/src/index.ts',
-    // service-catalog is the schema-topology SSoT (platform #985); backend-common's
-    // tenant-aware-schemas.ts imports it, so every e2e spec that loads
-    // backend-common (e.g. tenant-clone-parity) needs the mapping too — without
-    // it ts-jest throws TS2307 and the suite fails to run.
+    // backend-common's tenant-aware-schemas.ts derives from the platform
+    // topology SSoT; without this map ts-jest cannot resolve it and every e2e
+    // spec that transitively imports MODULE_SCHEMAS fails to load.
     '^@platform/service-catalog$': '<rootDir>/../platform/libs/service-catalog/src/index.ts',
   },
 };

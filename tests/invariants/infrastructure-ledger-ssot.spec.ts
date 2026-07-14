@@ -25,11 +25,16 @@ import {
 } from '../../libs/backend-common/src/database/rls/infrastructure-ledger.ssot';
 import { MODULE_SCHEMAS } from '../../libs/backend-common/src/database/schema-manager.service';
 import { PROTECTED_TABLES } from '../../libs/backend-common/src/constants/protected-tables';
+import { tenantAwareSchemas } from '../../platform/libs/service-catalog/src';
 
-// Schemas whose ledgers live in the SERVICE source schema and ARE declared in
-// MODULE_SCHEMAS.infrastructureTables. Platform-level schemas (auth, shared)
-// are not MODULE_SCHEMAS entries, so check #2 does not apply to them.
-const TENANT_SCOPED_SERVICE_SCHEMAS = new Set(['farm', 'hr', 'alert', 'ai', 'sensor']);
+// Tenant-scoped service schemas whose ledgers live in the source schema and are
+// declared in MODULE_SCHEMAS.infrastructureTables — DERIVED from the platform
+// topology SSoT, not a hand-copied subset. WHY derived: the previous literal
+// `['farm','hr','alert','ai','sensor']` silently omitted `messaging` +
+// `hydroponics` (both tenant-aware with cross-tenant infra tables), so the
+// drift catch below never fired for a new messaging/hydroponics audit ledger
+// shipped without the canonical policy — the ORPHAN-HIGH-411(c) coverage hole.
+const TENANT_SCOPED_SERVICE_SCHEMAS = new Set(tenantAwareSchemas());
 
 const IDENT_RE = /^[a-z][a-z0-9_]*$/;
 

@@ -9597,6 +9597,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1806000000000-CreateIncidentMedia.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -11499,6 +11505,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/fish-health/__tests__/incident-media.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/fish-health/__tests__/lice-count.service.spec.ts",
       "prettier_managed": true
     },
@@ -11512,6 +11524,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/fish-health/__tests__/welfare-assessment.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/constants/incident-media.constants.ts",
       "prettier_managed": true
     },
     {
@@ -11535,6 +11553,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/fish-health/dto/incident-media.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/fish-health/dto/index.ts",
       "prettier_managed": true
     },
@@ -11548,6 +11572,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/fish-health/entities/escape-incident.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/entities/farm-incident-media.entity.ts",
       "prettier_managed": true
     },
     {
@@ -11740,6 +11770,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/fish-health/services/health-event.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/services/incident-media.service.ts",
       "prettier_managed": true
     },
     {
@@ -42719,6 +42755,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/components/__tests__/PhotoCaptureField.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/components/__tests__/VirtualList.spec.tsx",
       "prettier_managed": true
     },
@@ -43007,7 +43049,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/components/PhotoCaptureField.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/components/QueuedStatusBadge.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/__tests__/IconButton.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/IconButton.tsx",
       "prettier_managed": true
     },
     {
@@ -43109,6 +43169,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/__tests__/useIncidentMediaUpload.spec.ts",
       "prettier_managed": true
     },
     {
@@ -43319,6 +43385,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/useFirebaseMessaging.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/useIncidentMediaUpload.ts",
       "prettier_managed": true
     },
     {
@@ -45616,6 +45688,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/pages/__tests__/MapViewPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/pages/analytics/__tests__/AnalyticsPage.spec.tsx",
       "prettier_managed": true
     },
@@ -45700,6 +45778,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/pages/company/__tests__/CompanyPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/pages/company/CompanyPage.tsx",
       "prettier_managed": true
     },
@@ -45707,6 +45791,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/farm-module/src/pages/feeding/__tests__/FeedingPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/feeding/__tests__/FeedingProgramForm.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -45790,6 +45880,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/pages/finance/__tests__/FinancePage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/pages/finance/components/CategoriesTab.tsx",
       "prettier_managed": true
     },
@@ -45857,6 +45953,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/farm-module/src/pages/maintenance/__tests__/MaintenancePage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/maintenance/__tests__/MaintenanceSchedulesPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/maintenance/__tests__/SparePartsPage.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -46091,6 +46199,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/farm-module/src/pages/production/types/batch.types.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/reports/__tests__/ReportsPage.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -46469,6 +46583,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/farm-module/src/pages/reports/utils/thresholds.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/settings/__tests__/SentinelHubSettingsPage.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -54060,10 +54180,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8859,
+  "file_count": 8879,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8678,
-  "managed_file_list_sha256": "f4d8e04d45ebac55acf0b5043bc9d0b84e1ab84f5c299f3feccb14829c77f8f8",
+  "managed_count": 8698,
+  "managed_file_list_sha256": "935a422a1e0d3dcd25573eba1b617762ab00f37cf2962b07ddd711a2886a948d",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

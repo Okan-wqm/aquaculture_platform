@@ -50,6 +50,9 @@ export enum ChemicalType {
   ANESTHETIC = 'anesthetic',             // Anestezik
   pH_ADJUSTER = 'ph_adjuster',           // pH ayarlayıcı
   ALGAECIDE = 'algaecide',               // Yosun öldürücü
+  ANTIFUNGAL = 'antifungal',             // Antifungal (fish-health therapeutic)
+  VACCINE = 'vaccine',                   // Aşı (fish-health therapeutic)
+  WOUND_CARE = 'wound_care',             // Yara bakımı (fish-health therapeutic)
   OTHER = 'other',
 }
 
@@ -88,6 +91,8 @@ export interface UsageProtocol {
   targetConditions?: string[];
   contraindications?: string[];
   precautions?: string[];
+  /** Whether the substance requires a veterinary prescription (fish-health regulatory flag). */
+  prescriptionRequired?: boolean;
   notes?: string;
 }
 

@@ -89,6 +89,66 @@ jobs:
 
             echo "=== Test run complete ==="
 
+      # ── AquaMobil mobile browser E2E (MOB-HIGH-013) ──────────────────
+      # The mobile Playwright suite (e2e/tests/mobile/**, config
+      # playwright.aquamobil.config.ts) drives the REAL login mutation and
+      # seeds live rows across ai/alert/messaging/farm schemas, so it needs
+      # the full running stack — unlike the water-chemistry smoke, which
+      # mocks GraphQL. This workflow runs post-deploy on main, so the target
+      # is the just-merged build: point the suite at the DEPLOYED AquaMobil
+      # container via nginx (host :80 → aquamobil:80; same-origin /graphql
+      # and /socket.io proxied to gateway-api:3000). No in-CI build needed.
+      #
+      # Separate SSH step (not folded into the suite above) so the mobile
+      # results are a distinct, visible check; `!cancelled()` lets it run
+      # even if the default suite failed — the two suites are independent.
+      - name: Run AquaMobil mobile E2E on server via SSH
+        if: ${{ !cancelled() }}
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          timeout: 600s
+          envs: JWT_SECRET,DB_PASSWORD
+          script: |
+            set -e
+            cd /var/aqua-saas/e2e
+            npm ci --prefer-offline --ignore-scripts 2>/dev/null || npm install --ignore-scripts
+            npx playwright install --with-deps chromium 2>/dev/null || true
+
+            # AQUAMOBIL_URL / GATEWAY_URL / DATABASE_URL / JWT_SECRET are read by
+            # playwright.aquamobil.config.ts and the mobile seed helpers.
+            export AQUAMOBIL_URL=http://localhost/mobile
+            export GATEWAY_URL=http://localhost:3000
+            export DATABASE_URL=postgresql://aquaculture:${DB_PASSWORD}@localhost:5432/aquaculture
+            export NODE_ENV=test
+            export CI=true
+
+            echo "=== Waiting for deployed AquaMobil + gateway ==="
+            ready=false
+            for _ in $(seq 1 60); do
+              if curl -fsS http://localhost/mobile/ >/dev/null 2>&1 \
+                && curl -fsS http://localhost:3000/health >/dev/null 2>&1; then
+                ready=true
+                break
+              fi
+              sleep 2
+            done
+            if [ "$ready" != "true" ]; then
+              echo "AquaMobil (nginx :80 /mobile/) or gateway (:3000) not reachable"
+              exit 1
+            fi
+
+            echo "=== Running AquaMobil mobile E2E (MOB-HIGH-013) ==="
+            # Exit code propagates (no `|| true`) so a mobile failure fails CI.
+            npm run test:mobile 2>&1
+
+            echo "=== Mobile E2E complete ==="
+
       - name: Copy test results from server
         if: always()
         # Pinned to commit SHA: mutable @v0.1.7 replaced.

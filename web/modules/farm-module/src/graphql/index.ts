@@ -24,3 +24,6 @@ export * from './feedingProtocol.operations';
 
 // Regulatory Report Operations
 export * from './regulatory.operations';
+
+// Site Setup Operations
+export * from './sites.operations';

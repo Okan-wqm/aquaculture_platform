@@ -68,6 +68,22 @@ vi.mock('@/hooks/useTanks', () => ({
   useTanks: () => ({ data: h.tanks, isLoading: false, error: null }),
 }));
 
+// PhotoCaptureField (added FARM incident photo capture) pulls in the network
+// status + upload hooks — stub them so the page renders deterministically online
+// without a real presign/PUT.
+vi.mock('@/hooks/useNetworkStatus', () => ({
+  useNetworkStatus: () => true,
+}));
+
+vi.mock('@/hooks/useIncidentMediaUpload', () => ({
+  useIncidentMediaUpload: () => ({
+    uploadPhoto: vi.fn(),
+    isUploading: false,
+    progress: 0,
+    error: null,
+  }),
+}));
+
 vi.mock('@/components/QueuedStatusBadge', () => ({
   QueuedStatusBadge: ({ operationId }: { operationId: string }) => (
     <div data-testid="queued-badge">queued:{operationId}</div>
@@ -122,9 +138,13 @@ vi.mock('lucide-react', () => {
     ArrowLeft: Stub,
     AlertCircle: Stub,
     Bug: Stub,
+    Camera: Stub,
     ChevronRight: Stub,
+    ImageOff: Stub,
+    Loader2: Stub,
     Minus: Stub,
     Plus: Stub,
+    X: Stub,
   };
 });
 
@@ -219,6 +239,7 @@ describe('LiceCountPage — RecordLiceCountInput contract (FARM-HIGH-214)', { ti
       'fishSampled',
       'seaTemperatureC',
       'notes',
+      'mediaKeys',
     ];
     Object.keys(payload)
       .filter((k) => payload[k] !== undefined)

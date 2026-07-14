@@ -29,6 +29,7 @@ import {
   type BaseFormErrors,
 } from '../_shared/RecordEntityPage';
 
+import { PhotoCaptureField } from '@/components/PhotoCaptureField';
 import { useTanks } from '@/hooks/useTanks';
 import type { EscapeIncidentCause, EscapeIncidentInput } from '@/types';
 
@@ -90,6 +91,7 @@ export function EscapeIncidentPage(): JSX.Element {
   const [cause, setCause] = useState<EscapeIncidentCause>('UNKNOWN');
   const [avgWeightG, setAvgWeightG] = useState<number | null>(null);
   const [notes, setNotes] = useState('');
+  const [mediaKeys, setMediaKeys] = useState<string[]>([]);
   const [errors, setErrors] = useState<BaseFormErrors>({});
 
   const selectedTank = tanks?.find((t) => t.id === selectedTankId);
@@ -131,6 +133,7 @@ export function EscapeIncidentPage(): JSX.Element {
       cause,
       recoveryOngoing: false,
       notes: notes.trim() || undefined,
+      mediaKeys: mediaKeys.length > 0 ? mediaKeys : undefined,
     };
   };
 
@@ -216,6 +219,7 @@ export function EscapeIncidentPage(): JSX.Element {
         onChange={setNotes}
         placeholder="What happened? Net damage location, weather, recovery started..."
       />
+      <PhotoCaptureField incidentType="ESCAPE" value={mediaKeys} onChange={setMediaKeys} />
     </RecordEntityPage>
   );
 }

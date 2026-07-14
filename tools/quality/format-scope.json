@@ -24653,6 +24653,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/scada-runtime/services/__tests__/alarm-engine.tenant-isolation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/scada-runtime/services/__tests__/quickjs-sandbox.spec.ts",
       "prettier_managed": true
     },
@@ -54222,10 +54228,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8886,
+  "file_count": 8887,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8705,
-  "managed_file_list_sha256": "522338c7776a97276aa2607dd89a0e1d235ef08d12e2cc7ad9904ae711b9c687",
+  "managed_count": 8706,
+  "managed_file_list_sha256": "980c7c1f00b2de1095740121c277495b0c6d9a1726e7e9342fee83a4a419d24d",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

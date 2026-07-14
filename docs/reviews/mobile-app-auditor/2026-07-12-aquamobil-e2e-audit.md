@@ -29,6 +29,17 @@ no duplicate implementation in flight. Owner decision: BUILD end-to-end
 (proposal persistence + emission in ai-service, `executeAction` responder with
 confirmation override, mobile wiring). Deadline: Faz 2 of this cycle's branch.
 
+> **RESOLVED (2026-07-14).** Delivered end-to-end in #952 (`4e665ae0`) and
+> verified against current `main`: `useAiChat.ts:185` `confirmAction()` runs the
+> real `MOBILE_CONFIRM_AI_ACTION` mutation (no TODO), cards derive from server
+> `metadata.status ∈ {proposed,confirmed,failed}`; `messaging-service`
+> `confirmAiAction` verifies channel membership and fires NATS
+> `request.ai.executeAction`; `ai-service` `action-proposal.service.ts`
+> `executeProposal` is the human-in-the-loop state machine (atomic
+> `proposed→executing→completed`, 24h staleness, idempotent). The flow is now
+> continuously guarded by the CI-wired `e2e/tests/mobile/ai-action-confirm.spec.ts`
+> (MOB-HIGH-013). Registry close is a post-merge `findings:close` step.
+
 ### MOB-MEDIUM-002 — closed-app Background Sync is a no-op and the code claims otherwise
 `src/pwa/messaging-sw.ts` `handleSyncEvent` only posts `SYNC_COMPLETE` to open
 window clients; the SW never replays the queue itself, while
@@ -64,6 +75,18 @@ No alerts page, no acknowledge flow, no severity model, no critical-alert
 banner. alert-engine already exposes `alertHistory` / `acknowledgeAlert` /
 `resolveAlert` (MODULE_USER) via the federated graph; desktop sensor-module
 has the full reference UI. Fix: Faz 1.1 (offline-capable ack via the queue).
+
+> **RESOLVED (2026-07-14).** Delivered in #952 (`4e665ae0`) and verified against
+> current `main`: `pages/alerts/AlertsPage.tsx` (routed at `/alerts`) renders
+> unacked-first with a full severity model (`SEVERITY_STYLES` covers
+> CRITICAL/HIGH/MEDIUM/WARNING/LOW/INFO); one-tap acknowledge goes through the
+> offline queue (`useAlerts.ts` `addToQueue('acknowledgeAlert', …)` with
+> optimistic flip); `components/CriticalAlertBanner.tsx` is the persistent
+> critical-alert banner mounted on every authenticated page and listens for
+> foreground FCM pushes. Backed by `alert-engine` `alertHistory` /
+> `acknowledgeAlert` / `resolveAlert`. Now guarded by the CI-wired
+> `e2e/tests/mobile/alerts-ack.spec.ts` (MOB-HIGH-013). Registry close is a
+> post-merge `findings:close` step.
 
 ### MOB-MEDIUM-007 — push notifications are not alarm-grade
 `firebase-messaging-sw.js` sets only body/icon/data: no `requireInteraction`,
@@ -137,6 +160,14 @@ validated only by unit/component specs. Fix: Faz 0.5 scaffold (login +
 offline-sync roundtrip first — the guard for MOB-MEDIUM-002) + Faz 4.2 full
 coverage.
 
+> **RESOLVED (2026-07-14).** The Playwright mobile suite (`e2e/tests/mobile/**` —
+> login, alerts-ack, ai-action-confirm, messaging-smoke, offline-sync-roundtrip,
+> record-forms) now runs in CI: `e2e-tests.yml` executes `test:e2e:mobile`
+> post-deploy against the deployed AquaMobil on the droplet (nginx :80 → app;
+> same-origin /graphql → gateway), and `e2e/project.json` lints the mobile config
+> + `tests/mobile/**`. This resolves the "no aquamobil/`/mobile/` reference"
+> gap. Registry close is a post-merge `findings:close` step.
+
 ### MOB-MEDIUM-016 — mobile E2E lane: CI wiring + feeding/WQ form coverage (blocked on full-stack CI env)
 Plan-review finding (2026-07-13). The mobile Playwright lane exists and runs
 locally/against any deployed stack (`npm run test:e2e:mobile`, 8 tests), but
@@ -151,6 +182,12 @@ but RecordFeedingPage and the DynamicMeasurementForm WQ flow are separate
 scaffolds needing feed-inventory/equipment seed helpers verified against a
 live stack). OWNER: infra-expert lane (CI stack) + aquamobil maintainers
 (specs). DEADLINE: 2026-08-31. STATUS: OPEN.
+
+> **PARTIAL (2026-07-14).** The CI-wiring half is resolved: rather than mirror
+> the static water-chemistry serve, the mobile lane runs post-deploy on the
+> droplet where the FULL platform is already up (see MOB-HIGH-013). Still OPEN:
+> the feeding + water-quality record-form specs (RecordFeedingPage /
+> DynamicMeasurementForm WQ flow) and their seed helpers.
 
 ### MOB-LOW-017 — real-time alert push independent of FCM (gateway socket bridge)
 The CriticalAlertBanner is fed by the 30s alertHistory poll + FCM foreground

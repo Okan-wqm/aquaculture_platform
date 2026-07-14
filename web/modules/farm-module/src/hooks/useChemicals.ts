@@ -18,6 +18,9 @@ export enum ChemicalType {
   ANESTHETIC = 'ANESTHETIC',
   PH_ADJUSTER = 'PH_ADJUSTER',
   ALGAECIDE = 'ALGAECIDE',
+  ANTIFUNGAL = 'ANTIFUNGAL',
+  VACCINE = 'VACCINE',
+  WOUND_CARE = 'WOUND_CARE',
   OTHER = 'OTHER',
 }
 
@@ -64,8 +67,11 @@ export interface SupplierBasic {
 }
 
 export interface UsageProtocol {
-  dosage: string;
-  applicationMethod: string;
+  // Optional to match the backend UsageProtocolInput (@IsOptional) and the
+  // nullable UsageProtocolResponse — a therapeutic-substance protocol may carry
+  // only withdrawal/target/prescription data without dosage/applicationMethod.
+  dosage?: string;
+  applicationMethod?: string;
   frequency?: string;
   duration?: string;
   withdrawalPeriod?: number;
@@ -73,6 +79,7 @@ export interface UsageProtocol {
   targetConditions?: string[];
   contraindications?: string[];
   precautions?: string[];
+  prescriptionRequired?: boolean;
   notes?: string;
 }
 
@@ -203,7 +210,9 @@ const CHEMICALS_LIST_QUERY = `
           duration
           withdrawalPeriod
           targetSpecies
+          targetConditions
           precautions
+          prescriptionRequired
           notes
         }
         safetyInfo {
@@ -269,7 +278,9 @@ const CHEMICAL_QUERY = `
         duration
         withdrawalPeriod
         targetSpecies
+        targetConditions
         precautions
+        prescriptionRequired
         notes
       }
       safetyInfo {

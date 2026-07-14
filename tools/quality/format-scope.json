@@ -26365,6 +26365,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/adr/045-scada-multi-tenant-runtime.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/adr/2026-04-30-apollo-router-self-hosted-static-supergraph.md",
       "prettier_managed": true
     },
@@ -54216,10 +54222,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8885,
+  "file_count": 8886,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8704,
-  "managed_file_list_sha256": "f89b2fb416f331345145e89e68a7b0306c1dab11e06a99ac5adcd75864cdae9b",
+  "managed_count": 8705,
+  "managed_file_list_sha256": "522338c7776a97276aa2607dd89a0e1d235ef08d12e2cc7ad9904ae711b9c687",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

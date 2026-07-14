@@ -22,9 +22,10 @@ interface RecordedQuery {
   params?: readonly unknown[];
 }
 
-function executorWith(
-  responder: (sql: string, params?: readonly unknown[]) => unknown,
-): { executor: SourceSchemaGuardExecutor; queries: RecordedQuery[] } {
+function executorWith(responder: (sql: string, params?: readonly unknown[]) => unknown): {
+  executor: SourceSchemaGuardExecutor;
+  queries: RecordedQuery[];
+} {
   const queries: RecordedQuery[] = [];
   return {
     queries,
@@ -66,22 +67,25 @@ describe('sourceSchemaGuardedTables', () => {
   // The FARM-CRITICAL-061 class (guard on a cross-tenant ledger / reference
   // table) is impossible-by-construction ONLY if the derivation never lets one
   // in — assert it across EVERY tenant-aware schema, not just farm.
-  describe.each([...TENANT_AWARE_SCHEMAS])('derivation for tenant-aware schema %s', (sourceSchema) => {
-    it('guarded ∩ (referenceDataTables ∪ infrastructureTables) === ∅ and guarded ⊆ tables', () => {
-      const entry = MODULE_SCHEMAS.find((m) => m.sourceSchema === sourceSchema);
-      expect(entry).toBeDefined();
-      if (entry === undefined) {
-        return;
-      }
-      const nonGuardable = new Set<string>([
-        ...(entry.referenceDataTables ?? []),
-        ...(entry.infrastructureTables ?? []),
-      ]);
-      const guarded = sourceSchemaGuardedTables(sourceSchema);
-      expect(guarded.filter((t) => nonGuardable.has(t))).toEqual([]);
-      expect(guarded.every((t) => entry.tables.includes(t))).toBe(true);
-    });
-  });
+  describe.each([...TENANT_AWARE_SCHEMAS])(
+    'derivation for tenant-aware schema %s',
+    (sourceSchema) => {
+      it('guarded ∩ (referenceDataTables ∪ infrastructureTables) === ∅ and guarded ⊆ tables', () => {
+        const entry = MODULE_SCHEMAS.find((m) => m.sourceSchema === sourceSchema);
+        expect(entry).toBeDefined();
+        if (entry === undefined) {
+          return;
+        }
+        const nonGuardable = new Set<string>([
+          ...(entry.referenceDataTables ?? []),
+          ...(entry.infrastructureTables ?? []),
+        ]);
+        const guarded = sourceSchemaGuardedTables(sourceSchema);
+        expect(guarded.filter((t) => nonGuardable.has(t))).toEqual([]);
+        expect(guarded.every((t) => entry.tables.includes(t))).toBe(true);
+      });
+    },
+  );
 });
 
 describe('assertSourceSchemaWriteGuards', () => {
@@ -120,11 +124,17 @@ describe('assertSourceSchemaWriteGuards', () => {
       ),
     );
     // the stray guard on the infrastructure ledger is dropped
-    expect(sql).toContainEqual('DROP TRIGGER IF EXISTS guard_source_write ON "farm"."farm_audit_logs"');
+    expect(sql).toContainEqual(
+      'DROP TRIGGER IF EXISTS guard_source_write ON "farm"."farm_audit_logs"',
+    );
     // a guard is NEVER created on a reference or infrastructure table
     const joined = sql.join('\n');
-    expect(joined).not.toContain('CREATE TRIGGER guard_source_write BEFORE INSERT OR UPDATE OR DELETE ON "farm"."farm_audit_logs"');
-    expect(joined).not.toContain('CREATE TRIGGER guard_source_write BEFORE INSERT OR UPDATE OR DELETE ON "farm"."species"');
+    expect(joined).not.toContain(
+      'CREATE TRIGGER guard_source_write BEFORE INSERT OR UPDATE OR DELETE ON "farm"."farm_audit_logs"',
+    );
+    expect(joined).not.toContain(
+      'CREATE TRIGGER guard_source_write BEFORE INSERT OR UPDATE OR DELETE ON "farm"."species"',
+    );
   });
 
   it('refuses to guard a platform-level schema', async () => {
@@ -132,6 +142,36 @@ describe('assertSourceSchemaWriteGuards', () => {
     await expect(assertSourceSchemaWriteGuards(executor, 'admin')).rejects.toThrow(
       /non-tenant-aware/,
     );
+  });
+
+  // Regression: a guarded table that is DECLARATIVE-PARTITIONED (messaging.messages,
+  // message_receipts) auto-propagates `guard_source_write` to every partition as an
+  // INHERITED child trigger (pg_trigger.tgparentid != 0). Those children cannot be
+  // dropped independently ("... requires it") — so the reconcile listing must
+  // exclude them or it aborts every production deploy. Fix pins the DB-level filter.
+  it('excludes inherited partition triggers from the guard listing (partitioned-table deploy safety)', async () => {
+    const { executor, queries } = executorWith(() => []);
+    await assertSourceSchemaWriteGuards(executor, 'messaging');
+    const guardListing = queries.find((q) => q.sql.includes('FROM pg_trigger'));
+    expect(guardListing).toBeDefined();
+    expect(guardListing?.sql ?? '').toContain('tg.tgparentid = 0');
+  });
+
+  it('drops a stray STAND-ALONE guard but never a partition child (which is managed via its parent)', async () => {
+    // The mocked DB honours `tgparentid = 0`, so the guard listing returns only
+    // parents/stand-alone tables — a partition child (messages_2026_06) is never
+    // surfaced, hence never in droppedMisplaced (Postgres would have refused it).
+    const { executor } = executorWith((sql) => {
+      if (sql.includes('FROM pg_tables')) {
+        return [{ tablename: 'messages' }, { tablename: 'messages_2026_06' }];
+      }
+      if (sql.includes('FROM pg_trigger')) {
+        return [{ tablename: 'messages' }]; // parent only (partition child filtered out)
+      }
+      return [];
+    });
+    const report = await assertSourceSchemaWriteGuards(executor, 'messaging');
+    expect(report.droppedMisplaced).not.toContain('messages_2026_06');
   });
 });
 

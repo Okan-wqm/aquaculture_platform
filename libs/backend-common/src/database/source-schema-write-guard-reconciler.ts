@@ -133,12 +133,23 @@ async function tablesWithGuard(
   executor: SourceSchemaGuardExecutor,
   sourceSchema: string,
 ): Promise<string[]> {
+  // `tg.tgparentid = 0` excludes triggers that a partition INHERITED from its
+  // parent partitioned table. Under declarative partitioning, creating
+  // `guard_source_write` on a parent (e.g. messaging.messages) auto-propagates a
+  // child trigger to every partition (messages_2026_06, …) with tgparentid set
+  // to the parent trigger's oid. Those child triggers CANNOT be dropped
+  // independently — Postgres refuses ("... requires it") — they are managed via
+  // the parent. Considering them here made the reconcile loop below try to drop
+  // a partition's guard as "misplaced" and abort the whole deploy. The parent
+  // is the only manageable unit, so we report and reconcile ONLY parents/
+  // stand-alone tables; create/drop on the parent cascades to its partitions.
   const rows = (await executor.query(
     `SELECT c.relname AS tablename
        FROM pg_trigger tg
        JOIN pg_class c ON c.oid = tg.tgrelid
        JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE n.nspname = $1 AND tg.tgname = $2 AND NOT tg.tgisinternal`,
+      WHERE n.nspname = $1 AND tg.tgname = $2 AND NOT tg.tgisinternal
+        AND tg.tgparentid = 0`,
     [sourceSchema, GUARD_TRIGGER_NAME],
   )) as TableNameRow[];
   return rows.map((r) => r.tablename);

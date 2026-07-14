@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { UserPlus, Download, RefreshCw, AlertCircle } from 'lucide-react';
+import { UserPlus, RefreshCw, AlertCircle } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useAuthContext } from '@aquaculture/shared-ui';
+import { useAuth } from '@aquaculture/shared-ui';
 import { AddEditUserModal, type UserFormData } from '../components/users/AddEditUserModal';
 import { UserFilters } from '../components/users/UserFilters';
 import { BulkActions } from '../components/users/BulkActions';
@@ -66,8 +66,14 @@ function transformUser(apiUser: ApiUser): DisplayUser {
  *   this page-level filtering provides defense-in-depth for individual actions.
  */
 const TenantUsers: React.FC = () => {
-  const { hasRoleOrHigher } = useAuthContext();
-  const canManageUsers = hasRoleOrHigher('TENANT_ADMIN');
+  // RBAC-HIGH-004 (FE-HIGH-001): gate each control on the SAME granular capability
+  // the backend enforces, not the coarse TENANT_ADMIN role. Admins bypass inside
+  // hasResourcePermission, so this is a superset that additionally honours a
+  // delegate holding the specific users:* capability (previously blocked).
+  const { hasPermission } = useAuth();
+  const canInviteUsers = hasPermission('users:invite');
+  const canEditUsers = hasPermission('users:edit_permissions');
+  const canDeactivateUsers = hasPermission('users:deactivate');
   const queryClient = useQueryClient();
 
   // Filters
@@ -177,7 +183,7 @@ const TenantUsers: React.FC = () => {
     [deactivateUserMutation],
   );
 
-  const handleRefresh = () => queryClient.invalidateQueries({ queryKey: tenantKeys.users() });
+  const handleRefresh = () => queryClient.invalidateQueries({ queryKey: tenantKeys.invalidateUsers() });
 
   const toggleUserSelection = useCallback((userId: string) => {
     setSelectedUsers((prev) =>
@@ -214,11 +220,11 @@ const TenantUsers: React.FC = () => {
           <button onClick={handleRefresh} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" title="Refresh">
             <RefreshCw className="w-5 h-5 text-gray-500" />
           </button>
-          <button className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-            <Download className="w-4 h-4" />
-            Export
-          </button>
-          {canManageUsers && (
+          {/* RBAC-L6: the previous "Export" button was UNWIRED (no onClick, no
+              export backend) yet rendered ungated to every users:view delegate —
+              a false affordance. Removed; reintroduce only together with a real
+              export path AND a capability gate. */}
+          {canInviteUsers && (
             <button
               onClick={() => { setSaveError(null); setEditingUser(null); setIsModalOpen(true); }}
               className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
@@ -256,7 +262,7 @@ const TenantUsers: React.FC = () => {
         onDeactivate={handleDeactivateUser}
         onClearSelection={() => setSelectedUsers([])}
         isDeactivating={deactivateUserMutation.isPending}
-        canManageUsers={canManageUsers}
+        canDeactivateUsers={canDeactivateUsers}
       />
 
       <UserListSection
@@ -269,7 +275,8 @@ const TenantUsers: React.FC = () => {
         onToggleAll={toggleAllSelection}
         onEditUser={(user) => { setEditingUser(user); setSaveError(null); setIsModalOpen(true); }}
         onDeleteUser={(user) => { setDeletingUser(user); setDeleteError(null); }}
-        canManageUsers={canManageUsers}
+        canEditUsers={canEditUsers}
+        canDeactivateUsers={canDeactivateUsers}
         totalUsersInPage={users.length}
       />
 

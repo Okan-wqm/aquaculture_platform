@@ -12,6 +12,7 @@ import * as bcrypt from 'bcryptjs';
 import { DataSource, Repository } from 'typeorm';
 
 import { MobileSettingsService } from '../../tenant/services/mobile-settings.service';
+import { resolveEntitledCapabilities } from '../../tenant/services/permission-catalogue';
 import {
   applyPermissionOverrides,
   parsePermissionOverrides,
@@ -567,7 +568,9 @@ export class TokenService {
 
     let permissions: string[];
     try {
-      // CENTRALIZED auth-schema role tables: the 1800500000000 topology migration
+      // CENTRALIZED auth-schema role tables: admin-api's
+      // `1800500000000-TenantProvisioningTopology` migration (NOT auth-service's
+      // own 1800500000000-AddRefreshTokenFamilyId, which shares the timestamp)
       // moved user_role_assignments / tenant_role_permissions / tenant_roles out of
       // per-tenant schemas into `auth` and DROPs the tenant copies (post-condition
       // RAISEs if any remain). This query targets auth.* with PARAMETER-BOUND
@@ -613,7 +616,23 @@ export class TokenService {
         overrides = parsePermissionOverrides(row.permission_overrides);
       }
 
-      permissions = applyPermissionOverrides(Array.from(roleBaseSet), overrides);
+      const effective = applyPermissionOverrides(Array.from(roleBaseSet), overrides);
+
+      // RBAC-HIGH-010: intersect with the tenant's LICENSED capability set so a
+      // capability stored for a module the tenant no longer (or never) had —
+      // a stale grant from a plan downgrade, or the MT-HIGH-057 backfill that
+      // seeded messaging/AI caps onto every default role irrespective of
+      // entitlement — is NEVER stamped into the JWT `resourcePermissions`
+      // claim. This is the runtime chokepoint: even if such a grant survives in
+      // tenant_role_permissions, the guard/subgraph never sees it, so the
+      // capability has zero effect until the module is (re)licensed. The
+      // write-time authority (CapabilityAuthorityService) blocks NEW
+      // non-entitled grants; this closes the already-persisted ones.
+      const entitled = await resolveEntitledCapabilities(
+        (sql, params) => this.dataSource.query(sql, params as unknown[]),
+        user.tenantId,
+      );
+      permissions = effective.filter((capability) => entitled.has(capability));
     } catch (error) {
       // PERF-HIGH-001 (a): log-and-rethrow — preserve the diagnostic breadcrumb
       // (which user/tenant) for operators, then FAIL LOUD so generateTokens

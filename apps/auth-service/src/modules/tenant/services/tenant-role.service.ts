@@ -1,6 +1,27 @@
-import { Injectable, Logger, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException, ForbiddenException, Inject } from '@nestjs/common';
+import {
+  USER_TOKEN_REVOCATION,
+  IUserTokenRevocation,
+} from '@aquaculture/backend-common/security';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, QueryRunner } from 'typeorm';
+
+import { AuditLogSeverity } from '../../../audit/audit-log.entity';
+import { AuditLogService } from '../../../audit/audit-log.service';
+
+import { CapabilityAuthorityService } from './capability-authority';
+import {
+  CatalogueCategoryView,
+  entitledPermissionCategories,
+  PERMISSION_CATEGORIES,
+  panelPermissionsToResourceArray,
+  resolveEntitledCapabilities,
+} from './permission-catalogue';
+
+// Re-export the catalogue SSoT so existing importers (tenant-role.resolver,
+// permission-catalogue.spec) keep their import path. The definition now lives in
+// permission-catalogue.ts so CapabilityAuthorityService can share it with no cycle.
+export { PERMISSION_CATEGORIES };
 
 /**
  * Default tenant roles seed data
@@ -225,118 +246,8 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, Rec
   },
 };
 
-/**
- * Permission Categories for UI
- */
-export const PERMISSION_CATEGORIES = {
-  farm: {
-    name: 'Farm Management',
-    resources: {
-      sites: { name: 'Sites', actions: ['view', 'create', 'edit', 'delete'] },
-      departments: { name: 'Departments', actions: ['view', 'create', 'edit', 'delete'] },
-      systems: { name: 'Systems', actions: ['view', 'create', 'edit', 'delete'] },
-      tanks: { name: 'Tanks', actions: ['view', 'create', 'edit', 'delete', 'assign'] },
-      ponds: { name: 'Ponds', actions: ['view', 'create', 'edit', 'delete'] },
-      equipment: { name: 'Equipment', actions: ['view', 'create', 'edit', 'delete', 'assign'] },
-    },
-  },
-  batch: {
-    name: 'Batch & Production',
-    resources: {
-      batches: { name: 'Batches', actions: ['view', 'create', 'edit', 'delete', 'transfer', 'split', 'merge'] },
-      species: { name: 'Species', actions: ['view', 'create', 'edit', 'delete'] },
-      mortality: { name: 'Mortality Records', actions: ['view', 'record'] },
-      growth: { name: 'Growth Measurements', actions: ['view', 'record', 'analyze'] },
-      harvest: { name: 'Harvest', actions: ['view', 'plan', 'record'] },
-    },
-  },
-  operations: {
-    name: 'Operations',
-    resources: {
-      feeding: { name: 'Feeding', actions: ['view', 'record', 'manage_schedules', 'manage_inventory'] },
-      sensors: { name: 'Sensors', actions: ['view', 'configure', 'calibrate', 'manage_alerts'] },
-      maintenance: { name: 'Maintenance', actions: ['view', 'create_work_orders', 'complete', 'manage_schedules'] },
-      water_quality: { name: 'Water Quality', actions: ['view', 'record'] },
-    },
-  },
-  hr: {
-    name: 'HR & Administration',
-    resources: {
-      employees: { name: 'Employees', actions: ['view', 'create', 'edit', 'delete'] },
-      attendance: { name: 'Attendance', actions: ['view', 'manage'] },
-      leave: { name: 'Leave Management', actions: ['view', 'approve'] },
-      shifts: { name: 'Shifts', actions: ['view', 'create', 'edit', 'delete'] },
-      // HR finance salary visibility (HR-MEDIUM-005). Headcount/expenses on the HR
-      // finance tab stay MANAGER-visible; the salary/labour-cost/payroll-analytics
-      // figures are gated by `hr_finance:view_salary`, which a TENANT_ADMIN grants
-      // per role — so the tenant decides who sees pay, not a hardcoded role.
-      hr_finance: { name: 'HR Finance', actions: ['view_salary'] },
-    },
-  },
-  reports: {
-    name: 'Reports & Analytics',
-    resources: {
-      dashboard: { name: 'Dashboard', actions: ['view', 'analytics'] },
-      reports: { name: 'Reports', actions: ['view', 'export', 'create_custom'] },
-    },
-  },
-  admin: {
-    name: 'Settings & User Management',
-    resources: {
-      settings: { name: 'Settings', actions: ['view', 'edit'] },
-      users: { name: 'Users', actions: ['view', 'invite', 'edit_permissions', 'deactivate'] },
-      roles: { name: 'Roles', actions: ['view', 'create', 'edit', 'delete'] },
-    },
-  },
-  // Messaging + AI capabilities (Faz 7). Resource keys are globally unique
-  // (the wire permission is `${resourceKey}:${action}`, so keys must not collide
-  // with any above — e.g. AI settings is `ai_settings`, not `settings`). Adding
-  // them here is the SSoT change: the tenant-admin role editor (permissionCategories
-  // query, data-driven), token-mint resolution, and TenantPermissionGuard all
-  // pick them up automatically — no parallel catalogue.
-  messaging: {
-    name: 'Messaging',
-    resources: {
-      channels: {
-        name: 'Channels',
-        // create_group is the WhatsApp-like group-creation capability
-        // (MSG-MEDIUM-070); create_dm the 1:1; manage covers rename/members.
-        actions: ['view', 'create_group', 'create_dm', 'manage'],
-      },
-      messages: { name: 'Messages', actions: ['send'] },
-    },
-  },
-  ai: {
-    name: 'AI Assistant',
-    resources: {
-      ai_assistant: { name: 'AI Chat', actions: ['use'] },
-      // AI settings = the tenant BYOK keys / provider / model (Faz 1).
-      ai_settings: { name: 'AI Settings', actions: ['view', 'manage'] },
-      // Persona tiers — which AI persona a member may drive (AISAFETY-MEDIUM-013).
-      ai_personas: {
-        name: 'AI Personas',
-        actions: ['operator', 'manager', 'expert', 'supervisor'],
-      },
-    },
-  },
-};
-
-/**
- * Helper to convert panel permissions to resource:action array
- */
-function panelPermissionsToResourceArray(panel: Record<string, Record<string, Record<string, boolean>>>): string[] {
-  const result: string[] = [];
-  for (const resources of Object.values(panel)) {
-    for (const [resource, actions] of Object.entries(resources)) {
-      for (const [action, enabled] of Object.entries(actions)) {
-        if (enabled) {
-          result.push(`${resource}:${action}`);
-        }
-      }
-    }
-  }
-  return result;
-}
+/** Nested role permission matrix: category → resource → action → granted. */
+type PanelMatrix = Record<string, Record<string, Record<string, boolean>>>;
 
 export interface TenantRoleWithDetails {
   id: string;
@@ -365,6 +276,19 @@ export class TenantRoleService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly capabilityAuthority: CapabilityAuthorityService,
+    // SECURITY (RBAC-C3): role-definition mutations (create/edit/delete/
+    // set-default/seed) previously wrote ZERO audit rows — a privileged
+    // permission rewrite that re-scopes every holder of a role was forensically
+    // invisible (SOC 2 CC6.1/CC7.2, GDPR Art 30). Every mutation now writes an
+    // audit row on its own transaction (fail-CLOSED: a throwing audit rolls the
+    // mutation back), mirroring the tenant-user-management assignment paths.
+    private readonly auditLogService: AuditLogService,
+    // SECURITY (RBAC-HIGH-001): editing a role's permissions changes the
+    // effective set of EVERY active holder — revoke their live tokens so the new
+    // (possibly reduced) permissions take effect on the next request.
+    @Inject(USER_TOKEN_REVOCATION)
+    private readonly userTokenRevocation: IUserTokenRevocation,
   ) {}
 
   /**
@@ -406,9 +330,9 @@ export class TenantRoleService {
    */
   async getRoleById(tenantId: string, roleId: string): Promise<TenantRoleWithDetails | null> {
     // Repointed to auth.* (ORPHAN-CRITICAL-100, FINDING #3): this is the
-    // in-tenant validator other methods (createRole/updateRole/setDefaultRole)
-    // re-read through, so it MUST scope to "tenantId" — previously it filtered
-    // by id alone, returning a foreign-tenant role to its callers.
+    // in-tenant validator other methods (createRole/updateRole) re-read through,
+    // so it MUST scope to "tenantId" — previously it filtered by id alone,
+    // returning a foreign-tenant role to its callers.
     const result = await this.dataSource.query(
       `
       SELECT
@@ -489,6 +413,19 @@ export class TenantRoleService {
     },
     createdBy: string,
   ): Promise<TenantRoleWithDetails> {
+    // SECURITY (RBAC-C2): validate the requested capabilities BEFORE opening the
+    // transaction. `panelPermissionsToResourceArray` flattens the panel matrix to
+    // `resource:action` strings; the authority check rejects any capability outside
+    // the catalogue AND — for a non-admin delegate holding `roles:create` — any
+    // capability the actor does not themselves hold. A TENANT_ADMIN/SUPER_ADMIN
+    // author may grant any catalogue capability. The branded return value is the
+    // only value the permission INSERT below accepts.
+    const actorAuthority = await this.capabilityAuthority.resolveActorAuthority(tenantId, createdBy);
+    const grantableResourcePermissions = this.capabilityAuthority.assertGrantableResourcePermissions(
+      panelPermissionsToResourceArray(input.panelPermissions),
+      actorAuthority,
+    );
+
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
 
     await queryRunner.connect();
@@ -543,16 +480,38 @@ export class TenantRoleService {
 
       // Create role permissions within the same transaction. tenant_role_permissions
       // has no tenantId column; ownership is transitive via the role_id of the
-      // tenant-owned role inserted above in the same SERIALIZABLE tx.
-      const resourcePermissions = panelPermissionsToResourceArray(input.panelPermissions);
-
+      // tenant-owned role inserted above in the same SERIALIZABLE tx. The
+      // resource_permissions written are the AUTHORITY-VALIDATED set (branded),
+      // not a re-flattening of the raw input — so an unvalidated capability can
+      // never reach this column.
       await queryRunner.query(
         `
         INSERT INTO "auth"."tenant_role_permissions" (
           role_id, panel_permissions, resource_permissions, created_at, updated_at
         ) VALUES ($1, $2, $3, NOW(), NOW())
         `,
-        [roleId, JSON.stringify(input.panelPermissions), resourcePermissions],
+        [roleId, JSON.stringify(input.panelPermissions), [...grantableResourcePermissions]],
+      );
+
+      // RBAC-C3: fail-CLOSED audit on the SAME transaction (queryRunner.manager)
+      // — a throwing audit rolls the role creation back.
+      await this.auditLogService.log(
+        {
+          tenantId,
+          performedBy: createdBy,
+          action: 'ROLE_CREATED',
+          entityType: 'TenantRole',
+          entityId: roleId,
+          newValue: {
+            name: input.name,
+            level: input.level ?? 50,
+            isDefault: input.isDefault ?? false,
+            resourcePermissions: [...grantableResourcePermissions],
+          },
+          details: { timestamp: new Date().toISOString() },
+          severity: AuditLogSeverity.WARNING,
+        },
+        queryRunner.manager,
       );
 
       await queryRunner.commitTransaction();
@@ -596,8 +555,21 @@ export class TenantRoleService {
       isDefault?: boolean;
       panelPermissions?: Record<string, Record<string, Record<string, boolean>>>;
     },
-    _updatedBy: string,
+    updatedBy: string,
   ): Promise<TenantRoleWithDetails> {
+    // SECURITY (RBAC-C2): if the permission matrix is being rewritten, validate
+    // the new capabilities against the catalogue + the editor's own authority
+    // BEFORE the transaction. A non-admin delegate with `roles:edit` therefore
+    // cannot rewrite a role (their own, or a seeded one) to include capabilities
+    // they do not hold — the escalation-by-role-authoring vector. Resolved once
+    // here; the branded result is the only value the permission UPDATE accepts.
+    const grantableResourcePermissions = input.panelPermissions
+      ? this.capabilityAuthority.assertGrantableResourcePermissions(
+          panelPermissionsToResourceArray(input.panelPermissions),
+          await this.capabilityAuthority.resolveActorAuthority(tenantId, updatedBy),
+        )
+      : null;
+
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
 
     await queryRunner.connect();
@@ -702,9 +674,7 @@ export class TenantRoleService {
       // Update permissions within the same transaction. tenant_role_permissions
       // has no tenantId column, so ownership is laundered through a write-side
       // join on tenant_roles (ORPHAN-CRITICAL-100).
-      if (input.panelPermissions) {
-        const resourcePermissions = panelPermissionsToResourceArray(input.panelPermissions);
-
+      if (input.panelPermissions && grantableResourcePermissions) {
         await queryRunner.query(
           `
           UPDATE "auth"."tenant_role_permissions" trp
@@ -712,13 +682,51 @@ export class TenantRoleService {
           FROM "auth"."tenant_roles" tr
           WHERE trp.role_id = tr.id AND trp.role_id = $3 AND tr."tenantId" = $4
           `,
-          [JSON.stringify(input.panelPermissions), resourcePermissions, roleId, tenantId],
+          [JSON.stringify(input.panelPermissions), [...grantableResourcePermissions], roleId, tenantId],
         );
       }
+
+      // RBAC-C3: fail-CLOSED audit with the before/after permission set, so a
+      // privileged rewrite that re-scopes every holder of the role is traceable.
+      await this.auditLogService.log(
+        {
+          tenantId,
+          performedBy: updatedBy,
+          action: 'ROLE_UPDATED',
+          entityType: 'TenantRole',
+          entityId: roleId,
+          previousValue: {
+            name: existing.name,
+            level: existing.level,
+            isDefault: existing.isDefault,
+            resourcePermissions: existing.permissions?.resourcePermissions ?? [],
+          },
+          newValue: {
+            name: input.name ?? existing.name,
+            level: input.level ?? existing.level,
+            isDefault: input.isDefault ?? existing.isDefault,
+            resourcePermissions: grantableResourcePermissions
+              ? [...grantableResourcePermissions]
+              : (existing.permissions?.resourcePermissions ?? []),
+          },
+          details: { timestamp: new Date().toISOString() },
+          severity: AuditLogSeverity.WARNING,
+        },
+        queryRunner.manager,
+      );
 
       await queryRunner.commitTransaction();
 
       this.logger.log(`Updated role "${existing.name}" (${roleId}) in tenant ${tenantId}`);
+
+      // RBAC-HIGH-001: if the permission set changed, every active holder's
+      // effective permissions changed — revoke their live tokens (fleet-wide via
+      // the shared user_blacklist key) so the new set is enforced on their next
+      // request rather than after the access-token TTL. Runs AFTER commit so a
+      // revoke is never issued for a change that rolled back.
+      if (grantableResourcePermissions) {
+        await this.revokeTokensForRoleHolders(tenantId, roleId);
+      }
 
       const updatedRole = await this.getRoleById(tenantId, roleId);
       if (!updatedRole) {
@@ -745,7 +753,7 @@ export class TenantRoleService {
    * - Accurate user count check (prevents race with role assignment)
    * - Prevents deletion while users are being assigned
    */
-  async deleteRole(tenantId: string, roleId: string, _deletedBy: string): Promise<boolean> {
+  async deleteRole(tenantId: string, roleId: string, deletedBy: string): Promise<boolean> {
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
 
     await queryRunner.connect();
@@ -804,6 +812,27 @@ export class TenantRoleService {
         [roleId, tenantId],
       );
 
+      // RBAC-C3: fail-CLOSED audit snapshotting the deleted role (the CASCADE
+      // erases the row, so this is the only durable record of what existed).
+      await this.auditLogService.log(
+        {
+          tenantId,
+          performedBy: deletedBy,
+          action: 'ROLE_DELETED',
+          entityType: 'TenantRole',
+          entityId: roleId,
+          previousValue: {
+            name: existing.name as string,
+            level: existing.level as number,
+            isSystem: existing.is_system as boolean,
+            isDefault: existing.is_default as boolean,
+          },
+          details: { timestamp: new Date().toISOString() },
+          severity: AuditLogSeverity.WARNING,
+        },
+        queryRunner.manager,
+      );
+
       await queryRunner.commitTransaction();
 
       this.logger.log(`Deleted role "${existing.name}" (${roleId}) in tenant ${tenantId}`);
@@ -822,12 +851,31 @@ export class TenantRoleService {
   }
 
   /**
-   * Seed default roles for a new tenant
+   * Seed AND upgrade the default roles for a tenant (RBAC-MEDIUM-015).
    *
-   * Uses SERIALIZABLE transaction to ensure:
-   * - All default roles are created atomically
-   * - Prevents partial seeding if an error occurs
-   * - Prevents race conditions if called multiple times
+   * This is a catalogue-driven seed/upgrade routine — the SSoT for what the
+   * shipped default roles look like is `DEFAULT_TENANT_ROLES` +
+   * `DEFAULT_ROLE_PERMISSIONS` in THIS file, and both the create and the
+   * top-up derive from it live. It replaces the point-in-time, name-keyed
+   * snapshot backfill migrations (e.g. MT-HIGH-057
+   * `1801300000000-BackfillMessagingAiRoleCapabilities`): when a future
+   * capability is added to the templates, existing tenants pick it up on the
+   * next run of this routine with NO new migration.
+   *
+   * Two phases, one SERIALIZABLE transaction:
+   *   1. CREATE the named defaults that are ABSENT (per-role idempotent — the
+   *      old guard skipped the whole seed when any role existed, but
+   *      provisioning always inserts a TENANT_ADMIN row first, so the 5
+   *      operational roles were never created — RBAC-H10 / DATA-HIGH-002).
+   *   2. RECONCILE existing default-NAMED, `is_system` roles: UNION any missing
+   *      entitled template capabilities into their stored permissions. Additive
+   *      only — a re-run adds nothing (idempotent) and no prior grant is removed.
+   *
+   * Both phases are ENTITLEMENT-GATED against the tenant's enabled modules
+   * (RBAC-HIGH-010): a non-entitled capability (e.g. `ai_settings:manage` for a
+   * tenant without the AI module) is never written to `tenant_role_permissions`,
+   * so this raw-SQL path matches the CapabilityAuthorityService write boundary
+   * and the token-mint intersection instead of bypassing them.
    */
   async seedDefaultRoles(tenantId: string, createdBy: string): Promise<TenantRoleWithDetails[]> {
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
@@ -836,24 +884,46 @@ export class TenantRoleService {
     await queryRunner.startTransaction('SERIALIZABLE');
 
     try {
-      // Check if roles already exist (with lock to prevent race condition).
-      // Repointed to auth.* (ORPHAN-CRITICAL-100): WHERE "tenantId" = $1 is
-      // load-bearing — without it a brand-new tenant is told roles already
-      // exist (skipping its seed) and takes a cross-tenant lock.
-      const existingRoles = await queryRunner.query(
-        `SELECT COUNT(*)::int as count FROM "auth"."tenant_roles" WHERE "tenantId" = $1 FOR UPDATE`,
+      // Lock the tenant's roles (FOR UPDATE OF r serializes concurrent seeds;
+      // ORPHAN-CRITICAL-100 tenant filter is load-bearing) and load their id,
+      // name, is_system flag AND current stored permissions so the reconcile
+      // phase can compute an additive top-up without a second round-trip.
+      const existingRoles = (await queryRunner.query(
+        `
+        SELECT r.id, LOWER(r.name) AS name, r.is_system,
+               p.panel_permissions, p.resource_permissions
+        FROM "auth"."tenant_roles" r
+        LEFT JOIN "auth"."tenant_role_permissions" p ON p.role_id = r.id
+        WHERE r."tenantId" = $1
+        FOR UPDATE OF r
+        `,
         [tenantId],
+      )) as Array<{
+        id: string;
+        name: string;
+        is_system: boolean;
+        panel_permissions: PanelMatrix | string | null;
+        resource_permissions: string[] | null;
+      }>;
+      const existingNames = new Set(existingRoles.map((r) => r.name));
+
+      // Resolve the tenant's entitled capability set ONCE, inside the tx so it
+      // reflects the committed module state. Fail-safe: zero module rows ⇒ only
+      // CORE capabilities (module-gated grants denied, never silently allowed).
+      const entitled = await resolveEntitledCapabilities(
+        (sql, params) => queryRunner.query(sql, [...params]),
+        tenantId,
       );
 
-      if (existingRoles[0].count > 0) {
-        await queryRunner.commitTransaction();
-        this.logger.debug(`Roles already exist in tenant ${tenantId}, skipping seed`);
-        return this.getTenantRoles(tenantId);
-      }
-
-      this.logger.log(`Seeding default roles for tenant ${tenantId}`);
-
+      // ---- Phase 1: create the ABSENT named defaults --------------------------
+      const createdNames: string[] = [];
       for (const roleTemplate of DEFAULT_TENANT_ROLES) {
+        // Idempotent: a default already present (by name, this tenant) is left to
+        // the reconcile phase. Re-running only fills gaps — it never duplicates.
+        if (existingNames.has(roleTemplate.name.toLowerCase())) {
+          continue;
+        }
+
         // "tenantId" prepended as $1 (ORPHAN-CRITICAL-100); template params shift +1.
         const roleResult = await queryRunner.query(
           `
@@ -876,8 +946,9 @@ export class TenantRoleService {
         );
 
         const roleId = roleResult[0].id;
-        const defaultPermissions = DEFAULT_ROLE_PERMISSIONS[roleTemplate.name] || {};
-        const resourcePermissions = panelPermissionsToResourceArray(defaultPermissions);
+        // Entitlement-gated: the stored panel + resources carry only capabilities
+        // the tenant's plan licenses, so a non-entitled grant is never seeded.
+        const { panel, resources } = this.entitledTemplate(roleTemplate.name, entitled);
 
         // Tenant-safe transitively via the role_id inserted above in this tx.
         await queryRunner.query(
@@ -886,15 +957,75 @@ export class TenantRoleService {
             role_id, panel_permissions, resource_permissions, created_at, updated_at
           ) VALUES ($1, $2, $3, NOW(), NOW())
           `,
-          [roleId, JSON.stringify(defaultPermissions), resourcePermissions],
+          [roleId, JSON.stringify(panel), resources],
         );
 
+        createdNames.push(roleTemplate.name);
         this.logger.debug(`Created default role: ${roleTemplate.name}`);
+      }
+
+      // ---- Phase 2: reconcile EXISTING default-named system roles -------------
+      const reconciled = await this.reconcileDefaultRolePermissions(
+        queryRunner,
+        existingRoles,
+        entitled,
+      );
+      const reconciledNames = reconciled.map((r) => r.name);
+
+      // RBAC-C3: fail-CLOSED audit, atomic with the writes. One row for the
+      // create phase (real names/count, not the template list) and one for the
+      // reconcile phase — each only when it actually changed state.
+      if (createdNames.length > 0) {
+        await this.auditLogService.log(
+          {
+            tenantId,
+            performedBy: createdBy,
+            action: 'ROLES_SEEDED',
+            entityType: 'TenantRole',
+            details: {
+              count: createdNames.length,
+              roleNames: createdNames,
+              timestamp: new Date().toISOString(),
+            },
+            severity: AuditLogSeverity.WARNING,
+          },
+          queryRunner.manager,
+        );
+      }
+      if (reconciledNames.length > 0) {
+        await this.auditLogService.log(
+          {
+            tenantId,
+            performedBy: createdBy,
+            action: 'ROLES_RECONCILED',
+            entityType: 'TenantRole',
+            details: {
+              count: reconciledNames.length,
+              roleNames: reconciledNames,
+              timestamp: new Date().toISOString(),
+            },
+            severity: AuditLogSeverity.WARNING,
+          },
+          queryRunner.manager,
+        );
       }
 
       await queryRunner.commitTransaction();
 
-      this.logger.log(`Seeded ${DEFAULT_TENANT_ROLES.length} default roles for tenant ${tenantId}`);
+      this.logger.log(
+        `Seeded ${createdNames.length} and reconciled ${reconciledNames.length} default role(s) for tenant ${tenantId}` +
+          (createdNames.length === 0 && reconciledNames.length === 0
+            ? ' (all defaults already current)'
+            : ''),
+      );
+
+      // RBAC-HIGH-001: a reconcile widened at least one active role's effective
+      // set — revoke live tokens of every holder so the new grants take effect on
+      // the next request. Runs AFTER commit so a revoke is never issued for a
+      // change that rolled back. Best-effort per user (see helper).
+      for (const role of reconciled) {
+        await this.revokeTokensForRoleHolders(tenantId, role.id);
+      }
 
       return this.getTenantRoles(tenantId);
     } catch (error) {
@@ -910,280 +1041,184 @@ export class TenantRoleService {
   }
 
   /**
-   * Get permission categories structure for UI
-   */
-  getPermissionCategories(): typeof PERMISSION_CATEGORIES {
-    return PERMISSION_CATEGORIES;
-  }
-
-  /**
-   * Assign a role to a user with pessimistic locking
+   * RBAC-MEDIUM-015: additively top-up existing default-NAMED, `is_system` roles
+   * with any entitled template capability they are missing, derived live from the
+   * `DEFAULT_ROLE_PERMISSIONS` SSoT. Returns the names of roles actually changed
+   * (empty ⇒ everything already current, so the caller writes no audit and
+   * revokes no tokens). Runs inside the caller's SERIALIZABLE transaction on its
+   * queryRunner, so the top-up commits atomically with the create phase.
    *
-   * Uses SERIALIZABLE transaction to prevent:
-   * - Race conditions when multiple requests try to assign the same role
-   * - Orphaned assignments if role is deleted during assignment
-   * - Duplicate active assignments for the same user-role pair
+   * Discipline:
+   *  - ADDITIVE only (set UNION): a prior grant is never removed, so a tenant
+   *    admin's widening of a default role survives; a re-run adds nothing.
+   *  - Scope: ONLY roles whose current name matches a shipped default AND
+   *    `is_system = true`. A renamed or custom role is the tenant admin's to
+   *    manage in the role editor — never touched here.
+   *  - ENTITLEMENT-GATED: the template is intersected with `entitled` first, so a
+   *    module-gated capability is never persisted for a tenant without the module
+   *    (consistent with the CapabilityAuthorityService write boundary).
    */
-  async assignRoleToUser(
-    tenantId: string,
-    userId: string,
-    roleId: string,
-    assignedBy: string,
-  ): Promise<{ id: string; userId: string; roleId: string; isActive: boolean }> {
-    const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
+  private async reconcileDefaultRolePermissions(
+    queryRunner: QueryRunner,
+    existingRoles: ReadonlyArray<{
+      id: string;
+      name: string;
+      is_system: boolean;
+      panel_permissions: PanelMatrix | string | null;
+      resource_permissions: string[] | null;
+    }>,
+    entitled: ReadonlySet<string>,
+  ): Promise<Array<{ id: string; name: string }>> {
+    const defaultTemplateByName = new Map(
+      DEFAULT_TENANT_ROLES.map((t) => [t.name.toLowerCase(), t.name]),
+    );
 
-    await queryRunner.connect();
-    await queryRunner.startTransaction('SERIALIZABLE');
-
-    try {
-      // Tenant-scoped user pre-validation (ORPHAN-CRITICAL-100, FINDING #1).
-      // Load-bearing: without it a T2 caller could attach a foreign-tenant T1
-      // user to a T2-owned role. auth.users carries "tenantId"; user_role_assignments
-      // does not, so this is the only place the user's tenant can be checked.
-      const userResult = await queryRunner.query(
-        `SELECT 1 FROM "auth"."users" WHERE id = $1 AND "tenantId" = $2`,
-        [userId, tenantId],
-      );
-
-      if (userResult.length === 0) {
-        throw new NotFoundException(`User with ID "${userId}" not found in tenant`);
+    const reconciled: Array<{ id: string; name: string }> = [];
+    for (const role of existingRoles) {
+      // Only shipped, system-owned defaults are platform-managed baselines.
+      const templateName = defaultTemplateByName.get(role.name);
+      if (!templateName || !role.is_system) {
+        continue;
       }
 
-      // Lock the role to ensure it exists, is in this tenant, and is not being deleted.
-      const roleResult = await queryRunner.query(
-        `SELECT id, name, is_system FROM "auth"."tenant_roles" WHERE id = $1 AND "tenantId" = $2 FOR UPDATE`,
-        [roleId, tenantId],
+      const { panel: templatePanel, resources: templateResources } = this.entitledTemplate(
+        templateName,
+        entitled,
       );
 
-      if (roleResult.length === 0) {
-        throw new NotFoundException(`Role with ID "${roleId}" not found`);
+      const storedResources = new Set(role.resource_permissions ?? []);
+      const missing = templateResources.filter((cap) => !storedResources.has(cap));
+      if (missing.length === 0) {
+        continue; // idempotent: already carries every entitled template capability
       }
 
-      // Check for existing assignment, RE-KEYED to user_id ONLY (FINDING #2):
-      // auth.user_role_assignments has a UNIQUE index on user_id alone, so each
-      // user holds at most one row. The JOIN to tenant_roles launders ownership —
-      // the row is only returned if the user's current role belongs to THIS
-      // tenant, so a foreign-tenant row falls through to the no-row (INSERT)
-      // branch and is never silently hijacked. FOR UPDATE OF ura locks the
-      // assignment row only.
-      const existingAssignment = await queryRunner.query(
+      const mergedResources = [...storedResources, ...missing];
+      const storedPanel = this.parsePanel(role.panel_permissions);
+      const mergedPanel = this.mergeGrantsIntoPanel(storedPanel, templatePanel);
+
+      await queryRunner.query(
         `
-        SELECT ura.id, ura.is_active, ura.role_id
-        FROM "auth"."user_role_assignments" ura
-        JOIN "auth"."tenant_roles" tr ON tr.id = ura.role_id AND tr."tenantId" = $2
-        WHERE ura.user_id = $1
-        FOR UPDATE OF ura
+        UPDATE "auth"."tenant_role_permissions"
+        SET panel_permissions = $1, resource_permissions = $2, updated_at = NOW()
+        WHERE role_id = $3
         `,
-        [userId, tenantId],
+        [JSON.stringify(mergedPanel), mergedResources, role.id],
       );
 
-      let assignmentId: string;
-
-      if (existingAssignment.length > 0) {
-        // One-row-per-user reconciliation: re-point the single existing row to
-        // the (newly validated) target role and (re)activate it. UPDATE — never
-        // a 2nd INSERT — so UNIQUE(user_id) is satisfied. The write-side join
-        // guards on the PRE-IMAGE current role's tenantId (you must own the row
-        // you mutate); the new role was already validated by the role lock above.
-        await queryRunner.query(
-          `
-          UPDATE "auth"."user_role_assignments" ura
-          SET is_active = true, role_id = $4, assigned_by = $1, assigned_at = NOW(), updated_at = NOW()
-          FROM "auth"."tenant_roles" tr
-          WHERE ura.id = $2 AND tr.id = ura.role_id AND tr."tenantId" = $3
-          `,
-          [assignedBy, existingAssignment[0].id, tenantId, roleId],
-        );
-        assignmentId = existingAssignment[0].id;
-      } else {
-        // Create new assignment. Tenant-safe: role validated by the role lock,
-        // user validated by the pre-check above (ORPHAN-CRITICAL-100).
-        const insertResult = await queryRunner.query(
-          `
-          INSERT INTO "auth"."user_role_assignments" (
-            user_id, role_id, is_active, assigned_by, assigned_at, created_at, updated_at
-          ) VALUES ($1, $2, true, $3, NOW(), NOW(), NOW())
-          RETURNING id
-          `,
-          [userId, roleId, assignedBy],
-        );
-        assignmentId = insertResult[0].id;
-      }
-
-      await queryRunner.commitTransaction();
-
-      this.logger.log(
-        `Assigned role ${roleResult[0].name} (${roleId}) to user ${userId} in tenant ${tenantId}`,
+      reconciled.push({ id: role.id, name: templateName });
+      this.logger.debug(
+        `Reconciled default role "${templateName}" (${role.id}): +${missing.length} capability(ies)`,
       );
-
-      return {
-        id: assignmentId,
-        userId,
-        roleId,
-        isActive: true,
-      };
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      this.logger.error(
-        `Failed to assign role ${roleId} to user ${userId} in tenant ${tenantId}: ${(error as Error).message}`,
-        (error as Error).stack,
-      );
-      throw error;
-    } finally {
-      await queryRunner.release();
     }
+
+    return reconciled;
   }
 
   /**
-   * Remove a role from a user with pessimistic locking
-   *
-   * Soft-deletes the assignment by setting is_active = false
+   * The template capabilities a default role should carry, filtered to the
+   * tenant's entitled set. Returns the enforced `resource:action` list AND the
+   * display panel with every non-entitled grant stripped, so a stored role never
+   * advertises or enforces a capability the tenant's plan does not license.
    */
-  async removeRoleFromUser(
-    tenantId: string,
-    userId: string,
-    roleId: string,
-    _removedBy: string,
-  ): Promise<boolean> {
-    const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
-
-    await queryRunner.connect();
-    await queryRunner.startTransaction('SERIALIZABLE');
-
-    try {
-      // Tenant-scoped user pre-validation for symmetry with assignRoleToUser
-      // (ORPHAN-CRITICAL-100, FINDING #1): a foreign-tenant userId cannot reach
-      // the assignment write at all.
-      const userResult = await queryRunner.query(
-        `SELECT 1 FROM "auth"."users" WHERE id = $1 AND "tenantId" = $2`,
-        [userId, tenantId],
-      );
-
-      if (userResult.length === 0) {
-        throw new NotFoundException(`User with ID "${userId}" not found in tenant`);
+  private entitledTemplate(
+    roleName: string,
+    entitled: ReadonlySet<string>,
+  ): { panel: PanelMatrix; resources: string[] } {
+    const template = DEFAULT_ROLE_PERMISSIONS[roleName] ?? {};
+    const panel: PanelMatrix = {};
+    for (const [category, resources] of Object.entries(template)) {
+      const categoryOut: Record<string, Record<string, boolean>> = {};
+      for (const [resource, actions] of Object.entries(resources)) {
+        const actionsOut: Record<string, boolean> = {};
+        for (const [action, enabled] of Object.entries(actions)) {
+          // A grant survives only if the tenant is entitled to it; a non-grant
+          // (false) is display metadata and is kept verbatim.
+          actionsOut[action] = enabled && entitled.has(`${resource}:${action}`);
+        }
+        categoryOut[resource] = actionsOut;
       }
-
-      // Lock the active assignment row. Repointed to auth.* (ORPHAN-CRITICAL-100):
-      // user_role_assignments has no tenantId column, so ownership is laundered
-      // through a JOIN on tenant_roles. FOR UPDATE OF ura locks the assignment only.
-      const assignment = await queryRunner.query(
-        `
-        SELECT ura.id, ura.is_active
-        FROM "auth"."user_role_assignments" ura
-        JOIN "auth"."tenant_roles" tr ON tr.id = ura.role_id AND tr."tenantId" = $3
-        WHERE ura.user_id = $1 AND ura.role_id = $2 AND ura.is_active = true
-        FOR UPDATE OF ura
-        `,
-        [userId, roleId, tenantId],
-      );
-
-      if (assignment.length === 0) {
-        throw new NotFoundException(`Active role assignment not found for user ${userId} and role ${roleId}`);
-      }
-
-      // Soft delete the assignment via a write-side join on tenant_roles so the
-      // mutation carries its own tenant guard (ORPHAN-CRITICAL-100).
-      //
-      // WHAT: SET only is_active=false and updated_at=NOW(). WHY: auth.user_role_assignments
-      // has NO removed_by / removed_at / updated_by columns (GROUND TRUTH, migration
-      // 1800200000000) — writing them fails at runtime. The actor (_removedBy) is not
-      // persisted on this table; soft-delete provenance is carried by the audit trail,
-      // not by columns that do not exist. Param indices re-counted after dropping the
-      // removed_by bind: ura.id=$1, tr."tenantId"=$2.
-      await queryRunner.query(
-        `
-        UPDATE "auth"."user_role_assignments" ura
-        SET is_active = false, updated_at = NOW()
-        FROM "auth"."tenant_roles" tr
-        WHERE ura.id = $1 AND tr.id = ura.role_id AND tr."tenantId" = $2
-        `,
-        [assignment[0].id, tenantId],
-      );
-
-      await queryRunner.commitTransaction();
-
-      this.logger.log(`Removed role ${roleId} from user ${userId} in tenant ${tenantId}`);
-
-      return true;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      this.logger.error(
-        `Failed to remove role ${roleId} from user ${userId} in tenant ${tenantId}: ${(error as Error).message}`,
-        (error as Error).stack,
-      );
-      throw error;
-    } finally {
-      await queryRunner.release();
+      panel[category] = categoryOut;
     }
+    // Derived from the already entitlement-filtered panel ⇒ entitled trues only.
+    return { panel, resources: panelPermissionsToResourceArray(panel) };
   }
 
   /**
-   * Set a role as the default role for new users
-   *
-   * Uses pessimistic locking to ensure only one role is default at a time
+   * Deep additive merge: every GRANT (`true`) in `additions` is turned on in a
+   * copy of `stored`; nothing is ever turned off. Preserves a tenant admin's own
+   * edits to actions the template does not grant.
    */
-  async setDefaultRole(
+  private mergeGrantsIntoPanel(stored: PanelMatrix, additions: PanelMatrix): PanelMatrix {
+    const merged: PanelMatrix = {};
+    for (const [category, resources] of Object.entries(stored)) {
+      merged[category] = {};
+      for (const [resource, actions] of Object.entries(resources)) {
+        merged[category][resource] = { ...actions };
+      }
+    }
+    for (const [category, resources] of Object.entries(additions)) {
+      merged[category] ??= {};
+      for (const [resource, actions] of Object.entries(resources)) {
+        merged[category][resource] ??= {};
+        for (const [action, enabled] of Object.entries(actions)) {
+          if (enabled) {
+            merged[category][resource][action] = true;
+          }
+        }
+      }
+    }
+    return merged;
+  }
+
+  /** Normalize a stored panel_permissions cell (jsonb object or string) to an object. */
+  private parsePanel(value: PanelMatrix | string | null): PanelMatrix {
+    if (!value) {
+      return {};
+    }
+    return typeof value === 'string' ? (JSON.parse(value) as PanelMatrix) : value;
+  }
+
+  /**
+   * Get the permission categories the ROLE EDITOR may offer this tenant —
+   * the catalogue intersected with the tenant's entitled capability set
+   * (RBAC-HIGH-010 third enforcement point: the UI never offers what the write
+   * boundary would reject). An unlicensed module's category is absent entirely.
+   */
+  async getPermissionCategories(
     tenantId: string,
-    roleId: string,
-    updatedBy: string,
-  ): Promise<TenantRoleWithDetails> {
-    const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
+  ): Promise<Record<string, CatalogueCategoryView>> {
+    const entitled = await resolveEntitledCapabilities(
+      (sql, params) => this.dataSource.query(sql, [...params]),
+      tenantId,
+    );
+    return entitledPermissionCategories(entitled);
+  }
 
-    await queryRunner.connect();
-    await queryRunner.startTransaction('SERIALIZABLE');
+  /**
+   * RBAC-HIGH-001: revoke the live tokens of every ACTIVE holder of a role after
+   * its permission set changed. Tenant-scoped via the tenant_roles join
+   * (ORPHAN-CRITICAL-100). Best-effort per user — one Redis hiccup must not undo
+   * the committed role edit — but each failure is logged.
+   */
+  private async revokeTokensForRoleHolders(tenantId: string, roleId: string): Promise<void> {
+    const holders = await this.dataSource.query<Array<{ user_id: string }>>(
+      `
+      SELECT ura.user_id
+      FROM "auth"."user_role_assignments" ura
+      JOIN "auth"."tenant_roles" tr ON tr.id = ura.role_id
+      WHERE ura.role_id = $1 AND ura.is_active = true AND tr."tenantId" = $2
+      `,
+      [roleId, tenantId],
+    );
 
-    try {
-      // Lock the target role. Repointed to auth.* (ORPHAN-CRITICAL-100):
-      // tenantId predicate makes a foreign roleId return 0 rows → NotFoundException.
-      const roleResult = await queryRunner.query(
-        `SELECT * FROM "auth"."tenant_roles" WHERE id = $1 AND "tenantId" = $2 FOR UPDATE`,
-        [roleId, tenantId],
-      );
-
-      if (roleResult.length === 0) {
-        throw new NotFoundException(`Role with ID "${roleId}" not found`);
+    for (const { user_id: userId } of holders) {
+      try {
+        await this.userTokenRevocation.revokeUserTokens(userId);
+      } catch (error) {
+        this.logger.error(
+          `Failed to revoke tokens for role holder ${userId} after role ${roleId} edit: ${(error as Error).message}`,
+        );
       }
-
-      // Lock and unset any current default roles.
-      // CRITICAL (FINDING #3): AND "tenantId" = $2 scopes the unset to this
-      // tenant; otherwise it would clear defaults platform-wide.
-      await queryRunner.query(
-        `
-        UPDATE "auth"."tenant_roles"
-        SET is_default = false, updated_at = NOW()
-        WHERE is_default = true AND id != $1 AND "tenantId" = $2
-        `,
-        [roleId, tenantId],
-      );
-
-      // Set the new default role. Carries its own tenant guard (ORPHAN-CRITICAL-100).
-      await queryRunner.query(
-        `
-        UPDATE "auth"."tenant_roles"
-        SET is_default = true, updated_at = NOW()
-        WHERE id = $1 AND "tenantId" = $2
-        `,
-        [roleId, tenantId],
-      );
-
-      await queryRunner.commitTransaction();
-
-      this.logger.log(`Set role ${roleResult[0].name} (${roleId}) as default in tenant ${tenantId}`);
-
-      const updatedRole = await this.getRoleById(tenantId, roleId);
-      if (!updatedRole) {
-        throw new Error('Failed to retrieve updated role');
-      }
-      return updatedRole;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      this.logger.error(
-        `Failed to set default role ${roleId} in tenant ${tenantId}: ${(error as Error).message}`,
-        (error as Error).stack,
-      );
-      throw error;
-    } finally {
-      await queryRunner.release();
     }
   }
 

@@ -17,7 +17,7 @@ import {
   Star,
   Palette,
 } from 'lucide-react';
-import { useAuthContext } from '@aquaculture/shared-ui';
+import { useAuth } from '@aquaculture/shared-ui';
 import { PermissionCheckboxGroup } from '../components/permissions';
 import { RoleCard as SharedRoleCard } from '../components/roles/RoleCard';
 import { useFocusTrap } from '../hooks';
@@ -34,23 +34,7 @@ import {
   type PanelPermissions,
 } from '../hooks/useTenantRoles';
 import { logError } from '../utils/error-handling';
-
-// ============================================================================
-// Constants
-// ============================================================================
-
-const ROLE_COLORS = [
-  { value: '#6366F1', label: 'Indigo' },
-  { value: '#8B5CF6', label: 'Purple' },
-  { value: '#EC4899', label: 'Pink' },
-  { value: '#EF4444', label: 'Red' },
-  { value: '#F97316', label: 'Orange' },
-  { value: '#EAB308', label: 'Yellow' },
-  { value: '#22C55E', label: 'Green' },
-  { value: '#14B8A6', label: 'Teal' },
-  { value: '#0EA5E9', label: 'Sky' },
-  { value: '#6B7280', label: 'Gray' },
-];
+import { ROLE_COLORS } from '../lib/constants';
 
 // ============================================================================
 // Sub-Components
@@ -414,6 +398,8 @@ interface DeleteModalProps {
   role: TenantRole | null;
   onConfirm: () => void;
   isLoading?: boolean;
+  /** Server rejection surfaced in the dialog (RBAC-M8: no silent failures). */
+  errorMessage?: string;
 }
 
 const DeleteModal = memo<DeleteModalProps>(({
@@ -422,6 +408,7 @@ const DeleteModal = memo<DeleteModalProps>(({
   role,
   onConfirm,
   isLoading,
+  errorMessage,
 }) => {
   // Generate unique IDs for ARIA attributes
   const titleId = useId();
@@ -437,6 +424,12 @@ const DeleteModal = memo<DeleteModalProps>(({
   });
 
   if (!isOpen || !role) return null;
+
+  // RBAC-M8: the backend HARD-BLOCKS deleting a role while users still hold it
+  // (tenant-role.service delete guard). The UI must state that same rule and
+  // block confirm — not offer a "they will lose access" delete that the server
+  // will reject with a raw ForbiddenException.
+  const hasActiveHolders = (role.userCount ?? 0) > 0;
 
   return (
     <div
@@ -469,12 +462,22 @@ const DeleteModal = memo<DeleteModalProps>(({
           </div>
         </div>
 
-        {(role.userCount ?? 0) > 0 && (
+        {hasActiveHolders && (
           <div className="mt-4 p-3 bg-amber-50 rounded-lg border border-amber-100">
             <p className="text-sm text-amber-700">
               <AlertCircle className="w-4 h-4 inline mr-1" />
-              This role is assigned to {role.userCount ?? 0} user(s). They will lose
-              access to associated permissions.
+              This role cannot be deleted while it is assigned to{' '}
+              {role.userCount ?? 0} user(s). Reassign those users to another
+              role first.
+            </p>
+          </div>
+        )}
+
+        {errorMessage && (
+          <div className="mt-4 p-3 bg-red-50 rounded-lg border border-red-100">
+            <p className="text-sm text-red-700">
+              <AlertCircle className="w-4 h-4 inline mr-1" />
+              {errorMessage}
             </p>
           </div>
         )}
@@ -488,8 +491,8 @@ const DeleteModal = memo<DeleteModalProps>(({
           </button>
           <button
             onClick={onConfirm}
-            disabled={isLoading}
-            className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-2"
+            disabled={isLoading || hasActiveHolders}
+            className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {isLoading ? (
               <>
@@ -515,9 +518,16 @@ const RoleCard = SharedRoleCard;
 // ============================================================================
 
 const TenantRolesPage: React.FC = () => {
-  // SEC-007: Check if current user has TENANT_ADMIN privileges for CRUD actions
-  const { hasRoleOrHigher } = useAuthContext();
-  const canManageRoles = hasRoleOrHigher('TENANT_ADMIN');
+  // RBAC-HIGH-004 (FE-HIGH-001): gate each control on the SAME granular capability
+  // the backend enforces (@RequireTenantPermission), not the coarse TENANT_ADMIN
+  // role. Admins bypass inside hasResourcePermission, so this is strictly a
+  // superset — but it also lets a delegate holding roles:create/edit/delete use
+  // the controls, which the previous role check silently blocked (the delegation
+  // feature was inert on this screen).
+  const { hasPermission } = useAuth();
+  const canCreateRoles = hasPermission('roles:create');
+  const canEditRoles = hasPermission('roles:edit');
+  const canDeleteRoles = hasPermission('roles:delete');
 
   // State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -587,8 +597,11 @@ const TenantRolesPage: React.FC = () => {
   }, [seedMutation]);
 
   const handleDeleteRole = useCallback((role: TenantRole) => {
+    // Reset any error from a previous delete attempt so a fresh dialog
+    // never opens pre-populated with a stale server rejection (RBAC-M8).
+    deleteMutation.reset();
     setDeletingRole(role);
-  }, []);
+  }, [deleteMutation]);
 
   const handleCloseDeleteModal = useCallback(() => {
     setDeletingRole(null);
@@ -630,10 +643,13 @@ const TenantRolesPage: React.FC = () => {
           >
             <RefreshCw className="w-5 h-5 text-gray-500" />
           </button>
-          {/* SEC-007: Only TENANT_ADMIN+ can seed/create roles */}
-          {canManageRoles && (
+          {/* RBAC-HIGH-004: seed + create require the roles:create capability.
+              RBAC-M14: the seed offer only renders on a CONFIRMED empty list —
+              on a query error `roles` is just the [] default, and offering a
+              seed there invites a duplicate seed against unknown server state. */}
+          {canCreateRoles && (
             <>
-              {roles.length === 0 && (
+              {!error && roles.length === 0 && (
                 <button
                   onClick={handleSeedRoles}
                   disabled={seedMutation.isPending}
@@ -678,20 +694,23 @@ const TenantRolesPage: React.FC = () => {
         </div>
       )}
 
-      {/* Roles Grid — PERF-009: use shared RoleCard component, no inline duplicate */}
+      {/* Roles Grid — PERF-009: use shared RoleCard component, no inline duplicate.
+          RBAC-M14: on a query error the empty state must NOT render — `roles`
+          is only the [] default, not a confirmed empty list; the error banner
+          above (with Retry) is the whole content. */}
       {roles.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {roles.map((role) => (
             <RoleCard
               key={role.id}
               role={role}
-              onEdit={canManageRoles ? handleOpenEdit : undefined}
-              onDelete={canManageRoles ? handleDeleteRole : undefined}
+              onEdit={canEditRoles ? handleOpenEdit : undefined}
+              onDelete={canDeleteRoles ? handleDeleteRole : undefined}
             />
           ))}
         </div>
-      ) : (
-        // Empty State
+      ) : error ? null : (
+        // Empty State (confirmed empty — the query succeeded with zero roles)
         <div className="bg-white rounded-xl border border-gray-100 py-16 text-center">
           <Shield className="w-16 h-16 text-gray-200 mx-auto" />
           <h3 className="mt-4 text-lg font-semibold text-gray-900">
@@ -701,8 +720,8 @@ const TenantRolesPage: React.FC = () => {
             Create custom roles to manage user permissions. You can also seed
             default roles to get started quickly.
           </p>
-          {/* SEC-007: Only TENANT_ADMIN+ can seed/create roles */}
-          {canManageRoles && (
+          {/* RBAC-HIGH-004: seed + create require the roles:create capability. */}
+          {canCreateRoles && (
             <div className="mt-6 flex items-center justify-center gap-3">
               <button
                 onClick={handleSeedRoles}
@@ -745,6 +764,7 @@ const TenantRolesPage: React.FC = () => {
         role={deletingRole}
         onConfirm={handleDelete}
         isLoading={deleteMutation.isPending}
+        errorMessage={deleteMutation.error?.message}
       />
     </div>
   );

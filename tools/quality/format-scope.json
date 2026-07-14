@@ -1647,6 +1647,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/impersonation/services/__tests__/impersonation.session-cap.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/impersonation/services/api-call-inspector.service.ts",
       "prettier_managed": true
     },
@@ -4685,6 +4691,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/__tests__/tenant-status-refresh-gate.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/__tests__/validate-token.spec.ts",
       "prettier_managed": true
     },
@@ -5141,6 +5153,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/dto/__tests__/permission-overrides-input.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/dto/create-tenant.dto.ts",
       "prettier_managed": true
     },
@@ -5171,6 +5189,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/entities/__tests__/centralized-rbac-entities.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/entities/index.ts",
       "prettier_managed": true
     },
@@ -5189,6 +5213,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/entities/tenant-role-permission.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/entities/tenant-role.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/entities/tenant.entity.spec.ts",
       "prettier_managed": true
     },
@@ -5196,6 +5232,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/entities/tenant.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/entities/user-role-assignment.entity.ts",
       "prettier_managed": true
     },
     {
@@ -5285,13 +5327,37 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/services/__tests__/tenant-suspend-revocation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/services/__tests__/unlock-user.spec.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/services/capability-authority.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/services/capability-authority.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/services/mobile-settings.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/services/permission-catalogue.ts",
       "prettier_managed": true
     },
     {
@@ -29917,6 +29983,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-07-11-rbac-e2e-audit/PLAN.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/2026-07-12-event-store-crypto-shred-design.md",
       "prettier_managed": true
     },
@@ -31448,6 +31520,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/auth-security-expert/2026-06-13-rs256-only-no-hs256.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/auth-security-expert/2026-07-11-rbac-e2e-audit.md",
       "prettier_managed": true
     },
     {
@@ -36587,6 +36665,30 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/security/token-blacklist/token-blacklist.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/security/user-token-revocation/__tests__/user-token-revocation.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/security/user-token-revocation/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/security/user-token-revocation/user-token-revocation.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/security/user-token-revocation/user-token-revocation.service.ts",
       "prettier_managed": true
     },
     {
@@ -52365,6 +52467,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/tenant-admin/src/components/permissions/__tests__/PermissionCheckboxGroup.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/tenant-admin/src/components/permissions/index.ts",
       "prettier_managed": true
     },
@@ -52377,12 +52485,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/modules/tenant-admin/src/components/roles/DeleteRoleModal.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "web/modules/tenant-admin/src/components/roles/index.ts",
       "prettier_managed": true
     },
@@ -52390,12 +52492,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/tenant-admin/src/components/roles/RoleCard.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/modules/tenant-admin/src/components/roles/RoleModal.tsx",
       "prettier_managed": true
     },
     {
@@ -52641,12 +52737,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/modules/tenant-admin/src/lib/query-keys.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "web/modules/tenant-admin/src/lib/types.ts",
       "prettier_managed": true
     },
@@ -52666,6 +52756,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/tenant-admin/src/pages/__tests__/TenantMessagesPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/tenant-admin/src/pages/__tests__/TenantRolesPage.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -53952,10 +54048,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8841,
+  "file_count": 8857,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8660,
-  "managed_file_list_sha256": "547df29586d81c55aa5a2467a606c0de8242f821ea7a256d6592f4d399a66c6d",
+  "managed_count": 8676,
+  "managed_file_list_sha256": "fa19772d9a94c9dc7b2e7c1af85a8ae22281dae6614607b9b6d57b17b9356d76",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

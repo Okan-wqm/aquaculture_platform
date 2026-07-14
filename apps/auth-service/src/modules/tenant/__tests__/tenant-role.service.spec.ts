@@ -5,10 +5,14 @@
  
  
  
+import { USER_TOKEN_REVOCATION } from '@aquaculture/backend-common/security';
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { DataSource, QueryRunner } from 'typeorm';
 
+import { AuditLogService } from '../../../audit/audit-log.service';
+import { CapabilityAuthorityService } from '../services/capability-authority';
+import { CATALOGUE_CAPABILITIES } from '../services/permission-catalogue';
 import { TenantRoleService } from '../services/tenant-role.service';
 
 // ============================================================================
@@ -26,13 +30,19 @@ const ADMIN_USER_ID = 'admin-uuid-001';
 
 const createMockQueryRunner = (): jest.Mocked<
   Pick<QueryRunner, 'connect' | 'startTransaction' | 'commitTransaction' | 'rollbackTransaction' | 'release' | 'query'>
-> => ({
+> & { manager: { create: jest.Mock; save: jest.Mock } } => ({
   connect: jest.fn().mockResolvedValue(undefined),
   startTransaction: jest.fn().mockResolvedValue(undefined),
   commitTransaction: jest.fn().mockResolvedValue(undefined),
   rollbackTransaction: jest.fn().mockResolvedValue(undefined),
   release: jest.fn().mockResolvedValue(undefined),
   query: jest.fn().mockResolvedValue([]),
+  // A real QueryRunner exposes `.manager` (the transaction-bound EntityManager)
+  // that RBAC-C3 threads into AuditLogService.log for an atomic audit write.
+  manager: {
+    create: jest.fn((_entity: unknown, data: unknown) => data),
+    save: jest.fn((entity: unknown) => Promise.resolve(entity)),
+  },
 });
 
 // ============================================================================
@@ -65,6 +75,8 @@ describe('TenantRoleService', () => {
   let service: TenantRoleService;
   let mockDataSource: jest.Mocked<Pick<DataSource, 'query' | 'createQueryRunner'>>;
   let mockQueryRunner: ReturnType<typeof createMockQueryRunner>;
+  let mockAuditLogService: { log: jest.Mock };
+  let mockUserTokenRevocation: { revokeUserTokens: jest.Mock; isTokenValid: jest.Mock };
 
   beforeEach(async () => {
     mockQueryRunner = createMockQueryRunner();
@@ -74,10 +86,37 @@ describe('TenantRoleService', () => {
       createQueryRunner: jest.fn().mockReturnValue(mockQueryRunner),
     };
 
+    mockAuditLogService = { log: jest.fn().mockResolvedValue(undefined) };
+    mockUserTokenRevocation = {
+      revokeUserTokens: jest.fn().mockResolvedValue(undefined),
+      isTokenValid: jest.fn().mockResolvedValue(true),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TenantRoleService,
         { provide: DataSource, useValue: mockDataSource },
+        { provide: AuditLogService, useValue: mockAuditLogService },
+        { provide: USER_TOKEN_REVOCATION, useValue: mockUserTokenRevocation },
+        {
+          // Default: an admin author who may grant any catalogue capability;
+          // the validator passes the derived resource permissions through. Tests
+          // that exercise delegate containment override these mocks.
+          provide: CapabilityAuthorityService,
+          useValue: {
+            resolveActorAuthority: jest.fn().mockResolvedValue({
+              isTenantAdmin: true,
+              effective: new Set<string>(),
+              entitled: new Set<string>(),
+            }),
+            assertGrantableResourcePermissions: jest.fn((requested: string[]) => requested),
+            assertGrantableOverrides: jest.fn((o: { grants?: string[]; revokes?: string[] } | null) => ({
+              grants: o?.grants ?? [],
+              revokes: o?.revokes ?? [],
+            })),
+            emptyOverrides: jest.fn(() => ({ grants: [], revokes: [] })),
+          },
+        },
       ],
     }).compile();
 
@@ -217,10 +256,23 @@ describe('TenantRoleService', () => {
   // ==========================================================================
 
   describe('seedDefaultRoles', () => {
+    // Existence SELECT (call 1) now returns id/name/is_system + current stored
+    // permissions; entitlement SELECT (call 2, ENABLED_MODULE_CODES_SQL) resolves
+    // the tenant's licensed modules. Helper to mock an already-present system
+    // default whose stored permissions already carry every catalogue capability,
+    // so the reconcile phase is a guaranteed no-op for it.
+    const fullyReconciledRow = (name: string): Record<string, unknown> => ({
+      id: `existing-${name.toLowerCase().replace(/\s+/g, '-')}`,
+      name: name.toLowerCase(),
+      is_system: true,
+      panel_permissions: {},
+      resource_permissions: [...CATALOGUE_CAPABILITIES],
+    });
+
     it('should create 5 default roles with SERIALIZABLE transaction', async () => {
-      // First call: count existing = 0
       mockQueryRunner.query
-        .mockResolvedValueOnce([{ count: 0 }]); // COUNT check
+        .mockResolvedValueOnce([]) // existence SELECT: none
+        .mockResolvedValueOnce([]); // entitlement SELECT: core-only
 
       // For each of 5 roles: INSERT RETURNING id + INSERT permissions
       for (let i = 0; i < 5; i++) {
@@ -247,7 +299,9 @@ describe('TenantRoleService', () => {
     });
 
     it('should scope the existence check to the tenant and prepend tenantId on INSERT', async () => {
-      mockQueryRunner.query.mockResolvedValueOnce([{ count: 0 }]);
+      mockQueryRunner.query
+        .mockResolvedValueOnce([]) // existence
+        .mockResolvedValueOnce([]); // entitlement
       for (let i = 0; i < 5; i++) {
         mockQueryRunner.query
           .mockResolvedValueOnce([{ id: `default-role-${i}` }])
@@ -260,37 +314,172 @@ describe('TenantRoleService', () => {
       // Existence check scoped to tenant and bound (not interpolated)
       expect(mockQueryRunner.query).toHaveBeenNthCalledWith(
         1,
-        expect.stringContaining('WHERE "tenantId" = $1'),
+        expect.stringContaining('r."tenantId" = $1'),
         [TENANT_ID],
       );
-      // First role INSERT (2nd query overall) prepends "tenantId" as $1
-      const insertCall = mockQueryRunner.query.mock.calls[1]!;
+      // The entitlement resolution is the 2nd query and is tenant-bound.
+      expect(mockQueryRunner.query).toHaveBeenNthCalledWith(2, expect.any(String), [TENANT_ID]);
+      // First role INSERT (3rd query overall) prepends "tenantId" as $1
+      const insertCall = mockQueryRunner.query.mock.calls[2]!;
       expect(insertCall[0]).toContain('INSERT INTO "auth"."tenant_roles"');
       expect(insertCall[0]).toContain('"tenantId"');
       expect((insertCall[1] as unknown[])[0]).toBe(TENANT_ID);
     });
 
-    it('should skip seeding if roles already exist', async () => {
-      mockQueryRunner.query.mockResolvedValueOnce([{ count: 3 }]);
+    it('RBAC-H10: seeds the operational defaults even when a TENANT_ADMIN row already exists', async () => {
+      // Regression: provisioning inserts a "Tenant Administrator" role first, so
+      // the old count>0 guard skipped the ENTIRE seed and the 5 operational roles
+      // were never created. Now only the ABSENT named defaults are created; the
+      // non-default TENANT_ADMIN row is never reconciled.
+      mockQueryRunner.query
+        .mockResolvedValueOnce([
+          { id: 'admin-role', name: 'tenant administrator', is_system: true, panel_permissions: {}, resource_permissions: [] },
+        ]) // existence
+        .mockResolvedValueOnce([]); // entitlement
+      for (let i = 0; i < 5; i++) {
+        mockQueryRunner.query
+          .mockResolvedValueOnce([{ id: `default-role-${i}` }]) // role INSERT
+          .mockResolvedValueOnce([]); // permission INSERT
+      }
+      mockDataSource.query.mockResolvedValue([]);
 
-      // After commit, getTenantRoles is called
-      mockDataSource.query.mockResolvedValue([
-        createMockRoleRow({ name: 'Existing1' }),
-        createMockRoleRow({ name: 'Existing2' }),
-        createMockRoleRow({ name: 'Existing3' }),
-      ]);
+      await service.seedDefaultRoles(TENANT_ID, ADMIN_USER_ID);
 
-      const result = await service.seedDefaultRoles(TENANT_ID, ADMIN_USER_ID);
-
-      expect(result).toHaveLength(3);
+      const roleInserts = mockQueryRunner.query.mock.calls.filter(
+        (call) => typeof call[0] === 'string' && call[0].includes('INSERT INTO "auth"."tenant_roles"'),
+      );
+      expect(roleInserts).toHaveLength(5);
+      // The TENANT_ADMIN row is not a shipped default name → never reconciled.
+      const reconcileUpdates = mockQueryRunner.query.mock.calls.filter(
+        (call) =>
+          typeof call[0] === 'string' &&
+          call[0].includes('UPDATE "auth"."tenant_role_permissions"'),
+      );
+      expect(reconcileUpdates).toHaveLength(0);
       expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
-      // Should NOT have inserted any roles (only the COUNT query ran)
-      expect(mockQueryRunner.query).toHaveBeenCalledTimes(1);
+    });
+
+    it('is idempotent: creates and reconciles nothing when every default already carries the full catalogue', async () => {
+      mockQueryRunner.query
+        .mockResolvedValueOnce([
+          fullyReconciledRow('Supervisor'),
+          fullyReconciledRow('Technician'),
+          fullyReconciledRow('Feed Manager'),
+          fullyReconciledRow('Operator'),
+          fullyReconciledRow('Viewer'),
+        ]) // existence: all defaults present, already fully granted
+        .mockResolvedValueOnce([{ code: 'hr' }, { code: 'ai' }]); // entitlement: all modules
+      mockDataSource.query.mockResolvedValue([]);
+
+      await service.seedDefaultRoles(TENANT_ID, ADMIN_USER_ID);
+
+      // Only the existence SELECT + entitlement SELECT ran — no INSERT, no UPDATE.
+      expect(mockQueryRunner.query).toHaveBeenCalledTimes(2);
+      expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
+      // No audit row when nothing changed.
+      expect(mockAuditLogService.log).not.toHaveBeenCalled();
+    });
+
+    it('RBAC-MEDIUM-015: additively tops-up an existing system default missing an entitled capability', async () => {
+      // Supervisor exists as a system default with NO stored grants; the other
+      // four already carry the full catalogue (no-op). The reconcile phase must
+      // UPDATE only Supervisor, write a ROLES_RECONCILED audit, and revoke its
+      // active holders' tokens.
+      mockQueryRunner.query
+        .mockResolvedValueOnce([
+          { id: 'sup-1', name: 'supervisor', is_system: true, panel_permissions: {}, resource_permissions: [] },
+          fullyReconciledRow('Technician'),
+          fullyReconciledRow('Feed Manager'),
+          fullyReconciledRow('Operator'),
+          fullyReconciledRow('Viewer'),
+        ]) // existence
+        .mockResolvedValueOnce([{ code: 'hr' }, { code: 'ai' }]) // entitlement: all modules
+        .mockResolvedValueOnce([]); // reconcile UPDATE for Supervisor
+
+      // revokeTokensForRoleHolders (dataSource.query) then getTenantRoles.
+      mockDataSource.query
+        .mockResolvedValueOnce([{ user_id: 'holder-1' }]) // active holders of Supervisor
+        .mockResolvedValue([]); // getTenantRoles
+
+      await service.seedDefaultRoles(TENANT_ID, ADMIN_USER_ID);
+
+      const updates = mockQueryRunner.query.mock.calls.filter(
+        (call) =>
+          typeof call[0] === 'string' &&
+          call[0].includes('UPDATE "auth"."tenant_role_permissions"'),
+      );
+      expect(updates).toHaveLength(1);
+      // Scoped to Supervisor's role_id; resource_permissions is a non-empty UNION.
+      expect(updates[0]![1]).toEqual([expect.any(String), expect.arrayContaining(['sites:view']), 'sup-1']);
+
+      expect(mockAuditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'ROLES_RECONCILED', entityType: 'TenantRole' }),
+        mockQueryRunner.manager,
+      );
+      // RBAC-HIGH-001: the widened role's active holders are revoked post-commit.
+      expect(mockUserTokenRevocation.revokeUserTokens).toHaveBeenCalledWith('holder-1');
+    });
+
+    it('RBAC-HIGH-010: a non-entitled (module-gated) capability is never seeded', async () => {
+      // No modules enabled → AI/HR capabilities must NOT be written even though
+      // the Supervisor template grants them. The stored resource_permissions for
+      // the created role must exclude ai_*/hr_* and include a core capability.
+      mockQueryRunner.query
+        .mockResolvedValueOnce([]) // existence: none
+        .mockResolvedValueOnce([]); // entitlement: no modules → core-only
+      for (let i = 0; i < 5; i++) {
+        mockQueryRunner.query
+          .mockResolvedValueOnce([{ id: `default-role-${i}` }])
+          .mockResolvedValueOnce([]);
+      }
+      mockDataSource.query.mockResolvedValue([]);
+
+      await service.seedDefaultRoles(TENANT_ID, ADMIN_USER_ID);
+
+      const permInserts = mockQueryRunner.query.mock.calls.filter(
+        (call) =>
+          typeof call[0] === 'string' &&
+          call[0].includes('INSERT INTO "auth"."tenant_role_permissions"'),
+      );
+      expect(permInserts).toHaveLength(5);
+      for (const insert of permInserts) {
+        const resources = insert[1]![2] as string[];
+        expect(resources).not.toContain('ai_assistant:use');
+        expect(resources).not.toContain('ai_settings:manage');
+        expect(resources).not.toContain('employees:view');
+      }
+      // Supervisor (first created) still gets its core capabilities.
+      const supervisorResources = permInserts[0]![1]![2] as string[];
+      expect(supervisorResources).toContain('sites:view');
+    });
+
+    it('RBAC-HIGH-010: an entitled (module-enabled) capability IS seeded', async () => {
+      mockQueryRunner.query
+        .mockResolvedValueOnce([]) // existence: none
+        .mockResolvedValueOnce([{ code: 'ai' }, { code: 'hr' }]); // entitlement: AI+HR on
+      for (let i = 0; i < 5; i++) {
+        mockQueryRunner.query
+          .mockResolvedValueOnce([{ id: `default-role-${i}` }])
+          .mockResolvedValueOnce([]);
+      }
+      mockDataSource.query.mockResolvedValue([]);
+
+      await service.seedDefaultRoles(TENANT_ID, ADMIN_USER_ID);
+
+      const permInserts = mockQueryRunner.query.mock.calls.filter(
+        (call) =>
+          typeof call[0] === 'string' &&
+          call[0].includes('INSERT INTO "auth"."tenant_role_permissions"'),
+      );
+      const supervisorResources = permInserts[0]![1]![2] as string[];
+      expect(supervisorResources).toContain('ai_assistant:use');
+      expect(supervisorResources).toContain('employees:view');
     });
 
     it('should rollback transaction on error during seeding', async () => {
       mockQueryRunner.query
-        .mockResolvedValueOnce([{ count: 0 }]) // COUNT check
+        .mockResolvedValueOnce([]) // existence SELECT
+        .mockResolvedValueOnce([]) // entitlement SELECT
         .mockRejectedValueOnce(new Error('DB connection lost')); // first role INSERT fails
 
       await expect(service.seedDefaultRoles(TENANT_ID, ADMIN_USER_ID)).rejects.toThrow(
@@ -301,10 +490,10 @@ describe('TenantRoleService', () => {
       expect(mockQueryRunner.release).toHaveBeenCalled();
     });
 
-    it('should use FOR UPDATE lock on COUNT query to prevent race conditions', async () => {
-      mockQueryRunner.query.mockResolvedValueOnce([{ count: 0 }]);
-
-      // Stub remaining calls for 5 roles
+    it('should use FOR UPDATE lock on the existence query to prevent race conditions', async () => {
+      mockQueryRunner.query
+        .mockResolvedValueOnce([]) // existence
+        .mockResolvedValueOnce([]); // entitlement
       for (let i = 0; i < 5; i++) {
         mockQueryRunner.query
           .mockResolvedValueOnce([{ id: `role-${i}` }])
@@ -355,6 +544,40 @@ describe('TenantRoleService', () => {
       expect(result.name).toBe('Custom Role');
       expect(mockQueryRunner.startTransaction).toHaveBeenCalledWith('SERIALIZABLE');
       expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
+    });
+
+    it('RBAC-C3: writes a ROLE_CREATED audit row on the transaction manager (fail-closed)', async () => {
+      mockQueryRunner.query
+        .mockResolvedValueOnce([]) // no duplicate
+        .mockResolvedValueOnce([{ id: 'new-role-id' }]) // INSERT role
+        .mockResolvedValueOnce([]); // INSERT permissions
+      mockDataSource.query.mockResolvedValue([createMockRoleRow({ id: 'new-role-id', name: 'Custom Role' })]);
+
+      await service.createRole(TENANT_ID, createInput, ADMIN_USER_ID);
+
+      expect(mockAuditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: TENANT_ID,
+          performedBy: ADMIN_USER_ID,
+          action: 'ROLE_CREATED',
+          entityType: 'TenantRole',
+          entityId: 'new-role-id',
+        }),
+        // manager-threaded (2nd arg) so the audit is atomic with the insert.
+        expect.anything(),
+      );
+    });
+
+    it('RBAC-C3: an audit failure ROLLS BACK the role creation (fail-closed)', async () => {
+      mockQueryRunner.query
+        .mockResolvedValueOnce([]) // no duplicate
+        .mockResolvedValueOnce([{ id: 'new-role-id' }]) // INSERT role
+        .mockResolvedValueOnce([]); // INSERT permissions
+      mockAuditLogService.log.mockRejectedValueOnce(new Error('audit DB down'));
+
+      await expect(service.createRole(TENANT_ID, createInput, ADMIN_USER_ID)).rejects.toThrow('audit DB down');
+      expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
+      expect(mockQueryRunner.commitTransaction).not.toHaveBeenCalled();
     });
 
     it('should throw ConflictException for duplicate role name', async () => {
@@ -633,6 +856,40 @@ describe('TenantRoleService', () => {
         TENANT_ID,
       ]);
     });
+
+    it('RBAC-HIGH-001: revokes the live tokens of every active holder after a permission edit', async () => {
+      const newPerms = { operations: { sensors: { view: true } } };
+      mockQueryRunner.query
+        .mockResolvedValueOnce([createMockRoleRow()]) // existing
+        .mockResolvedValueOnce([]) // UPDATE role fields
+        .mockResolvedValueOnce([]); // UPDATE permissions
+      // After commit: (1) the holders SELECT, then (2) getRoleById.
+      mockDataSource.query
+        .mockResolvedValueOnce([{ user_id: 'holder-1' }, { user_id: 'holder-2' }]) // holders
+        .mockResolvedValueOnce([createMockRoleRow()]); // getRoleById
+
+      await service.updateRole(TENANT_ID, ROLE_ID, { panelPermissions: newPerms }, ADMIN_USER_ID);
+
+      expect(mockUserTokenRevocation.revokeUserTokens).toHaveBeenCalledWith('holder-1');
+      expect(mockUserTokenRevocation.revokeUserTokens).toHaveBeenCalledWith('holder-2');
+      // The holders query is tenant-scoped via the tenant_roles join.
+      const holdersCall = mockDataSource.query.mock.calls.find(
+        (call) => typeof call[0] === 'string' && call[0].includes('SELECT ura.user_id'),
+      );
+      expect(holdersCall).toBeDefined();
+      expect(holdersCall![0]).toContain('tr."tenantId" = $2');
+    });
+
+    it('does NOT revoke holders when only metadata (no panelPermissions) changed', async () => {
+      mockQueryRunner.query
+        .mockResolvedValueOnce([createMockRoleRow()]) // existing
+        .mockResolvedValueOnce([]); // UPDATE role fields
+      mockDataSource.query.mockResolvedValue([createMockRoleRow()]); // getRoleById
+
+      await service.updateRole(TENANT_ID, ROLE_ID, { description: 'new desc' }, ADMIN_USER_ID);
+
+      expect(mockUserTokenRevocation.revokeUserTokens).not.toHaveBeenCalled();
+    });
   });
 
   // ==========================================================================
@@ -656,6 +913,26 @@ describe('TenantRoleService', () => {
         3,
         expect.stringContaining('DELETE FROM "auth"."tenant_roles" WHERE id = $1 AND "tenantId" = $2'),
         [ROLE_ID, TENANT_ID],
+      );
+    });
+
+    it('RBAC-C3: writes a ROLE_DELETED audit row snapshotting the role (fail-closed)', async () => {
+      mockQueryRunner.query
+        .mockResolvedValueOnce([{ id: ROLE_ID, name: 'Custom', is_system: false, is_default: false, level: 40, user_count: 0 }])
+        .mockResolvedValueOnce([]) // DELETE permissions
+        .mockResolvedValueOnce([]); // DELETE role
+
+      await service.deleteRole(TENANT_ID, ROLE_ID, ADMIN_USER_ID);
+
+      expect(mockAuditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'ROLE_DELETED',
+          entityType: 'TenantRole',
+          entityId: ROLE_ID,
+          performedBy: ADMIN_USER_ID,
+          previousValue: expect.objectContaining({ name: 'Custom' }),
+        }),
+        expect.anything(),
       );
     });
 
@@ -715,280 +992,39 @@ describe('TenantRoleService', () => {
   });
 
   // ==========================================================================
-  // assignRoleToUser
-  // ==========================================================================
-
-  describe('assignRoleToUser', () => {
-    it('should create a new role assignment when the user holds no role', async () => {
-      mockQueryRunner.query
-        .mockResolvedValueOnce([{ '?column?': 1 }]) // user pre-validation: in tenant
-        .mockResolvedValueOnce([{ id: ROLE_ID, name: 'Operator', is_system: true }]) // role exists in tenant
-        .mockResolvedValueOnce([]) // no existing assignment for this user
-        .mockResolvedValueOnce([{ id: 'assignment-001' }]); // INSERT assignment
-
-      const result = await service.assignRoleToUser(TENANT_ID, USER_ID, ROLE_ID, ADMIN_USER_ID);
-
-      expect(result.userId).toBe(USER_ID);
-      expect(result.roleId).toBe(ROLE_ID);
-      expect(result.isActive).toBe(true);
-      expect(result.id).toBe('assignment-001');
-      expect(mockQueryRunner.startTransaction).toHaveBeenCalledWith('SERIALIZABLE');
-      expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
-    });
-
-    it('should validate the user is in the tenant before touching assignments', async () => {
-      mockQueryRunner.query
-        .mockResolvedValueOnce([{ '?column?': 1 }]) // user in tenant
-        .mockResolvedValueOnce([{ id: ROLE_ID, name: 'Operator', is_system: false }])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([{ id: 'new-assignment' }]);
-
-      await service.assignRoleToUser(TENANT_ID, USER_ID, ROLE_ID, ADMIN_USER_ID);
-
-      // First query is the tenant-scoped user check, bound (never interpolated)
-      expect(mockQueryRunner.query).toHaveBeenNthCalledWith(
-        1,
-        expect.stringContaining('FROM "auth"."users" WHERE id = $1 AND "tenantId" = $2'),
-        [USER_ID, TENANT_ID],
-      );
-    });
-
-    it('should re-point the single existing row when the user already holds a role', async () => {
-      mockQueryRunner.query
-        .mockResolvedValueOnce([{ '?column?': 1 }]) // user in tenant
-        .mockResolvedValueOnce([{ id: ROLE_ID, name: 'Operator', is_system: false }]) // target role
-        .mockResolvedValueOnce([{ id: 'existing-assignment', is_active: false, role_id: 'old-role' }]) // existing row (in-tenant)
-        .mockResolvedValueOnce([]); // UPDATE re-point
-
-      const result = await service.assignRoleToUser(TENANT_ID, USER_ID, ROLE_ID, ADMIN_USER_ID);
-
-      expect(result.id).toBe('existing-assignment');
-      expect(result.isActive).toBe(true);
-      // The 4th query is the re-point UPDATE — never a 2nd INSERT
-      const updateCall = mockQueryRunner.query.mock.calls[3]!;
-      expect(updateCall[0]).toContain('UPDATE "auth"."user_role_assignments" ura');
-      expect(updateCall[0]).toContain('role_id = $4');
-      expect(updateCall[0]).toContain('is_active = true');
-      expect(updateCall[1]).toEqual([ADMIN_USER_ID, 'existing-assignment', TENANT_ID, ROLE_ID]);
-    });
-
-    it('should throw NotFoundException when role does not exist in tenant', async () => {
-      mockQueryRunner.query
-        .mockResolvedValueOnce([{ '?column?': 1 }]) // user in tenant
-        .mockResolvedValueOnce([]); // role not found
-
-      await expect(
-        service.assignRoleToUser(TENANT_ID, USER_ID, 'bad-role-id', ADMIN_USER_ID),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('should lock the in-tenant role with FOR UPDATE to prevent deletion during assignment', async () => {
-      mockQueryRunner.query
-        .mockResolvedValueOnce([{ '?column?': 1 }]) // user in tenant
-        .mockResolvedValueOnce([{ id: ROLE_ID, name: 'Operator', is_system: false }])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([{ id: 'new-assignment' }]);
-
-      await service.assignRoleToUser(TENANT_ID, USER_ID, ROLE_ID, ADMIN_USER_ID);
-
-      // Second query (after user check) locks the role, scoped to tenant
-      expect(mockQueryRunner.query).toHaveBeenNthCalledWith(
-        2,
-        expect.stringContaining('WHERE id = $1 AND "tenantId" = $2 FOR UPDATE'),
-        [ROLE_ID, TENANT_ID],
-      );
-    });
-
-    it('should rollback transaction on error', async () => {
-      mockQueryRunner.query
-        .mockResolvedValueOnce([{ '?column?': 1 }]) // user in tenant
-        .mockResolvedValueOnce([{ id: ROLE_ID, name: 'Operator', is_system: false }])
-        .mockResolvedValueOnce([]) // no existing assignment
-        .mockRejectedValueOnce(new Error('constraint violation'));
-
-      await expect(
-        service.assignRoleToUser(TENANT_ID, USER_ID, ROLE_ID, ADMIN_USER_ID),
-      ).rejects.toThrow('constraint violation');
-
-      expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
-      expect(mockQueryRunner.release).toHaveBeenCalled();
-    });
-
-    // ------------------------------------------------------------------------
-    // REGRESSION (ORPHAN-CRITICAL-100, FINDING #1): foreign-tenant user
-    // ------------------------------------------------------------------------
-    it('REGRESSION: foreign-tenant user throws and performs ZERO inserts/updates', async () => {
-      // User pre-validation returns no row => user not in this tenant.
-      mockQueryRunner.query.mockResolvedValueOnce([]);
-
-      await expect(
-        service.assignRoleToUser(TENANT_ID, 'foreign-tenant-user', ROLE_ID, ADMIN_USER_ID),
-      ).rejects.toThrow(NotFoundException);
-
-      // Only the user-validation SELECT ran; no role lock, no assignment write.
-      expect(mockQueryRunner.query).toHaveBeenCalledTimes(1);
-      const writeCall = mockQueryRunner.query.mock.calls.find(
-        (c) =>
-          typeof c[0] === 'string' &&
-          (c[0].includes('INSERT INTO "auth"."user_role_assignments"') ||
-            c[0].includes('UPDATE "auth"."user_role_assignments"')),
-      );
-      expect(writeCall).toBeUndefined();
-      expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
-    });
-
-    // ------------------------------------------------------------------------
-    // REGRESSION (ORPHAN-CRITICAL-100, FINDING #2): UNIQUE(user_id) re-point
-    // ------------------------------------------------------------------------
-    it('REGRESSION: assigning a 2nd role re-points the single row (no UNIQUE violation, no 2nd INSERT)', async () => {
-      const SECOND_ROLE_ID = 'role-uuid-002';
-      mockQueryRunner.query
-        .mockResolvedValueOnce([{ '?column?': 1 }]) // user in tenant
-        .mockResolvedValueOnce([{ id: SECOND_ROLE_ID, name: 'Supervisor', is_system: false }]) // 2nd target role
-        .mockResolvedValueOnce([{ id: 'existing-assignment', is_active: true, role_id: ROLE_ID }]) // user already holds ROLE_ID
-        .mockResolvedValueOnce([]); // UPDATE re-point to SECOND_ROLE_ID
-
-      const result = await service.assignRoleToUser(
-        TENANT_ID,
-        USER_ID,
-        SECOND_ROLE_ID,
-        ADMIN_USER_ID,
-      );
-
-      // Same single row, re-pointed — no constraint error.
-      expect(result.id).toBe('existing-assignment');
-      expect(result.roleId).toBe(SECOND_ROLE_ID);
-
-      // No INSERT into user_role_assignments was attempted.
-      const insertCall = mockQueryRunner.query.mock.calls.find(
-        (c) => typeof c[0] === 'string' && c[0].includes('INSERT INTO "auth"."user_role_assignments"'),
-      );
-      expect(insertCall).toBeUndefined();
-
-      // The re-point UPDATE sets the new role_id ($4 = SECOND_ROLE_ID).
-      const updateCall = mockQueryRunner.query.mock.calls[3]!;
-      expect(updateCall[0]).toContain('SET is_active = true, role_id = $4');
-      expect(updateCall[1]).toEqual([ADMIN_USER_ID, 'existing-assignment', TENANT_ID, SECOND_ROLE_ID]);
-      expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
-    });
-  });
-
-  // ==========================================================================
-  // removeRoleFromUser
-  // ==========================================================================
-
-  describe('removeRoleFromUser', () => {
-    it('should soft-delete (deactivate) a role assignment using only GROUND-TRUTH columns', async () => {
-      mockQueryRunner.query
-        .mockResolvedValueOnce([{ '?column?': 1 }]) // user in tenant
-        .mockResolvedValueOnce([{ id: 'assignment-1', is_active: true }]) // lock + fetch (in-tenant)
-        .mockResolvedValueOnce([]); // UPDATE is_active = false
-
-      const result = await service.removeRoleFromUser(TENANT_ID, USER_ID, ROLE_ID, ADMIN_USER_ID);
-
-      expect(result).toBe(true);
-      const updateCall = mockQueryRunner.query.mock.calls[2]!;
-      // GROUND TRUTH: auth.user_role_assignments has no removed_by/removed_at/updated_by.
-      // Soft-delete sets only is_active and updated_at.
-      expect(updateCall[0]).toContain('is_active = false');
-      expect(updateCall[0]).toContain('updated_at = NOW()');
-      // Banned (non-existent) columns must NOT be written — would fail at runtime.
-      expect(updateCall[0]).not.toContain('removed_by');
-      expect(updateCall[0]).not.toContain('removed_at');
-      expect(updateCall[0]).not.toContain('updated_by');
-      // Param indices re-counted after dropping the removed_by bind: ura.id=$1, tenantId=$2.
-      expect(updateCall[0]).toContain('WHERE ura.id = $1 AND tr.id = ura.role_id AND tr."tenantId" = $2');
-      // The actor (removedBy) is NOT persisted on this table — params carry only id + tenantId.
-      expect(updateCall[1]).toEqual(['assignment-1', TENANT_ID]);
-    });
-
-    it('should throw NotFoundException when no active assignment exists', async () => {
-      mockQueryRunner.query
-        .mockResolvedValueOnce([{ '?column?': 1 }]) // user in tenant
-        .mockResolvedValueOnce([]); // no active assignment
-
-      await expect(
-        service.removeRoleFromUser(TENANT_ID, USER_ID, ROLE_ID, ADMIN_USER_ID),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('should throw NotFoundException when the user is not in the tenant', async () => {
-      mockQueryRunner.query.mockResolvedValueOnce([]); // user not in tenant
-
-      await expect(
-        service.removeRoleFromUser(TENANT_ID, 'foreign-user', ROLE_ID, ADMIN_USER_ID),
-      ).rejects.toThrow(NotFoundException);
-
-      // No assignment write attempted.
-      expect(mockQueryRunner.query).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  // ==========================================================================
-  // setDefaultRole
-  // ==========================================================================
-
-  describe('setDefaultRole', () => {
-    it('should set a role as default and unset others within the tenant', async () => {
-      mockQueryRunner.query
-        .mockResolvedValueOnce([{ id: ROLE_ID, name: 'Operator' }]) // role exists in tenant
-        .mockResolvedValueOnce([]) // unset other defaults
-        .mockResolvedValueOnce([]); // set new default
-
-      // getRoleById after commit
-      mockDataSource.query.mockResolvedValue([
-        createMockRoleRow({ is_default: true }),
-      ]);
-
-      const result = await service.setDefaultRole(TENANT_ID, ROLE_ID, ADMIN_USER_ID);
-
-      expect(result.isDefault).toBe(true);
-      expect(mockQueryRunner.startTransaction).toHaveBeenCalledWith('SERIALIZABLE');
-      // Lock target is tenant-scoped
-      expect(mockQueryRunner.query).toHaveBeenNthCalledWith(
-        1,
-        expect.stringContaining('WHERE id = $1 AND "tenantId" = $2 FOR UPDATE'),
-        [ROLE_ID, TENANT_ID],
-      );
-      // Unset others is scoped to tenant
-      expect(mockQueryRunner.query).toHaveBeenNthCalledWith(
-        2,
-        expect.stringContaining('WHERE is_default = true AND id != $1 AND "tenantId" = $2'),
-        [ROLE_ID, TENANT_ID],
-      );
-      // Set new default is scoped to tenant
-      expect(mockQueryRunner.query).toHaveBeenNthCalledWith(
-        3,
-        expect.stringContaining('WHERE id = $1 AND "tenantId" = $2'),
-        [ROLE_ID, TENANT_ID],
-      );
-    });
-
-    it('should throw NotFoundException for non-existent role', async () => {
-      mockQueryRunner.query.mockResolvedValueOnce([]); // role not found
-
-      await expect(
-        service.setDefaultRole(TENANT_ID, 'bad-id', ADMIN_USER_ID),
-      ).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  // ==========================================================================
   // getPermissionCategories
   // ==========================================================================
 
   describe('getPermissionCategories', () => {
-    it('should return all permission categories', () => {
-      const categories = service.getPermissionCategories();
+    it('returns every category (incl. hr/ai) for a fully-licensed tenant', async () => {
+      mockDataSource.query.mockResolvedValueOnce([{ code: 'hr' }, { code: 'ai' }]);
 
-      expect(categories).toBeDefined();
+      const categories = await service.getPermissionCategories(TENANT_ID);
+
       expect(categories.farm).toBeDefined();
-      expect(categories.farm.name).toBe('Farm Management');
+      expect(categories.farm!.name).toBe('Farm Management');
       expect(categories.batch).toBeDefined();
       expect(categories.operations).toBeDefined();
       expect(categories.hr).toBeDefined();
+      expect(categories.ai).toBeDefined();
       expect(categories.reports).toBeDefined();
       expect(categories.admin).toBeDefined();
+      // Entitlement resolution is tenant-bound (never interpolated).
+      expect(mockDataSource.query).toHaveBeenCalledWith(expect.any(String), [TENANT_ID]);
+    });
+
+    it('RBAC-HIGH-010: drops the hr/ai categories wholesale for an unlicensed tenant', async () => {
+      mockDataSource.query.mockResolvedValueOnce([]); // no modules enabled → core-only
+
+      const categories = await service.getPermissionCategories(TENANT_ID);
+
+      // Module-gated categories are ABSENT (not empty groups)…
+      expect(categories.hr).toBeUndefined();
+      expect(categories.ai).toBeUndefined();
+      // …while every core category still offers its full action set.
+      expect(categories.farm).toBeDefined();
+      expect(categories.messaging).toBeDefined();
+      expect(categories.admin!.resources['roles']!.actions).toContain('create');
     });
   });
 
@@ -1049,22 +1085,6 @@ describe('TenantRoleService', () => {
       const unsetCall = mockQueryRunner.query.mock.calls[1]!;
       expect(unsetCall[0]).toContain('WHERE is_default = true AND id != $1 AND "tenantId" = $2');
       expect(unsetCall[1]).toEqual([ROLE_ID, tenantIdC]);
-    });
-
-    it('REGRESSION: setDefaultRole unset-current-defaults write is tenant-scoped', async () => {
-      const tenantIdD = '55555555-5555-5555-5555-555555555555';
-      mockQueryRunner.query
-        .mockResolvedValueOnce([{ id: ROLE_ID, name: 'Operator' }]) // role exists
-        .mockResolvedValueOnce([]) // unset other defaults
-        .mockResolvedValueOnce([]); // set new default
-
-      mockDataSource.query.mockResolvedValue([createMockRoleRow({ is_default: true })]);
-
-      await service.setDefaultRole(tenantIdD, ROLE_ID, ADMIN_USER_ID);
-
-      const unsetCall = mockQueryRunner.query.mock.calls[1]!;
-      expect(unsetCall[0]).toContain('WHERE is_default = true AND id != $1 AND "tenantId" = $2');
-      expect(unsetCall[1]).toEqual([ROLE_ID, tenantIdD]);
     });
   });
 

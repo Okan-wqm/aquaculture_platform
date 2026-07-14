@@ -14,15 +14,15 @@ export const ROLES_KEY = 'roles';
 export const Roles = (...roles: string[]): CustomDecorator<string> => SetMetadata(ROLES_KEY, roles);
 
 /**
- * Admin API platform-admin boundary'dir. Auth domain'de bu platform rolu
- * SUPER_ADMIN olarak saklanir; tenant-facing yetki genisletmesi burada yoktur.
- */
-export const AllowTenantAdmin = (): CustomDecorator<string> =>
-  Roles('SUPER_ADMIN');
-
-/**
- * Sadece platform admin operatorune izin verir (auth role: SUPER_ADMIN)
- * Admin-only endpoint'ler için kullanılır
+ * Sadece platform admin operatorune izin verir (auth role: SUPER_ADMIN).
+ * Admin-only endpoint'ler için kullanılır.
+ *
+ * RBAC-LOW-001: this replaced the misnamed `AllowTenantAdmin` alias. That name
+ * suggested tenant-admin access but resolved to SUPER_ADMIN — a latent trap: a
+ * maintainer "fixing" the name toward real TENANT_ADMIN access, combined with
+ * the tenant-scoped `req.user.tenantId` reads on some admin endpoints, could
+ * open cross-tenant writes. The admin-api boundary is platform-admin only; there
+ * is no tenant-facing authorization here, and the name now says so.
  */
 export const PlatformAdminOnly = (): CustomDecorator<string> => Roles('SUPER_ADMIN');
 

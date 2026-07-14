@@ -121,6 +121,14 @@ export const tenantKeys = {
   notificationPreferences: () => createTenantQueryKey(getTenantId(), 'notifPrefs'),
   mobileUsersSettings: () => createTenantQueryKey(getTenantId(), 'mobileUsersSettings'),
   mobileUsers: () => createTenantQueryKey(getTenantId(), 'mobileUsers'),
+  // Invalidation prefixes (RBAC-HIGH-006): for `invalidate/remove/cancelQueries`
+  // on domains whose query keys carry an args segment. A no-arg `users()`/
+  // `devices()` call used as a FILTER yields ['tenant', t, 'users', undefined,
+  // {epoch}], and `undefined` at the args position never partial-matches the
+  // stored filters object — the invalidation silently no-ops (tenant-query-keys
+  // RULE: filters use createTenantInvalidationKey, never the epoch'd builders).
+  invalidateUsers: () => createTenantInvalidationKey(getTenantId(), 'users'),
+  invalidateDevices: () => createTenantInvalidationKey(getTenantId(), 'devices'),
 };
 
 // ============================================================================
@@ -336,7 +344,7 @@ export function useDeviceAction() {
       graphqlRequest(mutation, variables),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(getTenantId(), 'edgeDevice') });
-      queryClient.invalidateQueries({ queryKey: tenantKeys.devices() });
+      queryClient.invalidateQueries({ queryKey: tenantKeys.invalidateDevices() });
     },
   });
 }
@@ -567,7 +575,7 @@ export function useCreateTenantUser() {
       sendInvitation?: boolean;
     }) => createTenantUser(input),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: tenantKeys.users() });
+      queryClient.invalidateQueries({ queryKey: tenantKeys.invalidateUsers() });
     },
   });
 }
@@ -581,7 +589,7 @@ export function useUpdateTenantUser() {
     mutationFn: ({ userId, input }: { userId: string; input: { firstName?: string; lastName?: string; roleId?: string } }) =>
       updateTenantUserApi(userId, input),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: tenantKeys.users() });
+      queryClient.invalidateQueries({ queryKey: tenantKeys.invalidateUsers() });
     },
   });
 }
@@ -594,7 +602,7 @@ export function useDeleteTenantUser() {
   return useMutation({
     mutationFn: (userId: string) => deleteTenantUserApi(userId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: tenantKeys.users() });
+      queryClient.invalidateQueries({ queryKey: tenantKeys.invalidateUsers() });
     },
   });
 }
@@ -607,7 +615,7 @@ export function useDeactivateTenantUser() {
   return useMutation({
     mutationFn: (userId: string) => deactivateTenantUserApi(userId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: tenantKeys.users() });
+      queryClient.invalidateQueries({ queryKey: tenantKeys.invalidateUsers() });
     },
   });
 }

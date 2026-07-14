@@ -8,7 +8,7 @@
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey, getTenantId } from '@aquaculture/shared-ui';
+import { createTenantQueryKey, createTenantInvalidationKey, getTenantId } from '@aquaculture/shared-ui';
 import { useState, useCallback, useMemo } from 'react';
 import { graphqlRequest } from '../services/tenant-api.service';
 import { TENANT_AUDIT_LOGS_QUERY } from '../graphql';
@@ -49,11 +49,14 @@ export interface AuditLogPage {
 // Query Keys
 // ============================================================================
 
-// Tenant-scoped via createTenantQueryKey (['tenant', tenantId, …]); `all` is a
-// function because the tenantId is only known at call time (web/CLAUDE.md
-// FE-CRITICAL-014/015/016).
+// Tenant-scoped keys; functions because the tenantId is only known at call
+// time (web/CLAUDE.md FE-CRITICAL-014/015/016). `all` is an INVALIDATION
+// prefix (createTenantInvalidationKey, NO epoch): used as a filter, an epoch'd
+// key left-prefix-mismatches every stored `list` key ({epoch} lands where the
+// stored key holds 'list'), so the previous epoch'd `all()` made refresh() a
+// silent no-op (RBAC-HIGH-006 class).
 export const auditLogKeys = {
-  all: () => createTenantQueryKey(getTenantId(), 'tenant-audit-log'),
+  all: () => createTenantInvalidationKey(getTenantId(), 'tenant-audit-log'),
   list: (filters: AuditLogFilters, page: number, pageSize: number) =>
     createTenantQueryKey(getTenantId(), 'tenant-audit-log', 'list', filters, page, pageSize),
 };

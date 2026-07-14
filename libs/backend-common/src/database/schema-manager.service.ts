@@ -351,7 +351,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'farm_audit_logs',
       ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
     ],
-    // Reference tables are exempt from SourceSchemaWriteGuardService so that
+    // Reference tables are excluded from the source-schema write guard (the
+    // deploy-time reconciler assertSourceSchemaWriteGuards subtracts them from the
+    // guarded set = tables − referenceDataTables − infrastructureTables) so that
     // seed services (FarmSeedService) can write global/template rows that
     // subsequently get copied into each tenant schema on provisioning via
     // SchemaManagerService.copyReferenceData(). `species` was added in

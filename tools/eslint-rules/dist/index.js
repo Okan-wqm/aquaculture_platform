@@ -24,6 +24,7 @@ const no_bare_tenant_query_key_1 = __importDefault(require("./rules/no-bare-tena
 const no_claude_sdk_raw_call_1 = __importDefault(require("./rules/no-claude-sdk-raw-call"));
 const no_direct_event_publish_1 = __importDefault(require("./rules/no-direct-event-publish"));
 const no_high_cardinality_metric_label_1 = __importDefault(require("./rules/no-high-cardinality-metric-label"));
+const no_unpinned_ssrf_fetch_1 = __importDefault(require("./rules/no-unpinned-ssrf-fetch"));
 const require_entity_schema_1 = __importDefault(require("./rules/require-entity-schema"));
 exports.rules = {
     'require-entity-schema': require_entity_schema_1.default,
@@ -32,5 +33,6 @@ exports.rules = {
     'no-high-cardinality-metric-label': no_high_cardinality_metric_label_1.default,
     'no-claude-sdk-raw-call': no_claude_sdk_raw_call_1.default,
     'no-bare-graphql-query-string': no_bare_graphql_query_string_1.default,
+    'no-unpinned-ssrf-fetch': no_unpinned_ssrf_fetch_1.default,
 };
 //# sourceMappingURL=index.js.map

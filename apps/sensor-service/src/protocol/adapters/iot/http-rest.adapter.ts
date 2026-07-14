@@ -231,34 +231,22 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
         failureMode: 'fail-open-degraded',
       },
       fn: async () => {
-        // SVD-CRIT-001: the destination is fully operator-controlled
-        // (baseUrl + endpoint from protocolConfiguration). Resolve + validate
-        // BEFORE connecting so a hostname cannot point at cloud-metadata,
-        // loopback, or an internal service. DNS is pinned pre-connect to
-        // close the rebinding window; redirects are refused (safe URL could
-        // 30x into an internal one). We enforce the http/https protocol
-        // allowlist explicitly but use validateHost (not validateUrl) so
-        // legitimate vendor REST endpoints on non-standard ports still work
-        // — the load-bearing SSRF control is the IP denylist, not the port.
-        await this.assertSafeHttpTarget(url.toString());
-        const controller = new AbortController();
-        const timeoutId = setTimeout(
-          () => controller.abort(),
-          config.connectTimeout || 30000,
-        );
-        try {
-          const response = await fetch(url.toString(), {
-            ...fetchOptions,
-            ...this.ssrfValidator.getSafeFetchOptions(),
-            signal: controller.signal,
-          });
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-          }
-          return response;
-        } finally {
-          clearTimeout(timeoutId);
+        // SVD-CRIT-001 + SENSOR-CRITICAL-002 residual: the destination is fully
+        // operator-controlled (baseUrl + endpoint from protocolConfiguration).
+        // safeFetch validates the host (http/https allowlist + private/metadata
+        // IP denylist) and PINS the socket to the validated IP, so a hostname
+        // cannot rebind to cloud-metadata / loopback / an internal service
+        // between validation and connect. Redirects are refused. portPolicy is
+        // left at the 'any' default so legitimate vendor REST endpoints on
+        // non-standard ports still work — the load-bearing control is the IP
+        // denylist, not the port.
+        const response = await this.ssrfValidator.safeFetch(url, fetchOptions, {
+          timeoutMs: config.connectTimeout || 30000,
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
+        return response;
       },
       fallback: () => {
         throw new Error(
@@ -302,35 +290,6 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
     }
   }
 
-  /**
-   * SVD-CRIT-001 guard: enforce the http/https protocol allowlist, then run
-   * the shared SSRF host validation (DNS-pre-resolve + private/metadata IP
-   * denylist). Throws if the target is unsafe. Kept as one helper so both
-   * the data fetch and the OAuth2 token fetch share the exact same policy.
-   */
-  private async assertSafeHttpTarget(rawUrl: string): Promise<void> {
-    let parsed: URL;
-    try {
-      parsed = new URL(rawUrl);
-    } catch {
-      throw new Error('Blocked unsafe request target: invalid URL');
-    }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw new Error(
-        `Blocked unsafe request target: protocol "${parsed.protocol}" not allowed (http/https only)`,
-      );
-    }
-    const port = parsed.port
-      ? parseInt(parsed.port, 10)
-      : parsed.protocol === 'https:'
-        ? 443
-        : 80;
-    const verdict = await this.ssrfValidator.validateHost(parsed.hostname, port);
-    if (!verdict.safe) {
-      throw new Error(`Blocked unsafe request target: ${verdict.reason}`);
-    }
-  }
-
   private async getOAuth2Token(config: HttpRestConfiguration): Promise<string | null> {
     const cacheKey = `${config.oauth2TokenUrl}_${config.oauth2ClientId}`;
     const cached = this.oauth2Tokens.get(cacheKey);
@@ -366,22 +325,25 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
           failureMode: 'fail-closed',
         },
         fn: async () => {
-          // SVD-CRIT-001: oauth2TokenUrl is operator-supplied — same SSRF
-          // guard as the data fetch above.
-          await this.assertSafeHttpTarget(tokenUrl);
-          return fetch(tokenUrl, {
-            method: 'POST',
-            ...this.ssrfValidator.getSafeFetchOptions(),
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded',
+          // SVD-CRIT-001 + SENSOR-CRITICAL-002 residual: oauth2TokenUrl is
+          // operator-supplied — same IP-pinned safeFetch as the data fetch
+          // above (this also adds the request timeout the token fetch lacked).
+          return this.ssrfValidator.safeFetch(
+            tokenUrl,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: new URLSearchParams({
+                grant_type: 'client_credentials',
+                client_id: clientId,
+                client_secret: clientSecret,
+                scope,
+              }).toString(),
             },
-            body: new URLSearchParams({
-              grant_type: 'client_credentials',
-              client_id: clientId,
-              client_secret: clientSecret,
-              scope,
-            }).toString(),
-          });
+            { timeoutMs: config.connectTimeout || 30000 },
+          );
         },
       });
 

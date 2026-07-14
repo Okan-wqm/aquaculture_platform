@@ -28,8 +28,9 @@
  *
  * # Scope notes (today's architecture, diverging from the PR#363 base)
  *
- *   - `SourceSchemaWriteGuardService` is a no-DDL stub on main (stronger
- *     than the PR#363 conditional registration) — asserted directly.
+ *   - The source-schema write guard is reconciled by aqua-db-migrate via
+ *     `assertSourceSchemaWriteGuards` (source-schema-write-guard-reconciler.ts);
+ *     runtime services register NO write-guard provider — asserted directly.
  *   - `TenantSchemaSyncService` is read-only (see
  *     no-boot-time-tenant-schema-ddl.spec.ts) — tenant-provisioning DDL
  *     legitimately lives in db-migrate's tenant-schema-provisioner.
@@ -143,14 +144,14 @@ describe('INVARIANT (DATA-HIGH-004): runtime DDL choke-points consult assertRunt
     expect(src).toContain('assertRuntimeDdlAllowed({');
   });
 
-  it('runtime SourceSchemaWriteGuardService stays a no-DDL stub', () => {
-    const src = stripComments(
-      repoFile('libs/backend-common/src/database/source-schema-write-guard.ts'),
-    ).toUpperCase();
-    for (const keyword of ['CREATE TRIGGER', 'CREATE OR REPLACE FUNCTION', 'ALTER TABLE']) {
-      expect(src).not.toContain(keyword);
+  it('no runtime service registers a source-schema write-guard provider (guard DDL is db-migrate-owned)', () => {
+    // The source-schema write guard is now reconciled at deploy time by
+    // aqua-db-migrate (assertSourceSchemaWriteGuards); the runtime no-op
+    // SourceSchemaWriteGuardService was removed. Assert no runtime app module
+    // re-introduces a boot-time write-guard installer.
+    for (const svc of APP_MODULES) {
+      expect(appModuleSource(svc)).not.toContain('SourceSchemaWriteGuardService');
     }
-    expect(src).not.toContain('DATASOURCE.QUERY');
   });
 });
 

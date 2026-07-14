@@ -13,6 +13,7 @@ import {
   TENANT_SCHEMA_NAME_RE,
   queryRowsNormalized,
   queryRowCountNormalized,
+  verifySourceSchemaWriteGuards,
   verifyTenantSchemaPrivileges,
 } from '@aquaculture/backend-common/database';
 import { DataSource, QueryRunner } from 'typeorm';
@@ -335,6 +336,41 @@ async function assertTenantPrivilegesVerified(
         verification.violations
           .map((v) => `${v.sourceSchema}.${v.table} (${v.kind}: ${v.detail})`)
           .join('; '),
+    );
+  }
+}
+
+/**
+ * Job-blocking source-schema write-guard gate (ORPHAN-HIGH-087 /
+ * FARM-CRITICAL-061): refuse to provision from a source whose guards have
+ * drifted — a guard missing from a per-tenant data table, or MISplaced on a
+ * reference/infrastructure table. Read-only: the provisioner never installs
+ * source DDL (deploy owns that under the release lock), it only verifies.
+ */
+async function assertSourceSchemaWriteGuardsVerified(
+  queryRunner: QueryRunner,
+  log: (record: Record<string, unknown>) => void,
+): Promise<void> {
+  const drift: string[] = [];
+  for (const sourceSchema of TENANT_AWARE_SCHEMAS) {
+    const verification = await verifySourceSchemaWriteGuards(queryRunner, sourceSchema);
+    if (verification.missing.length > 0 || verification.misplaced.length > 0) {
+      drift.push(
+        `${sourceSchema} (missing: [${verification.missing.join(', ')}]; ` +
+          `misplaced: [${verification.misplaced.join(', ')}])`,
+      );
+    }
+  }
+  if (drift.length > 0) {
+    log({
+      level: 'error',
+      message:
+        'Source-schema write-guard drift detected — refusing to provision from a drifted source',
+      context: 'TenantSchemaProvisioner',
+      drift,
+    });
+    throw new Error(
+      `[tenant-schema-provisioner] Source-schema write-guard drift: ${drift.join('; ')}`,
     );
   }
 }
@@ -670,6 +706,7 @@ async function processReconcileJob(
     });
 
     await assertTenantPrivilegesVerified(queryRunner, job.schemaName, options.log);
+    await assertSourceSchemaWriteGuardsVerified(queryRunner, options.log);
 
     await commitTenantSchemaRecord(queryRunner, job, tableCount, sourceHeads, tenantHeads);
     await writeJobEvidence(queryRunner, job, lease, {
@@ -815,6 +852,7 @@ async function processJob(
     }
 
     await assertTenantPrivilegesVerified(queryRunner, job.schemaName, options.log);
+    await assertSourceSchemaWriteGuardsVerified(queryRunner, options.log);
 
     await commitTenantSchemaRecord(queryRunner, job, tableCount, sourceHeads, tenantHeads);
     await writeJobEvidence(queryRunner, job, lease, {

@@ -47,7 +47,6 @@ type QueryComplexityOperationContext = {
 import {
   createTenantConnectionBootstrap,
   TenantSchemaSyncService,
-  SourceSchemaWriteGuardService,
   RlsModule,
   getRlsExcludeTablesForService,
   SchemaDriftModule,
@@ -531,8 +530,6 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     TenantConnectionBootstrap,
     // Auto-sync tenant schemas with source schema (creates missing tables/columns)
     TenantSchemaSyncService,
-    // DB-level write guards on source schema (defense-in-depth)
-    SourceSchemaWriteGuardService,
     WatchdogCronService,
   ],
 })

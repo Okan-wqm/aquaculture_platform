@@ -11,7 +11,6 @@ import {
   SourceSchemaBootstrapService,
   createTenantConnectionBootstrap,
   TenantSchemaSyncService,
-  SourceSchemaWriteGuardService,
   RlsModule,
   getRlsExcludeTablesForService,
   createSchemaVersionGate,
@@ -246,8 +245,6 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
     TenantConnectionBootstrap,
     // Auto-sync tenant schemas with source schema (creates missing tables/columns)
     TenantSchemaSyncService,
-    // DB-level write guards on source schema (defense-in-depth)
-    SourceSchemaWriteGuardService,
   ],
 })
 export class AppModule implements NestModule {

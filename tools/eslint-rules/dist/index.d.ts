@@ -34,5 +34,8 @@ export declare const rules: {
     'no-bare-graphql-query-string': import("@typescript-eslint/utils/ts-eslint").RuleModule<"bareGqlTag", [], unknown, import("@typescript-eslint/utils/ts-eslint").RuleListener> & {
         name: string;
     };
+    'no-unpinned-ssrf-fetch': import("@typescript-eslint/utils/ts-eslint").RuleModule<"bareFetchInSensitiveZone" | "removedGetSafeFetchOptions", [], unknown, import("@typescript-eslint/utils/ts-eslint").RuleListener> & {
+        name: string;
+    };
 };
 //# sourceMappingURL=index.d.ts.map

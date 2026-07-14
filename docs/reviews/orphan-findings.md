@@ -6532,6 +6532,16 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 **Root cause:** the FUXA-derived single-project runtime shape was never converted to the platform's multi-tenant model (per-tenant engine instances or tenant-routed evaluation).
 **Why deferred:** genuinely multi-tenant SCADA evaluation is a subsystem redesign well beyond the CRITICAL leak fix; the storage layer is now safe-by-construction and the engine fails closed rather than defaulting to a shared tenant, so there is no correctness/security risk in the interim — only a single-active-tenant activation limitation. **Owner:** sensor-expert. **Deadline:** 2026-09-30.
 
+**Design of record:** `docs/adr/045-scada-multi-tenant-runtime.md` (ADR-045, D1–D7; Model A — per-tenant state map + one driver loop). Phased remediation plan = Faz 0–6.
+
+**Remediation progress — Faz 1 (RT-011 core, this PR):** the evaluation engines are now genuinely multi-tenant, no longer single-bound singletons.
+- `TagManagerService` — the global tagId-only `tagValueCache` the engines read is DELETED; `getTagValue(tenantId, tagId)` / `getAllTagValues(tenantId)` now read the tenant-qualified cache, so two tenants sharing an fqn never collide in the engine read path.
+- `AlarmEngineService` — single `rules`/`evalState`/`tenantId`/`pendingActions` fields replaced by `tenants: Map<tenantId, TenantAlarmState>`; ONE 1 Hz loop iterates every active tenant; `setAlarmRules`/`setNotificationConfigs`/`acknowledgeAlarm`/`acknowledgeAll`/`getActiveAlarms` are tenant-parameterized; ACK events route by `req.tenantId` (the gateway already carried it); `deactivateTenant`/`isTenantActive` added.
+- `ScriptEngineService` — per-RUN tenant (`runScript(tenantId, …)`/`testScript(tenantId, …)`); every `$`-bridge (tag read/write, alarm read/ack, history, HMI broadcast) is fenced to the run's tenant; the raw all-sockets `SCRIPT_CONSOLE` broadcast is replaced by tenant-room `gateway.pushScriptConsole(tenantId, …)`.
+- `SchedulerService` — jobs keyed by `(tenantId, scriptId)`; `loadScripts`/`addScript`/`removeScript`/`updateScript` are tenant-scoped; `runScript(tenantId, script)`.
+- Proof: `alarm-engine.tenant-isolation.spec.ts` (5/5) — two tenants sharing an fqn + rule id evaluate independently, status pushes are per-tenant-room, a wrong-tenant ACK is inert. Full scada-runtime suite 8/8 (75 tests). Incidental: fixed a pre-existing `quickjs-sandbox.ts` implicit-`any` (TS7019) that kept the suite red locally.
+- **Still OPEN — remaining phases:** Faz 2 per-tenant write context (ORPHAN-HIGH-414), Faz 3 activation bridge (the tenant-parameterized setters still have no external caller — SCADA does not yet _run_), Faz 4 noisy-neighbor budget, Faz 5 leader-guard + sharding, Faz 6 observability/SLO/fail-safe.
+
 ## ORPHAN-HIGH-341 — admin-api DebugToolsController had no PlatformAdminGuard (unguarded super-admin debug surface) — RESOLVED (this PR)
 
 **Discovered:** 2026-07-11 (surfaced while closing ORPHAN-HIGH-342 — the debug-tools controller spec was failing because the guard it asserts was absent).

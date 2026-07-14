@@ -9591,6 +9591,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1805900000000-AddChemicalTherapeuticTypes.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -45238,6 +45244,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/graphql/sites.operations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/hooks/__tests__/useCreateBatch.spec.tsx",
       "prettier_managed": true
     },
@@ -54048,10 +54060,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8857,
+  "file_count": 8859,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8676,
-  "managed_file_list_sha256": "fa19772d9a94c9dc7b2e7c1af85a8ae22281dae6614607b9b6d57b17b9356d76",
+  "managed_count": 8678,
+  "managed_file_list_sha256": "f4d8e04d45ebac55acf0b5043bc9d0b84e1ab84f5c299f3feccb14829c77f8f8",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -10,6 +10,15 @@
 
 ---
 
+## ORPHAN-HIGH-415 — source-schema write-guard reconciler aborts EVERY prod deploy on declarative-partitioned guarded tables (messaging.messages / message_receipts) — RESOLVED (this PR)
+
+**Discovered:** 2026-07-14 (operator flagged that post-merge main `CI - Affected` deploy-production keeps failing; `aqua-db-migrate` aborts BEFORE service containers start).
+**Evidence:** `assertSourceSchemaWriteGuards` (`libs/backend-common/src/database/source-schema-write-guard-reconciler.ts`, run by db-migrate `reconcileSourceSchemaWriteGuards`, `main.ts:378`) reconciles the `guard_source_write` BEFORE-trigger onto the registry-derived per-tenant DATA set and DROPs it from every OTHER table that carries it. `tablesWithGuard` listed EVERY table with the trigger — including DECLARATIVE-PARTITION children. `messaging.messages` and `message_receipts` are month-partitioned; creating the guard on the parent auto-propagates an INHERITED child trigger to each partition (`messages_2026_06`, …; `pg_trigger.tgparentid != 0`). Those children are not in the registry guarded set, so the reconcile loop treated them as "misplaced" drift and issued `DROP TRIGGER guard_source_write ON messages_2026_06` — which Postgres REFUSES: `cannot drop trigger guard_source_write on table messaging.messages_2026_06 because trigger guard_source_write on table messaging.messages requires it`. The exception aborted the release-wide migration → EVERY production deploy failed at db-migrate. Latent to the PR checks (which never deploy) but red on main post-merge for many prior merges (#992, SSRF-pin, farm-service, config-service, and Faz 1/2).
+**Root cause:** the reconcile listing did not distinguish an independently-manageable trigger from a partition child that is managed via its parent (declarative-partitioning trigger propagation).
+**Remediation (this PR):** `tablesWithGuard` filters `AND tg.tgparentid = 0` — inherited partition triggers are excluded; the parent (or a stand-alone table) is the only manageable unit, and create/drop on the parent cascades to its partitions automatically. `assert`/`verify` therefore reconcile ONLY parents/stand-alone tables; a partition child is never surfaced as missing or misplaced. Pinned by 2 new reconciler unit tests (the listing query carries `tgparentid = 0`; a partition child is never in `droppedMisplaced`).
+**Validation:** reconciler spec 17/17; deploy verified green post-merge.
+**Owner:** platform-kernel. **Deadline:** closed by this PR's merge.
+
 ## ORPHAN-001 — `opentelemetry` 0.27 vs `tracing-opentelemetry` 0.28 version family drift
 
 **Severity:** MEDIUM

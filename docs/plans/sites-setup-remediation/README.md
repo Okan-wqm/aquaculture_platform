@@ -71,9 +71,8 @@ Exit gates:
 ### Phase 2 - Schema And Migration Authority
 
 - Preserve the authority split: `MODULE_SCHEMAS` owns tenant table surfaces, `TENANT_AWARE_SCHEMAS` gates tenant-aware schemas, and `SCHEMA_REGISTRY` owns migration order.
-- Add canonical `farm_documents`; it does not currently exist.
-- Register `farm_documents` in migrations, entities, tenant schema manifests, clone/bootstrap parity, retention/legal-hold policy, and cleanup providers.
-- Initial schema authority is implemented by `apps/farm-service/src/document/entities/farm-document.entity.ts`, `apps/farm-service/src/database/migrations/1800800000000-CreateFarmDocuments.ts`, `FARM_MIGRATIONS`, and `MODULE_SCHEMAS[farm].tables`.
+- SUPERSEDED (ORPHAN-HIGH-369 / FARMPLAT-HIGH-001): the canonical `farm_documents` table was built but never wired (no resolver/controller, no frontend), so the owner decision was to DROP it, not adopt it. The drop is implemented by `apps/farm-service/src/database/migrations/1805300000000-DropFarmDocuments.ts` (per-schema, fail-closed) and pinned complete by `tests/invariants/sites-setup-remediation-plan-contract.spec.ts`. Do NOT re-add `farm_documents`.
+- The document surface that actually remains is chemical/feed JSONB document metadata + path-based presign/delete (see Phase 4 "Documents"). With the canonical `farm_documents` replacement retired, these need an explicit owner re-decision (accept JSONB metadata as authority, or open a new scoped finding) — they are NOT a FARM-HIGH-003 closure blocker on a table that no longer exists.
 - Convert or retire existing tenant DDL repair surfaces for existing tenants, including `SchemaManagerService.syncTenantSchema()` and the admin schema sync route, or restrict them to new tenant provisioning only.
 - Existing-tenant runtime repair is now fail-closed by default in `SchemaManagerService.syncTenantSchema()`; the admin schema sync service no longer calls it for existing tenants. The remaining explicit allowance is limited to disposable farm-service E2E bootstrap.
 - Canonical farm outbox writes now target `farm.outbox_events` through the farm outbox entity; `farm.farm_outbox` remains compatibility/migration infrastructure only.
@@ -117,7 +116,7 @@ Exit gates:
 - Workers: HR `employees` is canonical. Farm worker APIs become HR-backed compatibility facades returning HR employee IDs. Direct `farm_workers` writes stop except migration bridge.
 - Fish health: setup therapeutic substances read/write through Chemical master. Local mock CRUD is removed. `health_events` remains clinical history and may reference `chemicalId` with snapshots.
 - Tanks: `tanks.id` is canonical for tank, pond, cage, and container identity. Equipment list may read-merge compatibility data; tank-like writes dispatch Tank commands.
-- Documents: `farm_documents` is canonical. Chemical/feed JSONB documents become read-only projections during compatibility, then are removed.
+- Documents: N/A for this remediation — the canonical `farm_documents` table was DROPPED as an unwired surface (ORPHAN-HIGH-369; migration `1805300000000-DropFarmDocuments.ts`). The remaining chemical/feed JSONB document metadata and path-based presign/delete are tracked separately for an owner re-decision and do not gate FARM-HIGH-003.
 - Legacy `farms/ponds`: read-only compatibility only until backfill, runtime zero-use, test updates, and restore rehearsal pass.
 
 Exit gates:
@@ -176,8 +175,8 @@ Exit gates:
 
 ## Public Interfaces And Contracts
 
-- Add `farm_documents` with states: `PENDING_UPLOAD`, `UPLOADED_UNVERIFIED`, `ACTIVE`, `QUARANTINED`, `DELETE_PENDING`, `DELETED`.
-- Presign/delete/upload must resolve by `documentId`, tenant, owner row, permission, scan state, retention, and legal hold.
+- WITHDRAWN (ORPHAN-HIGH-369): the planned canonical `farm_documents` aggregate (states `PENDING_UPLOAD`, `UPLOADED_UNVERIFIED`, `ACTIVE`, `QUARANTINED`, `DELETE_PENDING`, `DELETED`) was dropped rather than adopted. No document-state contract ships under FARM-HIGH-003.
+- Any future documentId-based presign/delete/upload contract (resolve by `documentId`, tenant, owner row, permission, scan state, retention, legal hold) belongs to a NEW finding, since `farm_documents` no longer exists.
 - Add or complete setup event interfaces and JSON schemas for tank, sub-equipment, feeder calibration, chemical/document, feed/document/protocol, worker compatibility, Sentinel settings, and existing site/department/system/equipment events.
 - Events must include payload-level `aggregateId` and `aggregateType`.
 - Event schemas must use strict validation, bounded free text, UUID validation, and must not expose secrets or unnecessary PII.

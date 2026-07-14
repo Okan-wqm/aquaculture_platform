@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
- * CreateIncidentMedia1805900000000
+ * CreateIncidentMedia1806000000000
  *
  * Per-tenant `farm_incident_media` table: photos attached to the three
  * field-capture incident records (escape / welfare / lice). Rows are written in
@@ -10,8 +10,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *
  * current_schema-relative, idempotent, forward-only.
  */
-export class CreateIncidentMedia1805900000000 implements MigrationInterface {
-  name = 'CreateIncidentMedia1805900000000';
+export class CreateIncidentMedia1806000000000 implements MigrationInterface {
+  name = 'CreateIncidentMedia1806000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`SET LOCAL lock_timeout = '2s'`);

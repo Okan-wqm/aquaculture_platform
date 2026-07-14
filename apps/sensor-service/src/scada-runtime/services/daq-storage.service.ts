@@ -29,6 +29,12 @@ import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
+import {
+  runInTenantTransaction,
+  runInTenantRead,
+  BypassRlsService,
+} from '@aquaculture/backend-common/database';
+
 // TODO: Replace with '@aquaculture/scada-types' path alias when monorepo build supports it.
 import type {
   TagValueChange,
@@ -46,6 +52,9 @@ const CHUNK_WINDOW_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 /** SQL table name — change to match your migration. */
 const TABLE_NAME = 'scada_tag_history';
+
+/** Source schema that owns the cross-tenant SCADA tag-history table. */
+const SENSOR_SCHEMA = 'sensor';
 
 /** Mapping from DaqAggregation.interval to a SQL interval literal. */
 const INTERVAL_SQL: Record<DaqAggregation['interval'], string> = {
@@ -168,6 +177,7 @@ export class DaqStorageService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly bypassRls: BypassRlsService,
     @Optional()
     @Inject(ConfigService)
     private readonly configService: ConfigService | null,
@@ -237,7 +247,13 @@ export class DaqStorageService implements OnModuleInit, OnModuleDestroy {
     `;
 
     try {
-      await this.dataSource.query(sql, params);
+      // The fan-out already batches per tenant, so ONE tenant-context
+      // transaction per batch sets `app.current_tenant` → the FORCED
+      // tenant_isolation_policy ENFORCES the multi-row insert (a mis-stamped
+      // tenant_id is refused by Postgres — ORPHAN-414, Tier-1). No per-row tx.
+      await runInTenantTransaction(this.dataSource, SENSOR_SCHEMA, tenantId, (qr) =>
+        qr.query(sql, params),
+      );
       this.logger.debug(
         `DaqStorage: wrote ${values.length} values for device ${deviceId}`,
       );
@@ -288,12 +304,14 @@ export class DaqStorageService implements OnModuleInit, OnModuleDestroy {
     `;
 
     try {
-      const rows: RawHistoryRow[] = await this.dataSource.query(sql, [
+      // Tenant-context read so the FORCED RLS policy admits exactly this
+      // tenant's history (the leading tenant_id predicate is defence-in-depth).
+      const rows: RawHistoryRow[] = await runInTenantRead(
+        this.dataSource,
+        SENSOR_SCHEMA,
         tenantId,
-        tagIds,
-        from,
-        to,
-      ]);
+        (qr) => qr.query(sql, [tenantId, tagIds, from, to]),
+      );
       return rowsToDataMap(tagIds, rows);
     } catch (err) {
       this.logger.error('DaqStorage: queryValues failed', err instanceof Error ? err.stack : String(err));
@@ -372,15 +390,23 @@ export class DaqStorageService implements OnModuleInit, OnModuleDestroy {
       ORDER BY tag_id, bucket ASC
     `;
 
+    // Each variant runs in its own tenant-context read transaction so the
+    // FORCED RLS policy admits this tenant's rows. Two transactions (not one)
+    // because a failed time_bucket query aborts its transaction, so the
+    // date_trunc fallback needs a fresh one.
     let rows: AggregatedRow[];
     try {
-      rows = await this.dataSource.query(sql, [intervalSql, tenantId, tagIds, from, to]);
+      rows = await runInTenantRead(this.dataSource, SENSOR_SCHEMA, tenantId, (qr) =>
+        qr.query(sql, [intervalSql, tenantId, tagIds, from, to]),
+      );
     } catch {
       // time_bucket not available — use date_trunc fallback
       this.logger.warn(
         'DaqStorage: time_bucket unavailable, falling back to date_trunc',
       );
-      rows = await this.dataSource.query(fallbackSql, [tenantId, tagIds, from, to]);
+      rows = await runInTenantRead(this.dataSource, SENSOR_SCHEMA, tenantId, (qr) =>
+        qr.query(fallbackSql, [tenantId, tagIds, from, to]),
+      );
     }
 
     return aggRowsToDataMap(tagIds, rows);
@@ -496,10 +522,13 @@ export class DaqStorageService implements OnModuleInit, OnModuleDestroy {
   /* ---------------------------------------------------------------- */
 
   /**
-   * Delete all records older than `retentionDays` days.
+   * Delete all records older than `retentionDays` days across ALL tenants.
    *
-   * Returns the number of deleted rows.  Safe to run on a schedule
-   * (e.g. daily via NestJS @Cron).
+   * This is a genuinely cross-tenant retention sweep with no per-row tenant
+   * context (the outbox-worker class), so it runs under the audited
+   * `BypassRlsService.withBypass` — under the FORCED tenant_isolation_policy a
+   * tenant-less DELETE would silently match zero rows and retention would stall.
+   * Bypass is logged at WARN with a greppable label. Returns the deleted count.
    */
   async cleanupOldData(retentionDays: number): Promise<number> {
     if (retentionDays <= 0) {
@@ -514,13 +543,11 @@ export class DaqStorageService implements OnModuleInit, OnModuleDestroy {
     `;
 
     try {
-      // PostgreSQL pg driver returns [rows, affectedCount] for DML statements.
-      // dataSource.query() passes this through as-is, so we must extract the
-      // affected count from the array rather than looking for a .rowCount property.
-      const result = await this.dataSource.query(sql, [cutoff]);
-      const deleted = Array.isArray(result) && result.length > 1
-        ? Number(result[1]) || 0
-        : 0;
+      const deleted = await this.bypassRls.withBypass('scada:cleanup-tag-history', async () => {
+        // PostgreSQL pg driver returns [rows, affectedCount] for DML statements.
+        const result = await this.dataSource.query(sql, [cutoff]);
+        return Array.isArray(result) && result.length > 1 ? Number(result[1]) || 0 : 0;
+      });
       this.logger.log(
         `DaqStorage: cleanup removed ${deleted} row(s) older than ${cutoff.toISOString()} ` +
           `(retentionDays=${retentionDays})`,
@@ -555,7 +582,12 @@ export class DaqStorageService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Returns the oldest and newest timestamps in the history table.
+   * Returns the oldest and newest timestamps across ALL tenants' history.
+   *
+   * A cross-tenant infra diagnostic with no per-row tenant, so it reads under
+   * the audited `BypassRlsService.withBypass` — the FORCED policy would
+   * otherwise return NULL bounds. For a single-tenant bound, callers should use
+   * the tenant-scoped read paths instead.
    */
   async getDataBounds(): Promise<{ oldest: Date | null; newest: Date | null }> {
     const sql = `
@@ -563,9 +595,11 @@ export class DaqStorageService implements OnModuleInit, OnModuleDestroy {
       FROM ${TABLE_NAME}
     `;
     try {
-      const rows: Array<{ oldest: Date | null; newest: Date | null }> =
-        await this.dataSource.query(sql);
-      return rows[0] ?? { oldest: null, newest: null };
+      return await this.bypassRls.withBypass('scada:tag-history-data-bounds', async () => {
+        const rows: Array<{ oldest: Date | null; newest: Date | null }> =
+          await this.dataSource.query(sql);
+        return rows[0] ?? { oldest: null, newest: null };
+      });
     } catch {
       return { oldest: null, newest: null };
     }

@@ -20,6 +20,7 @@ jest.mock('@aquaculture/backend-common/database', () => ({
 }));
 
 import { WelfareAssessmentService } from '../services/welfare-assessment.service';
+import type { IncidentMediaService } from '../services/incident-media.service';
 import type { RecordWelfareAssessmentInput } from '../dto/field-capture.inputs';
 
 const TENANT = 'aaaaaaaa-1111-4222-8333-444444444444';
@@ -71,6 +72,9 @@ function setup(existing: object | null = null): {
       begin: receiptBegin,
       complete: receiptComplete,
     } as Partial<MobileCommandReceiptService> as MobileCommandReceiptService,
+    {
+      attach: jest.fn().mockResolvedValue(undefined),
+    } as Partial<IncidentMediaService> as IncidentMediaService,
   );
   return { service, repo, receiptBegin, receiptComplete };
 }

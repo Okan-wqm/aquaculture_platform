@@ -70,6 +70,7 @@ import { DropFarmWorkerPlaceholderPii1805500000000 } from './1805500000000-DropF
 import { AddFinanceEntryDeletedBy1805600000000 } from './1805600000000-AddFinanceEntryDeletedBy';
 import { AddWorkOrderEffectiveCostDateIndex1805700000000 } from './1805700000000-AddWorkOrderEffectiveCostDateIndex';
 import { FinanceEntrySoftDeletePartialIndexes1805800000000 } from './1805800000000-FinanceEntrySoftDeletePartialIndexes';
+import { CreateIncidentMedia1805900000000 } from './1805900000000-CreateIncidentMedia';
 
 /**
  * Canonical farm-service migration class list.
@@ -139,4 +140,5 @@ export const FARM_MIGRATIONS = [
   AddFinanceEntryDeletedBy1805600000000,
   AddWorkOrderEffectiveCostDateIndex1805700000000,
   FinanceEntrySoftDeletePartialIndexes1805800000000,
+  CreateIncidentMedia1805900000000,
 ] as const;

@@ -31,7 +31,9 @@ import {
   EscapeIncidentCause,
   EscapeIncidentStatus,
 } from '../entities/escape-incident.entity';
+import { IncidentMediaType } from '../entities/farm-incident-media.entity';
 import { CloseEscapeIncidentInput, RecordEscapeIncidentInput } from '../dto/field-capture.inputs';
+import { IncidentMediaService } from './incident-media.service';
 
 @Injectable()
 export class EscapeIncidentService {
@@ -41,6 +43,7 @@ export class EscapeIncidentService {
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly mobileCommandReceipts: MobileCommandReceiptService,
+    private readonly incidentMediaService: IncidentMediaService,
   ) {}
 
   async record(
@@ -87,6 +90,15 @@ export class EscapeIncidentService {
           createdBy: userId,
           notes: input.notes,
         }),
+      );
+
+      await this.incidentMediaService.attach(
+        queryRunner.manager,
+        tenantId,
+        IncidentMediaType.ESCAPE,
+        saved.id,
+        input.mediaKeys,
+        userId,
       );
 
       const event: EscapeIncidentRecordedEvent = {

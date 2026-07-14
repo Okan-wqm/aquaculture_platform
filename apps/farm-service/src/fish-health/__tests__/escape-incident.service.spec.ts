@@ -24,6 +24,7 @@ jest.mock('@aquaculture/backend-common/database', () => ({
 }));
 
 import { EscapeIncidentService } from '../services/escape-incident.service';
+import type { IncidentMediaService } from '../services/incident-media.service';
 import { EscapeIncidentCause, EscapeIncidentStatus } from '../entities/escape-incident.entity';
 
 const TENANT = 'aaaaaaaa-1111-4222-8333-444444444444';
@@ -69,6 +70,9 @@ function setup(existing: object | null = null): {
       begin: receiptBegin,
       complete: receiptComplete,
     } as Partial<MobileCommandReceiptService> as MobileCommandReceiptService,
+    {
+      attach: jest.fn().mockResolvedValue(undefined),
+    } as Partial<IncidentMediaService> as IncidentMediaService,
   );
   return { service, repo, enqueue, receiptBegin, receiptComplete, txManager };
 }

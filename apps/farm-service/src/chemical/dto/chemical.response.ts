@@ -118,6 +118,9 @@ export class UsageProtocolResponse {
   precautions?: string[];
 
   @Field({ nullable: true })
+  prescriptionRequired?: boolean;
+
+  @Field({ nullable: true })
   notes?: string;
 }
 

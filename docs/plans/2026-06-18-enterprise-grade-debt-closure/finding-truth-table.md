@@ -62,7 +62,6 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-029` | OPEN            | 1.1          | data-expert  | real-open    |
 | `FARM-CRITICAL-061`  | OPEN            | 1.1          | farm-expert  | real-open    |
 | `AISAFETY-CRITICAL-003` | OPEN         | —            | ai-safety-auditor | already-fixed-needs-close |
-| `SENSOR-CRITICAL-002` | OPEN           | —            | sensor-expert | already-fixed-needs-close |
 | `SENSOR-CRITICAL-003` | OPEN           | —            | sensor-expert | already-fixed-needs-close |
 | `DATA-CRITICAL-001`  | OPEN           | —            | data-expert  | real-open    |
 | `INFRA-CRITICAL-039` | OPEN           | —            | infra-expert | already-fixed-needs-close |

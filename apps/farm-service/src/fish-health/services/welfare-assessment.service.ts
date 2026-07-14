@@ -21,7 +21,9 @@ import {
 } from '@aquaculture/backend-common/mobile-command';
 
 import { WelfareAssessment } from '../entities/welfare-assessment.entity';
+import { IncidentMediaType } from '../entities/farm-incident-media.entity';
 import { RecordWelfareAssessmentInput } from '../dto/field-capture.inputs';
+import { IncidentMediaService } from './incident-media.service';
 
 @Injectable()
 export class WelfareAssessmentService {
@@ -30,6 +32,7 @@ export class WelfareAssessmentService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly mobileCommandReceipts: MobileCommandReceiptService,
+    private readonly incidentMediaService: IncidentMediaService,
   ) {}
 
   async record(
@@ -74,6 +77,15 @@ export class WelfareAssessmentService {
           assessedBy: userId,
           notes: input.notes,
         }),
+      );
+
+      await this.incidentMediaService.attach(
+        queryRunner.manager,
+        tenantId,
+        IncidentMediaType.WELFARE,
+        saved.id,
+        input.mediaKeys,
+        userId,
       );
 
       await this.mobileCommandReceipts.complete(queryRunner.manager, {

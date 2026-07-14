@@ -157,6 +157,8 @@ export interface LiceCountInput {
   fishSampled: number;
   seaTemperatureC?: number;
   notes?: string;
+  /** MinIO storageKeys of incident evidence photos uploaded at capture. */
+  mediaKeys?: string[];
 }
 
 /** Matches backend RecordWelfareAssessmentInput exactly (scores 0–3). */
@@ -172,6 +174,8 @@ export interface WelfareAssessmentInput {
   woundScore: number;
   deformityScore: number;
   notes?: string;
+  /** MinIO storageKeys of incident evidence photos uploaded at capture. */
+  mediaKeys?: string[];
 }
 
 /** GraphQL EscapeIncidentCause enum KEYS (wire names, FARM-MEDIUM-166 parity). */
@@ -198,6 +202,8 @@ export interface EscapeIncidentInput {
   causeDetails?: string;
   recoveryOngoing?: boolean;
   notes?: string;
+  /** MinIO storageKeys of incident evidence photos uploaded at capture. */
+  mediaKeys?: string[];
 }
 
 // Feeding types

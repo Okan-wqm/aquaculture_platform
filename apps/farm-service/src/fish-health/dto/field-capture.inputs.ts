@@ -14,6 +14,8 @@
 import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
 import { Field, Float, ID, InputType, Int } from '@nestjs/graphql';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsDateString,
   IsEnum,
@@ -79,6 +81,13 @@ export class RecordLiceCountInput extends MobileCommandEnvelopeInput {
   @IsString()
   @MaxLength(2000)
   notes?: string;
+
+  @Field(() => [String], { nullable: true })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(10)
+  mediaKeys?: string[];
 }
 
 @InputType()
@@ -237,6 +246,13 @@ export class RecordWelfareAssessmentInput extends MobileCommandEnvelopeInput {
   @IsString()
   @MaxLength(2000)
   notes?: string;
+
+  @Field(() => [String], { nullable: true })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(10)
+  mediaKeys?: string[];
 }
 
 @InputType()
@@ -295,6 +311,13 @@ export class RecordEscapeIncidentInput extends MobileCommandEnvelopeInput {
   @IsString()
   @MaxLength(2000)
   notes?: string;
+
+  @Field(() => [String], { nullable: true })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(10)
+  mediaKeys?: string[];
 }
 
 @InputType()

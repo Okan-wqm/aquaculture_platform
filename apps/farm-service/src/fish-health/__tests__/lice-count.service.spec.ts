@@ -18,6 +18,7 @@ jest.mock('@aquaculture/backend-common/database', () => ({
 
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import { LiceCountService } from '../services/lice-count.service';
+import type { IncidentMediaService } from '../services/incident-media.service';
 import { RecordLiceCountInput } from '../dto/field-capture.inputs';
 
 const TENANT = 'aaaaaaaa-1111-4222-8333-444444444444';
@@ -54,6 +55,9 @@ function makeService(
   const service = new LiceCountService(
     {} as Partial<DataSource> as DataSource,
     { getSiteCurrentTemperature } as Partial<WaterTemperatureService> as WaterTemperatureService,
+    {
+      attach: jest.fn().mockResolvedValue(undefined),
+    } as Partial<IncidentMediaService> as IncidentMediaService,
   );
   return { service, waterTemperature: getSiteCurrentTemperature };
 }

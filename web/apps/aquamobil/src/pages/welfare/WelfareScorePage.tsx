@@ -23,6 +23,7 @@ import {
   type BaseFormErrors,
 } from '../_shared/RecordEntityPage';
 
+import { PhotoCaptureField } from '@/components/PhotoCaptureField';
 import { useTanks } from '@/hooks/useTanks';
 import type { WelfareAssessmentInput } from '@/types';
 
@@ -91,6 +92,7 @@ export function WelfareScorePage(): JSX.Element {
   const [deformityScore, setDeformityScore] = useState(0);
   const [fishSampled, setFishSampled] = useState(10);
   const [notes, setNotes] = useState('');
+  const [mediaKeys, setMediaKeys] = useState<string[]>([]);
   const [errors, setErrors] = useState<BaseFormErrors>({});
 
   const selectedTank = tanks?.find((t) => t.id === selectedTankId);
@@ -124,6 +126,7 @@ export function WelfareScorePage(): JSX.Element {
       woundScore,
       deformityScore,
       notes: notes.trim() || undefined,
+      mediaKeys: mediaKeys.length > 0 ? mediaKeys : undefined,
     };
   };
 
@@ -185,6 +188,7 @@ export function WelfareScorePage(): JSX.Element {
         theme={WELFARE_THEME}
       />
       <NotesInput value={notes} onChange={setNotes} />
+      <PhotoCaptureField incidentType="WELFARE" value={mediaKeys} onChange={setMediaKeys} />
     </RecordEntityPage>
   );
 }

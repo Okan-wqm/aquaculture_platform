@@ -23,6 +23,7 @@ import {
   type BaseFormErrors,
 } from '../_shared/RecordEntityPage';
 
+import { PhotoCaptureField } from '@/components/PhotoCaptureField';
 import { useTanks } from '@/hooks/useTanks';
 import type { LiceCountInput } from '@/types';
 
@@ -58,6 +59,7 @@ export function LiceCountPage(): JSX.Element {
   const [fishSampled, setFishSampled] = useState(20);
   const [seaTemperatureC, setSeaTemperatureC] = useState<number | null>(null);
   const [notes, setNotes] = useState('');
+  const [mediaKeys, setMediaKeys] = useState<string[]>([]);
   const [errors, setErrors] = useState<LiceFormErrors>({});
 
   const selectedTank = tanks?.find((t) => t.id === selectedTankId);
@@ -99,6 +101,7 @@ export function LiceCountPage(): JSX.Element {
       fishSampled,
       seaTemperatureC: seaTemperatureC ?? undefined,
       notes: notes.trim() || undefined,
+      mediaKeys: mediaKeys.length > 0 ? mediaKeys : undefined,
     };
   };
 
@@ -207,6 +210,7 @@ export function LiceCountPage(): JSX.Element {
         min={-2}
       />
       <NotesInput value={notes} onChange={setNotes} />
+      <PhotoCaptureField incidentType="LICE" value={mediaKeys} onChange={setMediaKeys} />
     </RecordEntityPage>
   );
 }

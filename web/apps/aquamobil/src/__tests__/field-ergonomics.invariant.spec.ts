@@ -88,4 +88,36 @@ describe('field-ergonomics invariant (MOB-MEDIUM-009)', () => {
         'Use text-xs (12px) or larger for new labels — sunlight readability floor.',
     ).toBeLessThanOrEqual(TINY_TEXT_BASELINE);
   });
+
+  it('ships the IconButton touch-floor primitive with the 44px floor baked in', () => {
+    // Tier-2 "make it automatic": the zero-effort correct path for any icon/compact
+    // tap target. It must carry the floor, the touch affordance and a focus ring so
+    // every adopter inherits an operable-with-gloves target for free.
+    const iconButton = readFileSync(join(SRC_DIR, 'components/ui/IconButton.tsx'), 'utf8');
+    expect(iconButton).toContain('min-h-touch');
+    expect(iconButton).toContain('min-w-touch');
+    expect(iconButton).toContain('touch-feedback');
+  });
+
+  it('bans a sub-44px touch target — no touch-feedback element declares min-h/min-w below the floor', () => {
+    // Precise, per-line: only elements marked with the interactive `touch-feedback`
+    // affordance are held to the floor, so decorative count badges (min-w-[16px] on a
+    // <span>, no touch-feedback) are correctly untouched. A sub-floor tap target must
+    // adopt IconButton (or min-h-touch min-w-touch) instead.
+    const SUB_44 = /min-[hw]-\[(?:[0-9]|[1-3][0-9]|4[0-3])px\]/;
+    const offenders: string[] = [];
+    for (const file of walkSources(SRC_DIR)) {
+      readFileSync(file, 'utf8')
+        .split('\n')
+        .forEach((line, i) => {
+          if (line.includes('touch-feedback') && SUB_44.test(line)) {
+            offenders.push(`${file.replace(SRC_DIR, 'src')}:${i + 1}`);
+          }
+        });
+    }
+    expect(
+      offenders,
+      `touch targets below the 44px floor — use IconButton (min-h-touch min-w-touch):\n${offenders.join('\n')}`,
+    ).toEqual([]);
+  });
 });

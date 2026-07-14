@@ -26,7 +26,7 @@ import {
 } from '@aquaculture/backend-common/middleware';
 import { RateLimitGuard, RateLimitModule, RATE_LIMIT_STORE, RateLimitStore } from '@aquaculture/backend-common/rate-limit';
 import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
-import { TOKEN_BLACKLIST, ITokenBlacklist } from '@aquaculture/backend-common/security';
+import { TOKEN_BLACKLIST, ITokenBlacklist, UserTokenRevocationModule } from '@aquaculture/backend-common/security';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -245,6 +245,13 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
       useFactory: (configService: ConfigService) =>
         buildRedisOptions(configService, 'auth', 'required'),
     }),
+
+    // RBAC-HIGH-001: canonical user-token-revocation primitive. @Global, backed
+    // by the RedisService above, so an RBAC permission change writes the shared
+    // `user_blacklist:{userId}` epoch the gateway already enforces on every
+    // request — a revoke propagates fleet-wide immediately (next request → 401
+    // → refresh re-mints with current permissions).
+    UserTokenRevocationModule,
 
     // SECURITY (SEC-CRITICAL-002): distributed rate-limit store on top of
     // the service Redis — login/MFA/reset budgets are shared across replicas.

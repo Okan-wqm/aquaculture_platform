@@ -22,7 +22,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { IsString, IsOptional, IsBoolean, IsObject } from 'class-validator';
 
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
-import { AllowTenantAdmin } from '../../decorators/roles.decorator';
+import { PlatformAdminOnly } from '../../decorators/roles.decorator';
 import { AnnouncementType, AnnouncementStatus, AnnouncementTarget } from '../entities/support.entity';
 import { AnnouncementService } from '../services/announcement.service';
 
@@ -119,7 +119,7 @@ export class AnnouncementController {
   // ============================================================================
 
   @Get()
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   async getAllAnnouncements(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
@@ -140,7 +140,7 @@ export class AnnouncementController {
   }
 
   @Get(':id')
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   async getAnnouncement(@Param('id') id: string) {
     return this.announcementService.getAnnouncement(id);
   }
@@ -211,13 +211,13 @@ export class AnnouncementController {
   // ============================================================================
 
   @Get('tenant/:tenantId/active')
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   async getActiveForTenant(@Param('tenantId') tenantId: string) {
     return this.announcementService.getActiveAnnouncementsForTenant(tenantId);
   }
 
   @Get('tenant/:tenantId/pending')
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   async getPendingAcknowledgments(
     @Param('tenantId') tenantId: string,
     @Query('userId') userId: string,
@@ -238,7 +238,7 @@ export class AnnouncementController {
   }
 
   @Post(':id/view')
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   async recordView(
     @Param('id') id: string,
     @Body() dto: AcknowledgeDto,
@@ -256,7 +256,7 @@ export class AnnouncementController {
   }
 
   @Post(':id/acknowledge')
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   async recordAcknowledgment(
     @Param('id') id: string,
     @Body() dto: AcknowledgeDto,

@@ -1,4 +1,5 @@
 import { Role } from '@aquaculture/backend-common/decorators';
+import { USER_TOKEN_REVOCATION } from '@aquaculture/backend-common/security';
 import {
   BadRequestException,
   ForbiddenException,
@@ -20,6 +21,7 @@ import { User } from '../../authentication/entities/user.entity';
 import { MobileUserSettings } from '../entities/mobile-user-settings.entity';
 import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
 
+import { CapabilityAuthorityService } from './capability-authority';
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
 import { UserLifecycleService } from './user-lifecycle.service';
 
@@ -143,8 +145,13 @@ describe('UserLifecycleService', () => {
   let mockTenantRoleService: jest.Mocked<Pick<TenantRoleService, 'getRoleById'>>;
   let mockEventBus: { publish: jest.Mock<Promise<void>, [UserInvitedEvent]> };
   let mockAuditLogService: { log: jest.Mock };
+  let mockUserTokenRevocation: { revokeUserTokens: jest.Mock; isTokenValid: jest.Mock };
 
   beforeEach(async () => {
+    mockUserTokenRevocation = {
+      revokeUserTokens: jest.fn().mockResolvedValue(undefined),
+      isTokenValid: jest.fn().mockResolvedValue(true),
+    };
     const mockUserRepo = createMockRepository();
     const mockTenantRepo = createMockRepository();
     const mockRefreshTokenRepo = createMockRepository();
@@ -223,6 +230,30 @@ describe('UserLifecycleService', () => {
           useValue: new BestEffortEventPublisher(mockEventBus),
         },
         { provide: AuditLogService, useValue: mockAuditLogService },
+        {
+          // RBAC-C1/C2: default mock behaves as an admin creator (grants pass
+          // through). createUser now routes override grants through this SSoT.
+          provide: CapabilityAuthorityService,
+          useValue: {
+            resolveActorAuthority: jest.fn().mockResolvedValue({
+              isTenantAdmin: true,
+              effective: new Set<string>(),
+              entitled: new Set<string>(),
+            }),
+            assertGrantableOverrides: jest.fn((o: { grants?: string[]; revokes?: string[] } | null) => ({
+              grants: o?.grants ?? [],
+              revokes: o?.revokes ?? [],
+            })),
+            assertGrantableResourcePermissions: jest.fn((requested: string[]) => requested),
+            emptyOverrides: jest.fn(() => ({ grants: [], revokes: [] })),
+          },
+        },
+        {
+          // RBAC-HIGH-001/002: user-token-revocation mock (deleteUser revokes the
+          // deleted user's live access token too).
+          provide: USER_TOKEN_REVOCATION,
+          useValue: mockUserTokenRevocation,
+        },
       ],
     }).compile();
 
@@ -533,6 +564,10 @@ describe('UserLifecycleService', () => {
           revokedReason: expect.stringContaining('deleted') as string,
         }),
       );
+
+      // 3. RBAC-HIGH-002: the deleted user's LIVE access token is revoked too, so
+      // they are locked out on their next request (not just at token expiry).
+      expect(mockUserTokenRevocation.revokeUserTokens).toHaveBeenCalledWith(USER_ID);
     });
 
     it('should prevent self-deletion', async () => {

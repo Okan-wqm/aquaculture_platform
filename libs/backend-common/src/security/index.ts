@@ -16,6 +16,9 @@ export * from './throttler';
 // Token Blacklist (Access Token Invalidation)
 export * from './token-blacklist';
 
+// User Token Revocation (canonical user-level invalidation SSoT — RBAC-HIGH-001)
+export * from './user-token-revocation';
+
 // Session Manager (Concurrent Session Limits)
 export * from './session-manager';
 

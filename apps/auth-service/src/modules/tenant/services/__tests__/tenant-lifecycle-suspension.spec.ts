@@ -1,3 +1,4 @@
+import { USER_TOKEN_REVOCATION } from '@aquaculture/backend-common/security';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
 import { OutboxPublisher } from '@platform/outbox';
@@ -79,6 +80,16 @@ describe('TenantProvisioningCommandService — suspension audit trio', () => {
         { provide: getRepositoryToken(Invitation), useValue: {} },
         { provide: getDataSourceToken(), useValue: dataSource },
         { provide: OutboxPublisher, useValue: outboxPublisher },
+        // RBAC-HIGH-007: transitionTenantStatus fleet-revokes holders' live
+        // tokens on non-operational transitions (post-commit). The suspension
+        // path exercises it, so the collaborator must be provided.
+        {
+          provide: USER_TOKEN_REVOCATION,
+          useValue: {
+            revokeUserTokens: jest.fn().mockResolvedValue(undefined),
+            isTokenValid: jest.fn().mockResolvedValue(true),
+          },
+        },
       ],
     }).compile();
 

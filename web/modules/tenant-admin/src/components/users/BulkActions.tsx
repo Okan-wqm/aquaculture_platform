@@ -12,7 +12,7 @@ export interface BulkActionsProps {
   onDeactivate: (userId: string) => Promise<void>;
   onClearSelection: () => void;
   isDeactivating: boolean;
-  canManageUsers: boolean;
+  canDeactivateUsers: boolean;
 }
 
 /**
@@ -25,13 +25,13 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
   onDeactivate,
   onClearSelection,
   isDeactivating,
-  canManageUsers,
+  canDeactivateUsers,
 }) => {
   const [results, setResults] = useState<BulkDeactivateResult[]>([]);
   const [running, setRunning] = useState(false);
 
   const handleBulkDeactivate = useCallback(async () => {
-    if (selectedUsers.length === 0 || !canManageUsers) return;
+    if (selectedUsers.length === 0 || !canDeactivateUsers) return;
     setResults([]);
     setRunning(true);
 
@@ -53,9 +53,9 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
       onClearSelection();
       setResults([]);
     }
-  }, [selectedUsers, canManageUsers, onDeactivate, onClearSelection]);
+  }, [selectedUsers, canDeactivateUsers, onDeactivate, onClearSelection]);
 
-  if (selectedUsers.length === 0 || !canManageUsers) return null;
+  if (selectedUsers.length === 0 || !canDeactivateUsers) return null;
 
   const failedCount = results.filter((r) => r.status === 'rejected').length;
   const successCount = results.filter((r) => r.status === 'fulfilled').length;

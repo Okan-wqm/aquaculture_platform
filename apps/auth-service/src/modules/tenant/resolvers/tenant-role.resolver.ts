@@ -124,17 +124,22 @@ export class TenantRoleResolver {
   }
 
   /**
-   * Get permission categories for UI
+   * Get permission categories for the role-editor UI. Entitlement-filtered
+   * (RBAC-HIGH-010): only capabilities the tenant's enabled modules license are
+   * offered, so the editor never presents a grant the write path would reject.
    */
   @RequireTenantPermission('roles:view')
   @Query(() => [PermissionCategory])
-  async permissionCategories(): Promise<PermissionCategory[]> {
-    const categories = this.tenantRoleService.getPermissionCategories();
+  async permissionCategories(
+    @CurrentUser('tenantId') tenantId: string,
+  ): Promise<PermissionCategory[]> {
+    const validTenantId = validateUUID(tenantId, 'tenantId');
+    const categories = await this.tenantRoleService.getPermissionCategories(validTenantId);
 
     return Object.entries(categories).map(([key, category]) => ({
       categoryKey: key,
       name: category.name,
-      resources: Object.entries(category.resources).map(([resourceKey, resource]) => ({
+      resources: Object.entries(category.resources).map(([, resource]) => ({
         name: resource.name,
         actions: resource.actions,
       })),

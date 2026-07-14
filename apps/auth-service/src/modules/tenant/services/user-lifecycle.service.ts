@@ -3,12 +3,17 @@ import * as crypto from 'crypto';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
 import {
+  USER_TOKEN_REVOCATION,
+  IUserTokenRevocation,
+} from '@aquaculture/backend-common/security';
+import {
   Injectable,
   Logger,
   NotFoundException,
   ConflictException,
   ForbiddenException,
   BadRequestException,
+  Inject,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { UserInvitedEvent, createBaseEvent } from '@platform/event-contracts';
@@ -25,6 +30,7 @@ import { User, AccessType } from '../../authentication/entities/user.entity';
 import { MobileUserSettings, DEFAULT_MOBILE_FEATURES } from '../entities/mobile-user-settings.entity';
 import { Tenant } from '../entities/tenant.entity';
 
+import { CapabilityAuthorityService, ValidatedOverrideSet } from './capability-authority';
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
 
 /**
@@ -111,6 +117,15 @@ export class UserLifecycleService {
     // first needs createUser to become transactional.)
     private readonly bestEffort: BestEffortEventPublisher,
     private readonly auditLogService: AuditLogService,
+    // SECURITY (RBAC-C1/C2): write-time grant-authority SSoT. createUser was a
+    // grant path with NO authority check — a delegate with `users:invite` could
+    // spawn a user carrying arbitrary override grants. All grants now route
+    // through the shared validator.
+    private readonly capabilityAuthority: CapabilityAuthorityService,
+    // SECURITY (RBAC-HIGH-002): deleting a user must lock out their live access
+    // token too, not just their refresh tokens.
+    @Inject(USER_TOKEN_REVOCATION)
+    private readonly userTokenRevocation: IUserTokenRevocation,
   ) {}
 
   /**
@@ -160,6 +175,15 @@ export class UserLifecycleService {
     if (!role) {
       throw new NotFoundException(`Role with ID "${input.roleId}" not found in tenant`);
     }
+
+    // SECURITY (RBAC-C1/C2): validate the initial override grants against the
+    // catalogue + the creator's own authority BEFORE creating the user. A
+    // non-admin creator (holding `users:invite`) cannot seed a new user with
+    // capabilities they do not themselves hold.
+    const validatedOverrides = this.capabilityAuthority.assertGrantableOverrides(
+      input.permissionOverrides,
+      await this.capabilityAuthority.resolveActorAuthority(tenantId, createdBy),
+    );
 
     // Generate invitation token if not providing password
     // SECURITY: Use crypto.randomBytes for unpredictable tokens (256 bits of entropy)
@@ -219,7 +243,7 @@ export class UserLifecycleService {
       savedUser.id,
       input.roleId,
       role,
-      input.permissionOverrides || { grants: [], revokes: [] },
+      validatedOverrides,
       createdBy,
     );
 
@@ -369,6 +393,11 @@ export class UserLifecycleService {
         manager,
       );
     });
+
+    // RBAC-HIGH-001 / RBAC-HIGH-002: the refresh tokens are revoked in-tx above,
+    // but the user's LIVE access token stays valid until its TTL. Revoke it too
+    // so a deleted user is locked out on their next request, fleet-wide.
+    await this.userTokenRevocation.revokeUserTokens(userId);
 
     // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
     this.logger.log(`Deleted (soft) userId=${user.id} from tenant ${tenantId}, revoked all refresh tokens`);
@@ -983,7 +1012,9 @@ export class UserLifecycleService {
     userId: string,
     roleId: string,
     role: TenantRoleWithDetails,
-    permissionOverrides: { grants: string[]; revokes: string[] },
+    // SECURITY (RBAC-C1/C2): accepts only a validated (branded) override set, so
+    // this INSERT cannot persist an unauthorized grant. Callers validate first.
+    permissionOverrides: ValidatedOverrideSet,
     assignedBy: string,
     expiresAt?: Date,
   ): Promise<UserRoleAssignmentResult> {
@@ -1008,7 +1039,7 @@ export class UserLifecycleService {
       [
         userId,
         roleId,
-        JSON.stringify(permissionOverrides),
+        CapabilityAuthorityService.serializeOverrides(permissionOverrides),
         expiresAt || null,
         assignedBy,
         tenantId,
@@ -1038,7 +1069,8 @@ export class UserLifecycleService {
       roleColor: role.color,
       roleIcon: role.icon,
       roleLevel: role.level,
-      permissionOverrides,
+      // Strip the internal validation brand from the client-facing result.
+      permissionOverrides: { grants: permissionOverrides.grants, revokes: permissionOverrides.revokes },
       panelPermissions: role.permissions?.panelPermissions || {},
       resourcePermissions: role.permissions?.resourcePermissions || [],
       effectivePermissions,

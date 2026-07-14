@@ -1,5 +1,5 @@
 import { InputType, Field, ObjectType, ID, Int, registerEnumType } from '@nestjs/graphql';
-import { IsNotEmpty, IsString, IsOptional, IsUUID, IsInt, Min, Max, IsBoolean, IsEnum, IsArray, ValidateNested } from 'class-validator';
+import { IsNotEmpty, IsString, IsOptional, IsUUID, IsInt, Min, Max, IsBoolean, IsEnum, IsArray, ArrayMaxSize, MaxLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import GraphQLJSON from 'graphql-type-json';
 
@@ -109,17 +109,32 @@ export class TenantRole {
 
 /**
  * Permission Overrides Input
+ *
+ * RBAC-MEDIUM-003: bound the array length and per-item length at the validation
+ * boundary (defense-in-depth). CapabilityAuthorityService already rejects any
+ * capability outside the finite catalogue — which structurally caps the number
+ * of DISTINCT stored capabilities — but these bounds reject an oversized/abusive
+ * payload BEFORE it reaches the authority check, so a client cannot inflate the
+ * request (and downstream the JWT `resourcePermissions` claim + the gateway
+ * assertion header) with thousands of junk strings.
  */
+const MAX_OVERRIDE_CAPABILITIES = 256;
+const MAX_CAPABILITY_STRING_LENGTH = 128;
+
 @InputType()
 export class PermissionOverridesInput {
   @Field(() => [String], { defaultValue: [] })
   @IsArray()
+  @ArrayMaxSize(MAX_OVERRIDE_CAPABILITIES)
   @IsString({ each: true })
+  @MaxLength(MAX_CAPABILITY_STRING_LENGTH, { each: true })
   grants!: string[];
 
   @Field(() => [String], { defaultValue: [] })
   @IsArray()
+  @ArrayMaxSize(MAX_OVERRIDE_CAPABILITIES)
   @IsString({ each: true })
+  @MaxLength(MAX_CAPABILITY_STRING_LENGTH, { each: true })
   revokes!: string[];
 }
 

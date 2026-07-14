@@ -69,6 +69,7 @@ import {
   useMutationError,
   roleKeys,
 } from '../useTenantRoles';
+import { tenantKeys } from '../useTenantData';
 
 // --------------------------------------------------------------------------
 // Fixtures
@@ -542,6 +543,105 @@ describe('useTenantRoles hooks', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
       expect(result.current.data).toEqual(seeded);
+    });
+  });
+
+  // ==========================================================================
+  // Invalidation filters MUST match the stored query keys (RBAC-HIGH-006).
+  //
+  // Regression class: an epoch'd createTenantQueryKey used as an
+  // invalidate/removeQueries FILTER left-prefix-mismatches every stored key
+  // (the trailing {__sessionEpoch} lands where the stored key holds
+  // 'list'/args), so the invalidation silently no-ops. These tests pin the
+  // contract BEHAVIORALLY through the real QueryClient matcher — not by
+  // comparing key arrays — so any future key-shape drift that breaks
+  // matching fails here, not in production (H9: seed never refreshed the
+  // roles list; M13: role mutations never refreshed the users list).
+  // ==========================================================================
+
+  describe('invalidation ↔ stored-key matching (RBAC-HIGH-006 / H9 / M13)', () => {
+    it('seed success invalidates the STORED roles list query (H9)', async () => {
+      queryClient.setQueryData(roleKeys.lists(), [mockRole]);
+      mockSeedTenantRoles.mockResolvedValue([mockRole, mockDefaultRole]);
+
+      const { result } = renderHook(() => useSeedTenantRoles(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await act(async () => {
+        result.current.mutate();
+      });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(queryClient.getQueryState(roleKeys.lists())?.isInvalidated).toBe(true);
+    });
+
+    it('role update invalidates the STORED users list query under the tenantKeys users domain (M13)', async () => {
+      // The users list is stored under tenantKeys.users(filters) — an args'd
+      // key. The role mutation must reach it through the epoch-less prefix.
+      const usersKey = tenantKeys.users({ limit: 20, offset: 0 });
+      queryClient.setQueryData(usersKey, []);
+      queryClient.setQueryData(roleKeys.lists(), [mockRole]);
+      mockUpdateTenantRole.mockResolvedValue({ ...mockRole, name: 'Renamed' });
+
+      const { result } = renderHook(() => useUpdateTenantRole(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await act(async () => {
+        result.current.mutate({ roleId: 'role-1', input: { name: 'Renamed' } });
+      });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(queryClient.getQueryState(usersKey)?.isInvalidated).toBe(true);
+    });
+
+    it('role delete invalidates the STORED users list query (M13)', async () => {
+      const usersKey = tenantKeys.users({ limit: 20, offset: 0 });
+      queryClient.setQueryData(usersKey, []);
+      queryClient.setQueryData(roleKeys.lists(), [mockRole]);
+      mockDeleteTenantRole.mockResolvedValue(true);
+
+      const { result } = renderHook(() => useDeleteTenantRole(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await act(async () => {
+        result.current.mutate('role-1');
+      });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(queryClient.getQueryState(usersKey)?.isInvalidated).toBe(true);
+    });
+
+    it('the invalidation prefixes match EVERY stored role key generation (structural)', () => {
+      queryClient.setQueryData(roleKeys.lists(), []);
+      queryClient.setQueryData(roleKeys.detail('role-1'), mockRole);
+      queryClient.setQueryData(roleKeys.default(), mockDefaultRole);
+      queryClient.setQueryData(roleKeys.categories(), []);
+
+      const matched = queryClient
+        .getQueryCache()
+        .findAll({ queryKey: roleKeys.invalidateAll() });
+      expect(matched).toHaveLength(4);
+    });
+
+    it('tenantKeys.invalidateUsers matches an args-carrying stored users key (no-arg users() must NOT be used as a filter)', () => {
+      const usersKey = tenantKeys.users({ limit: 20, offset: 0 });
+      queryClient.setQueryData(usersKey, []);
+
+      const viaPrefix = queryClient
+        .getQueryCache()
+        .findAll({ queryKey: tenantKeys.invalidateUsers() });
+      expect(viaPrefix).toHaveLength(1);
+
+      // Document the trap this guards against: the epoch'd no-arg users()
+      // key yields ['tenant', t, 'users', undefined, {epoch}] — `undefined`
+      // at the args position matches NOTHING.
+      const viaEpochedNoArg = queryClient
+        .getQueryCache()
+        .findAll({ queryKey: tenantKeys.users() });
+      expect(viaEpochedNoArg).toHaveLength(0);
     });
   });
 });

@@ -20,7 +20,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { IsString, IsOptional, IsBoolean, IsArray, IsObject } from 'class-validator';
 
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
-import { AllowTenantAdmin } from '../../decorators/roles.decorator';
+import { PlatformAdminOnly } from '../../decorators/roles.decorator';
 import { MessageAttachment, AnnouncementTarget } from '../entities/support.entity';
 import { MessagingService } from '../services/messaging.service';
 
@@ -109,19 +109,19 @@ export class MessagingController {
   }
 
   @Get('threads/:threadId')
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   async getThread(@Param('threadId') threadId: string) {
     return this.messagingService.getThread(threadId);
   }
 
   @Get('threads/tenant/:tenantId')
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   async getThreadsForTenant(@Param('tenantId') tenantId: string) {
     return this.messagingService.getThreadsForTenant(tenantId);
   }
 
   @Post('threads')
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
   async createThread(
     @Body() dto: CreateThreadDto,
@@ -161,7 +161,7 @@ export class MessagingController {
   // ============================================================================
 
   @Get('threads/:threadId/messages')
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   async getMessages(
     @Param('threadId') threadId: string,
     @Query('includeInternal') includeInternal?: string,
@@ -176,7 +176,7 @@ export class MessagingController {
   }
 
   @Post('threads/:threadId/messages')
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
   async addMessage(
     @Param('threadId') threadId: string,
@@ -198,7 +198,7 @@ export class MessagingController {
   }
 
   @Post('threads/:threadId/read')
-  @AllowTenantAdmin()
+  @PlatformAdminOnly()
   async markAsRead(@Param('threadId') threadId: string) {
     await this.messagingService.markMessagesAsRead(threadId, 'admin');
     return { success: true };

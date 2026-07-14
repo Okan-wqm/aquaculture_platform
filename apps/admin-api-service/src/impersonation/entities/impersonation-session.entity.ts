@@ -7,6 +7,17 @@ import {
   Index,
 } from 'typeorm';
 
+/**
+ * RBAC-MEDIUM-009 (M7): the ONE impersonation session-duration ceiling, in
+ * minutes. Policy: impersonation sessions are short-lived support windows —
+ * absolute cap 1 hour. Every enforcement point derives from this constant
+ * (request DTO @Max, grant DTO @Max, extend DTO @Max, and the service-side
+ * use-time clamps that neutralize historical grants stored before the cap).
+ * Raising the policy is a deliberate single-line change here, never a
+ * per-DTO edit.
+ */
+export const IMPERSONATION_MAX_SESSION_MINUTES = 60;
+
 export enum ImpersonationStatus {
   ACTIVE = 'active',
   ENDED = 'ended',

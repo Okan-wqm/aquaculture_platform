@@ -7,8 +7,12 @@ import {
   NotFoundException,
   ConflictException,
   ForbiddenException,
-  BadRequestException,
+  Inject,
 } from '@nestjs/common';
+import {
+  USER_TOKEN_REVOCATION,
+  IUserTokenRevocation,
+} from '@aquaculture/backend-common/security';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { UserInvitedEvent, createBaseEvent } from '@platform/event-contracts';
 import { Repository, DataSource } from 'typeorm';
@@ -26,6 +30,7 @@ import {
   applyPermissionOverrides,
   parsePermissionOverrides as parsePermissionOverridesSSoT,
 } from './permission-overrides.util';
+import { CapabilityAuthorityService, ValidatedOverrideSet } from './capability-authority';
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
 import { UserLifecycleService } from './user-lifecycle.service';
 
@@ -134,6 +139,18 @@ export class TenantUserManagementService {
     // of that pipeline, which drifted — createTenantUser is a delegation
     // facade so exactly one creation path exists (SSoT).
     private readonly userLifecycleService: UserLifecycleService,
+    // SECURITY (RBAC-C1/C2): the single write-time grant-authority SSoT. Every
+    // path here that writes permission_overrides routes the grants through it so
+    // a delegate cannot grant capabilities they do not hold or outside the
+    // catalogue. The branded ValidatedOverrideSet it returns is the only value
+    // createRoleAssignment accepts.
+    private readonly capabilityAuthority: CapabilityAuthorityService,
+    // SECURITY (RBAC-HIGH-001): canonical user-token-revocation. When a user's
+    // effective permissions change, their live access tokens must stop carrying
+    // the stale set — revoke here so the gateway rejects them on the next request
+    // and the refresh re-mints with current permissions.
+    @Inject(USER_TOKEN_REVOCATION)
+    private readonly userTokenRevocation: IUserTokenRevocation,
   ) {}
 
   /**
@@ -340,6 +357,8 @@ export class TenantUserManagementService {
             );
           });
           this.logger.log(`Updated role assignment for user ${userId} to role ${newRole.name} in tenant ${tenantId}`);
+          // RBAC-HIGH-001: role changed — revoke live tokens (enforced next request).
+          await this.userTokenRevocation.revokeUserTokens(userId);
         }
       } else {
         // No existing assignment — create one through the shared
@@ -353,11 +372,15 @@ export class TenantUserManagementService {
           userId,
           input.roleId,
           newRole,
-          { grants: [], revokes: [] },
+          // No per-user overrides on the create-on-assign branch — a validated
+          // empty set (nothing to authorize).
+          this.capabilityAuthority.emptyOverrides(),
           updatedBy,
           undefined,
         );
         this.logger.log(`Created role assignment for user ${userId} with role ${newRole.name} in tenant ${tenantId}`);
+        // RBAC-HIGH-001: new assignment grants capabilities — revoke stale tokens.
+        await this.userTokenRevocation.revokeUserTokens(userId);
       }
     }
 
@@ -380,81 +403,14 @@ export class TenantUserManagementService {
     userId: string,
     deletedBy: string,
   ): Promise<boolean> {
-    // SECURITY: Prevent self-deletion
-    if (deletedBy === userId) {
-      throw new BadRequestException('Cannot delete your own account');
-    }
-
-    // Validate user exists and belongs to tenant
-    const user = await this.userRepository.findOne({
-      where: { id: userId, tenantId },
-    });
-    if (!user) {
-      throw new NotFoundException(`User with ID "${userId}" not found in tenant`);
-    }
-
-    // SECURITY: Cannot delete another TENANT_ADMIN
-    if (user.role === Role.TENANT_ADMIN) {
-      throw new ForbiddenException('Cannot delete a tenant admin user');
-    }
-
-    // SECURITY: the admin lookup that supplies performedByEmail is pinned to the
-    // acting tenant (ORPHAN-CRITICAL-100): a cross-tenant deletedBy id cannot
-    // surface another tenant's admin email into this tenant's audit row.
-    const admin = await this.userRepository.findOne({ where: { id: deletedBy, tenantId } });
-
-    // SECURITY (SEC-MEDIUM-002): the soft-delete, role revocation, and audit
-    // row commit ATOMICALLY. Previously the user was deactivated and roles
-    // revoked first, then the audit ran in a swallowed try/catch (fail-OPEN) —
-    // a user deletion could persist with no audit evidence (SOC 2 CC6.1), and a
-    // swallowed role-revoke failure could leave a "deleted" user with live role
-    // assignments. A throwing audit OR a failed role revoke now rolls back the
-    // whole soft-delete (fail-CLOSED): no deletion persists without both the
-    // role revocation and its audit trail. The audit log call is passed
-    // `manager` so it writes on the SAME transaction connection (FINDING #5).
-    await this.dataSource.transaction(async (manager) => {
-      // 1. Deactivate the user
-      user.isActive = false;
-      await manager.save(user);
-
-      // 2. Revoke role assignments. ORPHAN-CRITICAL-100: user_role_assignments
-      // has no tenantId column, so the write launders ownership through the
-      // tenant_roles JOIN (tr."tenantId" = $2) — only assignments whose role
-      // belongs to this tenant are deactivated. GROUND-TRUTH: no updated_by
-      // column on this table; the deleting actor is recorded in the USER_DELETED
-      // audit row (performedBy) written in step 3 below.
-      await manager.query(
-        `UPDATE "auth"."user_role_assignments" ura
-         SET is_active = false, updated_at = NOW()
-         FROM "auth"."tenant_roles" tr
-         WHERE ura.user_id = $1 AND ura.is_active = true AND tr.id = ura.role_id AND tr."tenantId" = $2`,
-        [userId, tenantId],
-      );
-
-      // 3. SECURITY AUDIT: Log user deletion (BULGU-016)
-      await this.auditLogService.log(
-        {
-          tenantId,
-          performedBy: deletedBy,
-          performedByEmail: admin?.email,
-          action: 'USER_DELETED',
-          entityType: 'User',
-          entityId: userId,
-          details: {
-            targetEmail: user.email,
-            targetRole: user.role,
-            timestamp: new Date().toISOString(),
-          },
-          severity: AuditLogSeverity.WARNING,
-        },
-        manager,
-      );
-    });
-
-    // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
-    this.logger.log(`Deleted (soft) userId=${user.id} from tenant ${tenantId}`);
-
-    return true;
+    // RBAC-HIGH-002: delegate to the single deletion SSoT. This method previously
+    // carried a divergent copy of the deletion logic that did NOT revoke refresh
+    // tokens (its docstring claimed it did) — a "deleted" user could still mint
+    // fresh access tokens. UserLifecycleService.deleteUser is the complete,
+    // fail-closed path (deactivate + role revoke + refresh-token revoke +
+    // access-token revoke + audit, all atomic), exactly as createTenantUser
+    // delegates to createUser. One deletion path, no drift.
+    return this.userLifecycleService.deleteUser(tenantId, userId, deletedBy);
   }
 
   /**
@@ -559,6 +515,14 @@ export class TenantUserManagementService {
     // SECURITY (SEC-MEDIUM-001): self-target + upward-escalation guard.
     await this.assertRoleGrantAuthority(tenantId, assignedBy, userId, role);
 
+    // SECURITY (RBAC-C1/C2): validate the per-user override grants against the
+    // catalogue AND the assigner's own authority. A non-admin assigner cannot
+    // attach a grant they do not themselves hold.
+    const validatedOverrides = this.capabilityAuthority.assertGrantableOverrides(
+      input.permissionOverrides,
+      await this.capabilityAuthority.resolveActorAuthority(tenantId, assignedBy),
+    );
+
     // Check if user already has an active role assignment. ORPHAN-CRITICAL-100:
     // keyed to user_id (the table has UNIQUE(user_id)) and laundered through the
     // tenant_roles JOIN (tr."tenantId" = $2) so the conflict check cannot leak a
@@ -585,12 +549,16 @@ export class TenantUserManagementService {
       userId,
       input.roleId,
       role,
-      input.permissionOverrides || { grants: [], revokes: [] },
+      validatedOverrides,
       assignedBy,
       input.expiresAt,
     );
 
     this.logger.log(`Assigned role "${role.name}" to user ${userId} in tenant ${tenantId}`);
+
+    // RBAC-HIGH-001: a fresh assignment changes the user's effective set — revoke
+    // any live tokens so the new capabilities (and no stale ones) take effect now.
+    await this.userTokenRevocation.revokeUserTokens(userId);
 
     return roleAssignment;
   }
@@ -647,10 +615,32 @@ export class TenantUserManagementService {
       if (!newRole) {
         throw new NotFoundException(`Role with ID "${input.roleId}" not found in tenant`);
       }
-      // SECURITY (SEC-MEDIUM-001): self-target + upward-escalation guard on
-      // the role-CHANGE path (only when the role itself is changing).
-      await this.assertRoleGrantAuthority(tenantId, updatedBy, userId, newRole);
     }
+
+    // SECURITY (RBAC-C1): the self-target + level-ceiling guard MUST run on EVERY
+    // update, not only when the role id changes. It was previously gated behind
+    // `if (roleId changed)`, so an override-only update (permissionOverrides with
+    // no/unchanged roleId) SKIPPED it — the exact path a delegate holding
+    // `users:edit_permissions` used to self-grant arbitrary capabilities. Measure
+    // the ceiling against the incoming role if it is changing, else the user's
+    // current role.
+    const ceilingRole = newRole ?? (await this.tenantRoleService.getRoleById(tenantId, existing.role_id));
+    if (!ceilingRole) {
+      throw new NotFoundException(`No active role assignment found for user ${userId}`);
+    }
+    await this.assertRoleGrantAuthority(tenantId, updatedBy, userId, ceilingRole);
+
+    // SECURITY (RBAC-C1/C2): validate the override grants against the catalogue +
+    // the editor's own authority. Combined with the self-target block above, an
+    // override-only self-grant now (a) cannot target self and (b) can only carry
+    // capabilities the editor already holds — the escalation is closed on both axes.
+    const validatedOverrides =
+      input.permissionOverrides !== undefined
+        ? this.capabilityAuthority.assertGrantableOverrides(
+            input.permissionOverrides,
+            await this.capabilityAuthority.resolveActorAuthority(tenantId, updatedBy),
+          )
+        : undefined;
 
     // Build update query
     const updates: string[] = [];
@@ -662,9 +652,9 @@ export class TenantUserManagementService {
       values.push(input.roleId);
     }
 
-    if (input.permissionOverrides !== undefined) {
+    if (validatedOverrides !== undefined) {
       updates.push(`permission_overrides = $${paramIndex++}`);
-      values.push(JSON.stringify(input.permissionOverrides));
+      values.push(CapabilityAuthorityService.serializeOverrides(validatedOverrides));
     }
 
     if (input.expiresAt !== undefined) {
@@ -740,6 +730,11 @@ export class TenantUserManagementService {
     });
 
     this.logger.log(`Updated role assignment for user ${userId} in tenant ${tenantId}`);
+
+    // RBAC-HIGH-001: the user's effective permissions just changed — revoke their
+    // live tokens so the change is enforced on the next request, not after the
+    // access-token TTL. Fleet-wide via the shared user_blacklist Redis key.
+    await this.userTokenRevocation.revokeUserTokens(userId);
 
     // Return updated assignment
     return this.getUserRoleAssignment(tenantId, userId);
@@ -831,6 +826,10 @@ export class TenantUserManagementService {
         manager,
       );
     });
+
+    // RBAC-HIGH-001: role removed — revoke the user's live tokens so the loss of
+    // access is enforced on the next request, not after the token TTL.
+    await this.userTokenRevocation.revokeUserTokens(userId);
 
     return true;
   }
@@ -995,7 +994,11 @@ export class TenantUserManagementService {
     userId: string,
     roleId: string,
     role: TenantRoleWithDetails,
-    permissionOverrides: { grants: string[]; revokes: string[] },
+    // SECURITY (RBAC-C1/C2): only a ValidatedOverrideSet (produced solely by
+    // CapabilityAuthorityService) is accepted here, so this INSERT path — the
+    // single write sink for user_role_assignments — cannot persist an
+    // unvalidated / over-privileged grant. Callers MUST validate first.
+    permissionOverrides: ValidatedOverrideSet,
     assignedBy: string,
     expiresAt?: Date,
   ): Promise<UserRoleAssignmentResult> {
@@ -1036,7 +1039,14 @@ export class TenantUserManagementService {
               updated_at = NOW()
         RETURNING id
         `,
-          [userId, roleId, JSON.stringify(permissionOverrides), expiresAt || null, assignedBy, tenantId],
+          [
+            userId,
+            roleId,
+            CapabilityAuthorityService.serializeOverrides(permissionOverrides),
+            expiresAt || null,
+            assignedBy,
+            tenantId,
+          ],
         ),
       );
 
@@ -1087,7 +1097,8 @@ export class TenantUserManagementService {
       roleColor: role.color,
       roleIcon: role.icon,
       roleLevel: role.level,
-      permissionOverrides,
+      // Strip the internal validation brand from the client-facing result.
+      permissionOverrides: { grants: permissionOverrides.grants, revokes: permissionOverrides.revokes },
       panelPermissions: role.permissions?.panelPermissions || {},
       resourcePermissions: role.permissions?.resourcePermissions || [],
       effectivePermissions,

@@ -25,6 +25,7 @@ import {
   ImpersonationAction,
   SafeImpersonationSession,
   toSafeImpersonationSession,
+  IMPERSONATION_MAX_SESSION_MINUTES,
 } from '../entities/impersonation-session.entity';
 
 /**
@@ -258,12 +259,22 @@ export class ImpersonationService implements OnModuleInit {
         isActive: true,
         grantedAt: new Date(),
       });
+      // RBAC-MEDIUM-009: the update path spreads caller data — clamp the
+      // duration ceiling here exactly like the create path.
+      if (permission.maxSessionDurationMinutes > IMPERSONATION_MAX_SESSION_MINUTES) {
+        permission.maxSessionDurationMinutes = IMPERSONATION_MAX_SESSION_MINUTES;
+      }
     } else {
       permission = this.permissionRepo.create({
         ...data,
         canImpersonate: true,
         isActive: true,
-        maxSessionDurationMinutes: data.maxSessionDurationMinutes || 60,
+        // RBAC-MEDIUM-009: clamp to the policy ceiling even if the DTO layer
+        // is bypassed (internal callers) — the cap is enforced at every layer.
+        maxSessionDurationMinutes: Math.min(
+          data.maxSessionDurationMinutes || IMPERSONATION_MAX_SESSION_MINUTES,
+          IMPERSONATION_MAX_SESSION_MINUTES,
+        ),
         maxConcurrentSessions: data.maxConcurrentSessions || 3,
         requireReason: data.requireReason ?? true,
         requireTicketReference: data.requireTicketReference ?? false,
@@ -460,10 +471,13 @@ export class ImpersonationService implements OnModuleInit {
       throw new BadRequestException('Ticket reference is required for impersonation');
     }
 
-    // Calculate expiration
+    // Calculate expiration. RBAC-MEDIUM-009: the absolute policy cap is the
+    // final term — a HISTORICAL grant row stored before the cap existed (up
+    // to 1440 min) can never confer a session longer than the ceiling.
     const durationMinutes = Math.min(
-      request.durationMinutes || 60,
-      permission?.maxSessionDurationMinutes || 60,
+      request.durationMinutes || IMPERSONATION_MAX_SESSION_MINUTES,
+      permission?.maxSessionDurationMinutes || IMPERSONATION_MAX_SESSION_MINUTES,
+      IMPERSONATION_MAX_SESSION_MINUTES,
     );
     const expiresAt = new Date(Date.now() + durationMinutes * 60000);
 
@@ -693,7 +707,12 @@ export class ImpersonationService implements OnModuleInit {
       where: { superAdminId: session.superAdminId, isActive: true },
     });
 
-    const maxDurationMinutes = permission?.maxSessionDurationMinutes || 60;
+    // RBAC-MEDIUM-009: total duration is bounded by the policy ceiling too —
+    // a historical over-cap grant cannot be laundered through extensions.
+    const maxDurationMinutes = Math.min(
+      permission?.maxSessionDurationMinutes || IMPERSONATION_MAX_SESSION_MINUTES,
+      IMPERSONATION_MAX_SESSION_MINUTES,
+    );
     const sessionStartTime = session.createdAt.getTime();
     const currentExpiresAt = session.expiresAt.getTime();
     const newExpiresAt = currentExpiresAt + additionalMinutes * 60000;

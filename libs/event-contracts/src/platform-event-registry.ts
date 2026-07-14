@@ -200,10 +200,16 @@ export const PLATFORM_EVENT_REGISTRY = {
     kind: 'event',
     subject: 'events.{tenantId}.WaterQualityCritical',
     producer: 'farm-service',
-    consumers: ['alert-engine', 'notification-service'],
+    // Sole consumer is alert-engine: it records the CRITICAL AlertHistory row and
+    // creates the escalatable AlertIncident, whose escalation ladder fans out to
+    // notification-service. There is no direct notification-service subscriber for
+    // this subject (none in infrastructure/nats/services.yaml), so declaring it as a
+    // consumer was drift. Route critical-WQ notifications through the alert escalation
+    // path, not a second parallel consumer.
+    consumers: ['alert-engine'],
     schema: 'libs/event-contracts/src/water-quality-events.ts#WaterQualityCriticalEvent',
     fixture: 'libs/event-contracts/fixtures/water-quality-critical.json',
-    acl: { publish: ['farm-service'], subscribe: ['alert-engine', 'notification-service'] },
+    acl: { publish: ['farm-service'], subscribe: ['alert-engine'] },
     piiClass: 'operational',
     durability: 'outbox',
     backendOnly: true,

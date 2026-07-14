@@ -25,6 +25,7 @@ import type { ReactElement } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { ChannelAvatar } from '@/components/messaging/ChannelAvatar';
+import { VirtualList } from '@/components/VirtualList';
 import { useAuth } from '@/hooks/useAuth';
 import { useChannels } from '@/hooks/useChannels';
 import { useMessageSocket } from '@/hooks/useMessageSocket';
@@ -273,7 +274,10 @@ export function ChannelListPage(): ReactElement {
   const errorMsg = error ? (error instanceof Error ? error.message : 'Failed to load channels') : null;
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+    // MOB-MEDIUM-012: bounded flex column (matching NotificationsPage) so the
+    // channel list virtualizes inside its own scroll region instead of paging
+    // the whole document — the header stays put while a large membership scrolls.
+    <div className="h-screen overflow-hidden bg-gray-50 dark:bg-gray-950 flex flex-col">
       {/* Header */}
       <div className="bg-gradient-to-r from-ocean-600 to-ocean-500 text-white">
         <div className="px-4 py-4 pt-safe-top">
@@ -329,7 +333,7 @@ export function ChannelListPage(): ReactElement {
       </div>
 
       {/* Channel list */}
-      <div className="pt-1">
+      <div className="pt-1 flex-1 min-h-0 flex flex-col">
         {loading ? (
           <div className="space-y-1">
             {[1, 2, 3, 4, 5].map((i) => (
@@ -381,16 +385,21 @@ export function ChannelListPage(): ReactElement {
             )}
           </div>
         ) : (
-          <div className="divide-y divide-gray-100 dark:divide-gray-800/50">
-            {sortedChannels.map((channel) => (
-              <ChannelRow
-                key={channel.id}
-                channel={channel}
-                currentUserId={user?.id}
-                onPress={() => handleChannelPress(channel.id)}
-              />
-            ))}
-          </div>
+          <VirtualList
+            items={sortedChannels}
+            getKey={(channel) => channel.id}
+            estimateSize={() => 72}
+            className="flex-1 min-h-0"
+            renderItem={(channel) => (
+              <div className="border-b border-gray-100 dark:border-gray-800/50">
+                <ChannelRow
+                  channel={channel}
+                  currentUserId={user?.id}
+                  onPress={() => handleChannelPress(channel.id)}
+                />
+              </div>
+            )}
+          />
         )}
       </div>
 

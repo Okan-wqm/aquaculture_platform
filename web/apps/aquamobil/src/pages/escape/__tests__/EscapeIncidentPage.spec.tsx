@@ -73,6 +73,22 @@ vi.mock('@/hooks/useTanks', () => ({
   useTanks: () => ({ data: h.tanks, isLoading: false, error: null }),
 }));
 
+// PhotoCaptureField (added FARM incident photo capture) pulls in the network
+// status + upload hooks — stub them so the page renders deterministically online
+// without a real presign/PUT.
+vi.mock('@/hooks/useNetworkStatus', () => ({
+  useNetworkStatus: () => true,
+}));
+
+vi.mock('@/hooks/useIncidentMediaUpload', () => ({
+  useIncidentMediaUpload: () => ({
+    uploadPhoto: vi.fn(),
+    isUploading: false,
+    progress: 0,
+    error: null,
+  }),
+}));
+
 vi.mock('@/components/QueuedStatusBadge', () => ({
   QueuedStatusBadge: ({ operationId }: { operationId: string }) => (
     <div data-testid="queued-badge">queued:{operationId}</div>
@@ -126,11 +142,15 @@ vi.mock('lucide-react', () => {
   return {
     ArrowLeft: Stub,
     AlertCircle: Stub,
+    Camera: Stub,
+    ImageOff: Stub,
+    Loader2: Stub,
     Minus: Stub,
     PhoneCall: Stub,
     Plus: Stub,
     ShieldAlert: Stub,
     TriangleAlert: Stub,
+    X: Stub,
   };
 });
 

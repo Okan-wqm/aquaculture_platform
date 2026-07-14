@@ -71,6 +71,9 @@ import { AddFinanceEntryDeletedBy1805600000000 } from './1805600000000-AddFinanc
 import { AddWorkOrderEffectiveCostDateIndex1805700000000 } from './1805700000000-AddWorkOrderEffectiveCostDateIndex';
 import { FinanceEntrySoftDeletePartialIndexes1805800000000 } from './1805800000000-FinanceEntrySoftDeletePartialIndexes';
 import { AddChemicalTherapeuticTypes1805900000000 } from './1805900000000-AddChemicalTherapeuticTypes';
+// Renumbered 1805900000000 → 1806000000000 to resolve a timestamp collision with
+// AddChemicalTherapeuticTypes1805900000000 landed on main; migrations are append-only + ordered.
+import { CreateIncidentMedia1806000000000 } from './1806000000000-CreateIncidentMedia';
 
 /**
  * Canonical farm-service migration class list.
@@ -141,4 +144,5 @@ export const FARM_MIGRATIONS = [
   AddWorkOrderEffectiveCostDateIndex1805700000000,
   FinanceEntrySoftDeletePartialIndexes1805800000000,
   AddChemicalTherapeuticTypes1805900000000,
+  CreateIncidentMedia1806000000000,
 ] as const;

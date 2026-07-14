@@ -303,6 +303,26 @@ describe('INVARIANT: sites setup remediation plan is durable and registry-backed
     expect(adapter).toMatch(/EquipmentCategory\.CAGE/);
   });
 
+  it('routes the fish-health therapeutic-substances tab through the Chemical master, not a client-side mock (FARM-HIGH-003 Phase 4.2)', () => {
+    const fishHealthTab = read(
+      'web/modules/farm-module/src/pages/setup/tabs/FishHealthChemicalsTab.tsx',
+    );
+
+    // The therapeutic-substances setup tab must read/write the canonical Chemical
+    // master (tenant-persisted through the Phase-3 write contract), not a local
+    // seed array — so therapeutic substances stop being a duplicate authority.
+    expect(fishHealthTab).toContain('useChemicalList');
+    expect(fishHealthTab).toContain('useCreateChemical');
+    expect(fishHealthTab).toContain('useUpdateChemical');
+    expect(fishHealthTab).toContain('useDeleteChemical');
+
+    // No mock seed data and no native browser dialogs — the tab uses the shared
+    // Modal + useToast. Guards against re-introducing the removed mock CRUD.
+    expect(fishHealthTab).not.toContain('INITIAL_DATA');
+    expect(fishHealthTab).not.toMatch(/\balert\(/);
+    expect(fishHealthTab).not.toMatch(/\bconfirm\(/);
+  });
+
   it('keeps existing-tenant runtime DDL repair fail-closed outside explicit test bootstrap', () => {
     const schemaManager = read('libs/backend-common/src/database/schema-manager.service.ts');
     const adminSchemaService = read(

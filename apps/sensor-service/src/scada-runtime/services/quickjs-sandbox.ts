@@ -178,7 +178,7 @@ function bindSyncBridge(
   name: string,
   fn: SyncBridge,
 ): void {
-  const handle = ctx.newFunction(name, (...argHandles) => {
+  const handle = ctx.newFunction(name, (...argHandles: QuickJSHandle[]) => {
     try {
       const args = argHandles.map((h) => ctx.dump(h));
       const result = fn(...args);
@@ -203,7 +203,7 @@ function bindAsyncBridge(
   name: string,
   fn: AsyncBridge,
 ): void {
-  const handle = ctx.newAsyncifiedFunction(name, async (...argHandles) => {
+  const handle = ctx.newAsyncifiedFunction(name, async (...argHandles: QuickJSHandle[]) => {
     try {
       const args = argHandles.map((h) => ctx.dump(h));
       const result = await fn(...args);
@@ -223,7 +223,7 @@ function bindConsole(
 ): void {
   const consoleObj = ctx.newObject();
   for (const level of ['log', 'warn', 'error'] as const) {
-    const fnHandle = ctx.newFunction(level, (...argHandles) => {
+    const fnHandle = ctx.newFunction(level, (...argHandles: QuickJSHandle[]) => {
       const args = argHandles.map((h) => ctx.dump(h));
       console[level](...args);
       return ctx.undefined;

@@ -105,7 +105,10 @@ describe('AlarmStorageService — tenant fencing', () => {
     ['getActiveAlarms', (s: AlarmStorageService) => s.getActiveAlarms('')],
     ['getAlarmHistory', (s: AlarmStorageService) => s.getAlarmHistory('  ')],
     ['deleteAlarm', (s: AlarmStorageService) => s.deleteAlarm('', 'a')],
-    ['saveToChronicle', (s: AlarmStorageService) => s.saveToChronicle('', sampleAlarm as ScadaAlarmChronicle)],
+    [
+      'saveToChronicle',
+      (s: AlarmStorageService) => s.saveToChronicle('', sampleAlarm as ScadaAlarmChronicle),
+    ],
   ])('%s fails closed on an empty tenantId', async (_name, call) => {
     const { dataSource } = makeDataSourceMock();
     const svc = new AlarmStorageService(dataSource);
@@ -137,7 +140,11 @@ describe('DaqStorageService — tenant fencing', () => {
   });
 
   it.each([
-    ['addValues', (s: DaqStorageService) => s.addValues('', 'd', [{ tagId: 't', value: 1, timestamp: 0, quality: 'good' }])],
+    [
+      'addValues',
+      (s: DaqStorageService) =>
+        s.addValues('', 'd', [{ tagId: 't', value: 1, timestamp: 0, quality: 'good' }]),
+    ],
     ['queryValues', (s: DaqStorageService) => s.queryValues('', ['t'], new Date(0), new Date(1))],
   ])('%s fails closed on an empty tenantId', async (_name, call) => {
     const { dataSource } = makeDataSourceMock();
@@ -154,16 +161,15 @@ describe('AlarmEngineService — tenant binding', () => {
     return new AlarmEngineService(tagManager, gateway, storage as never, notification);
   }
 
-  it('setTenantId rejects an empty tenantId', () => {
+  it('setAlarmRules rejects an empty tenantId', () => {
     const engine = makeEngine({});
-    expect(() => engine.setTenantId('')).toThrow(/non-empty tenantId is required/);
+    expect(() => engine.setAlarmRules('', [])).toThrow(/non-empty tenantId is required/);
   });
 
-  it('accepts a real tenant and exposes no cross-tenant state through getActiveAlarms', () => {
+  it('exposes no cross-tenant state through getActiveAlarms for an inactive tenant', () => {
     const engine = makeEngine({});
-    engine.setTenantId(TENANT_A);
-    // With no rules loaded the in-memory active set is empty — the engine
-    // never fabricates another tenant's alarms.
-    expect(engine.getActiveAlarms()).toEqual([]);
+    // An unknown/inactive tenant has no in-memory state — the engine never
+    // fabricates another tenant's alarms (fail-closed by construction).
+    expect(engine.getActiveAlarms(TENANT_A)).toEqual([]);
   });
 });

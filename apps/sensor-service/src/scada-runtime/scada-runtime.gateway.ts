@@ -776,6 +776,24 @@ export class ScadaRuntimeGateway
   }
 
   /**
+   * Forward captured script console output to the authoring tenant's HMI
+   * console panel ONLY. Scoped to `tenant:${tenantId}` so one tenant's script
+   * output can never surface in another tenant's console (RT-011: the raw
+   * `server.emit` this replaces fanned every script line to all sockets).
+   */
+  pushScriptConsole(
+    tenantId: string,
+    entry: { scriptId: string; level: 'log' | 'warn' | 'error'; message: string; timestamp: number },
+  ): void {
+    if (!this.server) return;
+    try {
+      this.server.to(`tenant:${tenantId}`).emit(ScadaSocketEvent.SCRIPT_CONSOLE, entry);
+    } catch (error) {
+      this.logger.error(`[push-script-console] error: ${(error as Error).message}`);
+    }
+  }
+
+  /**
    * Send a SETVIEW / OPENCARD / TOAST command to all clients of a tenant,
    * or to a specific socket if socketId is provided.
    */

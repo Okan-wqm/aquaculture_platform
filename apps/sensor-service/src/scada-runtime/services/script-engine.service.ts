@@ -50,7 +50,6 @@ import type {
   HistoricalDataPoint,
   TagValueChange,
 } from '../scada-types';
-import { ScadaSocketEvent } from '../scada-types';
 
 import { TagManagerService } from './tag-manager.service';
 import { AlarmEngineService } from './alarm-engine.service';
@@ -80,30 +79,17 @@ export class ScriptEngineService {
   private readonly logger = new Logger(ScriptEngineService.name);
 
   /**
-   * Tenant this script runtime is bound to. Script SCADA APIs read tenant-
-   * scoped alarm/history storage and broadcast to the tenant's HMI room, so
-   * the runtime starts UNBOUND and refuses those operations until an
-   * activation binds a real tenant (DB-SENSOR-CRITICAL-001) — no more
-   * hardcoded 'default' bucket every tenant would share.
+   * The tenant is supplied PER RUN (RT-011): this singleton executes scripts
+   * for whichever tenant's scheduled/triggered script fires, so every
+   * tenant-scoped SCADA API (tag read/write, alarm read/ack, history, HMI
+   * broadcast) is fenced to the run's own tenant rather than a shared binding.
+   * A non-empty tenant is validated at the entry points below.
    */
-  private boundTenantId: string | null = null;
-
-  /** Bind this script runtime to a tenant. */
-  setTenantId(tenantId: string): void {
+  private static assertTenant(tenantId: string): string {
     if (typeof tenantId !== 'string' || tenantId.trim().length === 0) {
-      throw new Error('ScriptEngineService.setTenantId: a non-empty tenantId is required');
+      throw new Error('ScriptEngineService: a non-empty tenantId is required to run a script');
     }
-    this.boundTenantId = tenantId;
-  }
-
-  /** Return the bound tenant or throw — every tenant-scoped script API uses this. */
-  private requireTenant(): string {
-    if (this.boundTenantId == null) {
-      throw new Error(
-        'ScriptEngineService: no tenant bound — call setTenantId() before running tenant-scoped scripts',
-      );
-    }
-    return this.boundTenantId;
+    return tenantId;
   }
 
   constructor(
@@ -126,11 +112,13 @@ export class ScriptEngineService {
    * before execution, making the resolved value available under the
    * parameter name inside the sandbox.
    *
+   * @param tenantId  The tenant this run executes for — fences every $-bridge.
    * @param script  The ScadaScript to execute.
    * @param params  Optional caller-supplied parameter overrides.
    * @returns       A ScriptResult describing success or failure.
    */
   async runScript(
+    tenantId: string,
     script: ScadaScript,
     params?: Record<string, unknown>,
   ): Promise<ScriptResult> {
@@ -140,14 +128,15 @@ export class ScriptEngineService {
     this.logger.log(`[script] Running script id=${script.id} name="${script.name}"`);
 
     try {
-      const resolvedParams = this.resolveParams(script.params ?? [], params);
-      const bridges = this.buildSandbox(script, resolvedParams, capturedLogs);
+      // Fail-closed: an invalid tenant throws here, before any sandbox/bridge
+      // exists — a tenant-less run never reads, writes, or broadcasts.
+      ScriptEngineService.assertTenant(tenantId);
+      const resolvedParams = this.resolveParams(tenantId, script.params ?? [], params);
+      const bridges = this.buildSandbox(tenantId, script, resolvedParams, capturedLogs);
       const result = await runInSandbox(script.code, bridges);
 
       const durationMs = Date.now() - startMs;
-      this.logger.log(
-        `[script] Completed id=${script.id} duration=${durationMs}ms success=true`,
-      );
+      this.logger.log(`[script] Completed id=${script.id} duration=${durationMs}ms success=true`);
 
       return {
         scriptId: script.id,
@@ -178,18 +167,20 @@ export class ScriptEngineService {
    * Identical to `runScript` but console output is captured and returned
    * inside the result for display in the HMI script editor.
    *
+   * @param tenantId  The tenant this test run executes for — fences every $-bridge.
    * @param script  The ScadaScript to test.
    * @returns       A ScriptResult with additional console output in `result`.
    */
-  async testScript(script: ScadaScript): Promise<ScriptResult> {
+  async testScript(tenantId: string, script: ScadaScript): Promise<ScriptResult> {
     const startMs = Date.now();
     const capturedLogs: ConsoleEntry[] = [];
 
     this.logger.log(`[script] Testing script id=${script.id} name="${script.name}"`);
 
     try {
-      const resolvedParams = this.resolveParams(script.params ?? [], undefined);
-      const bridges = this.buildSandbox(script, resolvedParams, capturedLogs);
+      ScriptEngineService.assertTenant(tenantId);
+      const resolvedParams = this.resolveParams(tenantId, script.params ?? [], undefined);
+      const bridges = this.buildSandbox(tenantId, script, resolvedParams, capturedLogs);
       const result = await runInSandbox(script.code, bridges);
 
       const durationMs = Date.now() - startMs;
@@ -239,6 +230,7 @@ export class ScriptEngineService {
    * the definitions in the script.
    */
   private resolveParams(
+    tenantId: string,
     paramDefs: ScriptParam[],
     extraParams: Record<string, unknown> | undefined,
   ): Record<string, unknown> {
@@ -247,7 +239,7 @@ export class ScriptEngineService {
     for (const def of paramDefs) {
       if (def.type === 'tagId') {
         const tagId = String(def.value ?? '');
-        resolved[def.name] = tagId ? this.tagManager.getTagValue(tagId) : null;
+        resolved[def.name] = tagId ? this.tagManager.getTagValue(tenantId, tagId) : null;
       } else {
         // 'value' and 'chart' — pass through
         resolved[def.name] = def.value;
@@ -277,6 +269,7 @@ export class ScriptEngineService {
    * host — `require`, `process`, `global`, `Buffer` are structurally absent.
    */
   private buildSandbox(
+    tenantId: string,
     script: ScadaScript,
     params: Record<string, unknown>,
     capturedLogs: ConsoleEntry[],
@@ -295,26 +288,22 @@ export class ScriptEngineService {
         capturedLogs.push(entry);
 
         // Forward to gateway SCRIPT_CONSOLE event so the HMI console panel
-        // shows output in real time.
+        // shows output in real time — scoped to the run's tenant room so one
+        // tenant's script output never reaches another tenant's console.
         try {
-          this.gateway.broadcastCommand(
-            this.requireTenant(),
-            {
-              type: 'TOAST',
-              message: `[${level.toUpperCase()}] ${message}`,
-              toastType: level === 'error' ? 'error' : level === 'warn' ? 'warning' : 'info',
-            },
-          );
+          this.gateway.broadcastCommand(tenantId, {
+            type: 'TOAST',
+            message: `[${level.toUpperCase()}] ${message}`,
+            toastType: level === 'error' ? 'error' : level === 'warn' ? 'warning' : 'info',
+          });
 
-          // Also emit a raw SCRIPT_CONSOLE event for dedicated console UIs
-          if (this.gateway.server) {
-            this.gateway.server.emit(ScadaSocketEvent.SCRIPT_CONSOLE, {
-              scriptId,
-              level,
-              message,
-              timestamp: entry.timestamp,
-            });
-          }
+          // Raw SCRIPT_CONSOLE event for dedicated console UIs, tenant-fenced.
+          this.gateway.pushScriptConsole(tenantId, {
+            scriptId,
+            level,
+            message,
+            timestamp: entry.timestamp,
+          });
         } catch {
           // Non-fatal: console capture should never block execution
         }
@@ -326,7 +315,7 @@ export class ScriptEngineService {
         // Tag access
         $getTag: (id: unknown): TagValueChange | null => {
           try {
-            return this.tagManager.getTagValue(String(id));
+            return this.tagManager.getTagValue(tenantId, String(id));
           } catch (err) {
             this.logger.error(`$getTag error: ${(err as Error).message}`);
             return null;
@@ -335,9 +324,9 @@ export class ScriptEngineService {
 
         $setTag: (id: unknown, value: unknown): void => {
           try {
-            // Script writes run in the process-global runtime; route them to
-            // that runtime's tenant (RT-011 will make the engine per-tenant).
-            this.tagManager.writeTagValue(String(id), value, 'script-engine', this.alarmEngine.getTenantId());
+            // The write is fenced to the run's own tenant (RT-011) — a script
+            // can only actuate its own tenant's device.
+            this.tagManager.writeTagValue(String(id), value, 'script-engine', tenantId);
           } catch (err) {
             this.logger.error(`$setTag error: ${(err as Error).message}`);
           }
@@ -346,8 +335,8 @@ export class ScriptEngineService {
         $getTagId: (name: unknown): string | null => {
           try {
             // TagManagerService cache is keyed by tagId, not name.
-            // We search all cached values for a matching display name.
-            const all = this.tagManager.getAllTagValues();
+            // We search this tenant's cached values for a matching display name.
+            const all = this.tagManager.getAllTagValues(tenantId);
             const match = all.find(
               (tv) => (tv as TagValueChange & { name?: string }).name === name,
             );
@@ -361,7 +350,7 @@ export class ScriptEngineService {
         // View navigation
         $setView: (viewName: unknown): void => {
           try {
-            this.gateway.broadcastCommand(this.requireTenant(), {
+            this.gateway.broadcastCommand(tenantId, {
               type: 'SETVIEW',
               viewId: String(viewName),
             });
@@ -373,7 +362,7 @@ export class ScriptEngineService {
         // Alarms (read)
         $getAlarms: (): AlarmInstance[] => {
           try {
-            return this.alarmEngine.getActiveAlarms();
+            return this.alarmEngine.getActiveAlarms(tenantId);
           } catch (err) {
             this.logger.error(`$getAlarms error: ${(err as Error).message}`);
             return [];
@@ -384,13 +373,13 @@ export class ScriptEngineService {
       /* ---- asynchronous system functions (asyncify) -------------- */
       async: {
         // Notifications
-        $sendMessage: async (
-          to: unknown,
-          subject: unknown,
-          body: unknown,
-        ): Promise<void> => {
+        $sendMessage: async (to: unknown, subject: unknown, body: unknown): Promise<void> => {
           try {
-            await this.notificationService.sendDirectEmail(String(to), String(subject), String(body));
+            await this.notificationService.sendDirectEmail(
+              String(to),
+              String(subject),
+              String(body),
+            );
           } catch (err) {
             this.logger.error(`$sendMessage error: ${(err as Error).message}`);
           }
@@ -399,7 +388,7 @@ export class ScriptEngineService {
         $getAlarmsHistory: async (from: unknown, to: unknown): Promise<AlarmInstance[]> => {
           try {
             const filter: AlarmHistoryFilter = { from: Number(from), to: Number(to) };
-            return await this.alarmStorage.getAlarmHistory(this.requireTenant(), filter);
+            return await this.alarmStorage.getAlarmHistory(tenantId, filter);
           } catch (err) {
             this.logger.error(`$getAlarmsHistory error: ${(err as Error).message}`);
             return [];
@@ -408,7 +397,7 @@ export class ScriptEngineService {
 
         $ackAlarm: async (alarmId: unknown, userId: unknown = 'script-engine'): Promise<void> => {
           try {
-            await this.alarmEngine.acknowledgeAlarm(String(alarmId), String(userId));
+            await this.alarmEngine.acknowledgeAlarm(tenantId, String(alarmId), String(userId));
           } catch (err) {
             this.logger.error(`$ackAlarm error: ${(err as Error).message}`);
           }
@@ -422,11 +411,11 @@ export class ScriptEngineService {
         ): Promise<Record<string, HistoricalDataPoint[]>> => {
           try {
             // Tenant-fenced history read (SENSOR-HIGH-053): the script sandbox
-            // runs under this engine's own fail-closed tenant binding (same
-            // source as the write/broadcast paths above).
+            // reads only the run's own tenant history (same tenant as the
+            // write/broadcast paths above).
             const idList = Array.isArray(ids) ? ids.map((id) => String(id)) : [];
             return await this.daqStorage.queryValues(
-              this.requireTenant(),
+              tenantId,
               idList,
               new Date(Number(from)),
               new Date(Number(to)),

@@ -22,7 +22,7 @@
     "monaco-editor": "^0.53.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
-    "react-router-dom": "6.30.3",
+    "react-router-dom": "6.30.4",
     "@xyflow/react": "12.11.0",
     "recharts": "^2.10.0",
     "uplot": "^1.6.31",

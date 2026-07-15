@@ -30,6 +30,8 @@ vi.mock('../../services/adminApi', () => ({
   },
   TenantStatus: {
     PENDING: 'PENDING',
+    PROVISIONING: 'PROVISIONING',
+    PROVISIONING_FAILED: 'PROVISIONING_FAILED',
     ACTIVE: 'ACTIVE',
     SUSPENDED: 'SUSPENDED',
     INACTIVE: 'INACTIVE',
@@ -49,11 +51,7 @@ vi.mock('react-router-dom', async () => {
 
 // Helper to render component with router
 const renderWithRouter = (component: React.ReactElement) => {
-  return render(
-    <BrowserRouter>
-      {component}
-    </BrowserRouter>
-  );
+  return render(<BrowserRouter>{component}</BrowserRouter>);
 };
 
 // Mock tenant data
@@ -113,17 +111,17 @@ const mockTenants = [
 ];
 
 const mockStats = {
-  total: 4,
-  active: 2,
-  suspended: 1,
-  pending: 1,
+  totalTenants: 4,
+  activeTenants: 2,
+  suspendedTenants: 1,
+  pendingTenants: 1,
 };
 
 describe('TenantManagementPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (tenantsApi.list as any).mockResolvedValue({ data: mockTenants, total: 4 });
-    (tenantsApi.getStats as any).mockResolvedValue(mockStats);
+    vi.mocked(tenantsApi.list).mockResolvedValue({ data: mockTenants, total: 4 });
+    vi.mocked(tenantsApi.getStats).mockResolvedValue(mockStats);
     mockNavigate.mockClear();
   });
 
@@ -143,9 +141,9 @@ describe('TenantManagementPage', () => {
 
       await waitFor(() => {
         expect(screen.getByText('Total')).toBeInTheDocument();
-        expect(screen.getByText('Active')).toBeInTheDocument();
-        expect(screen.getByText('Suspended')).toBeInTheDocument();
-        expect(screen.getByText('Pending')).toBeInTheDocument();
+        expect(screen.getAllByText('Active').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Suspended').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Pending').length).toBeGreaterThan(0);
       });
     });
 
@@ -193,7 +191,7 @@ describe('TenantManagementPage', () => {
     it('should have search input', async () => {
       renderWithRouter(<TenantManagementPage />);
 
-      const searchInput = screen.getByPlaceholderText(/tenant ara/i);
+      const searchInput = screen.getByPlaceholderText(/search tenants/i);
       expect(searchInput).toBeInTheDocument();
     });
 
@@ -205,21 +203,19 @@ describe('TenantManagementPage', () => {
       await waitFor(() => expect(screen.getByText('Ocean Farms Ltd')).toBeInTheDocument());
 
       // Search
-      const searchInput = screen.getByPlaceholderText(/tenant ara/i);
+      const searchInput = screen.getByPlaceholderText(/search tenants/i);
       await user.type(searchInput, 'Ocean');
 
       // API should be called with search parameter
       await waitFor(() => {
-        expect(tenantsApi.list).toHaveBeenCalledWith(
-          expect.objectContaining({ search: 'Ocean' })
-        );
+        expect(tenantsApi.list).toHaveBeenCalledWith(expect.objectContaining({ search: 'Ocean' }));
       });
     });
 
     it('should have status filter dropdown', async () => {
       renderWithRouter(<TenantManagementPage />);
 
-      const statusSelect = screen.getByLabelText(/durum/i);
+      const statusSelect = screen.getByRole('combobox', { name: /^status$/i });
       expect(statusSelect).toBeInTheDocument();
     });
 
@@ -229,12 +225,12 @@ describe('TenantManagementPage', () => {
 
       await waitFor(() => expect(screen.getByText('Ocean Farms Ltd')).toBeInTheDocument());
 
-      const statusSelect = screen.getByLabelText(/durum/i);
+      const statusSelect = screen.getByRole('combobox', { name: /^status$/i });
       await user.selectOptions(statusSelect, TenantStatus.ACTIVE);
 
       await waitFor(() => {
         expect(tenantsApi.list).toHaveBeenCalledWith(
-          expect.objectContaining({ status: TenantStatus.ACTIVE })
+          expect.objectContaining({ status: TenantStatus.ACTIVE }),
         );
       });
     });
@@ -242,7 +238,7 @@ describe('TenantManagementPage', () => {
     it('should have tier filter dropdown', async () => {
       renderWithRouter(<TenantManagementPage />);
 
-      const tierSelect = screen.getByLabelText(/plan/i);
+      const tierSelect = screen.getByRole('combobox', { name: /^tier$/i });
       expect(tierSelect).toBeInTheDocument();
     });
 
@@ -252,12 +248,12 @@ describe('TenantManagementPage', () => {
 
       await waitFor(() => expect(screen.getByText('Ocean Farms Ltd')).toBeInTheDocument());
 
-      const tierSelect = screen.getByLabelText(/plan/i);
+      const tierSelect = screen.getByRole('combobox', { name: /^tier$/i });
       await user.selectOptions(tierSelect, TenantTier.ENTERPRISE);
 
       await waitFor(() => {
         expect(tenantsApi.list).toHaveBeenCalledWith(
-          expect.objectContaining({ tier: TenantTier.ENTERPRISE })
+          expect.objectContaining({ tier: TenantTier.ENTERPRISE }),
         );
       });
     });
@@ -267,7 +263,7 @@ describe('TenantManagementPage', () => {
       renderWithRouter(<TenantManagementPage />);
 
       // Apply filter
-      const statusSelect = screen.getByLabelText(/durum/i);
+      const statusSelect = screen.getByRole('combobox', { name: /^status$/i });
       await user.selectOptions(statusSelect, TenantStatus.ACTIVE);
 
       // Clear filter
@@ -275,7 +271,7 @@ describe('TenantManagementPage', () => {
 
       await waitFor(() => {
         expect(tenantsApi.list).toHaveBeenCalledWith(
-          expect.objectContaining({ status: undefined })
+          expect.objectContaining({ status: undefined }),
         );
       });
     });
@@ -289,49 +285,27 @@ describe('TenantManagementPage', () => {
       await waitFor(() => expect(screen.getByText('Ocean Farms Ltd')).toBeInTheDocument());
 
       // Click on view button or row
-      const viewButtons = screen.getAllByRole('button', { name: /goruntule|detay/i });
-      if (viewButtons.length > 0) {
-        await user.click(viewButtons[0]);
-        expect(mockNavigate).toHaveBeenCalledWith(expect.stringContaining('tenant-1'));
-      }
+      const viewButtons = screen.getAllByRole('button', { name: /details/i });
+      await user.click(viewButtons[0]);
+      expect(mockNavigate).toHaveBeenCalledWith('/admin/tenants/tenant-1');
     });
 
-    it('should suspend active tenant', async () => {
+    it('should expose the bulk suspend action for an active tenant', async () => {
       const user = userEvent.setup();
-      (tenantsApi.suspend as any).mockResolvedValueOnce({});
-
       renderWithRouter(<TenantManagementPage />);
 
       await waitFor(() => expect(screen.getByText('Ocean Farms Ltd')).toBeInTheDocument());
-
-      // Find suspend button for active tenant
-      const suspendButtons = screen.getAllByRole('button', { name: /askiya al/i });
-      if (suspendButtons.length > 0) {
-        await user.click(suspendButtons[0]);
-
-        await waitFor(() => {
-          expect(tenantsApi.suspend).toHaveBeenCalled();
-        });
-      }
+      await user.click(screen.getByRole('checkbox', { name: /select ocean farms/i }));
+      expect(screen.getByRole('button', { name: /suspend selected/i })).toBeInTheDocument();
     });
 
-    it('should activate suspended tenant', async () => {
+    it('should expose the bulk activate action for a suspended tenant', async () => {
       const user = userEvent.setup();
-      (tenantsApi.activate as any).mockResolvedValueOnce({});
-
       renderWithRouter(<TenantManagementPage />);
 
       await waitFor(() => expect(screen.getByText('Marine Harvest Inc')).toBeInTheDocument());
-
-      // Find activate button for suspended tenant
-      const activateButtons = screen.getAllByRole('button', { name: /aktifles/i });
-      if (activateButtons.length > 0) {
-        await user.click(activateButtons[0]);
-
-        await waitFor(() => {
-          expect(tenantsApi.activate).toHaveBeenCalled();
-        });
-      }
+      await user.click(screen.getByRole('checkbox', { name: /select marine harvest/i }));
+      expect(screen.getByRole('button', { name: /activate selected/i })).toBeInTheDocument();
     });
   });
 
@@ -373,19 +347,19 @@ describe('TenantManagementPage', () => {
 
       await waitFor(() => expect(screen.getByText('Ocean Farms Ltd')).toBeInTheDocument());
 
-      const selectAllCheckbox = screen.getByRole('checkbox', { name: /tumunu sec/i });
-      if (selectAllCheckbox) {
-        await user.click(selectAllCheckbox);
-
-        // All checkboxes should be checked
-        const checkboxes = screen.getAllByRole('checkbox');
-        // expect(checkboxes.every(cb => (cb as HTMLInputElement).checked)).toBe(true);
-      }
+      const selectAllCheckbox = screen.getByRole('checkbox', { name: /select all tenants/i });
+      await user.click(selectAllCheckbox);
+      expect(
+        screen.getAllByRole('checkbox').every((checkbox) => (checkbox as HTMLInputElement).checked),
+      ).toBe(true);
     });
 
     it('should bulk suspend selected tenants', async () => {
       const user = userEvent.setup();
-      (tenantsApi.bulkSuspend as any).mockResolvedValueOnce({ success: ['tenant-1', 'tenant-2'], failed: [] });
+      vi.mocked(tenantsApi.bulkSuspend).mockResolvedValueOnce({
+        success: ['tenant-1', 'tenant-2'],
+        failed: [],
+      });
 
       renderWithRouter(<TenantManagementPage />);
 
@@ -398,7 +372,7 @@ describe('TenantManagementPage', () => {
 
   describe('Error Handling', () => {
     it('should display error message on API failure', async () => {
-      (tenantsApi.list as any).mockRejectedValueOnce(new Error('Network error'));
+      vi.mocked(tenantsApi.list).mockRejectedValueOnce(new Error('Network error'));
 
       renderWithRouter(<TenantManagementPage />);
 
@@ -406,28 +380,17 @@ describe('TenantManagementPage', () => {
       // Depends on implementation
     });
 
-    it('should display error on suspend failure', async () => {
-      const user = userEvent.setup();
-      (tenantsApi.suspend as any).mockRejectedValueOnce(new Error('Suspend failed'));
+    it('should display an actionable error when tenant loading fails', async () => {
+      vi.mocked(tenantsApi.list).mockRejectedValueOnce(new Error('Network error'));
 
       renderWithRouter(<TenantManagementPage />);
-
-      await waitFor(() => expect(screen.getByText('Ocean Farms Ltd')).toBeInTheDocument());
-
-      const suspendButtons = screen.getAllByRole('button', { name: /askiya al/i });
-      if (suspendButtons.length > 0) {
-        await user.click(suspendButtons[0]);
-
-        await waitFor(() => {
-          expect(screen.getByText(/suspend failed/i)).toBeInTheDocument();
-        });
-      }
+      expect(await screen.findByText(/failed to load tenants/i)).toBeInTheDocument();
     });
   });
 
   describe('Pagination', () => {
     it('should display pagination controls', async () => {
-      (tenantsApi.list as any).mockResolvedValueOnce({
+      vi.mocked(tenantsApi.list).mockResolvedValueOnce({
         data: mockTenants,
         total: 100, // More than one page
       });
@@ -442,7 +405,7 @@ describe('TenantManagementPage', () => {
 
     it('should change page on pagination click', async () => {
       const user = userEvent.setup();
-      (tenantsApi.list as any).mockResolvedValueOnce({
+      vi.mocked(tenantsApi.list).mockResolvedValueOnce({
         data: mockTenants,
         total: 100,
       });
@@ -456,9 +419,7 @@ describe('TenantManagementPage', () => {
         await user.click(nextButton);
 
         await waitFor(() => {
-          expect(tenantsApi.list).toHaveBeenCalledWith(
-            expect.objectContaining({ page: 2 })
-          );
+          expect(tenantsApi.list).toHaveBeenCalledWith(expect.objectContaining({ page: 2 }));
         });
       }
     });
@@ -467,8 +428,9 @@ describe('TenantManagementPage', () => {
   describe('Loading State', () => {
     it('should show loading indicator while fetching', async () => {
       // Delay the API response
-      (tenantsApi.list as any).mockImplementation(() =>
-        new Promise(resolve => setTimeout(() => resolve({ data: mockTenants, total: 4 }), 100))
+      vi.mocked(tenantsApi.list).mockImplementation(
+        () =>
+          new Promise((resolve) => setTimeout(() => resolve({ data: mockTenants, total: 4 }), 100)),
       );
 
       renderWithRouter(<TenantManagementPage />);
@@ -484,7 +446,7 @@ describe('TenantManagementPage', () => {
 
   describe('Empty State', () => {
     it('should show empty message when no tenants', async () => {
-      (tenantsApi.list as any).mockResolvedValueOnce({ data: [], total: 0 });
+      vi.mocked(tenantsApi.list).mockResolvedValueOnce({ data: [], total: 0 });
 
       renderWithRouter(<TenantManagementPage />);
 
@@ -495,19 +457,13 @@ describe('TenantManagementPage', () => {
   });
 
   describe('Tenant Detail Modal', () => {
-    it('should open detail modal on quick view', async () => {
+    it('should navigate from the details action', async () => {
       const user = userEvent.setup();
       renderWithRouter(<TenantManagementPage />);
 
       await waitFor(() => expect(screen.getByText('Ocean Farms Ltd')).toBeInTheDocument());
-
-      const quickViewButtons = screen.getAllByRole('button', { name: /hizli goruntule/i });
-      if (quickViewButtons.length > 0) {
-        await user.click(quickViewButtons[0]);
-
-        // Modal should be visible
-        // expect(screen.getByRole('dialog')).toBeInTheDocument();
-      }
+      await user.click(screen.getAllByRole('button', { name: /details/i })[0]);
+      expect(mockNavigate).toHaveBeenCalledWith('/admin/tenants/tenant-1');
     });
   });
 
@@ -541,21 +497,21 @@ describe('TenantManagementPage', () => {
       renderWithRouter(<TenantManagementPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('4')).toBeInTheDocument(); // Total
-        expect(screen.getByText('2')).toBeInTheDocument(); // Active
-        expect(screen.getByText('1')).toBeInTheDocument(); // Suspended/Pending
+        expect(within(screen.getByText('Total').parentElement!).getByText('4')).toBeInTheDocument();
+        expect(
+          within(screen.getAllByText('Active')[0].parentElement!).getByText('2'),
+        ).toBeInTheDocument();
+        expect(screen.getAllByText('1')).toHaveLength(2);
       });
     });
 
     it('should handle stats API failure gracefully', async () => {
-      (tenantsApi.getStats as any).mockRejectedValueOnce(new Error('Stats failed'));
+      vi.mocked(tenantsApi.getStats).mockRejectedValueOnce(new Error('Stats failed'));
 
       renderWithRouter(<TenantManagementPage />);
 
-      // Should use fallback/mock stats
-      await waitFor(() => {
-        expect(screen.getByText('Toplam')).toBeInTheDocument();
-      });
+      expect(await screen.findByText('Ocean Farms Ltd')).toBeInTheDocument();
+      expect(screen.queryByText('Total')).not.toBeInTheDocument();
     });
   });
 

@@ -101,7 +101,7 @@ if (typeof window !== 'undefined') {
 
 export function useAsyncData<T>(
   fetcher: () => Promise<T>,
-  options: UseAsyncDataOptions<T> = {}
+  options: UseAsyncDataOptions<T> = {},
 ): UseAsyncDataReturn<T> {
   const {
     initialData = null,
@@ -126,6 +126,7 @@ export function useAsyncData<T>(
   const mountedRef = useRef(true);
   const fetchIdRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const inFlightRef = useRef<Promise<void> | null>(null);
 
   // Store fetcher in a ref so fetchData doesn't need it as a dep (PERF-001)
   // This prevents infinite re-fetch loops when the caller passes an inline arrow function
@@ -150,129 +151,146 @@ export function useAsyncData<T>(
   });
 
   const fetchData = useCallback(
-    async (showLoading = true) => {
-      // Abort any previous request
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
+    (showLoading = true): Promise<void> => {
+      // Reuse the active request so repeated clicks/renders cannot create a
+      // request storm. Callers still receive a promise that settles with the
+      // shared request.
+      if (inFlightRef.current) {
+        return inFlightRef.current;
       }
-      abortControllerRef.current = new AbortController();
 
-      // Track this fetch with a unique ID so superseded fetches don't update state
-      const fetchId = ++fetchIdRef.current;
+      const request = (async () => {
+        // Abort any previous request
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+        }
+        abortControllerRef.current = new AbortController();
 
-      // Check cache (uses LRU touch -- H1)
-      if (cacheKey) {
-        const cached = getCacheEntry(cacheKey);
-        if (cached && Date.now() - cached.timestamp < cacheTTL) {
-          if (mountedRef.current && fetchId === fetchIdRef.current) {
-            setState((prev) => ({
-              ...prev,
-              data: cached.data as T,
+        // Track this fetch with a unique ID so superseded fetches don't update state
+        const fetchId = ++fetchIdRef.current;
+
+        // Check cache (uses LRU touch -- H1)
+        if (cacheKey) {
+          const cached = getCacheEntry(cacheKey);
+          if (cached && Date.now() - cached.timestamp < cacheTTL) {
+            if (mountedRef.current && fetchId === fetchIdRef.current) {
+              setState((prev) => ({
+                ...prev,
+                data: cached.data as T,
+                loading: false,
+                error: null,
+                isInitialLoad: false,
+                canRetry: false,
+                errorCode: undefined,
+              }));
+            }
+            return;
+          }
+        }
+
+        if (showLoading && mountedRef.current) {
+          setState((prev) => ({ ...prev, loading: true, error: null, canRetry: false }));
+        }
+
+        // Create timeout promise with a clearable timer (BUG-012)
+        let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutHandle = setTimeout(() => {
+            reject(new Error('Request timed out'));
+          }, timeout);
+        });
+
+        try {
+          // Race between fetcher and timeout — use ref to avoid stale closure (PERF-001)
+          let result = await Promise.race([fetcherRef.current(), timeoutPromise]);
+
+          // Cancel the timeout timer now that fetch completed (BUG-012)
+          if (timeoutHandle !== null) clearTimeout(timeoutHandle);
+
+          // Check if this fetch was superseded by a newer one
+          if (fetchId !== fetchIdRef.current) {
+            return;
+          }
+
+          // Apply transform if provided (use ref to avoid stale closure -- C8)
+          if (transformRef.current) {
+            result = transformRef.current(result) as Awaited<T>;
+          }
+
+          // Update cache (uses LRU eviction -- H1)
+          if (cacheKey) {
+            addToCache(cacheKey, { data: result, timestamp: Date.now() });
+          }
+
+          if (mountedRef.current) {
+            canRetryRef.current = false;
+            setState({
+              data: result,
               loading: false,
               error: null,
               isInitialLoad: false,
               canRetry: false,
               errorCode: undefined,
-            }));
+            });
+            onSuccessRef.current?.(result);
           }
-          return;
-        }
-      }
+        } catch (err) {
+          // Cancel timeout on any error path too (BUG-012)
+          if (timeoutHandle !== null) clearTimeout(timeoutHandle);
 
-      if (showLoading && mountedRef.current) {
-        setState((prev) => ({ ...prev, loading: true, error: null, canRetry: false }));
-      }
+          // Ignore superseded or aborted requests
+          if (fetchId !== fetchIdRef.current) {
+            return;
+          }
+          if (err instanceof Error && err.name === 'AbortError') {
+            if (mountedRef.current) {
+              setState((prev) => ({ ...prev, loading: false }));
+            }
+            return;
+          }
 
-      // Create timeout promise with a clearable timer (BUG-012)
-      let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        timeoutHandle = setTimeout(() => {
-          reject(new Error('Request timed out'));
-        }, timeout);
-      });
+          console.error('API fetch failed:', err);
 
-      try {
-        // Race between fetcher and timeout — use ref to avoid stale closure (PERF-001)
-        let result = await Promise.race([fetcherRef.current(), timeoutPromise]);
-
-        // Cancel the timeout timer now that fetch completed (BUG-012)
-        if (timeoutHandle !== null) clearTimeout(timeoutHandle);
-
-        // Check if this fetch was superseded by a newer one
-        if (fetchId !== fetchIdRef.current) {
-          return;
-        }
-
-        // Apply transform if provided (use ref to avoid stale closure -- C8)
-        if (transformRef.current) {
-          result = transformRef.current(result) as Awaited<T>;
-        }
-
-        // Update cache (uses LRU eviction -- H1)
-        if (cacheKey) {
-          addToCache(cacheKey, { data: result, timestamp: Date.now() });
-        }
-
-        if (mountedRef.current) {
-          canRetryRef.current = false;
-          setState({
-            data: result,
-            loading: false,
-            error: null,
-            isInitialLoad: false,
-            canRetry: false,
-            errorCode: undefined,
-          });
-          onSuccessRef.current?.(result);
-        }
-      } catch (err) {
-        // Cancel timeout on any error path too (BUG-012)
-        if (timeoutHandle !== null) clearTimeout(timeoutHandle);
-
-        // Ignore superseded or aborted requests
-        if (fetchId !== fetchIdRef.current) {
-          return;
-        }
-        if (err instanceof Error && err.name === 'AbortError') {
           if (mountedRef.current) {
-            setState((prev) => ({ ...prev, loading: false }));
+            const errorMessage = err instanceof Error ? err.message : 'An error occurred';
+            const errorCode = (err as { code?: string }).code;
+
+            // Determine if error is retryable (network errors, timeouts, 5xx errors)
+            const errStatus = (err as { status?: number }).status;
+            const isRetryable =
+              errorMessage.includes('timed out') ||
+              errorMessage.includes('timeout') ||
+              errorMessage.includes('network') ||
+              errorMessage.includes('Network') ||
+              errStatus === undefined || // Network error (no status)
+              (errStatus !== undefined && errStatus >= 500);
+
+            canRetryRef.current = isRetryable;
+            setState((prev) => ({
+              ...prev,
+              loading: false,
+              error: errorMessage,
+              isInitialLoad: false,
+              canRetry: isRetryable,
+              errorCode,
+            }));
+            onErrorRef.current?.(err instanceof Error ? err : new Error(errorMessage));
           }
-          return;
         }
+      })();
 
-        console.error('API fetch failed:', err);
-
-        if (mountedRef.current) {
-          const errorMessage = err instanceof Error ? err.message : 'An error occurred';
-          const errorCode = (err as { code?: string }).code;
-
-          // Determine if error is retryable (network errors, timeouts, 5xx errors)
-          const errStatus = (err as { status?: number }).status;
-          const isRetryable =
-            errorMessage.includes('timed out') ||
-            errorMessage.includes('timeout') ||
-            errorMessage.includes('network') ||
-            errorMessage.includes('Network') ||
-            errStatus === undefined || // Network error (no status)
-            (errStatus !== undefined && errStatus >= 500);
-
-          canRetryRef.current = isRetryable;
-          setState((prev) => ({
-            ...prev,
-            loading: false,
-            error: errorMessage,
-            isInitialLoad: false,
-            canRetry: isRetryable,
-            errorCode,
-          }));
-          onErrorRef.current?.(err instanceof Error ? err : new Error(errorMessage));
+      inFlightRef.current = request;
+      void request.finally(() => {
+        if (inFlightRef.current === request) {
+          inFlightRef.current = null;
         }
-      }
+      });
+      return request;
     },
     // fetcher removed from deps — stored in ref to prevent infinite re-fetch loops (PERF-001)
     // Fix: C8 -- transform, onSuccess, onError removed from deps — stored in refs
     // to prevent infinite re-fetch loops when consumers pass inline arrow functions
-    [cacheKey, cacheTTL, timeout]  
+    [cacheKey, cacheTTL, timeout],
   );
 
   const fetch = useCallback(() => fetchData(true), [fetchData]);
@@ -295,6 +313,7 @@ export function useAsyncData<T>(
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    inFlightRef.current = null;
     setState((prev) => ({ ...prev, loading: false }));
   }, []);
 
@@ -326,7 +345,7 @@ export function useAsyncData<T>(
     if (immediate) {
       fetchData(true);
     }
-  }, [fetchData]);  
+  }, [fetchData]);
 
   // Cleanup
   useEffect(() => {

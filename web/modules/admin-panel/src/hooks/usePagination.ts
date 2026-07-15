@@ -86,9 +86,10 @@ export function usePagination(options: UsePaginationOptions = {}): UsePagination
         const parsed = parseInt(urlLimit, 10);
         if (!isNaN(parsed) && pageSizeOptions.includes(parsed)) return parsed;
         // Clamp to nearest allowed value if not in the allowed list
-        if (!isNaN(parsed)) return pageSizeOptions.reduce((prev, curr) =>
-          Math.abs(curr - parsed) < Math.abs(prev - parsed) ? curr : prev
-        );
+        if (!isNaN(parsed))
+          return pageSizeOptions.reduce((prev, curr) =>
+            Math.abs(curr - parsed) < Math.abs(prev - parsed) ? curr : prev,
+          );
       }
     }
     return initialLimit;
@@ -109,9 +110,10 @@ export function usePagination(options: UsePaginationOptions = {}): UsePagination
     }
     if (urlLimit) {
       const parsed = parseInt(urlLimit, 10);
-      if (!isNaN(parsed) && pageSizeOptions.includes(parsed) && parsed !== limit) setLimitState(parsed);
+      if (!isNaN(parsed) && pageSizeOptions.includes(parsed) && parsed !== limit)
+        setLimitState(parsed);
     }
-  }, [searchParams]);  
+  }, [searchParams]);
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / limit)), [total, limit]);
   const offset = useMemo(() => (page - 1) * limit, [page, limit]);
@@ -122,15 +124,18 @@ export function usePagination(options: UsePaginationOptions = {}): UsePagination
   const updateUrl = useCallback(
     (newPage: number, newLimit: number) => {
       if (syncUrl) {
-        setSearchParams(prev => {
-          const next = new URLSearchParams(prev);
-          next.set('page', String(newPage));
-          next.set('limit', String(newLimit));
-          return next;
-        }, { replace: true });
+        setSearchParams(
+          (prev) => {
+            const next = new URLSearchParams(prev);
+            next.set('page', String(newPage));
+            next.set('limit', String(newLimit));
+            return next;
+          },
+          { replace: true },
+        );
       }
     },
-    [syncUrl, setSearchParams]
+    [syncUrl, setSearchParams],
   );
 
   const goToPage = useCallback(
@@ -139,20 +144,24 @@ export function usePagination(options: UsePaginationOptions = {}): UsePagination
       setPage(validPage);
       updateUrl(validPage, limit);
     },
-    [totalPages, limit, updateUrl]
+    [totalPages, limit, updateUrl],
   );
 
   const nextPage = useCallback(() => {
-    if (canNext) {
-      goToPage(page + 1);
-    }
-  }, [canNext, page, goToPage]);
+    setPage((currentPage) => {
+      const next = Math.min(currentPage + 1, totalPages);
+      updateUrl(next, limit);
+      return next;
+    });
+  }, [limit, totalPages, updateUrl]);
 
   const prevPage = useCallback(() => {
-    if (canPrev) {
-      goToPage(page - 1);
-    }
-  }, [canPrev, page, goToPage]);
+    setPage((currentPage) => {
+      const previous = Math.max(currentPage - 1, 1);
+      updateUrl(previous, limit);
+      return previous;
+    });
+  }, [limit, updateUrl]);
 
   const firstPage = useCallback(() => {
     goToPage(1);
@@ -169,17 +178,20 @@ export function usePagination(options: UsePaginationOptions = {}): UsePagination
       setPage(1);
       updateUrl(1, newLimit);
     },
-    [updateUrl]
+    [updateUrl],
   );
 
   // M4: clamp current page when total changes to avoid out-of-bounds
-  const setTotal = useCallback((newTotal: number) => {
-    setTotalState(newTotal);
-    setPage(prev => {
-      const maxPage = Math.max(1, Math.ceil(newTotal / limit));
-      return Math.min(prev, maxPage);
-    });
-  }, [limit]);
+  const setTotal = useCallback(
+    (newTotal: number) => {
+      setTotalState(newTotal);
+      setPage((prev) => {
+        const maxPage = Math.max(1, Math.ceil(newTotal / limit));
+        return Math.min(prev, maxPage);
+      });
+    },
+    [limit],
+  );
 
   const reset = useCallback(() => {
     setPage(initialPage);
@@ -194,7 +206,7 @@ export function usePagination(options: UsePaginationOptions = {}): UsePagination
       limit,
       offset,
     }),
-    [page, limit, offset]
+    [page, limit, offset],
   );
 
   return {

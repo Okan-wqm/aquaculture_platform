@@ -6986,6 +6986,34 @@ target list no longer matched `rust-toolchain.toml`. The manifest must be
 regenerated from that SSoT before any readiness claim.
 **Owner:** infra-expert. **Deadline:** 2026-07-29.
 
+## INFRA-MEDIUM-045 — enterprise closure calls a nonexistent required-secrets script (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 by the third clean enterprise closure execution.
+All generated inventories, the Rust toolchain, and 29 spec type-check projects
+passed before the `required-secrets` step invoked the nonexistent
+`gates:required-secrets` package script. The canonical secret-manifest validator
+is `validate:required-secrets`; closure generation must reference it, and an
+invariant must reject any future `npm run` target absent from `package.json`.
+**Owner:** infra-expert. **Deadline:** 2026-07-29.
+
+## INFRA-HIGH-030 — nightly fuzz workflow executes a mutable third-party action ref (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 after restoring the enterprise closure SHA-pin gate.
+`.github/workflows/fuzz-st-parser-nightly.yml` invokes
+`dtolnay/rust-toolchain@nightly`, so the code executed by a privileged scheduled
+workflow can change without a repository commit. The workflow must pin the
+verified upstream nightly revision to its full 40-character commit SHA.
+**Owner:** supply-chain-auditor. **Deadline:** 2026-07-22.
+
+## INFRA-MEDIUM-046 — enterprise quality runner fails direct lint on dead definitions (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 during control-plane commit verification. Direct
+ESLint of `tools/quality/quality.mjs` reports an unused filesystem import, an
+unused JSON serializer, and an unused Nx target command extraction. These dead
+definitions must be removed so the runner satisfies the same zero-warning lint
+contract it orchestrates.
+**Owner:** infra-expert. **Deadline:** 2026-07-29.
+
 ## ORPHAN-HIGH-377 — stale-dist image: farm-service `f995d8e54` shipped compiled code absent from its git tree (prod GraphQL outage window) — RE-DIAGNOSED → superseded by [[ORPHAN-HIGH-381]]
 
 **Discovered:** 2026-07-12 ~20:43Z by the Faz 2b lane's live verification: farm-service crash-looped (RestartCount 59+) on fatal drift `[farm.farm_documents] entity declares owned table but DB has no such table` after #946 dropped the table — but the #947-tagged farm image STILL CONTAINS `dist/.../farm-document.entity.js` while `git cat-file` proves the entity is ABSENT from the `f995d8e54` tree. A build-cache/race defect in the image pipeline, not a source defect. Because supergraph composition is all-or-nothing, the droplet's entire GraphQL API was down for the window. Mitigation: the next full-image deploy (post-#950 CI run) rebuilds farm from the correct tree; verified by the farm-heal watcher. FOLLOW-UP: image-vs-tree provenance check in the deploy pipeline (e.g., bake the git sha into the build and assert dist matches; or --no-cache on service image builds) so a stale-dist image can never ship again.

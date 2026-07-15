@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -148,10 +148,6 @@ function runRequired(command, args, options = {}) {
     );
   }
   return result.stdout ?? '';
-}
-
-function stableJson(value) {
-  return `${JSON.stringify(value, Object.keys(value).sort(), 2)}\n`;
 }
 
 function stable(value) {
@@ -380,7 +376,6 @@ function nxProject(name) {
 function classifyLintTarget(project) {
   const root = project.root ?? '';
   const target = project.targets?.lint ?? {};
-  const command = target.options?.command ?? '';
   const executor = target.executor ?? '';
   if (executor === '@aqua/cargo:run' || root.startsWith('crates/')) return 'rust-clippy';
   if (project.name === 'node-red-project' || root.includes('simulators/nodered'))
@@ -600,7 +595,7 @@ function buildClosureManifest() {
     step('schema-drift-registration', ['npm', 'run', 'gates:schema-drift-registration']),
     step('signals-manifest', ['npm', 'run', 'gates:signals-manifest']),
     step('criticality-manifest', ['npm', 'run', 'gates:criticality-manifest']),
-    step('required-secrets', ['npm', 'run', 'gates:required-secrets']),
+    step('required-secrets', ['npm', 'run', 'validate:required-secrets']),
     step('dependency-policy', ['npm', 'run', 'gates:dependency-policy']),
     step('gha-sha-pin', ['npm', 'run', 'gates:gha-sha-pin']),
   ];

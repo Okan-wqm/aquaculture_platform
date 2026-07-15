@@ -89,14 +89,14 @@ jobs:
   fuzz:
     name: 23h fuzz cycle
     runs-on: ubuntu-latest
-    timeout-minutes: 1440  # 24h max — fuzz cap is 23h.
+    timeout-minutes: 1440 # 24h max — fuzz cap is 23h.
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install Rust toolchain (nightly — required by cargo-fuzz)
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@efcb852328a9f50117170cc43094fb6f09eaf1ae # nightly 2026-06-30
 
       - name: Cache cargo-fuzz install + corpus
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

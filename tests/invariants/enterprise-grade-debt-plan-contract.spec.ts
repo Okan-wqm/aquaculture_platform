@@ -21,6 +21,8 @@ const REQUIRED_STATUS_CHECKS_PATH = join(
   '.github/manifests/main-required-status-checks.json',
 );
 const QUALITY_RUNNER_PATH = join(REPO_ROOT, 'tools/quality/quality.mjs');
+const CLOSURE_MANIFEST_PATH = join(REPO_ROOT, 'tools/quality/closure-manifest.json');
+const PACKAGE_JSON_PATH = join(REPO_ROOT, 'package.json');
 const TRUTH_BUCKETS = new Set([
   'real-open',
   'already-fixed-needs-close',
@@ -308,5 +310,35 @@ describe('enterprise-grade debt closure plan contract', () => {
     expect(runner).toContain("const cleanTreeResult = run('git', ['status', '--short']");
     expect(runner).toContain('clean_tree_output_sha256: sha256(cleanTreeOutput)');
     expect(runner).toContain('${item.name} modified the worktree`');
+  });
+
+  it('keeps every closure npm command bound to an existing package script', () => {
+    const packageJson: unknown = JSON.parse(readFileSync(PACKAGE_JSON_PATH, 'utf8'));
+    const closureManifest: unknown = JSON.parse(readFileSync(CLOSURE_MANIFEST_PATH, 'utf8'));
+
+    expect(isRecord(packageJson)).toBe(true);
+    expect(isRecord(closureManifest)).toBe(true);
+    if (!isRecord(packageJson) || !isRecord(closureManifest)) return;
+
+    expect(isRecord(packageJson.scripts)).toBe(true);
+    expect(isRecord(closureManifest.profiles)).toBe(true);
+    if (!isRecord(packageJson.scripts) || !isRecord(closureManifest.profiles)) return;
+
+    const missingScripts: string[] = [];
+    for (const [profileName, profile] of Object.entries(closureManifest.profiles)) {
+      if (!isRecord(profile)) throw new Error(`Expected closure profile object: ${profileName}`);
+      for (const closureStep of objectArray(profile.steps)) {
+        const command = stringArray(closureStep.command);
+        if (command[0] !== 'npm' || command[1] !== 'run') continue;
+        const scriptName = stringValue(command[2], `${profileName}.npm_script`);
+        if (typeof packageJson.scripts[scriptName] !== 'string') {
+          missingScripts.push(
+            `${profileName}:${stringValue(closureStep.name, 'step.name')}:${scriptName}`,
+          );
+        }
+      }
+    }
+
+    expect(missingScripts).toEqual([]);
   });
 });

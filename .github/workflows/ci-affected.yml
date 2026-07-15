@@ -389,6 +389,16 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           NODE_OPTIONS: '--max-old-space-size=4096'
 
+      - name: Run admin route contract (affected, strict)
+        run: |
+          BASE_REF="origin/${{ github.base_ref || 'main' }}"
+          bash scripts/ci/affected-target-policy.sh --target test:contract --base "$BASE_REF" --parallel 1
+        timeout-minutes: 10
+        env:
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
+          NODE_OPTIONS: '--max-old-space-size=4096'
+
       # FE-CRITICAL-050-SW: the AquaMobil service-worker build-artifact invariant
       # (src/pwa/__tests__/sw-build-artifact.invariant.spec.ts) runs a REAL
       # `vite build` and asserts the deployed dist/messaging-sw.js still carries the

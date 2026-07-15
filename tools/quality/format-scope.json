@@ -40368,6 +40368,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/admin-route-contract/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/e2e/v11-compat/forroutes-wildcard.e2e-spec.ts",
       "prettier_managed": true
     },
@@ -40501,6 +40507,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/admin-no-auth-tenants-writes.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/admin-route-contract-ci.spec.ts",
       "prettier_managed": true
     },
     {
@@ -54312,10 +54324,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8901,
+  "file_count": 8903,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8720,
-  "managed_file_list_sha256": "08dd251b40f67b13d7b233c3205136e8ad1175967fe13077a887e24bca84bfb9",
+  "managed_count": 8722,
+  "managed_file_list_sha256": "081d6733328f39bcc5db7d673eb9c53452b725f119602b600bfcf820a38f062d",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

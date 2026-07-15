@@ -48,6 +48,9 @@
         "hydroponics-module": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery."
       }
     },
+    "test:contract": {
+      "knownUnstableProjects": {}
+    },
     "test": {
       "knownUnstableProjects": {
         "@aquaculture/hr-module": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",

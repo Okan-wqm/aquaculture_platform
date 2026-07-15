@@ -159,6 +159,7 @@ export default {
         '<rootDir>/repo-hygiene-invariants.spec.ts',
         '<rootDir>/dependency-policy-source-scope.spec.ts',
         '<rootDir>/enterprise-grade-debt-plan-contract.spec.ts',
+        '<rootDir>/admin-route-contract-ci.spec.ts',
         '<rootDir>/stabilization-manifest.spec.ts',
         '<rootDir>/runtime-lifecycle-timer-ssot.spec.ts',
         '<rootDir>/mobile-csp-headers.spec.ts',

@@ -60,6 +60,11 @@ import {
   SCADA_ALARM_ACK_EVENT,
   SCADA_ALARM_ACK_ALL_EVENT,
 } from './services/alarm-ack.events';
+import {
+  SCADA_TENANT_OPERATOR_CONNECTED,
+  SCADA_TENANT_OPERATOR_DISCONNECTED,
+  type ScadaTenantOperatorEvent,
+} from './services/scada-activation.events';
 import { isTagRef } from '@platform/sensor-contracts';
 
 /* ------------------------------------------------------------------ */
@@ -216,7 +221,10 @@ export class ScadaRuntimeGateway
       const role: HmiRole = payload.role ?? (Array.isArray(payload.roles) ? payload.roles[0] : 'viewer') ?? 'viewer';
 
       // --- Tenant connection cap ---
-      if (this.getConnectionCountForTenant(tenantId) >= MAX_CONNECTIONS_PER_TENANT) {
+      // Count BEFORE registering this socket: 0 ⇒ this is the tenant's first
+      // operator (the lazy-activation edge, RT-011 Faz 3).
+      const priorTenantConnections = this.getConnectionCountForTenant(tenantId);
+      if (priorTenantConnections >= MAX_CONNECTIONS_PER_TENANT) {
         this.logger.warn(
           `[connect] ${client.id} — tenant ${tenantId} exceeded max connections (${MAX_CONNECTIONS_PER_TENANT})`,
         );
@@ -235,6 +243,15 @@ export class ScadaRuntimeGateway
         `[connect] ${client.id} — tenant=${tenantId} userId=${userId} role=${role}`,
       );
 
+      // First operator for this tenant → signal the activation bridge to load
+      // its PUBLISHED SCADA package into the engine (D4 lazy activation). Crosses
+      // the boundary as an event — the engine depends on this gateway (circular).
+      if (priorTenantConnections === 0) {
+        this.eventEmitter.emit(SCADA_TENANT_OPERATOR_CONNECTED, {
+          tenantId,
+        } satisfies ScadaTenantOperatorEvent);
+      }
+
       client.emit(ScadaSocketEvent.AUTH, {
         status: 'authenticated',
         userId,
@@ -249,9 +266,20 @@ export class ScadaRuntimeGateway
 
   handleDisconnect(client: Socket): void {
     try {
+      // Capture the tenant BEFORE removing the client so we can detect the
+      // tenant's last operator leaving (→0 ⇒ idle, RT-011 Faz 3).
+      const tenantId = this.clients.get(client.id)?.tenantId;
       this.tagManager.removeSocket(client.id);
       this.clients.delete(client.id);
       this.logger.log(`[disconnect] ${client.id}`);
+
+      // Last operator for this tenant → signal the activation bridge to start
+      // the idle clock (the eviction sweep deactivates it after the grace period).
+      if (tenantId && this.getConnectionCountForTenant(tenantId) === 0) {
+        this.eventEmitter.emit(SCADA_TENANT_OPERATOR_DISCONNECTED, {
+          tenantId,
+        } satisfies ScadaTenantOperatorEvent);
+      }
     } catch (error) {
       this.logger.error(`[disconnect] ${client.id} cleanup error: ${(error as Error).message}`);
     }

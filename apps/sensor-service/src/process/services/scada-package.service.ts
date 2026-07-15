@@ -1,6 +1,13 @@
 import { createHash, randomUUID } from 'crypto';
 
 import { Injectable, Logger, NotFoundException, BadRequestException, Inject, Optional } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+
+import {
+  SCADA_PACKAGE_PUBLISHED,
+  SCADA_PACKAGE_ARCHIVED,
+  type ScadaPackageLifecycleEvent,
+} from '../../scada-runtime/services/scada-activation.events';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, ILike, In } from 'typeorm';
@@ -268,6 +275,7 @@ export class ScadaPackageService {
     @Optional()
     @Inject(ConfigService)
     private readonly configService: ConfigService | null,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   /**
@@ -649,6 +657,24 @@ export class ScadaPackageService {
     }
     pkg.status = ScadaPackageStatus.PUBLISHED;
     await this.scadaPackageRepository.save(pkg);
+    this.emitPackageLifecycle(SCADA_PACKAGE_PUBLISHED, tenantId, pkg.id);
+  }
+
+  /**
+   * In-process signal to the SCADA activation bridge (RT-011 Faz 3). The cloud
+   * runtime engines must NOT be imported here (they live in the scada-runtime
+   * module and depend on the gateway) — so a publish/archive crosses the
+   * boundary as an EventEmitter2 event, consumed by `ScadaActivationService`.
+   * Best-effort: a listener fault must never fail the package mutation.
+   */
+  private emitPackageLifecycle(event: string, tenantId: string, packageId: string): void {
+    try {
+      this.eventEmitter.emit(event, { tenantId, packageId } satisfies ScadaPackageLifecycleEvent);
+    } catch (error) {
+      this.logger.error(
+        `emitPackageLifecycle(${event}) failed for tenant=${tenantId} pkg=${packageId} — ${(error as Error).message}`,
+      );
+    }
   }
 
   /**
@@ -678,6 +704,7 @@ export class ScadaPackageService {
 
     pkg.status = ScadaPackageStatus.ARCHIVED;
     await this.scadaPackageRepository.save(pkg);
+    this.emitPackageLifecycle(SCADA_PACKAGE_ARCHIVED, tenantId, pkg.id);
     return { archived: true, undeploy };
   }
 
@@ -1050,6 +1077,7 @@ export class ScadaPackageService {
       await this.mqttClient.publish(topic, payload);
       pkg.status = ScadaPackageStatus.PUBLISHED;
       await this.scadaPackageRepository.save(pkg);
+      this.emitPackageLifecycle(SCADA_PACKAGE_PUBLISHED, pkg.tenantId, pkg.id);
 
       this.logger.log(
         `SCADA package "${pkg.name}" v${pkg.version} deployed to device ${device.deviceCode} (command: ${commandId})`,

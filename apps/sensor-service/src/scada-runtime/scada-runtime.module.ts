@@ -38,6 +38,7 @@ import { AlarmStorageService } from './services/alarm-storage.service';
 import { NotificationService } from './services/notification.service';
 import { DaqStorageService } from './services/daq-storage.service';
 import { TagValueFanoutService } from './services/tag-value-fanout.service';
+import { ScadaActivationService } from './services/scada-activation.service';
 
 /* ------------------------------------------------------------------ */
 /*  Optional services (may still be in progress from other agents)     */
@@ -110,6 +111,11 @@ if (SchedulerService) optionalProviders.push(SchedulerService as Provider);
     // Live-data producer: bridges ingested sensor metrics onto the gateway's
     // tenant-fenced tag fan-out via the registry's sensor→fqn linkage.
     TagValueFanoutService,
+    // Faz 3 activation bridge: @OnEvent consumer that lazily activates a tenant
+    // (loads its PUBLISHED packages into the engine/scheduler) on first operator
+    // subscribe and evicts idle tenants. Reached from the gateway/package service
+    // only via EventEmitter2 (the engine depends on the gateway — circular).
+    ScadaActivationService,
     // ScriptEngineService and SchedulerService registered only when their
     // source files are present (see optional-import block above).
     ...optionalProviders,

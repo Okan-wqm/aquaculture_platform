@@ -24665,6 +24665,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/scada-runtime/services/__tests__/scada-activation.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/scada-runtime/services/__tests__/scada-package-alarm-rule.mapper.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/scada-runtime/services/__tests__/script-engine.service.spec.ts",
       "prettier_managed": true
     },
@@ -24708,6 +24720,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/scada-runtime/services/quickjs-sandbox.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/scada-runtime/services/scada-activation.events.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/scada-runtime/services/scada-activation.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/scada-runtime/services/scada-package-alarm-rule.mapper.ts",
       "prettier_managed": true
     },
     {
@@ -54234,10 +54264,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8888,
+  "file_count": 8893,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8707,
-  "managed_file_list_sha256": "b067c182f32299085aeaaaf85639d3258c520d6e794d14c4c2e72f7e29c8689a",
+  "managed_count": 8712,
+  "managed_file_list_sha256": "38da610094ee5672f50ee7c2c10ae5a9a8eb975e1806463bae8ce9833cc5a6c9",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -22,6 +22,7 @@ const REQUIRED_STATUS_CHECKS_PATH = join(
 );
 const QUALITY_RUNNER_PATH = join(REPO_ROOT, 'tools/quality/quality.mjs');
 const CLOSURE_MANIFEST_PATH = join(REPO_ROOT, 'tools/quality/closure-manifest.json');
+const NX_JSON_PATH = join(REPO_ROOT, 'nx.json');
 const PACKAGE_JSON_PATH = join(REPO_ROOT, 'package.json');
 const TRUTH_BUCKETS = new Set([
   'real-open',
@@ -310,6 +311,43 @@ describe('enterprise-grade debt closure plan contract', () => {
     expect(runner).toContain("const cleanTreeResult = run('git', ['status', '--short']");
     expect(runner).toContain('clean_tree_output_sha256: sha256(cleanTreeOutput)');
     expect(runner).toContain('${item.name} modified the worktree`');
+  });
+
+  it('keeps Nx analytics and sync writes disabled with a read-only closure preflight', () => {
+    const nxJson: unknown = JSON.parse(readFileSync(NX_JSON_PATH, 'utf8'));
+    const closureManifest: unknown = JSON.parse(readFileSync(CLOSURE_MANIFEST_PATH, 'utf8'));
+
+    expect(isRecord(nxJson)).toBe(true);
+    expect(isRecord(closureManifest)).toBe(true);
+    if (!isRecord(nxJson) || !isRecord(closureManifest)) return;
+
+    expect(nxJson.analytics).toBe(false);
+    expect(isRecord(nxJson.sync)).toBe(true);
+    if (!isRecord(nxJson.sync)) return;
+    expect(nxJson.sync.applyChanges).toBe(false);
+
+    expect(isRecord(closureManifest.profiles)).toBe(true);
+    if (!isRecord(closureManifest.profiles)) return;
+    const enterpriseProfile = closureManifest.profiles['enterprise-closure'];
+    expect(isRecord(enterpriseProfile)).toBe(true);
+    if (!isRecord(enterpriseProfile)) return;
+
+    const closureSteps = objectArray(enterpriseProfile.steps);
+    const stepNames = closureSteps.map((closureStep) => stringValue(closureStep.name, 'step.name'));
+    const syncStepIndex = stepNames.indexOf('nx-sync-check');
+    const installedTreeIndex = stepNames.indexOf('npm-ls-installed-tree');
+    const syncStep = closureSteps[syncStepIndex];
+
+    expect(syncStepIndex).toBeGreaterThan(installedTreeIndex);
+    expect(stringArray(syncStep?.command)).toEqual([
+      'node',
+      'tools/toolchain/run.mjs',
+      'nx',
+      'sync:check',
+    ]);
+    for (const taskStep of ['format-check', 'lint-all', 'type-check', 'test-all', 'build-all']) {
+      expect(stepNames.indexOf(taskStep)).toBeGreaterThan(syncStepIndex);
+    }
   });
 
   it('keeps every closure npm command bound to an existing package script', () => {

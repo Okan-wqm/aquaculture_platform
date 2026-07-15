@@ -1,6 +1,24 @@
 {
   "entries": [
     {
+      "args": [
+        "nx",
+        "run",
+        "@apollo/server-plugin-landing-page-graphql-playground:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
+      "command": "eslint .",
+      "cwd": "tools/vendor/apollo-playground-disabled",
+      "executor": "nx:run-commands",
+      "max_warnings": 0,
+      "name": "@apollo/server-plugin-landing-page-graphql-playground",
+      "resource_class": "eslint-ts",
+      "root": "tools/vendor/apollo-playground-disabled",
+      "runner": "nx"
+    },
+    {
       "args": ["nx", "run", "@aqua/cargo:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
       "command": null,
       "cwd": null,
@@ -713,6 +731,6 @@
   "generated_by": "tools/quality/quality.mjs lint-inventory generate",
   "schema_version": 1,
   "source": "nx project graph",
-  "target_count": 52,
-  "target_list_sha256": "9cd7daa60256e9e7e4afe6cd3b97a18076a86562074a94703d8c2162095aa912"
+  "target_count": 53,
+  "target_list_sha256": "c7f21ed1b9e15f06922e7b186a3ba7bfbd4d0b61e9d78a6ab2a03638d9e342bb"
 }

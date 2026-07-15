@@ -36826,6 +36826,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/telemetry/tracing.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/telemetry/tracing.ts",
       "prettier_managed": true
     },
@@ -38874,7 +38880,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "82dede0c7ce48f3c2a48fa73e29a127cc27be8c791925e3fbfdaff2031d912f5",
+      "content_sha256": "24cb0eee1b28f9abd1b00ea1dfaccca2614b10e15f73203ccdb094a2bb97a804",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -42738,6 +42744,36 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/vendor/apollo-playground-disabled/index.d.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/vendor/apollo-playground-disabled/index.js",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/vendor/apollo-playground-disabled/index.test.js",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/vendor/apollo-playground-disabled/package.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/vendor/apollo-playground-disabled/README.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/worktree-audit/tsconfig.json",
       "prettier_managed": true
     },
@@ -42767,7 +42803,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "a70a087f4c4b7d38519c357163847c3f166b6cec34104323713bb316d8235fb9",
+      "content_sha256": "ea002ad89b46818ae5b1ea1868194eee963187186d5ddd37f72e56fa56ed10b8",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "web/apps/aquamobil/package-lock.json",
@@ -54276,10 +54312,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8895,
+  "file_count": 8901,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8714,
-  "managed_file_list_sha256": "e901142123094947828e10047933426ee7d945b1df4ac38c93954f0029bf65ef",
+  "managed_count": 8720,
+  "managed_file_list_sha256": "08dd251b40f67b13d7b233c3205136e8ad1175967fe13077a887e24bca84bfb9",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -90,6 +90,10 @@
           "name": "npm-ls-installed-tree"
         },
         {
+          "command": ["node", "tools/toolchain/run.mjs", "nx", "sync:check"],
+          "name": "nx-sync-check"
+        },
+        {
           "command": ["npm", "audit", "--audit-level=moderate", "--omit=dev"],
           "heavy": true,
           "name": "npm-audit"

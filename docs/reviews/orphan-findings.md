@@ -6977,6 +6977,15 @@ graph. The inventory must be regenerated from the Nx SSoT before any readiness
 claim.
 **Owner:** infra-expert. **Deadline:** 2026-07-29.
 
+## INFRA-MEDIUM-044 — enterprise closure Rust toolchain manifest is stale (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 by the second clean enterprise closure execution.
+Clean-entry, format-scope, and lint-inventory passed, then
+`quality-rust-toolchain` rejected the checked-in generated manifest because its
+target list no longer matched `rust-toolchain.toml`. The manifest must be
+regenerated from that SSoT before any readiness claim.
+**Owner:** infra-expert. **Deadline:** 2026-07-29.
+
 ## ORPHAN-HIGH-377 — stale-dist image: farm-service `f995d8e54` shipped compiled code absent from its git tree (prod GraphQL outage window) — RE-DIAGNOSED → superseded by [[ORPHAN-HIGH-381]]
 
 **Discovered:** 2026-07-12 ~20:43Z by the Faz 2b lane's live verification: farm-service crash-looped (RestartCount 59+) on fatal drift `[farm.farm_documents] entity declares owned table but DB has no such table` after #946 dropped the table — but the #947-tagged farm image STILL CONTAINS `dist/.../farm-document.entity.js` while `git cat-file` proves the entity is ABSENT from the `f995d8e54` tree. A build-cache/race defect in the image pipeline, not a source defect. Because supergraph composition is all-or-nothing, the droplet's entire GraphQL API was down for the window. Mitigation: the next full-image deploy (post-#950 CI run) rebuilds farm from the correct tree; verified by the farm-heal watcher. FOLLOW-UP: image-vs-tree provenance check in the deploy pipeline (e.g., bake the git sha into the build and assert dist matches; or --no-cache on service image builds) so a stale-dist image can never ship again.

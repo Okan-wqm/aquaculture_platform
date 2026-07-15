@@ -7031,6 +7031,66 @@ exclusive foreign-platform optional/bundled records into one synthetic tree.
 Closure must validate the actual tree produced by the immediately preceding
 clean install, not npm's invalid cross-platform synthetic view.
 
+## INFRA-HIGH-032 — production DOMPurify override remains below eight XSS advisory fixes (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 by the enterprise closure production dependency
+audit. The root override fixes `dompurify` at `3.4.2`, while eight current
+advisories affect versions through `3.4.10`, including executable-markup
+retention and persistent configuration pollution. The remediation pins the
+direct sensor-module dependency and root override to `3.4.12`; the production
+audit no longer reports any DOMPurify advisory. Sanitizer contracts remain the
+required pre-commit proof.
+**Owner:** security-reviewer. **Deadline:** 2026-07-22.
+
+## INFRA-MEDIUM-047 — production js-yaml is vulnerable to merge-key complexity DoS (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 by the enterprise closure production dependency
+audit. Direct `js-yaml@4.1.1` is affected by `GHSA-h67p-54hq-rp68`, allowing
+quadratic work through repeated merge aliases. The remediation moves the direct
+dependency to `4.3.0` and `@nestjs/swagger` to `11.4.5`, whose own parser
+dependency is also `4.3.0`; the production audit no longer reports `js-yaml`.
+**Owner:** supply-chain-auditor. **Deadline:** 2026-07-29.
+
+## INFRA-MEDIUM-048 — all web runtimes pin React Router below the open-redirect fix (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 by the enterprise closure production dependency
+audit. Eleven web package manifests pin `react-router-dom@6.30.3`, affected by
+`GHSA-2j2x-hqr9-3h42`; protocol-relative redirect paths can be reinterpreted as
+cross-origin redirects. The required remediation updates all eleven manifests,
+the standalone AquaMobil lock, and the Module Federation singleton SSoT
+together. It remains blocked from closure by the canonical admin-panel test
+baseline `FE-MEDIUM-063`; no partial runtime-set upgrade will be certified.
+**Owner:** frontend-expert. **Deadline:** 2026-07-29.
+
+## INFRA-MEDIUM-049 — production OpenTelemetry graph remains below the baggage DoS fix (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 by the enterprise closure production dependency
+audit. The `2.7.1` core and `0.218.0` SDK/exporter graph is affected by
+`GHSA-8988-4f7v-96qf`, allowing unbounded allocation while parsing W3C baggage.
+Upgrade the OTel family coherently and verify telemetry bootstrap/export.
+**Owner:** observability-expert. **Deadline:** 2026-07-29.
+
+## INFRA-MEDIUM-050 — Apollo production graph remains exposed to XS-Search and uuid bounds advisories (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 by the enterprise closure production dependency
+audit. Apollo Server 4 and Federation 2.13 transitively retain vulnerable
+server and `uuid` paths (`GHSA-9q82-xgwf-vj6h`, `GHSA-w5hq-g745-h8pq`). Upgrade
+the Nest/Apollo/Federation family as a compatible set and rerun GraphQL,
+composition, CSRF, and gateway contracts.
+**Owner:** gateway-expert. **Deadline:** 2026-07-29.
+
+## FE-MEDIUM-063 — admin-panel Vitest target has a 48-test async/fixture red baseline (OPEN)
+
+**Discovered:** 2026-07-15 while validating the React Router security patch.
+A clean isolated run reports 48 failures across `useAsyncData`, `useFilters`,
+`usePagination`, and `TenantManagementPage`. `useAsyncData` has no router
+dependency and still fails or waits on stale async expectations in isolation;
+the 16 tenant fixture failures were already noted under resolved
+`ORPHAN-MEDIUM-308` but never received a canonical follow-up. Repair the
+`act`/fake-timer contracts and tenant API fixture in a dedicated frontend test
+control-plane wave so the target can gate affected changes.
+**Owner:** frontend-expert. **Deadline:** 2026-07-29.
+
 ## ORPHAN-HIGH-377 — stale-dist image: farm-service `f995d8e54` shipped compiled code absent from its git tree (prod GraphQL outage window) — RE-DIAGNOSED → superseded by [[ORPHAN-HIGH-381]]
 
 **Discovered:** 2026-07-12 ~20:43Z by the Faz 2b lane's live verification: farm-service crash-looped (RestartCount 59+) on fatal drift `[farm.farm_documents] entity declares owned table but DB has no such table` after #946 dropped the table — but the #947-tagged farm image STILL CONTAINS `dist/.../farm-document.entity.js` while `git cat-file` proves the entity is ABSENT from the `f995d8e54` tree. A build-cache/race defect in the image pipeline, not a source defect. Because supergraph composition is all-or-nothing, the droplet's entire GraphQL API was down for the window. Mitigation: the next full-image deploy (post-#950 CI run) rebuilds farm from the correct tree; verified by the farm-heal watcher. FOLLOW-UP: image-vs-tree provenance check in the deploy pipeline (e.g., bake the git sha into the build and assert dist matches; or --no-cache on service image builds) so a stale-dist image can never ship again.

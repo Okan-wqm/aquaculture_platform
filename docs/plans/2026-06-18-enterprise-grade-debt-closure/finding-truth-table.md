@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `75f9bb63a6243655251aeb472c76176db2c3b5e58b81f8b52c7825b1ffcb0b28`
+Registry tip: `a96fc0d94f31f8da31ba7e767bad8f80420d7de8e8fb517813adf94ce6b73cfa`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -48,10 +48,11 @@ RESOLVED and leave the active table below (the table mirrors
 `active_critical_ids` exactly; the contract invariant enforces the bijection).
 9 active CRITICALs remain.
 
-Updated 2026-07-15: the control-plane stop-line reconciliation registered fourteen
-new IN-PROGRESS findings without changing the active CRITICAL set. The registry
-now contains 940 entries at the tip shown above; the manifest counts and this
-truth table remain pinned to that registry state.
+Updated 2026-07-15: the control-plane stop-line reconciliation registered nineteen
+new IN-PROGRESS findings and one OPEN frontend test-baseline finding without
+changing the active CRITICAL set. The registry now contains 946 entries at the
+tip shown above; the manifest counts and this truth table remain pinned to that
+registry state.
 
 Allowed truth buckets:
 

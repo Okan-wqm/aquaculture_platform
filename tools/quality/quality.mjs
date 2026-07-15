@@ -606,7 +606,7 @@ function buildClosureManifest() {
       heavy: true,
     }),
     step('npm-ci-ignore-scripts', ['npm', 'ci', '--ignore-scripts'], { heavy: true }),
-    step('npm-ls-lock', ['npm', 'ls', '--package-lock-only', '--all'], { heavy: true }),
+    step('npm-ls-installed-tree', ['npm', 'ls', '--all'], { heavy: true }),
     step('npm-audit', ['npm', 'audit', '--audit-level=moderate', '--omit=dev'], { heavy: true }),
     step('format-check', ['npm', 'run', 'format:check']),
     step('lint-all', ['npm', 'run', 'lint:all', '--', '--max-warnings=0'], { heavy: true }),

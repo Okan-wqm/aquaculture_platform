@@ -85,9 +85,9 @@
           "name": "npm-ci-ignore-scripts"
         },
         {
-          "command": ["npm", "ls", "--package-lock-only", "--all"],
+          "command": ["npm", "ls", "--all"],
           "heavy": true,
-          "name": "npm-ls-lock"
+          "name": "npm-ls-installed-tree"
         },
         {
           "command": ["npm", "audit", "--audit-level=moderate", "--omit=dev"],

@@ -341,4 +341,22 @@ describe('enterprise-grade debt closure plan contract', () => {
 
     expect(missingScripts).toEqual([]);
   });
+
+  it('validates the installed npm tree produced by the clean lockfile install', () => {
+    const closureManifest: unknown = JSON.parse(readFileSync(CLOSURE_MANIFEST_PATH, 'utf8'));
+    expect(isRecord(closureManifest)).toBe(true);
+    if (!isRecord(closureManifest)) return;
+
+    expect(isRecord(closureManifest.profiles)).toBe(true);
+    if (!isRecord(closureManifest.profiles)) return;
+    const enterpriseProfile = closureManifest.profiles['enterprise-closure'];
+    expect(isRecord(enterpriseProfile)).toBe(true);
+    if (!isRecord(enterpriseProfile)) return;
+
+    const installedTreeStep = objectArray(enterpriseProfile.steps).find(
+      (closureStep) => closureStep.name === 'npm-ls-installed-tree',
+    );
+    expect(installedTreeStep).toBeDefined();
+    expect(stringArray(installedTreeStep?.command)).toEqual(['npm', 'ls', '--all']);
+  });
 });

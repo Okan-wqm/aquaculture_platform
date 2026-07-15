@@ -951,6 +951,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": ".github/manifests/scheduled-workflows.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": ".github/pull_request_template.md",
       "prettier_managed": true
     },
@@ -40722,6 +40728,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/dependency-policy-source-scope.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/deploy-isolated-checkout-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -54264,10 +54276,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8893,
+  "file_count": 8895,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8712,
-  "managed_file_list_sha256": "38da610094ee5672f50ee7c2c10ae5a9a8eb975e1806463bae8ce9833cc5a6c9",
+  "managed_count": 8714,
+  "managed_file_list_sha256": "e901142123094947828e10047933426ee7d945b1df4ac38c93954f0029bf65ef",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

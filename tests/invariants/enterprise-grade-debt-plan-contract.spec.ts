@@ -20,6 +20,7 @@ const REQUIRED_STATUS_CHECKS_PATH = join(
   REPO_ROOT,
   '.github/manifests/main-required-status-checks.json',
 );
+const QUALITY_RUNNER_PATH = join(REPO_ROOT, 'tools/quality/quality.mjs');
 const TRUTH_BUCKETS = new Set([
   'real-open',
   'already-fixed-needs-close',
@@ -295,5 +296,17 @@ describe('enterprise-grade debt closure plan contract', () => {
       'merge-gate',
       'aria-merge-authority',
     ]);
+  });
+
+  it('runs enterprise closure noninteractively and verifies a clean tree after every step', () => {
+    const runner = readFileSync(QUALITY_RUNNER_PATH, 'utf8');
+
+    expect(runner).toContain("CI: 'true'");
+    expect(runner).toContain("NX_DAEMON: 'false'");
+    expect(runner).toContain("NX_INTERACTIVE: 'false'");
+    expect(runner).toContain("NX_TASKS_RUNNER_DYNAMIC_OUTPUT: 'false'");
+    expect(runner).toContain("const cleanTreeResult = run('git', ['status', '--short']");
+    expect(runner).toContain('clean_tree_output_sha256: sha256(cleanTreeOutput)');
+    expect(runner).toContain('${item.name} modified the worktree`');
   });
 });

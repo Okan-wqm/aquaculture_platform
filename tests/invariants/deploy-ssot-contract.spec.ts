@@ -23,6 +23,17 @@ function extractComposeServiceBlock(compose: string, serviceName: string): strin
 }
 
 describe('deploy SSOT contract', () => {
+  it('keeps production releases fail-closed behind the backup/restore stop-line', () => {
+    const workflow = read('.github/workflows/deploy-digitalocean.yml');
+
+    expect(workflow).toContain('production-deploy-lock:');
+    expect(workflow).toContain('PRODUCTION_DEPLOY_ENABLED: ${{ vars.PRODUCTION_DEPLOY_ENABLED }}');
+    expect(workflow).toContain("needs.production-deploy-lock.outputs.enabled == 'true'");
+    const dispatchInputs =
+      /workflow_dispatch:\n([\s\S]*?)\n\n# Permissions/.exec(workflow)?.[1] ?? '';
+    expect(dispatchInputs).not.toContain('PRODUCTION_DEPLOY_ENABLED');
+  });
+
   it('keeps production/staging compose on registry images only', () => {
     for (const path of ['docker-compose.droplet.yml', 'docker-compose.staging.yml']) {
       const lines = uncommentedLines(read(path));
@@ -87,17 +98,21 @@ describe('deploy SSOT contract', () => {
 
     expect(workflow).not.toContain('path: .nx/cache');
     expect(workflow).toContain("NX_SKIP_NX_CACHE: 'true'");
-    expect(workflow).toContain('node scripts/deploy/verify-backend-dist-provenance.mjs "${PROJECTS}"');
+    expect(workflow).toContain(
+      'node scripts/deploy/verify-backend-dist-provenance.mjs "${PROJECTS}"',
+    );
     expect(provenance).toContain('stale compiled app files detected');
-    expect(provenance).toContain('apps\', project, \'src');
-    expect(provenance).toContain('dist\', \'apps\', project');
+    expect(provenance).toContain("apps', project, 'src");
+    expect(provenance).toContain("dist', 'apps', project");
   });
 
   it('expands manual selective deploys with migration owner services from the catalog', () => {
     const workflow = read('.github/workflows/deploy-digitalocean.yml');
     const resolver = read('scripts/deploy/resolve-migration-owner-services.mjs');
 
-    expect(workflow).toContain('MIGRATION_OWNER_SERVICES="$(node scripts/deploy/resolve-migration-owner-services.mjs');
+    expect(workflow).toContain(
+      'MIGRATION_OWNER_SERVICES="$(node scripts/deploy/resolve-migration-owner-services.mjs',
+    );
     expect(workflow).toContain('append_backend_once "$svc"');
     expect(resolver).toContain('service-catalog.generated.json');
     expect(resolver).toContain('catalog.dbSchemas');
@@ -188,9 +203,7 @@ describe('deploy SSOT contract', () => {
     expect((runGateBlock.match(/capacity_diagnostic_snapshot/g) ?? []).length).toBe(2);
 
     const duTimeoutSeconds = Number(
-      /CAPACITY_DU_TIMEOUT_SECONDS="\$\{CAPACITY_DU_TIMEOUT_SECONDS:-(\d+)\}"/.exec(
-        capacity,
-      )?.[1],
+      /CAPACITY_DU_TIMEOUT_SECONDS="\$\{CAPACITY_DU_TIMEOUT_SECONDS:-(\d+)\}"/.exec(capacity)?.[1],
     );
     const jobTimeoutMinutes = Number(/timeout-minutes:\s*(\d+)/.exec(capacityJobBlock)?.[1]);
     const commandTimeoutMinutes = Number(/command_timeout:\s*(\d+)m/.exec(capacityJobBlock)?.[1]);

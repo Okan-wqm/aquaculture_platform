@@ -119,6 +119,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Production remains fail-closed while backup/restore evidence is being
+  # established. The only unlock is the protected repository variable; no
+  # workflow_dispatch input or staging bypass can override this stop-line.
+  production-deploy-lock:
+    name: Production deployment stop-line
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      enabled: ${{ steps.lock.outputs.enabled }}
+    steps:
+      - name: Evaluate protected production release switch
+        id: lock
+        env:
+          PRODUCTION_DEPLOY_ENABLED: ${{ vars.PRODUCTION_DEPLOY_ENABLED }}
+        run: |
+          if [ "${PRODUCTION_DEPLOY_ENABLED}" = "true" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Production deployment stop-line is unlocked by protected repository policy."
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Production deployment is locked. Backup and isolated restore proof are required before enabling releases."
+          fi
+
   # ===========================================================================
   # Staging Gate (WS9 / ADR-016 Phase D)
   #
@@ -138,6 +161,7 @@ jobs:
   #   when staging itself is down.
   # ===========================================================================
   staging-gate:
+    needs: [production-deploy-lock]
     # workflow_call is invoked from ci-affected.yml's `deploy` job which
     # depends on `[install, detect-changes]`. On push to main those are
     # the only jobs that run (lint/test/build/type-check are PR-gates by
@@ -146,9 +170,10 @@ jobs:
     # the actual quality assurance is the PR review gate that must have
     # passed before the commit reached main.
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      needs.production-deploy-lock.outputs.enabled == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'push' ||
-      github.event.workflow_run.conclusion == 'success'
+      github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 60 # staging deploy typically lands in ~30 min
     steps:
@@ -1058,13 +1083,7 @@ jobs:
   # Verify immutable SHA images and build the digest manifest consumed by droplet
   # ===========================================================================
   verify-images:
-    needs:
-      [
-        prepare,
-        build-backend-images,
-        build-frontend-images,
-        build-infra-images,
-      ]
+    needs: [prepare, build-backend-images, build-frontend-images, build-infra-images]
     if: |
       always() &&
       needs.prepare.result == 'success' &&

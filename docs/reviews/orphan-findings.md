@@ -5039,7 +5039,7 @@ Severity: MEDIUM. Discovered 2026-06-24 while running admin-api tests for ORPHAN
 
 **Fix direction:** triage the 10 groups — for each, either the spec's expected route list is stale (update it) or the backend genuinely lacks the route the FE calls (implement it). Then un-quarantine admin-api's `test` target (or add this spec to a gating lane) so the contract drift cannot silently return. Out-of-band from the throttler fix; recorded so the drift is tracked.
 
-Status: OPEN (2026-06-24; owner: admin-api). Registry: orphan-findings.md only.
+Status: IN-PROGRESS (2026-07-15; owner: admin-api; deadline: 2026-07-29). Canonical registry: `docs/reviews/_registry/findings.jsonl`; remediation branch: `fix/enterprise-closure-control-plane`.
 
 ---
 
@@ -6551,16 +6551,17 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 **Design of record:** `docs/adr/045-scada-multi-tenant-runtime.md` (ADR-045, D1–D7; Model A — per-tenant state map + one driver loop). Phased remediation plan = Faz 0–6.
 
 **Remediation progress — Faz 1 (RT-011 core, this PR):** the evaluation engines are now genuinely multi-tenant, no longer single-bound singletons.
+
 - `TagManagerService` — the global tagId-only `tagValueCache` the engines read is DELETED; `getTagValue(tenantId, tagId)` / `getAllTagValues(tenantId)` now read the tenant-qualified cache, so two tenants sharing an fqn never collide in the engine read path.
 - `AlarmEngineService` — single `rules`/`evalState`/`tenantId`/`pendingActions` fields replaced by `tenants: Map<tenantId, TenantAlarmState>`; ONE 1 Hz loop iterates every active tenant; `setAlarmRules`/`setNotificationConfigs`/`acknowledgeAlarm`/`acknowledgeAll`/`getActiveAlarms` are tenant-parameterized; ACK events route by `req.tenantId` (the gateway already carried it); `deactivateTenant`/`isTenantActive` added.
 - `ScriptEngineService` — per-RUN tenant (`runScript(tenantId, …)`/`testScript(tenantId, …)`); every `$`-bridge (tag read/write, alarm read/ack, history, HMI broadcast) is fenced to the run's tenant; the raw all-sockets `SCRIPT_CONSOLE` broadcast is replaced by tenant-room `gateway.pushScriptConsole(tenantId, …)`.
 - `SchedulerService` — jobs keyed by `(tenantId, scriptId)`; `loadScripts`/`addScript`/`removeScript`/`updateScript` are tenant-scoped; `runScript(tenantId, script)`.
 - Proof: `alarm-engine.tenant-isolation.spec.ts` (5/5) — two tenants sharing an fqn + rule id evaluate independently, status pushes are per-tenant-room, a wrong-tenant ACK is inert. Full scada-runtime suite 8/8 (75 tests). Incidental: fixed a pre-existing `quickjs-sandbox.ts` implicit-`any` (TS7019) that kept the suite red locally.
-**Remediation progress — Faz 2 (per-tenant write context, this PR): resolves ORPHAN-HIGH-414.** The storage writers no longer touch the FORCED-RLS SCADA tables on a raw pooled connection. Two classes, evidence-driven (per ADR-045 D3, corrected):
+  **Remediation progress — Faz 2 (per-tenant write context, this PR): resolves ORPHAN-HIGH-414.** The storage writers no longer touch the FORCED-RLS SCADA tables on a raw pooled connection. Two classes, evidence-driven (per ADR-045 D3, corrected):
 - **Per-tenant data (tenant known post-Faz-1) → tenant-context, RLS ENFORCES (Tier-1).** `AlarmStorageService.flushTenantBatch` + reads (`getActiveAlarms`/`getAlarmHistory`) and `DaqStorageService.addValues`/`queryValues`/`queryAggregated` run inside `runInTenantTransaction`/`runInTenantRead('sensor', tenantId)` → `app.current_tenant` set → a mis-stamped tenant_id is refused by Postgres. The engine BUFFERS a tenant's per-tick writes and flushes them in ONE coalesced tenant transaction (per-tenant batched multi-row upsert; fire-and-forget + per-tenant in-flight guard) — no per-write transaction storm; per-tick value drift on an unchanged alarm is not persisted.
 - **Cross-tenant maintenance (no per-row tenant) → audited `BypassRlsService.withBypass`.** `cleanupHistory`/`cleanupOldData` (retention GC) + `getDataBounds` — the outbox-worker class; labels are an SSoT allowlist.
 - **411e completeness invariant** added (`tests/invariants/scada-storage-tenant-context.spec.ts`): no raw `dataSource.query` hits a SCADA data table outside an audited bypass; bypass labels are pinned. ADR-045 D3 text corrected (its "one cross-tenant `INSERT VALUES (t1,…),(t2,…)`" is RLS-incompatible under `WITH CHECK tenant_id=current_tenant`).
-**Remediation progress — Faz 3 (activation bridge, this PR): SCADA GOES LIVE.** The tenant-parameterized setters now have a caller. New `ScadaActivationService` (D4 LAZY, not boot-load): the gateway emits an EventEmitter2 signal on a tenant's FIRST operator socket (0→1) and LAST disconnect (→0) — the engine depends on the gateway (circular), so activation crosses the boundary as an event. On activate: provisioning-gate (`information_schema.schemata`), read the tenant's PUBLISHED `scada_packages` in tenant context (`runInTenantRead`), map `package_data.alarmRules` → `AlarmRuleRuntime[]` (`scada-package-alarm-rule.mapper` — field rename + name/ackMode/enabled defaults + condition normalisation; un-mappable rules dropped with reason), pass `scripts` through to `SchedulerService.loadScripts`, feed `AlarmEngineService.setAlarmRules`/`setNotificationConfigs`. `ScadaPackageService` publish/archive emits reactivate/deactivate (no-op if inactive, D4). Idle tenants LRU-evicted by a periodic sweep (`UsageMeteringService` pattern). Notification configs are `[]` for now (ORPHAN-MEDIUM-416). Proof: mapper + activation specs (16), full scada-runtime 93 green. Edge MQTT deploy path untouched.
+  **Remediation progress — Faz 3 (activation bridge, this PR): SCADA GOES LIVE.** The tenant-parameterized setters now have a caller. New `ScadaActivationService` (D4 LAZY, not boot-load): the gateway emits an EventEmitter2 signal on a tenant's FIRST operator socket (0→1) and LAST disconnect (→0) — the engine depends on the gateway (circular), so activation crosses the boundary as an event. On activate: provisioning-gate (`information_schema.schemata`), read the tenant's PUBLISHED `scada_packages` in tenant context (`runInTenantRead`), map `package_data.alarmRules` → `AlarmRuleRuntime[]` (`scada-package-alarm-rule.mapper` — field rename + name/ackMode/enabled defaults + condition normalisation; un-mappable rules dropped with reason), pass `scripts` through to `SchedulerService.loadScripts`, feed `AlarmEngineService.setAlarmRules`/`setNotificationConfigs`. `ScadaPackageService` publish/archive emits reactivate/deactivate (no-op if inactive, D4). Idle tenants LRU-evicted by a periodic sweep (`UsageMeteringService` pattern). Notification configs are `[]` for now (ORPHAN-MEDIUM-416). Proof: mapper + activation specs (16), full scada-runtime 93 green. Edge MQTT deploy path untouched.
 - **Still OPEN — remaining phases:** Faz 4 noisy-neighbor budget, Faz 5 leader-guard + sharding, Faz 6 observability/SLO/fail-safe.
 
 ## ORPHAN-HIGH-341 — admin-api DebugToolsController had no PlatformAdminGuard (unguarded super-admin debug surface) — RESOLVED (this PR)
@@ -6933,6 +6934,40 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 **Discovered:** 2026-07-12 by the Faz 3 lane, verified pre-existing on origin/main via stash: (1) `apps/admin-api-service/src/tenant/__tests__/tenant-erasure.handler.spec.ts` expects erasure fan-out `targetServiceCount` 10 but the registry now has 12 (config + event-store onboarding grew the union; the spec pin is stale — compliance-sensitive, update deliberately); (2) `auth-user-query-nats.handler.spec.ts` — AuditModule DI wiring cannot resolve `DataSource` in the TestingModule. Neither introduced by Faz 3.
 **Owner:** compliance-expert (1) + auth owner (2). **Deadline:** tracked (2026-10-15).
 
+## ADMIN-MEDIUM-001 — tenant integration harness omits the provisioning workflow dependency (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 by the enterprise closure control-plane run. The
+admin tenant integration module instantiates `TenantAdminController` without
+its runtime `TenantProvisioningWorkflowService` dependency, so Nest fails
+during module compilation and all 28 cases report the same DI error.
+**Owner:** admin-expert. **Deadline:** 2026-07-29.
+
+## ADMIN-MEDIUM-002 — email circuit-breaker harness mocks a retired config API (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 by the enterprise closure control-plane run. The
+reliability suite mocks asynchronous `getEmailConfig`, while the live sender
+uses the synchronous, secret-safe `getEmailConfigForSending` boundary. Ten
+tests therefore exit through the SMTP-not-configured path without exercising
+the circuit breaker.
+**Owner:** admin-expert. **Deadline:** 2026-07-29.
+
+## COMPLIANCE-MEDIUM-001 — erasure handler spec copies a stale fan-out count (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 by the enterprise closure control-plane run,
+confirming ORPHAN-MEDIUM-376 item 1. The test asserts a literal target count of
+10 even though the canonical event-contract roster contains 12 services. The
+assertion must consume the roster's exported count.
+**Owner:** compliance-expert. **Deadline:** 2026-07-29.
+
+## INFRA-MEDIUM-042 — dependency policy recursively scans ignored worktrees (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 by the enterprise closure control-plane run. The
+dependency-policy gate walks the physical repository directory and descends
+into `.claude/worktrees/` even though that execution-state directory is
+gitignored. Stale copies therefore create false policy violations. The gate
+must derive its source set from Git-tracked and non-ignored candidate files.
+**Owner:** infra-expert. **Deadline:** 2026-07-29.
+
 ## ORPHAN-HIGH-377 — stale-dist image: farm-service `f995d8e54` shipped compiled code absent from its git tree (prod GraphQL outage window) — RE-DIAGNOSED → superseded by [[ORPHAN-HIGH-381]]
 
 **Discovered:** 2026-07-12 ~20:43Z by the Faz 2b lane's live verification: farm-service crash-looped (RestartCount 59+) on fatal drift `[farm.farm_documents] entity declares owned table but DB has no such table` after #946 dropped the table — but the #947-tagged farm image STILL CONTAINS `dist/.../farm-document.entity.js` while `git cat-file` proves the entity is ABSENT from the `f995d8e54` tree. A build-cache/race defect in the image pipeline, not a source defect. Because supergraph composition is all-or-nothing, the droplet's entire GraphQL API was down for the window. Mitigation: the next full-image deploy (post-#950 CI run) rebuilds farm from the correct tree; verified by the farm-heal watcher. FOLLOW-UP: image-vs-tree provenance check in the deploy pipeline (e.g., bake the git sha into the build and assert dist matches; or --no-cache on service image builds) so a stale-dist image can never ship again.
@@ -7269,3 +7304,15 @@ Severity: HIGH (recurrence enabler for the 2026-07-07 messaging outage class). #
 
 **Discovered:** 2026-07-13 (parity check while fixing ORPHAN-CRITICAL-412; STRUCTURAL, not live-verified). `notification.command_receipts` carries the identical `tenant_isolation_policy` (confirmed live), and `NotificationCommandHandler` (`apps/notification-service/src/notification/event-handlers/notification-command.handler.ts`) is a `@Controller()` with trusted cross-tenant `@MessagePattern` NATS commands (`SEND_EMAIL`, `SEND_PUSH`, `SEND`) that delegate to `NotificationDispatcherService.claimCommandReceipt` (`notification-dispatcher.service.ts:452`). That method opens `dataSource.transaction` and does `SELECT … FOR UPDATE` / `UPDATE` / `INSERT` on `notification.command_receipts` (`:454,:472,:492,:510,:535,:555`) with NO `app.bypass_rls` and NO `app.current_tenant` established — structurally identical to the billing bug: a trusted cross-tenant NATS command writing an RLS-protected `command_receipts` table under deny-by-default context. The rows set `tenantId` explicitly, so the correct fix is the same audited-bypass primitive billing now uses (wrap the dispatch under `BypassRlsService.withBypass`; notification already imports `BypassRlsService`). NOT verified live in this session — if notification dispatch is currently succeeding in prod, either the policy is not being enforced on that path or context is established somewhere not visible statically; the notification owner must confirm and, if broken, apply the billing-pattern fix.
 **Owner:** notification owner (notification-service). **Deadline:** 2026-08-15. Registry: orphan-findings.md only. **Status:** OPEN.
+
+## INFRA-HIGH-028 — production deploy is not fail-closed on backup/restore readiness — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 enterprise-closure audit. The production workflow accepted push and manual invocations without a protected release stop-line tied to backup and isolated restore readiness. Remediation is on `fix/enterprise-closure-control-plane`: `PRODUCTION_DEPLOY_ENABLED` is a protected repository variable, defaults locked, and has no `workflow_dispatch` or staging-bypass override. The live variable was set to `false` on 2026-07-15. **Owner:** infra-expert / Okan. **Deadline:** 2026-07-22. **Canonical registry:** `INFRA-HIGH-028`.
+
+## INFRA-MEDIUM-041 — enterprise closure is interactive and does not attribute worktree mutation to a step — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 enterprise-closure audit. The runner set only two Nx variables, inherited the full caller environment, and checked cleanliness only at the profile boundaries, so Nx sync or another step could mutate `nx.json` without immediate attribution. Remediation is on `fix/enterprise-closure-control-plane`: forced CI/noninteractive Nx settings, an allowlisted environment, bootstrap/manifest checks, and a clean-tree hash after every enterprise step. **Owner:** infra-expert / Okan. **Deadline:** 2026-07-29. **Canonical registry:** `INFRA-MEDIUM-041`.
+
+## INFRA-HIGH-029 — scheduled failures lack a durable on-call incident — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 enterprise-closure audit. Scheduled workflows had isolated failure signals but no central freshness authority, durable incident, or recovery ceremony. Remediation is on `fix/enterprise-closure-control-plane`: an hourly watchdog derives coverage from `.github/manifests/scheduled-workflows.json`, reopens one persistent issue, assigns repository on-call, fails visibly while unhealthy, and closes only when every watched schedule is fresh and green. **Owner:** infra-expert / Okan. **Deadline:** 2026-07-22. **Canonical registry:** `INFRA-HIGH-029`.

@@ -7,7 +7,10 @@ import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 process.env.NX_DAEMON = 'false';
+process.env.NX_INTERACTIVE = 'false';
 process.env.NX_ISOLATE_PLUGINS = 'false';
+process.env.NX_TASKS_RUNNER_DYNAMIC_OUTPUT = 'false';
+process.env.CI = 'true';
 const QUALITY_ROOT = join(REPO_ROOT, 'tools', 'quality');
 const FORMAT_SCOPE = join(QUALITY_ROOT, 'format-scope.json');
 const LINT_INVENTORY = join(QUALITY_ROOT, 'lint-target-inventory.json');
@@ -94,6 +97,13 @@ const DEFAULT_ENV_ALLOWLIST = [
   'PYTHONPATH',
   'PYTHONDONTWRITEBYTECODE',
 ];
+const CLOSURE_ENVIRONMENT = Object.freeze({
+  CI: 'true',
+  NX_DAEMON: 'false',
+  NX_INTERACTIVE: 'false',
+  NX_ISOLATE_PLUGINS: 'false',
+  NX_TASKS_RUNNER_DYNAMIC_OUTPUT: 'false',
+});
 
 function usage() {
   throw new Error(
@@ -629,11 +639,22 @@ function step(name, command, extra = {}) {
   return { name, command, ...extra };
 }
 
-function envPolicyHash() {
+function closureEnvironment() {
+  const environment = {};
+  for (const key of DEFAULT_ENV_ALLOWLIST) {
+    if (Object.prototype.hasOwnProperty.call(process.env, key)) {
+      environment[key] = process.env[key];
+    }
+  }
+  return { ...environment, ...CLOSURE_ENVIRONMENT };
+}
+
+function envPolicyHash(environment) {
   const visible = {};
   for (const key of DEFAULT_ENV_ALLOWLIST.sort()) {
-    if (Object.prototype.hasOwnProperty.call(process.env, key)) visible[key] = '<present>';
+    if (Object.prototype.hasOwnProperty.call(environment, key)) visible[key] = '<present>';
   }
+  for (const [key, value] of Object.entries(CLOSURE_ENVIRONMENT)) visible[key] = value;
   return sha256(JSON.stringify(visible));
 }
 
@@ -642,15 +663,31 @@ function repoSha() {
   return result.status === 0 ? result.stdout.trim() : null;
 }
 
-function ariaSliceHash() {
-  const result = run('npm', ['run', 'aria:docs:ssot'], { stdio: ['ignore', 'pipe', 'pipe'] });
+function ariaSliceHash(environment) {
+  const result = run('npm', ['run', 'aria:docs:ssot'], {
+    env: environment,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
   const combined = `${result.stdout ?? ''}${result.stderr ?? ''}`;
   const match = /aria_authority_slice_hash[:=]\s*([a-f0-9]{64})/i.exec(combined);
   return match?.[1] ?? null;
 }
 
 function runClosure(profileName) {
+  const environment = closureEnvironment();
+  if (profileName === 'enterprise-closure') {
+    const entryStatus = run('git', ['status', '--short'], { env: environment });
+    if (entryStatus.status !== 0 || (entryStatus.stdout ?? '').trim() !== '') {
+      fail('[closure:enterprise-closure] bootstrap requires a clean worktree');
+    }
+  }
   checkClosureManifest();
+  if (profileName === 'enterprise-closure') {
+    const manifestStatus = run('git', ['status', '--short'], { env: environment });
+    if (manifestStatus.status !== 0 || (manifestStatus.stdout ?? '').trim() !== '') {
+      fail('[closure:enterprise-closure] closure-manifest check modified the worktree');
+    }
+  }
   const manifest = readJson(CLOSURE_MANIFEST);
   const profile = manifest.profiles[profileName];
   if (!profile) fail(`unknown closure profile: ${profileName}`);
@@ -660,20 +697,22 @@ function runClosure(profileName) {
   const seen = new Set();
   const evidence = [];
   const repo_sha = repoSha();
-  const aria_slice_hash = ariaSliceHash();
+  const aria_slice_hash = ariaSliceHash(environment);
   for (const item of profile.steps) {
     if (seen.has(item.name)) fail(`duplicate closure step name: ${item.name}`);
     seen.add(item.name);
     const started = new Date().toISOString();
     process.stdout.write(`[closure:${profileName}] ${item.name}\n`);
     const [command, ...args] = item.command;
-    const result = run(command, args);
+    const result = run(command, args, { env: environment });
     const ended = new Date().toISOString();
     const stdout = result.stdout ?? '';
     const stderr = result.stderr ?? '';
     const log = `${stdout}${stderr}`;
     const logPath = join(runRoot, `${item.name}.log`);
     writeFileSync(logPath, log, 'utf8');
+    const cleanTreeResult = run('git', ['status', '--short'], { env: environment });
+    const cleanTreeOutput = cleanTreeResult.stdout ?? '';
     const record = {
       schema_version: 'TerminalRunEvidenceV1',
       run_id: runId,
@@ -687,7 +726,9 @@ function runClosure(profileName) {
       workflow_job: process.env.GITHUB_JOB ?? null,
       workflow_attempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
       runner_identity: process.env.RUNNER_NAME ?? process.env.HOSTNAME ?? 'local',
-      env_policy_hash: envPolicyHash(),
+      env_policy_hash: envPolicyHash(environment),
+      clean_tree: cleanTreeResult.status === 0 && cleanTreeOutput.trim() === '',
+      clean_tree_output_sha256: sha256(cleanTreeOutput),
       started_at: started,
       ended_at: ended,
       sealed_log_path: relative(REPO_ROOT, logPath).replace(/\\/g, '/'),
@@ -698,6 +739,15 @@ function runClosure(profileName) {
     evidence.push(record);
     if (stdout) process.stdout.write(stdout);
     if (stderr) process.stderr.write(stderr);
+    if (profile.readiness_claim_allowed && cleanTreeResult.status !== 0) {
+      fail(
+        `[closure:${profileName}] ${item.name} could not verify clean-tree status (exit ${cleanTreeResult.status ?? cleanTreeResult.signal})`,
+      );
+    }
+    if (profile.readiness_claim_allowed && cleanTreeOutput.trim() !== '') {
+      process.stderr.write(cleanTreeOutput);
+      fail(`[closure:${profileName}] ${item.name} modified the worktree`);
+    }
     if (item.require_empty_stdout && stdout.trim() !== '') {
       fail(`[closure:${profileName}] ${item.name} expected empty stdout`);
     }

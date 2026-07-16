@@ -70,10 +70,15 @@ jobs:
               - '.github/workflows/deploy-staging.yml'
               - '.github/workflows/production-post-deploy-verify.yml'
               - '.github/workflows/ci-affected.yml'
+              # Required-check and protected-release workflows are executable
+              # control-plane code. Any workflow-only PR must run the real
+              # dependency chain rather than a has_changes=false summary.
+              - '.github/workflows/**'
               - '.github/actions/**'
               - '.github/manifests/**'
               - 'infrastructure/deploy/**'
               - 'infrastructure/apollo-router/**'
+              - 'infrastructure/scripts/**'
               - 'docker-compose.droplet.yml'
               - 'docker-compose.prod.yml'
               - '.gitignore'
@@ -91,11 +96,13 @@ jobs:
               # has_changes=false. Architectural fix: treat CI-consumed
               # tooling as deploy-config for path-filter purposes.
               - 'tools/eslint-rules/**'
+              - 'tools/backup-ssh-broker/**'
               - 'tools/gates/**'
               - 'tools/lint-gates/**'
               - 'tools/scripts/**'
               - 'eslint.config.mjs'
               - 'tsconfig.base.json'
+              - 'tests/**'
               # Root manifest + lockfile. Any change here rewires the
               # workspace graph OR the dependency tree — both invalidate
               # every downstream build. Missing these from the filter

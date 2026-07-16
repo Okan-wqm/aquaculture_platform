@@ -129,6 +129,7 @@ export default {
         '<rootDir>/web-no-hand-rolled-modal-shell.spec.ts',
         '<rootDir>/restore-mutation-tenant-admin.spec.ts',
         '<rootDir>/backup-production-secrets.spec.ts',
+        '<rootDir>/backup-ssh-broker-contract.spec.ts',
         '<rootDir>/backup-restore-verification-contract.spec.ts',
         '<rootDir>/walg-evidence-attestation.spec.ts',
         '<rootDir>/walg-pitr-contract.spec.ts',

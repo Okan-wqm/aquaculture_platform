@@ -3,7 +3,7 @@
   "schema_version": 1,
   "repository": "Okan-wqm/aquaculture_platform",
   "branch": "main",
-  "finding_ids": ["EDGE-CRITICAL-001"],
+  "finding_ids": ["EDGE-CRITICAL-001", "INFRA-CRITICAL-044"],
   "branch_protection": {
     "enforce_admins": true
   },
@@ -17,8 +17,12 @@
     "Cargo.lock",
     "crates/**",
     "tools/executors/cargo/**",
+    "tools/backup-ssh-broker/**",
     "tools/gates/**",
+    "infrastructure/scripts/**",
+    ".github/workflows/**",
     ".github/manifests/**",
+    "tests/**",
     "package.json",
     "package-lock.json"
   ],

@@ -67,6 +67,96 @@ The workflow preflights, runtime mappings, and this runbook must stay in
 lockstep with that manifest. Do not reuse a key between WAL-G, logical backup,
 evidence publication, and evidence verification.
 
+### Protected SSH broker substrate (pre-cutover)
+
+`INFRA-CRITICAL-044` remains open because OpenSSH invokes a target account's
+login shell before the current stdin payload. A client-side fixed command does
+not remove that startup boundary. The staged replacement is declared in
+`.github/manifests/backup-ssh-broker-policy.json` and is deliberately
+attestation-only while `cutover.enabled` is `false`:
+
+- `aqua-backup`, `aqua-pitr`, and `aqua-wal-freshness` are separate system
+  accounts whose invalid `NP` password sentinel disables password use without
+  making the accounts invalid for public-key authentication;
+- their actual login shell is the root-owned static ELF
+  `/usr/local/sbin/aqua-protected-ssh-broker`, never Bash, Dash, Python, or a
+  user-writable wrapper;
+- each account has one public, root-owned, non-writable authorized-key file
+  forced to exactly one token: `aqua-backup-v1`, `aqua-pitr-v1`, or
+  `aqua-wal-freshness-v1`;
+- the broker accepts only sshd's exact `-c <token>` argv, requires the same
+  byte sequence in `SSH_ORIGINAL_COMMAND`, rejects terminal input, and emits a
+  single digest-bound JSON attestation; and
+- this substrate executes no backup, PITR, Docker, sudo, or stdin payload.
+
+Build the broker only from protected merged `main` with
+`backup-ssh-broker-release.yml`. Its OIDC signing job is separately gated by
+the main-only `production-backup-release` Environment. Administrator bypass
+must be disabled, self-review prevention enabled, and at least two eligible
+reviewers configured before it can sign. The job proves the merged PR, exact
+protected-main merge SHA, PR-head SHA, pinned required-check policy, and
+successful pre-merge required check-run IDs before signing. Preserve the immutable
+artifact ID/digest, release run ID/attempt, OIDC bundles, build provenance,
+release-authority record, source SHA-256, and architecture-specific binary
+SHA-256. Install the verified artifact through the provider console or an
+independently administered bastion, never through the legacy secret-bearing
+SSH path. Extract that exact artifact into a root-owned, non-writable directory;
+run its bundled provisioner rather than a mutable checkout copy:
+
+```bash
+RELEASE_ROOT='/root/aqua-protected-ssh-release-<artifact-id>'
+sudo env -i \
+  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+  BROKER_BINARY_PATH="${RELEASE_ROOT}/aqua-protected-ssh-broker" \
+  EXPECTED_BROKER_SHA256='<signed artifact binary sha256>' \
+  BACKUP_PUBLIC_KEY_PATH=/root/aqua-backup.pub \
+  PITR_PUBLIC_KEY_PATH=/root/aqua-pitr.pub \
+  WAL_FRESHNESS_PUBLIC_KEY_PATH=/root/aqua-wal-freshness.pub \
+  /bin/bash -p \
+    "${RELEASE_ROOT}/repository/infrastructure/scripts/provision-backup-ssh-broker.sh"
+```
+
+The provisioner first reloads a reserved `DenyUsers` maintenance drop-in for
+all three protected principals. Only after that connection barrier is active
+does it replace broker, account, key, or permanent sshd policy state. It
+removes the maintenance file after validating the complete candidate, and the
+second reload activates that candidate as one unit. Any failure before the
+second reload restores the original files and account state while the running
+daemon still denies new protected-account connections, then reloads the
+restored configuration.
+
+The three public keys must be newly generated Ed25519 keys with pairwise
+distinct SHA256 fingerprints. After the provisioner validates and reloads
+sshd, add these pre-cutover credentials to the protected `production-backup`
+Environment without deleting the legacy names:
+
+| Type     | Name                                       |
+| -------- | ------------------------------------------ |
+| Secret   | `BACKUP_BROKER_SSH_KEY`                    |
+| Secret   | `PITR_BROKER_SSH_KEY`                      |
+| Secret   | `WAL_FRESHNESS_BROKER_SSH_KEY`             |
+| Variable | `BACKUP_BROKER_SSH_KEY_FINGERPRINT`        |
+| Variable | `PITR_BROKER_SSH_KEY_FINGERPRINT`          |
+| Variable | `WAL_FRESHNESS_BROKER_SSH_KEY_FINGERPRINT` |
+
+Run `verify-backup-ssh-broker.yml` from exact merged `main` with the signed
+release's run ID, artifact ID, and `sha256:<digest>` as explicit inputs. The
+workflow must derive expected source and binary digests only from the verified
+signed provenance, never mutable Environment variables. Preserve all three
+successful diagonal attestations and the live off-diagonal key/account,
+arbitrary-command, interactive-shell, subsystem, PTY, remote-forward, and
+direct-stream denial matrix. Separately capture provider-console `sshd -T`
+output plus file ownership/modes to prove user environment and user rc remain
+disabled. Host self-attestation alone is not independent evidence; compare it
+with the signed release and that externally observed sshd configuration and
+file ownership.
+
+Do not point backup, PITR, or freshness at the broker in this substrate phase.
+The atomic cutover requires a later reviewed change with a strict bounded data
+protocol and fixed operation executors; it must contain no fallback to
+`DROPLET_SSH_KEY` and must restart the three-success evidence sequence. Do not
+seed executable secret payloads into this attestation-only broker.
+
 `WALG_LIBSODIUM_KEY_B64` and its PITR counterpart must come from an approved
 secret manager. Keep an offline escrow copy indexed by bucket, epoch, and
 activation date. Never put

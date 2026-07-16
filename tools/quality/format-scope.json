@@ -939,6 +939,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": ".github/manifests/backup-ssh-broker-policy.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": ".github/manifests/main-required-status-checks.json",
       "prettier_managed": true
     },
@@ -32317,6 +32323,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/infra-expert/2026-07-16-backup-ssh-broker-substrate.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/infra/2026-06-30-farm-canary-masked-rejection.md",
       "prettier_managed": true
     },
@@ -40681,6 +40693,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/backup-restore-verification-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/backup-ssh-broker-contract.spec.ts",
       "prettier_managed": true
     },
     {
@@ -54378,10 +54396,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8912,
+  "file_count": 8915,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8731,
-  "managed_file_list_sha256": "4c37913cf2de3ffcd0ef72f5ae425ec08673fa6e1d8002529e068b22f46b210f",
+  "managed_count": 8734,
+  "managed_file_list_sha256": "af61f360bec4b23956fa08d01ddee9040c07a56dadd887c0fd0f73c022459f67",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

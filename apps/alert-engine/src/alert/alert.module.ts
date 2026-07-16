@@ -15,6 +15,7 @@ import { FarmSignalIncidentService } from './services/farm-signal-incident.servi
 import { MortalityAlertService } from './services/mortality-alert.service';
 import { LowStockAlertService } from './services/low-stock-alert.service';
 import { FcrAlertService } from './services/fcr-alert.service';
+import { FeedCoverageAlertService } from './services/feed-coverage-alert.service';
 import { WaterQualityCriticalAlertService } from './services/water-quality-critical-alert.service';
 import { AlertAuditService } from '../audit/alert-audit.service';
 
@@ -28,6 +29,7 @@ import { SensorReadingEventHandler } from './event-handlers/sensor-reading.handl
 import { MortalityAlertEventHandler } from './event-handlers/mortality-alert.handler';
 import { LowStockEventHandler } from './event-handlers/low-stock.handler';
 import { FcrAlertEventHandler } from './event-handlers/fcr-alert.handler';
+import { FeedCoverageEventHandler } from './event-handlers/feed-coverage.handler';
 import { WaterQualityCriticalEventHandler } from './event-handlers/water-quality-critical.handler';
 
 // Resolvers
@@ -67,6 +69,7 @@ import { EscalationPolicyResolver } from './resolvers/escalation-policy.resolver
     MortalityAlertService,
     LowStockAlertService,
     FcrAlertService,
+    FeedCoverageAlertService,
     WaterQualityCriticalAlertService,
     AlertAuditService,
 
@@ -80,6 +83,7 @@ import { EscalationPolicyResolver } from './resolvers/escalation-policy.resolver
     MortalityAlertEventHandler,
     LowStockEventHandler,
     FcrAlertEventHandler,
+    FeedCoverageEventHandler,
     WaterQualityCriticalEventHandler,
 
     // Resolvers

@@ -10881,6 +10881,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/protocol-feed-forecast.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/__tests__/protocol-rate.service.spec.ts",
       "prettier_managed": true
     },
@@ -11050,6 +11056,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/services/meal-schedule.util.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/services/protocol-feed-forecast.service.ts",
       "prettier_managed": true
     },
     {
@@ -54624,10 +54636,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8953,
+  "file_count": 8955,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8772,
-  "managed_file_list_sha256": "52cfa3d0310b74513b53f301a1f05b8b73e59b5148003df45643c69b645737c2",
+  "managed_count": 8774,
+  "managed_file_list_sha256": "1abb1af7ea114ce95d23c46ca435567e3e705031541665e8900a4483ce7339e0",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

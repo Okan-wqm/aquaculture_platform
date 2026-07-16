@@ -11037,6 +11037,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/services/feed-fcr-source.util.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts",
       "prettier_managed": true
     },
@@ -54636,10 +54642,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8955,
+  "file_count": 8956,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8774,
-  "managed_file_list_sha256": "1abb1af7ea114ce95d23c46ca435567e3e705031541665e8900a4483ce7339e0",
+  "managed_count": 8775,
+  "managed_file_list_sha256": "e04bbe737e1b236d956047e18a93ef38fd50ba6fcc9b9bab219037632816ca0d",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

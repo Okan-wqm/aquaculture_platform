@@ -68,6 +68,8 @@ import {
 } from '../../water-quality/services/water-temperature.service';
 import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
 import { calendarDayIn } from './meal-schedule.util';
+import { collectFeedSourceFeedIds, buildFeedFcrMatrixMap } from './feed-fcr-source.util';
+import { ProtocolFeedForecastService } from './protocol-feed-forecast.service';
 
 const ADVISORY_LOCK_NAMESPACE = 0x46454544; // 'FEED'
 const ASSIGNMENT_PAGE_SIZE = 200;
@@ -124,44 +126,6 @@ interface AssignmentPlanContext {
   feedFcrMatrixByFeedId: Map<string, FcrMatrix>;
 }
 
-/**
- * fcrSource=feed protokollerin band yem kimlikleri — sayfa başına tek IN
- * sorgusunun girdisi (NFR 4. toplu okuma) — SAF (spec pinli).
- */
-export function collectFeedSourceFeedIds(
-  protocols: Array<Pick<FeedingProtocolV2, 'bands' | 'settings'>>,
-): string[] {
-  return [
-    ...new Set(
-      protocols
-        .filter((p) => p.settings.fcrSource === ProtocolFcrSource.FEED)
-        .flatMap((p) => p.bands.map((band) => band.feedId)),
-    ),
-  ];
-}
-
-/**
- * Feed.feedingMatrix2D.fcrMatrix taşıyan yemlerden FcrMatrix haritası — SAF
- * (spec pinli). Matrissiz yem haritaya girmez: resolveExpectedFcr band
- * fallback'ini provenanslı (source=BAND) uygular, sessiz sapma yok.
- */
-export function buildFeedFcrMatrixMap(
-  feeds: Array<Pick<Feed, 'id' | 'feedingMatrix2D'>>,
-): Map<string, FcrMatrix> {
-  const map = new Map<string, FcrMatrix>();
-  for (const feed of feeds) {
-    const matrix = feed.feedingMatrix2D;
-    if (matrix?.fcrMatrix?.length) {
-      map.set(feed.id, {
-        temperatures: matrix.temperatures,
-        weights: matrix.weights,
-        fcrValues: matrix.fcrMatrix,
-      });
-    }
-  }
-  return map;
-}
-
 @Injectable()
 export class FeedingCronV2Service {
   private readonly logger = new Logger(FeedingCronV2Service.name);
@@ -175,6 +139,8 @@ export class FeedingCronV2Service {
     // 18:00 FCR süpürmesi hedefi P-14 zincirinden okur (GrowthModule export'u).
     private readonly fcrCalculation: FCRCalculationService,
     private readonly outboxPublisher: OutboxPublisher,
+    // 07:00 stok kapsama süpürmesi — snapshot yenileme (K-10, plan §5).
+    private readonly forecastService: ProtocolFeedForecastService,
   ) {}
 
   // ==========================================================================
@@ -747,6 +713,30 @@ export class FeedingCronV2Service {
    * v2 protokol → legacy program → species → endüstri → 1.5), yani alert
    * motorun fiilen beslediği hedefe karşı ölçülür.
    */
+  /**
+   * 07:00 — stok kapsama değerlendirmesi (plan §5): her tenant'ın forecast
+   * snapshot'ı MAKS ufukta yeniden hesaplanır (K-10); `protocolFeedForecast`
+   * sorgusu ve mobil warehouseSummary bu satırı diler. Legacy scheduler'ın
+   * 10:00 checkFeedStock + weeklyFeedForecast görevlerinin varisi. Durable
+   * kapsama event'leri (FeedStockoutForecast/FeedTransitionUpcoming) GraphQL
+   * + alert-engine dilimiyle birlikte bağlanır (görev #8 takipte).
+   */
+  @Cron('0 7 * * *', { name: 'feeding-v2-stock-coverage', timeZone: 'Europe/Istanbul' })
+  async stockCoverageSweep(): Promise<void> {
+    await this.runExclusive('feeding-v2-stock-coverage', async () => {
+      const tenants = await this.tenantsWithActiveBatches();
+      for (const tenantId of tenants) {
+        try {
+          await this.forecastService.refreshTenant(tenantId);
+        } catch (error) {
+          this.logger.error(
+            `Stock coverage sweep failed for tenant ${tenantId}: ${(error as Error).message}`,
+          );
+        }
+      }
+    });
+  }
+
   @Cron('0 18 * * *', { name: 'feeding-v2-fcr-alerts', timeZone: 'Europe/Istanbul' })
   async fcrAlertSweep(): Promise<void> {
     await this.runExclusive('feeding-v2-fcr-alerts', async () => {

@@ -20,6 +20,7 @@ jest.mock('@aquaculture/backend-common/database', () => ({
   ) => cb({ manager: { query: managerQuery } }),
 }));
 
+import { ProtocolFeedForecastService } from '../services/protocol-feed-forecast.service';
 import { FeedingCronV2Service } from '../services/feeding-cron-v2.service';
 import { MealPlanGeneratorService } from '../services/meal-plan-generator.service';
 import { BiomassGrowthApplierService } from '../services/biomass-growth-applier.service';
@@ -42,6 +43,7 @@ describe('FeedingCronV2Service.purgeTenantRetention', () => {
     mock<WaterTemperatureService>({}),
     mock<FCRCalculationService>({}),
     mock<OutboxPublisher>({ enqueue: jest.fn() }),
+    mock<ProtocolFeedForecastService>({}),
   );
 
   beforeEach(() => {

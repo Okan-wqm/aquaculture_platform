@@ -7,11 +7,13 @@
  *   collectFeedSourceFeedIds / buildFeedFcrMatrixMap — saf, spec pinli.
  */
 import {
-  buildFeedFcrMatrixMap,
   chunkWindowEntries,
-  collectFeedSourceFeedIds,
   MEAL_WINDOW_MAX_ENTRIES,
 } from '../services/feeding-cron-v2.service';
+import {
+  buildFeedFcrMatrixMap,
+  collectFeedSourceFeedIds,
+} from '../services/feed-fcr-source.util';
 import {
   FeedingProtocolV2,
   ProtocolFcrSource,

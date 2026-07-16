@@ -24,6 +24,7 @@ jest.mock('@aquaculture/backend-common/database', () => ({
 import { DataSource } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 
+import { ProtocolFeedForecastService } from '../services/protocol-feed-forecast.service';
 import { FeedingCronV2Service } from '../services/feeding-cron-v2.service';
 import { MealPlanGeneratorService } from '../services/meal-plan-generator.service';
 import { ProtocolRateService } from '../services/protocol-rate.service';
@@ -145,6 +146,7 @@ function makeService(fixture: DryRunFixture): {
     mock<WaterTemperatureService>({ getEffectiveTemperaturesForUnits }),
     mock<FCRCalculationService>({}),
     mock<OutboxPublisher>({ enqueue }),
+    mock<ProtocolFeedForecastService>({}),
   );
   return { service, persistDayPlan, enqueue };
 }

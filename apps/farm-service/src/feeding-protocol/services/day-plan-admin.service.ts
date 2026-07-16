@@ -42,7 +42,7 @@ import { Feed } from '../../feed/entities/feed.entity';
 import { MealPlanGeneratorService } from './meal-plan-generator.service';
 import { DayPlanRecalcService } from './day-plan-recalc.service';
 import { calendarDayIn } from './meal-schedule.util';
-import { collectFeedSourceFeedIds, buildFeedFcrMatrixMap } from './feeding-cron-v2.service';
+import { collectFeedSourceFeedIds, buildFeedFcrMatrixMap } from './feed-fcr-source.util';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 
 export interface DayPlanAdminResult {

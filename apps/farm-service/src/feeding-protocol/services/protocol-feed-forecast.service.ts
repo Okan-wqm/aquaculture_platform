@@ -43,7 +43,7 @@ import {
   ForecastPerUnit,
   ForecastUnitTransition,
 } from '../entities/feeding-forecast-snapshot.entity';
-import { collectFeedSourceFeedIds } from './feeding-cron-v2.service';
+import { collectFeedSourceFeedIds } from './feed-fcr-source.util';
 import { ProtocolRateService } from './protocol-rate.service';
 
 // ============================================================================

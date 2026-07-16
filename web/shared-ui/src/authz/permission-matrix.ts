@@ -83,7 +83,15 @@ export type FrontendMutationName =
   | 'updateFinanceCategory'
   | 'archiveFinanceCategory'
   | 'restoreFinanceCategory'
-  | 'updateFinanceSettings';
+  | 'updateFinanceSettings'
+  // Feeding Protocol v2 (feeding-protocol SSoT Faz 3) — ProtocolBuilderTab +
+  // AssignmentsTab gated buttons
+  | 'createFeedingProtocolV2'
+  | 'updateFeedingProtocolV2'
+  | 'archiveFeedingProtocolV2'
+  | 'assignProtocolToUnit'
+  | 'updateProtocolAssignment'
+  | 'unassignProtocolFromUnit';
 
 /**
  * Source-of-frontend-truth role matrix. Mirrors the backend's
@@ -138,4 +146,11 @@ export const FRONTEND_MUTATION_ROLES: Readonly<
   archiveFinanceCategory: ['TENANT_ADMIN'],
   restoreFinanceCategory: ['TENANT_ADMIN'],
   updateFinanceSettings: ['TENANT_ADMIN'],
+  // Feeding Protocol v2 — mirrors apps/farm-service/src/common/authz/permission-matrix.ts
+  createFeedingProtocolV2: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+  updateFeedingProtocolV2: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+  archiveFeedingProtocolV2: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+  assignProtocolToUnit: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+  updateProtocolAssignment: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+  unassignProtocolFromUnit: ['MODULE_MANAGER', 'TENANT_ADMIN'],
 });

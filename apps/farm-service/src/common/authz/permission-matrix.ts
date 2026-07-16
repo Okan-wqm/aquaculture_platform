@@ -316,6 +316,7 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   consumables: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   criticalHealthEvents: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   criticalWaterQuality: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  effectiveUnitTemperatures: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   currentWeather: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   dailyFeedingExecution: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   dailyFeedingExecutions: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],

@@ -34,8 +34,10 @@ import {
   WaterQualityStatus,
 } from './entities/water-quality-measurement.entity';
 import { Throttle } from '@aquaculture/backend-common/security';
+import { BadRequestException } from '@nestjs/common';
 import { QueryBus } from '@platform/cqrs';
 import { WaterQualityService } from './water-quality.service';
+import { WaterTemperatureService } from './services/water-temperature.service';
 import { GetWaterQualityQuery } from './queries/get-water-quality.query';
 import { ListWaterQualityQuery } from './queries/list-water-quality.query';
 import { GetLatestWaterQualityQuery } from './queries/get-latest-water-quality.query';
@@ -86,6 +88,33 @@ export class WaterQualityStatistics {
   lastMeasurement!: WaterQualityMeasurement | null;
 }
 
+/**
+ * Ünitenin etkin su sıcaklığı + kaynağı (feeding-protocol SSoT, C-3/P-20).
+ * `source: none` = sıcaklık bilinmiyor; motor çarpan 1.0 uygular ve UI bunu
+ * AÇIKÇA rozetler — sessiz varsayılan sıcaklık yok.
+ */
+@ObjectType()
+export class EffectiveUnitTemperature {
+  @Field(() => ID)
+  unitId!: string;
+
+  @Field(() => Float, { nullable: true })
+  celsius!: number | null;
+
+  /** 'sensor' | 'manual' | 'none' — tazelik pencereli çözümleme zinciri. */
+  @Field()
+  source!: string;
+
+  @Field({ nullable: true })
+  measuredAt?: Date;
+
+  @Field(() => ID, { nullable: true })
+  sensorId?: string;
+}
+
+/** Tek istekte çözülebilecek maksimum ünite (DoS koruması; toplu okuma zaten tek sorgu). */
+const MAX_EFFECTIVE_TEMPERATURE_UNITS = 200;
+
 // ============================================================================
 // RESOLVER
 // ============================================================================
@@ -99,6 +128,7 @@ export class WaterQualityResolver {
 
   constructor(
     private readonly waterQualityService: WaterQualityService,
+    private readonly waterTemperatureService: WaterTemperatureService,
     private readonly queryBus: QueryBus,
   ) {}
 
@@ -218,6 +248,35 @@ export class WaterQualityResolver {
     return this.queryBus.execute(
       new GetSystemWaterQualityStatisticsQuery(tenantId, systemId, days),
     );
+  }
+
+  /**
+   * Ünitelerin etkin su sıcaklığı + kaynak provenansı (sensör ≤6s → manuel
+   * ≤24s → none). AssignmentsTab sıcaklık rozetleri ve öğün motoru snapshot'ı
+   * aynı SSoT zincirini okur (WaterTemperatureService, C-3).
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @Query(() => [EffectiveUnitTemperature], { name: 'effectiveUnitTemperatures' })
+  async getEffectiveUnitTemperatures(
+    @Args('unitIds', { type: () => [ID] }) unitIds: string[],
+    @CurrentTenant() tenantId: string,
+  ): Promise<EffectiveUnitTemperature[]> {
+    if (unitIds.length > MAX_EFFECTIVE_TEMPERATURE_UNITS) {
+      throw new BadRequestException(
+        `En fazla ${MAX_EFFECTIVE_TEMPERATURE_UNITS} ünite sorgulanabilir (istenen: ${unitIds.length})`,
+      );
+    }
+    const map = await this.waterTemperatureService.getEffectiveTemperaturesForUnits(
+      tenantId,
+      unitIds,
+    );
+    return [...map.entries()].map(([unitId, temp]) => ({
+      unitId,
+      celsius: temp.celsius,
+      source: temp.source,
+      measuredAt: temp.measuredAt,
+      sensorId: temp.sensorId,
+    }));
   }
 
   // -------------------------------------------------------------------------

@@ -22,6 +22,9 @@ export * from './feeding.operations';
 // Feeding Protocol Operations
 export * from './feedingProtocol.operations';
 
+// Feeding Protocol V2 Operations (birleşik protokol SSoT — Faz 3)
+export * from './feedingProtocolV2.operations';
+
 // Regulatory Report Operations
 export * from './regulatory.operations';
 

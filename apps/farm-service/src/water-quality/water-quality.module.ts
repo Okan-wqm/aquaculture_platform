@@ -33,6 +33,7 @@ import { Equipment } from '../equipment/entities/equipment.entity';
 
 // Service
 import { WaterQualityService } from './water-quality.service';
+import { WaterTemperatureService } from './services/water-temperature.service';
 
 // Resolvers
 import { WaterQualityResolver } from './water-quality.resolver';
@@ -107,6 +108,8 @@ const CommandHandlers = [
   controllers: [GetWaterQualityOverviewResponder],
   providers: [
     WaterQualityService,
+    // Etkin sıcaklık zinciri (sensör→manuel→none) — effectiveUnitTemperatures sorgusu okur.
+    WaterTemperatureService,
     // SEC-HIGH-051 / SEC-HIGH-052: site authz SSoT + mobile-feature guard.
     SiteAuthorizationService,
     MobileFeatureGuard,

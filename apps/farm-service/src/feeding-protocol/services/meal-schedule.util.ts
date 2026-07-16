@@ -83,6 +83,17 @@ export function effectiveMealSchedule(
  * DST ileri atlamasında (duvar saati yok) kaydırılmış gerçek an döner; geri
  * alınmada (duvar saati iki kez var) İLK oluş seçilir.
  */
+/** Verilen IANA saat dilimindeki bugünkü takvim günü (YYYY-MM-DD, D-4) — SAF. */
+export function calendarDayIn(timeZone: string): string {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  return formatter.format(new Date());
+}
+
 export function zonedWallTimeToUtc(planDate: string, time: string, timeZone: string): Date {
   const [year = 1970, month = 1, day = 1] = planDate.split('-').map(Number);
   const [hour = 0, minute = 0] = time.split(':').map(Number);

@@ -22,6 +22,7 @@ import { MealPlanGeneratorService } from './services/meal-plan-generator.service
 import { BiomassGrowthApplierService } from './services/biomass-growth-applier.service';
 import { DayPlanRecalcService } from './services/day-plan-recalc.service';
 import { MealExecutionService } from './services/meal-execution.service';
+import { DayPlanAdminService } from './services/day-plan-admin.service';
 import { FeedingCronV2Service } from './services/feeding-cron-v2.service';
 import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
@@ -75,6 +76,7 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
     BiomassGrowthApplierService,
     DayPlanRecalcService,
     MealExecutionService,
+    DayPlanAdminService,
     FeedingCronV2Service,
     // Sıcaklık SSoT — cron toplu okuması (stateless, @InjectDataSource).
     WaterTemperatureService,

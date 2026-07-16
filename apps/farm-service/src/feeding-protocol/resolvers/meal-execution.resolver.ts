@@ -30,7 +30,8 @@ import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { FeedingDayPlan } from '../entities/feeding-day-plan.entity';
 import { FeedingMeal } from '../entities/feeding-meal.entity';
 import { MealExecutionService } from '../services/meal-execution.service';
-import { MealFeedingResultView } from '../dto/meal-execution.results';
+import { DayPlanAdminService } from '../services/day-plan-admin.service';
+import { DayPlanAdminResultView, MealFeedingResultView } from '../dto/meal-execution.results';
 import {
   CorrectMealPourInput,
   RecordMealFeedingInput,
@@ -49,6 +50,7 @@ export class MealExecutionResolver {
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly mealExecutionService: MealExecutionService,
+    private readonly dayPlanAdminService: DayPlanAdminService,
   ) {}
 
   /**
@@ -149,5 +151,36 @@ export class MealExecutionResolver {
       mealId: input.mealId,
       reason: input.reason,
     });
+  }
+
+  /**
+   * K-9: planı güncel durumdan yeniden üret (MANAGER+). Aktif plan varsa
+   * 'manual_regenerate' gerekçeli recalc; bugün plan yoksa şimdi üretim.
+   * FE tetikleyicisi Faz 6 (MealBoard).
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Mutation(() => DayPlanAdminResultView)
+  async regenerateDayPlan(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: CallerClaims,
+    @Args('unitId', { type: () => ID }) unitId: string,
+  ): Promise<DayPlanAdminResultView> {
+    return this.dayPlanAdminService.regenerateDayPlan(tenantId, user.sub, unitId);
+  }
+
+  /**
+   * K-9: manuel yem geçişi (MANAGER+) — atama currentFeed/band + kalan
+   * öğünler + FeedTypeTransitioned(automatic:false). Hedef yem protokol
+   * bandlarından biri olmak zorundadır (fail-closed).
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Mutation(() => DayPlanAdminResultView)
+  async transitionUnitFeed(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: CallerClaims,
+    @Args('unitId', { type: () => ID }) unitId: string,
+    @Args('toFeedId', { type: () => ID }) toFeedId: string,
+  ): Promise<DayPlanAdminResultView> {
+    return this.dayPlanAdminService.transitionUnitFeed(tenantId, user.sub, unitId, toFeedId);
   }
 }

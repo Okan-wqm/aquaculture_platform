@@ -67,6 +67,7 @@ import {
   type EffectiveTemperature,
 } from '../../water-quality/services/water-temperature.service';
 import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
+import { calendarDayIn } from './meal-schedule.util';
 
 const ADVISORY_LOCK_NAMESPACE = 0x46454544; // 'FEED'
 const ASSIGNMENT_PAGE_SIZE = 200;
@@ -338,7 +339,7 @@ export class FeedingCronV2Service {
           tankBatch: tankBatchByUnit.get(assignment.unitId),
           temperature: temperatures.get(assignment.unitId) ?? { celsius: null, source: 'none' },
           timezone,
-          planDate: this.calendarDayIn(timezone),
+          planDate: calendarDayIn(timezone),
           feedFcrMatrixByFeedId,
         });
       }
@@ -988,17 +989,6 @@ export class FeedingCronV2Service {
       [tenantId],
     );
     return new Map(rows.map((row) => [row.id, row.timezone || 'UTC']));
-  }
-
-  /** Verilen IANA saat dilimindeki bugünkü takvim günü (YYYY-MM-DD, D-4). */
-  private calendarDayIn(timeZone: string): string {
-    const formatter = new Intl.DateTimeFormat('en-CA', {
-      timeZone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    });
-    return formatter.format(new Date());
   }
 
   private getAdvisoryLockKey(jobName: string): number {

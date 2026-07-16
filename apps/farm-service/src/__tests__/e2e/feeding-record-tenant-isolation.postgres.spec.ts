@@ -3,9 +3,11 @@
  *
  * WHY: Feeding is a high-risk mobile write path for "DB has the row but the
  * frontend cannot see it" bugs. One command writes a feeding record, updates
- * batch feed totals, deducts feed inventory, and enqueues outbox events inside
- * a QueryRunner transaction. This contract proves those writes stay in the
- * active tenant schema and are immediately queryable by tenant-scoped reads.
+ * batch feed totals, deducts the STORAGE LEDGER (single stock truth — stock
+ * SSoT Phase 2: lot decrement + Feed.quantity roll-up + LowStockDetected from
+ * the sink), and enqueues outbox events inside a QueryRunner transaction. This
+ * contract proves those writes stay in the active tenant schema and are
+ * immediately queryable by tenant-scoped reads.
  */
 import 'reflect-metadata';
 import { randomBytes } from 'crypto';
@@ -22,7 +24,7 @@ import {
   shutdownHarness,
 } from '@platform/migration-harness';
 import { OutboxPublisher } from '@platform/outbox';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import { Batch, BatchInputType, BatchStatus } from '../../batch/entities/batch.entity';
 import { BatchDocument } from '../../batch/entities/batch-document.entity';
@@ -40,7 +42,6 @@ import {
 } from '../../department/entities/department.entity';
 import { Feed, FeedStatus, FeedType, FloatingType } from '../../feed/entities/feed.entity';
 import { CreateFeedingRecordCommand } from '../../feeding/commands/create-feeding-record.command';
-import { FeedInventory, InventoryStatus } from '../../feeding/entities/feed-inventory.entity';
 import {
   FeedingRecord,
   FeedingMethod,
@@ -70,6 +71,10 @@ import {
 } from '../../tank/entities/tank.entity';
 import { StockMovementService } from '../../storage/services/stock-movement.service';
 import { LotMixService } from '../../storage/services/lot-mix.service';
+import { StorageLocation, StorageLocationType } from '../../storage/entities/storage-location.entity';
+import { StorageInventory, StorageItemType } from '../../storage/entities/storage-inventory.entity';
+import { StockMovement } from '../../storage/entities/stock-movement.entity';
+import { StorageLotMix } from '../../storage/entities/storage-lot-mix.entity';
 
 const TENANT_A = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
 const TENANT_B = '7c2f4e10-3d2a-4b4e-9f18-f8b16f0d5a10';
@@ -82,21 +87,8 @@ interface TenantFixture {
   tank: Tank;
   batch: Batch;
   feed: Feed;
-  inventory: FeedInventory;
-}
-
-class FeedInventoryOnlyStockMovementService extends StockMovementService {
-  constructor() {
-    super(new LotMixService(), new SiteAuthorizationService());
-  }
-
-  override async feedHasStoragePresence(
-    _manager: EntityManager,
-    _tenantId: string,
-    _feedId: string,
-  ): Promise<boolean> {
-    return false;
-  }
+  storageLocation: StorageLocation;
+  storageLot: StorageInventory;
 }
 
 jest.setTimeout(120_000);
@@ -113,7 +105,6 @@ describe('Feeding record tenant isolation on real Postgres', () => {
   let tankBatchRepository: Repository<TankBatch>;
   let operationRepository: Repository<TankOperation>;
   let feedRepository: Repository<Feed>;
-  let inventoryRepository: Repository<FeedInventory>;
   let feedingRecordRepository: Repository<FeedingRecord>;
   let batchService: BatchService;
   let createFeedingRecord: CreateFeedingRecordHandler;
@@ -140,7 +131,10 @@ describe('Feeding record tenant isolation on real Postgres', () => {
         TankOperation,
         Feed,
         Supplier,
-        FeedInventory,
+        StorageLocation,
+        StorageInventory,
+        StockMovement,
+        StorageLotMix,
         FeedingRecord,
         FarmOutbox,
       ],
@@ -169,7 +163,6 @@ describe('Feeding record tenant isolation on real Postgres', () => {
     tankBatchRepository = dataSource.getRepository(TankBatch);
     operationRepository = dataSource.getRepository(TankOperation);
     feedRepository = dataSource.getRepository(Feed);
-    inventoryRepository = dataSource.getRepository(FeedInventory);
     feedingRecordRepository = dataSource.getRepository(FeedingRecord);
 
     batchService = new BatchService(
@@ -185,12 +178,17 @@ describe('Feeding record tenant isolation on real Postgres', () => {
     const outboxPublisher = new OutboxPublisher(FarmOutbox);
     const backdatePolicy = { validate: jest.fn() };
     const batchDomainService = new BatchDomainService(new BatchLifecyclePolicyService());
-    const stockMovementService = new FeedInventoryOnlyStockMovementService();
+    // REAL sink: storage-tracked feed → FEFO lot decrement + roll-up +
+    // LowStockDetected all inside the feeding transaction.
+    const stockMovementService = new StockMovementService(
+      new LotMixService(),
+      new SiteAuthorizationService(),
+      outboxPublisher,
+    );
     createFeedingRecord = new CreateFeedingRecordHandler(
       feedingRecordRepository,
       batchRepository,
       feedRepository,
-      inventoryRepository,
       dataSource,
       outboxPublisher,
       backdatePolicy as never,
@@ -249,24 +247,35 @@ describe('Feeding record tenant isolation on real Postgres', () => {
     const tenantABatch = await withTenantContext(TENANT_A, () =>
       batchRepository.findOneOrFail({ where: { id: fixtureA.batch.id, tenantId: TENANT_A } }),
     );
-    const tenantAInventory = await withTenantContext(TENANT_A, () =>
-      inventoryRepository.findOneOrFail({
-        where: { id: fixtureA.inventory.id, tenantId: TENANT_A },
+    const tenantALot = await withTenantContext(TENANT_A, () =>
+      dataSource!.manager.findOneOrFail(StorageInventory, {
+        where: { id: fixtureA.storageLot.id, tenantId: TENANT_A },
       }),
     );
-    const tenantBInventory = await withTenantContext(TENANT_B, () =>
-      inventoryRepository.findOneOrFail({
-        where: { id: fixtureB.inventory.id, tenantId: TENANT_B },
+    const tenantBLot = await withTenantContext(TENANT_B, () =>
+      dataSource!.manager.findOneOrFail(StorageInventory, {
+        where: { id: fixtureB.storageLot.id, tenantId: TENANT_B },
       }),
+    );
+    const tenantAFeed = await withTenantContext(TENANT_A, () =>
+      feedRepository.findOneOrFail({ where: { id: fixtureA.feed.id, tenantId: TENANT_A } }),
+    );
+    const tenantBFeed = await withTenantContext(TENANT_B, () =>
+      feedRepository.findOneOrFail({ where: { id: fixtureB.feed.id, tenantId: TENANT_B } }),
     );
 
     expect(Number(tenantABatch.totalFeedConsumed)).toBe(10);
     expect(Number(tenantABatch.totalFeedCost)).toBe(25);
-    expect(Number(tenantAInventory.quantityKg)).toBe(40);
-    expect(Number(tenantAInventory.totalValue)).toBe(100);
-    expect(tenantAInventory.status).toBe(InventoryStatus.LOW_STOCK);
-    expect(Number(tenantBInventory.quantityKg)).toBe(50);
-    expect(tenantBInventory.status).toBe(InventoryStatus.AVAILABLE);
+    // Storage ledger is the single stock truth: lot decremented, roll-up +
+    // status recomputed by the sink, neighbour tenant untouched.
+    expect(Number(tenantALot.quantity)).toBe(40);
+    expect(Number(tenantAFeed.quantity)).toBe(40);
+    expect(tenantAFeed.status).toBe(FeedStatus.LOW_STOCK);
+    expect(Number(tenantBLot.quantity)).toBe(50);
+    expect(Number(tenantBFeed.quantity)).toBe(50);
+    expect(tenantBFeed.status).toBe(FeedStatus.AVAILABLE);
+    expect(await tenantRowCount('stock_movements', TENANT_A)).toBe(1);
+    expect(await tenantRowCount('stock_movements', TENANT_B)).toBe(0);
 
     const tenantARecords = await withTenantContext(TENANT_A, () =>
       getFeedingRecords.execute(
@@ -322,8 +331,8 @@ describe('Feeding record tenant isolation on real Postgres', () => {
     const tenantAOutboxRows = await outboxRows(TENANT_A);
     const tenantBOutboxRows = await outboxRows(TENANT_B);
     expect(tenantAOutboxRows.map((row) => row.eventType).sort()).toEqual([
-      'FeedInventoryLow',
       'FeedingRecorded',
+      'LowStockDetected',
     ]);
     expect(tenantBOutboxRows).toHaveLength(0);
     expect(tenantAOutboxRows.every((row) => row.payload?.tenantId === TENANT_A)).toBe(true);
@@ -448,28 +457,39 @@ describe('Feeding record tenant isolation on real Postgres', () => {
         }),
       ),
     );
-    const inventory = await withTenantContext(tenantId, () =>
-      inventoryRepository.save(
-        inventoryRepository.create({
+    const storageLocation = await withTenantContext(tenantId, () =>
+      dataSource!.manager.save(
+        dataSource!.manager.create(StorageLocation, {
           tenantId,
-          feedId: feed.id,
           siteId: site.id,
-          departmentId: department.id,
-          quantityKg: 50,
-          minStockKg: 45,
-          status: InventoryStatus.AVAILABLE,
+          name: 'Feed Warehouse',
+          code: 'FEED-WH',
+          type: StorageLocationType.WAREHOUSE,
+          isActive: true,
+          isDeleted: false,
+          createdBy: USER_ID,
+          updatedBy: USER_ID,
+        }),
+      ),
+    );
+    const storageLot = await withTenantContext(tenantId, () =>
+      dataSource!.manager.save(
+        dataSource!.manager.create(StorageInventory, {
+          tenantId,
+          storageLocationId: storageLocation.id,
+          itemType: StorageItemType.FEED,
+          itemId: feed.id,
+          quantity: 50,
+          unit: 'kg',
           lotNumber: 'LOT-SHARED-01',
           receivedDate: new Date('2026-04-01T00:00:00.000Z'),
-          unitPricePerKg: 2.5,
-          totalValue: 125,
-          currency: 'USD',
           createdBy: USER_ID,
           updatedBy: USER_ID,
         }),
       ),
     );
 
-    return { site, department, species, tank, batch, feed, inventory };
+    return { site, department, species, tank, batch, feed, storageLocation, storageLot };
   }
 
   async function tenantRowCount(table: string, tenantId: string): Promise<number> {
@@ -528,7 +548,16 @@ async function createTenantSchema(dataSource: DataSource, schema: string): Promi
   );
   await dataSource.query(`CREATE TABLE "${schema}"."feeds" (LIKE "farm"."feeds" INCLUDING ALL)`);
   await dataSource.query(
-    `CREATE TABLE "${schema}"."feed_inventory" (LIKE "farm"."feed_inventory" INCLUDING ALL)`,
+    `CREATE TABLE "${schema}"."storage_locations" (LIKE "farm"."storage_locations" INCLUDING ALL)`,
+  );
+  await dataSource.query(
+    `CREATE TABLE "${schema}"."storage_inventory" (LIKE "farm"."storage_inventory" INCLUDING ALL)`,
+  );
+  await dataSource.query(
+    `CREATE TABLE "${schema}"."stock_movements" (LIKE "farm"."stock_movements" INCLUDING ALL)`,
+  );
+  await dataSource.query(
+    `CREATE TABLE "${schema}"."storage_lot_mixes" (LIKE "farm"."storage_lot_mixes" INCLUDING ALL)`,
   );
   await dataSource.query(
     `CREATE TABLE "${schema}"."feeding_records" (LIKE "farm"."feeding_records" INCLUDING ALL)`,

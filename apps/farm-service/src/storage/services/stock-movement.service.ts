@@ -29,10 +29,11 @@
  * ...)` INSIDE their own feeding transaction — so an insufficient-stock
  * `BadRequestException` ROLLS BACK the feeding instead of being swallowed.
  *
- * Phase A is write-path only: no table merge, no `feed_inventory` drop, no
- * read re-points. The feeding callers KEEP maintaining `feed_inventory`
- * (the GetFeedInventory read path still depends on it) and ADD this atomic
- * fail-closed storage deduction alongside it.
+ * Phase A was write-path only. Phase 2 (stock SSoT) completed the read
+ * re-point: the legacy `feed_inventory` writers and the GetFeedInventory
+ * read path are GONE — this ledger (+ the Feed.quantity roll-up) is the
+ * single feed stock truth. The frozen `feed_inventory` table is dropped in
+ * the retirement phase.
  *
  * @module Storage/Services
  */

@@ -12,10 +12,8 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   approveWorkOrder: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   cancelWorkOrder: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   addFeedAssignment: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
-  addFeedInventory: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   addTanksToProgram: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   addTankToProgram: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
-  adjustFeedInventory: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   allocateBatchToTank: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   applyParameterTemplate: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   approveHarvestPlan: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
@@ -47,7 +45,6 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   completeTask: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   completeWorkOrder: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   confirmTenantErasure: [Role.TENANT_ADMIN],
-  consumeFeedInventory: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createAutoRule: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createMaintenanceSchedule: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createWorkOrder: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
@@ -341,7 +338,6 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   farms: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feed: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedConsumptionForecast: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
-  feedInventory: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedSuppliers: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedTypes: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feederCalibrations: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -555,7 +551,7 @@ export const UNGATED_OPERATIONS: ReadonlySet<string> = Object.freeze(
     // feedTypes / feedingProtocol / feedingProtocols /
     // feedingProtocolsBySpecies / defaultFeedingProtocol /
     // feedingRecord / feedingRecords / dailyFeedingPlan /
-    // feedingSummary / feedInventory / growthSimulation /
+    // feedingSummary / growthSimulation /
     // feedConsumptionForecast / estimateSGR / feederCalibrations /
     // feedingAdvice / growthMeasurement / growthMeasurements /
     // growthAnalysis / latestGrowthMeasurement / waterQuality /

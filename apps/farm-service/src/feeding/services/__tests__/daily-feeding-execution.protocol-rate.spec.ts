@@ -8,7 +8,6 @@
  * sibling daily-feeding-execution.service.spec.ts).
  */
 import { DataSource, ObjectLiteral, Repository } from 'typeorm';
-import { OutboxPublisher } from '@platform/outbox';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 
@@ -53,7 +52,6 @@ function makeService(query: jest.Mock): DailyFeedingExecutionService {
     mock<DataSource>({ query }),
     mock<BatchDomainService>({}),
     mock<StockMovementService>({}),
-    mock<OutboxPublisher>({}),
     mock<MobileCommandReceiptService>({}),
     mock<SiteAuthorizationService>({}),
   );

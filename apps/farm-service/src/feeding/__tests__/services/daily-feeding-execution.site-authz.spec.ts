@@ -14,7 +14,6 @@
  */
 import { ForbiddenException } from '@nestjs/common';
 import { Repository, DataSource, EntityManager } from 'typeorm';
-import { OutboxPublisher } from '@platform/outbox';
 
 import { Role } from '@aquaculture/backend-common/decorators';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
@@ -139,7 +138,6 @@ function makeService(siteIdOnManager: string | null): {
     dataSource,
     {} as BatchDomainService,
     {} as StockMovementService,
-    {} as OutboxPublisher,
     receipts,
     new SiteAuthorizationService(),
   );

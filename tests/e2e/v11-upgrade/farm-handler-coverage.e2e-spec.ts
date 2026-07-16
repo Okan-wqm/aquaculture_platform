@@ -563,23 +563,7 @@ class UpdateFeedingRecordCommand implements ITenantCommand {
   constructor(public readonly tenantId: string) {}
 }
 
-class AddFeedInventoryCommand implements ITenantCommand {
-  constructor(public readonly tenantId: string) {}
-}
-
-class ConsumeFeedInventoryCommand implements ITenantCommand {
-  constructor(public readonly tenantId: string) {}
-}
-
-class AdjustFeedInventoryCommand implements ITenantCommand {
-  constructor(public readonly tenantId: string) {}
-}
-
 class GetFeedingRecordsQuery implements IQuery {
-  constructor(public readonly tenantId: string) {}
-}
-
-class GetFeedInventoryQuery implements IQuery {
   constructor(public readonly tenantId: string) {}
 }
 
@@ -1039,13 +1023,9 @@ const MODULE_HANDLER_DEFS: ModuleHandlerDef[] = [
     commandHandlers: [
       { command: CreateFeedingRecordCommand, handlerName: 'CreateFeedingRecordHandler' },
       { command: UpdateFeedingRecordCommand, handlerName: 'UpdateFeedingRecordHandler' },
-      { command: AddFeedInventoryCommand, handlerName: 'AddFeedInventoryHandler' },
-      { command: ConsumeFeedInventoryCommand, handlerName: 'ConsumeFeedInventoryHandler' },
-      { command: AdjustFeedInventoryCommand, handlerName: 'AdjustFeedInventoryHandler' },
     ],
     queryHandlers: [
       { query: GetFeedingRecordsQuery, handlerName: 'GetFeedingRecordsHandler' },
-      { query: GetFeedInventoryQuery, handlerName: 'GetFeedInventoryHandler' },
       { query: GetFeedingSummaryQuery, handlerName: 'GetFeedingSummaryHandler' },
     ],
   },

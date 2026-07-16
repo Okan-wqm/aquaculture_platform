@@ -897,7 +897,13 @@ export class FarmSeedService implements OnApplicationBootstrap {
   }
 
   /**
-   * Feed inventory (yem stoku) olusturur
+   * Demo yem stogu olusturur — storage LEDGER'a yazar (stock SSoT Phase 2).
+   *
+   * Eski surum dogrudan legacy `feed_inventory` tablosuna INSERT ediyordu;
+   * o tablo artik donduruldu (okuyucu/yazici kalmadi, Faz 8'de drop). Demo
+   * stok artik gercek uretim yolu gibi gorunur: site basina bir depo
+   * lokasyonu + lot bazli storage_inventory satirlari + immutable IN
+   * stock_movements kayitlari + feeds.quantity/status roll-up'i.
    */
   private async seedFeedInventory(
     queryRunner: QueryRunner,
@@ -907,7 +913,7 @@ export class FarmSeedService implements OnApplicationBootstrap {
     feedIds: string[]
   ): Promise<void> {
     const existing = await queryRunner.query(
-      `SELECT id FROM feed_inventory WHERE "tenantId" = $1 LIMIT 1`,
+      `SELECT id FROM storage_inventory WHERE tenant_id = $1 AND item_type = 'feed' LIMIT 1`,
       [tenantId]
     );
 
@@ -915,7 +921,24 @@ export class FarmSeedService implements OnApplicationBootstrap {
       return;
     }
 
-    // Her yem icin stok olustur
+    // Site icin demo depo lokasyonu (idempotent, deterministik kod).
+    const locationRows: Array<{ id: string }> = await queryRunner.query(
+      `INSERT INTO storage_locations
+         (tenant_id, site_id, name, code, type, capacity_unit, used_capacity, is_active, is_deleted, version)
+       VALUES ($1, $2, 'Depo A', 'SEED-FEED-' || left($2::text, 8), 'warehouse', 'm3', 0, true, false, 1)
+       ON CONFLICT DO NOTHING
+       RETURNING id`,
+      [tenantId, siteId]
+    );
+    const locationId: string =
+      locationRows[0]?.id ??
+      (
+        await queryRunner.query(
+          `SELECT id FROM storage_locations WHERE site_id = $1 AND code = 'SEED-FEED-' || left($1::text, 8)`,
+          [siteId]
+        )
+      )[0].id;
+
     const inventoryData = [
       { feedIndex: 0, quantity: 500, lotNumber: 'LOT-2024-001', expiryMonths: 6 },
       { feedIndex: 1, quantity: 2000, lotNumber: 'LOT-2024-002', expiryMonths: 8 },
@@ -931,25 +954,38 @@ export class FarmSeedService implements OnApplicationBootstrap {
       expiryDate.setMonth(expiryDate.getMonth() + inv.expiryMonths);
 
       await queryRunner.query(
-        `INSERT INTO feed_inventory (
-          id, "tenantId", "feedId", "siteId", "departmentId",
-          "quantityKg", "minStockKg", status, "lotNumber",
-          "manufacturingDate", "expiryDate", "receivedDate",
-          "storageLocation", "createdAt", "updatedAt"
-        ) VALUES (
-          uuid_generate_v4(), $1, $2, $3, $4,
-          $5, 100, 'available', $6,
-          NOW() - INTERVAL '30 days', $7, NOW() - INTERVAL '7 days',
-          'Depo A - Raf 1', NOW(), NOW()
-        )`,
-        [
-          tenantId, feedId, siteId, departmentId,
-          inv.quantity, inv.lotNumber, expiryDate.toISOString(),
-        ]
+        `INSERT INTO stock_movements
+           (tenant_id, movement_type, item_type, item_id, item_name, quantity, unit,
+            to_location_id, reference, lot_number, expiry_date, idempotency_key,
+            performed_by, performed_at)
+         SELECT $1, 'in', 'feed', $2, f.name, $3, COALESCE(f.unit, 'kg'),
+                $4, 'SEED: demo feed stock', $5, $6, 'seed-feed-' || $5,
+                '00000000-0000-0000-0000-000000000000', NOW() - INTERVAL '7 days'
+         FROM feeds f WHERE f.id = $2
+         ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`,
+        [tenantId, feedId, inv.quantity, locationId, inv.lotNumber, expiryDate.toISOString()]
+      );
+
+      await queryRunner.query(
+        `INSERT INTO storage_inventory
+           (tenant_id, storage_location_id, item_type, item_id, quantity, unit,
+            lot_number, expiry_date, received_date, version)
+         SELECT $1, $2, 'feed', $3, $4, COALESCE(f.unit, 'kg'), $5, $6, NOW() - INTERVAL '7 days', 1
+         FROM feeds f WHERE f.id = $3`,
+        [tenantId, locationId, feedId, inv.quantity, inv.lotNumber, expiryDate.toISOString()]
+      );
+
+      await queryRunner.query(
+        `UPDATE feeds SET quantity = $2,
+           status = CASE WHEN $2 <= 0 THEN 'out_of_stock'
+                         WHEN $2 <= "minStock" THEN 'low_stock'
+                         ELSE 'available' END::"farm"."feeds_status_enum"
+         WHERE id = $1`,
+        [feedId, inv.quantity]
       );
     }
 
-    this.logger.log(`  Created ${inventoryData.length} feed inventory records`);
+    this.logger.log(`  Created ${inventoryData.length} feed stock lots in the storage ledger`);
   }
 
   /**

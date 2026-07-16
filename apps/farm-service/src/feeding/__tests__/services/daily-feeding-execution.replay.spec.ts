@@ -8,7 +8,6 @@
  * canRecordFeeding() is false once the execution is COMPLETED.
  */
 import { Repository, DataSource, EntityManager } from 'typeorm';
-import { OutboxPublisher } from '@platform/outbox';
 
 import { Role } from '@aquaculture/backend-common/decorators';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
@@ -100,8 +99,7 @@ describe('DailyFeedingExecutionService — feeding idempotency (FARM-MEDIUM-051)
       dataSource,
       {} as BatchDomainService,
       {} as StockMovementService,
-      {} as OutboxPublisher,
-      receipts,
+        receipts,
       new SiteAuthorizationService(),
     );
   });

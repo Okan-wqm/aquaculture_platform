@@ -41,7 +41,6 @@ import {
   ExecutionStatus,
   ExecutionCalculation,
 } from '../../entities/daily-feeding-execution.entity';
-import { FeedInventory } from '../../entities/feed-inventory.entity';
 import { TankBatch } from '../../../batch/entities/tank-batch.entity';
 import {
   FeedingProgram,
@@ -168,14 +167,6 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
       : opts.tankBatch;
   const lockedBatch = opts.lockedBatch === undefined ? makeFeedableBatch() : opts.lockedBatch;
   const tank = mock({ id: TANK, currentBiomass: 0 });
-  const feedInventory = mock<FeedInventory>({
-    id: 'finv-1',
-    tenantId: TENANT,
-    feedId: FEED,
-    quantityKg: 500,
-    minStockKg: 100,
-    updateStatus: jest.fn(),
-  });
 
   // manager.findOne dispatches by entity class. TankBatch / Batch are loaded by
   // BOTH the feedability guard and the biomass-update step (the lock option is
@@ -186,7 +177,6 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     if (entity === DailyFeedingExecution) return execution;
     if (entity === TankBatch) return tankBatch;
     if (entity === Batch) return lockedBatch;
-    if (entity === FeedInventory) return feedInventory;
     return tank;
   });
 
@@ -220,7 +210,6 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   });
 
   const enqueue = jest.fn().mockResolvedValue(undefined);
-  const outboxPublisher = mock<OutboxPublisher>({ enqueue });
 
   // Real domain service — production assertFeedable behaviour.
   const batchDomainService = new BatchDomainService(new BatchLifecyclePolicyService());
@@ -277,7 +266,6 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     dataSource,
     batchDomainService,
     stockMovementService,
-    outboxPublisher,
     mobileCommandReceipts,
     new SiteAuthorizationService(),
   );

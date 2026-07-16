@@ -16,7 +16,7 @@ geçirme döngüsü (2026-07-16). Kayıtlı ID'ler `docs/reviews/_registry/findi
 | CRITICAL-002 | D-1 | Çok-üniteli batch'te `updateTankBiomassWithManager` `Batch.weight.theoretical`'ı tek tankın değeriyle eziyor (son-yazan-kazanır) — Faz 5 BiomassGrowthApplier v2 + invariant test | OPEN |
 | HIGH-002 | P-05 | Manuel FeedingRecord biomass güncellemez; execution yolu feeding_records yazmaz — FCR feed toplamı tutarsız. Faz 5 FeedingLedgerService (üç caller) + Faz 6 backfill | OPEN |
 | HIGH-003 | P-01/K-5 | İki paralel günlük plan motoru (scheduler 05:00 + cron 06:00) + Faz 6'da yalnız birinin kapatılması riski — cutover TÜM legacy üretim/bildirimi kapatır | OPEN |
-| HIGH-004 | P-07/P-09/P-10 | Üç stok mağazası, üç bağımsız giriş yazarı, iki farklı "days remaining" kaynağı — Faz 1-2 tek ledger + Faz 8 drop | OPEN |
+| FARM-HIGH-218 | P-07/P-09/P-10/P-15 | Üç stok mağazası, üç bağımsız giriş yazarı, iki farklı "days remaining" kaynağı, iki yem-stok UI'ı — tek ledger + tek UI | IN-PROGRESS |
 | FARM-HIGH-217 | P-11/C-1/C-2 | Feed/stok alarm zinciri kopuk: eşik tespiti yalnız wrapper'da (feeding düşümleri LowStockDetected üretmiyor), alert-engine tüketicisi yok, in-process zincir ölü uçlu, websocket köprüsü yalnız FeedInventoryLow'a bağlı | IN-PROGRESS |
 | HIGH-006 | D-2 | Karışık-batch tanklar: harman ortalamayla band seçimi + ikincil batch'lere büyüme atanmaması + mortality'nin batchDetails re-derivation'ının büyümeyi ezmesi | OPEN |
 | HIGH-007 | D-3 | Removal giriş modları tutarsız (mortality/cull yalnız tane; harvest tane+kg zorunlu; kg-only hiçbir yerde) — RemovalQuantityPolicyService | OPEN |

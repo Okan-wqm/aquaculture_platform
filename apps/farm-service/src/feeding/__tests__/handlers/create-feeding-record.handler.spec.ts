@@ -26,7 +26,6 @@ import { OutboxPublisher } from '@platform/outbox';
 import { CreateFeedingRecordHandler } from '../../handlers/create-feeding-record.handler';
 import { CreateFeedingRecordCommand } from '../../commands/create-feeding-record.command';
 import { FeedingRecord } from '../../entities/feeding-record.entity';
-import { FeedInventory } from '../../entities/feed-inventory.entity';
 import { Batch, BatchStatus } from '../../../batch/entities/batch.entity';
 import { Feed } from '../../../feed/entities/feed.entity';
 import { BatchDomainService } from '../../../batch/services/batch-domain.service';
@@ -91,15 +90,6 @@ interface Harness {
 function makeHarness(opts: HarnessOpts = {}): Harness {
   const batch = opts.batch === undefined ? makeFeedableBatch() : opts.batch;
   const feed = mock<Feed>({ id: FEED, name: 'Grower', unit: 'kg', pricePerKg: 2 });
-  const feedInventory = mock<FeedInventory>({
-    id: 'finv-1',
-    tenantId: TENANT,
-    feedId: FEED,
-    quantityKg: 500,
-    minStockKg: 100,
-    updateStatus: jest.fn(),
-  });
-
   // EntityManager.findOne / save / create are heavily overloaded. The doubles
   // are left UN-annotated (jest.fn() → Mock<any>) so they remain structurally
   // assignable to the overloaded EntityManager members with no cast at all;
@@ -109,7 +99,6 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   managerFindOne.mockImplementation(async (entity: unknown): Promise<unknown> => {
     if (entity === Batch) return batch;
     if (entity === Feed) return feed;
-    if (entity === FeedInventory) return feedInventory;
     return null;
   });
   // FeedingRecord save assigns a generated id in production; model that.
@@ -191,7 +180,6 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     repo<FeedingRecord>(),
     repo<Batch>(),
     repo<Feed>(),
-    repo<FeedInventory>(),
     dataSource,
     outboxPublisher,
     backdatePolicy,

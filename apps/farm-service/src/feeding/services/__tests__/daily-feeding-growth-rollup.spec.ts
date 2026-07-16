@@ -7,7 +7,6 @@
  * callback against a fake EntityManager.
  */
 import { DataSource, EntityManager, Repository, ObjectLiteral } from 'typeorm';
-import { OutboxPublisher } from '@platform/outbox';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 
@@ -93,7 +92,6 @@ function makeService(): DailyFeedingExecutionService {
     mock<DataSource>({}),
     mock<BatchDomainService>({}),
     mock<StockMovementService>({}),
-    mock<OutboxPublisher>({}),
     mock<MobileCommandReceiptService>({}),
     mock<SiteAuthorizationService>({}),
   );

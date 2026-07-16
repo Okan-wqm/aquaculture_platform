@@ -33,9 +33,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager, In, IsNull } from 'typeorm';
-import { OutboxPublisher } from '@platform/outbox';
 import { NatsEventBus } from '@platform/event-bus';
-import { FeedInventoryLowEvent, createBaseEvent } from '@platform/event-contracts';
 
 import { resolveTankSiteId } from '../../batch/utils/tank-lookup.util';
 
@@ -61,7 +59,6 @@ import { Feed } from '../../feed/entities/feed.entity';
 import { FeedingProtocolRateService } from '../../feed/services/feeding-protocol-rate.service';
 import { GrowthStageProtocol, TemperatureRange } from '../../feed/entities/feeding-protocol.entity';
 import { getTenantSchemaName, runInTenantTransaction } from '@aquaculture/backend-common/database';
-import { FeedInventory, InventoryStatus } from '../entities/feed-inventory.entity';
 import { MovementType } from '../../storage/entities/stock-movement.entity';
 import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
 
@@ -179,7 +176,6 @@ export class DailyFeedingExecutionService {
     private readonly dataSource: DataSource,
     private readonly batchDomainService: BatchDomainService,
     private readonly stockMovementService: StockMovementService,
-    private readonly outboxPublisher: OutboxPublisher,
     private readonly mobileCommandReceipts: MobileCommandReceiptService,
     // SEC-HIGH-051: object-level site authorization SSoT, enforced AT THE SINK so
     // every feeding-write caller (recordDailyFeeding, recordBulkFeeding, any
@@ -739,17 +735,9 @@ export class DailyFeedingExecutionService {
         userId,
       );
 
-      // 9b. Legacy feed_inventory deduction — KEPT because the
-      // GetFeedInventory read path still reads feed_inventory.quantityKg.
-      // Runs in the same tx as 9a so the two ledgers stay in sync (commit or
-      // roll back together). Collapsing onto one ledger is Phase B.
-      await this.deductFeedInventory(
-        queryRunner.manager,
-        tenantId,
-        execution.calculations.activeFeedId,
-        actualKg,
-        userId,
-      );
+      // 9b (stock SSoT Phase 2): the legacy feed_inventory decrement is GONE —
+      // 9a's storage-ledger deduction is the single stock truth, and the
+      // low-stock signal is emitted by the sink inside recordMovement.
 
       const result: FeedingRecordResult = {
         executionId,
@@ -1615,100 +1603,6 @@ export class DailyFeedingExecutionService {
       },
       { tenantId, userId, userName: 'Feeding' },
     );
-  }
-
-  /**
-   * Stoktan yem düşümü yapar (transaction manager ile).
-   * FIFO mantığıyla en eski AVAILABLE stoktan düşer.
-   *
-   * Legacy feed_inventory ledger. KEPT in Phase A because the
-   * GetFeedInventory read path still reads feed_inventory.quantityKg; runs in
-   * the same tx as the storage deduction so the ledgers stay in sync.
-   *
-   * @param manager EntityManager from existing transaction
-   * @param tenantId Tenant ID
-   * @param feedId Feed ID
-   * @param actualAmountKg Tüketilen miktar (kg)
-   * @param userId İşlemi yapan kullanıcı
-   */
-  private async deductFeedInventory(
-    manager: import('typeorm').EntityManager,
-    tenantId: string,
-    feedId: string,
-    actualAmountKg: number,
-    userId: string,
-  ): Promise<void> {
-    // FIFO: en eski kullanılabilir stoktan düş
-    const feedInventory = await manager.findOne(FeedInventory, {
-      where: {
-        tenantId,
-        feedId,
-        status: In([InventoryStatus.AVAILABLE, InventoryStatus.LOW_STOCK]),
-      },
-      order: { receivedDate: 'ASC', createdAt: 'ASC' },
-      lock: { mode: 'pessimistic_write' },
-    });
-
-    if (!feedInventory) {
-      this.logger.warn(
-        `No available feed inventory found for feedId=${feedId}, tenantId=${tenantId}. ` +
-          `Feeding recorded without inventory deduction.`,
-      );
-      return;
-    }
-
-    const currentQuantity = Number(feedInventory.quantityKg);
-    const newQuantity = currentQuantity - actualAmountKg;
-
-    if (newQuantity < 0) {
-      this.logger.warn(
-        `Feed inventory insufficient: ${currentQuantity}kg available, ${actualAmountKg}kg requested. ` +
-          `Setting inventory to 0. inventoryId=${feedInventory.id}`,
-      );
-    }
-
-    feedInventory.quantityKg = Math.max(0, newQuantity);
-    feedInventory.updatedBy = userId;
-
-    // Toplam değeri güncelle
-    if (feedInventory.unitPricePerKg) {
-      feedInventory.totalValue = Number(feedInventory.unitPricePerKg) * feedInventory.quantityKg;
-    }
-
-    // Durumu güncelle
-    feedInventory.updateStatus();
-
-    await manager.save(feedInventory);
-
-    this.logger.debug(
-      `Feed inventory deducted: inventoryId=${feedInventory.id}, ` +
-        `${currentQuantity}kg -> ${feedInventory.quantityKg}kg (used ${actualAmountKg}kg)`,
-    );
-
-    // Enqueue FeedInventoryLowEvent into the transactional outbox if the
-    // remaining stock crosses the reorder threshold. Previously this published
-    // DIRECTLY via the NATS event bus from INSIDE the still-open feeding
-    // transaction (commit happens in the caller, recordActualFeeding) — which
-    // both violated outbox-only publishing AND could emit a phantom
-    // FeedInventoryLow for a feeding that later rolled back. Enqueuing on the
-    // SAME caller-provided `manager` makes the event commit atomically with the
-    // inventory update — exactly matching the sibling CreateFeedingRecordHandler.
-    if (feedInventory.quantityKg <= feedInventory.minStockKg) {
-      const lowStockEvent: FeedInventoryLowEvent = {
-        ...createBaseEvent<FeedInventoryLowEvent>('FeedInventoryLow', tenantId, {
-          aggregateId: feedInventory.id,
-          aggregateType: 'FeedInventory',
-        }),
-        userId,
-        inventoryId: feedInventory.id,
-        feedId: feedInventory.feedId,
-        siteId: feedInventory.siteId,
-        currentQuantityKg: feedInventory.quantityKg,
-        reorderPointKg: feedInventory.minStockKg,
-        status: feedInventory.quantityKg <= 0 ? 'critical' : 'low_stock',
-      };
-      await this.outboxPublisher.enqueue(lowStockEvent, manager);
-    }
   }
 
   // ==========================================================================

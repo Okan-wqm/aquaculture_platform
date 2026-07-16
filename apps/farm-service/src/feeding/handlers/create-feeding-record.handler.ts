@@ -2,7 +2,8 @@
  * CreateFeedingRecordHandler
  *
  * CreateFeedingRecordCommand'ı işler ve yeni yemleme kaydı oluşturur.
- * Otomatik stok düşümü yapar: ilgili FeedInventory'den tüketilen miktar düşülür.
+ * Otomatik stok düşümü yapar: storage ledger'dan (StorageInventory + Feed.quantity
+ * roll-up) FEFO ile düşülür — tek stok gerçeği (stock SSoT Phase 2).
  *
  * Phase A refactor:
  *  - Replaced fire-and-forget eventBus.publish() (post-commit, @Optional
@@ -27,7 +28,7 @@
  *    module), the storage OUT is SKIPPED with an observable structured warn
  *    and the feed_inventory-only path applies, so a pre-Phase-B tenant is not
  *    pushed off a fail-closed cliff.
- *  - KEEPS the legacy feed_inventory decrement: the GetFeedInventory read
+ *  - Phase 2 (stock SSoT): the legacy feed_inventory decrement is GONE — the
  *    path still reads feed_inventory.quantityKg, so both ledgers update
  *    atomically (or roll back together). Collapsing onto one ledger is
  *    Phase B (table merge + read re-points + destructive migration).
@@ -42,10 +43,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager, In } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import { toEventIso, FeedInventoryLowEvent, FeedingRecordedEvent , createBaseEvent } from '@platform/event-contracts';
+import { toEventIso, FeedingRecordedEvent, createBaseEvent } from '@platform/event-contracts';
 import { CreateFeedingRecordCommand } from '../commands/create-feeding-record.command';
 import { FeedingRecord, FeedingMethod } from '../entities/feeding-record.entity';
-import { FeedInventory, InventoryStatus } from '../entities/feed-inventory.entity';
 import { Batch } from '../../batch/entities/batch.entity';
 import { Feed } from '../../feed/entities/feed.entity';
 import { BatchDomainService } from '../../batch/services/batch-domain.service';
@@ -67,8 +67,6 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
     private readonly batchRepository: Repository<Batch>,
     @InjectRepository(Feed)
     private readonly feedRepository: Repository<Feed>,
-    @InjectRepository(FeedInventory)
-    private readonly inventoryRepository: Repository<FeedInventory>,
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly backdatePolicy: BackdatePolicyService,
@@ -197,20 +195,9 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
         userId,
       );
 
-      // Legacy feed_inventory deduction — STILL the SSoT the GetFeedInventory
-      // read path uses, so it must stay in sync with the storage ledger. Both
-      // deductions run inside the same tx: they commit or roll back together,
-      // so the two ledgers never diverge. May also enqueue a
-      // FeedInventoryLowEvent on the outbox if stock hits the reorder point.
-      // (Collapsing onto a single ledger is Phase B.)
-      await this.deductFeedInventory(
-        queryRunner.manager,
-        tenantId,
-        payload.feedId,
-        payload.actualAmount,
-        payload.feedBatchNumber,
-        userId,
-      );
+      // Phase 2 (stock SSoT): the legacy feed_inventory decrement is gone —
+      // the storage ledger above is the single stock truth, and the low-stock
+      // signal is emitted by the sink inside recordMovement (LowStockDetected).
 
       // Enqueue FeedingRecordedEvent into the transactional outbox BEFORE commit.
       // Storage deduction is now done IN-TX above (no longer driven by this
@@ -352,110 +339,6 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
       },
       { tenantId, userId, userName: 'Feeding' },
     );
-  }
-
-  /**
-   * Stoktan yem düşümü yapar.
-   * feedBatchNumber (lotNumber) verilmişse önce o lot'tan düşer.
-   * Verilmemişse FIFO mantığıyla en eski AVAILABLE stoktan düşer.
-   *
-   * Legacy feed_inventory ledger. KEPT in Phase A because the
-   * GetFeedInventory read path still reads feed_inventory.quantityKg. Runs in
-   * the same tx as the storage deduction (above) so the two ledgers stay in
-   * sync. Insufficient feed_inventory is clamped to 0 (not fail-closed) here
-   * because the fail-closed authority is the storage ledger; this writer's
-   * sole job in Phase A is to keep the legacy read surface consistent.
-   */
-  private async deductFeedInventory(
-    manager: import('typeorm').EntityManager,
-    tenantId: string,
-    feedId: string,
-    actualAmountKg: number,
-    feedBatchNumber?: string,
-    userId?: string,
-  ): Promise<void> {
-    // Uygun inventory'yi bul
-    let feedInventory: FeedInventory | null = null;
-
-    if (feedBatchNumber) {
-      // Lot numarasına göre bul
-      feedInventory = await manager.findOne(FeedInventory, {
-        where: {
-          tenantId,
-          feedId,
-          lotNumber: feedBatchNumber,
-          status: In([InventoryStatus.AVAILABLE, InventoryStatus.LOW_STOCK]),
-        },
-        lock: { mode: 'pessimistic_write' },
-      });
-    }
-
-    if (!feedInventory) {
-      // FIFO: en eski kullanılabilir stoktan düş
-      feedInventory = await manager.findOne(FeedInventory, {
-        where: {
-          tenantId,
-          feedId,
-          status: In([InventoryStatus.AVAILABLE, InventoryStatus.LOW_STOCK]),
-        },
-        order: { receivedDate: 'ASC', createdAt: 'ASC' },
-        lock: { mode: 'pessimistic_write' },
-      });
-    }
-
-    if (!feedInventory) {
-      this.logger.warn(
-        `No available feed inventory found for feedId=${feedId}, tenantId=${tenantId}. ` +
-        `Feeding record created without inventory deduction.`,
-      );
-      return;
-    }
-
-    const currentQuantity = Number(feedInventory.quantityKg);
-    const newQuantity = currentQuantity - actualAmountKg;
-
-    if (newQuantity < 0) {
-      this.logger.warn(
-        `Feed inventory insufficient: ${currentQuantity}kg available, ${actualAmountKg}kg requested. ` +
-        `Setting inventory to 0. inventoryId=${feedInventory.id}`,
-      );
-    }
-
-    feedInventory.quantityKg = Math.max(0, newQuantity);
-    feedInventory.updatedBy = userId;
-
-    // Toplam değeri güncelle
-    if (feedInventory.unitPricePerKg) {
-      feedInventory.totalValue = Number(feedInventory.unitPricePerKg) * feedInventory.quantityKg;
-    }
-
-    // Durumu güncelle
-    feedInventory.updateStatus();
-
-    await manager.save(feedInventory);
-
-    this.logger.debug(
-      `Feed inventory deducted: inventoryId=${feedInventory.id}, ` +
-      `${currentQuantity}kg -> ${feedInventory.quantityKg}kg (used ${actualAmountKg}kg)`,
-    );
-
-    // Enqueue FeedInventoryLowEvent into the transactional outbox if the
-    // remaining stock crosses the reorder threshold. The same `manager`
-    // participates in the caller's transaction so the event commits atomically
-    // with the inventory update.
-    if (feedInventory.quantityKg <= feedInventory.minStockKg) {
-      const lowStockEvent: FeedInventoryLowEvent = {
-        ...createBaseEvent<FeedInventoryLowEvent>('FeedInventoryLow', tenantId, { aggregateId: feedInventory.id, aggregateType: 'FeedInventory' }),
-        userId,
-        inventoryId: feedInventory.id,
-        feedId: feedInventory.feedId,
-        siteId: feedInventory.siteId,
-        currentQuantityKg: feedInventory.quantityKg,
-        reorderPointKg: feedInventory.minStockKg,
-        status: feedInventory.quantityKg <= 0 ? 'critical' : 'low_stock',
-      };
-      await this.outboxPublisher.enqueue(lowStockEvent, manager);
-    }
   }
 
   private calculateFeedCost(feed: Feed, amountKg: number): number {

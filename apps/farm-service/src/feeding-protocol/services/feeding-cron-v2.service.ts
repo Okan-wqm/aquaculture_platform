@@ -727,7 +727,7 @@ export class FeedingCronV2Service {
       const tenants = await this.tenantsWithActiveBatches();
       for (const tenantId of tenants) {
         try {
-          await this.forecastService.refreshTenant(tenantId);
+          await this.forecastService.refreshTenant(tenantId, { emitCoverageEvents: true });
         } catch (error) {
           this.logger.error(
             `Stock coverage sweep failed for tenant ${tenantId}: ${(error as Error).message}`,

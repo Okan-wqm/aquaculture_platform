@@ -23,6 +23,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
+import { OutboxPublisher } from '@platform/outbox';
+import {
+  createBaseEvent,
+  FeedStockoutForecastEvent,
+  FeedTransitionUpcomingEvent,
+} from '@platform/event-contracts';
 
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
@@ -128,6 +134,8 @@ export class ProtocolFeedForecastService {
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly rateService: ProtocolRateService,
     private readonly temperatureService: WaterTemperatureService,
+    // Durable kapsama event'leri yalnız 07:00 cron yolunda (emitCoverageEvents).
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -347,7 +355,10 @@ export class ProtocolFeedForecastService {
   // YÜKLEYİCİ + SNAPSHOT UPSERT — 07:00 cron ve D-6 yenileme buraya delege eder
   // ──────────────────────────────────────────────────────────────────────────
 
-  async refreshTenant(tenantId: string): Promise<number> {
+  async refreshTenant(
+    tenantId: string,
+    options: { emitCoverageEvents?: boolean } = {},
+  ): Promise<number> {
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
       const assignments = await manager.find(ProtocolAssignment, {
@@ -412,6 +423,9 @@ export class ProtocolFeedForecastService {
 
       const computedAt = new Date();
       for (const result of results) {
+        if (options.emitCoverageEvents) {
+          await this.emitCoverageEvents(queryRunner.manager, tenantId, result);
+        }
         await manager.upsert(
           FeedingForecastSnapshot,
           {
@@ -432,6 +446,59 @@ export class ProtocolFeedForecastService {
       );
       return results.length;
     });
+  }
+
+  /**
+   * Durable kapsama sinyalleri (plan §5/§6) — yalnız 07:00 cron yolunda:
+   * event-driven her yenilemede yaymak teslimat başına alert üretirdi.
+   * Snapshot upsert'üyle AYNI manager'da outbox'a yazılır (outbox invariantı).
+   */
+  private async emitCoverageEvents(
+    manager: EntityManager,
+    tenantId: string,
+    result: ForecastScopeResult,
+  ): Promise<void> {
+    const gapByUnitFeed = new Map<string, number>(
+      result.alerts
+        .filter((a) => a.type === 'TRANSITION_COVERAGE_GAP' && a.unitId)
+        .map((a) => [`${a.unitId}:${a.feedId}`, a.days]),
+    );
+    for (const feed of result.perFeed) {
+      if (feed.daysOfCover === null || feed.stockoutDate === null) continue;
+      const event: FeedStockoutForecastEvent = {
+        ...createBaseEvent<FeedStockoutForecastEvent>('FeedStockoutForecast', tenantId, {
+          aggregateId: feed.feedId,
+          aggregateType: 'Feed',
+        }),
+        siteScopeKey: result.scopeKey,
+        feedId: feed.feedId,
+        feedCode: feed.feedCode,
+        daysOfCover: feed.daysOfCover,
+        stockoutDate: feed.stockoutDate,
+        reorderDate: feed.reorderDate ?? undefined,
+        procurementLeadTimeDays: feed.procurementLeadTimeDays,
+      };
+      await this.outboxPublisher.enqueue(event, manager);
+    }
+    for (const unit of result.perUnit) {
+      for (const transition of unit.transitions) {
+        const event: FeedTransitionUpcomingEvent = {
+          ...createBaseEvent<FeedTransitionUpcomingEvent>('FeedTransitionUpcoming', tenantId, {
+            aggregateId: unit.unitId,
+            aggregateType: 'FeedingUnit',
+          }),
+          siteScopeKey: result.scopeKey,
+          unitId: unit.unitId,
+          unitCode: unit.unitCode,
+          fromFeedId: transition.fromFeedId,
+          toFeedId: transition.toFeedId,
+          estimatedDate: transition.estimatedDate,
+          daysFromNow: transition.daysFromNow,
+          shortfallDays: gapByUnitFeed.get(`${unit.unitId}:${transition.toFeedId}`),
+        };
+        await this.outboxPublisher.enqueue(event, manager);
+      }
+    }
   }
 
   /** storage_locations taşıyan siteler — D-9 kapsam kararının girdisi. */

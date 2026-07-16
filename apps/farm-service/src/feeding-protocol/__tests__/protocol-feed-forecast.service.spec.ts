@@ -33,6 +33,7 @@ function makeService(): ProtocolFeedForecastService {
     undefined as never,
     new ProtocolRateService(),
     undefined as never,
+    undefined as never,
   );
 }
 

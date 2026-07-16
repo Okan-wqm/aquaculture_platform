@@ -346,6 +346,29 @@ interface WireFeedTypeTransitioned extends WireBaseEvent {
   automatic: boolean;
 }
 
+interface WireFeedStockoutForecast extends WireBaseEvent {
+  eventType: 'FeedStockoutForecast';
+  siteScopeKey: string;
+  feedId: string;
+  feedCode: string;
+  daysOfCover: number;
+  stockoutDate: string;
+  reorderDate?: string;
+  procurementLeadTimeDays: number;
+}
+
+interface WireFeedTransitionUpcoming extends WireBaseEvent {
+  eventType: 'FeedTransitionUpcoming';
+  siteScopeKey: string;
+  unitId: string;
+  unitCode: string;
+  fromFeedId: string;
+  toFeedId: string;
+  estimatedDate: string;
+  daysFromNow: number;
+  shortfallDays?: number;
+}
+
 interface WireUnfedUnitDetected extends WireBaseEvent {
   eventType: 'UnfedUnitDetected';
   unitId: string;
@@ -1186,6 +1209,56 @@ export const mealUnderfedSchema: JSONSchemaType<WireMealUnderfed> = {
   ],
 };
 
+export const feedStockoutForecastSchema: JSONSchemaType<WireFeedStockoutForecast> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'FeedStockoutForecast' },
+    siteScopeKey: { type: 'string', minLength: 1, maxLength: 100 },
+    feedId: UUID_SCHEMA,
+    feedCode: SHORT_CODE,
+    daysOfCover: NON_NEGATIVE_NUMBER,
+    stockoutDate: { type: 'string', minLength: 10, maxLength: 10 },
+    reorderDate: { type: 'string', minLength: 10, maxLength: 10, nullable: true },
+    procurementLeadTimeDays: NON_NEGATIVE_NUMBER,
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'siteScopeKey',
+    'feedId',
+    'feedCode',
+    'daysOfCover',
+    'stockoutDate',
+    'procurementLeadTimeDays',
+  ],
+};
+
+export const feedTransitionUpcomingSchema: JSONSchemaType<WireFeedTransitionUpcoming> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'FeedTransitionUpcoming' },
+    siteScopeKey: { type: 'string', minLength: 1, maxLength: 100 },
+    unitId: UUID_SCHEMA,
+    unitCode: SHORT_CODE,
+    fromFeedId: UUID_SCHEMA,
+    toFeedId: UUID_SCHEMA,
+    estimatedDate: { type: 'string', minLength: 10, maxLength: 10 },
+    daysFromNow: NON_NEGATIVE_NUMBER,
+    shortfallDays: { type: 'number', nullable: true },
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'siteScopeKey',
+    'unitId',
+    'unitCode',
+    'fromFeedId',
+    'toFeedId',
+    'estimatedDate',
+    'daysFromNow',
+  ],
+};
+
 export const mealMissedSchema: JSONSchemaType<WireMealMissed> = {
   ...EVENT_OBJECT_OPTS,
   properties: {
@@ -1794,6 +1867,8 @@ export const feederCalibrationsSavedSchema: JSONSchemaType<WireFeederCalibration
  */
 export type FarmEventType =
   | 'BatchCreated'
+  | 'FeedStockoutForecast'
+  | 'FeedTransitionUpcoming'
   | 'BatchHarvested'
   | 'BatchStatusChanged'
   | 'BatchClosed'
@@ -1873,6 +1948,8 @@ export const FARM_EVENT_SCHEMAS: Record<FarmEventType, object> = {
   MealFed: mealFedSchema,
   MealSkipped: mealSkippedSchema,
   MealUnderfed: mealUnderfedSchema,
+  FeedStockoutForecast: feedStockoutForecastSchema,
+  FeedTransitionUpcoming: feedTransitionUpcomingSchema,
   MealMissed: mealMissedSchema,
   FeedTypeTransitioned: feedTypeTransitionedSchema,
   UnfedUnitDetected: unfedUnitDetectedSchema,

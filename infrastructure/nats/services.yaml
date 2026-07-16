@@ -121,6 +121,9 @@ services:
       - "events.*.FeedingDailySummary"
       # C-1: FCRAlert ilk kez durable (18:00 cron outbox'a yazar).
       - "events.*.FCRAlert"
+      # Faz 7 kapsama süpürmesi (07:00) — durable forecast sinyalleri.
+      - "events.*.FeedStockoutForecast"
+      - "events.*.FeedTransitionUpcoming"
       - "events.*.FinanceCategoryArchived"
       - "events.*.FinanceCategoryCreated"
       - "events.*.FinanceCategoryUpdated"

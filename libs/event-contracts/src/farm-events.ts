@@ -952,6 +952,39 @@ export interface UnfedUnitDetectedEvent extends BaseEvent {
   biomassKg: number;
 }
 
+/**
+ * 07:00 kapsama süpürmesi (Faz 7, plan §5): ufuk içinde tükeniş öngörülen
+ * yem — alert-engine ≤3 gün critical / ≤leadTime warning üretir.
+ */
+export interface FeedStockoutForecastEvent extends BaseEvent {
+  eventType: 'FeedStockoutForecast';
+  /** Site UUID'si ya da belgeli tenant-geneli fallback için 'tenant' (D-9). */
+  siteScopeKey: string;
+  feedId: string;
+  feedCode: string;
+  daysOfCover: number;
+  stockoutDate: string;
+  reorderDate?: string;
+  procurementLeadTimeDays: number;
+}
+
+/**
+ * Yaklaşan yem geçişi (+ varsa kapsama açığı) — "Tank 1 X gün sonra B'ye
+ * geçecek, B stoğu Y gün yeter" sinyalinin durable taşıyıcısı.
+ */
+export interface FeedTransitionUpcomingEvent extends BaseEvent {
+  eventType: 'FeedTransitionUpcoming';
+  siteScopeKey: string;
+  unitId: string;
+  unitCode: string;
+  fromFeedId: string;
+  toFeedId: string;
+  estimatedDate: string;
+  daysFromNow: number;
+  /** Hedef yemin geçiş sonrası kapsama açığı (gün) — yoksa kapsama yeterli. */
+  shortfallDays?: number;
+}
+
 /** Günlük yemleme özeti — 20:00 cron, outbox → notification-service (K-8c). */
 export interface FeedingDailySummaryEvent extends BaseEvent {
   eventType: 'FeedingDailySummary';
@@ -1651,6 +1684,8 @@ export type FarmEvent =
   | MealFedEvent
   | MealSkippedEvent
   | MealUnderfedEvent
+  | FeedStockoutForecastEvent
+  | FeedTransitionUpcomingEvent
   | MealMissedEvent
   | FeedTypeTransitionedEvent
   | UnfedUnitDetectedEvent

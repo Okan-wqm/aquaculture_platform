@@ -60,9 +60,12 @@ import {
 import { FeedingDayPlan, FeedingDayPlanStatus } from '../entities/feeding-day-plan.entity';
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
-import { MealPlanGeneratorService } from './meal-plan-generator.service';
+import { MealPlanGeneratorService, ComputedDayPlan } from './meal-plan-generator.service';
 import { BiomassGrowthApplierService } from './biomass-growth-applier.service';
-import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
+import {
+  WaterTemperatureService,
+  type EffectiveTemperature,
+} from '../../water-quality/services/water-temperature.service';
 import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
 
 const ADVISORY_LOCK_NAMESPACE = 0x46454544; // 'FEED'
@@ -85,6 +88,39 @@ export function chunkWindowEntries<T>(entries: T[], cap: number): T[][] {
     chunks.push(entries.slice(i, i + cap));
   }
   return chunks;
+}
+
+/**
+ * K-3 dry-run çıktısı — Faz 6 mutabakat kapısının (eski-vs-yeni plan
+ * karşılaştırması + K-14 DRAFT kontrolü) girdisi. `computed` yalnız
+ * outcome='computed' iken dolu; diğer outcome'lar aktivasyon engelinin
+ * SINIFLANDIRILMIŞ nedenidir (sessiz atlama yok).
+ */
+export interface DryRunUnitPlan {
+  assignmentId: string;
+  unitId: string;
+  unitCode: string;
+  siteId: string;
+  planDate: string;
+  outcome:
+    | 'computed'
+    | 'missing_protocol'
+    | 'draft_protocol'
+    | 'archived_protocol'
+    | 'empty_unit'
+    | 'no_plan';
+  computed?: ComputedDayPlan;
+}
+
+/** Paylaşılan sayfa-döngüsü bağlamı (06:00 üretimi + K-3 dry-run). */
+interface AssignmentPlanContext {
+  assignment: ProtocolAssignment;
+  protocol?: FeedingProtocolV2;
+  tankBatch?: TankBatch;
+  temperature: EffectiveTemperature;
+  timezone: string;
+  planDate: string;
+  feedFcrMatrixByFeedId: Map<string, FcrMatrix>;
 }
 
 /**
@@ -170,80 +206,161 @@ export class FeedingCronV2Service {
   async generateForTenant(tenantId: string): Promise<void> {
     await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
-      const timezoneBySite = await this.siteTimezones(manager, tenantId);
 
-      for (let page = 0; ; page++) {
-        const assignments = await manager.find(ProtocolAssignment, {
-          where: { tenantId, status: ProtocolAssignmentStatus.ACTIVE },
-          order: { id: 'ASC' },
-          skip: page * ASSIGNMENT_PAGE_SIZE,
-          take: ASSIGNMENT_PAGE_SIZE,
-        });
-        if (assignments.length === 0) break;
-
-        const protocolIds = [...new Set(assignments.map((a) => a.protocolId))];
-        const unitIds = assignments.map((a) => a.unitId);
-        const [protocols, tankBatches, temperatures] = await Promise.all([
-          manager.find(FeedingProtocolV2, { where: { tenantId, id: In(protocolIds) } }),
-          manager.find(TankBatch, { where: { tenantId, tankId: In(unitIds) } }),
-          this.temperatureService.getEffectiveTemperaturesForUnits(tenantId, unitIds),
-        ]);
-        const protocolById = new Map(protocols.map((p) => [p.id, p]));
-        const tankBatchByUnit = new Map(tankBatches.map((tb) => [tb.tankId, tb]));
-        // NFR 4. toplu okuma: fcrSource=feed protokollerin band yemlerinin FCR
-        // matrisleri — bunsuz feed kaynağı her planda sessizce band'a düşerdi.
-        const feedFcrMatrixByFeedId = await this.loadFeedFcrMatrices(
-          manager,
-          tenantId,
-          protocols,
-        );
-
-        for (const assignment of assignments) {
-          const protocol = protocolById.get(assignment.protocolId);
+      await this.forEachAssignmentContext(
+        manager,
+        tenantId,
+        ProtocolAssignmentStatus.ACTIVE,
+        async (ctx) => {
           // DRAFT/ARCHIVED protokole işaret eden aktif atama plan ÜRETMEZ —
           // ünite D-5 süpürmesinde draft_protocol gerekçesiyle raporlanır.
-          if (!protocol || protocol.status !== FeedingProtocolStatus.ACTIVE) continue;
-          const tankBatch = tankBatchByUnit.get(assignment.unitId);
-          if (!tankBatch || tankBatch.totalQuantity <= 0) continue;
+          if (!ctx.protocol || ctx.protocol.status !== FeedingProtocolStatus.ACTIVE) return;
+          if (!ctx.tankBatch || ctx.tankBatch.totalQuantity <= 0) return;
 
-          const timezone = timezoneBySite.get(assignment.siteId) ?? 'UTC';
-          const planDate = this.calendarDayIn(timezone);
-          const computed = this.generator.computeDayPlan({
-            assignment,
-            protocol,
-            stock: {
-              fishCount: tankBatch.totalQuantity,
-              biomassKg: Number(tankBatch.totalBiomassKg || 0),
-              avgWeightG: Number(tankBatch.avgWeightG || 0),
-            },
-            temperature: temperatures.get(assignment.unitId) ?? { celsius: null, source: 'none' },
-            planDate,
-            timezone,
-            feedFcrMatrixByFeedId,
-          });
-          if (!computed) continue;
+          const computed = this.computePlanFor(ctx);
+          if (!computed) return;
           await this.generator.persistDayPlan(
             manager,
             {
               tenantId,
-              assignmentId: assignment.id,
-              protocolId: assignment.protocolId,
-              unitId: assignment.unitId,
-              siteId: assignment.siteId,
-              unitType: assignment.unitType,
-              unitName: assignment.unitName,
-              unitCode: assignment.unitCode,
-              planDate,
+              assignmentId: ctx.assignment.id,
+              protocolId: ctx.assignment.protocolId,
+              unitId: ctx.assignment.unitId,
+              siteId: ctx.assignment.siteId,
+              unitType: ctx.assignment.unitType,
+              unitName: ctx.assignment.unitName,
+              unitCode: ctx.assignment.unitCode,
+              planDate: ctx.planDate,
             },
             computed,
           );
-        }
-        if (assignments.length < ASSIGNMENT_PAGE_SIZE) break;
-      }
+        },
+      );
 
       // D-5: balıklı olup ETKİN planı olmayan üniteler — atamasız /
       // balıklı-paused / DRAFT protokollü. Tek sorgu, event ünite başına.
       await this.detectUnfedUnits(manager, tenantId);
+    });
+  }
+
+  /**
+   * K-3 dry-run: PAUSED atamalar için plan HESABI — persist YOK, event YOK.
+   * Faz 6 mutabakat kapısının eski-vs-yeni plan karşılaştırması bu çıktıyı
+   * kullanır: migration'dan paused gelen her atamanın aktive edildiğinde ne
+   * üreteceği (veya neden üretmeyeceği) operatöre önceden görünür olur.
+   */
+  async dryRunForTenant(tenantId: string): Promise<DryRunUnitPlan[]> {
+    const results: DryRunUnitPlan[] = [];
+    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      await this.forEachAssignmentContext(
+        queryRunner.manager,
+        tenantId,
+        ProtocolAssignmentStatus.PAUSED,
+        async (ctx) => {
+          const base = {
+            assignmentId: ctx.assignment.id,
+            unitId: ctx.assignment.unitId,
+            unitCode: ctx.assignment.unitCode,
+            siteId: ctx.assignment.siteId,
+            planDate: ctx.planDate,
+          };
+          if (!ctx.protocol) {
+            results.push({ ...base, outcome: 'missing_protocol' });
+            return;
+          }
+          if (ctx.protocol.status === FeedingProtocolStatus.DRAFT) {
+            // K-14 kapı girdisi: DRAFT protokole işaret eden atama —
+            // aktivasyondan önce operatör onayı gerekir.
+            results.push({ ...base, outcome: 'draft_protocol' });
+            return;
+          }
+          if (ctx.protocol.status !== FeedingProtocolStatus.ACTIVE) {
+            results.push({ ...base, outcome: 'archived_protocol' });
+            return;
+          }
+          if (!ctx.tankBatch || ctx.tankBatch.totalQuantity <= 0) {
+            results.push({ ...base, outcome: 'empty_unit' });
+            return;
+          }
+          const computed = this.computePlanFor(ctx);
+          if (!computed) {
+            results.push({ ...base, outcome: 'no_plan' });
+            return;
+          }
+          results.push({ ...base, outcome: 'computed', computed });
+        },
+      );
+    });
+    return results;
+  }
+
+  /**
+   * Paylaşılan sayfa döngüsü: atamalar 200'lük sayfalarla, sayfa başına SABİT
+   * toplu okuma (protokoller IN, TankBatch IN, sıcaklıklar, feed matrisleri,
+   * site timezone'ları) — ünite başına sorgu SIFIR. 06:00 üretimi ve K-3
+   * dry-run AYNI yükleyiciden geçer; iki yol birbirinden sapamaz.
+   */
+  private async forEachAssignmentContext(
+    manager: EntityManager,
+    tenantId: string,
+    status: ProtocolAssignmentStatus,
+    visit: (ctx: AssignmentPlanContext) => Promise<void>,
+  ): Promise<void> {
+    const timezoneBySite = await this.siteTimezones(manager, tenantId);
+
+    for (let page = 0; ; page++) {
+      const assignments = await manager.find(ProtocolAssignment, {
+        where: { tenantId, status },
+        order: { id: 'ASC' },
+        skip: page * ASSIGNMENT_PAGE_SIZE,
+        take: ASSIGNMENT_PAGE_SIZE,
+      });
+      if (assignments.length === 0) break;
+
+      const protocolIds = [...new Set(assignments.map((a) => a.protocolId))];
+      const unitIds = assignments.map((a) => a.unitId);
+      const [protocols, tankBatches, temperatures] = await Promise.all([
+        manager.find(FeedingProtocolV2, { where: { tenantId, id: In(protocolIds) } }),
+        manager.find(TankBatch, { where: { tenantId, tankId: In(unitIds) } }),
+        this.temperatureService.getEffectiveTemperaturesForUnits(tenantId, unitIds),
+      ]);
+      const protocolById = new Map(protocols.map((p) => [p.id, p]));
+      const tankBatchByUnit = new Map(tankBatches.map((tb) => [tb.tankId, tb]));
+      // NFR 4. toplu okuma: fcrSource=feed protokollerin band yemlerinin FCR
+      // matrisleri — bunsuz feed kaynağı her planda sessizce band'a düşerdi.
+      const feedFcrMatrixByFeedId = await this.loadFeedFcrMatrices(manager, tenantId, protocols);
+
+      for (const assignment of assignments) {
+        const timezone = timezoneBySite.get(assignment.siteId) ?? 'UTC';
+        await visit({
+          assignment,
+          protocol: protocolById.get(assignment.protocolId),
+          tankBatch: tankBatchByUnit.get(assignment.unitId),
+          temperature: temperatures.get(assignment.unitId) ?? { celsius: null, source: 'none' },
+          timezone,
+          planDate: this.calendarDayIn(timezone),
+          feedFcrMatrixByFeedId,
+        });
+      }
+      if (assignments.length < ASSIGNMENT_PAGE_SIZE) break;
+    }
+  }
+
+  /** Ortak plan hesabı — üretim ve dry-run aynı computeDayPlan girdisini kurar. */
+  private computePlanFor(ctx: AssignmentPlanContext): ComputedDayPlan | null {
+    if (!ctx.protocol || !ctx.tankBatch) return null;
+    return this.generator.computeDayPlan({
+      assignment: ctx.assignment,
+      protocol: ctx.protocol,
+      stock: {
+        fishCount: ctx.tankBatch.totalQuantity,
+        biomassKg: Number(ctx.tankBatch.totalBiomassKg || 0),
+        avgWeightG: Number(ctx.tankBatch.avgWeightG || 0),
+      },
+      temperature: ctx.temperature,
+      planDate: ctx.planDate,
+      timezone: ctx.timezone,
+      feedFcrMatrixByFeedId: ctx.feedFcrMatrixByFeedId,
     });
   }
 

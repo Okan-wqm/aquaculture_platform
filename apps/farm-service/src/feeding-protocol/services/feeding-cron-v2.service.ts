@@ -1,0 +1,629 @@
+/**
+ * FeedingCronV2Service — öğün motorunun zamanlanmış işleri (Faz 5, plan §2 tablosu).
+ *
+ * | 05:30 | DAILY growth rollup + dünkü beslenmemiş öğünler `missed` (+event) +
+ * |       | bayat partially_fed öğünlerin otomatik finalize'ı (D-8)           |
+ * | 06:00 | Tüm aktif atamalar için day plan + öğün üretimi (idempotent) +    |
+ * |       | plansız-ünite tespiti — UnfedUnitDetected (D-5, sessiz aç kalma   |
+ * |       | imkânsız)                                                         |
+ * | 15dk  | MealWindowUpcoming — (tenant, tick) başına TOPLU (K-2, 500 cap +  |
+ * |       | devam event'leri); `windowNotifiedAt` idempotent                  |
+ * | 20:00 | FeedingDailySummary (durable) + gün-seviyesi kronik az-atım       |
+ * |       | süpürmesi — MealUnderfed(scope=day) (D-16)                        |
+ *
+ * Ölçek disiplini (NFR): tenant'lar sıralı; tenant içinde 200'lük atama
+ * sayfaları; sayfa başına SABİT sayıda toplu okuma (protokoller IN, TankBatch
+ * IN, sıcaklıklar toplu, site timezone'ları) — ünite başına sorgu SIFIR.
+ * Advisory-lock deseni v1 makinesiyle birebir (session-scoped kilit, edinen
+ * bağlantıda tutulur/bırakılır); v1 06:00 üretimi cutover'a (Faz 6) kadar
+ * yaşamaya devam eder — v2 yalnız v2 ataması olan ünitelerde koşar, çift
+ * planlama prod'da imkânsız (K-3: migrate atamalar paused).
+ *
+ * @module FeedingProtocol/Services
+ */
+import * as crypto from 'crypto';
+
+import { Injectable, Logger } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource, EntityManager, In, QueryRunner } from 'typeorm';
+import { listTenantSchemas, runInTenantTransaction } from '@aquaculture/backend-common/database';
+import { OutboxPublisher } from '@platform/outbox';
+import {
+  createBaseEvent,
+  toEventIso,
+  FeedingDailySummaryEvent,
+  MealMissedEvent,
+  MealUnderfedEvent,
+  MealWindowUpcomingEvent,
+  MealWindowEntry,
+  UnfedUnitDetectedEvent,
+} from '@platform/event-contracts';
+
+import { FeedingProtocolV2, FeedingProtocolStatus } from '../entities/feeding-protocol-v2.entity';
+import {
+  ProtocolAssignment,
+  ProtocolAssignmentStatus,
+} from '../entities/protocol-assignment.entity';
+import { FeedingDayPlan, FeedingDayPlanStatus } from '../entities/feeding-day-plan.entity';
+import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
+import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import { MealPlanGeneratorService } from './meal-plan-generator.service';
+import { BiomassGrowthApplierService } from './biomass-growth-applier.service';
+import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
+
+const ADVISORY_LOCK_NAMESPACE = 0x46454544; // 'FEED'
+const ASSIGNMENT_PAGE_SIZE = 200;
+/** K-2 kanonik cap — schema validator ile aynı sabit. */
+export const MEAL_WINDOW_MAX_ENTRIES = 500;
+const MEAL_WINDOW_LEAD_MINUTES = 60;
+
+/** Toplu pencere event'lerine bölme — SAF (spec pinli). */
+export function chunkWindowEntries<T>(entries: T[], cap: number): T[][] {
+  if (entries.length === 0) return [];
+  const chunks: T[][] = [];
+  for (let i = 0; i < entries.length; i += cap) {
+    chunks.push(entries.slice(i, i + cap));
+  }
+  return chunks;
+}
+
+@Injectable()
+export class FeedingCronV2Service {
+  private readonly logger = new Logger(FeedingCronV2Service.name);
+  private readonly advisoryLockRunners = new Map<string, QueryRunner>();
+
+  constructor(
+    @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly generator: MealPlanGeneratorService,
+    private readonly growthApplier: BiomassGrowthApplierService,
+    private readonly temperatureService: WaterTemperatureService,
+    private readonly outboxPublisher: OutboxPublisher,
+  ) {}
+
+  // ==========================================================================
+  // 06:00 — GÜN PLANI ÜRETİMİ + D-5 TESPİTİ
+  // ==========================================================================
+
+  @Cron('0 6 * * *', { name: 'feeding-v2-generate-day-plans', timeZone: 'Europe/Istanbul' })
+  async generateDayPlans(): Promise<void> {
+    await this.runExclusive('feeding-v2-generate-day-plans', async () => {
+      const tenants = await this.activeTenants();
+      for (const tenantId of tenants) {
+        try {
+          const started = Date.now();
+          await this.generateForTenant(tenantId);
+          const elapsed = Date.now() - started;
+          if (elapsed > 60_000) {
+            // NFR kapasite sinyali: tenant >60sn — ölçek uyarısı, hata değil.
+            this.logger.warn(`Day-plan generation slow for tenant ${tenantId}: ${elapsed}ms`);
+          }
+        } catch (error) {
+          this.logger.error(
+            `Day-plan generation failed for tenant ${tenantId}: ${(error as Error).message}`,
+          );
+        }
+      }
+    });
+  }
+
+  /** Tek tenant üretimi — sayfa başına SABİT toplu okuma, ünite başına sorgu yok. */
+  async generateForTenant(tenantId: string): Promise<void> {
+    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const manager = queryRunner.manager;
+      const timezoneBySite = await this.siteTimezones(manager, tenantId);
+
+      for (let page = 0; ; page++) {
+        const assignments = await manager.find(ProtocolAssignment, {
+          where: { tenantId, status: ProtocolAssignmentStatus.ACTIVE },
+          order: { id: 'ASC' },
+          skip: page * ASSIGNMENT_PAGE_SIZE,
+          take: ASSIGNMENT_PAGE_SIZE,
+        });
+        if (assignments.length === 0) break;
+
+        const protocolIds = [...new Set(assignments.map((a) => a.protocolId))];
+        const unitIds = assignments.map((a) => a.unitId);
+        const [protocols, tankBatches, temperatures] = await Promise.all([
+          manager.find(FeedingProtocolV2, { where: { tenantId, id: In(protocolIds) } }),
+          manager.find(TankBatch, { where: { tenantId, tankId: In(unitIds) } }),
+          this.temperatureService.getEffectiveTemperaturesForUnits(tenantId, unitIds),
+        ]);
+        const protocolById = new Map(protocols.map((p) => [p.id, p]));
+        const tankBatchByUnit = new Map(tankBatches.map((tb) => [tb.tankId, tb]));
+
+        for (const assignment of assignments) {
+          const protocol = protocolById.get(assignment.protocolId);
+          // DRAFT/ARCHIVED protokole işaret eden aktif atama plan ÜRETMEZ —
+          // ünite D-5 süpürmesinde draft_protocol gerekçesiyle raporlanır.
+          if (!protocol || protocol.status !== FeedingProtocolStatus.ACTIVE) continue;
+          const tankBatch = tankBatchByUnit.get(assignment.unitId);
+          if (!tankBatch || tankBatch.totalQuantity <= 0) continue;
+
+          const timezone = timezoneBySite.get(assignment.siteId) ?? 'UTC';
+          const planDate = this.calendarDayIn(timezone);
+          const computed = this.generator.computeDayPlan({
+            assignment,
+            protocol,
+            stock: {
+              fishCount: tankBatch.totalQuantity,
+              biomassKg: Number(tankBatch.totalBiomassKg || 0),
+              avgWeightG: Number(tankBatch.avgWeightG || 0),
+            },
+            temperature: temperatures.get(assignment.unitId) ?? { celsius: null, source: 'none' },
+            planDate,
+            timezone,
+          });
+          if (!computed) continue;
+          await this.generator.persistDayPlan(
+            manager,
+            {
+              tenantId,
+              assignmentId: assignment.id,
+              protocolId: assignment.protocolId,
+              unitId: assignment.unitId,
+              siteId: assignment.siteId,
+              unitType: assignment.unitType,
+              unitName: assignment.unitName,
+              unitCode: assignment.unitCode,
+              planDate,
+            },
+            computed,
+          );
+        }
+        if (assignments.length < ASSIGNMENT_PAGE_SIZE) break;
+      }
+
+      // D-5: balıklı olup ETKİN planı olmayan üniteler — atamasız /
+      // balıklı-paused / DRAFT protokollü. Tek sorgu, event ünite başına.
+      await this.detectUnfedUnits(manager, tenantId);
+    });
+  }
+
+  private async detectUnfedUnits(manager: EntityManager, tenantId: string): Promise<void> {
+    const rows: Array<{
+      unitId: string;
+      unitCode: string | null;
+      siteId: string | null;
+      fishCount: string | number;
+      biomassKg: string | number | null;
+      reason: 'no_assignment' | 'assignment_paused' | 'draft_protocol';
+    }> = await manager.query(
+      `SELECT tb."tankId" AS "unitId",
+              COALESCE(a."unitCode", tb."tankCode") AS "unitCode",
+              COALESCE(a."siteId", d."siteId") AS "siteId",
+              tb."totalQuantity" AS "fishCount",
+              tb."totalBiomassKg" AS "biomassKg",
+              CASE
+                WHEN a.id IS NULL THEN 'no_assignment'
+                WHEN a.status = 'paused' THEN 'assignment_paused'
+                ELSE 'draft_protocol'
+              END AS reason
+       FROM "tank_batches" tb
+       LEFT JOIN "feeding_protocol_assignments" a
+         ON a."tenantId" = tb."tenantId" AND a."unitId" = tb."tankId"
+        AND a.status IN ('active', 'paused')
+       LEFT JOIN "feeding_protocols_v2" p ON p.id = a."protocolId"
+       LEFT JOIN "equipment" e ON e.id = tb."tankId"
+       LEFT JOIN "departments" d ON d.id = e."departmentId"
+       WHERE tb."tenantId" = $1 AND tb."totalQuantity" > 0
+         AND (a.id IS NULL OR a.status = 'paused' OR p.status <> 'active')`,
+      [tenantId],
+    );
+    for (const row of rows) {
+      if (!row.siteId) continue; // sitesiz ünite D-14 mutabakat kümesinde raporlanır
+      const event: UnfedUnitDetectedEvent = {
+        ...createBaseEvent<UnfedUnitDetectedEvent>('UnfedUnitDetected', tenantId, {
+          aggregateId: row.unitId,
+          aggregateType: 'FeedingUnit',
+        }),
+        unitId: row.unitId,
+        unitCode: row.unitCode ?? '',
+        siteId: row.siteId,
+        reason: row.reason,
+        fishCount: Number(row.fishCount),
+        biomassKg: Number(row.biomassKg ?? 0),
+      };
+      await this.outboxPublisher.enqueue(event, manager);
+    }
+  }
+
+  // ==========================================================================
+  // */15dk — MEAL WINDOW (K-2 TOPLU ŞEKİL)
+  // ==========================================================================
+
+  @Cron('*/15 * * * *', { name: 'feeding-v2-meal-window' })
+  async mealWindowSweep(): Promise<void> {
+    await this.runExclusive('feeding-v2-meal-window', async () => {
+      const tenants = await this.activeTenants();
+      const windowStart = new Date();
+      const windowEnd = new Date(windowStart.getTime() + MEAL_WINDOW_LEAD_MINUTES * 60_000);
+      for (const tenantId of tenants) {
+        try {
+          await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+            const manager = queryRunner.manager;
+            // Partial indeks üzerinden okur (scheduled + windowNotifiedAt IS NULL).
+            const meals: Array<{
+              id: string;
+              unitId: string;
+              dayPlanId: string;
+              mealIndex: number;
+              scheduledAt: Date;
+              feedId: string;
+              plannedKg: string | number;
+              unitCode: string;
+              protocolId: string;
+              minDissolvedOxygen: number | null;
+              lowOxygenReduction: number | null;
+            }> = await manager.query(
+              `SELECT m.id, m."unitId", m."dayPlanId", m."mealIndex", m."scheduledAt",
+                      m."feedId", m."plannedKg", dp."unitCode", dp."protocolId",
+                      (p.settings->>'minDissolvedOxygen')::numeric AS "minDissolvedOxygen",
+                      (p.settings->'adjustments'->>'lowOxygenReduction')::numeric AS "lowOxygenReduction"
+               FROM "feeding_meals" m
+               JOIN "feeding_day_plans" dp ON dp.id = m."dayPlanId"
+               LEFT JOIN "feeding_protocols_v2" p ON p.id = dp."protocolId"
+               WHERE m."tenantId" = $1 AND m.status = 'scheduled'
+                 AND m."windowNotifiedAt" IS NULL
+                 AND m."scheduledAt" >= $2 AND m."scheduledAt" < $3
+               ORDER BY m."scheduledAt" ASC`,
+              [tenantId, windowStart, windowEnd],
+            );
+            if (meals.length === 0) return;
+
+            const entries: MealWindowEntry[] = meals.map((meal) => ({
+              unitId: meal.unitId,
+              unitCode: meal.unitCode,
+              dayPlanId: meal.dayPlanId,
+              mealId: meal.id,
+              mealIndex: meal.mealIndex,
+              scheduledAt: toEventIso(meal.scheduledAt),
+              feedId: meal.feedId,
+              plannedKg: Number(meal.plannedKg),
+              protocolId: meal.protocolId,
+              minDissolvedOxygen: meal.minDissolvedOxygen ?? undefined,
+              lowOxygenReductionPercent: meal.lowOxygenReduction ?? undefined,
+            }));
+            const chunks = chunkWindowEntries(entries, MEAL_WINDOW_MAX_ENTRIES);
+            for (const [index, chunk] of chunks.entries()) {
+              const event: MealWindowUpcomingEvent = {
+                ...createBaseEvent<MealWindowUpcomingEvent>('MealWindowUpcoming', tenantId),
+                windowStart: toEventIso(windowStart),
+                windowEnd: toEventIso(windowEnd),
+                leadMinutes: MEAL_WINDOW_LEAD_MINUTES,
+                batchIndex: index,
+                batchCount: chunks.length,
+                meals: chunk,
+              };
+              await this.outboxPublisher.enqueue(event, manager);
+            }
+            // İdempotency damgası AYNI tx'te — event yazıldıysa damga da yazıldı.
+            await manager.query(
+              `UPDATE "feeding_meals" SET "windowNotifiedAt" = now() WHERE id = ANY($1)`,
+              [meals.map((meal) => meal.id)],
+            );
+          });
+        } catch (error) {
+          this.logger.error(
+            `Meal window sweep failed for tenant ${tenantId}: ${(error as Error).message}`,
+          );
+        }
+      }
+    });
+  }
+
+  // ==========================================================================
+  // 05:30 — SABAH SÜPÜRMESİ (missed + bayat partial finalize + DAILY rollup)
+  // ==========================================================================
+
+  @Cron('30 5 * * *', { name: 'feeding-v2-morning-sweep', timeZone: 'Europe/Istanbul' })
+  async morningSweep(): Promise<void> {
+    await this.runExclusive('feeding-v2-morning-sweep', async () => {
+      const tenants = await this.activeTenants();
+      for (const tenantId of tenants) {
+        try {
+          await this.sweepTenant(tenantId);
+        } catch (error) {
+          this.logger.error(
+            `Morning sweep failed for tenant ${tenantId}: ${(error as Error).message}`,
+          );
+        }
+      }
+    });
+  }
+
+  async sweepTenant(tenantId: string): Promise<void> {
+    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const manager = queryRunner.manager;
+      const cutoff = new Date(Date.now() - 6 * 60 * 60 * 1000); // pencere: 6 saat
+
+      // (a) Hiç döküm görmemiş, penceresi geçmiş öğünler → missed + event.
+      const missed = await manager.find(FeedingMeal, {
+        where: { tenantId, status: FeedingMealStatus.SCHEDULED },
+        order: { scheduledAt: 'ASC' },
+      });
+      for (const meal of missed) {
+        if (meal.scheduledAt >= cutoff) continue;
+        meal.status = FeedingMealStatus.MISSED;
+        await manager.save(meal);
+        const dayPlan = await manager.findOne(FeedingDayPlan, {
+          where: { id: meal.dayPlanId, tenantId },
+        });
+        const event: MealMissedEvent = {
+          ...createBaseEvent<MealMissedEvent>('MealMissed', tenantId, {
+            aggregateId: meal.id,
+            aggregateType: 'FeedingMeal',
+          }),
+          unitId: meal.unitId,
+          unitCode: dayPlan?.unitCode ?? '',
+          mealId: meal.id,
+          dayPlanId: meal.dayPlanId,
+          scheduledAt: toEventIso(meal.scheduledAt),
+        };
+        await this.outboxPublisher.enqueue(event, manager);
+      }
+
+      // (b) Bayat partially_fed → otomatik finalize (D-8 pencere kapanışı):
+      // varyans hesaplanır; growth DAILY rollup'ta uygulanır (aşağıda) — sweep
+      // finalize'ı growth uygulamaz, çift uygulama imkânsız.
+      const stalePartials = await manager.find(FeedingMeal, {
+        where: { tenantId, status: FeedingMealStatus.PARTIALLY_FED },
+      });
+      for (const meal of stalePartials) {
+        if (meal.scheduledAt >= cutoff) continue;
+        meal.status = FeedingMealStatus.FED;
+        meal.fedAt = new Date();
+        meal.varianceKg = round3(Number(meal.actualKg) - Number(meal.plannedKg));
+        meal.variancePercent =
+          Number(meal.plannedKg) > 0
+            ? round3(
+                ((Number(meal.actualKg) - Number(meal.plannedKg)) / Number(meal.plannedKg)) * 100,
+              )
+            : 0;
+        await manager.save(meal);
+      }
+
+      // (c) DAILY-mod rollup: dünün (ve öncesinin) rollup görmemiş planları —
+      // gün toplam actual'ı tek seferde büyümeye çevrilir; damga idempotent.
+      const pendingRollups: Array<{ id: string; unitId: string; expectedFcr: number }> =
+        await manager.query(
+          `SELECT dp.id, dp."unitId", (dp.snapshot->>'expectedFcr')::numeric AS "expectedFcr"
+           FROM "feeding_day_plans" dp
+           JOIN "feeding_protocols_v2" p ON p.id = dp."protocolId"
+           WHERE dp."tenantId" = $1 AND dp."rollupAppliedAt" IS NULL
+             AND dp."planDate" < CURRENT_DATE
+             AND dp.status IN ('in_progress', 'completed')
+             AND p.settings->>'growthApplicationMode' = 'daily'
+           ORDER BY dp."unitId" ASC`,
+          [tenantId],
+        );
+      for (const plan of pendingRollups) {
+        const totals: Array<{ actual: string | number | null }> = await manager.query(
+          `SELECT COALESCE(SUM("actualKg"), 0) AS actual FROM "feeding_meals"
+           WHERE "dayPlanId" = $1`,
+          [plan.id],
+        );
+        const actualKg = Number(totals[0]?.actual ?? 0);
+        const expectedFcr = Number(plan.expectedFcr) || 0;
+        if (actualKg > 0 && expectedFcr > 0) {
+          const locked = await this.growthApplier.lockUnitForGrowth(manager, tenantId, plan.unitId);
+          if (locked) {
+            await this.growthApplier.applyGrowth(
+              manager,
+              tenantId,
+              locked,
+              actualKg / expectedFcr,
+              expectedFcr,
+            );
+          }
+        }
+        await manager.query(
+          `UPDATE "feeding_day_plans" SET "rollupAppliedAt" = now() WHERE id = $1`,
+          [plan.id],
+        );
+      }
+    });
+  }
+
+  // ==========================================================================
+  // 20:00 — GÜNLÜK ÖZET + GÜN-SEVİYESİ AZ-ATIM (D-16)
+  // ==========================================================================
+
+  @Cron('0 20 * * *', { name: 'feeding-v2-daily-summary', timeZone: 'Europe/Istanbul' })
+  async dailySummary(): Promise<void> {
+    await this.runExclusive('feeding-v2-daily-summary', async () => {
+      const tenants = await this.activeTenants();
+      for (const tenantId of tenants) {
+        try {
+          await this.summarizeTenant(tenantId);
+        } catch (error) {
+          this.logger.error(
+            `Daily summary failed for tenant ${tenantId}: ${(error as Error).message}`,
+          );
+        }
+      }
+    });
+  }
+
+  async summarizeTenant(tenantId: string): Promise<void> {
+    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const manager = queryRunner.manager;
+      const rows: Array<{
+        id: string;
+        unitId: string;
+        unitCode: string;
+        planDate: string;
+        status: FeedingDayPlanStatus;
+        plannedTotalKg: string | number;
+        unplannedActualKg: string | number;
+        actualKg: string | number | null;
+        missedCount: string | number | null;
+        thresholdPercent: number | null;
+      }> = await manager.query(
+        `SELECT dp.id, dp."unitId", dp."unitCode", dp."planDate", dp.status,
+                dp."plannedTotalKg", dp."unplannedActualKg",
+                (SELECT COALESCE(SUM(m."actualKg"), 0) FROM "feeding_meals" m WHERE m."dayPlanId" = dp.id) AS "actualKg",
+                (SELECT COUNT(*) FROM "feeding_meals" m WHERE m."dayPlanId" = dp.id AND m.status = 'missed') AS "missedCount",
+                (p.settings->>'underfeedAlertThresholdPercent')::numeric AS "thresholdPercent"
+         FROM "feeding_day_plans" dp
+         LEFT JOIN "feeding_protocols_v2" p ON p.id = dp."protocolId"
+         WHERE dp."tenantId" = $1 AND dp."planDate" = CURRENT_DATE`,
+        [tenantId],
+      );
+      if (rows.length === 0) return;
+
+      let plannedTotal = 0;
+      let actualTotal = 0;
+      let completed = 0;
+      let skipped = 0;
+      let missedMeals = 0;
+      let underfedUnits = 0;
+
+      for (const row of rows) {
+        const planned = Number(row.plannedTotalKg);
+        const actual = Number(row.actualKg ?? 0) + Number(row.unplannedActualKg ?? 0);
+        plannedTotal += planned;
+        actualTotal += actual;
+        missedMeals += Number(row.missedCount ?? 0);
+        if (row.status === FeedingDayPlanStatus.COMPLETED) completed += 1;
+        if (row.status === FeedingDayPlanStatus.SKIPPED) skipped += 1;
+
+        // D-16: öğün başına eşik altında kalan ama GÜN toplamında eşiği aşan
+        // sistematik açık — MealUnderfed(scope=day).
+        const threshold = row.thresholdPercent ?? 15;
+        if (planned > 0) {
+          const dayVariancePercent = ((actual - planned) / planned) * 100;
+          if (dayVariancePercent < -threshold) {
+            underfedUnits += 1;
+            const underfed: MealUnderfedEvent = {
+              ...createBaseEvent<MealUnderfedEvent>('MealUnderfed', tenantId, {
+                aggregateId: row.id,
+                aggregateType: 'FeedingDayPlan',
+              }),
+              scope: 'day',
+              unitId: row.unitId,
+              unitCode: row.unitCode,
+              dayPlanId: row.id,
+              plannedKg: round3(planned),
+              actualKg: round3(actual),
+              variancePercent: round3(dayVariancePercent),
+              thresholdPercent: threshold,
+            };
+            await this.outboxPublisher.enqueue(underfed, manager);
+          }
+        }
+      }
+
+      const summary: FeedingDailySummaryEvent = {
+        ...createBaseEvent<FeedingDailySummaryEvent>('FeedingDailySummary', tenantId),
+        planDate: rows[0]!.planDate,
+        unitsPlanned: rows.length,
+        unitsCompleted: completed,
+        unitsSkipped: skipped,
+        plannedTotalKg: round3(plannedTotal),
+        actualTotalKg: round3(actualTotal),
+        underfedUnitCount: underfedUnits,
+        missedMealCount: missedMeals,
+      };
+      await this.outboxPublisher.enqueue(summary, manager);
+    });
+  }
+
+  // ==========================================================================
+  // ORTAK YARDIMCILAR
+  // ==========================================================================
+
+  /**
+   * Aktif v2 ataması olan tenant'lar — v1 cron'un keşif deseni:
+   * `listTenantSchemas` + şema başına kısa ömürlü discovery runner'ı
+   * (search_path pinli). Asıl iş `runInTenantTransaction` içinde koşar.
+   */
+  private async activeTenants(): Promise<string[]> {
+    const tenantSchemas = await listTenantSchemas(this.dataSource);
+    const tenantIds = new Set<string>();
+    for (const schema of tenantSchemas) {
+      const runner = this.dataSource.createQueryRunner();
+      await runner.connect();
+      try {
+        await runner.query(`SET search_path TO "${schema}", farm, public`);
+        const rows: Array<{ tenantId: string }> = await runner.query(
+          `SELECT DISTINCT "tenantId" FROM feeding_protocol_assignments WHERE status = 'active'`,
+        );
+        for (const row of rows) tenantIds.add(row.tenantId);
+      } catch (error) {
+        this.logger.warn(
+          `Tenant discovery failed for schema ${schema}: ${(error as Error).message}`,
+        );
+      } finally {
+        await runner.release();
+      }
+    }
+    return [...tenantIds];
+  }
+
+  private async siteTimezones(
+    manager: EntityManager,
+    tenantId: string,
+  ): Promise<Map<string, string>> {
+    const rows: Array<{ id: string; timezone: string | null }> = await manager.query(
+      `SELECT id, timezone FROM "sites" WHERE "tenantId" = $1`,
+      [tenantId],
+    );
+    return new Map(rows.map((row) => [row.id, row.timezone || 'UTC']));
+  }
+
+  /** Verilen IANA saat dilimindeki bugünkü takvim günü (YYYY-MM-DD, D-4). */
+  private calendarDayIn(timeZone: string): string {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    return formatter.format(new Date());
+  }
+
+  private getAdvisoryLockKey(jobName: string): number {
+    const hash = crypto.createHash('sha256').update(jobName).digest();
+    return hash.readInt32LE(0);
+  }
+
+  /** v1 makinesiyle aynı disiplin: session-scoped kilit, edinen bağlantıda yaşar. */
+  private async runExclusive(jobName: string, job: () => Promise<void>): Promise<void> {
+    const lockKey = this.getAdvisoryLockKey(jobName);
+    const runner = this.dataSource.createQueryRunner();
+    await runner.connect();
+    let acquired = false;
+    try {
+      const result: Array<{ acquired: boolean }> = await runner.query(
+        `SELECT pg_try_advisory_lock($1, $2) as acquired`,
+        [ADVISORY_LOCK_NAMESPACE, lockKey],
+      );
+      acquired = result[0]?.acquired === true;
+      if (!acquired) {
+        this.logger.log(`Another instance runs ${jobName}; skipping.`);
+        return;
+      }
+      this.advisoryLockRunners.set(jobName, runner);
+      await job();
+    } finally {
+      if (acquired) {
+        this.advisoryLockRunners.delete(jobName);
+        try {
+          await runner.query(`SELECT pg_advisory_unlock($1, $2)`, [
+            ADVISORY_LOCK_NAMESPACE,
+            lockKey,
+          ]);
+        } finally {
+          await runner.release();
+        }
+      } else {
+        await runner.release();
+      }
+    }
+  }
+}
+
+function round3(value: number): number {
+  return Math.round((value + Number.EPSILON) * 1000) / 1000;
+}

@@ -363,6 +363,7 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   feedingRecord: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedingProtocolsV2: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedingDayPlans: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  protocolFeedForecast: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedingProtocolV2: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   protocolAssignments: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedingRecords: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],

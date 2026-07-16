@@ -12,6 +12,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { FeedingProtocolV2 } from './entities/feeding-protocol-v2.entity';
 import { ProtocolAssignment } from './entities/protocol-assignment.entity';
+import { FeedingDayPlan } from './entities/feeding-day-plan.entity';
+import { FeedingMeal } from './entities/feeding-meal.entity';
 import { Feed } from '../feed/entities/feed.entity';
 import { Species } from '../species/entities/species.entity';
 import { ProtocolValidationService } from './services/protocol-validation.service';
@@ -34,7 +36,16 @@ import {
 import { FeedingProtocolV2Resolver } from './resolvers/feeding-protocol-v2.resolver';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([FeedingProtocolV2, ProtocolAssignment, Feed, Species])],
+  imports: [
+    TypeOrmModule.forFeature([
+      FeedingProtocolV2,
+      ProtocolAssignment,
+      FeedingDayPlan,
+      FeedingMeal,
+      Feed,
+      Species,
+    ]),
+  ],
   providers: [
     ProtocolValidationService,
     ProtocolRateService,

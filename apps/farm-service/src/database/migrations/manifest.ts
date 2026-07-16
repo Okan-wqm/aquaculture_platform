@@ -76,6 +76,7 @@ import { AddChemicalTherapeuticTypes1805900000000 } from './1805900000000-AddChe
 import { BackfillFeedInventoryToStorageLedger1806100000000 } from './1806100000000-BackfillFeedInventoryToStorageLedger';
 import { CreateFeedingProtocolV2Tables1806200000000 } from './1806200000000-CreateFeedingProtocolV2Tables';
 import { MigrateFeedingProgramsToProtocolV21806300000000 } from './1806300000000-MigrateFeedingProgramsToProtocolV2';
+import { CreateFeedingDayPlanAndMeals1806400000000 } from './1806400000000-CreateFeedingDayPlanAndMeals';
 import { CreateIncidentMedia1806000000000 } from './1806000000000-CreateIncidentMedia';
 
 /**
@@ -151,4 +152,5 @@ export const FARM_MIGRATIONS = [
   BackfillFeedInventoryToStorageLedger1806100000000,
   CreateFeedingProtocolV2Tables1806200000000,
   MigrateFeedingProgramsToProtocolV21806300000000,
+  CreateFeedingDayPlanAndMeals1806400000000,
 ] as const;

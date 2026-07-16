@@ -427,6 +427,8 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // Birleşik protokol SSoT (feeding-protocol SSoT Faz 3, FARM-HIGH-219)
       'feeding_protocols_v2',
       'feeding_protocol_assignments',
+      'feeding_day_plans',
+      'feeding_meals',
 
       // Chemical management
       'chemical_types',

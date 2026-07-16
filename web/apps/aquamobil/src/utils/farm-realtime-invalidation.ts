@@ -28,6 +28,7 @@ export type FarmRealtimeEvent =
   | 'batchProductionCompleted'
   | 'feedingRecorded'
   | 'feedInventoryLow'
+  | 'lowStockDetected'
   | 'feederCalibrationsSaved'
   | 'tankCreated'
   | 'tankUpdated'
@@ -60,6 +61,8 @@ export const FARM_REALTIME_INVALIDATION_SEGMENTS: Record<
   // Feeding.
   feedingRecorded: [['tanks'], ['feedingPlan'], ['dailyOpsCounts'], ['stockEventsSummary']],
   feedInventoryLow: [['stockEventsSummary'], ['feedingPlan']],
+  // Storage-ledger low-stock sink (successor of feedInventoryLow).
+  lowStockDetected: [['warehouseSummary'], ['stockEventsSummary'], ['feedingPlan']],
   feederCalibrationsSaved: [['feedingPlan']],
   // Tank structure/state.
   tankCreated: [['tanks']],

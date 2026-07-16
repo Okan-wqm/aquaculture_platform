@@ -39,6 +39,9 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { tenantManagerRepo, TenantScopedRepository } from '@aquaculture/backend-common/database';
+import { OutboxPublisher } from '@platform/outbox';
+import type { LowStockDetectedEvent } from '@platform/event-contracts';
+import { createBaseEvent } from '@platform/event-contracts';
 
 import { StorageLocation } from '../entities/storage-location.entity';
 import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';
@@ -110,6 +113,15 @@ export interface RecordMovementResult {
   /** True when the idempotency key matched an existing movement (no-op replay). */
   idempotentHit: boolean;
   warnings: ConditionWarning[];
+  /**
+   * Set when this OUT/WASTE movement left the item's aggregate at or below
+   * its minStock. The matching durable `LowStockDetectedEvent` has already
+   * been enqueued to the outbox INSIDE the caller's transaction by this
+   * service (single low-stock sink); callers use this field only for
+   * POST-COMMIT side effects (e.g. the in-process `inventory.lowStock`
+   * auto-task trigger), never to re-emit the durable event.
+   */
+  lowStock: { severity: 'low_stock' | 'out_of_stock'; minimumThreshold?: number } | null;
 }
 
 @Injectable()
@@ -119,6 +131,11 @@ export class StockMovementService {
   constructor(
     private readonly lotMixService: LotMixService,
     private readonly siteAuth: SiteAuthorizationService,
+    // OutboxPublisher is provided app-wide by the @Global() FarmOutboxModule.
+    // The low-stock signal is enqueued HERE (single sink) so EVERY writer —
+    // manual movement, feeding deduction, PO receipt, adjustment — emits it
+    // on the same transactional manager; no caller can forget it.
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   /**
@@ -159,7 +176,7 @@ export class StockMovementService {
       });
       if (existing) {
         this.logger.log(`Idempotent hit: movement ${existing.id} for key ${input.idempotencyKey}`);
-        return { saved: existing, currentTotal: 0, idempotentHit: true, warnings: [] };
+        return { saved: existing, currentTotal: 0, idempotentHit: true, warnings: [], lowStock: null };
       }
     }
 
@@ -270,6 +287,7 @@ export class StockMovementService {
     // read inside the tx so it reflects the just-applied mutation. Used for
     // low-stock detection on stock-reducing movements only.
     let currentTotal = 0;
+    let lowStock: RecordMovementResult['lowStock'] = null;
     if (fromLocation && (movementType === MovementType.OUT || movementType === MovementType.WASTE)) {
       const stockResult = await tenantManagerRepo(manager, StorageInventory, tenantId)
         .createQueryBuilder('inv')
@@ -278,9 +296,36 @@ export class StockMovementService {
         .andWhere('inv.itemId = :itemId', { itemId })
         .getRawOne();
       currentTotal = parseFloat(stockResult?.total ?? '0');
+
+      // Single low-stock sink: threshold detection + the durable event live
+      // at the mutation core, so a feeding deduction and a manual OUT emit
+      // the SAME signal on the SAME transactional manager. Previously the
+      // detection lived only in RecordStockMovementHandler, so feeding-driven
+      // depletion never raised LowStockDetected (findings register
+      // FARM-HIGH-217 leg of the dead alert chain).
+      const minStock = Number(itemDetails.minStock ?? 0);
+      if (currentTotal <= 0) {
+        lowStock = { severity: 'out_of_stock', minimumThreshold: minStock > 0 ? minStock : undefined };
+      } else if (minStock > 0 && currentTotal <= minStock) {
+        lowStock = { severity: 'low_stock', minimumThreshold: minStock };
+      }
+
+      if (lowStock) {
+        const lowStockEvent: LowStockDetectedEvent = {
+          ...createBaseEvent<LowStockDetectedEvent>('LowStockDetected', tenantId),
+          itemType,
+          itemId,
+          itemName: itemDetails.name,
+          currentQuantity: currentTotal,
+          unit: itemDetails.unit,
+          minimumThreshold: lowStock.minimumThreshold,
+          severity: lowStock.severity,
+        };
+        await this.outboxPublisher.enqueue(lowStockEvent, manager);
+      }
     }
 
-    return { saved, currentTotal, idempotentHit: false, warnings };
+    return { saved, currentTotal, idempotentHit: false, warnings, lowStock };
   }
 
   /**
@@ -444,12 +489,12 @@ export class StockMovementService {
   private async getItemDetails(
     manager: EntityManager,
     itemType: StorageItemType, itemId: string, tenantId: string,
-  ): Promise<{ name: string; unit: string; manufacturer?: string; storageTempMin?: number; storageTempMax?: number; storageHumidityMin?: number; storageHumidityMax?: number } | null> {
+  ): Promise<{ name: string; unit: string; minStock?: number; manufacturer?: string; storageTempMin?: number; storageTempMax?: number; storageHumidityMin?: number; storageHumidityMax?: number } | null> {
     switch (itemType) {
       case StorageItemType.FEED: {
         const feed = await tenantManagerRepo(manager, Feed, tenantId).findOne({ where: { id: itemId, tenantId } });
         return feed
-          ? { name: feed.name, unit: feed.unit, manufacturer: feed.manufacturer, storageTempMin: feed.storageTempMin, storageTempMax: feed.storageTempMax, storageHumidityMin: feed.storageHumidityMin, storageHumidityMax: feed.storageHumidityMax }
+          ? { name: feed.name, unit: feed.unit, minStock: feed.minStock, manufacturer: feed.manufacturer, storageTempMin: feed.storageTempMin, storageTempMax: feed.storageTempMax, storageHumidityMin: feed.storageHumidityMin, storageHumidityMax: feed.storageHumidityMax }
           : null;
       }
       case StorageItemType.CHEMICAL: {
@@ -458,6 +503,7 @@ export class StockMovementService {
           ? {
               name: chem.name,
               unit: chem.unit,
+              minStock: chem.minStock,
               storageTempMin: chem.storageTempMin,
               storageTempMax: chem.storageTempMax,
               storageHumidityMin: chem.storageHumidityMin,
@@ -474,6 +520,7 @@ export class StockMovementService {
           ? {
               name: cons.name,
               unit: cons.unit,
+              minStock: cons.minStock,
               storageTempMin: cons.storageTempMin,
               storageTempMax: cons.storageTempMax,
               storageHumidityMin: cons.storageHumidityMin,

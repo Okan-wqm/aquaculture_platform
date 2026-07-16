@@ -215,6 +215,26 @@ interface WireFeedInventoryLow extends WireBaseEvent {
   status: 'low_stock' | 'critical';
 }
 
+/**
+ * Storage-ledger low-stock signal (stock SSoT Phase 1). Emitted by the
+ * single inventory-mutation sink (`StockMovementService.recordMovement`)
+ * whenever an OUT/WASTE movement leaves the item's aggregate quantity at
+ * or below its `minStock` — regardless of which caller (manual movement,
+ * feeding deduction, adjustment) triggered the movement. Successor of the
+ * legacy `FeedInventoryLow` (which only fired from the feed_inventory
+ * branch); both are bridged during the migration window.
+ */
+interface WireLowStockDetected extends WireBaseEvent {
+  eventType: 'LowStockDetected';
+  itemType: 'feed' | 'chemical' | 'consumable' | 'healthcare';
+  itemId: string;
+  itemName: string;
+  currentQuantity: number;
+  unit: string;
+  minimumThreshold?: number;
+  severity: 'low_stock' | 'out_of_stock';
+}
+
 // ── Harvest / mortality follow-up wire shapes ──────────────────────────────
 // `recordedAt`/`harvestedAt`/`clearedAt`/`completedAt` are ISO strings on the
 // wire (Date in the TS contract; JSON has no Date type — see file header).
@@ -807,6 +827,33 @@ export const feedInventoryLowSchema: JSONSchemaType<WireFeedInventoryLow> = {
   ],
 };
 
+export const lowStockDetectedSchema: JSONSchemaType<WireLowStockDetected> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'LowStockDetected' },
+    itemType: {
+      type: 'string',
+      enum: ['feed', 'chemical', 'consumable', 'healthcare'],
+    },
+    itemId: UUID_SCHEMA,
+    itemName: FREE_TEXT,
+    currentQuantity: NON_NEGATIVE_NUMBER,
+    unit: SHORT_CODE,
+    minimumThreshold: { ...NON_NEGATIVE_NUMBER, nullable: true },
+    severity: { type: 'string', enum: ['low_stock', 'out_of_stock'] },
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'itemType',
+    'itemId',
+    'itemName',
+    'currentQuantity',
+    'unit',
+    'severity',
+  ],
+};
+
 // ── Harvest / mortality follow-up schemas ──────────────────────────────────
 
 export const mortalityAlertRaisedSchema: JSONSchemaType<WireMortalityAlertRaised> = {
@@ -1302,6 +1349,7 @@ export type FarmEventType =
   | 'BatchTransferred'
   | 'FeedingRecorded'
   | 'FeedInventoryLow'
+  | 'LowStockDetected'
   | 'SiteCreated'
   | 'SiteUpdated'
   | 'SiteDeleted'
@@ -1353,6 +1401,7 @@ export const FARM_EVENT_SCHEMAS: Record<FarmEventType, object> = {
   BatchTransferred: batchTransferredSchema,
   FeedingRecorded: feedingRecordedSchema,
   FeedInventoryLow: feedInventoryLowSchema,
+  LowStockDetected: lowStockDetectedSchema,
   SiteCreated: siteCreatedSchema,
   SiteUpdated: siteUpdatedSchema,
   SiteDeleted: siteDeletedSchema,

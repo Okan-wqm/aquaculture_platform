@@ -241,6 +241,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
       saved: mock<StockMovement>({ id: 'mv-1' }),
       currentTotal: 0,
       idempotentHit: false,
+      lowStock: null,
       warnings: [],
     };
   });

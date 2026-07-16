@@ -131,6 +131,13 @@ const INVALIDATION_MAP = {
     ['storage', 'inventory'],
     ['feeds', 'inventory'],
   ],
+  // Storage-ledger low-stock sink (successor of feedInventoryLow): every
+  // stock-reducing writer emits it, so storage + feed views refresh live.
+  lowStockDetected: [
+    ['storage', 'inventory'],
+    ['storage', 'overview'],
+    ['feeds', 'inventory'],
+  ],
   siteCreated: [['sites']],
   siteUpdated: [['sites']],
   siteDeleted: [['sites'], ['departments'], ['systems'], ['equipment'], ['tanks']],

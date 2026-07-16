@@ -28,6 +28,7 @@ import { EntityManager, ObjectLiteral, Repository, SelectQueryBuilder } from 'ty
 
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Role } from '@aquaculture/backend-common/decorators';
+import { OutboxPublisher } from '@platform/outbox';
 
 import { StockMovementService } from '../services/stock-movement.service';
 import { LotMixService } from '../services/lot-mix.service';
@@ -102,6 +103,8 @@ interface HarnessOpts {
   existingMovement?: StockMovement | null;
   /** Result of resolveFeedDeductionLocation's FEFO read. */
   resolveLot?: StorageInventory | null;
+  /** Post-decrement aggregate SUM returned for the item (default '250'). */
+  aggregateTotal?: string;
 }
 
 function inv(over: Partial<StorageInventory>): StorageInventory {
@@ -122,6 +125,7 @@ function makeHarness(opts: HarnessOpts = {}): {
   service: StockMovementService;
   manager: EntityManager;
   repos: RepoDoubles;
+  outboxEnqueue: jest.Mock;
 } {
   const fromLot = opts.fromLot === undefined ? null : opts.fromLot;
   const feed =
@@ -158,7 +162,7 @@ function makeHarness(opts: HarnessOpts = {}): {
     createQueryBuilder: jest.fn(() =>
       makeQueryBuilder({
         getOne: opts.resolveLot !== undefined ? opts.resolveLot : fromLot,
-        getRawOne: { total: '250' },
+        getRawOne: { total: opts.aggregateTotal ?? '250' },
       }),
     ),
   });
@@ -205,12 +209,16 @@ function makeHarness(opts: HarnessOpts = {}): {
   const lotMix = mock<LotMixService>({
     detect: jest.fn().mockResolvedValue({ mixCreated: false, mix: null, effectiveLotNumber: null }),
   });
-  const service = new StockMovementService(lotMix, new SiteAuthorizationService());
+  const outboxEnqueue = jest.fn();
+  outboxEnqueue.mockResolvedValue(undefined);
+  const outboxPublisher = mock<OutboxPublisher>({ enqueue: outboxEnqueue });
+  const service = new StockMovementService(lotMix, new SiteAuthorizationService(), outboxPublisher);
 
   return {
     service,
     manager,
     repos: { inventory: inventoryRepo, inventorySave, movementCreate, movementSave },
+    outboxEnqueue,
   };
 }
 
@@ -351,5 +359,98 @@ describe('StockMovementService.resolveFeedDeductionLocation', () => {
     const result = await service.resolveFeedDeductionLocation(manager, TENANT, FEED, new Date());
 
     expect(result).toBeNull();
+  });
+});
+
+describe('StockMovementService.recordMovement — single low-stock sink', () => {
+  // The durable LowStockDetected signal is enqueued AT THE MUTATION CORE so
+  // every stock-reducing writer (manual movement, feeding deduction, PO
+  // receipt) emits it on the caller's transactional manager. Previously the
+  // detection lived only in the RecordStockMovementHandler wrapper, so
+  // feeding-driven depletion never raised it (FARM-HIGH-217 dead chain).
+  const ctx = { tenantId: TENANT, userId: USER };
+
+  it('enqueues LowStockDetected (low_stock) when the aggregate falls to/below minStock', async () => {
+    const { service, manager, outboxEnqueue } = makeHarness({
+      fromLot: inv({ quantity: 500 }),
+      aggregateTotal: '80', // feed minStock default is 100
+    });
+
+    const result = await service.recordMovement(manager, outInput(50), ctx);
+
+    expect(result.lowStock).toEqual({ severity: 'low_stock', minimumThreshold: 100 });
+    expect(outboxEnqueue).toHaveBeenCalledTimes(1);
+    const [event, passedManager] = outboxEnqueue.mock.calls[0];
+    expect(event.eventType).toBe('LowStockDetected');
+    expect(event).toMatchObject({
+      itemType: StorageItemType.FEED,
+      itemId: FEED,
+      itemName: 'Grower 4mm',
+      currentQuantity: 80,
+      unit: 'kg',
+      minimumThreshold: 100,
+      severity: 'low_stock',
+    });
+    expect(passedManager).toBe(manager); // same caller transaction — atomic with the decrement
+  });
+
+  it('enqueues out_of_stock when the aggregate reaches zero', async () => {
+    const { service, manager, outboxEnqueue } = makeHarness({
+      fromLot: inv({ quantity: 500 }),
+      aggregateTotal: '0',
+    });
+
+    const result = await service.recordMovement(manager, outInput(50), ctx);
+
+    expect(result.lowStock?.severity).toBe('out_of_stock');
+    expect(outboxEnqueue.mock.calls[0][0].severity).toBe('out_of_stock');
+  });
+
+  it('stays silent when the aggregate remains above minStock', async () => {
+    const { service, manager, outboxEnqueue } = makeHarness({
+      fromLot: inv({ quantity: 500 }),
+      aggregateTotal: '250',
+    });
+
+    const result = await service.recordMovement(manager, outInput(50), ctx);
+
+    expect(result.lowStock).toBeNull();
+    expect(outboxEnqueue).not.toHaveBeenCalled();
+  });
+
+  it('does not evaluate low stock for inbound movements', async () => {
+    const { service, manager, outboxEnqueue } = makeHarness({ aggregateTotal: '0' });
+
+    const result = await service.recordMovement(
+      manager,
+      {
+        movementType: MovementType.IN,
+        itemType: StorageItemType.FEED,
+        itemId: FEED,
+        quantity: 10,
+        toLocationId: LOCATION,
+      },
+      ctx,
+    );
+
+    expect(result.lowStock).toBeNull();
+    expect(outboxEnqueue).not.toHaveBeenCalled();
+  });
+
+  it('does not re-enqueue on an idempotent replay', async () => {
+    const { service, manager, outboxEnqueue } = makeHarness({
+      existingMovement: mock<StockMovement>({ id: 'mv-existing' }),
+      aggregateTotal: '0',
+    });
+
+    const result = await service.recordMovement(
+      manager,
+      { ...outInput(50), idempotencyKey: 'k-1' },
+      ctx,
+    );
+
+    expect(result.idempotentHit).toBe(true);
+    expect(result.lowStock).toBeNull();
+    expect(outboxEnqueue).not.toHaveBeenCalled();
   });
 });

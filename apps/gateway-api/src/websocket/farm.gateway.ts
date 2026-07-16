@@ -252,6 +252,15 @@ export class FarmGateway
     this.emitFarmEvent(tenantId, 'feedInventoryLow', payload);
   }
 
+  /**
+   * Broadcast a LowStockDetected alert (storage-ledger low-stock sink —
+   * successor of FeedInventoryLow; both are bridged during the stock SSoT
+   * migration window).
+   */
+  broadcastLowStockDetected(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'lowStockDetected', payload);
+  }
+
   /** Broadcast a SiteCreated setup event. */
   broadcastSiteCreated(tenantId: string, payload: Record<string, unknown>): void {
     this.emitFarmEvent(tenantId, 'siteCreated', payload);

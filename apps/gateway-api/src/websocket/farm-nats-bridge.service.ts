@@ -117,6 +117,7 @@ const FARM_SUBJECTS = [
   'events.*.CullRecorded',
   'events.*.FeedingRecorded',
   'events.*.FeedInventoryLow',
+  'events.*.LowStockDetected',
   'events.*.SiteCreated',
   'events.*.SiteUpdated',
   'events.*.SiteDeleted',
@@ -375,6 +376,9 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
         break;
       case 'FeedInventoryLow':
         this.farmGateway.broadcastFeedInventoryLow(routingTenantId, event);
+        break;
+      case 'LowStockDetected':
+        this.farmGateway.broadcastLowStockDetected(routingTenantId, event);
         break;
       case 'SiteCreated':
         this.farmGateway.broadcastSiteCreated(routingTenantId, event);

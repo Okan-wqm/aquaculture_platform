@@ -507,22 +507,26 @@ export function RecordFeedingPage(): JSX.Element {
             </div>
 
             {/* Finalize — D-8 kısmi öğün: kapatmadan döküm eklenebilir */}
-            <label className="mt-3 flex items-start gap-3 bg-white dark:bg-gray-900 rounded-2xl p-4 border border-gray-100 dark:border-gray-800">
+            <div className="mt-3 flex items-start gap-3 bg-white dark:bg-gray-900 rounded-2xl p-4 border border-gray-100 dark:border-gray-800">
               <input
+                id="finalize-meal"
                 type="checkbox"
                 checked={finalize}
                 onChange={(e) => setFinalize(e.target.checked)}
                 className="mt-0.5 h-5 w-5 rounded accent-green-600"
               />
               <span>
-                <span className="block text-sm font-semibold text-gray-900 dark:text-white">
+                <label
+                  htmlFor="finalize-meal"
+                  className="block text-sm font-semibold text-gray-900 dark:text-white"
+                >
                   {t('feeding.pour.finalize')}
-                </span>
+                </label>
                 <span className="block text-xs text-gray-500 mt-0.5">
                   {t('feeding.pour.finalizeHint')}
                 </span>
               </span>
-            </label>
+            </div>
           </div>
 
           {/* Yöntem */}

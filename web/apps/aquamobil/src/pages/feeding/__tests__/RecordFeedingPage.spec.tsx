@@ -170,7 +170,7 @@ describe('RecordFeedingPage — öğün cutover (Faz 6)', () => {
     fireEvent.click(openMeal as HTMLElement);
 
     // Kalan plan miktarı (6.00) ön-dolu gelir.
-    const amount = (await screen.findByRole('spinbutton')) as HTMLInputElement;
+    const amount = await screen.findByRole<HTMLInputElement>('spinbutton');
     expect(amount.value).toBe('6.00');
 
     // "6.00 kg" metni öğün kartında da geçer — kaydet butonu erişilebilir

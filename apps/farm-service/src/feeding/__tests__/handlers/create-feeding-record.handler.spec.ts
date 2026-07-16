@@ -35,6 +35,7 @@ import { StockMovement } from '../../../storage/entities/stock-movement.entity';
 import { RecordMovementResult } from '../../../storage/services/stock-movement.service';
 import { BackdatePolicyService } from '../../../common/services/backdate-policy.service';
 import { FinanceSettingsService } from '../../../finance/services/finance-settings.service';
+import { FeedingLedgerService } from '../../services/feeding-ledger.service';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const BATCH = '22222222-2222-4222-8222-222222222222';
@@ -176,16 +177,21 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     getDefaultCurrencyInTx: jest.fn().mockResolvedValue('NOK'),
   });
 
+  // GERÇEK ledger (P-05 tek yol) — pinlenen davranışlar (fail-closed no-lot,
+  // rollback, storage-skip) artık ledger kodunda yaşar ve buradan uçtan uca koşar.
+  const feedingLedger = new FeedingLedgerService(
+    stockMovementService,
+    financeSettings,
+    outboxPublisher,
+  );
   const handler = new CreateFeedingRecordHandler(
     repo<FeedingRecord>(),
     repo<Batch>(),
     repo<Feed>(),
     dataSource,
-    outboxPublisher,
     backdatePolicy,
     batchDomainService,
-    stockMovementService,
-    financeSettings,
+    feedingLedger,
   );
 
   return { handler, feedHasStoragePresence, resolveFeedDeductionLocation, recordMovement, commit, rollback };

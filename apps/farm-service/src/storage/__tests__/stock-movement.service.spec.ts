@@ -350,7 +350,12 @@ describe('StockMovementService.resolveFeedDeductionLocation', () => {
 
     const result = await service.resolveFeedDeductionLocation(manager, TENANT, FEED, new Date());
 
-    expect(result).toEqual({ storageLocationId: LOCATION, lotNumber: 'LOT-A' });
+    expect(result).toEqual({
+      storageLocationId: LOCATION,
+      lotNumber: 'LOT-A',
+      // D-9: siteId verilmedi → site fallback söz konusu değil.
+      usedSiteFallback: false,
+    });
   });
 
   it('returns null when no usable lot is in stock (caller must fail-closed)', async () => {

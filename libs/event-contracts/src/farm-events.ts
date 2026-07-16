@@ -515,6 +515,13 @@ export interface FeedingRecordedEvent extends BaseEvent {
   feedCost?: string;
   /** ISO 4217 currency code for feedCost. */
   currency?: string;
+  // ── Öğün motoru v2 bağları (Faz 5, additive — C-13 wire şeması güncel) ──
+  /** Döküm hangi öğüne ait (v2 motoru; manuel kayıtta boş). */
+  mealId?: string;
+  pourIndex?: number;
+  dayPlanId?: string;
+  /** Equipment.id — kanonik ünite kimliği (tankId ile aynı değer taşır). */
+  unitId?: string;
 }
 
 /**

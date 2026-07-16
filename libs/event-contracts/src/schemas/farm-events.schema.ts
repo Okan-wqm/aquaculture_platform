@@ -202,6 +202,10 @@ interface WireFeedingRecorded extends WireBaseEvent {
   variance: number;
   feedCost?: string;
   currency?: string;
+  mealId?: string;
+  pourIndex?: number;
+  dayPlanId?: string;
+  unitId?: string;
 }
 
 interface WireFeedInventoryLow extends WireBaseEvent {
@@ -933,6 +937,12 @@ export const feedingRecordedSchema: JSONSchemaType<WireFeedingRecorded> = {
       nullable: true,
     },
     currency: { type: 'string', pattern: '^[A-Z]{3}$', nullable: true },
+    // Öğün motoru v2 bağları (Faz 5, additive) — additionalProperties:false
+    // olduğundan wire şemasına AÇIKÇA eklenir (C-13); upcaster gerekmez.
+    mealId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    pourIndex: { type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER, nullable: true },
+    dayPlanId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    unitId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
   },
   required: [
     ...BASE_EVENT_REQUIRED,

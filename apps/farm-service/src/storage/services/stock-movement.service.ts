@@ -411,30 +411,59 @@ export class StockMovementService {
     feedId: string,
     asOf: Date,
     lotNumber?: string,
-  ): Promise<{ storageLocationId: string; lotNumber?: string } | null> {
-    const query = tenantManagerRepo(manager, StorageInventory, tenantId)
-      .createQueryBuilder('inv')
-      .andWhere('inv.itemType = :itemType', { itemType: StorageItemType.FEED })
-      .andWhere('inv.itemId = :itemId', { itemId: feedId })
-      .andWhere('inv.quantity > 0')
-      .andWhere('(inv.expiryDate IS NULL OR inv.expiryDate > :today)', { today: new Date() })
-      .andWhere('(inv.receivedDate IS NULL OR inv.receivedDate <= :asOf)', { asOf });
+    /**
+     * D-9 site kapsamı: verilirse önce ÜNİTENİN SİTESİNİN lokasyonlarındaki
+     * lotlar denenir (düşüm + forecast aynı kapsamı okur); site'ta uygun lot
+     * yoksa belgeli tenant-geneli fallback (`usedSiteFallback=true`) uygulanır.
+     */
+    siteId?: string,
+  ): Promise<{ storageLocationId: string; lotNumber?: string; usedSiteFallback: boolean } | null> {
+    const buildQuery = (scopeSiteId?: string) => {
+      const query = tenantManagerRepo(manager, StorageInventory, tenantId)
+        .createQueryBuilder('inv')
+        .andWhere('inv.itemType = :itemType', { itemType: StorageItemType.FEED })
+        .andWhere('inv.itemId = :itemId', { itemId: feedId })
+        .andWhere('inv.quantity > 0')
+        .andWhere('(inv.expiryDate IS NULL OR inv.expiryDate > :today)', { today: new Date() })
+        .andWhere('(inv.receivedDate IS NULL OR inv.receivedDate <= :asOf)', { asOf });
+      if (scopeSiteId) {
+        query.innerJoin(
+          StorageLocation,
+          'loc',
+          'loc.id = inv."storageLocationId" AND loc."siteId" = :scopeSiteId',
+          { scopeSiteId },
+        );
+      }
+      // Supplied-lot binding: when a concrete feed batch is named, resolve the
+      // location of THAT lot only, so the OUT deduction hits the physical lot
+      // the operator declared (and never a different FEFO lot).
+      if (lotNumber) {
+        query.andWhere('inv.lotNumber = :lotNumber', { lotNumber });
+      }
+      return query
+        .orderBy('inv.expiryDate', 'ASC', 'NULLS LAST')
+        .addOrderBy('inv.receivedDate', 'ASC', 'NULLS LAST')
+        .addOrderBy('inv.lotNumber', 'ASC')
+        .getOne();
+    };
 
-    // Supplied-lot binding: when a concrete feed batch is named, resolve the
-    // location of THAT lot only, so the OUT deduction hits the physical lot
-    // the operator declared (and never a different FEFO lot).
-    if (lotNumber) {
-      query.andWhere('inv.lotNumber = :lotNumber', { lotNumber });
+    if (siteId) {
+      const siteScoped = await buildQuery(siteId);
+      if (siteScoped) {
+        return {
+          storageLocationId: siteScoped.storageLocationId,
+          lotNumber: siteScoped.lotNumber,
+          usedSiteFallback: false,
+        };
+      }
     }
-
-    const inventory = await query
-      .orderBy('inv.expiryDate', 'ASC', 'NULLS LAST')
-      .addOrderBy('inv.receivedDate', 'ASC', 'NULLS LAST')
-      .addOrderBy('inv.lotNumber', 'ASC')
-      .getOne();
-
+    const inventory = await buildQuery(undefined);
     if (!inventory) return null;
-    return { storageLocationId: inventory.storageLocationId, lotNumber: inventory.lotNumber };
+    return {
+      storageLocationId: inventory.storageLocationId,
+      lotNumber: inventory.lotNumber,
+      usedSiteFallback: !!siteId,
+    };
   }
 
   /**

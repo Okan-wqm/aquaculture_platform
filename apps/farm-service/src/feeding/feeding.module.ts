@@ -46,6 +46,7 @@ import { GrowthSimulatorService } from './services/growth-simulator.service';
 import { FeedConsumptionForecastService } from './services/feed-consumption-forecast.service';
 import { FeedingProgramService } from './services/feeding-program.service';
 import { DailyFeedingExecutionService } from './services/daily-feeding-execution.service';
+import { FeedingLedgerService } from './services/feeding-ledger.service';
 import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
 
 // Handlers
@@ -108,6 +109,9 @@ import { FinanceModule } from '../finance/finance.module';
     FeedConsumptionForecastService,
     FeedingProgramService,
     DailyFeedingExecutionService,
+    // TEK yem yazma yolu (P-05) — manuel handler + v2 motoru + drain-window
+    // legacy execution kaydı aynı servise delege eder.
+    FeedingLedgerService,
     MobileCommandReceiptService,
     // SEC-HIGH-051 / SEC-HIGH-052: site authz SSoT + mobile-feature guard.
     SiteAuthorizationService,
@@ -119,6 +123,7 @@ import { FinanceModule } from '../finance/finance.module';
   exports: [
     TypeOrmModule,
     FeedSelectorService,
+    FeedingLedgerService,
     BilinearInterpolationService,
     GrowthSimulatorService,
     FeedConsumptionForecastService,

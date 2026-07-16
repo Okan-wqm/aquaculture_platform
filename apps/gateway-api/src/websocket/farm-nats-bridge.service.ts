@@ -145,6 +145,16 @@ const FARM_SUBJECTS = [
   // both are dashboard read-model events the frontend renders in real time.
   'events.*.TankCleared',
   'events.*.BatchProductionCompleted',
+  // Meal-based feeding engine v2 (C-2 — feeding-protocol cutover): the
+  // MealBoard + mobile meal surfaces render these live. The high-volume
+  // batched MealWindowUpcoming is an AUTOMATION hook (sensor-service), not a
+  // UI signal — deliberately NOT bridged.
+  'events.*.MealFed',
+  'events.*.MealSkipped',
+  'events.*.MealMissed',
+  'events.*.MealUnderfed',
+  'events.*.FeedTypeTransitioned',
+  'events.*.UnfedUnitDetected',
 ] as const;
 
 /** Stable NATS queue group name — load-balances across gateway-api replicas. */
@@ -451,6 +461,24 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
         break;
       case 'BatchProductionCompleted':
         this.farmGateway.broadcastBatchProductionCompleted(routingTenantId, event);
+        break;
+      case 'MealFed':
+        this.farmGateway.broadcastMealFed(routingTenantId, event);
+        break;
+      case 'MealSkipped':
+        this.farmGateway.broadcastMealSkipped(routingTenantId, event);
+        break;
+      case 'MealMissed':
+        this.farmGateway.broadcastMealMissed(routingTenantId, event);
+        break;
+      case 'MealUnderfed':
+        this.farmGateway.broadcastMealUnderfed(routingTenantId, event);
+        break;
+      case 'FeedTypeTransitioned':
+        this.farmGateway.broadcastFeedTypeTransitioned(routingTenantId, event);
+        break;
+      case 'UnfedUnitDetected':
+        this.farmGateway.broadcastUnfedUnitDetected(routingTenantId, event);
         break;
       default:
         this.logger.debug(

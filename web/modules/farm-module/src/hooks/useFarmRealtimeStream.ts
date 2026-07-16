@@ -160,6 +160,13 @@ const INVALIDATION_MAP = {
   subEquipmentDeleted: [['equipment'], ['subEquipment']],
   supplierApprovedSitesChanged: [['suppliers'], ['sites']],
   feederCalibrationsSaved: [['feederCalibrations'], ['equipment']],
+  // Öğün motoru v2 (C-2): MealBoard + atama görünümleri canlı tazelenir.
+  mealFed: [['feeding-day-plans'], ['tanks', 'list']],
+  mealSkipped: [['feeding-day-plans']],
+  mealMissed: [['feeding-day-plans']],
+  mealUnderfed: [['feeding-day-plans']],
+  feedTypeTransitioned: [['feeding-day-plans'], ['protocol-assignments'], ['tanks', 'list']],
+  unfedUnitDetected: [['feeding-day-plans'], ['protocol-assignments']],
 } as const satisfies Record<string, readonly (readonly unknown[])[]>;
 
 type FarmEventName = keyof typeof INVALIDATION_MAP;

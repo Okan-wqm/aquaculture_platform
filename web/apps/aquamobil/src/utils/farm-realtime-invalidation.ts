@@ -40,7 +40,13 @@ export type FarmRealtimeEvent =
   | 'equipmentDeleted'
   | 'subEquipmentCreated'
   | 'subEquipmentUpdated'
-  | 'subEquipmentDeleted';
+  | 'subEquipmentDeleted'
+  | 'mealFed'
+  | 'mealSkipped'
+  | 'mealMissed'
+  | 'mealUnderfed'
+  | 'feedTypeTransitioned'
+  | 'unfedUnitDetected';
 
 // Each event → the query-key SEGMENTS (tenant prefix added at invalidation time
 // via createTenantQueryKey, so the no-bare-tenant-query-key rule stays provable).
@@ -77,6 +83,15 @@ export const FARM_REALTIME_INVALIDATION_SEGMENTS: Record<
   subEquipmentCreated: [['tanks']],
   subEquipmentUpdated: [['tanks']],
   subEquipmentDeleted: [['tanks']],
+  // Öğün motoru v2 (C-2). NOT: 'feedingPlan' anahtarı mobil öğün sayfası
+  // cutover'ında 'feedingDayPlans'a döner — sayfa ve invalidation AYNI
+  // dilimde değişir (bugünkü sayfa hâlâ 'feedingPlan' okuyor).
+  mealFed: [['feedingPlan'], ['tanks'], ['dailyOpsCounts']],
+  mealSkipped: [['feedingPlan'], ['dailyOpsCounts']],
+  mealMissed: [['feedingPlan'], ['dailyOpsCounts']],
+  mealUnderfed: [['feedingPlan']],
+  feedTypeTransitioned: [['feedingPlan'], ['tanks']],
+  unfedUnitDetected: [['feedingPlan']],
 };
 
 export function isFarmRealtimeEvent(name: string): name is FarmRealtimeEvent {

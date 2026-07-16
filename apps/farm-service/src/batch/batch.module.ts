@@ -65,6 +65,7 @@ import { StockReconstructionService } from './services/stock-reconstruction.serv
 import { TankCountReconcileService } from './services/tank-count-reconcile.service';
 import { TankBatchModule } from './tank-batch.module';
 import { MortalityCullPolicyService } from './services/mortality-cull-policy.service';
+import { RemovalQuantityPolicyService } from './services/removal-quantity-policy.service';
 import { SGRCalculatorService } from './services/sgr-calculator.service';
 
 // Cross-cutting: backdate policy for mortality observations
@@ -125,6 +126,7 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
     BatchDomainService,
     BatchLifecyclePolicyService,
     MortalityCullPolicyService,
+    RemovalQuantityPolicyService,
     SGRCalculatorService,
     BiomassCalculatorService,
     StockReconstructionService,

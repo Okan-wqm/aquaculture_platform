@@ -830,6 +830,134 @@ export interface FeedingProtocolAssignmentPausedEvent extends BaseEvent {
   reason: 'protocol_archived' | 'operator_paused' | 'unit_emptied';
 }
 
+// ==================== Meal Engine Events (Faz 5 — plan §7/§10) ====================
+
+/**
+ * MealWindowUpcoming toplu girdisi — sensor-service'in aeratör ön-takviyesi
+ * (otomasyon kancası) için gereken her şeyi taşır.
+ */
+export interface MealWindowEntry {
+  unitId: string;
+  unitCode: string;
+  dayPlanId: string;
+  mealId: string;
+  mealIndex: number;
+  /** ISO timestamptz — site saat diliminden maddileşmiş mutlak an (D-4). */
+  scheduledAt: string;
+  feedId: string;
+  plannedKg: number;
+  protocolId: string;
+  minDissolvedOxygen?: number;
+  lowOxygenReductionPercent?: number;
+}
+
+/**
+ * Yaklaşan öğün penceresi — (tenant, cron-tick) başına TOPLU kanonik şekil
+ * (K-2): 500 girdi/event cap + devam event'leri (batchIndex/batchCount).
+ * 15dk cron üretir; `windowNotifiedAt` idempotency damgasıdır.
+ */
+export interface MealWindowUpcomingEvent extends BaseEvent {
+  eventType: 'MealWindowUpcoming';
+  windowStart: string;
+  windowEnd: string;
+  leadMinutes: number;
+  batchIndex: number;
+  batchCount: number;
+  meals: MealWindowEntry[];
+}
+
+/** Bir döküm kaydedildi (öğün başına değil DÖKÜM başına — D-8 granülü). */
+export interface MealFedEvent extends BaseEvent {
+  eventType: 'MealFed';
+  unitId: string;
+  mealId: string;
+  dayPlanId: string;
+  feedId: string;
+  pourIndex: number;
+  pourKg: number;
+  /** Kümülatif gerçekleşen (Σ pours). */
+  actualKg: number;
+  fedAt: string;
+  feedingMethod?: string;
+}
+
+export interface MealSkippedEvent extends BaseEvent {
+  eventType: 'MealSkipped';
+  unitId: string;
+  mealId: string;
+  dayPlanId: string;
+  reason: string;
+  skippedAt: string;
+}
+
+/**
+ * Az-atım: öğün finalize'ında (scope=meal) veya 20:00 gün-seviyesi
+ * süpürmesinde (scope=day, D-16 — öğün başına eşik altı kalan kronik açık).
+ */
+export interface MealUnderfedEvent extends BaseEvent {
+  eventType: 'MealUnderfed';
+  scope: 'meal' | 'day';
+  unitId: string;
+  unitCode: string;
+  dayPlanId: string;
+  mealId?: string;
+  plannedKg: number;
+  actualKg: number;
+  variancePercent: number;
+  thresholdPercent: number;
+}
+
+/** Penceresi geçmiş, hiç döküm görmemiş öğün (05:30 süpürmesi işaretler). */
+export interface MealMissedEvent extends BaseEvent {
+  eventType: 'MealMissed';
+  unitId: string;
+  unitCode: string;
+  mealId: string;
+  dayPlanId: string;
+  scheduledAt: string;
+}
+
+/** Ağırlık bandı geçişi — otomatik (histerezisli) veya manuel (P-12). */
+export interface FeedTypeTransitionedEvent extends BaseEvent {
+  eventType: 'FeedTypeTransitioned';
+  unitId: string;
+  unitCode: string;
+  assignmentId: string;
+  fromFeedId?: string;
+  toFeedId: string;
+  toFeedCode: string;
+  bandIndex: number;
+  avgWeightG: number;
+  automatic: boolean;
+}
+
+/**
+ * Balıklı ama etkin planı olmayan ünite (D-5 — sessiz aç kalma imkânsız):
+ * atamasız / balıklı-paused / DRAFT protokollü. 06:00 üretimi tespit eder.
+ */
+export interface UnfedUnitDetectedEvent extends BaseEvent {
+  eventType: 'UnfedUnitDetected';
+  unitId: string;
+  unitCode: string;
+  siteId: string;
+  reason: 'no_assignment' | 'assignment_paused' | 'draft_protocol';
+  fishCount: number;
+  biomassKg: number;
+}
+
+/** Günlük yemleme özeti — 20:00 cron, outbox → notification-service (K-8c). */
+export interface FeedingDailySummaryEvent extends BaseEvent {
+  eventType: 'FeedingDailySummary';
+  planDate: string;
+  unitsPlanned: number;
+  unitsCompleted: number;
+  unitsSkipped: number;
+  plannedTotalKg: number;
+  actualTotalKg: number;
+  underfedUnitCount: number;
+  missedMealCount: number;
+}
+
 export interface FeederCalibrationsSavedEvent extends BaseEvent {
   eventType: 'FeederCalibrationsSaved';
   equipmentId: string;
@@ -1512,6 +1640,14 @@ export type FarmEvent =
   | FeederCalibrationsSavedEvent
   | FeedingProtocolAssignedEvent
   | FeedingProtocolAssignmentPausedEvent
+  | MealWindowUpcomingEvent
+  | MealFedEvent
+  | MealSkippedEvent
+  | MealUnderfedEvent
+  | MealMissedEvent
+  | FeedTypeTransitionedEvent
+  | UnfedUnitDetectedEvent
+  | FeedingDailySummaryEvent
   | FeedInventoryLowEvent
   | WelfareEventReportedEvent
   | EscapeReportedEvent

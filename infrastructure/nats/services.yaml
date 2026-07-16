@@ -110,6 +110,17 @@ services:
       - "events.*.FeedingProtocolAssignmentPaused"
       - "events.*.FeedingRecordUpdated"
       - "events.*.FeedingRecorded"
+      # Öğün motoru v2 (Faz 5) — plan §7/§10; K-2 toplu pencere şekli.
+      - "events.*.MealWindowUpcoming"
+      - "events.*.MealFed"
+      - "events.*.MealSkipped"
+      - "events.*.MealUnderfed"
+      - "events.*.MealMissed"
+      - "events.*.FeedTypeTransitioned"
+      - "events.*.UnfedUnitDetected"
+      - "events.*.FeedingDailySummary"
+      # C-1: FCRAlert ilk kez durable (18:00 cron outbox'a yazar).
+      - "events.*.FCRAlert"
       - "events.*.FinanceCategoryArchived"
       - "events.*.FinanceCategoryCreated"
       - "events.*.FinanceCategoryUpdated"

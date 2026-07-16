@@ -77,6 +77,7 @@ import { BackfillFeedInventoryToStorageLedger1806100000000 } from './18061000000
 import { CreateFeedingProtocolV2Tables1806200000000 } from './1806200000000-CreateFeedingProtocolV2Tables';
 import { MigrateFeedingProgramsToProtocolV21806300000000 } from './1806300000000-MigrateFeedingProgramsToProtocolV2';
 import { CreateFeedingDayPlanAndMeals1806400000000 } from './1806400000000-CreateFeedingDayPlanAndMeals';
+import { FeedingCutoverActivateAssignments1806500000000 } from './1806500000000-FeedingCutoverActivateAssignments';
 import { CreateIncidentMedia1806000000000 } from './1806000000000-CreateIncidentMedia';
 
 /**
@@ -153,4 +154,5 @@ export const FARM_MIGRATIONS = [
   CreateFeedingProtocolV2Tables1806200000000,
   MigrateFeedingProgramsToProtocolV21806300000000,
   CreateFeedingDayPlanAndMeals1806400000000,
+  FeedingCutoverActivateAssignments1806500000000,
 ] as const;

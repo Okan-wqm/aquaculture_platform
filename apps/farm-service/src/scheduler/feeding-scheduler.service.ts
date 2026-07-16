@@ -49,6 +49,7 @@ import {
   FeedingMethod,
   FishAppetite,
 } from '../feeding/entities/feeding-record.entity';
+import { legacyFeedingEngineEnabled } from '../feeding/constants';
 import { FeedingTable, FeedingTableStatus } from '../feeding/entities/feeding-table.entity';
 import { Batch, BatchStatus } from '../batch/entities/batch.entity';
 import { Feed, FeedStatus } from '../feed/entities/feed.entity';
@@ -771,6 +772,10 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     timeZone: 'Europe/Istanbul',
   })
   async generateDailyFeedingPlan(): Promise<void> {
+    if (!legacyFeedingEngineEnabled()) {
+      this.logger.log('K-5 cutover: legacy plan generation gated off.');
+      return;
+    }
     this.logger.log('Starting daily feeding plan generation');
     const startTime = Date.now();
 
@@ -830,6 +835,10 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     timeZone: 'Europe/Istanbul',
   })
   async sendFeedingReminders(): Promise<void> {
+    if (!legacyFeedingEngineEnabled()) {
+      this.logger.log('K-5 cutover: legacy feeding reminders gated off.');
+      return;
+    }
     this.logger.log('Checking for feeding reminders');
 
     await this.loadTenantConfigs();
@@ -900,6 +909,10 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     timeZone: 'Europe/Istanbul',
   })
   async dailyFeedingSummary(): Promise<void> {
+    if (!legacyFeedingEngineEnabled()) {
+      this.logger.log('K-5 cutover: legacy daily summary (v2 20:00 FeedingDailySummary owns it) gated off.');
+      return;
+    }
     this.logger.log('Generating daily feeding summary');
     const startTime = Date.now();
 
@@ -968,6 +981,10 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     timeZone: 'Europe/Istanbul',
   })
   async analyzeFCR(): Promise<void> {
+    if (!legacyFeedingEngineEnabled()) {
+      this.logger.log('K-5 cutover: legacy FCR analysis (v2 18:00 durable FCRAlert owns it) gated off.');
+      return;
+    }
     this.logger.log('Starting FCR analysis');
     const startTime = Date.now();
 
@@ -1040,6 +1057,10 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     timeZone: 'Europe/Istanbul',
   })
   async checkFeedStock(): Promise<void> {
+    if (!legacyFeedingEngineEnabled()) {
+      this.logger.log('K-5 cutover: legacy stock check (LowStockDetected sink owns it) gated off.');
+      return;
+    }
     this.logger.log('Checking feed stock levels');
     const startTime = Date.now();
 

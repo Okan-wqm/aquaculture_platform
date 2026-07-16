@@ -6667,6 +6667,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/db-migrate/src/__tests__/restore-verification.integration.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/db-migrate/src/__tests__/rollback.integration.spec.ts",
       "prettier_managed": true
     },
@@ -40668,6 +40674,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/backup-restore-verification-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/billing-money-decimal-coexistence.spec.ts",
       "prettier_managed": true
     },
@@ -42553,6 +42565,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/scripts/database/create-tenant.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/database/generate-database-verification-sql.ts",
       "prettier_managed": true
     },
     {
@@ -54324,10 +54342,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8903,
+  "file_count": 8906,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8722,
-  "managed_file_list_sha256": "081d6733328f39bcc5db7d673eb9c53452b725f119602b600bfcf820a38f062d",
+  "managed_count": 8725,
+  "managed_file_list_sha256": "ff10462b91ad2397bf18182c352215c91bc5918dbbb8694fca5fa2f2e18d261a",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -1,9 +1,9 @@
 # Integrity manifest for backup-databases.sh
 # =============================================================================
 #
-# This file pins the SHA-256 of the trusted version of
-# tools/scripts/database/backup-databases.sh that the scheduled
-# production backup workflow is permitted to execute on the droplet.
+# This file pins the SHA-256 of every trusted file that the scheduled
+# production backup workflow is permitted to execute or consume on the
+# droplet.
 #
 # Without this pin, backup-production.yml checked out HEAD of origin/main,
 # meaning any attacker who landed a malicious commit on main would gain
@@ -12,8 +12,8 @@
 #
 # # Maintenance contract (INFRA-1 fix, plan v4 W2-E)
 #
-#   1. Any change to `tools/scripts/database/backup-databases.sh`
-#      REQUIRES a paired update to the hash below in the same PR.
+#   1. Any change to either trusted runtime file REQUIRES a paired update to
+#      the hashes below in the same PR.
 #   2. CI enforces the manifest-vs-script match via
 #      `.github/workflows/backup-manifest-invariant.yml` (W3) —
 #      PR fails if hash drifts from the file content.
@@ -24,7 +24,7 @@
 #
 # # Regenerating the hash
 #
-#   sha256sum tools/scripts/database/backup-databases.sh
+#   sha256sum tools/scripts/database/backup-databases.sh tools/scripts/database/database-verification.sql
 #
 # # Refs
 #
@@ -36,4 +36,5 @@
 # =============================================================================
 
 # sha256  path
-ef9c3857b91f10bfe23f55ed079376e27e03396df25aa63de80bd86ef042beb4  tools/scripts/database/backup-databases.sh
+63aa2898b3645e7c8a38af13a498fac4177b22e23f94553eb80557d21b278315  tools/scripts/database/backup-databases.sh
+8d525bf3cb5e554107dca4e0710e306d2428fc63e936953a5a57f0550eb168b0  tools/scripts/database/database-verification.sql

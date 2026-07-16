@@ -2,7 +2,7 @@ name: Backup - Production Postgres
 
 # SEC-CI-002: All third-party actions pinned to full commit SHAs.
 # INFRA-BACKUP-001: Nightly pg_dump of the droplet's local PostgreSQL →
-# DigitalOcean Spaces via SSH + the checked-in backup-databases.sh script.
+# DigitalOcean Spaces via SSH + the hash-pinned backup/verification bundle.
 # Retention is enforced by the bucket's lifecycle policy; this workflow
 # does not delete remote objects.
 
@@ -83,8 +83,8 @@ jobs:
             set -euo pipefail
             cd /var/aqua-saas
 
-            # Sync the script from main AND verify its SHA-256 against the
-            # committed manifest before execution. Without this guard, an
+            # Sync the trusted runtime bundle from main AND verify every file
+            # against the committed manifest before execution. Without this guard, an
             # attacker who lands a malicious commit on main gains arbitrary
             # code execution on the droplet as the SSH user (INFRA-1).
             #
@@ -93,34 +93,47 @@ jobs:
             # cannot silently update the hash alongside the script.
             echo "=== Syncing repo + verifying script integrity ==="
             git fetch --force --prune origin main
-            git checkout -f origin/main -- \
-              tools/scripts/database/backup-databases.sh \
-              .github/manifests/backup-script.sha256
+            MANIFEST=.github/manifests/backup-script.sha256
+            git checkout -f origin/main -- "$MANIFEST"
 
-            EXPECTED_SHA=$(awk '/backup-databases\.sh$/ && $1 !~ /^#/ {print $1; exit}' \
-              .github/manifests/backup-script.sha256)
-            ACTUAL_SHA=$(sha256sum tools/scripts/database/backup-databases.sh \
-              | awk '{print $1}')
-
-            if [ "$EXPECTED_SHA" = "__COMPUTE_ON_MERGE__" ]; then
+            if grep -q "__COMPUTE_ON_MERGE__" "$MANIFEST"; then
               echo "FATAL: manifest placeholder unresolved — CI must seed the hash on merge."
               exit 1
             fi
 
-            if [ "$EXPECTED_SHA" != "$ACTUAL_SHA" ]; then
-              echo "FATAL: backup-databases.sh SHA-256 mismatch — refusing to execute."
-              echo "  expected: $EXPECTED_SHA (from .github/manifests/backup-script.sha256)"
-              echo "  actual:   $ACTUAL_SHA"
-              echo "If this script was legitimately updated, submit a PR updating"
-              echo "BOTH the script AND its manifest hash (CODEOWNERS review required)."
+            EXPECTED_PATHS=$(printf '%s\n' \
+              tools/scripts/database/backup-databases.sh \
+              tools/scripts/database/database-verification.sql)
+            ACTUAL_PATHS=$(awk '$1 !~ /^#/ && NF == 2 {print $2}' "$MANIFEST" | sort)
+            if [ "$ACTUAL_PATHS" != "$EXPECTED_PATHS" ]; then
+              echo "FATAL: backup integrity manifest path set is not the trusted runtime bundle."
+              echo "Expected:"
+              echo "$EXPECTED_PATHS"
+              echo "Actual:"
+              echo "$ACTUAL_PATHS"
               exit 1
             fi
 
-            echo "Script integrity verified: $ACTUAL_SHA"
+            while read -r EXPECTED_SHA TRUSTED_PATH; do
+              [ -n "$EXPECTED_SHA" ] || continue
+              case "$TRUSTED_PATH" in
+                tools/scripts/database/backup-databases.sh|tools/scripts/database/database-verification.sql) ;;
+                *)
+                  echo "FATAL: unapproved path in backup integrity manifest: $TRUSTED_PATH"
+                  exit 1
+                  ;;
+              esac
+
+              git checkout -f origin/main -- "${TRUSTED_PATH}"
+            done < <(awk '$1 !~ /^#/ && NF == 2 {print $1, $2}' "$MANIFEST")
+
+            sha256sum --check "$MANIFEST"
+            echo "Backup runtime bundle integrity verified."
 
             echo "=== Running backup ==="
             export POSTGRES_CONTAINER=aqua-postgres
             export BACKUP_PREFIX='pg-backups'
+            export DATABASE_VERIFICATION_SQL='tools/scripts/database/database-verification.sql'
 
             if [ "${DRY_RUN}" = "true" ]; then
               echo "DRY_RUN=true — running pg_dump and local integrity checks without upload"

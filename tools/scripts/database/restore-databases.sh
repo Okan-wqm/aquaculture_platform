@@ -1,121 +1,144 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------------------------
-# restore-databases.sh — restore a pg_dump archive from DigitalOcean Spaces
+# restore-databases.sh — isolated restore with fail-closed parity verification
 #
-# Closes: docs/reviews/infra-expert/2026-04-14-infrastructure-hardening.md#INFRA-BACKUP-002
-#
-# Downloads one backup artifact (produced by backup-databases.sh), decrypts it
-# if it's GPG-encrypted, and restores it into the target Postgres container.
-# Always drops + recreates the target database — intended for ephemeral
-# restore-drill containers, NOT for in-place production recovery. Production
-# recovery follows a different runbook (not yet written; see INFRA-BACKUP-002).
-#
-# Environment contract (required unless default shown):
-#   TARGET_CONTAINER   Docker container running target Postgres   [required]
-#   TARGET_USER        Superuser for restore                      [default: aquaculture]
-#   TARGET_DB          Database to drop + create + restore into   [default: aquaculture_restore]
-#   SPACES_BUCKET      DO Spaces bucket                           [required]
-#   SPACES_ENDPOINT    Spaces region endpoint                     [default: https://fra1.digitaloceanspaces.com]
-#   AWS_ACCESS_KEY_ID  Spaces access key                          [required]
-#   AWS_SECRET_ACCESS_KEY                                         [required]
-#   BACKUP_KEY         Object key inside the bucket               [required]
-#   BACKUP_GPG_KEY     GPG secret key ID for decryption           [required if .gpg]
+# Downloads one dump and its snapshot-bound verification JSON, restores into a
+# disposable database, then re-runs the same collector and requires byte-for-
+# byte parity. The command refuses protected/unsafe database names and enforces
+# the 60-minute recovery-time objective by default.
 # -----------------------------------------------------------------------------
 
 set -euo pipefail
 
+RESTORE_STARTED_EPOCH=$(date -u +%s)
 TARGET_USER="${TARGET_USER:-aquaculture}"
 TARGET_DB="${TARGET_DB:-aquaculture_restore}"
 SPACES_ENDPOINT="${SPACES_ENDPOINT:-https://fra1.digitaloceanspaces.com}"
+MAX_RESTORE_SECONDS="${MAX_RESTORE_SECONDS:-3600}"
+DATABASE_VERIFICATION_SQL="${DATABASE_VERIFICATION_SQL:-tools/scripts/database/database-verification.sql}"
+RESTORE_TARGET_LABEL='com.aqua-saas.restore.role'
+RESTORE_TARGET_ROLE='isolated-drill'
 
 : "${TARGET_CONTAINER:?TARGET_CONTAINER required}"
 : "${SPACES_BUCKET:?SPACES_BUCKET required}"
 : "${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID required}"
 : "${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY required}"
-: "${BACKUP_KEY:?BACKUP_KEY required (e.g., pg-backups/2026/04/14/aquaculture-20260414T030000Z.dump)}"
+: "${BACKUP_KEY:?BACKUP_KEY required}"
 
-# -----------------------------------------------------------------------------
-# Tier-1 destructive-operation guards
-# -----------------------------------------------------------------------------
-# This script unconditionally DROPs TARGET_DB. A misconfigured environment
-# (TARGET_DB=aquaculture + TARGET_CONTAINER=aqua-postgres) would wipe
-# production in one step. The guards below refuse any combination that
-# could touch live data without an explicit consciously-typed override.
+if [[ ! "${TARGET_DB}" =~ ^[a-z][a-z0-9_]{0,62}$ ]]; then
+  echo "FATAL: TARGET_DB must match ^[a-z][a-z0-9_]{0,62}$; refusing destructive SQL." >&2
+  exit 4
+fi
 
-# 1. Protected database names — refuse outright.
 _PROTECTED_DBS=(aquaculture postgres template0 template1)
 for _protected in "${_PROTECTED_DBS[@]}"; do
   if [ "${TARGET_DB}" = "${_protected}" ]; then
     echo "FATAL: refusing to DROP protected database '${TARGET_DB}'." >&2
-    echo "       Use a disposable drill DB name, e.g. aquaculture_restore_$(date -u +%s)." >&2
+    echo "       Use a disposable drill database name." >&2
     exit 4
   fi
 done
 
-# 2. Live production container — refuse unless the operator consciously
-#    typed I_UNDERSTAND_DRILL_AGAINST_LIVE_CONTAINER=1. The drill runbook
-#    (docs/runbooks/database-restore-drill.md) brings up a SEPARATE
-#    aqua-postgres-drill container; touching aqua-postgres is outside the
-#    documented procedure.
-if [ "${TARGET_CONTAINER}" = "aqua-postgres" ] && \
-   [ -z "${I_UNDERSTAND_DRILL_AGAINST_LIVE_CONTAINER:-}" ]; then
-  echo "FATAL: refusing to restore into live container '${TARGET_CONTAINER}'." >&2
-  echo "       The drill runbook uses aqua-postgres-drill (separate container)." >&2
-  echo "       If you truly need to restore into the live container, set" >&2
-  echo "       I_UNDERSTAND_DRILL_AGAINST_LIVE_CONTAINER=1 after reading the runbook." >&2
+if [[ ! "${MAX_RESTORE_SECONDS}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "FATAL: MAX_RESTORE_SECONDS must be a positive integer." >&2
+  exit 4
+fi
+if [ "${MAX_RESTORE_SECONDS}" -gt 3600 ]; then
+  echo "FATAL: MAX_RESTORE_SECONDS cannot exceed 3600 seconds." >&2
   exit 4
 fi
 
+if [ ! -f "${DATABASE_VERIFICATION_SQL}" ]; then
+  echo "ERROR: generated verification SQL not found: ${DATABASE_VERIFICATION_SQL}" >&2
+  exit 2
+fi
 if ! command -v aws >/dev/null 2>&1; then
   echo "ERROR: aws CLI not found on PATH." >&2
   exit 2
 fi
-
 if ! docker inspect "${TARGET_CONTAINER}" >/dev/null 2>&1; then
   echo "ERROR: target container '${TARGET_CONTAINER}' not found." >&2
   exit 2
+fi
+TARGET_ROLE=$(docker inspect \
+  --format '{{ index .Config.Labels "com.aqua-saas.restore.role" }}' \
+  "${TARGET_CONTAINER}")
+COMPOSE_SERVICE=$(docker inspect \
+  --format '{{ index .Config.Labels "com.docker.compose.service" }}' \
+  "${TARGET_CONTAINER}")
+if [ "${TARGET_ROLE}" != "${RESTORE_TARGET_ROLE}" ] || [ "${COMPOSE_SERVICE}" = 'postgres' ]; then
+  echo "FATAL: target container lacks isolated restore attestation." >&2
+  echo "       Required label: ${RESTORE_TARGET_LABEL}=${RESTORE_TARGET_ROLE}" >&2
+  exit 4
 fi
 
 log() { printf '[%s] %s\n' "$(date -u +%FT%TZ)" "$*"; }
 
 TMP=$(mktemp -d -t pg-restore-XXXX)
 trap 'rm -rf "${TMP}"' EXIT
-
 LOCAL_DUMP="${TMP}/$(basename "${BACKUP_KEY}")"
+EXPECTED_DATABASE_PAYLOAD="${TMP}/expected-database-verification.json"
+ACTUAL_DATABASE_PAYLOAD="${TMP}/actual-database-verification.json"
+VERIFICATION_STDERR="${TMP}/database-verification.stderr"
 
-log "Reading object metadata for s3://${SPACES_BUCKET}/${BACKUP_KEY}"
-HEAD_OBJECT=$(aws s3api head-object \
+log "Reading dump metadata for s3://${SPACES_BUCKET}/${BACKUP_KEY}"
+HEAD_DUMP=$(aws s3api head-object \
   --bucket "${SPACES_BUCKET}" \
   --key "${BACKUP_KEY}" \
   --endpoint-url "${SPACES_ENDPOINT}" \
-  --query '[ContentLength, Metadata.sha256]' \
+  --query '[ContentLength, Metadata.sha256, Metadata.verification_sha256, Metadata.verification_size, Metadata.verification_key]' \
   --output text)
-read -r REMOTE_SIZE REMOTE_SHA256 <<< "${HEAD_OBJECT}"
+read -r REMOTE_SIZE REMOTE_SHA256 REMOTE_VERIFICATION_SHA256 REMOTE_VERIFICATION_SIZE VERIFICATION_KEY <<< "${HEAD_DUMP}"
 
-if [ -z "${REMOTE_SHA256:-}" ] || [ "${REMOTE_SHA256}" = "None" ] || [ "${REMOTE_SHA256}" = "null" ]; then
-  echo "ERROR: backup object is missing required sha256 metadata: s3://${SPACES_BUCKET}/${BACKUP_KEY}" >&2
+if [ -z "${REMOTE_SHA256:-}" ] || [ "${REMOTE_SHA256}" = "None" ] || \
+   [ -z "${REMOTE_VERIFICATION_SHA256:-}" ] || [ "${REMOTE_VERIFICATION_SHA256}" = "None" ] || \
+   [ -z "${VERIFICATION_KEY:-}" ] || [ "${VERIFICATION_KEY}" = "None" ]; then
+  echo "ERROR: backup object is missing dump or verification binding metadata." >&2
+  exit 5
+fi
+if [ "${VERIFICATION_KEY}" != "${BACKUP_KEY}.verification.json" ]; then
+  echo "ERROR: verification key metadata does not match the canonical sidecar key." >&2
   exit 5
 fi
 
-log "Downloading s3://${SPACES_BUCKET}/${BACKUP_KEY}"
+log "Reading verification metadata for s3://${SPACES_BUCKET}/${VERIFICATION_KEY}"
+HEAD_VERIFICATION=$(aws s3api head-object \
+  --bucket "${SPACES_BUCKET}" \
+  --key "${VERIFICATION_KEY}" \
+  --endpoint-url "${SPACES_ENDPOINT}" \
+  --query '[ContentLength, Metadata.sha256, Metadata.dump_sha256]' \
+  --output text)
+read -r SIDE_SIZE SIDE_SHA256 SIDE_DUMP_SHA256 <<< "${HEAD_VERIFICATION}"
+
+if [ "${SIDE_SIZE}" != "${REMOTE_VERIFICATION_SIZE}" ] || \
+   [ "${SIDE_SHA256}" != "${REMOTE_VERIFICATION_SHA256}" ] || \
+   [ "${SIDE_DUMP_SHA256}" != "${REMOTE_SHA256}" ]; then
+  echo "ERROR: dump and verification sidecar metadata are not reciprocal." >&2
+  exit 5
+fi
+
+log "Downloading dump and verification sidecar"
 aws s3 cp "s3://${SPACES_BUCKET}/${BACKUP_KEY}" "${LOCAL_DUMP}" \
+  --endpoint-url "${SPACES_ENDPOINT}" \
+  --only-show-errors
+aws s3 cp "s3://${SPACES_BUCKET}/${VERIFICATION_KEY}" "${EXPECTED_DATABASE_PAYLOAD}" \
   --endpoint-url "${SPACES_ENDPOINT}" \
   --only-show-errors
 
 LOCAL_SIZE=$(stat -c '%s' "${LOCAL_DUMP}")
 LOCAL_SHA256=$(sha256sum "${LOCAL_DUMP}" | awk '{print $1}')
+LOCAL_VERIFICATION_SIZE=$(stat -c '%s' "${EXPECTED_DATABASE_PAYLOAD}")
+LOCAL_VERIFICATION_SHA256=$(sha256sum "${EXPECTED_DATABASE_PAYLOAD}" | awk '{print $1}')
 
-if [ "${LOCAL_SIZE}" != "${REMOTE_SIZE}" ]; then
-  echo "ERROR: downloaded object size mismatch for s3://${SPACES_BUCKET}/${BACKUP_KEY}: local=${LOCAL_SIZE} remote=${REMOTE_SIZE}" >&2
+if [ "${LOCAL_SIZE}" != "${REMOTE_SIZE}" ] || [ "${LOCAL_SHA256}" != "${REMOTE_SHA256}" ]; then
+  echo "ERROR: downloaded dump size or SHA-256 mismatch." >&2
   exit 5
 fi
-
-if [ "${LOCAL_SHA256}" != "${REMOTE_SHA256}" ]; then
-  echo "ERROR: downloaded object sha256 mismatch for s3://${SPACES_BUCKET}/${BACKUP_KEY}: local=${LOCAL_SHA256} remote=${REMOTE_SHA256}" >&2
+if [ "${LOCAL_VERIFICATION_SIZE}" != "${REMOTE_VERIFICATION_SIZE}" ] || \
+   [ "${LOCAL_VERIFICATION_SHA256}" != "${REMOTE_VERIFICATION_SHA256}" ]; then
+  echo "ERROR: downloaded verification sidecar size or SHA-256 mismatch." >&2
   exit 5
 fi
-
-log "Downloaded object integrity verified: size=${LOCAL_SIZE} sha256=${LOCAL_SHA256}"
 
 if [[ "${LOCAL_DUMP}" == *.gpg ]]; then
   : "${BACKUP_GPG_KEY:?BACKUP_GPG_KEY required to decrypt .gpg archive}"
@@ -123,7 +146,6 @@ if [[ "${LOCAL_DUMP}" == *.gpg ]]; then
     echo "ERROR: gpg not found on PATH." >&2
     exit 2
   fi
-  log "Decrypting with key ${BACKUP_GPG_KEY}"
   DECRYPTED="${LOCAL_DUMP%.gpg}"
   gpg --batch --yes --decrypt \
     --local-user "${BACKUP_GPG_KEY}" \
@@ -132,16 +154,38 @@ if [[ "${LOCAL_DUMP}" == *.gpg ]]; then
   LOCAL_DUMP="${DECRYPTED}"
 fi
 
-log "Dropping and recreating database ${TARGET_DB} in ${TARGET_CONTAINER}"
-docker exec -i "${TARGET_CONTAINER}" psql \
-  -U "${TARGET_USER}" \
-  -d postgres \
-  -v ON_ERROR_STOP=1 \
-  -c "DROP DATABASE IF EXISTS ${TARGET_DB};" \
-  -c "CREATE DATABASE ${TARGET_DB};"
+log "Dropping and recreating isolated database ${TARGET_DB}"
+docker exec -i \
+  -e "PGPASSWORD=${PGPASSWORD:-}" \
+  "${TARGET_CONTAINER}" \
+  dropdb --if-exists --force "${TARGET_DB}" \
+    -U "${TARGET_USER}" \
+    --maintenance-db=postgres
+docker exec -i \
+  -e "PGPASSWORD=${PGPASSWORD:-}" \
+  "${TARGET_CONTAINER}" \
+  createdb "${TARGET_DB}" \
+    -U "${TARGET_USER}" \
+    --maintenance-db=postgres
+
+log "Preparing TimescaleDB restore mode"
+printf '%s\n' \
+  'CREATE EXTENSION IF NOT EXISTS timescaledb;' \
+  'SELECT timescaledb_pre_restore();' | \
+  docker exec -i \
+    -e "PGPASSWORD=${PGPASSWORD:-}" \
+    "${TARGET_CONTAINER}" \
+    psql \
+      -X \
+      -qAt \
+      -U "${TARGET_USER}" \
+      -d "${TARGET_DB}" \
+      -v ON_ERROR_STOP=1
 
 log "Restoring archive into ${TARGET_DB}"
-docker exec -i "${TARGET_CONTAINER}" \
+docker exec -i \
+  -e "PGPASSWORD=${PGPASSWORD:-}" \
+  "${TARGET_CONTAINER}" \
   pg_restore \
     -U "${TARGET_USER}" \
     -d "${TARGET_DB}" \
@@ -151,13 +195,55 @@ docker exec -i "${TARGET_CONTAINER}" \
     --verbose \
   < "${LOCAL_DUMP}"
 
-log "Restore complete — listing schemas in ${TARGET_DB}"
-docker exec -i "${TARGET_CONTAINER}" psql \
-  -U "${TARGET_USER}" \
-  -d "${TARGET_DB}" \
-  -c "SELECT schema_name FROM information_schema.schemata
-      WHERE schema_name NOT IN ('pg_catalog','information_schema','pg_toast')
-        AND schema_name NOT LIKE 'pg_%'
-      ORDER BY 1;"
+log "Finalizing TimescaleDB restore mode"
+printf '%s\n' 'SELECT timescaledb_post_restore();' | \
+  docker exec -i \
+    -e "PGPASSWORD=${PGPASSWORD:-}" \
+    "${TARGET_CONTAINER}" \
+    psql \
+      -X \
+      -qAt \
+      -U "${TARGET_USER}" \
+      -d "${TARGET_DB}" \
+      -v ON_ERROR_STOP=1
 
+log "Verifying restored schemas, migration heads, tenants, counts, and checksums"
+if ! (
+  printf 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;\n'
+  sed -n '1,$p' "${DATABASE_VERIFICATION_SQL}"
+  printf '\nCOMMIT;\n'
+) | docker exec -i \
+      -e "PGPASSWORD=${PGPASSWORD:-}" \
+      "${TARGET_CONTAINER}" \
+      psql \
+        -X \
+        -qAt \
+        -U "${TARGET_USER}" \
+        -d "${TARGET_DB}" \
+        -v ON_ERROR_STOP=1 \
+      > "${ACTUAL_DATABASE_PAYLOAD}" 2> "${VERIFICATION_STDERR}"; then
+  if [ -s "${VERIFICATION_STDERR}" ]; then
+    sed 's/^/  verification| /' "${VERIFICATION_STDERR}" >&2
+  fi
+  echo "ERROR: restored database failed structural verification." >&2
+  exit 6
+fi
+
+if ! cmp -s "${EXPECTED_DATABASE_PAYLOAD}" "${ACTUAL_DATABASE_PAYLOAD}"; then
+  EXPECTED_SHA=$(sha256sum "${EXPECTED_DATABASE_PAYLOAD}" | awk '{print $1}')
+  ACTUAL_SHA=$(sha256sum "${ACTUAL_DATABASE_PAYLOAD}" | awk '{print $1}')
+  echo "ERROR: restored database count/checksum evidence differs from the backup snapshot." >&2
+  echo "  expected verification sha256: ${EXPECTED_SHA}" >&2
+  echo "  actual verification sha256:   ${ACTUAL_SHA}" >&2
+  exit 6
+fi
+
+RESTORE_ELAPSED_SECONDS=$(( $(date -u +%s) - RESTORE_STARTED_EPOCH ))
+if [ "${RESTORE_ELAPSED_SECONDS}" -gt "${MAX_RESTORE_SECONDS}" ]; then
+  echo "ERROR: verified restore exceeded RTO (${RESTORE_ELAPSED_SECONDS}s > ${MAX_RESTORE_SECONDS}s)." >&2
+  exit 6
+fi
+
+VERIFIED_SHA256=$(sha256sum "${ACTUAL_DATABASE_PAYLOAD}" | awk '{print $1}')
+log "RESTORE_VERIFIED database=${TARGET_DB} elapsed_seconds=${RESTORE_ELAPSED_SECONDS} verification_sha256=${VERIFIED_SHA256}"
 log "Done"

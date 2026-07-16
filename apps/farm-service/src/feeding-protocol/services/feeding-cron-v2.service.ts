@@ -12,6 +12,8 @@
  * |       | P-14 zincirinden, eşikler legacy analyzeFCR ile birebir           |
  * | 20:00 | FeedingDailySummary (durable) + gün-seviyesi kronik az-atım       |
  * |       | süpürmesi — MealUnderfed(scope=day) (D-16)                        |
+ * | Aylık | Retention: day plan + öğün 24 ay (K-16), mobil komut makbuzları  |
+ * |       | 90 gün (NFR "Receipt büyümesi")                                   |
  *
  * Ölçek disiplini (NFR): tenant'lar sıralı; tenant içinde 200'lük atama
  * sayfaları; sayfa başına SABİT sayıda toplu okuma (protokoller IN, TankBatch
@@ -71,6 +73,9 @@ const MEAL_WINDOW_LEAD_MINUTES = 60;
 /** Legacy analyzeFCR eşikleri birebir: >%10 warning, >%20 critical. */
 const FCR_WARNING_VARIANCE_PERCENT = 10;
 const FCR_CRITICAL_VARIANCE_PERCENT = 20;
+/** Retention pencereleri (plan §2 tablosu + NFR "Receipt büyümesi", K-16). */
+const DAY_PLAN_RETENTION_MONTHS = 24;
+const RECEIPT_RETENTION_DAYS = 90;
 
 /** Toplu pencere event'lerine bölme — SAF (spec pinli). */
 export function chunkWindowEntries<T>(entries: T[], cap: number): T[][] {
@@ -689,8 +694,117 @@ export class FeedingCronV2Service {
   }
 
   // ==========================================================================
+  // AYLIK — RETENTION TEMİZLİĞİ (K-16 + NFR "Receipt büyümesi")
+  // ==========================================================================
+
+  /**
+   * Day plan + öğünler 24 AY saklanır (feeding_records retention'ıyla hizalı;
+   * `feeding_records.mealId` soft-ref olduğundan FK kırılması yok — K-16).
+   * Mobil komut makbuzları 90 GÜN saklanır (~4000 makbuz/gün/tenant ölçeği);
+   * purge sonrası eski clientCommandId replay'i bile çift uygulayamaz —
+   * meal status guard'ı + stock-movement idempotency anahtarı iki bağımsız
+   * katmandır (NFR). Ayın 1'i 04:00 Istanbul; advisory-lock tek instance.
+   */
+  @Cron('0 4 1 * *', { name: 'feeding-v2-retention', timeZone: 'Europe/Istanbul' })
+  async retentionCleanup(): Promise<void> {
+    await this.runExclusive('feeding-v2-retention', async () => {
+      const tenants = await this.tenantsForRetention();
+      for (const tenantId of tenants) {
+        try {
+          await this.purgeTenantRetention(tenantId);
+        } catch (error) {
+          this.logger.error(
+            `Retention cleanup failed for tenant ${tenantId}: ${(error as Error).message}`,
+          );
+        }
+      }
+    });
+  }
+
+  async purgeTenantRetention(tenantId: string): Promise<void> {
+    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const manager = queryRunner.manager;
+
+      // Önce öğünler (plan join'i üzerinden) — soft-ref sıra bağımsızlığına
+      // rağmen bu sıra, yarıda kesilen bir koşunun öksüz öğün bırakmasını
+      // yapısal olarak önler.
+      const meals: Array<{ count: number }> = await manager.query(
+        `WITH deleted AS (
+           DELETE FROM "feeding_meals" m
+            USING "feeding_day_plans" dp
+            WHERE m."dayPlanId" = dp.id
+              AND dp."tenantId" = $1
+              AND dp."planDate" < (CURRENT_DATE - INTERVAL '${DAY_PLAN_RETENTION_MONTHS} months')
+           RETURNING 1
+         ) SELECT COUNT(*)::int AS count FROM deleted`,
+        [tenantId],
+      );
+      const plans: Array<{ count: number }> = await manager.query(
+        `WITH deleted AS (
+           DELETE FROM "feeding_day_plans"
+            WHERE "tenantId" = $1
+              AND "planDate" < (CURRENT_DATE - INTERVAL '${DAY_PLAN_RETENTION_MONTHS} months')
+           RETURNING 1
+         ) SELECT COUNT(*)::int AS count FROM deleted`,
+        [tenantId],
+      );
+      const receipts: Array<{ count: number }> = await manager.query(
+        `WITH deleted AS (
+           DELETE FROM "farm_mobile_command_receipts"
+            WHERE "tenantId" = $1
+              AND "createdAt" < (now() - INTERVAL '${RECEIPT_RETENTION_DAYS} days')
+           RETURNING 1
+         ) SELECT COUNT(*)::int AS count FROM deleted`,
+        [tenantId],
+      );
+
+      const purged = {
+        meals: Number(meals[0]?.count ?? 0),
+        dayPlans: Number(plans[0]?.count ?? 0),
+        receipts: Number(receipts[0]?.count ?? 0),
+      };
+      if (purged.meals + purged.dayPlans + purged.receipts > 0) {
+        this.logger.log(
+          `Retention purge: ${purged.meals} meals, ${purged.dayPlans} day plans, ` +
+            `${purged.receipts} receipts removed (tenant ${tenantId.substring(0, 8)}...)`,
+        );
+      }
+    });
+  }
+
+  // ==========================================================================
   // ORTAK YARDIMCILAR
   // ==========================================================================
+
+  /**
+   * Retention keşfi: day plan VEYA makbuz taşıyan tüm tenant'lar — aktif
+   * atama/batch filtreleri retention için fazla dar olurdu (tarihsel veri,
+   * atamaları biten tenant'ta da yaşar).
+   */
+  private async tenantsForRetention(): Promise<string[]> {
+    const tenantSchemas = await listTenantSchemas(this.dataSource);
+    const tenantIds = new Set<string>();
+    for (const schema of tenantSchemas) {
+      const runner = this.dataSource.createQueryRunner();
+      await runner.connect();
+      try {
+        await runner.query(`SET search_path TO "${schema}", farm, public`);
+        const rows: Array<{ tenantId: string }> = await runner.query(
+          `SELECT DISTINCT "tenantId" FROM "feeding_day_plans"
+           UNION
+           SELECT DISTINCT "tenantId" FROM "farm_mobile_command_receipts"`,
+        );
+        for (const row of rows) tenantIds.add(row.tenantId);
+      } catch (error) {
+        this.logger.warn(
+          `Tenant discovery failed for schema ${schema}: ${(error as Error).message}`,
+        );
+      } finally {
+        await runner.release();
+      }
+    }
+    return [...tenantIds];
+  }
 
   /**
    * Aktif batch'i olan tenant'lar — 18:00 FCR süpürmesinin keşif kümesi

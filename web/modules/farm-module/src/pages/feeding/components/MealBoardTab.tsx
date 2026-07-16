@@ -31,30 +31,32 @@ import { useSiteList } from '../../../hooks/useSites';
 // HELPERS
 // ============================================================================
 
+// Anahtarlar tel değerleridir: GraphQL enum'ları AD serileştirir (kasa kuralı
+// useProtocolFeeding.ts başında).
 const MEAL_STATUS_KEY: Record<FeedingMealStatus, MessageKey> = {
-  scheduled: 'feedingV2.mealBoard.status.scheduled',
-  fed: 'feedingV2.mealBoard.status.fed',
-  partially_fed: 'feedingV2.mealBoard.status.partiallyFed',
-  skipped: 'feedingV2.mealBoard.status.skipped',
-  missed: 'feedingV2.mealBoard.status.missed',
-  cancelled: 'feedingV2.mealBoard.status.cancelled',
+  SCHEDULED: 'feedingV2.mealBoard.status.scheduled',
+  FED: 'feedingV2.mealBoard.status.fed',
+  PARTIALLY_FED: 'feedingV2.mealBoard.status.partiallyFed',
+  SKIPPED: 'feedingV2.mealBoard.status.skipped',
+  MISSED: 'feedingV2.mealBoard.status.missed',
+  CANCELLED: 'feedingV2.mealBoard.status.cancelled',
 };
 
 const MEAL_STATUS_BADGE: Record<FeedingMealStatus, string> = {
-  scheduled: 'bg-gray-100 text-gray-700',
-  fed: 'bg-green-100 text-green-800',
-  partially_fed: 'bg-blue-100 text-blue-800',
-  skipped: 'bg-yellow-100 text-yellow-800',
-  missed: 'bg-red-100 text-red-800',
-  cancelled: 'bg-gray-100 text-gray-500',
+  SCHEDULED: 'bg-gray-100 text-gray-700',
+  FED: 'bg-green-100 text-green-800',
+  PARTIALLY_FED: 'bg-blue-100 text-blue-800',
+  SKIPPED: 'bg-yellow-100 text-yellow-800',
+  MISSED: 'bg-red-100 text-red-800',
+  CANCELLED: 'bg-gray-100 text-gray-500',
 };
 
 const PLAN_STATUS_KEY: Record<FeedingDayPlanStatus, MessageKey> = {
-  planned: 'feedingV2.mealBoard.planStatus.planned',
-  in_progress: 'feedingV2.mealBoard.planStatus.in_progress',
-  completed: 'feedingV2.mealBoard.planStatus.completed',
-  skipped: 'feedingV2.mealBoard.planStatus.skipped',
-  cancelled: 'feedingV2.mealBoard.planStatus.cancelled',
+  PLANNED: 'feedingV2.mealBoard.planStatus.planned',
+  IN_PROGRESS: 'feedingV2.mealBoard.planStatus.in_progress',
+  COMPLETED: 'feedingV2.mealBoard.planStatus.completed',
+  SKIPPED: 'feedingV2.mealBoard.planStatus.skipped',
+  CANCELLED: 'feedingV2.mealBoard.planStatus.cancelled',
 };
 
 const FCR_SOURCE_KEY: Record<FcrResolvedSource, MessageKey> = {
@@ -108,7 +110,7 @@ export function MealBoardTab(): React.ReactElement {
 
   const { data: plans, isLoading, isError } = useFeedingDayPlans(planDate, siteId || undefined);
   const { data: protocols } = useFeedingProtocolsV2();
-  const { data: assignments } = useProtocolAssignments({ status: 'active' });
+  const { data: assignments } = useProtocolAssignments({ status: 'ACTIVE' });
   const { data: sitesPage } = useSiteList();
 
   const recordMeal = useRecordMealFeeding();
@@ -282,7 +284,7 @@ export function MealBoardTab(): React.ReactElement {
         const threshold = underfeedThresholdByProtocol.get(plan.protocolId) ?? 15;
         const dayUnderfed =
           planned > 0 &&
-          (plan.status === 'completed' || plan.status === 'in_progress') &&
+          (plan.status === 'COMPLETED' || plan.status === 'IN_PROGRESS') &&
           dayVariancePercent < -threshold;
         const lastRecalc = plan.recalcLog[plan.recalcLog.length - 1];
         const snapshot = plan.snapshot;
@@ -295,9 +297,9 @@ export function MealBoardTab(): React.ReactElement {
                 <span className="text-sm text-gray-500">{plan.unitName}</span>
                 <span
                   className={`rounded-full px-2 py-0.5 text-xs ${
-                    plan.status === 'completed'
+                    plan.status === 'COMPLETED'
                       ? 'bg-green-100 text-green-800'
-                      : plan.status === 'in_progress'
+                      : plan.status === 'IN_PROGRESS'
                         ? 'bg-blue-100 text-blue-800'
                         : 'bg-gray-100 text-gray-700'
                   }`}
@@ -384,7 +386,7 @@ export function MealBoardTab(): React.ReactElement {
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {(plan.meals ?? []).map((meal) => {
-                  const open = meal.status === 'scheduled' || meal.status === 'partially_fed';
+                  const open = meal.status === 'SCHEDULED' || meal.status === 'PARTIALLY_FED';
                   return (
                     <tr key={meal.id}>
                       <td className="px-4 py-2">#{meal.mealIndex + 1}</td>
@@ -414,7 +416,7 @@ export function MealBoardTab(): React.ReactElement {
                         {(meal.pours ?? []).map((pour) => (
                           <span key={pour.pourIndex} className="mr-2 inline-flex items-center gap-1">
                             {pour.kg} kg
-                            {canCorrect && meal.status !== 'cancelled' && (
+                            {canCorrect && meal.status !== 'CANCELLED' && (
                               <button
                                 type="button"
                                 onClick={() => {
@@ -439,7 +441,7 @@ export function MealBoardTab(): React.ReactElement {
                             {t('feedingV2.mealBoard.addPour')}
                           </button>
                         )}
-                        {meal.status === 'scheduled' && canSkip && (
+                        {meal.status === 'SCHEDULED' && canSkip && (
                           <button
                             type="button"
                             onClick={() => setSkipModalMeal(meal)}

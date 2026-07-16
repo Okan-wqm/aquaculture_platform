@@ -32,17 +32,19 @@ import { useSpeciesList } from '../../../hooks/useSpecies';
 // HELPERS
 // ============================================================================
 
+// Anahtarlar tel değerleridir: GraphQL enum'ları AD serileştirir (kasa kuralı
+// useProtocolFeeding.ts başında).
 const STATUS_BADGE: Record<FeedingProtocolV2Status, string> = {
-  draft: 'bg-yellow-100 text-yellow-800',
-  active: 'bg-green-100 text-green-800',
-  archived: 'bg-gray-100 text-gray-600',
+  DRAFT: 'bg-yellow-100 text-yellow-800',
+  ACTIVE: 'bg-green-100 text-green-800',
+  ARCHIVED: 'bg-gray-100 text-gray-600',
 };
 
 /** t() tipli anahtar ister — dinamik string kabul etmez; durum → anahtar eşlemesi. */
 const STATUS_KEY: Record<FeedingProtocolV2Status, MessageKey> = {
-  draft: 'feedingV2.status.draft',
-  active: 'feedingV2.status.active',
-  archived: 'feedingV2.status.archived',
+  DRAFT: 'feedingV2.status.draft',
+  ACTIVE: 'feedingV2.status.active',
+  ARCHIVED: 'feedingV2.status.archived',
 };
 
 /** mealsPerDay değişince saatleri 08:00–18:00 penceresine eşit dağıt, yüzdeleri eşitle. */
@@ -330,7 +332,7 @@ function initialFormState(protocol?: FeedingProtocolV2): ProtocolFormState {
       name: '',
       description: '',
       speciesId: '',
-      status: 'draft',
+      status: 'DRAFT',
       isDefault: false,
       bands: [emptyBand()],
       temperatureAdjustments: [],
@@ -513,8 +515,8 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
                 }
                 className="mt-1 rounded-md border-gray-300 shadow-sm text-sm"
               >
-                <option value="draft">{t('feedingV2.status.draft')}</option>
-                <option value="active">{t('feedingV2.status.active')}</option>
+                <option value="DRAFT">{t('feedingV2.status.draft')}</option>
+                <option value="ACTIVE">{t('feedingV2.status.active')}</option>
               </select>
             </div>
             <label className="flex items-center gap-2 text-sm text-gray-700 mt-5">
@@ -1024,7 +1026,7 @@ export const ProtocolBuilderTab: React.FC = () => {
                     {protocol.defaultMealSchedule.mealsPerDay}
                   </td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">
-                    {canUpdate && protocol.status !== 'archived' && (
+                    {canUpdate && protocol.status !== 'ARCHIVED' && (
                       <button
                         onClick={() => setModalProtocol(protocol)}
                         className="text-blue-600 hover:text-blue-800 mr-3"
@@ -1032,7 +1034,7 @@ export const ProtocolBuilderTab: React.FC = () => {
                         {t('common.edit')}
                       </button>
                     )}
-                    {canArchive && protocol.status !== 'archived' && (
+                    {canArchive && protocol.status !== 'ARCHIVED' && (
                       <button
                         onClick={() => void handleArchive(protocol)}
                         className="text-gray-500 hover:text-red-600"

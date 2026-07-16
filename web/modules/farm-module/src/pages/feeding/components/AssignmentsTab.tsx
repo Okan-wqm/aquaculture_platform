@@ -40,28 +40,31 @@ import { useSensors } from '../../../hooks/useSensors';
 
 const UNIT_CATEGORIES = ['TANK', 'POND', 'CAGE'] as const;
 
+// FeedingUnitType bir GraphQL ENUM'udur — input'a AD ('TANK') gönderilir
+// (kasa kuralı useProtocolFeeding.ts başında; 'tank' göndermek GraphQL
+// doğrulamasında reddedilir).
 const CATEGORY_TO_UNIT_TYPE: Record<string, FeedingUnitType> = {
-  TANK: 'tank',
-  POND: 'pond',
-  CAGE: 'cage',
+  TANK: 'TANK',
+  POND: 'POND',
+  CAGE: 'CAGE',
 };
 
 const UNIT_TYPE_KEY: Record<FeedingUnitType, MessageKey> = {
-  tank: 'feedingV2.assignments.unitType.tank',
-  pond: 'feedingV2.assignments.unitType.pond',
-  cage: 'feedingV2.assignments.unitType.cage',
+  TANK: 'feedingV2.assignments.unitType.tank',
+  POND: 'feedingV2.assignments.unitType.pond',
+  CAGE: 'feedingV2.assignments.unitType.cage',
 };
 
 const ASSIGNMENT_STATUS_KEY: Record<ProtocolAssignmentStatus, MessageKey> = {
-  active: 'feedingV2.assignments.status.active',
-  paused: 'feedingV2.assignments.status.paused',
-  ended: 'feedingV2.assignments.status.ended',
+  ACTIVE: 'feedingV2.assignments.status.active',
+  PAUSED: 'feedingV2.assignments.status.paused',
+  ENDED: 'feedingV2.assignments.status.ended',
 };
 
 const ASSIGNMENT_STATUS_BADGE: Record<ProtocolAssignmentStatus, string> = {
-  active: 'bg-green-100 text-green-800',
-  paused: 'bg-yellow-100 text-yellow-800',
-  ended: 'bg-gray-100 text-gray-600',
+  ACTIVE: 'bg-green-100 text-green-800',
+  PAUSED: 'bg-yellow-100 text-yellow-800',
+  ENDED: 'bg-gray-100 text-gray-600',
 };
 
 const TEMP_SOURCE_KEY: Record<EffectiveTemperatureSource, MessageKey> = {
@@ -113,14 +116,14 @@ const AssignModal: React.FC<AssignModalProps> = ({ protocols, onClose }) => {
   );
 
   const selectedUnit = units.find((unit) => unit.id === unitId);
-  const activeProtocols = protocols.filter((protocol) => protocol.status === 'active');
+  const activeProtocols = protocols.filter((protocol) => protocol.status === 'ACTIVE');
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
     if (!selectedUnit) return;
     const unitType =
-      CATEGORY_TO_UNIT_TYPE[selectedUnit.equipmentType?.category ?? 'TANK'] ?? 'tank';
+      CATEGORY_TO_UNIT_TYPE[selectedUnit.equipmentType?.category ?? 'TANK'] ?? 'TANK';
     try {
       await assignMutation.mutateAsync({
         unitId,
@@ -510,7 +513,7 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
   const canUnassign = useCanMutate('unassignProtocolFromUnit');
 
   const assignments = useMemo(
-    () => (assignmentsData?.items ?? []).filter((a) => a.status !== 'ended'),
+    () => (assignmentsData?.items ?? []).filter((a) => a.status !== 'ENDED'),
     [assignmentsData],
   );
   const protocols = protocolsData?.items ?? [];
@@ -544,7 +547,7 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
   const handleToggleStatus = async (assignment: ProtocolAssignment) => {
     await updateAssignment.mutateAsync({
       assignmentId: assignment.id,
-      status: assignment.status === 'active' ? 'paused' : 'active',
+      status: assignment.status === 'ACTIVE' ? 'paused' : 'active',
     });
   };
 
@@ -667,13 +670,13 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
                             onClick={() => void handleToggleStatus(assignment)}
                             className="text-gray-600 hover:text-gray-800 mr-3"
                           >
-                            {assignment.status === 'active'
+                            {assignment.status === 'ACTIVE'
                               ? t('feedingV2.assignments.pause')
                               : t('feedingV2.assignments.resume')}
                           </button>
                         </>
                       )}
-                      {canTransition && assignment.status === 'active' && (
+                      {canTransition && assignment.status === 'ACTIVE' && (
                         <button
                           onClick={() => setTransitionAssignment(assignment)}
                           className="text-amber-700 hover:text-amber-900 mr-3"

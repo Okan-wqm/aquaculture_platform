@@ -36,10 +36,16 @@ import { buildCommandEnvelope } from '../utils/command-envelope';
 // ============================================================================
 // TYPES — backend entity jsonb aynaları
 // ============================================================================
+// Tel sözleşmesi (kasa kuralı): GraphQL ENUM alanları tel üzerinde AD taşır —
+// registerEnumType adları TS enum ANAHTARLARIDIR ('ACTIVE', 'PARTIALLY_FED').
+// jsonb yükleri (snapshot, settings, overrides) ve düz String alanları
+// (UpdateProtocolAssignmentInput.status, suspension.type, temperature source)
+// ise TS enum DEĞERLERİNİ (lowercase) taşır. Union'lar bu ayrımı birebir
+// yazar; karıştırmak MealBoard'daki tüm öğünleri "kapalı" göstermişti.
 
-export type FeedingProtocolV2Status = 'draft' | 'active' | 'archived';
-export type ProtocolAssignmentStatus = 'active' | 'paused' | 'ended';
-export type FeedingUnitType = 'tank' | 'pond' | 'cage';
+export type FeedingProtocolV2Status = 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
+export type ProtocolAssignmentStatus = 'ACTIVE' | 'PAUSED' | 'ENDED';
+export type FeedingUnitType = 'TANK' | 'POND' | 'CAGE';
 export type ProtocolFcrSource = 'band' | 'matrix' | 'feed';
 export type EffectiveTemperatureSource = 'sensor' | 'manual' | 'none';
 
@@ -198,6 +204,7 @@ export interface UpdateProtocolAssignmentInput {
   assignmentId: string;
   overrides?: AssignmentOverrides;
   suspensions?: AssignmentSuspension[];
+  /** Düz String input (@IsIn backend'de) — enum DEĞİL, lowercase DEĞER gönderilir. */
   status?: 'active' | 'paused';
 }
 
@@ -400,19 +407,21 @@ export function useUnassignProtocolFromUnit() {
 // ÖĞÜN MOTORU v2 (Faz 6 — MealBoard)
 // ============================================================================
 
+// GraphQL enum alanları — tel üzerinde AD (bkz. dosya başındaki kasa kuralı).
 export type FeedingDayPlanStatus =
-  | 'planned'
-  | 'in_progress'
-  | 'completed'
-  | 'skipped'
-  | 'cancelled';
+  | 'PLANNED'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
+  | 'SKIPPED'
+  | 'CANCELLED';
 export type FeedingMealStatus =
-  | 'scheduled'
-  | 'fed'
-  | 'partially_fed'
-  | 'skipped'
-  | 'missed'
-  | 'cancelled';
+  | 'SCHEDULED'
+  | 'FED'
+  | 'PARTIALLY_FED'
+  | 'SKIPPED'
+  | 'MISSED'
+  | 'CANCELLED';
+/** snapshot jsonb içinden okunur → TS enum DEĞERİ (lowercase). */
 export type FcrResolvedSource = 'override' | 'band' | 'matrix' | 'feed';
 
 /** Backend `DayPlanSnapshot` jsonb aynası — üretim anındaki hesap provenansı. */

@@ -31,7 +31,11 @@ import { FeedingDayPlan } from '../entities/feeding-day-plan.entity';
 import { FeedingMeal } from '../entities/feeding-meal.entity';
 import { MealExecutionService } from '../services/meal-execution.service';
 import { MealFeedingResultView } from '../dto/meal-execution.results';
-import { RecordMealFeedingInput, SkipMealInput } from '../dto/meal-execution.inputs';
+import {
+  CorrectMealPourInput,
+  RecordMealFeedingInput,
+  SkipMealInput,
+} from '../dto/meal-execution.inputs';
 
 interface CallerClaims {
   sub: string;
@@ -110,6 +114,24 @@ export class MealExecutionResolver {
       feedingMethod: input.feedingMethod,
       notes: input.notes,
       envelope: mobileCommandEnvelopeFromInput(input),
+    });
+  }
+
+  /** Döküm düzeltmesi (C-11) — MANAGER sınıfı işlem (regenerateDayPlan emsali). */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Mutation(() => MealFeedingResultView)
+  async correctMealPour(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: CallerClaims,
+    @Args('input') input: CorrectMealPourInput,
+  ): Promise<MealFeedingResultView> {
+    return this.mealExecutionService.correctMealPour({
+      tenantId,
+      userId: user.sub,
+      caller: { sub: user.sub, roles: user.roles, assignedSiteIds: user.assignedSiteIds },
+      mealId: input.mealId,
+      pourIndex: input.pourIndex,
+      correctedKg: input.correctedKg,
     });
   }
 

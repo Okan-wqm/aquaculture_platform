@@ -27,6 +27,7 @@ import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { BatchDomainService } from '../batch/services/batch-domain.service';
 import { BatchLifecyclePolicyService } from '../batch/services/batch-lifecycle-policy.service';
 import { FeedingModule } from '../feeding/feeding.module';
+import { InventoryModule } from '../storage/storage.module';
 import {
   ArchiveFeedingProtocolV2Handler,
   CreateFeedingProtocolV2Handler,
@@ -50,6 +51,8 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
     // FeedingLedgerService (P-05 tek yem yazma yolu) FeedingModule'den gelir;
     // ters yönde import YOK (döngü riski yok).
     FeedingModule,
+    // correctMealPour düzeltme hareketleri StockMovementService'i doğrudan kullanır.
+    InventoryModule,
     TypeOrmModule.forFeature([
       FeedingProtocolV2,
       ProtocolAssignment,

@@ -86,7 +86,9 @@ export interface RecalcLogEntry {
     | 'unplanned_feed'
     | 'manual_regenerate'
     /** Öğün finalize'ındaki per_meal büyümesi sonrası kalan öğün recalc'ı. */
-    | 'meal_growth';
+    | 'meal_growth'
+    /** correctMealPour düzeltmesi sonrası growth-delta recalc'ı (C-11). */
+    | 'pour_correction';
   /** Yeniden hesap sonrası kalan öğünlerin toplam planlanan kg'ı. */
   remainingPlannedKg: number;
   biomassKg?: number;

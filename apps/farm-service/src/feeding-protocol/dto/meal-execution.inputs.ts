@@ -8,7 +8,7 @@
  *
  * @module FeedingProtocol/DTO
  */
-import { Field, Float, ID, InputType } from '@nestjs/graphql';
+import { Field, Float, ID, InputType, Int } from '@nestjs/graphql';
 import { IsBoolean, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
 
@@ -41,6 +41,24 @@ export class RecordMealFeedingInput extends MobileCommandEnvelopeInput {
   @IsString()
   @MaxLength(1000)
   notes?: string;
+}
+
+@InputType()
+export class CorrectMealPourInput {
+  @Field(() => ID)
+  @IsUUID()
+  mealId!: string;
+
+  @Field(() => Int)
+  @IsNumber()
+  @Min(0)
+  pourIndex!: number;
+
+  @Field(() => Float)
+  @IsNumber()
+  @Min(0.001)
+  @Max(10000)
+  correctedKg!: number;
 }
 
 @InputType()

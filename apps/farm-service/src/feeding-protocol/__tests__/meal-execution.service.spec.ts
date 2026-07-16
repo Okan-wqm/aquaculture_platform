@@ -33,6 +33,8 @@ import {
   FcrResolvedSource,
 } from '../entities/feeding-protocol-v2.entity';
 import { Feed } from '../../feed/entities/feed.entity';
+import { FeedingRecord } from '../../feeding/entities/feeding-record.entity';
+import { StockMovementService } from '../../storage/services/stock-movement.service';
 import { Batch, BatchStatus } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 
@@ -81,6 +83,7 @@ interface HarnessOpts {
   meal?: Partial<FeedingMeal>;
   openMealsAfter?: number;
   growthMode?: 'per_meal' | 'daily';
+  feedingRecord?: Partial<FeedingRecord> | null;
 }
 
 function makeHarness(opts: HarnessOpts = {}) {
@@ -148,12 +151,28 @@ function makeHarness(opts: HarnessOpts = {}) {
   const saved: unknown[] = [];
   const enqueued: Array<{ eventType: string }> = [];
 
+  const feedingRecord =
+    opts.feedingRecord === null
+      ? null
+      : mock<FeedingRecord>({
+          id: 'rec-1',
+          tenantId: TENANT,
+          batchId: BATCH,
+          feedId: 'feed-1',
+          mealId: MEAL,
+          pourIndex: 0,
+          actualAmount: 4,
+          feedCost: 8,
+          calculateVariance: jest.fn(),
+          ...(opts.feedingRecord ?? {}),
+        });
   const findOne = jest.fn();
   findOne.mockImplementation(async (entity: unknown) => {
     if (entity === FeedingMeal) return meal;
     if (entity === FeedingDayPlan) return dayPlan;
     if (entity === FeedingProtocolV2) return protocol;
     if (entity === Feed) return mock<Feed>({ id: 'feed-1', pricePerKg: 2 });
+    if (entity === FeedingRecord) return feedingRecord;
     return null;
   });
   const save = jest.fn();
@@ -163,8 +182,12 @@ function makeHarness(opts: HarnessOpts = {}) {
   });
   const count = jest.fn();
   count.mockImplementation(async () => opts.openMealsAfter ?? 1);
+  const managerQuery = jest.fn();
+  managerQuery.mockImplementation(async () => [
+    { fromLocationId: 'loc-1', lotNumber: 'LOT-A' },
+  ]);
 
-  const manager = mock<EntityManager>({ findOne, save, count });
+  const manager = mock<EntityManager>({ findOne, save, count, query: managerQuery });
   globalThis.__mealExecManager = manager;
 
   // Servis üyeleri tipli — double'lar ANOTASYONSUZ jest.fn() (Mock<any>) ile
@@ -191,6 +214,27 @@ function makeHarness(opts: HarnessOpts = {}) {
   const recordFeed = jest.fn();
   recordFeed.mockImplementation(async () => mock({ id: 'rec-1' }));
   const feedingLedger = mock<FeedingLedgerService>({ recordFeed });
+  const feedHasStoragePresence = jest.fn();
+  feedHasStoragePresence.mockResolvedValue(true);
+  const resolveFeedDeductionLocation = jest.fn();
+  resolveFeedDeductionLocation.mockImplementation(async () => ({
+    storageLocationId: 'loc-1',
+    lotNumber: 'LOT-A',
+    usedSiteFallback: false,
+  }));
+  const recordMovement = jest.fn();
+  recordMovement.mockImplementation(async () => ({
+    saved: mock({ id: 'mv-1' }),
+    currentTotal: 0,
+    idempotentHit: false,
+    lowStock: null,
+    warnings: [],
+  }));
+  const stockMovementService = mock<StockMovementService>({
+    feedHasStoragePresence,
+    resolveFeedDeductionLocation,
+    recordMovement,
+  });
   const batchDomainService = new BatchDomainService(new BatchLifecyclePolicyService());
   const outbox = mock<OutboxPublisher>({
     enqueue: jest.fn(async (event: { eventType: string }) => {
@@ -207,6 +251,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     recalcService,
     feedingLedger,
     batchDomainService,
+    stockMovementService,
     outbox,
   );
 
@@ -221,6 +266,9 @@ function makeHarness(opts: HarnessOpts = {}) {
     siteAuth,
     receiptComplete,
     enqueued,
+    recordMovement,
+    feedingRecord,
+    lockedUnit,
   };
 }
 
@@ -322,6 +370,88 @@ describe('MealExecutionService.recordMealFeeding', () => {
       ConflictException,
     );
     expect(harness.feedingLedger.recordFeed).not.toHaveBeenCalled();
+  });
+});
+
+describe('MealExecutionService.correctMealPour', () => {
+  // Her test TAZE pours dizisi alır — paylaşılan referans testler arası
+  // mutasyon kirliliği yaratır (kümülatif düzeltme sayaçları).
+  const fedMeal = () => ({
+    status: FeedingMealStatus.FED,
+    actualKg: 4,
+    plannedKg: 10,
+    pours: [{ pourIndex: 0, kg: 4, at: '2026-07-20T08:00:00Z', by: 'user-1' }],
+  });
+
+  const correctionParams = (correctedKg: number) => ({
+    tenantId: TENANT,
+    userId: 'user-2',
+    caller: CALLER,
+    mealId: MEAL,
+    pourIndex: 0,
+    correctedKg,
+  });
+
+  it('upward correction: extra OUT movement + record/meal/batch deltas + growth delta + event (C-11)', async () => {
+    const harness = makeHarness({ meal: fedMeal() });
+    const result = await harness.service.correctMealPour(correctionParams(6));
+
+    // Öğün + pour denetim izi
+    expect(result.actualKg).toBeCloseTo(6);
+    const pour = harness.meal.pours![0]!;
+    expect(pour.kg).toBe(6);
+    expect(pour.originalKg).toBe(4);
+    expect(pour.correctedBy).toBe('user-2');
+    expect(pour.corrections).toBe(1);
+    // Finalize edilmiş öğünde varyans yeniden hesaplanır (6 - 10 = -4)
+    expect(result.varianceKg).toBeCloseTo(-4);
+    // Ledger kaydı + batch delta'ları
+    expect(harness.feedingRecord!.actualAmount).toBe(6);
+    expect(harness.feedingRecord!.feedCost).toBeCloseTo(12); // 2/kg × 6
+    // Ek OUT: fark kadar, meal-correct idempotency anahtarıyla
+    const movement = harness.recordMovement.mock.calls[0]![1] as Record<string, unknown>;
+    expect(movement['movementType']).toBe('out');
+    expect(movement['quantity']).toBeCloseTo(2);
+    expect(movement['idempotencyKey']).toBe(`meal-correct-${MEAL}-0-1`);
+    // Growth delta = +2 / 1.25 = 1.6 ve recalc pour_correction gerekçesiyle
+    const growthCall = (harness.growthApplier.applyGrowth as jest.Mock).mock.calls[0]!;
+    expect(growthCall[3]).toBeCloseTo(1.6);
+    expect(harness.recalcService.recalcForUnit).toHaveBeenCalledWith(
+      expect.anything(),
+      TENANT,
+      UNIT,
+      'pour_correction',
+    );
+    expect(harness.enqueued.map((event) => event.eventType)).toContain('FeedingRecordUpdated');
+  });
+
+  it('downward correction: RETURN to the original lot/location resolved from the deduction movement', async () => {
+    const harness = makeHarness({ meal: fedMeal() });
+    const result = await harness.service.correctMealPour(correctionParams(3));
+
+    expect(result.actualKg).toBeCloseTo(3);
+    const movement = harness.recordMovement.mock.calls[0]![1] as Record<string, unknown>;
+    expect(movement['movementType']).toBe('in');
+    expect(movement['quantity']).toBeCloseTo(1);
+    expect(movement['toLocationId']).toBe('loc-1'); // orijinal düşümün lokasyonu
+    expect(movement['lotNumber']).toBe('LOT-A');
+    // Growth delta NEGATİF: -1 / 1.25 = -0.8 (büyüme geri alınır)
+    const growthCall = (harness.growthApplier.applyGrowth as jest.Mock).mock.calls[0]!;
+    expect(growthCall[3]).toBeCloseTo(-0.8);
+  });
+
+  it('no-op when the corrected amount equals the pour (no movement, no event)', async () => {
+    const harness = makeHarness({ meal: fedMeal() });
+    await harness.service.correctMealPour(correctionParams(4));
+    expect(harness.recordMovement).not.toHaveBeenCalled();
+    expect(harness.enqueued).toHaveLength(0);
+  });
+
+  it('fails closed when the pour has no ledger record (P-05 divergence surfaces loudly)', async () => {
+    const harness = makeHarness({ meal: fedMeal(), feedingRecord: null });
+    await expect(harness.service.correctMealPour(correctionParams(6))).rejects.toBeInstanceOf(
+      ConflictException,
+    );
   });
 });
 

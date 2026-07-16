@@ -217,6 +217,20 @@ describe('BiomassGrowthApplierService', () => {
     });
   });
 
+  it('applies NEGATIVE growth proportionally (correctMealPour rollback — C-11) without going below zero', async () => {
+    const harness = makeHarness({
+      shareSums: [[{ biomass: 98, quantity: 1000 }], [{ biomass: 49, quantity: 500 }]],
+    });
+    const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
+    await harness.service.applyGrowth(harness.manager, TENANT, locked!, -3, 1.2);
+
+    const details = harness.lockedTankBatch.batchDetails!;
+    // 100/150 ve 50/150 pay → -2kg / -1kg
+    expect(details[0]!.biomassKg).toBeCloseTo(98);
+    expect(details[1]!.biomassKg).toBeCloseTo(49);
+    expect(harness.lockedTankBatch.totalBiomassKg).toBeCloseTo(147);
+  });
+
   it('derives a single virtual detail from primary aggregates when batchDetails is empty', async () => {
     const harness = makeHarness({
       tankBatch: { batchDetails: [], totalQuantity: 1000, totalBiomassKg: 100, avgWeightG: 100 },

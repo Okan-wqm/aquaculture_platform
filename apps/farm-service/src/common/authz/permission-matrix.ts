@@ -70,6 +70,7 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   archiveFeedingProtocolV2: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   assignProtocolToUnit: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   recordMealFeeding: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  correctMealPour: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   skipMeal: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   updateProtocolAssignment: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   unassignProtocolFromUnit: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],

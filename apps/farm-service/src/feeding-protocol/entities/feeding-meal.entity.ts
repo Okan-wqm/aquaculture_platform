@@ -58,6 +58,13 @@ export interface MealPour {
   at: string; // ISO timestamp
   by: string; // userId
   feedingMethod?: string;
+  // ── correctMealPour denetim izi (C-11) — düzeltme geçmişi kaybolmaz ──
+  /** İLK kayıttaki kg (yalnız düzeltilmiş dökümlerde set). */
+  originalKg?: number;
+  correctedAt?: string;
+  correctedBy?: string;
+  /** Bu dökümde yapılan düzeltme sayısı (stok hareketi idempotency'sinin parçası). */
+  corrections?: number;
 }
 
 // ============================================================================

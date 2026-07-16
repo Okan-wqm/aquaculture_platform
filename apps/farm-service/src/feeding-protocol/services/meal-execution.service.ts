@@ -54,10 +54,14 @@ import { FeedingProtocolV2 } from '../entities/feeding-protocol-v2.entity';
 import { BiomassGrowthApplierService } from './biomass-growth-applier.service';
 import { DayPlanRecalcService } from './day-plan-recalc.service';
 import { FeedingLedgerService } from '../../feeding/services/feeding-ledger.service';
-import { FeedingMethod } from '../../feeding/entities/feeding-record.entity';
+import { FeedingMethod, FeedingRecord } from '../../feeding/entities/feeding-record.entity';
 import { Feed } from '../../feed/entities/feed.entity';
 import { BatchDomainService } from '../../batch/services/batch-domain.service';
 import { resolveTankSiteId } from '../../batch/utils/tank-lookup.util';
+import { StockMovementService } from '../../storage/services/stock-movement.service';
+import { MovementType } from '../../storage/entities/stock-movement.entity';
+import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
+import type { FeedingRecordUpdatedEvent } from '@platform/event-contracts';
 
 // ============================================================================
 // TYPES
@@ -106,6 +110,7 @@ export class MealExecutionService {
     private readonly recalcService: DayPlanRecalcService,
     private readonly feedingLedger: FeedingLedgerService,
     private readonly batchDomainService: BatchDomainService,
+    private readonly stockMovementService: StockMovementService,
     private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
@@ -334,6 +339,272 @@ export class MealExecutionService {
       });
       return result;
     });
+  }
+
+  /**
+   * Döküm düzeltmesi (C-11): fark kadar stok hareketi (IN iade / ek OUT) +
+   * kayıt/öğün varyansı + growth-delta AYNI transaction'da. `updateFeedingRecord`
+   * öğün-bağlı kayıtları buraya yönlendirir — P-05 invariantı düzeltmede de
+   * bütündür. Düzeltme geçmişi pour üzerinde denetlenebilir (originalKg,
+   * correctedAt/By, corrections sayacı).
+   */
+  async correctMealPour(params: {
+    tenantId: string;
+    userId: string;
+    caller: MealCaller;
+    mealId: string;
+    pourIndex: number;
+    correctedKg: number;
+  }): Promise<MealFeedingResult> {
+    if (
+      !Number.isFinite(params.correctedKg) ||
+      params.correctedKg <= 0 ||
+      params.correctedKg > 10000
+    ) {
+      throw new BadRequestException('Düzeltilmiş miktar 0 < kg <= 10000 aralığında olmalıdır');
+    }
+
+    return runInTenantTransaction(this.dataSource, 'farm', params.tenantId, async (queryRunner) => {
+      const manager = queryRunner.manager;
+
+      const preview = await manager.findOne(FeedingMeal, {
+        where: { id: params.mealId, tenantId: params.tenantId },
+      });
+      if (!preview) throw new NotFoundException(`Öğün bulunamadı: ${params.mealId}`);
+
+      // Kanonik kilitler (recordMealFeeding ile aynı sıra).
+      const locked = await this.growthApplier.lockUnitForGrowth(
+        manager,
+        params.tenantId,
+        preview.unitId,
+      );
+      if (!locked) throw new ConflictException(`Ünitede stok kaydı yok: ${preview.unitId}`);
+      const dayPlan = await manager.findOne(FeedingDayPlan, {
+        where: { id: preview.dayPlanId, tenantId: params.tenantId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!dayPlan) throw new NotFoundException(`Gün planı bulunamadı: ${preview.dayPlanId}`);
+      const meal = await manager.findOne(FeedingMeal, {
+        where: { id: params.mealId, tenantId: params.tenantId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!meal) throw new NotFoundException(`Öğün bulunamadı: ${params.mealId}`);
+
+      const siteId = await resolveTankSiteId(manager, meal.unitId, params.tenantId);
+      this.siteAuth.assertSiteAssignment({
+        caller: {
+          sub: params.caller.sub,
+          roles: params.caller.roles,
+          assignedSiteIds: params.caller.assignedSiteIds,
+        },
+        siteId,
+      });
+
+      const pour = (meal.pours ?? []).find((entry) => entry.pourIndex === params.pourIndex);
+      if (!pour) {
+        throw new NotFoundException(
+          `Öğün ${params.mealId} üzerinde ${params.pourIndex} numaralı döküm yok`,
+        );
+      }
+      const delta = round3(params.correctedKg - pour.kg);
+      const currentResult: MealFeedingResult = {
+        id: meal.id,
+        status: meal.status,
+        actualKg: Number(meal.actualKg || 0),
+        varianceKg: meal.varianceKg ?? null,
+        variancePercent: meal.variancePercent ?? null,
+      };
+      if (delta === 0) return currentResult; // no-op düzeltme
+
+      // Pour + öğün güncellemesi (denetim izi korunur).
+      const now = new Date();
+      pour.originalKg = pour.originalKg ?? pour.kg;
+      pour.kg = params.correctedKg;
+      pour.correctedAt = now.toISOString();
+      pour.correctedBy = params.userId;
+      pour.corrections = (pour.corrections ?? 0) + 1;
+      meal.pours = [...(meal.pours ?? [])];
+      meal.actualKg = round3(Number(meal.actualKg || 0) + delta);
+      if (meal.status === FeedingMealStatus.FED) {
+        meal.varianceKg = round3(meal.actualKg - Number(meal.plannedKg));
+        meal.variancePercent =
+          Number(meal.plannedKg) > 0
+            ? round3(((meal.actualKg - Number(meal.plannedKg)) / Number(meal.plannedKg)) * 100)
+            : 0;
+      }
+      await manager.save(meal);
+
+      // Ledger kaydı: (mealId, pourIndex) unique — döküm başına TAM bir satır (P-05).
+      const record = await manager.findOne(FeedingRecord, {
+        where: { tenantId: params.tenantId, mealId: meal.id, pourIndex: params.pourIndex },
+      });
+      if (!record) {
+        throw new ConflictException(
+          `Döküm kaydı bulunamadı (meal ${meal.id}, pour ${params.pourIndex}) — ledger tutarsız`,
+        );
+      }
+      const previousAmount = Number(record.actualAmount);
+      const previousCost = Number(record.feedCost || 0);
+      const feed = await manager.findOne(Feed, {
+        where: { id: record.feedId, tenantId: params.tenantId },
+      });
+      const newCost = feed?.pricePerKg ? round3(Number(feed.pricePerKg) * params.correctedKg) : previousCost;
+      record.actualAmount = params.correctedKg;
+      record.feedCost = newCost;
+      record.calculateVariance();
+      await manager.save(record);
+
+      // Batch aggregate delta'ları (kayıttaki batch kilitli set'te olmalı).
+      const batch = locked.batches.get(record.batchId);
+      if (!batch) {
+        throw new ConflictException(
+          `Kayıt batch'i (${record.batchId}) ünitenin kilitli batch kümesinde değil — üyelik değişti, yeniden deneyin`,
+        );
+      }
+      batch.totalFeedConsumed = round3(Number(batch.totalFeedConsumed || 0) + delta);
+      batch.totalFeedCost = round3(Number(batch.totalFeedCost || 0) + (newCost - previousCost));
+      await manager.save(batch);
+
+      // Storage düzeltmesi — fark kadar; Phase-A (storage izi olmayan feed) atlanır.
+      await this.applyStorageCorrection(manager, params, meal, delta, siteId);
+
+      // Growth delta (finalize edilmiş + per_meal protokol) + kalan öğün recalc'ı.
+      if (meal.status === FeedingMealStatus.FED) {
+        const protocol = await manager.findOne(FeedingProtocolV2, {
+          where: { id: dayPlan.protocolId, tenantId: params.tenantId },
+        });
+        if (protocol?.settings.growthApplicationMode !== 'daily') {
+          const expectedFcr = dayPlan.snapshot.expectedFcr;
+          const growthDelta = expectedFcr > 0 ? delta / expectedFcr : 0;
+          await this.growthApplier.applyGrowth(
+            manager,
+            params.tenantId,
+            locked,
+            growthDelta,
+            expectedFcr,
+          );
+          await this.recalcService.recalcForUnit(
+            manager,
+            params.tenantId,
+            meal.unitId,
+            'pour_correction',
+          );
+        }
+      }
+
+      // Düzeltme, mevcut FeedingRecordUpdated kontratıyla duyurulur (ek tip yok).
+      const event: FeedingRecordUpdatedEvent = {
+        ...createBaseEvent<FeedingRecordUpdatedEvent>('FeedingRecordUpdated', params.tenantId, {
+          aggregateId: record.batchId,
+          aggregateType: 'Batch',
+        }),
+        feedingRecordId: record.id,
+        batchId: record.batchId,
+        previousActualAmountKg: previousAmount,
+        newActualAmountKg: params.correctedKg,
+        amountDiffKg: delta,
+        previousFeedCost: previousCost,
+        newFeedCost: newCost,
+        costDiff: round3(newCost - previousCost),
+        updatedAt: toEventIso(now),
+      };
+      await this.outboxPublisher.enqueue(event, manager);
+
+      return {
+        id: meal.id,
+        status: meal.status,
+        actualKg: meal.actualKg,
+        varianceKg: meal.varianceKg ?? null,
+        variancePercent: meal.variancePercent ?? null,
+      };
+    });
+  }
+
+  /**
+   * Düzeltme stok hareketi: pozitif delta ek OUT (site-kapsamlı FEFO), negatif
+   * delta orijinal düşümün lokasyonuna İADE (IN). Storage izi olmayan feed'de
+   * (Phase-A) düşüm hiç yapılmamıştı — düzeltme de atlanır (gözlemlenebilir).
+   */
+  private async applyStorageCorrection(
+    manager: EntityManager,
+    params: { tenantId: string; userId: string; mealId: string; pourIndex: number },
+    meal: FeedingMeal,
+    delta: number,
+    siteId: string | null,
+  ): Promise<void> {
+    const hasPresence = await this.stockMovementService.feedHasStoragePresence(
+      manager,
+      params.tenantId,
+      meal.feedId,
+    );
+    if (!hasPresence) return;
+
+    const pour = (meal.pours ?? []).find((entry) => entry.pourIndex === params.pourIndex);
+    const idempotencyKey = `meal-correct-${params.mealId}-${params.pourIndex}-${pour?.corrections ?? 1}`;
+
+    if (delta > 0) {
+      const location = await this.stockMovementService.resolveFeedDeductionLocation(
+        manager,
+        params.tenantId,
+        meal.feedId,
+        new Date(),
+        undefined,
+        siteId ?? undefined,
+      );
+      if (!location) {
+        throw new BadRequestException(
+          `Düzeltme için yeterli stok yok: feed ${meal.feedId}, ek ${delta}kg`,
+        );
+      }
+      await this.stockMovementService.recordMovement(
+        manager,
+        {
+          movementType: MovementType.OUT,
+          itemType: StorageItemType.FEED,
+          itemId: meal.feedId,
+          quantity: delta,
+          fromLocationId: location.storageLocationId,
+          lotNumber: location.lotNumber,
+          reference: `MEAL-CORRECTION: ${params.mealId}#${params.pourIndex}`,
+          reason: 'correctMealPour upward correction (in-transaction).',
+          idempotencyKey,
+          movementDate: new Date(),
+        },
+        { tenantId: params.tenantId, userId: params.userId, userName: 'Feeding' },
+      );
+      return;
+    }
+
+    // İade: orijinal düşümün lokasyonu/lotu stock_movements'tan çözülür.
+    const original: Array<{ fromLocationId: string | null; lotNumber: string | null }> =
+      await manager.query(
+        `SELECT "from_location_id" AS "fromLocationId", "lot_number" AS "lotNumber"
+         FROM "stock_movements"
+         WHERE "idempotency_key" = $1 AND "tenant_id" = $2 LIMIT 1`,
+        [`meal-deduct-${params.mealId}-${params.pourIndex}`, params.tenantId],
+      );
+    const target = original[0];
+    if (!target?.fromLocationId) {
+      throw new ConflictException(
+        `Orijinal düşüm hareketi bulunamadı (meal ${params.mealId}#${params.pourIndex}) — iade lokasyonu çözülemedi`,
+      );
+    }
+    await this.stockMovementService.recordMovement(
+      manager,
+      {
+        movementType: MovementType.IN,
+        itemType: StorageItemType.FEED,
+        itemId: meal.feedId,
+        quantity: Math.abs(delta),
+        toLocationId: target.fromLocationId,
+        lotNumber: target.lotNumber ?? undefined,
+        reference: `MEAL-CORRECTION: ${params.mealId}#${params.pourIndex}`,
+        reason: 'correctMealPour downward correction — return to original lot (in-transaction).',
+        idempotencyKey,
+        movementDate: new Date(),
+      },
+      { tenantId: params.tenantId, userId: params.userId, userName: 'Feeding' },
+    );
   }
 
   /** Öğünü atla — biomass/stok dokunuşu yok; MealSkipped durable event (P-12). */

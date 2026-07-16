@@ -94,6 +94,9 @@ export class BiomassGrowthApplierService {
    * theoretical ağırlığını TÜM ünitelerdeki paylarının toplamından yeniden
    * hesaplar (D-1) ve Tank projeksiyonunu günceller (P-13 metrikli).
    *
+   * `growthKg` NEGATİF olabilir (correctMealPour aşağı düzeltmesi büyümeyi
+   * geri alır — C-11); pay hiçbir zaman sıfırın altına inmez.
+   *
    * ÖN KOŞUL: `locked` bu servisin `lockUnitForGrowth`'undan gelir (kanonik sıra).
    */
   async applyGrowth(
@@ -103,7 +106,7 @@ export class BiomassGrowthApplierService {
     growthKg: number,
     basedOnFcr: number,
   ): Promise<void> {
-    if (growthKg <= 0) return;
+    if (growthKg === 0) return;
     const { tankBatch, details } = locked;
     const totalBiomass = details.reduce((acc, detail) => acc + Number(detail.biomassKg || 0), 0);
     if (totalBiomass <= 0) return;
@@ -111,7 +114,7 @@ export class BiomassGrowthApplierService {
     // D-2: pay oranında dağıtım — batchDetails SSoT, aggregate'ler türetilir.
     for (const detail of details) {
       const share = (Number(detail.biomassKg) / totalBiomass) * growthKg;
-      detail.biomassKg = round3(Number(detail.biomassKg) + share);
+      detail.biomassKg = round3(Math.max(Number(detail.biomassKg) + share, 0));
       if (detail.quantity > 0) {
         detail.avgWeightG = round3((detail.biomassKg * 1000) / detail.quantity);
       }

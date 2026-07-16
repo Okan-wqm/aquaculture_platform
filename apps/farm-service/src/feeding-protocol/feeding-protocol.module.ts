@@ -21,6 +21,7 @@ import { ProtocolValidationService } from './services/protocol-validation.servic
 import { ProtocolRateService } from './services/protocol-rate.service';
 import { ProtocolFeedForecastService } from './services/protocol-feed-forecast.service';
 import { FeedForecastResolver } from './resolvers/feed-forecast.resolver';
+import { ForecastRefreshListener } from './listeners/forecast-refresh.listener';
 import { MealPlanGeneratorService } from './services/meal-plan-generator.service';
 import { BiomassGrowthApplierService } from './services/biomass-growth-applier.service';
 import { DayPlanRecalcService } from './services/day-plan-recalc.service';
@@ -83,6 +84,7 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
     DayPlanAdminService,
     FeedingCronV2Service,
     ProtocolFeedForecastService,
+    ForecastRefreshListener,
     // Sıcaklık SSoT — cron toplu okuması (stateless, @InjectDataSource).
     WaterTemperatureService,
     // Stateless yardımcılar (BatchModule 'stateless pure domain logic' emsali).

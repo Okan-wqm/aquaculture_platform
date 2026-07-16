@@ -61,6 +61,8 @@ describe('TransferBatchHandler', () => {
       createMockRepository() as any,
       createMockRepository() as any,
       mockOutboxPublisher as any,
+      // P-31 recalc — mocked (day-plan-recalc.service.spec kapsıyor).
+      { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
       mockTankCapacityService as any,
       // SEC-HIGH-051: the real fail-closed SSoT; commands below pass
       // MODULE_MANAGER so site authz bypasses for these domain-logic tests.

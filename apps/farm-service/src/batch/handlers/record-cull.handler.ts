@@ -26,6 +26,7 @@ import type { CullRecordedEvent } from '@platform/event-contracts';
 import { toEventIso } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
+import { DayPlanRecalcService } from '../../feeding-protocol/services/day-plan-recalc.service';
 import { Repository, DataSource } from 'typeorm';
 
 import {
@@ -60,6 +61,7 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
     @InjectRepository(Equipment)
     private readonly equipmentRepository: Repository<Equipment>,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly dayPlanRecalc: DayPlanRecalcService,
     private readonly auditLogService: AuditLogService,
     // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
     private readonly siteAuth: SiteAuthorizationService,
@@ -278,6 +280,9 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
         tenantId,
         [payload.tankId],
       );
+
+      // P-31: cull sonrası bugünün beslenmemiş öğünleri aynı tx'te yeniden fiyatlanır.
+      await this.dayPlanRecalc.recalcForUnit(queryRunner.manager, tenantId, payload.tankId, 'cull');
 
       // Enqueue CullRecordedEvent into the transactional outbox BEFORE commit.
       // The outbox row is part of the same transaction as the domain writes —

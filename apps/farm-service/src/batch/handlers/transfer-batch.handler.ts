@@ -27,6 +27,7 @@ import type { BatchTransferredEvent } from '@platform/event-contracts';
 import { toEventIso } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
+import { DayPlanRecalcService } from '../../feeding-protocol/services/day-plan-recalc.service';
 import { Repository, DataSource } from 'typeorm';
 
 import {
@@ -76,6 +77,7 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
     @InjectRepository(EquipmentType)
     private readonly equipmentTypeRepository: Repository<EquipmentType>,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly dayPlanRecalc: DayPlanRecalcService,
     private readonly tankCapacityService: TankCapacityService,
     // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
     private readonly siteAuth: SiteAuthorizationService,
@@ -466,6 +468,22 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
         queryRunner.manager,
         tenantId,
         [payload.sourceTankId, payload.destinationTankId],
+      );
+
+      // P-31: transfer İKİ üniteyi de değiştirir — kaynak küçüldü, hedef büyüdü;
+      // her ikisinin bugünkü beslenmemiş öğünleri aynı tx'te yeniden fiyatlanır.
+      // (Grading bu komutu compose ettiği için otomatik kapsanır — tier-2.)
+      await this.dayPlanRecalc.recalcForUnit(
+        queryRunner.manager,
+        tenantId,
+        payload.sourceTankId,
+        'transfer',
+      );
+      await this.dayPlanRecalc.recalcForUnit(
+        queryRunner.manager,
+        tenantId,
+        payload.destinationTankId,
+        'transfer',
       );
 
       // Enqueue BatchTransferredEvent into the transactional outbox BEFORE commit.

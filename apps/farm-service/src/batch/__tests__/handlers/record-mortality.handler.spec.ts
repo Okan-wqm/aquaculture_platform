@@ -208,6 +208,8 @@ describe('RecordMortalityHandler', () => {
       {} as Repository<Tank>,
       {} as Repository<EquipmentType>,
       outboxPublisher,
+      // P-31 recalc — mocked (day-plan-recalc.service.spec kapsıyor).
+      { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
       backdatePolicy as any,
       auditLogService,
       // SEC-HIGH-051: the real SSoT — fail-closed object-level site authz.

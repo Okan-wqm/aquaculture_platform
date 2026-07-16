@@ -52,6 +52,8 @@ describe('RecordCullHandler', () => {
       createMockRepository(),
       createMockRepository(),
       mockOutboxPublisher,
+      // P-31 recalc — mocked (day-plan-recalc.service.spec kapsıyor).
+      { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
       mockAuditLogService,
       // SEC-HIGH-051: the real fail-closed SSoT; commands below default to
       // MODULE_MANAGER so site authz bypasses for these domain-logic tests.

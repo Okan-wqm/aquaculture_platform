@@ -27,6 +27,7 @@ import type { MortalityRecordedEvent } from '@platform/event-contracts';
 import { toEventIso } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
+import { DayPlanRecalcService } from '../../feeding-protocol/services/day-plan-recalc.service';
 import { Repository, DataSource } from 'typeorm';
 
 import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
@@ -73,6 +74,7 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
     @InjectRepository(EquipmentType)
     private readonly equipmentTypeRepository: Repository<EquipmentType>,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly dayPlanRecalc: DayPlanRecalcService,
     private readonly backdatePolicy: BackdatePolicyService,
     private readonly auditLogService: AuditLogService,
     // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
@@ -330,6 +332,17 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
         queryRunner.manager,
         tenantId,
         [payload.tankId],
+      );
+
+      // P-31: bugünkü planın beslenmemiş öğünleri yeni biyokütleden AYNI
+      // transaction'da yeniden fiyatlanır — ölen balık öğle öğününe yansır,
+      // yarını beklemez. Kilit sırası kanonik zincirle uyumlu (Batch →
+      // TankBatch buradan, DayPlan → Meals recalc içinden).
+      await this.dayPlanRecalc.recalcForUnit(
+        queryRunner.manager,
+        tenantId,
+        payload.tankId,
+        'mortality',
       );
 
       // Enqueue MortalityRecordedEvent into the transactional outbox BEFORE commit.

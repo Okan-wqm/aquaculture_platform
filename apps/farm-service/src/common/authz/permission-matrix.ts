@@ -149,6 +149,10 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   recordSparePartStockMovement: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   recordTreatmentApplication: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   recordWelfareAssessment: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  // Presign step of regulatory field capture (escape/welfare/lice photo
+  // upload): operator-recordable, same audience as the record* mutations
+  // whose payloads carry the minted storageKey.
+  requestIncidentMediaUpload: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   recordStockMovement: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   // Tenant-wide roles only: bypasses per-site authorization by role
   // hierarchy; finer-grained recording flows through the full

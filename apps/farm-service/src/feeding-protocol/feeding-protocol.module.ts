@@ -20,6 +20,7 @@ import { ProtocolValidationService } from './services/protocol-validation.servic
 import { ProtocolRateService } from './services/protocol-rate.service';
 import { MealPlanGeneratorService } from './services/meal-plan-generator.service';
 import { BiomassGrowthApplierService } from './services/biomass-growth-applier.service';
+import { DayPlanRecalcService } from './services/day-plan-recalc.service';
 import {
   ArchiveFeedingProtocolV2Handler,
   CreateFeedingProtocolV2Handler,
@@ -53,6 +54,7 @@ import { FeedingProtocolV2Resolver } from './resolvers/feeding-protocol-v2.resol
     ProtocolRateService,
     MealPlanGeneratorService,
     BiomassGrowthApplierService,
+    DayPlanRecalcService,
     CreateFeedingProtocolV2Handler,
     UpdateFeedingProtocolV2Handler,
     ArchiveFeedingProtocolV2Handler,
@@ -69,6 +71,7 @@ import { FeedingProtocolV2Resolver } from './resolvers/feeding-protocol-v2.resol
     ProtocolRateService,
     MealPlanGeneratorService,
     BiomassGrowthApplierService,
+    DayPlanRecalcService,
   ],
 })
 export class FeedingProtocolModule {}

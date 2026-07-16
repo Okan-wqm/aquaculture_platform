@@ -27,6 +27,7 @@ import GraphQLJSON from 'graphql-type-json';
 
 import { FcrResolvedSource } from './feeding-protocol-v2.entity';
 import { FeedingUnitType } from './protocol-assignment.entity';
+import { FeedingMeal } from './feeding-meal.entity';
 
 // ============================================================================
 // ENUMS
@@ -198,4 +199,11 @@ export class FeedingDayPlan {
 
   @VersionColumn()
   version!: number;
+
+  /**
+   * Planın öğünleri — KOLON DEĞİL (soft-ref disiplini K-16); feedingDayPlans
+   * sorgusu TEK toplu okuma ile doldurur (plan başına sorgu yok).
+   */
+  @Field(() => [FeedingMeal], { nullable: true })
+  meals?: FeedingMeal[];
 }

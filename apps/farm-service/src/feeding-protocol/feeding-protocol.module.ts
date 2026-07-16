@@ -43,6 +43,7 @@ import {
   ListProtocolAssignmentsHandler,
 } from './query-handlers/feeding-protocol-v2.query-handlers';
 import { FeedingProtocolV2Resolver } from './resolvers/feeding-protocol-v2.resolver';
+import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
 
 @Module({
   imports: [
@@ -80,6 +81,7 @@ import { FeedingProtocolV2Resolver } from './resolvers/feeding-protocol-v2.resol
     GetFeedingProtocolV2Handler,
     ListProtocolAssignmentsHandler,
     FeedingProtocolV2Resolver,
+    MealExecutionResolver,
   ],
   exports: [
     ProtocolValidationService,

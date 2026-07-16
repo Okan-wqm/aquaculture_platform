@@ -595,6 +595,15 @@ export class FCRCalculationService {
   // -------------------------------------------------------------------------
 
   /**
+   * Hedef FCR'ın public yüzeyi (P-14 zinciri) — 18:00 FCR alert süpürmesi
+   * (`FeedingCronV2Service.fcrAlertSweep`) hedefi buradan okur: alert eşiği,
+   * motorun plan/snapshot hesabıyla AYNI hedefe karşı ölçülür (C-1).
+   */
+  async getTargetFCRForBatch(batchId: string): Promise<number> {
+    return this.getTargetFCR(batchId);
+  }
+
+  /**
    * Target FCR'ı getirir
    *
    * Öncelik sırası (P-14 zinciri — plan §3):

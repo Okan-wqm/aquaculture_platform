@@ -30,6 +30,7 @@ import { BatchDomainService } from '../batch/services/batch-domain.service';
 import { BatchLifecyclePolicyService } from '../batch/services/batch-lifecycle-policy.service';
 import { FeedingModule } from '../feeding/feeding.module';
 import { InventoryModule } from '../storage/storage.module';
+import { GrowthModule } from '../growth/growth.module';
 import {
   ArchiveFeedingProtocolV2Handler,
   CreateFeedingProtocolV2Handler,
@@ -55,6 +56,9 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
     FeedingModule,
     // correctMealPour düzeltme hareketleri StockMovementService'i doğrudan kullanır.
     InventoryModule,
+    // 18:00 FCR süpürmesi hedefi FCRCalculationService'ten (P-14 zinciri) okur.
+    // GrowthModule geriye feeding-protocol'ü import etmez (döngü yok).
+    GrowthModule,
     TypeOrmModule.forFeature([
       FeedingProtocolV2,
       ProtocolAssignment,

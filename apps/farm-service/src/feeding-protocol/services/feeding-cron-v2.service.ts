@@ -8,6 +8,8 @@
  * |       | imkânsız)                                                         |
  * | 15dk  | MealWindowUpcoming — (tenant, tick) başına TOPLU (K-2, 500 cap +  |
  * |       | devam event'leri); `windowNotifiedAt` idempotent                  |
+ * | 18:00 | FCR alert süpürmesi — İLK durable FCRAlert emisyonu (C-1); hedef  |
+ * |       | P-14 zincirinden, eşikler legacy analyzeFCR ile birebir           |
  * | 20:00 | FeedingDailySummary (durable) + gün-seviyesi kronik az-atım       |
  * |       | süpürmesi — MealUnderfed(scope=day) (D-16)                        |
  *
@@ -33,6 +35,7 @@ import { OutboxPublisher } from '@platform/outbox';
 import {
   createBaseEvent,
   toEventIso,
+  FCRAlertEvent,
   FeedingDailySummaryEvent,
   MealMissedEvent,
   MealUnderfedEvent,
@@ -58,12 +61,16 @@ import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { MealPlanGeneratorService } from './meal-plan-generator.service';
 import { BiomassGrowthApplierService } from './biomass-growth-applier.service';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
+import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
 
 const ADVISORY_LOCK_NAMESPACE = 0x46454544; // 'FEED'
 const ASSIGNMENT_PAGE_SIZE = 200;
 /** K-2 kanonik cap — schema validator ile aynı sabit. */
 export const MEAL_WINDOW_MAX_ENTRIES = 500;
 const MEAL_WINDOW_LEAD_MINUTES = 60;
+/** Legacy analyzeFCR eşikleri birebir: >%10 warning, >%20 critical. */
+const FCR_WARNING_VARIANCE_PERCENT = 10;
+const FCR_CRITICAL_VARIANCE_PERCENT = 20;
 
 /** Toplu pencere event'lerine bölme — SAF (spec pinli). */
 export function chunkWindowEntries<T>(entries: T[], cap: number): T[][] {
@@ -123,6 +130,8 @@ export class FeedingCronV2Service {
     private readonly generator: MealPlanGeneratorService,
     private readonly growthApplier: BiomassGrowthApplierService,
     private readonly temperatureService: WaterTemperatureService,
+    // 18:00 FCR süpürmesi hedefi P-14 zincirinden okur (GrowthModule export'u).
+    private readonly fcrCalculation: FCRCalculationService,
     private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
@@ -604,8 +613,112 @@ export class FeedingCronV2Service {
   }
 
   // ==========================================================================
+  // 18:00 — FCR ALERT SÜPÜRMESİ (C-1: İLK durable FCRAlert emisyonu)
+  // ==========================================================================
+
+  /**
+   * FCRAlert bugüne dek yalnız in-process yayılıyordu (`feeding.fcrAlerts`,
+   * dead-end log zinciri) — bu iş kontratı İLK KEZ outbox'a yazar; tüketici
+   * alert-engine `FcrAlertEventHandler`. Eşikler legacy analyzeFCR ile
+   * birebir; HEDEF ise artık P-14 zincirinden gelir (kullanıcı override →
+   * v2 protokol → legacy program → species → endüstri → 1.5), yani alert
+   * motorun fiilen beslediği hedefe karşı ölçülür.
+   */
+  @Cron('0 18 * * *', { name: 'feeding-v2-fcr-alerts', timeZone: 'Europe/Istanbul' })
+  async fcrAlertSweep(): Promise<void> {
+    await this.runExclusive('feeding-v2-fcr-alerts', async () => {
+      // Batch-scoped sinyal: keşif aktif ATAMALARA değil aktif BATCH'lere
+      // bakar — v2 ataması olmayan batch tenant'ları legacy job Faz 6'da
+      // kapandığında sessizce alertsiz kalamaz.
+      const tenants = await this.tenantsWithActiveBatches();
+      for (const tenantId of tenants) {
+        try {
+          await this.sweepFcrForTenant(tenantId);
+        } catch (error) {
+          this.logger.error(
+            `FCR alert sweep failed for tenant ${tenantId}: ${(error as Error).message}`,
+          );
+        }
+      }
+    });
+  }
+
+  async sweepFcrForTenant(tenantId: string): Promise<void> {
+    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const manager = queryRunner.manager;
+      const rows: Array<{ id: string; actual: string | number | null }> = await manager.query(
+        `SELECT b.id, (b.fcr->>'actual')::numeric AS actual
+           FROM "batches_v2" b
+          WHERE b."tenantId" = $1
+            AND b."isActive" = true
+            AND b.status IN ('ACTIVE', 'GROWING')
+            AND (b.fcr->>'actual')::numeric > 0`,
+        [tenantId],
+      );
+
+      for (const row of rows) {
+        const currentFCR = Number(row.actual);
+        // Hedef + trend okumaları withTenantContext ALS çerçevesi içinde koşar
+        // (runInTenantTransaction sarmalar) — repo checkout'ları tenant
+        // şemasına yönlenir. Trend yalnız eşiği aşan batch'ler için sorgulanır.
+        const targetFCR = await this.fcrCalculation.getTargetFCRForBatch(row.id);
+        if (!targetFCR || targetFCR <= 0) continue;
+
+        const variancePercent = ((currentFCR - targetFCR) / targetFCR) * 100;
+        if (variancePercent <= FCR_WARNING_VARIANCE_PERCENT) continue;
+
+        const alertLevel: FCRAlertEvent['alertLevel'] =
+          variancePercent > FCR_CRITICAL_VARIANCE_PERCENT ? 'critical' : 'warning';
+        const { trend } = await this.fcrCalculation.analyzeFCRTrend(row.id, tenantId);
+
+        const event: FCRAlertEvent = {
+          ...createBaseEvent<FCRAlertEvent>('FCRAlert', tenantId, {
+            aggregateId: row.id,
+            aggregateType: 'Batch',
+          }),
+          batchId: row.id,
+          currentFCR: round3(currentFCR),
+          targetFCR: round3(targetFCR),
+          variancePercent: round3(variancePercent),
+          trend,
+          alertLevel,
+        };
+        await this.outboxPublisher.enqueue(event, manager);
+      }
+    });
+  }
+
+  // ==========================================================================
   // ORTAK YARDIMCILAR
   // ==========================================================================
+
+  /**
+   * Aktif batch'i olan tenant'lar — 18:00 FCR süpürmesinin keşif kümesi
+   * (batch-scoped; `activeTenants`'ın atama filtresinden bilinçli olarak
+   * geniş). Legacy analyzeFCR'ın keşif sorgusuyla birebir.
+   */
+  private async tenantsWithActiveBatches(): Promise<string[]> {
+    const tenantSchemas = await listTenantSchemas(this.dataSource);
+    const tenantIds = new Set<string>();
+    for (const schema of tenantSchemas) {
+      const runner = this.dataSource.createQueryRunner();
+      await runner.connect();
+      try {
+        await runner.query(`SET search_path TO "${schema}", farm, public`);
+        const rows: Array<{ tenantId: string }> = await runner.query(
+          `SELECT DISTINCT "tenantId" FROM "batches_v2" WHERE "isActive" = true`,
+        );
+        for (const row of rows) tenantIds.add(row.tenantId);
+      } catch (error) {
+        this.logger.warn(
+          `Tenant discovery failed for schema ${schema}: ${(error as Error).message}`,
+        );
+      } finally {
+        await runner.release();
+      }
+    }
+    return [...tenantIds];
+  }
 
   /**
    * Aktif v2 ataması olan tenant'lar — v1 cron'un keşif deseni:

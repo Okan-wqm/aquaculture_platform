@@ -20,24 +20,24 @@ const BROKER_SOURCE_SHA256: &str = env!("AQUA_BROKER_SOURCE_SHA256");
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Route {
     user: &'static str,
-    token: &'static str,
+    command: &'static str,
     operation: &'static str,
 }
 
 const ROUTES: [Route; 3] = [
     Route {
         user: "aqua-backup",
-        token: "aqua-backup-v1",
+        command: "aqua-backup-v1",
         operation: "backup",
     },
     Route {
         user: "aqua-pitr",
-        token: "aqua-pitr-v1",
+        command: "aqua-pitr-v1",
         operation: "pitr",
     },
     Route {
         user: "aqua-wal-freshness",
-        token: "aqua-wal-freshness-v1",
+        command: "aqua-wal-freshness-v1",
         operation: "archive-freshness",
     },
 ];
@@ -67,10 +67,10 @@ fn parse_login_invocation(arguments: &[OsString]) -> Result<&OsStr, &'static str
     Ok(arguments[2].as_os_str())
 }
 
-fn login_route(user: &str, token: &OsStr) -> Option<&'static Route> {
+fn login_route(user: &str, command: &OsStr) -> Option<&'static Route> {
     ROUTES
         .iter()
-        .find(|route| route.user == user && token == OsStr::new(route.token))
+        .find(|route| route.user == user && command == OsStr::new(route.command))
 }
 
 fn parse_four_ids(fields: &str) -> Result<[u32; 4], &'static str> {
@@ -209,8 +209,8 @@ fn attestation_line(
         return Err("broker attestation sha256 is invalid");
     }
     Ok(format!(
-        "{{\"protocol\":\"{ATTESTATION_PROTOCOL}\",\"account\":\"{}\",\"operation\":\"{}\",\"token\":\"{}\",\"source_sha256\":\"{source_sha256}\",\"binary_sha256\":\"{binary_sha256}\"}}",
-        route.user, route.operation, route.token
+        "{{\"protocol\":\"{ATTESTATION_PROTOCOL}\",\"account\":\"{}\",\"operation\":\"{}\",\"command\":\"{}\",\"source_sha256\":\"{source_sha256}\",\"binary_sha256\":\"{binary_sha256}\"}}",
+        route.user, route.operation, route.command
     ))
 }
 
@@ -264,7 +264,7 @@ fn reject_tty_stdin() -> Result<(), String> {
 
 fn run() -> Result<(), String> {
     let arguments: Vec<OsString> = env::args_os().collect();
-    let token = parse_login_invocation(&arguments).map_err(str::to_owned)?;
+    let command = parse_login_invocation(&arguments).map_err(str::to_owned)?;
 
     let credentials = current_credentials()?;
     validate_process_credentials(&credentials).map_err(str::to_owned)?;
@@ -272,7 +272,7 @@ fn run() -> Result<(), String> {
     let passwd = fs::read_to_string(PASSWD_PATH)
         .map_err(|error| format!("cannot read the local passwd authority: {error}"))?;
     let identity = identity_for_uid(&passwd, credentials.uids[0]).map_err(str::to_owned)?;
-    let route = login_route(identity.username, token).ok_or_else(|| {
+    let route = login_route(identity.username, command).ok_or_else(|| {
         "login account and fixed command do not map to an allowed operation".to_owned()
     })?;
     let expected_home = format!("{BROKER_HOME_ROOT}/{}", route.user);
@@ -285,7 +285,7 @@ fn run() -> Result<(), String> {
 
     let original_command = env::var_os("SSH_ORIGINAL_COMMAND")
         .ok_or_else(|| "SSH_ORIGINAL_COMMAND is required".to_owned())?;
-    if original_command != OsStr::new(route.token) {
+    if original_command != OsStr::new(route.command) {
         return Err("SSH_ORIGINAL_COMMAND does not match the fixed command".to_owned());
     }
     reject_tty_stdin()?;
@@ -332,10 +332,10 @@ mod tests {
     }
 
     #[test]
-    fn maps_each_login_account_to_exactly_one_token_and_operation() {
+    fn maps_each_login_account_to_exactly_one_command_and_operation() {
         for route in ROUTES {
             assert_eq!(
-                login_route(route.user, OsStr::new(route.token)),
+                login_route(route.user, OsStr::new(route.command)),
                 Some(&route)
             );
         }
@@ -353,8 +353,8 @@ mod tests {
             assert_eq!(
                 attestation_line(&route, source_sha, binary_sha),
                 Ok(format!(
-                    "{{\"protocol\":\"aqua-protected-ssh-attestation-v1\",\"account\":\"{}\",\"operation\":\"{}\",\"token\":\"{}\",\"source_sha256\":\"{source_sha}\",\"binary_sha256\":\"{binary_sha}\"}}",
-                    route.user, route.operation, route.token
+                    "{{\"protocol\":\"aqua-protected-ssh-attestation-v1\",\"account\":\"{}\",\"operation\":\"{}\",\"command\":\"{}\",\"source_sha256\":\"{source_sha}\",\"binary_sha256\":\"{binary_sha}\"}}",
+                    route.user, route.operation, route.command
                 ))
             );
         }

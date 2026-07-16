@@ -156,6 +156,8 @@ describe('protected backup SSH broker substrate', () => {
     expect(broker).toContain('SSH_ORIGINAL_COMMAND');
     expect(broker).toContain('login account and fixed command do not map');
     expect(broker).toContain('aqua-protected-ssh-attestation-v1');
+    expect(broker).toContain('\\"command\\":\\"{}\\"');
+    expect(broker).not.toContain('\\"token\\":');
     expect(broker).toContain('/proc/self/status');
     expect(broker).toContain('/proc/self/fd/0');
     expect(broker).toContain('login-shell gid boundary is invalid');
@@ -353,13 +355,15 @@ describe('protected backup SSH broker substrate', () => {
     expect(attest).toContain('environment:');
     expect(attest).toContain('name: production-backup');
     expect(attest).toContain('aqua-protected-ssh-attestation-v1');
+    expect(attest).toContain('"command":"aqua-wal-freshness-v1"');
+    expect(attest).not.toContain('"token":');
     expect(attest).toContain('inputs.release_run_id');
     expect(attest).toContain('inputs.release_artifact_id');
     expect(attest).toContain('inputs.release_artifact_digest');
     expect(attest).toContain('Verify signed provenance, authority, and exact materials');
     expect(attest).toContain('cosign verify-blob');
     expect(attest).toContain('Cross-account denial returned SSH exit ${ssh_status}');
-    expect(attest).toContain('Wrong-token denial returned SSH exit ${ssh_status}');
+    expect(attest).toContain('Unrecognized command denial returned SSH exit ${ssh_status}');
     expect(attest).toContain('Ancestor status alone permits rollback');
     expect(attest).toContain('assert_boundary_denial 255 pty');
     expect(attest).toContain('assert_boundary_denial 2 subsystem');

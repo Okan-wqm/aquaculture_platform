@@ -82,9 +82,9 @@ attestation-only while `cutover.enabled` is `false`:
   `/usr/local/sbin/aqua-protected-ssh-broker`, never Bash, Dash, Python, or a
   user-writable wrapper;
 - each account has one public, root-owned, non-writable authorized-key file
-  forced to exactly one token: `aqua-backup-v1`, `aqua-pitr-v1`, or
+  forced to exactly one public command: `aqua-backup-v1`, `aqua-pitr-v1`, or
   `aqua-wal-freshness-v1`;
-- the broker accepts only sshd's exact `-c <token>` argv, requires the same
+- the broker accepts only sshd's exact `-c <command>` argv, requires the same
   byte sequence in `SSH_ORIGINAL_COMMAND`, rejects terminal input, and emits a
   single digest-bound JSON attestation; and
 - this substrate executes no backup, PITR, Docker, sudo, or stdin payload.

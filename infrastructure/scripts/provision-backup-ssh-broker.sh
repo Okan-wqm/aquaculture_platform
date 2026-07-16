@@ -36,7 +36,7 @@ LOCK_PATH=${LOCK_ROOT}/provision.lock
 PASSWORD_SENTINEL='NP'
 
 ACCOUNTS=(aqua-backup aqua-pitr aqua-wal-freshness)
-TOKENS=(aqua-backup-v1 aqua-pitr-v1 aqua-wal-freshness-v1)
+COMMANDS=(aqua-backup-v1 aqua-pitr-v1 aqua-wal-freshness-v1)
 TARGETS=("${BROKER_INSTALL_PATH}" "${MAINTENANCE_DROPIN_PATH}" "${SSHD_DROPIN_PATH}")
 for account in "${ACCOUNTS[@]}"; do
   TARGETS+=("${AUTHORIZED_KEYS_DIR}/${account}")
@@ -505,7 +505,7 @@ sync -f "${ROLLBACK_ROOT}"
 install -o root -g root -m 0755 "${BROKER_SNAPSHOT}" "${STAGING_ROOT}/broker"
 for index in "${!ACCOUNTS[@]}"; do
   printf 'restrict,no-agent-forwarding,no-port-forwarding,no-X11-forwarding,no-pty,no-user-rc,command="%s" %s\n' \
-    "${TOKENS[${index}]}" "${CANONICAL_PUBLIC_KEYS[${index}]}" \
+    "${COMMANDS[${index}]}" "${CANONICAL_PUBLIC_KEYS[${index}]}" \
     > "${STAGING_ROOT}/${ACCOUNTS[${index}]}.authorized_keys"
   chmod 0644 "${STAGING_ROOT}/${ACCOUNTS[${index}]}.authorized_keys"
 done

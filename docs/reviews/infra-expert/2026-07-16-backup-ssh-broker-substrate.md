@@ -19,7 +19,7 @@ attestation closure.
    older vulnerable broker, build script, provisioner, policy, or release
    workflow could be replayed during the artifact-retention window.
 2. The live workflow proved the diagonal key, off-diagonal key denial, and
-   wrong-token denial, but did not actively request an interactive shell, PTY,
+   unrecognized-command denial, but did not actively request an interactive shell, PTY,
    subsystem, remote forwarding, or direct-stream forwarding.
 3. `ci-affected.yml` could return successful required summaries with
    `has_changes=false` for broker source, the provisioner, and broker workflow
@@ -49,6 +49,14 @@ attestation closure.
 11. Existing authorized-key paths were replaced before the final sshd reload.
     Rollback restored the old state after failure, but a concurrent connection
     could observe a newly staged key during the mutation window.
+12. The public fixed command was serialized as `token`. Besides misstating the
+    authority model, that label caused the default `generic-api-key` detector
+    to classify the public command as a credential. The active protocol now
+    calls it `command`, preserving future detection without a path or regex
+    allowlist. Because the pushed commit is immutable, two exact
+    commit/path/rule/line fingerprints quarantine only that historical false
+    positive; a repeated credential-shaped field receives a new fingerprint
+    and fails the scan.
 
 ## Live control-plane state after stop-line repair
 
@@ -67,7 +75,7 @@ until the target install and independent key ceremony occur.
 
 ## Disposable real-OpenSSH validation
 
-At `2026-07-16T19:43:34Z`, the current provisioner and static broker passed a
+At `2026-07-16T20:03:00Z`, the current provisioner and static broker passed a
 network-isolated disposable-container harness using real OpenSSH 9.6p1. The
 container mounted the repository read-only and changed neither the live host nor
 the repository. The run proved:
@@ -85,9 +93,9 @@ the repository. The run proved:
   injection, with collision rejection before target residue.
 
 The tested source SHA-256 was
-`2cb394efa2fa511ca9bc7c7dabddfd005edd510b35de05e9bafaa4c2eb25a00c`; the
+`521254074489c5d70df3b6ee054a4de3b4c534530e4e0575c06245758855735e`; the
 static broker binary SHA-256 was
-`e4b6ffee696071e43d45451032bb8b401b072fbe1f96c462e697bd8fb46043d3`.
+`2663cd902976e10d7a6d5fa68459afb572677d79b094a56c74eb7975a0d462fb`.
 This is substrate validation only and is not production-host or independent DR
 evidence.
 
@@ -100,7 +108,7 @@ evidence.
   later than the immutable merge timestamp.
 - Every broker/control-plane path triggers substantive required-check jobs.
 - Live negative requests cover interactive shell, PTY, subsystem, remote
-  forwarding, and direct-stream forwarding in addition to the key/token
+  forwarding, and direct-stream forwarding in addition to the key/command
   matrix.
 - Every external provisioner command is present before input snapshots or
   target mutation begin.
@@ -112,6 +120,9 @@ evidence.
 - A separately reloaded `DenyUsers` maintenance barrier closes all three login
   principals before any active path changes; only the final validated reload
   removes that barrier.
+- The active attestation schema represents the public forced command as
+  `command`; scanner quarantine is limited to the two immutable historical
+  fingerprints and cannot mask a future occurrence.
 - `production-backup-release` exists before merge, permits only `main`, and has
   at least two eligible required reviewers. It holds no secrets or variables.
 - Real-target systemd reload, root-owned installation, host-key-bound three-key

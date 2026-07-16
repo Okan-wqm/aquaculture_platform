@@ -50,7 +50,14 @@ export interface FeedSelectionRow {
 
 /** DataLoader extended with a setContext method for batch-level feed selection context */
 export interface FeedSelectionDataLoader extends DataLoader<string, FeedSelectionRow | null> {
-  setContext: (batchId: string, avgWeightG: number, biomassKg: number, waterTempC?: number) => void;
+  /** `unitId` (Equipment.id) v2 protokol atamasının çözüm anahtarıdır (C-5). */
+  setContext: (
+    batchId: string,
+    avgWeightG: number,
+    biomassKg: number,
+    waterTempC?: number,
+    unitId?: string,
+  ) => void;
 }
 
 export interface EquipmentDataLoaders {

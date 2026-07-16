@@ -38,6 +38,30 @@ export interface WaterTemperatureReading {
   sensorId?: string;
 }
 
+// ── Tazelik-pencereli etkin sıcaklık (feeding-protocol SSoT Faz 3, C-3/K-11) ──
+
+/**
+ * Tazelik pencereleri: yemleme oranı hesabına yalnız GÜNCEL veri girer.
+ * Bayat sensör okuması manuel girişe, bayat manuel giriş açık NONE'a iner —
+ * v1'in sessiz 15°C varsayımı burada da imkânsızdır (P-20).
+ */
+export const SENSOR_FRESHNESS_HOURS = 6;
+export const MANUAL_FRESHNESS_HOURS = 24;
+
+export type EffectiveTemperatureSource = 'sensor' | 'manual' | 'none';
+
+/**
+ * Yemleme motorunun/forecast'ın tükettiği etkin sıcaklık: kaynak AÇIKÇA
+ * etiketlidir; `none` = "sıcaklık bilinmiyor, çarpan 1.0 uygula ve UI'da
+ * göster" (snapshot `usingDefaultTemperature` bayrağını bundan türetir).
+ */
+export interface EffectiveTemperature {
+  celsius: number | null;
+  source: EffectiveTemperatureSource;
+  measuredAt?: Date;
+  sensorId?: string;
+}
+
 /**
  * Period-representative temperature over a reporting window (e.g. the lakselus
  * report week). Unlike the point-in-time reading, this is aggregated across the
@@ -264,6 +288,111 @@ export class WaterTemperatureService {
   }
 
   /** Newest-wins merge of the sensor and manual candidates. */
+
+  /**
+   * Tazelik-pencereli etkin sıcaklık (tek ünite): taze sensör (≤6s) →
+   * taze manuel (≤24s) → NONE. `getCurrentTemperature`tan farkı recency
+   * yarışı değil KESİN öncelik + tazelik kapısıdır — atanmış ama bayat bir
+   * sensör, dünkü taze manuel girişi gölgeleyemez.
+   */
+  async getEffectiveTemperature(
+    tenantId: string,
+    unitId: string,
+  ): Promise<EffectiveTemperature> {
+    const map = await this.getEffectiveTemperaturesForUnits(tenantId, [unitId]);
+    return map.get(unitId) ?? { celsius: null, source: 'none' };
+  }
+
+  /**
+   * Toplu etkin sıcaklık çözümü (K-11): 06:00 plan cron'u ve forecast ünite
+   * başına sorgu ATMAZ — tek tenant-read içinde iki toplu sorgu (sensör
+   * projeksiyonu + manuel ölçümler, her ikisi DISTINCT ON ile ünite başına en
+   * yeni satır). Her kaynak kendi SAVEPOINT'inde okunur (2026-07-06 bulkhead
+   * kuralı): tek kaynağın altyapı hatası diğerini ve çağıranı düşürmez.
+   */
+  async getEffectiveTemperaturesForUnits(
+    tenantId: string,
+    unitIds: string[],
+  ): Promise<Map<string, EffectiveTemperature>> {
+    const result = new Map<string, EffectiveTemperature>();
+    if (unitIds.length === 0) return result;
+    for (const unitId of unitIds) {
+      result.set(unitId, { celsius: null, source: 'none' });
+    }
+
+    await runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const sensorRows = await this.readSourceIsolated(queryRunner, 'sensor', tenantId, 'bulk', () =>
+        queryRunner.manager.query(
+          `SELECT DISTINCT ON (u."unitId")
+                  u."unitId"        AS "unitId",
+                  stl."temperatureC" AS celsius,
+                  stl."measuredAt"   AS "measuredAt",
+                  stl."sensorId"     AS "sensorId"
+             FROM (
+               SELECT "id" AS "unitId", "temperatureSensorId" FROM equipment
+                WHERE "id" = ANY($1) AND "tenantId" = $2
+               UNION ALL
+               SELECT "id" AS "unitId", "temperatureSensorId" FROM tanks
+                WHERE "id" = ANY($1) AND "tenantId" = $2
+             ) u
+             JOIN sensor_temperature_latest stl
+               ON stl."sensorId" = u."temperatureSensorId" AND stl."tenantId" = $2
+            WHERE u."temperatureSensorId" IS NOT NULL
+              AND stl."measuredAt" >= now() - ($3 || ' hours')::interval
+            ORDER BY u."unitId", stl."measuredAt" DESC`,
+          [unitIds, tenantId, String(SENSOR_FRESHNESS_HOURS)],
+        ) as Promise<Array<DatedTemperatureRow & { unitId: string }>>,
+      );
+      for (const row of sensorRows ?? []) {
+        const dated = WaterTemperatureService.toDatedTemperature(row);
+        if (dated) {
+          result.set(row.unitId, {
+            celsius: dated.celsius,
+            source: 'sensor',
+            measuredAt: dated.measuredAt,
+            sensorId: dated.sensorId,
+          });
+        }
+      }
+
+      const unresolved = unitIds.filter((id) => result.get(id)?.source === 'none');
+      if (unresolved.length === 0) return null;
+
+      const manualRows = await this.readSourceIsolated(queryRunner, 'manual', tenantId, 'bulk', () =>
+        queryRunner.manager.query(
+          `SELECT DISTINCT ON (m."unitId")
+                  m."unitId"    AS "unitId",
+                  m."temperature" AS celsius,
+                  m."measuredAt"  AS "measuredAt"
+             FROM (
+               SELECT COALESCE("tankId", "equipmentId") AS "unitId",
+                      "temperature", "measuredAt"
+                 FROM water_quality_measurements
+                WHERE "tenantId" = $2
+                  AND ("tankId" = ANY($1) OR "equipmentId" = ANY($1))
+                  AND "temperature" IS NOT NULL
+                  AND "measuredAt" >= now() - ($3 || ' hours')::interval
+             ) m
+            ORDER BY m."unitId", m."measuredAt" DESC`,
+          [unresolved, tenantId, String(MANUAL_FRESHNESS_HOURS)],
+        ) as Promise<Array<DatedTemperatureRow & { unitId: string }>>,
+      );
+      for (const row of manualRows ?? []) {
+        const dated = WaterTemperatureService.toDatedTemperature(row);
+        if (dated && result.get(row.unitId)?.source === 'none') {
+          result.set(row.unitId, {
+            celsius: dated.celsius,
+            source: 'manual',
+            measuredAt: dated.measuredAt,
+          });
+        }
+      }
+      return null;
+    });
+
+    return result;
+  }
+
   private static pickNewest(
     sensor: DatedTemperature | null,
     manual: DatedTemperature | null,
@@ -300,13 +429,13 @@ export class WaterTemperatureService {
    * then degrade that source to null — loudly (error log + metric), never
    * silently.
    */
-  private async readSourceIsolated(
+  private async readSourceIsolated<T>(
     queryRunner: QueryRunner,
     source: WaterTemperatureSource,
     tenantId: string,
     tankId: string,
-    read: () => Promise<DatedTemperature | null>,
-  ): Promise<DatedTemperature | null> {
+    read: () => Promise<T>,
+  ): Promise<T | null> {
     await queryRunner.query('SAVEPOINT water_temperature_source');
     try {
       const result = await read();

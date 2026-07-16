@@ -19,6 +19,7 @@ import { Species } from '../species/entities/species.entity';
 import { ProtocolValidationService } from './services/protocol-validation.service';
 import { ProtocolRateService } from './services/protocol-rate.service';
 import { MealPlanGeneratorService } from './services/meal-plan-generator.service';
+import { BiomassGrowthApplierService } from './services/biomass-growth-applier.service';
 import {
   ArchiveFeedingProtocolV2Handler,
   CreateFeedingProtocolV2Handler,
@@ -51,6 +52,7 @@ import { FeedingProtocolV2Resolver } from './resolvers/feeding-protocol-v2.resol
     ProtocolValidationService,
     ProtocolRateService,
     MealPlanGeneratorService,
+    BiomassGrowthApplierService,
     CreateFeedingProtocolV2Handler,
     UpdateFeedingProtocolV2Handler,
     ArchiveFeedingProtocolV2Handler,
@@ -62,6 +64,11 @@ import { FeedingProtocolV2Resolver } from './resolvers/feeding-protocol-v2.resol
     ListProtocolAssignmentsHandler,
     FeedingProtocolV2Resolver,
   ],
-  exports: [ProtocolValidationService, ProtocolRateService, MealPlanGeneratorService],
+  exports: [
+    ProtocolValidationService,
+    ProtocolRateService,
+    MealPlanGeneratorService,
+    BiomassGrowthApplierService,
+  ],
 })
 export class FeedingProtocolModule {}

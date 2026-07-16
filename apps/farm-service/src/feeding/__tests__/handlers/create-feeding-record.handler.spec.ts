@@ -36,12 +36,21 @@ import { RecordMovementResult } from '../../../storage/services/stock-movement.s
 import { BackdatePolicyService } from '../../../common/services/backdate-policy.service';
 import { FinanceSettingsService } from '../../../finance/services/finance-settings.service';
 import { FeedingLedgerService } from '../../services/feeding-ledger.service';
+import {
+  BiomassGrowthApplierService,
+  LockedUnit,
+} from '../../../feeding-protocol/services/biomass-growth-applier.service';
+import { DayPlanRecalcService } from '../../../feeding-protocol/services/day-plan-recalc.service';
+import { FeedingDayPlan } from '../../../feeding-protocol/entities/feeding-day-plan.entity';
+import { TankBatch } from '../../../batch/entities/tank-batch.entity';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const BATCH = '22222222-2222-4222-8222-222222222222';
 const FEED = '33333333-3333-4333-8333-333333333333';
 const USER = '44444444-4444-4444-8444-444444444444';
 const LOCATION = '55555555-5555-4555-8555-555555555555';
+const TANK = '77777777-7777-4777-8777-777777777777';
+const SITE = '88888888-8888-4888-8888-888888888888';
 
 /**
  * Build a fully-typed partial double for an interface T. Every accessed
@@ -64,6 +73,8 @@ interface HarnessOpts {
   resolveLocation?: { storageLocationId: string; lotNumber?: string } | null;
   /** Make the storage recordMovement throw (insufficient stock). */
   recordMovementThrows?: Error;
+  /** D-7: aktif gün planı (payload tankId taşıyorsa sorgulanır). */
+  dayPlan?: Partial<FeedingDayPlan> | null;
 }
 
 function makeFeedableBatch(over: Partial<Batch> = {}): Batch {
@@ -86,6 +97,11 @@ interface Harness {
   recordMovement: jest.Mock;
   commit: jest.Mock;
   rollback: jest.Mock;
+  lockUnitForGrowth: jest.Mock;
+  applyGrowth: jest.Mock;
+  recalcForUnit: jest.Mock;
+  managerQuery: jest.Mock;
+  managerCreate: jest.Mock;
 }
 
 function makeHarness(opts: HarnessOpts = {}): Harness {
@@ -118,10 +134,25 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   const rollback = jest.fn().mockResolvedValue(undefined);
   const release = jest.fn().mockResolvedValue(undefined);
 
+  // D-7: unplannedActualKg artışı ham UPDATE ile atılır; gün planı sorgusu
+  // query-builder üzerinden kilitli okunur.
+  const managerQuery = jest.fn().mockResolvedValue([]);
+  const dayPlan = opts.dayPlan === undefined ? null : opts.dayPlan;
+  const queryBuilder = {
+    setLock: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    andWhere: jest.fn().mockReturnThis(),
+    getOne: jest.fn().mockResolvedValue(dayPlan),
+  };
+  const managerCreateQueryBuilder = jest.fn();
+  managerCreateQueryBuilder.mockImplementation(() => queryBuilder);
+
   const manager = mock<EntityManager>({
     findOne: managerFindOne,
     save: managerSave,
     create: managerCreate,
+    query: managerQuery,
+    createQueryBuilder: managerCreateQueryBuilder,
   });
 
   const queryRunner = mock<QueryRunner>({
@@ -184,6 +215,22 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     financeSettings,
     outboxPublisher,
   );
+
+  // D-7 motor yardımcıları — kilit/growth/recalc çağrıları pinlenir.
+  const lockUnitForGrowth = jest.fn();
+  lockUnitForGrowth.mockImplementation(async (): Promise<LockedUnit | null> => {
+    if (!batch) return null;
+    return {
+      tankBatch: mock<TankBatch>({ tankId: TANK, tenantId: TENANT, primaryBatchId: batch.id }),
+      batches: new Map([[batch.id, batch]]),
+      details: [],
+    };
+  });
+  const applyGrowth = jest.fn().mockResolvedValue(undefined);
+  const recalcForUnit = jest.fn().mockResolvedValue(null);
+  const growthApplier = mock<BiomassGrowthApplierService>({ lockUnitForGrowth, applyGrowth });
+  const recalcService = mock<DayPlanRecalcService>({ recalcForUnit });
+
   const handler = new CreateFeedingRecordHandler(
     repo<FeedingRecord>(),
     repo<Batch>(),
@@ -192,16 +239,31 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     backdatePolicy,
     batchDomainService,
     feedingLedger,
+    growthApplier,
+    recalcService,
   );
 
-  return { handler, feedHasStoragePresence, resolveFeedDeductionLocation, recordMovement, commit, rollback };
+  return {
+    handler,
+    feedHasStoragePresence,
+    resolveFeedDeductionLocation,
+    recordMovement,
+    commit,
+    rollback,
+    lockUnitForGrowth,
+    applyGrowth,
+    recalcForUnit,
+    managerQuery,
+    managerCreate,
+  };
 }
 
-function makeCommand(actualAmount = 50): CreateFeedingRecordCommand {
+function makeCommand(actualAmount = 50, tankId?: string): CreateFeedingRecordCommand {
   return new CreateFeedingRecordCommand(
     TENANT,
     {
       batchId: BATCH,
+      tankId,
       feedingDate: new Date('2026-06-10T08:00:00Z'),
       feedingTime: '08:00',
       feedId: FEED,
@@ -302,5 +364,83 @@ describe('CreateFeedingRecordHandler — feed dual-SSoT write path', () => {
     expect(commit).toHaveBeenCalledTimes(1);
     expect(rollback).not.toHaveBeenCalled();
     expect(result.id).toBe('rec-1');
+  });
+});
+
+describe('CreateFeedingRecordHandler — D-7 plan-dışı yem bağlama', () => {
+  const DAY_PLAN = mock<FeedingDayPlan>({
+    id: 'dp-1',
+    siteId: SITE,
+    snapshot: mock<FeedingDayPlan['snapshot']>({ expectedFcr: 1.25 }),
+  });
+
+  it('aktif gün planına bağlar: kayıt dayPlanId taşır, unplannedActualKg artar, growth + recalc AYNI tx', async () => {
+    const {
+      handler,
+      lockUnitForGrowth,
+      applyGrowth,
+      recalcForUnit,
+      managerQuery,
+      managerCreate,
+      recordMovement,
+      commit,
+    } = makeHarness({ dayPlan: DAY_PLAN });
+
+    await handler.execute(makeCommand(50, TANK));
+
+    // Kanonik kilit sırası: ünite kilidi (Batch asc + TankBatch) alındı.
+    expect(lockUnitForGrowth).toHaveBeenCalledWith(expect.anything(), TENANT, TANK);
+
+    // (1) Plan-dışı toplam atomik arttı.
+    const updateCall = managerQuery.mock.calls.find((call) =>
+      String(call[0]).includes('unplannedActualKg'),
+    );
+    expect(updateCall).toBeDefined();
+    expect(updateCall![1]).toEqual([50, 'dp-1']);
+
+    // (2) Büyüme snapshot FCR'ıyla uygulandı: 50kg / 1.25 = 40kg.
+    expect(applyGrowth).toHaveBeenCalledTimes(1);
+    expect(applyGrowth.mock.calls[0]![3]).toBe(40);
+    expect(applyGrowth.mock.calls[0]![4]).toBe(1.25);
+
+    // (3) Kalan öğünler 'unplanned_feed' gerekçesiyle yeniden fiyatlandı.
+    expect(recalcForUnit).toHaveBeenCalledWith(expect.anything(), TENANT, TANK, 'unplanned_feed');
+
+    // Kayıt plana bağlandı (mealId YOK) + site kapsamı plan denormundan (D-9).
+    const record = managerCreate.mock.calls.find(
+      (call) => (call[1] as Record<string, unknown>)['feedingDate'] !== undefined,
+    )![1] as Record<string, unknown>;
+    expect(record['dayPlanId']).toBe('dp-1');
+    expect(record['mealId']).toBeUndefined();
+    // Storage düşümü akışın SON yazımı olarak yine koştu.
+    expect(recordMovement).toHaveBeenCalledTimes(1);
+    expect(commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('aktif planı olmayan ünitede yalnız-ledger davranışı sürer (growth/recalc yok)', async () => {
+    const { handler, applyGrowth, recalcForUnit, managerQuery, managerCreate, commit } =
+      makeHarness({ dayPlan: null });
+
+    await handler.execute(makeCommand(50, TANK));
+
+    expect(applyGrowth).not.toHaveBeenCalled();
+    expect(recalcForUnit).not.toHaveBeenCalled();
+    expect(
+      managerQuery.mock.calls.some((call) => String(call[0]).includes('unplannedActualKg')),
+    ).toBe(false);
+    const record = managerCreate.mock.calls.find(
+      (call) => (call[1] as Record<string, unknown>)['feedingDate'] !== undefined,
+    )![1] as Record<string, unknown>;
+    expect(record['dayPlanId']).toBeUndefined();
+    expect(commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('tankId taşımayan kayıt ünite kilidini hiç almaz (mevcut davranış korunur)', async () => {
+    const { handler, lockUnitForGrowth, commit } = makeHarness();
+
+    await handler.execute(makeCommand(50));
+
+    expect(lockUnitForGrowth).not.toHaveBeenCalled();
+    expect(commit).toHaveBeenCalledTimes(1);
   });
 });

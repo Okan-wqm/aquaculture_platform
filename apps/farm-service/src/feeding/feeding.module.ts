@@ -48,6 +48,11 @@ import { FeedingProgramService } from './services/feeding-program.service';
 import { DailyFeedingExecutionService } from './services/daily-feeding-execution.service';
 import { FeedingLedgerService } from './services/feeding-ledger.service';
 import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
+// D-7 (plan-dışı yem bağlama): stateless motor yardımcıları doğrudan provider —
+// FeedingProtocolModule import'u modül döngüsü yaratırdı (BatchModule emsali).
+import { ProtocolRateService } from '../feeding-protocol/services/protocol-rate.service';
+import { DayPlanRecalcService } from '../feeding-protocol/services/day-plan-recalc.service';
+import { BiomassGrowthApplierService } from '../feeding-protocol/services/biomass-growth-applier.service';
 
 // Handlers
 import { FeedingCommandHandlers } from './handlers';
@@ -112,6 +117,10 @@ import { FinanceModule } from '../finance/finance.module';
     // TEK yem yazma yolu (P-05) — manuel handler + v2 motoru + drain-window
     // legacy execution kaydı aynı servise delege eder.
     FeedingLedgerService,
+    // D-7: CreateFeedingRecordHandler plan-dışı yemi aktif gün planına bağlar.
+    ProtocolRateService,
+    DayPlanRecalcService,
+    BiomassGrowthApplierService,
     MobileCommandReceiptService,
     // SEC-HIGH-051 / SEC-HIGH-052: site authz SSoT + mobile-feature guard.
     SiteAuthorizationService,

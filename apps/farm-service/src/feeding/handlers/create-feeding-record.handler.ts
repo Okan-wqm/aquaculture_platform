@@ -52,6 +52,15 @@ import { Feed } from '../../feed/entities/feed.entity';
 import { BatchDomainService } from '../../batch/services/batch-domain.service';
 import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
 import { FeedingLedgerService } from '../services/feeding-ledger.service';
+import {
+  BiomassGrowthApplierService,
+  LockedUnit,
+} from '../../feeding-protocol/services/biomass-growth-applier.service';
+import { DayPlanRecalcService } from '../../feeding-protocol/services/day-plan-recalc.service';
+import {
+  FeedingDayPlan,
+  FeedingDayPlanStatus,
+} from '../../feeding-protocol/entities/feeding-day-plan.entity';
 
 @Injectable()
 @CommandHandler(CreateFeedingRecordCommand)
@@ -69,6 +78,9 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
     private readonly backdatePolicy: BackdatePolicyService,
     private readonly batchDomainService: BatchDomainService,
     private readonly feedingLedger: FeedingLedgerService,
+    // D-7: plan-dışı yem, aktif gün planına bağlanır — growth + recalc aynı tx.
+    private readonly growthApplier: BiomassGrowthApplierService,
+    private readonly recalcService: DayPlanRecalcService,
   ) {}
 
   async execute(command: CreateFeedingRecordCommand): Promise<FeedingRecord> {
@@ -93,11 +105,25 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
     // lookups now run with pessimistic locks so a concurrent CloseBatch or
     // feed-delete cannot mutate state between the validation and the write.
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      // Batch'i doğrula (inside TX with pessimistic_write lock)
-      const batch = await queryRunner.manager.findOne(Batch, {
-        where: { id: payload.batchId, tenantId },
-        lock: { mode: 'pessimistic_write' },
-      });
+      const manager = queryRunner.manager;
+
+      // D-7: ünitesi bilinen kayıtlar için kanonik kilit sırası — ünitenin TÜM
+      // batch'leri (batchId asc) + TankBatch (lockUnitForGrowth) → DayPlan.
+      // Önce yalnız payload batch'ini kilitlemek, aynı ünitede eşzamanlı iki
+      // kayıtta AB-BA sırası doğururdu.
+      let locked: LockedUnit | null = null;
+      if (payload.tankId) {
+        locked = await this.growthApplier.lockUnitForGrowth(manager, tenantId, payload.tankId);
+      }
+
+      // Batch'i doğrula — ünite kilidi batch'i zaten kilitlediyse yeniden alma.
+      let batch = locked?.batches.get(payload.batchId) ?? null;
+      if (!batch) {
+        batch = await manager.findOne(Batch, {
+          where: { id: payload.batchId, tenantId },
+          lock: { mode: 'pessimistic_write' },
+        });
+      }
 
       if (!batch) {
         throw new NotFoundException(`Batch ${payload.batchId} bulunamadı`);
@@ -114,8 +140,28 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
       // a concurrent CloseBatch / final harvest. Throws BadRequestException.
       this.batchDomainService.assertFeedable(batch);
 
+      // D-7 plan bağlama: ünitenin BUGÜNKÜ (yem tarihinin takvim günü) aktif
+      // planı kilitlenir. Gün eşleşmesi UTC günüdür — site-TZ gün sınırındaki
+      // dar gece penceresinde bağlama OLMAZ (yanlış plana bağlanmaktansa
+      // yalnız-ledger davranışına düşer, fail-safe). Plansız üniteye manuel
+      // yem eskisi gibi yalnız ledger yoluyla akar.
+      let boundPlan: FeedingDayPlan | null = null;
+      if (locked && payload.tankId) {
+        const day = proposedDate.toISOString().slice(0, 10);
+        boundPlan = await manager
+          .createQueryBuilder(FeedingDayPlan, 'dp')
+          .setLock('pessimistic_write')
+          .where('dp.tenantId = :tenantId', { tenantId })
+          .andWhere('dp.unitId = :unitId', { unitId: payload.tankId })
+          .andWhere('dp.planDate = :day', { day })
+          .andWhere('dp.status IN (:...statuses)', {
+            statuses: [FeedingDayPlanStatus.PLANNED, FeedingDayPlanStatus.IN_PROGRESS],
+          })
+          .getOne();
+      }
+
       // Feed'i doğrula (inside TX)
-      const feed = await queryRunner.manager.findOne(Feed, {
+      const feed = await manager.findOne(Feed, {
         where: { id: payload.feedId, tenantId },
       });
 
@@ -123,10 +169,39 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
         throw new NotFoundException(`Feed ${payload.feedId} bulunamadı`);
       }
 
+      if (boundPlan && locked && payload.tankId) {
+        // (1) Plan-dışı toplam atomik artar — gün-sonu varyansı
+        // Σ(planlı + plansız actual) vs plannedTotalKg üzerinden okunur (D-16).
+        await manager.query(
+          `UPDATE "feeding_day_plans" SET "unplannedActualKg" = "unplannedActualKg" + $1 WHERE id = $2`,
+          [payload.actualAmount, boundPlan.id],
+        );
+
+        // (2) Büyüme AYNI tx'te (D-7 kök neden: eski manuel yol büyüme
+        // uygulamıyordu → FCR şişiyordu). Mod ayrımı YOK: DAILY rollup yalnız
+        // öğün actual'larını topladığı için plan-dışı yem burada uygulanmazsa
+        // hiçbir yerde uygulanmaz.
+        const expectedFcr = Number(boundPlan.snapshot?.expectedFcr) || 0;
+        if (expectedFcr > 0) {
+          await this.growthApplier.applyGrowth(
+            manager,
+            tenantId,
+            locked,
+            payload.actualAmount / expectedFcr,
+            expectedFcr,
+          );
+        }
+
+        // (3) Kalan öğünler yeni biomass'tan yeniden fiyatlanır; recalcLog'a
+        // 'unplanned_feed' gerekçesi düşer (sessiz recalc yok).
+        await this.recalcService.recalcForUnit(manager, tenantId, payload.tankId, 'unplanned_feed');
+      }
+
       // TEK yem yazma yolu (P-05): kayıt + batch aggregate + storage düşümü
       // (site kapsamlı, D-9) + FeedingRecordedEvent outbox — hepsi ledger'da.
+      // Storage düşümü akışın SON yazımıdır (K-1) — plan bağlama yukarıda bitti.
       const saved = await this.feedingLedger.recordFeed(
-        queryRunner.manager,
+        manager,
         tenantId,
         userId,
         batch,
@@ -149,6 +224,10 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
           notes: payload.notes,
           feedCost: payload.feedCost,
           currency: payload.currency,
+          // D-7: plan-dışı kayıt plana bağlanır (mealId NULL kalır); site
+          // kapsamı plan denormundan gelir (D-9).
+          dayPlanId: boundPlan?.id,
+          siteId: boundPlan?.siteId,
           extras: {
             environment: payload.environment,
             fishBehavior: payload.fishBehavior,

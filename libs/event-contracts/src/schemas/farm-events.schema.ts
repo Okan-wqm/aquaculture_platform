@@ -235,6 +235,30 @@ interface WireLowStockDetected extends WireBaseEvent {
   severity: 'low_stock' | 'out_of_stock';
 }
 
+interface WireFeedingProtocolAssigned extends WireBaseEvent {
+  eventType: 'FeedingProtocolAssigned';
+  userId?: string;
+  assignmentId: string;
+  unitId: string;
+  unitType: 'tank' | 'pond' | 'cage';
+  unitCode: string;
+  siteId: string;
+  protocolId: string;
+  protocolName: string;
+  replacedAssignmentId?: string;
+  speciesMismatchReason?: string;
+}
+
+interface WireFeedingProtocolAssignmentPaused extends WireBaseEvent {
+  eventType: 'FeedingProtocolAssignmentPaused';
+  userId?: string;
+  assignmentId: string;
+  unitId: string;
+  unitCode: string;
+  protocolId: string;
+  reason: 'protocol_archived' | 'operator_paused' | 'unit_emptied';
+}
+
 // ── Harvest / mortality follow-up wire shapes ──────────────────────────────
 // `recordedAt`/`harvestedAt`/`clearedAt`/`completedAt` are ISO strings on the
 // wire (Date in the TS contract; JSON has no Date type — see file header).
@@ -854,6 +878,56 @@ export const lowStockDetectedSchema: JSONSchemaType<WireLowStockDetected> = {
   ],
 };
 
+export const feedingProtocolAssignedSchema: JSONSchemaType<WireFeedingProtocolAssigned> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'FeedingProtocolAssigned' },
+    userId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    assignmentId: UUID_SCHEMA,
+    unitId: UUID_SCHEMA,
+    unitType: { type: 'string', enum: ['tank', 'pond', 'cage'] },
+    unitCode: SHORT_CODE,
+    siteId: UUID_SCHEMA,
+    protocolId: UUID_SCHEMA,
+    protocolName: FREE_TEXT,
+    replacedAssignmentId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    speciesMismatchReason: { ...FREE_TEXT, nullable: true },
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'assignmentId',
+    'unitId',
+    'unitType',
+    'unitCode',
+    'siteId',
+    'protocolId',
+    'protocolName',
+  ],
+};
+
+export const feedingProtocolAssignmentPausedSchema: JSONSchemaType<WireFeedingProtocolAssignmentPaused> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'FeedingProtocolAssignmentPaused' },
+    userId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    assignmentId: UUID_SCHEMA,
+    unitId: UUID_SCHEMA,
+    unitCode: SHORT_CODE,
+    protocolId: UUID_SCHEMA,
+    reason: { type: 'string', enum: ['protocol_archived', 'operator_paused', 'unit_emptied'] },
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'assignmentId',
+    'unitId',
+    'unitCode',
+    'protocolId',
+    'reason',
+  ],
+};
+
 // ── Harvest / mortality follow-up schemas ──────────────────────────────────
 
 export const mortalityAlertRaisedSchema: JSONSchemaType<WireMortalityAlertRaised> = {
@@ -1350,6 +1424,8 @@ export type FarmEventType =
   | 'FeedingRecorded'
   | 'FeedInventoryLow'
   | 'LowStockDetected'
+  | 'FeedingProtocolAssigned'
+  | 'FeedingProtocolAssignmentPaused'
   | 'SiteCreated'
   | 'SiteUpdated'
   | 'SiteDeleted'
@@ -1402,6 +1478,8 @@ export const FARM_EVENT_SCHEMAS: Record<FarmEventType, object> = {
   FeedingRecorded: feedingRecordedSchema,
   FeedInventoryLow: feedInventoryLowSchema,
   LowStockDetected: lowStockDetectedSchema,
+  FeedingProtocolAssigned: feedingProtocolAssignedSchema,
+  FeedingProtocolAssignmentPaused: feedingProtocolAssignmentPausedSchema,
   SiteCreated: siteCreatedSchema,
   SiteUpdated: siteUpdatedSchema,
   SiteDeleted: siteDeletedSchema,

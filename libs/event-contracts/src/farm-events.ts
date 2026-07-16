@@ -794,6 +794,42 @@ export interface SubEquipmentDeletedEvent extends BaseEvent {
  * and invalidation only need to know which equipment's calibration set
  * changed and how many rows are now authoritative.
  */
+/**
+ * Birleşik protokol bir üniteye atandığında (feeding-protocol SSoT Faz 3).
+ * Audit + gelecekteki analytics tüketicileri için; atama transaction'ında
+ * outbox'a yazılır.
+ */
+export interface FeedingProtocolAssignedEvent extends BaseEvent {
+  eventType: 'FeedingProtocolAssigned';
+  userId?: string;
+  assignmentId: string;
+  unitId: string;
+  unitType: 'tank' | 'pond' | 'cage';
+  unitCode: string;
+  siteId: string;
+  protocolId: string;
+  protocolName: string;
+  /** Değiştirme semantiği: önceki aktif atamanın id'si (tarihçe). */
+  replacedAssignmentId?: string;
+  /** Tür uyumsuzluğunda operatörün bilinçli-devam gerekçesi (audit). */
+  speciesMismatchReason?: string;
+}
+
+/**
+ * Aktif bir atama otomatik/operatör kararıyla duraklatıldığında — protokol
+ * arşivi (D-10), boş ünite (Faz 5) veya operatör pause'u. Ünitenin plansız
+ * kaldığının görünür sinyali.
+ */
+export interface FeedingProtocolAssignmentPausedEvent extends BaseEvent {
+  eventType: 'FeedingProtocolAssignmentPaused';
+  userId?: string;
+  assignmentId: string;
+  unitId: string;
+  unitCode: string;
+  protocolId: string;
+  reason: 'protocol_archived' | 'operator_paused' | 'unit_emptied';
+}
+
 export interface FeederCalibrationsSavedEvent extends BaseEvent {
   eventType: 'FeederCalibrationsSaved';
   equipmentId: string;
@@ -1474,6 +1510,8 @@ export type FarmEvent =
   | SubEquipmentUpdatedEvent
   | SubEquipmentDeletedEvent
   | FeederCalibrationsSavedEvent
+  | FeedingProtocolAssignedEvent
+  | FeedingProtocolAssignmentPausedEvent
   | FeedInventoryLowEvent
   | WelfareEventReportedEvent
   | EscapeReportedEvent

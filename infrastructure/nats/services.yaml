@@ -106,6 +106,8 @@ services:
       - "events.*.FeedInventoryLow"
       - "events.*.FeedInventoryReceived"
       - "events.*.FeederCalibrationsSaved"
+      - "events.*.FeedingProtocolAssigned"
+      - "events.*.FeedingProtocolAssignmentPaused"
       - "events.*.FeedingRecordUpdated"
       - "events.*.FeedingRecorded"
       - "events.*.FinanceCategoryArchived"

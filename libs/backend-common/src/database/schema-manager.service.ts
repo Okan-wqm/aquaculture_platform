@@ -429,6 +429,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'feeding_protocol_assignments',
       'feeding_day_plans',
       'feeding_meals',
+      'feeding_forecast_snapshots',
 
       // Chemical management
       'chemical_types',

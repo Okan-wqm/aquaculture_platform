@@ -9687,6 +9687,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1806700000000-FeedingForecastFoundation.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -10924,6 +10930,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/entities/feeding-day-plan.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/entities/feeding-forecast-snapshot.entity.ts",
       "prettier_managed": true
     },
     {
@@ -54612,10 +54624,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8951,
+  "file_count": 8953,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8770,
-  "managed_file_list_sha256": "54e7775e1abce82cf85baad2860b9fde4660db20634d76e35d4877c88527fda8",
+  "managed_count": 8772,
+  "managed_file_list_sha256": "52cfa3d0310b74513b53f301a1f05b8b73e59b5148003df45643c69b645737c2",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

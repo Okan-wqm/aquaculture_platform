@@ -14,6 +14,7 @@ import { FeedingProtocolV2 } from './entities/feeding-protocol-v2.entity';
 import { ProtocolAssignment } from './entities/protocol-assignment.entity';
 import { FeedingDayPlan } from './entities/feeding-day-plan.entity';
 import { FeedingMeal } from './entities/feeding-meal.entity';
+import { FeedingForecastSnapshot } from './entities/feeding-forecast-snapshot.entity';
 import { Feed } from '../feed/entities/feed.entity';
 import { Species } from '../species/entities/species.entity';
 import { ProtocolValidationService } from './services/protocol-validation.service';
@@ -65,6 +66,7 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
       ProtocolAssignment,
       FeedingDayPlan,
       FeedingMeal,
+      FeedingForecastSnapshot,
       Feed,
       Species,
     ]),

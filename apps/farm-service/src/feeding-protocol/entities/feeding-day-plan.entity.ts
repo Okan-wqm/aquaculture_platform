@@ -83,7 +83,9 @@ export interface RecalcLogEntry {
     | 'protocol_change'
     | 'assignment_change'
     | 'unplanned_feed'
-    | 'manual_regenerate';
+    | 'manual_regenerate'
+    /** Öğün finalize'ındaki per_meal büyümesi sonrası kalan öğün recalc'ı. */
+    | 'meal_growth';
   /** Yeniden hesap sonrası kalan öğünlerin toplam planlanan kg'ı. */
   remainingPlannedKg: number;
   biomassKg?: number;

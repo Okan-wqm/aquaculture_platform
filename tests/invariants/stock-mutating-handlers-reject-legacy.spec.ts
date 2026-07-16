@@ -18,6 +18,9 @@ const STOCK_MUTATING_HANDLERS = [
   'apps/farm-service/src/batch/handlers/record-mortality.handler.ts',
   'apps/farm-service/src/batch/handlers/record-cull.handler.ts',
   'apps/farm-service/src/batch/handlers/transfer-batch.handler.ts',
+  // C-17 (feeding-protocol SSoT Faz 5): recordMealFeeding stok düşürür —
+  // legacy (envelope'suz) mod reddi yapısal olarak korunur.
+  'apps/farm-service/src/feeding-protocol/services/meal-execution.service.ts',
 ];
 
 describe('stock-mutating handlers reject legacy idempotency mode', () => {

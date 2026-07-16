@@ -48,6 +48,7 @@ import {
   FishAppetite,
 } from '../../feeding/entities/feeding-record.entity';
 import { CreateFeedingRecordHandler } from '../../feeding/handlers/create-feeding-record.handler';
+import { FeedingLedgerService } from '../../feeding/services/feeding-ledger.service';
 import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 import { GetFeedingRecordsHandler } from '../../feeding/query-handlers/get-feeding-records.handler';
 import { GetFeedingSummaryHandler } from '../../feeding/query-handlers/get-feeding-summary.handler';
@@ -185,16 +186,25 @@ describe('Feeding record tenant isolation on real Postgres', () => {
       new SiteAuthorizationService(),
       outboxPublisher,
     );
+    // P-05 tek yem yazma yolu: handler artık GERÇEK FeedingLedgerService'e
+    // delege eder (kayıt + batch aggregate + FEFO düşüm + outbox tek noktada).
+    // D-7 motor yardımcıları mock — bu fixture'ın payload'ları tankId
+    // taşımadığı için plan bağlama dalı hiç koşmaz.
+    const feedingLedger = new FeedingLedgerService(
+      stockMovementService,
+      new FinanceSettingsService(dataSource),
+      outboxPublisher,
+    );
     createFeedingRecord = new CreateFeedingRecordHandler(
       feedingRecordRepository,
       batchRepository,
       feedRepository,
       dataSource,
-      outboxPublisher,
       backdatePolicy as never,
       batchDomainService,
-      stockMovementService,
-      new FinanceSettingsService(dataSource),
+      feedingLedger,
+      { lockUnitForGrowth: jest.fn().mockResolvedValue(null) } as never,
+      { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
     );
     getFeedingRecords = new GetFeedingRecordsHandler(dataSource);
     getFeedingSummary = new GetFeedingSummaryHandler(dataSource);

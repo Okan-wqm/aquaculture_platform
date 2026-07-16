@@ -115,7 +115,7 @@ export class BackfillFeedInventoryToStorageLedger1806100000000 implements Migrat
                lot_number, expiry_date, 'fi-migrate-' || fi_id,
                '00000000-0000-0000-0000-000000000000', now()
         FROM orphan
-        ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL
+        ON CONFLICT (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL
         DO NOTHING
         RETURNING item_id, to_location_id, quantity, lot_number, expiry_date, tenant_id, idempotency_key
       )

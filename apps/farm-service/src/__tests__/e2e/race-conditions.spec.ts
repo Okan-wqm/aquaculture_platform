@@ -20,6 +20,7 @@ import { NatsEventBus } from '@platform/event-bus';
 // Handlers
 import { RecordMortalityHandler } from '../../batch/handlers/record-mortality.handler';
 import { MortalityCullPolicyService } from '../../batch/services/mortality-cull-policy.service';
+import { RemovalQuantityPolicyService } from '../../batch/services/removal-quantity-policy.service';
 
 // Idempotency envelope reused across the mortality race-condition commands.
 const RACE_ENVELOPE = { clientCommandId: 'cmd-race', payloadHash: 'hash-race' };
@@ -189,6 +190,10 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
       {} as Repository<Tank>,
       {} as Repository<EquipmentType>,
       createMockOutboxPublisher(),
+      // Gün-içi recalc (P-31) + giriş modu politikası (D-3) — bu race testleri
+      // kilit/TOCTOU davranışına odaklı; recalc mock, politika gerçek (saf).
+      { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
+      new RemovalQuantityPolicyService(),
       { validate: jest.fn() } as never,
       { logWithManager: jest.fn().mockResolvedValue({}) } as never,
       // SEC-HIGH-051: object-level site authorization SSoT (real instance — the
@@ -406,6 +411,10 @@ describe('Race Condition Protection: Cross-handler concurrent safety', () => {
       {} as Repository<Tank>,
       {} as Repository<EquipmentType>,
       createMockOutboxPublisher(),
+      // Gün-içi recalc (P-31) + giriş modu politikası (D-3) — bu race testleri
+      // kilit/TOCTOU davranışına odaklı; recalc mock, politika gerçek (saf).
+      { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
+      new RemovalQuantityPolicyService(),
       { validate: jest.fn() } as never,
       { logWithManager: jest.fn().mockResolvedValue({}) } as never,
       // SEC-HIGH-051: object-level site authorization SSoT (real instance — the

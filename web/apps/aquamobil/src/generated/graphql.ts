@@ -393,6 +393,7 @@ export type ReceiptStatus =
 export type RecordCullInput = {
   avgWeightG?: number | null | undefined;
   batchId: string | number;
+  biomassKg?: number | null | undefined;
   clientCommandId: string | number;
   /** ISO timestamp when the mobile client created the command */
   clientCreatedAt?: string | null | undefined;
@@ -436,6 +437,7 @@ export type RecordDailyFeedingInput = {
 export type RecordMortalityInput = {
   avgWeightG?: number | null | undefined;
   batchId: string | number;
+  biomassKg?: number | null | undefined;
   clientCommandId: string | number;
   /** ISO timestamp when the mobile client created the command */
   clientCreatedAt?: string | null | undefined;
@@ -624,6 +626,7 @@ export type TaskStatus =
 export type TransferBatchInput = {
   avgWeightG?: number | null | undefined;
   batchId: string | number;
+  biomassKg?: number | null | undefined;
   clientCommandId: string | number;
   /** ISO timestamp when the mobile client created the command */
   clientCreatedAt?: string | null | undefined;

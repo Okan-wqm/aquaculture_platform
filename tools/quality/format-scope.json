@@ -16466,7 +16466,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "fe14f21ca7ef5dca070e687fa5e81d8e6a752fb331b17c108aa95beef3c54be4",
+      "content_sha256": "96149f2f688a14b698943348e79617424c1c2e507aae6f443d4abbcbe000d512",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "apps/gateway-api/src/config/federated-subgraphs.generated.ts",
@@ -34094,7 +34094,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "5177a396da61e294a95cc48fd935ad7a38460b44539235468842d76a6d318c97",
+      "content_sha256": "033ed7170e216677e35938923a4210659132bbdd18f256ad7121447febd78f00",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/apollo-router/codegen-schema.generated.json",
@@ -34117,7 +34117,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "c0eb6aeb237ec0eeb8773d326b632826107ff4526cc0f2884a6fe1e9a9c11124",
+      "content_sha256": "f8f6e3e770625cdc6671152f763afdbb3cdab61cc03e760d992fad3134861d27",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/deploy/service-catalog.generated.json",
@@ -39540,6 +39540,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "scripts/service-catalog/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "scripts/tsconfig.eslint.json",
       "prettier_managed": true
     },
@@ -41646,6 +41652,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/walg-evidence-attestation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/walg-pitr-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/web-no-createtenantquerykey-in-invalidate.spec.ts",
       "prettier_managed": true
     },
@@ -42570,7 +42588,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/scripts/database/evaluate-walg-evidence.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/scripts/database/generate-database-verification-sql.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/database/walg-evidence-attestation.mjs",
       "prettier_managed": true
     },
     {
@@ -42799,6 +42829,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/vendor/apollo-playground-disabled/README.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/vendor/apollo-playground-disabled/tsconfig.json",
       "prettier_managed": true
     },
     {
@@ -54342,10 +54378,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8906,
+  "file_count": 8912,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8725,
-  "managed_file_list_sha256": "ff10462b91ad2397bf18182c352215c91bc5918dbbb8694fca5fa2f2e18d261a",
+  "managed_count": 8731,
+  "managed_file_list_sha256": "4c37913cf2de3ffcd0ef72f5ae425ec08673fa6e1d8002529e068b22f46b210f",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

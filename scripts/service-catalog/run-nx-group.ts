@@ -1,13 +1,20 @@
 #!/usr/bin/env ts-node
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-import { activeDropletServices, type BuildKind } from '../../platform/libs/service-catalog/src/index.ts';
+import type * as ServiceCatalogModule from '../../platform/libs/service-catalog/src/index';
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const entrypoint = process.argv[1];
+if (!entrypoint) throw new Error('Cannot resolve the service-catalog runner entrypoint');
+const REPO_ROOT = resolve(dirname(entrypoint), '..', '..');
+const requireFromRepository = createRequire(resolve(REPO_ROOT, 'package.json'));
+const { activeDropletServices } = requireFromRepository(
+  './platform/libs/service-catalog/src/index.ts',
+) as typeof ServiceCatalogModule;
 
 type ProjectGroup = 'backend' | 'frontend' | 'deployable';
+type BuildKind = ServiceCatalogModule.BuildKind;
 
 function argValue(name: string): string | undefined {
   const index = process.argv.indexOf(name);
@@ -56,7 +63,13 @@ function main(): void {
     return;
   }
 
-  const args = ['nx', 'run-many', `--target=${target}`, `--projects=${projects.join(',')}`, ...trailingArgs()];
+  const args = [
+    'nx',
+    'run-many',
+    `--target=${target}`,
+    `--projects=${projects.join(',')}`,
+    ...trailingArgs(),
+  ];
   const result = spawnSync('npx', args, { cwd: REPO_ROOT, stdio: 'inherit' });
   if (result.error) throw result.error;
   process.exit(result.status ?? 1);

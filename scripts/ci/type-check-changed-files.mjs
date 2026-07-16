@@ -43,9 +43,7 @@ function run(command, args, extraEnv = {}) {
     if (result.stdout) process.stdout.write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);
     if (result.error) {
-      console.error(
-        `type-check-changed-files: failed to run ${command}: ${result.error.message}`,
-      );
+      console.error(`type-check-changed-files: failed to run ${command}: ${result.error.message}`);
     }
     process.exit(result.status ?? 1);
   }
@@ -62,9 +60,7 @@ const changedFiles = run('git', [
   .map((line) => line.trim())
   .filter(Boolean);
 
-const changedTypeScriptFiles = changedFiles.filter((file) =>
-  /\.(?:c|m)?tsx?$/.test(file),
-);
+const changedTypeScriptFiles = changedFiles.filter((file) => /\.(?:c|m)?tsx?$/.test(file));
 
 if (changedTypeScriptFiles.length === 0) {
   console.log('No changed TypeScript files require project type-check.');
@@ -137,10 +133,7 @@ function tsconfigFor(file) {
   if (!root) return null;
 
   if (root === 'tests/invariants') {
-    return firstExisting([
-      `${root}/tsconfig.spec.json`,
-      `${root}/tsconfig.json`,
-    ]);
+    return firstExisting([`${root}/tsconfig.spec.json`, `${root}/tsconfig.json`]);
   }
 
   if (root === 'tools/scripts') {
@@ -148,7 +141,7 @@ function tsconfigFor(file) {
   }
 
   if (root === 'scripts') {
-    return firstExisting(['scripts/tsconfig.json', 'tools/gates/tsconfig.json']);
+    return nearestTsconfig(file, root) ?? firstExisting(['tools/gates/tsconfig.json']);
   }
 
   if (root.startsWith('tools/')) {
@@ -176,14 +169,7 @@ function declarationFilesFor(tsconfig) {
 
   const declarations = [];
   const root = join(repoRoot, projectRoot);
-  const ignoredDirectories = new Set([
-    '.git',
-    '.nx',
-    'coverage',
-    'dist',
-    'node_modules',
-    'tmp',
-  ]);
+  const ignoredDirectories = new Set(['.git', '.nx', 'coverage', 'dist', 'node_modules', 'tmp']);
 
   function walk(dir) {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -223,9 +209,7 @@ for (const file of changedTypeScriptFiles) {
 }
 
 if (unmapped.length > 0) {
-  console.error(
-    'type-check-changed-files: changed TypeScript files have no known tsconfig owner:',
-  );
+  console.error('type-check-changed-files: changed TypeScript files have no known tsconfig owner:');
   for (const file of unmapped) console.error(`  - ${file}`);
   process.exit(1);
 }
@@ -251,10 +235,7 @@ for (const tsconfig of tsconfigs.keys()) {
         compilerOptions: {
           noEmit: true,
         },
-        files: [
-          ...declarationFilesFor(tsconfig),
-          ...files.map((file) => join(repoRoot, file)),
-        ],
+        files: [...declarationFilesFor(tsconfig), ...files.map((file) => join(repoRoot, file))],
         include: [],
       },
       null,
@@ -262,8 +243,7 @@ for (const tsconfig of tsconfigs.keys()) {
     ),
   );
   console.log(
-    `type-check-changed-files: tsc --noEmit -p ${tsconfig} ` +
-      `(${files.length} changed file(s))`,
+    `type-check-changed-files: tsc --noEmit -p ${tsconfig} ` + `(${files.length} changed file(s))`,
   );
   run(process.execPath, [
     resolve(repoRoot, 'node_modules/typescript/bin/tsc'),
@@ -275,6 +255,4 @@ for (const tsconfig of tsconfigs.keys()) {
   ]);
 }
 
-console.log(
-  `type-check-changed-files: ${tsconfigs.size} project tsconfig(s) passed.`,
-);
+console.log(`type-check-changed-files: ${tsconfigs.size} project tsconfig(s) passed.`);

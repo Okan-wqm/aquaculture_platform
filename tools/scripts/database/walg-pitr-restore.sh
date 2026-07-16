@@ -80,8 +80,8 @@ SOURCE_WALG_REVISION=''
 DATABASE_VERIFICATION_SHA256=''
 TARGET_READ_ONLY_ROOTFS=false
 WALG_CONFIG_SHA256=''
-WALG_SECRET_EPOCH_SHA256=''
-SOURCE_SECRET_EPOCH_INITIAL=''
+WALG_ROTATION_BUNDLE_SHA256=''
+SOURCE_INITIAL_WALG_ROTATION_BUNDLE_SHA256=''
 TARGET_SOCKET_DIR="/tmp/aqua-walg-pitr-${EVIDENCE_RUN_ID}"
 TMP_DIR=''
 
@@ -230,7 +230,7 @@ container_walg_config_sha256() {
   '
 }
 
-container_walg_secret_epoch_sha256() {
+container_walg_rotation_bundle_sha256() {
   timeout --foreground --kill-after=5s "${CONTROL_TIMEOUT_SECONDS}s" \
     docker exec --user postgres "$1" bash -ceu '
     secret_dir=/run/aqua-walg-secrets
@@ -279,7 +279,7 @@ write_evidence() {
     "${BEFORE_SENTINEL_PRESENT}" "${AFTER_SENTINEL_PRESENT}" \
     "${PROMOTED}" "${DATABASE_VERIFIED}" "${DATABASE_VERIFICATION_SHA256}" \
     "${TARGET_READ_ONLY_ROOTFS}" \
-    "${WALG_CONFIG_SHA256}" "${WALG_SECRET_EPOCH_SHA256}" \
+    "${WALG_CONFIG_SHA256}" "${WALG_ROTATION_BUNDLE_SHA256}" \
     "${FAILURE_STAGE}" "${TMP_DIR}/database-verification.canonical.json" <<'NODE'
 const fs = require('node:fs');
 const [
@@ -297,7 +297,7 @@ const [
   targetPgdataVolume, targetNetwork,
   isolatedTargetAttested, walVerified, beforeSentinelPresent,
   afterSentinelPresent, promoted, databaseVerified, databaseVerificationSha256,
-  targetReadOnlyRootfs, walgConfigSha256, walgSecretEpochSha256,
+  targetReadOnlyRootfs, walgConfigSha256, walgRotationBundleSha256,
   failureStage, databaseVerificationPath,
 ] = process.argv.slice(2);
 const succeeded = status === 'success';
@@ -352,7 +352,7 @@ const record = {
   database_verification: databaseVerification,
   target_read_only_rootfs: targetReadOnlyRootfs === 'true',
   walg_config_sha256: walgConfigSha256 || null,
-  walg_secret_epoch_sha256: walgSecretEpochSha256 || null,
+  walg_rotation_bundle_sha256: walgRotationBundleSha256 || null,
   failure_stage: succeeded ? null : failureStage,
 };
 fs.writeFileSync(outputPath, `${JSON.stringify(record)}\n`, { flag: 'wx', mode: 0o600 });
@@ -595,10 +595,10 @@ if [ "$(source_psql -c "SELECT to_regclass('platform.pitr_drill_sentinels') IS N
   die 'canonical platform.pitr_drill_sentinels ledger is absent.'
 fi
 WALG_CONFIG_SHA256=$(container_walg_config_sha256 "${SOURCE_CONTAINER}")
-SOURCE_SECRET_EPOCH_INITIAL=$(container_walg_secret_epoch_sha256 "${SOURCE_CONTAINER}")
+SOURCE_INITIAL_WALG_ROTATION_BUNDLE_SHA256=$(container_walg_rotation_bundle_sha256 "${SOURCE_CONTAINER}")
 if [[ ! "${WALG_CONFIG_SHA256}" =~ ^[0-9a-f]{64}$ ]] || \
-   [[ ! "${SOURCE_SECRET_EPOCH_INITIAL}" =~ ^[0-9a-f]{64}$ ]]; then
-  die 'source WAL-G configuration/secret epoch fingerprint is invalid.'
+   [[ ! "${SOURCE_INITIAL_WALG_ROTATION_BUNDLE_SHA256}" =~ ^[0-9a-f]{64}$ ]]; then
+  die 'source WAL-G configuration/rotation bundle fingerprint is invalid.'
 fi
 
 insert_source_sentinel() {
@@ -712,9 +712,9 @@ ARCHIVE_WAIT_SECONDS=$(( SECONDS - ARCHIVE_WAIT_STARTED ))
 # containing the AFTER sentinel is durably observable in the archive. From
 # this point onward the drill performs no source-dependent operation.
 FAILURE_STAGE='source-loss-fence'
-WALG_SECRET_EPOCH_SHA256=$(container_walg_secret_epoch_sha256 "${SOURCE_CONTAINER}")
-if [ "${WALG_SECRET_EPOCH_SHA256}" != "${SOURCE_SECRET_EPOCH_INITIAL}" ]; then
-  die 'source WAL-G secret epoch changed during the archive ceremony.'
+WALG_ROTATION_BUNDLE_SHA256=$(container_walg_rotation_bundle_sha256 "${SOURCE_CONTAINER}")
+if [ "${WALG_ROTATION_BUNDLE_SHA256}" != "${SOURCE_INITIAL_WALG_ROTATION_BUNDLE_SHA256}" ]; then
+  die 'source WAL-G rotation bundle changed during the archive ceremony.'
 fi
 ARCHIVE_OBSERVED_AT=$(source_psql -c \
   "SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"');")
@@ -733,10 +733,10 @@ FAILURE_STAGE='target-secret-install'
 timeout --foreground --kill-after=10s "${CONTROL_TIMEOUT_SECONDS}s" \
   docker exec --user root "${TARGET_CONTAINER}" /usr/local/bin/walg-load-secrets.sh install
 TARGET_WALG_CONFIG_SHA256=$(container_walg_config_sha256 "${TARGET_CONTAINER}")
-TARGET_SECRET_EPOCH_SHA256=$(container_walg_secret_epoch_sha256 "${TARGET_CONTAINER}")
+TARGET_WALG_ROTATION_BUNDLE_SHA256=$(container_walg_rotation_bundle_sha256 "${TARGET_CONTAINER}")
 if [ "${TARGET_WALG_CONFIG_SHA256}" != "${WALG_CONFIG_SHA256}" ] || \
-   [ "${TARGET_SECRET_EPOCH_SHA256}" != "${WALG_SECRET_EPOCH_SHA256}" ]; then
-  die 'isolated target WAL-G configuration/secret epoch differs from the archived source chain.'
+   [ "${TARGET_WALG_ROTATION_BUNDLE_SHA256}" != "${WALG_ROTATION_BUNDLE_SHA256}" ]; then
+  die 'isolated target WAL-G configuration/rotation bundle differs from the archived source chain.'
 fi
 
 FAILURE_STAGE='wal-verify-from-isolated-target'
@@ -776,10 +776,10 @@ FAILURE_STAGE='target-secret-relink'
 timeout --foreground --kill-after=10s "${CONTROL_TIMEOUT_SECONDS}s" \
   docker exec --user root "${TARGET_CONTAINER}" /usr/local/bin/walg-load-secrets.sh install
 TARGET_WALG_CONFIG_AFTER_FETCH_SHA256=$(container_walg_config_sha256 "${TARGET_CONTAINER}")
-TARGET_SECRET_EPOCH_AFTER_FETCH_SHA256=$(container_walg_secret_epoch_sha256 "${TARGET_CONTAINER}")
+TARGET_WALG_ROTATION_BUNDLE_AFTER_FETCH_SHA256=$(container_walg_rotation_bundle_sha256 "${TARGET_CONTAINER}")
 if [ "${TARGET_WALG_CONFIG_AFTER_FETCH_SHA256}" != "${WALG_CONFIG_SHA256}" ] || \
-   [ "${TARGET_SECRET_EPOCH_AFTER_FETCH_SHA256}" != "${WALG_SECRET_EPOCH_SHA256}" ]; then
-  die 'isolated target WAL-G configuration/secret epoch changed before recovery.'
+   [ "${TARGET_WALG_ROTATION_BUNDLE_AFTER_FETCH_SHA256}" != "${WALG_ROTATION_BUNDLE_SHA256}" ]; then
+  die 'isolated target WAL-G configuration/rotation bundle changed before recovery.'
 fi
 
 FAILURE_STAGE='recovery-configuration'

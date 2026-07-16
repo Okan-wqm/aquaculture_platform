@@ -251,7 +251,7 @@ const CHAIN_AUTHORITY_FIELDS = Object.freeze([
   'source_postgres_dr_contract_sha256',
   'source_wal_g_revision',
   'walg_config_sha256',
-  'walg_secret_epoch_sha256',
+  'walg_rotation_bundle_sha256',
 ]);
 
 const hasSameChainAuthority = (left, right) =>
@@ -299,7 +299,7 @@ const isSuccessfulBackup = (record, options) => {
         options.expectedPostgresDrContractSha256) ||
     record.source_wal_g_revision !== EXPECTED_WALG_REVISION ||
     !isSha256(record.walg_config_sha256) ||
-    !isSha256(record.walg_secret_epoch_sha256) ||
+    !isSha256(record.walg_rotation_bundle_sha256) ||
     !Number.isInteger(record.elapsed_seconds) ||
     record.elapsed_seconds < 0
   ) {
@@ -365,7 +365,7 @@ const isSuccessfulPitr = (record, options) => {
         options.expectedPostgresDrContractSha256) ||
     record.source_wal_g_revision !== EXPECTED_WALG_REVISION ||
     !isSha256(record.walg_config_sha256) ||
-    !isSha256(record.walg_secret_epoch_sha256) ||
+    !isSha256(record.walg_rotation_bundle_sha256) ||
     !isSafeToken(record.target_pgdata_volume) ||
     !isSafeToken(record.target_network) ||
     record.target_read_only_rootfs !== true ||

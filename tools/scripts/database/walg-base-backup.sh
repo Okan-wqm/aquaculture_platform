@@ -26,7 +26,7 @@ SOURCE_IMAGE_REVISION=''
 SOURCE_POSTGRES_DR_CONTRACT_SHA256=''
 SOURCE_WALG_REVISION=''
 WALG_CONFIG_SHA256=''
-WALG_SECRET_EPOCH_SHA256=''
+WALG_ROTATION_BUNDLE_SHA256=''
 FAILURE_STAGE='preflight'
 TMP_DIR=''
 
@@ -84,7 +84,7 @@ write_evidence() {
     "${SOURCE_POSTGRES_DR_CONTRACT_SHA256}" \
     "${SOURCE_WALG_REVISION}" \
     "${WALG_CONFIG_SHA256}" \
-    "${WALG_SECRET_EPOCH_SHA256}" <<'NODE'
+    "${WALG_ROTATION_BUNDLE_SHA256}" <<'NODE'
 const fs = require('node:fs');
 const [
   outputPath,
@@ -102,7 +102,7 @@ const [
   sourcePostgresDrContractSha256,
   sourceWalgRevision,
   walgConfigSha256,
-  walgSecretEpochSha256,
+  walgRotationBundleSha256,
 ] = process.argv.slice(2);
 const succeeded = status === 'success';
 let backupMetadata = null;
@@ -134,7 +134,7 @@ const record = {
   source_postgres_dr_contract_sha256: sourcePostgresDrContractSha256 || null,
   source_wal_g_revision: sourceWalgRevision || null,
   walg_config_sha256: walgConfigSha256 || null,
-  walg_secret_epoch_sha256: walgSecretEpochSha256 || null,
+  walg_rotation_bundle_sha256: walgRotationBundleSha256 || null,
   full: succeeded,
   verified: succeeded,
   wal_verified: succeeded,
@@ -172,7 +172,7 @@ container_walg_config_sha256() {
   '
 }
 
-container_walg_secret_epoch_sha256() {
+container_walg_rotation_bundle_sha256() {
   docker exec --user postgres "$1" bash -ceu '
     secret_dir=/run/aqua-walg-secrets
     for epoch_file in libsodium.key walg_backup_epoch walg_s3_prefix; do
@@ -228,10 +228,10 @@ FAILURE_STAGE='runtime-secret-verification'
 docker exec --user postgres "${POSTGRES_CONTAINER}" \
   "${WALG_RUNTIME_COMMAND}" assert-runtime
 WALG_CONFIG_SHA256=$(container_walg_config_sha256 "${POSTGRES_CONTAINER}")
-WALG_SECRET_EPOCH_SHA256=$(container_walg_secret_epoch_sha256 "${POSTGRES_CONTAINER}")
+WALG_ROTATION_BUNDLE_SHA256=$(container_walg_rotation_bundle_sha256 "${POSTGRES_CONTAINER}")
 if [[ ! "${WALG_CONFIG_SHA256}" =~ ^[0-9a-f]{64}$ ]] || \
-   [[ ! "${WALG_SECRET_EPOCH_SHA256}" =~ ^[0-9a-f]{64}$ ]]; then
-  die 'WAL-G configuration or secret epoch hash is invalid.'
+   [[ ! "${WALG_ROTATION_BUNDLE_SHA256}" =~ ^[0-9a-f]{64}$ ]]; then
+  die 'WAL-G configuration or rotation bundle hash is invalid.'
 fi
 
 FAILURE_STAGE='backup-list-before'
@@ -372,14 +372,14 @@ FAILURE_STAGE='chain-identity-reverification'
 CURRENT_CONTAINER_ID=$(docker inspect --format '{{.Id}}' "${POSTGRES_CONTAINER_NAME}")
 CURRENT_SOURCE_IMAGE_ID=$(docker inspect --format '{{.Image}}' "${POSTGRES_CONTAINER}")
 CURRENT_WALG_CONFIG_SHA256=$(container_walg_config_sha256 "${POSTGRES_CONTAINER}")
-CURRENT_WALG_SECRET_EPOCH_SHA256=$(container_walg_secret_epoch_sha256 "${POSTGRES_CONTAINER}")
+CURRENT_WALG_ROTATION_BUNDLE_SHA256=$(container_walg_rotation_bundle_sha256 "${POSTGRES_CONTAINER}")
 CURRENT_SOURCE_SYSTEM_IDENTIFIER=$(container_system_identifier "${POSTGRES_CONTAINER}")
 if [ "${CURRENT_CONTAINER_ID}" != "${POSTGRES_CONTAINER}" ] || \
    [ "${CURRENT_SOURCE_IMAGE_ID}" != "${SOURCE_IMAGE_ID}" ] || \
    [ "${CURRENT_WALG_CONFIG_SHA256}" != "${WALG_CONFIG_SHA256}" ] || \
-   [ "${CURRENT_WALG_SECRET_EPOCH_SHA256}" != "${WALG_SECRET_EPOCH_SHA256}" ] || \
+   [ "${CURRENT_WALG_ROTATION_BUNDLE_SHA256}" != "${WALG_ROTATION_BUNDLE_SHA256}" ] || \
    [ "${CURRENT_SOURCE_SYSTEM_IDENTIFIER}" != "${SOURCE_SYSTEM_IDENTIFIER}" ]; then
-  die 'source container, image, cluster, WAL-G configuration, or secret epoch changed during backup.'
+  die 'source container, image, cluster, WAL-G configuration, or rotation bundle changed during backup.'
 fi
 
 FAILURE_STAGE='evidence-write'

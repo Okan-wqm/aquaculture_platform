@@ -4,13 +4,21 @@
  * Tests for the tenant list and management functionality
  */
 
+import '@testing-library/jest-dom/vitest';
 import React from 'react';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import TenantManagementPage from '../TenantManagementPage';
-import { tenantsApi, TenantTier, TenantStatus } from '../../services/adminApi';
+import {
+  tenantsApi,
+  type PaginatedResult,
+  type Tenant,
+  type TenantStats,
+  TenantTier,
+  TenantStatus,
+} from '../../services/adminApi';
 
 // Mock the API module
 vi.mock('../../services/adminApi', () => ({
@@ -55,7 +63,7 @@ const renderWithRouter = (component: React.ReactElement) => {
 };
 
 // Mock tenant data
-const mockTenants = [
+const mockTenants: Tenant[] = [
   {
     id: 'tenant-1',
     name: 'Ocean Farms Ltd',
@@ -110,17 +118,27 @@ const mockTenants = [
   },
 ];
 
-const mockStats = {
+const mockTenantPage: PaginatedResult<Tenant> = {
+  data: mockTenants,
+  total: 4,
+  page: 1,
+  limit: 20,
+  totalPages: 1,
+};
+
+const mockStats: TenantStats = {
   totalTenants: 4,
   activeTenants: 2,
   suspendedTenants: 1,
   pendingTenants: 1,
+  newTenantsLast30Days: 1,
+  churnedTenantsLast30Days: 0,
 };
 
 describe('TenantManagementPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(tenantsApi.list).mockResolvedValue({ data: mockTenants, total: 4 });
+    vi.mocked(tenantsApi.list).mockResolvedValue(mockTenantPage);
     vi.mocked(tenantsApi.getStats).mockResolvedValue(mockStats);
     mockNavigate.mockClear();
   });
@@ -391,8 +409,9 @@ describe('TenantManagementPage', () => {
   describe('Pagination', () => {
     it('should display pagination controls', async () => {
       vi.mocked(tenantsApi.list).mockResolvedValueOnce({
-        data: mockTenants,
+        ...mockTenantPage,
         total: 100, // More than one page
+        totalPages: 5,
       });
 
       renderWithRouter(<TenantManagementPage />);
@@ -406,8 +425,9 @@ describe('TenantManagementPage', () => {
     it('should change page on pagination click', async () => {
       const user = userEvent.setup();
       vi.mocked(tenantsApi.list).mockResolvedValueOnce({
-        data: mockTenants,
+        ...mockTenantPage,
         total: 100,
+        totalPages: 5,
       });
 
       renderWithRouter(<TenantManagementPage />);
@@ -429,8 +449,7 @@ describe('TenantManagementPage', () => {
     it('should show loading indicator while fetching', async () => {
       // Delay the API response
       vi.mocked(tenantsApi.list).mockImplementation(
-        () =>
-          new Promise((resolve) => setTimeout(() => resolve({ data: mockTenants, total: 4 }), 100)),
+        () => new Promise((resolve) => setTimeout(() => resolve(mockTenantPage), 100)),
       );
 
       renderWithRouter(<TenantManagementPage />);
@@ -446,7 +465,12 @@ describe('TenantManagementPage', () => {
 
   describe('Empty State', () => {
     it('should show empty message when no tenants', async () => {
-      vi.mocked(tenantsApi.list).mockResolvedValueOnce({ data: [], total: 0 });
+      vi.mocked(tenantsApi.list).mockResolvedValueOnce({
+        ...mockTenantPage,
+        data: [],
+        total: 0,
+        totalPages: 0,
+      });
 
       renderWithRouter(<TenantManagementPage />);
 

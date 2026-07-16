@@ -1,11 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 
 import {
   bootPostgresContainer,
+  DEFAULT_POSTGRES_IMAGE,
   type HarnessContext,
   shutdownHarness,
 } from '@platform/migration-harness';
@@ -14,6 +15,7 @@ import {
   migrationRunnerSchemas,
   tenantAwareSchemas,
 } from '@platform/service-catalog';
+import { GenericContainer, type StartedTestContainer, Wait } from 'testcontainers';
 import type { QueryRunner } from 'typeorm';
 
 import {
@@ -101,9 +103,7 @@ describe('database restore verification SQL', () => {
   let ctx: HarnessContext;
 
   beforeAll(async () => {
-    ctx = await bootPostgresContainer({
-      labels: { [RESTORE_TARGET_LABEL]: 'isolated-drill' },
-    });
+    ctx = await bootPostgresContainer();
   }, 120_000);
 
   afterAll(async () => {
@@ -405,15 +405,31 @@ describe('database restore verification SQL', () => {
     expect(output).toContain('snapshot-bound dump and verification completed; skipping upload');
   });
 
-  it('restores a bound dump through the operator command and proves exact parity', () => {
+  it('restores a bound dump through the operator command and proves exact parity', async () => {
     const scratchDir = mkdtempSync(resolve(tmpdir(), 'aqua-restore-proof-'));
     const dumpPath = resolve(scratchDir, 'source.dump');
     const verificationPath = resolve(scratchDir, 'source.dump.verification.json');
+    const encryptedDumpPath = `${dumpPath}.gpg`;
+    const encryptedVerificationPath = `${verificationPath}.gpg`;
+    const gpgHome = resolve(scratchDir, 'gnupg');
     const fakeAwsPath = resolve(scratchDir, 'aws');
     const targetDatabase = 'harness_restore';
-    const backupKey = 'pg-backups/test/source.dump';
+    const backupKey = 'pg-backups/test/source.dump.gpg';
+    const verificationKey = `${backupKey}.verification.json.gpg`;
+    let restoreTarget: StartedTestContainer | undefined;
 
     try {
+      restoreTarget = await new GenericContainer(DEFAULT_POSTGRES_IMAGE)
+        .withEnvironment({
+          POSTGRES_DB: 'postgres',
+          POSTGRES_USER: ctx.connectionOptions.username,
+          POSTGRES_PASSWORD: ctx.connectionOptions.password,
+        })
+        .withLabels({ [RESTORE_TARGET_LABEL]: 'isolated-drill' })
+        .withWaitStrategy(Wait.forLogMessage(/database system is ready to accept connections/, 2))
+        .withStartupTimeout(120_000)
+        .start();
+
       const dump = spawnSync(
         'docker',
         [
@@ -462,11 +478,77 @@ describe('database restore verification SQL', () => {
       }
       writeFileSync(verificationPath, verification.stdout, 'utf8');
 
-      const dumpBytes = readFileSync(dumpPath);
-      const verificationBytes = readFileSync(verificationPath);
+      mkdirSync(gpgHome, { mode: 0o700 });
+      chmodSync(gpgHome, 0o700);
+      const generateKey = spawnSync(
+        'gpg',
+        [
+          '--batch',
+          '--homedir',
+          gpgHome,
+          '--passphrase',
+          '',
+          '--quick-generate-key',
+          'Aqua Restore Test <restore-test@aqua.invalid>',
+          'rsa2048',
+          'encrypt',
+          '0',
+        ],
+        { encoding: 'utf8' },
+      );
+      if (generateKey.status !== 0) {
+        throw new Error(`GPG fixture key generation failed: ${generateKey.stderr}`);
+      }
+      const listKey = spawnSync(
+        'gpg',
+        ['--batch', '--homedir', gpgHome, '--with-colons', '--fingerprint', '--list-secret-keys'],
+        { encoding: 'utf8' },
+      );
+      if (listKey.status !== 0) {
+        throw new Error(`GPG fixture fingerprint lookup failed: ${listKey.stderr}`);
+      }
+      const keyFingerprint = listKey.stdout
+        .split('\n')
+        .find((line) => line.startsWith('fpr:'))
+        ?.split(':')[9];
+      if (!keyFingerprint || !/^[A-F0-9]{40}$/.test(keyFingerprint)) {
+        throw new Error('GPG fixture did not produce one exact primary-key fingerprint');
+      }
+
+      for (const [input, output] of [
+        [dumpPath, encryptedDumpPath],
+        [verificationPath, encryptedVerificationPath],
+      ] as const) {
+        const encrypt = spawnSync(
+          'gpg',
+          [
+            '--batch',
+            '--yes',
+            '--homedir',
+            gpgHome,
+            '--trust-model',
+            'always',
+            '--recipient',
+            keyFingerprint,
+            '--output',
+            output,
+            '--encrypt',
+            input,
+          ],
+          { encoding: 'utf8' },
+        );
+        if (encrypt.status !== 0) {
+          throw new Error(`GPG fixture encryption failed for ${input}: ${encrypt.stderr}`);
+        }
+      }
+
+      const dumpBytes = readFileSync(encryptedDumpPath);
+      const verificationBytes = readFileSync(encryptedVerificationPath);
+      const verificationPayloadBytes = readFileSync(verificationPath);
       const digest = (value: Buffer): string => createHash('sha256').update(value).digest('hex');
       const dumpSha = digest(dumpBytes);
       const verificationSha = digest(verificationBytes);
+      const verificationPayloadSha = digest(verificationPayloadBytes);
 
       writeFileSync(
         fakeAwsPath,
@@ -479,11 +561,11 @@ if [ "$1" = "s3api" ] && [ "$2" = "head-object" ]; then
     shift
   done
   if [ "$KEY" = "$FAKE_BACKUP_KEY" ]; then
-    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' "$FAKE_DUMP_SIZE" "$FAKE_DUMP_SHA" "$FAKE_VERIFICATION_SHA" "$FAKE_VERIFICATION_SIZE" "$FAKE_VERIFICATION_KEY"
+    printf '%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' "$FAKE_DUMP_SIZE" "$FAKE_DUMP_SHA" "$FAKE_VERIFICATION_SHA" "$FAKE_VERIFICATION_PAYLOAD_SHA" "$FAKE_VERIFICATION_SIZE" "$FAKE_VERIFICATION_KEY"
     exit 0
   fi
   if [ "$KEY" = "$FAKE_VERIFICATION_KEY" ]; then
-    printf '%s\\t%s\\t%s\\n' "$FAKE_VERIFICATION_SIZE" "$FAKE_VERIFICATION_SHA" "$FAKE_DUMP_SHA"
+    printf '%s\\t%s\\t%s\\t%s\\n' "$FAKE_VERIFICATION_SIZE" "$FAKE_VERIFICATION_SHA" "$FAKE_VERIFICATION_PAYLOAD_SHA" "$FAKE_DUMP_SHA"
     exit 0
   fi
   exit 9
@@ -511,7 +593,8 @@ exit 9
         env: {
           ...process.env,
           PATH: `${scratchDir}:${process.env.PATH ?? ''}`,
-          TARGET_CONTAINER: ctx.container.getId(),
+          GNUPGHOME: gpgHome,
+          TARGET_CONTAINER: restoreTarget.getId(),
           TARGET_USER: ctx.connectionOptions.username,
           TARGET_DB: targetDatabase,
           PGPASSWORD: ctx.connectionOptions.password,
@@ -520,19 +603,21 @@ exit 9
           AWS_ACCESS_KEY_ID: 'test-access',
           AWS_SECRET_ACCESS_KEY: 'test-secret',
           BACKUP_KEY: backupKey,
+          BACKUP_GPG_KEY: keyFingerprint,
           MAX_RESTORE_SECONDS: '60',
           DATABASE_VERIFICATION_SQL: resolve(
             REPO_ROOT,
             'tools/scripts/database/database-verification.sql',
           ),
           FAKE_BACKUP_KEY: backupKey,
-          FAKE_VERIFICATION_KEY: `${backupKey}.verification.json`,
-          FAKE_DUMP_PATH: dumpPath,
-          FAKE_VERIFICATION_PATH: verificationPath,
+          FAKE_VERIFICATION_KEY: verificationKey,
+          FAKE_DUMP_PATH: encryptedDumpPath,
+          FAKE_VERIFICATION_PATH: encryptedVerificationPath,
           FAKE_DUMP_SIZE: String(dumpBytes.length),
           FAKE_DUMP_SHA: dumpSha,
           FAKE_VERIFICATION_SIZE: String(verificationBytes.length),
           FAKE_VERIFICATION_SHA: verificationSha,
+          FAKE_VERIFICATION_PAYLOAD_SHA: verificationPayloadSha,
         },
       });
 
@@ -547,7 +632,7 @@ exit 9
         [
           'exec',
           '-i',
-          ctx.container.getId(),
+          restoreTarget.getId(),
           'psql',
           '-X',
           '-qAt',
@@ -568,7 +653,7 @@ exit 9
         [
           'exec',
           '-i',
-          ctx.container.getId(),
+          restoreTarget.getId(),
           'psql',
           '-X',
           '-qAt',
@@ -587,23 +672,8 @@ exit 9
       expect(restoredHypertable.status).toBe(0);
       expect(restoredHypertable.stdout.trim()).toBe('1');
     } finally {
-      spawnSync(
-        'docker',
-        [
-          'exec',
-          '-i',
-          ctx.container.getId(),
-          'dropdb',
-          '--if-exists',
-          '--force',
-          targetDatabase,
-          '-U',
-          ctx.connectionOptions.username,
-          '--maintenance-db=postgres',
-        ],
-        { encoding: 'utf8' },
-      );
+      if (restoreTarget) await restoreTarget.stop();
       rmSync(scratchDir, { recursive: true, force: true });
     }
-  }, 120_000);
+  }, 180_000);
 });

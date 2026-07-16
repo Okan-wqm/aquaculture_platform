@@ -17,18 +17,13 @@ import {
   formatDate,
 } from '@aquaculture/shared-ui';
 import type { TableColumn } from '@aquaculture/shared-ui';
-import { tenantsApi, type Tenant, TenantTier, TenantStatus } from '../services/adminApi';
-
-// ============================================================================
-// Types
-// ============================================================================
-
-interface TenantStats {
-  totalTenants: number;
-  activeTenants: number;
-  suspendedTenants: number;
-  pendingTenants: number;
-}
+import {
+  tenantsApi,
+  type Tenant,
+  type TenantStats,
+  TenantTier,
+  TenantStatus,
+} from '../services/adminApi';
 
 // ============================================================================
 // Tenant Management Page
@@ -108,11 +103,11 @@ const TenantManagementPage: React.FC = () => {
     try {
       const now = Date.now();
       if (statsCacheRef.current && now - statsCacheRef.current.fetchedAt < STATS_CACHE_TTL) {
-        setStats(statsCacheRef.current.data as Parameters<typeof setStats>[0]);
+        setStats(statsCacheRef.current.data);
         return;
       }
       const statsResult = await tenantsApi.getStats();
-      statsCacheRef.current = { data: statsResult as never, fetchedAt: Date.now() };
+      statsCacheRef.current = { data: statsResult, fetchedAt: Date.now() };
       setStats(statsResult);
     } catch (err) {
       console.error('Failed to fetch stats:', err);

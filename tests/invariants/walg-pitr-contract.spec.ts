@@ -31,7 +31,7 @@ const EVIDENCE_IMAGE_REVISION = '9'.repeat(40);
 const EVIDENCE_IMAGE_ID = `sha256:${'b'.repeat(64)}`;
 const EVIDENCE_SYSTEM_IDENTIFIER = '7500000000000000000';
 const EVIDENCE_WALG_CONFIG_SHA256 = 'd'.repeat(64);
-const EVIDENCE_SECRET_EPOCH_SHA256 = 'e'.repeat(64);
+const EVIDENCE_ROTATION_BUNDLE_SHA256 = 'e'.repeat(64);
 const EVIDENCE_DR_CONTRACT_SHA256 = 'f'.repeat(64);
 const TEST_WALG_BACKUP_EPOCH = 'epoch-20260716-001';
 const TEST_WALG_PREFIX = `s3://test-bucket/postgres/wal-g/${TEST_WALG_BACKUP_EPOCH}`;
@@ -80,10 +80,7 @@ const EVIDENCE_TENANT_SENTINELS = [
 const COMPOSE_PATH = join(REPO_ROOT, 'docker-compose.droplet.yml');
 const POSTGRES_MANIFEST_PATH = join(REPO_ROOT, '.github/manifests/postgres-image.json');
 const DOCKERIGNORE_PATH = join(REPO_ROOT, '.dockerignore');
-const POSTGRES_DR_CONTRACT_PATH = join(
-  REPO_ROOT,
-  '.github/manifests/postgres-dr-contract.sha256',
-);
+const POSTGRES_DR_CONTRACT_PATH = join(REPO_ROOT, '.github/manifests/postgres-dr-contract.sha256');
 const BACKUP_WORKFLOW_PATH = join(REPO_ROOT, '.github/workflows/backup-production.yml');
 const PITR_WORKFLOW_PATH = join(REPO_ROOT, '.github/workflows/pitr-restore-production.yml');
 const DEPLOY_WORKFLOW_PATH = join(REPO_ROOT, '.github/workflows/deploy-digitalocean.yml');
@@ -364,7 +361,7 @@ function backupEvidence(
     source_postgres_dr_contract_sha256: EVIDENCE_DR_CONTRACT_SHA256,
     source_wal_g_revision: WALG_REVISION,
     walg_config_sha256: EVIDENCE_WALG_CONFIG_SHA256,
-    walg_secret_epoch_sha256: EVIDENCE_SECRET_EPOCH_SHA256,
+    walg_rotation_bundle_sha256: EVIDENCE_ROTATION_BUNDLE_SHA256,
     full: true,
     verified: true,
     wal_verified: true,
@@ -472,7 +469,7 @@ function pitrEvidence(
     source_postgres_dr_contract_sha256: EVIDENCE_DR_CONTRACT_SHA256,
     source_wal_g_revision: WALG_REVISION,
     walg_config_sha256: EVIDENCE_WALG_CONFIG_SHA256,
-    walg_secret_epoch_sha256: EVIDENCE_SECRET_EPOCH_SHA256,
+    walg_rotation_bundle_sha256: EVIDENCE_ROTATION_BUNDLE_SHA256,
     target_pgdata_volume: 'aqua-pitr-gha-1-1',
     target_network: 'aqua-pitr-gha-1-1',
     database_verified: true,
@@ -574,9 +571,7 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
       'io.aquaculture.postgres.dr-contract-sha256="${POSTGRES_DR_CONTRACT_SHA256}"',
     );
     expect(dockerfile).toContain('sha256sum --strict --check -');
-    expect(dockerfile).toContain(
-      '$2 != "infrastructure/docker/Dockerfile.postgres-walg"',
-    );
+    expect(dockerfile).toContain('$2 != "infrastructure/docker/Dockerfile.postgres-walg"');
     expect(dockerfile).not.toMatch(/^FROM\s+timescale\/timescaledb-ha:pg16\s*(?:#.*)?$/m);
     for (const wrapper of [
       'postgres-ssl-entrypoint.sh',
@@ -996,12 +991,7 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
 
       const result = spawnSync(
         'bash',
-        [
-          '-ceu',
-          'source "$1"; walg_exec backup-list',
-          'walg-environment-test',
-          SECRET_LOADER_PATH,
-        ],
+        ['-ceu', 'source "$1"; walg_exec backup-list', 'walg-environment-test', SECRET_LOADER_PATH],
         {
           cwd: REPO_ROOT,
           encoding: 'utf8',
@@ -1052,11 +1042,9 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
       'TARGET_WALG_SECRET_SOURCE="${TARGET_WALG_SECRET_SOURCE:?TARGET_WALG_SECRET_SOURCE required}"',
     );
     expect(pitr).toContain(
-      "[ \"${TARGET_WALG_SECRET_SOURCE}\" = '/var/aqua-saas/certs/wal-g/postgres' ]",
+      '[ "${TARGET_WALG_SECRET_SOURCE}" = \'/var/aqua-saas/certs/wal-g/postgres\' ]',
     );
-    expect(pitr).not.toContain(
-      'TARGET_WALG_SECRET_SOURCE:-/var/aqua-saas/certs/wal-g/postgres',
-    );
+    expect(pitr).not.toContain('TARGET_WALG_SECRET_SOURCE:-/var/aqua-saas/certs/wal-g/postgres');
   });
 
   it('recovers injected publication failures and stale controlled residue without accepting extras', () => {
@@ -1245,7 +1233,7 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
       const manifestPath = join(hostSecretDirectory, 'manifest.sha256');
       const forgedKeyHash = createHash('sha256').update(TEST_WALG_NEXT_KEY).digest('hex');
       const forgedManifest = readFileSync(manifestPath, 'utf8').replace(
-        /^[0-9a-f]{64}  libsodium\.key$/m,
+        /^[0-9a-f]{64} {2}libsodium\.key$/m,
         `${forgedKeyHash}  libsodium.key`,
       );
       writeFileSync(manifestPath, forgedManifest, { mode: 0o600 });
@@ -1551,7 +1539,7 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
     expect(backup).toContain('source_postgres_dr_contract_sha256');
     expect(backup).toContain('source_wal_g_revision');
     expect(backup).toContain('walg_config_sha256');
-    expect(backup).toContain('walg_secret_epoch_sha256');
+    expect(backup).toContain('walg_rotation_bundle_sha256');
     expect(backup).toContain('changed during backup');
     for (const field of ['full', 'verified', 'wal_verified']) {
       expect(backup).toContain(`${field}: succeeded`);
@@ -1610,7 +1598,7 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
     const targetWalVerifyIndex = pitr.indexOf("FAILURE_STAGE='wal-verify-from-isolated-target'");
     const targetSecretRelinkIndex = pitr.indexOf("FAILURE_STAGE='target-secret-relink'");
     const secondEpochAttestationIndex = pitr.indexOf(
-      'TARGET_SECRET_EPOCH_AFTER_FETCH_SHA256=$(container_walg_secret_epoch_sha256',
+      'TARGET_WALG_ROTATION_BUNDLE_AFTER_FETCH_SHA256=$(container_walg_rotation_bundle_sha256',
     );
     const recoveryConfigurationIndex = pitr.indexOf("FAILURE_STAGE='recovery-configuration'");
     expect(archiveFenceIndex).toBeGreaterThanOrEqual(0);
@@ -1622,7 +1610,7 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
     expect(secondEpochAttestationIndex).toBeGreaterThan(targetSecretRelinkIndex);
     expect(recoveryConfigurationIndex).toBeGreaterThan(secondEpochAttestationIndex);
     expect(pitr).toContain(
-      'isolated target WAL-G configuration/secret epoch changed before recovery',
+      'isolated target WAL-G configuration/rotation bundle changed before recovery',
     );
     expect(pitr.slice(failureTimeIndex)).not.toMatch(/\bsource_psql\b/);
     expect(pitr).toContain('archive_observed_at');
@@ -1670,8 +1658,8 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
       'restored target system identifier differs from the attested source cluster',
     );
     expect(pitr).toContain('walg_config_sha256');
-    expect(pitr).toContain('walg_secret_epoch_sha256');
-    expect(pitr).toContain('isolated target WAL-G configuration/secret epoch differs');
+    expect(pitr).toContain('walg_rotation_bundle_sha256');
+    expect(pitr).toContain('isolated target WAL-G configuration/rotation bundle differs');
   });
 
   it('requires three consecutive backups and one bounded PITR proof', () => {
@@ -1716,15 +1704,20 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
 
     const staleMainSha = 'b'.repeat(40);
     const staleMain = evaluateEvidence([
-      ...backups.map((record) => ({
-        ...record,
-        main_sha: staleMainSha,
-        source_image_revision: staleMainSha,
-        backup_user_data: {
-          ...record.backup_user_data,
+      ...backups.map((record) => {
+        if (!isRecord(record.backup_user_data)) {
+          throw new Error('Expected canonical backup user_data fixture');
+        }
+        return {
+          ...record,
           main_sha: staleMainSha,
-        },
-      })),
+          source_image_revision: staleMainSha,
+          backup_user_data: {
+            ...record.backup_user_data,
+            main_sha: staleMainSha,
+          },
+        };
+      }),
       pitrEvidence(backupName, {
         main_sha: staleMainSha,
         source_image_revision: staleMainSha,
@@ -1738,7 +1731,7 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
       { source_image_id: `sha256:${'c'.repeat(64)}` },
       { source_postgres_dr_contract_sha256: '3'.repeat(64) },
       { walg_config_sha256: '1'.repeat(64) },
-      { walg_secret_epoch_sha256: '2'.repeat(64) },
+      { walg_rotation_bundle_sha256: '2'.repeat(64) },
     ]) {
       const mixedBackupChain = evaluateEvidence([
         backupEvidence(1),
@@ -1808,7 +1801,7 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
       { source_image_id: `sha256:${'c'.repeat(64)}` },
       { source_postgres_dr_contract_sha256: '3'.repeat(64) },
       { walg_config_sha256: '1'.repeat(64) },
-      { walg_secret_epoch_sha256: '2'.repeat(64) },
+      { walg_rotation_bundle_sha256: '2'.repeat(64) },
     ]) {
       const foreignPitrChain = evaluateEvidence([
         ...backups,
@@ -1910,7 +1903,7 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
       { source_postgres_dr_contract_sha256: '3'.repeat(64) },
       { source_wal_g_revision: 'e'.repeat(40) },
       { walg_config_sha256: 'not-a-sha256' },
-      { walg_secret_epoch_sha256: 'not-a-sha256' },
+      { walg_rotation_bundle_sha256: 'not-a-sha256' },
       { source_system_identifier: 'not-a-system-id' },
       { restored_system_identifier: '7500000000000000001' },
       { source_before_commit_fence_lsn: 'not-an-lsn' },

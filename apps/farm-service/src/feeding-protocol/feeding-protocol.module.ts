@@ -19,6 +19,7 @@ import { Feed } from '../feed/entities/feed.entity';
 import { Species } from '../species/entities/species.entity';
 import { ProtocolValidationService } from './services/protocol-validation.service';
 import { ProtocolRateService } from './services/protocol-rate.service';
+import { ProtocolFeedForecastService } from './services/protocol-feed-forecast.service';
 import { MealPlanGeneratorService } from './services/meal-plan-generator.service';
 import { BiomassGrowthApplierService } from './services/biomass-growth-applier.service';
 import { DayPlanRecalcService } from './services/day-plan-recalc.service';
@@ -80,6 +81,7 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
     MealExecutionService,
     DayPlanAdminService,
     FeedingCronV2Service,
+    ProtocolFeedForecastService,
     // Sıcaklık SSoT — cron toplu okuması (stateless, @InjectDataSource).
     WaterTemperatureService,
     // Stateless yardımcılar (BatchModule 'stateless pure domain logic' emsali).
@@ -106,6 +108,7 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
     BiomassGrowthApplierService,
     DayPlanRecalcService,
     MealExecutionService,
+    ProtocolFeedForecastService,
   ],
 })
 export class FeedingProtocolModule {}

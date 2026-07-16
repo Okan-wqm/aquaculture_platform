@@ -15,6 +15,8 @@ export interface TransferBatchPayload {
   destinationTankId: string;     // Hedef tank ID
   quantity: number;              // Transfer edilecek adet
   avgWeightG?: number;           // Ortalama ağırlık (otomatik hesaplanabilir)
+  /** D-3 mod (b): tane+kg — verilen kg aynen düşer, kalan ortalama kayar. */
+  biomassKg?: number;
   transferReason?: string;       // Transfer nedeni
   transferredAt?: Date;          // Transfer tarihi (default: now)
   notes?: string;

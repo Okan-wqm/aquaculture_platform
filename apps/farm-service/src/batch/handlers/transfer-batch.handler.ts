@@ -28,6 +28,7 @@ import { toEventIso } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DayPlanRecalcService } from '../../feeding-protocol/services/day-plan-recalc.service';
+import { RemovalQuantityPolicyService } from '../services/removal-quantity-policy.service';
 import { Repository, DataSource } from 'typeorm';
 
 import {
@@ -78,6 +79,7 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
     private readonly equipmentTypeRepository: Repository<EquipmentType>,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly dayPlanRecalc: DayPlanRecalcService,
+    private readonly removalQuantityPolicy: RemovalQuantityPolicyService,
     private readonly tankCapacityService: TankCapacityService,
     // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
     private readonly siteAuth: SiteAuthorizationService,
@@ -202,7 +204,17 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
         sourceTankBatch.avgWeightG ||
         batch.getCurrentAvgWeight();
 
-      const biomassKg = (payload.quantity * avgWeightG) / 1000;
+      // D-3 miktar çözümü (SSoT): kg verildiyse taşınan biyokütle AYNEN odur —
+      // kaynakta kalanın ortalaması kayar, hedefe giren partinin ortalaması
+      // taşınan kg/tane oranından türetilir.
+      const resolvedRemoval = this.removalQuantityPolicy.resolve({
+        count: payload.quantity,
+        biomassKg: payload.biomassKg,
+        currentQuantity: batchInSource?.quantity ?? sourceTankBatch.totalQuantity,
+        currentBiomassKg: Number(batchInSource?.biomassKg ?? sourceTankBatch.totalBiomassKg ?? 0),
+        currentAvgWeightG: avgWeightG,
+      });
+      const biomassKg = resolvedRemoval.biomassKg;
 
       // LIFE-SAFETY: destination tank capacity check.
       // Centralised in TankCapacityService — the status/biomass/density

@@ -12,6 +12,8 @@ import { Field, Float, ID, InputType, Int } from '@nestjs/graphql';
 import { IsBoolean, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
 
+import { MAX_FEED_KG, MIN_FEED_KG } from '../constants';
+
 @InputType()
 export class RecordMealFeedingInput extends MobileCommandEnvelopeInput {
   @Field(() => ID)
@@ -20,8 +22,8 @@ export class RecordMealFeedingInput extends MobileCommandEnvelopeInput {
 
   @Field(() => Float)
   @IsNumber()
-  @Min(0.001)
-  @Max(10000)
+  @Min(MIN_FEED_KG)
+  @Max(MAX_FEED_KG)
   pourKg!: number;
 
   /** Operatör "öğün bitti" onayı — varyans + growth + kalan öğün recalc'ı. */
@@ -56,8 +58,8 @@ export class CorrectMealPourInput {
 
   @Field(() => Float)
   @IsNumber()
-  @Min(0.001)
-  @Max(10000)
+  @Min(MIN_FEED_KG)
+  @Max(MAX_FEED_KG)
   correctedKg!: number;
 }
 

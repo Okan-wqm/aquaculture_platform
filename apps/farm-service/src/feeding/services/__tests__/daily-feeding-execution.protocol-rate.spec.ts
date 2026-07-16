@@ -21,7 +21,7 @@ import { Feed } from '../../../feed/entities/feed.entity';
 import { BilinearInterpolationService } from '../bilinear-interpolation.service';
 import { WaterTemperatureService } from '../../../water-quality/services/water-temperature.service';
 import { BatchDomainService } from '../../../batch/services/batch-domain.service';
-import { StockMovementService } from '../../../storage/services/stock-movement.service';
+import { FeedingLedgerService } from '../feeding-ledger.service';
 
 function mock<T>(impl: Partial<T>): T {
   return impl as T;
@@ -51,7 +51,7 @@ function makeService(query: jest.Mock): DailyFeedingExecutionService {
     mock<WaterTemperatureService>({}),
     mock<DataSource>({ query }),
     mock<BatchDomainService>({}),
-    mock<StockMovementService>({}),
+    mock<FeedingLedgerService>({}),
     mock<MobileCommandReceiptService>({}),
     mock<SiteAuthorizationService>({}),
   );

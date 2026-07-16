@@ -24,6 +24,12 @@
  * behaviour, not a stub. Doubles are built through a typed mock factory so no
  * banned casts are needed (a single `as T` per double, matching the sibling
  * create-feeding-record.handler.spec.ts).
+ *
+ * P-05/K-4: the storage legs now flow through a REAL FeedingLedgerService
+ * (single feed write path) with the same mocked StockMovementService — the
+ * invariants above are asserted through the delegated path, plus the new
+ * legs: FeedingRecord row (sourceExecutionId idempotency), Batch
+ * totalFeedConsumed/Cost, FeedingRecordedEvent outbox.
  */
 import { BadRequestException } from '@nestjs/common';
 import { DataSource, EntityManager, ObjectLiteral, QueryRunner, Repository } from 'typeorm';
@@ -55,6 +61,10 @@ import { WaterTemperatureService } from '../../../water-quality/services/water-t
 import { StockMovementService } from '../../../storage/services/stock-movement.service';
 import { StockMovement } from '../../../storage/entities/stock-movement.entity';
 import { RecordMovementResult } from '../../../storage/services/stock-movement.service';
+import { FeedingLedgerService } from '../feeding-ledger.service';
+import { FeedingRecord } from '../../entities/feeding-record.entity';
+import { Feed } from '../../../feed/entities/feed.entity';
+import { FinanceSettingsService } from '../../../finance/services/finance-settings.service';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const EXECUTION = '66666666-6666-4666-8666-666666666666';
@@ -157,6 +167,9 @@ interface Harness {
   enqueue: jest.Mock;
   commit: jest.Mock;
   rollback: jest.Mock;
+  /** manager.create ile üretilen FeedingRecord satırları (ledger bacağı a). */
+  createdRecords: FeedingRecord[];
+  lockedBatch: Batch | null;
 }
 
 function makeHarness(opts: HarnessOpts = {}): Harness {
@@ -167,20 +180,34 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
       : opts.tankBatch;
   const lockedBatch = opts.lockedBatch === undefined ? makeFeedableBatch() : opts.lockedBatch;
   const tank = mock({ id: TANK, currentBiomass: 0 });
+  const feedRow = mock<Feed>({ id: FEED, code: 'GR-4', name: 'Grower 4mm', pricePerKg: 2 });
 
   // manager.findOne dispatches by entity class. TankBatch / Batch are loaded by
   // BOTH the feedability guard and the biomass-update step (the lock option is
-  // ignored by the double). Tank is the default fall-through for the biomass
-  // update's Tank lookup.
+  // ignored by the double). Feed is the ledger delegation's cost source; Tank
+  // is the default fall-through for the biomass update's Tank lookup.
   const managerFindOne = jest.fn();
   managerFindOne.mockImplementation(async (entity: unknown): Promise<unknown> => {
     if (entity === DailyFeedingExecution) return execution;
     if (entity === TankBatch) return tankBatch;
     if (entity === Batch) return lockedBatch;
+    if (entity === Feed) return feedRow;
     return tank;
   });
 
-  const managerSave = jest.fn().mockImplementation(async (entity: unknown) => entity);
+  // Ledger (a) bacağı: manager.create gerçek FeedingRecord instance'ı üretir
+  // (calculateVariance entity metodu çalışsın); save id damgalar.
+  const createdRecords: FeedingRecord[] = [];
+  const managerCreate = jest.fn();
+  managerCreate.mockImplementation((entityClass: new () => object, data: object): object => {
+    const instance = Object.assign(new entityClass(), data);
+    if (instance instanceof FeedingRecord) createdRecords.push(instance);
+    return instance;
+  });
+  const managerSave = jest.fn().mockImplementation(async (entity: unknown) => {
+    if (entity instanceof FeedingRecord && !entity.id) entity.id = 'fr-1';
+    return entity;
+  });
 
   // The outbox publisher requires a manager bound to an active transaction; the
   // double exposes a queryRunner with isTransactionActive=true so enqueue (if
@@ -190,6 +217,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   const manager = mock<EntityManager>({
     findOne: managerFindOne,
     save: managerSave,
+    create: managerCreate,
   });
 
   const commit = jest.fn().mockResolvedValue(undefined);
@@ -240,6 +268,18 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     recordMovement,
   });
 
+  // P-05/K-4: GERÇEK ledger — storage/kayıt/aggregate/outbox bacakları
+  // üretim yolundan koşar; yalnız dış bağımlılıkları mock'lu.
+  const financeSettings = mock<FinanceSettingsService>({
+    getDefaultCurrencyInTx: jest.fn().mockResolvedValue('TRY'),
+  });
+  const outboxPublisher = mock<OutboxPublisher>({ enqueue });
+  const feedingLedger = new FeedingLedgerService(
+    stockMovementService,
+    financeSettings,
+    outboxPublisher,
+  );
+
   const bilinearService = mock<BilinearInterpolationService>({});
 
   const repo = <T extends ObjectLiteral>(): Repository<T> => mock<Repository<T>>({});
@@ -265,7 +305,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     {} as WaterTemperatureService,
     dataSource,
     batchDomainService,
-    stockMovementService,
+    feedingLedger,
     mobileCommandReceipts,
     new SiteAuthorizationService(),
   );
@@ -278,6 +318,8 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     enqueue,
     commit,
     rollback,
+    createdRecords,
+    lockedBatch,
   };
 }
 
@@ -370,12 +412,19 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
     expect(rollback).toHaveBeenCalledTimes(1);
   });
 
-  it('happy path: storage-tracked feed deducts IN-TX (OUT) and commits', async () => {
-    const { service, recordMovement, resolveFeedDeductionLocation, commit, rollback } = makeHarness(
-      {
-        hasStoragePresence: true,
-      },
-    );
+  it('happy path: storage-tracked feed deducts IN-TX (OUT) through the ledger and commits', async () => {
+    const {
+      service,
+      recordMovement,
+      resolveFeedDeductionLocation,
+      enqueue,
+      commit,
+      rollback,
+      createdRecords,
+      lockedBatch,
+    } = makeHarness({
+      hasStoragePresence: true,
+    });
 
     const result = await service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER);
 
@@ -392,11 +441,42 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
     expect(movementInput.itemId).toBe(FEED);
     expect(movementInput.quantity).toBe(50);
     expect(movementInput.fromLocationId).toBe(LOCATION);
-    expect(movementInput.idempotencyKey).toBe(`feeding-exec-deduct-${EXECUTION}`);
+    // P-05: idempotency anahtarı artık ledger'ın kayıt-bazlı anahtarı.
+    expect(movementInput.idempotencyKey).toBe('feeding-deduct-fr-1');
+
+    // K-4 bacakları: FeedingRecord satırı (sourceExecutionId idempotency),
+    // Batch aggregate'leri, FeedingRecordedEvent outbox.
+    expect(createdRecords).toHaveLength(1);
+    expect(createdRecords[0]!.sourceExecutionId).toBe(EXECUTION);
+    expect(createdRecords[0]!.batchId).toBe(BATCH);
+    expect(createdRecords[0]!.actualAmount).toBe(50);
+    expect(createdRecords[0]!.feedCost).toBe(100); // 50kg × 2/kg (C-16)
+    expect(lockedBatch!.totalFeedConsumed).toBe(50);
+    expect(lockedBatch!.totalFeedCost).toBe(100);
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    const event = enqueue.mock.calls[0]![0] as { eventType: string; actualAmountKg: number };
+    expect(event.eventType).toBe('FeedingRecorded');
+    expect(event.actualAmountKg).toBe(50);
 
     expect(commit).toHaveBeenCalledTimes(1);
     expect(rollback).not.toHaveBeenCalled();
     expect(result.executionId).toBe(EXECUTION);
+  });
+
+  it('K-4 fail-closed: tank without a primary batch REJECTS the recording (no silent unattributed feed)', async () => {
+    const { service, recordMovement, enqueue, commit, rollback, createdRecords } = makeHarness({
+      tankBatch: null,
+    });
+
+    await expect(
+      service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(createdRecords).toHaveLength(0);
+    expect(recordMovement).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(commit).not.toHaveBeenCalled();
+    expect(rollback).toHaveBeenCalledTimes(1);
   });
 
   it('DAILY growth mode records the feed but HOLDS BACK the weight roll-up', async () => {

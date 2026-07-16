@@ -26,7 +26,7 @@ import { TankBatch } from '../../../batch/entities/tank-batch.entity';
 import { Tank } from '../../../tank/entities/tank.entity';
 import { Feed } from '../../../feed/entities/feed.entity';
 import { BatchDomainService } from '../../../batch/services/batch-domain.service';
-import { StockMovementService } from '../../../storage/services/stock-movement.service';
+import { FeedingLedgerService } from '../../services/feeding-ledger.service';
 import { BilinearInterpolationService } from '../../services/bilinear-interpolation.service';
 import { WaterTemperatureService } from '../../../water-quality/services/water-temperature.service';
 import { DailyFeedingExecution } from '../../entities/daily-feeding-execution.entity';
@@ -137,7 +137,7 @@ function makeService(siteIdOnManager: string | null): {
     {} as WaterTemperatureService,
     dataSource,
     {} as BatchDomainService,
-    {} as StockMovementService,
+    {} as FeedingLedgerService,
     receipts,
     new SiteAuthorizationService(),
   );

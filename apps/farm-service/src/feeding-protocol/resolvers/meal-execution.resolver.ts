@@ -12,7 +12,17 @@
  *
  * @module FeedingProtocol/Resolvers
  */
-import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
+import {
+  Resolver,
+  Query,
+  Mutation,
+  Args,
+  ID,
+  ResolveField,
+  Parent,
+  Float,
+  Int,
+} from '@nestjs/graphql';
 import { UseGuards } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, In } from 'typeorm';
@@ -27,6 +37,7 @@ import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { mobileCommandEnvelopeFromInput } from '@aquaculture/backend-common/mobile-command';
 
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
+import { FcrResolvedSource } from '../entities/feeding-protocol-v2.entity';
 import { FeedingDayPlan } from '../entities/feeding-day-plan.entity';
 import { FeedingMeal } from '../entities/feeding-meal.entity';
 import { MealExecutionService } from '../services/meal-execution.service';
@@ -96,6 +107,73 @@ export class MealExecutionResolver {
       for (const plan of plans) plan.meals = mealsByPlan.get(plan.id) ?? [];
       return plans;
     });
+  }
+
+  // ── P-25: snapshot'ın tipli alan alt kümesi ────────────────────────────────
+  // Mobil istemci `snapshot` jsonb'sini TEL ÜZERİNDEN ÇEKMEZ (eski motorun opak
+  // `calculations` blob'u anti-deseniydi): plan hesabının mobilde gereken
+  // girdileri burada tipli skalerler olarak çözülür. Web MealBoard provenans
+  // gösterimi için `snapshot`'ı okumaya devam eder — iki tüketici tek üretim
+  // anı verisini okur, ikinci bir hesap yolu yoktur.
+
+  @ResolveField(() => Float)
+  avgWeightG(@Parent() plan: FeedingDayPlan): number {
+    return plan.snapshot.avgWeightG;
+  }
+
+  @ResolveField(() => Int)
+  fishCount(@Parent() plan: FeedingDayPlan): number {
+    return plan.snapshot.fishCount;
+  }
+
+  @ResolveField(() => Float)
+  biomassKg(@Parent() plan: FeedingDayPlan): number {
+    return plan.snapshot.biomassKg;
+  }
+
+  @ResolveField(() => Float, { nullable: true })
+  waterTempC(@Parent() plan: FeedingDayPlan): number | null {
+    return plan.snapshot.waterTempC;
+  }
+
+  @ResolveField(() => String)
+  temperatureSource(@Parent() plan: FeedingDayPlan): string {
+    return plan.snapshot.temperatureSource;
+  }
+
+  @ResolveField(() => Boolean)
+  usingDefaultTemperature(@Parent() plan: FeedingDayPlan): boolean {
+    return plan.snapshot.usingDefaultTemperature;
+  }
+
+  @ResolveField(() => ID)
+  feedId(@Parent() plan: FeedingDayPlan): string {
+    return plan.snapshot.feed.id;
+  }
+
+  @ResolveField(() => String)
+  feedCode(@Parent() plan: FeedingDayPlan): string {
+    return plan.snapshot.feed.code;
+  }
+
+  @ResolveField(() => String)
+  feedName(@Parent() plan: FeedingDayPlan): string {
+    return plan.snapshot.feed.name;
+  }
+
+  @ResolveField(() => Float)
+  effectiveRatePercent(@Parent() plan: FeedingDayPlan): number {
+    return plan.snapshot.effectiveRatePercent;
+  }
+
+  @ResolveField(() => Float)
+  expectedFcr(@Parent() plan: FeedingDayPlan): number {
+    return plan.snapshot.expectedFcr;
+  }
+
+  @ResolveField(() => FcrResolvedSource)
+  fcrResolvedSource(@Parent() plan: FeedingDayPlan): FcrResolvedSource {
+    return plan.snapshot.fcrResolvedSource;
   }
 
   /** Döküm kaydı (D-8) — zarf zorunlu (C-17), site yetkisi tx içinde fail-closed. */

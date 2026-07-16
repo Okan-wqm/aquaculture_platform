@@ -27,6 +27,14 @@ import { GrowthMeasurement, FCRAnalysis } from '../entities/growth-measurement.e
 import { Batch } from '../../batch/entities/batch.entity';
 import { TankOperation, OperationType } from '../../batch/entities/tank-operation.entity';
 import { Species } from '../../species/entities/species.entity';
+import { ProtocolRateService } from '../../feeding-protocol/services/protocol-rate.service';
+import {
+  FcrMatrix,
+  ProtocolBand,
+  ProtocolFcrSource,
+  ProtocolSettings,
+} from '../../feeding-protocol/entities/feeding-protocol-v2.entity';
+import { AssignmentOverrides } from '../../feeding-protocol/entities/protocol-assignment.entity';
 
 // ============================================================================
 // INTERFACES
@@ -144,6 +152,7 @@ export class FCRCalculationService {
     private readonly feedingProgramTankRepository: Repository<FeedingProgramTank>,
     @InjectRepository(TankOperation)
     private readonly tankOperationRepository: Repository<TankOperation>,
+    private readonly protocolRateService: ProtocolRateService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -588,12 +597,13 @@ export class FCRCalculationService {
   /**
    * Target FCR'ı getirir
    *
-   * Öncelik sırası:
+   * Öncelik sırası (P-14 zinciri — plan §3):
    * 1. Batch'in kendi FCR hedefi (batch.fcr.target, kullanıcı override)
-   * 2. Batch'in aktif yemleme programındaki FCR tablosundan interpolasyon
-   * 3. Species growthParameters.targetFCR
-   * 4. Species commonName bazlı endüstri ortalaması
-   * 5. Varsayılan 1.5
+   * 2. Ünitenin aktif v2 protokol ataması (ProtocolRateService SSoT çözümü)
+   * 3. Batch'in aktif LEGACY yemleme programındaki FCR tablosu (Faz 8'de silinir)
+   * 4. Species growthParameters.targetFCR
+   * 5. Species commonName bazlı endüstri ortalaması
+   * 6. Varsayılan 1.5
    */
   private async getTargetFCR(batchId: string): Promise<number> {
     try {
@@ -612,13 +622,21 @@ export class FCRCalculationService {
         return batch.fcr.target;
       }
 
-      // 2. Batch'in aktif yemleme programındaki FCR tablosundan interpolasyon
+      // 2. Ünitenin aktif v2 protokol ataması — motorun plan/snapshot hesabıyla
+      // aynı SSoT (ProtocolRateService); legacy programdan ÖNCE gelir (P-14).
+      const fcrFromProtocolV2 = await this.getTargetFCRFromProtocolV2(batch);
+      if (fcrFromProtocolV2 !== null) {
+        return fcrFromProtocolV2;
+      }
+
+      // 3. Batch'in aktif LEGACY yemleme programındaki FCR tablosundan
+      // interpolasyon — v1 motoruyla birlikte Faz 8'de silinir (P-14).
       const fcrFromProgram = await this.getTargetFCRFromFeedingProgram(batch);
       if (fcrFromProgram !== null) {
         return fcrFromProgram;
       }
 
-      // 3. Species growthParameters.targetFCR
+      // 4. Species growthParameters.targetFCR
       // species ilişkisi lazy olabilir, yoksa ayrıca sorgula
       let species = batch.species;
       if (!species) {
@@ -631,7 +649,7 @@ export class FCRCalculationService {
         return species.growthParameters.targetFCR;
       }
 
-      // 4. Species commonName bazlı endüstri ortalaması
+      // 5. Species commonName bazlı endüstri ortalaması
       if (species?.commonName) {
         const key = species.commonName.toLowerCase().replace(/\s+/g, '_');
         const industryFCR = this.industryAverageFCR[key];
@@ -640,7 +658,7 @@ export class FCRCalculationService {
         }
       }
 
-      // 5. Varsayılan
+      // 6. Varsayılan
       return 1.5;
     } catch (error) {
       if (error instanceof TenantContextError) {
@@ -651,6 +669,113 @@ export class FCRCalculationService {
       );
       return 1.5;
     }
+  }
+
+  /**
+   * Ünitenin aktif v2 protokol atamasından beklenen FCR (P-14 re-point).
+   *
+   * Zincir: Batch → batch'i taşıyan tank_batches satırları (batchDetails girdisi
+   * veya primary aggregate) → aktif ProtocolAssignment → ACTIVE FeedingProtocolV2.
+   * Çok-üniteli batch'te dominant (en yüksek biomass) ünitenin ataması esas
+   * alınır — D-2 band politikasıyla aynı kural. Çözüm ProtocolRateService
+   * üzerinden yapılır (OVERRIDE → band|matrix|feed, 0.5–5 clamp): hedef FCR,
+   * motorun day-plan snapshot'ına yazdığı değerle aynı SSoT'den gelir.
+   *
+   * Sıcaklık null geçilir: hedef FCR gün-bağımsız bir referanstır; matris
+   * kaynaklarında interpolasyon ağırlık eksenine iner (ProtocolRateService
+   * kuralı — uydurma default sıcaklık üretilmez, P-20).
+   */
+  private async getTargetFCRFromProtocolV2(batch: Batch): Promise<number | null> {
+    const rows: Array<{
+      overrides: AssignmentOverrides | null;
+      bands: ProtocolBand[] | null;
+      settings: ProtocolSettings | null;
+      fcrMatrix: FcrMatrix | null;
+    }> = await this.batchRepository.manager.query(
+      `SELECT pa."overrides" AS overrides,
+              p."bands" AS bands,
+              p."settings" AS settings,
+              p."fcrMatrix" AS "fcrMatrix"
+         FROM "tank_batches" tb
+         JOIN "feeding_protocol_assignments" pa
+           ON pa."tenantId" = tb."tenantId"
+          AND pa."unitId" = tb."tankId"
+          AND pa."status" = 'active'
+         JOIN "feeding_protocols_v2" p
+           ON p."id" = pa."protocolId"
+          AND p."tenantId" = pa."tenantId"
+          AND p."status" = 'active'
+          AND p."isDeleted" = false
+        WHERE tb."tenantId" = $1
+          AND (
+            tb."primaryBatchId" = $2
+            OR EXISTS (
+              SELECT 1
+                FROM jsonb_array_elements(COALESCE(tb."batchDetails", '[]'::jsonb)) AS detail(value)
+               WHERE detail.value->>'batchId' = $2
+            )
+          )
+        ORDER BY tb."totalBiomassKg" DESC
+        LIMIT 1`,
+      [batch.tenantId, batch.id],
+    );
+
+    const row = rows[0];
+    if (!row?.bands?.length || !row.settings) {
+      return null;
+    }
+
+    const avgWeightG = batch.getCurrentAvgWeight();
+    if (avgWeightG <= 0) {
+      return null;
+    }
+
+    const resolved = this.protocolRateService.bandFor(row.bands, avgWeightG);
+    if (!resolved) {
+      return null;
+    }
+
+    const feedFcrMatrix =
+      row.settings.fcrSource === ProtocolFcrSource.FEED
+        ? await this.loadFeedFcrMatrix(batch.tenantId, resolved.band.feedId)
+        : undefined;
+
+    const { value } = this.protocolRateService.resolveExpectedFcr({
+      band: resolved.band,
+      fcrSource: row.settings.fcrSource,
+      avgWeightG,
+      temperatureC: null,
+      protocolFcrMatrix: row.fcrMatrix ?? undefined,
+      feedFcrMatrix,
+      fcrOverrides: row.overrides?.fcrOverrides,
+    });
+    return value;
+  }
+
+  /**
+   * fcrSource=feed protokoller için band yeminin FCR matrisi
+   * (Feed.feedingMatrix2D.fcrMatrix → FcrMatrix). Matris yoksa undefined —
+   * resolveExpectedFcr band fallback'ini provenanslı uygular.
+   */
+  private async loadFeedFcrMatrix(
+    tenantId: string,
+    feedId: string,
+  ): Promise<FcrMatrix | undefined> {
+    const rows: Array<{
+      matrix: { temperatures: number[]; weights: number[]; fcrMatrix?: number[][] } | null;
+    }> = await this.batchRepository.manager.query(
+      `SELECT "feedingMatrix2D" AS matrix FROM "feeds" WHERE "tenantId" = $1 AND "id" = $2`,
+      [tenantId, feedId],
+    );
+    const matrix = rows[0]?.matrix;
+    if (!matrix?.fcrMatrix?.length) {
+      return undefined;
+    }
+    return {
+      temperatures: matrix.temperatures,
+      weights: matrix.weights,
+      fcrValues: matrix.fcrMatrix,
+    };
   }
 
   /**

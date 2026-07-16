@@ -13,7 +13,8 @@
  *
  * Ölçek disiplini (NFR): tenant'lar sıralı; tenant içinde 200'lük atama
  * sayfaları; sayfa başına SABİT sayıda toplu okuma (protokoller IN, TankBatch
- * IN, sıcaklıklar toplu, site timezone'ları) — ünite başına sorgu SIFIR.
+ * IN, sıcaklıklar toplu, fcrSource=feed yem matrisleri IN, site
+ * timezone'ları) — ünite başına sorgu SIFIR.
  * Advisory-lock deseni v1 makinesiyle birebir (session-scoped kilit, edinen
  * bağlantıda tutulur/bırakılır); v1 06:00 üretimi cutover'a (Faz 6) kadar
  * yaşamaya devam eder — v2 yalnız v2 ataması olan ünitelerde koşar, çift
@@ -40,7 +41,13 @@ import {
   UnfedUnitDetectedEvent,
 } from '@platform/event-contracts';
 
-import { FeedingProtocolV2, FeedingProtocolStatus } from '../entities/feeding-protocol-v2.entity';
+import {
+  FeedingProtocolV2,
+  FeedingProtocolStatus,
+  FcrMatrix,
+  ProtocolFcrSource,
+} from '../entities/feeding-protocol-v2.entity';
+import { Feed } from '../../feed/entities/feed.entity';
 import {
   ProtocolAssignment,
   ProtocolAssignmentStatus,
@@ -66,6 +73,44 @@ export function chunkWindowEntries<T>(entries: T[], cap: number): T[][] {
     chunks.push(entries.slice(i, i + cap));
   }
   return chunks;
+}
+
+/**
+ * fcrSource=feed protokollerin band yem kimlikleri — sayfa başına tek IN
+ * sorgusunun girdisi (NFR 4. toplu okuma) — SAF (spec pinli).
+ */
+export function collectFeedSourceFeedIds(
+  protocols: Array<Pick<FeedingProtocolV2, 'bands' | 'settings'>>,
+): string[] {
+  return [
+    ...new Set(
+      protocols
+        .filter((p) => p.settings.fcrSource === ProtocolFcrSource.FEED)
+        .flatMap((p) => p.bands.map((band) => band.feedId)),
+    ),
+  ];
+}
+
+/**
+ * Feed.feedingMatrix2D.fcrMatrix taşıyan yemlerden FcrMatrix haritası — SAF
+ * (spec pinli). Matrissiz yem haritaya girmez: resolveExpectedFcr band
+ * fallback'ini provenanslı (source=BAND) uygular, sessiz sapma yok.
+ */
+export function buildFeedFcrMatrixMap(
+  feeds: Array<Pick<Feed, 'id' | 'feedingMatrix2D'>>,
+): Map<string, FcrMatrix> {
+  const map = new Map<string, FcrMatrix>();
+  for (const feed of feeds) {
+    const matrix = feed.feedingMatrix2D;
+    if (matrix?.fcrMatrix?.length) {
+      map.set(feed.id, {
+        temperatures: matrix.temperatures,
+        weights: matrix.weights,
+        fcrValues: matrix.fcrMatrix,
+      });
+    }
+  }
+  return map;
 }
 
 @Injectable()
@@ -131,6 +176,13 @@ export class FeedingCronV2Service {
         ]);
         const protocolById = new Map(protocols.map((p) => [p.id, p]));
         const tankBatchByUnit = new Map(tankBatches.map((tb) => [tb.tankId, tb]));
+        // NFR 4. toplu okuma: fcrSource=feed protokollerin band yemlerinin FCR
+        // matrisleri — bunsuz feed kaynağı her planda sessizce band'a düşerdi.
+        const feedFcrMatrixByFeedId = await this.loadFeedFcrMatrices(
+          manager,
+          tenantId,
+          protocols,
+        );
 
         for (const assignment of assignments) {
           const protocol = protocolById.get(assignment.protocolId);
@@ -153,6 +205,7 @@ export class FeedingCronV2Service {
             temperature: temperatures.get(assignment.unitId) ?? { celsius: null, source: 'none' },
             planDate,
             timezone,
+            feedFcrMatrixByFeedId,
           });
           if (!computed) continue;
           await this.generator.persistDayPlan(
@@ -178,6 +231,27 @@ export class FeedingCronV2Service {
       // balıklı-paused / DRAFT protokollü. Tek sorgu, event ünite başına.
       await this.detectUnfedUnits(manager, tenantId);
     });
+  }
+
+  /**
+   * NFR 4. toplu okuma: sayfadaki fcrSource=feed protokollerin TÜM band
+   * yemleri için Feed.feedingMatrix2D.fcrMatrix → FcrMatrix haritası.
+   * Sayfada feed kaynaklı protokol yoksa sorgu atılmaz; matrissiz yemler
+   * haritaya girmez — resolveExpectedFcr band fallback'ini provenanslı uygular.
+   */
+  private async loadFeedFcrMatrices(
+    manager: EntityManager,
+    tenantId: string,
+    protocols: FeedingProtocolV2[],
+  ): Promise<Map<string, FcrMatrix>> {
+    const feedIds = collectFeedSourceFeedIds(protocols);
+    if (feedIds.length === 0) return new Map();
+
+    const feeds = await manager.find(Feed, {
+      where: { tenantId, id: In(feedIds) },
+      select: ['id', 'feedingMatrix2D'],
+    });
+    return buildFeedFcrMatrixMap(feeds);
   }
 
   private async detectUnfedUnits(manager: EntityManager, tenantId: string): Promise<void> {

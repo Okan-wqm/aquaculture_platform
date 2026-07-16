@@ -42,6 +42,11 @@ import { Species } from '../species/entities/species.entity';
 // default 30) is enforced in RecordGrowthSampleHandler.
 import { BackdatePolicyModule } from '../common/services/backdate-policy.module';
 
+// Stateless band/oran/FCR SSoT çözücüsü — getTargetFCR v2 zinciri (P-14).
+// Doğrudan provider: FeedingProtocolModule import'u modül döngüsü yaratırdı
+// (BatchModule/HarvestModule emsali).
+import { ProtocolRateService } from '../feeding-protocol/services/protocol-rate.service';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -58,6 +63,7 @@ import { BackdatePolicyModule } from '../common/services/backdate-policy.module'
   ],
   providers: [
     FCRCalculationService,
+    ProtocolRateService,
     ...GrowthCommandHandlers,
     ...GrowthQueryHandlers,
     ...GrowthResolvers,

@@ -675,6 +675,20 @@ export interface WarehouseSummary {
   todaysMovementCount: number;
   lowStockItems: LowStockItem[];
   recentMovements: RecentStockMovement[];
+  feedCoverage: WarehouseFeedCoverage[];
+}
+
+/**
+ * Feed başına stok-kapsama (Faz 7, P-27) — günlük forecast snapshot'ının
+ * ucuz satır okuması: "kaç gün yeter" cevabı. Seri/grafik web'de kalır.
+ */
+export interface WarehouseFeedCoverage {
+  feedId: string;
+  feedCode: string;
+  feedName: string;
+  daysOfCover: number | null;
+  stockoutDate: string | null;
+  coverageStatus: 'critical' | 'warning' | 'ok';
 }
 
 /** An item below its minimum stock threshold. */

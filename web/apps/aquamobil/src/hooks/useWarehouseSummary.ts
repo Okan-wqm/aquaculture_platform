@@ -27,6 +27,7 @@ const DEFAULT_SUMMARY: WarehouseSummary = {
   todaysMovementCount: 0,
   lowStockItems: [],
   recentMovements: [],
+  feedCoverage: [],
 };
 
 /**

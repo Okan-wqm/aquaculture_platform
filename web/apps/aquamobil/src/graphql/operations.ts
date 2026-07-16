@@ -570,6 +570,14 @@ export const GET_WAREHOUSE_SUMMARY: TypedDocumentNode<GetWarehouseSummaryQuery, 
         unit
         createdAt
       }
+      feedCoverage {
+        feedId
+        feedCode
+        feedName
+        daysOfCover
+        stockoutDate
+        coverageStatus
+      }
     }
   }
 `;

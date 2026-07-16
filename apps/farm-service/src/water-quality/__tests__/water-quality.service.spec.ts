@@ -21,6 +21,7 @@ import { DataSource } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
+import { DayPlanRecalcService } from '../../feeding-protocol/services/day-plan-recalc.service';
 import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
 import { WaterQualityValidationService } from '../services/water-quality-validation.service';
 import { WaterQualityEvaluationService } from '../services/water-quality-evaluation.service';
@@ -60,6 +61,7 @@ interface ServiceHarness {
   repository: ReturnType<typeof createMockRepository<WaterQualityMeasurement>>;
   mockManager: ReturnType<typeof createMockDataSource>['mockManager'];
   enqueue: jest.Mock;
+  recalcForUnitMock: jest.Mock;
 }
 
 async function buildService(): Promise<ServiceHarness> {
@@ -75,6 +77,7 @@ async function buildService(): Promise<ServiceHarness> {
     recommendations: [],
   });
   const validate = jest.fn().mockResolvedValue({ valid: true, errors: [] });
+  const recalcForUnitMock = jest.fn().mockResolvedValue(null);
   const enqueue = jest.fn().mockResolvedValue(undefined);
 
   const { mockDataSource, mockManager } = createMockDataSource();
@@ -92,11 +95,13 @@ async function buildService(): Promise<ServiceHarness> {
       // real class so the object-level site check runs production logic. The
       // MODULE_MANAGER WQ_CALLER bypasses it, preserving each test's intent.
       SiteAuthorizationService,
+      // P-31 recalc — mocked (day-plan-recalc.service.spec kapsıyor).
+      { provide: DayPlanRecalcService, useValue: { recalcForUnit: recalcForUnitMock } },
     ],
   }).compile();
 
   const service = moduleRef.get(WaterQualityService);
-  return { service, validate, evaluate, repository, mockManager, enqueue };
+  return { service, validate, evaluate, repository, mockManager, enqueue, recalcForUnitMock };
 }
 
 function createInput(overrides: Partial<CreateWaterQualityData> = {}): CreateWaterQualityData {
@@ -289,12 +294,9 @@ describe('WaterQualityService — single-ingress validation', () => {
   });
 
   describe('recordManualTemperature', () => {
-    it('persists a MANUAL temperature-only measurement and returns true', async () => {
-      const { service, repository } = await buildService();
+    it('persists a MANUAL temperature-only measurement and triggers same-tx recalc (P-31)', async () => {
+      const { service, repository, mockManager, recalcForUnitMock } = await buildService();
       repository.create.mockImplementation((m: unknown) => m as WaterQualityMeasurement);
-      repository.save.mockImplementation((m: unknown) =>
-        Promise.resolve(m as WaterQualityMeasurement),
-      );
 
       const result = await service.recordManualTemperature(TENANT, 'tank-1', 12.5, 'user-1');
 
@@ -310,7 +312,15 @@ describe('WaterQualityService — single-ingress validation', () => {
           measuredBy: 'user-1',
         }),
       );
-      expect(repository.save).toHaveBeenCalledTimes(1);
+      // Persist artık transaction manager'ından geçer (kayıt + recalc atomik).
+      expect(mockManager.save).toHaveBeenCalledTimes(1);
+      expect(recalcForUnitMock).toHaveBeenCalledWith(
+        expect.anything(),
+        TENANT,
+        'tank-1',
+        'temperature',
+        { newTemperatureC: 12.5 },
+      );
     });
 
     it('rejects an out-of-range temperature without saving', async () => {

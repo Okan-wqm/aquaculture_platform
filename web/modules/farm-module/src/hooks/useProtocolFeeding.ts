@@ -28,6 +28,7 @@ import {
   RECORD_MEAL_FEEDING_MUTATION,
   SKIP_MEAL_MUTATION,
   CORRECT_MEAL_POUR_MUTATION,
+  PROTOCOL_FEED_FORECAST_QUERY,
   REGENERATE_DAY_PLAN_MUTATION,
   TRANSITION_UNIT_FEED_MUTATION,
 } from '../graphql/feedingProtocolV2.operations';
@@ -628,4 +629,76 @@ export function useTransitionUnitFeed() {
     },
     onSuccess: () => invalidate(),
   });
+}
+
+// ============================================================================
+// Tükenme tahmini (Faz 7 — protocolFeedForecast, K-10 dilimlenmiş snapshot)
+// ============================================================================
+
+export interface ForecastPerFeedView {
+  feedId: string;
+  feedCode: string;
+  feedName: string;
+  currentStockKg: number;
+  dailyConsumptionSeries: number[];
+  remainingStockSeries: number[];
+  stockoutDate: string | null;
+  daysOfCover: number | null;
+  firstConsumptionDate: string | null;
+  coverageFromAdoptionDays: number | null;
+  reorderDate: string | null;
+  reorderQuantityKg: number | null;
+  procurementLeadTimeDays: number;
+  leadTimeSource: 'feed' | 'default';
+}
+
+export interface ForecastTransitionView {
+  fromFeedId: string;
+  toFeedId: string;
+  estimatedDate: string;
+  daysFromNow: number;
+}
+
+export interface ForecastPerUnitView {
+  unitId: string;
+  unitName: string;
+  unitCode: string;
+  currentFeedId: string | null;
+  transitions: ForecastTransitionView[];
+}
+
+export interface ForecastAlertView {
+  type: 'STOCKOUT_FORECAST' | 'TRANSITION_COVERAGE_GAP' | 'REORDER_NOW';
+  feedId: string;
+  unitId?: string | null;
+  days: number;
+}
+
+export interface ProtocolFeedForecastView {
+  siteScopeKey: string;
+  horizonDays: number;
+  /** Snapshot tazeliği — "şu an itibarıyla" damgası (D-6). */
+  computedAt: string;
+  perFeed: ForecastPerFeedView[];
+  perUnit: ForecastPerUnitView[];
+  alerts: ForecastAlertView[];
+  mortalityAssumption: { applied: boolean; source: 'species_survival_rate' | 'none' };
+}
+
+/**
+ * Materyalize snapshot okuması — sorgu anında yeniden hesap YOK (K-10).
+ * `refresh` MANAGER+ için insan-tetikli yedektir (tenant başına 5dk throttle,
+ * ana tazelik yolu D-6 event-driven yenileme).
+ */
+export function useProtocolFeedForecast(siteId?: string, horizonDays = 90) {
+  return useTenantQuery(
+    ['protocol-feed-forecast', { siteId, horizonDays }],
+    async () => {
+      const data = await graphqlClient.request<{
+        protocolFeedForecast: ProtocolFeedForecastView | null;
+      }>(PROTOCOL_FEED_FORECAST_QUERY, { siteId, horizonDays });
+      return data.protocolFeedForecast;
+    },
+    { staleTime: 60000 },
+  );
 }

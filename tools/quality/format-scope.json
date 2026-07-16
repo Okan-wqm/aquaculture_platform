@@ -46312,6 +46312,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/pages/feeding/components/DepletionForecastChart.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/pages/feeding/components/FCRAnalysis.tsx",
       "prettier_managed": true
     },
@@ -46331,6 +46337,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/farm-module/src/pages/feeding/components/FeedingSummaryTab.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/feeding/components/ForecastTab.tsx",
       "prettier_managed": true
     },
     {
@@ -46367,6 +46379,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/farm-module/src/pages/feeding/components/RecordFeedingModal.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/feeding/components/UnitTransitionTimeline.tsx",
       "prettier_managed": true
     },
     {
@@ -54690,10 +54708,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8964,
+  "file_count": 8967,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8783,
-  "managed_file_list_sha256": "38360fef2b186eb1446648c4e03e68fc370978300e96a7345c2a54617be2df89",
+  "managed_count": 8786,
+  "managed_file_list_sha256": "64ff59a981dbb17ba85c5501aebd330446d0fa068c069e7092d84974ee43431e",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

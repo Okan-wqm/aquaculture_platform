@@ -34,6 +34,7 @@ import { ProtocolsTab } from './components/ProtocolsTab';
 import { ProtocolBuilderTab } from './components/ProtocolBuilderTab';
 import { AssignmentsTab } from './components/AssignmentsTab';
 import { MealBoardTab } from './components/MealBoardTab';
+import { ForecastTab } from './components/ForecastTab';
 
 // ============================================================================
 // TYPES
@@ -41,6 +42,7 @@ import { MealBoardTab } from './components/MealBoardTab';
 
 type TabId =
   | 'meal-board'
+  | 'forecast'
   | 'daily-plan'
   | 'execution'
   | 'records'
@@ -66,6 +68,7 @@ interface Tab {
 
 const VALID_TABS: TabId[] = [
   'meal-board',
+  'forecast',
   'daily-plan',
   'execution',
   'records',
@@ -95,6 +98,21 @@ const tabs: Tab[] = [
           strokeLinejoin="round"
           strokeWidth={2}
           d="M4 6h16M4 10h16M4 14h10M4 18h6"
+        />
+      </svg>
+    ),
+  },
+  {
+    id: 'forecast',
+    name: 'Forecast',
+    i18nKey: 'feedingV2.tab.forecast',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M3 17l6-6 4 4 8-8M21 7v6h-6"
         />
       </svg>
     ),
@@ -583,6 +601,7 @@ const FeedingPage: React.FC = () => {
         )}
         {activeTab === 'protocols' && <ProtocolsTab siteId={selectedSiteId} />}
         {activeTab === 'meal-board' && <MealBoardTab />}
+        {activeTab === 'forecast' && <ForecastTab />}
         {activeTab === 'protocols-v2' && <ProtocolBuilderTab />}
         {activeTab === 'assignments' && (
           <AssignmentsTab siteId={selectedSiteId || undefined} />

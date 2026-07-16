@@ -234,6 +234,22 @@ export const en = {
   'feedingV2.assignments.selectTargetFeed': 'Select target feed…',
 
   // ── Meal Board (Faz 6) ──
+  'feedingV2.tab.forecast': 'Forecast',
+  'feedingV2.forecast.chartTitle': 'Feed depletion forecast',
+  'feedingV2.forecast.timelineTitle': 'Unit feed transitions (next {days} days)',
+  'feedingV2.forecast.computedAt': 'As of {at}',
+  'feedingV2.forecast.mortalityApplied': 'Mortality projection: species survival rate',
+  'feedingV2.forecast.mortalityNone': 'Mortality projection: none (conservative)',
+  'feedingV2.forecast.empty': 'No feed consumption projected in this scope.',
+  'feedingV2.forecast.noUnits': 'No units with an active protocol in this scope.',
+  'feedingV2.forecast.noTransition': 'No feed transition within horizon',
+  'feedingV2.forecast.transitionLabel': '{code} in {days}d',
+  'feedingV2.forecast.stockoutBadge': '{code} runs out in {days}d',
+  'feedingV2.forecast.coverageBadge': 'covers {days}d from adoption',
+  'feedingV2.forecast.gapBadge': 'GAP',
+  'feedingV2.forecast.siteLabel': 'Site',
+  'feedingV2.forecast.horizonLabel': 'Horizon (days)',
+  'feedingV2.forecast.notComputed': 'Forecast snapshot not computed yet — it is produced by the 07:00 sweep and refreshed on stock/transition events.',
   'feedingV2.tab.mealBoard': 'Meal Board',
   'feedingV2.mealBoard.title': 'Meal Board',
   'feedingV2.mealBoard.subtitle':

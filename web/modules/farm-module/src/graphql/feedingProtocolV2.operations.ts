@@ -289,3 +289,55 @@ export const TRANSITION_UNIT_FEED_MUTATION = `
     }
   }
 `;
+
+// ============================================================================
+// Tükenme tahmini (Faz 7 — K-10 snapshot dilimleme sorgusu)
+// ============================================================================
+
+export const PROTOCOL_FEED_FORECAST_QUERY = `
+  query ProtocolFeedForecast($siteId: ID, $horizonDays: Int, $refresh: Boolean) {
+    protocolFeedForecast(siteId: $siteId, horizonDays: $horizonDays, refresh: $refresh) {
+      siteScopeKey
+      horizonDays
+      computedAt
+      perFeed {
+        feedId
+        feedCode
+        feedName
+        currentStockKg
+        dailyConsumptionSeries
+        remainingStockSeries
+        stockoutDate
+        daysOfCover
+        firstConsumptionDate
+        coverageFromAdoptionDays
+        reorderDate
+        reorderQuantityKg
+        procurementLeadTimeDays
+        leadTimeSource
+      }
+      perUnit {
+        unitId
+        unitName
+        unitCode
+        currentFeedId
+        transitions {
+          fromFeedId
+          toFeedId
+          estimatedDate
+          daysFromNow
+        }
+      }
+      alerts {
+        type
+        feedId
+        unitId
+        days
+      }
+      mortalityAssumption {
+        applied
+        source
+      }
+    }
+  }
+`;

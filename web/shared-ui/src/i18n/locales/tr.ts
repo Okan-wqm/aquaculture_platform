@@ -236,6 +236,22 @@ export const tr: Record<MessageKey, string> = {
   'feedingV2.assignments.selectTargetFeed': 'Hedef yemi seçin…',
 
   // ── Öğün Panosu (Faz 6) ──
+  'feedingV2.tab.forecast': 'Tahmin',
+  'feedingV2.forecast.chartTitle': 'Yem tükenme tahmini',
+  'feedingV2.forecast.timelineTitle': 'Ünite yem geçişleri (önümüzdeki {days} gün)',
+  'feedingV2.forecast.computedAt': '{at} itibarıyla',
+  'feedingV2.forecast.mortalityApplied': 'Ölüm projeksiyonu: tür hayatta kalma oranı',
+  'feedingV2.forecast.mortalityNone': 'Ölüm projeksiyonu: yok (muhafazakâr)',
+  'feedingV2.forecast.empty': 'Bu kapsamda öngörülen yem tüketimi yok.',
+  'feedingV2.forecast.noUnits': 'Bu kapsamda aktif protokollü ünite yok.',
+  'feedingV2.forecast.noTransition': 'Ufuk içinde yem geçişi yok',
+  'feedingV2.forecast.transitionLabel': '{days} gün sonra {code}',
+  'feedingV2.forecast.stockoutBadge': '{code} {days} gün içinde tükeniyor',
+  'feedingV2.forecast.coverageBadge': 'benimsemeden sonra {days} gün yetiyor',
+  'feedingV2.forecast.gapBadge': 'AÇIK',
+  'feedingV2.forecast.siteLabel': 'Site',
+  'feedingV2.forecast.horizonLabel': 'Ufuk (gün)',
+  'feedingV2.forecast.notComputed': 'Tahmin snapshot\'ı henüz üretilmedi — 07:00 süpürmesi üretir, stok/geçiş event\'leri tazeler.',
   'feedingV2.tab.mealBoard': 'Öğün Panosu',
   'feedingV2.mealBoard.title': 'Öğün Panosu',
   'feedingV2.mealBoard.subtitle':

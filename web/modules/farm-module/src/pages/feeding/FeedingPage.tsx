@@ -33,12 +33,14 @@ import { FCRAnalysis } from './components/FCRAnalysis';
 import { ProtocolsTab } from './components/ProtocolsTab';
 import { ProtocolBuilderTab } from './components/ProtocolBuilderTab';
 import { AssignmentsTab } from './components/AssignmentsTab';
+import { MealBoardTab } from './components/MealBoardTab';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
 type TabId =
+  | 'meal-board'
   | 'daily-plan'
   | 'execution'
   | 'records'
@@ -63,6 +65,7 @@ interface Tab {
 // ============================================================================
 
 const VALID_TABS: TabId[] = [
+  'meal-board',
   'daily-plan',
   'execution',
   'records',
@@ -74,13 +77,28 @@ const VALID_TABS: TabId[] = [
   'assignments',
   'sampling',
 ];
-const DEFAULT_TAB: TabId = 'daily-plan';
+const DEFAULT_TAB: TabId = 'meal-board';
 
 // ============================================================================
 // TABS CONFIG
 // ============================================================================
 
 const tabs: Tab[] = [
+  {
+    id: 'meal-board',
+    name: 'Meal Board',
+    i18nKey: 'feedingV2.tab.mealBoard',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M4 6h16M4 10h16M4 14h10M4 18h6"
+        />
+      </svg>
+    ),
+  },
   {
     id: 'daily-plan',
     name: 'Daily Plan',
@@ -564,6 +582,7 @@ const FeedingPage: React.FC = () => {
           />
         )}
         {activeTab === 'protocols' && <ProtocolsTab siteId={selectedSiteId} />}
+        {activeTab === 'meal-board' && <MealBoardTab />}
         {activeTab === 'protocols-v2' && <ProtocolBuilderTab />}
         {activeTab === 'assignments' && (
           <AssignmentsTab siteId={selectedSiteId || undefined} />

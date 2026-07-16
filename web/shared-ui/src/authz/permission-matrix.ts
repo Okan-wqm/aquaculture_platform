@@ -91,7 +91,13 @@ export type FrontendMutationName =
   | 'archiveFeedingProtocolV2'
   | 'assignProtocolToUnit'
   | 'updateProtocolAssignment'
-  | 'unassignProtocolFromUnit';
+  | 'unassignProtocolFromUnit'
+  // MealBoard gated actions (Faz 6)
+  | 'recordMealFeeding'
+  | 'skipMeal'
+  | 'correctMealPour'
+  | 'regenerateDayPlan'
+  | 'transitionUnitFeed';
 
 /**
  * Source-of-frontend-truth role matrix. Mirrors the backend's
@@ -153,4 +159,10 @@ export const FRONTEND_MUTATION_ROLES: Readonly<
   assignProtocolToUnit: ['MODULE_MANAGER', 'TENANT_ADMIN'],
   updateProtocolAssignment: ['MODULE_MANAGER', 'TENANT_ADMIN'],
   unassignProtocolFromUnit: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+  // Öğün motoru v2 (Faz 6) — BE aynası birebir.
+  recordMealFeeding: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
+  skipMeal: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
+  correctMealPour: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+  regenerateDayPlan: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+  transitionUnitFeed: ['MODULE_MANAGER', 'TENANT_ADMIN'],
 });

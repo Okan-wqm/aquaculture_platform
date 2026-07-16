@@ -172,3 +172,120 @@ export const EFFECTIVE_UNIT_TEMPERATURES_QUERY = `
     }
   }
 `;
+
+// ============================================================================
+// Öğün motoru v2 (Faz 6 — MealBoard)
+// ============================================================================
+
+/**
+ * Gün planı + öğün alan setleri. `snapshot`/`recalcLog`/`pours` tipli JSON
+ * döner (jsonb) — web MealBoard hesap provenansını olduğu gibi gösterir
+ * (mobil tarafta P-25 gereği tipli alan alt kümesi kullanılır).
+ */
+const FEEDING_MEAL_FIELDS = `
+  id
+  dayPlanId
+  unitId
+  siteId
+  mealIndex
+  scheduledAt
+  percentOfDaily
+  plannedKg
+  status
+  actualKg
+  pours
+  varianceKg
+  variancePercent
+  feedId
+  fedAt
+  fedBy
+  feedingMethod
+  recalculatedAt
+  notes
+`;
+
+const FEEDING_DAY_PLAN_FIELDS = `
+  id
+  assignmentId
+  protocolId
+  unitId
+  siteId
+  unitType
+  unitName
+  unitCode
+  planDate
+  snapshot
+  plannedTotalKg
+  unplannedActualKg
+  mealsPlanned
+  status
+  skipReason
+  recalcLog
+  createdAt
+  updatedAt
+`;
+
+export const FEEDING_DAY_PLANS_QUERY = `
+  query FeedingDayPlans($planDate: String!, $siteId: ID) {
+    feedingDayPlans(planDate: $planDate, siteId: $siteId) {
+      ${FEEDING_DAY_PLAN_FIELDS}
+      meals {
+        ${FEEDING_MEAL_FIELDS}
+      }
+    }
+  }
+`;
+
+export const RECORD_MEAL_FEEDING_MUTATION = `
+  mutation RecordMealFeeding($input: RecordMealFeedingInput!) {
+    recordMealFeeding(input: $input) {
+      id
+      status
+      actualKg
+      varianceKg
+      variancePercent
+    }
+  }
+`;
+
+export const SKIP_MEAL_MUTATION = `
+  mutation SkipMeal($input: SkipMealInput!) {
+    skipMeal(input: $input) {
+      id
+      status
+      actualKg
+      varianceKg
+      variancePercent
+    }
+  }
+`;
+
+export const CORRECT_MEAL_POUR_MUTATION = `
+  mutation CorrectMealPour($input: CorrectMealPourInput!) {
+    correctMealPour(input: $input) {
+      id
+      status
+      actualKg
+      varianceKg
+      variancePercent
+    }
+  }
+`;
+
+export const REGENERATE_DAY_PLAN_MUTATION = `
+  mutation RegenerateDayPlan($unitId: ID!) {
+    regenerateDayPlan(unitId: $unitId) {
+      outcome
+      dayPlanId
+    }
+  }
+`;
+
+export const TRANSITION_UNIT_FEED_MUTATION = `
+  mutation TransitionUnitFeed($unitId: ID!, $toFeedId: ID!) {
+    transitionUnitFeed(unitId: $unitId, toFeedId: $toFeedId) {
+      outcome
+      dayPlanId
+    }
+  }
+`;

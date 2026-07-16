@@ -22,6 +22,7 @@ import {
   useUpdateProtocolAssignment,
   useUnassignProtocolFromUnit,
   useEffectiveUnitTemperatures,
+  useTransitionUnitFeed,
   type ProtocolAssignment,
   type ProtocolAssignmentStatus,
   type FeedingProtocolV2,
@@ -498,8 +499,13 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
   const { data: equipmentData } = useEquipmentList();
   const updateAssignment = useUpdateProtocolAssignment();
   const unassign = useUnassignProtocolFromUnit();
+  const transitionFeed = useTransitionUnitFeed();
+  const [transitionAssignment, setTransitionAssignment] = useState<ProtocolAssignment | null>(
+    null,
+  );
 
   const canAssign = useCanMutate('assignProtocolToUnit');
+  const canTransition = useCanMutate('transitionUnitFeed');
   const canUpdate = useCanMutate('updateProtocolAssignment');
   const canUnassign = useCanMutate('unassignProtocolFromUnit');
 
@@ -667,6 +673,14 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
                           </button>
                         </>
                       )}
+                      {canTransition && assignment.status === 'active' && (
+                        <button
+                          onClick={() => setTransitionAssignment(assignment)}
+                          className="text-amber-700 hover:text-amber-900 mr-3"
+                        >
+                          {t('feedingV2.assignments.manualTransition')}
+                        </button>
+                      )}
                       {canUnassign && (
                         <button
                           onClick={() => void handleUnassign(assignment)}
@@ -686,6 +700,52 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
 
       {assignModalOpen && (
         <AssignModal protocols={protocols} onClose={() => setAssignModalOpen(false)} />
+      )}
+      {transitionAssignment && (
+        <Modal
+          isOpen
+          onClose={() => setTransitionAssignment(null)}
+          title={t('feedingV2.assignments.manualTransition')}
+        >
+          <div className="space-y-3">
+            {(protocolById.get(transitionAssignment.protocolId)?.bands ?? []).map((band) => (
+              <button
+                key={band.feedId}
+                type="button"
+                disabled={
+                  transitionFeed.isPending || band.feedId === transitionAssignment.currentFeedId
+                }
+                onClick={() => {
+                  const label = `${band.feedName} (${band.feedCode})`;
+                  if (
+                    !window.confirm(
+                      t('feedingV2.assignments.manualTransitionConfirm', {
+                        unit: transitionAssignment.unitCode,
+                        feed: label,
+                      }),
+                    )
+                  ) {
+                    return;
+                  }
+                  void transitionFeed
+                    .mutateAsync({
+                      unitId: transitionAssignment.unitId,
+                      toFeedId: band.feedId,
+                    })
+                    .then(() => setTransitionAssignment(null));
+                }}
+                className="flex w-full items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
+              >
+                <span>
+                  {band.feedName} ({band.feedCode})
+                </span>
+                <span className="text-xs text-gray-500">
+                  {band.minWeightG}–{band.maxWeightG} g
+                </span>
+              </button>
+            ))}
+          </div>
+        </Modal>
       )}
       {editAssignment && (
         <EditAssignmentModal

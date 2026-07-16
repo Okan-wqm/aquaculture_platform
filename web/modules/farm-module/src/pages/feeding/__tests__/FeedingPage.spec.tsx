@@ -82,6 +82,25 @@ function installRoutes(): void {
       },
     },
     { match: 'query Feeds', result: { feeds: { items: [], total: 0, page: 1, limit: 100, totalPages: 0 } } },
+    { match: 'query FeedingDayPlans', result: { feedingDayPlans: [] } },
+    {
+      match: 'query FeedingProtocolsV2',
+      result: {
+        feedingProtocolsV2: {
+          items: [], total: 0, page: 1, limit: 100, totalPages: 0,
+          hasNextPage: false, hasPreviousPage: false,
+        },
+      },
+    },
+    {
+      match: 'query ProtocolAssignments',
+      result: {
+        protocolAssignments: {
+          items: [], total: 0, page: 1, limit: 100, totalPages: 0,
+          hasNextPage: false, hasPreviousPage: false,
+        },
+      },
+    },
     { match: 'query EquipmentWithBatches', result: { equipmentList: { items: [], total: 0, page: 1, limit: 200, totalPages: 1 } } },
   ]);
 }
@@ -151,13 +170,13 @@ describe('FeedingPage', () => {
     });
   });
 
-  it('falls back to the default tab for an unknown ?tab value', async () => {
+  it('falls back to the default tab (meal board, Faz 6 cutover) for an unknown ?tab value', async () => {
     renderWithProviders(<FeedingPage />, { route: '/feeding?tab=bogus', path: 'feeding' });
 
     await waitFor(() => {
       expect(
         requestMock.mock.calls.some(([query]) =>
-          (query as string).includes('query FeedConsumptionForecast'),
+          (query as string).includes('query FeedingDayPlans'),
         ),
       ).toBe(true);
     });

@@ -24,7 +24,14 @@ import {
   UPDATE_PROTOCOL_ASSIGNMENT_MUTATION,
   UNASSIGN_PROTOCOL_FROM_UNIT_MUTATION,
   EFFECTIVE_UNIT_TEMPERATURES_QUERY,
+  FEEDING_DAY_PLANS_QUERY,
+  RECORD_MEAL_FEEDING_MUTATION,
+  SKIP_MEAL_MUTATION,
+  CORRECT_MEAL_POUR_MUTATION,
+  REGENERATE_DAY_PLAN_MUTATION,
+  TRANSITION_UNIT_FEED_MUTATION,
 } from '../graphql/feedingProtocolV2.operations';
+import { buildCommandEnvelope } from '../utils/command-envelope';
 
 // ============================================================================
 // TYPES — backend entity jsonb aynaları
@@ -384,6 +391,231 @@ export function useUnassignProtocolFromUnit() {
         unassignProtocolFromUnit: Pick<ProtocolAssignment, 'id' | 'status' | 'endedAt'>;
       }>(UNASSIGN_PROTOCOL_FROM_UNIT_MUTATION, { assignmentId });
       return data.unassignProtocolFromUnit;
+    },
+    onSuccess: () => invalidate(),
+  });
+}
+
+// ============================================================================
+// ÖĞÜN MOTORU v2 (Faz 6 — MealBoard)
+// ============================================================================
+
+export type FeedingDayPlanStatus =
+  | 'planned'
+  | 'in_progress'
+  | 'completed'
+  | 'skipped'
+  | 'cancelled';
+export type FeedingMealStatus =
+  | 'scheduled'
+  | 'fed'
+  | 'partially_fed'
+  | 'skipped'
+  | 'missed'
+  | 'cancelled';
+export type FcrResolvedSource = 'override' | 'band' | 'matrix' | 'feed';
+
+/** Backend `DayPlanSnapshot` jsonb aynası — üretim anındaki hesap provenansı. */
+export interface DayPlanSnapshot {
+  avgWeightG: number;
+  fishCount: number;
+  biomassKg: number;
+  waterTempC: number | null;
+  temperatureSource: EffectiveTemperatureSource;
+  usingDefaultTemperature: boolean;
+  bandIndex: number;
+  feed: { id: string; code: string; name: string };
+  baseRatePercent: number;
+  tempMultiplier: number;
+  effectiveRatePercent: number;
+  expectedFcr: number;
+  fcrResolvedSource: FcrResolvedSource;
+}
+
+export interface RecalcLogEntry {
+  at: string;
+  reason: string;
+  plannedTotalKg?: number;
+  biomassKg?: number;
+  note?: string;
+}
+
+export interface MealPour {
+  pourIndex: number;
+  kg: number;
+  at: string;
+  by: string;
+  feedingMethod?: string;
+  originalKg?: number;
+  correctedAt?: string;
+  correctedBy?: string;
+  corrections?: number;
+}
+
+export interface FeedingMealView {
+  id: string;
+  dayPlanId: string;
+  unitId: string;
+  siteId: string;
+  mealIndex: number;
+  scheduledAt: string;
+  percentOfDaily: number;
+  plannedKg: number;
+  status: FeedingMealStatus;
+  actualKg: number;
+  pours: MealPour[];
+  varianceKg: number | null;
+  variancePercent: number | null;
+  feedId: string;
+  fedAt?: string;
+  fedBy?: string;
+  feedingMethod?: string;
+  recalculatedAt?: string;
+  notes?: string;
+}
+
+export interface FeedingDayPlanView {
+  id: string;
+  assignmentId: string;
+  protocolId: string;
+  unitId: string;
+  siteId: string;
+  unitType: FeedingUnitType;
+  unitName: string;
+  unitCode: string;
+  planDate: string;
+  snapshot: DayPlanSnapshot;
+  plannedTotalKg: number;
+  unplannedActualKg: number;
+  mealsPlanned: number;
+  status: FeedingDayPlanStatus;
+  skipReason?: string;
+  recalcLog: RecalcLogEntry[];
+  createdAt: string;
+  updatedAt: string;
+  meals?: FeedingMealView[];
+}
+
+export interface MealFeedingResult {
+  id: string;
+  status: FeedingMealStatus;
+  actualKg: number;
+  varianceKg: number | null;
+  variancePercent: number | null;
+}
+
+export interface DayPlanAdminResult {
+  outcome: 'recalculated' | 'generated' | 'transitioned';
+  dayPlanId?: string;
+}
+
+export function useFeedingDayPlans(planDate: string, siteId?: string) {
+  return useTenantQuery(
+    ['feeding-day-plans', { planDate, siteId }],
+    async () => {
+      const data = await graphqlClient.request<{ feedingDayPlans: FeedingDayPlanView[] }>(
+        FEEDING_DAY_PLANS_QUERY,
+        { planDate, siteId },
+      );
+      return data.feedingDayPlans;
+    },
+    { staleTime: 15000, enabled: !!planDate },
+  );
+}
+
+function useDayPlanInvalidation() {
+  const { tenantId } = useAuth();
+  const queryClient = useQueryClient();
+  return () => {
+    void queryClient.invalidateQueries({
+      queryKey: createTenantInvalidationKey(tenantId, 'feeding-day-plans'),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: createTenantInvalidationKey(tenantId, 'protocol-assignments'),
+    });
+  };
+}
+
+/**
+ * Döküm kaydı (C-17): stok düşüren komut — zarf ZORUNLU ve mutation başına
+ * TEK KEZ üretilir (retry aynı clientCommandId ile idempotent replay olur).
+ */
+export function useRecordMealFeeding() {
+  const invalidate = useDayPlanInvalidation();
+  return useMutation({
+    mutationFn: async (params: {
+      mealId: string;
+      pourKg: number;
+      finalize: boolean;
+      feedingMethod?: string;
+      notes?: string;
+    }) => {
+      const envelope = await buildCommandEnvelope('recordMealFeeding', {
+        mealId: params.mealId,
+        pourKg: params.pourKg,
+        finalize: params.finalize,
+      });
+      const data = await graphqlClient.request<{ recordMealFeeding: MealFeedingResult }>(
+        RECORD_MEAL_FEEDING_MUTATION,
+        { input: { ...params, ...envelope } },
+      );
+      return data.recordMealFeeding;
+    },
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useSkipMeal() {
+  const invalidate = useDayPlanInvalidation();
+  return useMutation({
+    mutationFn: async (params: { mealId: string; reason: string }) => {
+      const data = await graphqlClient.request<{ skipMeal: MealFeedingResult }>(
+        SKIP_MEAL_MUTATION,
+        { input: params },
+      );
+      return data.skipMeal;
+    },
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useCorrectMealPour() {
+  const invalidate = useDayPlanInvalidation();
+  return useMutation({
+    mutationFn: async (params: { mealId: string; pourIndex: number; correctedKg: number }) => {
+      const data = await graphqlClient.request<{ correctMealPour: MealFeedingResult }>(
+        CORRECT_MEAL_POUR_MUTATION,
+        { input: params },
+      );
+      return data.correctMealPour;
+    },
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useRegenerateDayPlan() {
+  const invalidate = useDayPlanInvalidation();
+  return useMutation({
+    mutationFn: async (unitId: string) => {
+      const data = await graphqlClient.request<{ regenerateDayPlan: DayPlanAdminResult }>(
+        REGENERATE_DAY_PLAN_MUTATION,
+        { unitId },
+      );
+      return data.regenerateDayPlan;
+    },
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useTransitionUnitFeed() {
+  const invalidate = useDayPlanInvalidation();
+  return useMutation({
+    mutationFn: async (params: { unitId: string; toFeedId: string }) => {
+      const data = await graphqlClient.request<{ transitionUnitFeed: DayPlanAdminResult }>(
+        TRANSITION_UNIT_FEED_MUTATION,
+        params,
+      );
+      return data.transitionUnitFeed;
     },
     onSuccess: () => invalidate(),
   });

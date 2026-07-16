@@ -60,7 +60,7 @@ describe('farm-realtime-invalidation', () => {
     await invalidateAllFarmQueries(client, TENANT);
     const segments = keys().map((k) => k.slice(2));
     expect(segments).toContainEqual(['tanks']);
-    expect(segments).toContainEqual(['feedingPlan']);
+    expect(segments).toContainEqual(['feedingDayPlans']);
     expect(segments).toContainEqual(['equipment-params']);
     // the union is de-duplicated
     expect(keys().length).toBe(FARM_REALTIME_ALL_SEGMENTS.length);
@@ -90,7 +90,7 @@ describe('farm-realtime-invalidation', () => {
     const { client, keys } = mockClient();
     await invalidateFarmEventQueries(client, TENANT, 'mealFed');
     const segments = keys().map((k) => k.slice(2));
-    expect(segments).toContainEqual(['feedingPlan']);
+    expect(segments).toContainEqual(['feedingDayPlans']);
     expect(segments).toContainEqual(['tanks']);
     expect(segments).toContainEqual(['dailyOpsCounts']);
   });

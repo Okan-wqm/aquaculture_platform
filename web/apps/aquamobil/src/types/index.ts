@@ -207,11 +207,28 @@ export interface EscapeIncidentInput {
 }
 
 // Feeding types
+// Drain penceresi yükü: cutover ÖNCESİ kuyruğa alınmış recordFeeding op'ları
+// eski execution'lara karşı replay olmaya devam eder (Faz 8'de execution
+// stack'iyle birlikte ölür). YENİ kayıtlar recordMealFeeding kullanır.
 export interface FeedingInput {
   executionId: string;
   actualKg: number;
   feedingMethod?: string;
   feederEquipmentId?: string;
+  notes?: string;
+}
+
+/**
+ * Faz 6 öğün cutover'ı — tek döküm kaydı (D-8). Backend zarfı ZORUNLU kılar
+ * (C-17); kuyruk zarfı enqueue'da damgalar, dolayısıyla payload yalnız domain
+ * alanlarını taşır. `finalize=true` operatörün "öğün bitti" onayıdır (varyans
+ * + büyüme + kalan öğün recalc'ı finalize'da koşar).
+ */
+export interface RecordMealFeedingPayload {
+  mealId: string;
+  pourKg: number;
+  finalize: boolean;
+  feedingMethod?: string;
   notes?: string;
 }
 
@@ -329,7 +346,7 @@ export interface CreateLeaveRequestInput {
 // a reference to a recorded/selected Blob persisted in the dedicated binary
 // store. Its in-app sync replay runs the 3-step online flow that cannot happen
 // offline: requestMediaUpload (presign) → PUT blob → sendMessage(storageKey).
-export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'clockIn' | 'clockOut' | 'createLeaveRequest' | 'completeTask' | 'startTask' | 'setChecklistItem' | 'recordTransfer' | 'createWaterQuality' | 'recordStockMovement' | 'transferStock' | 'recordLiceCount' | 'recordWelfareAssessment' | 'recordEscapeIncident' | 'acknowledgeAlert' | 'sendMessage' | 'editMessage' | 'deleteMessage' | 'markMessagesRead' | 'uploadAndSendMessage';
+export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'recordMealFeeding' | 'clockIn' | 'clockOut' | 'createLeaveRequest' | 'completeTask' | 'startTask' | 'setChecklistItem' | 'recordTransfer' | 'createWaterQuality' | 'recordStockMovement' | 'transferStock' | 'recordLiceCount' | 'recordWelfareAssessment' | 'recordEscapeIncident' | 'acknowledgeAlert' | 'sendMessage' | 'editMessage' | 'deleteMessage' | 'markMessagesRead' | 'uploadAndSendMessage';
 
 /**
  * FARM-HIGH-057 — offline payload for an idempotent checklist SET.
@@ -398,7 +415,7 @@ export interface AcknowledgeAlertInputPayload {
 }
 
 export type OperationPayload = (
-  MortalityInput | CullInput | HarvestInput | FeedingInput | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | ChecklistItemSetInput | TransferInput | CreateWaterQualityInput | StockMovementInput | StockTransferInput | LiceCountInput | WelfareAssessmentInput | EscapeIncidentInput | AcknowledgeAlertInputPayload | MessagingOfflinePayload | UploadAndSendMessageOfflinePayload
+  MortalityInput | CullInput | HarvestInput | FeedingInput | RecordMealFeedingPayload | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | ChecklistItemSetInput | TransferInput | CreateWaterQualityInput | StockMovementInput | StockTransferInput | LiceCountInput | WelfareAssessmentInput | EscapeIncidentInput | AcknowledgeAlertInputPayload | MessagingOfflinePayload | UploadAndSendMessageOfflinePayload
 ) & MobileCommandEnvelope;
 
 export interface QueuedOperation {

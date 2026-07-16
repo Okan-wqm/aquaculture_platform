@@ -65,11 +65,11 @@ export const FARM_REALTIME_INVALIDATION_SEGMENTS: Record<
   batchStatusChanged: [['tanks']],
   batchProductionCompleted: [['tanks']],
   // Feeding.
-  feedingRecorded: [['tanks'], ['feedingPlan'], ['dailyOpsCounts'], ['stockEventsSummary']],
-  feedInventoryLow: [['stockEventsSummary'], ['feedingPlan']],
+  feedingRecorded: [['tanks'], ['feedingDayPlans'], ['dailyOpsCounts'], ['stockEventsSummary']],
+  feedInventoryLow: [['stockEventsSummary'], ['feedingDayPlans']],
   // Storage-ledger low-stock sink (successor of feedInventoryLow).
-  lowStockDetected: [['warehouseSummary'], ['stockEventsSummary'], ['feedingPlan']],
-  feederCalibrationsSaved: [['feedingPlan']],
+  lowStockDetected: [['warehouseSummary'], ['stockEventsSummary'], ['feedingDayPlans']],
+  feederCalibrationsSaved: [['feedingDayPlans']],
   // Tank structure/state.
   tankCreated: [['tanks']],
   tankUpdated: [['tanks']],
@@ -83,15 +83,15 @@ export const FARM_REALTIME_INVALIDATION_SEGMENTS: Record<
   subEquipmentCreated: [['tanks']],
   subEquipmentUpdated: [['tanks']],
   subEquipmentDeleted: [['tanks']],
-  // Öğün motoru v2 (C-2). NOT: 'feedingPlan' anahtarı mobil öğün sayfası
-  // cutover'ında 'feedingDayPlans'a döner — sayfa ve invalidation AYNI
-  // dilimde değişir (bugünkü sayfa hâlâ 'feedingPlan' okuyor).
-  mealFed: [['feedingPlan'], ['tanks'], ['dailyOpsCounts']],
-  mealSkipped: [['feedingPlan'], ['dailyOpsCounts']],
-  mealMissed: [['feedingPlan'], ['dailyOpsCounts']],
-  mealUnderfed: [['feedingPlan']],
-  feedTypeTransitioned: [['feedingPlan'], ['tanks']],
-  unfedUnitDetected: [['feedingPlan']],
+  // Öğün motoru v2 (C-2). Mobil öğün sayfası cutover'ıyla birlikte anahtar
+  // 'feedingDayPlans' oldu — RecordFeedingPage ve useDailyOpsStats aynı
+  // anahtarı okur (offline-sync-invalidation ile bire bir).
+  mealFed: [['feedingDayPlans'], ['tanks'], ['dailyOpsCounts']],
+  mealSkipped: [['feedingDayPlans'], ['dailyOpsCounts']],
+  mealMissed: [['feedingDayPlans'], ['dailyOpsCounts']],
+  mealUnderfed: [['feedingDayPlans']],
+  feedTypeTransitioned: [['feedingDayPlans'], ['tanks']],
+  unfedUnitDetected: [['feedingDayPlans']],
 };
 
 export function isFarmRealtimeEvent(name: string): name is FarmRealtimeEvent {

@@ -59,12 +59,27 @@ export const OPERATION_MUTATIONS: Record<
       }
     }
   `,
+  // Drain penceresi: cutover ÖNCESİ kuyruğa alınmış kayıtlar eski
+  // execution'lara karşı replay olur; yeni kayıtlar recordMealFeeding kullanır.
   recordFeeding: `
     mutation RecordDailyFeeding($input: RecordDailyFeedingInput!) {
       recordDailyFeeding(input: $input) {
         id
         actualFeedKg
         status
+      }
+    }
+  `,
+  // Faz 6 öğün cutover'ı (P-25 tipli yanıt; C-17: zarf enqueue'da damgalanır,
+  // backend zarfsız komutu fail-closed reddeder).
+  recordMealFeeding: `
+    mutation RecordMealFeeding($input: RecordMealFeedingInput!) {
+      recordMealFeeding(input: $input) {
+        id
+        status
+        actualKg
+        varianceKg
+        variancePercent
       }
     }
   `,

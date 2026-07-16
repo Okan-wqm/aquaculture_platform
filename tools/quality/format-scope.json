@@ -43450,7 +43450,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "6cc432b106bb17e62512463b93d4040c41e25deaf7b4328d93a2a10df8986c0b",
+      "content_sha256": "08e32d448901ddd9af185bbbe04477df2af629ded39febae3fc7104ceea44f1e",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/apps/aquamobil/src/generated/graphql.ts",
@@ -43918,6 +43918,30 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/i18n/I18nProvider.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/i18n/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/i18n/locales/en.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/i18n/locales/tr.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/layouts/index.ts",
       "prettier_managed": true
     },
@@ -44261,6 +44285,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/pwa/__tests__/operation-registry.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pwa/__tests__/queued-mutation-ssot.spec.ts",
       "prettier_managed": true
     },
     {
@@ -54582,10 +54612,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8946,
+  "file_count": 8951,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8765,
-  "managed_file_list_sha256": "60f65f856be8a823d0c4cc79f3ebc0ebdedc592c9449e3dfa873f066f2745121",
+  "managed_count": 8770,
+  "managed_file_list_sha256": "54e7775e1abce82cf85baad2860b9fde4660db20634d76e35d4877c88527fda8",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

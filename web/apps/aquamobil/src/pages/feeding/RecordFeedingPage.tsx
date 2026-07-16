@@ -1,175 +1,201 @@
+/**
+ * RecordFeedingPage — öğün-merkezli mobil yemleme kaydı (Faz 6 cutover, P-26).
+ *
+ * Kaynak: `feedingDayPlans` TİPLİ sorgusu (P-25 — `snapshot` jsonb tele
+ * çıkmaz; eski motorun opak `calculations` blob'u öldü). Kayıt:
+ * `recordMealFeeding` offline kuyruğu üzerinden (zarf enqueue'da damgalanır —
+ * C-17; kısmi döküm D-8: `finalize` operatörün "öğün bitti" onayıdır).
+ *
+ * FE-MEDIUM-054 davranışı korunur: son eşitlenen plan şifreli tenant-scoped
+ * cache'e yazılır ve çevrimdışı açılışta dürüst bir bantla gösterilir.
+ * Enum alanları tel üzerinde AD taşır ('SCHEDULED', 'FED', ...).
+ */
 import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { List, ListInput, BlockTitle } from 'konsta/react';
-import { ArrowLeft, Package, CheckCircle, AlertCircle, Hand, Settings, Radio } from 'lucide-react';
-import { useState, useEffect, useCallback, ChangeEvent, type JSX } from 'react';
+import {
+  ArrowLeft,
+  Package,
+  CheckCircle,
+  AlertCircle,
+  Hand,
+  Settings,
+  Radio,
+  Thermometer,
+} from 'lucide-react';
+import { useState, useEffect, ChangeEvent, type JSX } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
-
-
-import { GET_TODAYS_FEEDING_PLAN } from '@/graphql/operations';
+import { GET_FEEDING_DAY_PLANS } from '@/graphql/operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
-import { useTanks } from '@/hooks/useTanks';
+import { useI18n } from '@/i18n';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
-// FE-MEDIUM-054: cacheData/getCachedData are the tenant-scoped, AES-GCM-encrypted
-// offline cache helpers (same last-known-good pattern used elsewhere in the app).
 import { logger } from '@/utils/logger';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
-
-
 // ============================================================================
-// TYPES
+// TYPES — feedingDayPlans tipli sorgusunun aynası (P-25)
 // ============================================================================
 
-interface FeedingExecution {
+type MealStatus = 'SCHEDULED' | 'FED' | 'PARTIALLY_FED' | 'SKIPPED' | 'MISSED' | 'CANCELLED';
+
+interface DayPlanMeal {
   id: string;
-  equipmentId: string;
-  equipmentName: string;
-  equipmentCode: string;
-  calculations: {
-    plannedFeedKg?: number;
-    feedingRatePercent?: number;
-    biomassKg?: number;
-    activeFeedCode?: string;
-    activeFeedName?: string;
-  };
-  plannedFeedKg: number;
-  actualFeedKg: number | null;
+  mealIndex: number;
+  scheduledAt: string;
+  percentOfDaily: number;
+  plannedKg: number;
+  status: MealStatus;
+  actualKg: number;
+  varianceKg: number | null;
+  variancePercent: number | null;
+  feedId: string;
+  fedAt?: string | null;
+  feedingMethod?: string | null;
+  notes?: string | null;
+}
+
+interface FeedingDayPlanSlice {
+  id: string;
+  unitId: string;
+  unitName: string;
+  unitCode: string;
+  planDate: string;
   status: string;
-  hasTransitionWarning: boolean;
+  plannedTotalKg: number;
+  unplannedActualKg: number;
+  mealsPlanned: number;
+  avgWeightG: number;
+  fishCount: number;
+  biomassKg: number;
+  waterTempC: number | null;
+  temperatureSource: string;
+  usingDefaultTemperature: boolean;
+  feedId: string;
+  feedCode: string;
+  feedName: string;
+  effectiveRatePercent: number;
+  expectedFcr: number;
+  meals: DayPlanMeal[];
 }
 
 type FeedingMethodOption = 'manual' | 'automatic' | 'demand';
 
-const FEEDING_METHODS: { value: FeedingMethodOption; label: string; Icon: typeof Hand }[] = [
-  { value: 'manual', label: 'Manual', Icon: Hand },
-  { value: 'automatic', label: 'Automatic', Icon: Settings },
-  { value: 'demand', label: 'Demand', Icon: Radio },
+const FEEDING_METHODS: {
+  value: FeedingMethodOption;
+  labelKey: 'feeding.method.manual' | 'feeding.method.automatic' | 'feeding.method.demand';
+  Icon: typeof Hand;
+}[] = [
+  { value: 'manual', labelKey: 'feeding.method.manual', Icon: Hand },
+  { value: 'automatic', labelKey: 'feeding.method.automatic', Icon: Settings },
+  { value: 'demand', labelKey: 'feeding.method.demand', Icon: Radio },
 ];
 
-interface FormErrors {
-  tank?: string;
-  amount?: string;
-  general?: string;
+const MEAL_BADGE: Record<MealStatus, string> = {
+  SCHEDULED: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
+  FED: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
+  PARTIALLY_FED: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+  SKIPPED: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
+  MISSED: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+  CANCELLED: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-500',
+};
+
+/** Döküm alınabilen öğünler (D-8): planlı veya yarım kalmış. */
+function isMealOpen(meal: DayPlanMeal): boolean {
+  return meal.status === 'SCHEDULED' || meal.status === 'PARTIALLY_FED';
+}
+
+function timeOf(iso: string): string {
+  const date = new Date(iso);
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
 // ============================================================================
-// HOOK: useTodaysFeedingPlan
+// HOOK: useTodaysDayPlans — FE-MEDIUM-054 offline-cache davranışı korunur
 // ============================================================================
 
-// PERF-07: Converted from manual useState/useEffect to useQuery.
-// Benefits:
-//   - Automatic deduplication: mount/unmount cycles do not fire extra fetches.
-//   - staleTime prevents re-fetching on every isOnline toggle (network flicker).
-//   - refetchOnWindowFocus brings the plan current when the worker returns to the app.
-//   - Consistent caching strategy with useTanks and the rest of the app.
-// FE-MEDIUM-054: cache key prefix for the last-synced feeding plan. Tenant
-// isolation + AES-GCM-at-rest are handled by cacheData/getCachedData (the key is
-// stored under the mandatory `cache_${tenantId}:` namespace, wiped on logout).
-const FEEDING_PLAN_CACHE_PREFIX = 'feedingPlan_';
-// Short TTL so an obviously-stale plan expires rather than misleading a worker
-// into feeding against an outdated schedule (the offline cache is a convenience,
-// not an authority — the recordFeeding write is still server-validated).
-const FEEDING_PLAN_CACHE_TTL_MS = 1000 * 60 * 60 * 12; // 12h
+const DAY_PLANS_CACHE_PREFIX = 'feedingDayPlans_';
+// Kısa TTL: bariz bayat bir plan işçiyi yanıltmaktansa süresi dolsun (cache
+// kolaylıktır, otorite değildir — recordMealFeeding sunucuda doğrulanır).
+const DAY_PLANS_CACHE_TTL_MS = 1000 * 60 * 60 * 12; // 12h
 
-function useTodaysFeedingPlan(): {
-  executions: FeedingExecution[];
+function useTodaysDayPlans(): {
+  plans: FeedingDayPlanSlice[];
   isLoading: boolean;
   isOfflineCached: boolean;
 } {
-  // CRIT-1 / BUG-01 / SEC-05: Read auth from useAuth hook, not from localStorage.
-  // The keys 'accessToken' and 'tenantId' do not exist in localStorage — auth state
-  // is managed in memory by AuthProvider (with refresh via httpOnly cookie).
   const { accessToken, tenantId, isAuthenticated } = useAuth();
 
   const today = new Date();
   const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  const cacheKey = `${FEEDING_PLAN_CACHE_PREFIX}${dateStr}`;
+  const cacheKey = `${DAY_PLANS_CACHE_PREFIX}${dateStr}`;
 
-  // FE-MEDIUM-054: getCachedData is async but React Query placeholderData must be
-  // synchronous, so the last-synced plan is loaded once on mount into state and
-  // then handed to the query as placeholderData. This renders the last-known plan
-  // immediately offline instead of an empty list.
-  const [cachedSeed, setCachedSeed] = useState<FeedingExecution[] | undefined>(undefined);
+  const [cachedSeed, setCachedSeed] = useState<FeedingDayPlanSlice[] | undefined>(undefined);
   useEffect(() => {
     let cancelled = false;
     if (!tenantId) return;
-    getCachedData<FeedingExecution[]>(tenantId, cacheKey)
+    getCachedData<FeedingDayPlanSlice[]>(tenantId, cacheKey)
       .then((cached) => {
         if (!cancelled && cached) {
           setCachedSeed(cached);
         }
       })
       .catch((error: unknown) => {
-        logger.error('[RecordFeedingPage] failed to load cached feeding plan seed', error);
+        logger.error('[RecordFeedingPage] failed to load cached day-plan seed', error);
       });
     return () => {
       cancelled = true;
     };
   }, [tenantId, cacheKey]);
 
-  const { data, isLoading, isSuccess } = useQuery<FeedingExecution[]>({
-    queryKey: createTenantQueryKey(tenantId, 'feedingPlan', tenantId, dateStr),
+  const { data, isLoading, isSuccess } = useQuery<FeedingDayPlanSlice[]>({
+    queryKey: createTenantQueryKey(tenantId, 'feedingDayPlans', tenantId, dateStr),
     queryFn: async () => {
       if (!accessToken || !tenantId) {
         throw new Error('Not authenticated');
       }
-
-      const result = await graphqlRequest<{ dailyFeedingExecutions: FeedingExecution[] }>(
-        GET_TODAYS_FEEDING_PLAN,
-        { date: dateStr },
+      const result = await graphqlRequest<{ feedingDayPlans: FeedingDayPlanSlice[] }>(
+        GET_FEEDING_DAY_PLANS,
+        { planDate: dateStr },
       );
-
-      const executions = result.dailyFeedingExecutions ?? [];
-      // FE-MEDIUM-054: write-through the last-synced plan on every successful
-      // online fetch (encrypted, tenant-scoped, short TTL) so it is available
-      // the next time the device is offline.
-      await cacheData(tenantId, cacheKey, executions, FEEDING_PLAN_CACHE_TTL_MS);
-      return executions;
+      const plans = result.feedingDayPlans ?? [];
+      await cacheData(tenantId, cacheKey, plans, DAY_PLANS_CACHE_TTL_MS);
+      return plans;
     },
-    // FE-MEDIUM-054: isOnline REMOVED from the gate so the query mounts offline
-    // too. refetchOnReconnect (React Query default) brings it current the moment
-    // connectivity returns.
     enabled: isAuthenticated && !!accessToken && !!tenantId,
-    // 5-minute stale time: prevents re-fetching on brief network flickers while
-    // still showing fresh data for a typical field worker's feeding session.
     staleTime: 1000 * 60 * 5,
-    // Keep plan data in memory for 1 hour (survives page navigations within the session).
     gcTime: 1000 * 60 * 60,
     refetchOnWindowFocus: true,
   });
 
-  // FE-MEDIUM-054: a successful server fetch wins; otherwise fall back to the
-  // cached seed. The seed loads asynchronously on mount (getCachedData is async),
-  // so we resolve the displayed plan at the CONSUMER rather than via React
-  // Query's placeholderData (which only binds on first render, before the seed
-  // has resolved). This makes offline render deterministic regardless of timing.
-  const executions = isSuccess ? (data ?? []) : (cachedSeed ?? []);
-
-  // We are showing the cached seed (not a resolved server result) when no
-  // successful fetch has landed AND a seed exists — surface the honest
-  // "offline — last-synced plan" banner. It clears the moment isSuccess flips.
+  const plans = isSuccess ? (data ?? []) : (cachedSeed ?? []);
   const isOfflineCached = !isSuccess && (cachedSeed?.length ?? 0) > 0;
 
-  return { executions, isLoading, isOfflineCached };
+  return { plans, isLoading, isOfflineCached };
 }
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
+interface FormErrors {
+  amount?: string;
+  general?: string;
+}
+
 export function RecordFeedingPage(): JSX.Element {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const { tankId } = useParams<{ tankId?: string }>();
-  const { data: tanks } = useTanks();
   const { addToQueue, isOnline } = useOfflineQueue();
-  const { executions, isLoading: planLoading, isOfflineCached } = useTodaysFeedingPlan();
+  const { plans, isLoading: plansLoading, isOfflineCached } = useTodaysDayPlans();
 
-  const [selectedTankId, setSelectedTankId] = useState(tankId || '');
-  const [actualKg, setActualKg] = useState<string>('');
+  const [selectedUnitId, setSelectedUnitId] = useState(tankId || '');
+  const [selectedMealId, setSelectedMealId] = useState<string>('');
+  const [pourKg, setPourKg] = useState<string>('');
+  const [finalize, setFinalize] = useState(true);
   const [feedingMethod, setFeedingMethod] = useState<FeedingMethodOption>('manual');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -177,74 +203,68 @@ export function RecordFeedingPage(): JSX.Element {
   const [errors, setErrors] = useState<FormErrors>({});
 
   useEffect(() => {
-    if (tankId) setSelectedTankId(tankId);
+    if (tankId) setSelectedUnitId(tankId);
   }, [tankId]);
 
-  // Find the execution for the selected tank
-  const selectedExecution = executions.find(
-    (e) => e.equipmentId === selectedTankId,
-  );
+  const selectedPlan = plans.find((plan) => plan.unitId === selectedUnitId);
+  const meals = [...(selectedPlan?.meals ?? [])].sort((a, b) => a.mealIndex - b.mealIndex);
+  const selectedMeal = meals.find((meal) => meal.id === selectedMealId);
 
-  const plannedKg = selectedExecution?.calculations?.plannedFeedKg ?? selectedExecution?.plannedFeedKg ?? 0;
-  const feedCode = selectedExecution?.calculations?.activeFeedCode ?? '-';
-  const biomassKg = selectedExecution?.calculations?.biomassKg ?? 0;
-  const feedingRate = selectedExecution?.calculations?.feedingRatePercent ?? 0;
-  const currentStatus = selectedExecution?.status ?? '';
-
-  // BUG-04: Pre-fill actual amount with planned.
-  // Depend on both selectedExecution?.id and plannedKg to avoid the race where
-  // plannedKg is initially 0 (data not yet loaded), causing a '0.00' pre-fill
-  // that never gets updated. Guard requires plannedKg > 0 before pre-filling.
-  useEffect(() => {
-    if (selectedExecution && plannedKg > 0 && !actualKg) {
-      setActualKg(plannedKg.toFixed(2));
+  // Öğün seçimi olay-güdümlü: seçim anında kalan plan miktarı ön-dolur
+  // (kısmi dökümde kalan kadar) — effect + bağımlılık istisnası gerekmez.
+  const handleMealSelect = (meal: DayPlanMeal): void => {
+    const nextId = meal.id === selectedMealId ? '' : meal.id;
+    setSelectedMealId(nextId);
+    if (nextId) {
+      const remaining = Math.max(0, meal.plannedKg - meal.actualKg);
+      setPourKg(remaining > 0 ? remaining.toFixed(2) : '');
+      setFinalize(true);
+    } else {
+      setPourKg('');
     }
-  }, [selectedExecution?.id, plannedKg]); // eslint-disable-line react-hooks/exhaustive-deps
+    setErrors({});
+  };
 
-  // Difference
-  const parsedActual = parseFloat(actualKg) || 0;
-  const difference = parsedActual - plannedKg;
-  const differencePercent = plannedKg > 0 ? (difference / plannedKg) * 100 : 0;
+  const parsedPour = parseFloat(pourKg) || 0;
+  const mealsDone = meals.filter((m) => m.status === 'FED' || m.status === 'SKIPPED').length;
+  const mealsTotal = meals.filter((m) => m.status !== 'CANCELLED').length;
 
-  const validateForm = useCallback((): boolean => {
-    const newErrors: FormErrors = {};
-    if (!selectedTankId) newErrors.tank = 'Please select a tank';
-    if (!selectedExecution) newErrors.tank = 'No feeding plan for this tank today';
-    if (!actualKg || parsedActual <= 0) newErrors.amount = 'Amount must be greater than 0';
-    if (parsedActual > 10000) newErrors.amount = 'Amount cannot exceed 10000 kg';
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  }, [selectedTankId, selectedExecution, actualKg, parsedActual]);
+  const validate = (): boolean => {
+    const next: FormErrors = {};
+    if (!pourKg || parsedPour <= 0) next.amount = t('feeding.errors.amountRequired');
+    if (parsedPour > 10000) next.amount = t('feeding.errors.amountMax');
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  };
 
   const handleSubmit = async (): Promise<void> => {
-    if (!validateForm()) return;
-    if (!selectedExecution) return;
+    if (!selectedMeal || !validate()) return;
 
     setIsSubmitting(true);
     setErrors({});
-
     try {
-      await addToQueue('recordFeeding', {
-        executionId: selectedExecution.id,
-        actualKg: parsedActual,
+      await addToQueue('recordMealFeeding', {
+        mealId: selectedMeal.id,
+        pourKg: parsedPour,
+        finalize,
         feedingMethod,
         notes: notes.trim() || undefined,
       });
-
       setShowSuccess(true);
       setTimeout(() => navigate('/'), 1500);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to record feeding';
+      const message = error instanceof Error ? error.message : t('feeding.errors.generic');
       setErrors({ general: message });
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleTankChange = (e: ChangeEvent<HTMLSelectElement>): void => {
-    setSelectedTankId(e.target.value);
-    setActualKg('');
-    setErrors((prev) => ({ ...prev, tank: undefined }));
+  const handleUnitChange = (e: ChangeEvent<HTMLSelectElement>): void => {
+    setSelectedUnitId(e.target.value);
+    setSelectedMealId('');
+    setPourKg('');
+    setErrors({});
   };
 
   if (showSuccess) {
@@ -253,11 +273,12 @@ export function RecordFeedingPage(): JSX.Element {
         <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4">
           <CheckCircle size={48} className="text-green-600" />
         </div>
-        <h2 className="text-xl font-bold text-green-700 dark:text-green-300">Recorded!</h2>
-        {/* BUG-08: Always show "Queued for sync" — data goes to the queue first
-            regardless of online status, and syncs in the background. */}
+        <h2 className="text-xl font-bold text-green-700 dark:text-green-300">
+          {t('feeding.recorded')}
+        </h2>
+        {/* Kayıt her zaman önce kuyruğa gider ve arka planda eşitlenir. */}
         <p className="text-green-600 dark:text-green-400 text-sm mt-1">
-          Queued for sync
+          {t('feeding.queuedForSync')}
         </p>
       </div>
     );
@@ -268,30 +289,30 @@ export function RecordFeedingPage(): JSX.Element {
       {/* Header */}
       <div className="bg-gradient-to-r from-green-600 to-green-500 text-white">
         <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
+          <button
+            onClick={() => navigate(-1)}
+            className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback"
+          >
             <ArrowLeft size={22} />
           </button>
           <div className="flex items-center gap-2.5">
             <Package size={22} />
-            <h1 className="text-lg font-bold">Record Feeding</h1>
+            <h1 className="text-lg font-bold">{t('feeding.title')}</h1>
           </div>
         </div>
       </div>
 
-      {/* FE-MEDIUM-054: honest provenance banner — when the displayed plan comes
-          from the encrypted offline cache (not a fresh server fetch), tell the
-          worker so they know it is the last-synced schedule and will refresh on
-          reconnect. */}
+      {/* FE-MEDIUM-054: dürüst kaynak bandı — plan şifreli offline cache'ten
+          geliyorsa işçiye söyle. */}
       {isOfflineCached && (
         <div className="mx-4 mt-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 flex items-center gap-2 border border-amber-200 dark:border-amber-800">
           <AlertCircle size={18} className="text-amber-500 flex-shrink-0" />
           <span className="text-amber-700 dark:text-amber-300 text-sm">
-            Offline — showing last-synced plan. It will refresh when you reconnect.
+            {t('feeding.offlineCachedBanner')}
           </span>
         </div>
       )}
 
-      {/* Error Banner */}
       {errors.general && (
         <div className="mx-4 mt-3 bg-red-50 dark:bg-red-900/20 rounded-xl p-3 flex items-center gap-2 border border-red-200 dark:border-red-800">
           <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
@@ -299,145 +320,153 @@ export function RecordFeedingPage(): JSX.Element {
         </div>
       )}
 
-      {/* Tank Selector */}
-      {/* WHY: Only tanks with active batches are selectable — feeding requires a batch context
-          to look up the daily feeding plan and match to the correct feed program.
-          Tanks without batches are shown disabled with their real ID (not empty value) so that
-          the user understands which tanks exist but cannot be selected. */}
+      {/* Ünite seçimi — bugünün gün planları (protokol atanmış üniteler) */}
       {!tankId && (
         <>
-          <BlockTitle>Select Tank</BlockTitle>
+          <BlockTitle>{t('feeding.selectUnit')}</BlockTitle>
           <List strongIos insetIos>
-            <ListInput type="select" value={selectedTankId} onChange={handleTankChange} error={errors.tank}>
-              <option value="">-- Select Tank --</option>
-              {tanks?.filter((t) => t.batchMetrics).map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} ({t.code})
-                </option>
-              ))}
-              {tanks?.filter((t) => !t.batchMetrics).map((t) => (
-                <option key={t.id} value={t.id} disabled>
-                  {t.name} (No active batch)
+            <ListInput type="select" value={selectedUnitId} onChange={handleUnitChange}>
+              <option value="">{t('feeding.selectUnitPlaceholder')}</option>
+              {plans.map((plan) => (
+                <option key={plan.unitId} value={plan.unitId}>
+                  {plan.unitName} ({plan.unitCode})
                 </option>
               ))}
             </ListInput>
           </List>
-          {errors.tank && <p className="text-red-500 text-sm px-4 -mt-2">{errors.tank}</p>}
-          {/* FIX: Inform user when all tanks lack active batches — prevents confusion when
-              every dropdown option is disabled and no selection is possible. */}
-          {tanks && tanks.length > 0 && tanks.every((t) => !t.batchMetrics) && (
+          {!plansLoading && plans.length === 0 && (
             <div className="mx-4 mt-2 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 border border-amber-200 dark:border-amber-800">
               <p className="text-amber-700 dark:text-amber-300 text-sm font-medium">
-                All tanks currently have no active batches.
+                {t('feeding.noPlansToday')}
               </p>
               <p className="text-amber-600 dark:text-amber-400 text-xs mt-1">
-                Stock fish into a tank before recording feeding.
+                {t('feeding.noPlansTodayHint')}
               </p>
             </div>
           )}
         </>
       )}
 
-      {/* Plan Info */}
-      {selectedExecution && (
+      {/* Ünitesi param'dan gelip planı olmayan durum */}
+      {selectedUnitId && !plansLoading && !selectedPlan && (
+        <div className="mx-4 mt-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4 border border-amber-200 dark:border-amber-800">
+          <p className="text-amber-700 dark:text-amber-300 font-medium">
+            {t('feeding.noPlanForUnit')}
+          </p>
+          <p className="text-amber-600 dark:text-amber-400 text-sm mt-1">
+            {t('feeding.noPlanForUnitHint')}
+          </p>
+        </div>
+      )}
+
+      {/* Plan kartı — tipli alanlar (P-25) */}
+      {selectedPlan && (
         <div className="mx-4 mt-4 bg-white dark:bg-gray-900 rounded-2xl shadow-card p-4 border border-gray-100 dark:border-gray-800">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-11 h-11 bg-green-50 dark:bg-green-900/20 rounded-xl flex items-center justify-center">
-              <Package className="text-green-600" size={22} />
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 bg-green-50 dark:bg-green-900/20 rounded-xl flex items-center justify-center">
+                <Package className="text-green-600" size={22} />
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900 dark:text-white">
+                  {selectedPlan.unitName}
+                </h3>
+                <p className="text-sm text-gray-500">{selectedPlan.unitCode}</p>
+              </div>
             </div>
-            <div>
-              <h3 className="font-semibold text-gray-900 dark:text-white">{selectedExecution.equipmentName}</h3>
-              <p className="text-sm text-gray-500">{selectedExecution.equipmentCode}</p>
-            </div>
+            <span className="text-sm font-semibold text-gray-600 dark:text-gray-300">
+              {t('feeding.progress', { done: mealsDone, total: mealsTotal })}
+            </span>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3">
-              <p className="text-xs text-blue-600 font-medium">Planned</p>
-              <p className="text-lg font-bold text-blue-900 dark:text-blue-200">{plannedKg.toFixed(2)} kg</p>
-              <p className="text-xs text-blue-500">{feedingRate.toFixed(1)}% rate</p>
-            </div>
-            <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
-              <p className="text-xs text-gray-600 font-medium">Feed</p>
-              <p className="text-lg font-bold text-gray-900 dark:text-gray-200">{feedCode}</p>
-              <p className="text-xs text-gray-500">{biomassKg.toFixed(1)} kg biomass</p>
-            </div>
-          </div>
-          {/* Status */}
-          {currentStatus === 'completed' && (
-            <div className="mt-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 border border-amber-200 dark:border-amber-800">
-              <p className="text-sm text-amber-700 dark:text-amber-300 font-medium">
-                Already completed - submitting will update the record
+              <p className="text-xs text-blue-600 font-medium">{t('feeding.plannedTotal')}</p>
+              <p className="text-lg font-bold text-blue-900 dark:text-blue-200">
+                {Number(selectedPlan.plannedTotalKg).toFixed(2)} kg
+              </p>
+              <p className="text-xs text-blue-500">
+                {t('feeding.rate')} {Number(selectedPlan.effectiveRatePercent).toFixed(2)}% ·{' '}
+                {t('feeding.expectedFcr')} {Number(selectedPlan.expectedFcr).toFixed(2)}
               </p>
             </div>
-          )}
-        </div>
-      )}
-
-      {/* No Plan Warning */}
-      {selectedTankId && !planLoading && !selectedExecution && (
-        <div className="mx-4 mt-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4 border border-amber-200 dark:border-amber-800">
-          <p className="text-amber-700 dark:text-amber-300 font-medium">No feeding plan for this tank today</p>
-          <p className="text-amber-600 dark:text-amber-400 text-sm mt-1">This tank doesn&apos;t have a feeding program assigned.</p>
-        </div>
-      )}
-
-      {/* Actual Amount Input */}
-      {selectedExecution && (
-        <div className="px-4 mt-5">
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Actual Amount (kg)</h3>
-          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card p-5 border border-gray-100 dark:border-gray-800">
-            <input
-              type="number"
-              inputMode="decimal"
-              step="0.01"
-              min="0"
-              max="10000"
-              value={actualKg}
-              onChange={(e) => {
-                setActualKg(e.target.value);
-                setErrors((prev) => ({ ...prev, amount: undefined }));
-              }}
-              placeholder={`Planned: ${plannedKg.toFixed(2)} kg`}
-              className="w-full text-center text-4xl font-bold text-gray-900 dark:text-white bg-transparent border-none focus:outline-none focus:ring-0 placeholder:text-gray-300"
-            />
-            <p className="text-center text-xs text-gray-400 mt-1 font-medium">kg</p>
-
-            {/* Difference from plan */}
-            {parsedActual > 0 && (
-              <div className={clsx(
-                'mt-3 text-center text-sm font-medium rounded-lg py-2',
-                Math.abs(differencePercent) <= 5 ? 'text-green-600 bg-green-50' :
-                Math.abs(differencePercent) <= 15 ? 'text-amber-600 bg-amber-50' :
-                'text-red-600 bg-red-50'
-              )}>
-                {difference > 0 ? '+' : ''}{difference.toFixed(2)} kg ({differencePercent > 0 ? '+' : ''}{differencePercent.toFixed(1)}% from plan)
-              </div>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
+              <p className="text-xs text-gray-600 dark:text-gray-400 font-medium">
+                {t('feeding.feed')}
+              </p>
+              <p className="text-lg font-bold text-gray-900 dark:text-gray-200">
+                {selectedPlan.feedCode}
+              </p>
+              <p className="text-xs text-gray-500">
+                {t('feeding.biomass')} {Number(selectedPlan.biomassKg).toFixed(1)} kg
+              </p>
+            </div>
+          </div>
+          {/* Sıcaklık provenansı — P-20: sessiz varsayılan yok */}
+          <div className="mt-3 flex items-center gap-2 text-xs">
+            <Thermometer size={14} className="text-gray-400" />
+            {selectedPlan.usingDefaultTemperature ? (
+              <span className="text-amber-600 dark:text-amber-400 font-medium">
+                {t('feeding.defaultTempWarning')}
+              </span>
+            ) : (
+              <span className="text-gray-500">
+                {t('feeding.waterTemp')}: {Number(selectedPlan.waterTempC ?? 0).toFixed(1)}°C (
+                {selectedPlan.temperatureSource})
+              </span>
             )}
-            {errors.amount && <p className="text-red-500 text-sm text-center mt-2">{errors.amount}</p>}
           </div>
         </div>
       )}
 
-      {/* Feeding Method */}
-      {selectedExecution && (
+      {/* Öğün listesi */}
+      {selectedPlan && (
         <div className="px-4 mt-5">
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Feeding Method</h3>
-          <div className="grid grid-cols-3 gap-2">
-            {FEEDING_METHODS.map((m) => {
-              const Icon = m.Icon;
+          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+            {t('feeding.meals')}
+          </h3>
+          <div className="space-y-2">
+            {meals.map((meal) => {
+              const open = isMealOpen(meal);
+              const selected = meal.id === selectedMealId;
               return (
                 <button
-                  key={m.value}
-                  onClick={() => setFeedingMethod(m.value)}
+                  key={meal.id}
+                  disabled={!open}
+                  onClick={() => handleMealSelect(meal)}
                   className={clsx(
-                    'flex flex-col items-center p-4 rounded-2xl border-2 transition-all touch-feedback bg-white dark:bg-gray-900',
-                    feedingMethod === m.value
-                      ? 'border-green-500 bg-green-50 dark:bg-green-900/20 shadow-glow-green'
-                      : 'border-gray-100 dark:border-gray-800'
+                    'w-full text-left bg-white dark:bg-gray-900 rounded-2xl p-3 border-2 transition-all touch-feedback',
+                    selected
+                      ? 'border-green-500 shadow-glow-green'
+                      : 'border-gray-100 dark:border-gray-800',
+                    !open && 'opacity-60',
                   )}
                 >
-                  <Icon size={24} className={feedingMethod === m.value ? 'text-green-600' : 'text-gray-400'} />
-                  <span className="text-xs font-semibold mt-1.5">{m.label}</span>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className="text-base font-bold text-gray-900 dark:text-white">
+                        {timeOf(meal.scheduledAt)}
+                      </span>
+                      <span className="text-sm text-gray-500">
+                        {t('feeding.meal', { index: meal.mealIndex + 1 })}
+                      </span>
+                    </div>
+                    <span
+                      className={clsx(
+                        'text-xs font-semibold px-2 py-1 rounded-lg',
+                        MEAL_BADGE[meal.status],
+                      )}
+                    >
+                      {t(`feeding.mealStatus.${meal.status}`)}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                    {Number(meal.plannedKg).toFixed(2)} kg
+                    {meal.actualKg > 0 && (
+                      <span className="ml-2 text-blue-600 dark:text-blue-400">
+                        → {Number(meal.actualKg).toFixed(2)} kg
+                      </span>
+                    )}
+                  </div>
                 </button>
               );
             })}
@@ -445,48 +474,129 @@ export function RecordFeedingPage(): JSX.Element {
         </div>
       )}
 
-      {/* Notes */}
-      {selectedExecution && (
+      {/* Döküm formu */}
+      {selectedMeal && (
         <>
-          <BlockTitle>Notes (Optional)</BlockTitle>
+          <div className="px-4 mt-5">
+            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+              {t('feeding.pour.amountTitle')}
+            </h3>
+            <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card p-5 border border-gray-100 dark:border-gray-800">
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min="0"
+                max="10000"
+                value={pourKg}
+                onChange={(e) => {
+                  setPourKg(e.target.value);
+                  setErrors((prev) => ({ ...prev, amount: undefined }));
+                }}
+                className="w-full text-center text-4xl font-bold text-gray-900 dark:text-white bg-transparent border-none focus:outline-none focus:ring-0 placeholder:text-gray-300"
+              />
+              <p className="text-center text-xs text-gray-400 mt-1 font-medium">kg</p>
+              <p className="text-center text-xs text-gray-500 mt-1">
+                {t('feeding.pour.remaining', {
+                  kg: Math.max(0, selectedMeal.plannedKg - selectedMeal.actualKg).toFixed(2),
+                })}
+              </p>
+              {errors.amount && (
+                <p className="text-red-500 text-sm text-center mt-2">{errors.amount}</p>
+              )}
+            </div>
+
+            {/* Finalize — D-8 kısmi öğün: kapatmadan döküm eklenebilir */}
+            <label className="mt-3 flex items-start gap-3 bg-white dark:bg-gray-900 rounded-2xl p-4 border border-gray-100 dark:border-gray-800">
+              <input
+                type="checkbox"
+                checked={finalize}
+                onChange={(e) => setFinalize(e.target.checked)}
+                className="mt-0.5 h-5 w-5 rounded accent-green-600"
+              />
+              <span>
+                <span className="block text-sm font-semibold text-gray-900 dark:text-white">
+                  {t('feeding.pour.finalize')}
+                </span>
+                <span className="block text-xs text-gray-500 mt-0.5">
+                  {t('feeding.pour.finalizeHint')}
+                </span>
+              </span>
+            </label>
+          </div>
+
+          {/* Yöntem */}
+          <div className="px-4 mt-5">
+            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+              {t('feeding.method.title')}
+            </h3>
+            <div className="grid grid-cols-3 gap-2">
+              {FEEDING_METHODS.map((m) => {
+                const Icon = m.Icon;
+                return (
+                  <button
+                    key={m.value}
+                    onClick={() => setFeedingMethod(m.value)}
+                    className={clsx(
+                      'flex flex-col items-center p-4 rounded-2xl border-2 transition-all touch-feedback bg-white dark:bg-gray-900',
+                      feedingMethod === m.value
+                        ? 'border-green-500 bg-green-50 dark:bg-green-900/20 shadow-glow-green'
+                        : 'border-gray-100 dark:border-gray-800',
+                    )}
+                  >
+                    <Icon
+                      size={24}
+                      className={feedingMethod === m.value ? 'text-green-600' : 'text-gray-400'}
+                    />
+                    <span className="text-xs font-semibold mt-1.5">{t(m.labelKey)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Notlar */}
+          <BlockTitle>{t('feeding.notes.title')}</BlockTitle>
           <List strongIos insetIos>
             <ListInput
               type="textarea"
-              placeholder="Additional observations..."
+              placeholder={t('feeding.notes.placeholder')}
               value={notes}
               onInput={(e: ChangeEvent<HTMLTextAreaElement>) => setNotes(e.target.value)}
               inputClassName="!h-24"
             />
           </List>
-        </>
-      )}
 
-      {/* Submit Button */}
-      {selectedExecution && (
-        <div className="px-4 pb-28">
-          <button
-            onClick={() => { void handleSubmit(); }}
-            disabled={!selectedTankId || !selectedExecution || parsedActual <= 0 || isSubmitting}
-            className="w-full py-4 bg-gradient-to-r from-green-600 to-green-500 text-white font-bold rounded-2xl shadow-lg shadow-green-500/25 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
-          >
-            {isSubmitting ? (
-              <>
-                <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
-                Recording...
-              </>
-            ) : (
-              <>
-                <Package size={20} />
-                Record {parsedActual > 0 ? `${parsedActual.toFixed(2)} kg` : 'Feeding'}
-              </>
+          {/* Kaydet */}
+          <div className="px-4 pb-28">
+            <button
+              onClick={() => {
+                void handleSubmit();
+              }}
+              disabled={parsedPour <= 0 || isSubmitting}
+              className="w-full py-4 bg-gradient-to-r from-green-600 to-green-500 text-white font-bold rounded-2xl shadow-lg shadow-green-500/25 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
+            >
+              {isSubmitting ? (
+                <>
+                  <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                  {t('feeding.recording')}
+                </>
+              ) : (
+                <>
+                  <Package size={20} />
+                  {parsedPour > 0
+                    ? t('feeding.recordKg', { kg: parsedPour.toFixed(2) })
+                    : t('feeding.record')}
+                </>
+              )}
+            </button>
+            {!isOnline && (
+              <p className="text-center text-amber-500 text-sm mt-3 font-medium">
+                {t('feeding.offlineWillSync')}
+              </p>
             )}
-          </button>
-          {!isOnline && (
-            <p className="text-center text-amber-500 text-sm mt-3 font-medium">
-              Offline - will sync when connected
-            </p>
-          )}
-        </div>
+          </div>
+        </>
       )}
     </div>
   );

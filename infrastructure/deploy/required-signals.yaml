@@ -1,8 +1,8 @@
 # Generated from platform service catalog.
 # source: platform/libs/service-catalog/src/index.ts
 # generator: scripts/service-catalog/generate-artifacts.ts
-# generatorVersion: 2
-# catalogHash: 3ecb0b77bbfa7abee6999df31022cbefc6fa5a6edf3310ea024cc499cd87d393
+# generatorVersion: 3
+# catalogHash: a0c2fd8b9080103f03f32011bc37d5d15d5ef7ea8880b2d9de4ab144f63a0075
 # do not edit by hand
 schema_version: 2
 # window_seconds is the MAX time a service has to emit each required boot signal
@@ -83,15 +83,10 @@ services:
       - schema_drift_clean
   - name: config-service
     signals:
-      # DB-INFRA-HIGH-003: config-service joined the NATS event backbone
-      # (EventBusModule for the GDPR tenant-erasure cascade), so its boot must
-      # prove the mTLS-cert NATS identity like every other bus participant.
       - nats_auth_mode_mtls
       - schema_drift_clean
   - name: event-store-service
     signals:
-      # DB-INFRA-HIGH-003: event-store-service joined the NATS event backbone
-      # (EventBusModule for the GDPR tenant-erasure cascade) — same proof.
       - nats_auth_mode_mtls
       - schema_drift_clean
   - name: observability-service

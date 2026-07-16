@@ -1046,6 +1046,38 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
+      - name: Resolve immutable Postgres DR contract digest
+        id: postgres_dr_contract
+        run: |
+          set -euo pipefail
+          CONTRACT_MANIFEST=.github/manifests/postgres-dr-contract.sha256
+          test -f "${CONTRACT_MANIFEST}"
+          test ! -L "${CONTRACT_MANIFEST}"
+          EXPECTED_CONTRACT_PATHS=$(printf '%s\n' \
+            infrastructure/docker/Dockerfile.postgres-walg \
+            infrastructure/docker/scripts/postgres-ssl-entrypoint.sh \
+            infrastructure/docker/scripts/postgres-walg-healthcheck.sh \
+            infrastructure/docker/scripts/walg-archive-command.sh \
+            infrastructure/docker/scripts/walg-load-secrets.sh \
+            infrastructure/docker/scripts/walg-restore-command.sh \
+            infrastructure/docker/scripts/walg-runtime-command.sh)
+          CANONICAL_LINE_RE='^[0-9a-f]{64}  [A-Za-z0-9._/-]+$'
+          ACTUAL_CONTRACT_PATHS=
+          while IFS= read -r CONTRACT_LINE; do
+            [[ "${CONTRACT_LINE}" =~ ${CANONICAL_LINE_RE} ]]
+            CONTRACT_PATH=${CONTRACT_LINE#*  }
+            test -f "${CONTRACT_PATH}"
+            test ! -L "${CONTRACT_PATH}"
+            ACTUAL_CONTRACT_PATHS+="${CONTRACT_PATH}"$'\n'
+          done < "${CONTRACT_MANIFEST}"
+          ACTUAL_CONTRACT_PATHS=${ACTUAL_CONTRACT_PATHS%$'\n'}
+          test "${ACTUAL_CONTRACT_PATHS}" = "${EXPECTED_CONTRACT_PATHS}"
+          test "$(printf '%s\n' "${ACTUAL_CONTRACT_PATHS}" | sort -u | wc -l)" -eq 7
+          sha256sum --strict --check "${CONTRACT_MANIFEST}"
+          CONTRACT_SHA256=$(sha256sum "${CONTRACT_MANIFEST}" | awk '{print $1}')
+          [[ "${CONTRACT_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          printf 'sha256=%s\n' "${CONTRACT_SHA256}" >> "${GITHUB_OUTPUT}"
+
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Login to GHCR
@@ -1053,6 +1085,7 @@ jobs:
           GHCR_USERNAME: ${{ github.actor }}
           GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set +x
           set +e
           for attempt in 1 2 3; do
             echo "[ghcr-login] attempt ${attempt}/3"
@@ -1075,6 +1108,9 @@ jobs:
           tags: |
             ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:${{ env.TAG }}
             ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:latest
+          build-args: |
+            BUILD_MAIN_SHA=${{ github.sha }}
+            POSTGRES_DR_CONTRACT_SHA256=${{ steps.postgres_dr_contract.outputs.sha256 }}
           no-cache: ${{ inputs.no_cache == 'true' }}
           cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:buildcache-main-v2
           cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:buildcache-main-v2,mode=max,ignore-error=true

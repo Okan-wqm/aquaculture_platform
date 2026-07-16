@@ -130,6 +130,8 @@ export default {
         '<rootDir>/restore-mutation-tenant-admin.spec.ts',
         '<rootDir>/backup-production-secrets.spec.ts',
         '<rootDir>/backup-restore-verification-contract.spec.ts',
+        '<rootDir>/walg-evidence-attestation.spec.ts',
+        '<rootDir>/walg-pitr-contract.spec.ts',
         '<rootDir>/deploy-ssot-contract.spec.ts',
         '<rootDir>/schema-role-drift-ssot.spec.ts',
         '<rootDir>/no-unguarded-drop-type-in-migration.spec.ts',

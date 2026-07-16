@@ -24,8 +24,22 @@ on:
     paths:
       - 'tools/scripts/database/backup-databases.sh'
       - 'tools/scripts/database/database-verification.sql'
+      - 'tools/scripts/database/evaluate-walg-evidence.mjs'
       - 'tools/scripts/database/generate-database-verification-sql.ts'
+      - 'tools/scripts/database/materialize-walg-secrets.sh'
+      - 'tools/scripts/database/walg-base-backup.sh'
+      - 'tools/scripts/database/walg-pitr-restore.sh'
+      - 'tools/scripts/ci/prepare-protected-runtime-bundle.sh'
       - '.github/manifests/backup-script.sha256'
+      - '.github/manifests/postgres-dr-contract.sha256'
+      - '.dockerignore'
+      - 'infrastructure/docker/Dockerfile.postgres-walg'
+      - 'infrastructure/docker/scripts/postgres-ssl-entrypoint.sh'
+      - 'infrastructure/docker/scripts/postgres-walg-healthcheck.sh'
+      - 'infrastructure/docker/scripts/walg-archive-command.sh'
+      - 'infrastructure/docker/scripts/walg-load-secrets.sh'
+      - 'infrastructure/docker/scripts/walg-restore-command.sh'
+      - 'infrastructure/docker/scripts/walg-runtime-command.sh'
       - '.github/workflows/backup-manifest-invariant.yml'
 
 permissions:
@@ -60,7 +74,7 @@ jobs:
             echo "FATAL: manifest still carries the __COMPUTE_ON_MERGE__ placeholder."
             echo "The PR that introduced this placeholder should have computed the"
             echo "real SHA-256 in the same commit via:"
-            echo "    sha256sum tools/scripts/database/backup-databases.sh tools/scripts/database/database-verification.sql"
+            echo "    sha256sum <all paths declared in ${MANIFEST}>"
             exit 1
           fi
 
@@ -69,12 +83,17 @@ jobs:
           set -euo pipefail
           MANIFEST=.github/manifests/backup-script.sha256
           EXPECTED_PATHS=$(printf '%s\n' \
+            .github/manifests/postgres-dr-contract.sha256 \
             tools/scripts/database/backup-databases.sh \
-            tools/scripts/database/database-verification.sql)
+            tools/scripts/database/database-verification.sql \
+            tools/scripts/database/evaluate-walg-evidence.mjs \
+            tools/scripts/database/materialize-walg-secrets.sh \
+            tools/scripts/database/walg-base-backup.sh \
+            tools/scripts/database/walg-pitr-restore.sh)
           ACTUAL_PATHS=$(awk '$1 !~ /^#/ && NF == 2 {print $2}' "$MANIFEST" | sort)
 
           if [ "$ACTUAL_PATHS" != "$EXPECTED_PATHS" ]; then
-            echo "FATAL: manifest path set differs from the two-file backup runtime bundle."
+            echo "FATAL: manifest path set differs from the trusted backup runtime bundle."
             echo "Expected:"
             echo "$EXPECTED_PATHS"
             echo "Actual:"
@@ -82,5 +101,34 @@ jobs:
             exit 1
           fi
 
+          while IFS= read -r TRUSTED_PATH; do
+            if [ ! -f "$TRUSTED_PATH" ] || [ -L "$TRUSTED_PATH" ]; then
+              echo "FATAL: trusted backup runtime path is not a regular non-symlink file: $TRUSTED_PATH"
+              exit 1
+            fi
+          done <<< "$ACTUAL_PATHS"
+
           sha256sum --check "$MANIFEST"
+          DR_CONTRACT_MANIFEST=.github/manifests/postgres-dr-contract.sha256
+          EXPECTED_DR_CONTRACT_PATHS=$(printf '%s\n' \
+            infrastructure/docker/Dockerfile.postgres-walg \
+            infrastructure/docker/scripts/postgres-ssl-entrypoint.sh \
+            infrastructure/docker/scripts/postgres-walg-healthcheck.sh \
+            infrastructure/docker/scripts/walg-archive-command.sh \
+            infrastructure/docker/scripts/walg-load-secrets.sh \
+            infrastructure/docker/scripts/walg-restore-command.sh \
+            infrastructure/docker/scripts/walg-runtime-command.sh)
+          ACTUAL_DR_CONTRACT_PATHS=$(awk 'NF == 2 {print $2}' \
+            "${DR_CONTRACT_MANIFEST}")
+          if [ "${ACTUAL_DR_CONTRACT_PATHS}" != "${EXPECTED_DR_CONTRACT_PATHS}" ]; then
+            echo 'FATAL: PostgreSQL DR contract path set or canonical order is invalid.'
+            exit 1
+          fi
+          while IFS= read -r TRUSTED_PATH; do
+            if [ ! -f "${TRUSTED_PATH}" ] || [ -L "${TRUSTED_PATH}" ]; then
+              echo "FATAL: DR contract input is not a regular non-symlink file: ${TRUSTED_PATH}"
+              exit 1
+            fi
+          done <<< "${ACTUAL_DR_CONTRACT_PATHS}"
+          sha256sum --strict --check "${DR_CONTRACT_MANIFEST}"
           echo "Manifest and backup runtime bundle are in lockstep. OK."

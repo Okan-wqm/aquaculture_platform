@@ -16,13 +16,14 @@
 #   AWS_ACCESS_KEY_ID        Spaces access key                 [required unless dump-only]
 #   AWS_SECRET_ACCESS_KEY    Spaces secret key                 [required unless dump-only]
 #   BACKUP_PREFIX            Object prefix                     [pg-backups]
-#   BACKUP_GPG_RECIPIENT     GPG recipient                     [optional]
+#   BACKUP_GPG_RECIPIENT     GPG recipient                     [required for upload]
 #   MIN_DUMP_BYTES           Minimum accepted dump size        [10000]
 #   PGPASSWORD               Password passed to Postgres tools [optional]
 #   BACKUP_DUMP_ONLY         Skip upload                       [false]
 #   DATABASE_VERIFICATION_SQL Generated verification collector [repo path]
 # -----------------------------------------------------------------------------
 
+set +x
 set -euo pipefail
 
 POSTGRES_CONTAINER="${POSTGRES_CONTAINER:-aqua-postgres}"
@@ -62,9 +63,27 @@ if [ "${BACKUP_DUMP_ONLY}" != "true" ]; then
   : "${SPACES_BUCKET:?SPACES_BUCKET required}"
   : "${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID required}"
   : "${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY required}"
+  : "${BACKUP_GPG_RECIPIENT:?BACKUP_GPG_RECIPIENT required for client-encrypted upload}"
 
   if ! command -v aws >/dev/null 2>&1; then
     echo "ERROR: aws CLI not found on PATH. Install awscli v2." >&2
+    exit 2
+  fi
+  if ! command -v gpg >/dev/null 2>&1; then
+    echo "ERROR: gpg is required for client-encrypted upload." >&2
+    exit 2
+  fi
+  if [[ ! "${BACKUP_GPG_RECIPIENT}" =~ ^[A-Fa-f0-9]{40}$ ]]; then
+    echo "ERROR: BACKUP_GPG_RECIPIENT must be an exact 40-hex primary-key fingerprint." >&2
+    exit 2
+  fi
+  mapfile -t BACKUP_GPG_PRIMARY_FINGERPRINTS < <(
+    gpg --batch --with-colons --fingerprint --list-keys "${BACKUP_GPG_RECIPIENT}" 2>/dev/null |
+      awk -F: '$1 == "pub" { want_fingerprint = 1; next } want_fingerprint && $1 == "fpr" { print toupper($10); want_fingerprint = 0 }'
+  )
+  if [ "${#BACKUP_GPG_PRIMARY_FINGERPRINTS[@]}" -ne 1 ] || \
+     [ "${BACKUP_GPG_PRIMARY_FINGERPRINTS[0]}" != "${BACKUP_GPG_RECIPIENT^^}" ]; then
+    echo "ERROR: BACKUP_GPG_RECIPIENT does not resolve to exactly one matching primary public key." >&2
     exit 2
   fi
 fi
@@ -196,6 +215,7 @@ fi
 KEEPER_PID=""
 
 UPLOAD_PATH="${DUMP_PATH}"
+VERIFICATION_UPLOAD_PATH="${DATABASE_PAYLOAD}"
 if [ -n "${BACKUP_GPG_RECIPIENT}" ]; then
   if ! command -v gpg >/dev/null 2>&1; then
     echo "ERROR: BACKUP_GPG_RECIPIENT set but gpg not found on PATH." >&2
@@ -206,15 +226,21 @@ if [ -n "${BACKUP_GPG_RECIPIENT}" ]; then
     --recipient "${BACKUP_GPG_RECIPIENT}" \
     --output "${DUMP_PATH}.gpg" \
     "${DUMP_PATH}"
+  gpg --batch --yes --trust-model always --encrypt \
+    --recipient "${BACKUP_GPG_RECIPIENT}" \
+    --output "${DATABASE_PAYLOAD}.gpg" \
+    "${DATABASE_PAYLOAD}"
   UPLOAD_PATH="${DUMP_PATH}.gpg"
+  VERIFICATION_UPLOAD_PATH="${DATABASE_PAYLOAD}.gpg"
 fi
 
 UPLOAD_SIZE=$(stat -c '%s' "${UPLOAD_PATH}")
 UPLOAD_SHA256=$(sha256sum "${UPLOAD_PATH}" | awk '{print $1}')
-VERIFICATION_SIZE=$(stat -c '%s' "${DATABASE_PAYLOAD}")
-VERIFICATION_SHA256=$(sha256sum "${DATABASE_PAYLOAD}" | awk '{print $1}')
+VERIFICATION_SIZE=$(stat -c '%s' "${VERIFICATION_UPLOAD_PATH}")
+VERIFICATION_SHA256=$(sha256sum "${VERIFICATION_UPLOAD_PATH}" | awk '{print $1}')
+VERIFICATION_PAYLOAD_SHA256=$(sha256sum "${DATABASE_PAYLOAD}" | awk '{print $1}')
 log "Local dump integrity: size=${UPLOAD_SIZE} sha256=${UPLOAD_SHA256}"
-log "Local verification integrity: size=${VERIFICATION_SIZE} sha256=${VERIFICATION_SHA256}"
+log "Local encrypted verification integrity: size=${VERIFICATION_SIZE} sha256=${VERIFICATION_SHA256}"
 
 if [ "${BACKUP_DUMP_ONLY}" = "true" ]; then
   log "BACKUP_DUMP_ONLY=true — snapshot-bound dump and verification completed; skipping upload"
@@ -222,35 +248,34 @@ if [ "${BACKUP_DUMP_ONLY}" = "true" ]; then
 fi
 
 REMOTE_KEY="${BACKUP_PREFIX}/$(date -u +%Y/%m/%d)/$(basename "${UPLOAD_PATH}")"
-VERIFICATION_KEY="${REMOTE_KEY}.verification.json"
+VERIFICATION_KEY="${REMOTE_KEY}.verification.json.gpg"
 
 log "Uploading verification sidecar to s3://${SPACES_BUCKET}/${VERIFICATION_KEY}"
-aws s3 cp "${DATABASE_PAYLOAD}" "s3://${SPACES_BUCKET}/${VERIFICATION_KEY}" \
+aws s3 cp "${VERIFICATION_UPLOAD_PATH}" "s3://${SPACES_BUCKET}/${VERIFICATION_KEY}" \
   --endpoint-url "${SPACES_ENDPOINT}" \
   --only-show-errors \
-  --sse AES256 \
-  --metadata "source=${POSTGRES_CONTAINER},db=${POSTGRES_DB},sha256=${VERIFICATION_SHA256},dump_sha256=${UPLOAD_SHA256}"
+  --metadata "source=${POSTGRES_CONTAINER},db=${POSTGRES_DB},sha256=${VERIFICATION_SHA256},payload_sha256=${VERIFICATION_PAYLOAD_SHA256},dump_sha256=${UPLOAD_SHA256}"
 
 log "Uploading dump to s3://${SPACES_BUCKET}/${REMOTE_KEY}"
 aws s3 cp "${UPLOAD_PATH}" "s3://${SPACES_BUCKET}/${REMOTE_KEY}" \
   --endpoint-url "${SPACES_ENDPOINT}" \
   --only-show-errors \
-  --sse AES256 \
-  --metadata "source=${POSTGRES_CONTAINER},db=${POSTGRES_DB},sha256=${UPLOAD_SHA256},verification_sha256=${VERIFICATION_SHA256},verification_size=${VERIFICATION_SIZE},verification_key=${VERIFICATION_KEY}"
+  --metadata "source=${POSTGRES_CONTAINER},db=${POSTGRES_DB},sha256=${UPLOAD_SHA256},verification_sha256=${VERIFICATION_SHA256},verification_payload_sha256=${VERIFICATION_PAYLOAD_SHA256},verification_size=${VERIFICATION_SIZE},verification_key=${VERIFICATION_KEY}"
 
 HEAD_DUMP=$(aws s3api head-object \
   --bucket "${SPACES_BUCKET}" \
   --key "${REMOTE_KEY}" \
   --endpoint-url "${SPACES_ENDPOINT}" \
-  --query '[ContentLength, Metadata.sha256, Metadata.verification_sha256, Metadata.verification_key]' \
+  --query '[ContentLength, Metadata.sha256, Metadata.verification_sha256, Metadata.verification_payload_sha256, Metadata.verification_key]' \
   --output text)
-read -r REMOTE_SIZE REMOTE_SHA256 REMOTE_VERIFICATION_SHA256 REMOTE_VERIFICATION_KEY <<< "${HEAD_DUMP}"
+read -r REMOTE_SIZE REMOTE_SHA256 REMOTE_VERIFICATION_SHA256 REMOTE_VERIFICATION_PAYLOAD_SHA256 REMOTE_VERIFICATION_KEY <<< "${HEAD_DUMP}"
 
 if [ "${REMOTE_SIZE}" != "${UPLOAD_SIZE}" ] || [ "${REMOTE_SHA256}" != "${UPLOAD_SHA256}" ]; then
   echo "ERROR: uploaded dump size or SHA-256 metadata mismatch." >&2
   exit 5
 fi
 if [ "${REMOTE_VERIFICATION_SHA256}" != "${VERIFICATION_SHA256}" ] || \
+   [ "${REMOTE_VERIFICATION_PAYLOAD_SHA256}" != "${VERIFICATION_PAYLOAD_SHA256}" ] || \
    [ "${REMOTE_VERIFICATION_KEY}" != "${VERIFICATION_KEY}" ]; then
   echo "ERROR: uploaded dump is not bound to the expected verification sidecar." >&2
   exit 5
@@ -260,12 +285,13 @@ HEAD_VERIFICATION=$(aws s3api head-object \
   --bucket "${SPACES_BUCKET}" \
   --key "${VERIFICATION_KEY}" \
   --endpoint-url "${SPACES_ENDPOINT}" \
-  --query '[ContentLength, Metadata.sha256, Metadata.dump_sha256]' \
+  --query '[ContentLength, Metadata.sha256, Metadata.payload_sha256, Metadata.dump_sha256]' \
   --output text)
-read -r REMOTE_VERIFICATION_SIZE REMOTE_SIDE_SHA256 REMOTE_SIDE_DUMP_SHA256 <<< "${HEAD_VERIFICATION}"
+read -r REMOTE_VERIFICATION_SIZE REMOTE_SIDE_SHA256 REMOTE_SIDE_PAYLOAD_SHA256 REMOTE_SIDE_DUMP_SHA256 <<< "${HEAD_VERIFICATION}"
 
 if [ "${REMOTE_VERIFICATION_SIZE}" != "${VERIFICATION_SIZE}" ] || \
    [ "${REMOTE_SIDE_SHA256}" != "${VERIFICATION_SHA256}" ] || \
+   [ "${REMOTE_SIDE_PAYLOAD_SHA256}" != "${VERIFICATION_PAYLOAD_SHA256}" ] || \
    [ "${REMOTE_SIDE_DUMP_SHA256}" != "${UPLOAD_SHA256}" ]; then
   echo "ERROR: uploaded verification sidecar metadata does not match the dump." >&2
   exit 5

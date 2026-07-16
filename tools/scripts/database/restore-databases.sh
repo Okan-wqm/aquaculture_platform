@@ -2,12 +2,15 @@
 # -----------------------------------------------------------------------------
 # restore-databases.sh — isolated restore with fail-closed parity verification
 #
-# Downloads one dump and its snapshot-bound verification JSON, restores into a
-# disposable database, then re-runs the same collector and requires byte-for-
-# byte parity. The command refuses protected/unsafe database names and enforces
-# the 60-minute recovery-time objective by default.
+# Downloads one GPG-encrypted dump and its independently encrypted,
+# snapshot-bound verification JSON, verifies their reciprocal ciphertext
+# metadata, decrypts both with one exact escrowed primary-key fingerprint,
+# restores into a disposable database, then re-runs the same collector and
+# requires byte-for-byte plaintext parity. The command refuses protected/unsafe
+# database names and enforces the 60-minute recovery-time objective by default.
 # -----------------------------------------------------------------------------
 
+set +x
 set -euo pipefail
 
 RESTORE_STARTED_EPOCH=$(date -u +%s)
@@ -56,27 +59,82 @@ if ! command -v aws >/dev/null 2>&1; then
   echo "ERROR: aws CLI not found on PATH." >&2
   exit 2
 fi
-if ! docker inspect "${TARGET_CONTAINER}" >/dev/null 2>&1; then
+if ! TARGET_CONTAINER_ID=$(docker container inspect --format '{{.Id}}' "${TARGET_CONTAINER}" 2>/dev/null); then
   echo "ERROR: target container '${TARGET_CONTAINER}' not found." >&2
   exit 2
 fi
-TARGET_ROLE=$(docker inspect \
+if [[ ! "${TARGET_CONTAINER_ID}" =~ ^[0-9a-f]{64}$ ]]; then
+  echo 'FATAL: target container did not resolve to one immutable 64-hex ID.' >&2
+  exit 4
+fi
+TARGET_ROLE=$(docker container inspect \
   --format '{{ index .Config.Labels "com.aqua-saas.restore.role" }}' \
-  "${TARGET_CONTAINER}")
-COMPOSE_SERVICE=$(docker inspect \
+  "${TARGET_CONTAINER_ID}")
+COMPOSE_SERVICE=$(docker container inspect \
   --format '{{ index .Config.Labels "com.docker.compose.service" }}' \
-  "${TARGET_CONTAINER}")
+  "${TARGET_CONTAINER_ID}")
+PUBLISHED_PORTS=$(docker container inspect \
+  --format '{{ json .HostConfig.PortBindings }}' \
+  "${TARGET_CONTAINER_ID}")
 if [ "${TARGET_ROLE}" != "${RESTORE_TARGET_ROLE}" ] || [ "${COMPOSE_SERVICE}" = 'postgres' ]; then
   echo "FATAL: target container lacks isolated restore attestation." >&2
   echo "       Required label: ${RESTORE_TARGET_LABEL}=${RESTORE_TARGET_ROLE}" >&2
   exit 4
 fi
+if [ "${PUBLISHED_PORTS}" != '{}' ] && [ "${PUBLISHED_PORTS}" != 'null' ]; then
+  echo 'FATAL: isolated restore target must not publish host ports.' >&2
+  exit 4
+fi
+
+target_authority_sha256() {
+  docker container inspect \
+    --format '{{ .Id }}|{{ .Name }}|{{ json .Config.Labels }}|{{ json .HostConfig.Binds }}|{{ json .HostConfig.PortBindings }}|{{ json .Mounts }}|{{ json .NetworkSettings.Networks }}|{{ .State.Running }}' \
+    "$1" | sha256sum | awk '{print $1}'
+}
+
+TARGET_AUTHORITY_SHA256=$(target_authority_sha256 "${TARGET_CONTAINER_ID}")
+if [[ ! "${TARGET_AUTHORITY_SHA256}" =~ ^[0-9a-f]{64}$ ]]; then
+  echo 'FATAL: could not capture isolated restore target authority.' >&2
+  exit 4
+fi
+
+assert_restore_target_authority() {
+  local current_name_id current_id current_authority current_role current_compose current_ports
+  current_name_id=$(docker container inspect --format '{{.Id}}' "${TARGET_CONTAINER}" 2>/dev/null) || {
+    echo 'FATAL: isolated restore target name no longer resolves.' >&2
+    exit 4
+  }
+  current_id=$(docker container inspect --format '{{.Id}}' "${TARGET_CONTAINER_ID}" 2>/dev/null) || {
+    echo 'FATAL: immutable isolated restore target no longer exists.' >&2
+    exit 4
+  }
+  current_authority=$(target_authority_sha256 "${TARGET_CONTAINER_ID}")
+  current_role=$(docker container inspect \
+    --format '{{ index .Config.Labels "com.aqua-saas.restore.role" }}' \
+    "${TARGET_CONTAINER_ID}")
+  current_compose=$(docker container inspect \
+    --format '{{ index .Config.Labels "com.docker.compose.service" }}' \
+    "${TARGET_CONTAINER_ID}")
+  current_ports=$(docker container inspect \
+    --format '{{ json .HostConfig.PortBindings }}' \
+    "${TARGET_CONTAINER_ID}")
+  if [ "${current_name_id}" != "${TARGET_CONTAINER_ID}" ] || \
+     [ "${current_id}" != "${TARGET_CONTAINER_ID}" ] || \
+     [ "${current_authority}" != "${TARGET_AUTHORITY_SHA256}" ] || \
+     [ "${current_role}" != "${RESTORE_TARGET_ROLE}" ] || \
+     [ "${current_compose}" = 'postgres' ] || \
+     { [ "${current_ports}" != '{}' ] && [ "${current_ports}" != 'null' ]; }; then
+    echo 'FATAL: isolated restore target authority changed before destructive SQL.' >&2
+    exit 4
+  fi
+}
 
 log() { printf '[%s] %s\n' "$(date -u +%FT%TZ)" "$*"; }
 
 TMP=$(mktemp -d -t pg-restore-XXXX)
 trap 'rm -rf "${TMP}"' EXIT
 LOCAL_DUMP="${TMP}/$(basename "${BACKUP_KEY}")"
+LOCAL_VERIFICATION_ENVELOPE="${TMP}/$(basename "${BACKUP_KEY}").verification.json.gpg"
 EXPECTED_DATABASE_PAYLOAD="${TMP}/expected-database-verification.json"
 ACTUAL_DATABASE_PAYLOAD="${TMP}/actual-database-verification.json"
 VERIFICATION_STDERR="${TMP}/database-verification.stderr"
@@ -86,17 +144,19 @@ HEAD_DUMP=$(aws s3api head-object \
   --bucket "${SPACES_BUCKET}" \
   --key "${BACKUP_KEY}" \
   --endpoint-url "${SPACES_ENDPOINT}" \
-  --query '[ContentLength, Metadata.sha256, Metadata.verification_sha256, Metadata.verification_size, Metadata.verification_key]' \
+  --query '[ContentLength, Metadata.sha256, Metadata.verification_sha256, Metadata.verification_payload_sha256, Metadata.verification_size, Metadata.verification_key]' \
   --output text)
-read -r REMOTE_SIZE REMOTE_SHA256 REMOTE_VERIFICATION_SHA256 REMOTE_VERIFICATION_SIZE VERIFICATION_KEY <<< "${HEAD_DUMP}"
+read -r REMOTE_SIZE REMOTE_SHA256 REMOTE_VERIFICATION_SHA256 REMOTE_VERIFICATION_PAYLOAD_SHA256 REMOTE_VERIFICATION_SIZE VERIFICATION_KEY <<< "${HEAD_DUMP}"
 
 if [ -z "${REMOTE_SHA256:-}" ] || [ "${REMOTE_SHA256}" = "None" ] || \
    [ -z "${REMOTE_VERIFICATION_SHA256:-}" ] || [ "${REMOTE_VERIFICATION_SHA256}" = "None" ] || \
+   [ -z "${REMOTE_VERIFICATION_PAYLOAD_SHA256:-}" ] || [ "${REMOTE_VERIFICATION_PAYLOAD_SHA256}" = "None" ] || \
    [ -z "${VERIFICATION_KEY:-}" ] || [ "${VERIFICATION_KEY}" = "None" ]; then
   echo "ERROR: backup object is missing dump or verification binding metadata." >&2
   exit 5
 fi
-if [ "${VERIFICATION_KEY}" != "${BACKUP_KEY}.verification.json" ]; then
+if [[ "${BACKUP_KEY}" != *.gpg ]] || \
+   [ "${VERIFICATION_KEY}" != "${BACKUP_KEY}.verification.json.gpg" ]; then
   echo "ERROR: verification key metadata does not match the canonical sidecar key." >&2
   exit 5
 fi
@@ -106,12 +166,13 @@ HEAD_VERIFICATION=$(aws s3api head-object \
   --bucket "${SPACES_BUCKET}" \
   --key "${VERIFICATION_KEY}" \
   --endpoint-url "${SPACES_ENDPOINT}" \
-  --query '[ContentLength, Metadata.sha256, Metadata.dump_sha256]' \
+  --query '[ContentLength, Metadata.sha256, Metadata.payload_sha256, Metadata.dump_sha256]' \
   --output text)
-read -r SIDE_SIZE SIDE_SHA256 SIDE_DUMP_SHA256 <<< "${HEAD_VERIFICATION}"
+read -r SIDE_SIZE SIDE_SHA256 SIDE_PAYLOAD_SHA256 SIDE_DUMP_SHA256 <<< "${HEAD_VERIFICATION}"
 
 if [ "${SIDE_SIZE}" != "${REMOTE_VERIFICATION_SIZE}" ] || \
    [ "${SIDE_SHA256}" != "${REMOTE_VERIFICATION_SHA256}" ] || \
+   [ "${SIDE_PAYLOAD_SHA256}" != "${REMOTE_VERIFICATION_PAYLOAD_SHA256}" ] || \
    [ "${SIDE_DUMP_SHA256}" != "${REMOTE_SHA256}" ]; then
   echo "ERROR: dump and verification sidecar metadata are not reciprocal." >&2
   exit 5
@@ -121,14 +182,14 @@ log "Downloading dump and verification sidecar"
 aws s3 cp "s3://${SPACES_BUCKET}/${BACKUP_KEY}" "${LOCAL_DUMP}" \
   --endpoint-url "${SPACES_ENDPOINT}" \
   --only-show-errors
-aws s3 cp "s3://${SPACES_BUCKET}/${VERIFICATION_KEY}" "${EXPECTED_DATABASE_PAYLOAD}" \
+aws s3 cp "s3://${SPACES_BUCKET}/${VERIFICATION_KEY}" "${LOCAL_VERIFICATION_ENVELOPE}" \
   --endpoint-url "${SPACES_ENDPOINT}" \
   --only-show-errors
 
 LOCAL_SIZE=$(stat -c '%s' "${LOCAL_DUMP}")
 LOCAL_SHA256=$(sha256sum "${LOCAL_DUMP}" | awk '{print $1}')
-LOCAL_VERIFICATION_SIZE=$(stat -c '%s' "${EXPECTED_DATABASE_PAYLOAD}")
-LOCAL_VERIFICATION_SHA256=$(sha256sum "${EXPECTED_DATABASE_PAYLOAD}" | awk '{print $1}')
+LOCAL_VERIFICATION_SIZE=$(stat -c '%s' "${LOCAL_VERIFICATION_ENVELOPE}")
+LOCAL_VERIFICATION_SHA256=$(sha256sum "${LOCAL_VERIFICATION_ENVELOPE}" | awk '{print $1}')
 
 if [ "${LOCAL_SIZE}" != "${REMOTE_SIZE}" ] || [ "${LOCAL_SHA256}" != "${REMOTE_SHA256}" ]; then
   echo "ERROR: downloaded dump size or SHA-256 mismatch." >&2
@@ -140,30 +201,55 @@ if [ "${LOCAL_VERIFICATION_SIZE}" != "${REMOTE_VERIFICATION_SIZE}" ] || \
   exit 5
 fi
 
-if [[ "${LOCAL_DUMP}" == *.gpg ]]; then
-  : "${BACKUP_GPG_KEY:?BACKUP_GPG_KEY required to decrypt .gpg archive}"
-  if ! command -v gpg >/dev/null 2>&1; then
-    echo "ERROR: gpg not found on PATH." >&2
-    exit 2
-  fi
-  DECRYPTED="${LOCAL_DUMP%.gpg}"
-  gpg --batch --yes --decrypt \
-    --local-user "${BACKUP_GPG_KEY}" \
-    --output "${DECRYPTED}" \
-    "${LOCAL_DUMP}"
-  LOCAL_DUMP="${DECRYPTED}"
+if [[ "${LOCAL_DUMP}" != *.gpg ]]; then
+  echo "ERROR: logical restore accepts only client-encrypted .gpg archives." >&2
+  exit 5
+fi
+: "${BACKUP_GPG_KEY:?BACKUP_GPG_KEY required to decrypt client-encrypted backup payloads}"
+if ! command -v gpg >/dev/null 2>&1; then
+  echo "ERROR: gpg not found on PATH." >&2
+  exit 2
+fi
+if [[ ! "${BACKUP_GPG_KEY}" =~ ^[A-Fa-f0-9]{40}$ ]]; then
+  echo "ERROR: BACKUP_GPG_KEY must be an exact 40-hex primary-key fingerprint." >&2
+  exit 2
+fi
+mapfile -t BACKUP_GPG_SECRET_FINGERPRINTS < <(
+  gpg --batch --with-colons --fingerprint --list-secret-keys "${BACKUP_GPG_KEY}" 2>/dev/null |
+    awk -F: '$1 == "sec" { want_fingerprint = 1; next } want_fingerprint && $1 == "fpr" { print toupper($10); want_fingerprint = 0 }'
+)
+if [ "${#BACKUP_GPG_SECRET_FINGERPRINTS[@]}" -ne 1 ] || \
+   [ "${BACKUP_GPG_SECRET_FINGERPRINTS[0]}" != "${BACKUP_GPG_KEY^^}" ]; then
+  echo "ERROR: BACKUP_GPG_KEY does not resolve to exactly one matching primary secret key." >&2
+  exit 2
+fi
+
+DECRYPTED="${LOCAL_DUMP%.gpg}"
+gpg --batch --yes --try-secret-key "${BACKUP_GPG_KEY}" --decrypt \
+  --output "${DECRYPTED}" \
+  "${LOCAL_DUMP}"
+gpg --batch --yes --try-secret-key "${BACKUP_GPG_KEY}" --decrypt \
+  --output "${EXPECTED_DATABASE_PAYLOAD}" \
+  "${LOCAL_VERIFICATION_ENVELOPE}"
+LOCAL_DUMP="${DECRYPTED}"
+
+if [ "$(sha256sum "${EXPECTED_DATABASE_PAYLOAD}" | awk '{print $1}')" != \
+     "${REMOTE_VERIFICATION_PAYLOAD_SHA256}" ]; then
+  echo "ERROR: decrypted verification payload SHA-256 differs from bound metadata." >&2
+  exit 5
 fi
 
 log "Dropping and recreating isolated database ${TARGET_DB}"
+assert_restore_target_authority
 docker exec -i \
   -e "PGPASSWORD=${PGPASSWORD:-}" \
-  "${TARGET_CONTAINER}" \
+  "${TARGET_CONTAINER_ID}" \
   dropdb --if-exists --force "${TARGET_DB}" \
     -U "${TARGET_USER}" \
     --maintenance-db=postgres
 docker exec -i \
   -e "PGPASSWORD=${PGPASSWORD:-}" \
-  "${TARGET_CONTAINER}" \
+  "${TARGET_CONTAINER_ID}" \
   createdb "${TARGET_DB}" \
     -U "${TARGET_USER}" \
     --maintenance-db=postgres
@@ -174,7 +260,7 @@ printf '%s\n' \
   'SELECT timescaledb_pre_restore();' | \
   docker exec -i \
     -e "PGPASSWORD=${PGPASSWORD:-}" \
-    "${TARGET_CONTAINER}" \
+    "${TARGET_CONTAINER_ID}" \
     psql \
       -X \
       -qAt \
@@ -185,7 +271,7 @@ printf '%s\n' \
 log "Restoring archive into ${TARGET_DB}"
 docker exec -i \
   -e "PGPASSWORD=${PGPASSWORD:-}" \
-  "${TARGET_CONTAINER}" \
+  "${TARGET_CONTAINER_ID}" \
   pg_restore \
     -U "${TARGET_USER}" \
     -d "${TARGET_DB}" \
@@ -199,7 +285,7 @@ log "Finalizing TimescaleDB restore mode"
 printf '%s\n' 'SELECT timescaledb_post_restore();' | \
   docker exec -i \
     -e "PGPASSWORD=${PGPASSWORD:-}" \
-    "${TARGET_CONTAINER}" \
+    "${TARGET_CONTAINER_ID}" \
     psql \
       -X \
       -qAt \
@@ -214,7 +300,7 @@ if ! (
   printf '\nCOMMIT;\n'
 ) | docker exec -i \
       -e "PGPASSWORD=${PGPASSWORD:-}" \
-      "${TARGET_CONTAINER}" \
+      "${TARGET_CONTAINER_ID}" \
       psql \
         -X \
         -qAt \

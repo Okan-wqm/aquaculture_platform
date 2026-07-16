@@ -50,6 +50,10 @@ tools/gates/                     @Okan-wqm
 .github/manifests/               @Okan-wqm
 .github/CODEOWNERS               @Okan-wqm
 .github/dependabot.yml           @Okan-wqm
+tools/scripts/ci/prepare-protected-runtime-bundle.sh @Okan-wqm
+tools/scripts/ci/run-protected-ssh.sh                 @Okan-wqm
+tools/scripts/ci/                                     @Okan-wqm
+tools/scripts/database/                               @Okan-wqm
 
 # ── Tooling scripts (finding registry, closes-footer, gates) ─────────
 # Any change here can disable the traceability loop or registry integrity.

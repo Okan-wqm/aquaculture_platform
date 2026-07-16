@@ -14,7 +14,7 @@
  *
  * # Architecture
  *
- * The bootstrap is split into 9 ordered stages. Each stage is a single SQL
+ * The bootstrap is split into 11 ordered stages. Each stage is a single SQL
  * file under apps/db-migrate/src/sql/platform-bootstrap/, except stage 002
  * (roles) which carries env-substituted passwords and is generated in this
  * file. Order is load-bearing:
@@ -31,6 +31,8 @@
  *   010  partition-definer — platform.create_messaging_partition (SECURITY
  *        DEFINER, owner messaging_schema_owner) + tenant-schema authority
  *        backfill (DATA-HIGH-006)
+ *   011  PITR drill ledger — immutable before/after transaction sentinels
+ *        used by the protected timestamp-recovery ceremony (INFRA-HIGH-041)
  *
  * # Why TypeScript wraps SQL files
  *

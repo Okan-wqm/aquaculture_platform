@@ -8,6 +8,7 @@
     { "workflow": "aria-daily-report.yml", "maxAgeHours": 30 },
     { "workflow": "backup-production.yml", "maxAgeHours": 30 },
     { "workflow": "ci-full.yml", "maxAgeHours": 192 },
+    { "workflow": "database-wal-archive-freshness.yml", "maxAgeHours": 1 },
     { "workflow": "db-migration-check.yml", "maxAgeHours": 30 },
     { "workflow": "deploy-capacity-maintenance.yml", "maxAgeHours": 8 },
     { "workflow": "finding-state-sweep.yml", "maxAgeHours": 30 },

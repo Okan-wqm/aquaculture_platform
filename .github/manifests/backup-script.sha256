@@ -1,40 +1,7 @@
-# Integrity manifest for backup-databases.sh
-# =============================================================================
-#
-# This file pins the SHA-256 of every trusted file that the scheduled
-# production backup workflow is permitted to execute or consume on the
-# droplet.
-#
-# Without this pin, backup-production.yml checked out HEAD of origin/main,
-# meaning any attacker who landed a malicious commit on main would gain
-# arbitrary code execution on the droplet as the SSH user during the
-# nightly backup job.
-#
-# # Maintenance contract (INFRA-1 fix, plan v4 W2-E)
-#
-#   1. Any change to either trusted runtime file REQUIRES a paired update to
-#      the hashes below in the same PR.
-#   2. CI enforces the manifest-vs-script match via
-#      `.github/workflows/backup-manifest-invariant.yml` (W3) —
-#      PR fails if hash drifts from the file content.
-#   3. Per BLOCKER-9 CODEOWNERS routing, both the workflow file and
-#      this manifest live under `.github/**` which routes to @Okan-wqm.
-#      A malicious PR cannot silently update the manifest alongside
-#      the script.
-#
-# # Regenerating the hash
-#
-#   sha256sum tools/scripts/database/backup-databases.sh tools/scripts/database/database-verification.sql
-#
-# # Refs
-#
-#   /root/.claude/plans/declarative-riding-shamir.md INFRA-1
-#   /var/aqua-saas/docs/reviews/_audit/2026-04-W16-unified-audit.md
-#     (infra-expert finding surfacing the git-checkout-of-origin-main
-#     code-execution vector)
-#
-# =============================================================================
-
-# sha256  path
-63aa2898b3645e7c8a38af13a498fac4177b22e23f94553eb80557d21b278315  tools/scripts/database/backup-databases.sh
+04ab2e257dadd5db9312750d0e9c523a9e83dd71f5743b8c1be982c1c6a3f9e0  .github/manifests/postgres-dr-contract.sha256
+f23d1c0cce63e2f69db476cea559ade6ec431a3081ae9663915d30b9547817ac  tools/scripts/database/backup-databases.sh
 8d525bf3cb5e554107dca4e0710e306d2428fc63e936953a5a57f0550eb168b0  tools/scripts/database/database-verification.sql
+0268e4186dc29355af42a63858b804b1da54b1565889886851c19a59b87f3dea  tools/scripts/database/evaluate-walg-evidence.mjs
+8c764e13798068deddf9328344bfec7b03321d5c5598c3327a488c9f9103b5bd  tools/scripts/database/materialize-walg-secrets.sh
+314a278ae7ad422d50b26617857af6360e6e0aa270535a62935f2bab7d0bfe93  tools/scripts/database/walg-base-backup.sh
+c4c12f32a78b90b63cab025f11f7580688cf04e9548d066464c94098d4529b6c  tools/scripts/database/walg-pitr-restore.sh

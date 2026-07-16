@@ -1,7 +1,17 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 
 import {
   GLOBAL_SENTINELS,
@@ -15,7 +25,22 @@ const RESTORE_SCRIPT_PATH = join(REPO_ROOT, 'tools/scripts/database/restore-data
 const VERIFICATION_SQL_PATH = join(REPO_ROOT, 'tools/scripts/database/database-verification.sql');
 const HASH_MANIFEST_PATH = join(REPO_ROOT, '.github/manifests/backup-script.sha256');
 const BACKUP_WORKFLOW_PATH = join(REPO_ROOT, '.github/workflows/backup-production.yml');
+const PITR_WORKFLOW_PATH = join(REPO_ROOT, '.github/workflows/pitr-restore-production.yml');
 const HASH_WORKFLOW_PATH = join(REPO_ROOT, '.github/workflows/backup-manifest-invariant.yml');
+const BUNDLE_PREPARER_PATH = join(
+  REPO_ROOT,
+  'tools/scripts/ci/prepare-protected-runtime-bundle.sh',
+);
+const RUNTIME_BUNDLE_PATHS = [
+  '.github/manifests/postgres-dr-contract.sha256',
+  'tools/scripts/database/backup-databases.sh',
+  'tools/scripts/database/database-verification.sql',
+  'tools/scripts/database/evaluate-walg-evidence.mjs',
+  'tools/scripts/database/materialize-walg-secrets.sh',
+  'tools/scripts/database/walg-base-backup.sh',
+  'tools/scripts/database/walg-pitr-restore.sh',
+] as const;
+const MUTABLE_RUNTIME_PATH = 'tools/scripts/database/backup-databases.sh';
 
 function read(path: string): string {
   return readFileSync(path, 'utf8');
@@ -32,6 +57,80 @@ function manifestEntries(manifest: string): Map<string, string> {
     if (match?.[1] && match[2]) entries.set(match[2], match[1]);
   }
   return entries;
+}
+
+function extractRemoteScript(workflow: string): string {
+  const openingMarker = "<<'AQUA_REMOTE_SCRIPT'";
+  const markerStart = workflow.indexOf(openingMarker);
+  if (markerStart < 0) throw new Error('Could not find AQUA_REMOTE_SCRIPT opening marker');
+  const scriptStart = workflow.indexOf('\n', markerStart) + 1;
+  const scriptEnd = workflow.indexOf('\n          AQUA_REMOTE_SCRIPT', scriptStart);
+  if (scriptStart === 0 || scriptEnd < scriptStart) {
+    throw new Error('Could not find AQUA_REMOTE_SCRIPT closing marker');
+  }
+  return workflow.slice(scriptStart, scriptEnd);
+}
+
+interface RuntimeBundleFixture {
+  root: string;
+  preparerPath: string;
+  sourceSha: string;
+}
+
+function runFixtureGit(root: string, args: readonly string[]): string {
+  const result = spawnSync('git', [...args], {
+    cwd: root,
+    encoding: 'utf8',
+    env: {
+      PATH: process.env.PATH ?? '/usr/bin:/bin',
+      HOME: root,
+      LC_ALL: 'C',
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_CONFIG_GLOBAL: '/dev/null',
+    },
+  });
+  if (result.status !== 0) {
+    throw new Error(`fixture git ${args.join(' ')} failed: ${result.stderr}`);
+  }
+  return result.stdout.trim();
+}
+
+function createRuntimeBundleFixture(): RuntimeBundleFixture {
+  const root = mkdtempSync(join(tmpdir(), 'aqua-runtime-bundle-repo-'));
+  const preparerPath = join(root, 'tools/scripts/ci/prepare-protected-runtime-bundle.sh');
+  mkdirSync(dirname(preparerPath), { recursive: true });
+  copyFileSync(BUNDLE_PREPARER_PATH, preparerPath);
+
+  for (const path of RUNTIME_BUNDLE_PATHS) {
+    const destination = join(root, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    copyFileSync(join(REPO_ROOT, path), destination);
+  }
+  const manifestPath = join(root, '.github/manifests/backup-script.sha256');
+  mkdirSync(dirname(manifestPath), { recursive: true });
+  writeFileSync(
+    manifestPath,
+    `${RUNTIME_BUNDLE_PATHS.map((path) => `${sha256(join(REPO_ROOT, path))}  ${path}`).join(
+      '\n',
+    )}\n`,
+    { mode: 0o600 },
+  );
+
+  runFixtureGit(root, ['init', '--quiet']);
+  runFixtureGit(root, ['add', '--all']);
+  runFixtureGit(root, [
+    '-c',
+    'user.name=Aqua Test',
+    '-c',
+    'user.email=aqua-test@example.invalid',
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '--quiet',
+    '-m',
+    'test: protected runtime fixture',
+  ]);
+  return { root, preparerPath, sourceSha: runFixtureGit(root, ['rev-parse', 'HEAD']) };
 }
 
 describe('backup and isolated restore verification contract', () => {
@@ -53,16 +152,30 @@ describe('backup and isolated restore verification contract', () => {
     ]);
   });
 
-  it('uses one exported PostgreSQL snapshot for pg_dump and the verification sidecar', () => {
+  it('uses one exported PostgreSQL snapshot and publishes only GPG-encrypted artifacts', () => {
     const backup = read(BACKUP_SCRIPT_PATH);
 
     expect(backup).toContain('SELECT pg_export_snapshot();');
     expect(backup).toContain('--snapshot="${SNAPSHOT_ID}"');
     expect(backup).toContain('database-verification.sql');
-    expect(backup).toContain('.verification.json');
+    expect(backup).toContain(
+      'BACKUP_GPG_RECIPIENT must be an exact 40-hex primary-key fingerprint',
+    );
+    expect(backup).toContain('mapfile -t BACKUP_GPG_PRIMARY_FINGERPRINTS');
+    expect(backup).toContain('--list-keys "${BACKUP_GPG_RECIPIENT}"');
+    expect(backup).toContain('[ "${#BACKUP_GPG_PRIMARY_FINGERPRINTS[@]}" -ne 1 ]');
+    expect(backup).toContain('--recipient "${BACKUP_GPG_RECIPIENT}"');
+    expect(backup).toContain('--output "${DATABASE_PAYLOAD}.gpg"');
+    expect(backup).toContain('VERIFICATION_UPLOAD_PATH="${DATABASE_PAYLOAD}.gpg"');
+    expect(backup).toContain('VERIFICATION_KEY="${REMOTE_KEY}.verification.json.gpg"');
+    expect(backup).toContain('VERIFICATION_SHA256=$(sha256sum "${VERIFICATION_UPLOAD_PATH}"');
+    expect(backup).toContain('VERIFICATION_PAYLOAD_SHA256=$(sha256sum "${DATABASE_PAYLOAD}"');
     expect(backup).toContain('verification_sha256=${VERIFICATION_SHA256}');
+    expect(backup).toContain('verification_payload_sha256=${VERIFICATION_PAYLOAD_SHA256}');
+    expect(backup).toContain('payload_sha256=${VERIFICATION_PAYLOAD_SHA256}');
     expect(backup).toContain('verification_key=${VERIFICATION_KEY}');
     expect(backup).toContain('dump_sha256=${UPLOAD_SHA256}');
+    expect(backup).not.toContain('--local-user');
   });
 
   it('fails restore closed on unsafe database names, parity mismatch, or RTO breach', () => {
@@ -71,7 +184,7 @@ describe('backup and isolated restore verification contract', () => {
     expect(restore).toMatch(/MAX_RESTORE_SECONDS="\$\{MAX_RESTORE_SECONDS:-3600\}"/);
     expect(restore).toContain('if [ "${MAX_RESTORE_SECONDS}" -gt 3600 ]; then');
     expect(restore).toContain('database-verification.sql');
-    expect(restore).toContain('.verification.json');
+    expect(restore).toContain('.verification.json.gpg');
     expect(restore).toContain('com.aqua-saas.restore.role');
     expect(restore).toContain('isolated-drill');
     expect(restore).not.toContain('I_UNDERSTAND_DRILL_AGAINST_LIVE_CONTAINER');
@@ -81,8 +194,43 @@ describe('backup and isolated restore verification contract', () => {
     expect(restore).toContain('SELECT timescaledb_post_restore();');
     expect(restore).toContain('cmp -s "${EXPECTED_DATABASE_PAYLOAD}" "${ACTUAL_DATABASE_PAYLOAD}"');
     expect(restore).toContain('RESTORE_ELAPSED_SECONDS');
+    expect(restore).toContain(
+      'TARGET_CONTAINER_ID=$(docker container inspect --format \'{{.Id}}\' "${TARGET_CONTAINER}"',
+    );
+    expect(restore).toContain('[[ ! "${TARGET_CONTAINER_ID}" =~ ^[0-9a-f]{64}$ ]]');
+    expect(restore).toContain('target_authority_sha256()');
+    expect(restore).toContain('assert_restore_target_authority');
+    expect(restore).toContain('[ "${current_name_id}" != "${TARGET_CONTAINER_ID}" ]');
+    expect(restore).toContain('[ "${current_authority}" != "${TARGET_AUTHORITY_SHA256}" ]');
+    expect(restore).toContain('"${TARGET_CONTAINER_ID}" \\\n  dropdb');
+    expect(restore).not.toMatch(/docker exec -i[\s\S]{0,100}"\$\{TARGET_CONTAINER\}"/);
     expect(restore).not.toContain('DROP DATABASE IF EXISTS ${TARGET_DB}');
     expect(restore).not.toContain('CREATE DATABASE ${TARGET_DB}');
+  });
+
+  it('binds both ciphertexts reciprocally and selects one exact primary secret key', () => {
+    const restore = read(RESTORE_SCRIPT_PATH);
+
+    expect(restore).toContain(
+      'LOCAL_VERIFICATION_ENVELOPE="${TMP}/$(basename "${BACKUP_KEY}").verification.json.gpg"',
+    );
+    expect(restore).toContain('[ "${VERIFICATION_KEY}" != "${BACKUP_KEY}.verification.json.gpg" ]');
+    expect(restore).toContain('[ "${SIDE_SHA256}" != "${REMOTE_VERIFICATION_SHA256}" ]');
+    expect(restore).toContain(
+      '[ "${SIDE_PAYLOAD_SHA256}" != "${REMOTE_VERIFICATION_PAYLOAD_SHA256}" ]',
+    );
+    expect(restore).toContain('[ "${SIDE_DUMP_SHA256}" != "${REMOTE_SHA256}" ]');
+    expect(restore).toContain(
+      'LOCAL_VERIFICATION_SHA256=$(sha256sum "${LOCAL_VERIFICATION_ENVELOPE}"',
+    );
+    expect(restore).toContain('BACKUP_GPG_KEY must be an exact 40-hex primary-key fingerprint');
+    expect(restore).toContain('mapfile -t BACKUP_GPG_SECRET_FINGERPRINTS');
+    expect(restore).toContain('--list-secret-keys "${BACKUP_GPG_KEY}"');
+    expect(restore).toContain('[ "${#BACKUP_GPG_SECRET_FINGERPRINTS[@]}" -ne 1 ]');
+    expect(restore.match(/--try-secret-key "\$\{BACKUP_GPG_KEY\}"/g)).toHaveLength(2);
+    expect(restore).toContain('--output "${EXPECTED_DATABASE_PAYLOAD}"');
+    expect(restore).toContain('"${REMOTE_VERIFICATION_PAYLOAD_SHA256}" ]; then');
+    expect(restore).not.toContain('--local-user');
   });
 
   it('refuses an operator-supplied RTO threshold above 60 minutes', () => {
@@ -135,8 +283,13 @@ describe('backup and isolated restore verification contract', () => {
     const manifest = read(HASH_MANIFEST_PATH);
     const entries = manifestEntries(manifest);
     const requiredPaths = [
+      '.github/manifests/postgres-dr-contract.sha256',
       'tools/scripts/database/backup-databases.sh',
       'tools/scripts/database/database-verification.sql',
+      'tools/scripts/database/evaluate-walg-evidence.mjs',
+      'tools/scripts/database/materialize-walg-secrets.sh',
+      'tools/scripts/database/walg-base-backup.sh',
+      'tools/scripts/database/walg-pitr-restore.sh',
     ];
 
     expect([...entries.keys()].sort()).toEqual([...requiredPaths].sort());
@@ -146,17 +299,128 @@ describe('backup and isolated restore verification contract', () => {
 
     const runtimeWorkflow = read(BACKUP_WORKFLOW_PATH);
     expect(runtimeWorkflow).toContain(
-      'ACTUAL_PATHS=$(awk \'$1 !~ /^#/ && NF == 2 {print $2}\' "$MANIFEST" | sort)',
+      'ACTUAL_PATHS=$(awk \'$1 !~ /^#/ && NF == 2 {print $2}\' "${MANIFEST}" | sort)',
     );
-    expect(runtimeWorkflow).toContain('while read -r EXPECTED_SHA TRUSTED_PATH; do');
-    expect(runtimeWorkflow).toContain('git checkout -f origin/main -- "${TRUSTED_PATH}"');
-    expect(runtimeWorkflow).toContain('sha256sum --check "$MANIFEST"');
+    expect(runtimeWorkflow).toContain('bash tools/scripts/ci/prepare-protected-runtime-bundle.sh');
+    expect(runtimeWorkflow).toContain('EXPECTED_ARCHIVE_PATHS=$(printf');
+    expect(runtimeWorkflow).toContain('RUNTIME_ROOT=$(mktemp -d /tmp/aqua-backup-runtime.XXXXXX)');
+    expect(runtimeWorkflow).toContain('sha256sum --check "${MANIFEST}"');
+    expect(runtimeWorkflow).toContain('[ -L "${TRUSTED_PATH}" ]');
+    expect(runtimeWorkflow).toContain('bash tools/scripts/ci/run-protected-ssh.sh');
+    expect(runtimeWorkflow).toContain('DROPLET_SSH_FINGERPRINT');
+    expect(runtimeWorkflow).toContain(
+      'REMOTE_EVIDENCE_B64: ${{ steps.remote_backup.outputs.evidence_b64 }}',
+    );
+    expect(runtimeWorkflow).not.toMatch(
+      /\bgit(?:\s+-C\s+(?:"[^"]+"|\S+))?\s+(?:checkout|restore|switch|reset)\b/,
+    );
+    expect(runtimeWorkflow).not.toContain('appleboy/ssh-action@');
+    expect(runtimeWorkflow).not.toContain('capture_stdout:');
+    expect(runtimeWorkflow).not.toContain('steps.remote_backup.outputs.stdout');
 
     const invariantWorkflow = read(HASH_WORKFLOW_PATH);
-    expect(invariantWorkflow).toContain("- 'tools/scripts/database/database-verification.sql'");
+    for (const path of requiredPaths) {
+      expect(invariantWorkflow).toContain(`- '${path}'`);
+    }
     expect(invariantWorkflow).toContain(
       "- 'tools/scripts/database/generate-database-verification-sql.ts'",
     );
+    expect(invariantWorkflow).toContain("- 'tools/scripts/ci/prepare-protected-runtime-bundle.sh'");
+    expect(invariantWorkflow).toContain('[ -L "$TRUSTED_PATH" ]');
     expect(invariantWorkflow).toContain('sha256sum --check "$MANIFEST"');
+  });
+
+  it('transfers the protected runner bundle without reading target-host Git state', () => {
+    const backupWorkflow = read(BACKUP_WORKFLOW_PATH);
+    const pitrWorkflow = read(PITR_WORKFLOW_PATH);
+
+    for (const workflow of [backupWorkflow, pitrWorkflow]) {
+      expect(workflow).toContain('bash tools/scripts/ci/prepare-protected-runtime-bundle.sh');
+      expect(workflow).toContain('SOURCE_SHA="${GITHUB_SHA}"');
+      expect(workflow).toContain('RUNTIME_BUNDLE_SHA256');
+      expect(workflow).toContain('base64 -w0 "${RUNTIME_BUNDLE_PATH}"');
+      expect(workflow).toContain('base64 --decode > "${RUNTIME_BUNDLE_TAR}"');
+      expect(workflow).toContain('EXPECTED_ARCHIVE_PATHS=$(printf');
+      expect(workflow).toContain('ARCHIVE_MEMBER_TYPES=$(tar -tvf');
+      expect(workflow).toContain('tar --extract --no-same-owner --no-same-permissions');
+      const remoteScript = extractRemoteScript(workflow);
+      expect(remoteScript).not.toMatch(
+        /(^|[^A-Za-z0-9_])(?:\/[A-Za-z0-9._/-]+\/)?git(?:-[A-Za-z0-9._-]+)?(?=$|[^A-Za-z0-9_])/i,
+      );
+      expect(remoteScript).not.toMatch(/(^|[\s/'"])\.git(?:[\s/'"]|$)/i);
+    }
+  });
+
+  it('builds an exact eight-file archive from the protected commit instead of the worktree', () => {
+    const fixture = createRuntimeBundleFixture();
+    const outputPath = join(fixture.root, 'runtime-bundle.tar');
+    const protectedContent = read(join(fixture.root, MUTABLE_RUNTIME_PATH));
+    try {
+      writeFileSync(join(fixture.root, MUTABLE_RUNTIME_PATH), 'mutable worktree bytes\n');
+      const prepared = spawnSync('bash', [fixture.preparerPath], {
+        cwd: fixture.root,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          OUTPUT_PATH: outputPath,
+          SOURCE_SHA: fixture.sourceSha,
+        },
+      });
+      expect(prepared.status).toBe(0);
+      expect(prepared.stdout.trim()).toMatch(/^[0-9a-f]{64}$/);
+
+      const archive = spawnSync('tar', ['-tf', outputPath], {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+      });
+      expect(archive.status).toBe(0);
+      expect(archive.stdout.trim().split('\n').sort()).toEqual([
+        '.github/manifests/backup-script.sha256',
+        ...[...RUNTIME_BUNDLE_PATHS].sort(),
+      ]);
+      const archivedContent = spawnSync('tar', ['-xOf', outputPath, MUTABLE_RUNTIME_PATH], {
+        cwd: fixture.root,
+        encoding: 'utf8',
+      });
+      expect(archivedContent.status).toBe(0);
+      expect(archivedContent.stdout).toBe(protectedContent);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a symlink entry in the protected runtime commit tree', () => {
+    const fixture = createRuntimeBundleFixture();
+    const outputPath = join(fixture.root, 'unsafe-runtime-bundle.tar');
+    try {
+      const symlinkPath = join(fixture.root, MUTABLE_RUNTIME_PATH);
+      unlinkSync(symlinkPath);
+      symlinkSync('/etc/passwd', symlinkPath);
+      runFixtureGit(fixture.root, ['add', '--all']);
+      runFixtureGit(fixture.root, [
+        '-c',
+        'user.name=Aqua Test',
+        '-c',
+        'user.email=aqua-test@example.invalid',
+        '-c',
+        'commit.gpgsign=false',
+        'commit',
+        '--quiet',
+        '-m',
+        'test: unsafe symlink fixture',
+      ]);
+      const unsafeSha = runFixtureGit(fixture.root, ['rev-parse', 'HEAD']);
+      const prepared = spawnSync('bash', [fixture.preparerPath], {
+        cwd: fixture.root,
+        encoding: 'utf8',
+        env: { ...process.env, OUTPUT_PATH: outputPath, SOURCE_SHA: unsafeSha },
+      });
+      expect(prepared.status).not.toBe(0);
+      expect(`${prepared.stdout}${prepared.stderr}`).toContain(
+        'protected runtime tree entry is not a regular file',
+      );
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
   });
 });

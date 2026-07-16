@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `f40bb973d1c048b0c3d59a03db509493caa71f27a86250a2a5ce7deeb066031b`
+Registry tip: `97b8b9e8f36f41bdbf0fd30828bf1f18f36f32e3ff416b25b785c5a9c5df9e04`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -52,8 +52,29 @@ Updated 2026-07-15: the control-plane stop-line reconciliation registered ninete
 new IN-PROGRESS findings and one OPEN frontend test-baseline finding without
 changing the active CRITICAL set. The backup/DR audit then registered one OPEN,
 two IN-PROGRESS, and one BLOCKED HIGH finding, again without changing the active
-CRITICAL set. The registry now contains 950 entries at the tip shown above; the
-manifest counts and this truth table remain pinned to that registry state.
+CRITICAL set. At that historical checkpoint the registry contained 950 entries;
+later updates below supersede that snapshot and the header reflects the current
+registry tip.
+
+Updated 2026-07-15 (backup/DR closure reconstruction): the registry now contains
+980 entries. `INFRA-CRITICAL-040` remains blocked on an independently trusted DR
+notary; `INFRA-CRITICAL-041` and `INFRA-CRITICAL-042` have local fixes and tests
+but remain IN-PROGRESS until their closing commit is merged and the post-merge
+registry ceremony records a main-reachable SHA.
+
+Updated 2026-07-16 (adversarial backup execution-boundary review): the registry
+now contains 991 entries. `INFRA-CRITICAL-043` has a local exact-commit runner
+bundle fix and remains IN-PROGRESS until merge/close ceremony.
+`INFRA-CRITICAL-044` remains an OPEN production blocker: an absolute sanitized
+inner shell cannot secure the earlier sshd/login-shell startup boundary, so a
+dedicated root-owned backup account and forced-command broker must be proven on
+the target before production closure.
+
+Updated 2026-07-16 (protected-job authority review): seven additional findings
+were registered IN-PROGRESS, bringing the registry to 998 entries.
+`INFRA-CRITICAL-045` has local job-level main guards, exact-SHA checkout and
+parsed workflow invariants, but remains IN-PROGRESS until merge and the
+post-merge close ceremony records a main-reachable closing commit.
 
 Allowed truth buckets:
 
@@ -75,6 +96,12 @@ Allowed truth buckets:
 | `RBAC-CRITICAL-001`     | OPEN           | 1.2          | auth-security-expert | already-fixed-needs-close |
 | `RBAC-CRITICAL-002`     | OPEN           | 1.2          | auth-security-expert | already-fixed-needs-close |
 | `RBAC-CRITICAL-003`     | OPEN           | 1.2          | auth-security-expert | already-fixed-needs-close |
+| `INFRA-CRITICAL-040`    | IN-PROGRESS    | —            | infra-expert         | blocked                   |
+| `INFRA-CRITICAL-041`    | IN-PROGRESS    | —            | infra-expert         | already-fixed-needs-close |
+| `INFRA-CRITICAL-042`    | IN-PROGRESS    | —            | infra-expert         | already-fixed-needs-close |
+| `INFRA-CRITICAL-043`    | IN-PROGRESS    | —            | infra-expert         | already-fixed-needs-close |
+| `INFRA-CRITICAL-044`    | OPEN           | —            | infra-expert         | blocked                   |
+| `INFRA-CRITICAL-045`    | IN-PROGRESS    | —            | infra-expert         | already-fixed-needs-close |
 
 ## Mutation Rules
 

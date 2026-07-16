@@ -1,44 +1,314 @@
 # Database Restore Drill
 
-## Backup Workflow Missing-Secret Repair
+## Protected backup environment
 
-The production backup workflow resolves its credentials from the
-`production-backup` GitHub Environment, not from generic repository secrets.
-Create it before seeding credentials:
+Backup, archive-freshness, PITR, evidence publication, and closure verification
+resolve credentials from the `production-backup` GitHub Environment. Generic
+repository secrets are not part of this trust boundary. Create the Environment
+before seeding credentials:
 
 1. Go to `Settings -> Environments -> New environment`.
 2. Name it `production-backup`.
 3. Restrict deployment branches to `main`.
-4. Do not configure required reviewers or a wait timer. The scheduled backup
-   must not wait for human approval at 03:00 UTC.
-5. Add the following values under
+4. Do not configure a wait timer or reviewers on this shared Environment. The
+   scheduled backup and five-minute freshness probe must run unattended.
+5. Add the credential values below under
    `Settings -> Environments -> production-backup -> Environment secrets`.
+6. Add the non-secret epoch coordinates in the following variables table under
+   the same Environment's **Variables** section.
 
-| Secret                     | Meaning                                                                | Runtime mapping                  | Safe example format                            |
-| -------------------------- | ---------------------------------------------------------------------- | -------------------------------- | ---------------------------------------------- |
-| `DROPLET_HOST`             | Production droplet host name or IP address                             | `appleboy/ssh-action` `host`     | `203.0.113.10` or `prod.example.com`           |
-| `DROPLET_USER`             | SSH user on the production droplet                                     | `appleboy/ssh-action` `username` | `deploy`                                       |
-| `DROPLET_SSH_KEY`          | Private key matching the droplet user's authorized key                 | `appleboy/ssh-action` `key`      | `-----BEGIN OPENSSH PRIVATE KEY----- ...`      |
-| `SPACES_BUCKET`            | DigitalOcean Spaces bucket for backup artifacts                        | remote `SPACES_BUCKET`           | `aqua-pg-backups`                              |
-| `SPACES_ENDPOINT`          | Spaces S3-compatible regional endpoint                                 | remote `SPACES_ENDPOINT`         | `https://fra1.digitaloceanspaces.com`          |
-| `SPACES_ACCESS_KEY_ID`     | Spaces access key id with write access to the backup prefix            | remote `AWS_ACCESS_KEY_ID`       | `DO00EXAMPLEKEYID`                             |
-| `SPACES_SECRET_ACCESS_KEY` | Spaces secret access key                                               | remote `AWS_SECRET_ACCESS_KEY`   | `<DigitalOcean Spaces secret access key>`      |
-| `BACKUP_POSTGRES_USER`     | PostgreSQL role used by `pg_dump`                                      | remote `POSTGRES_USER`           | `aquaculture`                                  |
-| `BACKUP_POSTGRES_DB`       | PostgreSQL database to dump                                            | remote `POSTGRES_DB`             | `aquaculture`                                  |
-| `BACKUP_POSTGRES_PASSWORD` | Password passed to `pg_dump` through `PGPASSWORD` inside `docker exec` | remote `PGPASSWORD`              | `<same value as production POSTGRES_PASSWORD>` |
+| Secret                                        | Profiles                                                                    | Purpose                                                                                         |
+| --------------------------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `DROPLET_HOST`                                | `backup-runtime`, `pitr-runtime`, `archive-freshness`                       | Production droplet host                                                                         |
+| `DROPLET_USER`                                | `backup-runtime`, `pitr-runtime`, `archive-freshness`                       | Restricted SSH operator                                                                         |
+| `DROPLET_SSH_KEY`                             | `backup-runtime`, `pitr-runtime`, `archive-freshness`                       | Private key for that operator                                                                   |
+| `DROPLET_SSH_FINGERPRINT`                     | `backup-runtime`, `pitr-runtime`, `archive-freshness`                       | Protected SHA256 fingerprint of the production SSH host key                                     |
+| `SPACES_ENDPOINT`                             | `backup-runtime`, `pitr-runtime`, `evidence-publisher`, `evidence-verifier` | Regional S3-compatible endpoint; not a credential                                               |
+| `SPACES_REGION`                               | `backup-runtime`, `pitr-runtime`, `evidence-publisher`, `evidence-verifier` | Explicit signing region for every AWS CLI and WAL-G operation                                   |
+| `PITR_SOURCE_SYSTEM_IDENTIFIER`               | `pitr-runtime`                                                              | Protected expected `pg_control_system().system_identifier` value for source-cluster attestation |
+| `WALG_SPACES_ACCESS_KEY_ID`                   | `backup-runtime`                                                            | Write key id dedicated to WAL archive/base-backup storage                                       |
+| `WALG_SPACES_SECRET_ACCESS_KEY`               | `backup-runtime`                                                            | Secret for the WAL-G write key id                                                               |
+| `PITR_WALG_SPACES_ACCESS_KEY_ID`              | `pitr-runtime`                                                              | Read-only key id for the isolated PITR target                                                   |
+| `PITR_WALG_SPACES_SECRET_ACCESS_KEY`          | `pitr-runtime`                                                              | Secret for the read-only PITR key id                                                            |
+| `LOGICAL_BACKUP_SPACES_BUCKET`                | `backup-runtime`                                                            | Bucket dedicated to logical dumps and verification sidecars                                     |
+| `LOGICAL_BACKUP_SPACES_ACCESS_KEY_ID`         | `backup-runtime`                                                            | Logical-backup bucket key id                                                                    |
+| `LOGICAL_BACKUP_SPACES_SECRET_ACCESS_KEY`     | `backup-runtime`                                                            | Logical-backup bucket secret                                                                    |
+| `LOGICAL_BACKUP_GPG_RECIPIENT`                | `backup-runtime`                                                            | Fingerprint of the independently escrowed public key for client-side dump encryption            |
+| `EVIDENCE_SPACES_BUCKET`                      | `evidence-publisher`, `evidence-verifier`                                   | Versioned content-addressed mirror for signed integrity records                                 |
+| `EVIDENCE_PUBLISHER_SPACES_ACCESS_KEY_ID`     | `evidence-publisher`                                                        | GitHub runner key id with write access to the evidence mirror                                   |
+| `EVIDENCE_PUBLISHER_SPACES_SECRET_ACCESS_KEY` | `evidence-publisher`                                                        | Secret for the evidence-publisher key id                                                        |
+| `EVIDENCE_VERIFIER_SPACES_ACCESS_KEY_ID`      | `evidence-verifier`                                                         | Read-only evidence-mirror key id                                                                |
+| `EVIDENCE_VERIFIER_SPACES_SECRET_ACCESS_KEY`  | `evidence-verifier`                                                         | Secret for the read-only verifier key id                                                        |
+| `BACKUP_POSTGRES_USER`                        | `backup-runtime`, `pitr-runtime`                                            | PostgreSQL role used by protected backup/restore commands                                       |
+| `BACKUP_POSTGRES_DB`                          | `backup-runtime`, `pitr-runtime`                                            | Production database name                                                                        |
+| `BACKUP_POSTGRES_PASSWORD`                    | `backup-runtime`, `pitr-runtime`                                            | Password passed only to the protected remote process                                            |
+| `WALG_LIBSODIUM_KEY_B64`                      | `backup-runtime`                                                            | Canonical base64 text for the active 32-byte WAL-G encryption key                               |
+| `PITR_WALG_LIBSODIUM_KEY_B64`                 | `pitr-runtime`                                                              | Independently supplied decryption key for the isolated target epoch                             |
 
-The source of truth for this contract is
-`.github/manifests/backup-secrets.json`; the workflow preflight, SSH runtime
-mapping, and this runbook must stay in lockstep with that manifest.
+| Environment variable      | Profiles         | Purpose                                                       |
+| ------------------------- | ---------------- | ------------------------------------------------------------- |
+| `WALG_SPACES_BUCKET`      | `backup-runtime` | Active WAL-G write bucket                                     |
+| `WALG_BACKUP_EPOCH`       | `backup-runtime` | Active key/prefix epoch slug                                  |
+| `PITR_WALG_SPACES_BUCKET` | `pitr-runtime`   | Bucket selected for the isolated read-only restore target     |
+| `PITR_WALG_BACKUP_EPOCH`  | `pitr-runtime`   | Epoch selected for the isolated target-only credential bundle |
 
-To close a missing-secret incident, a dry-run is not enough. After the
-environment secrets are present, run `Backup - Production Postgres` from
-`main` with `dry_run: false`, verify the new object under
-`pg-backups/YYYY/MM/DD/`, run `head-object` for its byte count and
-`Metadata.sha256`, verify its `.verification.json` sidecar binding, restore
-that exact object into the isolated Postgres drill container below, then
-record the workflow URL, object key, bytes, SHA-256, operator, timestamp,
-restore duration, and verification SHA-256 in the drill log.
+The source of truth is `.github/manifests/backup-secrets.json`. Its five
+least-privilege profiles are:
+
+| Profile              | Used by                                            | Storage authority                                    |
+| -------------------- | -------------------------------------------------- | ---------------------------------------------------- |
+| `backup-runtime`     | full WAL-G backup plus snapshot-bound logical dump | WAL-G and logical-backup principals only             |
+| `pitr-runtime`       | protected isolated restore                         | WAL-G read path only                                 |
+| `evidence-publisher` | OIDC signing jobs in backup/PITR workflows         | read/write operational access to the evidence mirror |
+| `evidence-verifier`  | enterprise integrity workflow                      | read-only evidence-mirror access                     |
+| `archive-freshness`  | five-minute PostgreSQL health probe                | none                                                 |
+
+The workflow preflights, runtime mappings, and this runbook must stay in
+lockstep with that manifest. Do not reuse a key between WAL-G, logical backup,
+evidence publication, and evidence verification.
+
+`WALG_LIBSODIUM_KEY_B64` and its PITR counterpart must come from an approved
+secret manager. Keep an offline escrow copy indexed by bucket, epoch, and
+activation date. Never put
+the encoded or decoded value in Git, `.env`, Compose environment metadata,
+workflow logs, tickets, or the drill log. Losing the key makes its backup/WAL
+epoch unrecoverable.
+
+Every uploaded logical dump and its tenant-bearing verification sidecar must be
+encrypted independently on the production host with GPG for the exact 40-hex
+`LOGICAL_BACKUP_GPG_RECIPIENT` primary-key fingerprint before any bytes leave
+the host. Only `.dump.gpg` and `.verification.json.gpg` objects may be uploaded;
+plaintext payloads may exist only in the script's private run-scoped directory
+and must be deleted by its cleanup path. The corresponding decryption key must
+be independently escrowed and must never be copied to production. DigitalOcean
+Spaces SSE-S3 is not supported by this backup contract and is neither
+configured nor accepted as a substitute for mandatory client-side encryption.
+
+Set `PITR_SOURCE_SYSTEM_IDENTIFIER` from a trusted production session using
+`SELECT system_identifier FROM pg_control_system();`. Do not obtain it from a
+restore target or workflow output. Change it only after an authorized source
+cluster reinitialization and repeat the complete integrity ceremony.
+
+To remediate a missing-secret incident, a dry run is not enough. Complete the
+bootstrap, three full backups, protected PITR, integrity verification, and
+logical companion restore below. Record workflow URLs, run/attempt ids,
+artifact names, object identifiers, hashes, timings, and operators. Never
+record credential values.
+
+## Evidence authority
+
+GitHub Actions artifacts and their Cosign/Rekor bundles authenticate which
+workflow signed a particular byte sequence. The versioned,
+content-addressed DigitalOcean Spaces mirror can prove byte-for-byte parity
+with that sequence. Neither mechanism independently proves the truth of the
+host-authored JSON: the production host supplies the backup and PITR claims,
+and GitHub currently signs the bytes it receives from that same trust domain.
+This is a blind-notary construction. The GitHub artifact, signature, and
+mirror are integrity and audit signals, not DR closure authority.
+
+`INFRA-CRITICAL-040` remains open and production closure remains blocked. It
+may be reconsidered only after a separately trusted DR executor performs and
+observes the recovery ceremony outside the production-host trust boundary and
+an independent object authority attests the selected backup/WAL objects and
+restore result. Adding another signature to host-authored JSON, or copying it
+to another bucket, does not satisfy this requirement.
+
+- Backup artifact:
+  `walg-evidence-v2-backup-production.yml-<run_id>-<run_attempt>`.
+- PITR artifact:
+  `walg-evidence-v2-pitr-restore-production.yml-<run_id>-<run_attempt>`.
+- Every artifact contains `run-record.json` and
+  `run-record.sigstore.json`. A successful record-producing run also contains
+  `evidence-attestation.json` and `evidence-attestation.sigstore.json`.
+- The signer identity is the exact workflow file at `refs/heads/main`, issued
+  by `https://token.actions.githubusercontent.com`. Verification binds the
+  repository, workflow name/ref/SHA, trigger, run id, and run attempt to the
+  live GitHub API record.
+- Mirror keys are content addressed as
+  `wal-g-evidence/v2/sha256/<record-sha256>/<record-name>`. Bucket versioning
+  must be enabled. Mirror metadata or unsigned JSON is not evidence.
+
+Verify and preserve all qualifying GitHub Actions artifacts while they remain
+inside their configured retention window. Passing these checks is necessary
+for audit continuity but cannot close `INFRA-CRITICAL-040`.
+
+## WAL-G physical recovery chain
+
+Production deploys remain locked until all of these are true:
+
+- the derived production PostgreSQL image is running with continuous WAL
+  archiving and `archive_timeout` no greater than 300 seconds;
+- the latest uninterrupted sequence contains three distinct successful full
+  base backups with signed integrity records;
+- an explicit timestamp PITR from one of those backups demonstrates RPO at
+  most 300 seconds and RTO at most 3,600 seconds in an isolated target;
+- the read-only verifier accepts workflow identity, artifact/mirror parity,
+  and the recovery bounds as integrity gates;
+- a separately trusted DR executor and independent object authority provide
+  the closure evidence required by `INFRA-CRITICAL-040`; and
+- a dedicated backup SSH account and root-owned forced-command broker close
+  the pre-payload login-shell boundary recorded by `INFRA-CRITICAL-044`;
+- host-level egress policy restricts the backup bridge to approved endpoints
+  and retains deny evidence for `INFRA-HIGH-042`;
+- the qualifying PITR runs on separately trusted DR compute, outside the
+  production host and Docker authority, as required by `INFRA-HIGH-043`;
+- an independently captured, timestamp-bound source parity set matches the
+  isolated restore target as required by `INFRA-HIGH-051`; and
+- `scheduled-workflow-watchdog` reports both scheduled database workflows
+  fresh and green.
+
+Code, a dry run, a successful logical restore, or signed host-authored JSON
+does not satisfy this stop-line. `INFRA-HIGH-033` stays open until the real
+production evidence is preserved and evaluated. `INFRA-CRITICAL-040`,
+`INFRA-CRITICAL-044`, `INFRA-HIGH-042`, `INFRA-HIGH-043`, and
+`INFRA-HIGH-051` remain independent production blockers until their respective
+authority and isolation evidence exists.
+
+### WAL-G v3.0.8 PGDATA symlink prohibition
+
+`INFRA-HIGH-056` records a WAL-G v3.0.8 limitation: its PostgreSQL backup path
+does not preserve arbitrary symlink targets. A source link such as
+`PGDATA/wal-g-secrets -> /run/aqua-walg-secrets` is archived and restored as
+`PGDATA/wal-g-secrets -> /wal-g-secrets`. Therefore no credential file or
+credential symlink may exist beneath PGDATA.
+
+The runtime contract is fail closed:
+
+- `WALG_SECRET_DIR` resolves directly to `/run/aqua-walg-secrets`;
+- the loader atomically installs the manifest-bound bundle into that tmpfs and
+  never creates a PGDATA symlink;
+- `backup-push` must reject any unexpected PGDATA symlink before WAL-G starts;
+- `backup-fetch` must be followed immediately by a non-following symlink scan,
+  before secret installation or PostgreSQL startup; and
+- an old backup containing `wal-g-secrets`, `/wal-g-secrets`, or another
+  unapproved link is non-qualifying and must fail rather than be silently
+  repaired.
+
+The current deployment has no tablespace contract, so the accepted PGDATA
+symlink set is empty. A future tablespace rollout requires an explicit
+`pg_tblspc/<OID>` allowlist, independent target validation, and a new restore
+drill before that exception can be admitted.
+
+### One-time bootstrap
+
+1. Set `WALG_SPACES_BUCKET`, `WALG_BACKUP_EPOCH`, `SPACES_ENDPOINT`, and
+   `SPACES_REGION` in the droplet's protected production environment, using
+   `.env.production.example` as the name contract. Compose derives
+   `s3://<bucket>/postgres/wal-g/<epoch>`; operators must not hand-author a
+   second prefix value.
+2. Seed all 25 `production-backup` Environment secrets and four Environment
+   variables listed above. Set the PITR principal to read-only object access,
+   and bind its bucket/epoch/key tuple to the active source chain before the
+   current-timestamp drill. Verify
+   `DROPLET_SSH_FINGERPRINT` out of band before storing it; the workflows use
+   the runner's native system OpenSSH client and accept only the advertised
+   host key with that exact protected fingerprint. Give each storage principal
+   access only to its named bucket and operation set. Enable versioning on
+   `EVIDENCE_SPACES_BUCKET`, and install the public key matching
+   `LOGICAL_BACKUP_GPG_RECIPIENT` in the production backup keyring.
+3. From merged `main`, dispatch `Backup - Production Postgres` with
+   `bootstrap_walg_secrets_only: true` and `dry_run: false`. This writes the
+   five manifest-bound WAL-G values plus their manifest below
+   `/var/aqua-saas/certs/wal-g/postgres` without putting secret values in
+   container configuration. The adjacent `.lock` is synchronization state,
+   not part of the five-value manifest.
+4. On the droplet, verify the source directory is not a symlink, its mode is
+   `0700`, each credential/manifest is a regular non-symlink with mode `0600`,
+   and `sha256sum --strict --status -c manifest.sha256` succeeds. Do not print
+   file contents.
+5. Deploy the derived PostgreSQL image at the exact merged-main SHA/tag. Verify
+   its OCI revision and WAL-G revision, then verify that the boot installer
+   copied credentials into `/run/aqua-walg-secrets` tmpfs and left no path at
+   `PGDATA/wal-g-secrets`.
+6. Verify configuration without exposing environment or secret files:
+
+   ```bash
+   docker exec aqua-postgres psql -X -qAt -U aquaculture -d aquaculture \
+     -c "SELECT name || '=' || setting FROM pg_settings WHERE name IN ('archive_mode','archive_command','archive_timeout') ORDER BY name;"
+   docker exec --user postgres aqua-postgres \
+     /usr/local/bin/walg-runtime-command.sh assert-runtime
+   ```
+
+### Three signed base-backup records
+
+The 03:00 UTC workflow runs an explicit full `backup-push --verify`, validates
+the WAL chain, completes the client-encrypted snapshot-bound logical dump, then
+transports the host-authored record to the runner with native system OpenSSH
+after an exact protected host-key fingerprint match. The runner signs and
+mirrors that record, but the result remains an integrity signal rather than
+independent closure evidence.
+
+Run three non-dry `Backup - Production Postgres` executions from merged
+`main`, with `dry_run: false` and `bootstrap_walg_secrets_only: false`. For
+each run:
+
+1. Confirm both `backup` and `publish-evidence` jobs succeeded.
+2. Record the run id, attempt, merged-main SHA, explicit `base_*` name, and
+   exact artifact name.
+3. Confirm the artifact contains both signed records and that the
+   content-addressed mirror bucket has versioning enabled.
+
+Dry runs and bootstrap-only runs do not enter the sequence. A failed full run
+breaks the sequence. `LATEST` is never an acceptable recovery selector.
+
+### Protected isolated timestamp PITR
+
+After the three qualifying base backups, dispatch
+`.github/workflows/pitr-restore-production.yml` (`PITR Restore - Production
+Postgres`) from the same merged `main` SHA with an explicit `base_*` backup
+name and `confirm_disposable_reset: true`. Do not supply a recovery timestamp,
+sentinel timestamp, RPO, or RTO; the workflow and database derive them.
+
+The workflow must create a run-labeled target volume and dedicated isolated
+network, start the exact source image, publish no port, share no production
+network or writable mount, and erase only the positively attested target
+PGDATA. The source system identifier must equal
+`PITR_SOURCE_SYSTEM_IDENTIFIER`, and image/WAL-G revisions must match the
+merged-main manifests.
+
+The PITR workflow must not rotate or reinstall the live source bundle. It
+materializes the `PITR_WALG_*` tuple only beneath its private run-scoped runtime
+directory, bind-mounts that directory read-only into the disposable target,
+and proves the source bundle digest is unchanged throughout the source archive
+fence. Because this drill derives a current source timestamp, the selected
+PITR bucket/epoch must equal the active source archive chain; a historical
+epoch requires a separately defined historical target-time ceremony and stays
+tracked by `INFRA-HIGH-062`.
+
+Success requires all of the following:
+
+- the archive switch is observed within 300 seconds and WAL verification
+  succeeds for the explicit backup, timeline, and LSN;
+- recovery promotes the target and proves the `BEFORE` sentinel exists while
+  the `AFTER` sentinel does not;
+- conservative RPO is at most 300 seconds and measured RTO is at most 3,600
+  seconds;
+- the restored database passes target-internal 17-schema, tenant-ledger,
+  migration-head, sentinel-count, and checksum verification; and
+- the integrity record binds source system id, image/WAL-G revisions,
+  network/volume labels, commit fences, archive result, and verification hash.
+
+The canonical PITR verifier computes those counts and checksums only on the
+restore target. They prove target structure and internal consistency, but do
+not compare restored application rows with a source-side snapshot and therefore
+do not prove source application parity. `INFRA-HIGH-051` remains open until an
+independently captured, source-bound application baseline is compared with the
+restored target.
+
+### Verify enterprise integrity
+
+Dispatch `.github/workflows/verify-backup-dr-closure.yml` from merged `main`.
+The read-only job must resolve exact run attempts, verify safe artifact members
+and digests, verify Cosign/Rekor identities, compare signed bytes with the
+versioned content-addressed mirror, and evaluate the uninterrupted backup/PITR
+sequence.
+
+Preserve the workflow URL and evaluator JSON. An `ok: true` result and
+fresh/green schedules prove only the current integrity gates. They cannot
+authorize lifting the production deploy lock while any of
+`INFRA-CRITICAL-040`, `INFRA-CRITICAL-044`, `INFRA-HIGH-042`,
+`INFRA-HIGH-043`, or `INFRA-HIGH-051` lacks its required authority or
+isolation evidence.
 
 **Purpose:** verify that the nightly backups produced by
 `tools/scripts/database/backup-databases.sh` can actually be restored, end to
@@ -70,22 +340,37 @@ NOT the production droplet):
 | ------- | --------------- | ---------------------------------------------------------- |
 | Docker  | 24.0            | [docs.docker.com](https://docs.docker.com/engine/install/) |
 | AWS CLI | v2              | `snap install aws-cli --classic` or distribution package   |
-| `gpg`   | 2.2             | only required if backups are GPG-encrypted                 |
+| `gpg`   | 2.2             | required to decrypt every client-encrypted logical dump    |
 
-Export the Spaces credentials used by the nightly workflow (or a read-only
-subset from `production-backup`):
+Provision a read-only drill credential for the logical-backup bucket. Do not
+copy the WAL-G, evidence-publisher, or evidence-verifier credentials onto the
+drill host. Import the independently escrowed decryption key into an ephemeral
+drill-only GPG home; never place it on the production droplet:
 
 ```bash
-export AWS_ACCESS_KEY_ID=…
-export AWS_SECRET_ACCESS_KEY=…
-export SPACES_BUCKET=aqua-pg-backups
-export SPACES_ENDPOINT=https://fra1.digitaloceanspaces.com
+export LOGICAL_BACKUP_SPACES_BUCKET='<logical backup bucket>'
+export LOGICAL_BACKUP_SPACES_ACCESS_KEY_ID='<read-only drill key id>'
+export LOGICAL_BACKUP_SPACES_SECRET_ACCESS_KEY='<read-only drill key secret>'
+export SPACES_ENDPOINT='https://fra1.digitaloceanspaces.com'
+export SPACES_REGION='fra1'
+export SPACES_BUCKET="${LOGICAL_BACKUP_SPACES_BUCKET}"
+export AWS_ACCESS_KEY_ID="${LOGICAL_BACKUP_SPACES_ACCESS_KEY_ID}"
+export AWS_SECRET_ACCESS_KEY="${LOGICAL_BACKUP_SPACES_SECRET_ACCESS_KEY}"
+export AWS_REGION="${SPACES_REGION}"
+export AWS_DEFAULT_REGION="${SPACES_REGION}"
+export BACKUP_GPG_KEY='<escrowed private-key fingerprint>'
 ```
+
+The restore drill does not request or validate Spaces SSE-S3 because that
+control is unsupported by this contract and is not relied on. The selected
+dump and its verification sidecar must both be client-encrypted GPG objects.
+`BACKUP_GPG_KEY` is the exact 40-hex primary secret-key fingerprint; the restore
+fails before decryption unless exactly one matching escrowed secret key exists.
 
 ## 2. Identify the backup to restore
 
 Pick the most recent dump object by convention; ignore keys ending in
-`.verification.json`. For a post-incident drill, pick the dump immediately
+`.verification.json.gpg`. For a post-incident drill, pick the dump immediately
 preceding the incident window.
 
 ```bash
@@ -97,7 +382,7 @@ aws s3 ls "s3://${SPACES_BUCKET}/pg-backups/$(date -u +%Y/%m/%d)/" \
 Copy the full object key — example:
 
 ```
-pg-backups/2026/04/14/aquaculture-20260414T030000Z.dump
+pg-backups/2026/04/14/aquaculture-20260414T030000Z.dump.gpg
 ```
 
 Record the dump's SHA-256, byte length, and verification-sidecar binding.
@@ -107,7 +392,7 @@ reciprocal sidecar metadata disagrees:
 ```bash
 aws s3api head-object \
   --bucket "${SPACES_BUCKET}" \
-  --key    "pg-backups/2026/04/14/aquaculture-20260414T030000Z.dump" \
+  --key    "pg-backups/2026/04/14/aquaculture-20260414T030000Z.dump.gpg" \
   --endpoint-url "${SPACES_ENDPOINT}" \
   --query '{bytes:ContentLength,sha256:Metadata.sha256,verificationKey:Metadata.verification_key,verificationSha256:Metadata.verification_sha256}'
 ```
@@ -141,27 +426,36 @@ export TARGET_CONTAINER=aqua-postgres-drill
 export TARGET_USER=aquaculture
 export TARGET_DB=aquaculture_drill
 export PGPASSWORD=drillpass
-export BACKUP_KEY="pg-backups/2026/04/14/aquaculture-20260414T030000Z.dump"
+export BACKUP_KEY="pg-backups/2026/04/14/aquaculture-20260414T030000Z.dump.gpg"
 export MAX_RESTORE_SECONDS=3600
-# BACKUP_GPG_KEY=… only if the object key ends in .gpg
+# BACKUP_GPG_KEY was set to the escrowed private-key fingerprint above.
 
 set -o pipefail
 time bash tools/scripts/database/restore-databases.sh 2>&1 | tee drill-$(date -u +%Y%m%dT%H%M%SZ).log
 ```
 
 Expected terminal output ends with a `RESTORE_VERIFIED` record followed by
-`Done`. The command requires the exact isolated-drill container label, prepares
-and finalizes TimescaleDB restore mode around `pg_restore`, and exits non-zero
-if verification or the 60-minute RTO fails. `MAX_RESTORE_SECONDS` may tighten
-the limit but cannot exceed 3,600 seconds.
+`Done`. The command resolves `TARGET_CONTAINER` once to its immutable 64-hex
+container ID, binds the label, mount, network, and no-published-port authority
+to that ID, then re-attests the name-to-ID mapping immediately before the
+destructive database reset. Every `docker exec` uses the captured ID. It also
+prepares and finalizes TimescaleDB restore mode around `pg_restore`, and exits
+non-zero if identity, verification, or the 60-minute RTO fails.
+`MAX_RESTORE_SECONDS` may tighten the limit but cannot exceed 3,600 seconds.
 
 ## 5. Machine-enforced acceptance
 
 The backup command and `pg_dump` share one exported PostgreSQL snapshot. The
-backup uploads the collector's deterministic JSON as
-`<dump-key>.verification.json`; the restore command runs the same collector
-against the isolated database and requires byte-for-byte parity. No manual row
-count can replace this gate.
+backup uploads the collector's deterministic JSON only as the encrypted
+`<dump-key>.verification.json.gpg` sidecar. Dump and sidecar metadata bind their
+ciphertext hashes reciprocally; after exact-key decryption, the restore command
+runs the same collector against the isolated database and requires
+byte-for-byte plaintext parity. No manual row count can replace this gate.
+
+This source-bound parity applies to the logical dump snapshot only. It does not
+retroactively turn the physical PITR target's target-only checksums into source
+application parity; `INFRA-HIGH-051` remains open for that physical recovery
+claim.
 
 Acceptance proves all of the following in one repeatable-read view:
 
@@ -210,5 +504,5 @@ surfaced; if the drill was clean, commit the log entry on its own.
 | restored database failed structural verification       | schema, tenant, sentinel relation, or migration head is missing/drifted    | preserve the drill container and inspect the prefixed `verification` error                                                                                  |
 | count/checksum evidence differs                        | restored rows do not match the exact snapshot used by `pg_dump`            | preserve both object keys and the drill container; open an incident                                                                                         |
 | verified restore exceeded RTO                          | end-to-end restore took more than 3,600 seconds                            | capture timings and storage/CPU/IO telemetry; production remains locked                                                                                     |
-| `aws: error: An error occurred (403)`                  | Spaces key lost its ListObject/GetObject permission                        | rotate the Spaces key, update `production-backup` environment secrets                                                                                       |
+| `aws: error: An error occurred (403)`                  | logical drill key lost its ListObject/GetObject permission                 | rotate the read-only drill key; if production also fails, rotate the logical-backup Spaces principal                                                        |
 | GPG decryption fails                                   | decryption-capable private key is absent from the isolated drill keyring   | load the private key only onto the isolated drill host under the approved key-handling procedure; remove it after the drill and never copy it to production |

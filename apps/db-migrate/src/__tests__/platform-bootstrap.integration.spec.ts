@@ -370,6 +370,54 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
     );
   }, 30_000);
 
+  it('installs an append-only PITR drill ledger that also rejects TRUNCATE', async () => {
+    const qr = ctx.dataSource.createQueryRunner();
+    const drillRunId = 'integration-pitr-ledger';
+    try {
+      await qr.query(
+        `INSERT INTO platform.pitr_drill_sentinels
+           (drill_run_id, phase, main_sha, backup_name)
+         VALUES ($1, 'BEFORE', $2, $3)`,
+        [drillRunId, 'a'.repeat(40), 'base_000000010000000000000001'],
+      );
+
+      await expect(
+        qr.query(
+          `UPDATE platform.pitr_drill_sentinels
+              SET backup_name = 'base_tampered'
+            WHERE drill_run_id = $1`,
+          [drillRunId],
+        ),
+      ).rejects.toThrow(/append-only/i);
+      await expect(
+        qr.query(`DELETE FROM platform.pitr_drill_sentinels WHERE drill_run_id = $1`, [drillRunId]),
+      ).rejects.toThrow(/append-only/i);
+      await expect(qr.query(`TRUNCATE TABLE platform.pitr_drill_sentinels`)).rejects.toThrow(
+        /append-only/i,
+      );
+
+      const rows = (await qr.query(
+        `SELECT phase, backup_name
+           FROM platform.pitr_drill_sentinels
+          WHERE drill_run_id = $1`,
+        [drillRunId],
+      )) as Array<{ phase: string; backup_name: string }>;
+      expect(rows).toEqual([
+        { phase: 'BEFORE', backup_name: 'base_000000010000000000000001' },
+      ]);
+
+      await expect(
+        queryAsRole(
+          'farm_service',
+          `SELECT * FROM platform.pitr_drill_sentinels WHERE drill_run_id = $1`,
+          [drillRunId],
+        ),
+      ).rejects.toThrow(/permission denied/i);
+    } finally {
+      await qr.release();
+    }
+  }, 30_000);
+
   it('reconciles legacy duplicate shared.user_consents before installing the unique tuple index', async () => {
     const qr = ctx.dataSource.createQueryRunner();
     const userId = '11111111-1111-4111-8111-111111111111';

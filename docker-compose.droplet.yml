@@ -169,6 +169,13 @@ networks:
   aqua-internal:
     driver: bridge
     internal: true
+  # INFRA-HIGH-042 remains OPEN: this dedicated bridge removes PostgreSQL
+  # from the application egress path and disables peer-to-peer traffic, but
+  # host firewall allowlisting is still required to constrain destinations.
+  aqua-backup-egress:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_icc: 'false'
 
 volumes:
   postgres_data:
@@ -198,7 +205,7 @@ services:
     # vector_cosine_ops (apps/messaging-service/src/migrations/1800700000000-AddMessagesEmbeddingColumn.ts:38).
     # Single source of truth — same digest across CI workflows + every compose file.
     # Operator action: docker compose pull && docker compose up -d after this lands.
-    image: timescale/timescaledb-ha:pg16@sha256:b3d038d0a0757df8a5ec0a94ba68d9ad57b0e16100a024cf4b370c77ad5645f7
+    image: ghcr.io/okan-wqm/aquaculture_platform/postgres:${TAG:?TAG required}
     container_name: aqua-postgres
     restart: unless-stopped
     environment:
@@ -222,9 +229,31 @@ services:
       NOTIFICATION_SERVICE_DB_PASS: ${NOTIFICATION_SERVICE_DB_PASS:-}
       HYDROPONICS_SERVICE_DB_PASS: ${HYDROPONICS_SERVICE_DB_PASS:-}
       MESSAGING_SERVICE_DB_PASS: ${MESSAGING_SERVICE_DB_PASS:-}
-      # IP-1: PostgreSQL SSL — entrypoint wrapper copies certs to $PGDATA
-      # with correct postgres:postgres ownership + chmod 600 on key.
+      # IP-1 / INFRA-MEDIUM-054: PostgreSQL identity material is staged in
+      # container-lifetime tmpfs, never inside the physically backed-up PGDATA.
       POSTGRES_SSL: 'on'
+      POSTGRES_SSL_RUNTIME_DIR: /run/aqua-postgres-tls
+      # INFRA-HIGH-039/040/056/061: only non-secret WAL-G coordinates are
+      # present in Compose. Credential files live in a dedicated host tree
+      # outside the PostgreSQL TLS parent and are installed atomically from
+      # their one exact bind directly into tmpfs; there is no PGDATA symlink.
+      WALG_ENABLED: 'on'
+      WALG_BACKUP_EPOCH: ${WALG_BACKUP_EPOCH:?WALG_BACKUP_EPOCH required}
+      WALG_S3_PREFIX: s3://${WALG_SPACES_BUCKET:?WALG_SPACES_BUCKET required}/postgres/wal-g/${WALG_BACKUP_EPOCH:?WALG_BACKUP_EPOCH required}
+      WALG_S3_ENDPOINT: ${SPACES_ENDPOINT:?SPACES_ENDPOINT required}
+      WALG_S3_REGION: ${SPACES_REGION:?SPACES_REGION required}
+      AWS_S3_FORCE_PATH_STYLE: 'true'
+      # INFRA-HIGH-059: one five-minute RPO budget covers the forced WAL
+      # switch, bounded upload, and Docker failure-detection windows. The
+      # runtime healthcheck rejects allocations that do not add up exactly or
+      # that exceed 300 seconds.
+      WALG_RPO_BUDGET_SECONDS: ${WALG_RPO_BUDGET_SECONDS:-300}
+      WALG_ARCHIVE_SWITCH_BUDGET_SECONDS: ${WALG_ARCHIVE_SWITCH_BUDGET_SECONDS:-225}
+      WALG_WAL_PUSH_BUDGET_SECONDS: ${WALG_WAL_PUSH_BUDGET_SECONDS:-45}
+      WALG_HEALTH_DETECTION_BUDGET_SECONDS: ${WALG_HEALTH_DETECTION_BUDGET_SECONDS:-30}
+      WALG_SECRET_SOURCE_DIR: /var/lib/postgresql/wal-g-secrets-source
+      WALG_SECRET_RUNTIME_DIR: /run/aqua-walg-secrets
+      WALG_SECRET_DIR: /run/aqua-walg-secrets
       # INFRA-CRITICAL-018: image-family default-PGDATA divergence.
       # Old image (timescale/timescaledb:Alpine): PGDATA=/var/lib/postgresql/data
       # HA image (timescale/timescaledb-ha:Ubuntu): PGDATA=/home/postgres/pgdata/data
@@ -241,23 +270,38 @@ services:
       -c max_connections=300
       -c search_path=public,auth,admin
       -c ssl=on
+      -c ssl_cert_file=/run/aqua-postgres-tls/server.crt
+      -c ssl_key_file=/run/aqua-postgres-tls/server.key
+      -c ssl_ca_file=/run/aqua-postgres-tls/root.crt
+      -c archive_mode=on
+      -c "archive_command=/usr/local/bin/walg-archive-command.sh %p %f"
+      -c archive_timeout=${WALG_ARCHIVE_SWITCH_BUDGET_SECONDS:-225}s
+    tmpfs:
+      - /run/aqua-postgres-tls:rw,noexec,nosuid,nodev,size=1m,mode=0700
+      - /run/aqua-walg-secrets:rw,noexec,nosuid,nodev,size=1m,mode=0700
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infrastructure/docker/init-scripts:/docker-entrypoint-initdb.d:ro
-      - ./certs/postgres:/var/lib/postgresql/ssl:ro
-      - ./infrastructure/docker/scripts/postgres-ssl-entrypoint.sh:/usr/local/bin/postgres-ssl-entrypoint.sh:ro
+      # INFRA-HIGH-064: TLS inputs are exact-file mounts. Only the private-key
+      # mount is writable so the root entrypoint can force root:root/0600 on
+      # the source inode before staging a postgres-owned copy in tmpfs.
+      - ./certs/postgres/postgres-cert.pem:/var/lib/postgresql/ssl/server.crt:ro
+      - ./certs/postgres/postgres-key.pem:/var/lib/postgresql/ssl/server.key:rw
+      - ./certs/postgres/ca-cert.pem:/var/lib/postgresql/ssl/root.crt:ro
+      - ./certs/wal-g/postgres:/var/lib/postgresql/wal-g-secrets-source:ro
     networks:
       - aqua-internal
+      - aqua-backup-egress
     deploy:
       resources:
         limits:
           memory: 1536M
           cpus: '1.0'
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-aquaculture}']
+      test: ['CMD', '/usr/local/bin/postgres-walg-healthcheck.sh']
       interval: 15s
       timeout: 5s
-      retries: 5
+      retries: 1
 
   # ---------------------------------------------------------------------------
   # db-init: REMOVED 2026-05-18 by ADR-031 (Platform Bootstrap Atom).

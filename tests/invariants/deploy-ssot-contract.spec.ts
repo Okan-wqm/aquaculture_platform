@@ -106,6 +106,25 @@ describe('deploy SSOT contract', () => {
     expect(provenance).toContain("dist', 'apps', project");
   });
 
+  it('builds the production PostgreSQL WAL-G image through the catalog infra matrix', () => {
+    const generated = JSON.parse(read('infrastructure/deploy/service-catalog.generated.json')) as {
+      deploy?: {
+        infraImageMatrix?: Array<{ image: string; dockerfile: string; context: string }>;
+      };
+    };
+    const workflow = read('.github/workflows/deploy-digitalocean.yml');
+
+    expect(generated.deploy?.infraImageMatrix).toContainEqual({
+      image: 'postgres',
+      dockerfile: 'infrastructure/docker/Dockerfile.postgres-walg',
+      context: '.',
+    });
+    expect(workflow).toContain('data.deploy?.infraImageMatrix');
+    expect(workflow).toContain('BUILD_MAIN_SHA=${{ github.sha }}');
+    expect(workflow).toContain('POSTGRES_DR_CONTRACT_SHA256=');
+    expect(workflow).toContain('sha256sum --strict --check "${CONTRACT_MANIFEST}"');
+  });
+
   it('expands manual selective deploys with migration owner services from the catalog', () => {
     const workflow = read('.github/workflows/deploy-digitalocean.yml');
     const resolver = read('scripts/deploy/resolve-migration-owner-services.mjs');

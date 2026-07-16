@@ -410,9 +410,12 @@ export class StorageResolver {
   async receiveDelivery(
     @Args('input') input: ReceiveDeliveryInput,
     @CurrentTenant() tenantId: string,
-    @CurrentUser() user: { sub: string },
+    @CurrentUser() user: { sub: string; roles: Role[]; assignedSiteIds?: string[] },
   ): Promise<PurchaseOrderResponse> {
-    const command = new ReceiveDeliveryCommand(input, tenantId, user.sub);
+    // SEC-HIGH-051: forward the caller's authz context so the stock-movement
+    // sink can assert site assignment on the receiving location (mirrors
+    // recordStockMovement).
+    const command = new ReceiveDeliveryCommand(input, tenantId, user.sub, user.roles, user.assignedSiteIds ?? []);
     return this.commandBus.execute(command);
   }
 

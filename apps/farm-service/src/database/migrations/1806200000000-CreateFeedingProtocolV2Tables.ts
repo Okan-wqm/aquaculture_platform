@@ -19,7 +19,11 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *
  * Her iki tablo TENANT-SCOPED'tur (schema fan-out MODULE_SCHEMAS listesiyle
  * tenant_<uuid> şemalarına klonlar); bu migration kaynak `farm` şemasında ve
- * her tenant pass'inde idempotent çalışır.
+ * her tenant pass'inde idempotent çalışır. DDL bu yüzden ŞEMA-NİTELEMESİZDİR
+ * (tablolar VE enum tipleri) — her pass'in search_path'i nesneleri kendi
+ * şemasına indirir; "farm" nitelemesi ORPHAN-HIGH-408'in bug şekliydi
+ * (per-tenant tablo yalnız kaynak şemada oluşur, tenant klonları boş kalır).
+ * Desen emsali: 1806000000000-CreateIncidentMedia.
  */
 export class CreateFeedingProtocolV2Tables1806200000000 implements MigrationInterface {
   name = 'CreateFeedingProtocolV2Tables1806200000000';
@@ -28,20 +32,21 @@ export class CreateFeedingProtocolV2Tables1806200000000 implements MigrationInte
     await queryRunner.query(`SET LOCAL lock_timeout = '5s'`);
     await queryRunner.query(`SET LOCAL statement_timeout = '60s'`);
 
-    // Enum tipleri shared `farm` şemasında yaşar (repo deseni: feeds_status_enum vb.).
+    // Enum tipleri NİTELEMESİZ oluşur — her schema pass'i tipi kendi şemasına
+    // indirir (tablo ile aynı şemada yaşar; CreateIncidentMedia deseni).
     await queryRunner.query(`
       DO $$ BEGIN
-        CREATE TYPE "farm"."feeding_protocols_v2_status_enum" AS ENUM ('draft', 'active', 'archived');
+        CREATE TYPE feeding_protocols_v2_status_enum AS ENUM ('draft', 'active', 'archived');
       EXCEPTION WHEN duplicate_object THEN NULL; END $$;
     `);
     await queryRunner.query(`
       DO $$ BEGIN
-        CREATE TYPE "farm"."feeding_protocol_assignments_unittype_enum" AS ENUM ('tank', 'pond', 'cage');
+        CREATE TYPE feeding_protocol_assignments_unittype_enum AS ENUM ('tank', 'pond', 'cage');
       EXCEPTION WHEN duplicate_object THEN NULL; END $$;
     `);
     await queryRunner.query(`
       DO $$ BEGIN
-        CREATE TYPE "farm"."feeding_protocol_assignments_status_enum" AS ENUM ('active', 'paused', 'ended');
+        CREATE TYPE feeding_protocol_assignments_status_enum AS ENUM ('active', 'paused', 'ended');
       EXCEPTION WHEN duplicate_object THEN NULL; END $$;
     `);
 
@@ -53,7 +58,7 @@ export class CreateFeedingProtocolV2Tables1806200000000 implements MigrationInte
         "description" text,
         "speciesId" uuid,
         "speciesName" character varying(200),
-        "status" "farm"."feeding_protocols_v2_status_enum" NOT NULL DEFAULT 'draft',
+        "status" feeding_protocols_v2_status_enum NOT NULL DEFAULT 'draft',
         "bands" jsonb NOT NULL,
         "temperatureAdjustments" jsonb,
         "defaultMealSchedule" jsonb NOT NULL,
@@ -92,12 +97,12 @@ export class CreateFeedingProtocolV2Tables1806200000000 implements MigrationInte
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
         "tenantId" uuid NOT NULL,
         "unitId" uuid NOT NULL,
-        "unitType" "farm"."feeding_protocol_assignments_unittype_enum" NOT NULL,
+        "unitType" feeding_protocol_assignments_unittype_enum NOT NULL,
         "unitName" character varying(200) NOT NULL,
         "unitCode" character varying(50) NOT NULL,
         "siteId" uuid NOT NULL,
         "protocolId" uuid NOT NULL,
-        "status" "farm"."feeding_protocol_assignments_status_enum" NOT NULL DEFAULT 'active',
+        "status" feeding_protocol_assignments_status_enum NOT NULL DEFAULT 'active',
         "effectiveFrom" date NOT NULL,
         "endedAt" TIMESTAMP WITH TIME ZONE,
         "overrides" jsonb NOT NULL DEFAULT '{}',
@@ -138,8 +143,9 @@ export class CreateFeedingProtocolV2Tables1806200000000 implements MigrationInte
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`DROP TABLE IF EXISTS "feeding_protocol_assignments"`);
     await queryRunner.query(`DROP TABLE IF EXISTS "feeding_protocols_v2"`);
-    // Enum tipleri paylaşımlı: diğer şemalar hâlâ kullanıyor olabilir; yalnız
-    // farm pass'inde ve bağımlı kolon kalmadıysa düşürülebilir — forward-only
-    // pratikte bu down çalıştırılmaz.
+    // Tipler şema-yerel oluştuğundan pass'in kendi şemasından güvenle düşer.
+    await queryRunner.query(`DROP TYPE IF EXISTS feeding_protocol_assignments_status_enum`);
+    await queryRunner.query(`DROP TYPE IF EXISTS feeding_protocol_assignments_unittype_enum`);
+    await queryRunner.query(`DROP TYPE IF EXISTS feeding_protocols_v2_status_enum`);
   }
 }

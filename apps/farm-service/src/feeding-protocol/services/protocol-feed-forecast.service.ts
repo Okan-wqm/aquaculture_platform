@@ -247,16 +247,20 @@ export class ProtocolFeedForecastService {
     const currentStockKg = feed?.stockKgByScope.get(scopeKey) ?? 0;
     const leadTime = feed?.procurementLeadTimeDays ?? DEFAULT_PROCUREMENT_LEAD_TIME_DAYS;
 
+    // Düz döngü (forEach değil): callback içi atamalar TS kontrol-akışında
+    // görünmez kalır ve stockoutDay guard'ı 'never'a daralırdı
+    // (restrict-plus-operands bulgusunun kökü).
     const remainingStockSeries: number[] = [];
     let remaining = currentStockKg;
     let stockoutDay: number | null = null;
     let firstConsumptionDay: number | null = null;
-    dailyConsumptionSeries.forEach((kg, day) => {
+    for (let day = 0; day < dailyConsumptionSeries.length; day++) {
+      const kg = dailyConsumptionSeries[day] ?? 0;
       if (kg > 0 && firstConsumptionDay === null) firstConsumptionDay = day;
       remaining -= kg;
       remainingStockSeries.push(Number(remaining.toFixed(3)));
       if (remaining < 0 && stockoutDay === null) stockoutDay = day;
-    });
+    }
 
     // Yeniden sipariş: tükeniş gününden geriye tedarik süresi (bugünden erken
     // olamaz); miktar = tükenişi izleyen REORDER_WINDOW_DAYS penceresinin

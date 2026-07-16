@@ -6,11 +6,15 @@
  * `computedAt` tazelik göstergesi, `mortalityAssumption` açık varsayım
  * işareti (K-17). Seriler grafik-hazırdır (P-16 — cap yok).
  *
+ * GraphQL adları 'ProtocolFeedForecast*' önekiyle ayrışır: legacy forecast
+ * yığını (feeding.resolver.ts, Faz 8'de emekli) 'FeedForecastAlert' adını
+ * hâlâ taşıyor — süpergraf tip adları benzersiz olmak zorunda.
+ *
  * @module FeedingProtocol/DTO
  */
 import { Field, Float, ID, Int, ObjectType } from '@nestjs/graphql';
 
-@ObjectType('FeedForecastPerFeed')
+@ObjectType('ProtocolFeedForecastPerFeed')
 export class FeedForecastPerFeedView {
   @Field(() => ID) feedId!: string;
   @Field() feedCode!: string;
@@ -30,7 +34,7 @@ export class FeedForecastPerFeedView {
   @Field() leadTimeSource!: string;
 }
 
-@ObjectType('FeedForecastTransition')
+@ObjectType('ProtocolFeedForecastTransition')
 export class FeedForecastTransitionView {
   @Field(() => ID) fromFeedId!: string;
   @Field(() => ID) toFeedId!: string;
@@ -38,7 +42,7 @@ export class FeedForecastTransitionView {
   @Field(() => Int) daysFromNow!: number;
 }
 
-@ObjectType('FeedForecastPerUnit')
+@ObjectType('ProtocolFeedForecastPerUnit')
 export class FeedForecastPerUnitView {
   @Field(() => ID) unitId!: string;
   @Field() unitName!: string;
@@ -47,7 +51,7 @@ export class FeedForecastPerUnitView {
   @Field(() => [FeedForecastTransitionView]) transitions!: FeedForecastTransitionView[];
 }
 
-@ObjectType('FeedForecastAlert')
+@ObjectType('ProtocolFeedForecastAlert')
 export class FeedForecastAlertView {
   /** STOCKOUT_FORECAST | TRANSITION_COVERAGE_GAP | REORDER_NOW */
   @Field() type!: string;
@@ -56,7 +60,7 @@ export class FeedForecastAlertView {
   @Field(() => Int) days!: number;
 }
 
-@ObjectType('FeedForecastMortalityAssumption')
+@ObjectType('ProtocolFeedForecastMortalityAssumption')
 export class FeedForecastMortalityAssumptionView {
   @Field() applied!: boolean;
   /** 'species_survival_rate' | 'none' */

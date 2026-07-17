@@ -10959,6 +10959,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/raw-sql-entity-backed.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/commands/feeding-protocol-v2.commands.ts",
       "prettier_managed": true
     },
@@ -54690,10 +54696,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8964,
+  "file_count": 8965,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8783,
-  "managed_file_list_sha256": "5015e67febbb597642e22eeb1716a81010c8312243da02335b9b057b4e5bfc25",
+  "managed_count": 8784,
+  "managed_file_list_sha256": "1668c4f67d454087c32dfa378b214f92b4b15cd38f7180fb7a0368f8bd388d80",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

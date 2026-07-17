@@ -23,7 +23,6 @@ const SentinelHubSettingsPage = React.lazy(
   () => import('./pages/settings/SentinelHubSettingsPage'),
 );
 const FeedingPage = React.lazy(() => import('./pages/feeding/FeedingPage'));
-const FeedingProgramForm = React.lazy(() => import('./pages/feeding/FeedingProgramForm'));
 const StoragePage = React.lazy(() => import('./pages/storage/StoragePage'));
 const HealthEventsPage = React.lazy(() => import('./pages/health/HealthEventsPage'));
 const HarvestPlansPage = React.lazy(() => import('./pages/harvest/HarvestPlansPage'));
@@ -100,9 +99,9 @@ const FarmModule: React.FC = () => {
       {/* Cleaner Fish - redirect to Tanks page Cleaner Fish tab */}
       <Route path="cleaner-fish/*" element={<Navigate to="/sites/tanks?tab=cleanerFish" replace />} />
 
-      {/* Feeding Management - Protocols (must be before catch-all) */}
-      <Route path="feeding/protocols/new" element={<FeedingProgramForm />} />
-      <Route path="feeding/protocols/:programId/edit" element={<FeedingProgramForm />} />
+      {/* Faz 8: v1 program editörü emekli — v2 protokol builder'a yönlendir */}
+      <Route path="feeding/protocols/new" element={<Navigate to="/sites/feeding?tab=protocols-v2" replace />} />
+      <Route path="feeding/protocols/:programId/edit" element={<Navigate to="/sites/feeding?tab=protocols-v2" replace />} />
 
       {/* Feeding Records - redirect to unified hub */}
       <Route path="feeding/records" element={<Navigate to="/sites/feeding?tab=records" replace />} />

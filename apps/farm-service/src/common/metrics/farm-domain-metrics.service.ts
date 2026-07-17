@@ -84,6 +84,7 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
   private setupLegacyWrites!: client.Counter;
   private setupLegacyReads!: client.Counter;
   private waterTemperatureReadFailures!: client.Counter;
+  private tankProjectionMisses!: client.Counter;
   private regulatorySubmissions!: client.Counter;
   private regulatoryCronRuns!: client.Counter;
   private regulatoryCronLastRun!: client.Gauge;
@@ -267,6 +268,16 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
       registers: [this.registry],
     });
 
+    // P-13: tanks vs equipment tabloları yalnız ID-eşitliği konvansiyonuyla
+    // bağlı; konvansiyon tutmayan ünitede Tank.currentBiomass projeksiyonu
+    // yazılamaz. v1 bunu sessiz no-op yapıyordu — v2 drift'i ÖLÇÜLEBİLİR kılar.
+    this.tankProjectionMisses = new client.Counter({
+      name: 'farm_tank_projection_miss_total',
+      help: 'Tank.currentBiomass projection skipped: no tanks row for the unit id (P-13 identity convention miss)',
+      labelNames: ['operation'],
+      registers: [this.registry],
+    });
+
     // OBS-HIGH-001: RED rate+errors for the government-submission pipeline.
     // Before this a Mattilsynet rejection returned GraphQL-200 and was
     // invisible; the failed-vs-total ratio is what the operator alert watches.
@@ -297,6 +308,11 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
   /** One temperature source failed and was degraded to null by the bulkhead. */
   recordWaterTemperatureReadFailure(params: { source: 'sensor' | 'manual' }): void {
     this.waterTemperatureReadFailures.inc({ source: params.source });
+  }
+
+  /** P-13: Tank projection row missing for a unit id (identity-convention miss). */
+  recordTankProjectionMiss(params: { operation: string }): void {
+    this.tankProjectionMisses.inc({ operation: params.operation });
   }
 
   /**

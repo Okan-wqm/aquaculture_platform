@@ -27,31 +27,6 @@ export * from './useGrowth';
 export * from './useHarvestPlans';
 export * from './useFeedingRecords';
 
-// useFeedingProtocols: TemperatureRange already exported by useSpecies
-export {
-  type FeedStage,
-  FEED_STAGE_OPTIONS,
-  type FeedingScheduleEntry,
-  type FeedingScheduleAdjustments,
-  type FeedingSchedule,
-  type GrowthStageProtocol,
-  type OptimalTemperature,
-  type SpecialConditions,
-  type FeedingProtocol,
-  type CreateFeedingProtocolInput,
-  type UpdateFeedingProtocolInput,
-  type FeedingProtocolFilter,
-  useFeedingProtocols,
-  useFeedingProtocol,
-  useFeedingProtocolsBySpecies,
-  useDefaultFeedingProtocol,
-  useCreateFeedingProtocol,
-  useUpdateFeedingProtocol,
-  useDeleteFeedingProtocol,
-  useSetDefaultFeedingProtocol,
-  feedStageLabels,
-  feedStageColors,
-} from './useFeedingProtocols';
 
 // useFeeding: GrowthProjection already exported by useGrowth
 export {
@@ -63,10 +38,7 @@ export {
   type FeedConsumptionBatchInfo,
   type FeedConsumptionByType,
   type FeedForecastAlert,
-  type FeedForecastResult,
-  type FeedForecastInput,
   useGrowthSimulation,
-  useFeedConsumptionForecast,
   useProjectHarvestDate,
   useEstimateSGR,
   useActiveTanks,
@@ -77,7 +49,6 @@ export {
   getAlertColor,
 } from './useFeeding';
 
-export * from './useDailyFeedingExecution';
 export * from './useFeederCalibration';
 
 // useTanks: CleanerFishDetail (useCleanerFish), EquipmentType (useEquipment),
@@ -132,7 +103,10 @@ export {
 
 export * from './useTenantUsers';
 
-// useWaterQuality: getStatusColor, getStatusLabel already exported by useDailyFeedingExecution
+// useWaterQuality: getStatusColor/getStatusLabel bilinçli olarak index'ten
+// export EDİLMEZ — hiçbir tüketicisi yok (onları export eden v1 execution
+// hook'u Faz 8'de silindi; ölü export üretmek yasak, ihtiyaç doğarsa
+// doğrudan './useWaterQuality'den import edilir).
 export {
   type WaterQualityStatus,
   type MeasurementSource,

@@ -6,7 +6,7 @@
  * @module Feeding/Handlers
  */
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
@@ -41,6 +41,19 @@ export class UpdateFeedingRecordHandler implements ICommandHandler<UpdateFeeding
 
     if (!feedingRecord) {
       throw new NotFoundException(`Feeding record ${feedingRecordId} bulunamadı`);
+    }
+
+    // C-11 (feeding-protocol SSoT Faz 5): öğün-bağlı kayıt bu yoldan
+    // DÜZELTİLEMEZ — bu handler miktar/maliyet değiştirir ama ne stok ne öğün
+    // ne büyümeye dokunur; öğün dökümünde P-05 invariantını sessizce kırardı.
+    // Düzeltme `correctMealPour` üzerinden yapılır (fark kadar stok hareketi +
+    // öğün varyansı + growth recalc AYNI transaction'da). Plan-dışı (meal'siz)
+    // kayıtlarda eski yol sürer.
+    if (feedingRecord.mealId != null) {
+      throw new BadRequestException(
+        `Feeding record ${feedingRecordId} bir öğün dökümüne bağlı (meal ${feedingRecord.mealId}) — ` +
+          `updateFeedingRecord ile düzeltilemez; correctMealPour kullanın`,
+      );
     }
 
     const oldActualAmount = Number(feedingRecord.actualAmount);

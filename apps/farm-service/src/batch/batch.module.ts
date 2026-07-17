@@ -17,6 +17,8 @@ import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Module } from '@nestjs/common';
+import { ProtocolRateService } from '../feeding-protocol/services/protocol-rate.service';
+import { DayPlanRecalcService } from '../feeding-protocol/services/day-plan-recalc.service';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
@@ -65,6 +67,7 @@ import { StockReconstructionService } from './services/stock-reconstruction.serv
 import { TankCountReconcileService } from './services/tank-count-reconcile.service';
 import { TankBatchModule } from './tank-batch.module';
 import { MortalityCullPolicyService } from './services/mortality-cull-policy.service';
+import { RemovalQuantityPolicyService } from './services/removal-quantity-policy.service';
 import { SGRCalculatorService } from './services/sgr-calculator.service';
 
 // Cross-cutting: backdate policy for mortality observations
@@ -125,6 +128,11 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
     BatchDomainService,
     BatchLifecyclePolicyService,
     MortalityCullPolicyService,
+    RemovalQuantityPolicyService,
+    // P-31 gün içi recalc — stateless servisler doğrudan sağlanır
+    // (FeedingProtocolModule import'u FeedingModule üzerinden döngü yaratırdı).
+    ProtocolRateService,
+    DayPlanRecalcService,
     SGRCalculatorService,
     BiomassCalculatorService,
     StockReconstructionService,

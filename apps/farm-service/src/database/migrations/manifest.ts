@@ -73,6 +73,13 @@ import { FinanceEntrySoftDeletePartialIndexes1805800000000 } from './18058000000
 import { AddChemicalTherapeuticTypes1805900000000 } from './1805900000000-AddChemicalTherapeuticTypes';
 // Renumbered 1805900000000 → 1806000000000 to resolve a timestamp collision with
 // AddChemicalTherapeuticTypes1805900000000 landed on main; migrations are append-only + ordered.
+import { BackfillFeedInventoryToStorageLedger1806100000000 } from './1806100000000-BackfillFeedInventoryToStorageLedger';
+import { CreateFeedingProtocolV2Tables1806200000000 } from './1806200000000-CreateFeedingProtocolV2Tables';
+import { MigrateFeedingProgramsToProtocolV21806300000000 } from './1806300000000-MigrateFeedingProgramsToProtocolV2';
+import { CreateFeedingDayPlanAndMeals1806400000000 } from './1806400000000-CreateFeedingDayPlanAndMeals';
+import { FeedingCutoverActivateAssignments1806500000000 } from './1806500000000-FeedingCutoverActivateAssignments';
+import { BackfillExecutionsToFeedingRecords1806600000000 } from './1806600000000-BackfillExecutionsToFeedingRecords';
+import { FeedingForecastFoundation1806700000000 } from './1806700000000-FeedingForecastFoundation';
 import { CreateIncidentMedia1806000000000 } from './1806000000000-CreateIncidentMedia';
 
 /**
@@ -145,4 +152,11 @@ export const FARM_MIGRATIONS = [
   FinanceEntrySoftDeletePartialIndexes1805800000000,
   AddChemicalTherapeuticTypes1805900000000,
   CreateIncidentMedia1806000000000,
+  BackfillFeedInventoryToStorageLedger1806100000000,
+  CreateFeedingProtocolV2Tables1806200000000,
+  MigrateFeedingProgramsToProtocolV21806300000000,
+  CreateFeedingDayPlanAndMeals1806400000000,
+  FeedingCutoverActivateAssignments1806500000000,
+  BackfillExecutionsToFeedingRecords1806600000000,
+  FeedingForecastFoundation1806700000000,
 ] as const;

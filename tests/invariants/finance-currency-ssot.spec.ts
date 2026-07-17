@@ -27,7 +27,7 @@
  *     farm create-handlers that seeded a `'TRY'`/`'NOK'` literal:
  *     `create-batch`, `create-cleaner-batch`, `create-chemical`,
  *     `create-consumable`, `create-equipment`, `create-feed`,
- *     `add-feed-inventory`, and `create-purchase-order`.
+ *     `create-purchase-order` (add-feed-inventory retired with the legacy feed_inventory stack — stock SSoT Phase 2).
  *
  * It bans a `|| '<ISO>'` / `?? '<ISO>'` currency fallback (from the
  * recognised-currency allowlist) in those files. FARM-HIGH-151 is now
@@ -71,7 +71,6 @@ const NAMED_GUARDED_FILES = [
   'apps/farm-service/src/consumable/handlers/create-consumable.handler.ts',
   'apps/farm-service/src/equipment/handlers/create-equipment.handler.ts',
   'apps/farm-service/src/feed/handlers/create-feed.handler.ts',
-  'apps/farm-service/src/feeding/handlers/add-feed-inventory.handler.ts',
   'apps/farm-service/src/storage/handlers/create-purchase-order.handler.ts',
   'apps/farm-service/src/harvest/handlers/create-harvest-record.handler.ts',
   'apps/farm-service/src/worker/handlers/create-worker.handler.ts',

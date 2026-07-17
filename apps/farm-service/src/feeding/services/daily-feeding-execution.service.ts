@@ -33,9 +33,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager, In, IsNull } from 'typeorm';
-import { OutboxPublisher } from '@platform/outbox';
 import { NatsEventBus } from '@platform/event-bus';
-import { FeedInventoryLowEvent, createBaseEvent } from '@platform/event-contracts';
 
 import { resolveTankSiteId } from '../../batch/utils/tank-lookup.util';
 
@@ -61,18 +59,16 @@ import { Feed } from '../../feed/entities/feed.entity';
 import { FeedingProtocolRateService } from '../../feed/services/feeding-protocol-rate.service';
 import { GrowthStageProtocol, TemperatureRange } from '../../feed/entities/feeding-protocol.entity';
 import { getTenantSchemaName, runInTenantTransaction } from '@aquaculture/backend-common/database';
-import { FeedInventory, InventoryStatus } from '../entities/feed-inventory.entity';
-import { MovementType } from '../../storage/entities/stock-movement.entity';
-import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
 
 // Services
 import { BilinearInterpolationService } from './bilinear-interpolation.service';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import { BatchDomainService } from '../../batch/services/batch-domain.service';
-import { StockMovementService } from '../../storage/services/stock-movement.service';
+import { FeedingLedgerService } from './feeding-ledger.service';
 
 // Constants
 import { SYSTEM_USER_ID } from '../constants';
+import { MAX_FEED_KG } from '../../feeding-protocol/constants';
 
 // ============================================================================
 // INTERFACES
@@ -178,8 +174,9 @@ export class DailyFeedingExecutionService {
     private readonly waterTemperatureService: WaterTemperatureService,
     private readonly dataSource: DataSource,
     private readonly batchDomainService: BatchDomainService,
-    private readonly stockMovementService: StockMovementService,
-    private readonly outboxPublisher: OutboxPublisher,
+    // P-05/K-4: drain penceresi boyunca legacy kayıt da TEK yem yazma yolundan
+    // (FeedingLedgerService) geçer — storage düşümü artık burada yaşamaz.
+    private readonly feedingLedger: FeedingLedgerService,
     private readonly mobileCommandReceipts: MobileCommandReceiptService,
     // SEC-HIGH-051: object-level site authorization SSoT, enforced AT THE SINK so
     // every feeding-write caller (recordDailyFeeding, recordBulkFeeding, any
@@ -523,7 +520,6 @@ export class DailyFeedingExecutionService {
     if (actualKg <= 0) {
       throw new BadRequestException('Actual feed amount must be greater than 0');
     }
-    const MAX_FEED_KG = 10000;
     if (actualKg > MAX_FEED_KG) {
       throw new BadRequestException(
         `Actual feed amount (${actualKg}kg) exceeds maximum allowed (${MAX_FEED_KG}kg)`,
@@ -613,18 +609,26 @@ export class DailyFeedingExecutionService {
       const tankBatchForGuard = await queryRunner.manager.findOne(TankBatch, {
         where: { tankId: execution.equipmentId, tenantId },
       });
-      if (tankBatchForGuard?.primaryBatchId) {
-        const lockedBatch = await queryRunner.manager.findOne(Batch, {
-          where: { id: tankBatchForGuard.primaryBatchId, tenantId },
-          lock: { mode: 'pessimistic_write' },
-        });
-        if (!lockedBatch) {
-          throw new NotFoundException(
-            `Primary batch ${tankBatchForGuard.primaryBatchId} not found for tank ${execution.equipmentId}.`,
-          );
-        }
-        this.batchDomainService.assertFeedable(lockedBatch);
+      if (!tankBatchForGuard?.primaryBatchId) {
+        // K-4 fail-closed: tek yem yazma yolu (FeedingLedgerService) yem
+        // kaydını batch'siz yazamaz — batch'i olmayan tanka yem kaydı, hiçbir
+        // biomass'a atfedilemeyen tüketim demektir (assertFeedable'ın koruduğu
+        // aynı bozulma). Eski davranış bunu sessizce tolere ediyordu.
+        throw new BadRequestException(
+          `Tank ${execution.equipmentId} has no primary batch — feeding cannot be ` +
+            `recorded without a batch to attribute the feed to.`,
+        );
       }
+      const lockedBatch = await queryRunner.manager.findOne(Batch, {
+        where: { id: tankBatchForGuard.primaryBatchId, tenantId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!lockedBatch) {
+        throw new NotFoundException(
+          `Primary batch ${tankBatchForGuard.primaryBatchId} not found for tank ${execution.equipmentId}.`,
+        );
+      }
+      this.batchDomainService.assertFeedable(lockedBatch);
 
       // 2. Validate and get FCR with range check
       let fcr = execution.calculations.expectedFCR;
@@ -724,31 +728,44 @@ export class DailyFeedingExecutionService {
         );
       }
 
-      // 9a. Storage-ledger deduction (StorageInventory + Feed.quantity
-      // roll-up + StockMovement audit row), INSIDE this tx, fail-closed.
-      // Replaces the old async FeedingStorageEventHandler that swallowed
-      // insufficient-stock / errors. No-lot / insufficient stock throws and
-      // rolls back the whole recording.
-      await this.deductFromStorageLedger(
+      // 9. TEK yem yazma yolu (P-05/K-4): drain penceresi boyunca legacy
+      // execution kaydı da FeedingLedgerService'ten geçer — FeedingRecord
+      // satırı (sourceExecutionId unique partial index; Faz 6 tarihsel
+      // backfill'i aynı anahtara çarptığı için drain kayıtları çift
+      // taşınamaz), Batch.totalFeedConsumed/Cost (kilit yukarıda alındı),
+      // site-scoped FEFO storage düşümü (akışın SON yazımı, K-1) ve
+      // FeedingRecordedEvent outbox tek noktadan. FCRCalculationService ve
+      // finans (derived-cost-sources) drain kayıtlarını artık eksik görmez.
+      const activeFeed = await queryRunner.manager.findOne(Feed, {
+        where: { id: execution.calculations.activeFeedId, tenantId },
+      });
+      if (!activeFeed) {
+        throw new NotFoundException(
+          `Feed ${execution.calculations.activeFeedId} not found for tenant ${tenantId}.`,
+        );
+      }
+      const recordedAt = new Date();
+      await this.feedingLedger.recordFeed(
         queryRunner.manager,
         tenantId,
-        execution.calculations.activeFeedId,
-        actualKg,
-        execution.executionDate,
-        executionId,
         userId,
-      );
-
-      // 9b. Legacy feed_inventory deduction — KEPT because the
-      // GetFeedInventory read path still reads feed_inventory.quantityKg.
-      // Runs in the same tx as 9a so the two ledgers stay in sync (commit or
-      // roll back together). Collapsing onto one ledger is Phase B.
-      await this.deductFeedInventory(
-        queryRunner.manager,
-        tenantId,
-        execution.calculations.activeFeedId,
-        actualKg,
-        userId,
+        lockedBatch,
+        activeFeed,
+        {
+          batchId: lockedBatch.id,
+          tankId: execution.equipmentId,
+          feedId: activeFeed.id,
+          plannedAmountKg: execution.calculations.plannedFeedKg,
+          actualAmountKg: actualKg,
+          feedingDate: new Date(execution.executionDate),
+          feedingTime: `${String(recordedAt.getUTCHours()).padStart(2, '0')}:${String(
+            recordedAt.getUTCMinutes(),
+          ).padStart(2, '0')}`,
+          fedBy: userId,
+          notes,
+          sourceExecutionId: executionId,
+          siteId: feedingSiteId ?? undefined,
+        },
       );
 
       const result: FeedingRecordResult = {
@@ -1524,191 +1541,6 @@ export class DailyFeedingExecutionService {
 
     const weightGap = targetWeightG - currentWeightG;
     return Math.ceil(weightGap / dailyGrowthPerFishG);
-  }
-
-  // ==========================================================================
-  // STOK DÜŞÜM
-  // ==========================================================================
-
-  /**
-   * Deduct the fed amount from the storage ledger (StorageInventory +
-   * Feed.quantity roll-up + immutable StockMovement audit row) INSIDE the
-   * caller's transaction, fail-closed FOR STORAGE-TRACKED FEEDS.
-   *
-   * # Two independently-populated ledgers, two correct outcomes (Phase A)
-   *
-   * Feed stock is populated by two separate operator workflows
-   * (`feed_inventory` via add-feed-inventory; `storage_inventory` via
-   * receive-delivery). A tenant that uses feeding + feed_inventory but never
-   * adopted the storage/warehouse module has ZERO storage rows for the feed,
-   * so "no usable lot" means "not storage-tracked", not "out of stock". This
-   * method first distinguishes those cases on the in-tx manager:
-   *
-   *   - NO storage presence (feedHasStoragePresence == false) → SKIP the
-   *     storage OUT, proceed on the feed_inventory-only path, and emit an
-   *     OBSERVABLE structured warn (not a swallowed catch, not a failure) —
-   *     so a pre-Phase-B tenant is not pushed off a fail-closed cliff.
-   *   - Storage presence EXISTS but no usable lot / insufficient quantity →
-   *     REAL shortage for a storage-managed feed → FAIL-CLOSED: throw rolls
-   *     back the whole recording.
-   *
-   * The execution names a feed (activeFeedId) but no concrete storage
-   * location, so the resolve step picks the FEFO-preferred usable lot across
-   * all storage locations as of the execution date, then issues an OUT
-   * movement via StockMovementService.recordMovement on the SAME manager.
-   * Idempotency key is derived from the execution id.
-   */
-  private async deductFromStorageLedger(
-    manager: EntityManager,
-    tenantId: string,
-    feedId: string,
-    actualAmountKg: number,
-    executionDate: Date,
-    executionId: string,
-    userId: string,
-  ): Promise<void> {
-    const hasStoragePresence = await this.stockMovementService.feedHasStoragePresence(
-      manager,
-      tenantId,
-      feedId,
-    );
-
-    if (!hasStoragePresence) {
-      this.logger.warn(
-        'Storage ledger not tracked for feed — skipping in-transaction storage ' +
-          'deduction; feed_inventory-only path applies (pre-Phase-B divergence is ' +
-          'expected for this tenant). ' +
-          `feedId=${feedId}, tenantId=${tenantId}, executionId=${executionId}, ` +
-          `actualAmountKg=${actualAmountKg}`,
-      );
-      return;
-    }
-
-    const location = await this.stockMovementService.resolveFeedDeductionLocation(
-      manager,
-      tenantId,
-      feedId,
-      executionDate,
-    );
-
-    if (!location) {
-      // Storage-tracked feed with no usable lot → real shortage → fail-closed.
-      throw new BadRequestException(
-        `Feed ${feedId} has no available storage stock to deduct ${actualAmountKg}kg. ` +
-          `Receive feed into a storage location before recording this feeding.`,
-      );
-    }
-
-    await this.stockMovementService.recordMovement(
-      manager,
-      {
-        movementType: MovementType.OUT,
-        itemType: StorageItemType.FEED,
-        itemId: feedId,
-        quantity: actualAmountKg,
-        fromLocationId: location.storageLocationId,
-        lotNumber: location.lotNumber,
-        reference: `FEEDING-EXECUTION: ${executionId}`,
-        reason: 'Auto-deducted from daily feeding execution (in-transaction).',
-        idempotencyKey: `feeding-exec-deduct-${executionId}`,
-        movementDate: executionDate,
-      },
-      { tenantId, userId, userName: 'Feeding' },
-    );
-  }
-
-  /**
-   * Stoktan yem düşümü yapar (transaction manager ile).
-   * FIFO mantığıyla en eski AVAILABLE stoktan düşer.
-   *
-   * Legacy feed_inventory ledger. KEPT in Phase A because the
-   * GetFeedInventory read path still reads feed_inventory.quantityKg; runs in
-   * the same tx as the storage deduction so the ledgers stay in sync.
-   *
-   * @param manager EntityManager from existing transaction
-   * @param tenantId Tenant ID
-   * @param feedId Feed ID
-   * @param actualAmountKg Tüketilen miktar (kg)
-   * @param userId İşlemi yapan kullanıcı
-   */
-  private async deductFeedInventory(
-    manager: import('typeorm').EntityManager,
-    tenantId: string,
-    feedId: string,
-    actualAmountKg: number,
-    userId: string,
-  ): Promise<void> {
-    // FIFO: en eski kullanılabilir stoktan düş
-    const feedInventory = await manager.findOne(FeedInventory, {
-      where: {
-        tenantId,
-        feedId,
-        status: In([InventoryStatus.AVAILABLE, InventoryStatus.LOW_STOCK]),
-      },
-      order: { receivedDate: 'ASC', createdAt: 'ASC' },
-      lock: { mode: 'pessimistic_write' },
-    });
-
-    if (!feedInventory) {
-      this.logger.warn(
-        `No available feed inventory found for feedId=${feedId}, tenantId=${tenantId}. ` +
-          `Feeding recorded without inventory deduction.`,
-      );
-      return;
-    }
-
-    const currentQuantity = Number(feedInventory.quantityKg);
-    const newQuantity = currentQuantity - actualAmountKg;
-
-    if (newQuantity < 0) {
-      this.logger.warn(
-        `Feed inventory insufficient: ${currentQuantity}kg available, ${actualAmountKg}kg requested. ` +
-          `Setting inventory to 0. inventoryId=${feedInventory.id}`,
-      );
-    }
-
-    feedInventory.quantityKg = Math.max(0, newQuantity);
-    feedInventory.updatedBy = userId;
-
-    // Toplam değeri güncelle
-    if (feedInventory.unitPricePerKg) {
-      feedInventory.totalValue = Number(feedInventory.unitPricePerKg) * feedInventory.quantityKg;
-    }
-
-    // Durumu güncelle
-    feedInventory.updateStatus();
-
-    await manager.save(feedInventory);
-
-    this.logger.debug(
-      `Feed inventory deducted: inventoryId=${feedInventory.id}, ` +
-        `${currentQuantity}kg -> ${feedInventory.quantityKg}kg (used ${actualAmountKg}kg)`,
-    );
-
-    // Enqueue FeedInventoryLowEvent into the transactional outbox if the
-    // remaining stock crosses the reorder threshold. Previously this published
-    // DIRECTLY via the NATS event bus from INSIDE the still-open feeding
-    // transaction (commit happens in the caller, recordActualFeeding) — which
-    // both violated outbox-only publishing AND could emit a phantom
-    // FeedInventoryLow for a feeding that later rolled back. Enqueuing on the
-    // SAME caller-provided `manager` makes the event commit atomically with the
-    // inventory update — exactly matching the sibling CreateFeedingRecordHandler.
-    if (feedInventory.quantityKg <= feedInventory.minStockKg) {
-      const lowStockEvent: FeedInventoryLowEvent = {
-        ...createBaseEvent<FeedInventoryLowEvent>('FeedInventoryLow', tenantId, {
-          aggregateId: feedInventory.id,
-          aggregateType: 'FeedInventory',
-        }),
-        userId,
-        inventoryId: feedInventory.id,
-        feedId: feedInventory.feedId,
-        siteId: feedInventory.siteId,
-        currentQuantityKg: feedInventory.quantityKg,
-        reorderPointKg: feedInventory.minStockKg,
-        status: feedInventory.quantityKg <= 0 ? 'critical' : 'low_stock',
-      };
-      await this.outboxPublisher.enqueue(lowStockEvent, manager);
-    }
   }
 
   // ==========================================================================

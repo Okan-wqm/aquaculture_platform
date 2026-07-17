@@ -53,3 +53,13 @@ for spec in tools/*gates/*.spec.ts; do
   [ -f "$spec" ] || continue
   "$GATE_TS_NODE" $GATE_TSCONFIG "$spec" || exit 1
 done
+
+# format-scope manifesti — yeni/silinen izlenen dosya ya da üretilmiş-dosya
+# içerik hash'i değişimi manifesti bayatlatır; CI'daki banned-phrase-gate'in
+# SON adımı (npm run quality:format-scope:check) aynı kontrolü koşar. Push
+# sonrası CI kırmızısı yerine commit anında yakala (tier-3 make-it-detectable;
+# 137b4a46 ile dfb57127 bu sınıfın iki canlı örneğiydi).
+node tools/quality/quality.mjs format-scope check || {
+  echo "format-scope bayat: 'npm run quality:format-scope:generate' koşup manifesti bu commit'e ekleyin." >&2
+  exit 1
+}

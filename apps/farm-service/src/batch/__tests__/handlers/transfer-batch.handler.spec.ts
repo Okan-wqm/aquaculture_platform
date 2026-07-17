@@ -8,6 +8,7 @@ import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-
 import { Role } from '@aquaculture/backend-common/decorators';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { TransferBatchHandler } from '../../handlers/transfer-batch.handler';
+import { RemovalQuantityPolicyService } from '../../services/removal-quantity-policy.service';
 import { TransferBatchCommand } from '../../commands/transfer-batch.command';
 import { Batch, BatchStatus } from '../../entities/batch.entity';
 import { TankBatch } from '../../entities/tank-batch.entity';
@@ -61,6 +62,10 @@ describe('TransferBatchHandler', () => {
       createMockRepository() as any,
       createMockRepository() as any,
       mockOutboxPublisher as any,
+      // P-31 recalc — mocked (day-plan-recalc.service.spec kapsıyor).
+      { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
+      // D-3 miktar çözümü — GERÇEK stateless politika (üretim davranışı).
+      new RemovalQuantityPolicyService(),
       mockTankCapacityService as any,
       // SEC-HIGH-051: the real fail-closed SSoT; commands below pass
       // MODULE_MANAGER so site authz bypasses for these domain-logic tests.

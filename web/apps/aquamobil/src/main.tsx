@@ -10,6 +10,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { IdentityBoundary } from './components/IdentityBoundary';
 import { AuthProvider } from './hooks/useAuth';
 import { OfflineProvider } from './hooks/useOfflineQueue';
+import { I18nProvider } from './i18n';
 import './styles/main.css';
 import { logger } from './utils/logger';
 
@@ -100,17 +101,21 @@ ReactDOM.createRoot(rootElement).render(
           App.tsx and the 4 hub-page boundaries compose UNDER this one for finer
           granularity. */}
       <ErrorBoundary>
-        <BrowserRouter basename="/mobile">
-          <AuthProvider>
-            <IdentityBoundary>
-              <OfflineProvider>
-                <KonstaApp theme={isIOS ? 'ios' : 'material'} safeAreas>
-                  <App />
-                </KonstaApp>
-              </OfflineProvider>
-            </IdentityBoundary>
-          </AuthProvider>
-        </BrowserRouter>
+        {/* P-28: mobil i18n — dil tarayıcıdan sezilir (varsayılan tr).
+            Router/Auth ÜSTÜNDE: hata kartları dahil her yüzey t() erişir. */}
+        <I18nProvider>
+          <BrowserRouter basename="/mobile">
+            <AuthProvider>
+              <IdentityBoundary>
+                <OfflineProvider>
+                  <KonstaApp theme={isIOS ? 'ios' : 'material'} safeAreas>
+                    <App />
+                  </KonstaApp>
+                </OfflineProvider>
+              </IdentityBoundary>
+            </AuthProvider>
+          </BrowserRouter>
+        </I18nProvider>
       </ErrorBoundary>
     </QueryClientProvider>
   </React.StrictMode>

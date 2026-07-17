@@ -19,6 +19,7 @@ import { OutboxPublisher } from '@platform/outbox';
 import { FarmStockProjectionService } from '../../../farm-stock/farm-stock-projection.service';
 import { AuditLogService } from '../../../database/services/audit-log.service';
 import { MortalityCullPolicyService } from '../../services/mortality-cull-policy.service';
+import { RemovalQuantityPolicyService } from '../../services/removal-quantity-policy.service';
 import { RecordMortalityHandler } from '../../handlers/record-mortality.handler';
 import { RecordMortalityCommand, MortalityReason } from '../../commands/record-mortality.command';
 import { Batch, BatchStatus } from '../../entities/batch.entity';
@@ -208,6 +209,10 @@ describe('RecordMortalityHandler', () => {
       {} as Repository<Tank>,
       {} as Repository<EquipmentType>,
       outboxPublisher,
+      // P-31 recalc — mocked (day-plan-recalc.service.spec kapsıyor).
+      { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
+      // D-3 miktar çözümü — GERÇEK stateless politika (üretim davranışı).
+      new RemovalQuantityPolicyService(),
       backdatePolicy as any,
       auditLogService,
       // SEC-HIGH-051: the real SSoT — fail-closed object-level site authz.

@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `960ec4a51cb12b0e364661682e04b2064e51d3fe6d373cd4b2dfba349de9c840`
+Registry tip: `fe254c0ad1e366c640e8fa3b249b0fbd6bcfdf466eed70db0c9dfa4d99ff5a61`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -77,8 +77,10 @@ parsed workflow invariants, but remains IN-PROGRESS until merge and the
 post-merge close ceremony records a main-reachable closing commit.
 
 Updated 2026-07-17 (sensor device industrial-protocol audit): registering the
-102-finding sensor `/sensor/devices` audit brought the registry to 1101 entries
-and surfaced three new active CRITICALs. `SENSOR-CRITICAL-007` (6 of 7 VFD
+102-finding sensor `/sensor/devices` audit added 103 entries (the 102 findings
+plus SENSOR-MEDIUM-080) and, after merging main's concurrent farm/infra findings
+and re-chaining, the registry stands at 1125 entries with three new active
+CRITICALs from the sensor audit. `SENSOR-CRITICAL-007` (6 of 7 VFD
 adapters fake the write/command path — `EMERGENCY_STOP` returns success without
 transmitting) and `SENSOR-CRITICAL-009` (manual approve→apply never writes to the
 drive — `vfd.changeset.approved` has no consumer) are `real-open`: the

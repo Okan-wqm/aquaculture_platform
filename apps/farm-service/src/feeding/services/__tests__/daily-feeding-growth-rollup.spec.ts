@@ -7,7 +7,6 @@
  * callback against a fake EntityManager.
  */
 import { DataSource, EntityManager, Repository, ObjectLiteral } from 'typeorm';
-import { OutboxPublisher } from '@platform/outbox';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 
@@ -30,7 +29,7 @@ import { Batch } from '../../../batch/entities/batch.entity';
 import { BilinearInterpolationService } from '../bilinear-interpolation.service';
 import { WaterTemperatureService } from '../../../water-quality/services/water-temperature.service';
 import { BatchDomainService } from '../../../batch/services/batch-domain.service';
-import { StockMovementService } from '../../../storage/services/stock-movement.service';
+import { FeedingLedgerService } from '../feeding-ledger.service';
 
 function mock<T>(impl: Partial<T>): T {
   return impl as T;
@@ -92,8 +91,7 @@ function makeService(): DailyFeedingExecutionService {
     mock<WaterTemperatureService>({}),
     mock<DataSource>({}),
     mock<BatchDomainService>({}),
-    mock<StockMovementService>({}),
-    mock<OutboxPublisher>({}),
+    mock<FeedingLedgerService>({}),
     mock<MobileCommandReceiptService>({}),
     mock<SiteAuthorizationService>({}),
   );

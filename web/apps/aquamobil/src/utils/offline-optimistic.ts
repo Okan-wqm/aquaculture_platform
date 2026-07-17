@@ -2,7 +2,7 @@ import type { QueryClient } from '@tanstack/react-query';
 
 import { createTenantQueryKey } from './tenant-query-keys';
 
-import type { OperationType } from '@/types';
+import type { OperationPayload, OperationType } from '@/types';
 
 /**
  * MOB-LOW-011 — optimistic KPI bumps for queued farm writes.
@@ -43,12 +43,31 @@ const STOCK_EVENT_TYPES: readonly OperationType[] = [
   'recordTransfer',
 ];
 
+/**
+ * Faz 6 öğün cutover'ı: bir döküm yalnız `finalize=true` ile öğünü bitirir
+ * (fed) — finalize'sız döküm partially_fed bırakır ve "tamamlandı" sayacını
+ * ŞİŞİRMEMELİDİR. Bu yüzden recordMealFeeding bump'ı sabit haritada değil,
+ * payload'ın finalize bayrağına bakan bu kapıdan geçer.
+ */
+function dailyOpsCounterFor(
+  type: OperationType,
+  payload?: OperationPayload,
+): DailyOpsCounterKey | undefined {
+  if (type === 'recordMealFeeding') {
+    return payload && 'finalize' in payload && payload.finalize === true
+      ? 'feedingCompletedCount'
+      : undefined;
+  }
+  return DAILY_OPS_BUMPS[type];
+}
+
 export function applyOptimisticKpiBump(
   queryClient: QueryClient,
   tenantId: string,
   type: OperationType,
+  payload?: OperationPayload,
 ): void {
-  const dailyOpsCounter = DAILY_OPS_BUMPS[type];
+  const dailyOpsCounter = dailyOpsCounterFor(type, payload);
   if (dailyOpsCounter) {
     queryClient.setQueriesData<DailyOpsCountsSlice>(
       { queryKey: createTenantQueryKey(tenantId, 'dailyOpsCounts') },

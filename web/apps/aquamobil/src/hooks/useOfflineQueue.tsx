@@ -242,7 +242,7 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
       // offline record is visible on the hub cards immediately; the post-sync
       // invalidation reconciles with server truth.
       if (result.status === 'queued') {
-        applyOptimisticKpiBump(queryClient, tenantId, type);
+        applyOptimisticKpiBump(queryClient, tenantId, type, payload);
       }
       await refreshQueue();
       return result;

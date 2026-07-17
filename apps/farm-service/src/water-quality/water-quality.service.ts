@@ -42,6 +42,8 @@ import {
   WATER_TEMPERATURE_MAX_C,
   WATER_TEMPERATURE_MIN_C,
 } from './services/water-temperature.service';
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
+import { DayPlanRecalcService } from '../feeding-protocol/services/day-plan-recalc.service';
 
 // ============================================================================
 // INTERNAL INTERFACES (Service layer only)
@@ -125,6 +127,9 @@ export class WaterQualityService {
     private readonly outboxPublisher: OutboxPublisher,
     // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
     private readonly siteAuth: SiteAuthorizationService,
+    // P-31/D-4: yeni manuel sıcaklık bugünkü beslenmemiş öğünleri AYNI tx'te
+    // yeniden fiyatlar — ayrı yazma yolu AÇILMAZ, mevcut komutlar tetikler.
+    private readonly dayPlanRecalc: DayPlanRecalcService,
   ) {}
 
   /**
@@ -165,7 +170,14 @@ export class WaterQualityService {
       temperature: celsius,
       measuredBy: recordedBy,
     });
-    await this.repository.save(measurement);
+    // Kayıt + gün içi recalc TEK transaction'da (P-31): yeni sıcaklık
+    // çarpanı kalan öğünlere hemen yansır, yarını beklemez.
+    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      await queryRunner.manager.save(measurement);
+      await this.dayPlanRecalc.recalcForUnit(queryRunner.manager, tenantId, tankId, 'temperature', {
+        newTemperatureC: celsius,
+      });
+    });
     return true;
   }
 
@@ -359,6 +371,18 @@ export class WaterQualityService {
           };
           await this.outboxPublisher.enqueue(criticalEvent, queryRunner.manager);
         }
+      }
+
+      // P-31: ölçüm sıcaklık taşıyorsa ünitenin bugünkü beslenmemiş öğünleri
+      // aynı transaction'da yeni çarpanla yeniden fiyatlanır.
+      if (saved.tankId && typeof saved.temperature === 'number') {
+        await this.dayPlanRecalc.recalcForUnit(
+          queryRunner.manager,
+          tenantId,
+          saved.tankId,
+          'temperature',
+          { newTemperatureC: Number(saved.temperature) },
+        );
       }
 
       await queryRunner.commitTransaction();

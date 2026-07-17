@@ -18,6 +18,8 @@ import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Module } from '@nestjs/common';
+import { ProtocolRateService } from '../feeding-protocol/services/protocol-rate.service';
+import { DayPlanRecalcService } from '../feeding-protocol/services/day-plan-recalc.service';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
@@ -80,6 +82,9 @@ import { HarvestPolicyService } from './services/harvest-policy.service';
   controllers: [GetHarvestOverviewResponder],
   providers: [
     // Services
+    // P-31 gün içi recalc — stateless servisler doğrudan sağlanır (döngü riski yok).
+    ProtocolRateService,
+    DayPlanRecalcService,
     HarvestPlanService,
     HarvestPolicyService,
     MobileCommandReceiptService,

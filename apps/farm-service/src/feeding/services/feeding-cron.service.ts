@@ -25,6 +25,7 @@ import { Repository, DataSource, QueryRunner } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as crypto from 'crypto';
 import { withTenantContext } from '@aquaculture/backend-common/context';
+import { legacyFeedingEngineEnabled } from '../constants';
 import { listTenantSchemas } from '@aquaculture/backend-common/database';
 import { FeedingProgram, FeedingProgramStatus } from '../entities/feeding-program.entity';
 import { FeedingProgramTank } from '../entities/feeding-program-tank.entity';
@@ -313,6 +314,10 @@ export class FeedingCronService {
     timeZone: 'Europe/Istanbul',
   })
   async generateDailyPlans(): Promise<void> {
+    if (!legacyFeedingEngineEnabled()) {
+      this.logger.log('K-5 cutover: legacy execution generation gated off — v2 engine owns day plans.');
+      return;
+    }
     const context = this.createJobContext('generate-daily-feeding-plans');
     this.logJobStart(context, 'Starting daily feeding plan generation...');
 
@@ -641,6 +646,10 @@ export class FeedingCronService {
     timeZone: 'Europe/Istanbul',
   })
   async checkFeedTransitions(): Promise<void> {
+    if (!legacyFeedingEngineEnabled()) {
+      this.logger.log('K-5 cutover: legacy feed-transition job gated off — v2 recalc owns transitions.');
+      return;
+    }
     const context = this.createJobContext('check-feed-transitions');
     this.logJobStart(context, 'Checking for feed transitions...');
 

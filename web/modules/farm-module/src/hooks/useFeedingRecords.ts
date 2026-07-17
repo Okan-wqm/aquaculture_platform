@@ -11,12 +11,8 @@ import {
   FEEDING_RECORDS_QUERY,
   DAILY_FEEDING_PLAN_QUERY,
   FEEDING_SUMMARY_QUERY,
-  FEED_INVENTORY_QUERY,
   CREATE_FEEDING_RECORD_MUTATION,
   UPDATE_FEEDING_RECORD_MUTATION,
-  ADD_FEED_INVENTORY_MUTATION,
-  CONSUME_FEED_INVENTORY_MUTATION,
-  ADJUST_FEED_INVENTORY_MUTATION,
 } from '../graphql/feeding.operations';
 
 // ============================================================================
@@ -90,35 +86,6 @@ export interface FeedingRecord {
   isVarianceAcceptable: boolean;
 }
 
-export interface FeedInventory {
-  id: string;
-  tenantId: string;
-  feedId: string;
-  siteId: string;
-  departmentId?: string;
-  quantityKg: number;
-  minStockKg: number;
-  status: InventoryStatus;
-  lotNumber?: string;
-  manufacturingDate?: string;
-  expiryDate?: string;
-  receivedDate?: string;
-  /** @deprecated Float — use `unitPricePerKgDecimal` (exact decimal string, ADR-0004). */
-  unitPricePerKg?: number;
-  unitPricePerKgDecimal?: string | null;
-  /** @deprecated Float — use `totalValueDecimal` (exact decimal string, ADR-0004). */
-  totalValue?: number;
-  totalValueDecimal?: string | null;
-  currency?: string;
-  storageLocation?: string;
-  notes?: string;
-  createdAt: string;
-  updatedAt: string;
-  createdBy?: string;
-  isLowStock: boolean;
-  isExpired: boolean;
-  daysUntilExpiry?: number;
-}
 
 export interface PlannedFeeding {
   batchId: string;
@@ -179,15 +146,6 @@ export interface FeedingRecordConnection {
   hasPreviousPage: boolean;
 }
 
-export interface FeedInventoryConnection {
-  items: FeedInventory[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
-}
 
 // Input types
 export interface FeedingRecordFilterInput {
@@ -199,13 +157,6 @@ export interface FeedingRecordFilterInput {
   feedingMethod?: FeedingMethod;
 }
 
-export interface FeedInventoryFilterInput {
-  siteId?: string;
-  feedId?: string;
-  status?: InventoryStatus;
-  includeLowStock?: boolean;
-  includeExpiringSoon?: boolean;
-}
 
 
 export interface CreateFeedingRecordInput {
@@ -241,37 +192,8 @@ export interface UpdateFeedingRecordInput {
   verifiedBy?: string;
 }
 
-export interface AddFeedInventoryInput {
-  feedId: string;
-  siteId: string;
-  departmentId?: string;
-  quantityKg: number;
-  lotNumber?: string;
-  manufacturingDate?: string;
-  expiryDate?: string;
-  receivedDate?: string;
-  unitPricePerKg?: number;
-  currency?: string;
-  storageLocation?: string;
-  notes?: string;
-  createdBy: string;
-}
 
-export interface ConsumeFeedInventoryInput {
-  inventoryId: string;
-  quantityKg: number;
-  reason?: ConsumptionReason;
-  feedingRecordId?: string;
-  notes?: string;
-}
 
-export interface AdjustFeedInventoryInput {
-  inventoryId: string;
-  adjustmentType: AdjustmentType;
-  quantity: number;
-  reason: string;
-  notes?: string;
-}
 
 // ============================================================================
 // FEEDING RECORD HOOKS
@@ -430,7 +352,6 @@ export function useCreateFeedingRecord() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feedingRecords') });
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeding') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feedInventory') });
     },
   });
 }
@@ -467,128 +388,3 @@ export function useUpdateFeedingRecord() {
 // FEED INVENTORY HOOKS
 // ============================================================================
 
-/**
- * Hook to fetch feed inventory list with filters
- */
-export function useFeedInventoryList(
-  filter?: FeedInventoryFilterInput,
-  pagination?: { page?: number; limit?: number },
-) {
-  const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
-
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'feedInventory', 'list', tenantId, filter, pagination),
-    queryFn: async () => {
-      if (!tenantId) {
-        throw new Error('Tenant context required');
-      }
-      const data = await graphqlClient.request<{ feedInventory: FeedInventoryConnection }>(
-        FEED_INVENTORY_QUERY,
-        {
-          filter,
-          pagination: {
-            page: pagination?.page ?? 1,
-            limit: pagination?.limit ?? 20,
-          },
-        }
-      );
-      return data.feedInventory;
-    },
-    staleTime: 30000,
-    enabled: !authLoading && isAuthenticated && !!token && !!tenantId,
-    retry: (failureCount, error) => {
-      if (error instanceof Error) {
-        const message = error.message.toLowerCase();
-        if (message.includes('unauthenticated') || message.includes('unauthorized') || message.includes('tenant')) {
-          return false;
-        }
-      }
-      return failureCount < 2;
-    },
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
-  });
-}
-
-/**
- * Hook to add feed inventory (purchase)
- */
-export function useAddFeedInventory() {
-  const { token, tenantId } = useAuth();
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (input: AddFeedInventoryInput) => {
-      if (!token) {
-        throw new Error('Authentication required. Please login first.');
-      }
-      if (!tenantId) {
-        throw new Error('Tenant context required. Please re-login.');
-      }
-      const data = await graphqlClient.request<{ addFeedInventory: FeedInventory }>(
-        ADD_FEED_INVENTORY_MUTATION,
-        { input }
-      );
-      return data.addFeedInventory;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feedInventory') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeding') });
-    },
-  });
-}
-
-/**
- * Hook to consume feed from inventory
- */
-export function useConsumeFeedInventory() {
-  const { token, tenantId } = useAuth();
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (input: ConsumeFeedInventoryInput) => {
-      if (!token) {
-        throw new Error('Authentication required. Please login first.');
-      }
-      if (!tenantId) {
-        throw new Error('Tenant context required. Please re-login.');
-      }
-      const data = await graphqlClient.request<{ consumeFeedInventory: FeedInventory }>(
-        CONSUME_FEED_INVENTORY_MUTATION,
-        { input }
-      );
-      return data.consumeFeedInventory;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feedInventory') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeding') });
-    },
-  });
-}
-
-/**
- * Hook to adjust feed inventory (correction)
- */
-export function useAdjustFeedInventory() {
-  const { token, tenantId } = useAuth();
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (input: AdjustFeedInventoryInput) => {
-      if (!token) {
-        throw new Error('Authentication required. Please login first.');
-      }
-      if (!tenantId) {
-        throw new Error('Tenant context required. Please re-login.');
-      }
-      const data = await graphqlClient.request<{ adjustFeedInventory: FeedInventory }>(
-        ADJUST_FEED_INVENTORY_MUTATION,
-        { input }
-      );
-      return data.adjustFeedInventory;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feedInventory') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeding') });
-    },
-  });
-}

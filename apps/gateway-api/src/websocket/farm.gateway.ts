@@ -252,6 +252,47 @@ export class FarmGateway
     this.emitFarmEvent(tenantId, 'feedInventoryLow', payload);
   }
 
+  /**
+   * Broadcast a LowStockDetected alert (storage-ledger low-stock sink —
+   * successor of FeedInventoryLow; both are bridged during the stock SSoT
+   * migration window).
+   */
+  broadcastLowStockDetected(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'lowStockDetected', payload);
+  }
+
+  // ── Meal-based feeding engine v2 (C-2 — MealBoard + mobil canlı güncelleme) ──
+
+  /** Broadcast a MealFed pour event. */
+  broadcastMealFed(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'mealFed', payload);
+  }
+
+  /** Broadcast a MealSkipped event. */
+  broadcastMealSkipped(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'mealSkipped', payload);
+  }
+
+  /** Broadcast a MealMissed event (05:30 sweep). */
+  broadcastMealMissed(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'mealMissed', payload);
+  }
+
+  /** Broadcast a MealUnderfed event (meal- or day-scope). */
+  broadcastMealUnderfed(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'mealUnderfed', payload);
+  }
+
+  /** Broadcast a FeedTypeTransitioned event (auto or manual). */
+  broadcastFeedTypeTransitioned(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'feedTypeTransitioned', payload);
+  }
+
+  /** Broadcast an UnfedUnitDetected event (D-5 sweep). */
+  broadcastUnfedUnitDetected(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'unfedUnitDetected', payload);
+  }
+
   /** Broadcast a SiteCreated setup event. */
   broadcastSiteCreated(tenantId: string, payload: Record<string, unknown>): void {
     this.emitFarmEvent(tenantId, 'siteCreated', payload);

@@ -70,6 +70,31 @@ describe('optimistic KPI bumps (MOB-LOW-011)', () => {
     });
   });
 
+  it('bumps feeding-completed for a FINALIZING meal pour only (Faz 6 öğün cutover)', () => {
+    const key = ['tenant', TENANT, 'dailyOpsCounts', TENANT];
+    queryClient.setQueryData(key, {
+      mortalityCount: 0,
+      wqReadingsCount: 0,
+      feedingCompletedCount: 2,
+      feedingTotalCount: 4,
+    });
+
+    // finalize'sız döküm öğünü partially_fed bırakır — "tamamlandı" sayılamaz.
+    applyOptimisticKpiBump(queryClient, TENANT, 'recordMealFeeding', {
+      mealId: 'meal-1',
+      pourKg: 2,
+      finalize: false,
+    });
+    expect(queryClient.getQueryData(key)).toMatchObject({ feedingCompletedCount: 2 });
+
+    applyOptimisticKpiBump(queryClient, TENANT, 'recordMealFeeding', {
+      mealId: 'meal-1',
+      pourKg: 4,
+      finalize: true,
+    });
+    expect(queryClient.getQueryData(key)).toMatchObject({ feedingCompletedCount: 3 });
+  });
+
   it('bumps the stock-events weekly counter for cull/harvest/transfer', () => {
     const key = ['tenant', TENANT, 'stockEventsSummary', TENANT];
     queryClient.setQueryData(key, { thisWeekEventsCount: 5 });

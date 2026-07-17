@@ -3772,6 +3772,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/alert-engine/src/alert/event-handlers/feeding-execution.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/alert-engine/src/alert/event-handlers/low-stock.handler.ts",
       "prettier_managed": true
     },
@@ -3838,6 +3844,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/alert-engine/src/alert/services/__tests__/feeding-execution-alert.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/alert-engine/src/alert/services/__tests__/low-stock-alert.service.spec.ts",
       "prettier_managed": true
     },
@@ -3881,6 +3893,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/alert-engine/src/alert/services/feed-coverage-alert.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/alert/services/feeding-execution-alert.service.ts",
       "prettier_managed": true
     },
     {
@@ -22406,6 +22424,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/notification-service/src/notification/event-handlers/device-token-revocation.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/notification-service/src/notification/event-handlers/feeding-daily-summary.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/notification-service/src/notification/event-handlers/feeding-daily-summary.handler.ts",
       "prettier_managed": true
     },
     {
@@ -54648,10 +54678,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8957,
+  "file_count": 8962,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8776,
-  "managed_file_list_sha256": "c2f9335776bc147adce0e9207f2c7a1e31f667d1a98cfe6ab4650cda01739859",
+  "managed_count": 8781,
+  "managed_file_list_sha256": "a827819b7a4336acb27eb23a6c8352f3d5f3f6d2127bcec03d891e21a7c1a53d",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

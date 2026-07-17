@@ -16,6 +16,7 @@ import { MortalityAlertService } from './services/mortality-alert.service';
 import { LowStockAlertService } from './services/low-stock-alert.service';
 import { FcrAlertService } from './services/fcr-alert.service';
 import { FeedCoverageAlertService } from './services/feed-coverage-alert.service';
+import { FeedingExecutionAlertService } from './services/feeding-execution-alert.service';
 import { WaterQualityCriticalAlertService } from './services/water-quality-critical-alert.service';
 import { AlertAuditService } from '../audit/alert-audit.service';
 
@@ -30,6 +31,7 @@ import { MortalityAlertEventHandler } from './event-handlers/mortality-alert.han
 import { LowStockEventHandler } from './event-handlers/low-stock.handler';
 import { FcrAlertEventHandler } from './event-handlers/fcr-alert.handler';
 import { FeedCoverageEventHandler } from './event-handlers/feed-coverage.handler';
+import { FeedingExecutionEventHandler } from './event-handlers/feeding-execution.handler';
 import { WaterQualityCriticalEventHandler } from './event-handlers/water-quality-critical.handler';
 
 // Resolvers
@@ -70,6 +72,7 @@ import { EscalationPolicyResolver } from './resolvers/escalation-policy.resolver
     LowStockAlertService,
     FcrAlertService,
     FeedCoverageAlertService,
+    FeedingExecutionAlertService,
     WaterQualityCriticalAlertService,
     AlertAuditService,
 
@@ -84,6 +87,7 @@ import { EscalationPolicyResolver } from './resolvers/escalation-policy.resolver
     LowStockEventHandler,
     FcrAlertEventHandler,
     FeedCoverageEventHandler,
+    FeedingExecutionEventHandler,
     WaterQualityCriticalEventHandler,
 
     // Resolvers

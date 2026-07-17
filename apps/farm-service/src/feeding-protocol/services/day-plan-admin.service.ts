@@ -45,8 +45,18 @@ import { calendarDayIn } from './meal-schedule.util';
 import { collectFeedSourceFeedIds, buildFeedFcrMatrixMap } from './feed-fcr-source.util';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 
+/**
+ * K-9 operatör aksiyonlarının kapalı sonuç kümesi — GraphQL'e kayıtlı enum
+ * olarak çıkar (P-25: telde stringly-typed union yok; kayıt DTO katmanında).
+ */
+export enum DayPlanAdminOutcome {
+  RECALCULATED = 'recalculated',
+  GENERATED = 'generated',
+  TRANSITIONED = 'transitioned',
+}
+
 export interface DayPlanAdminResult {
-  outcome: 'recalculated' | 'generated' | 'transitioned';
+  outcome: DayPlanAdminOutcome;
   dayPlanId?: string;
 }
 
@@ -93,7 +103,7 @@ export class DayPlanAdminService {
         this.logger.log(
           `Day plan ${existing.id} manually recalculated for unit ${unitId} by ${userId}`,
         );
-        return { outcome: 'recalculated' as const, dayPlanId: result?.dayPlanId ?? existing.id };
+        return { outcome: DayPlanAdminOutcome.RECALCULATED, dayPlanId: result?.dayPlanId ?? existing.id };
       }
 
       // Bugün planı yok → şimdi üret (06:00 üreticisiyle AYNI hesap yolu).
@@ -154,7 +164,7 @@ export class DayPlanAdminService {
         computed,
       );
       this.logger.log(`Day plan generated on demand for unit ${unitId} by ${userId}`);
-      return { outcome: 'generated' as const, dayPlanId: dayPlanId ?? undefined };
+      return { outcome: DayPlanAdminOutcome.GENERATED, dayPlanId: dayPlanId ?? undefined };
     });
   }
 
@@ -248,7 +258,7 @@ export class DayPlanAdminService {
           `(band ${bandIndex}) by ${userId}; ${remainingMeals.length} remaining meals updated` +
           (dayPlan ? ` (plan ${dayPlan.id}, ${planDate})` : ''),
       );
-      return { outcome: 'transitioned' as const, dayPlanId: dayPlan?.id };
+      return { outcome: DayPlanAdminOutcome.TRANSITIONED, dayPlanId: dayPlan?.id };
     });
   }
 

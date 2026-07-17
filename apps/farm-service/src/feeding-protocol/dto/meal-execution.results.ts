@@ -4,16 +4,22 @@
  *
  * @module FeedingProtocol/DTO
  */
-import { Field, Float, ID, ObjectType } from '@nestjs/graphql';
+import { Field, Float, ID, ObjectType, registerEnumType } from '@nestjs/graphql';
 
 import { FeedingMealStatus } from '../entities/feeding-meal.entity';
+import { DayPlanAdminOutcome } from '../services/day-plan-admin.service';
+
+registerEnumType(DayPlanAdminOutcome, {
+  name: 'DayPlanAdminOutcome',
+  description:
+    'K-9 operatör aksiyonlarının sonucu — telde enum ADI (RECALCULATED | GENERATED | TRANSITIONED) taşınır.',
+});
 
 /** K-9 operatör aksiyonlarının (regenerate / manuel geçiş) tipli yanıtı. */
 @ObjectType('DayPlanAdminResult')
 export class DayPlanAdminResultView {
-  /** 'recalculated' | 'generated' | 'transitioned' */
-  @Field()
-  outcome!: string;
+  @Field(() => DayPlanAdminOutcome)
+  outcome!: DayPlanAdminOutcome;
 
   @Field(() => ID, { nullable: true })
   dayPlanId?: string;

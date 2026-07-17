@@ -515,7 +515,8 @@ export interface MealFeedingResult {
 }
 
 export interface DayPlanAdminResult {
-  outcome: 'recalculated' | 'generated' | 'transitioned';
+  /** Telde GraphQL enum ADI taşınır (DayPlanAdminOutcome). */
+  outcome: 'RECALCULATED' | 'GENERATED' | 'TRANSITIONED';
   dayPlanId?: string;
 }
 

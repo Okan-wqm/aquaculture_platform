@@ -17,6 +17,7 @@ import { VfdCommandService } from './services/vfd-command.service';
 import { VfdConnectionTesterService } from './services/vfd-connection-tester.service';
 import { VfdDataReaderService } from './services/vfd-data-reader.service';
 import { VfdDeviceService } from './services/vfd-device.service';
+import { VfdEdgeProvisioningService } from './services/vfd-edge-provisioning.service';
 import { VfdEdgeWriteService } from './services/vfd-edge-write.service';
 import { VfdRegisterMappingService } from './services/vfd-register-mapping.service';
 
@@ -33,12 +34,7 @@ import { VfdRegisterMappingService } from './services/vfd-register-mapping.servi
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([
-      VfdDevice,
-      VfdRegisterMapping,
-      VfdReading,
-      VfdCommandAuditLog,
-    ]),
+    TypeOrmModule.forFeature([VfdDevice, VfdRegisterMapping, VfdReading, VfdCommandAuditLog]),
   ],
   providers: [
     // Resolvers
@@ -53,6 +49,7 @@ import { VfdRegisterMappingService } from './services/vfd-register-mapping.servi
     VfdCommandService,
     VfdConnectionTesterService,
     VfdEdgeWriteService,
+    VfdEdgeProvisioningService,
 
     // Protocol Adapters
     VfdModbusRtuAdapter,
@@ -71,7 +68,7 @@ import { VfdRegisterMappingService } from './services/vfd-register-mapping.servi
     VfdCommandService,
     VfdConnectionTesterService,
     VfdEdgeWriteService,
+    VfdEdgeProvisioningService,
   ],
 })
- 
 export class VfdModule {}

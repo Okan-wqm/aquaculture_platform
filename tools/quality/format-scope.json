@@ -25961,6 +25961,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/vfd/services/__tests__/vfd-edge-provisioning.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/vfd/services/__tests__/vfd-edge-write.service.spec.ts",
       "prettier_managed": true
     },
@@ -25992,6 +25998,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/vfd/services/vfd-device.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd/services/vfd-edge-provisioning.service.ts",
       "prettier_managed": true
     },
     {
@@ -54906,10 +54918,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9000,
+  "file_count": 9002,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8819,
-  "managed_file_list_sha256": "6472da718a48fdb6e4cca4e11d181c6ca4ce5df0376659455f6f49f1e2fe94f2",
+  "managed_count": 8821,
+  "managed_file_list_sha256": "258e51e7a8b197ad1a996851ea91f71c67396b5bc0b904410a581da4f4123e62",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -212,6 +212,18 @@ export class OpcUaAdapter extends BaseProtocolAdapter<OpcUaConfiguration> {
       } : {}),
     } as Parameters<typeof OPCUAClient.create>[0]) as unknown as OpcUaClient;
 
+    // SENSOR-HIGH-075: the endpoint URL is operator-supplied. Extract and
+    // validate its host before connecting (dial the original endpoint to
+    // preserve OPC UA endpoint/security semantics) so it cannot target
+    // metadata/loopback/RFC-1918 internal hosts.
+    const endpointMatch = /^opc\.tcp:\/\/([^:/]+)(?::(\d+))?/i.exec(opcConfig.endpointUrl ?? '');
+    const opcHost = endpointMatch?.[1];
+    if (!opcHost) {
+      throw new Error('Connection failed');
+    }
+    const opcPort = endpointMatch?.[2] ? Number(endpointMatch[2]) : 4840;
+    await this.assertOutboundHostAllowed(opcHost, opcPort);
+
     await client.connect(opcConfig.endpointUrl);
 
     let userIdentity: OpcUaUserIdentity = { type: UserTokenType.Anonymous as number };

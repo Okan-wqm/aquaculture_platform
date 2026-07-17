@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { SsrfValidatorService } from '@aquaculture/backend-common/ai-safety';
 
 import {
   ProtocolCategory,
@@ -291,6 +292,44 @@ export abstract class BaseProtocolAdapter<TConfig = Record<string, unknown>> imp
 
   isConnected(handle: ConnectionHandle): boolean {
     return this.connections.has(handle.id);
+  }
+
+  /**
+   * Shared SSRF guard for outbound host validation. Stateless and
+   * dependency-free, so it is safe as a field initializer. Every network
+   * adapter must resolve an operator-supplied host through the helpers below
+   * before opening a socket, so a tenant cannot point a connection at cloud
+   * metadata (169.254.169.254), loopback, or RFC-1918 internal services and
+   * read latency/error as an internal port-scan oracle (SENSOR-HIGH-072/075).
+   */
+  protected readonly outboundHostGuard = new SsrfValidatorService();
+
+  /**
+   * Validate an operator-supplied host and return the pinned IP to connect to.
+   * Use for RAW-socket adapters that can dial an IP directly (no TLS SNI /
+   * vhost dependence). Throws a single opaque error on any unsafe host so the
+   * failure cannot be used as a network-mapping oracle.
+   */
+  protected async resolveAndValidateHost(host: string, port: number): Promise<string> {
+    const verdict = await this.outboundHostGuard.validateHost(String(host ?? ''), Number(port ?? 0));
+    if (!verdict.safe || !verdict.resolvedIp) {
+      throw new Error('Connection failed');
+    }
+    return verdict.resolvedIp;
+  }
+
+  /**
+   * Validate an operator-supplied host WITHOUT pinning the IP. Use for URL/TLS
+   * adapters (OPC UA, MQTT, AMQP) that must dial the hostname to preserve TLS
+   * SNI / certificate / vhost semantics; the host is still rejected if it
+   * resolves to a restricted range. Throws a single opaque error on any unsafe
+   * host.
+   */
+  protected async assertOutboundHostAllowed(host: string, port: number): Promise<void> {
+    const verdict = await this.outboundHostGuard.validateHost(String(host ?? ''), Number(port ?? 0));
+    if (!verdict.safe) {
+      throw new Error('Connection failed');
+    }
   }
 
   /**

@@ -91,6 +91,10 @@ export class AmqpAdapter extends BaseProtocolAdapter<AmqpConfiguration> {
     const protocol = amqpConfig.useTls ? 'amqps' : 'amqp';
     const url = `${protocol}://${amqpConfig.username}:${amqpConfig.password}@${amqpConfig.host}:${amqpConfig.port}/${encodeURIComponent(amqpConfig.vhost)}`;
 
+    // SENSOR-HIGH-075: validate the operator-supplied broker host before
+    // connecting (dial by hostname to preserve TLS SNI / vhost routing).
+    await this.assertOutboundHostAllowed(amqpConfig.host, amqpConfig.port);
+
     const connection = await amqp.connect(url, {
       heartbeat: amqpConfig.heartbeat,
     }) as unknown as AmqpConnection;

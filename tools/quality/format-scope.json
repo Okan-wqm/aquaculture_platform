@@ -32467,6 +32467,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/farm-expert/2026-07-15-enterprise-closure-orphans.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/farm-integration/2026-07-02-farm-full-integration.md",
       "prettier_managed": true
     },
@@ -54846,10 +54852,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8990,
+  "file_count": 8991,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8809,
-  "managed_file_list_sha256": "3e0af188193bf19dde37d784988d9637b73881ba4368b67159effa450264dce5",
+  "managed_count": 8810,
+  "managed_file_list_sha256": "2bf935f30fa75f7bcab66d27cb473a13fd4dd9d4530b6bfe5707067d8817117c",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -4,8 +4,9 @@
  * docs/reviews/_registry/findings.jsonl. Idempotent: entries are added only
  * when the id is not already present. Re-runs are safe.
  *
- * Rechains prev_hash + content_hash for the newly appended entries using the
- * same canonical-JSON algorithm as tools/gates/finding-registry.ts.
+ * Routes every historical fixed-id entry through the governed add-explicit
+ * command, which owns duplicate checks, reservation high-water, validation,
+ * hash chaining, and atomic replacement under the common Git-dir lock.
  *
  * One-shot seed per Phase 0 of /root/.claude/plans/synthetic-dazzling-hippo.md.
  * Subsequent state transitions (e.g. OPEN → RESOLVED on each fix commit) go
@@ -15,13 +16,15 @@
  *   npx ts-node --project tools/gates/tsconfig.json tools/scripts/seed-claude-audit-findings.ts [--dry-run]
  */
 
-import { createHash } from 'node:crypto';
-import { writeFileSync, existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const REGISTRY = resolve(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl');
-const ZERO_HASH = '0'.repeat(64);
+const REGISTRY_CLI = resolve(REPO_ROOT, 'tools', 'gates', 'finding-registry.ts');
+const CLI_TSCONFIG = resolve(REPO_ROOT, 'tools', 'gates', 'tsconfig.json');
 
 const AUDIT_FILE = 'docs/reviews/context-manager/2026-04-18-enterprise-v2-audit.md';
 const AUDIT_CYCLE = '2026-04-18-enterprise-v2-audit';
@@ -272,61 +275,46 @@ const entries: FindingEntry[] = [
   ),
 ];
 
-function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return '[' + value.map(canonicalJson).join(',') + ']';
-  const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).sort();
-  return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalJson(obj[k])).join(',') + '}';
-}
+function main(): void {
+  const dryRun = process.argv.includes('--dry-run');
+  const existing: FindingEntry[] = existsSync(REGISTRY)
+    ? readFileSync(REGISTRY, 'utf8')
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as FindingEntry)
+    : [];
 
-function sha256hex(s: string): string {
-  return createHash('sha256').update(s, 'utf8').digest('hex');
-}
-
-function rechain(all: FindingEntry[], startIndex: number): void {
-  let prev =
-    startIndex === 0 ? ZERO_HASH : all[startIndex - 1]?.content_hash ?? ZERO_HASH;
-  for (let i = startIndex; i < all.length; i++) {
-    const entry = all[i];
-    if (!entry) continue;
-    entry.prev_hash = prev;
-    const { content_hash: _ignore, ...forHash } = entry;
-    entry.content_hash = sha256hex(canonicalJson(forHash));
-    prev = entry.content_hash;
+  const existingIds = new Set(existing.map((entry) => entry.id));
+  const toAdd = entries.filter((entry) => !existingIds.has(entry.id));
+  if (toAdd.length === 0) {
+    console.log(
+      `All 15 CLAUDE-* findings already present (${existing.length} total entries). No-op.`,
+    );
+    return;
   }
+  if (dryRun) {
+    console.log(`DRY RUN: would append ${toAdd.length} entries through add-explicit.`);
+    return;
+  }
+
+  const stubDirectory = mkdtempSync(join(tmpdir(), 'claude-finding-seed-'));
+  try {
+    for (const entry of toAdd) {
+      const stubPath = join(stubDirectory, `${entry.id}.json`);
+      writeFileSync(stubPath, `${JSON.stringify(entry)}\n`, 'utf8');
+      execFileSync(
+        'npx',
+        ['ts-node', '--project', CLI_TSCONFIG, REGISTRY_CLI, 'add-explicit', stubPath],
+        { cwd: REPO_ROOT, stdio: 'inherit' },
+      );
+    }
+  } finally {
+    rmSync(stubDirectory, { recursive: true, force: true });
+  }
+  console.log(
+    `Appended ${toAdd.length} CLAUDE-* findings through the common allocation authority.`,
+  );
 }
 
-const dryRun = process.argv.includes('--dry-run');
-
-const existing: FindingEntry[] = existsSync(REGISTRY)
-  ? readFileSync(REGISTRY, 'utf8')
-      .trim()
-      .split('\n')
-      .filter(Boolean)
-      .map((l) => JSON.parse(l) as FindingEntry)
-  : [];
-
-const existingIds = new Set(existing.map((e) => e.id));
-const toAdd = entries.filter((e) => !existingIds.has(e.id));
-
-if (toAdd.length === 0) {
-  console.log(`All 15 CLAUDE-* findings already present (${existing.length} total entries). No-op.`);
-  process.exit(0);
-}
-
-const all = [...existing, ...toAdd];
-rechain(all, existing.length);
-
-if (dryRun) {
-  console.log(`DRY RUN: would append ${toAdd.length} entries.`);
-  const tip = all[all.length - 1];
-  if (tip) console.log(`Chain tip would be: ${tip.content_hash}`);
-  process.exit(0);
-}
-
-const out = all.map((e) => JSON.stringify(e)).join('\n') + '\n';
-writeFileSync(REGISTRY, out, 'utf8');
-console.log(`Appended ${toAdd.length} CLAUDE-* findings. Registry size: ${all.length}.`);
-const tip = all[all.length - 1];
-if (tip) console.log(`Chain tip: ${tip.content_hash}`);
+main();

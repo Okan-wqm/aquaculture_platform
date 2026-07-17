@@ -38,6 +38,11 @@ const REVIEWED_SOURCE_SCHEMA_DDL: ReadonlySet<string> = new Set([
   '1800300000000-SensorV2TenantFkAndLicenseGrant.ts',
   '1802000000000-AddVfdDeviceModelSeriesPumpTags.ts',
   '1804000000000-ConsolidateVfdRegisterMappingsToSensorSchema.ts',
+  // SENSOR-CRITICAL-007 Slice 1: nullable edge-binding columns on the per-tenant
+  // vfd_devices table via the SAME source-template + tenant fan-out pattern as
+  // 1802000000000 above (canonical `sensor` copy + every `tenant_*` copy). Not a
+  // per-tenant table wrongly schema-qualified — the fan-out lands it everywhere.
+  '1808000000000-AddVfdDeviceEdgeBinding.ts',
   '1803000000000-HashProvisioningSecretsAtRest.ts',
   '1800500000000-EnsureMessagingPartitionContract.ts',
   // ORPHAN-HIGH-408: immutable historical BUG — `ai_proposed_actions` is a

@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `97b8b9e8f36f41bdbf0fd30828bf1f18f36f32e3ff416b25b785c5a9c5df9e04`
+Registry tip: `2073c949c833b43883efbc7a3f39b4dd3d62c967664123e8bc9a997214385521`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -76,6 +76,17 @@ were registered IN-PROGRESS, bringing the registry to 998 entries.
 parsed workflow invariants, but remains IN-PROGRESS until merge and the
 post-merge close ceremony records a main-reachable closing commit.
 
+Updated 2026-07-17 (control-plane and DR close ceremony): PR #1003 merged to
+main as `ccce62224`. PRs #1002 and #1006 subsequently added 24 farm/feed and
+capacity-review records, so the ceremony was rebuilt on `main@7e2be9b0b` and
+retained all 1,022 entries. The registry CLI verified the exact `Closes:`
+trailer and main reachability for 62 findings, including
+`INFRA-CRITICAL-041/042/043/045`, then re-chained the ledger. Those four
+CRITICAL rows are RESOLVED and leave the active table. The independent notary
+(`INFRA-CRITICAL-040`) and production forced-command broker cutover
+(`INFRA-CRITICAL-044`) remain blocked by external operator evidence;
+production deployment remains locked.
+
 Allowed truth buckets:
 
 - `real-open`
@@ -97,11 +108,7 @@ Allowed truth buckets:
 | `RBAC-CRITICAL-002`     | OPEN           | 1.2          | auth-security-expert | already-fixed-needs-close |
 | `RBAC-CRITICAL-003`     | OPEN           | 1.2          | auth-security-expert | already-fixed-needs-close |
 | `INFRA-CRITICAL-040`    | IN-PROGRESS    | —            | infra-expert         | blocked                   |
-| `INFRA-CRITICAL-041`    | IN-PROGRESS    | —            | infra-expert         | already-fixed-needs-close |
-| `INFRA-CRITICAL-042`    | IN-PROGRESS    | —            | infra-expert         | already-fixed-needs-close |
-| `INFRA-CRITICAL-043`    | IN-PROGRESS    | —            | infra-expert         | already-fixed-needs-close |
 | `INFRA-CRITICAL-044`    | OPEN           | —            | infra-expert         | blocked                   |
-| `INFRA-CRITICAL-045`    | IN-PROGRESS    | —            | infra-expert         | already-fixed-needs-close |
 
 ## Mutation Rules
 

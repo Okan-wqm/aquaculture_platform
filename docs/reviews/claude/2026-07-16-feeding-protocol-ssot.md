@@ -46,22 +46,22 @@ registry zincirinde; onarım commit'leri `Closes:` ile kapatır.
 | ID | (Plan ref) | Özet | Durum |
 |---|---|---|---|
 | FARM-HIGH-220 | K-1 | `skipMeal` kilitleri ters sırada alıyordu (Meal → DayPlan) — `recordMealFeeding`/`correctMealPour` kanonik DayPlan → Meal yönüyle AB-BA deadlock penceresi | IN-PROGRESS |
-| FARM-HIGH-221 | §6/K-8b | alert-engine'de feeding-execution tüketicisi yok: `MealUnderfed`, `MealMissed`, `UnfedUnitDetected` incident üretmiyor; `FeedTypeTransitioned` info/audit kaydı yok — Faz 7 tablosundaki `feeding-execution.handler.ts` hiç yazılmadı | OPEN |
-| FARM-MEDIUM-222 | K-8c | 20:00 `FeedingDailySummaryEvent` outbox'a yazılıyor ama notification-service tüketicisi yok — günlük özet hiçbir kanala çıkmıyor | OPEN |
-| FARM-MEDIUM-223 | D-13 | Forecast yükleyicisi biomass'ı nullable `TankBatch.currentBiomassKg` aynasından okuyor (`Number(undefined)` = NaN riski) — motor/generator SSoT'si `totalBiomassKg` (temizlikçi hariç, D-13) ile tutarsız | OPEN |
-| FARM-MEDIUM-224 | D-4 | Forecast `startDate` UTC takvim günü (`toISOString().slice(0,10)`) — day-plan `planDate` site saat diliminde; gün-0 hizası sınır saatlerde bir gün kayabilir; kontrat belgesiz | OPEN |
-| FARM-MEDIUM-225 | §5 | `dailySurvivalRate` yükleyicide 1.0 hardcode — `Species.growthParameters.expectedSurvivalRate` hiç bağlanmadı; `mortalityAssumption` daima `none` (plan §5 gereksinimi: tanımlıysa günlük orana çevrilip uygulanır) | OPEN |
-| FARM-MEDIUM-226 | §6 | Stockout eşikleri iki yerde kod-ikizi: alert-engine `STOCKOUT_CRITICAL_DAYS=3` + warehouse-summary handler'da literal eşikler — tek sabit SSoT yok, sessiz sapma mümkün | OPEN |
-| FARM-MEDIUM-227 | D-8 | 05:30 sweep bayat `partially_fed` öğünleri finalize ederken `per_meal` modda büyüme UYGULAMIYOR (rollup dalı yalnız `daily` modu kapsıyor) — pencere kapanışıyla finalize olan öğünlerin büyümesi sessizce kayboluyor | OPEN |
-| FARM-LOW-228 | P-25 | `DayPlanAdminResult.outcome` GraphQL'de düz String (`'recalculated'\|'generated'\|'transitioned'`) — kayıtlı enum değil; geçersiz değer telde yapısal olarak engellenmiyor | OPEN |
-| FARM-MEDIUM-229 | §1.2 | Plandaki `assignProtocolToBatchUnits(batchId, protocolId)` kolaylık mutation'ı hiç yazılmadı (batch'in güncel ünitelerine toplu atama) | OPEN |
-| FARM-MEDIUM-230 | P-30 | P-30 kararındaki "her ham-SQL kolonu entity-destekli olmalı" test kuralı v2'ye eklenmedi — feeding-protocol servislerindeki ham SQL kolonları entity tanımlarına karşı doğrulanmıyor | OPEN |
-| FARM-MEDIUM-231 | D-2 | Karışık-tank UI eksik: day-plan snapshot'ı mixed-batch/CV bilgisi taşımıyor, MealBoard'da rozet + yüksek-CV uyarısı yok (band politikası dominant-biomass ile hesaplanıyor ama operatöre görünmüyor) | OPEN |
-| FARM-MEDIUM-232 | §8 | `useProtocolFeedForecast` `enabled` guard'sız: siteler yüklenmeden `siteId=undefined` ile sorgu atılıyor (MODULE_USER'da Forbidden; gereksiz çift istek) | OPEN |
-| FARM-MEDIUM-233 | §8 | KPI başlığı + ForecastTab hata durumunda sessiz 0/boş gösteriyor — hata dürüstlüğü yok (error state ayırt edilmiyor) | OPEN |
-| FARM-LOW-234 | §8 | `FeedingFilters` FeedingPage'de render ediliyor ama yeni sekmeler (meal board/forecast/records) filtreleri tüketmiyor — ölü UI | OPEN |
-| FARM-LOW-235 | P-29 | `stableStringify` üç kopya: `command-envelope.ts` kopyası `undefined`-filtreli, FARM-LOW-141 ile pinlenen `useBatches`/aquamobil çifti filtresiz — modül içi kopya tekilleştirilmeli, sapma kapanmalı | OPEN |
-| FARM-LOW-236 | §8 | `useWarehouseSummary` query key'inde `tenantId` iki kez (`createTenantQueryKey(tenantId, 'warehouseSummary', tenantId)`) — anahtar hijyeni | OPEN |
+| FARM-HIGH-221 | §6/K-8b | alert-engine'de feeding-execution tüketicisi yok: `MealUnderfed`, `MealMissed`, `UnfedUnitDetected` incident üretmiyor; `FeedTypeTransitioned` info/audit kaydı yok — Faz 7 tablosundaki `feeding-execution.handler.ts` hiç yazılmadı | IN-PROGRESS |
+| FARM-MEDIUM-222 | K-8c | 20:00 `FeedingDailySummaryEvent` outbox'a yazılıyor ama notification-service tüketicisi yok — günlük özet hiçbir kanala çıkmıyor | IN-PROGRESS |
+| FARM-MEDIUM-223 | D-13 | Forecast yükleyicisi biomass'ı nullable `TankBatch.currentBiomassKg` aynasından okuyor (`Number(undefined)` = NaN riski) — motor/generator SSoT'si `totalBiomassKg` (temizlikçi hariç, D-13) ile tutarsız | IN-PROGRESS |
+| FARM-MEDIUM-224 | D-4 | Forecast `startDate` UTC takvim günü (`toISOString().slice(0,10)`) — day-plan `planDate` site saat diliminde; gün-0 hizası sınır saatlerde bir gün kayabilir; kontrat belgesiz | IN-PROGRESS |
+| FARM-MEDIUM-225 | §5 | `dailySurvivalRate` yükleyicide 1.0 hardcode — `Species.growthParameters.expectedSurvivalRate` hiç bağlanmadı; `mortalityAssumption` daima `none` (plan §5 gereksinimi: tanımlıysa günlük orana çevrilip uygulanır) | IN-PROGRESS |
+| FARM-MEDIUM-226 | §6 | Stockout eşikleri iki yerde kod-ikizi: alert-engine `STOCKOUT_CRITICAL_DAYS=3` + warehouse-summary handler'da literal eşikler — tek sabit SSoT yok, sessiz sapma mümkün | IN-PROGRESS |
+| FARM-MEDIUM-227 | D-8 | 05:30 sweep bayat `partially_fed` öğünleri finalize ederken `per_meal` modda büyüme UYGULAMIYOR (rollup dalı yalnız `daily` modu kapsıyor) — pencere kapanışıyla finalize olan öğünlerin büyümesi sessizce kayboluyor | IN-PROGRESS |
+| FARM-LOW-228 | P-25 | `DayPlanAdminResult.outcome` GraphQL'de düz String (`'recalculated'\|'generated'\|'transitioned'`) — kayıtlı enum değil; geçersiz değer telde yapısal olarak engellenmiyor | IN-PROGRESS |
+| FARM-MEDIUM-229 | §1.2 | Plandaki `assignProtocolToBatchUnits(batchId, protocolId)` kolaylık mutation'ı hiç yazılmadı (batch'in güncel ünitelerine toplu atama) | IN-PROGRESS |
+| FARM-MEDIUM-230 | P-30 | P-30 kararındaki "her ham-SQL kolonu entity-destekli olmalı" test kuralı v2'ye eklenmedi — feeding-protocol servislerindeki ham SQL kolonları entity tanımlarına karşı doğrulanmıyor | IN-PROGRESS |
+| FARM-MEDIUM-231 | D-2 | Karışık-tank UI eksik: day-plan snapshot'ı mixed-batch/CV bilgisi taşımıyor, MealBoard'da rozet + yüksek-CV uyarısı yok (band politikası dominant-biomass ile hesaplanıyor ama operatöre görünmüyor) | IN-PROGRESS |
+| FARM-MEDIUM-232 | §8 | `useProtocolFeedForecast` `enabled` guard'sız: siteler yüklenmeden `siteId=undefined` ile sorgu atılıyor (MODULE_USER'da Forbidden; gereksiz çift istek) | IN-PROGRESS |
+| FARM-MEDIUM-233 | §8 | KPI başlığı + ForecastTab hata durumunda sessiz 0/boş gösteriyor — hata dürüstlüğü yok (error state ayırt edilmiyor) | IN-PROGRESS |
+| FARM-LOW-234 | §8 | `FeedingFilters` FeedingPage'de render ediliyor ama yeni sekmeler (meal board/forecast/records) filtreleri tüketmiyor — ölü UI | IN-PROGRESS |
+| FARM-LOW-235 | P-29 | `stableStringify` üç kopya: `command-envelope.ts` kopyası `undefined`-filtreli, FARM-LOW-141 ile pinlenen `useBatches`/aquamobil çifti filtresiz — modül içi kopya tekilleştirilmeli, sapma kapanmalı | IN-PROGRESS |
+| FARM-LOW-236 | §8 | `useWarehouseSummary` query key'inde `tenantId` iki kez (`createTenantQueryKey(tenantId, 'warehouseSummary', tenantId)`) — anahtar hijyeni | IN-PROGRESS |
 
 Not: KPI başlığındaki sabit İngilizce metinler (audit C6) yeni ID almaz — MEDIUM-010
 (P-17 i18n borcu) kapsamında izlenir.

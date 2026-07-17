@@ -33253,6 +33253,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/runbooks/feeding-v1-retirement.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/kvkk-breach-notification.md",
       "prettier_managed": true
     },
@@ -54642,10 +54648,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8956,
+  "file_count": 8957,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8775,
-  "managed_file_list_sha256": "4fb8f030b4379f8fb42908195f6ba24693a304ff196d1bef6b5d8b3725efe0ed",
+  "managed_count": 8776,
+  "managed_file_list_sha256": "c2f9335776bc147adce0e9207f2c7a1e31f667d1a98cfe6ab4650cda01739859",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

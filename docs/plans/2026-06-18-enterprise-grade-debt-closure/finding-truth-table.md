@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `fe254c0ad1e366c640e8fa3b249b0fbd6bcfdf466eed70db0c9dfa4d99ff5a61`
+Registry tip: `8c4f190bc2dd740da6d404b99acbce037488311f530e2fe5e5bd291653739282`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -76,22 +76,32 @@ were registered IN-PROGRESS, bringing the registry to 998 entries.
 parsed workflow invariants, but remains IN-PROGRESS until merge and the
 post-merge close ceremony records a main-reachable closing commit.
 
-Updated 2026-07-17 (sensor device industrial-protocol audit): registering the
-102-finding sensor `/sensor/devices` audit added 103 entries (the 102 findings
-plus SENSOR-MEDIUM-080) and, after merging main's concurrent farm/infra findings
-and re-chaining, the registry stands at 1125 entries with three new active
-CRITICALs from the sensor audit. `SENSOR-CRITICAL-007` (6 of 7 VFD
-adapters fake the write/command path — `EMERGENCY_STOP` returns success without
-transmitting) and `SENSOR-CRITICAL-009` (manual approve→apply never writes to the
-drive — `vfd.changeset.approved` has no consumer) are `real-open`: the
-edge-delegated VFD write path is the tracked fix and has not yet landed.
+Updated 2026-07-17 (control-plane and DR close ceremony): PR #1003 merged to
+main as `ccce62224`. PRs #1002 and #1006 subsequently added 24 farm/feed and
+capacity-review records, so the ceremony was rebuilt on `main@7e2be9b0b` and
+retained all 1,022 entries. The registry CLI verified the exact `Closes:`
+trailer and main reachability for 62 findings, including
+`INFRA-CRITICAL-041/042/043/045`, then re-chained the ledger. Those four
+CRITICAL rows are RESOLVED and leave the active table. The independent notary
+(`INFRA-CRITICAL-040`) and production forced-command broker cutover
+(`INFRA-CRITICAL-044`) remain blocked by external operator evidence;
+production deployment remains locked.
+
+Updated 2026-07-17 (sensor device industrial-protocol audit): the 102-finding
+sensor `/sensor/devices` audit added 103 registry entries (the 102 findings plus
+SENSOR-MEDIUM-080). Merged onto main's post-close-ceremony chain and re-chained,
+the registry stands at 1125 entries with three new active CRITICALs from the
+sensor audit. `SENSOR-CRITICAL-007` (6 of 7 VFD adapters fake the write path —
+`EMERGENCY_STOP` returns success without transmitting) and `SENSOR-CRITICAL-009`
+(manual approve→apply never writes to the drive — `vfd.changeset.approved` has no
+consumer) are `real-open`: the edge-delegated VFD write path is the tracked fix
+(binding + write primitive have landed; command/apply rewire is in progress).
 `SENSOR-CRITICAL-008` (25 protocol adapters fake connection success — a
 never-contacted device is flipped ACTIVE) is `already-fixed-needs-close`: the
-`ProtocolImplementationStatus` SSoT hides unsupported adapters, and
-`ConnectionTesterService` now fails honestly for any non-`cloud-real` protocol
-before an adapter runs — the registry row stays OPEN only until the post-merge
-close ceremony records a main-reachable closing commit (`close` refuses
-branch-local SHAs, PROC-HIGH-001).
+`ProtocolImplementationStatus` SSoT hides unsupported adapters and
+`ConnectionTesterService` fails honestly for any non-`cloud-real` protocol
+before an adapter runs — OPEN only until the post-merge close ceremony records a
+main-reachable closing commit (PROC-HIGH-001).
 
 Allowed truth buckets:
 
@@ -114,11 +124,7 @@ Allowed truth buckets:
 | `RBAC-CRITICAL-002`     | OPEN           | 1.2          | auth-security-expert | already-fixed-needs-close |
 | `RBAC-CRITICAL-003`     | OPEN           | 1.2          | auth-security-expert | already-fixed-needs-close |
 | `INFRA-CRITICAL-040`    | IN-PROGRESS    | —            | infra-expert         | blocked                   |
-| `INFRA-CRITICAL-041`    | IN-PROGRESS    | —            | infra-expert         | already-fixed-needs-close |
-| `INFRA-CRITICAL-042`    | IN-PROGRESS    | —            | infra-expert         | already-fixed-needs-close |
-| `INFRA-CRITICAL-043`    | IN-PROGRESS    | —            | infra-expert         | already-fixed-needs-close |
 | `INFRA-CRITICAL-044`    | OPEN           | —            | infra-expert         | blocked                   |
-| `INFRA-CRITICAL-045`    | IN-PROGRESS    | —            | infra-expert         | already-fixed-needs-close |
 | `SENSOR-CRITICAL-007`   | OPEN           | —            | sensor-expert        | real-open                 |
 | `SENSOR-CRITICAL-008`   | OPEN           | —            | sensor-expert        | already-fixed-needs-close |
 | `SENSOR-CRITICAL-009`   | OPEN           | —            | sensor-expert        | real-open                 |

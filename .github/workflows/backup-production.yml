@@ -1,135 +1,379 @@
 name: Backup - Production Postgres
 
-# SEC-CI-002: All third-party actions pinned to full commit SHAs.
-# INFRA-BACKUP-001: Nightly pg_dump of the droplet's local PostgreSQL →
-# DigitalOcean Spaces via SSH + the checked-in backup-databases.sh script.
-# Retention is enforced by the bucket's lifecycle policy; this workflow
-# does not delete remote objects.
+# SEC-CI-002: All third-party actions are pinned to full commit SHAs.
+# INFRA-BACKUP-001: Daily verified WAL-G full backup plus snapshot-bound
+# pg_dump of the droplet's local PostgreSQL to DigitalOcean Spaces. Continuous
+# WAL archiving is enforced by the production PostgreSQL runtime between runs.
 
 on:
   schedule:
-    # 03:00 UTC daily = 04:00 CET / 05:00 CEST (low-traffic window).
     - cron: '0 3 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Dry run (pg_dump + local integrity checks, skip upload)'
+        description: 'Dry run (pg_dump + local integrity checks, skip upload and WAL-G secret activation)'
+        type: boolean
+        required: false
+        default: false
+      bootstrap_walg_secrets_only:
+        description: 'Materialize WAL-G secret files before the first derived-image deploy; do not run a backup'
         type: boolean
         required: false
         default: false
 
 concurrency:
-  group: backup-production
+  # Serializes every job that can rotate WAL-G runtime credentials or mutate
+  # the physical backup chain, including the protected PITR workflow.
+  group: production-postgres-backup-dr
   cancel-in-progress: false
 
 jobs:
   backup:
-    name: pg_dump → DO Spaces
+    name: WAL-G full + pg_dump to DO Spaces
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     environment:
       name: production-backup
       deployment: false
-
+    outputs:
+      evidence_b64: ${{ steps.capture_evidence.outputs.evidence_b64 }}
     permissions:
       contents: read
-
     steps:
-      # SEC-CI-002: pinned to SHA
-      - name: Checkout repository
+      - name: Checkout exact workflow authority
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 1
+          persist-credentials: false
 
-      # Fail fast on the runner if any required resolved Actions secret is
-      # empty, before we open an SSH session to the droplet.
+      - name: Require protected main authority
+        run: |
+          set +x
+          set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
+
       - name: Preflight — assert backup secrets present
         id: backup_secret_preflight
         env:
+          BACKUP_SECRET_PROFILE: backup-runtime
           DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
           DROPLET_USER: ${{ secrets.DROPLET_USER }}
           DROPLET_SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
-          SPACES_BUCKET: ${{ secrets.SPACES_BUCKET }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.DROPLET_SSH_FINGERPRINT }}
           SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
-          SPACES_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_KEY_ID }}
-          SPACES_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_ACCESS_KEY }}
+          SPACES_REGION: ${{ secrets.SPACES_REGION }}
+          WALG_SPACES_ACCESS_KEY_ID: ${{ secrets.WALG_SPACES_ACCESS_KEY_ID }}
+          WALG_SPACES_SECRET_ACCESS_KEY: ${{ secrets.WALG_SPACES_SECRET_ACCESS_KEY }}
+          LOGICAL_BACKUP_SPACES_BUCKET: ${{ secrets.LOGICAL_BACKUP_SPACES_BUCKET }}
+          LOGICAL_BACKUP_SPACES_ACCESS_KEY_ID: ${{ secrets.LOGICAL_BACKUP_SPACES_ACCESS_KEY_ID }}
+          LOGICAL_BACKUP_SPACES_SECRET_ACCESS_KEY: ${{ secrets.LOGICAL_BACKUP_SPACES_SECRET_ACCESS_KEY }}
+          LOGICAL_BACKUP_GPG_RECIPIENT: ${{ secrets.LOGICAL_BACKUP_GPG_RECIPIENT }}
           BACKUP_POSTGRES_USER: ${{ secrets.BACKUP_POSTGRES_USER }}
           BACKUP_POSTGRES_DB: ${{ secrets.BACKUP_POSTGRES_DB }}
           BACKUP_POSTGRES_PASSWORD: ${{ secrets.BACKUP_POSTGRES_PASSWORD }}
-        run: bash tools/scripts/database/assert-backup-secrets.sh
+          WALG_LIBSODIUM_KEY_B64: ${{ secrets.WALG_LIBSODIUM_KEY_B64 }}
+          WALG_SPACES_BUCKET: ${{ vars.WALG_SPACES_BUCKET }}
+          WALG_BACKUP_EPOCH: ${{ vars.WALG_BACKUP_EPOCH }}
+        run: |
+          set +x
+          bash tools/scripts/database/assert-backup-secrets.sh
 
-      # The droplet already has the backup script on disk (repo is checked out
-      # under /var/aqua-saas). We SSH in and invoke it with the required env.
-      #
-      # SEC-CI-002: pinned to SHA (same version as deploy-digitalocean.yml)
+      # Native OpenSSH receives a mode-0600 stdin payload only after the
+      # protected SHA256 host-key fingerprint matches exactly one advertised
+      # key. Runtime bytes are hash-verified in the protected runner checkout;
+      # the droplet's mutable worktree and Git configuration are never read.
       - name: Run backup-databases.sh on the droplet
-        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.0.3
+        id: remote_backup
         env:
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
+          DROPLET_USER: ${{ secrets.DROPLET_USER }}
+          DROPLET_SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.DROPLET_SSH_FINGERPRINT }}
           POSTGRES_USER: ${{ secrets.BACKUP_POSTGRES_USER }}
           POSTGRES_DB: ${{ secrets.BACKUP_POSTGRES_DB }}
-          SPACES_BUCKET: ${{ secrets.SPACES_BUCKET }}
           SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_ACCESS_KEY }}
+          SPACES_REGION: ${{ secrets.SPACES_REGION }}
+          WALG_SPACES_ACCESS_KEY_ID: ${{ secrets.WALG_SPACES_ACCESS_KEY_ID }}
+          WALG_SPACES_SECRET_ACCESS_KEY: ${{ secrets.WALG_SPACES_SECRET_ACCESS_KEY }}
+          LOGICAL_BACKUP_SPACES_BUCKET: ${{ secrets.LOGICAL_BACKUP_SPACES_BUCKET }}
+          LOGICAL_BACKUP_SPACES_ACCESS_KEY_ID: ${{ secrets.LOGICAL_BACKUP_SPACES_ACCESS_KEY_ID }}
+          LOGICAL_BACKUP_SPACES_SECRET_ACCESS_KEY: ${{ secrets.LOGICAL_BACKUP_SPACES_SECRET_ACCESS_KEY }}
+          LOGICAL_BACKUP_GPG_RECIPIENT: ${{ secrets.LOGICAL_BACKUP_GPG_RECIPIENT }}
           PGPASSWORD: ${{ secrets.BACKUP_POSTGRES_PASSWORD }}
-        with:
-          host: ${{ secrets.DROPLET_HOST }}
-          username: ${{ secrets.DROPLET_USER }}
-          key: ${{ secrets.DROPLET_SSH_KEY }}
-          command_timeout: 25m
-          envs: DRY_RUN,POSTGRES_USER,POSTGRES_DB,SPACES_BUCKET,SPACES_ENDPOINT,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,PGPASSWORD
-          script: |
+          WALG_LIBSODIUM_KEY_B64: ${{ secrets.WALG_LIBSODIUM_KEY_B64 }}
+          WALG_SPACES_BUCKET: ${{ vars.WALG_SPACES_BUCKET }}
+          WALG_BACKUP_EPOCH: ${{ vars.WALG_BACKUP_EPOCH }}
+          BACKUP_MAIN_SHA: ${{ github.sha }}
+          BOOTSTRAP_WALG_SECRETS_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap_walg_secrets_only || false }}
+          EVIDENCE_RUN_ID: gha-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set +x
+          set -euo pipefail
+          umask 077
+          [[ "${WALG_SPACES_BUCKET}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{1,62}$ ]]
+          [[ "${WALG_BACKUP_EPOCH}" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]]
+          WALG_S3_PREFIX="s3://${WALG_SPACES_BUCKET}/postgres/wal-g/${WALG_BACKUP_EPOCH}"
+          SSH_STEP_DIR=$(mktemp -d -t aqua-backup-ssh-XXXXXX)
+          REMOTE_PAYLOAD="${SSH_STEP_DIR}/payload.sh"
+          REMOTE_STDOUT_PATH="${SSH_STEP_DIR}/stdout"
+          RUNTIME_BUNDLE_PATH="${SSH_STEP_DIR}/runtime-bundle.tar"
+          cleanup_ssh_step() {
+            status=$?
+            trap - EXIT
+            cleanup_status=0
+            if ! rm -rf -- "${SSH_STEP_DIR}" || [ -e "${SSH_STEP_DIR}" ]; then
+              echo 'FATAL: backup runner SSH-step cleanup failed.' >&2
+              cleanup_status=1
+            fi
+            if [ "${status}" -eq 0 ] && [ "${cleanup_status}" -ne 0 ]; then
+              status=1
+            fi
+            exit "${status}"
+          }
+          trap cleanup_ssh_step EXIT
+          RUNTIME_BUNDLE_SHA256=$( \
+            SOURCE_SHA="${GITHUB_SHA}" \
+            OUTPUT_PATH="${RUNTIME_BUNDLE_PATH}" \
+              bash tools/scripts/ci/prepare-protected-runtime-bundle.sh
+          )
+
+          {
+            printf 'set +x\n'
+            for remote_name in \
+              DRY_RUN POSTGRES_USER POSTGRES_DB SPACES_ENDPOINT SPACES_REGION \
+              LOGICAL_BACKUP_SPACES_BUCKET LOGICAL_BACKUP_SPACES_ACCESS_KEY_ID \
+              LOGICAL_BACKUP_SPACES_SECRET_ACCESS_KEY LOGICAL_BACKUP_GPG_RECIPIENT \
+              PGPASSWORD BACKUP_MAIN_SHA BOOTSTRAP_WALG_SECRETS_ONLY EVIDENCE_RUN_ID \
+              WALG_BACKUP_EPOCH WALG_S3_PREFIX; do
+              printf 'export %s=%q\n' "${remote_name}" "${!remote_name}"
+            done
+            if [ "${DRY_RUN}" != 'true' ]; then
+              for remote_name in \
+                WALG_SPACES_ACCESS_KEY_ID WALG_SPACES_SECRET_ACCESS_KEY \
+                WALG_LIBSODIUM_KEY_B64; do
+                printf 'export %s=%q\n' "${remote_name}" "${!remote_name}"
+              done
+            fi
+            printf 'export RUNTIME_BUNDLE_SHA256=%q\n' "${RUNTIME_BUNDLE_SHA256}"
+            printf 'RUNTIME_BUNDLE_B64='
+            base64 -w0 "${RUNTIME_BUNDLE_PATH}"
+            printf '\n'
+            sed 's/^  //' <<'AQUA_REMOTE_SCRIPT'
             set -euo pipefail
-            cd /var/aqua-saas
+            umask 077
+            case "${DRY_RUN}" in true|false) ;; *) echo 'FATAL: DRY_RUN must be true or false.'; exit 1 ;; esac
+            case "${BOOTSTRAP_WALG_SECRETS_ONLY}" in true|false) ;; *) echo 'FATAL: BOOTSTRAP_WALG_SECRETS_ONLY must be true or false.'; exit 1 ;; esac
+            if [ "${BOOTSTRAP_WALG_SECRETS_ONLY}" = 'true' ] && [ "${DRY_RUN}" = 'true' ]; then
+              echo 'FATAL: WAL-G bootstrap-only cannot be combined with dry-run.'
+              exit 1
+            fi
+            if [[ ! "${BACKUP_MAIN_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+              echo 'FATAL: BACKUP_MAIN_SHA must be a lowercase 40-character commit SHA.'
+              exit 1
+            fi
 
-            # Sync the script from main AND verify its SHA-256 against the
-            # committed manifest before execution. Without this guard, an
-            # attacker who lands a malicious commit on main gains arbitrary
-            # code execution on the droplet as the SSH user (INFRA-1).
-            #
-            # The manifest at .github/manifests/backup-script.sha256 is
-            # CODEOWNERS-gated to @Okan-wqm (BLOCKER-9) so a malicious PR
-            # cannot silently update the hash alongside the script.
-            echo "=== Syncing repo + verifying script integrity ==="
-            git fetch --force --prune origin main
-            git checkout -f origin/main -- \
+            [[ "${RUNTIME_BUNDLE_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+            RUNTIME_ROOT=$(mktemp -d /tmp/aqua-backup-runtime.XXXXXX)
+            cleanup_runtime() {
+              status=$?
+              trap - EXIT
+              cleanup_status=0
+              if ! rm -rf -- "${RUNTIME_ROOT}" || [ -e "${RUNTIME_ROOT}" ]; then
+                echo 'FATAL: backup run-scoped runtime cleanup failed.' >&2
+                cleanup_status=1
+              fi
+              if [ "${status}" -eq 0 ] && [ "${cleanup_status}" -ne 0 ]; then
+                status=1
+              fi
+              exit "${status}"
+            }
+            trap cleanup_runtime EXIT
+
+            RUNTIME_BUNDLE_TAR="${RUNTIME_ROOT}/runtime-bundle.tar"
+            printf '%s' "${RUNTIME_BUNDLE_B64:?}" | base64 --decode > "${RUNTIME_BUNDLE_TAR}"
+            unset RUNTIME_BUNDLE_B64
+            ACTUAL_BUNDLE_SHA256=$(sha256sum "${RUNTIME_BUNDLE_TAR}" | awk '{print $1}')
+            if [ "${ACTUAL_BUNDLE_SHA256}" != "${RUNTIME_BUNDLE_SHA256}" ]; then
+              echo 'FATAL: transferred backup runtime bundle digest mismatch.'
+              exit 1
+            fi
+
+            MANIFEST=.github/manifests/backup-script.sha256
+            DR_CONTRACT_MANIFEST=.github/manifests/postgres-dr-contract.sha256
+            EXPECTED_PATHS=$(printf '%s\n' \
+              .github/manifests/postgres-dr-contract.sha256 \
               tools/scripts/database/backup-databases.sh \
-              .github/manifests/backup-script.sha256
-
-            EXPECTED_SHA=$(awk '/backup-databases\.sh$/ && $1 !~ /^#/ {print $1; exit}' \
-              .github/manifests/backup-script.sha256)
-            ACTUAL_SHA=$(sha256sum tools/scripts/database/backup-databases.sh \
-              | awk '{print $1}')
-
-            if [ "$EXPECTED_SHA" = "__COMPUTE_ON_MERGE__" ]; then
-              echo "FATAL: manifest placeholder unresolved — CI must seed the hash on merge."
+              tools/scripts/database/database-verification.sql \
+              tools/scripts/database/evaluate-walg-evidence.mjs \
+              tools/scripts/database/materialize-walg-secrets.sh \
+              tools/scripts/database/walg-base-backup.sh \
+              tools/scripts/database/walg-pitr-restore.sh)
+            EXPECTED_ARCHIVE_PATHS=$(printf '%s\n%s\n' \
+              "${MANIFEST}" "${EXPECTED_PATHS}")
+            ARCHIVE_PATHS=$(tar -tf "${RUNTIME_BUNDLE_TAR}" | sort)
+            UNIQUE_ARCHIVE_PATHS=$(tar -tf "${RUNTIME_BUNDLE_TAR}" | sort -u)
+            ARCHIVE_MEMBER_TYPES=$(tar -tvf "${RUNTIME_BUNDLE_TAR}" | awk '{print substr($1, 1, 1)}' | sort -u)
+            if [ "${ARCHIVE_PATHS}" != "${EXPECTED_ARCHIVE_PATHS}" ] || \
+               [ "${UNIQUE_ARCHIVE_PATHS}" != "${EXPECTED_ARCHIVE_PATHS}" ] || \
+               [ "${ARCHIVE_MEMBER_TYPES}" != '-' ]; then
+              echo 'FATAL: transferred backup runtime archive membership or file types are not exact.'
+              exit 1
+            fi
+            tar --extract --no-same-owner --no-same-permissions \
+              --file "${RUNTIME_BUNDLE_TAR}" --directory "${RUNTIME_ROOT}"
+            rm -f -- "${RUNTIME_BUNDLE_TAR}"
+            cd "${RUNTIME_ROOT}"
+            if [ ! -f "${MANIFEST}" ] || [ -L "${MANIFEST}" ] || \
+               grep -q '__COMPUTE_ON_MERGE__' "${MANIFEST}"; then
+              echo 'FATAL: transferred backup integrity manifest is unsafe or unresolved.'
+              exit 1
+            fi
+            ACTUAL_PATHS=$(awk '$1 !~ /^#/ && NF == 2 {print $2}' "${MANIFEST}" | sort)
+            if [ "${ACTUAL_PATHS}" != "${EXPECTED_PATHS}" ]; then
+              echo 'FATAL: backup integrity manifest path set is not the trusted runtime bundle.'
+              printf 'Expected:\n%s\nActual:\n%s\n' "${EXPECTED_PATHS}" "${ACTUAL_PATHS}"
               exit 1
             fi
 
-            if [ "$EXPECTED_SHA" != "$ACTUAL_SHA" ]; then
-              echo "FATAL: backup-databases.sh SHA-256 mismatch — refusing to execute."
-              echo "  expected: $EXPECTED_SHA (from .github/manifests/backup-script.sha256)"
-              echo "  actual:   $ACTUAL_SHA"
-              echo "If this script was legitimately updated, submit a PR updating"
-              echo "BOTH the script AND its manifest hash (CODEOWNERS review required)."
-              exit 1
-            fi
+            mapfile -t TRUSTED_PATHS < <(printf '%s\n' "${ACTUAL_PATHS}")
+            for TRUSTED_PATH in "${TRUSTED_PATHS[@]}"; do
+              if [ ! -f "${TRUSTED_PATH}" ] || [ -L "${TRUSTED_PATH}" ]; then
+                echo "FATAL: trusted backup runtime path is not a regular non-symlink file: ${TRUSTED_PATH}"
+                exit 1
+              fi
+            done
+            sha256sum --check "${MANIFEST}"
+            EXPECTED_POSTGRES_DR_CONTRACT_SHA256=$(sha256sum \
+              "${DR_CONTRACT_MANIFEST}" | awk '{print $1}')
+            [[ "${EXPECTED_POSTGRES_DR_CONTRACT_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+            echo "Backup runtime bundle integrity verified at commit ${BACKUP_MAIN_SHA}."
 
-            echo "Script integrity verified: $ACTUAL_SHA"
-
-            echo "=== Running backup ==="
             export POSTGRES_CONTAINER=aqua-postgres
-            export BACKUP_PREFIX='pg-backups'
+            export BACKUP_PREFIX=pg-backups
+            export DATABASE_VERIFICATION_SQL=tools/scripts/database/database-verification.sql
+            export WALG_EVIDENCE_DIR="${RUNTIME_ROOT}/walg-evidence"
+            mkdir -p "${WALG_EVIDENCE_DIR}"
 
-            if [ "${DRY_RUN}" = "true" ]; then
-              echo "DRY_RUN=true — running pg_dump and local integrity checks without upload"
+            if [ "${DRY_RUN}" = 'true' ]; then
+              echo 'DRY_RUN=true — skipping all WAL-G credential materialization and activation'
+            else
+              echo '=== Materializing WAL-G file-only credentials ==='
+              if [ "${BOOTSTRAP_WALG_SECRETS_ONLY}" = 'true' ]; then
+                INSTALL_RUNNING_CONTAINER=false
+              else
+                INSTALL_RUNNING_CONTAINER=true
+              fi
+              WALG_S3_ACCESS_KEY_ID="${WALG_SPACES_ACCESS_KEY_ID}" \
+              WALG_S3_SECRET_ACCESS_KEY="${WALG_SPACES_SECRET_ACCESS_KEY}" \
+              WALG_LIBSODIUM_KEY_B64="${WALG_LIBSODIUM_KEY_B64}" \
+              WALG_BACKUP_EPOCH="${WALG_BACKUP_EPOCH}" \
+              WALG_S3_PREFIX="${WALG_S3_PREFIX}" \
+              WALG_INSTALL_RUNNING_CONTAINER="${INSTALL_RUNNING_CONTAINER}" \
+                bash tools/scripts/database/materialize-walg-secrets.sh
+              unset WALG_LIBSODIUM_KEY_B64 WALG_SPACES_ACCESS_KEY_ID WALG_SPACES_SECRET_ACCESS_KEY
+              unset WALG_BACKUP_EPOCH WALG_S3_PREFIX
+            fi
+
+            if [ "${BOOTSTRAP_WALG_SECRETS_ONLY}" = 'true' ]; then
+              echo 'WAL-G host secret bundle seeded; derived PostgreSQL image can now be deployed.'
+              exit 0
+            fi
+
+            if [ "${DRY_RUN}" = 'true' ]; then
+              echo 'DRY_RUN=true — running pg_dump and local integrity checks without upload'
               export BACKUP_DUMP_ONLY=true
             else
               export BACKUP_DUMP_ONLY=false
+              echo '=== Running verified full WAL-G base backup ==='
+              set +e
+              EVIDENCE_RUN_ID="${EVIDENCE_RUN_ID}" \
+              MAIN_SHA="${BACKUP_MAIN_SHA}" \
+              EXPECTED_POSTGRES_DR_CONTRACT_SHA256="${EXPECTED_POSTGRES_DR_CONTRACT_SHA256}" \
+                bash tools/scripts/database/walg-base-backup.sh
+              BASE_BACKUP_STATUS=$?
+              set -e
+              mapfile -t BASE_EVIDENCE_FILES < <(
+                find "${WALG_EVIDENCE_DIR}" -maxdepth 1 -type f -name 'base-backup-*.json' -print
+              )
+              if [ "${#BASE_EVIDENCE_FILES[@]}" -ne 1 ]; then
+                echo "FATAL: expected one base-backup evidence record, found ${#BASE_EVIDENCE_FILES[@]}."
+                exit 1
+              fi
+              EVIDENCE_FILE=${BASE_EVIDENCE_FILES[0]}
+              if [ "${BASE_BACKUP_STATUS}" -ne 0 ]; then
+                echo "FATAL: WAL-G base backup failed with status ${BASE_BACKUP_STATUS}."
+                exit "${BASE_BACKUP_STATUS}"
+              fi
             fi
 
-            bash tools/scripts/database/backup-databases.sh
+            echo '=== Running snapshot-bound logical backup ==='
+            SPACES_BUCKET="${LOGICAL_BACKUP_SPACES_BUCKET}" \
+            AWS_ACCESS_KEY_ID="${LOGICAL_BACKUP_SPACES_ACCESS_KEY_ID}" \
+            AWS_SECRET_ACCESS_KEY="${LOGICAL_BACKUP_SPACES_SECRET_ACCESS_KEY}" \
+            AWS_REGION="${SPACES_REGION}" \
+            AWS_DEFAULT_REGION="${SPACES_REGION}" \
+            BACKUP_GPG_RECIPIENT="${LOGICAL_BACKUP_GPG_RECIPIENT}" \
+              bash tools/scripts/database/backup-databases.sh
+
+            if [ "${DRY_RUN}" != 'true' ]; then
+              EVIDENCE_B64=$(base64 -w0 "${EVIDENCE_FILE}")
+              printf 'AQUA_WALG_EVIDENCE_B64=%s\n' "${EVIDENCE_B64}"
+            fi
+          AQUA_REMOTE_SCRIPT
+          } > "${REMOTE_PAYLOAD}"
+
+          /usr/bin/env -i \
+              PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+              HOME="${HOME}" \
+              LC_ALL=C \
+              DROPLET_HOST="${DROPLET_HOST}" \
+              DROPLET_USER="${DROPLET_USER}" \
+              DROPLET_SSH_KEY="${DROPLET_SSH_KEY}" \
+              DROPLET_SSH_FINGERPRINT="${DROPLET_SSH_FINGERPRINT}" \
+              SSH_PAYLOAD_PATH="${REMOTE_PAYLOAD}" \
+              SSH_STDOUT_PATH="${REMOTE_STDOUT_PATH}" \
+              SSH_COMMAND_TIMEOUT_SECONDS=4800 \
+            bash tools/scripts/ci/run-protected-ssh.sh
+          mapfile -t EVIDENCE_MARKERS < <(
+            sed -n 's/^AQUA_WALG_EVIDENCE_B64=\([A-Za-z0-9+\/=]*\)$/\1/p' "${REMOTE_STDOUT_PATH}"
+          )
+          if [ "${DRY_RUN}" = 'true' ] || [ "${BOOTSTRAP_WALG_SECRETS_ONLY}" = 'true' ]; then
+            [ "${#EVIDENCE_MARKERS[@]}" -eq 0 ] || {
+              echo 'FATAL: non-evidence backup mode returned an unexpected evidence marker.'
+              exit 1
+            }
+          elif [ "${#EVIDENCE_MARKERS[@]}" -ne 1 ] || [ -z "${EVIDENCE_MARKERS[0]}" ]; then
+            echo 'FATAL: protected OpenSSH transport did not return exactly one evidence record.'
+            exit 1
+          else
+            printf 'evidence_b64=%s\n' "${EVIDENCE_MARKERS[0]}" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Capture completed ceremony evidence from protected OpenSSH transport
+        id: capture_evidence
+        if: success()
+        env:
+          REMOTE_EVIDENCE_B64: ${{ steps.remote_backup.outputs.evidence_b64 }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+          BOOTSTRAP_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap_walg_secrets_only || false }}
+        run: |
+          set +x
+          set -euo pipefail
+          if [ "${DRY_RUN}" = 'true' ] || [ "${BOOTSTRAP_ONLY}" = 'true' ]; then
+            test -z "${REMOTE_EVIDENCE_B64}"
+            exit 0
+          fi
+          if [[ ! "${REMOTE_EVIDENCE_B64}" =~ ^[A-Za-z0-9+/]+={0,2}$ ]]; then
+            echo 'FATAL: protected OpenSSH transport did not return canonical evidence bytes.'
+            exit 1
+          fi
+          printf '%s' "${REMOTE_EVIDENCE_B64}" | base64 --decode | \
+            node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync(0,"utf8")); if (!value || typeof value !== "object" || Array.isArray(value)) process.exit(2);'
+          printf 'evidence_b64=%s\n' "${REMOTE_EVIDENCE_B64}" >> "${GITHUB_OUTPUT}"
 
       - name: Notify on secret/config preflight failure
         if: failure() && steps.backup_secret_preflight.outcome == 'failure'
@@ -140,9 +384,189 @@ jobs:
 
       - name: Notify on runtime backup failure
         if: failure() && steps.backup_secret_preflight.outcome == 'success'
-        # Surfaces through the existing notification channel used by
-        # deploy-digitalocean.yml — keep the delivery mechanism consistent.
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             core.setFailed('Production Postgres backup runtime failed — backup object was not proven uploaded/restorable. Check the job log. Runbook: docs/runbooks/database-restore-drill.md');
+
+  publish-evidence:
+    name: Sign completed backup run evidence
+    needs: [backup]
+    if: ${{ always() && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production-backup
+      deployment: false
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout evidence authority
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Require protected main evidence authority
+        run: |
+          set +x
+          set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
+
+      - name: Assert evidence publisher secret profile
+        env:
+          BACKUP_SECRET_PROFILE: evidence-publisher
+          SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
+          SPACES_REGION: ${{ secrets.SPACES_REGION }}
+          EVIDENCE_SPACES_BUCKET: ${{ secrets.EVIDENCE_SPACES_BUCKET }}
+          EVIDENCE_PUBLISHER_SPACES_ACCESS_KEY_ID: ${{ secrets.EVIDENCE_PUBLISHER_SPACES_ACCESS_KEY_ID }}
+          EVIDENCE_PUBLISHER_SPACES_SECRET_ACCESS_KEY: ${{ secrets.EVIDENCE_PUBLISHER_SPACES_SECRET_ACCESS_KEY }}
+        run: |
+          set +x
+          bash tools/scripts/database/assert-backup-secrets.sh
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Create, sign, and self-verify run-scoped records
+        env:
+          BACKUP_JOB_RESULT: ${{ needs.backup.result }}
+          EVIDENCE_B64: ${{ needs.backup.outputs.evidence_b64 }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+          BOOTSTRAP_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap_walg_secrets_only || false }}
+        run: |
+          set +x
+          set -euo pipefail
+          if [ "${BOOTSTRAP_ONLY}" = 'true' ]; then
+            RUN_MODE=bootstrap_only
+          elif [ "${DRY_RUN}" = 'true' ]; then
+            RUN_MODE=dry_run
+          else
+            RUN_MODE=full_backup
+          fi
+
+          mkdir -p evidence-artifact
+          node tools/scripts/database/walg-evidence-attestation.mjs create-run \
+            --output evidence-artifact/run-record.json \
+            --workflow backup-production.yml \
+            --workflow-name "${GITHUB_WORKFLOW}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --ref "${GITHUB_REF}" \
+            --sha "${GITHUB_SHA}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --event-name "${GITHUB_EVENT_NAME}" \
+            --job-result "${BACKUP_JOB_RESULT}" \
+            --mode "${RUN_MODE}" \
+            --issued-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          cosign sign-blob --yes \
+            --bundle evidence-artifact/run-record.sigstore.json \
+            evidence-artifact/run-record.json
+
+          if [ "${BACKUP_JOB_RESULT}" = 'success' ] && [ "${RUN_MODE}" = 'full_backup' ]; then
+            if [ -z "${EVIDENCE_B64}" ]; then
+              echo 'FATAL: successful full backup job omitted its protected-OpenSSH evidence.'
+              exit 1
+            fi
+            printf '%s' "${EVIDENCE_B64}" | base64 --decode > evidence-artifact/base-backup.json
+            node tools/scripts/database/walg-evidence-attestation.mjs create-evidence \
+              --output evidence-artifact/evidence-attestation.json \
+              --run-record evidence-artifact/run-record.json \
+              --evidence evidence-artifact/base-backup.json
+            cosign sign-blob --yes \
+              --bundle evidence-artifact/evidence-attestation.sigstore.json \
+              evidence-artifact/evidence-attestation.json
+            rm -f evidence-artifact/base-backup.json
+          fi
+
+          IDENTITY="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/backup-production.yml@refs/heads/main"
+          for RECORD in evidence-artifact/run-record.json evidence-artifact/evidence-attestation.json; do
+            if [ ! -f "${RECORD}" ]; then
+              continue
+            fi
+            cosign verify-blob \
+              --bundle "${RECORD%.json}.sigstore.json" \
+              --certificate-identity "${IDENTITY}" \
+              --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+              --certificate-github-workflow-repository "${GITHUB_REPOSITORY}" \
+              --certificate-github-workflow-ref 'refs/heads/main' \
+              --certificate-github-workflow-sha "${GITHUB_SHA}" \
+              --certificate-github-workflow-trigger "${GITHUB_EVENT_NAME}" \
+              --certificate-github-workflow-name "${GITHUB_WORKFLOW}" \
+              "${RECORD}"
+          done
+
+      - name: Mirror signed records by content digest
+        env:
+          SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
+          EVIDENCE_SPACES_BUCKET: ${{ secrets.EVIDENCE_SPACES_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.EVIDENCE_PUBLISHER_SPACES_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.EVIDENCE_PUBLISHER_SPACES_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.SPACES_REGION }}
+          AWS_DEFAULT_REGION: ${{ secrets.SPACES_REGION }}
+        run: |
+          set +x
+          set -euo pipefail
+          VERSIONING_STATUS=$(aws s3api get-bucket-versioning \
+            --bucket "${EVIDENCE_SPACES_BUCKET}" \
+            --endpoint-url "${SPACES_ENDPOINT}" \
+            --query Status \
+            --output text)
+          if [ "${VERSIONING_STATUS}" != 'Enabled' ]; then
+            echo 'FATAL: signed evidence mirror bucket versioning must be Enabled.'
+            exit 1
+          fi
+
+          while IFS= read -r -d '' RECORD; do
+            RECORD_SHA256=$(sha256sum "${RECORD}" | awk '{print $1}')
+            RECORD_BYTES=$(stat -c '%s' "${RECORD}")
+            RECORD_KEY="wal-g-evidence/v2/sha256/${RECORD_SHA256}/$(basename "${RECORD}")"
+            EXISTING_COUNT=$(aws s3api list-objects-v2 \
+              --bucket "${EVIDENCE_SPACES_BUCKET}" \
+              --prefix "${RECORD_KEY}" \
+              --endpoint-url "${SPACES_ENDPOINT}" \
+              --query 'length(Contents)' \
+              --output text)
+            if [ "${EXISTING_COUNT}" = '0' ]; then
+              aws s3api put-object \
+                --bucket "${EVIDENCE_SPACES_BUCKET}" \
+                --key "${RECORD_KEY}" \
+                --body "${RECORD}" \
+                --metadata "sha256=${RECORD_SHA256},run_id=${GITHUB_RUN_ID},run_attempt=${GITHUB_RUN_ATTEMPT}" \
+                --endpoint-url "${SPACES_ENDPOINT}" >/dev/null
+            fi
+            read -r REMOTE_BYTES REMOTE_SHA256 < <(
+              aws s3api head-object \
+                --bucket "${EVIDENCE_SPACES_BUCKET}" \
+                --key "${RECORD_KEY}" \
+                --endpoint-url "${SPACES_ENDPOINT}" \
+                --query '[ContentLength,Metadata.sha256]' \
+                --output text
+            )
+            if [ "${REMOTE_BYTES}" != "${RECORD_BYTES}" ] || [ "${REMOTE_SHA256}" != "${RECORD_SHA256}" ]; then
+              echo "FATAL: content-addressed evidence mirror mismatch: ${RECORD_KEY}"
+              exit 1
+            fi
+          done < <(find evidence-artifact -maxdepth 1 -type f -print0)
+
+      - name: Preserve immutable signed evidence artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: walg-evidence-v2-backup-production.yml-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence-artifact/
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90
+          compression-level: 0
+
+      - name: Propagate backup job failure after preserving its signed run record
+        if: needs.backup.result != 'success'
+        env:
+          BACKUP_JOB_RESULT: ${{ needs.backup.result }}
+        run: |
+          echo "FATAL: backup job concluded ${BACKUP_JOB_RESULT}; signed run record preserved."
+          exit 1

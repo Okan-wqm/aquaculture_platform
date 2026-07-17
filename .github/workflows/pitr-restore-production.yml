@@ -1,0 +1,690 @@
+name: PITR Restore - Production Postgres
+
+# Protected, manually dispatched recovery drill. The production database is
+# never replaced: the selected WAL-G base backup is restored into a run-scoped
+# container, volume, and non-ICC bridge, verified, then destroyed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      backup_name:
+        description: 'Explicit WAL-G base_* backup name (LATEST is forbidden)'
+        type: string
+        required: true
+      confirm_disposable_reset:
+        description: 'I authorize erasing only the newly created run-scoped target volume'
+        type: boolean
+        required: true
+        default: false
+
+concurrency:
+  group: production-postgres-backup-dr
+  cancel-in-progress: false
+
+jobs:
+  restore:
+    name: Isolated timestamp PITR and canonical verification
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment:
+      name: production-backup
+      deployment: false
+    outputs:
+      evidence_b64: ${{ steps.capture_evidence.outputs.evidence_b64 }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact workflow authority
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Require protected main and explicit disposable reset
+        env:
+          BACKUP_NAME: ${{ inputs.backup_name }}
+          CONFIRM_DISPOSABLE_RESET: ${{ inputs.confirm_disposable_reset }}
+        run: |
+          set +x
+          set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
+          test "${CONFIRM_DISPOSABLE_RESET}" = 'true'
+          [[ "${BACKUP_NAME}" =~ ^base_[A-Za-z0-9._:-]+$ ]]
+          case "${BACKUP_NAME}" in LATEST|latest) exit 2 ;; esac
+
+      - name: Preflight — assert PITR secret profile
+        id: pitr_secret_preflight
+        env:
+          BACKUP_SECRET_PROFILE: pitr-runtime
+          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
+          DROPLET_USER: ${{ secrets.DROPLET_USER }}
+          DROPLET_SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.DROPLET_SSH_FINGERPRINT }}
+          SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
+          SPACES_REGION: ${{ secrets.SPACES_REGION }}
+          PITR_WALG_SPACES_ACCESS_KEY_ID: ${{ secrets.PITR_WALG_SPACES_ACCESS_KEY_ID }}
+          PITR_WALG_SPACES_SECRET_ACCESS_KEY: ${{ secrets.PITR_WALG_SPACES_SECRET_ACCESS_KEY }}
+          BACKUP_POSTGRES_USER: ${{ secrets.BACKUP_POSTGRES_USER }}
+          BACKUP_POSTGRES_DB: ${{ secrets.BACKUP_POSTGRES_DB }}
+          BACKUP_POSTGRES_PASSWORD: ${{ secrets.BACKUP_POSTGRES_PASSWORD }}
+          PITR_WALG_LIBSODIUM_KEY_B64: ${{ secrets.PITR_WALG_LIBSODIUM_KEY_B64 }}
+          PITR_WALG_SPACES_BUCKET: ${{ vars.PITR_WALG_SPACES_BUCKET }}
+          PITR_WALG_BACKUP_EPOCH: ${{ vars.PITR_WALG_BACKUP_EPOCH }}
+          PITR_SOURCE_SYSTEM_IDENTIFIER: ${{ secrets.PITR_SOURCE_SYSTEM_IDENTIFIER }}
+        run: |
+          set +x
+          bash tools/scripts/database/assert-backup-secrets.sh
+
+      - name: Run isolated PITR ceremony on the droplet
+        id: remote_restore
+        env:
+          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
+          DROPLET_USER: ${{ secrets.DROPLET_USER }}
+          DROPLET_SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.DROPLET_SSH_FINGERPRINT }}
+          BACKUP_NAME: ${{ inputs.backup_name }}
+          SPACES_REGION: ${{ secrets.SPACES_REGION }}
+          PITR_WALG_SPACES_ACCESS_KEY_ID: ${{ secrets.PITR_WALG_SPACES_ACCESS_KEY_ID }}
+          PITR_WALG_SPACES_SECRET_ACCESS_KEY: ${{ secrets.PITR_WALG_SPACES_SECRET_ACCESS_KEY }}
+          PITR_WALG_LIBSODIUM_KEY_B64: ${{ secrets.PITR_WALG_LIBSODIUM_KEY_B64 }}
+          PITR_WALG_SPACES_BUCKET: ${{ vars.PITR_WALG_SPACES_BUCKET }}
+          PITR_WALG_BACKUP_EPOCH: ${{ vars.PITR_WALG_BACKUP_EPOCH }}
+          POSTGRES_USER: ${{ secrets.BACKUP_POSTGRES_USER }}
+          POSTGRES_DB: ${{ secrets.BACKUP_POSTGRES_DB }}
+          EXPECTED_SOURCE_SYSTEM_IDENTIFIER: ${{ secrets.PITR_SOURCE_SYSTEM_IDENTIFIER }}
+          PITR_MAIN_SHA: ${{ github.sha }}
+          EVIDENCE_RUN_ID: gha-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set +x
+          set -euo pipefail
+          umask 077
+          [[ "${PITR_WALG_SPACES_BUCKET}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{1,62}$ ]]
+          [[ "${PITR_WALG_BACKUP_EPOCH}" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]]
+          TARGET_WALG_S3_PREFIX="s3://${PITR_WALG_SPACES_BUCKET}/postgres/wal-g/${PITR_WALG_BACKUP_EPOCH}"
+          SSH_STEP_DIR=$(mktemp -d -t aqua-pitr-ssh-XXXXXX)
+          REMOTE_PAYLOAD="${SSH_STEP_DIR}/payload.sh"
+          REMOTE_STDOUT_PATH="${SSH_STEP_DIR}/stdout"
+          RUNTIME_BUNDLE_PATH="${SSH_STEP_DIR}/runtime-bundle.tar"
+          cleanup_ssh_step() {
+            status=$?
+            trap - EXIT
+            cleanup_status=0
+            if ! rm -rf -- "${SSH_STEP_DIR}" || [ -e "${SSH_STEP_DIR}" ]; then
+              echo 'FATAL: PITR runner SSH-step cleanup failed.' >&2
+              cleanup_status=1
+            fi
+            if [ "${status}" -eq 0 ] && [ "${cleanup_status}" -ne 0 ]; then
+              status=1
+            fi
+            exit "${status}"
+          }
+          trap cleanup_ssh_step EXIT
+          RUNTIME_BUNDLE_SHA256=$( \
+            SOURCE_SHA="${GITHUB_SHA}" \
+            OUTPUT_PATH="${RUNTIME_BUNDLE_PATH}" \
+              bash tools/scripts/ci/prepare-protected-runtime-bundle.sh
+          )
+          {
+            printf 'set +x\n'
+            for remote_name in \
+              BACKUP_NAME PITR_WALG_SPACES_ACCESS_KEY_ID PITR_WALG_SPACES_SECRET_ACCESS_KEY \
+              PITR_WALG_LIBSODIUM_KEY_B64 PITR_WALG_BACKUP_EPOCH TARGET_WALG_S3_PREFIX \
+              POSTGRES_USER POSTGRES_DB \
+              EXPECTED_SOURCE_SYSTEM_IDENTIFIER PITR_MAIN_SHA EVIDENCE_RUN_ID; do
+              printf 'export %s=%q\n' "${remote_name}" "${!remote_name}"
+            done
+            printf 'export RUNTIME_BUNDLE_SHA256=%q\n' "${RUNTIME_BUNDLE_SHA256}"
+            printf 'RUNTIME_BUNDLE_B64='
+            base64 -w0 "${RUNTIME_BUNDLE_PATH}"
+            printf '\n'
+            sed 's/^  //' <<'AQUA_REMOTE_SCRIPT'
+            set -euo pipefail
+            umask 077
+            [[ "${BACKUP_NAME}" =~ ^base_[A-Za-z0-9._:-]+$ ]]
+            [[ "${PITR_MAIN_SHA}" =~ ^[0-9a-f]{40}$ ]]
+            [[ "${EXPECTED_SOURCE_SYSTEM_IDENTIFIER}" =~ ^[0-9]{10,24}$ ]]
+            case "${BACKUP_NAME}" in LATEST|latest) echo 'FATAL: LATEST is forbidden.'; exit 2 ;; esac
+
+            [[ "${RUNTIME_BUNDLE_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+            RESOURCE_NONCE=$(od -An -N16 -tx1 /dev/urandom | tr -d '[:space:]')
+            if [[ ! "${RESOURCE_NONCE}" =~ ^[0-9a-f]{32}$ ]]; then
+              echo 'FATAL: could not create a cryptographically random PITR resource nonce.'
+              exit 2
+            fi
+            RUNTIME_ROOT=$(mktemp -d /tmp/aqua-pitr-runtime.XXXXXX)
+            TARGET_CONTAINER="aqua-pitr-${EVIDENCE_RUN_ID}-${RESOURCE_NONCE}"
+            TARGET_NETWORK="aqua-pitr-${EVIDENCE_RUN_ID}-${RESOURCE_NONCE}"
+            TARGET_VOLUME="aqua-pitr-${EVIDENCE_RUN_ID}-${RESOURCE_NONCE}-pgdata"
+            TARGET_SECRET_SOURCE="${RUNTIME_ROOT}/target-wal-g-secrets"
+            TARGET_CONTAINER_ID=
+            TARGET_NETWORK_ID=
+            TARGET_VOLUME_CREATED_AT=
+            TARGET_VOLUME_MOUNTPOINT=
+            TARGET_CREATED=false
+            NETWORK_CREATED=false
+            VOLUME_CREATED=false
+
+            attest_target_container() {
+              local attestation current_id current_name current_role current_run current_nonce
+              local current_resource current_owner_network_id
+              [ -n "${TARGET_CONTAINER_ID}" ] || return 1
+              attestation=$(docker container inspect --format \
+                '{{.Id}}|{{.Name}}|{{ index .Config.Labels "com.aqua-saas.restore.role" }}|{{ index .Config.Labels "com.aqua-saas.restore.run-id" }}|{{ index .Config.Labels "com.aqua-saas.restore.nonce" }}|{{ index .Config.Labels "com.aqua-saas.restore.resource" }}|{{ index .Config.Labels "com.aqua-saas.restore.owner-network-id" }}' \
+                "${TARGET_CONTAINER_ID}") || return 1
+              IFS='|' read -r current_id current_name current_role current_run current_nonce \
+                current_resource current_owner_network_id <<< "${attestation}"
+              [ "${current_id}" = "${TARGET_CONTAINER_ID}" ] && \
+                [ "${current_name}" = "/${TARGET_CONTAINER}" ] && \
+                [ "${current_role}" = 'isolated-drill' ] && \
+                [ "${current_run}" = "${EVIDENCE_RUN_ID}" ] && \
+                [ "${current_nonce}" = "${RESOURCE_NONCE}" ] && \
+                [ "${current_resource}" = 'container' ] && \
+                [ "${current_owner_network_id}" = "${TARGET_NETWORK_ID}" ]
+            }
+
+            attest_target_network() {
+              local attestation current_id current_name current_role current_run current_nonce
+              local current_resource
+              [ -n "${TARGET_NETWORK_ID}" ] || return 1
+              attestation=$(docker network inspect --format \
+                '{{.Id}}|{{.Name}}|{{ index .Labels "com.aqua-saas.restore.role" }}|{{ index .Labels "com.aqua-saas.restore.run-id" }}|{{ index .Labels "com.aqua-saas.restore.nonce" }}|{{ index .Labels "com.aqua-saas.restore.resource" }}' \
+                "${TARGET_NETWORK_ID}") || return 1
+              IFS='|' read -r current_id current_name current_role current_run current_nonce \
+                current_resource <<< "${attestation}"
+              [ "${current_id}" = "${TARGET_NETWORK_ID}" ] && \
+                [ "${current_name}" = "${TARGET_NETWORK}" ] && \
+                [ "${current_role}" = 'isolated-drill' ] && \
+                [ "${current_run}" = "${EVIDENCE_RUN_ID}" ] && \
+                [ "${current_nonce}" = "${RESOURCE_NONCE}" ] && \
+                [ "${current_resource}" = 'network' ]
+            }
+
+            attest_target_volume() {
+              local attestation current_name current_created_at current_mountpoint current_role
+              local current_run current_nonce current_resource current_owner_network_id
+              [ -n "${TARGET_VOLUME_CREATED_AT}" ] && \
+                [ -n "${TARGET_VOLUME_MOUNTPOINT}" ] || return 1
+              attestation=$(docker volume inspect --format \
+                '{{.Name}}|{{.CreatedAt}}|{{.Mountpoint}}|{{ index .Labels "com.aqua-saas.restore.role" }}|{{ index .Labels "com.aqua-saas.restore.run-id" }}|{{ index .Labels "com.aqua-saas.restore.nonce" }}|{{ index .Labels "com.aqua-saas.restore.resource" }}|{{ index .Labels "com.aqua-saas.restore.owner-network-id" }}' \
+                "${TARGET_VOLUME}") || return 1
+              IFS='|' read -r current_name current_created_at current_mountpoint current_role \
+                current_run current_nonce current_resource current_owner_network_id <<< "${attestation}"
+              [ "${current_name}" = "${TARGET_VOLUME}" ] && \
+                [ "${current_created_at}" = "${TARGET_VOLUME_CREATED_AT}" ] && \
+                [ "${current_mountpoint}" = "${TARGET_VOLUME_MOUNTPOINT}" ] && \
+                [ "${current_role}" = 'isolated-drill' ] && \
+                [ "${current_run}" = "${EVIDENCE_RUN_ID}" ] && \
+                [ "${current_nonce}" = "${RESOURCE_NONCE}" ] && \
+                [ "${current_resource}" = 'pgdata-volume' ] && \
+                [ "${current_owner_network_id}" = "${TARGET_NETWORK_ID}" ]
+            }
+
+            cleanup_runtime() {
+              status=$?
+              trap - EXIT
+              cleanup_status=0
+              if [ "${TARGET_CREATED}" = 'true' ]; then
+                if ! attest_target_container; then
+                  echo 'FATAL: refusing to remove a PITR container whose immutable identity or ownership labels changed.' >&2
+                  cleanup_status=1
+                elif ! docker rm --force "${TARGET_CONTAINER_ID}" >/dev/null 2>&1 || \
+                   docker container inspect "${TARGET_CONTAINER_ID}" >/dev/null 2>&1; then
+                  echo 'FATAL: disposable PITR container cleanup failed.' >&2
+                  cleanup_status=1
+                fi
+              fi
+              if [ "${NETWORK_CREATED}" = 'true' ]; then
+                if ! attest_target_network; then
+                  echo 'FATAL: refusing to remove a PITR network whose immutable identity or ownership labels changed.' >&2
+                  cleanup_status=1
+                elif ! docker network rm "${TARGET_NETWORK_ID}" >/dev/null 2>&1 || \
+                   docker network inspect "${TARGET_NETWORK_ID}" >/dev/null 2>&1; then
+                  echo 'FATAL: disposable PITR network cleanup failed.' >&2
+                  cleanup_status=1
+                fi
+              fi
+              if [ "${VOLUME_CREATED}" = 'true' ]; then
+                if ! attest_target_volume; then
+                  echo 'FATAL: refusing to remove a PITR volume whose creation identity or ownership labels changed.' >&2
+                  cleanup_status=1
+                elif ! docker volume rm "${TARGET_VOLUME}" >/dev/null 2>&1 || \
+                   docker volume inspect "${TARGET_VOLUME}" >/dev/null 2>&1; then
+                  echo 'FATAL: disposable PITR data-volume cleanup failed.' >&2
+                  cleanup_status=1
+                fi
+              fi
+              if ! rm -rf -- "${RUNTIME_ROOT}" || [ -e "${RUNTIME_ROOT}" ]; then
+                echo 'FATAL: PITR run-scoped runtime cleanup failed.' >&2
+                cleanup_status=1
+              fi
+              if [ "${status}" -eq 0 ] && [ "${cleanup_status}" -ne 0 ]; then
+                status=1
+              fi
+              exit "${status}"
+            }
+            trap cleanup_runtime EXIT
+
+            for target_object in "${TARGET_CONTAINER}" "${TARGET_NETWORK}" "${TARGET_VOLUME}"; do
+              if docker inspect "${target_object}" >/dev/null 2>&1 || \
+                 docker network inspect "${target_object}" >/dev/null 2>&1 || \
+                 docker volume inspect "${target_object}" >/dev/null 2>&1; then
+                echo "FATAL: run-scoped Docker object already exists: ${target_object}"
+                exit 2
+              fi
+            done
+
+            RUNTIME_BUNDLE_TAR="${RUNTIME_ROOT}/runtime-bundle.tar"
+            printf '%s' "${RUNTIME_BUNDLE_B64:?}" | base64 --decode > "${RUNTIME_BUNDLE_TAR}"
+            unset RUNTIME_BUNDLE_B64
+            ACTUAL_BUNDLE_SHA256=$(sha256sum "${RUNTIME_BUNDLE_TAR}" | awk '{print $1}')
+            if [ "${ACTUAL_BUNDLE_SHA256}" != "${RUNTIME_BUNDLE_SHA256}" ]; then
+              echo 'FATAL: transferred PITR runtime bundle digest mismatch.'
+              exit 2
+            fi
+
+            MANIFEST=.github/manifests/backup-script.sha256
+            DR_CONTRACT_MANIFEST=.github/manifests/postgres-dr-contract.sha256
+            EXPECTED_PATHS=$(printf '%s\n' \
+              .github/manifests/postgres-dr-contract.sha256 \
+              tools/scripts/database/backup-databases.sh \
+              tools/scripts/database/database-verification.sql \
+              tools/scripts/database/evaluate-walg-evidence.mjs \
+              tools/scripts/database/materialize-walg-secrets.sh \
+              tools/scripts/database/walg-base-backup.sh \
+              tools/scripts/database/walg-pitr-restore.sh)
+            EXPECTED_ARCHIVE_PATHS=$(printf '%s\n%s\n' \
+              "${MANIFEST}" "${EXPECTED_PATHS}")
+            ARCHIVE_PATHS=$(tar -tf "${RUNTIME_BUNDLE_TAR}" | sort)
+            UNIQUE_ARCHIVE_PATHS=$(tar -tf "${RUNTIME_BUNDLE_TAR}" | sort -u)
+            ARCHIVE_MEMBER_TYPES=$(tar -tvf "${RUNTIME_BUNDLE_TAR}" | awk '{print substr($1, 1, 1)}' | sort -u)
+            if [ "${ARCHIVE_PATHS}" != "${EXPECTED_ARCHIVE_PATHS}" ] || \
+               [ "${UNIQUE_ARCHIVE_PATHS}" != "${EXPECTED_ARCHIVE_PATHS}" ] || \
+               [ "${ARCHIVE_MEMBER_TYPES}" != '-' ]; then
+              echo 'FATAL: transferred PITR runtime archive membership or file types are not exact.'
+              exit 2
+            fi
+            tar --extract --no-same-owner --no-same-permissions \
+              --file "${RUNTIME_BUNDLE_TAR}" --directory "${RUNTIME_ROOT}"
+            rm -f -- "${RUNTIME_BUNDLE_TAR}"
+            cd "${RUNTIME_ROOT}"
+            if [ ! -f "${MANIFEST}" ] || [ -L "${MANIFEST}" ] || \
+               grep -q '__COMPUTE_ON_MERGE__' "${MANIFEST}"; then
+              echo 'FATAL: transferred PITR integrity manifest is unsafe or unresolved.'
+              exit 2
+            fi
+            ACTUAL_PATHS=$(awk '$1 !~ /^#/ && NF == 2 {print $2}' "${MANIFEST}" | sort)
+            if [ "${ACTUAL_PATHS}" != "${EXPECTED_PATHS}" ]; then
+              echo 'FATAL: PITR runtime manifest path set is not exact.'
+              exit 2
+            fi
+            mapfile -t TRUSTED_PATHS < <(printf '%s\n' "${ACTUAL_PATHS}")
+            for TRUSTED_PATH in "${TRUSTED_PATHS[@]}"; do
+              if [ ! -f "${TRUSTED_PATH}" ] || [ -L "${TRUSTED_PATH}" ]; then
+                echo "FATAL: trusted PITR path is not a regular non-symlink file: ${TRUSTED_PATH}"
+                exit 2
+              fi
+            done
+            sha256sum --check "${MANIFEST}"
+            EXPECTED_POSTGRES_DR_CONTRACT_SHA256=$(sha256sum \
+              "${DR_CONTRACT_MANIFEST}" | awk '{print $1}')
+            [[ "${EXPECTED_POSTGRES_DR_CONTRACT_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+
+            export POSTGRES_CONTAINER=aqua-postgres
+            export WALG_EVIDENCE_DIR="${RUNTIME_ROOT}/walg-evidence"
+            mkdir -p "${WALG_EVIDENCE_DIR}"
+
+            SOURCE_IMAGE_ID=$(docker inspect --format '{{.Image}}' "${POSTGRES_CONTAINER}")
+            [[ "${SOURCE_IMAGE_ID}" =~ ^sha256:[0-9a-f]{64}$ ]]
+            SOURCE_WALG_BACKUP_EPOCH=$(docker exec "${POSTGRES_CONTAINER}" bash -ceu 'printf %s "${WALG_BACKUP_EPOCH:?}"')
+            SOURCE_WALG_S3_PREFIX=$(docker exec "${POSTGRES_CONTAINER}" bash -ceu 'printf %s "${WALG_S3_PREFIX:?}"')
+            SOURCE_WALG_S3_ENDPOINT=$(docker exec "${POSTGRES_CONTAINER}" bash -ceu 'printf %s "${WALG_S3_ENDPOINT:?}"')
+            SOURCE_WALG_S3_REGION=$(docker exec "${POSTGRES_CONTAINER}" bash -ceu 'printf %s "${WALG_S3_REGION:?}"')
+            SOURCE_S3_PATH_STYLE=$(docker exec "${POSTGRES_CONTAINER}" bash -ceu 'printf %s "${AWS_S3_FORCE_PATH_STYLE:-true}"')
+            if [ "${SOURCE_WALG_BACKUP_EPOCH}" != "${PITR_WALG_BACKUP_EPOCH}" ] || \
+               [ "${SOURCE_WALG_S3_PREFIX}" != "${TARGET_WALG_S3_PREFIX}" ]; then
+              echo 'FATAL: selected PITR epoch/prefix is not the active source archive chain.'
+              exit 2
+            fi
+            [[ "${SOURCE_WALG_S3_ENDPOINT}" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]]
+            [[ "${SOURCE_WALG_S3_REGION}" =~ ^[A-Za-z0-9._-]+$ ]]
+            case "${SOURCE_S3_PATH_STYLE}" in true|false) ;; *) exit 2 ;; esac
+
+            WALG_HOST_SECRET_DIR="${TARGET_SECRET_SOURCE}" \
+            WALG_S3_ACCESS_KEY_ID="${PITR_WALG_SPACES_ACCESS_KEY_ID}" \
+            WALG_S3_SECRET_ACCESS_KEY="${PITR_WALG_SPACES_SECRET_ACCESS_KEY}" \
+            WALG_LIBSODIUM_KEY_B64="${PITR_WALG_LIBSODIUM_KEY_B64}" \
+            WALG_BACKUP_EPOCH="${PITR_WALG_BACKUP_EPOCH}" \
+            WALG_S3_PREFIX="${TARGET_WALG_S3_PREFIX}" \
+            WALG_INSTALL_RUNNING_CONTAINER=false \
+              bash tools/scripts/database/materialize-walg-secrets.sh
+            unset PITR_WALG_LIBSODIUM_KEY_B64 PITR_WALG_SPACES_ACCESS_KEY_ID
+            unset PITR_WALG_SPACES_SECRET_ACCESS_KEY
+
+            TARGET_NETWORK_ID=$(docker network create \
+              --label com.aqua-saas.restore.role=isolated-drill \
+              --label "com.aqua-saas.restore.run-id=${EVIDENCE_RUN_ID}" \
+              --label "com.aqua-saas.restore.nonce=${RESOURCE_NONCE}" \
+              --label com.aqua-saas.restore.resource=network \
+              --opt com.docker.network.bridge.enable_icc=false \
+              "${TARGET_NETWORK}")
+            [[ "${TARGET_NETWORK_ID}" =~ ^[0-9a-f]{64}$ ]]
+            NETWORK_CREATED=true
+            if ! attest_target_network; then
+              echo 'FATAL: newly created PITR network identity or ownership labels are invalid.'
+              exit 2
+            fi
+            CREATED_VOLUME_NAME=$(docker volume create \
+              --label com.aqua-saas.restore.role=isolated-drill \
+              --label "com.aqua-saas.restore.run-id=${EVIDENCE_RUN_ID}" \
+              --label "com.aqua-saas.restore.nonce=${RESOURCE_NONCE}" \
+              --label com.aqua-saas.restore.resource=pgdata-volume \
+              --label "com.aqua-saas.restore.owner-network-id=${TARGET_NETWORK_ID}" \
+              "${TARGET_VOLUME}")
+            if [ "${CREATED_VOLUME_NAME}" != "${TARGET_VOLUME}" ]; then
+              echo 'FATAL: Docker did not return the requested PITR volume name.'
+              exit 2
+            fi
+            VOLUME_ATTESTATION=$(docker volume inspect --format \
+              '{{.Name}}|{{.CreatedAt}}|{{.Mountpoint}}|{{ index .Labels "com.aqua-saas.restore.role" }}|{{ index .Labels "com.aqua-saas.restore.run-id" }}|{{ index .Labels "com.aqua-saas.restore.nonce" }}|{{ index .Labels "com.aqua-saas.restore.resource" }}|{{ index .Labels "com.aqua-saas.restore.owner-network-id" }}' \
+              "${TARGET_VOLUME}")
+            IFS='|' read -r CREATED_VOLUME_NAME TARGET_VOLUME_CREATED_AT TARGET_VOLUME_MOUNTPOINT \
+              CREATED_VOLUME_ROLE CREATED_VOLUME_RUN CREATED_VOLUME_NONCE CREATED_VOLUME_RESOURCE \
+              CREATED_VOLUME_OWNER_NETWORK_ID <<< "${VOLUME_ATTESTATION}"
+            if [ "${CREATED_VOLUME_NAME}" != "${TARGET_VOLUME}" ] || \
+               [ -z "${TARGET_VOLUME_CREATED_AT}" ] || \
+               [ -z "${TARGET_VOLUME_MOUNTPOINT}" ] || \
+               [ "${CREATED_VOLUME_ROLE}" != 'isolated-drill' ] || \
+               [ "${CREATED_VOLUME_RUN}" != "${EVIDENCE_RUN_ID}" ] || \
+               [ "${CREATED_VOLUME_NONCE}" != "${RESOURCE_NONCE}" ] || \
+               [ "${CREATED_VOLUME_RESOURCE}" != 'pgdata-volume' ] || \
+               [ "${CREATED_VOLUME_OWNER_NETWORK_ID}" != "${TARGET_NETWORK_ID}" ]; then
+              echo 'FATAL: refusing to claim a PITR volume without exact fresh-run ownership.'
+              exit 2
+            fi
+            VOLUME_CREATED=true
+            TARGET_CONTAINER_ID=$(docker create \
+              --name "${TARGET_CONTAINER}" \
+              --user root \
+              --network "${TARGET_NETWORK}" \
+              --label com.aqua-saas.restore.role=isolated-drill \
+              --label "com.aqua-saas.restore.run-id=${EVIDENCE_RUN_ID}" \
+              --label "com.aqua-saas.restore.nonce=${RESOURCE_NONCE}" \
+              --label com.aqua-saas.restore.resource=container \
+              --label "com.aqua-saas.restore.owner-network-id=${TARGET_NETWORK_ID}" \
+              --read-only \
+              --memory 2g \
+              --memory-swap 2g \
+              --cpus 1 \
+              --pids-limit 256 \
+              --security-opt no-new-privileges:true \
+              --cap-drop ALL \
+              --cap-add CHOWN \
+              --cap-add DAC_OVERRIDE \
+              --cap-add FOWNER \
+              --tmpfs /run:rw,noexec,nosuid,nodev,size=2m,mode=0755 \
+              --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777 \
+              --mount "type=volume,source=${TARGET_VOLUME},target=/var/lib/postgresql/data" \
+              --mount "type=bind,source=${TARGET_SECRET_SOURCE},target=/var/lib/postgresql/wal-g-secrets-source,readonly" \
+              --env PGDATA=/var/lib/postgresql/data \
+              --env "POSTGRES_USER=${POSTGRES_USER}" \
+              --env "POSTGRES_DB=${POSTGRES_DB}" \
+              --env "WALG_BACKUP_EPOCH=${PITR_WALG_BACKUP_EPOCH}" \
+              --env "WALG_S3_PREFIX=${TARGET_WALG_S3_PREFIX}" \
+              --env "WALG_S3_ENDPOINT=${SOURCE_WALG_S3_ENDPOINT}" \
+              --env "WALG_S3_REGION=${SOURCE_WALG_S3_REGION}" \
+              --env "AWS_S3_FORCE_PATH_STYLE=${SOURCE_S3_PATH_STYLE}" \
+              --entrypoint /bin/bash \
+              "${SOURCE_IMAGE_ID}" \
+              -ceu 'trap : TERM INT; while :; do sleep 3600; done')
+            [[ "${TARGET_CONTAINER_ID}" =~ ^[0-9a-f]{64}$ ]]
+            TARGET_CREATED=true
+            if ! attest_target_container; then
+              echo 'FATAL: newly created PITR container identity or ownership labels are invalid.'
+              exit 2
+            fi
+            docker start "${TARGET_CONTAINER_ID}" >/dev/null
+
+            TARGET_CONTAINER="${TARGET_CONTAINER}" \
+            TARGET_PGDATA_VOLUME="${TARGET_VOLUME}" \
+            TARGET_NETWORK="${TARGET_NETWORK}" \
+            TARGET_WALG_SECRET_SOURCE="${TARGET_SECRET_SOURCE}" \
+            BACKUP_NAME="${BACKUP_NAME}" \
+            EXPECTED_SOURCE_SYSTEM_IDENTIFIER="${EXPECTED_SOURCE_SYSTEM_IDENTIFIER}" \
+            SOURCE_POSTGRES_USER="${POSTGRES_USER}" \
+            SOURCE_POSTGRES_DB="${POSTGRES_DB}" \
+            TARGET_POSTGRES_USER="${POSTGRES_USER}" \
+            TARGET_POSTGRES_DB="${POSTGRES_DB}" \
+            EVIDENCE_RUN_ID="${EVIDENCE_RUN_ID}" \
+            MAIN_SHA="${PITR_MAIN_SHA}" \
+            EXPECTED_POSTGRES_DR_CONTRACT_SHA256="${EXPECTED_POSTGRES_DR_CONTRACT_SHA256}" \
+            PITR_RESET_TARGET=true \
+            DATABASE_VERIFICATION_SQL=tools/scripts/database/database-verification.sql \
+              bash tools/scripts/database/walg-pitr-restore.sh
+
+            mapfile -t PITR_EVIDENCE_FILES < <(
+              find "${WALG_EVIDENCE_DIR}" -maxdepth 1 -type f -name 'timestamp-pitr-*.json' -print
+            )
+            if [ "${#PITR_EVIDENCE_FILES[@]}" -ne 1 ]; then
+              echo "FATAL: expected one PITR evidence record, found ${#PITR_EVIDENCE_FILES[@]}."
+              exit 2
+            fi
+            EVIDENCE_B64=$(base64 -w0 "${PITR_EVIDENCE_FILES[0]}")
+            printf 'AQUA_WALG_EVIDENCE_B64=%s\n' "${EVIDENCE_B64}"
+          AQUA_REMOTE_SCRIPT
+          } > "${REMOTE_PAYLOAD}"
+          /usr/bin/env -i \
+              PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+              HOME="${HOME}" \
+              LC_ALL=C \
+              DROPLET_HOST="${DROPLET_HOST}" \
+              DROPLET_USER="${DROPLET_USER}" \
+              DROPLET_SSH_KEY="${DROPLET_SSH_KEY}" \
+              DROPLET_SSH_FINGERPRINT="${DROPLET_SSH_FINGERPRINT}" \
+              SSH_PAYLOAD_PATH="${REMOTE_PAYLOAD}" \
+              SSH_STDOUT_PATH="${REMOTE_STDOUT_PATH}" \
+              SSH_COMMAND_TIMEOUT_SECONDS=4800 \
+            bash tools/scripts/ci/run-protected-ssh.sh
+          mapfile -t EVIDENCE_MARKERS < <(
+            sed -n 's/^AQUA_WALG_EVIDENCE_B64=\([A-Za-z0-9+\/=]*\)$/\1/p' "${REMOTE_STDOUT_PATH}"
+          )
+          if [ "${#EVIDENCE_MARKERS[@]}" -ne 1 ] || [ -z "${EVIDENCE_MARKERS[0]}" ]; then
+            echo 'FATAL: protected OpenSSH transport did not return exactly one PITR evidence record.'
+            exit 1
+          fi
+          printf 'evidence_b64=%s\n' "${EVIDENCE_MARKERS[0]}" >> "${GITHUB_OUTPUT}"
+
+      - name: Capture completed PITR evidence from protected OpenSSH transport
+        id: capture_evidence
+        env:
+          REMOTE_EVIDENCE_B64: ${{ steps.remote_restore.outputs.evidence_b64 }}
+        run: |
+          set +x
+          set -euo pipefail
+          if [[ ! "${REMOTE_EVIDENCE_B64}" =~ ^[A-Za-z0-9+/]+={0,2}$ ]]; then
+            echo 'FATAL: protected OpenSSH transport did not return canonical PITR evidence bytes.'
+            exit 1
+          fi
+          printf '%s' "${REMOTE_EVIDENCE_B64}" | base64 --decode | \
+            node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync(0,"utf8")); if (!value || value.evidence_type !== "timestamp_pitr" || value.status !== "success") process.exit(2);'
+          printf 'evidence_b64=%s\n' "${REMOTE_EVIDENCE_B64}" >> "${GITHUB_OUTPUT}"
+
+      - name: Surface protected PITR preflight failure
+        if: failure() && steps.pitr_secret_preflight.outcome == 'failure'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            core.setFailed('Production PITR secret/config preflight failed. Runbook: docs/runbooks/database-restore-drill.md');
+
+  publish-evidence:
+    name: Sign completed PITR run evidence
+    needs: [restore]
+    if: ${{ always() && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production-backup
+      deployment: false
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout evidence authority
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Require protected main evidence authority
+        run: |
+          set +x
+          set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
+
+      - name: Assert evidence publisher secret profile
+        env:
+          BACKUP_SECRET_PROFILE: evidence-publisher
+          SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
+          SPACES_REGION: ${{ secrets.SPACES_REGION }}
+          EVIDENCE_SPACES_BUCKET: ${{ secrets.EVIDENCE_SPACES_BUCKET }}
+          EVIDENCE_PUBLISHER_SPACES_ACCESS_KEY_ID: ${{ secrets.EVIDENCE_PUBLISHER_SPACES_ACCESS_KEY_ID }}
+          EVIDENCE_PUBLISHER_SPACES_SECRET_ACCESS_KEY: ${{ secrets.EVIDENCE_PUBLISHER_SPACES_SECRET_ACCESS_KEY }}
+        run: |
+          set +x
+          bash tools/scripts/database/assert-backup-secrets.sh
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Create, sign, and self-verify run-scoped records
+        env:
+          RESTORE_JOB_RESULT: ${{ needs.restore.result }}
+          EVIDENCE_B64: ${{ needs.restore.outputs.evidence_b64 }}
+        run: |
+          set +x
+          set -euo pipefail
+          mkdir -p evidence-artifact
+          node tools/scripts/database/walg-evidence-attestation.mjs create-run \
+            --output evidence-artifact/run-record.json \
+            --workflow pitr-restore-production.yml \
+            --workflow-name "${GITHUB_WORKFLOW}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --ref "${GITHUB_REF}" \
+            --sha "${GITHUB_SHA}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --event-name "${GITHUB_EVENT_NAME}" \
+            --job-result "${RESTORE_JOB_RESULT}" \
+            --mode timestamp_pitr \
+            --issued-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          cosign sign-blob --yes \
+            --bundle evidence-artifact/run-record.sigstore.json \
+            evidence-artifact/run-record.json
+
+          if [ "${RESTORE_JOB_RESULT}" = 'success' ]; then
+            if [ -z "${EVIDENCE_B64}" ]; then
+              echo 'FATAL: successful PITR job omitted its SSH-transport evidence.'
+              exit 1
+            fi
+            printf '%s' "${EVIDENCE_B64}" | base64 --decode > evidence-artifact/timestamp-pitr.json
+            node tools/scripts/database/walg-evidence-attestation.mjs create-evidence \
+              --output evidence-artifact/evidence-attestation.json \
+              --run-record evidence-artifact/run-record.json \
+              --evidence evidence-artifact/timestamp-pitr.json
+            cosign sign-blob --yes \
+              --bundle evidence-artifact/evidence-attestation.sigstore.json \
+              evidence-artifact/evidence-attestation.json
+            rm -f evidence-artifact/timestamp-pitr.json
+          fi
+
+          IDENTITY="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/pitr-restore-production.yml@refs/heads/main"
+          for RECORD in evidence-artifact/run-record.json evidence-artifact/evidence-attestation.json; do
+            if [ ! -f "${RECORD}" ]; then
+              continue
+            fi
+            cosign verify-blob \
+              --bundle "${RECORD%.json}.sigstore.json" \
+              --certificate-identity "${IDENTITY}" \
+              --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+              --certificate-github-workflow-repository "${GITHUB_REPOSITORY}" \
+              --certificate-github-workflow-ref 'refs/heads/main' \
+              --certificate-github-workflow-sha "${GITHUB_SHA}" \
+              --certificate-github-workflow-trigger "${GITHUB_EVENT_NAME}" \
+              --certificate-github-workflow-name "${GITHUB_WORKFLOW}" \
+              "${RECORD}"
+          done
+
+      - name: Mirror signed records by content digest
+        env:
+          SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
+          EVIDENCE_SPACES_BUCKET: ${{ secrets.EVIDENCE_SPACES_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.EVIDENCE_PUBLISHER_SPACES_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.EVIDENCE_PUBLISHER_SPACES_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.SPACES_REGION }}
+          AWS_DEFAULT_REGION: ${{ secrets.SPACES_REGION }}
+        run: |
+          set +x
+          set -euo pipefail
+          VERSIONING_STATUS=$(aws s3api get-bucket-versioning \
+            --bucket "${EVIDENCE_SPACES_BUCKET}" \
+            --endpoint-url "${SPACES_ENDPOINT}" \
+            --query Status \
+            --output text)
+          if [ "${VERSIONING_STATUS}" != 'Enabled' ]; then
+            echo 'FATAL: signed evidence mirror bucket versioning must be Enabled.'
+            exit 1
+          fi
+          while IFS= read -r -d '' RECORD; do
+            RECORD_SHA256=$(sha256sum "${RECORD}" | awk '{print $1}')
+            RECORD_BYTES=$(stat -c '%s' "${RECORD}")
+            RECORD_KEY="wal-g-evidence/v2/sha256/${RECORD_SHA256}/$(basename "${RECORD}")"
+            EXISTING_COUNT=$(aws s3api list-objects-v2 \
+              --bucket "${EVIDENCE_SPACES_BUCKET}" \
+              --prefix "${RECORD_KEY}" \
+              --endpoint-url "${SPACES_ENDPOINT}" \
+              --query 'length(Contents)' \
+              --output text)
+            if [ "${EXISTING_COUNT}" = '0' ]; then
+              aws s3api put-object \
+                --bucket "${EVIDENCE_SPACES_BUCKET}" \
+                --key "${RECORD_KEY}" \
+                --body "${RECORD}" \
+                --metadata "sha256=${RECORD_SHA256},run_id=${GITHUB_RUN_ID},run_attempt=${GITHUB_RUN_ATTEMPT}" \
+                --endpoint-url "${SPACES_ENDPOINT}" >/dev/null
+            fi
+            read -r REMOTE_BYTES REMOTE_SHA256 < <(
+              aws s3api head-object \
+                --bucket "${EVIDENCE_SPACES_BUCKET}" \
+                --key "${RECORD_KEY}" \
+                --endpoint-url "${SPACES_ENDPOINT}" \
+                --query '[ContentLength,Metadata.sha256]' \
+                --output text
+            )
+            if [ "${REMOTE_BYTES}" != "${RECORD_BYTES}" ] || [ "${REMOTE_SHA256}" != "${RECORD_SHA256}" ]; then
+              echo "FATAL: content-addressed evidence mirror mismatch: ${RECORD_KEY}"
+              exit 1
+            fi
+          done < <(find evidence-artifact -maxdepth 1 -type f -print0)
+
+      - name: Preserve immutable signed evidence artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: walg-evidence-v2-pitr-restore-production.yml-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence-artifact/
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90
+          compression-level: 0
+
+      - name: Propagate PITR job failure after preserving its signed run record
+        if: needs.restore.result != 'success'
+        env:
+          RESTORE_JOB_RESULT: ${{ needs.restore.result }}
+        run: |
+          echo "FATAL: PITR job concluded ${RESTORE_JOB_RESULT}; signed run record preserved."
+          exit 1

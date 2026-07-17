@@ -166,7 +166,10 @@ describe('INVARIANT: Postgres runtime contract is SSoT-backed', () => {
 
     const chownLines = executableLines.filter((line) => line.startsWith('chown '));
     expect(chownLines.length).toBeGreaterThan(0);
-    expect(chownLines.every((line) => line.includes('${PG_UID}:${PG_GID}'))).toBe(true);
+    const rootOwnedTlsSource = 'chown 0:0 "${SERVER_KEY_SOURCE}"';
+    expect(chownLines.filter((line) => !line.includes('${PG_UID}:${PG_GID}'))).toEqual([
+      rootOwnedTlsSource,
+    ]);
     expect(chownLines).not.toEqual(expect.arrayContaining([expect.stringMatching(/\b999:999\b/)]));
   });
 });

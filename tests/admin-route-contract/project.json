@@ -1,0 +1,22 @@
+{
+  "name": "admin-route-contract",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "tags": ["scope:ci", "type:contract", "domain:admin"],
+  "implicitDependencies": ["admin-api-service", "admin-panel"],
+  "targets": {
+    "test:contract": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": [
+        "default",
+        "^default",
+        "{workspaceRoot}/apps/admin-api-service/jest.config.ts",
+        "{workspaceRoot}/jest.preset.js"
+      ],
+      "options": {
+        "command": "node tools/toolchain/run.mjs jest --config apps/admin-api-service/jest.config.ts --runTestsByPath apps/admin-api-service/src/__tests__/contract-validation.spec.ts --runInBand"
+      }
+    }
+  }
+}

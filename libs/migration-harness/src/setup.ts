@@ -82,6 +82,8 @@ export interface BootOptions {
   readonly startTimeoutMs?: number;
   /** PG test-only optimisations (fsync off, etc.). Default true. */
   readonly testOptimisations?: boolean;
+  /** Docker labels used to attest a container's test-only role. */
+  readonly labels?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -98,9 +100,7 @@ export interface BootOptions {
  * + `typeorm` so the mere act of importing the harness barrel doesn't
  * trigger Docker — only `bootPostgresContainer()` does.
  */
-export async function bootPostgresContainer(
-  opts: BootOptions = {},
-): Promise<HarnessContext> {
+export async function bootPostgresContainer(opts: BootOptions = {}): Promise<HarnessContext> {
   const image = opts.image ?? DEFAULT_POSTGRES_IMAGE;
   const testOpt = opts.testOptimisations ?? true;
 
@@ -112,6 +112,10 @@ export async function bootPostgresContainer(
     .withUsername('harness')
     .withPassword('harness')
     .withStartupTimeout(opts.startTimeoutMs ?? 60_000);
+
+  if (opts.labels) {
+    builder = builder.withLabels({ ...opts.labels });
+  }
 
   if (testOpt) {
     // Test-only durability trade-offs — safe because test data is
@@ -159,9 +163,7 @@ export async function bootPostgresContainer(
  * Accepts `undefined` so `afterAll(() => shutdownHarness(ctx))` works
  * when `beforeAll` failed and ctx is still undefined.
  */
-export async function shutdownHarness(
-  ctx: HarnessContext | undefined,
-): Promise<void> {
+export async function shutdownHarness(ctx: HarnessContext | undefined): Promise<void> {
   if (!ctx) return;
   try {
     if (ctx.dataSource.isInitialized) {
@@ -201,10 +203,7 @@ export async function withEphemeralSchema<T>(
     // inside a per-migration transaction and uses `true`; see
     // docs/patterns/sql-identifier-safety.md §"set_config vs SET LOCAL
     // semantic equivalence" for the gotcha this avoids.
-    await qr.query(`SELECT set_config($1, $2, false)`, [
-      'search_path',
-      `${schema},public`,
-    ]);
+    await qr.query(`SELECT set_config($1, $2, false)`, ['search_path', `${schema},public`]);
     return await fn(schema, qr);
   } finally {
     try {

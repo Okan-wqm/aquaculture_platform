@@ -119,12 +119,12 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
          *  defense-in-depth in case a subgraph becomes directly accessible. */
         allowBatchedHttpRequests: false,
         /**
-         * 2026-04-30: Keep Apollo CSRF prevention explicit while Apollo Server 5
-         * migration is blocked by the Nest/Apollo peer graph.
-         * WHY: Apollo Server 4 remains in the dependency graph, so XS-Search
-         * class protections must be fail-closed at runtime.
+         * Keep Apollo CSRF prevention explicit as defense in depth against
+         * cross-site search and simple-request execution paths.
          */
         csrfPrevention: true,
+        playground: false,
+        graphiql: process.env['NODE_ENV'] !== 'production',
         /**
          * SECURITY (H-05): depthLimit(10) prevents deeply nested query DoS attacks.
          * Without depth limiting, an attacker can craft a deeply nested GraphQL query

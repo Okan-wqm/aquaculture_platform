@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -8,6 +8,28 @@ function read(rel: string): string {
 }
 
 describe('production operations proof contract', () => {
+  it('persists and assigns incidents when a scheduled workflow is stale or failing', () => {
+    const workflow = read('.github/workflows/scheduled-workflow-watchdog.yml');
+    const manifest = JSON.parse(read('.github/manifests/scheduled-workflows.json')) as {
+      incidentTitle: string;
+      workflows: Array<{ workflow: string; maxAgeHours: number }>;
+    };
+    const scheduledWorkflows = readdirSync(join(REPO_ROOT, '.github/workflows'))
+      .filter((name) => name.endsWith('.yml') && name !== 'scheduled-workflow-watchdog.yml')
+      .filter((name) => /\n\s+schedule:/.test(read(`.github/workflows/${name}`)))
+      .sort();
+
+    expect(manifest.workflows.map((item) => item.workflow).sort()).toEqual(scheduledWorkflows);
+    expect(manifest.workflows.every((item) => item.maxAgeHours > 0)).toBe(true);
+    expect(workflow).toContain('actions: read');
+    expect(workflow).toContain('issues: write');
+    expect(workflow).toContain("event: 'schedule'");
+    expect(workflow).toContain("state: 'open'");
+    expect(workflow).toContain('assignees: [owner]');
+    expect(workflow).toContain('core.setFailed');
+    expect(manifest.incidentTitle).toContain('scheduled-workflow-watchdog');
+  });
+
   it('has a GitHub-Actions-owned post-deploy verification workflow', () => {
     const workflow = read('.github/workflows/production-post-deploy-verify.yml');
     const script = read('scripts/deploy/post-deploy-verify.sh');

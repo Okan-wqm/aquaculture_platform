@@ -1,0 +1,90 @@
+name: Database WAL Archive Freshness
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: database-wal-archive-freshness
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: production-backup
+      deployment: false
+    steps:
+      - name: Checkout preflight helper
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Require protected main authority
+        run: |
+          set +x
+          set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
+
+      - name: Assert protected backup environment is complete
+        env:
+          BACKUP_SECRET_PROFILE: archive-freshness
+          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
+          DROPLET_USER: ${{ secrets.DROPLET_USER }}
+          DROPLET_SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.DROPLET_SSH_FINGERPRINT }}
+        run: |
+          set +x
+          bash tools/scripts/database/assert-backup-secrets.sh
+
+      - name: Verify production WAL archive RPO signal
+        env:
+          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
+          DROPLET_USER: ${{ secrets.DROPLET_USER }}
+          DROPLET_SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.DROPLET_SSH_FINGERPRINT }}
+        run: |
+          set +x
+          set -euo pipefail
+          umask 077
+          SSH_STEP_DIR=$(mktemp -d -t aqua-archive-freshness-XXXXXX)
+          cleanup() {
+            status=$?
+            trap - EXIT
+            cleanup_status=0
+            if ! rm -rf -- "${SSH_STEP_DIR}" || [ -e "${SSH_STEP_DIR}" ]; then
+              echo 'FATAL: WAL freshness runner SSH-step cleanup failed.' >&2
+              cleanup_status=1
+            fi
+            if [ "${status}" -eq 0 ] && [ "${cleanup_status}" -ne 0 ]; then
+              status=1
+            fi
+            exit "${status}"
+          }
+          trap cleanup EXIT
+          cat > "${SSH_STEP_DIR}/payload.sh" <<'AQUA_REMOTE_SCRIPT'
+          set +x
+          set -euo pipefail
+          docker exec aqua-postgres /usr/local/bin/postgres-walg-healthcheck.sh
+          AQUA_REMOTE_SCRIPT
+          /usr/bin/env -i \
+              PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+              HOME="${HOME}" \
+              LC_ALL=C \
+              DROPLET_HOST="${DROPLET_HOST}" \
+              DROPLET_USER="${DROPLET_USER}" \
+              DROPLET_SSH_KEY="${DROPLET_SSH_KEY}" \
+              DROPLET_SSH_FINGERPRINT="${DROPLET_SSH_FINGERPRINT}" \
+              SSH_PAYLOAD_PATH="${SSH_STEP_DIR}/payload.sh" \
+              SSH_STDOUT_PATH="${SSH_STEP_DIR}/stdout" \
+              SSH_COMMAND_TIMEOUT_SECONDS=120 \
+            bash tools/scripts/ci/run-protected-ssh.sh

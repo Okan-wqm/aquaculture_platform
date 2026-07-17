@@ -1,8 +1,7 @@
 # Backup manifest invariant — companion gate to INFRA-1
 #
-# Enforces that any PR touching tools/scripts/database/backup-databases.sh
-# OR the pinned hash manifest at .github/manifests/backup-script.sha256
-# keeps the pair in lockstep. Without this gate, a script change can land
+# Enforces that any PR touching the backup runtime bundle or its pinned hash
+# manifest keeps every consumed file in lockstep. Without this gate, a change can land
 # without a matching hash update, which would cause the nightly backup to
 # ABORT on the droplet (good — fail-closed is the correct posture) but
 # would also create a silent backup outage until someone notices. This
@@ -24,7 +23,23 @@ on:
   pull_request:
     paths:
       - 'tools/scripts/database/backup-databases.sh'
+      - 'tools/scripts/database/database-verification.sql'
+      - 'tools/scripts/database/evaluate-walg-evidence.mjs'
+      - 'tools/scripts/database/generate-database-verification-sql.ts'
+      - 'tools/scripts/database/materialize-walg-secrets.sh'
+      - 'tools/scripts/database/walg-base-backup.sh'
+      - 'tools/scripts/database/walg-pitr-restore.sh'
+      - 'tools/scripts/ci/prepare-protected-runtime-bundle.sh'
       - '.github/manifests/backup-script.sha256'
+      - '.github/manifests/postgres-dr-contract.sha256'
+      - '.dockerignore'
+      - 'infrastructure/docker/Dockerfile.postgres-walg'
+      - 'infrastructure/docker/scripts/postgres-ssl-entrypoint.sh'
+      - 'infrastructure/docker/scripts/postgres-walg-healthcheck.sh'
+      - 'infrastructure/docker/scripts/walg-archive-command.sh'
+      - 'infrastructure/docker/scripts/walg-load-secrets.sh'
+      - 'infrastructure/docker/scripts/walg-restore-command.sh'
+      - 'infrastructure/docker/scripts/walg-runtime-command.sh'
       - '.github/workflows/backup-manifest-invariant.yml'
 
 permissions:
@@ -40,7 +55,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout PR head
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 1
           persist-credentials: false
@@ -59,7 +74,7 @@ jobs:
             echo "FATAL: manifest still carries the __COMPUTE_ON_MERGE__ placeholder."
             echo "The PR that introduced this placeholder should have computed the"
             echo "real SHA-256 in the same commit via:"
-            echo "    sha256sum tools/scripts/database/backup-databases.sh"
+            echo "    sha256sum <all paths declared in ${MANIFEST}>"
             exit 1
           fi
 
@@ -67,41 +82,53 @@ jobs:
         run: |
           set -euo pipefail
           MANIFEST=.github/manifests/backup-script.sha256
-          SCRIPT=tools/scripts/database/backup-databases.sh
+          EXPECTED_PATHS=$(printf '%s\n' \
+            .github/manifests/postgres-dr-contract.sha256 \
+            tools/scripts/database/backup-databases.sh \
+            tools/scripts/database/database-verification.sql \
+            tools/scripts/database/evaluate-walg-evidence.mjs \
+            tools/scripts/database/materialize-walg-secrets.sh \
+            tools/scripts/database/walg-base-backup.sh \
+            tools/scripts/database/walg-pitr-restore.sh)
+          ACTUAL_PATHS=$(awk '$1 !~ /^#/ && NF == 2 {print $2}' "$MANIFEST" | sort)
 
-          if [ ! -f "$SCRIPT" ]; then
-            echo "FATAL: $SCRIPT does not exist."
-            echo "The backup workflow depends on this script; do not delete without"
-            echo "first removing backup-production.yml and the manifest."
+          if [ "$ACTUAL_PATHS" != "$EXPECTED_PATHS" ]; then
+            echo "FATAL: manifest path set differs from the trusted backup runtime bundle."
+            echo "Expected:"
+            echo "$EXPECTED_PATHS"
+            echo "Actual:"
+            echo "$ACTUAL_PATHS"
             exit 1
           fi
 
-          EXPECTED=$(awk '/backup-databases\.sh$/ && $1 !~ /^#/ {print $1; exit}' "$MANIFEST")
-          ACTUAL=$(sha256sum "$SCRIPT" | awk '{print $1}')
+          while IFS= read -r TRUSTED_PATH; do
+            if [ ! -f "$TRUSTED_PATH" ] || [ -L "$TRUSTED_PATH" ]; then
+              echo "FATAL: trusted backup runtime path is not a regular non-symlink file: $TRUSTED_PATH"
+              exit 1
+            fi
+          done <<< "$ACTUAL_PATHS"
 
-          if [ -z "$EXPECTED" ]; then
-            echo "FATAL: could not parse expected hash from $MANIFEST."
-            echo "Manifest format is one non-comment line:"
-            echo "    <64-hex-sha256>  tools/scripts/database/backup-databases.sh"
+          sha256sum --check "$MANIFEST"
+          DR_CONTRACT_MANIFEST=.github/manifests/postgres-dr-contract.sha256
+          EXPECTED_DR_CONTRACT_PATHS=$(printf '%s\n' \
+            infrastructure/docker/Dockerfile.postgres-walg \
+            infrastructure/docker/scripts/postgres-ssl-entrypoint.sh \
+            infrastructure/docker/scripts/postgres-walg-healthcheck.sh \
+            infrastructure/docker/scripts/walg-archive-command.sh \
+            infrastructure/docker/scripts/walg-load-secrets.sh \
+            infrastructure/docker/scripts/walg-restore-command.sh \
+            infrastructure/docker/scripts/walg-runtime-command.sh)
+          ACTUAL_DR_CONTRACT_PATHS=$(awk 'NF == 2 {print $2}' \
+            "${DR_CONTRACT_MANIFEST}")
+          if [ "${ACTUAL_DR_CONTRACT_PATHS}" != "${EXPECTED_DR_CONTRACT_PATHS}" ]; then
+            echo 'FATAL: PostgreSQL DR contract path set or canonical order is invalid.'
             exit 1
           fi
-
-          echo "Expected: $EXPECTED"
-          echo "Actual:   $ACTUAL"
-
-          if [ "$EXPECTED" != "$ACTUAL" ]; then
-            echo ""
-            echo "FATAL: backup-databases.sh SHA-256 does not match the manifest."
-            echo ""
-            echo "If you modified the script legitimately, regenerate the hash:"
-            echo "    sha256sum tools/scripts/database/backup-databases.sh"
-            echo "and update $MANIFEST in the same PR."
-            echo ""
-            echo "This check exists to block the INFRA-1 vector: a malicious change"
-            echo "to the script that the nightly backup workflow would blindly execute"
-            echo "on the droplet. See /root/.claude/plans/declarative-riding-shamir.md"
-            echo "INFRA-1 for the full threat model."
-            exit 1
-          fi
-
-          echo "Manifest and script are in lockstep. OK."
+          while IFS= read -r TRUSTED_PATH; do
+            if [ ! -f "${TRUSTED_PATH}" ] || [ -L "${TRUSTED_PATH}" ]; then
+              echo "FATAL: DR contract input is not a regular non-symlink file: ${TRUSTED_PATH}"
+              exit 1
+            fi
+          done <<< "${ACTUAL_DR_CONTRACT_PATHS}"
+          sha256sum --strict --check "${DR_CONTRACT_MANIFEST}"
+          echo "Manifest and backup runtime bundle are in lockstep. OK."

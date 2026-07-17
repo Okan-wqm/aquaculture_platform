@@ -72,6 +72,16 @@ export interface GatewaySubgraphCatalogEntry {
   schemaArtifactPath: string;
 }
 
+/**
+ * Build coordinates for an infrastructure image produced directly from a
+ * Dockerfile. Keeping these coordinates on the catalog entry makes affected
+ * selection, the workflow matrix, and the runtime service one atomic model.
+ */
+export interface InfraImageBuildContract {
+  dockerfile: string;
+  context: string;
+}
+
 export interface ServiceCatalogEntry {
   serviceId: string;
   composeServiceName: string;
@@ -79,6 +89,7 @@ export interface ServiceCatalogEntry {
   buildKind: BuildKind;
   imageTarget?: string;
   imageName?: string;
+  infraImageBuild?: InfraImageBuildContract;
   serviceVisibility: ServiceVisibility;
   gatewayParticipation: GatewayParticipation;
   deployProfiles: readonly DeployProfile[];
@@ -297,6 +308,12 @@ function subgraph(
 export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
   buildEntry({
     serviceId: 'postgres',
+    imageTarget: 'postgres',
+    buildKind: 'docker-only',
+    infraImageBuild: {
+      dockerfile: 'infrastructure/docker/Dockerfile.postgres-walg',
+      context: '.',
+    },
     deploymentStatus: 'active',
     deployTarget: 'droplet',
     criticality: 'critical',
@@ -307,7 +324,13 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     startupBudgetSeconds: 30,
     privilegeMode: 'none',
     requiredSignals: [],
-    requiredEnv: ['POSTGRES_PASSWORD'],
+    requiredEnv: [
+      'POSTGRES_PASSWORD',
+      'SPACES_ENDPOINT',
+      'SPACES_REGION',
+      'WALG_BACKUP_EPOCH',
+      'WALG_SPACES_BUCKET',
+    ],
   }),
   buildEntry({
     serviceId: 'redis',
@@ -972,6 +995,13 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
             ? 'dockerfile-self-build'
             : 'prebuilt-artifact',
         buildKind: serviceId === 'mosquitto' ? 'docker-only' : undefined,
+        infraImageBuild:
+          serviceId === 'mosquitto'
+            ? {
+                dockerfile: 'infrastructure/mosquitto/Dockerfile',
+                context: 'infrastructure/mosquitto',
+              }
+            : undefined,
         deploymentStatus: 'active',
         deployTarget: 'droplet',
         // Startup budgets for the infra + frontend tail, aligned with each
@@ -1044,10 +1074,28 @@ export function frontendImageBuildTargets(): readonly string[] {
 }
 
 export function infraImageBuildTargets(): readonly string[] {
+  return infraImageBuildMatrix().map((entry) => entry.image);
+}
+
+export interface InfraImageBuildMatrixEntry extends InfraImageBuildContract {
+  image: string;
+}
+
+export function infraImageBuildMatrix(): readonly InfraImageBuildMatrixEntry[] {
   return activeDropletServices()
     .filter((entry) => entry.buildKind === 'docker-only')
-    .map((entry) => entry.imageTarget)
-    .filter((target): target is string => typeof target === 'string');
+    .map((entry) => {
+      if (!entry.imageTarget || !entry.infraImageBuild) {
+        throw new Error(
+          `docker-only service ${entry.serviceId} must declare imageTarget and infraImageBuild`,
+        );
+      }
+      return {
+        image: entry.imageTarget,
+        dockerfile: entry.infraImageBuild.dockerfile,
+        context: entry.infraImageBuild.context,
+      };
+    });
 }
 
 export interface FrontendPrebuildModule {
@@ -1292,6 +1340,18 @@ export function validateServiceCatalog(
 
     if (entry.dbSchema && entry.dbSchema !== entry.schema) {
       errors.push({ serviceId: entry.serviceId, message: 'schema and dbSchema must match' });
+    }
+    if (entry.buildKind === 'docker-only' && (!entry.imageTarget || !entry.infraImageBuild)) {
+      errors.push({
+        serviceId: entry.serviceId,
+        message: 'docker-only service must declare imageTarget and infraImageBuild',
+      });
+    }
+    if (entry.buildKind !== 'docker-only' && entry.infraImageBuild) {
+      errors.push({
+        serviceId: entry.serviceId,
+        message: 'infraImageBuild is only valid for docker-only services',
+      });
     }
     if (entry.migrationGlobs && entry.migration && entry.migrationGlobs !== entry.migration.globs) {
       errors.push({

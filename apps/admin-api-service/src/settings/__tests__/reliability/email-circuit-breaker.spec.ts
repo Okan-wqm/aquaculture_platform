@@ -29,7 +29,7 @@ describe('EmailSenderService — Circuit Breaker', () => {
   let mockTransporter: any;
 
   const mockSettingsService = {
-    getEmailConfig: jest.fn(),
+    getEmailConfigForSending: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -42,7 +42,7 @@ describe('EmailSenderService — Circuit Breaker', () => {
       close: jest.fn(),
     };
     (nodemailer.createTransport as jest.Mock).mockReturnValue(mockTransporter);
-    mockSettingsService.getEmailConfig.mockResolvedValue(mockEmailConfig);
+    mockSettingsService.getEmailConfigForSending.mockReturnValue(mockEmailConfig);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -62,11 +62,7 @@ describe('EmailSenderService — Circuit Breaker', () => {
     it('should pass requests through when circuit is closed', async () => {
       mockTransporter.sendMail.mockResolvedValue({ messageId: 'msg-1' });
 
-      const result = await service.sendEmail(
-        'user@test.com',
-        'Test Subject',
-        '<p>Hello</p>',
-      );
+      const result = await service.sendEmail('user@test.com', 'Test Subject', '<p>Hello</p>');
 
       expect(result.success).toBe(true);
       expect(result.messageId).toBe('msg-1');
@@ -88,13 +84,10 @@ describe('EmailSenderService — Circuit Breaker', () => {
 
       // Send 5 failing emails (1 retry each = threshold reached)
       for (let i = 0; i < 5; i++) {
-        await service.sendEmail(
-          'user@test.com',
-          `Test ${i}`,
-          '<p>Hello</p>',
-          undefined,
-          { maxRetries: 1, retryDelayMs: 0 },
-        );
+        await service.sendEmail('user@test.com', `Test ${i}`, '<p>Hello</p>', undefined, {
+          maxRetries: 1,
+          retryDelayMs: 0,
+        });
       }
 
       const status = service.getCircuitStatus();
@@ -255,7 +248,7 @@ describe('EmailSenderService — Circuit Breaker', () => {
 
   describe('SMTP not configured', () => {
     it('should return graceful failure when SMTP host is empty', async () => {
-      mockSettingsService.getEmailConfig.mockResolvedValue({
+      mockSettingsService.getEmailConfigForSending.mockReturnValue({
         ...mockEmailConfig,
         smtpHost: '',
       });
@@ -268,18 +261,14 @@ describe('EmailSenderService — Circuit Breaker', () => {
       }).compile();
       const freshService = module.get<EmailSenderService>(EmailSenderService);
 
-      const result = await freshService.sendEmail(
-        'user@test.com',
-        'No SMTP',
-        '<p>Hello</p>',
-      );
+      const result = await freshService.sendEmail('user@test.com', 'No SMTP', '<p>Hello</p>');
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('SMTP not configured');
     });
 
     it('should throw when SMTP not configured and email is required', async () => {
-      mockSettingsService.getEmailConfig.mockResolvedValue({
+      mockSettingsService.getEmailConfigForSending.mockReturnValue({
         ...mockEmailConfig,
         smtpHost: '',
       });

@@ -11,23 +11,65 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 CERTS_DIR="${REPO_ROOT}/certs"
 FORCE=false
 [ "${1:-}" = "--force" ] && FORCE=true
+GENERATED_KEY_STAGE=''
+
+cleanup_generated_key_stage() {
+  if [ -n "${GENERATED_KEY_STAGE}" ] && [ -e "${GENERATED_KEY_STAGE}" ]; then
+    rm -f -- "${GENERATED_KEY_STAGE}"
+  fi
+}
+trap cleanup_generated_key_stage EXIT
+
+ensure_file_mode() {
+  local path="$1" expected_mode="$2" actual_mode
+  actual_mode=$(stat -c '%a' "${path}")
+  if [ "${actual_mode}" != "${expected_mode#0}" ]; then
+    chmod "${expected_mode}" "${path}"
+  fi
+}
 
 generate_server_cert() {
-  local name="$1" cn="$2" san="$3" dir="${CERTS_DIR}/${1}"
+  local name="$1" cn="$2" san="$3" key_mode="${4:-0644}" dir="${CERTS_DIR}/${1}"
+  case "${key_mode}" in
+    0600|0644) ;;
+    *) echo "error: invalid private-key mode for ${name}: ${key_mode}" >&2; exit 1 ;;
+  esac
   if [ -f "${dir}/${name}-cert.pem" ] && [ "$FORCE" = false ]; then
+    for required_file in \
+      "${dir}/${name}-key.pem" "${dir}/${name}-cert.pem" "${dir}/ca-cert.pem"; do
+      if [ ! -f "${required_file}" ] || [ -L "${required_file}" ]; then
+        echo "error: incomplete or unsafe existing ${name} certificate set: ${required_file}" >&2
+        exit 1
+      fi
+    done
+    # The PostgreSQL root entrypoint owns its persistent key as root:root.
+    # Avoid even a no-op chmod when the mode is already correct so a non-root
+    # idempotent generator run can safely validate and skip that inode.
+    ensure_file_mode "${dir}/${name}-key.pem" "${key_mode}"
+    ensure_file_mode "${dir}/${name}-cert.pem" 0644
+    ensure_file_mode "${dir}/ca-cert.pem" 0644
     echo "  [skip] ${name}"; return; fi
   mkdir -p "$dir"
-  openssl genrsa -out "${dir}/${name}-key.pem" 2048 2>/dev/null
-  openssl req -new -key "${dir}/${name}-key.pem" -out "${dir}/${name}.csr" \
+  # Generate beside the destination and publish by atomic rename. A prior
+  # production start may have made the canonical inode root-owned; truncating
+  # that inode would fail for the deploy user even though it owns the parent
+  # directory, whereas same-directory rename remains atomic and safe.
+  GENERATED_KEY_STAGE=$(mktemp "${dir}/.${name}-key.pem.XXXXXX")
+  openssl genrsa -out "${GENERATED_KEY_STAGE}" 2048 2>/dev/null
+  openssl req -new -key "${GENERATED_KEY_STAGE}" -out "${dir}/${name}.csr" \
     -subj "/CN=${cn}/O=Aquaculture Platform" -addext "subjectAltName=${san}" 2>/dev/null
   openssl x509 -req -days 365 -in "${dir}/${name}.csr" \
     -CA "${CERTS_DIR}/ca/ca-cert.pem" -CAkey "${CERTS_DIR}/ca/ca-key.pem" \
     -CAcreateserial -out "${dir}/${name}-cert.pem" -copy_extensions copyall 2>/dev/null
   cp "${CERTS_DIR}/ca/ca-cert.pem" "${dir}/ca-cert.pem"
   rm -f "${dir}/${name}.csr"
-  # WHY: 644 — container processes (redis, nats) run as non-root users
-  # that need to read key+cert files. CA private key remains 600.
-  chmod 644 "${dir}/${name}-key.pem" "${dir}/${name}-cert.pem" "${dir}/ca-cert.pem"
+  # Redis and NATS consume their source keys directly as non-root users. The
+  # PostgreSQL key is different: a root entrypoint copies it into a postgres-
+  # owned tmpfs, so its persistent source must remain root-only.
+  chmod "${key_mode}" "${GENERATED_KEY_STAGE}"
+  mv -fT -- "${GENERATED_KEY_STAGE}" "${dir}/${name}-key.pem"
+  GENERATED_KEY_STAGE=''
+  chmod 0644 "${dir}/${name}-cert.pem" "${dir}/ca-cert.pem"
   echo "  [done] ${name} (CN=${cn})"
 }
 
@@ -94,7 +136,7 @@ else
 fi
 generate_server_cert "nats" "nats" "DNS:nats,DNS:aqua-nats,DNS:localhost"
 generate_server_cert "redis" "redis" "DNS:redis,DNS:aqua-redis,DNS:localhost"
-generate_server_cert "postgres" "postgres" "DNS:postgres,DNS:aqua-postgres,DNS:localhost"
+generate_server_cert "postgres" "postgres" "DNS:postgres,DNS:aqua-postgres,DNS:localhost" 0600
 
 # Per-service mTLS client certs (V4 / verify_and_map identity model).
 # CN must match the user name in nats.conf authorization{} block.

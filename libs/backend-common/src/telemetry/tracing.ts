@@ -1,10 +1,10 @@
-import { NodeSDK } from '@opentelemetry/sdk-node';
+import { Logger } from '@nestjs/common';
+import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
-import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
-import { Logger } from '@nestjs/common';
+import { NodeSDK } from '@opentelemetry/sdk-node';
 
-export const initTelemetry = (serviceName: string) => {
+export const initTelemetry = (serviceName: string): void => {
   const logger = new Logger('OpenTelemetry');
 
   // Only enable if explicitly configured

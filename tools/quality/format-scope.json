@@ -939,6 +939,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": ".github/manifests/backup-ssh-broker-policy.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": ".github/manifests/main-required-status-checks.json",
       "prettier_managed": true
     },
@@ -946,6 +952,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": ".github/manifests/postgres-image.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": ".github/manifests/scheduled-workflows.json",
       "prettier_managed": true
     },
     {
@@ -6656,6 +6668,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/db-migrate/src/__tests__/platform-bootstrap.integration.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/db-migrate/src/__tests__/restore-verification.integration.spec.ts",
       "prettier_managed": true
     },
     {
@@ -16454,7 +16472,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "fe14f21ca7ef5dca070e687fa5e81d8e6a752fb331b17c108aa95beef3c54be4",
+      "content_sha256": "96149f2f688a14b698943348e79617424c1c2e507aae6f443d4abbcbe000d512",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "apps/gateway-api/src/config/federated-subgraphs.generated.ts",
@@ -32305,6 +32323,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/infra-expert/2026-07-16-backup-ssh-broker-substrate.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/infra/2026-06-30-farm-canary-masked-rejection.md",
       "prettier_managed": true
     },
@@ -34082,7 +34106,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "5177a396da61e294a95cc48fd935ad7a38460b44539235468842d76a6d318c97",
+      "content_sha256": "033ed7170e216677e35938923a4210659132bbdd18f256ad7121447febd78f00",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/apollo-router/codegen-schema.generated.json",
@@ -34105,7 +34129,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "c0eb6aeb237ec0eeb8773d326b632826107ff4526cc0f2884a6fe1e9a9c11124",
+      "content_sha256": "f8f6e3e770625cdc6671152f763afdbb3cdab61cc03e760d992fad3134861d27",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/deploy/service-catalog.generated.json",
@@ -36820,6 +36844,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/telemetry/tracing.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/telemetry/tracing.ts",
       "prettier_managed": true
     },
@@ -38868,7 +38898,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "82dede0c7ce48f3c2a48fa73e29a127cc27be8c791925e3fbfdaff2031d912f5",
+      "content_sha256": "24cb0eee1b28f9abd1b00ea1dfaccca2614b10e15f73203ccdb094a2bb97a804",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -39517,6 +39547,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "scripts/service-catalog/run-nx-group.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/service-catalog/tsconfig.json",
       "prettier_managed": true
     },
     {
@@ -40356,6 +40392,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/admin-route-contract/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/e2e/v11-compat/forroutes-wildcard.e2e-spec.ts",
       "prettier_managed": true
     },
@@ -40489,6 +40531,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/admin-no-auth-tenants-writes.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/admin-route-contract-ci.spec.ts",
       "prettier_managed": true
     },
     {
@@ -40644,6 +40692,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/backup-restore-verification-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/backup-ssh-broker-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/billing-money-decimal-coexistence.spec.ts",
       "prettier_managed": true
     },
@@ -40717,6 +40777,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/dead-contract-fe-operations.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/dependency-policy-source-scope.spec.ts",
       "prettier_managed": true
     },
     {
@@ -41599,6 +41665,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/verified-user-assertion-mounted.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/walg-evidence-attestation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/walg-pitr-contract.spec.ts",
       "prettier_managed": true
     },
     {
@@ -42528,6 +42606,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/scripts/database/evaluate-walg-evidence.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/database/generate-database-verification-sql.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/database/walg-evidence-attestation.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/scripts/dev/start-all-services.ts",
       "prettier_managed": true
     },
@@ -42726,6 +42822,42 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/vendor/apollo-playground-disabled/index.d.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/vendor/apollo-playground-disabled/index.js",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/vendor/apollo-playground-disabled/index.test.js",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/vendor/apollo-playground-disabled/package.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/vendor/apollo-playground-disabled/README.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/vendor/apollo-playground-disabled/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/worktree-audit/tsconfig.json",
       "prettier_managed": true
     },
@@ -42755,7 +42887,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "a70a087f4c4b7d38519c357163847c3f166b6cec34104323713bb316d8235fb9",
+      "content_sha256": "ea002ad89b46818ae5b1ea1868194eee963187186d5ddd37f72e56fa56ed10b8",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "web/apps/aquamobil/package-lock.json",
@@ -54264,10 +54396,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8893,
+  "file_count": 8915,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8712,
-  "managed_file_list_sha256": "38da610094ee5672f50ee7c2c10ae5a9a8eb975e1806463bae8ce9833cc5a6c9",
+  "managed_count": 8734,
+  "managed_file_list_sha256": "af61f360bec4b23956fa08d01ddee9040c07a56dadd887c0fd0f73c022459f67",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

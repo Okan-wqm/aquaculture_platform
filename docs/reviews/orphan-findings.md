@@ -5039,7 +5039,7 @@ Severity: MEDIUM. Discovered 2026-06-24 while running admin-api tests for ORPHAN
 
 **Fix direction:** triage the 10 groups — for each, either the spec's expected route list is stale (update it) or the backend genuinely lacks the route the FE calls (implement it). Then un-quarantine admin-api's `test` target (or add this spec to a gating lane) so the contract drift cannot silently return. Out-of-band from the throttler fix; recorded so the drift is tracked.
 
-Status: OPEN (2026-06-24; owner: admin-api). Registry: orphan-findings.md only.
+Status: IN-PROGRESS (2026-07-15; owner: admin-api; deadline: 2026-07-29). Canonical registry: `docs/reviews/_registry/findings.jsonl`; remediation branch: `fix/enterprise-closure-control-plane`.
 
 ---
 
@@ -6551,16 +6551,17 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 **Design of record:** `docs/adr/045-scada-multi-tenant-runtime.md` (ADR-045, D1–D7; Model A — per-tenant state map + one driver loop). Phased remediation plan = Faz 0–6.
 
 **Remediation progress — Faz 1 (RT-011 core, this PR):** the evaluation engines are now genuinely multi-tenant, no longer single-bound singletons.
+
 - `TagManagerService` — the global tagId-only `tagValueCache` the engines read is DELETED; `getTagValue(tenantId, tagId)` / `getAllTagValues(tenantId)` now read the tenant-qualified cache, so two tenants sharing an fqn never collide in the engine read path.
 - `AlarmEngineService` — single `rules`/`evalState`/`tenantId`/`pendingActions` fields replaced by `tenants: Map<tenantId, TenantAlarmState>`; ONE 1 Hz loop iterates every active tenant; `setAlarmRules`/`setNotificationConfigs`/`acknowledgeAlarm`/`acknowledgeAll`/`getActiveAlarms` are tenant-parameterized; ACK events route by `req.tenantId` (the gateway already carried it); `deactivateTenant`/`isTenantActive` added.
 - `ScriptEngineService` — per-RUN tenant (`runScript(tenantId, …)`/`testScript(tenantId, …)`); every `$`-bridge (tag read/write, alarm read/ack, history, HMI broadcast) is fenced to the run's tenant; the raw all-sockets `SCRIPT_CONSOLE` broadcast is replaced by tenant-room `gateway.pushScriptConsole(tenantId, …)`.
 - `SchedulerService` — jobs keyed by `(tenantId, scriptId)`; `loadScripts`/`addScript`/`removeScript`/`updateScript` are tenant-scoped; `runScript(tenantId, script)`.
 - Proof: `alarm-engine.tenant-isolation.spec.ts` (5/5) — two tenants sharing an fqn + rule id evaluate independently, status pushes are per-tenant-room, a wrong-tenant ACK is inert. Full scada-runtime suite 8/8 (75 tests). Incidental: fixed a pre-existing `quickjs-sandbox.ts` implicit-`any` (TS7019) that kept the suite red locally.
-**Remediation progress — Faz 2 (per-tenant write context, this PR): resolves ORPHAN-HIGH-414.** The storage writers no longer touch the FORCED-RLS SCADA tables on a raw pooled connection. Two classes, evidence-driven (per ADR-045 D3, corrected):
+  **Remediation progress — Faz 2 (per-tenant write context, this PR): resolves ORPHAN-HIGH-414.** The storage writers no longer touch the FORCED-RLS SCADA tables on a raw pooled connection. Two classes, evidence-driven (per ADR-045 D3, corrected):
 - **Per-tenant data (tenant known post-Faz-1) → tenant-context, RLS ENFORCES (Tier-1).** `AlarmStorageService.flushTenantBatch` + reads (`getActiveAlarms`/`getAlarmHistory`) and `DaqStorageService.addValues`/`queryValues`/`queryAggregated` run inside `runInTenantTransaction`/`runInTenantRead('sensor', tenantId)` → `app.current_tenant` set → a mis-stamped tenant_id is refused by Postgres. The engine BUFFERS a tenant's per-tick writes and flushes them in ONE coalesced tenant transaction (per-tenant batched multi-row upsert; fire-and-forget + per-tenant in-flight guard) — no per-write transaction storm; per-tick value drift on an unchanged alarm is not persisted.
 - **Cross-tenant maintenance (no per-row tenant) → audited `BypassRlsService.withBypass`.** `cleanupHistory`/`cleanupOldData` (retention GC) + `getDataBounds` — the outbox-worker class; labels are an SSoT allowlist.
 - **411e completeness invariant** added (`tests/invariants/scada-storage-tenant-context.spec.ts`): no raw `dataSource.query` hits a SCADA data table outside an audited bypass; bypass labels are pinned. ADR-045 D3 text corrected (its "one cross-tenant `INSERT VALUES (t1,…),(t2,…)`" is RLS-incompatible under `WITH CHECK tenant_id=current_tenant`).
-**Remediation progress — Faz 3 (activation bridge, this PR): SCADA GOES LIVE.** The tenant-parameterized setters now have a caller. New `ScadaActivationService` (D4 LAZY, not boot-load): the gateway emits an EventEmitter2 signal on a tenant's FIRST operator socket (0→1) and LAST disconnect (→0) — the engine depends on the gateway (circular), so activation crosses the boundary as an event. On activate: provisioning-gate (`information_schema.schemata`), read the tenant's PUBLISHED `scada_packages` in tenant context (`runInTenantRead`), map `package_data.alarmRules` → `AlarmRuleRuntime[]` (`scada-package-alarm-rule.mapper` — field rename + name/ackMode/enabled defaults + condition normalisation; un-mappable rules dropped with reason), pass `scripts` through to `SchedulerService.loadScripts`, feed `AlarmEngineService.setAlarmRules`/`setNotificationConfigs`. `ScadaPackageService` publish/archive emits reactivate/deactivate (no-op if inactive, D4). Idle tenants LRU-evicted by a periodic sweep (`UsageMeteringService` pattern). Notification configs are `[]` for now (ORPHAN-MEDIUM-416). Proof: mapper + activation specs (16), full scada-runtime 93 green. Edge MQTT deploy path untouched.
+  **Remediation progress — Faz 3 (activation bridge, this PR): SCADA GOES LIVE.** The tenant-parameterized setters now have a caller. New `ScadaActivationService` (D4 LAZY, not boot-load): the gateway emits an EventEmitter2 signal on a tenant's FIRST operator socket (0→1) and LAST disconnect (→0) — the engine depends on the gateway (circular), so activation crosses the boundary as an event. On activate: provisioning-gate (`information_schema.schemata`), read the tenant's PUBLISHED `scada_packages` in tenant context (`runInTenantRead`), map `package_data.alarmRules` → `AlarmRuleRuntime[]` (`scada-package-alarm-rule.mapper` — field rename + name/ackMode/enabled defaults + condition normalisation; un-mappable rules dropped with reason), pass `scripts` through to `SchedulerService.loadScripts`, feed `AlarmEngineService.setAlarmRules`/`setNotificationConfigs`. `ScadaPackageService` publish/archive emits reactivate/deactivate (no-op if inactive, D4). Idle tenants LRU-evicted by a periodic sweep (`UsageMeteringService` pattern). Notification configs are `[]` for now (ORPHAN-MEDIUM-416). Proof: mapper + activation specs (16), full scada-runtime 93 green. Edge MQTT deploy path untouched.
 - **Still OPEN — remaining phases:** Faz 4 noisy-neighbor budget, Faz 5 leader-guard + sharding, Faz 6 observability/SLO/fail-safe.
 
 ## ORPHAN-HIGH-341 — admin-api DebugToolsController had no PlatformAdminGuard (unguarded super-admin debug surface) — RESOLVED (this PR)
@@ -6933,6 +6934,163 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 **Discovered:** 2026-07-12 by the Faz 3 lane, verified pre-existing on origin/main via stash: (1) `apps/admin-api-service/src/tenant/__tests__/tenant-erasure.handler.spec.ts` expects erasure fan-out `targetServiceCount` 10 but the registry now has 12 (config + event-store onboarding grew the union; the spec pin is stale — compliance-sensitive, update deliberately); (2) `auth-user-query-nats.handler.spec.ts` — AuditModule DI wiring cannot resolve `DataSource` in the TestingModule. Neither introduced by Faz 3.
 **Owner:** compliance-expert (1) + auth owner (2). **Deadline:** tracked (2026-10-15).
 
+## ADMIN-MEDIUM-001 — tenant integration harness omits the provisioning workflow dependency (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 by the enterprise closure control-plane run. The
+admin tenant integration module instantiates `TenantAdminController` without
+its runtime `TenantProvisioningWorkflowService` dependency, so Nest fails
+during module compilation and all 28 cases report the same DI error.
+**Owner:** admin-expert. **Deadline:** 2026-07-29.
+
+## ADMIN-MEDIUM-002 — email circuit-breaker harness mocks a retired config API (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 by the enterprise closure control-plane run. The
+reliability suite mocks asynchronous `getEmailConfig`, while the live sender
+uses the synchronous, secret-safe `getEmailConfigForSending` boundary. Ten
+tests therefore exit through the SMTP-not-configured path without exercising
+the circuit breaker.
+**Owner:** admin-expert. **Deadline:** 2026-07-29.
+
+## COMPLIANCE-MEDIUM-001 — erasure handler spec copies a stale fan-out count (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 by the enterprise closure control-plane run,
+confirming ORPHAN-MEDIUM-376 item 1. The test asserts a literal target count of
+10 even though the canonical event-contract roster contains 12 services. The
+assertion must consume the roster's exported count.
+**Owner:** compliance-expert. **Deadline:** 2026-07-29.
+
+## INFRA-MEDIUM-042 — dependency policy recursively scans ignored worktrees (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 by the enterprise closure control-plane run. The
+dependency-policy gate walks the physical repository directory and descends
+into `.claude/worktrees/` even though that execution-state directory is
+gitignored. Stale copies therefore create false policy violations. The gate
+must derive its source set from Git-tracked and non-ignored candidate files.
+**Owner:** infra-expert. **Deadline:** 2026-07-29.
+
+## INFRA-MEDIUM-043 — enterprise closure lint inventory is stale (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 by the first clean enterprise closure execution.
+Clean-entry and format-scope passed, then `quality-lint-inventory` rejected the
+checked-in generated inventory because it no longer matched the Nx lint target
+graph. The inventory must be regenerated from the Nx SSoT before any readiness
+claim.
+**Owner:** infra-expert. **Deadline:** 2026-07-29.
+
+## INFRA-MEDIUM-044 — enterprise closure Rust toolchain manifest is stale (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 by the second clean enterprise closure execution.
+Clean-entry, format-scope, and lint-inventory passed, then
+`quality-rust-toolchain` rejected the checked-in generated manifest because its
+target list no longer matched `rust-toolchain.toml`. The manifest must be
+regenerated from that SSoT before any readiness claim.
+**Owner:** infra-expert. **Deadline:** 2026-07-29.
+
+## INFRA-MEDIUM-045 — enterprise closure calls a nonexistent required-secrets script (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 by the third clean enterprise closure execution.
+All generated inventories, the Rust toolchain, and 29 spec type-check projects
+passed before the `required-secrets` step invoked the nonexistent
+`gates:required-secrets` package script. The canonical secret-manifest validator
+is `validate:required-secrets`; closure generation must reference it, and an
+invariant must reject any future `npm run` target absent from `package.json`.
+**Owner:** infra-expert. **Deadline:** 2026-07-29.
+
+## INFRA-HIGH-030 — nightly fuzz workflow executes a mutable third-party action ref (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 after restoring the enterprise closure SHA-pin gate.
+`.github/workflows/fuzz-st-parser-nightly.yml` invokes
+`dtolnay/rust-toolchain@nightly`, so the code executed by a privileged scheduled
+workflow can change without a repository commit. The workflow must pin the
+verified upstream nightly revision to its full 40-character commit SHA.
+**Owner:** supply-chain-auditor. **Deadline:** 2026-07-22.
+
+## INFRA-MEDIUM-046 — enterprise quality runner fails direct lint on dead definitions (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 during control-plane commit verification. Direct
+ESLint of `tools/quality/quality.mjs` reports an unused filesystem import, an
+unused JSON serializer, and an unused Nx target command extraction. These dead
+definitions must be removed so the runner satisfies the same zero-warning lint
+contract it orchestrates.
+**Owner:** infra-expert. **Deadline:** 2026-07-29.
+
+## INFRA-HIGH-031 — package lock installs an invalid WASM runtime dependency tree (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 by the clean enterprise closure lock-integrity
+step. `npm ci --ignore-scripts` succeeds, but `npm ls --package-lock-only --all`
+reports `ELSPROBLEMS`: the hoisted `@napi-rs/wasm-runtime@1.0.7` does not satisfy
+`@tailwindcss/oxide-wasm32-wasi@4.3.1`'s `^1.1.4` dependency. The lockfile must
+be regenerated by npm so every consumer receives a semver-valid runtime.
+**Owner:** supply-chain-auditor. **Deadline:** 2026-07-22.
+
+**Root cause verified:** canonical `npm install --package-lock-only` and the
+targeted subtree update correctly leave the lock unchanged, while a fresh
+`npm ci --ignore-scripts` followed by real `npm ls --all` passes. The failure is
+specific to `npm ls --package-lock-only --all`, which combines mutually
+exclusive foreign-platform optional/bundled records into one synthetic tree.
+Closure must validate the actual tree produced by the immediately preceding
+clean install, not npm's invalid cross-platform synthetic view.
+
+## INFRA-HIGH-032 — production DOMPurify override remains below eight XSS advisory fixes (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 by the enterprise closure production dependency
+audit. The root override fixes `dompurify` at `3.4.2`, while eight current
+advisories affect versions through `3.4.10`, including executable-markup
+retention and persistent configuration pollution. The remediation pins the
+direct sensor-module dependency and root override to `3.4.12`; the production
+audit no longer reports any DOMPurify advisory. Sanitizer contracts remain the
+required pre-commit proof.
+**Owner:** security-reviewer. **Deadline:** 2026-07-22.
+
+## INFRA-MEDIUM-047 — production js-yaml is vulnerable to merge-key complexity DoS (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 by the enterprise closure production dependency
+audit. Direct `js-yaml@4.1.1` is affected by `GHSA-h67p-54hq-rp68`, allowing
+quadratic work through repeated merge aliases. The remediation moves the direct
+dependency to `4.3.0` and `@nestjs/swagger` to `11.4.5`, whose own parser
+dependency is also `4.3.0`; the production audit no longer reports `js-yaml`.
+**Owner:** supply-chain-auditor. **Deadline:** 2026-07-29.
+
+## INFRA-MEDIUM-048 — all web runtimes pin React Router below the open-redirect fix (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 by the enterprise closure production dependency
+audit. Eleven web package manifests pin `react-router-dom@6.30.3`, affected by
+`GHSA-2j2x-hqr9-3h42`; protocol-relative redirect paths can be reinterpreted as
+cross-origin redirects. The required remediation updates all eleven manifests,
+the standalone AquaMobil lock, and the Module Federation singleton SSoT
+together. It remains blocked from closure by the canonical admin-panel test
+baseline `FE-MEDIUM-063`; no partial runtime-set upgrade will be certified.
+**Owner:** frontend-expert. **Deadline:** 2026-07-29.
+
+## INFRA-MEDIUM-049 — production OpenTelemetry graph remains below the baggage DoS fix (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 by the enterprise closure production dependency
+audit. The `2.7.1` core and `0.218.0` SDK/exporter graph is affected by
+`GHSA-8988-4f7v-96qf`, allowing unbounded allocation while parsing W3C baggage.
+Upgrade the OTel family coherently and verify telemetry bootstrap/export.
+**Owner:** observability-expert. **Deadline:** 2026-07-29.
+
+## INFRA-MEDIUM-050 — Apollo production graph remains exposed to XS-Search and uuid bounds advisories (IN-PROGRESS)
+
+**Discovered:** 2026-07-15 by the enterprise closure production dependency
+audit. Apollo Server 4 and Federation 2.13 transitively retain vulnerable
+server and `uuid` paths (`GHSA-9q82-xgwf-vj6h`, `GHSA-w5hq-g745-h8pq`). Upgrade
+the Nest/Apollo/Federation family as a compatible set and rerun GraphQL,
+composition, CSRF, and gateway contracts.
+**Owner:** gateway-expert. **Deadline:** 2026-07-29.
+
+## FE-MEDIUM-063 — admin-panel Vitest target has a 48-test async/fixture red baseline (OPEN)
+
+**Discovered:** 2026-07-15 while validating the React Router security patch.
+A clean isolated run reports 48 failures across `useAsyncData`, `useFilters`,
+`usePagination`, and `TenantManagementPage`. `useAsyncData` has no router
+dependency and still fails or waits on stale async expectations in isolation;
+the 16 tenant fixture failures were already noted under resolved
+`ORPHAN-MEDIUM-308` but never received a canonical follow-up. Repair the
+`act`/fake-timer contracts and tenant API fixture in a dedicated frontend test
+control-plane wave so the target can gate affected changes.
+**Owner:** frontend-expert. **Deadline:** 2026-07-29.
+
 ## ORPHAN-HIGH-377 — stale-dist image: farm-service `f995d8e54` shipped compiled code absent from its git tree (prod GraphQL outage window) — RE-DIAGNOSED → superseded by [[ORPHAN-HIGH-381]]
 
 **Discovered:** 2026-07-12 ~20:43Z by the Faz 2b lane's live verification: farm-service crash-looped (RestartCount 59+) on fatal drift `[farm.farm_documents] entity declares owned table but DB has no such table` after #946 dropped the table — but the #947-tagged farm image STILL CONTAINS `dist/.../farm-document.entity.js` while `git cat-file` proves the entity is ABSENT from the `f995d8e54` tree. A build-cache/race defect in the image pipeline, not a source defect. Because supergraph composition is all-or-nothing, the droplet's entire GraphQL API was down for the window. Mitigation: the next full-image deploy (post-#950 CI run) rebuilds farm from the correct tree; verified by the farm-heal watcher. FOLLOW-UP: image-vs-tree provenance check in the deploy pipeline (e.g., bake the git sha into the build and assert dist matches; or --no-cache on service image builds) so a stale-dist image can never ship again.
@@ -7269,3 +7427,223 @@ Severity: HIGH (recurrence enabler for the 2026-07-07 messaging outage class). #
 
 **Discovered:** 2026-07-13 (parity check while fixing ORPHAN-CRITICAL-412; STRUCTURAL, not live-verified). `notification.command_receipts` carries the identical `tenant_isolation_policy` (confirmed live), and `NotificationCommandHandler` (`apps/notification-service/src/notification/event-handlers/notification-command.handler.ts`) is a `@Controller()` with trusted cross-tenant `@MessagePattern` NATS commands (`SEND_EMAIL`, `SEND_PUSH`, `SEND`) that delegate to `NotificationDispatcherService.claimCommandReceipt` (`notification-dispatcher.service.ts:452`). That method opens `dataSource.transaction` and does `SELECT … FOR UPDATE` / `UPDATE` / `INSERT` on `notification.command_receipts` (`:454,:472,:492,:510,:535,:555`) with NO `app.bypass_rls` and NO `app.current_tenant` established — structurally identical to the billing bug: a trusted cross-tenant NATS command writing an RLS-protected `command_receipts` table under deny-by-default context. The rows set `tenantId` explicitly, so the correct fix is the same audited-bypass primitive billing now uses (wrap the dispatch under `BypassRlsService.withBypass`; notification already imports `BypassRlsService`). NOT verified live in this session — if notification dispatch is currently succeeding in prod, either the policy is not being enforced on that path or context is established somewhere not visible statically; the notification owner must confirm and, if broken, apply the billing-pattern fix.
 **Owner:** notification owner (notification-service). **Deadline:** 2026-08-15. Registry: orphan-findings.md only. **Status:** OPEN.
+
+## INFRA-HIGH-028 — production deploy is not fail-closed on backup/restore readiness — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 enterprise-closure audit. The production workflow accepted push and manual invocations without a protected release stop-line tied to backup and isolated restore readiness. Remediation is on `fix/enterprise-closure-control-plane`: `PRODUCTION_DEPLOY_ENABLED` is a protected repository variable, defaults locked, and has no `workflow_dispatch` or staging-bypass override. The live variable was set to `false` on 2026-07-15. **Owner:** infra-expert / Okan. **Deadline:** 2026-07-22. **Canonical registry:** `INFRA-HIGH-028`.
+
+## INFRA-MEDIUM-041 — enterprise closure is interactive and does not attribute worktree mutation to a step — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 enterprise-closure audit. The runner set only two Nx variables, inherited the full caller environment, and checked cleanliness only at the profile boundaries, so Nx sync or another step could mutate `nx.json` without immediate attribution. Remediation is on `fix/enterprise-closure-control-plane`: forced CI/noninteractive Nx settings, an allowlisted environment, bootstrap/manifest checks, and a clean-tree hash after every enterprise step. **Owner:** infra-expert / Okan. **Deadline:** 2026-07-29. **Canonical registry:** `INFRA-MEDIUM-041`.
+
+## INFRA-HIGH-029 — scheduled failures lack a durable on-call incident — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 enterprise-closure audit. Scheduled workflows had isolated failure signals but no central freshness authority, durable incident, or recovery ceremony. Remediation is on `fix/enterprise-closure-control-plane`: an hourly watchdog derives coverage from `.github/manifests/scheduled-workflows.json`, reopens one persistent issue, assigns repository on-call, fails visibly while unhealthy, and closes only when every watched schedule is fresh and green. **Owner:** infra-expert / Okan. **Deadline:** 2026-07-22. **Canonical registry:** `INFRA-HIGH-029`.
+
+## INFRA-HIGH-033 — Production backup is a daily logical dump with no continuous WAL archive, so it cannot meet the five-minute RPO or perform timestamp PITR — OPEN
+
+**Discovered and reproduced:** 2026-07-15 enterprise-closure backup/DR audit. `.github/workflows/backup-production.yml:9-13` schedules one backup at 03:00 UTC each day, and `tools/scripts/database/backup-databases.sh:76-96` produces a logical `pg_dump` archive. Repository-wide inspection found no WAL-G configuration, base-backup workflow, continuous `archive_command`/`archive_timeout` path, or `recovery_target_time` restore path. The workflow also does not pass `BACKUP_GPG_RECIPIENT`, so its client-side GPG path is inactive; Spaces SSE-AES256 does not create a continuous recovery chain. A daily dump can lose almost 24 hours of writes and cannot restore to an incident timestamp, contradicting the accepted RPO of at most five minutes. **Required remediation:** keep production deployment locked; establish encrypted WAL-G base backups plus continuous WAL archiving, then prove three consecutive successful backups and a timestamp-targeted isolated restore. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Canonical registry:** `INFRA-HIGH-033`.
+
+## INFRA-HIGH-034 — Restore drill accepts pg_restore plus a schema listing without verifying all 17 canonical schemas, live tenants, migration heads, data parity, or RTO — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 enterprise-closure backup/DR audit. After `pg_restore`, `tools/scripts/database/restore-databases.sh:135-163` only lists schemas and prints `Done`; it does not compare the restored database with the canonical 17-schema set in `apps/db-migrate/src/sql/platform-bootstrap/003-schemas.sql:70-87`, enumerate every live `tenant_<uuid>` schema, validate migration heads, compare sentinel counts/checksums, or enforce the 60-minute RTO. `docs/runbooks/database-restore-drill.md:144-201` still expects 12 schemas, relies on manual row counts, and points to a restore-evidence ledger that does not exist. **Remediation in progress:** build a fail-closed, machine-readable isolated restore-verification kernel and bind it to the restore command; actual drill evidence remains mandatory for closure. This code path will not mutate production backup settings. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Canonical registry:** `INFRA-HIGH-034`.
+
+## INFRA-HIGH-035 — Production backup has six consecutive scheduled failures; the latest fails on missing production-backup secrets before the dump step — BLOCKED
+
+**Discovered and live-reproduced:** 2026-07-15 enterprise-closure backup/DR audit. `gh run list --workflow backup-production.yml` returned six consecutive scheduled failures from 2026-07-10 through 2026-07-15 (runs `29074805238`, `29141645330`, `29182147435`, `29228784779`, `29308840596`, and `29391796551`). The latest run's `Preflight — assert backup secrets present` step failed and `Run backup-databases.sh on the droplet` was skipped, so no new dump was attempted. This is the explicit operator-action remainder from resolved `INFRA-HIGH-003`: fail-fast detection works, but the required protected GitHub Environment secrets remain absent. **Blocker and exit:** Okan must provision the `production-backup` Environment secrets outside Git, run a non-dry backup, and preserve uploaded-object plus isolated-restore evidence; secret values must never enter the repository. **Owner:** infra-expert / Okan. **Deadline:** 2026-07-22. **Successor of:** `INFRA-HIGH-003`. **Canonical registry:** `INFRA-HIGH-035`.
+
+## INFRA-HIGH-036 — Restore script interpolates unchecked TARGET_DB into destructive SQL, bypassing protected-name guards — IN-PROGRESS
+
+**Discovered and reproduced by source proof:** 2026-07-15 enterprise-closure backup/DR audit. `tools/scripts/database/restore-databases.sh:45-53` rejects only exact protected database names, while `:135-141` interpolates `${TARGET_DB}` directly into two `psql -c` statements. A value containing SQL delimiters is not equal to any protected name and is then parsed as SQL, so an operator-supplied environment value can escape the intended drill database and execute additional statements inside the target container. The live-container confirmation guard narrows accidental access but does not make the identifier safe once that override is present. **Remediation in progress:** constrain `TARGET_DB` to a canonical PostgreSQL identifier at the command boundary and pass the identifier through server-side quoting rather than SQL string interpolation; destructive-operation tests must prove protected names and injection-shaped inputs fail before any Docker write. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Canonical registry:** `INFRA-HIGH-036`.
+
+## INFRA-HIGH-037 — Restore isolation can be bypassed by container aliases and an operator override — IN-PROGRESS
+
+**Discovered and reproduced by source proof:** 2026-07-15 restore-kernel adversarial review. The restore command treated only the literal container name `aqua-postgres` as production and allowed an environment override, so a container ID, alias, alternate production name, or changed compose name bypassed the isolation boundary. A second review reproduced a residual name-swap window after the label check because destructive `docker exec` calls still resolved the mutable name repeatedly. **Remediation in progress:** require the exact `com.aqua-saas.restore.role=isolated-drill` label, reject the production Compose `postgres` identity and published ports, capture the immutable 64-hex container ID plus mount/network/label authority once, re-attest the name-to-ID mapping immediately before reset, use only the ID for every exec, remove the override, and exercise the operator command against a positively labelled target. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Canonical registry:** `INFRA-HIGH-037`.
+
+## INFRA-HIGH-038 — Restore omits the TimescaleDB pre and post protocol required for production hypertables — IN-PROGRESS
+
+**Discovered and reproduced by source proof:** 2026-07-15 restore-kernel adversarial review. Production uses the pinned TimescaleDB image and the sensor baseline creates real hypertables, but the restore command recreated the database and invoked `pg_restore` without installing the extension or calling `timescaledb_pre_restore()` and `timescaledb_post_restore()`. That path could not certify the production database shape. **Remediation in progress:** bracket `pg_restore` with the TimescaleDB restore protocol and require an integration fixture containing a real hypertable to survive the full operator command before `RESTORE_VERIFIED`. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Canonical registry:** `INFRA-HIGH-038`.
+
+## INFRA-MEDIUM-051 — Backup runtime manifest accepts duplicate trusted paths as a complete bundle — IN-PROGRESS
+
+**Discovered and reproduced by source proof:** 2026-07-15 backup runtime integrity review. The production workflow counted two parsed manifest rows but did not prove they named two distinct canonical files; a duplicate backup-script row could satisfy the count while omitting the generated verification SQL. **Remediation in progress:** compare the sorted manifest paths with the exact two-file trusted set before checkout and execute `sha256sum --check` over the committed manifest after both files are synced. **Owner:** infra-expert. **Deadline:** 2026-07-29. **Canonical registry:** `INFRA-MEDIUM-051`.
+
+## INFRA-MEDIUM-052 — Restore collector accepts release rows without the tenant-head contract — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 release-ledger parity review. The collector selected a DB-complete row carrying `expected_heads.schemas` and silently applied source-head fallback when the row omitted the entire `tenants` key, while the runtime tenant schema gate requires that key. Backup acceptance and service boot could therefore interpret different release rows. **Remediation in progress:** reject the selected release row unless it contains both head maps and retain the post-release tenant fallback only inside a present tenant contract. **Owner:** infra-expert. **Deadline:** 2026-07-29. **Canonical registry:** `INFRA-MEDIUM-052`.
+
+## INFRA-HIGH-039 — Production PostgreSQL image has no checksum-pinned WAL-G client or client-side encrypted continuous archive — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 backup/DR image-chain review. The production database image could be deployed without a checksum-pinned WAL-G binary and without proving that the runtime archive command, base-backup tooling, and restore image were one derived artifact chain. **Fix in progress:** build WAL-G into the checksum-pinned PostgreSQL image, publish the image provenance in backup evidence, and require the same immutable digest for backup and restore. Closure still requires three consecutive base backups and a timestamp PITR drill. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-039`.
+
+## INFRA-HIGH-040 — WAL-G object credentials and libsodium key lack a file-only atomic runtime boundary — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 backup secret-boundary review. WAL-G configuration could be inherited from process environment or materialized beneath persistent PostgreSQL data, leaving secret lifetime and the accepted key set implicit. **Fix in progress:** load the exact physical-backup secret profile into a root-owned `/run` tmpfs bundle, validate its manifest under a shared lock, and reject extra, missing, symlinked, or weakly permissioned entries before PostgreSQL or a backup command starts. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-040`.
+
+## INFRA-HIGH-041 — Backup closure has no immutable transaction sentinels or timestamp-targeted PITR evidence evaluator — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 PITR evidence review. A restore could report before/after marker values without proving that the source record was immutable, committed before the recovery target, or observed from the source clock. **Fix in progress:** use an append-only sentinel ledger with mutation guards, source-side timestamps and transaction evidence, then verify the expected inclusion/exclusion boundary after timestamp recovery. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-041`.
+
+## INFRA-HIGH-042 — PostgreSQL backup egress can reach unrestricted destinations from the production host — OPEN
+
+**Discovered and reproduced:** 2026-07-15 backup network-boundary review. A dedicated Docker bridge removes application-service peers, but the backup path can still use host routing to reach destinations beyond the approved object-store and control endpoints. **Blocker:** enforce and test a host-level egress allowlist for the backup bridge, including deny evidence for arbitrary Internet and RFC1918 destinations, before this boundary can close. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** OPEN. **Canonical registry:** `INFRA-HIGH-042`.
+
+## INFRA-HIGH-043 — Production PITR drill runs on the same droplet and can exhaust resources needed by the source database — OPEN
+
+**Discovered and reproduced:** 2026-07-15 restore-isolation review. Run-scoped containers, networks, and volumes prevent ordinary Compose aliasing, but a restore executor on the production host still shares the host trust boundary and failure domain with the source database. **Blocker:** run the qualifying PITR drill on separately trusted DR compute with no production mounts or Docker authority and retain independent identity, image, network, and destruction-boundary evidence. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** OPEN. **Canonical registry:** `INFRA-HIGH-043`.
+
+## INFRA-HIGH-044 — Forced WAL-G S3 server-side-encryption header is incompatible with the DigitalOcean Spaces contract — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 object-store compatibility review. WAL-G forced an SSE-S3 request header even though the DigitalOcean Spaces contract does not support that header as a relied-on control, causing valid client-encrypted writes to fail. **Fix in progress:** remove the unsupported header while retaining mandatory libsodium client-side encryption and invariant coverage that forbids its reintroduction. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-044`.
+
+## INFRA-HIGH-045 — Logical backup and evidence uploads force an unsupported S3 SSE header — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 logical/evidence upload review. Both paths forced the same unsupported SSE-S3 header, so DigitalOcean Spaces compatibility depended on a control the platform could not assert. **Fix in progress:** remove the header, require GPG encryption for every logical payload, retain signed content-addressed evidence integrity, and test that no upload path reintroduces `--sse`. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-045`.
+
+## INFRA-HIGH-046 — Isolated WAL verification depends on the live source database instead of the restore target and object chain — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 WAL-G command review. Invoking `wal-verify` before target PostgreSQL start without an explicit timeline and LSN could consult defaults that do not exist in an inert restore container and therefore could not certify the selected recovery chain. **Fix in progress:** derive the required timeline and LSN from signed backup metadata and run storage-only verification with both values before PostgreSQL starts. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-046`.
+
+## INFRA-HIGH-047 — PITR accepts an invalid strict sentinel LSN ordering that PostgreSQL does not guarantee — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 recovery-boundary review. Comparing sentinel LSNs as a strict total order could misclassify records across transaction timing and WAL semantics, and did not prove which commits preceded the requested recovery timestamp. **Fix in progress:** select the target from the source clock, retain committed-before and committed-after sentinels, and verify recovery state against their timestamp/transaction fence with bounded clock-skew evidence. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-047`.
+
+## INFRA-HIGH-048 — The immutable PITR sentinel ledger allows TRUNCATE and can erase drill history — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 immutable-ledger review. Row-level UPDATE/DELETE triggers did not cover `TRUNCATE`, allowing the entire PITR sentinel history to be erased while the ledger claimed append-only semantics. **Fix in progress:** install a statement-level `BEFORE TRUNCATE` rejection trigger and prove UPDATE, DELETE, and TRUNCATE all fail while the original sentinel remains. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-048`.
+
+## INFRA-HIGH-049 — PITR cleanup can publish signed success while disposable data or Docker resources remain — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 PITR cleanup review. The workflow could finish the recovery proof successfully even if its run-scoped container, network, volume, temporary Git ref, or runtime directory survived best-effort cleanup. **Fix in progress:** verify removal of every positively attested object and convert an otherwise successful run to failure whenever any disposable resource remains. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-049`.
+
+## INFRA-HIGH-050 — Enterprise evaluator can combine successful evidence from different WAL chains and authorities — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 evidence-chain review. A valid signature over host-authored JSON did not prove that the attested object belonged to the current workflow run, the final protected `main` commit, or the exact bytes later read from the evidence mirror. **Fix in progress:** bind run identity, workflow ref, final main SHA, object digest, immutable image, and mirror digest into the verified envelope, and reject stale or cross-run evidence. This integrity work does not resolve the independent-authority blocker in `INFRA-CRITICAL-040`. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-050`.
+
+## INFRA-HIGH-051 — PITR canonical checksums are computed only on the restored target with no independently captured source parity set — OPEN
+
+**Discovered and reproduced:** 2026-07-15 restore-parity review. Schema heads, sentinel rows, and checksums calculated only after restore can show target consistency but cannot prove that the restored application rows match an independently captured source snapshot at the recovery fence. **Blocker:** capture tenant-aware source counts and checksums through a read-only source authority, bind them to the target timestamp, and compare them with the isolated target without granting the verifier write or backup-object authority. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** OPEN. **Canonical registry:** `INFRA-HIGH-051`.
+
+## INFRA-HIGH-052 — Backup dry-run rotates live WAL-G credentials despite promising a non-mutating rehearsal — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 dry-run mutation review. The rehearsal path materialized and activated WAL-G credentials before deciding to skip physical storage writes, mutating the production secret epoch despite its dry-run promise. **Fix in progress:** branch before all materialization and remote activation, run only snapshot-bound dump/local checks, and assert the mode returns no physical-backup evidence or secret rotation. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-052`.
+
+## INFRA-HIGH-053 — Production backup gives canonical logical verification only thirty seconds to finish — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 logical verification timing review. The exported-snapshot keeper allowed only thirty seconds for the full canonical verification query, including every live tenant, making healthy production datasets fail for an arbitrary local timeout. **Fix in progress:** use an explicit bounded verification budget compatible with the 60-minute RTO, preserve the failing phase, and retain the source snapshot until the collector completes. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-053`.
+
+## INFRA-HIGH-054 — A backup ceremony can mix object credentials and encryption keys from different rotation epochs — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 runtime-manifest concurrency review. Per-file checks did not prove that the directory contained exactly the declared secret set, and a reader could observe a bundle while rotation replaced it. **Fix in progress:** compare the canonical entry set with the signed manifest and hold the same shared lock used by rotation while every backup, archive, fetch, and verification command reads the bundle. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-054`.
+
+## INFRA-HIGH-055 — Fresh isolated PITR target volume is root-owned and WAL-G cannot populate PostgreSQL PGDATA — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 fresh-volume PITR integration. Docker creates the target volume root-owned and mode `0755`; the inert restore container bypasses the normal entrypoint, so WAL-G running as PostgreSQL cannot populate PGDATA. **Fix in progress:** prove the target is an empty run-scoped volume, set the resolved postgres UID/GID and mode `0700`, then re-attest the boundary before fetch or startup. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-055`.
+
+## INFRA-HIGH-056 — Physical backup rewrites the WAL-G secret symlink and the restore kernel rejects its own current backup — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 WAL-G v3.0.8 source and restore review. WAL-G's tar extraction path normalization strips the leading component of an archived absolute symlink target, so `PGDATA/wal-g-secrets -> /run/aqua-walg-secrets` can restore as a dangling target such as `/wal-g-secrets`. **Fix in progress:** never place the WAL-G secret link beneath PGDATA; use `/run/aqua-walg-secrets` directly on tmpfs, reject symlinks in backup preflight and after `backup-fetch`, and treat older backups containing the link as non-qualifying evidence. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-056`.
+
+## INFRA-CRITICAL-040 — GitHub-hosted backup runner can author and attest forged success evidence without an independent notary — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 evidence-authority review. GitHub can sign JSON authored by the same production-host path that performs the backup, while the current verifier and mirror credentials remain inside the same operational control plane; the signature proves integrity of the supplied statement, not independent observation of the backup or restore. **Open production blocker:** production closure remains locked until a separately trusted DR executor obtains objects through an independent read authority, performs the timestamp restore, and publishes independently observed evidence. GitHub/Cosign and mirror verification remain useful integrity signals but cannot close this finding alone. **Owner:** infra-expert. **Deadline:** 2026-07-18. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-CRITICAL-040`.
+
+## INFRA-CRITICAL-041 — Backup SSH transport lacks a protected host-key authority and delegates execution to an opaque action binary — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 production SSH transport review. The workflow delegated commands and output capture to a third-party action path without making an out-of-band server fingerprint the exact host authority. **Fix in progress:** use the runner's native OpenSSH client with `-F /dev/null`, isolated `known_hosts`, exact protected SHA256 fingerprint matching, forwarding/agent/password denial, bounded execution, and mode-`0600` ephemeral key/payload files. **Owner:** infra-expert. **Deadline:** 2026-07-18. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-CRITICAL-041`.
+
+## INFRA-MEDIUM-053 — Production backup executes mutable scripts from the shared deploy worktree — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 backup runtime-bundle review. Counting manifest rows did not prove that the expected scripts and SQL were each present exactly once, and a mutable checkout could substitute a same-named runtime file. **Fix in progress:** compare canonical paths against the exact trusted set, reject duplicates and extras, verify committed SHA-256 values before sync, and execute only the isolated verified bundle. **Owner:** infra-expert. **Deadline:** 2026-07-29. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-MEDIUM-053`.
+
+## INFRA-MEDIUM-054 — PostgreSQL TLS private key is copied into PGDATA and captured by physical base backups — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 PostgreSQL runtime-secret review. Server certificate and key material located beneath PGDATA could be copied into physical backups and restored into a different trust context. **Fix in progress:** materialize TLS files directly under root-owned `/run/aqua-postgres-tls` tmpfs with strict permissions, point PostgreSQL at that runtime path, and reject PGDATA symlinks or archived TLS entries. **Owner:** infra-expert. **Deadline:** 2026-07-29. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-MEDIUM-054`.
+
+## INFRA-MEDIUM-055 — Backup closure accepts stale evidence that is not bound to the current main authority — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 closure-evidence freshness review. The evaluator could accept an otherwise valid historical chain produced for a different protected main commit, so old backup success could certify a new release. **Fix in progress:** require the exact current main SHA across GitHub run records, signed evidence, image revision, backup chain, PITR result, and read-only verifier input. **Owner:** infra-expert. **Deadline:** 2026-07-29. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-MEDIUM-055`.
+
+## INFRA-HIGH-057 — Logical backup uploads tenant-bearing verification sidecar plaintext outside the mandatory GPG envelope — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 logical-backup confidentiality review. The deterministic verification JSON contains live tenant schema identities, migration heads, row counts, and checksums, but `backup-databases.sh` encrypts only the dump and uploads this sidecar directly. **Fix in progress:** encrypt the dump and sidecar separately to the same exact escrowed recipient, bind their ciphertext hashes reciprocally, and decrypt both only inside the isolated drill. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-057`.
+
+## INFRA-HIGH-058 — Logical restore does not verify the escrow key fingerprint and uses a signing-key option for decryption selection — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 logical-restore key-boundary review. Backup accepts an arbitrary recipient string, while restore passes `--local-user`, a signing identity option that neither selects nor attests the secret key used for decryption. **Fix in progress:** require canonical 40-hex fingerprints, verify the exact primary public/secret fingerprint before processing data, and use the decryption-specific key selection contract. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-058`.
+
+## INFRA-CRITICAL-042 — Protected-sha archive extraction trusts mutable Git replacement refs from the production worktree — IN-PROGRESS
+
+**Discovered and reproduced by source proof:** 2026-07-15 adversarial backup/DR review. The remote backup and PITR payloads use the shared `/var/aqua-saas/.git` object store and invoke `git cat-file`, `git merge-base`, `git show`, and `git archive` without disabling replacement refs. Git replacement refs apply to ordinary object lookups by default, so a deploy-user-controlled `refs/replace/<protected-commit> -> <substitute-commit>` mapping can make the workflow extract and execute substituted scripts while still printing the protected SHA; because the integrity manifest is read through the same replacement mapping, its hashes do not expose the substitution. **Fix in progress:** route every remote object-store operation, including cleanup, through one fail-closed Git wrapper that sets `GIT_NO_REPLACE_OBJECTS=1` and passes the global `--no-replace-objects` option, then add a negative invariant and executable replacement-ref regression proving the protected tree wins. **Owner:** infra-expert. **Deadline:** 2026-07-18. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-CRITICAL-042`.
+
+## INFRA-HIGH-059 — Archive health grants two consecutive five-minute loss windows and no WAL-G push deadline — IN-PROGRESS
+
+**Discovered and reproduced by timing proof:** 2026-07-15 adversarial RPO review. PostgreSQL may consume almost 300 seconds waiting for `archive_timeout` to create a `.ready` WAL, after which the healthcheck grants that file another 300 seconds; `wal-push` itself has no execution deadline, so a hung upload can leave roughly ten minutes of unrecoverable data while health remains green. **Fix in progress:** enforce one source-of-truth 300-second budget spanning switch, upload, and detection, bound each `wal-push`, and add a deterministic hung-uploader/controlled-mtime regression. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-059`.
+
+## INFRA-HIGH-060 — PITR cleanup can delete a foreign Docker volume won during a name race — IN-PROGRESS
+
+**Discovered and reproduced by source proof:** 2026-07-15 disposable-resource boundary review. The PITR workflow prechecks predictable Docker names, but `docker volume create` is idempotent; a foreign volume appearing between preflight and create is marked as locally created, then cleanup removes it by name without proving its immutable ID and run labels. **Fix in progress:** add a cryptographically random run nonce, capture immutable IDs after creation, fail if labels are not exact, and re-attest name, ID, and labels immediately before every destructive cleanup. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-060`.
+
+## INFRA-HIGH-061 — WAL-G source secrets bypass their exact boundary through the PostgreSQL TLS parent mount — IN-PROGRESS
+
+**Discovered and reproduced by mount topology proof:** 2026-07-15 runtime-secret review. Compose mounts `./certs/postgres` at `/ssl` and also mounts its `wal-g` child at `/wal-g-secrets-source`, so the same raw access key, secret key, and libsodium key are exposed through `/ssl/wal-g/*` outside the validated exact-source path. **Fix in progress:** move the host WAL-G source directory outside the TLS parent, narrow TLS mounts to the required certificate files, and add an invariant that rejects ancestor/descendant secret mount aliasing. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-061`.
+
+## INFRA-HIGH-062 — WAL-G encryption-key rotation can write a new epoch into an unchanged object prefix — IN-PROGRESS
+
+**Discovered and reproduced by rotation-contract proof:** 2026-07-15 backup epoch review. The materializer can activate a new libsodium key independently while Compose derives one stable object prefix from the bucket; a key-only rotation therefore writes a new encryption epoch into the old prefix before later evidence can reject the mixed chain, and the historical restore path only materializes the current source key. **Fix in progress:** epoch and derived prefix are now explicit manifest-bound inputs, same-prefix key changes fail before mutation, and current-timestamp PITR uses a separate run-scoped target bundle without altering the live source. The finding remains IN-PROGRESS because selecting an older epoch still requires a separately defined historical target timestamp and its independently authorized escrow tuple. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-062`.
+
+## INFRA-CRITICAL-043 — Protected backup extraction executes mutable Git remote configuration from the shared worktree — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 adversarial Git execution-boundary review. Disabling replacement refs still leaves `fetch origin` reading the shared checkout's mutable `.git/config`; a local `remote.origin.url=ext::...` plus enabled ext protocol executes a remote-helper command before the manifest is checked, while production backup and PITR secrets are already present. `core.hooksPath=/dev/null` does not cover remote helpers. **Fix in progress:** remove target-host Git from both ceremonies, construct the exact backup hash manifest plus seven hash-pinned inputs (the PostgreSQL DR contract manifest and six runtime files) as an eight-file archive in the protected GitHub runner checkout, transfer only that content over fingerprint-pinned SSH, and reject any remote Git/object-store dependency. **Owner:** infra-expert. **Deadline:** 2026-07-18. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-CRITICAL-043`.
+
+## INFRA-HIGH-063 — Interrupted WAL-G materialization leaves raw next-generation secret files on persistent storage — IN-PROGRESS
+
+**Discovered and reproduced with an injected move failure:** 2026-07-15 credential-publication review. The materializer tracks only its initial stage directory; after moving raw values to persistent `.next.<pid>` names, a failure on a later move leaves earlier credentials behind, and a hard interruption can leave `.materialize.*`. The loader checks canonical declared files but does not reject these extras, so a later successful rotation stays green while stale raw secrets remain. **Fix in progress:** source-path validation, owned-residue cleanup, temporary-inode tracking, and exact source-directory allowlisting now cover ordinary failures. The finding remains IN-PROGRESS because a `SIGKILL` or power cut between canonical file renames can still leave new credential bytes paired with the prior manifest; the next reader fails closed, but automatic old-or-new recovery is not yet proven. Closure requires a sealed single-publication boundary or an equivalently crash-consistent recovery protocol with failpoints at every publication edge. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-063`.
+
+## INFRA-HIGH-064 — PostgreSQL source TLS private key remains world-readable beside its hardened runtime copy — IN-PROGRESS
+
+**Discovered and reproduced:** 2026-07-15 PostgreSQL TLS source-boundary review. `generate-internal-certs.sh` applies mode `0644` to the PostgreSQL private key and Compose mounts the whole certificate directory, so the postgres UID can read the original source key even though the root entrypoint creates a separate mode-`0600` tmpfs copy. **Fix in progress:** generate the PostgreSQL source key root-only, narrow the Compose mount to the exact certificate/key inputs, and prove both host mode and postgres-user denial on the source path. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-064`.
+
+## INFRA-CRITICAL-044 — Backup SSH secrets cross mutable target login-shell startup before the verified payload runs — OPEN
+
+**Discovered and reproduced by execution-boundary review:** 2026-07-15. Native OpenSSH still routes the requested command through the target account's login shell. A mutable startup file, inherited `BASH_ENV`, or path-resolved shell can therefore observe the secret-bearing stdin payload before its protected-SHA digest is checked. **Open production blocker:** use a dedicated backup account with a root-owned non-writable home and startup boundary, separate backup/PITR keys, and an sshd forced-command broker that launches the verified interpreter with a sanitized environment. An absolute `/bin/bash --noprofile --norc` client command is defense in depth only and does not close the pre-command sshd/login-shell boundary. Production remains locked until the target authority is independently proven. **Owner:** infra-expert. **Deadline:** 2026-07-18. **Status:** OPEN. **Canonical registry:** `INFRA-CRITICAL-044`.
+
+## INFRA-MEDIUM-056 — Runner cleanup can report success while production secret payloads remain on disk — IN-PROGRESS
+
+**Discovered and reproduced by secret-residue review:** 2026-07-15. The local workflow and SSH-helper cleanup functions discard `rm` failures and do not attest that their temporary directories disappeared, so an otherwise successful backup or PITR ceremony can leave private keys or a payload containing production secrets on the runner. **Fix in progress:** preserve the ceremony status, verify removal of every owned local temporary directory, and convert an otherwise successful ceremony to failure if cleanup leaves residue. **Owner:** infra-expert. **Deadline:** 2026-07-29. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-MEDIUM-056`.
+
+## INFRA-HIGH-065 — WAL-G loader reads the encryption key before disabling inherited shell xtrace — IN-PROGRESS
+
+**Discovered and reproduced by secret-loader trace review:** 2026-07-15. `_walg_validate_bundle` reads `libsodium.key` into a shell variable before `walg_exec` reaches its `set +x`, while the `install` and `assert-runtime` entry points also call validation without first suppressing inherited tracing. Running the loader under `bash -x` can therefore emit the client-side encryption key to stderr. **Fix in progress:** make xtrace suppression the first operation at every secret-reading boundary and add an executable sentinel-key regression that proves stderr never contains the key. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-065`.
+
+## INFRA-HIGH-066 — WAL-G rotation trusts prior manifest hashes without proving the prior bundle bytes — IN-PROGRESS
+
+**Discovered and reproduced by rotation-authority review:** 2026-07-15. `validate_rotation_authority` checks the old manifest's syntax, then treats its stored epoch, prefix, and encryption-key hashes as authority without checking them against every canonical credential file. A corrupted manifest can therefore authorize a same-epoch key replacement or misclassify an epoch transition. **Fix in progress:** require the exact prior bundle entry set and a strict checksum pass before reading any old manifest hash, with a corrupted-manifest negative rotation test. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-066`.
+
+## INFRA-HIGH-067 — Protected backup entry points read production secrets before disabling inherited shell tracing — IN-PROGRESS
+
+**Discovered and reproduced by protected-secret trace review:** 2026-07-16. `run-protected-ssh.sh`, `assert-backup-secrets.sh`, and secret-bearing workflow blocks can inherit exported `SHELLOPTS`/xtrace and read or expand the SSH private key and object credentials before suppressing tracing. GitHub masking is not a secret-lifetime boundary. **Fix in progress:** disable xtrace as the first executable operation at every protected entry point and add sentinel regressions that fail if any secret byte reaches stderr. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-067`.
+
+## INFRA-HIGH-068 — Protected SSH streams tenant restore verification evidence into GitHub Actions logs — IN-PROGRESS
+
+**Discovered and reproduced by evidence-channel review:** 2026-07-16. The SSH helper pipes all remote stdout through `tee`, while the PITR ceremony emits base64-encoded `database_verification` evidence containing tenant schema identities and checksums. Base64 does not make those values safe for shared workflow logs. **Fix in progress:** separate a strict machine-readable control channel from the private evidence file, log only allowlisted status markers, and prove arbitrary remote output and verification payloads never reach stdout or stderr. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-068`.
+
+## INFRA-HIGH-069 — Scheduled WAL-G evidence requires the current main SHA even when the deployed PostgreSQL image was not rebuilt — IN-PROGRESS
+
+**Discovered and reproduced by deployment/evidence parity review:** 2026-07-16. Backup and PITR require the running image's source revision label to equal the current workflow SHA, but selective deployment does not rebuild PostgreSQL for application-only changes. The next scheduled ceremony therefore fails even when the unchanged deployed image is the authorized artifact. **Fix in progress:** resolve the immutable running image identity and its source revision from the deployed container, bind both into evidence, and authorize that revision through protected-main ancestry instead of requiring equality with an unrelated workflow head. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-069`.
+
+## INFRA-CRITICAL-045 — Secret-bearing backup jobs can run branch-dispatched code outside the protected main authority — IN-PROGRESS
+
+**Discovered and reproduced by workflow-authority review:** 2026-07-16. A main-ref check inside one job does not constrain a separate `always()` evidence publisher, and the WAL freshness job has no equivalent main guard. A branch dispatch can therefore request the `production-backup` Environment while executing workflow content from that branch unless every secret-bearing job proves authority independently. **Fix in progress:** require a job-level exact `refs/heads/main` predicate on every `production-backup` job, place an authority assertion before checkout and before the first secret-bearing step, and add a parsed-workflow invariant. Live Environment selected-branch policy must also remain main-only. **Owner:** infra-expert. **Deadline:** 2026-07-18. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-CRITICAL-045`.
+
+## INFRA-HIGH-070 — WAL-G subprocess inherits unrelated PostgreSQL container secrets — IN-PROGRESS
+
+**Discovered and reproduced by subprocess-environment review:** 2026-07-16. `walg_exec` invokes `env` without `-i`, so the WAL-G process receives every inherited PostgreSQL container variable in addition to its file-loaded object credentials. Unrelated service or bootstrap passwords therefore cross the physical-backup executable boundary. **Fix in progress:** launch WAL-G under an empty environment with an exact PATH/locale, database identity, epoch-bound prefix, endpoint, region, encryption, and compression allowlist; add a fake-binary regression that rejects an injected sentinel variable. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-070`.
+
+## INFRA-HIGH-071 — PITR target secret source defaults to the live WAL-G write-credential directory — IN-PROGRESS
+
+**Discovered and reproduced by restore-call-boundary review:** 2026-07-16. The protected workflow passes a safe run-scoped read-only bundle, but `walg-pitr-restore.sh` silently defaults `TARGET_WALG_SECRET_SOURCE` to the canonical production write-credential directory for any other caller. **Fix in progress:** require an explicit canonical target path, reject the production source path and aliases before Docker receives the mount, and retain the target-only workflow invariant. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-071`.
+
+## INFRA-HIGH-072 — WAL-G materializer treats Docker daemon and authorization failures as an absent PostgreSQL container — IN-PROGRESS
+
+**Discovered and reproduced by activation-error review:** 2026-07-16. `docker inspect ... || true` discards every failure class, so daemon outage, socket denial, malformed response, and a genuinely absent container all take the same apparently successful boot-time path after persistent credentials change. **Fix in progress:** enumerate the exact named container through a checked Docker API call, tolerate only a proven empty result, and require a successful exact-state inspection before runtime activation. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-072`.

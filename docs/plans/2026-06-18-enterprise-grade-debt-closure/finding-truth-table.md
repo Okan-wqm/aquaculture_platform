@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `97b8b9e8f36f41bdbf0fd30828bf1f18f36f32e3ff416b25b785c5a9c5df9e04`
+Registry tip: `960ec4a51cb12b0e364661682e04b2064e51d3fe6d373cd4b2dfba349de9c840`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -76,6 +76,21 @@ were registered IN-PROGRESS, bringing the registry to 998 entries.
 parsed workflow invariants, but remains IN-PROGRESS until merge and the
 post-merge close ceremony records a main-reachable closing commit.
 
+Updated 2026-07-17 (sensor device industrial-protocol audit): registering the
+102-finding sensor `/sensor/devices` audit brought the registry to 1101 entries
+and surfaced three new active CRITICALs. `SENSOR-CRITICAL-007` (6 of 7 VFD
+adapters fake the write/command path — `EMERGENCY_STOP` returns success without
+transmitting) and `SENSOR-CRITICAL-009` (manual approve→apply never writes to the
+drive — `vfd.changeset.approved` has no consumer) are `real-open`: the
+edge-delegated VFD write path is the tracked fix and has not yet landed.
+`SENSOR-CRITICAL-008` (25 protocol adapters fake connection success — a
+never-contacted device is flipped ACTIVE) is `already-fixed-needs-close`: the
+`ProtocolImplementationStatus` SSoT hides unsupported adapters, and
+`ConnectionTesterService` now fails honestly for any non-`cloud-real` protocol
+before an adapter runs — the registry row stays OPEN only until the post-merge
+close ceremony records a main-reachable closing commit (`close` refuses
+branch-local SHAs, PROC-HIGH-001).
+
 Allowed truth buckets:
 
 - `real-open`
@@ -102,6 +117,9 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-043`    | IN-PROGRESS    | —            | infra-expert         | already-fixed-needs-close |
 | `INFRA-CRITICAL-044`    | OPEN           | —            | infra-expert         | blocked                   |
 | `INFRA-CRITICAL-045`    | IN-PROGRESS    | —            | infra-expert         | already-fixed-needs-close |
+| `SENSOR-CRITICAL-007`   | OPEN           | —            | sensor-expert        | real-open                 |
+| `SENSOR-CRITICAL-008`   | OPEN           | —            | sensor-expert        | already-fixed-needs-close |
+| `SENSOR-CRITICAL-009`   | OPEN           | —            | sensor-expert        | real-open                 |
 
 ## Mutation Rules
 

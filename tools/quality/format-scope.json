@@ -22898,6 +22898,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/common/__tests__/redact-protocol-secrets.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/common/errors.ts",
       "prettier_managed": true
     },
@@ -22911,6 +22917,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/common/message-queue.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/common/redact-protocol-secrets.ts",
       "prettier_managed": true
     },
     {
@@ -24197,7 +24209,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/protocol/adapters/__tests__/base-protocol-adapter.ssrf.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/protocol/adapters/__tests__/network-adapter-ssrf-guard.arch.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/protocol/adapters/__tests__/protocol-codec-golden.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/protocol/adapters/__tests__/protocol-implementation-status.spec.ts",
       "prettier_managed": true
     },
     {
@@ -24401,6 +24431,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/protocol/adapters/protocol-implementation-status.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/protocol/adapters/serial/i2c.adapter.ts",
       "prettier_managed": true
     },
@@ -24486,6 +24522,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/protocol/resolvers/protocol.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/protocol/services/__tests__/connection-tester.stub-guard.spec.ts",
       "prettier_managed": true
     },
     {
@@ -25146,6 +25188,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/vfd-programming/risk/risk-evaluator.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd-programming/services/__tests__/vfd-change-set-scheduler.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -31514,6 +31562,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/2026-07-13-branch-triage/ledger.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/2026-07-17-sensor-device-industrial-protocol-audit.md",
       "prettier_managed": true
     },
     {
@@ -54396,10 +54450,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8915,
+  "file_count": 8924,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8734,
-  "managed_file_list_sha256": "af61f360bec4b23956fa08d01ddee9040c07a56dadd887c0fd0f73c022459f67",
+  "managed_count": 8743,
+  "managed_file_list_sha256": "837f022e19260abe3b7b7069fca8d9953dc06e74026eea2ae6199d9959c61b5f",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

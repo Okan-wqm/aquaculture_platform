@@ -2,17 +2,14 @@ import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import {
-  createVfdAdapter,
-  VfdCommandResult,
-  VfdConnectionHandle,
-} from '../adapters';
+import { VfdCommandResult } from '../adapters';
 import { VFD_BRAND_COMMANDS } from '../brand-configs';
 import { VfdCommandAuditLog } from '../entities/vfd-command-audit-log.entity';
 import { VfdDevice } from '../entities/vfd-device.entity';
 import { VfdCommandType, VfdDeviceStatus } from '../entities/vfd.enums';
 
 import { VfdDeviceService } from './vfd-device.service';
+import { VfdEdgeWriteService } from './vfd-edge-write.service';
 import { VfdRegisterMappingService } from './vfd-register-mapping.service';
 
 /**
@@ -47,28 +44,25 @@ export interface VfdCommandExecutionResult {
 
 /**
  * VFD Command Service
- * Handles sending control commands to VFD devices
+ *
+ * Dispatches control commands (START/STOP/SET_FREQUENCY/EMERGENCY_STOP/…) to a
+ * drive. The production write path is the edge Rust gateway (SENSOR-CRITICAL-007,
+ * ADR-025): this service NO LONGER opens an in-process socket to the drive — it
+ * resolves the control-word / speed-reference register + wire value and delegates
+ * the write to `VfdEdgeWriteService`, which publishes a signed-topic `write_modbus`
+ * command to the owning edge gateway and returns the gateway's REAL acknowledgement.
+ * A command `success` therefore means the drive echoed the write; a drive not bound
+ * to an edge gateway fails closed (no more silent fabricated success — the previous
+ * in-process adapters returned `success:true` without transmitting).
  */
 @Injectable()
 export class VfdCommandService {
   private readonly logger = new Logger(VfdCommandService.name);
 
-  // Active connections cache
-  private activeConnections: Map<string, {
-    handle: VfdConnectionHandle;
-    adapter: ReturnType<typeof createVfdAdapter>;
-    lastActivity: Date;
-  }> = new Map();
-
-  // Per-device connect lock: prevents concurrent calls from opening duplicate sockets
-  private connectLocks: Map<string, Promise<{
-    adapter: ReturnType<typeof createVfdAdapter>;
-    handle: VfdConnectionHandle;
-  }>> = new Map();
-
   constructor(
     private readonly vfdDeviceService: VfdDeviceService,
     private readonly registerMappingService: VfdRegisterMappingService,
+    private readonly edgeWriteService: VfdEdgeWriteService,
     @InjectRepository(VfdCommandAuditLog)
     private readonly commandAuditRepo: Repository<VfdCommandAuditLog>
   ) {}
@@ -98,61 +92,59 @@ export class VfdCommandService {
 
     let executionResult: VfdCommandExecutionResult;
     try {
-      // Get or create connection
-      const { adapter, handle } = await this.getOrCreateConnection(device);
-
-      // Execute the command
+      // Resolve the register + wire value and delegate the write to the edge
+      // gateway. Each helper below fails closed if the drive is not edge-bound.
       let result: VfdCommandResult;
 
       switch (commandInput.command) {
         case VfdCommandType.START:
-          result = await this.executeStart(device, adapter, handle);
+          result = await this.executeStart(device);
           break;
 
         case VfdCommandType.STOP:
-          result = await this.executeStop(device, adapter, handle);
+          result = await this.executeStop(device);
           break;
 
         case VfdCommandType.REVERSE:
-          result = await this.executeReverse(device, adapter, handle);
+          result = await this.executeReverse(device);
           break;
 
         case VfdCommandType.SET_FREQUENCY:
           if (commandInput.value === undefined) {
             throw new BadRequestException('SET_FREQUENCY requires a value');
           }
-          result = await this.executeSetFrequency(device, adapter, handle, commandInput.value);
+          result = await this.executeSetFrequency(device, commandInput.value);
           break;
 
         case VfdCommandType.SET_SPEED:
           if (commandInput.value === undefined) {
             throw new BadRequestException('SET_SPEED requires a value');
           }
-          result = await this.executeSetSpeed(device, adapter, handle, commandInput.value);
+          result = await this.executeSetSpeed(device, commandInput.value);
           break;
 
         case VfdCommandType.FAULT_RESET:
-          result = await this.executeFaultReset(device, adapter, handle);
+          result = await this.executeFaultReset(device);
           break;
 
         case VfdCommandType.QUICK_STOP:
-          result = await this.executeQuickStop(device, adapter, handle);
+          result = await this.executeQuickStop(device);
           break;
 
         case VfdCommandType.EMERGENCY_STOP:
-          result = await this.executeEmergencyStop(device, adapter, handle);
+          result = await this.executeEmergencyStop(device);
           break;
 
         case VfdCommandType.JOG_FORWARD:
-          result = await this.executeJog(device, adapter, handle, 'forward');
+          result = await this.executeJog(device, 'forward');
           break;
 
         case VfdCommandType.JOG_REVERSE:
-          result = await this.executeJog(device, adapter, handle, 'reverse');
+          result = await this.executeJog(device, 'reverse');
           break;
 
         case VfdCommandType.COAST_STOP:
-          result = await this.executeCoastStop(device, adapter, handle);
+          result = await this.executeCoastStop(device);
           break;
 
         default: {
@@ -249,13 +241,44 @@ export class VfdCommandService {
   }
 
   /**
+   * Delegate a single-register write to the drive's edge gateway and adapt the
+   * result to the adapter-era `VfdCommandResult` shape the callers expect.
+   * `success` reflects the gateway's real acknowledgement — never a fabrication.
+   */
+  private async edgeWrite(
+    device: VfdDevice,
+    registerAddress: number,
+    wireValue: number,
+    intent: string
+  ): Promise<VfdCommandResult> {
+    const result = await this.edgeWriteService.writeRegister(
+      device,
+      registerAddress,
+      wireValue,
+      intent
+    );
+    return {
+      success: result.success,
+      error: result.error,
+      latencyMs: result.latencyMs,
+      acknowledgedAt: new Date(),
+    };
+  }
+
+  /**
+   * Reverse-scale an engineering value (Hz / %) to the drive's raw register
+   * value, mirroring the adapters' `reverseScaling` (offset 0). Guards against a
+   * zero/undefined scaling factor so a mis-seeded mapping cannot divide by zero.
+   */
+  private reverseScale(value: number, scalingFactor: number | null | undefined): number {
+    const factor = scalingFactor && scalingFactor !== 0 ? scalingFactor : 1;
+    return Math.round(value / factor);
+  }
+
+  /**
    * Execute START command
    */
-  private async executeStart(
-    device: VfdDevice,
-    adapter: ReturnType<typeof createVfdAdapter>,
-    handle: VfdConnectionHandle
-  ): Promise<VfdCommandResult> {
+  private async executeStart(device: VfdDevice): Promise<VfdCommandResult> {
     const controlWordMapping = await this.registerMappingService.getControlWordMapping(device.brand);
     if (!controlWordMapping) {
       throw new BadRequestException(`Control word mapping not found for brand ${device.brand}`);
@@ -264,17 +287,13 @@ export class VfdCommandService {
     const brandCommands = VFD_BRAND_COMMANDS[device.brand];
     const startCommand = brandCommands?.['RUN_FORWARD'] || brandCommands?.['START'] || 0x000f;
 
-    return adapter.writeControlWord(handle, startCommand, controlWordMapping.registerAddress);
+    return this.edgeWrite(device, controlWordMapping.registerAddress, startCommand, 'START');
   }
 
   /**
    * Execute STOP command
    */
-  private async executeStop(
-    device: VfdDevice,
-    adapter: ReturnType<typeof createVfdAdapter>,
-    handle: VfdConnectionHandle
-  ): Promise<VfdCommandResult> {
+  private async executeStop(device: VfdDevice): Promise<VfdCommandResult> {
     const controlWordMapping = await this.registerMappingService.getControlWordMapping(device.brand);
     if (!controlWordMapping) {
       throw new BadRequestException(`Control word mapping not found for brand ${device.brand}`);
@@ -283,17 +302,13 @@ export class VfdCommandService {
     const brandCommands = VFD_BRAND_COMMANDS[device.brand];
     const stopCommand = brandCommands?.['STOP'] || brandCommands?.['SHUTDOWN'] || 0x0006;
 
-    return adapter.writeControlWord(handle, stopCommand, controlWordMapping.registerAddress);
+    return this.edgeWrite(device, controlWordMapping.registerAddress, stopCommand, 'STOP');
   }
 
   /**
    * Execute REVERSE command
    */
-  private async executeReverse(
-    device: VfdDevice,
-    adapter: ReturnType<typeof createVfdAdapter>,
-    handle: VfdConnectionHandle
-  ): Promise<VfdCommandResult> {
+  private async executeReverse(device: VfdDevice): Promise<VfdCommandResult> {
     const controlWordMapping = await this.registerMappingService.getControlWordMapping(device.brand);
     if (!controlWordMapping) {
       throw new BadRequestException(`Control word mapping not found for brand ${device.brand}`);
@@ -302,7 +317,7 @@ export class VfdCommandService {
     const brandCommands = VFD_BRAND_COMMANDS[device.brand];
     const reverseCommand = brandCommands?.['RUN_REVERSE'] || 0x080f;
 
-    return adapter.writeControlWord(handle, reverseCommand, controlWordMapping.registerAddress);
+    return this.edgeWrite(device, controlWordMapping.registerAddress, reverseCommand, 'REVERSE');
   }
 
   /**
@@ -310,8 +325,6 @@ export class VfdCommandService {
    */
   private async executeSetFrequency(
     device: VfdDevice,
-    adapter: ReturnType<typeof createVfdAdapter>,
-    handle: VfdConnectionHandle,
     frequencyHz: number
   ): Promise<VfdCommandResult> {
     const speedRefMapping = await this.registerMappingService.getSpeedReferenceMapping(device.brand);
@@ -344,12 +357,8 @@ export class VfdCommandService {
       );
     }
 
-    return adapter.writeSpeedReference(
-      handle,
-      frequencyHz,
-      speedRefMapping.registerAddress,
-      speedRefMapping.scalingFactor
-    );
+    const wireValue = this.reverseScale(frequencyHz, speedRefMapping.scalingFactor);
+    return this.edgeWrite(device, speedRefMapping.registerAddress, wireValue, 'SET_FREQUENCY');
   }
 
   /**
@@ -357,8 +366,6 @@ export class VfdCommandService {
    */
   private async executeSetSpeed(
     device: VfdDevice,
-    adapter: ReturnType<typeof createVfdAdapter>,
-    handle: VfdConnectionHandle,
     speedPercent: number
   ): Promise<VfdCommandResult> {
     // Validate speed percentage
@@ -385,22 +392,14 @@ export class VfdCommandService {
       referenceValue = speedPercent * 100;
     }
 
-    return adapter.writeSpeedReference(
-      handle,
-      referenceValue,
-      speedRefMapping.registerAddress,
-      speedRefMapping.scalingFactor
-    );
+    const wireValue = this.reverseScale(referenceValue, speedRefMapping.scalingFactor);
+    return this.edgeWrite(device, speedRefMapping.registerAddress, wireValue, 'SET_SPEED');
   }
 
   /**
    * Execute FAULT_RESET command
    */
-  private async executeFaultReset(
-    device: VfdDevice,
-    adapter: ReturnType<typeof createVfdAdapter>,
-    handle: VfdConnectionHandle
-  ): Promise<VfdCommandResult> {
+  private async executeFaultReset(device: VfdDevice): Promise<VfdCommandResult> {
     const controlWordMapping = await this.registerMappingService.getControlWordMapping(device.brand);
     if (!controlWordMapping) {
       throw new BadRequestException(`Control word mapping not found for brand ${device.brand}`);
@@ -409,7 +408,7 @@ export class VfdCommandService {
     const brandCommands = VFD_BRAND_COMMANDS[device.brand];
     const resetCommand = brandCommands?.['FAULT_RESET'] || brandCommands?.['RESET'] || 0x0080;
 
-    return adapter.writeControlWord(handle, resetCommand, controlWordMapping.registerAddress);
+    return this.edgeWrite(device, controlWordMapping.registerAddress, resetCommand, 'FAULT_RESET');
   }
 
   /**
@@ -419,11 +418,7 @@ export class VfdCommandService {
    * EMERGENCY_STOP; the distinct command types preserve operator intent
    * in results and audit trails.
    */
-  private async executeQuickStop(
-    device: VfdDevice,
-    adapter: ReturnType<typeof createVfdAdapter>,
-    handle: VfdConnectionHandle
-  ): Promise<VfdCommandResult> {
+  private async executeQuickStop(device: VfdDevice): Promise<VfdCommandResult> {
     const controlWordMapping = await this.registerMappingService.getControlWordMapping(device.brand);
     if (!controlWordMapping) {
       throw new BadRequestException(`Control word mapping not found for brand ${device.brand}`);
@@ -433,18 +428,14 @@ export class VfdCommandService {
     // CiA402 QUICK_STOP (OFF3) control word is 0x0002 (VFD_CONTROL_COMMANDS.QUICK_STOP)
     const quickStopCommand = brandCommands?.['QUICK_STOP'] || 0x0002;
 
-    return adapter.writeControlWord(handle, quickStopCommand, controlWordMapping.registerAddress);
+    return this.edgeWrite(device, controlWordMapping.registerAddress, quickStopCommand, 'QUICK_STOP');
   }
 
   /**
    * Execute COAST_STOP command — remove output voltage and let the motor
    * freewheel (CiA402 OFF2 / DISABLE_VOLTAGE).
    */
-  private async executeCoastStop(
-    device: VfdDevice,
-    adapter: ReturnType<typeof createVfdAdapter>,
-    handle: VfdConnectionHandle
-  ): Promise<VfdCommandResult> {
+  private async executeCoastStop(device: VfdDevice): Promise<VfdCommandResult> {
     const controlWordMapping = await this.registerMappingService.getControlWordMapping(device.brand);
     if (!controlWordMapping) {
       throw new BadRequestException(`Control word mapping not found for brand ${device.brand}`);
@@ -454,17 +445,13 @@ export class VfdCommandService {
     // 0x0000 = CiA402 DISABLE_VOLTAGE (OFF2 coast)
     const coastCommand = brandCommands?.['COAST'] || brandCommands?.['COAST_STOP'] || 0x0000;
 
-    return adapter.writeControlWord(handle, coastCommand, controlWordMapping.registerAddress);
+    return this.edgeWrite(device, controlWordMapping.registerAddress, coastCommand, 'COAST_STOP');
   }
 
   /**
    * Execute EMERGENCY_STOP command
    */
-  private async executeEmergencyStop(
-    device: VfdDevice,
-    adapter: ReturnType<typeof createVfdAdapter>,
-    handle: VfdConnectionHandle
-  ): Promise<VfdCommandResult> {
+  private async executeEmergencyStop(device: VfdDevice): Promise<VfdCommandResult> {
     const controlWordMapping = await this.registerMappingService.getControlWordMapping(device.brand);
     if (!controlWordMapping) {
       throw new BadRequestException(`Control word mapping not found for brand ${device.brand}`);
@@ -474,7 +461,12 @@ export class VfdCommandService {
     // Emergency stop typically uses QUICK_STOP or OFF2 (coast stop)
     const emergencyCommand = brandCommands?.['QUICK_STOP'] || brandCommands?.['COAST'] || 0x0002;
 
-    return adapter.writeControlWord(handle, emergencyCommand, controlWordMapping.registerAddress);
+    return this.edgeWrite(
+      device,
+      controlWordMapping.registerAddress,
+      emergencyCommand,
+      'EMERGENCY_STOP'
+    );
   }
 
   /**
@@ -482,8 +474,6 @@ export class VfdCommandService {
    */
   private async executeJog(
     device: VfdDevice,
-    adapter: ReturnType<typeof createVfdAdapter>,
-    handle: VfdConnectionHandle,
     direction: 'forward' | 'reverse'
   ): Promise<VfdCommandResult> {
     const controlWordMapping = await this.registerMappingService.getControlWordMapping(device.brand);
@@ -496,70 +486,11 @@ export class VfdCommandService {
       ? (brandCommands?.['JOG_FORWARD'] || brandCommands?.['JOG'] || 0x057f)
       : (brandCommands?.['JOG_REVERSE'] || 0x0d7f);
 
-    return adapter.writeControlWord(handle, jogCommand, controlWordMapping.registerAddress);
-  }
-
-  /**
-   * Get or create connection to a device.
-   * Uses a per-device promise lock so concurrent callers wait for the same
-   * connect() call rather than each opening their own socket.
-   */
-  private getOrCreateConnection(device: VfdDevice): Promise<{
-    adapter: ReturnType<typeof createVfdAdapter>;
-    handle: VfdConnectionHandle;
-  }> {
-    const cached = this.activeConnections.get(device.id);
-    if (cached && cached.handle.isConnected) {
-      // Apply the same 60-second idle timeout as the reader service
-      const idleTime = Date.now() - cached.lastActivity.getTime();
-      if (idleTime < 60000) {
-        cached.lastActivity = new Date();
-        return Promise.resolve({ adapter: cached.adapter, handle: cached.handle });
-      }
-      // Stale connection: close asynchronously, then fall through to reconnect
-      void this.closeConnection(device.id);
-    }
-
-    // If a connect is already in progress for this device, reuse that promise
-    const inflight = this.connectLocks.get(device.id);
-    if (inflight) {
-      return inflight;
-    }
-
-    const connectPromise = (async () => {
-      try {
-        const adapter = createVfdAdapter(device.protocol);
-        const handle = await adapter.connect(device.protocolConfiguration);
-
-        this.activeConnections.set(device.id, {
-          adapter,
-          handle,
-          lastActivity: new Date(),
-        });
-
-        return { adapter, handle };
-      } finally {
-        // Remove the lock regardless of success or failure
-        this.connectLocks.delete(device.id);
-      }
-    })();
-
-    this.connectLocks.set(device.id, connectPromise);
-    return connectPromise;
-  }
-
-  /**
-   * Close connection for a device
-   */
-  async closeConnection(deviceId: string): Promise<void> {
-    const cached = this.activeConnections.get(deviceId);
-    if (cached) {
-      try {
-        await cached.adapter.disconnect(cached.handle);
-      } catch (error) {
-        this.logger.warn(`Error closing connection for device ${deviceId}`, error);
-      }
-      this.activeConnections.delete(deviceId);
-    }
+    return this.edgeWrite(
+      device,
+      controlWordMapping.registerAddress,
+      jogCommand,
+      direction === 'forward' ? 'JOG_FORWARD' : 'JOG_REVERSE'
+    );
   }
 }

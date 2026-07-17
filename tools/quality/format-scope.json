@@ -41304,6 +41304,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/feeding-v1-retired-symbols.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/finance-currency-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -54636,10 +54642,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8955,
+  "file_count": 8956,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8774,
-  "managed_file_list_sha256": "03674c47b8ffd2a0251fc0ee06b2abec0d7f1193cae9ac82f47be98129a1d476",
+  "managed_count": 8775,
+  "managed_file_list_sha256": "4fb8f030b4379f8fb42908195f6ba24693a304ff196d1bef6b5d8b3725efe0ed",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

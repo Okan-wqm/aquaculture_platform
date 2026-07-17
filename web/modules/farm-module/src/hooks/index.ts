@@ -103,7 +103,10 @@ export {
 
 export * from './useTenantUsers';
 
-// useWaterQuality: getStatusColor, getStatusLabel already exported by useDailyFeedingExecution
+// useWaterQuality: getStatusColor/getStatusLabel bilinçli olarak index'ten
+// export EDİLMEZ — hiçbir tüketicisi yok (onları export eden v1 execution
+// hook'u Faz 8'de silindi; ölü export üretmek yasak, ihtiyaç doğarsa
+// doğrudan './useWaterQuality'den import edilir).
 export {
   type WaterQualityStatus,
   type MeasurementSource,

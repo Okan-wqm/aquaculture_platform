@@ -3,8 +3,8 @@
  *
  * Birleşik protokol (v2) CRUD, ünite atamaları ve etkin sıcaklık rozetleri.
  * Tipler backend jsonb value-object'lerinin birebir aynasıdır
- * (`apps/farm-service/src/feeding-protocol/entities/`). v1 hook'ları
- * (`useFeedingProtocols.ts`) cutover'a kadar v1 sekmesine hizmet eder.
+ * (`apps/farm-service/src/feeding-protocol/entities/`). v1 protokol
+ * hook'ları Faz 8'de silindi — v2 tek kontrattır.
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {

@@ -201,6 +201,7 @@ export default {
         '<rootDir>/farm-minio-orphan-cleanup-ssot.spec.ts',
         '<rootDir>/stock-mutating-handlers-reject-legacy.spec.ts',
         '<rootDir>/feeding-legacy-cutover-gate.spec.ts',
+        '<rootDir>/feeding-v1-retired-symbols.spec.ts',
         '<rootDir>/farm-site-system-eventing-transaction-ssot.spec.ts',
         '<rootDir>/sites-setup-remediation-plan-contract.spec.ts',
         '<rootDir>/strip-internal-headers-mounted.spec.ts',

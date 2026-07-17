@@ -2,8 +2,8 @@
  * FeedingProtocolV2 GraphQL Operations (feeding-protocol SSoT — Faz 3)
  *
  * Birleşik yemleme protokolü (v2) CRUD + ünite atama operasyonları.
- * v1 `feedingProtocol.operations.ts` cutover'a (Faz 8) kadar yaşar; bu dosya
- * yeni ProtocolBuilderTab / AssignmentsTab yüzeylerinin tek kontratıdır.
+ * v1 protokol operasyon dosyası Faz 8'de silindi; bu dosya
+ * ProtocolBuilderTab / AssignmentsTab yüzeylerinin tek kontratıdır.
  *
  * @module FarmModule/GraphQL
  */

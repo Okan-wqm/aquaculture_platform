@@ -1,7 +1,8 @@
 /**
  * MealBoardTab — günün öğünleri, ünite bazında (Faz 6).
  *
- * DailyPlanTab + PlannedVsActualSection'ın varisi: veri kaynağı v2 motorunun
+ * Legacy günlük-plan/execution sekmelerinin varisi (öncülleri Faz 8'de
+ * silindi): veri kaynağı v2 motorunun
  * `feedingDayPlans` sorgusudur (legacy execution'lar değil). Kısmi döküm
  * akışı (D-8): "döküm ekle" kümülatif kg biriktirir, "öğünü bitir" finalize
  * eder (varyans + büyüme + kalan öğün recalc'ı BACKEND'de aynı tx'te koşar).

@@ -46,7 +46,6 @@ export interface CreateBatchPayload {
   description?: string;
   speciesId: string; // Tür ID (zorunlu)
   strain?: string; // Irk/çeşit
-  protocolId?: string; // Atanan besleme protokolü (feeding_protocols.id)
   inputType: BatchInputType; // Girdi tipi (eggs, larvae, fry, etc.)
   initialQuantity: number; // Başlangıç adedi
   initialAvgWeightG: number; // Başlangıç ortalama ağırlık (gram)

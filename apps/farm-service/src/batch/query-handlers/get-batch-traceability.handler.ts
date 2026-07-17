@@ -24,7 +24,6 @@ import { Batch } from '../entities/batch.entity';
 import { BatchLocation } from '../entities/batch-location.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import { Feed } from '../../feed/entities/feed.entity';
-import { FeedingProtocol } from '../../feed/entities/feeding-protocol.entity';
 import { FeedingRecord } from '../../feeding/entities/feeding-record.entity';
 import { WaterQualityMeasurement } from '../../water-quality/entities/water-quality-measurement.entity';
 import { GetBatchHistoryQuery, BatchHistoryEntry } from '../queries/get-batch-history.query';
@@ -96,13 +95,36 @@ export class GetBatchTraceabilityHandler
         throw new NotFoundException(`Batch ${batchId} bulunamadı`);
       }
 
-      const protocolName = batch.protocolId
-        ? (
-            await manager.findOne(FeedingProtocol, {
-              where: { id: batch.protocolId, tenantId },
-            })
-          )?.name
-        : undefined;
+      // C-4 (Faz 8): protokol provenansı artık ÜNİTE atamasından çözülür —
+      // batches_v2.protocolId + v1 feeding_protocols okuma yolu emekli.
+      // Dominant-biomass ünitesinin AKTİF v2 ataması raporlanır (P-14
+      // zinciriyle aynı sorgu şekli); atamasız batch protokolsüz raporlanır.
+      const protocolRows: Array<{ protocolId: string; protocolName: string }> =
+        await manager.query(
+          `SELECT p."id" AS "protocolId", p."name" AS "protocolName"
+             FROM "tank_batches" tb
+             JOIN "feeding_protocol_assignments" pa
+               ON pa."tenantId" = tb."tenantId"
+              AND pa."unitId" = tb."tankId"
+              AND pa."status" = 'active'
+             JOIN "feeding_protocols_v2" p
+               ON p."id" = pa."protocolId"
+              AND p."tenantId" = pa."tenantId"
+              AND p."isDeleted" = false
+            WHERE tb."tenantId" = $1
+              AND (
+                tb."primaryBatchId" = $2
+                OR EXISTS (
+                  SELECT 1
+                    FROM jsonb_array_elements(COALESCE(tb."batchDetails", '[]'::jsonb)) AS detail(value)
+                   WHERE detail.value->>'batchId' = $2
+                )
+              )
+            ORDER BY tb."totalBiomassKg" DESC
+            LIMIT 1`,
+          [tenantId, batchId],
+        );
+      const activeProtocol = protocolRows[0];
 
       // ── Residencies ──────────────────────────────────────────────────────
       const locations = await manager.find(BatchLocation, {
@@ -206,8 +228,8 @@ export class GetBatchTraceabilityHandler
             batch.initialQuantity > 0
               ? Math.round((batch.currentQuantity / batch.initialQuantity) * 1000) / 10
               : undefined,
-          protocolId: batch.protocolId ?? undefined,
-          protocolName,
+          protocolId: activeProtocol?.protocolId,
+          protocolName: activeProtocol?.protocolName,
           totalFeedKg,
           totalFeedCost: totalFeedCostRaw > 0 ? Math.round(totalFeedCostRaw * 100) / 100 : undefined,
           fcrActual: batch.fcr?.actual ?? undefined,

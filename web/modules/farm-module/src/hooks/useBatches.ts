@@ -356,10 +356,6 @@ export interface CreateBatchInput {
   healthCertificates?: BatchDocumentInput[];
   importDocuments?: BatchDocumentInput[];
   initialLocations: InitialLocationInput[];
-  // Feeding-protocols → batch link (Phase 1): the batch selects one active
-  // feeding protocol at creation and it follows the batch thereafter. Optional —
-  // a batch may be created without a protocol and have one assigned later.
-  protocolId?: string;
   notes?: string;
 }
 

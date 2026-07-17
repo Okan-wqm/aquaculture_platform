@@ -125,7 +125,6 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
         description: payload.description,
         speciesId: payload.speciesId,
         strain: payload.strain,
-        protocolId: payload.protocolId,
         inputType: payload.inputType,
         initialQuantity: payload.initialQuantity,
         currentQuantity: payload.initialQuantity,

@@ -292,7 +292,6 @@ export class BatchResolver {
       description: input.description,
       speciesId: input.speciesId,
       strain: input.strain,
-      protocolId: input.protocolId,
       inputType: input.inputType,
       initialQuantity: input.initialQuantity,
       initialAvgWeightG: input.initialWeight.avgWeight,

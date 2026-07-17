@@ -15,8 +15,10 @@
  *      narrative already points at.
  *   3. truncates titles >200 chars and prepends the full title to
  *      narrative[] so no information is lost.
- *   4. rechains the registry from the earliest modified index.
- *   5. verifies + writes.
+ * This historical migration is now audit-only. Its original schema
+ * assumptions predate the current 400-character titles and layer 4/5
+ * model, so mutating mode is retired fail-closed. Remediation must use a
+ * reviewed, current-schema registry command instead of reviving this writer.
  *
  * Idempotent: rerunning on a clean registry is a no-op.
  *
@@ -25,13 +27,11 @@
  *     tools/audit/migrate-schema-violations.ts [--dry-run]
  */
 
-import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const REPO_ROOT = process.cwd();
 const REGISTRY_PATH = resolve(REPO_ROOT, 'docs/reviews/_registry/findings.jsonl');
-const ZERO_HASH = '0'.repeat(64);
 
 interface Finding {
   id: string;
@@ -84,9 +84,7 @@ const SYNTHETIC_EVIDENCE: Record<string, string[]> = {
     'infrastructure/docker/init-scripts/00-init-schemas.sh:1',
     'scripts/schema-registry/generate-init-schemas.ts:1',
   ],
-  'INFRA-CRITICAL-035': [
-    'libs/backend-common/src/database/schema-drift-validator.service.ts:1',
-  ],
+  'INFRA-CRITICAL-035': ['libs/backend-common/src/database/schema-drift-validator.service.ts:1'],
   'DEPLOY-CRITICAL-005': [
     'apps/observability-service/src/migration-audit/migration-audit.module.ts:1',
   ],
@@ -98,34 +96,6 @@ const SYNTHETIC_EVIDENCE: Record<string, string[]> = {
  * just the 13 post-dedupe survivors originally identified by the
  * audit explore agent.
  */
-
-function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') {
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return '[' + value.map(canonicalJson).join(',') + ']';
-  }
-  const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).sort();
-  return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalJson(obj[k])).join(',') + '}';
-}
-
-function sha256hex(s: string): string {
-  return createHash('sha256').update(s, 'utf8').digest('hex');
-}
-
-function rechain(entries: Finding[], startIndex: number): void {
-  let prev = startIndex === 0 ? ZERO_HASH : entries[startIndex - 1]!.content_hash;
-  for (let i = startIndex; i < entries.length; i++) {
-    const entry = entries[i]!;
-    entry.prev_hash = prev;
-    const { content_hash: _c, ...forHash } = entry;
-    const hash = sha256hex(canonicalJson(forHash));
-    entry.content_hash = hash;
-    prev = hash;
-  }
-}
 
 function migrateEntry(entry: Finding): { changed: boolean; summary: string } {
   const notes: string[] = [];
@@ -200,7 +170,9 @@ function migrateEntry(entry: Finding): { changed: boolean; summary: string } {
     const narrative = [`[full original title]: ${full}`, ...(entry.narrative ?? [])];
     entry.narrative = narrative;
     changed = true;
-    notes.push(`title truncated ${full.length}→${entry.title.length} chars, full preserved in narrative`);
+    notes.push(
+      `title truncated ${full.length}→${entry.title.length} chars, full preserved in narrative`,
+    );
   }
 
   // 3. Layer clamp: schema permits 1|2|3. Entries with 4 or 5 get
@@ -242,9 +214,17 @@ function migrateEntry(entry: Finding): { changed: boolean; summary: string } {
 
 function main(): void {
   const dryRun = process.argv.includes('--dry-run');
+  if (!dryRun) {
+    console.error(
+      'migrate-schema-violations: mutating mode is retired; rerun with --dry-run for an audit-only report.',
+    );
+    process.exitCode = 2;
+    return;
+  }
   if (!existsSync(REGISTRY_PATH)) {
     console.error(`registry not found: ${REGISTRY_PATH}`);
-    process.exit(2);
+    process.exitCode = 2;
+    return;
   }
   const raw = readFileSync(REGISTRY_PATH, 'utf8').trim();
   const entries: Finding[] = raw
@@ -265,27 +245,18 @@ function main(): void {
   }
 
   if (report.length === 0) {
-    console.log('migrate-schema-violations: nothing to do (all targets already clean).');
+    console.log('migrate-schema-violations: nothing to report.');
     return;
   }
 
-  console.log(`migrate-schema-violations: ${report.length} entries will be rewritten.`);
-  for (const r of report) {
-    console.log(`  ${r.id} @ index ${r.index}: ${r.summary}`);
+  console.log(`migrate-schema-violations: ${report.length} historical-rule matches (audit only).`);
+  for (const item of report) {
+    console.log(`  ${item.id} @ index ${item.index}: ${item.summary}`);
   }
-  console.log(`earliest modified index: ${firstModifiedIndex}`);
-
-  if (dryRun) {
-    console.log('--dry-run, not writing.');
-    return;
-  }
-
-  rechain(entries, firstModifiedIndex);
-
-  const content = entries.map((e) => JSON.stringify(e)).join('\n') + '\n';
-  writeFileSync(REGISTRY_PATH, content, 'utf8');
-  console.log(`done. Chain rechained from index ${firstModifiedIndex}; ${entries.length} entries written.`);
-  console.log(`Chain tip: ${entries[entries.length - 1]!.content_hash}`);
+  console.log(`earliest reported index: ${firstModifiedIndex}`);
+  console.log(
+    '--dry-run audit complete; mutating mode is retired and no registry file was written.',
+  );
 }
 
 main();

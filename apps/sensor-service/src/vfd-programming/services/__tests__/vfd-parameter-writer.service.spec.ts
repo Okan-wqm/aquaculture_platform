@@ -315,6 +315,53 @@ describe('VfdParameterWriterService', () => {
     });
   });
 
+  describe('applyChangeSet - motor state unverifiable (fail-closed)', () => {
+    it('should refuse the write when no status-word mapping exists for the brand', async () => {
+      const def = createMockParamDef({ requiresMotorStop: true });
+      const item = createMockItem();
+      const changeSet = createMockChangeSet({ items: [item] });
+      const device = createMockDevice();
+
+      deviceService.findById.mockResolvedValue(device);
+      paramDefRepo.findByIds.mockResolvedValue([def]);
+
+      // No status-word mapping -> motor state cannot be verified
+      registerMappingService.getStatusWordMapping.mockResolvedValue(null);
+
+      await expect(service.applyChangeSet(changeSet)).rejects.toThrow(BadRequestException);
+      await expect(service.applyChangeSet(changeSet)).rejects.toThrow(/cannot verify motor state/i);
+
+      expect(changeSet.status).toBe(VfdChangeSetStatus.FAILED);
+      // Fail-closed: no register read against the drive, no write attempted
+      expect(mockAdapter.writeRegister).not.toHaveBeenCalled();
+    });
+
+    it('should refuse the write when the status word cannot be read', async () => {
+      const def = createMockParamDef({ requiresMotorStop: true });
+      const item = createMockItem();
+      const changeSet = createMockChangeSet({ items: [item] });
+      const device = createMockDevice();
+
+      deviceService.findById.mockResolvedValue(device);
+      paramDefRepo.findByIds.mockResolvedValue([def]);
+
+      registerMappingService.getStatusWordMapping.mockResolvedValue({
+        registerAddress: 8451,
+        registerCount: 1,
+        functionCode: 3,
+        parameterName: 'status_word',
+      } as never);
+
+      // The status-word read fails -> we cannot confirm the motor is stopped
+      mockAdapter.readRegister.mockRejectedValue(new Error('Modbus timeout'));
+
+      await expect(service.applyChangeSet(changeSet)).rejects.toThrow(BadRequestException);
+
+      expect(changeSet.status).toBe(VfdChangeSetStatus.FAILED);
+      expect(mockAdapter.writeRegister).not.toHaveBeenCalled();
+    });
+  });
+
   describe('applyChangeSet - device offline', () => {
     it('should throw BadRequestException when device is not ACTIVE', async () => {
       const def = createMockParamDef();

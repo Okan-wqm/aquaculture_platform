@@ -57,9 +57,12 @@ export class VfdParameterWriterService {
     const itemDefs = await this.loadDefinitionsForItems(changeSet.items);
 
     if (changeSet.items.some((i) => itemDefs.get(i.parameterDefinitionId)?.requiresMotorStop)) {
-      if (await this.isMotorRunning(device)) {
-        await this.failChangeSet(changeSet, 'Motor is running — cannot apply parameters that require motor stop');
-        throw new BadRequestException('Motor is running — change set contains parameters that require motor stop');
+      try {
+        await this.assertMotorStoppedForRestrictedWrite(device);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        await this.failChangeSet(changeSet, reason);
+        throw error instanceof BadRequestException ? error : new BadRequestException(reason);
       }
     }
 
@@ -205,20 +208,39 @@ export class VfdParameterWriterService {
     return map;
   }
 
-  /** Check motor status via status word bit 2 (0x0004 = Operation Enabled). */
-  private async isMotorRunning(device: VfdDevice): Promise<boolean> {
+  /**
+   * Fail-closed motor-state interlock for parameters that require the motor to
+   * be stopped. The motor must be POSITIVELY read as stopped before the write
+   * proceeds: if the brand has no status-word register mapping, or the status
+   * word cannot be read, the write is refused rather than assumed safe.
+   *
+   * CiA 402 / PROFIdrive status word bit 2 (0x0004) = Operation Enabled (running).
+   */
+  private async assertMotorStoppedForRestrictedWrite(device: VfdDevice): Promise<void> {
     const mapping = await this.registerMappingService.getStatusWordMapping(device.brand);
     if (!mapping) {
-      this.logger.warn(`No status word mapping for brand ${device.brand}, assuming motor stopped`);
-      return false;
+      throw new BadRequestException(
+        `Cannot verify motor state for brand ${device.brand}: no status-word register mapping. ` +
+        'Refusing to write parameters that require the motor to be stopped.',
+      );
     }
+
     const adapter = createVfdAdapter(device.protocol);
     const handle = await adapter.connect(device.protocolConfiguration);
+    let statusWord: number;
     try {
-      const buf = await adapter.readRegister(handle, mapping.registerAddress, mapping.registerCount || 1, mapping.functionCode || 3);
-      return Boolean(buf.readUInt16BE(0) & 0x0004);
+      const buf = await adapter.readRegister(
+        handle, mapping.registerAddress, mapping.registerCount || 1, mapping.functionCode || 3,
+      );
+      statusWord = buf.readUInt16BE(0);
     } finally {
       try { await adapter.disconnect(handle); } catch { /* ignore */ }
+    }
+
+    if (statusWord & 0x0004) {
+      throw new BadRequestException(
+        'Motor is running — change set contains parameters that require the motor to be stopped',
+      );
     }
   }
 

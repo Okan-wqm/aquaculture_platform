@@ -19,12 +19,22 @@ ROLLBACK_MANIFEST="${ROLLBACK_MANIFEST:-}"
 DEPLOY_STATE_DIR="${DEPLOY_STATE_DIR:-}"
 CAPACITY_GC_MODE="${CAPACITY_GC_MODE:-auto}" # auto | off
 CAPACITY_DISK_USAGE_MODE="${CAPACITY_DISK_USAGE_MODE:-summary}" # summary | deep | off
-# 120s (was 60): with the docker/containerd subtrees excluded below the scan
-# is usually seconds, but a cold page cache on a busy droplet still needs
-# headroom — 60s produced disk_usage_unavailable exactly when the diagnostic
-# was needed (capacity incident triage). Bounded by the SSoT contract to stay
-# well under the deploy preflight command timeout.
+# One filesystem traversal owns each diagnostic snapshot. The hard timeout is
+# therefore the total du budget, rather than a per-scope budget multiplied by
+# overlapping /, /var, /var/lib, ... scans.
 CAPACITY_DU_TIMEOUT_SECONDS="${CAPACITY_DU_TIMEOUT_SECONDS:-120}"
+CAPACITY_DU_TIMEOUT_MAX_SECONDS=120
+# timeout(1) first sends TERM, then has this fixed grace to reap a stuck du.
+# The invariant guarantees the following non-du headroom inside the OUTER SSH
+# command timeout for setup, checkout, Docker inventory/GC, threshold
+# evaluation, formatting, and teardown. It is a budget relationship, not a
+# second timer implemented by this script.
+CAPACITY_DU_KILL_GRACE_SECONDS=5
+CAPACITY_NON_DU_HEADROOM_SECONDS=300
+CAPACITY_SUMMARY_DU_DEPTH=1
+# Root-relative depth 3 includes direct /tmp artifact directories and the
+# /var/aqua-saas/target tree without reporting individual files below them.
+CAPACITY_DEEP_DU_DEPTH=3
 
 GIB=$((1024 * 1024 * 1024))
 FULL_HARD_FREE_GIB="${FULL_HARD_FREE_GIB:-35}"
@@ -57,7 +67,7 @@ Environment:
   IMAGE_PREFIX=ghcr.io/owner/repo
   CAPACITY_GC_MODE=auto|off
   CAPACITY_DISK_USAGE_MODE=summary|deep|off
-  CAPACITY_DU_TIMEOUT_SECONDS=60
+  CAPACITY_DU_TIMEOUT_SECONDS=1..120
   GC_DRY_RUN=true|false   (gc only: enumerate removals without deleting)
 EOF
 }
@@ -115,42 +125,36 @@ df_inode_row() {
   df -Pi "${path}" 2>/dev/null | awk 'NR==2 {print $2 "\t" $4}'
 }
 
-disk_usage_paths() {
+disk_usage_depth() {
   case "${CAPACITY_DISK_USAGE_MODE}" in
     off)
-      return 0
+      return 1
       ;;
     deep)
-      unique_paths "/" "/var" "/var/lib" "$(docker_root)" "/var/lib/containerd" "/var/log" "/var/aqua-saas" "/tmp"
+      echo "${CAPACITY_DEEP_DU_DEPTH}"
       ;;
     summary)
-      unique_paths "/"
+      echo "${CAPACITY_SUMMARY_DU_DEPTH}"
       ;;
     *)
       echo "::warning::unknown_capacity_disk_usage_mode mode=${CAPACITY_DISK_USAGE_MODE}; using summary" >&2
-      unique_paths "/"
+      echo "${CAPACITY_SUMMARY_DU_DEPTH}"
       ;;
   esac
 }
 
-du_scope_snapshot() {
-  local path="$1"
-  local snapshot_file="$2"
+du_filesystem_snapshot() {
+  local snapshot_file="$1"
+  local depth="$2"
 
   # Docker/containerd subtrees are EXCLUDED from the walk: their bytes are
   # already itemized by `docker system df`, and traversing overlay2's
-  # hundreds of thousands of inodes is precisely what blew the du timeout —
-  # leaving the NON-docker usage (the part only this walk can attribute)
-  # invisible during capacity incidents.
-  if command -v timeout >/dev/null 2>&1; then
-    timeout "${CAPACITY_DU_TIMEOUT_SECONDS}s" du -x -B1 -d1 \
-      --exclude="$(docker_root)" --exclude=/var/lib/containerd \
-      "${path}" > "${snapshot_file}" 2>/dev/null
-  else
-    du -x -B1 -d1 \
-      --exclude="$(docker_root)" --exclude=/var/lib/containerd \
-      "${path}" > "${snapshot_file}" 2>/dev/null
-  fi
+  # hundreds of thousands of inodes is precisely what blew the du timeout.
+  # A single root walk prevents nested scopes from multiplying that timeout.
+  local -a du_command=(du -x -B1 "-d${depth}" "--exclude=$(docker_root)" --exclude=/var/lib/containerd /)
+  timeout --signal=TERM --kill-after="${CAPACITY_DU_KILL_GRACE_SECONDS}s" \
+    "${CAPACITY_DU_TIMEOUT_SECONDS}s" \
+    "${du_command[@]}" > "${snapshot_file}" 2>/dev/null
 }
 
 disk_usage_snapshot() {
@@ -162,29 +166,56 @@ disk_usage_snapshot() {
     return 0
   fi
 
+  local depth
+  depth="$(disk_usage_depth)"
+
+  if ! command -v timeout >/dev/null 2>&1; then
+    echo "  disk_usage_unavailable reason=timeout_command_missing"
+    return 0
+  fi
+
+  case "${CAPACITY_DU_TIMEOUT_SECONDS}" in
+    ''|*[!0-9]*|0|0*)
+      echo "  disk_usage_unavailable reason=invalid_timeout_seconds value=${CAPACITY_DU_TIMEOUT_SECONDS} allowed_range=1-${CAPACITY_DU_TIMEOUT_MAX_SECONDS}"
+      return 0
+      ;;
+  esac
+  if [ "${#CAPACITY_DU_TIMEOUT_SECONDS}" -gt "${#CAPACITY_DU_TIMEOUT_MAX_SECONDS}" ] ||
+    { [ "${#CAPACITY_DU_TIMEOUT_SECONDS}" -eq "${#CAPACITY_DU_TIMEOUT_MAX_SECONDS}" ] &&
+      [[ "${CAPACITY_DU_TIMEOUT_SECONDS}" > "${CAPACITY_DU_TIMEOUT_MAX_SECONDS}" ]]; }; then
+    echo "  disk_usage_unavailable reason=invalid_timeout_seconds value=${CAPACITY_DU_TIMEOUT_SECONDS} allowed_range=1-${CAPACITY_DU_TIMEOUT_MAX_SECONDS}"
+    return 0
+  fi
+
   local snapshot_file
   if ! snapshot_file="$(mktemp "${TMPDIR:-/tmp}/aqua-capacity-du.XXXXXX")"; then
     echo "  disk_usage_unavailable reason=mktemp_failed"
     return 0
   fi
 
-  local path
   local du_status
-  while IFS= read -r path; do
-    [ -n "${path}" ] || continue
-    [ -d "${path}" ] || continue
-    echo "  scope=${path}"
-    if du_scope_snapshot "${path}" "${snapshot_file}"; then
-      if ! sort -nr "${snapshot_file}" | awk 'NR <= 20 {printf "    bytes=%s path=%s\n", $1, $2}'; then
-        echo "    disk_usage_unavailable path=${path} reason=sort_or_format_failed"
-      fi
-    else
-      du_status=$?
-      echo "    disk_usage_unavailable path=${path} exit_status=${du_status} timeout_seconds=${CAPACITY_DU_TIMEOUT_SECONDS}"
+  echo "  scope=/ max_depth=${depth} excludes=$(docker_root),/var/lib/containerd"
+  echo "  timeout_seconds=${CAPACITY_DU_TIMEOUT_SECONDS} kill_grace_seconds=${CAPACITY_DU_KILL_GRACE_SECONDS} required_non_du_headroom_seconds=${CAPACITY_NON_DU_HEADROOM_SECONDS}"
+  if du_filesystem_snapshot "${snapshot_file}" "${depth}"; then
+    if ! sort -nr "${snapshot_file}" | awk 'NR <= 40 {printf "    bytes=%s path=%s\n", $1, $2}'; then
+      echo "    disk_usage_unavailable path=/ reason=sort_or_format_failed"
     fi
-  done < <(disk_usage_paths)
+  else
+    du_status=$?
+    case "${du_status}" in
+      124|137)
+        echo "    disk_usage_unavailable path=/ reason=timeout exit_status=${du_status} timeout_seconds=${CAPACITY_DU_TIMEOUT_SECONDS}"
+        ;;
+      *)
+        echo "    disk_usage_unavailable path=/ reason=du_failed exit_status=${du_status} timeout_seconds=${CAPACITY_DU_TIMEOUT_SECONDS}"
+        ;;
+    esac
+  fi
 
-  rm -f "${snapshot_file}"
+  rm -f "${snapshot_file}" || true
+  # Diagnostics are evidence only. In particular, timeout(1)'s 124/137 must
+  # never replace the canonical capacity verdict captured by run_gate.
+  return 0
 }
 
 docker_image_inventory() {
@@ -279,8 +310,9 @@ capacity_core_snapshot() {
 }
 
 capacity_diagnostic_snapshot() {
-  disk_usage_snapshot
-  docker_image_inventory
+  disk_usage_snapshot || echo "  disk_usage_unavailable reason=unexpected_diagnostic_failure"
+  docker_image_inventory || echo "  docker_image_inventory_unavailable reason=unexpected_diagnostic_failure"
+  return 0
 }
 
 capacity_snapshot() {
@@ -545,13 +577,7 @@ run_gate() {
   local rc=$?
   set -e
 
-  if [ "${rc}" -eq 0 ]; then
-    capacity_diagnostic_snapshot
-    echo "Capacity preflight: PASS"
-    return 0
-  fi
-
-  if [ "${CAPACITY_GC_MODE}" = "auto" ]; then
+  if [ "${rc}" -ne 0 ] && [ "${CAPACITY_GC_MODE}" = "auto" ]; then
     echo "Capacity preflight: warning/failure before GC; running one safe image-only GC pass."
     safe_image_gc
     capacity_core_snapshot
@@ -562,10 +588,13 @@ run_gate() {
     set -e
   fi
 
+  # Exactly one diagnostic traversal follows the final threshold verdict.
+  # It is deliberately outside the verdict-producing section so a timeout
+  # emits unavailable evidence without changing rc.
   capacity_diagnostic_snapshot
 
   if [ "${rc}" -eq 0 ]; then
-    echo "Capacity preflight: PASS after safe GC"
+    echo "Capacity preflight: PASS"
     return 0
   fi
 

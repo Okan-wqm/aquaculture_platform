@@ -101,24 +101,21 @@ jobs:
 
             git checkout -f "${TARGET_SHA}"
             export DEPLOY_SHA="${TARGET_SHA}"
-            # Maintenance is the capacity-triage surface: deep per-directory
-            # attribution (/var, /var/log, /var/aqua-saas, ...) so incident
-            # reports show WHERE non-docker bytes live. The deploy-time
-            # preflight gate keeps the fast summary mode.
-            export CAPACITY_DISK_USAGE_MODE=deep
 
             case "${OPERATION}" in
               report)
-                bash scripts/deploy/droplet-capacity.sh report
+                CAPACITY_DISK_USAGE_MODE=deep bash scripts/deploy/droplet-capacity.sh report
                 ;;
               safe-image-gc)
-                bash scripts/deploy/droplet-capacity.sh report
+                # Capture cheap, non-du pre-state evidence, then spend the
+                # single deep-scan budget only after GC when the final gate
+                # has established its capacity verdict.
+                CAPACITY_DISK_USAGE_MODE=off bash scripts/deploy/droplet-capacity.sh report
                 bash scripts/deploy/droplet-capacity.sh gc
-                bash scripts/deploy/droplet-capacity.sh report
-                CAPACITY_GC_MODE=off bash scripts/deploy/droplet-capacity.sh gate
+                CAPACITY_GC_MODE=off CAPACITY_DISK_USAGE_MODE=deep bash scripts/deploy/droplet-capacity.sh gate
                 ;;
               gate)
-                CAPACITY_GC_MODE=auto bash scripts/deploy/droplet-capacity.sh gate
+                CAPACITY_GC_MODE=auto CAPACITY_DISK_USAGE_MODE=deep bash scripts/deploy/droplet-capacity.sh gate
                 ;;
               *)
                 echo "::error::Unsupported operation: ${OPERATION}"

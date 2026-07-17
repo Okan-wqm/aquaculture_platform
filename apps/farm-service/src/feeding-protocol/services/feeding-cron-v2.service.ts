@@ -2,7 +2,9 @@
  * FeedingCronV2Service — öğün motorunun zamanlanmış işleri (Faz 5, plan §2 tablosu).
  *
  * | 05:30 | DAILY growth rollup + dünkü beslenmemiş öğünler `missed` (+event) +
- * |       | bayat partially_fed öğünlerin otomatik finalize'ı (D-8)           |
+ * |       | bayat partially_fed öğünlerin otomatik finalize'ı (D-8) — per_meal |
+ * |       | modda büyüme finalize'da uygulanır (FARM-MEDIUM-227), daily mod    |
+ * |       | rollup'ta; ünite gruplu, kanonik kilit sırası (K-1)                |
  * | 06:00 | Tüm aktif atamalar için day plan + öğün üretimi (idempotent) +    |
  * |       | plansız-ünite tespiti — UnfedUnitDetected (D-5, sessiz aç kalma   |
  * |       | imkânsız)                                                         |
@@ -61,7 +63,10 @@ import { FeedingDayPlan, FeedingDayPlanStatus } from '../entities/feeding-day-pl
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { MealPlanGeneratorService, ComputedDayPlan } from './meal-plan-generator.service';
-import { BiomassGrowthApplierService } from './biomass-growth-applier.service';
+import {
+  BiomassGrowthApplierService,
+  type LockedUnit,
+} from './biomass-growth-applier.service';
 import {
   WaterTemperatureService,
   type EffectiveTemperature,
@@ -509,50 +514,115 @@ export class FeedingCronV2Service {
       const manager = queryRunner.manager;
       const cutoff = new Date(Date.now() - 6 * 60 * 60 * 1000); // pencere: 6 saat
 
-      // (a) Hiç döküm görmemiş, penceresi geçmiş öğünler → missed + event.
-      const missed = await manager.find(FeedingMeal, {
-        where: { tenantId, status: FeedingMealStatus.SCHEDULED },
-        order: { scheduledAt: 'ASC' },
-      });
-      for (const meal of missed) {
-        if (meal.scheduledAt >= cutoff) continue;
-        meal.status = FeedingMealStatus.MISSED;
-        await manager.save(meal);
-        const dayPlan = await manager.findOne(FeedingDayPlan, {
-          where: { id: meal.dayPlanId, tenantId },
-        });
-        const event: MealMissedEvent = {
-          ...createBaseEvent<MealMissedEvent>('MealMissed', tenantId, {
-            aggregateId: meal.id,
-            aggregateType: 'FeedingMeal',
-          }),
-          unitId: meal.unitId,
-          unitCode: dayPlan?.unitCode ?? '',
-          mealId: meal.id,
-          dayPlanId: meal.dayPlanId,
-          scheduledAt: toEventIso(meal.scheduledAt),
-        };
-        await this.outboxPublisher.enqueue(event, manager);
-      }
+      // (a)+(b) adayları kilitsiz okunur; işlem ÜNİTE gruplu ve unitId-artan
+      // sırada koşar (K-1: rollup ile aynı yön). Growth kilidi gereken ünitede
+      // Batch → TankBatch kilidi, o ünitenin HERHANGİ bir meal yazımından ÖNCE
+      // alınır — meal-satırı-önce/kilit-sonra AB-BA penceresi yapısal kapalı.
+      const [missedCandidates, partialCandidates] = await Promise.all([
+        manager.find(FeedingMeal, {
+          where: { tenantId, status: FeedingMealStatus.SCHEDULED },
+          order: { unitId: 'ASC', scheduledAt: 'ASC' },
+        }),
+        manager.find(FeedingMeal, {
+          where: { tenantId, status: FeedingMealStatus.PARTIALLY_FED },
+          order: { unitId: 'ASC', scheduledAt: 'ASC' },
+        }),
+      ]);
+      const overdueMissed = missedCandidates.filter((meal) => meal.scheduledAt < cutoff);
+      const overduePartials = partialCandidates.filter((meal) => meal.scheduledAt < cutoff);
 
-      // (b) Bayat partially_fed → otomatik finalize (D-8 pencere kapanışı):
-      // varyans hesaplanır; growth DAILY rollup'ta uygulanır (aşağıda) — sweep
-      // finalize'ı growth uygulamaz, çift uygulama imkânsız.
-      const stalePartials = await manager.find(FeedingMeal, {
-        where: { tenantId, status: FeedingMealStatus.PARTIALLY_FED },
-      });
-      for (const meal of stalePartials) {
-        if (meal.scheduledAt >= cutoff) continue;
-        meal.status = FeedingMealStatus.FED;
-        meal.fedAt = new Date();
-        meal.varianceKg = round3(Number(meal.actualKg) - Number(meal.plannedKg));
-        meal.variancePercent =
-          Number(meal.plannedKg) > 0
-            ? round3(
-                ((Number(meal.actualKg) - Number(meal.plannedKg)) / Number(meal.plannedKg)) * 100,
-              )
-            : 0;
-        await manager.save(meal);
+      // Gün planları + protokoller TOPLU yüklenir (öğün başına sorgu yok).
+      const sweepDayPlanIds = [
+        ...new Set([...overdueMissed, ...overduePartials].map((meal) => meal.dayPlanId)),
+      ];
+      const sweepDayPlans = sweepDayPlanIds.length
+        ? await manager.find(FeedingDayPlan, {
+            where: { tenantId, id: In(sweepDayPlanIds) },
+          })
+        : [];
+      const dayPlanById = new Map(sweepDayPlans.map((dp) => [dp.id, dp]));
+      const sweepProtocolIds = [...new Set(sweepDayPlans.map((dp) => dp.protocolId))];
+      const sweepProtocols = sweepProtocolIds.length
+        ? await manager.find(FeedingProtocolV2, {
+            where: { tenantId, id: In(sweepProtocolIds) },
+          })
+        : [];
+      const sweepProtocolById = new Map(sweepProtocols.map((p) => [p.id, p]));
+
+      /**
+       * per_meal modda bayat kısmi finalize BÜYÜME UYGULAR (FARM-MEDIUM-227):
+       * growthKg = actualKg / snapshot.expectedFcr — recordMealFeeding
+       * finalize'ıyla AYNI hesap ve provenans. daily mod rollup'a (c) kalır;
+       * çift uygulama imkânsız (mod başına tek yol).
+       */
+      const needsPerMealGrowth = (meal: FeedingMeal): boolean => {
+        const dayPlan = dayPlanById.get(meal.dayPlanId);
+        const protocol = dayPlan ? sweepProtocolById.get(dayPlan.protocolId) : undefined;
+        return (
+          protocol?.settings.growthApplicationMode !== 'daily' &&
+          Number(meal.actualKg) > 0 &&
+          (dayPlan?.snapshot.expectedFcr ?? 0) > 0
+        );
+      };
+
+      const sweepUnitIds = [
+        ...new Set([...overdueMissed, ...overduePartials].map((meal) => meal.unitId)),
+      ].sort();
+      for (const unitId of sweepUnitIds) {
+        const unitMissed = overdueMissed.filter((meal) => meal.unitId === unitId);
+        const unitPartials = overduePartials.filter((meal) => meal.unitId === unitId);
+        const growthMeals = unitPartials.filter(needsPerMealGrowth);
+
+        let locked: LockedUnit | null = null;
+        if (growthMeals.length > 0) {
+          locked = await this.growthApplier.lockUnitForGrowth(manager, tenantId, unitId);
+        }
+
+        // (a) Hiç döküm görmemiş, penceresi geçmiş öğünler → missed + event.
+        for (const meal of unitMissed) {
+          meal.status = FeedingMealStatus.MISSED;
+          await manager.save(meal);
+          const event: MealMissedEvent = {
+            ...createBaseEvent<MealMissedEvent>('MealMissed', tenantId, {
+              aggregateId: meal.id,
+              aggregateType: 'FeedingMeal',
+            }),
+            unitId: meal.unitId,
+            unitCode: dayPlanById.get(meal.dayPlanId)?.unitCode ?? '',
+            mealId: meal.id,
+            dayPlanId: meal.dayPlanId,
+            scheduledAt: toEventIso(meal.scheduledAt),
+          };
+          await this.outboxPublisher.enqueue(event, manager);
+        }
+
+        // (b) Bayat partially_fed → otomatik finalize (D-8 pencere kapanışı):
+        // varyans hesaplanır; per_meal modda büyüme BURADA uygulanır (yukarıda
+        // alınan kanonik kilitle), daily mod rollup'a (c) kalır.
+        for (const meal of unitPartials) {
+          meal.status = FeedingMealStatus.FED;
+          meal.fedAt = new Date();
+          meal.varianceKg = round3(Number(meal.actualKg) - Number(meal.plannedKg));
+          meal.variancePercent =
+            Number(meal.plannedKg) > 0
+              ? round3(
+                  ((Number(meal.actualKg) - Number(meal.plannedKg)) / Number(meal.plannedKg)) *
+                    100,
+                )
+              : 0;
+          await manager.save(meal);
+
+          if (locked && needsPerMealGrowth(meal)) {
+            const expectedFcr = dayPlanById.get(meal.dayPlanId)!.snapshot.expectedFcr;
+            await this.growthApplier.applyGrowth(
+              manager,
+              tenantId,
+              locked,
+              Number(meal.actualKg) / expectedFcr,
+              expectedFcr,
+            );
+          }
+        }
       }
 
       // (c) DAILY-mod rollup: dünün (ve öncesinin) rollup görmemiş planları —

@@ -43,6 +43,9 @@ export interface CreateVfdDeviceInput {
   modelSeries?: string;
   pumpId?: string;
   notes?: string;
+  // SENSOR-CRITICAL-007: edge-delegated write binding (both-or-neither).
+  edgeDeviceId?: string;
+  edgeModbusDeviceName?: string;
 }
 
 /**
@@ -60,6 +63,9 @@ export interface UpdateVfdDeviceInput {
   tankId?: string;
   tags?: string[];
   status?: VfdDeviceStatus;
+  // SENSOR-CRITICAL-007: edge-delegated write binding (both-or-neither).
+  edgeDeviceId?: string;
+  edgeModbusDeviceName?: string;
 }
 
 /**
@@ -105,6 +111,11 @@ export class VfdDeviceService {
 
     // Validate protocol configuration
     this.validateProtocolConfiguration(input.protocol, input.protocolConfiguration);
+
+    // SENSOR-CRITICAL-007: a drive is either fully bound to an edge gateway or
+    // not bound at all — a half-bound record (gateway without a Modbus device
+    // name, or vice versa) could never be dispatched to and must be rejected.
+    this.validateEdgeBinding(input.edgeDeviceId, input.edgeModbusDeviceName);
 
     const { notes, ...rest } = input;
     const deviceData: DeepPartial<VfdDevice> = {
@@ -224,6 +235,11 @@ export class VfdDeviceService {
     // Update fields
     Object.assign(device, input);
     device.updatedAt = new Date();
+
+    // SENSOR-CRITICAL-007: enforce both-or-neither on the RESULTING binding — an
+    // update that sets only one half (or clears only one half) would leave a
+    // half-bound record that can never be dispatched to.
+    this.validateEdgeBinding(device.edgeDeviceId, device.edgeModbusDeviceName);
 
     const updatedDevice = await this.vfdDeviceRepository.save(device);
     this.logger.log(`VFD device ${id} updated`);
@@ -435,6 +451,27 @@ export class VfdDeviceService {
       byProtocol,
       byStatus,
     };
+  }
+
+  /**
+   * SENSOR-CRITICAL-007: the edge-delegated write path addresses a drive by its
+   * owning edge gateway (edgeDeviceId → MQTT command topic) AND the Modbus
+   * `device` name that gateway exposes for it. One without the other cannot
+   * route a write_modbus envelope, so the pair is enforced both-or-neither at
+   * every write (create + update) — a half-bound record is rejected rather than
+   * silently stored and later found undispatchable.
+   */
+  private validateEdgeBinding(
+    edgeDeviceId: string | null | undefined,
+    edgeModbusDeviceName: string | null | undefined,
+  ): void {
+    const hasGateway = edgeDeviceId != null && edgeDeviceId !== '';
+    const hasDeviceName = edgeModbusDeviceName != null && edgeModbusDeviceName.trim() !== '';
+    if (hasGateway !== hasDeviceName) {
+      throw new BadRequestException(
+        'Edge binding requires both edgeDeviceId and edgeModbusDeviceName together, or neither',
+      );
+    }
   }
 
   /**

@@ -4,6 +4,7 @@ import { strict as assert } from 'node:assert';
 import { execFileSync, spawn } from 'node:child_process';
 import {
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -88,6 +89,27 @@ if (childMode === '--worktree-allocator-child') {
   void test('nextFindingId rejects malformed domains and exhausted sequences', () => {
     assert.throws(() => nextFindingId('farm', 'LOW', []), /uppercase alphanumeric/);
     assert.throws(() => nextFindingId('INFRA', 'CRITICAL', ['INFRA-LOW-999']), /space exhausted/);
+  });
+
+  void test('non-Error action failures remain observable with native cause semantics', () => {
+    const resourcePath = join(fixtureRoot, 'non-error-action.jsonl');
+    const nonErrorFailure: unknown = undefined;
+    let captured: unknown;
+    try {
+      withRegistryFileLock(resourcePath, () => {
+        throw nonErrorFailure;
+      });
+      assert.fail('throw undefined must not be treated as a successful action');
+    } catch (error) {
+      captured = error;
+    }
+
+    assert.ok(captured instanceof Error);
+    assert.match(captured.message, /action threw a non-Error value/);
+    assert.ok('cause' in captured);
+    assert.equal((captured as Error & { cause: unknown }).cause, undefined);
+    assert.equal(Object.prototype.propertyIsEnumerable.call(captured, 'cause'), false);
+    assert.equal(existsSync(`${resourcePath}.lock`), false);
   });
 
   void test('Git common-dir authority serializes and reserves across active worktrees', async () => {

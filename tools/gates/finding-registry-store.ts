@@ -73,6 +73,17 @@ function isErrno(error: unknown, code: string): boolean {
   return error instanceof Error && 'code' in error && error.code === code;
 }
 
+function errorWithCause(message: string, cause: unknown): Error & { cause: unknown } {
+  const error = new Error(message) as Error & { cause: unknown };
+  Object.defineProperty(error, 'cause', {
+    configurable: true,
+    enumerable: false,
+    value: cause,
+    writable: true,
+  });
+  return error;
+}
+
 function parseLockRecord(raw: string): LockRecord | null {
   let value: unknown;
   try {
@@ -284,27 +295,31 @@ export function withRegistryFileLock<T>(
   const lockPath = options.lockPath ?? `${resourcePath}.lock`;
   const lease = acquireRegistryLock(resourcePath, lockPath, options);
   let result: T | undefined;
+  let actionFailed = false;
   let actionError: unknown;
   try {
     result = action(lease);
   } catch (error) {
+    actionFailed = true;
     actionError = error;
   }
 
+  let releaseFailed = false;
   let releaseError: unknown;
   try {
     releaseRegistryLock(lease);
   } catch (error) {
+    releaseFailed = true;
     releaseError = error;
   }
 
-  if (actionError !== undefined) {
+  if (actionFailed) {
     if (actionError instanceof Error) throw actionError;
-    throw new Error('Registry action threw a non-Error value.', { cause: actionError });
+    throw errorWithCause('Registry action threw a non-Error value.', actionError);
   }
-  if (releaseError !== undefined) {
+  if (releaseFailed) {
     if (releaseError instanceof Error) throw releaseError;
-    throw new Error('Registry lock release threw a non-Error value.', { cause: releaseError });
+    throw errorWithCause('Registry lock release threw a non-Error value.', releaseError);
   }
   return result as T;
 }

@@ -1349,6 +1349,14 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Get device from cache or fetch from DB.
+   *
+   * SECURITY / DATA-INTEGRITY: MQTT handlers run outside any HTTP/GraphQL
+   * request, so AsyncLocalStorage carries no tenant. edge_devices is a
+   * per-tenant table, so an unscoped findByCode resolves against the empty
+   * source-schema template and returns null — silently dropping the io_data
+   * and alarm persistence that depend on this lookup. Wrap the fetch in
+   * withTenantContext so the pool patch pins the correct tenant search_path,
+   * matching getCachedIoConfigs and the device_events save.
    */
   private async getCachedDevice(tenantId: string, deviceCode: string): Promise<EdgeDevice | null> {
     const cacheKey = `${tenantId}:${deviceCode}`;
@@ -1357,7 +1365,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       return cached.device;
     }
 
-    const device = await this.edgeDeviceService?.findByCode(deviceCode, tenantId);
+    const device = await withTenantContext(tenantId, async () =>
+      this.edgeDeviceService?.findByCode(deviceCode, tenantId),
+    );
     if (device) {
       this.deviceCache.set(cacheKey, { device, expiry: Date.now() + this.DEVICE_CACHE_TTL_MS });
     }

@@ -14,6 +14,8 @@
 import { ConfigService } from '@nestjs/config';
 import { DataSource, Repository, SelectQueryBuilder } from 'typeorm';
 
+import { getRequestContext } from '@aquaculture/backend-common/logging';
+
 import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
 import { Sensor, SensorStatus } from '../../database/entities/sensor.entity';
 import { DeviceEvent } from '../../edge-device/entities/device-event.entity';
@@ -912,6 +914,51 @@ describe('MqttListenerService', () => {
             deviceCode: DEVICE_CODE,
           }),
         );
+      });
+
+      // SENSOR-HIGH-074: the device lookup that gates io_data + alarm
+      // persistence must run inside a tenant context, otherwise the per-tenant
+      // edge_devices query hits the empty source-schema template, returns null,
+      // and both writes are silently dropped.
+      it('resolves the edge device inside a tenant context for io_data persistence', async () => {
+        const { service, edgeDeviceService } = buildService();
+        let lookupTenantId: string | undefined = 'NOT_CALLED_IN_CONTEXT';
+        edgeDeviceService!.findByCode.mockImplementation(async () => {
+          lookupTenantId = getRequestContext().tenantId;
+          return null;
+        });
+
+        await callHandleMessage(
+          service,
+          `tenants/${TENANT_ID}/devices/${DEVICE_CODE}/io_data`,
+          JSON.stringify({
+            timestamp: '2026-03-14T12:00:00Z',
+            tags: { temp_inlet: { value: 23.5, quality: 'good' } },
+          }),
+        );
+
+        expect(edgeDeviceService!.findByCode).toHaveBeenCalledWith(DEVICE_CODE, TENANT_ID);
+        expect(lookupTenantId).toBe(TENANT_ID);
+      });
+
+      it('resolves the edge device inside a tenant context for alarm persistence', async () => {
+        const { service, edgeDeviceService } = buildService();
+        let lookupTenantId: string | undefined = 'NOT_CALLED_IN_CONTEXT';
+        edgeDeviceService!.findByCode.mockImplementation(async () => {
+          lookupTenantId = getRequestContext().tenantId;
+          return null;
+        });
+
+        await callHandleMessage(
+          service,
+          `tenants/${TENANT_ID}/devices/${DEVICE_CODE}/alarms`,
+          JSON.stringify({
+            timestamp: '2026-03-14T12:00:00Z',
+            alarms: [{ tag: 'temp_inlet', type: 'HIGH', priority: 'high', value: 99, setpoint: 80 }],
+          }),
+        );
+
+        expect(lookupTenantId).toBe(TENANT_ID);
       });
 
       it('should reject io_data with payload exceeding 64KB', async () => {

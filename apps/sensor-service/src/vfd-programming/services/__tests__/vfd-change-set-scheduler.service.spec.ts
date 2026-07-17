@@ -85,9 +85,12 @@ async function buildService(opts: {
     findOne: jest.fn().mockResolvedValue(opts.reloaded ?? makeChangeSet()),
   };
   const parameterWriter = {
-    applyChangeSet: jest.fn().mockImplementation(
-      opts.applyImpl ?? (async (cs: VfdChangeSet) => ({ ...cs, status: VfdChangeSetStatus.APPLIED })),
-    ),
+    applyChangeSet: jest
+      .fn()
+      .mockImplementation(
+        opts.applyImpl ??
+          (async (cs: VfdChangeSet) => ({ ...cs, status: VfdChangeSetStatus.APPLIED })),
+      ),
   };
   const eventEmitter = { emit: jest.fn() };
 
@@ -187,5 +190,45 @@ describe('VfdChangeSetSchedulerService', () => {
     await first;
 
     expect(parameterWriter.applyChangeSet).toHaveBeenCalledTimes(1);
+  });
+
+  describe('handleApprovedChangeSet — immediate approve→apply (SENSOR-CRITICAL-009)', () => {
+    it('applies a manually-approved set immediately in its tenant context', async () => {
+      let applyTenantId: string | undefined = 'NOT_IN_CONTEXT';
+      const { service, parameterWriter } = await buildService({
+        applyImpl: async (cs) => {
+          applyTenantId = getRequestContext().tenantId;
+          return { ...cs, status: VfdChangeSetStatus.VERIFIED };
+        },
+      });
+
+      await service.handleApprovedChangeSet({ changeSetId: 'cs-1', tenantId: TENANT_ID });
+
+      expect(parameterWriter.applyChangeSet).toHaveBeenCalledTimes(1);
+      expect(applyTenantId).toBe(TENANT_ID);
+    });
+
+    it('does not apply when the set is no longer APPROVED (cancelled / already applied)', async () => {
+      const { service, parameterWriter } = await buildService({
+        reloaded: makeChangeSet({ status: VfdChangeSetStatus.CANCELLED }),
+      });
+
+      await service.handleApprovedChangeSet({ changeSetId: 'cs-1', tenantId: TENANT_ID });
+
+      expect(parameterWriter.applyChangeSet).not.toHaveBeenCalled();
+    });
+
+    it('swallows apply failures so the event handler never rejects', async () => {
+      const { service, parameterWriter } = await buildService({
+        applyImpl: async () => {
+          throw new Error('drive comm failure');
+        },
+      });
+
+      await expect(
+        service.handleApprovedChangeSet({ changeSetId: 'cs-1', tenantId: TENANT_ID }),
+      ).resolves.toBeUndefined();
+      expect(parameterWriter.applyChangeSet).toHaveBeenCalledTimes(1);
+    });
   });
 });

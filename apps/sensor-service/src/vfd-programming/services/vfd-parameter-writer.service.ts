@@ -162,6 +162,15 @@ export class VfdParameterWriterService {
       changeSet.appliedAt = new Date();
       await this.changeSetRepo.save(changeSet);
       this.eventEmitter.emit('vfd.changeset.applied', { changeSetId: changeSet.id });
+
+      // SENSOR-CRITICAL-009: every item was written AND edge-readback-verified
+      // inline (the edge's FC6 verify_write_readback), so the applied set is
+      // confirmed on the drive. Advance to VERIFIED instead of stranding the set
+      // at APPLIED with no writer for the terminal transition.
+      changeSet.status = VfdChangeSetStatus.VERIFIED;
+      changeSet.verifiedAt = new Date();
+      await this.changeSetRepo.save(changeSet);
+      this.eventEmitter.emit('vfd.changeset.verified', { changeSetId: changeSet.id });
     } else {
       await this.rollbackAppliedItems(device, appliedItems, itemDefs);
       changeSet.status = VfdChangeSetStatus.FAILED;

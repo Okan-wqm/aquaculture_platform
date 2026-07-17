@@ -209,7 +209,8 @@ describe('VfdParameterWriterService', () => {
 
       const result = await service.applyChangeSet(changeSet);
 
-      expect(result.status).toBe(VfdChangeSetStatus.APPLIED);
+      // Edge readback-verified every write inline, so the set reaches VERIFIED.
+      expect(result.status).toBe(VfdChangeSetStatus.VERIFIED);
       expect(item.previousValue).toBe(3.0);
       expect(item.appliedValue).toBe(5.0); // wire 50 * 0.1
       expect(item.status).toBe(VfdChangeSetItemStatus.APPLIED);
@@ -221,6 +222,9 @@ describe('VfdParameterWriterService', () => {
         expect.any(String),
       );
       expect(eventEmitter.emit).toHaveBeenCalledWith('vfd.changeset.applied', {
+        changeSetId: 'cs-1',
+      });
+      expect(eventEmitter.emit).toHaveBeenCalledWith('vfd.changeset.verified', {
         changeSetId: 'cs-1',
       });
       expect(auditLogRepo.save).toHaveBeenCalled();
@@ -460,7 +464,7 @@ describe('VfdParameterWriterService', () => {
 
       const result = await service.applyChangeSet(changeSet);
 
-      expect(result.status).toBe(VfdChangeSetStatus.APPLIED);
+      expect(result.status).toBe(VfdChangeSetStatus.VERIFIED);
       expect(item.status).toBe(VfdChangeSetItemStatus.APPLIED);
       expect(edgeWriteService.writeRegister).toHaveBeenCalledTimes(2);
     });

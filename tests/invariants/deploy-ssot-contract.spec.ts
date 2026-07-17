@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -191,32 +193,47 @@ describe('deploy SSOT contract', () => {
 
   it('reports droplet capacity evidence without mutating data-bearing storage', () => {
     const capacity = read('scripts/deploy/droplet-capacity.sh');
+    const duFunction = /du_filesystem_snapshot\(\) \{[\s\S]*?\n\}/.exec(capacity)?.[0] ?? '';
 
     expect(capacity).toContain('Top-level disk usage (same filesystem only):');
     expect(capacity).toContain('Docker image inventory:');
-    expect(capacity).toContain('du -x -B1 -d1');
+    expect(duFunction).not.toEqual('');
+    expect((capacity.match(/\bdu -x -B1/g) ?? []).length).toBe(1);
+    expect(duFunction).toContain('"-d${depth}"');
     expect(capacity).toContain('docker image ls --format');
     expect(capacity).toContain('CAPACITY_DISK_USAGE_MODE');
     expect(capacity).toContain('CAPACITY_DU_TIMEOUT_SECONDS');
     expect(capacity).toContain('CAPACITY_DU_TIMEOUT_SECONDS="${CAPACITY_DU_TIMEOUT_SECONDS:-120}"');
+    expect(capacity).toContain('CAPACITY_DU_TIMEOUT_MAX_SECONDS=120');
+    expect(capacity).toContain('CAPACITY_DU_KILL_GRACE_SECONDS=5');
+    expect(capacity).toContain('CAPACITY_NON_DU_HEADROOM_SECONDS=300');
+    expect(capacity).toContain('CAPACITY_SUMMARY_DU_DEPTH=1');
+    expect(capacity).toContain('CAPACITY_DEEP_DU_DEPTH=3');
     // Docker subtrees are excluded from the du walk — their bytes come from
     // `docker system df`; traversing overlay2 inodes is what timed the walk
     // out exactly when capacity triage needed the non-docker attribution.
-    expect(capacity).toContain('--exclude="$(docker_root)" --exclude=/var/lib/containerd');
+    expect(duFunction).toContain('"--exclude=$(docker_root)"');
+    expect(duFunction).toContain('--exclude=/var/lib/containerd /)');
+    // A single root traversal at depth 3 replaces the old nested /, /var,
+    // /var/lib, /var/aqua-saas, and /tmp scan loop.
+    expect(capacity).not.toContain('disk_usage_paths()');
+    expect(capacity).toContain('scope=/ max_depth=${depth}');
     expect(capacity).toContain('disk_usage_unavailable');
     expect(capacity).toContain('detect_docker_root');
     expect(capacity).toContain("awk 'NF {print; exit}'");
-    expect(capacity).toContain("awk 'NR <= 20");
-    expect(capacity).not.toContain('head -20');
+    expect(capacity).toContain("awk 'NR <= 40");
+    expect(capacity).not.toContain('head -40');
   });
 
-  it('keeps capacity diagnostics bounded below the deploy preflight timeout', () => {
+  it('keeps one final capacity diagnostic bounded below deploy and maintenance budgets', () => {
     const capacity = read('scripts/deploy/droplet-capacity.sh');
     const workflow = read('.github/workflows/deploy-digitalocean.yml');
+    const maintenance = read('.github/workflows/deploy-capacity-maintenance.yml');
     const capacityJobBlock =
       /\n {2}capacity-preflight:\n[\s\S]*?\n {2}# ===========================================================================/.exec(
         workflow,
       )?.[0] ?? '';
+    const maintenanceJobBlock = /\n {2}capacity-maintenance:\n[\s\S]*/.exec(maintenance)?.[0] ?? '';
     const runGateStart = capacity.indexOf('run_gate() {');
     const runGateEnd = capacity.indexOf('case "${command}"');
     const runGateBlock =
@@ -225,21 +242,205 @@ describe('deploy SSOT contract', () => {
         : '';
 
     expect(capacityJobBlock).not.toEqual('');
+    expect(maintenanceJobBlock).not.toEqual('');
     expect(runGateBlock).not.toEqual('');
     expect(runGateBlock).toContain('capacity_core_snapshot');
     expect(runGateBlock).toContain('capacity_diagnostic_snapshot');
     expect(runGateBlock).not.toContain('capacity_snapshot');
-    expect((runGateBlock.match(/capacity_diagnostic_snapshot/g) ?? []).length).toBe(2);
+    expect((runGateBlock.match(/capacity_diagnostic_snapshot/g) ?? []).length).toBe(1);
+    expect(runGateBlock.indexOf('capacity_diagnostic_snapshot')).toBeGreaterThan(
+      runGateBlock.lastIndexOf('capacity_failures'),
+    );
 
     const duTimeoutSeconds = Number(
       /CAPACITY_DU_TIMEOUT_SECONDS="\$\{CAPACITY_DU_TIMEOUT_SECONDS:-(\d+)\}"/.exec(capacity)?.[1],
     );
+    const duKillGraceSeconds = Number(/CAPACITY_DU_KILL_GRACE_SECONDS=(\d+)/.exec(capacity)?.[1]);
+    const nonDuHeadroomSeconds = Number(
+      /CAPACITY_NON_DU_HEADROOM_SECONDS=(\d+)/.exec(capacity)?.[1],
+    );
     const jobTimeoutMinutes = Number(/timeout-minutes:\s*(\d+)/.exec(capacityJobBlock)?.[1]);
     const commandTimeoutMinutes = Number(/command_timeout:\s*(\d+)m/.exec(capacityJobBlock)?.[1]);
+    const maintenanceJobTimeoutMinutes = Number(
+      /timeout-minutes:\s*(\d+)/.exec(maintenanceJobBlock)?.[1],
+    );
+    const maintenanceCommandTimeoutMinutes = Number(
+      /command_timeout:\s*(\d+)m/.exec(maintenanceJobBlock)?.[1],
+    );
 
     expect(duTimeoutSeconds).toBe(120);
+    expect(duKillGraceSeconds).toBe(5);
+    expect(nonDuHeadroomSeconds).toBe(300);
     expect(commandTimeoutMinutes).toBeLessThan(jobTimeoutMinutes);
-    expect(duTimeoutSeconds * 2).toBeLessThan(commandTimeoutMinutes * 60);
+    expect(duTimeoutSeconds + duKillGraceSeconds + nonDuHeadroomSeconds).toBeLessThan(
+      commandTimeoutMinutes * 60,
+    );
+    expect(maintenanceCommandTimeoutMinutes).toBeLessThan(maintenanceJobTimeoutMinutes);
+    expect(duTimeoutSeconds + duKillGraceSeconds + nonDuHeadroomSeconds).toBeLessThan(
+      maintenanceCommandTimeoutMinutes * 60,
+    );
+  });
+
+  it('keeps safe image GC to one post-GC deep traversal', () => {
+    const maintenance = read('.github/workflows/deploy-capacity-maintenance.yml');
+    const safeImageGcBlock = /safe-image-gc\)\n[\s\S]*?\n\s+;;/.exec(maintenance)?.[0] ?? '';
+
+    expect(safeImageGcBlock).not.toEqual('');
+    expect(safeImageGcBlock).toContain(
+      'CAPACITY_DISK_USAGE_MODE=off bash scripts/deploy/droplet-capacity.sh report',
+    );
+    expect(safeImageGcBlock).toContain('bash scripts/deploy/droplet-capacity.sh gc');
+    expect(safeImageGcBlock).toContain(
+      'CAPACITY_GC_MODE=off CAPACITY_DISK_USAGE_MODE=deep bash scripts/deploy/droplet-capacity.sh gate',
+    );
+    expect((safeImageGcBlock.match(/CAPACITY_DISK_USAGE_MODE=deep/g) ?? []).length).toBe(1);
+  });
+
+  it('executes one canonical deep du and rejects over-limit timeouts before invocation', () => {
+    const fakeBin = mkdtempSync(join(tmpdir(), 'aqua-capacity-du-args-'));
+    const invocationLog = join(fakeBin, 'du-invocations.log');
+    const timeoutPath = join(fakeBin, 'timeout');
+    const duPath = join(fakeBin, 'du');
+    const dockerPath = join(fakeBin, 'docker');
+    writeFileSync(
+      timeoutPath,
+      [
+        '#!/usr/bin/env bash',
+        'set -euo pipefail',
+        'while [ "$#" -gt 0 ]; do',
+        '  case "$1" in',
+        '    --signal=*|--kill-after=*) shift ;;',
+        '    *s) shift; break ;;',
+        '    *) exit 64 ;;',
+        '  esac',
+        'done',
+        'exec "$@"',
+        '',
+      ].join('\n'),
+    );
+    writeFileSync(
+      duPath,
+      [
+        '#!/usr/bin/env bash',
+        'set -euo pipefail',
+        'printf "%s\\n" "$*" >> "${DU_INVOCATION_LOG}"',
+        'printf "4096\\t/tmp/capacity-artifact-tree\\n"',
+        '',
+      ].join('\n'),
+    );
+    writeFileSync(
+      dockerPath,
+      '#!/usr/bin/env bash\nif [ "${1:-}" = "info" ]; then echo /var/lib/docker; fi\nexit 0\n',
+    );
+    chmodSync(timeoutPath, 0o755);
+    chmodSync(duPath, 0o755);
+    chmodSync(dockerPath, 0o755);
+
+    try {
+      const report = spawnSync(
+        'bash',
+        [join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh'), 'report'],
+        {
+          env: {
+            ...process.env,
+            PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+            CAPACITY_DISK_USAGE_MODE: 'deep',
+            DU_INVOCATION_LOG: invocationLog,
+            DOCKER_ROOT_DIR: '/var/lib/docker',
+          },
+          encoding: 'utf8',
+        },
+      );
+      expect(report.error).toBeUndefined();
+      expect(report.status).toBe(0);
+      expect(readFileSync(invocationLog, 'utf8').trim().split('\n')).toEqual([
+        '-x -B1 -d3 --exclude=/var/lib/docker --exclude=/var/lib/containerd /',
+      ]);
+      expect(report.stdout).toContain('path=/tmp/capacity-artifact-tree');
+
+      for (const invalidTimeout of ['121', '900']) {
+        const rejected = spawnSync(
+          'bash',
+          [join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh'), 'report'],
+          {
+            env: {
+              ...process.env,
+              PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+              CAPACITY_DISK_USAGE_MODE: 'deep',
+              CAPACITY_DU_TIMEOUT_SECONDS: invalidTimeout,
+              DU_INVOCATION_LOG: invocationLog,
+              DOCKER_ROOT_DIR: '/var/lib/docker',
+            },
+            encoding: 'utf8',
+          },
+        );
+        expect(rejected.error).toBeUndefined();
+        expect(rejected.status).toBe(0);
+        expect(rejected.stdout).toContain(
+          `disk_usage_unavailable reason=invalid_timeout_seconds value=${invalidTimeout} allowed_range=1-120`,
+        );
+        expect(readFileSync(invocationLog, 'utf8').trim().split('\n')).toHaveLength(1);
+      }
+    } finally {
+      rmSync(fakeBin, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps a bounded du timeout non-fatal to the canonical capacity verdict', () => {
+    const fakeBin = mkdtempSync(join(tmpdir(), 'aqua-capacity-test-'));
+    const timeoutPath = join(fakeBin, 'timeout');
+    const dockerPath = join(fakeBin, 'docker');
+    writeFileSync(timeoutPath, '#!/usr/bin/env bash\nexit 124\n');
+    writeFileSync(
+      dockerPath,
+      '#!/usr/bin/env bash\nif [ "${1:-}" = "info" ]; then echo /var/lib/docker; fi\nexit 0\n',
+    );
+    chmodSync(timeoutPath, 0o755);
+    chmodSync(dockerPath, 0o755);
+
+    const baseEnv = {
+      ...process.env,
+      PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+      CAPACITY_DISK_USAGE_MODE: 'deep',
+      CAPACITY_DU_TIMEOUT_SECONDS: '1',
+      CAPACITY_GC_MODE: 'off',
+      FULL_DEPLOY: 'false',
+      DEPLOY_PROJECTED_PULL_BYTES: '0',
+      SELECTIVE_HARD_FREE_GIB: '0',
+      SELECTIVE_WARN_FREE_GIB: '0',
+      SELECTIVE_HARD_FREE_PERCENT: '0',
+      SELECTIVE_PROJECTED_RESERVE_GIB: '0',
+      HARD_INODE_FREE_PERCENT: '0',
+      WARN_INODE_FREE_PERCENT: '0',
+    };
+
+    try {
+      const passing = spawnSync(
+        'bash',
+        [join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh'), 'gate'],
+        { env: baseEnv, encoding: 'utf8' },
+      );
+      expect(passing.error).toBeUndefined();
+      expect(passing.status).toBe(0);
+      expect(passing.stdout).toContain('disk_usage_unavailable path=/ reason=timeout');
+      expect(passing.stdout).toContain('Capacity preflight: PASS');
+
+      const failing = spawnSync(
+        'bash',
+        [join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh'), 'gate'],
+        {
+          env: { ...baseEnv, SELECTIVE_HARD_FREE_GIB: '1000000' },
+          encoding: 'utf8',
+        },
+      );
+      expect(failing.error).toBeUndefined();
+      expect(failing.status).toBe(1);
+      expect(failing.stdout).toContain('disk_preflight_low_bytes');
+      expect(failing.stdout).toContain('disk_usage_unavailable path=/ reason=timeout');
+      expect(failing.stdout).toContain('Capacity preflight failed');
+    } finally {
+      rmSync(fakeBin, { recursive: true, force: true });
+    }
   });
 
   it('records deploy capacity and rollback metadata in the release ledger', () => {
@@ -427,7 +628,7 @@ describe('deploy SSOT contract', () => {
     expect(maintenance).toContain('safe-image-gc');
     expect(maintenance).toContain('bash scripts/deploy/droplet-capacity.sh gc');
     expect(maintenance).toContain(
-      'CAPACITY_GC_MODE=auto bash scripts/deploy/droplet-capacity.sh gate',
+      'CAPACITY_GC_MODE=auto CAPACITY_DISK_USAGE_MODE=deep bash scripts/deploy/droplet-capacity.sh gate',
     );
   });
 

@@ -14,10 +14,11 @@ import { DataSource } from 'typeorm';
 
 import { MortalityRecord } from '../../batch/entities/mortality-record.entity';
 import { TankOperation, OperationType } from '../../batch/entities/tank-operation.entity';
+import { FeedingDayPlan } from '../../feeding-protocol/entities/feeding-day-plan.entity';
 import {
-  DailyFeedingExecution,
-  ExecutionStatus,
-} from '../../feeding/entities/daily-feeding-execution.entity';
+  FeedingMeal,
+  FeedingMealStatus,
+} from '../../feeding-protocol/entities/feeding-meal.entity';
 import { WaterQualityMeasurement } from '../../water-quality/entities/water-quality-measurement.entity';
 import { TodaysDailyOpsCounts } from '../dto/mobile-dashboard.dto';
 import { GetTodaysDailyOpsCountsQuery } from '../queries/get-todays-daily-ops-counts.query';
@@ -66,16 +67,24 @@ export class GetTodaysDailyOpsCountsHandler
         .andWhere('measurement.measuredAt < :tomorrow', { tomorrow })
         .getCount();
 
+      // Faz 6 cutover: yemleme ilerlemesi öğün motorundan sayılır ("5/12 öğün").
+      // feedingTotalCount = bugünün planlarındaki öğünler (CANCELLED hariç —
+      // gün ortasında boşalan ünitenin iptal öğünleri hedefte tutulursa sayaç
+      // asla tamamlanamaz); feedingCompletedCount = fed|skipped (operatörce
+      // sonuçlandırılmış öğün). `planDate` site saat dilimindeki takvim günüdür
+      // (D-4) — gün sınırı clientDate/sunucu çözümlemesiyle aynı kaynaktan.
       const feedingRaw = await m
-        .createQueryBuilder(DailyFeedingExecution, 'execution')
+        .createQueryBuilder(FeedingMeal, 'meal')
+        .innerJoin(FeedingDayPlan, 'plan', 'plan.id = meal.dayPlanId')
         .select('COUNT(*)', 'feedingTotalCount')
         .addSelect(
-          'COUNT(*) FILTER (WHERE execution.status = :completed)',
+          'COUNT(*) FILTER (WHERE meal.status IN (:...handled))',
           'feedingCompletedCount',
         )
-        .where('execution.tenantId = :tenantId', { tenantId })
-        .andWhere('execution.executionDate = :today', { today })
-        .setParameter('completed', ExecutionStatus.COMPLETED)
+        .where('meal.tenantId = :tenantId', { tenantId })
+        .andWhere('plan.planDate = :today', { today })
+        .andWhere('meal.status != :cancelled', { cancelled: FeedingMealStatus.CANCELLED })
+        .setParameter('handled', [FeedingMealStatus.FED, FeedingMealStatus.SKIPPED])
         .getRawOne<{ feedingTotalCount: string; feedingCompletedCount: string }>();
 
       return {

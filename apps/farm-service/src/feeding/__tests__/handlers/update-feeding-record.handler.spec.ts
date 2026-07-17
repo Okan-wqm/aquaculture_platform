@@ -176,6 +176,18 @@ describe('UpdateFeedingRecordHandler — transactional outbox', () => {
     expect(commit).not.toHaveBeenCalled();
   });
 
+  it('rejects a meal-bound record (C-11): correction must go through correctMealPour', async () => {
+    const { handler, enqueue } = makeHarness({
+      feedingRecord: { mealId: 'meal-1', pourIndex: 0 },
+    });
+
+    await expect(handler.execute(makeCommand({ actualAmount: 15 }))).rejects.toThrow(
+      /correctMealPour/,
+    );
+    // Reddedilen kayıt için ne event ne batch güncellemesi olur.
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
   it('NotFoundException when feeding record is missing — no tx, no event', async () => {
     const { handler, enqueue } = makeHarness({ feedingRecord: null });
 

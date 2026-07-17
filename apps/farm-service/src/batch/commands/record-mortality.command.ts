@@ -21,6 +21,8 @@ export interface RecordMortalityPayload {
   tankId: string;                // Tank ID (hangi tank'ta)
   quantity: number;              // Ölü sayısı
   avgWeightG?: number;           // Ortalama ağırlık (gram)
+  /** D-3 mod (b): tane+kg — verilen kg aynen düşer, kalan ortalama kayar. */
+  biomassKg?: number;
   reason: MortalityReason;       // Ölüm nedeni
   detail?: string;               // Detaylı açıklama
   observedAt: Date;              // Gözlem tarihi

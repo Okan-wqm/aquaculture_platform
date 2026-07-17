@@ -12,10 +12,8 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   approveWorkOrder: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   cancelWorkOrder: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   addFeedAssignment: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
-  addFeedInventory: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   addTanksToProgram: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   addTankToProgram: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
-  adjustFeedInventory: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   allocateBatchToTank: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   applyParameterTemplate: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   approveHarvestPlan: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
@@ -47,7 +45,6 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   completeTask: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   completeWorkOrder: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   confirmTenantErasure: [Role.TENANT_ADMIN],
-  consumeFeedInventory: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createAutoRule: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createMaintenanceSchedule: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createWorkOrder: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
@@ -67,6 +64,19 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   createFeedingProgram: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createFeedingProtocol: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createFeed: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  // Birleşik protokol v2 (feeding-protocol SSoT Faz 3, FARM-HIGH-219)
+  createFeedingProtocolV2: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  updateFeedingProtocolV2: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  archiveFeedingProtocolV2: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  assignProtocolToUnit: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  assignProtocolToBatchUnits: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  recordMealFeeding: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  correctMealPour: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  skipMeal: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  regenerateDayPlan: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  transitionUnitFeed: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  updateProtocolAssignment: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  unassignProtocolFromUnit: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createFeedingRecord: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createHarvestPlan: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createHealthEvent: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -149,6 +159,10 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   recordSparePartStockMovement: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   recordTreatmentApplication: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   recordWelfareAssessment: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  // Presign step of regulatory field capture (escape/welfare/lice photo
+  // upload): operator-recordable, same audience as the record* mutations
+  // whose payloads carry the minted storageKey.
+  requestIncidentMediaUpload: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   recordStockMovement: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   // Tenant-wide roles only: bypasses per-site authorization by role
   // hierarchy; finer-grained recording flows through the full
@@ -308,6 +322,7 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   consumables: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   criticalHealthEvents: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   criticalWaterQuality: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  effectiveUnitTemperatures: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   currentWeather: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   dailyFeedingExecution: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   dailyFeedingExecutions: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -337,7 +352,6 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   farms: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feed: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedConsumptionForecast: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
-  feedInventory: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedSuppliers: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedTypes: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feederCalibrations: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -348,6 +362,11 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   feedingProtocols: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedingProtocolsBySpecies: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedingRecord: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  feedingProtocolsV2: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  feedingDayPlans: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  protocolFeedForecast: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  feedingProtocolV2: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  protocolAssignments: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedingRecords: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedingSummary: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feeds: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -551,7 +570,7 @@ export const UNGATED_OPERATIONS: ReadonlySet<string> = Object.freeze(
     // feedTypes / feedingProtocol / feedingProtocols /
     // feedingProtocolsBySpecies / defaultFeedingProtocol /
     // feedingRecord / feedingRecords / dailyFeedingPlan /
-    // feedingSummary / feedInventory / growthSimulation /
+    // feedingSummary / growthSimulation /
     // feedConsumptionForecast / estimateSGR / feederCalibrations /
     // feedingAdvice / growthMeasurement / growthMeasurements /
     // growthAnalysis / latestGrowthMeasurement / waterQuality /

@@ -16,7 +16,10 @@ const SYNC_INVALIDATION_SEGMENTS = {
   recordMortality: [['tanks'], ['dailyOpsCounts'], ['stockEventsSummary'], ['ai']],
   recordCull: [['tanks'], ['dailyOpsCounts'], ['stockEventsSummary'], ['ai']],
   createHarvestRecord: [['tanks'], ['dailyOpsCounts'], ['stockEventsSummary'], ['ai']],
-  recordFeeding: [['tanks'], ['feedingPlan'], ['dailyOpsCounts'], ['stockEventsSummary'], ['ai']],
+  recordFeeding: [['tanks'], ['feedingDayPlans'], ['dailyOpsCounts'], ['stockEventsSummary'], ['ai']],
+  // Faz 6 öğün cutover'ı: senkronlanan döküm gün planı kartlarını, hub
+  // sayaçlarını, tank kartlarını (biomass büyümesi) ve depo kapsamını tazeler.
+  recordMealFeeding: [['feedingDayPlans'], ['dailyOpsCounts'], ['tanks'], ['warehouseSummary']],
   recordTransfer: [['tanks'], ['dailyOpsCounts'], ['stockEventsSummary'], ['ai']],
   createWaterQuality: [['tanks'], ['equipment-params'], ['waterQuality'], ['dailyOpsCounts'], ['ai']],
   recordStockMovement: [['stockEventsSummary'], ['stock-at-location'], ['warehouseSummary']],

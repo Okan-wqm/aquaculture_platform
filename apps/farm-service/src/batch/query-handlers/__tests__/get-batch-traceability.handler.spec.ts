@@ -22,7 +22,6 @@ import { Batch } from '../../entities/batch.entity';
 import { BatchLocation } from '../../entities/batch-location.entity';
 import { Tank } from '../../../tank/entities/tank.entity';
 import { Feed } from '../../../feed/entities/feed.entity';
-import { FeedingProtocol } from '../../../feed/entities/feeding-protocol.entity';
 import { FeedingRecord } from '../../../feeding/entities/feeding-record.entity';
 
 function mock<T>(impl: Partial<T>): T {
@@ -72,9 +71,13 @@ function makeManager(): EntityManager {
   ];
   const findOne = jest.fn().mockImplementation((entity: unknown) => {
     if (entity === Batch) return Promise.resolve(batch);
-    if (entity === FeedingProtocol) return Promise.resolve({ name: 'Std Protocol' });
     return Promise.resolve(null);
   });
+  // C-4: protokol provenansı dominant-biomass ünitesinin aktif v2 atamasından
+  // gelir — ham SQL yolu spec'te tek satırlık sonuçla temsil edilir.
+  const query = jest.fn().mockResolvedValue([
+    { protocolId: 'p-v2-1', protocolName: 'Std Protocol' },
+  ]);
   const find = jest.fn().mockImplementation((entity: unknown) => {
     if (entity === BatchLocation) return Promise.resolve(locations);
     if (entity === Tank) {
@@ -93,7 +96,7 @@ function makeManager(): EntityManager {
     // water aggregate
     return qbStub([], { tmin: '10', tavg: '12.34', tmax: '14', cnt: '5' });
   });
-  return mock<EntityManager>({ findOne, find, createQueryBuilder });
+  return mock<EntityManager>({ findOne, find, createQueryBuilder, query });
 }
 
 function makeHandler(events: unknown[]): GetBatchTraceabilityHandler {
@@ -122,6 +125,7 @@ describe('GetBatchTraceabilityHandler', () => {
     expect(result.summary.stockedAt).toEqual(D0);
     expect(result.summary.daysInProduction).toBe(34);
     expect(result.summary.speciesName).toBe('Salmon');
+    expect(result.summary.protocolId).toBe('p-v2-1');
     expect(result.summary.protocolName).toBe('Std Protocol');
     expect(result.summary.survivalRatePercent).toBe(90);
     expect(result.summary.initialAvgWeightG).toBe(50);

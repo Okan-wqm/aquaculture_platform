@@ -225,6 +225,28 @@ export class FeedingRecord {
   wasteAmount?: number;            // Yenilmeyen/atık miktar (kg)
 
   // -------------------------------------------------------------------------
+  // ÖĞÜN MOTORU v2 BAĞLARI (Faz 5 — soft ref'ler, FK yok [K-16])
+  // Bir döküm = bir kayıt; tekillik (mealId, pourIndex) unique partial
+  // indeksle YAPISAL (P-05). sourceExecutionId Faz 6 tarihsel backfill'inin
+  // idempotency anahtarıdır.
+  // -------------------------------------------------------------------------
+
+  @Field(() => ID, { nullable: true })
+  @Column('uuid', { nullable: true })
+  mealId?: string;
+
+  @Field(() => Int, { nullable: true })
+  @Column({ type: 'int', nullable: true })
+  pourIndex?: number;
+
+  @Field(() => ID, { nullable: true })
+  @Column('uuid', { nullable: true })
+  dayPlanId?: string;
+
+  @Column('uuid', { nullable: true })
+  sourceExecutionId?: string;
+
+  // -------------------------------------------------------------------------
   // ÇEVRESEL KOŞULLAR
   // -------------------------------------------------------------------------
 

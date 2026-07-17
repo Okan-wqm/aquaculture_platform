@@ -79,6 +79,10 @@ export class RecordMortalityInput extends MobileCommandEnvelopeInput {
   @Field({ defaultValue: () => new Date() }) @IsOptional() observedAt!: Date;
   @Field({ nullable: true }) @IsOptional() @IsString() observedBy?: string;
   @Field(() => Float, { nullable: true }) @IsOptional() @IsNumber() @Min(0) avgWeightG?: number;
+  /** D-3 mod (b): tane + kg birlikte — verilen kg AYNEN düşer, kalanın
+   *  ortalaması kayar (büyük balık kaybı). Boşsa mod (a): kg güncel
+   *  ortalamadan türetilir, ortalama değişmez. */
+  @Field(() => Float, { nullable: true }) @IsOptional() @IsNumber() @Min(0.001) biomassKg?: number;
   @Field({ nullable: true }) @IsOptional() @IsString() notes?: string;
 }
 
@@ -93,6 +97,10 @@ export class RecordCullInput extends MobileCommandEnvelopeInput {
   @Field({ nullable: true }) @IsOptional() @IsString() detail?: string;
   @Field({ defaultValue: () => new Date() }) @IsOptional() culledAt!: Date;
   @Field(() => Float, { nullable: true }) @IsOptional() @IsNumber() @Min(0) avgWeightG?: number;
+  /** D-3 mod (b): tane + kg birlikte — verilen kg AYNEN düşer, kalanın
+   *  ortalaması kayar (büyük balık kaybı). Boşsa mod (a): kg güncel
+   *  ortalamadan türetilir, ortalama değişmez. */
+  @Field(() => Float, { nullable: true }) @IsOptional() @IsNumber() @Min(0.001) biomassKg?: number;
   @Field({ nullable: true }) @IsOptional() @IsString() notes?: string;
 }
 
@@ -118,6 +126,10 @@ export class TransferBatchInput extends MobileCommandEnvelopeInput {
   @Field(() => ID) @IsNotEmpty() @IsUUID() destinationTankId!: string;
   @Field(() => Int) @IsNotEmpty() @IsInt() @Min(1) quantity!: number;
   @Field(() => Float, { nullable: true }) @IsOptional() @IsNumber() @Min(0) avgWeightG?: number;
+  /** D-3 mod (b): tane + kg birlikte — verilen kg AYNEN düşer, kalanın
+   *  ortalaması kayar (büyük balık kaybı). Boşsa mod (a): kg güncel
+   *  ortalamadan türetilir, ortalama değişmez. */
+  @Field(() => Float, { nullable: true }) @IsOptional() @IsNumber() @Min(0.001) biomassKg?: number;
   @Field({ nullable: true }) @IsOptional() transferredAt?: Date;
   @Field({ nullable: true }) @IsOptional() @IsString() transferReason?: string;
   @Field({ nullable: true }) @IsOptional() @IsString() notes?: string;

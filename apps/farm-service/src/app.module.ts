@@ -85,6 +85,7 @@ import { SpeciesModule } from './species/species.module';
 import { TankModule } from './tank/tank.module';
 import { BatchModule } from './batch/batch.module';
 import { FeedingModule } from './feeding/feeding.module';
+import { FeedingProtocolModule } from './feeding-protocol/feeding-protocol.module';
 import { GrowthModule } from './growth/growth.module';
 import { WaterQualityModule } from './water-quality/water-quality.module';
 import { FishHealthModule } from './fish-health/fish-health.module';
@@ -411,6 +412,7 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     TankModule,
     BatchModule,
     FeedingModule,
+    FeedingProtocolModule,
     GrowthModule,
     WaterQualityModule,
     FishHealthModule,

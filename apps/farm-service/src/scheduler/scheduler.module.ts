@@ -17,7 +17,7 @@ import { FileCleanupModule } from '../common/file-cleanup/file-cleanup.module';
 // Feeding Entities
 import { FeedingRecord } from '../feeding/entities/feeding-record.entity';
 import { FeedingTable } from '../feeding/entities/feeding-table.entity';
-import { FeedInventory } from '../feeding/entities/feed-inventory.entity';
+import { StorageInventory } from '../storage/entities/storage-inventory.entity';
 
 // Related Entities
 import { Batch } from '../batch/entities/batch.entity';
@@ -40,10 +40,10 @@ import { FeedingSchedulerService } from './feeding-scheduler.service';
       // Feeding entities
       FeedingRecord,
       FeedingTable,
-      FeedInventory,
+      Feed,
+      StorageInventory,
       // Related entities
       Batch,
-      Feed,
     ]),
   ],
   providers: [

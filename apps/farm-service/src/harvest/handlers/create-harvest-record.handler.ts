@@ -35,6 +35,7 @@ import { CommandBus, CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { toEventIso, createBaseEvent } from '@platform/event-contracts';
 import type { BatchHarvestedEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
+import { DayPlanRecalcService } from '../../feeding-protocol/services/day-plan-recalc.service';
 import { Repository, DataSource } from 'typeorm';
 
 import { CloseBatchCommand, BatchCloseReason } from '../../batch/commands/close-batch.command';
@@ -75,6 +76,7 @@ export class CreateHarvestRecordHandler
   constructor(
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly dayPlanRecalc: DayPlanRecalcService,
     private readonly commandBus: CommandBus,
     private readonly harvestEligibility: BatchHarvestEligibilityService,
     private readonly backdatePolicy: BackdatePolicyService,
@@ -415,6 +417,11 @@ export class CreateHarvestRecordHandler
         await this.farmStockProjection.refreshContainers(queryRunner.manager, tenantId, [
           input.tankId,
         ]);
+
+        // P-31: hasat sonrası bugünün beslenmemiş öğünleri aynı tx'te yeniden
+        // fiyatlanır; tam hasatta recalc üniteyi boş görür → kalan öğünler iptal
+        // + atama otomatik pause (unit_emptied).
+        await this.dayPlanRecalc.recalcForUnit(queryRunner.manager, tenantId, input.tankId, 'harvest');
 
         // Post-operation state güncelle
         const updatedTankBatch = await queryRunner.manager.findOne(TankBatch, {

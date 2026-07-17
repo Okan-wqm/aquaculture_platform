@@ -19,15 +19,14 @@ import { NatsEventBus } from '@platform/event-bus';
 
 // Handlers
 import { RecordMortalityHandler } from '../../batch/handlers/record-mortality.handler';
-import { ConsumeFeedInventoryHandler } from '../../feeding/handlers/consume-feed-inventory.handler';
 import { MortalityCullPolicyService } from '../../batch/services/mortality-cull-policy.service';
+import { RemovalQuantityPolicyService } from '../../batch/services/removal-quantity-policy.service';
 
 // Idempotency envelope reused across the mortality race-condition commands.
 const RACE_ENVELOPE = { clientCommandId: 'cmd-race', payloadHash: 'hash-race' };
 
 // Commands
 import { RecordMortalityCommand, MortalityReason } from '../../batch/commands/record-mortality.command';
-import { ConsumeFeedInventoryCommand, ConsumptionReason } from '../../feeding/commands/consume-feed-inventory.command';
 
 // Entities
 import { Batch } from '../../batch/entities/batch.entity';
@@ -37,7 +36,6 @@ import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import { EquipmentType } from '../../equipment/entities/equipment-type.entity';
-import { FeedInventory, InventoryStatus } from '../../feeding/entities/feed-inventory.entity';
 
 // ============================================================================
 // HELPERS
@@ -192,6 +190,10 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
       {} as Repository<Tank>,
       {} as Repository<EquipmentType>,
       createMockOutboxPublisher(),
+      // Gün-içi recalc (P-31) + giriş modu politikası (D-3) — bu race testleri
+      // kilit/TOCTOU davranışına odaklı; recalc mock, politika gerçek (saf).
+      { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
+      new RemovalQuantityPolicyService(),
       { validate: jest.fn() } as never,
       { logWithManager: jest.fn().mockResolvedValue({}) } as never,
       // SEC-HIGH-051: object-level site authorization SSoT (real instance — the
@@ -339,194 +341,6 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
 });
 
 // ============================================================================
-// CONSUME FEED INVENTORY - RACE CONDITION TESTS
-// ============================================================================
-
-describe('Race Condition Protection: ConsumeFeedInventoryHandler', () => {
-  let handler: ConsumeFeedInventoryHandler;
-  let mockManager: MockManagerType;
-  let mockQueryRunner: ReturnType<typeof createMockQueryRunner>;
-  let mockDataSource: DataSource;
-
-  const tenantId = 'tenant-feed-test';
-  const inventoryId = 'inv-001';
-
-  function createMockInventory(overrides: Partial<FeedInventory> = {}): Partial<FeedInventory> {
-    return {
-      id: inventoryId,
-      tenantId,
-      feedId: 'feed-001',
-      siteId: 'site-001',
-      quantityKg: 100,
-      minStockKg: 10,
-      status: InventoryStatus.AVAILABLE,
-      unitPricePerKg: 5,
-      totalValue: 500,
-      updateStatus: jest.fn().mockImplementation(function (this: any) {
-        if (this.quantityKg <= 0) {
-          this.status = InventoryStatus.OUT_OF_STOCK;
-        } else if (this.quantityKg <= this.minStockKg) {
-          this.status = InventoryStatus.LOW_STOCK;
-        } else {
-          this.status = InventoryStatus.AVAILABLE;
-        }
-      }),
-      ...overrides,
-    };
-  }
-
-  beforeEach(() => {
-    mockManager = {
-      findOne: jest.fn(),
-      create: jest.fn(),
-      save: jest.fn().mockImplementation((_entity: any, data: any) => Promise.resolve(data)),
-      query: jest.fn().mockResolvedValue([]),
-      createQueryBuilder: jest.fn(),
-    };
-
-    mockQueryRunner = createMockQueryRunner(mockManager);
-    mockDataSource = createMockDataSource(mockQueryRunner);
-
-    handler = new ConsumeFeedInventoryHandler(
-      {} as Repository<FeedInventory>,
-      mockDataSource,
-      createMockOutboxPublisher(),
-    );
-  });
-
-  it('should acquire pessimistic_write lock on FeedInventory inside transaction', async () => {
-    const mockInventory = createMockInventory();
-    mockManager.findOne.mockResolvedValue(mockInventory);
-
-    const command = new ConsumeFeedInventoryCommand(
-      tenantId,
-      { inventoryId, quantityKg: 10, reason: ConsumptionReason.FEEDING },
-      'user-001',
-    );
-
-    await handler.execute(command);
-
-    // Verify transaction lifecycle
-    expect(mockQueryRunner.connect).toHaveBeenCalledTimes(1);
-    expect(mockQueryRunner.startTransaction).toHaveBeenCalledTimes(1);
-    expect(mockQueryRunner.commitTransaction).toHaveBeenCalledTimes(1);
-    expect(mockQueryRunner.release).toHaveBeenCalledTimes(1);
-
-    // Verify pessimistic lock
-    expect(mockManager.findOne).toHaveBeenCalledWith(FeedInventory, {
-      where: { id: inventoryId, tenantId },
-      lock: { mode: 'pessimistic_write' },
-    });
-  });
-
-  it('should prevent negative inventory with Math.max(0, ...)', async () => {
-    const mockInventory = createMockInventory({ quantityKg: 5 });
-    mockManager.findOne.mockResolvedValue(mockInventory);
-
-    const command = new ConsumeFeedInventoryCommand(
-      tenantId,
-      { inventoryId, quantityKg: 5, reason: ConsumptionReason.FEEDING },
-      'user-001',
-    );
-
-    await handler.execute(command);
-
-    const saveCall = mockManager.save.mock.calls[0];
-    expect(saveCall).toBeDefined();
-    const savedInventory = saveCall[1];
-    expect(savedInventory.quantityKg).toBe(0);
-    expect(savedInventory.quantityKg).toBeGreaterThanOrEqual(0);
-  });
-
-  it('should reject consumption when inventory is out of stock', async () => {
-    const mockInventory = createMockInventory({
-      quantityKg: 0,
-      status: InventoryStatus.OUT_OF_STOCK,
-    });
-    mockManager.findOne.mockResolvedValue(mockInventory);
-
-    const command = new ConsumeFeedInventoryCommand(
-      tenantId,
-      { inventoryId, quantityKg: 10, reason: ConsumptionReason.FEEDING },
-      'user-001',
-    );
-
-    await expect(handler.execute(command)).rejects.toThrow(BadRequestException);
-    expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalledTimes(1);
-    expect(mockQueryRunner.commitTransaction).not.toHaveBeenCalled();
-  });
-
-  it('should reject when requested quantity exceeds available stock', async () => {
-    const mockInventory = createMockInventory({ quantityKg: 5 });
-    mockManager.findOne.mockResolvedValue(mockInventory);
-
-    const command = new ConsumeFeedInventoryCommand(
-      tenantId,
-      { inventoryId, quantityKg: 10, reason: ConsumptionReason.FEEDING },
-      'user-001',
-    );
-
-    await expect(handler.execute(command)).rejects.toThrow(BadRequestException);
-    expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalledTimes(1);
-  });
-
-  it('should handle concurrent consumption safely via pessimistic lock', async () => {
-    // Simulate two concurrent commands - the lock ensures serialization.
-    // We verify that each execution reads fresh data via the locked findOne.
-    const inventory1 = createMockInventory({ quantityKg: 20 });
-    const inventory2 = createMockInventory({ quantityKg: 10 }); // After first consumption
-
-    let callCount = 0;
-    mockManager.findOne.mockImplementation(() => {
-      callCount++;
-      // First call returns 20kg, second call (simulating after lock release) returns 10kg
-      return Promise.resolve(callCount === 1 ? inventory1 : inventory2);
-    });
-
-    const command1 = new ConsumeFeedInventoryCommand(
-      tenantId,
-      { inventoryId, quantityKg: 10, reason: ConsumptionReason.FEEDING },
-      'user-001',
-    );
-
-    const command2 = new ConsumeFeedInventoryCommand(
-      tenantId,
-      { inventoryId, quantityKg: 10, reason: ConsumptionReason.FEEDING },
-      'user-002',
-    );
-
-    // Execute sequentially (pessimistic lock would serialize these in production)
-    await handler.execute(command1);
-    await handler.execute(command2);
-
-    // Both should have completed successfully
-    expect(mockQueryRunner.commitTransaction).toHaveBeenCalledTimes(2);
-    expect(mockManager.findOne).toHaveBeenCalledTimes(2);
-
-    // Both calls should use pessimistic_write lock
-    for (const call of mockManager.findOne.mock.calls) {
-      expect(call[1]).toEqual(expect.objectContaining({
-        lock: { mode: 'pessimistic_write' },
-      }));
-    }
-  });
-
-  it('should rollback and release on unexpected error', async () => {
-    mockManager.findOne.mockRejectedValue(new Error('DB connection lost'));
-
-    const command = new ConsumeFeedInventoryCommand(
-      tenantId,
-      { inventoryId, quantityKg: 10, reason: ConsumptionReason.FEEDING },
-      'user-001',
-    );
-
-    await expect(handler.execute(command)).rejects.toThrow('DB connection lost');
-    expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalledTimes(1);
-    expect(mockQueryRunner.release).toHaveBeenCalledTimes(1);
-  });
-});
-
-// ============================================================================
 // CROSS-HANDLER: CONCURRENT OPERATION SAFETY
 // ============================================================================
 
@@ -597,6 +411,10 @@ describe('Race Condition Protection: Cross-handler concurrent safety', () => {
       {} as Repository<Tank>,
       {} as Repository<EquipmentType>,
       createMockOutboxPublisher(),
+      // Gün-içi recalc (P-31) + giriş modu politikası (D-3) — bu race testleri
+      // kilit/TOCTOU davranışına odaklı; recalc mock, politika gerçek (saf).
+      { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
+      new RemovalQuantityPolicyService(),
       { validate: jest.fn() } as never,
       { logWithManager: jest.fn().mockResolvedValue({}) } as never,
       // SEC-HIGH-051: object-level site authorization SSoT (real instance — the

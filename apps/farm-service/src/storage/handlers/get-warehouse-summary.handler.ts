@@ -22,6 +22,7 @@
  */
 import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
+import { FEED_STOCKOUT_CRITICAL_DAYS } from '@platform/event-contracts';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, MoreThanOrEqual } from 'typeorm';
 import { GetWarehouseSummaryQuery } from '../queries/get-warehouse-summary.query';
@@ -29,10 +30,12 @@ import { StockMovement } from '../entities/stock-movement.entity';
 import { Feed } from '../../feed/entities/feed.entity';
 import { Chemical } from '../../chemical/entities/chemical.entity';
 import { Consumable } from '../../consumable/entities/consumable.entity';
+import { FeedingForecastSnapshot } from '../../feeding-protocol/entities/feeding-forecast-snapshot.entity';
 import {
   WarehouseSummaryResponse,
   WarehouseLowStockItem,
   WarehouseRecentMovement,
+  WarehouseFeedCoverage,
 } from '../dto/warehouse-summary.response';
 
 /** Maximum number of low-stock items and recent movements to return. */
@@ -69,6 +72,7 @@ export class GetWarehouseSummaryHandler
         lowStockConsumables,
         todaysMovementCount,
         recentMovements,
+        feedCoverage,
       ] = await Promise.all([
         this.countActiveFeeds(manager, tenantId),
         this.countActiveChemicals(manager, tenantId),
@@ -78,6 +82,7 @@ export class GetWarehouseSummaryHandler
         this.getLowStockConsumables(manager, tenantId),
         this.getTodaysMovementCount(manager, tenantId),
         this.getRecentMovements(manager, tenantId),
+        this.getFeedCoverage(manager, tenantId),
       ]);
 
       const allLowStockItems: WarehouseLowStockItem[] = [
@@ -92,8 +97,60 @@ export class GetWarehouseSummaryHandler
         todaysMovementCount,
         lowStockItems: allLowStockItems.slice(0, MOBILE_LIST_CAP),
         recentMovements,
+        feedCoverage,
       };
     });
+  }
+
+  /**
+   * Feed başına stok-kapsama (Faz 7, P-27): materyalize forecast
+   * snapshot'ının ucuz okuması — sorgu anında yeniden hesap YOK (K-10).
+   * Çok kapsamlı tenant'ta (site + tenant-fallback) EN KÖTÜ kapsam kazanır;
+   * ilk 07:00 süpürmesinden önce snapshot yoksa boş liste döner.
+   * Eşik SSoT'si event'in yanındaki FEED_STOCKOUT_CRITICAL_DAYS sabitidir —
+   * alert-engine incident önemiyle YAPISAL hizalı (kod-ikizi eşik yok).
+   */
+  private async getFeedCoverage(
+    manager: EntityManager,
+    tenantId: string,
+  ): Promise<WarehouseFeedCoverage[]> {
+    const snapshots = await manager.find(FeedingForecastSnapshot, {
+      where: { tenantId },
+    });
+    const worstByFeed = new Map<string, WarehouseFeedCoverage>();
+    for (const snapshot of snapshots) {
+      for (const feed of snapshot.perFeed) {
+        const status =
+          feed.daysOfCover === null
+            ? 'ok'
+            : feed.daysOfCover <= FEED_STOCKOUT_CRITICAL_DAYS
+              ? 'critical'
+              : feed.daysOfCover <= feed.procurementLeadTimeDays
+                ? 'warning'
+                : 'ok';
+        const candidate: WarehouseFeedCoverage = {
+          feedId: feed.feedId,
+          feedCode: feed.feedCode,
+          feedName: feed.feedName,
+          daysOfCover: feed.daysOfCover,
+          stockoutDate: feed.stockoutDate,
+          coverageStatus: status,
+        };
+        const existing = worstByFeed.get(feed.feedId);
+        const existingDays = existing?.daysOfCover ?? Number.POSITIVE_INFINITY;
+        const candidateDays = feed.daysOfCover ?? Number.POSITIVE_INFINITY;
+        if (!existing || candidateDays < existingDays) {
+          worstByFeed.set(feed.feedId, candidate);
+        }
+      }
+    }
+    return [...worstByFeed.values()]
+      .sort(
+        (a, b) =>
+          (a.daysOfCover ?? Number.POSITIVE_INFINITY) -
+          (b.daysOfCover ?? Number.POSITIVE_INFINITY),
+      )
+      .slice(0, MOBILE_LIST_CAP);
   }
 
   /**

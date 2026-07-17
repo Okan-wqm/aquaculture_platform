@@ -28,6 +28,7 @@ const ALL_OPERATION_TYPES: readonly OperationType[] = [
   'recordCull',
   'createHarvestRecord',
   'recordFeeding',
+  'recordMealFeeding',
   'clockIn',
   'clockOut',
   'createLeaveRequest',

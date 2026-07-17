@@ -24,7 +24,7 @@ import type { KpiItem } from '@/components/hub';
 import { useMobilePermissions } from '@/hooks/useMobilePermissions';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useWarehouseSummary } from '@/hooks/useWarehouseSummary';
-import type { LowStockItem, RecentStockMovement, StockMovementType } from '@/types';
+import type { LowStockItem, RecentStockMovement, StockMovementType, WarehouseFeedCoverage } from '@/types';
 
 // WHY: Five core warehouse operations cover 95%+ of daily warehouse floor activity.
 const storageActions = [
@@ -210,6 +210,11 @@ export function StorageHubPage(): JSX.Element {
   const lowStockAlertCount = summary?.lowStockAlertCount ?? 0;
   const todaysMovementCount = summary?.todaysMovementCount ?? 0;
   const lowStockItems = summary?.lowStockItems ?? [];
+  // P-27: yalnız aksiyon gerektiren kapsam satırları (critical|warning) —
+  // 'ok' satırları hub'da gürültü olur, detay web forecast grafiğinde.
+  const feedCoverage = (summary?.feedCoverage ?? []).filter(
+    (c: WarehouseFeedCoverage) => c.coverageStatus !== 'ok',
+  );
   const recentMovements = (summary?.recentMovements ?? []).slice(0, MAX_MOVEMENTS);
 
   const kpiItems: KpiItem[] = [
@@ -295,6 +300,49 @@ export function StorageHubPage(): JSX.Element {
             </div>
           )}
         </div>
+
+        {/* Faz 7 (P-27): Yem kapsama uyarıları — forecast snapshot'ından */}
+        {hasAccess && feedCoverage.length > 0 && (
+          <div className="px-5 mt-5">
+            <section aria-label="Feed coverage alerts">
+              <h2 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <AlertTriangle size={14} className="text-amber-500" />
+                Feed Coverage
+              </h2>
+              <ul className="space-y-2">
+                {feedCoverage.map((coverage: WarehouseFeedCoverage) => (
+                  <li
+                    key={coverage.feedId}
+                    className="bg-white dark:bg-gray-900 rounded-xl p-3 border border-gray-100 dark:border-gray-800 flex items-center justify-between"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                        {coverage.feedCode}
+                      </p>
+                      <p className="text-xs text-gray-500">{coverage.feedName}</p>
+                    </div>
+                    <div className="text-right">
+                      <p
+                        className={
+                          coverage.coverageStatus === 'critical'
+                            ? 'text-sm font-bold text-red-600'
+                            : 'text-sm font-bold text-amber-600'
+                        }
+                      >
+                        {coverage.daysOfCover !== null
+                          ? `${coverage.daysOfCover}d left`
+                          : 'OK'}
+                      </p>
+                      {coverage.stockoutDate && (
+                        <p className="text-xs text-gray-400">{coverage.stockoutDate}</p>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </div>
+        )}
 
         {/* Phase 2: Low Stock Alerts — only shown when alerts exist */}
         {hasAccess && lowStockAlertCount > 0 && (

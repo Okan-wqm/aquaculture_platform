@@ -84,16 +84,6 @@ import { ListFeedsHandler } from '../../feed/handlers/list-feeds.handler';
 import { UpdateFeedHandler } from '../../feed/handlers/update-feed.handler';
 import { GetFeedQuery } from '../../feed/queries/get-feed.query';
 import { ListFeedsQuery } from '../../feed/queries/list-feeds.query';
-import { AddFeedInventoryCommand } from '../../feeding/commands/add-feed-inventory.command';
-import {
-  AdjustFeedInventoryCommand,
-  AdjustmentType,
-} from '../../feeding/commands/adjust-feed-inventory.command';
-import { FeedInventory, InventoryStatus } from '../../feeding/entities/feed-inventory.entity';
-import { AddFeedInventoryHandler } from '../../feeding/handlers/add-feed-inventory.handler';
-import { AdjustFeedInventoryHandler } from '../../feeding/handlers/adjust-feed-inventory.handler';
-import { GetFeedInventoryQuery } from '../../feeding/queries/get-feed-inventory.query';
-import { GetFeedInventoryHandler } from '../../feeding/query-handlers/get-feed-inventory.handler';
 import { FarmOutbox } from '../../outbox/farm-outbox.entity';
 import { SentinelHubSettings } from '../../sentinel-hub/entities/sentinel-hub-settings.entity';
 import { SentinelHubService } from '../../sentinel-hub/sentinel-hub.service';
@@ -196,7 +186,6 @@ const SETUP_TENANT_TABLES = [
   'feeds',
   'feed_sites',
   'feed_type_species',
-  'feed_inventory',
   'water_quality_parameter_configs',
   'sentinel_hub_settings',
 ] as const;
@@ -236,9 +225,6 @@ interface SiteHarness {
   listFeeds: ListFeedsHandler;
   updateFeed: UpdateFeedHandler;
   deleteFeed: DeleteFeedHandler;
-  addFeedInventory: AddFeedInventoryHandler;
-  adjustFeedInventory: AdjustFeedInventoryHandler;
-  getFeedInventory: GetFeedInventoryHandler;
   parameterConfigCache: ParameterConfigCacheService;
   createParameterConfig: CreateParameterConfigHandler;
   getParameterConfig: GetParameterConfigHandler;
@@ -260,7 +246,6 @@ describe('Site tenant isolation on real Postgres', () => {
   let sentinelSettingsRepository: Repository<SentinelHubSettings>;
   let tankRepository: Repository<Tank>;
   let feedRepository: Repository<Feed>;
-  let inventoryRepository: Repository<FeedInventory>;
   let parameterConfigRepository: Repository<WaterQualityParameterConfig>;
   let tankCodeGenerator: CodeGeneratorService;
   let harness: SiteHarness;
@@ -310,7 +295,6 @@ describe('Site tenant isolation on real Postgres', () => {
         Species,
         Supplier,
         SupplierSite,
-        FeedInventory,
         WaterQualityParameterConfig,
         SentinelHubSettings,
         AuditLog,
@@ -347,7 +331,6 @@ describe('Site tenant isolation on real Postgres', () => {
     sentinelSettingsRepository = dataSource.getRepository(SentinelHubSettings);
     tankRepository = dataSource.getRepository(Tank);
     feedRepository = dataSource.getRepository(Feed);
-    inventoryRepository = dataSource.getRepository(FeedInventory);
     parameterConfigRepository = dataSource.getRepository(WaterQualityParameterConfig);
     const auditLogService = createAuditLogService();
     tankCodeGenerator = new CodeGeneratorService(
@@ -481,20 +464,6 @@ describe('Site tenant isolation on real Postgres', () => {
       listFeeds: new ListFeedsHandler(dataSource),
       updateFeed: new UpdateFeedHandler(dataSource),
       deleteFeed: new DeleteFeedHandler(dataSource),
-      addFeedInventory: new AddFeedInventoryHandler(
-        inventoryRepository,
-        feedRepository,
-        siteRepository,
-        dataSource,
-        new OutboxPublisher(FarmOutbox),
-        new FinanceSettingsService(dataSource),
-      ),
-      adjustFeedInventory: new AdjustFeedInventoryHandler(
-        inventoryRepository,
-        dataSource,
-        new OutboxPublisher(FarmOutbox),
-      ),
-      getFeedInventory: new GetFeedInventoryHandler(dataSource),
       parameterConfigCache,
       createParameterConfig: new CreateParameterConfigHandler(
         parameterConfigRepository,
@@ -1446,78 +1415,6 @@ describe('Site tenant isolation on real Postgres', () => {
     expect(tenantBAfterDelete.data.map((feed: Feed) => feed.id)).toEqual([feedB.id]);
   });
 
-  it('keeps feed inventory lot merges and adjustments isolated per tenant', async () => {
-    const siteA = await createSiteForTenant(TENANT_A, 'Inventory Site A', 'INV-SITE-A');
-    const siteB = await createSiteForTenant(TENANT_B, 'Inventory Site B', 'INV-SITE-B');
-    const feedA = await createFeedForTenant(TENANT_A, siteA.id, 'Inventory Feed', 'INV-FEED-01');
-    const feedB = await createFeedForTenant(TENANT_B, siteB.id, 'Inventory Feed', 'INV-FEED-01');
-
-    const firstStock = await addInventoryForTenant(TENANT_A, feedA.id, siteA.id, 100, 50, 'LOT-1');
-    const mergedStock = await addInventoryForTenant(TENANT_A, feedA.id, siteA.id, 25, 50, 'LOT-1');
-    await addInventoryForTenant(TENANT_B, feedB.id, siteB.id, 75, 20, 'LOT-1');
-
-    expect(firstStock.id).toBe(mergedStock.id);
-    expect(Number(mergedStock.quantityKg)).toBe(125);
-    expect(await inventoryRowCount('farm', TENANT_A)).toBe(0);
-    expect(await inventoryRowCount(getTenantSchemaName(TENANT_A), TENANT_A)).toBe(1);
-    expect(await inventoryRowCount(getTenantSchemaName(TENANT_B), TENANT_A)).toBe(0);
-
-    const adjusted = await withTenantContext(TENANT_A, () =>
-      harness.adjustFeedInventory.execute(
-        new AdjustFeedInventoryCommand(
-          TENANT_A,
-          {
-            inventoryId: mergedStock.id,
-            adjustmentType: AdjustmentType.SET_QUANTITY,
-            quantity: 40,
-            reason: 'physical-count',
-          },
-          USER_ID,
-        ),
-      ),
-    );
-    const tenantALowStock = await withTenantContext(TENANT_A, () =>
-      harness.getFeedInventory.execute(
-        new GetFeedInventoryQuery(
-          TENANT_A,
-          { feedId: feedA.id, siteId: siteA.id, lowStockOnly: true },
-          1,
-          10,
-        ),
-      ),
-    );
-    const tenantBInventory = await withTenantContext(TENANT_B, () =>
-      harness.getFeedInventory.execute(
-        new GetFeedInventoryQuery(TENANT_B, { feedId: feedB.id, siteId: siteB.id }, 1, 10),
-      ),
-    );
-
-    expect(Number(adjusted.quantityKg)).toBe(40);
-    expect(adjusted.status).toBe(InventoryStatus.LOW_STOCK);
-    expect(tenantALowStock.data.map((inventory: FeedInventory) => inventory.id)).toEqual([
-      mergedStock.id,
-    ]);
-    expect(tenantBInventory.data).toHaveLength(1);
-    expect(Number(tenantBInventory.data[0]?.quantityKg)).toBe(75);
-
-    await expect(
-      withTenantContext(TENANT_A, () =>
-        harness.adjustFeedInventory.execute(
-          new AdjustFeedInventoryCommand(
-            TENANT_A,
-            {
-              inventoryId: mergedStock.id,
-              adjustmentType: AdjustmentType.DECREASE,
-              quantity: 100,
-              reason: 'invalid-negative-stock-guard',
-            },
-            USER_ID,
-          ),
-        ),
-      ),
-    ).rejects.toThrow('Stok negatif olamaz');
-  });
-
   it('keeps supplier approved-site replacement tenant-local and rolls back on audit failure', async () => {
     const siteA = await createSiteForTenant(TENANT_A, 'Supplier Site A', 'SUP-SITE-A');
     const siteASecondary = await createSiteForTenant(
@@ -1959,41 +1856,6 @@ describe('Site tenant isolation on real Postgres', () => {
   async function feedRowCount(schema: string, tenantId: string): Promise<number> {
     const rows: Array<{ count: string }> = await requireDataSource().query(
       `SELECT COUNT(*)::text AS count FROM "${schema}"."feeds" WHERE "tenantId" = $1`,
-      [tenantId],
-    );
-    return Number(rows[0]?.count ?? 0);
-  }
-
-  async function addInventoryForTenant(
-    tenantId: string,
-    feedId: string,
-    siteId: string,
-    quantityKg: number,
-    minStockKg: number,
-    lotNumber: string,
-  ): Promise<FeedInventory> {
-    return withTenantContext(tenantId, () =>
-      harness.addFeedInventory.execute(
-        new AddFeedInventoryCommand(
-          tenantId,
-          {
-            feedId,
-            siteId,
-            quantityKg,
-            minStockKg,
-            lotNumber,
-            unitPricePerKg: 2,
-            currency: 'USD',
-          },
-          USER_ID,
-        ),
-      ),
-    );
-  }
-
-  async function inventoryRowCount(schema: string, tenantId: string): Promise<number> {
-    const rows: Array<{ count: string }> = await requireDataSource().query(
-      `SELECT COUNT(*)::text AS count FROM "${schema}"."feed_inventory" WHERE "tenantId" = $1`,
       [tenantId],
     );
     return Number(rows[0]?.count ?? 0);

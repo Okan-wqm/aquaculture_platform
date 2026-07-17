@@ -67,6 +67,35 @@ export class WarehouseRecentMovement {
 }
 
 /**
+ * Feed başına stok-kapsama satırı (Faz 7, P-27) — günlük forecast
+ * snapshot'ının ucuz satır okuması: seri/grafik web'de kalır, mobil yalnız
+ * "kaç gün yeter" cevabını taşır. coverageStatus eşikleri alert-engine
+ * tüketicisiyle hizalıdır: ≤3 gün critical, ≤tedarik süresi warning.
+ */
+@ObjectType()
+export class WarehouseFeedCoverage {
+  @Field(() => ID)
+  feedId!: string;
+
+  @Field()
+  feedCode!: string;
+
+  @Field()
+  feedName!: string;
+
+  /** Ufuk içinde tükeniş yoksa null ('ok'). */
+  @Field(() => Int, { nullable: true })
+  daysOfCover!: number | null;
+
+  @Field(() => String, { nullable: true })
+  stockoutDate!: string | null;
+
+  /** 'critical' | 'warning' | 'ok' */
+  @Field()
+  coverageStatus!: string;
+}
+
+/**
  * Top-level warehouse summary returned by the `warehouseSummary` query.
  * Field names match the frontend WarehouseSummary interface exactly.
  */
@@ -91,4 +120,8 @@ export class WarehouseSummaryResponse {
   /** Most recent stock movements (last 24h), capped at 10 for mobile. */
   @Field(() => [WarehouseRecentMovement])
   recentMovements!: WarehouseRecentMovement[];
+
+  /** Feed başına kapsama (P-27) — en kötü kapsam önce, 10 ile sınırlı. */
+  @Field(() => [WarehouseFeedCoverage])
+  feedCoverage!: WarehouseFeedCoverage[];
 }

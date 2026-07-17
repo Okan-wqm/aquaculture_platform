@@ -14,34 +14,20 @@ import { gql } from 'graphql-tag';
 
 
 import type {
-  RecordMortalityMutation,
-  RecordMortalityMutationVariables,
-  RecordCullMutation,
-  RecordCullMutationVariables,
-  CreateHarvestRecordMutation,
-  CreateHarvestRecordMutationVariables,
-  TodaysFeedingPlanQuery,
-  TodaysFeedingPlanQueryVariables,
-  RecordDailyFeedingMutation,
-  RecordDailyFeedingMutationVariables,
+  FeedingDayPlansQuery,
+  FeedingDayPlansQueryVariables,
   MyAttendanceRecordsQuery,
   MyAttendanceRecordsQueryVariables,
   MyAttendanceSummaryQuery,
   MyAttendanceSummaryQueryVariables,
   MyTodaysAttendanceQuery,
   MyTodaysAttendanceQueryVariables,
-  ClockInMutation,
-  ClockInMutationVariables,
-  ClockOutMutation,
-  ClockOutMutationVariables,
   MyLeaveRequestsQuery,
   MyLeaveRequestsQueryVariables,
   MyLeaveBalancesQuery,
   MyLeaveBalancesQueryVariables,
   LeaveTypesQuery,
   LeaveTypesQueryVariables,
-  CreateLeaveRequestMutation,
-  CreateLeaveRequestMutationVariables,
   SubmitLeaveRequestMutation,
   SubmitLeaveRequestMutationVariables,
   CancelLeaveRequestMutation,
@@ -72,8 +58,6 @@ import type {
   MarkAllNotificationsAsReadMutationVariables,
   RegisterDeviceTokenMutation,
   RegisterDeviceTokenMutationVariables,
-  RecordTransferMutation,
-  RecordTransferMutationVariables,
   GetTodaysDailyOpsCountsQuery,
   GetTodaysDailyOpsCountsQueryVariables,
   GetStockEventsSummaryQuery,
@@ -97,71 +81,51 @@ import type {
 // had no importer and silently desynced from the Tank type's newer fields.
 
 // Mutations - tenantId/userId extracted from JWT by backend decorators
-export const RECORD_MORTALITY: TypedDocumentNode<RecordMortalityMutation, RecordMortalityMutationVariables> = gql`
-  mutation RecordMortality($input: RecordMortalityInput!) {
-    recordMortality(input: $input) {
+// Feeding queries — Faz 6 öğün cutover'ı (P-25).
+// Tipli alan alt kümesi okunur; `snapshot` jsonb'si mobil tele ÇIKMAZ (eski
+// motorun opak `calculations` blob deseni v2'ye taşınmadı). Enum alanları tel
+// üzerinde AD taşır ('SCHEDULED', 'FED', ... — GraphQL enum serileştirmesi).
+// P-23 kuralı: kuyruklu mutation dokümanları YALNIZ pwa/operation-registry.ts
+// içinde yaşar — bu dosyada feeding mutation dokümanı YOKTUR
+// (pwa/__tests__/queued-mutation-ssot.spec.ts).
+export const GET_FEEDING_DAY_PLANS: TypedDocumentNode<FeedingDayPlansQuery, FeedingDayPlansQueryVariables> = gql`
+  query FeedingDayPlans($planDate: String!, $siteId: ID) {
+    feedingDayPlans(planDate: $planDate, siteId: $siteId) {
       id
-      batchNumber
-      currentQuantity
-      totalMortality
-      retentionRate
-      mortalityRate
-    }
-  }
-`;
-
-export const RECORD_CULL: TypedDocumentNode<RecordCullMutation, RecordCullMutationVariables> = gql`
-  mutation RecordCull($input: RecordCullInput!) {
-    recordCull(input: $input) {
-      id
-      batchNumber
-      currentQuantity
-      cullCount
-      retentionRate
-    }
-  }
-`;
-
-export const CREATE_HARVEST_RECORD: TypedDocumentNode<CreateHarvestRecordMutation, CreateHarvestRecordMutationVariables> = gql`
-  mutation CreateHarvestRecord($input: CreateHarvestRecordInput!) {
-    createHarvestRecord(input: $input) {
-      id
-      recordCode
-      lotNumber
-      quantityHarvested
-      totalBiomass
-      averageWeight
-      qualityGrade
+      unitId
+      unitName
+      unitCode
+      planDate
       status
-    }
-  }
-`;
-
-// Feeding queries and mutations
-export const GET_TODAYS_FEEDING_PLAN: TypedDocumentNode<TodaysFeedingPlanQuery, TodaysFeedingPlanQueryVariables> = gql`
-  query TodaysFeedingPlan($date: DateTime!) {
-    dailyFeedingExecutions(date: $date) {
-      id
-      equipmentId
-      equipmentName
-      equipmentCode
-      calculations
-      plannedFeedKg
-      actualFeedKg
-      status
-      hasTransitionWarning
-    }
-  }
-`;
-
-export const RECORD_DAILY_FEEDING: TypedDocumentNode<RecordDailyFeedingMutation, RecordDailyFeedingMutationVariables> = gql`
-  mutation RecordDailyFeeding($input: RecordDailyFeedingInput!) {
-    recordDailyFeeding(input: $input) {
-      id
-      actualFeedKg
-      status
-      feedingMethod
-      feederName
+      plannedTotalKg
+      unplannedActualKg
+      mealsPlanned
+      avgWeightG
+      fishCount
+      biomassKg
+      waterTempC
+      temperatureSource
+      usingDefaultTemperature
+      feedId
+      feedCode
+      feedName
+      effectiveRatePercent
+      expectedFcr
+      meals {
+        id
+        mealIndex
+        scheduledAt
+        percentOfDaily
+        plannedKg
+        status
+        actualKg
+        varianceKg
+        variancePercent
+        feedId
+        fedAt
+        feedingMethod
+        notes
+      }
     }
   }
 `;
@@ -215,31 +179,6 @@ export const GET_TODAYS_ATTENDANCE: TypedDocumentNode<MyTodaysAttendanceQuery, M
       workedMinutes
       overtimeMinutes
       remarks
-    }
-  }
-`;
-
-export const CLOCK_IN: TypedDocumentNode<ClockInMutation, ClockInMutationVariables> = gql`
-  mutation ClockIn($input: ClockInInput!) {
-    clockIn(input: $input) {
-      id
-      date
-      clockIn
-      status
-      workedMinutes
-      remarks
-    }
-  }
-`;
-
-export const CLOCK_OUT: TypedDocumentNode<ClockOutMutation, ClockOutMutationVariables> = gql`
-  mutation ClockOut($input: ClockOutInput!) {
-    clockOut(input: $input) {
-      id
-      date
-      clockOut
-      status
-      workedMinutes
     }
   }
 `;
@@ -303,18 +242,6 @@ export const GET_LEAVE_TYPES: TypedDocumentNode<LeaveTypesQuery, LeaveTypesQuery
       isPaid
       defaultDaysPerYear
       color
-    }
-  }
-`;
-
-export const CREATE_LEAVE_REQUEST: TypedDocumentNode<CreateLeaveRequestMutation, CreateLeaveRequestMutationVariables> = gql`
-  mutation CreateLeaveRequest($input: CreateLeaveRequestInput!) {
-    createLeaveRequest(input: $input) {
-      id
-      startDate
-      endDate
-      totalDays
-      status
     }
   }
 `;
@@ -518,14 +445,6 @@ export const REGISTER_DEVICE_TOKEN: TypedDocumentNode<RegisterDeviceTokenMutatio
 // Transfer mutation
 // ============================================================================
 
-export const RECORD_TRANSFER: TypedDocumentNode<RecordTransferMutation, RecordTransferMutationVariables> = gql`
-  mutation RecordTransfer($input: TransferBatchInput!) {
-    transferBatch(input: $input) {
-      id
-    }
-  }
-`;
-
 // QUAL-01: AUTH mutations (LOGIN, REFRESH_TOKEN) are intentionally defined inline
 // in hooks/useAuth.tsx where they are used. The duplicate exports previously in this
 // file have been removed to avoid maintenance drift between two copies.
@@ -650,6 +569,14 @@ export const GET_WAREHOUSE_SUMMARY: TypedDocumentNode<GetWarehouseSummaryQuery, 
         quantity
         unit
         createdAt
+      }
+      feedCoverage {
+        feedId
+        feedCode
+        feedName
+        daysOfCover
+        stockoutDate
+        coverageStatus
       }
     }
   }

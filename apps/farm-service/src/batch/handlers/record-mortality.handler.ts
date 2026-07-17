@@ -27,6 +27,8 @@ import type { MortalityRecordedEvent } from '@platform/event-contracts';
 import { toEventIso } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
+import { DayPlanRecalcService } from '../../feeding-protocol/services/day-plan-recalc.service';
+import { RemovalQuantityPolicyService } from '../services/removal-quantity-policy.service';
 import { Repository, DataSource } from 'typeorm';
 
 import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
@@ -73,6 +75,8 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
     @InjectRepository(EquipmentType)
     private readonly equipmentTypeRepository: Repository<EquipmentType>,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly dayPlanRecalc: DayPlanRecalcService,
+    private readonly removalQuantityPolicy: RemovalQuantityPolicyService,
     private readonly backdatePolicy: BackdatePolicyService,
     private readonly auditLogService: AuditLogService,
     // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
@@ -215,9 +219,20 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
       });
       this.mortalityCullPolicy.assertBatchInTank({ batchId, tankBatch });
 
-      // Biomass hesapla
+      // D-3 miktar çözümü (SSoT): mod (a) yalnız tane → kg güncel ortalamadan,
+      // ortalama değişmez; mod (b) tane+kg → ikisi AYNEN, kalanın ortalaması
+      // applyBatchDelta'nın türetmesiyle kayar (büyük balık kaybı).
       const avgWeightG = payload.avgWeightG || batch.getCurrentAvgWeight();
-      const biomassKg = (payload.quantity * avgWeightG) / 1000;
+      const resolvedRemoval = this.removalQuantityPolicy.resolve({
+        count: payload.quantity,
+        biomassKg: payload.biomassKg,
+        currentQuantity: tankBatch?.totalQuantity ?? batch.currentQuantity,
+        currentBiomassKg: Number(
+          tankBatch?.totalBiomassKg ?? (batch.currentQuantity * avgWeightG) / 1000,
+        ),
+        currentAvgWeightG: avgWeightG,
+      });
+      const biomassKg = resolvedRemoval.biomassKg;
 
       // Mortality record oluştur
       const mortalityRecord = queryRunner.manager.create(MortalityRecord, {
@@ -330,6 +345,17 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
         queryRunner.manager,
         tenantId,
         [payload.tankId],
+      );
+
+      // P-31: bugünkü planın beslenmemiş öğünleri yeni biyokütleden AYNI
+      // transaction'da yeniden fiyatlanır — ölen balık öğle öğününe yansır,
+      // yarını beklemez. Kilit sırası kanonik zincirle uyumlu (Batch →
+      // TankBatch buradan, DayPlan → Meals recalc içinden).
+      await this.dayPlanRecalc.recalcForUnit(
+        queryRunner.manager,
+        tenantId,
+        payload.tankId,
+        'mortality',
       );
 
       // Enqueue MortalityRecordedEvent into the transactional outbox BEFORE commit.

@@ -26,6 +26,8 @@ import type { CullRecordedEvent } from '@platform/event-contracts';
 import { toEventIso } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
+import { DayPlanRecalcService } from '../../feeding-protocol/services/day-plan-recalc.service';
+import { RemovalQuantityPolicyService } from '../services/removal-quantity-policy.service';
 import { Repository, DataSource } from 'typeorm';
 
 import {
@@ -60,6 +62,8 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
     @InjectRepository(Equipment)
     private readonly equipmentRepository: Repository<Equipment>,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly dayPlanRecalc: DayPlanRecalcService,
+    private readonly removalQuantityPolicy: RemovalQuantityPolicyService,
     private readonly auditLogService: AuditLogService,
     // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
     private readonly siteAuth: SiteAuthorizationService,
@@ -178,8 +182,17 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
       });
 
       // Biomass hesapla
+      // D-3 miktar çözümü (SSoT) — mortality ile aynı üç-mod semantiği.
       const avgWeightG = payload.avgWeightG || batch.getCurrentAvgWeight();
-      const biomassKg = (payload.quantity * avgWeightG) / 1000;
+      const resolvedRemoval = this.removalQuantityPolicy.resolve({
+        count: payload.quantity,
+        biomassKg: payload.biomassKg,
+        currentQuantity: batch.currentQuantity,
+        // Türetilmiş güncel biyokütle (adet × etkin ortalama) — ceiling doğrulaması için.
+        currentBiomassKg: (batch.currentQuantity * avgWeightG) / 1000,
+        currentAvgWeightG: avgWeightG,
+      });
+      const biomassKg = resolvedRemoval.biomassKg;
 
       // TankBatch bul (inside TX for consistency).
       // FARM-MEDIUM-055: pessimistic_write lock — parity with mortality. Without
@@ -278,6 +291,9 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
         tenantId,
         [payload.tankId],
       );
+
+      // P-31: cull sonrası bugünün beslenmemiş öğünleri aynı tx'te yeniden fiyatlanır.
+      await this.dayPlanRecalc.recalcForUnit(queryRunner.manager, tenantId, payload.tankId, 'cull');
 
       // Enqueue CullRecordedEvent into the transactional outbox BEFORE commit.
       // The outbox row is part of the same transaction as the domain writes —

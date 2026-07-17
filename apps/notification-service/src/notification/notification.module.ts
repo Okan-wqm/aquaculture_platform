@@ -9,6 +9,7 @@ import { AlertTriggeredEventHandler } from './event-handlers/alert-triggered.han
 import { AuthEventHandler } from './event-handlers/auth-event.handler';
 import { BillingEventHandler } from './event-handlers/billing-event.handler';
 import { DeviceTokenRevocationHandler } from './event-handlers/device-token-revocation.handler';
+import { FeedingDailySummaryEventHandler } from './event-handlers/feeding-daily-summary.handler';
 import { HarvestRegulatoryRecordedEventHandler } from './event-handlers/harvest-regulatory.handler';
 import { MessagingEventHandler } from './event-handlers/messaging-event.handler';
 import { NotificationCommandHandler } from './event-handlers/notification-command.handler';
@@ -64,6 +65,7 @@ import { SmsService } from './services/sms.service';
     NotificationCommandHandler,
     RegulatoryReportEventHandler,
     HarvestRegulatoryRecordedEventHandler,
+    FeedingDailySummaryEventHandler,
     DeviceTokenRevocationHandler,
 
     // Resolvers

@@ -409,6 +409,7 @@ export class EquipmentResolver {
             avgWeightG,
             biomassKg,
             waterTempC,
+            equipment.id,
           );
           const feedResult = await loaders.feedSelectionLoader.load(tankBatch.primaryBatchId);
           if (feedResult) {

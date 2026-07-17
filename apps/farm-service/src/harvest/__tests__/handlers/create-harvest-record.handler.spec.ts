@@ -162,6 +162,8 @@ function makeHarness(opts: HarnessOpts = {}) {
   const handler = new CreateHarvestRecordHandler(
     dataSource,
     outboxPublisher,
+    // P-31 recalc — mocked (day-plan-recalc.service.spec kapsıyor).
+    { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
     commandBus,
     harvestEligibility as never,
     backdatePolicy as never,

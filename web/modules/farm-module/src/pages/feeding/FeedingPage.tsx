@@ -17,24 +17,20 @@ import { useSearchParams } from 'react-router-dom';
 import { useI18n, type MessageKey } from '@aquaculture/shared-ui';
 import { useSiteList } from '../../hooks/useSites';
 import { useBatchList, BatchStatus } from '../../hooks/useBatches';
-import { useFeedConsumptionForecast } from '../../hooks/useFeeding';
 
 // Shared filter component
 import { FeedingFilters } from './components/FeedingFilters';
 
 // Tab Components
-import { DailyFeedPlan } from './components/DailyFeedPlan';
-import { PlannedVsActualSection } from './components/PlannedVsActualSection';
-import { DailyPlanTab } from './components/DailyPlanTab';
 import { FeedingRecordsTab } from './components/FeedingRecordsTab';
 import { FeedingSummaryTab } from './components/FeedingSummaryTab';
 import { GrowthForecastChart } from './components/GrowthForecastChart';
 import { FCRAnalysis } from './components/FCRAnalysis';
-import { ProtocolsTab } from './components/ProtocolsTab';
 import { ProtocolBuilderTab } from './components/ProtocolBuilderTab';
 import { AssignmentsTab } from './components/AssignmentsTab';
 import { MealBoardTab } from './components/MealBoardTab';
 import { ForecastTab } from './components/ForecastTab';
+import { useProtocolFeedForecast } from '../../hooks/useProtocolFeeding';
 
 // ============================================================================
 // TYPES
@@ -43,13 +39,10 @@ import { ForecastTab } from './components/ForecastTab';
 type TabId =
   | 'meal-board'
   | 'forecast'
-  | 'daily-plan'
-  | 'execution'
   | 'records'
   | 'summary'
   | 'growth'
   | 'fcr'
-  | 'protocols'
   | 'protocols-v2'
   | 'assignments'
   | 'sampling';
@@ -69,13 +62,10 @@ interface Tab {
 const VALID_TABS: TabId[] = [
   'meal-board',
   'forecast',
-  'daily-plan',
-  'execution',
   'records',
   'summary',
   'growth',
   'fcr',
-  'protocols',
   'protocols-v2',
   'assignments',
   'sampling',
@@ -113,34 +103,6 @@ const tabs: Tab[] = [
           strokeLinejoin="round"
           strokeWidth={2}
           d="M3 17l6-6 4 4 8-8M21 7v6h-6"
-        />
-      </svg>
-    ),
-  },
-  {
-    id: 'daily-plan',
-    name: 'Daily Plan',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
-        />
-      </svg>
-    ),
-  },
-  {
-    id: 'execution',
-    name: 'Daily Execution',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
         />
       </svg>
     ),
@@ -197,20 +159,6 @@ const tabs: Tab[] = [
           strokeLinejoin="round"
           strokeWidth={2}
           d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-        />
-      </svg>
-    ),
-  },
-  {
-    id: 'protocols',
-    name: 'Protocols',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
         />
       </svg>
     ),
@@ -278,7 +226,6 @@ const FeedingPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedSiteId, setSelectedSiteId] = React.useState<string>('');
   const [selectedBatchId, setSelectedBatchId] = React.useState<string>('');
-  const [forecastDays, setForecastDays] = React.useState<number>(30);
 
   // Derive active tab from URL — single source of truth for browser back/forward sync
   const tabParam = searchParams.get('tab');
@@ -312,14 +259,11 @@ const FeedingPage: React.FC = () => {
   );
 
   // Memoize forecast input to prevent stale-time bypass (PERF-003)
-  const forecastInput = useMemo(
-    () => ({ siteId: selectedSiteId || undefined, forecastDays }),
-    [selectedSiteId, forecastDays],
-  );
-  const { data: forecastData, isLoading: forecastLoading } = useFeedConsumptionForecast(
-    forecastInput,
-    { enabled: activeTab === 'daily-plan' },
-  );
+  // Faz 8: başlık KPI'ları v2 forecast snapshot'ından okur (K-10 dilimi) —
+  // legacy feedConsumptionForecast sorgusu emekli. Kapsam D-9 gereği site
+  // bazlıdır; site seçilmediyse ilk site okunur (ForecastTab ile aynı kural).
+  const kpiSiteId = selectedSiteId || sitesData?.items?.[0]?.id;
+  const { data: kpiForecast } = useProtocolFeedForecast(kpiSiteId, 30);
 
   // Calculate summary stats
   const totalBiomass =
@@ -335,11 +279,11 @@ const FeedingPage: React.FC = () => {
     }, 0) ?? 0;
 
   const todaysFeed =
-    forecastData?.byFeedType?.reduce((sum, feed) => {
-      return sum + (feed.dailyConsumption?.[0] ?? 0);
+    kpiForecast?.perFeed?.reduce((sum, feed) => {
+      return sum + (feed.dailyConsumptionSeries?.[0] ?? 0);
     }, 0) ?? 0;
 
-  const alertCount = forecastData?.alerts?.length ?? 0;
+  const alertCount = kpiForecast?.alerts?.length ?? 0;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -356,21 +300,6 @@ const FeedingPage: React.FC = () => {
               </p>
             </div>
 
-            {/* Forecast Days Selector */}
-            <div className="mt-4 flex md:mt-0 md:ml-4 items-center space-x-4">
-              <label className="text-sm text-gray-600">Forecast:</label>
-              <select
-                value={forecastDays}
-                onChange={(e) => setForecastDays(Number(e.target.value))}
-                className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-              >
-                <option value={7}>7 days</option>
-                <option value={14}>14 days</option>
-                <option value={30}>30 days</option>
-                <option value={60}>60 days</option>
-                <option value={90}>90 days</option>
-              </select>
-            </div>
           </div>
         </div>
       </div>
@@ -470,10 +399,10 @@ const FeedingPage: React.FC = () => {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-500">Feed Stock</p>
                 <p className="text-2xl font-semibold text-gray-900">
-                  {((forecastData?.totalCurrentStock ?? 0) / 1000).toFixed(1)} t
+                  {((kpiForecast?.perFeed?.reduce((sum, feed) => sum + feed.currentStockKg, 0) ?? 0) / 1000).toFixed(1)} t
                 </p>
                 <p className="text-xs text-gray-500">
-                  {forecastData?.byFeedType?.length ?? 0} feed types
+                  {kpiForecast?.perFeed?.length ?? 0} feed types
                 </p>
               </div>
             </div>
@@ -546,32 +475,6 @@ const FeedingPage: React.FC = () => {
 
       {/* Tab Content */}
       <div className="px-4 sm:px-6 py-6">
-        {activeTab === 'daily-plan' && (
-          <div className="space-y-8">
-            {/* Calculated per-tank daily plan (read-only) — what each tank SHOULD
-                be fed today, driven by the batch protocol rate SSoT. */}
-            <DailyPlanTab siteId={selectedSiteId || undefined} />
-
-            {/* Feed Forecast */}
-            {forecastLoading ? (
-              <div className="flex items-center justify-center h-64">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-              </div>
-            ) : (
-              <DailyFeedPlan
-                siteId={selectedSiteId}
-                batchId={selectedBatchId}
-                forecastDays={forecastDays}
-                forecastData={forecastData}
-              />
-            )}
-          </div>
-        )}
-        {activeTab === 'execution' && (
-          /* Manual execution entry — what was ACTUALLY fed (RecordFeedingModal),
-             with planned-vs-actual variance. This is the operator's write path. */
-          <PlannedVsActualSection siteId={selectedSiteId || undefined} />
-        )}
         {activeTab === 'records' && (
           <FeedingRecordsTab
             siteId={selectedSiteId || undefined}
@@ -599,7 +502,6 @@ const FeedingPage: React.FC = () => {
             batches={batchesData?.items ?? []}
           />
         )}
-        {activeTab === 'protocols' && <ProtocolsTab siteId={selectedSiteId} />}
         {activeTab === 'meal-board' && <MealBoardTab />}
         {activeTab === 'forecast' && <ForecastTab />}
         {activeTab === 'protocols-v2' && <ProtocolBuilderTab />}

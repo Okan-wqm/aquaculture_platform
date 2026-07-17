@@ -108,22 +108,7 @@ export interface FeedForecastAlert {
   daysUntilStockout: number;
 }
 
-export interface FeedForecastResult {
-  forecastDays: number;
-  startDate: string;
-  endDate: string;
-  byFeedType: FeedConsumptionByType[];
-  alerts: FeedForecastAlert[];
-  totalConsumption: number;
-  totalCurrentStock: number;
-}
 
-export interface FeedForecastInput {
-  siteId?: string;
-  forecastDays?: number;
-  leadTimeDays?: number;
-  safetyStockDays?: number;
-}
 
 // ============================================================================
 // GRAPHQL QUERIES
@@ -172,41 +157,6 @@ const GROWTH_SIMULATION_QUERY = `
   }
 `;
 
-const FEED_CONSUMPTION_FORECAST_QUERY = `
-  query FeedConsumptionForecast($input: FeedForecastInput) {
-    feedConsumptionForecast(input: $input) {
-      forecastDays
-      startDate
-      endDate
-      byFeedType {
-        feedId
-        feedCode
-        feedName
-        dailyConsumption
-        totalConsumption
-        currentStock
-        daysUntilStockout
-        stockoutDate
-        reorderDate
-        reorderQuantity
-        batches {
-          batchId
-          batchCode
-          consumption
-        }
-      }
-      alerts {
-        feedId
-        feedCode
-        type
-        message
-        daysUntilStockout
-      }
-      totalConsumption
-      totalCurrentStock
-    }
-  }
-`;
 
 const PROJECT_HARVEST_DATE_QUERY = `
   query ProjectHarvestDate($currentWeightG: Float!, $targetWeightG: Float!, $sgr: Float!, $startDate: DateTime) {
@@ -267,29 +217,6 @@ export function useGrowthSimulation(
     },
     staleTime: 60000,
     enabled: !!token && !!tenantId && !!input && (options?.enabled !== false),
-  });
-}
-
-/**
- * Hook to get feed consumption forecast
- */
-export function useFeedConsumptionForecast(
-  input?: FeedForecastInput,
-  options?: { enabled?: boolean }
-) {
-  const { token, tenantId } = useAuth();
-
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'feeding', 'forecast', input),
-    queryFn: async () => {
-      const data = await graphqlClient.request<{ feedConsumptionForecast: FeedForecastResult }>(
-        FEED_CONSUMPTION_FORECAST_QUERY,
-        { input: input ?? {} }
-      );
-      return data.feedConsumptionForecast;
-    },
-    staleTime: 60000,
-    enabled: !!token && !!tenantId && (options?.enabled !== false),
   });
 }
 

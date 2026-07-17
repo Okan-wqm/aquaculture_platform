@@ -6,6 +6,10 @@ import { Repository, DeepPartial, QueryDeepPartialEntity } from 'typeorm';
 import { SensorProtocol, ProtocolCategory } from '../../database/entities/sensor-protocol.entity';
 import { BaseProtocolAdapter, ProtocolCapabilities } from '../adapters/base-protocol.adapter';
 import { PROTOCOL_ADAPTERS } from '../adapters/protocol-adapters.registry';
+import {
+  ProtocolImplementationStatus,
+  getProtocolImplementationStatus,
+} from '../adapters/protocol-implementation-status';
 
 export interface ProtocolInfo {
   code: string;
@@ -15,6 +19,7 @@ export interface ProtocolInfo {
   subcategory?: string;
   connectionType: string;
   capabilities: ProtocolCapabilities;
+  implementationStatus: ProtocolImplementationStatus;
 }
 
 export interface ProtocolSummary {
@@ -80,7 +85,11 @@ export class ProtocolRegistryService implements OnModuleInit {
         description: adapter.description,
         configurationSchema: adapter.getConfigurationSchema(),
         defaultConfiguration: adapter.getDefaultConfiguration(),
-        isActive: true,
+        // Unsupported (stub) protocols are persisted inactive so no product
+        // surface offers them (SENSOR-CRITICAL-008).
+        isActive:
+          getProtocolImplementationStatus(adapter.protocolCode) !==
+          ProtocolImplementationStatus.UNSUPPORTED,
       };
 
       if (existing) {
@@ -106,18 +115,27 @@ export class ProtocolRegistryService implements OnModuleInit {
   }
 
   /**
-   * Get all protocols
+   * Get all selectable protocols.
+   *
+   * UNSUPPORTED protocols (stub adapters with no real cloud or edge I/O) are
+   * excluded so they can never be chosen in the registration wizard
+   * (SENSOR-CRITICAL-008). CLOUD_REAL and EDGE_DELEGATED protocols are
+   * returned, each carrying its implementationStatus so the UI can badge
+   * edge-only protocols honestly.
    */
   getAllProtocols(): ProtocolInfo[] {
-    return this.adapters.map((adapter) => ({
-      code: adapter.protocolCode,
-      displayName: adapter.displayName,
-      description: adapter.description,
-      category: adapter.category,
-      subcategory: adapter.subcategory,
-      connectionType: adapter.connectionType,
-      capabilities: adapter.getCapabilities(),
-    }));
+    return this.adapters
+      .map((adapter) => ({
+        code: adapter.protocolCode,
+        displayName: adapter.displayName,
+        description: adapter.description,
+        category: adapter.category,
+        subcategory: adapter.subcategory,
+        connectionType: adapter.connectionType,
+        capabilities: adapter.getCapabilities(),
+        implementationStatus: getProtocolImplementationStatus(adapter.protocolCode),
+      }))
+      .filter((p) => p.implementationStatus !== ProtocolImplementationStatus.UNSUPPORTED);
   }
 
   /**

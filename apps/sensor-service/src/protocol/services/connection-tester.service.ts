@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { ConnectionTestResult, SensorReadingData, ConnectionDiagnostics } from '../adapters/base-protocol.adapter';
+import {
+  ProtocolImplementationStatus,
+  getProtocolImplementationStatus,
+} from '../adapters/protocol-implementation-status';
 
 import { ProtocolRegistryService } from './protocol-registry.service';
 import { ProtocolValidatorService } from './protocol-validator.service';
@@ -70,6 +74,25 @@ export class ConnectionTesterService {
         testedAt,
         configUsed: config,
         error: `Unknown protocol: ${protocolCode}`,
+      };
+    }
+
+    // Only cloud-real protocols run a live adapter test. Stub/unsupported
+    // adapters would return a fabricated success, and edge-delegated protocols
+    // cannot be reached from the cloud — either would flip a never-contacted
+    // device to ACTIVE (SENSOR-CRITICAL-008). Fail honestly instead.
+    const implementationStatus = getProtocolImplementationStatus(protocolCode);
+    if (implementationStatus !== ProtocolImplementationStatus.CLOUD_REAL) {
+      const reason =
+        implementationStatus === ProtocolImplementationStatus.EDGE_DELEGATED
+          ? `Protocol ${protocolCode} runs on the edge gateway; a direct cloud connection test is not available.`
+          : `Protocol ${protocolCode} has no supported connection implementation.`;
+      return {
+        success: false,
+        protocolCode,
+        testedAt,
+        configUsed: config,
+        error: reason,
       };
     }
 

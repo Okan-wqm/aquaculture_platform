@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { validateCommandEnvelope, validateUndeployScadaPackageParams } from '@platform/sensor-contracts/validators';
@@ -75,6 +76,7 @@ describe('deleteScadaPackage — undeploy on delete (WF-011)', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ScadaPackageService,
+        { provide: EventEmitter2, useValue: { emit: jest.fn() } },
         { provide: getRepositoryToken(ScadaPackage), useValue: repo },
         { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
         { provide: MqttClientService, useValue: { isConnectedToBroker: () => true, publish } },
@@ -189,6 +191,7 @@ describe('deleteScadaPackage — undeploy on delete (WF-011)', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ScadaPackageService,
+        { provide: EventEmitter2, useValue: { emit: jest.fn() } },
         { provide: getRepositoryToken(ScadaPackage), useValue: repo },
         { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
       ],

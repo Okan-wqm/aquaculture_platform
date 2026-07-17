@@ -12,6 +12,8 @@ import {
   createTenantInvalidationKey,
 } from '@aquaculture/shared-ui';
 
+import { stableStringify } from '../utils/command-envelope';
+
 // Types - GraphQL enum KEY'leri ile uyumlu (UPPERCASE)
 export type BatchStatus =
   | 'QUARANTINE'
@@ -809,31 +811,8 @@ const CREATE_HARVEST_RECORD_MUTATION = `
 // (clientCommandId + payloadHash) on every stock-mutating mutation, matching the
 // AquaMobil offline-queue contract. The desktop web attaches it here so a
 // double-click / retried submit is deduped server-side instead of
-// double-decrementing inventory.
-/**
- * Deterministic, RECURSIVELY key-sorted stringify — the canonical form the
- * server's at-most-once payloadHash guard hashes.
- *
- * FARM-LOW-141: this MUST stay byte-identical to AquaMobil's stableStringify
- * (web/apps/aquamobil/src/pwa/offline-queue.ts) so the web and mobile clients
- * hash one dedup contract the same way. The previous web impl sorted only the
- * TOP-LEVEL keys, so a nested object would have hashed differently from mobile —
- * inert while payloads are flat, a silent drift trap the moment one nests.
- */
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(',')}]`;
-  }
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    return `{${Object.keys(record)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
+// double-decrementing inventory. The canonical stableStringify lives in
+// utils/command-envelope.ts (FARM-LOW-141/235 — web'in tek kopyası).
 async function hashPayload(payload: object): Promise<string> {
   const digest = await crypto.subtle.digest(
     'SHA-256',

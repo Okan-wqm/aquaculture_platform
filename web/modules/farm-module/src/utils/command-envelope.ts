@@ -18,19 +18,28 @@ export interface CommandEnvelope {
   payloadHash: string;
 }
 
-/** Özyinelemeli anahtar-sıralı JSON — mobil kuyruğun stableStringify paritesi. */
+/**
+ * Deterministik, ÖZYİNELEMELİ anahtar-sıralı stringify — sunucunun at-most-once
+ * payloadHash sözleşmesinin kanonik biçimi. Web'in TEK kopyası budur
+ * (useBatches buradan import eder — FARM-LOW-235 tekilleştirmesi).
+ *
+ * FARM-LOW-141: AquaMobil'in kopyasıyla
+ * (web/apps/aquamobil/src/pwa/offline-queue.ts) BYTE-BYTE aynı kalmak
+ * ZORUNDADIR — iki istemci tek dedup sözleşmesini aynı biçimle hash'ler
+ * (undefined-değerli anahtarlar da serileştirilir; filtreleme sapmaydı).
+ */
 export function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') {
-    return JSON.stringify(value);
-  }
   if (Array.isArray(value)) {
-    return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+    return `[${value.map(stableStringify).join(',')}]`;
   }
-  const entries = Object.entries(value as Record<string, unknown>)
-    .filter(([, v]) => v !== undefined)
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`);
-  return `{${entries.join(',')}}`;
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
 }
 
 async function sha256Hex(text: string): Promise<string> {

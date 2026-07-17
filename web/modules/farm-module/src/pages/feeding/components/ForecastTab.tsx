@@ -17,16 +17,20 @@ const HORIZON_OPTIONS = [30, 60, 90, 120] as const;
 
 export function ForecastTab(): React.ReactElement {
   const { t } = useI18n();
-  const { data: sitesPage } = useSiteList();
+  const { data: sitesPage, isLoading: sitesLoading } = useSiteList();
   const sites = useMemo(() => sitesPage?.items ?? [], [sitesPage]);
   const [siteId, setSiteId] = useState<string>('');
   const [horizonDays, setHorizonDays] = useState<number>(90);
 
+  // Siteler yüklenmeden sorgu ATILMAZ (FARM-MEDIUM-232): siteId'siz istek
+  // MODULE_USER'da Forbidden üretir ve site çözülünce ikinci istek doğurur.
   const effectiveSiteId = siteId || sites[0]?.id;
-  const { data: forecast, isLoading, isError } = useProtocolFeedForecast(
+  const { data: forecast, isLoading: forecastLoading, isError } = useProtocolFeedForecast(
     effectiveSiteId,
     horizonDays,
+    { enabled: !!effectiveSiteId },
   );
+  const isLoading = sitesLoading || (!!effectiveSiteId && forecastLoading);
 
   return (
     <div className="space-y-4">

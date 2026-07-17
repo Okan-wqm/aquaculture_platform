@@ -48,9 +48,10 @@ export function useWarehouseSummary(): {
   const cacheKey = `warehouseSummary-${tenantId}`;
 
   const { data, isLoading } = useQuery<WarehouseSummary>({
-    // WHY tenantId in queryKey: prevents cross-tenant cache collisions
-    // in multi-tenant scenarios.
-    queryKey: createTenantQueryKey(tenantId, 'warehouseSummary', tenantId),
+    // Tenant izolasyonu anahtar fabrikasının ['tenant', tenantId, ...] ön
+    // ekinden gelir — payload segmentinde tenantId tekrarı kaldırıldı
+    // (FARM-LOW-236 anahtar hijyeni).
+    queryKey: createTenantQueryKey(tenantId, 'warehouseSummary'),
     queryFn: async () => {
       // WHY guard-throw: `enabled` gates execution on tenantId but does not
       // narrow its type to string. An explicit throw narrows it for the

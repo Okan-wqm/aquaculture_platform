@@ -693,8 +693,16 @@ export interface ProtocolFeedForecastView {
  * Materyalize snapshot okuması — sorgu anında yeniden hesap YOK (K-10).
  * `refresh` MANAGER+ için insan-tetikli yedektir (tenant başına 5dk throttle,
  * ana tazelik yolu D-6 event-driven yenileme).
+ *
+ * `enabled`: siteler henüz yüklenmemişken siteId'siz istek atmamak için
+ * (MODULE_USER'da Forbidden + gereksiz çift istek — FARM-MEDIUM-232);
+ * siteId'siz tenant-geneli okuma MANAGER+ için bilinçli kullanım olarak kalır.
  */
-export function useProtocolFeedForecast(siteId?: string, horizonDays = 90) {
+export function useProtocolFeedForecast(
+  siteId?: string,
+  horizonDays = 90,
+  options?: { enabled?: boolean },
+) {
   return useTenantQuery(
     ['protocol-feed-forecast', { siteId, horizonDays }],
     async () => {
@@ -703,6 +711,6 @@ export function useProtocolFeedForecast(siteId?: string, horizonDays = 90) {
       }>(PROTOCOL_FEED_FORECAST_QUERY, { siteId, horizonDays });
       return data.protocolFeedForecast;
     },
-    { staleTime: 60000 },
+    { staleTime: 60000, enabled: options?.enabled ?? true },
   );
 }

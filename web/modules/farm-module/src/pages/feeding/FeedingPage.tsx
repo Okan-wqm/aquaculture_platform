@@ -72,6 +72,13 @@ const VALID_TABS: TabId[] = [
 ];
 const DEFAULT_TAB: TabId = 'meal-board';
 
+/**
+ * FeedingFilters'ı gerçekten TÜKETEN sekmeler — meal-board/forecast kendi
+ * kapsam seçicilerini taşır, protocols-v2 site/batch bağımsızdır; onlarda
+ * filtre çubuğu göstermek ölü UI olur (FARM-LOW-234).
+ */
+const FILTER_CONSUMING_TABS: TabId[] = ['records', 'summary', 'growth', 'fcr', 'assignments'];
+
 // ============================================================================
 // TABS CONFIG
 // ============================================================================
@@ -262,8 +269,13 @@ const FeedingPage: React.FC = () => {
   // Faz 8: başlık KPI'ları v2 forecast snapshot'ından okur (K-10 dilimi) —
   // legacy feedConsumptionForecast sorgusu emekli. Kapsam D-9 gereği site
   // bazlıdır; site seçilmediyse ilk site okunur (ForecastTab ile aynı kural).
+  // Siteler yüklenmeden sorgu ATILMAZ (enabled — FARM-MEDIUM-232).
   const kpiSiteId = selectedSiteId || sitesData?.items?.[0]?.id;
-  const { data: kpiForecast } = useProtocolFeedForecast(kpiSiteId, 30);
+  const { data: kpiForecast, isError: kpiForecastFailed } = useProtocolFeedForecast(
+    kpiSiteId,
+    30,
+    { enabled: !!kpiSiteId },
+  );
 
   // Calculate summary stats
   const totalBiomass =
@@ -304,19 +316,21 @@ const FeedingPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="px-4 sm:px-6 py-4">
-        <FeedingFilters
-          selectedSiteId={selectedSiteId}
-          selectedBatchId={selectedBatchId}
-          onSiteChange={setSelectedSiteId}
-          onBatchChange={setSelectedBatchId}
-          sites={sitesData?.items ?? []}
-          batches={batchesData?.items ?? []}
-          sitesLoading={sitesLoading}
-          batchesLoading={batchesLoading}
-        />
-      </div>
+      {/* Filters — yalnız filtreyi tüketen sekmelerde (FARM-LOW-234) */}
+      {FILTER_CONSUMING_TABS.includes(activeTab) && (
+        <div className="px-4 sm:px-6 py-4">
+          <FeedingFilters
+            selectedSiteId={selectedSiteId}
+            selectedBatchId={selectedBatchId}
+            onSiteChange={setSelectedSiteId}
+            onBatchChange={setSelectedBatchId}
+            sites={sitesData?.items ?? []}
+            batches={batchesData?.items ?? []}
+            sitesLoading={sitesLoading}
+            batchesLoading={batchesLoading}
+          />
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className="px-4 sm:px-6 py-4">
@@ -369,10 +383,14 @@ const FeedingPage: React.FC = () => {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-500">Today's Feed</p>
-                <p className="text-2xl font-semibold text-gray-900">{todaysFeed.toFixed(0)} kg</p>
+                {/* Hata durumunda 0 uydurulmaz — '—' + açık not (FARM-MEDIUM-233). */}
+                <p className="text-2xl font-semibold text-gray-900">
+                  {kpiForecastFailed ? '—' : `${todaysFeed.toFixed(0)} kg`}
+                </p>
                 <p className="text-xs text-gray-500">
-                  {totalBiomass > 0 ? ((todaysFeed / totalBiomass) * 100).toFixed(2) : 0}% of
-                  biomass
+                  {kpiForecastFailed
+                    ? 'Forecast unavailable'
+                    : `${totalBiomass > 0 ? ((todaysFeed / totalBiomass) * 100).toFixed(2) : 0}% of biomass`}
                 </p>
               </div>
             </div>
@@ -399,10 +417,14 @@ const FeedingPage: React.FC = () => {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-500">Feed Stock</p>
                 <p className="text-2xl font-semibold text-gray-900">
-                  {((kpiForecast?.perFeed?.reduce((sum, feed) => sum + feed.currentStockKg, 0) ?? 0) / 1000).toFixed(1)} t
+                  {kpiForecastFailed
+                    ? '—'
+                    : `${((kpiForecast?.perFeed?.reduce((sum, feed) => sum + feed.currentStockKg, 0) ?? 0) / 1000).toFixed(1)} t`}
                 </p>
                 <p className="text-xs text-gray-500">
-                  {kpiForecast?.perFeed?.length ?? 0} feed types
+                  {kpiForecastFailed
+                    ? 'Forecast unavailable'
+                    : `${kpiForecast?.perFeed?.length ?? 0} feed types`}
                 </p>
               </div>
             </div>
@@ -433,10 +455,14 @@ const FeedingPage: React.FC = () => {
                 <p
                   className={`text-2xl font-semibold ${alertCount > 0 ? 'text-red-600' : 'text-gray-900'}`}
                 >
-                  {alertCount}
+                  {kpiForecastFailed ? '—' : alertCount}
                 </p>
                 <p className="text-xs text-gray-500">
-                  {alertCount === 0 ? 'All good' : 'Action required'}
+                  {kpiForecastFailed
+                    ? 'Forecast unavailable'
+                    : alertCount === 0
+                      ? 'All good'
+                      : 'Action required'}
                 </p>
               </div>
             </div>

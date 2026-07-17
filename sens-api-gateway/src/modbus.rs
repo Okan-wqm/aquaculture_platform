@@ -104,6 +104,22 @@ pub enum ModbusCommand {
     },
     /// Get device count
     DeviceCount { response: oneshot::Sender<usize> },
+    /// Provision (add or replace) a device at runtime — additive hot-reload.
+    ///
+    /// Unlike a destructive full reconfigure, this touches ONLY the named
+    /// device; every other live drive/sensor keeps its connection. Backs
+    /// runtime VFD provisioning (SENSOR-CRITICAL-007) so a tenant-added drive
+    /// reaches the edge without a reboot. Boxed to keep the enum variant small
+    /// (ModbusDeviceConfig is large).
+    ProvisionDevice {
+        config: Box<ModbusDeviceConfig>,
+        response: oneshot::Sender<Result<()>>,
+    },
+    /// Decommission (remove + disconnect) a device by name at runtime.
+    DecommissionDevice {
+        device_name: String,
+        response: oneshot::Sender<bool>,
+    },
 }
 
 /// Thread-safe handle to communicate with the Modbus actor
@@ -227,6 +243,41 @@ impl ModbusHandle {
             .await;
         rx.await.unwrap_or(0)
     }
+
+    /// Provision (add or replace) a Modbus device on the running actor.
+    ///
+    /// Additive hot-reload: only the named device is (re)created and connected;
+    /// every other live device keeps its connection. Returns `Ok(())` when the
+    /// new client connected, or the connect error when the device was registered
+    /// but its socket is not yet up (a later read/reconnect retries). The write
+    /// path still enforces `allow_writes` + `allowed_write_ranges` per request,
+    /// so provisioning never widens write authority on its own.
+    pub async fn provision_device(&self, config: ModbusDeviceConfig) -> Result<()> {
+        let (tx, rx) = oneshot::channel();
+        let _ = self
+            .sender
+            .send(ModbusCommand::ProvisionDevice {
+                config: Box::new(config),
+                response: tx,
+            })
+            .await;
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Actor disconnected"))?
+    }
+
+    /// Decommission (remove + disconnect) a device by name on the running actor.
+    /// Returns true when a device was removed.
+    pub async fn decommission_device(&self, device_name: &str) -> bool {
+        let (tx, rx) = oneshot::channel();
+        let _ = self
+            .sender
+            .send(ModbusCommand::DecommissionDevice {
+                device_name: device_name.to_string(),
+                response: tx,
+            })
+            .await;
+        rx.await.unwrap_or(false)
+    }
 }
 
 /// Modbus actor that owns the non-Send client types
@@ -313,6 +364,24 @@ impl ModbusActor {
                 ModbusCommand::DeviceCount { response } => {
                     if response.send(self.manager.device_count()).is_err() {
                         warn!("Modbus DeviceCount response receiver dropped");
+                    }
+                }
+                ModbusCommand::ProvisionDevice { config, response } => {
+                    let result = match self.manager.add_or_replace_device(*config).await {
+                        None => Ok(()),
+                        Some(err) => Err(anyhow::anyhow!(err)),
+                    };
+                    if response.send(result).is_err() {
+                        warn!("Modbus ProvisionDevice response receiver dropped");
+                    }
+                }
+                ModbusCommand::DecommissionDevice {
+                    device_name,
+                    response,
+                } => {
+                    let removed = self.manager.remove_device(&device_name).await;
+                    if response.send(removed).is_err() {
+                        warn!("Modbus DecommissionDevice response receiver dropped");
                     }
                 }
             }
@@ -1520,12 +1589,148 @@ impl ModbusManager {
             );
         }
     }
+
+    /// Add a new device or replace an existing one by name (additive hot-reload).
+    ///
+    /// Unlike [`reconfigure`](Self::reconfigure), which disconnects EVERY device,
+    /// this touches only the named device — other live drives/sensors keep their
+    /// connections. Backs runtime provisioning of a tenant-added VFD so the drive
+    /// becomes controllable without interrupting the rest of the bus.
+    ///
+    /// Returns `Some(error)` when the new client fails to connect; the client is
+    /// still registered so a later reconnect/read can retry (a transient socket
+    /// failure at provision time must not lose the binding). Returns `None` on a
+    /// clean connect.
+    pub async fn add_or_replace_device(&mut self, config: ModbusDeviceConfig) -> Option<String> {
+        let name = config.name.clone();
+
+        // Remove + disconnect any existing client with the same name so
+        // re-provisioning a drive (e.g. changed IP or write ranges) is idempotent
+        // rather than duplicating the device.
+        let existing = self.index_of(&name).await;
+        if let Some(pos) = existing {
+            let old = self.clients.remove(pos);
+            let mut client = old.lock().await;
+            client.disconnect().await;
+        }
+
+        // Insert + connect only the new client.
+        let client_arc = Arc::new(Mutex::new(ModbusClient::new(config)));
+        let connect_err = {
+            let mut client = client_arc.lock().await;
+            client
+                .connect()
+                .await
+                .err()
+                .map(|e| format!("{}: {}", name, e))
+        };
+        self.clients.push(client_arc);
+
+        if let Some(ref err) = connect_err {
+            warn!(
+                "Provisioned Modbus device '{}' but connect failed: {}",
+                name, err
+            );
+        } else {
+            info!("Provisioned Modbus device '{}' (connected)", name);
+        }
+        connect_err
+    }
+
+    /// Remove + disconnect a device by name (runtime decommission).
+    /// Returns true when a device was removed.
+    pub async fn remove_device(&mut self, name: &str) -> bool {
+        match self.index_of(name).await {
+            Some(pos) => {
+                let old = self.clients.remove(pos);
+                let mut client = old.lock().await;
+                client.disconnect().await;
+                info!("Decommissioned Modbus device '{}'", name);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Find the index of a client by device name (acquires each lock in turn).
+    async fn index_of(&self, name: &str) -> Option<usize> {
+        for (i, client_arc) in self.clients.iter().enumerate() {
+            let client = client_arc.lock().await;
+            if client.config.name == name {
+                return Some(i);
+            }
+        }
+        None
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::ModbusTlsConfig;
+
+    /// Build a minimal plaintext-TCP device config for manager-level tests.
+    /// rodbus establishes the TCP channel lazily (background retry), so
+    /// `connect()` returns immediately even against a dead port — these tests
+    /// exercise the additive/remove bookkeeping, not a live socket.
+    fn provision_test_config(name: &str, address: &str) -> ModbusDeviceConfig {
+        ModbusDeviceConfig {
+            name: name.to_string(),
+            connection_type: "tcp".to_string(),
+            address: address.to_string(),
+            slave_id: 1,
+            baud_rate: None,
+            registers: vec![],
+            security: Default::default(),
+            tls: Default::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn add_or_replace_device_is_additive_and_idempotent() {
+        let mut mgr = ModbusManager::new(vec![]);
+        assert_eq!(mgr.device_count(), 0);
+
+        // First provision adds the device.
+        let _ = mgr
+            .add_or_replace_device(provision_test_config("vfd-1", "127.0.0.1:1"))
+            .await;
+        assert_eq!(mgr.device_count(), 1);
+
+        // Re-provisioning the SAME name replaces in place — no duplicate device.
+        let _ = mgr
+            .add_or_replace_device(provision_test_config("vfd-1", "127.0.0.1:2"))
+            .await;
+        assert_eq!(mgr.device_count(), 1);
+
+        // A different name adds alongside the existing live device.
+        let _ = mgr
+            .add_or_replace_device(provision_test_config("vfd-2", "127.0.0.1:3"))
+            .await;
+        assert_eq!(mgr.device_count(), 2);
+    }
+
+    #[tokio::test]
+    async fn remove_device_removes_only_the_named_device() {
+        let mut mgr = ModbusManager::new(vec![]);
+        let _ = mgr
+            .add_or_replace_device(provision_test_config("a", "127.0.0.1:1"))
+            .await;
+        let _ = mgr
+            .add_or_replace_device(provision_test_config("b", "127.0.0.1:1"))
+            .await;
+        assert_eq!(mgr.device_count(), 2);
+
+        assert!(mgr.remove_device("a").await);
+        assert_eq!(mgr.device_count(), 1);
+
+        // Removing an unknown device is a no-op that reports false.
+        assert!(!mgr.remove_device("does-not-exist").await);
+        assert_eq!(mgr.device_count(), 1);
+
+        assert!(mgr.remove_device("b").await);
+        assert_eq!(mgr.device_count(), 0);
+    }
 
     #[test]
     fn test_register_value_serialization() {

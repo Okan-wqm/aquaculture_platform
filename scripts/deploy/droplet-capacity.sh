@@ -3,7 +3,11 @@
 #
 # This script is intentionally conservative. It never removes volumes,
 # containers, networks, or build cache. Deploy-time cleanup is limited to
-# dangling images and unused old application SHA tags under IMAGE_PREFIX.
+# dangling images and, under IMAGE_PREFIX only, app tags outside the closed
+# keep-allowlist (latest/staging/buildcache-*/current DEPLOY_SHA) whose image
+# IDs no container, rollback manifest, or deploy target references — old SHA
+# tags, superseded rollback retags, and unclassified ad-hoc tags alike
+# (default-deny: an unlisted tag class cannot become immortal).
 
 set -euo pipefail
 
@@ -15,7 +19,12 @@ ROLLBACK_MANIFEST="${ROLLBACK_MANIFEST:-}"
 DEPLOY_STATE_DIR="${DEPLOY_STATE_DIR:-}"
 CAPACITY_GC_MODE="${CAPACITY_GC_MODE:-auto}" # auto | off
 CAPACITY_DISK_USAGE_MODE="${CAPACITY_DISK_USAGE_MODE:-summary}" # summary | deep | off
-CAPACITY_DU_TIMEOUT_SECONDS="${CAPACITY_DU_TIMEOUT_SECONDS:-60}"
+# 120s (was 60): with the docker/containerd subtrees excluded below the scan
+# is usually seconds, but a cold page cache on a busy droplet still needs
+# headroom — 60s produced disk_usage_unavailable exactly when the diagnostic
+# was needed (capacity incident triage). Bounded by the SSoT contract to stay
+# well under the deploy preflight command timeout.
+CAPACITY_DU_TIMEOUT_SECONDS="${CAPACITY_DU_TIMEOUT_SECONDS:-120}"
 
 GIB=$((1024 * 1024 * 1024))
 FULL_HARD_FREE_GIB="${FULL_HARD_FREE_GIB:-35}"
@@ -128,10 +137,19 @@ du_scope_snapshot() {
   local path="$1"
   local snapshot_file="$2"
 
+  # Docker/containerd subtrees are EXCLUDED from the walk: their bytes are
+  # already itemized by `docker system df`, and traversing overlay2's
+  # hundreds of thousands of inodes is precisely what blew the du timeout —
+  # leaving the NON-docker usage (the part only this walk can attribute)
+  # invisible during capacity incidents.
   if command -v timeout >/dev/null 2>&1; then
-    timeout "${CAPACITY_DU_TIMEOUT_SECONDS}s" du -x -B1 -d1 "${path}" > "${snapshot_file}" 2>/dev/null
+    timeout "${CAPACITY_DU_TIMEOUT_SECONDS}s" du -x -B1 -d1 \
+      --exclude="$(docker_root)" --exclude=/var/lib/containerd \
+      "${path}" > "${snapshot_file}" 2>/dev/null
   else
-    du -x -B1 -d1 "${path}" > "${snapshot_file}" 2>/dev/null
+    du -x -B1 -d1 \
+      --exclude="$(docker_root)" --exclude=/var/lib/containerd \
+      "${path}" > "${snapshot_file}" 2>/dev/null
   fi
 }
 
@@ -413,7 +431,7 @@ gc_remove_ref() {
 
 safe_image_gc() {
   echo "=== Safe image-only GC ==="
-  echo "Policy: dangling images + unused old app SHA tags + superseded rollback retags; volumes/containers/networks/build-cache untouched."
+  echo "Policy: dangling images + unused old app SHA tags + superseded rollback retags + unclassified app tags (default-deny); volumes/containers/networks/build-cache untouched."
   local before after reclaimed
   before=$(docker system df --format '{{.Size}}' 2>/dev/null | head -1 || true)
 
@@ -456,7 +474,7 @@ safe_image_gc() {
       removed_rollback=$((removed_rollback + 1))
   done < <(docker image ls --format '{{.Repository}} {{.Tag}} {{.ID}}' 2>/dev/null)
 
-  local removed=0 removed_untagged=0
+  local removed=0 removed_untagged=0 removed_unclassified=0
   while read -r repo tag id; do
       [ -n "${repo:-}" ] || continue
       case "${repo}" in
@@ -479,11 +497,9 @@ safe_image_gc() {
 
       case "${tag}" in
         latest|staging|buildcache-*) continue ;;
+        rollback-*) continue ;; # retention pass above owns rollback retags
       esac
       if [ -n "${DEPLOY_SHA}" ] && [ "${tag}" = "${DEPLOY_SHA}" ]; then
-        continue
-      fi
-      if ! printf '%s' "${tag}" | grep -Eq '^[0-9a-f]{40}$'; then
         continue
       fi
       if is_protected_id "${id}" "${protected}"; then
@@ -493,9 +509,18 @@ safe_image_gc() {
       fi
 
       ref="${repo}:${tag}"
-      echo "  remove unused old app tag ${ref} ${id}"
-      gc_remove_ref "${ref}"
-      removed=$((removed + 1))
+      if printf '%s' "${tag}" | grep -Eq '^[0-9a-f]{40}$'; then
+        echo "  remove unused old app tag ${ref} ${id}"
+        gc_remove_ref "${ref}"
+        removed=$((removed + 1))
+      else
+        # Default-deny: an app tag outside the closed keep-allowlist (e.g. an
+        # ad-hoc incident-clean-* retag) previously matched NO branch and
+        # became immortal — unclassified is a reason to reclaim, not to keep.
+        echo "  remove unclassified app tag ${ref} ${id}"
+        gc_remove_ref "${ref}"
+        removed_unclassified=$((removed_unclassified + 1))
+      fi
   done < <(docker image ls --format '{{.Repository}} {{.Tag}} {{.ID}}' 2>/dev/null)
 
   rm -f "${protected}"
@@ -508,7 +533,7 @@ safe_image_gc() {
   fi
 
   after=$(docker system df --format '{{.Size}}' 2>/dev/null | head -1 || true)
-  echo "Safe GC complete; removed_tags=${removed:-0} removed_untagged=${removed_untagged:-0} removed_rollback_retags=${removed_rollback:-0} skipped_protected=${skipped:-0} dry_run=${GC_DRY_RUN:-false} before=${before:-unknown} after=${after:-unknown}"
+  echo "Safe GC complete; removed_tags=${removed:-0} removed_untagged=${removed_untagged:-0} removed_rollback_retags=${removed_rollback:-0} removed_unclassified=${removed_unclassified:-0} skipped_protected=${skipped:-0} dry_run=${GC_DRY_RUN:-false} before=${before:-unknown} after=${after:-unknown}"
 }
 
 run_gate() {

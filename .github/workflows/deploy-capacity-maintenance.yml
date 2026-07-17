@@ -101,6 +101,11 @@ jobs:
 
             git checkout -f "${TARGET_SHA}"
             export DEPLOY_SHA="${TARGET_SHA}"
+            # Maintenance is the capacity-triage surface: deep per-directory
+            # attribution (/var, /var/log, /var/aqua-saas, ...) so incident
+            # reports show WHERE non-docker bytes live. The deploy-time
+            # preflight gate keeps the fast summary mode.
+            export CAPACITY_DISK_USAGE_MODE=deep
 
             case "${OPERATION}" in
               report)

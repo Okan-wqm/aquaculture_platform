@@ -70,6 +70,12 @@ describe('deploy SSOT contract', () => {
     expect(capacity).toContain('rollback-*)');
     expect(capacity).toContain('remove superseded rollback retag');
     expect(capacity).toContain('keep protected rollback retag');
+    // Default-deny tag policy: an app tag outside the closed keep-allowlist
+    // (latest/staging/buildcache-*/current sha/rollback retention) is
+    // reclaimed when unprotected — ad-hoc retags (incident-clean-*) were
+    // immortal because they matched no GC branch.
+    expect(capacity).toContain('remove unclassified app tag');
+    expect(capacity).toContain('removed_unclassified=');
     // Untag passes must convert into reclaimed bytes — the final
     // dangling-only prune is what fixes the historical before=after
     // symptom.
@@ -192,7 +198,11 @@ describe('deploy SSOT contract', () => {
     expect(capacity).toContain('docker image ls --format');
     expect(capacity).toContain('CAPACITY_DISK_USAGE_MODE');
     expect(capacity).toContain('CAPACITY_DU_TIMEOUT_SECONDS');
-    expect(capacity).toContain('CAPACITY_DU_TIMEOUT_SECONDS="${CAPACITY_DU_TIMEOUT_SECONDS:-60}"');
+    expect(capacity).toContain('CAPACITY_DU_TIMEOUT_SECONDS="${CAPACITY_DU_TIMEOUT_SECONDS:-120}"');
+    // Docker subtrees are excluded from the du walk — their bytes come from
+    // `docker system df`; traversing overlay2 inodes is what timed the walk
+    // out exactly when capacity triage needed the non-docker attribution.
+    expect(capacity).toContain('--exclude="$(docker_root)" --exclude=/var/lib/containerd');
     expect(capacity).toContain('disk_usage_unavailable');
     expect(capacity).toContain('detect_docker_root');
     expect(capacity).toContain("awk 'NF {print; exit}'");
@@ -227,7 +237,7 @@ describe('deploy SSOT contract', () => {
     const jobTimeoutMinutes = Number(/timeout-minutes:\s*(\d+)/.exec(capacityJobBlock)?.[1]);
     const commandTimeoutMinutes = Number(/command_timeout:\s*(\d+)m/.exec(capacityJobBlock)?.[1]);
 
-    expect(duTimeoutSeconds).toBe(60);
+    expect(duTimeoutSeconds).toBe(120);
     expect(commandTimeoutMinutes).toBeLessThan(jobTimeoutMinutes);
     expect(duTimeoutSeconds * 2).toBeLessThan(commandTimeoutMinutes * 60);
   });

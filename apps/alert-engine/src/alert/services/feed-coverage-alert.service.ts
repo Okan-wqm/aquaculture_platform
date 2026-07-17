@@ -17,6 +17,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { FEED_STOCKOUT_CRITICAL_DAYS } from '@platform/event-contracts';
 import type {
   FeedStockoutForecastEvent,
   FeedTransitionUpcomingEvent,
@@ -26,15 +27,16 @@ import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
 import { FarmSignalIncidentService } from './farm-signal-incident.service';
 
-/** Aksiyon penceresi tabanı: tedarik süresi kısaysa bile ≤3 gün kritiktir. */
-export const STOCKOUT_CRITICAL_DAYS = 3;
-
-/** SAF eşik kararı — spec pinler; null = incident üretme. */
+/**
+ * SAF eşik kararı — spec pinler; null = incident üretme. Kritik taban,
+ * event'in yanındaki paylaşılan sabittir (warehouse-summary ile tek SSoT);
+ * tedarik süresi kısaysa bile ≤FEED_STOCKOUT_CRITICAL_DAYS gün kritiktir.
+ */
 export function stockoutSeverityFor(
   daysOfCover: number,
   procurementLeadTimeDays: number,
 ): AlertSeverity | null {
-  if (daysOfCover <= STOCKOUT_CRITICAL_DAYS) return AlertSeverity.CRITICAL;
+  if (daysOfCover <= FEED_STOCKOUT_CRITICAL_DAYS) return AlertSeverity.CRITICAL;
   if (daysOfCover <= procurementLeadTimeDays) return AlertSeverity.WARNING;
   return null;
 }

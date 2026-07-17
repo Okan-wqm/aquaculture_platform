@@ -16,8 +16,10 @@
 import { ProtocolFcrSource } from '../entities/feeding-protocol-v2.entity';
 import { ProtocolRateService } from '../services/protocol-rate.service';
 import {
+  dailySurvivalRateFromCyclePercent,
   ForecastFeedInput,
   ForecastUnitInput,
+  NOMINAL_CYCLE_DAYS,
   ProtocolFeedForecastService,
   TENANT_SCOPE_KEY,
 } from '../services/protocol-feed-forecast.service';
@@ -111,6 +113,26 @@ function feedFixtures(): ForecastFeedInput[] {
     },
   ];
 }
+
+describe('dailySurvivalRateFromCyclePercent (§5 saf indirgeme — FARM-MEDIUM-225)', () => {
+  it('döngü-toplamı %90 → (0.9)^(1/NOMINAL_CYCLE_DAYS) günlük çarpan', () => {
+    const rate = dailySurvivalRateFromCyclePercent(90);
+    expect(rate).toBeCloseTo(Math.pow(0.9, 1 / NOMINAL_CYCLE_DAYS), 10);
+    expect(rate).toBeLessThan(1);
+    expect(rate).toBeGreaterThan(0.999);
+  });
+
+  it('%100 → tam 1.0 (ölümsüzle aynı etki, mortalityAssumption uygulanmamış kalır)', () => {
+    expect(dailySurvivalRateFromCyclePercent(100)).toBe(1);
+  });
+
+  it.each([undefined, null, 'yüzde', 0, -5, 150, Number.NaN])(
+    'aralık dışı/tanımsız girdi (%p) null döner — çağıran muhafazakâr 1.0 varsayımına düşer',
+    (value) => {
+      expect(dailySurvivalRateFromCyclePercent(value)).toBeNull();
+    },
+  );
+});
 
 describe('ProtocolFeedForecastService.computeForecast (golden)', () => {
   const service = makeService();

@@ -953,6 +953,15 @@ export interface UnfedUnitDetectedEvent extends BaseEvent {
 }
 
 /**
+ * FeedStockoutForecast tüketicilerinin PAYLAŞTIĞI önem eşiği (plan §6):
+ * `daysOfCover <= FEED_STOCKOUT_CRITICAL_DAYS` → critical; `<= tedarik süresi`
+ * → warning; ötesi aksiyon penceresi dışıdır (incident/rozet üretilmez).
+ * alert-engine incident önemi ve warehouse-summary `coverageStatus` AYNI
+ * sabiti okur — kod-ikizi eşik yasak (tek sahip, event'in yanında yaşar).
+ */
+export const FEED_STOCKOUT_CRITICAL_DAYS = 3;
+
+/**
  * 07:00 kapsama süpürmesi (Faz 7, plan §5): ufuk içinde tükeniş öngörülen
  * yem — alert-engine ≤3 gün critical / ≤leadTime warning üretir.
  */

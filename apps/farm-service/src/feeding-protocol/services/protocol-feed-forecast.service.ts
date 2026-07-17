@@ -32,6 +32,7 @@ import {
 
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import { Species } from '../../species/entities/species.entity';
 import {
   FcrMatrix,
   FeedingProtocolStatus,
@@ -65,6 +66,24 @@ export const DEFAULT_PROCUREMENT_LEAD_TIME_DAYS = 7;
  * üretim döngüsü — varsayım çıktıda `mortalityAssumption` ile işaretlenir.
  */
 export const NOMINAL_CYCLE_DAYS = 365;
+
+/**
+ * SAF (§5, spec pinli): döngü-toplamı hayatta-kalma yüzdesini günlük çarpana
+ * indirger — (yüzde/100)^(1/NOMINAL_CYCLE_DAYS). Sayı değil / ≤0 / >100 →
+ * null (çağıran ölümsüz 1.0 varsayımına döner ve mortalityAssumption 'none'
+ * kalır — sessiz varsayım yok).
+ */
+export function dailySurvivalRateFromCyclePercent(cycleSurvivalPercent: unknown): number | null {
+  if (
+    typeof cycleSurvivalPercent !== 'number' ||
+    !Number.isFinite(cycleSurvivalPercent) ||
+    cycleSurvivalPercent <= 0 ||
+    cycleSurvivalPercent > 100
+  ) {
+    return null;
+  }
+  return Math.pow(cycleSurvivalPercent / 100, 1 / NOMINAL_CYCLE_DAYS);
+}
 /** Yeniden sipariş miktarı: tükeniş sonrası bu pencerenin toplam tüketimi. */
 export const REORDER_WINDOW_DAYS = 30;
 /** D-9 belgeli tenant-geneli fallback kapsam anahtarı. */
@@ -381,6 +400,11 @@ export class ProtocolFeedForecastService {
         ]);
       const protocolById = new Map(protocols.map((p) => [p.id, p]));
       const tankBatchByUnit = new Map(tankBatches.map((tb) => [tb.tankId, tb]));
+      const dailySurvivalBySpecies = await this.loadDailySurvivalRates(
+        manager,
+        tenantId,
+        protocols,
+      );
 
       const bandFeedIds = new Set(
         protocols.flatMap((p) => p.bands.map((band) => band.feedId)).filter(Boolean),
@@ -392,7 +416,10 @@ export class ProtocolFeedForecastService {
         const protocol = protocolById.get(assignment.protocolId);
         const tankBatch = tankBatchByUnit.get(assignment.unitId);
         if (!protocol || !tankBatch || tankBatch.totalQuantity <= 0) continue;
-        const biomassKg = Number(tankBatch.currentBiomassKg);
+        // Motor/generator SSoT'siyle AYNI kolonlar (D-13): ÜRETİM biomass'ı
+        // `totalBiomassKg` + entity `avgWeightG` — temizlikçi balık ve nullable
+        // `currentBiomassKg` aynası hesaba giremez.
+        const biomassKg = Number(tankBatch.totalBiomassKg || 0);
         const fishCount = Number(tankBatch.totalQuantity);
         units.push({
           unitId: assignment.unitId,
@@ -401,18 +428,24 @@ export class ProtocolFeedForecastService {
           scopeKey: sitesWithStorage.has(assignment.siteId)
             ? assignment.siteId
             : TENANT_SCOPE_KEY,
-          avgWeightG: fishCount > 0 ? (biomassKg * 1000) / fishCount : 0,
+          avgWeightG: Number(tankBatch.avgWeightG || 0),
           fishCount,
           biomassKg,
           temperatureC: temperatures.get(assignment.unitId)?.celsius ?? null,
           rateAdjustmentPercent: assignment.overrides?.rateAdjustmentPercent,
           fcrOverrides: assignment.overrides?.fcrOverrides,
           protocol,
-          dailySurvivalRate: 1.0,
+          dailySurvivalRate:
+            (protocol.speciesId && dailySurvivalBySpecies.get(protocol.speciesId)) || 1.0,
         });
       }
       if (units.length === 0) return 0;
 
+      // Gün-0 KONTRATI (belgeli): forecast takvimi UTC günüdür — snapshot tüm
+      // sitelerin kapsamlarını tek hesapta taşır, tek takvim tabanı gerekir.
+      // FE tazelik damgası da computedAt'i UTC diliminde keser; site-TZ'li
+      // day-plan `planDate`'iyle sınır saatlerde ±1 gün fark BİLİNÇLİDİR
+      // (görselleştirme granülü gün, karar penceresi hafta ölçeğinde).
       const startDate = new Date().toISOString().slice(0, 10);
       const results = this.computeForecast({
         units,
@@ -502,6 +535,35 @@ export class ProtocolFeedForecastService {
   }
 
   /** storage_locations taşıyan siteler — D-9 kapsam kararının girdisi. */
+  /**
+   * Tür başına günlük hayatta-kalma çarpanı (§5): protokolün türündeki
+   * `growthParameters.expectedSurvivalRate` (döngü-toplamı %) NOMINAL_CYCLE_DAYS
+   * üzerinden günlüğe indirgenir. Tanımsız ya da aralık dışı değer ölümsüz
+   * (1.0, muhafazakâr) varsayıma düşer; hangi varsayımın uygulandığı çıktıda
+   * `mortalityAssumption` ile işaretlenir — sessiz yok.
+   */
+  private async loadDailySurvivalRates(
+    manager: EntityManager,
+    tenantId: string,
+    protocols: FeedingProtocolV2[],
+  ): Promise<Map<string, number>> {
+    const speciesIds = [
+      ...new Set(protocols.map((p) => p.speciesId).filter((id): id is string => !!id)),
+    ];
+    const rates = new Map<string, number>();
+    if (speciesIds.length === 0) return rates;
+    const speciesRows = await manager.find(Species, {
+      where: { tenantId, id: In(speciesIds) },
+    });
+    for (const species of speciesRows) {
+      const dailyRate = dailySurvivalRateFromCyclePercent(
+        species.growthParameters?.expectedSurvivalRate,
+      );
+      if (dailyRate !== null) rates.set(species.id, dailyRate);
+    }
+    return rates;
+  }
+
   private async loadSitesWithStorage(manager: EntityManager): Promise<Set<string>> {
     const rows: Array<{ siteId: string }> = await manager.query(
       `SELECT DISTINCT site_id AS "siteId" FROM storage_locations WHERE is_deleted = false`,

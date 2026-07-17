@@ -22,6 +22,7 @@
  */
 import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
+import { FEED_STOCKOUT_CRITICAL_DAYS } from '@platform/event-contracts';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, MoreThanOrEqual } from 'typeorm';
 import { GetWarehouseSummaryQuery } from '../queries/get-warehouse-summary.query';
@@ -106,7 +107,8 @@ export class GetWarehouseSummaryHandler
    * snapshot'ının ucuz okuması — sorgu anında yeniden hesap YOK (K-10).
    * Çok kapsamlı tenant'ta (site + tenant-fallback) EN KÖTÜ kapsam kazanır;
    * ilk 07:00 süpürmesinden önce snapshot yoksa boş liste döner.
-   * Eşikler alert-engine tüketicisiyle hizalı: ≤3 critical, ≤leadTime warning.
+   * Eşik SSoT'si event'in yanındaki FEED_STOCKOUT_CRITICAL_DAYS sabitidir —
+   * alert-engine incident önemiyle YAPISAL hizalı (kod-ikizi eşik yok).
    */
   private async getFeedCoverage(
     manager: EntityManager,
@@ -121,7 +123,7 @@ export class GetWarehouseSummaryHandler
         const status =
           feed.daysOfCover === null
             ? 'ok'
-            : feed.daysOfCover <= 3
+            : feed.daysOfCover <= FEED_STOCKOUT_CRITICAL_DAYS
               ? 'critical'
               : feed.daysOfCover <= feed.procurementLeadTimeDays
                 ? 'warning'

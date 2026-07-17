@@ -17,6 +17,7 @@ import { VfdCommandService } from './services/vfd-command.service';
 import { VfdConnectionTesterService } from './services/vfd-connection-tester.service';
 import { VfdDataReaderService } from './services/vfd-data-reader.service';
 import { VfdDeviceService } from './services/vfd-device.service';
+import { VfdEdgeWriteService } from './services/vfd-edge-write.service';
 import { VfdRegisterMappingService } from './services/vfd-register-mapping.service';
 
 /**
@@ -51,6 +52,7 @@ import { VfdRegisterMappingService } from './services/vfd-register-mapping.servi
     VfdDataReaderService,
     VfdCommandService,
     VfdConnectionTesterService,
+    VfdEdgeWriteService,
 
     // Protocol Adapters
     VfdModbusRtuAdapter,
@@ -68,6 +70,7 @@ import { VfdRegisterMappingService } from './services/vfd-register-mapping.servi
     VfdDataReaderService,
     VfdCommandService,
     VfdConnectionTesterService,
+    VfdEdgeWriteService,
   ],
 })
  

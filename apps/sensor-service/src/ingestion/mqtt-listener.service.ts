@@ -41,6 +41,7 @@ import {
 } from '@aquaculture/backend-common/database';
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 import { SensorServiceProfileService } from '../config/sensor-service-profile.service';
+import { VfdEdgeWriteService } from '../vfd/services/vfd-edge-write.service';
 import { SensorTopicCacheService, CachedSensorInfo } from './sensor-topic-cache.service';
 
 
@@ -219,6 +220,12 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     @Optional()
     @Inject(SensorServiceProfileService)
     private readonly profile: SensorServiceProfileService | null = null,
+    // SENSOR-CRITICAL-007 — resolves the pending edge-delegated VFD write when
+    // the gateway acknowledges a write_modbus command. Optional so `new`-based
+    // test harnesses and MQTT-less boots keep working.
+    @Optional()
+    @Inject(VfdEdgeWriteService)
+    private readonly vfdEdgeWriteService: VfdEdgeWriteService | null = null,
   ) {
     // Legacy edge/ topic flag (default: true for backward compatibility)
     this.legacyEdgeTopicsEnabled = this.configService.get('LEGACY_EDGE_TOPICS_ENABLED', 'true') === 'true';
@@ -598,6 +605,14 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         deviceCode,
         payload as Record<string, unknown>,
       );
+    }
+
+    // SENSOR-CRITICAL-007 — resolve a pending edge-delegated VFD write. No-op
+    // unless the commandId matches a write this process published (the map is
+    // keyed by the per-write random commandId, so ping/scan/deploy acks fall
+    // straight through).
+    if (this.vfdEdgeWriteService && payload.commandId) {
+      this.vfdEdgeWriteService.handleWriteResponse(payload as Record<string, unknown>);
     }
 
     // Handle I/O config update acknowledgements from the edge agent.

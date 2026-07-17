@@ -12,6 +12,7 @@ import { Sensor } from '../database/entities/sensor.entity';
 import { EdgeDeviceModule } from '../edge-device/edge-device.module';
 import { ReleaseBundleModule } from '../release-bundle/release-bundle.module';
 import { ScadaRuntimeModule } from '../scada-runtime/scada-runtime.module';
+import { VfdModule } from '../vfd/vfd.module';
 
 import { BatchProcessorService } from './batch-processor.service';
 import { DataIngestionService } from './data-ingestion.service';
@@ -35,6 +36,10 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     // Live-data producer (SENSOR-HIGH-046): TagValueFanoutService bridges
     // ingested metrics onto the /scada gateway's tenant-fenced fan-out.
     ScadaRuntimeModule,
+    // SENSOR-CRITICAL-007 — VfdEdgeWriteService owns the pending-write ack map
+    // that the MQTT listener resolves when the edge gateway acknowledges a
+    // write_modbus command.
+    VfdModule,
   ],
   providers: [
     BatchProcessorService,

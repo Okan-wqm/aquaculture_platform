@@ -30,16 +30,21 @@ trail for report, image-only GC, gate, and deploy reruns.
 
 For deeper disk attribution through the same audited control plane, run the
 maintenance workflow in report mode with `CAPACITY_DISK_USAGE_MODE=deep`. Deep
-mode performs one root-filesystem traversal at depth 3, excluding Docker and
-containerd (their bytes come from `docker system df`). That depth exposes
-direct `/tmp` artifact directories and the `/var/aqua-saas/target` tree without
-starting nested `/var`, `/var/lib`, repository, and `/tmp` traversals or listing
-individual files. The complete walk has one `CAPACITY_DU_TIMEOUT_SECONDS`
-budget (default and hard maximum 120 seconds); values outside 1–120 produce
-explicit unavailable evidence without invoking `du`. A timed-out scan emits a
-visible `disk_usage_unavailable reason=timeout` line. Diagnostic collection is
-evidence only: capacity pass/fail still comes from the canonical filesystem,
-inode, projected-pull, and safe-image-GC gates.
+mode builds a disjoint root-filesystem frontier, excluding Docker and
+containerd (their bytes come from `docker system df`). Immediate entries under
+`/tmp`, `/var/aqua-saas`, and `/var/suderra-os` become separate summary scopes,
+so one large child can time out without erasing completed sibling evidence.
+Known repository `target` and `node_modules` paths are scheduled first. At most
+four workers share one `CAPACITY_DU_TIMEOUT_SECONDS` wall-clock deadline
+(default and hard maximum 120 seconds), including a shared 20-second maximum
+discovery phase. Each scope gets at most 15 seconds, so four slow scopes cannot
+starve later families for the whole global deadline. Enumeration is capped at
+64 calls, 128 children per directory, and 512 total scopes; each worker capture
+is capped at 8 KiB and unavailable evidence at 64 records. Every cap or failed
+discovery is reported explicitly.
+Values outside 1–120 produce unavailable evidence without invoking `du`. Diagnostic
+collection is evidence only: capacity pass/fail still comes from the canonical
+filesystem, inode, projected-pull, and safe-image-GC gates.
 
 The `safe-image-gc` maintenance operation captures its pre-state with disk-usage
 walking disabled, runs image-only GC, and then performs one deep post-GC gate.

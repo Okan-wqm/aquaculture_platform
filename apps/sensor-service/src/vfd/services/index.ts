@@ -23,6 +23,7 @@ export {
   ExtendedTestResult,
 } from './vfd-connection-tester.service';
 export { VfdEdgeWriteService, VfdEdgeWriteResult } from './vfd-edge-write.service';
+export { VfdEdgeReadService, VfdEdgeReadResult } from './vfd-edge-read.service';
 export {
   VfdEdgeProvisioningService,
   EdgeModbusDeviceConfig,

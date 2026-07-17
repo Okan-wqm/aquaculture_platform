@@ -53,6 +53,7 @@ import {
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 import { SensorServiceProfileService } from '../config/sensor-service-profile.service';
 import { VfdEdgeProvisioningService } from '../vfd/services/vfd-edge-provisioning.service';
+import { VfdEdgeReadService } from '../vfd/services/vfd-edge-read.service';
 import { VfdEdgeWriteService } from '../vfd/services/vfd-edge-write.service';
 import { SensorTopicCacheService, CachedSensorInfo } from './sensor-topic-cache.service';
 
@@ -246,6 +247,12 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     @Optional()
     @Inject(VfdEdgeProvisioningService)
     private readonly vfdEdgeProvisioningService: VfdEdgeProvisioningService | null = null,
+    // SENSOR-CRITICAL-007 — resolves the pending edge-delegated VFD read when the
+    // gateway acks a read_modbus command (motor-state interlock + parameter
+    // read-back). Optional for the same `new`-based test-harness reason as above.
+    @Optional()
+    @Inject(VfdEdgeReadService)
+    private readonly vfdEdgeReadService: VfdEdgeReadService | null = null,
   ) {
     // Legacy edge/ topic flag (default: true for backward compatibility)
     this.legacyEdgeTopicsEnabled =
@@ -671,6 +678,12 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     // Same per-command commandId correlation; a no-op for unrelated acks.
     if (this.vfdEdgeProvisioningService && payload.commandId) {
       this.vfdEdgeProvisioningService.handleProvisionResponse(payload as Record<string, unknown>);
+    }
+
+    // SENSOR-CRITICAL-007 — resolve a pending edge-delegated VFD read (motor-state
+    // interlock + parameter read-back). Same commandId correlation.
+    if (this.vfdEdgeReadService && payload.commandId) {
+      this.vfdEdgeReadService.handleReadResponse(payload as Record<string, unknown>);
     }
 
     // Handle I/O config update acknowledgements from the edge agent.

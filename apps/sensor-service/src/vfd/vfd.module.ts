@@ -18,6 +18,7 @@ import { VfdConnectionTesterService } from './services/vfd-connection-tester.ser
 import { VfdDataReaderService } from './services/vfd-data-reader.service';
 import { VfdDeviceService } from './services/vfd-device.service';
 import { VfdEdgeProvisioningService } from './services/vfd-edge-provisioning.service';
+import { VfdEdgeReadService } from './services/vfd-edge-read.service';
 import { VfdEdgeWriteService } from './services/vfd-edge-write.service';
 import { VfdRegisterMappingService } from './services/vfd-register-mapping.service';
 
@@ -49,6 +50,7 @@ import { VfdRegisterMappingService } from './services/vfd-register-mapping.servi
     VfdCommandService,
     VfdConnectionTesterService,
     VfdEdgeWriteService,
+    VfdEdgeReadService,
     VfdEdgeProvisioningService,
 
     // Protocol Adapters
@@ -68,6 +70,7 @@ import { VfdRegisterMappingService } from './services/vfd-register-mapping.servi
     VfdCommandService,
     VfdConnectionTesterService,
     VfdEdgeWriteService,
+    VfdEdgeReadService,
     VfdEdgeProvisioningService,
   ],
 })

@@ -5,6 +5,7 @@ import {
   ProtocolImplementationStatus,
   getProtocolImplementationStatus,
 } from '../adapters/protocol-implementation-status';
+import { redactProtocolSecrets } from '../../common/redact-protocol-secrets';
 
 import { ProtocolRegistryService } from './protocol-registry.service';
 import { ProtocolValidatorService } from './protocol-validator.service';
@@ -60,7 +61,7 @@ export class ConnectionTesterService {
         success: false,
         protocolCode,
         testedAt,
-        configUsed: config,
+        configUsed: redactProtocolSecrets(config),
         error: `Configuration validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`,
       };
     }
@@ -72,7 +73,7 @@ export class ConnectionTesterService {
         success: false,
         protocolCode,
         testedAt,
-        configUsed: config,
+        configUsed: redactProtocolSecrets(config),
         error: `Unknown protocol: ${protocolCode}`,
       };
     }
@@ -91,7 +92,7 @@ export class ConnectionTesterService {
         success: false,
         protocolCode,
         testedAt,
-        configUsed: config,
+        configUsed: redactProtocolSecrets(config),
         error: reason,
       };
     }
@@ -112,7 +113,7 @@ export class ConnectionTesterService {
           ...testResult,
           protocolCode,
           testedAt,
-          configUsed: config,
+          configUsed: redactProtocolSecrets(config),
           diagnostics: {
             totalMs: Date.now() - startTime,
           },
@@ -145,7 +146,7 @@ export class ConnectionTesterService {
         success: true,
         protocolCode,
         testedAt,
-        configUsed: config,
+        configUsed: redactProtocolSecrets(config),
         latencyMs: testResult.latencyMs,
         sampleData,
         diagnostics: {
@@ -160,7 +161,7 @@ export class ConnectionTesterService {
         success: false,
         protocolCode,
         testedAt,
-        configUsed: config,
+        configUsed: redactProtocolSecrets(config),
         error: errorMessage,
         diagnostics: {
           totalMs: Date.now() - startTime,

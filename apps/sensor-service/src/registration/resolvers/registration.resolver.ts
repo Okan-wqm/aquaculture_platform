@@ -4,6 +4,7 @@ import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/de
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { Sensor } from '../../database/entities/sensor.entity';
+import { redactProtocolSecrets } from '../../common/redact-protocol-secrets';
 import {
   RegisterSensorInput,
   UpdateSensorProtocolInput,
@@ -261,7 +262,8 @@ export class RegistrationResolver {
       name: sensor.name,
       type: sensor.type,
       protocolCode: sensor.protocol?.code || '',
-      protocolConfiguration: sensor.protocolConfiguration || {},
+      // SENSOR-HIGH-081: never echo live device credentials through a read model.
+      protocolConfiguration: redactProtocolSecrets(sensor.protocolConfiguration),
       connectionStatus: sensor.connectionStatus,
       registrationStatus: sensor.registrationStatus,
       manufacturer: sensor.manufacturer,
@@ -399,7 +401,8 @@ export class RegistrationResolver {
       id: sensor.id,
       name: sensor.name,
       protocolCode: sensor.protocol?.code || '',
-      protocolConfiguration: sensor.protocolConfiguration || {},
+      // SENSOR-HIGH-081: never echo live device credentials through a read model.
+      protocolConfiguration: redactProtocolSecrets(sensor.protocolConfiguration),
       connectionStatus: sensor.connectionStatus,
       registrationStatus: sensor.registrationStatus,
       manufacturer: sensor.manufacturer,

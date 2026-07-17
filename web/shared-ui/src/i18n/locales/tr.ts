@@ -266,6 +266,12 @@ export const tr: Record<MessageKey, string> = {
   'feedingV2.mealBoard.unplanned': 'Plan dışı yem',
   'feedingV2.mealBoard.dayVariance': 'Gün varyansı',
   'feedingV2.mealBoard.underfed': 'Az atım',
+  'feedingV2.mealBoard.mixedBatch': 'Karışık tank',
+  'feedingV2.mealBoard.mixedBatchTitle':
+    "Ünitede birden fazla üretim batch'i var — yem bandı baskın biyokütleli batch'e göre seçilir",
+  'feedingV2.mealBoard.highWeightCv': 'Yüksek ağırlık dağılımı',
+  'feedingV2.mealBoard.highWeightCvTitle':
+    "Batch'ler arası ağırlık farkı yüksek — ortak yem bandı her batch'e uymayabilir",
   'feedingV2.mealBoard.biomass': 'Biyokütle',
   'feedingV2.mealBoard.fishCount': 'Balık',
   'feedingV2.mealBoard.avgWeight': 'Ort. ağırlık',

@@ -69,6 +69,13 @@ export interface DayPlanSnapshot {
   effectiveRatePercent: number;
   expectedFcr: number;
   fcrResolvedSource: FcrResolvedSource;
+  /**
+   * D-2 karışık-tank görünürlüğü (FARM-MEDIUM-231): band dominant-biomass
+   * batch'ten seçilir; tank karışıksa rozet + yüksek ağırlık-CV'sinde uyarı.
+   * B3 öncesi üretilen snapshot'larda alanlar yoktur (opsiyonel bundan).
+   */
+  mixedBatch?: boolean;
+  weightCvPercent?: number | null;
 }
 
 /** Gün içi yeniden hesap gerekçe kaydı — sessiz recalc yok. */

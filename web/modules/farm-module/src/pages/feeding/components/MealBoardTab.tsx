@@ -67,6 +67,13 @@ const FCR_SOURCE_KEY: Record<FcrResolvedSource, MessageKey> = {
   feed: 'feedingV2.mealBoard.fcrSource.feed',
 };
 
+/**
+ * D-2 uyarı eşiği: batch'ler arası ağırlık-CV'si bunu aşarsa dominant-biomass
+ * band varsayımı güvenilmez sayılır ve karışık-tank rozetinin yanında uyarı
+ * çıkar (sunum eşiği — hesap BE snapshot'ından gelir).
+ */
+const HIGH_WEIGHT_CV_WARNING_PERCENT = 25;
+
 function localDay(date = new Date()): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -312,6 +319,24 @@ export function MealBoardTab(): React.ReactElement {
                     {t('feedingV2.mealBoard.underfed')} {dayVariancePercent.toFixed(1)}%
                   </span>
                 )}
+                {snapshot.mixedBatch && (
+                  <span
+                    className="rounded-full bg-purple-100 px-2 py-0.5 text-xs text-purple-800"
+                    title={t('feedingV2.mealBoard.mixedBatchTitle')}
+                  >
+                    {t('feedingV2.mealBoard.mixedBatch')}
+                  </span>
+                )}
+                {snapshot.mixedBatch &&
+                  (snapshot.weightCvPercent ?? 0) > HIGH_WEIGHT_CV_WARNING_PERCENT && (
+                    <span
+                      className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800"
+                      title={t('feedingV2.mealBoard.highWeightCvTitle')}
+                    >
+                      {t('feedingV2.mealBoard.highWeightCv')}{' '}
+                      {(snapshot.weightCvPercent ?? 0).toFixed(0)}%
+                    </span>
+                  )}
               </div>
               <div className="flex items-center gap-3 text-sm text-gray-600">
                 <span>

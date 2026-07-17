@@ -9,6 +9,7 @@
  */
 import {
   MealPlanGeneratorService,
+  mixedTankStats,
   type ComputeDayPlanInput,
 } from '../services/meal-plan-generator.service';
 import { ProtocolRateService } from '../services/protocol-rate.service';
@@ -75,7 +76,65 @@ const baseInput = (): ComputeDayPlanInput => ({
   timezone: 'Europe/Istanbul',
 });
 
+describe('mixedTankStats (D-2 — FARM-MEDIUM-231, saf)', () => {
+  it('tek (veya boş) üretim batch → mixed değil, CV null', () => {
+    expect(mixedTankStats([{ quantity: 1000, avgWeightG: 50 }])).toEqual({
+      mixedBatch: false,
+      weightCvPercent: null,
+    });
+    expect(mixedTankStats([])).toEqual({ mixedBatch: false, weightCvPercent: null });
+    expect(mixedTankStats(undefined)).toEqual({ mixedBatch: false, weightCvPercent: null });
+  });
+
+  it('sıfır adetli batch detayı sayılmaz (tam çıkmış batch mixed yapmaz)', () => {
+    expect(
+      mixedTankStats([
+        { quantity: 1000, avgWeightG: 50 },
+        { quantity: 0, avgWeightG: 500 },
+      ]),
+    ).toEqual({ mixedBatch: false, weightCvPercent: null });
+  });
+
+  it('iki eşit batch, %50/%150 ağırlık → mixed + adet-ağırlıklı CV %50', () => {
+    const stats = mixedTankStats([
+      { quantity: 500, avgWeightG: 50 },
+      { quantity: 500, avgWeightG: 150 },
+    ]);
+    expect(stats.mixedBatch).toBe(true);
+    // mean=100, σ=50 → CV %50.
+    expect(stats.weightCvPercent).toBeCloseTo(50);
+  });
+
+  it('aynı ağırlıklı iki batch → mixed ama CV %0 (uyarı eşiği altında)', () => {
+    const stats = mixedTankStats([
+      { quantity: 300, avgWeightG: 80 },
+      { quantity: 700, avgWeightG: 80 },
+    ]);
+    expect(stats.mixedBatch).toBe(true);
+    expect(stats.weightCvPercent).toBe(0);
+  });
+});
+
 describe('MealPlanGeneratorService.computeDayPlan', () => {
+  it('snapshot karışık-tank istatistiğini taşır; verilmezse false/null (D-2)', () => {
+    const mixed = service.computeDayPlan({
+      ...baseInput(),
+      stock: {
+        fishCount: 1000,
+        biomassKg: 50,
+        avgWeightG: 50,
+        mixedBatch: true,
+        weightCvPercent: 32.5,
+      },
+    });
+    expect(mixed!.snapshot.mixedBatch).toBe(true);
+    expect(mixed!.snapshot.weightCvPercent).toBe(32.5);
+
+    const single = service.computeDayPlan(baseInput());
+    expect(single!.snapshot.mixedBatch).toBe(false);
+    expect(single!.snapshot.weightCvPercent).toBeNull();
+  });
+
   it('computes daily total from production biomass with multiplier 1.0 when no temperature', () => {
     const plan = service.computeDayPlan(baseInput());
     expect(plan).not.toBeNull();

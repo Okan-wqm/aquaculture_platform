@@ -35,6 +35,7 @@ import {
   suspensionFor,
 } from './meal-schedule.util';
 import type { EffectiveTemperature } from '../../water-quality/services/water-temperature.service';
+import type { BatchDetail } from '../../batch/entities/tank-batch.entity';
 
 // ============================================================================
 // TYPES
@@ -46,6 +47,39 @@ export interface UnitStockState {
   /** Üretim biomass'ı kg (temizlikçi hariç — TankBatch.totalBiomassKg, D-13). */
   biomassKg: number;
   avgWeightG: number;
+  /** D-2: tankta >1 üretim batch'i var (band dominant-biomass'tan seçilir). */
+  mixedBatch?: boolean;
+  /** D-2: batch'ler arası ağırlık dağılımının değişim katsayısı (%). */
+  weightCvPercent?: number | null;
+}
+
+/**
+ * D-2 (SAF, spec pinli): TankBatch.batchDetails SSoT'sinden karışık-tank
+ * istatistiği — `mixedBatch` (balıklı üretim batch'i sayısı ≥ 2) + batch'ler
+ * arası ortalama-ağırlık dağılımının adet-ağırlıklı değişim katsayısı (%).
+ * Band politikası dominant-biomass batch'ten hesaplanır; bu istatistik o
+ * varsayımı operatöre GÖRÜNÜR kılar (rozet + yüksek-CV uyarısı).
+ */
+export function mixedTankStats(
+  batchDetails: ReadonlyArray<Pick<BatchDetail, 'quantity' | 'avgWeightG'>> | null | undefined,
+): { mixedBatch: boolean; weightCvPercent: number | null } {
+  const stocked = (batchDetails ?? []).filter((detail) => detail.quantity > 0);
+  if (stocked.length < 2) return { mixedBatch: false, weightCvPercent: null };
+
+  const totalCount = stocked.reduce((sum, detail) => sum + detail.quantity, 0);
+  const meanWeight =
+    stocked.reduce((sum, detail) => sum + detail.quantity * detail.avgWeightG, 0) / totalCount;
+  if (meanWeight <= 0) return { mixedBatch: true, weightCvPercent: null };
+
+  const variance =
+    stocked.reduce(
+      (sum, detail) => sum + detail.quantity * Math.pow(detail.avgWeightG - meanWeight, 2),
+      0,
+    ) / totalCount;
+  return {
+    mixedBatch: true,
+    weightCvPercent: round3((Math.sqrt(variance) / meanWeight) * 100),
+  };
 }
 
 export interface ComputeDayPlanInput {
@@ -147,6 +181,8 @@ export class MealPlanGeneratorService {
       effectiveRatePercent: round3(effectiveRate),
       expectedFcr: expectedFcr.value,
       fcrResolvedSource: expectedFcr.source,
+      mixedBatch: stock.mixedBatch ?? false,
+      weightCvPercent: stock.weightCvPercent ?? null,
     };
 
     const plannedTotalKg = round3((stock.biomassKg * effectiveRate) / 100);

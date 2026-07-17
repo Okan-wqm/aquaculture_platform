@@ -440,6 +440,9 @@ export interface DayPlanSnapshot {
   effectiveRatePercent: number;
   expectedFcr: number;
   fcrResolvedSource: FcrResolvedSource;
+  /** D-2 karışık-tank rozeti — B3 öncesi üretilmiş snapshot'larda alanlar yok. */
+  mixedBatch?: boolean;
+  weightCvPercent?: number | null;
 }
 
 export interface RecalcLogEntry {

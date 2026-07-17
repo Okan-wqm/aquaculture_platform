@@ -176,6 +176,18 @@ export class MealExecutionResolver {
     return plan.snapshot.fcrResolvedSource;
   }
 
+  /** D-2 rozeti: band dominant-biomass'tan seçildi, tank karışık (B3 öncesi snapshot'ta false). */
+  @ResolveField(() => Boolean)
+  mixedBatch(@Parent() plan: FeedingDayPlan): boolean {
+    return plan.snapshot.mixedBatch ?? false;
+  }
+
+  /** D-2 uyarısı: batch'ler arası ağırlık dağılımı CV'si (%); tekil tankta null. */
+  @ResolveField(() => Float, { nullable: true })
+  weightCvPercent(@Parent() plan: FeedingDayPlan): number | null {
+    return plan.snapshot.weightCvPercent ?? null;
+  }
+
   /** Döküm kaydı (D-8) — zarf zorunlu (C-17), site yetkisi tx içinde fail-closed. */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Mutation(() => MealFeedingResultView)

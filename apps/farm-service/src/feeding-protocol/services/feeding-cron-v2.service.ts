@@ -62,7 +62,11 @@ import {
 import { FeedingDayPlan, FeedingDayPlanStatus } from '../entities/feeding-day-plan.entity';
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
-import { MealPlanGeneratorService, ComputedDayPlan } from './meal-plan-generator.service';
+import {
+  MealPlanGeneratorService,
+  ComputedDayPlan,
+  mixedTankStats,
+} from './meal-plan-generator.service';
 import {
   BiomassGrowthApplierService,
   type LockedUnit,
@@ -328,6 +332,7 @@ export class FeedingCronV2Service {
         fishCount: ctx.tankBatch.totalQuantity,
         biomassKg: Number(ctx.tankBatch.totalBiomassKg || 0),
         avgWeightG: Number(ctx.tankBatch.avgWeightG || 0),
+        ...mixedTankStats(ctx.tankBatch.batchDetails),
       },
       temperature: ctx.temperature,
       planDate: ctx.planDate,

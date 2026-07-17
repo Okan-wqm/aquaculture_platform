@@ -39,7 +39,7 @@ import { FeedingDayPlan, FeedingDayPlanStatus } from '../entities/feeding-day-pl
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Feed } from '../../feed/entities/feed.entity';
-import { MealPlanGeneratorService } from './meal-plan-generator.service';
+import { MealPlanGeneratorService, mixedTankStats } from './meal-plan-generator.service';
 import { DayPlanRecalcService } from './day-plan-recalc.service';
 import { calendarDayIn } from './meal-schedule.util';
 import { collectFeedSourceFeedIds, buildFeedFcrMatrixMap } from './feed-fcr-source.util';
@@ -139,6 +139,7 @@ export class DayPlanAdminService {
           fishCount: tankBatch.totalQuantity,
           biomassKg: Number(tankBatch.totalBiomassKg || 0),
           avgWeightG: Number(tankBatch.avgWeightG || 0),
+          ...mixedTankStats(tankBatch.batchDetails),
         },
         temperature,
         planDate,

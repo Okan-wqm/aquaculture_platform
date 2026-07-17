@@ -264,6 +264,12 @@ export const en = {
   'feedingV2.mealBoard.unplanned': 'Unplanned feed',
   'feedingV2.mealBoard.dayVariance': 'Day variance',
   'feedingV2.mealBoard.underfed': 'Underfed',
+  'feedingV2.mealBoard.mixedBatch': 'Mixed tank',
+  'feedingV2.mealBoard.mixedBatchTitle':
+    'Multiple production batches in this unit — feed band follows the dominant-biomass batch',
+  'feedingV2.mealBoard.highWeightCv': 'High weight spread',
+  'feedingV2.mealBoard.highWeightCvTitle':
+    'Weight variation between batches is high — the shared feed band may not fit every batch',
   'feedingV2.mealBoard.biomass': 'Biomass',
   'feedingV2.mealBoard.fishCount': 'Fish',
   'feedingV2.mealBoard.avgWeight': 'Avg weight',

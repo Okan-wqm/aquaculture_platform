@@ -34,6 +34,7 @@ import {
 } from '../dto/feeding-protocol-v2.inputs';
 import {
   ArchiveFeedingProtocolV2Command,
+  AssignProtocolToBatchUnitsCommand,
   AssignProtocolToUnitCommand,
   CreateFeedingProtocolV2Command,
   UnassignProtocolCommand,
@@ -149,6 +150,31 @@ export class FeedingProtocolV2Resolver {
     @Args('input') input: AssignProtocolToUnitInput,
   ): Promise<ProtocolAssignment> {
     return this.commandBus.execute(new AssignProtocolToUnitCommand(input, tenantId, userId));
+  }
+
+  /**
+   * Plan §1.2 kolaylık mutasyonu: batch'in güncel ünitelerine (primary ya da
+   * batchDetails payı) toplu atama — her ünite tekil atama yolunun aynı
+   * çekirdeğinden geçer, tek transaction.
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Mutation(() => [ProtocolAssignment])
+  async assignProtocolToBatchUnits(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser('sub') userId: string,
+    @Args('batchId', { type: () => ID }) batchId: string,
+    @Args('protocolId', { type: () => ID }) protocolId: string,
+    @Args('speciesMismatchReason', { nullable: true }) speciesMismatchReason?: string,
+  ): Promise<ProtocolAssignment[]> {
+    return this.commandBus.execute(
+      new AssignProtocolToBatchUnitsCommand(
+        batchId,
+        protocolId,
+        tenantId,
+        userId,
+        speciesMismatchReason,
+      ),
+    );
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)

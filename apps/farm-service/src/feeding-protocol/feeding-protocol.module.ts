@@ -42,6 +42,7 @@ import {
   UpdateFeedingProtocolV2Handler,
 } from './handlers/protocol-crud.handlers';
 import {
+  AssignProtocolToBatchUnitsHandler,
   AssignProtocolToUnitHandler,
   UnassignProtocolHandler,
   UpdateProtocolAssignmentHandler,
@@ -96,6 +97,7 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
     UpdateFeedingProtocolV2Handler,
     ArchiveFeedingProtocolV2Handler,
     AssignProtocolToUnitHandler,
+    AssignProtocolToBatchUnitsHandler,
     UpdateProtocolAssignmentHandler,
     UnassignProtocolHandler,
     ListFeedingProtocolsV2Handler,

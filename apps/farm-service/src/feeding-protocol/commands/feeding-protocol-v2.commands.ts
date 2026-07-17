@@ -41,6 +41,17 @@ export class AssignProtocolToUnitCommand {
   ) {}
 }
 
+/** Plan §1.2 kolaylık komutu: batch'in GÜNCEL ünitelerine toplu atama. */
+export class AssignProtocolToBatchUnitsCommand {
+  constructor(
+    public readonly batchId: string,
+    public readonly protocolId: string,
+    public readonly tenantId: string,
+    public readonly userId: string,
+    public readonly speciesMismatchReason?: string,
+  ) {}
+}
+
 export class UpdateProtocolAssignmentCommand {
   constructor(
     public readonly input: UpdateProtocolAssignmentInput,

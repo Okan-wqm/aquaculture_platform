@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `2073c949c833b43883efbc7a3f39b4dd3d62c967664123e8bc9a997214385521`
+Registry tip: `935012cd444c1b96a9b31660e5c84cefafbaa4cbad5daa346e84bb0b452561b1`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -87,6 +87,16 @@ CRITICAL rows are RESOLVED and leave the active table. The independent notary
 (`INFRA-CRITICAL-044`) remain blocked by external operator evidence;
 production deployment remains locked.
 
+Updated 2026-07-17 (farm/feed cutover adversarial review): five concrete
+single-ledger blockers were registered IN-PROGRESS, bringing the registry to
+1,028 entries. Four are active CRITICALs: depleted feed can fail open without a
+movement (`FARM-CRITICAL-237`), the legacy-balance backfill lacks row-level
+reconciliation provenance (`FARM-CRITICAL-238`), concurrent NULL-lot receipts
+can split the canonical projection (`FARM-CRITICAL-240`), and migration rollback
+can erase live drain writes (`FARM-CRITICAL-241`). They remain `real-open` until
+the implementation wave supplies PostgreSQL concurrency, rerun, rollback, and
+parity evidence.
+
 Allowed truth buckets:
 
 - `real-open`
@@ -109,6 +119,10 @@ Allowed truth buckets:
 | `RBAC-CRITICAL-003`     | OPEN           | 1.2          | auth-security-expert | already-fixed-needs-close |
 | `INFRA-CRITICAL-040`    | IN-PROGRESS    | —            | infra-expert         | blocked                   |
 | `INFRA-CRITICAL-044`    | OPEN           | —            | infra-expert         | blocked                   |
+| `FARM-CRITICAL-237`     | IN-PROGRESS    | 4.1          | farm-expert          | real-open                 |
+| `FARM-CRITICAL-238`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
+| `FARM-CRITICAL-240`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
+| `FARM-CRITICAL-241`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
 
 ## Mutation Rules
 

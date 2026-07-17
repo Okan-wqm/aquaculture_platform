@@ -481,4 +481,22 @@ describe('MealExecutionService.skipMeal', () => {
       }),
     ).rejects.toBeInstanceOf(ConflictException);
   });
+
+  it('acquires locks in the canonical DayPlan → Meal order (K-1 — no AB-BA with record/correct)', async () => {
+    const harness = makeHarness({ openMealsAfter: 0 });
+    await harness.service.skipMeal({
+      tenantId: TENANT,
+      userId: 'user-1',
+      caller: CALLER,
+      mealId: MEAL,
+      reason: 'balık iştahsız',
+    });
+    const lockedEntities = harness.findOne.mock.calls
+      .filter(([, options]) => (options as { lock?: { mode?: string } })?.lock?.mode === 'pessimistic_write')
+      .map(([entity]) => entity);
+    expect(lockedEntities).toEqual([FeedingDayPlan, FeedingMeal]);
+    // Ön-okuma kilitsizdir: ilk FeedingMeal findOne'ı lock seçeneği taşımaz.
+    const firstMealCall = harness.findOne.mock.calls.find(([entity]) => entity === FeedingMeal);
+    expect((firstMealCall?.[1] as { lock?: unknown })?.lock).toBeUndefined();
+  });
 });

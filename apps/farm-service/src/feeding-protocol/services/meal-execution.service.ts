@@ -607,7 +607,10 @@ export class MealExecutionService {
     );
   }
 
-  /** Öğünü atla — biomass/stok dokunuşu yok; MealSkipped durable event (P-12). */
+  /**
+   * Öğünü atla — biomass/stok dokunuşu yok; MealSkipped durable event (P-12).
+   * Kilitler kanonik sırada (K-1): DayPlan → Meal — record/correct ile aynı yön.
+   */
   async skipMeal(params: {
     tenantId: string;
     userId: string;
@@ -617,6 +620,18 @@ export class MealExecutionService {
   }): Promise<MealFeedingResult> {
     return runInTenantTransaction(this.dataSource, 'farm', params.tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
+
+      // Kilitsiz ön-okuma: dayPlan kimliği (kanonik sıra K-1 — DayPlan → Meal).
+      const preview = await manager.findOne(FeedingMeal, {
+        where: { id: params.mealId, tenantId: params.tenantId },
+      });
+      if (!preview) throw new NotFoundException(`Öğün bulunamadı: ${params.mealId}`);
+
+      const dayPlan = await manager.findOne(FeedingDayPlan, {
+        where: { id: preview.dayPlanId, tenantId: params.tenantId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!dayPlan) throw new NotFoundException(`Gün planı bulunamadı: ${preview.dayPlanId}`);
       const meal = await manager.findOne(FeedingMeal, {
         where: { id: params.mealId, tenantId: params.tenantId },
         lock: { mode: 'pessimistic_write' },
@@ -636,11 +651,6 @@ export class MealExecutionService {
         siteId,
       });
 
-      const dayPlan = await manager.findOne(FeedingDayPlan, {
-        where: { id: meal.dayPlanId, tenantId: params.tenantId },
-        lock: { mode: 'pessimistic_write' },
-      });
-
       meal.status = FeedingMealStatus.SKIPPED;
       meal.notes = params.reason;
       await manager.save(meal);
@@ -658,7 +668,7 @@ export class MealExecutionService {
       };
       await this.outboxPublisher.enqueue(event, manager);
 
-      if (dayPlan) await this.settleDayPlanStatus(manager, params.tenantId, dayPlan);
+      await this.settleDayPlanStatus(manager, params.tenantId, dayPlan);
 
       return {
         id: meal.id,

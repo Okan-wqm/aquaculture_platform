@@ -1,18 +1,20 @@
 {
   "authority": "rust-toolchain.toml",
-  "cargo_lock_sha256": "1eccf99b5496e1d5f5513f4195152f99f7e1f0c9bb12731c308aa141dfe1e9e2",
+  "cargo_lock_sha256": "0f3632a1f9028f592b3f7dcd0871f552922a0de2c18bdb22252384982abec0c7",
   "channel": "1.88.0",
   "components": ["clippy", "rust-src", "rustfmt"],
   "generated_by": "tools/quality/quality.mjs rust-toolchain generate",
   "schema_version": 1,
-  "targets": ["aarch64-unknown-linux-musl", "x86_64-unknown-linux-musl"],
+  "targets": ["aarch64-unknown-linux-musl", "wasm32-unknown-unknown", "x86_64-unknown-linux-musl"],
   "workspace_members": [
     "apps/sensor-ingestion",
+    "crates/alarm-core",
     "crates/event-contracts-rs",
     "crates/nats-client",
     "crates/observability",
     "crates/outbox-rs",
     "crates/protocol-codec",
+    "crates/router-coprocessor",
     "crates/tenant-context"
   ]
 }

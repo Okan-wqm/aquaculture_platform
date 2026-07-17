@@ -40,7 +40,7 @@ export interface SharedDepConfig {
 export const SHARED_VERSIONS = {
   react: '19.2.7',
   'react-dom': '19.2.7',
-  'react-router-dom': '6.30.3',
+  'react-router-dom': '6.30.4',
   '@tanstack/react-query': '5.90.10',
   '@aquaculture/shared-ui': '1.0.0',
   // zustand stays 4.5.7 until the graph lib @xyflow/react widens its hard

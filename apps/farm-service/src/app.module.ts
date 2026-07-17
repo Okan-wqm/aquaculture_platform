@@ -267,7 +267,8 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
             }),
           },
         ],
-        playground: configService.get('NODE_ENV') !== 'production',
+        playground: false,
+        graphiql: configService.get('NODE_ENV') !== 'production',
         // SECURITY: Disable introspection in production
         introspection: configService.get('NODE_ENV') !== 'production',
         context: ({ req }: { req: GraphQLContextRequest }) => {

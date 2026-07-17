@@ -1,0 +1,66 @@
+# syntax=docker/dockerfile:1.7
+
+# The upstream TimescaleDB-HA digest is governed by
+# .github/manifests/postgres-image.json. Keep the FROM value literal so the
+# invariant can prove that the production derivative and CI base cannot drift.
+FROM timescale/timescaledb-ha:pg16@sha256:b3d038d0a0757df8a5ec0a94ba68d9ad57b0e16100a024cf4b370c77ad5645f7
+
+USER root
+
+ARG TARGETARCH
+ARG BUILD_MAIN_SHA=0000000000000000000000000000000000000000
+ARG POSTGRES_DR_CONTRACT_SHA256
+RUN test "${TARGETARCH}" = "amd64" \
+  && printf '%s\n' "${BUILD_MAIN_SHA}" | grep -Eq '^[0-9a-f]{40}$' \
+  && test "${BUILD_MAIN_SHA}" != "0000000000000000000000000000000000000000" \
+  && printf '%s\n' "${POSTGRES_DR_CONTRACT_SHA256}" | grep -Eq '^[0-9a-f]{64}$' \
+  && test "${POSTGRES_DR_CONTRACT_SHA256}" != "0000000000000000000000000000000000000000000000000000000000000000"
+
+# Official WAL-G v3.0.8 Ubuntu 22.04 amd64 release asset. BuildKit verifies
+# the payload before it can enter a layer; the version/revision probe catches
+# a correctly hashed but incorrectly selected release asset.
+ADD --checksum=sha256:f30544c5ce93cf83b87578e3c4a2e9c0e0ffc3d160ef89ecddaf75f397d98deb \
+  https://github.com/wal-g/wal-g/releases/download/v3.0.8/wal-g-pg-22.04-amd64 \
+  /usr/local/bin/wal-g
+
+COPY --chmod=0755 \
+  infrastructure/docker/scripts/postgres-ssl-entrypoint.sh \
+  infrastructure/docker/scripts/postgres-walg-healthcheck.sh \
+  infrastructure/docker/scripts/walg-load-secrets.sh \
+  infrastructure/docker/scripts/walg-archive-command.sh \
+  infrastructure/docker/scripts/walg-restore-command.sh \
+  infrastructure/docker/scripts/walg-runtime-command.sh \
+  /usr/local/bin/
+
+COPY --chmod=0400 \
+  .github/manifests/postgres-dr-contract.sha256 \
+  /tmp/postgres-dr-contract.sha256
+
+RUN printf '%s  %s\n' \
+    "${POSTGRES_DR_CONTRACT_SHA256}" /tmp/postgres-dr-contract.sha256 \
+    | sha256sum --strict --check - \
+  && test "$(awk '$2 == "infrastructure/docker/Dockerfile.postgres-walg" { count++ } END { print count + 0 }' /tmp/postgres-dr-contract.sha256)" -eq 1 \
+  && test "$(awk '$2 != "infrastructure/docker/Dockerfile.postgres-walg" { count++ } END { print count + 0 }' /tmp/postgres-dr-contract.sha256)" -eq 6 \
+  && awk '$2 != "infrastructure/docker/Dockerfile.postgres-walg" { count=split($2, parts, "/"); print $1 "  /usr/local/bin/" parts[count] }' \
+    /tmp/postgres-dr-contract.sha256 \
+    | sha256sum --strict --check - \
+  && rm -f /tmp/postgres-dr-contract.sha256 \
+  && chmod 0755 /usr/local/bin/wal-g \
+  && WAL_G_VERSION_OUTPUT="$(/usr/local/bin/wal-g --version)" \
+  && printf '%s\n' "${WAL_G_VERSION_OUTPUT}" \
+    | grep -Eq '^wal-g version v3\.0\.8[[:space:]]+f81943e([[:space:]]|$)'
+
+LABEL org.opencontainers.image.title="Aquaculture PostgreSQL with WAL-G" \
+  org.opencontainers.image.version="wal-g-v3.0.8" \
+  org.opencontainers.image.revision="${BUILD_MAIN_SHA}" \
+  io.aquaculture.postgres.base-digest="sha256:b3d038d0a0757df8a5ec0a94ba68d9ad57b0e16100a024cf4b370c77ad5645f7" \
+  io.aquaculture.postgres.dr-contract-sha256="${POSTGRES_DR_CONTRACT_SHA256}" \
+  io.aquaculture.wal-g.revision="f81943e64bdf97aa66f6c52fec55114703f97af7" \
+  io.aquaculture.wal-g.asset-sha256="f30544c5ce93cf83b87578e3c4a2e9c0e0ffc3d160ef89ecddaf75f397d98deb"
+
+# The bootstrap wrappers need root only long enough to stage mounted TLS and
+# WAL-G secrets in separate tmpfs directories with postgres ownership/mode 0600;
+# PGDATA contains neither identity keys nor a WAL-G credential path. They delegate to the
+# inherited Timescale docker-entrypoint, which drops privileges before
+# PostgreSQL starts. ENTRYPOINT and CMD remain inherited from upstream.
+USER root

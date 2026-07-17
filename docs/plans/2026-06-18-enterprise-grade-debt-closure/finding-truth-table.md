@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `598ea7c6141c97411a2b1bc3ac36dc11bda76cb331a5b43bcd1f0777298854ba`
+Registry tip: `97b8b9e8f36f41bdbf0fd30828bf1f18f36f32e3ff416b25b785c5a9c5df9e04`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -46,7 +46,35 @@ the 42 findings that PR fixed. `SENSOR-CRITICAL-004` (68299d3d),
 `SENSOR-CRITICAL-005` (a5edc846), and `SENSOR-CRITICAL-006` (ed3685e8) are now
 RESOLVED and leave the active table below (the table mirrors
 `active_critical_ids` exactly; the contract invariant enforces the bijection).
-8 active CRITICALs remain.
+9 active CRITICALs remain.
+
+Updated 2026-07-15: the control-plane stop-line reconciliation registered nineteen
+new IN-PROGRESS findings and one OPEN frontend test-baseline finding without
+changing the active CRITICAL set. The backup/DR audit then registered one OPEN,
+two IN-PROGRESS, and one BLOCKED HIGH finding, again without changing the active
+CRITICAL set. At that historical checkpoint the registry contained 950 entries;
+later updates below supersede that snapshot and the header reflects the current
+registry tip.
+
+Updated 2026-07-15 (backup/DR closure reconstruction): the registry now contains
+980 entries. `INFRA-CRITICAL-040` remains blocked on an independently trusted DR
+notary; `INFRA-CRITICAL-041` and `INFRA-CRITICAL-042` have local fixes and tests
+but remain IN-PROGRESS until their closing commit is merged and the post-merge
+registry ceremony records a main-reachable SHA.
+
+Updated 2026-07-16 (adversarial backup execution-boundary review): the registry
+now contains 991 entries. `INFRA-CRITICAL-043` has a local exact-commit runner
+bundle fix and remains IN-PROGRESS until merge/close ceremony.
+`INFRA-CRITICAL-044` remains an OPEN production blocker: an absolute sanitized
+inner shell cannot secure the earlier sshd/login-shell startup boundary, so a
+dedicated root-owned backup account and forced-command broker must be proven on
+the target before production closure.
+
+Updated 2026-07-16 (protected-job authority review): seven additional findings
+were registered IN-PROGRESS, bringing the registry to 998 entries.
+`INFRA-CRITICAL-045` has local job-level main guards, exact-SHA checkout and
+parsed workflow invariants, but remains IN-PROGRESS until merge and the
+post-merge close ceremony records a main-reachable closing commit.
 
 Allowed truth buckets:
 
@@ -57,17 +85,23 @@ Allowed truth buckets:
 - `stale`
 - `new-finding-required`
 
-| Finding              | Registry state | First sprint | Owner        | Truth bucket |
-| -------------------- | --------------- | ------------ | ------------ | ------------ |
-| `INFRA-CRITICAL-029` | OPEN            | 1.1          | data-expert  | real-open    |
-| `FARM-CRITICAL-061`  | OPEN            | 1.1          | farm-expert  | real-open    |
-| `AISAFETY-CRITICAL-003` | OPEN         | —            | ai-safety-auditor | already-fixed-needs-close |
-| `SENSOR-CRITICAL-003` | OPEN           | —            | sensor-expert | already-fixed-needs-close |
-| `DATA-CRITICAL-001`  | OPEN           | —            | data-expert  | real-open    |
-| `INFRA-CRITICAL-039` | OPEN           | —            | infra-expert | already-fixed-needs-close |
-| `RBAC-CRITICAL-001` | OPEN            | 1.2          | auth-security-expert | already-fixed-needs-close |
-| `RBAC-CRITICAL-002` | OPEN            | 1.2          | auth-security-expert | already-fixed-needs-close |
-| `RBAC-CRITICAL-003` | OPEN            | 1.2          | auth-security-expert | already-fixed-needs-close |
+| Finding                 | Registry state | First sprint | Owner                | Truth bucket              |
+| ----------------------- | -------------- | ------------ | -------------------- | ------------------------- |
+| `INFRA-CRITICAL-029`    | OPEN           | 1.1          | data-expert          | real-open                 |
+| `FARM-CRITICAL-061`     | OPEN           | 1.1          | farm-expert          | real-open                 |
+| `AISAFETY-CRITICAL-003` | OPEN           | —            | ai-safety-auditor    | already-fixed-needs-close |
+| `SENSOR-CRITICAL-003`   | OPEN           | —            | sensor-expert        | already-fixed-needs-close |
+| `DATA-CRITICAL-001`     | OPEN           | —            | data-expert          | real-open                 |
+| `INFRA-CRITICAL-039`    | OPEN           | —            | infra-expert         | already-fixed-needs-close |
+| `RBAC-CRITICAL-001`     | OPEN           | 1.2          | auth-security-expert | already-fixed-needs-close |
+| `RBAC-CRITICAL-002`     | OPEN           | 1.2          | auth-security-expert | already-fixed-needs-close |
+| `RBAC-CRITICAL-003`     | OPEN           | 1.2          | auth-security-expert | already-fixed-needs-close |
+| `INFRA-CRITICAL-040`    | IN-PROGRESS    | —            | infra-expert         | blocked                   |
+| `INFRA-CRITICAL-041`    | IN-PROGRESS    | —            | infra-expert         | already-fixed-needs-close |
+| `INFRA-CRITICAL-042`    | IN-PROGRESS    | —            | infra-expert         | already-fixed-needs-close |
+| `INFRA-CRITICAL-043`    | IN-PROGRESS    | —            | infra-expert         | already-fixed-needs-close |
+| `INFRA-CRITICAL-044`    | OPEN           | —            | infra-expert         | blocked                   |
+| `INFRA-CRITICAL-045`    | IN-PROGRESS    | —            | infra-expert         | already-fixed-needs-close |
 
 ## Mutation Rules
 
@@ -324,7 +358,7 @@ src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx` passed 28/28 on
   matching migration DDL, entity ownership, module registration, and
   `MODULE_SCHEMAS[farm].tables` alignment. Current validation passed
   `npx jest --config tests/invariants/jest.config.ts
-  tests/invariants/tenant-fanout-entity-parity.spec.ts --runInBand`, proving
+tests/invariants/tenant-fanout-entity-parity.spec.ts --runInBand`, proving
   every tenant-scoped entity has exactly one fan-out declaration and every
   `MODULE_SCHEMAS.tables` entry has a backing entity.
 - `INFRA-CRITICAL-020`: registry state is `RESOLVED` with closing commit
@@ -336,7 +370,7 @@ src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx` passed 28/28 on
   `invariants-fast`, `validate-closes`, `banned-phrase-gate`, and
   `merge-gate` on 2026-06-19. Local validation passed
   `npx jest --config tests/invariants/jest.config.ts
-  tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
+tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
   the paired messaging migration runner invariant, and `git diff --check`.
 - `INFRA-CRITICAL-011`: registry state is `RESOLVED` with closing commit
   `1264a3060042861dd2e29fd145223a1211651323`. PR #544 passed GitHub Actions on
@@ -394,5 +428,5 @@ src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx` passed 28/28 on
   read-path redaction, `PIN_VERIFY` socket verification with lockout, tag-keyed
   TAG_WRITE elevation). Reproducible proof:
   `apps/sensor-service/src/process/services/__tests__/pin-control-security.spec.ts`
-  + gateway elevation specs on the branch. IN-PROGRESS until the post-merge
-  close ceremony.
+  - gateway elevation specs on the branch. IN-PROGRESS until the post-merge
+    close ceremony.

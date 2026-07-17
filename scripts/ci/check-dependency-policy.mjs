@@ -1,18 +1,9 @@
 #!/usr/bin/env node
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 
 const repoRoot = resolve(new URL('../..', import.meta.url).pathname);
-
-const ignoredDirs = new Set([
-  '.git',
-  '.nx',
-  'coverage',
-  'dist',
-  'node_modules',
-  'playwright-report',
-  'tmp',
-]);
 
 const scannedExtensions = new Set([
   '.dockerfile',
@@ -26,12 +17,7 @@ const scannedExtensions = new Set([
   '.yml',
 ]);
 
-const exactFiles = new Set([
-  '.npmrc',
-  'Dockerfile',
-  'package.json',
-  'package-lock.json',
-]);
+const exactFiles = new Set(['.npmrc', 'Dockerfile', 'package.json', 'package-lock.json']);
 
 const policyViolations = [];
 const textOnlyHistoricalFiles = new Set([
@@ -52,17 +38,23 @@ function shouldScan(path) {
   return exactFiles.has(basename) || scannedExtensions.has(fileExtension(rel));
 }
 
-function walk(dir) {
-  for (const entry of readdirSync(dir)) {
-    if (ignoredDirs.has(entry)) continue;
-    const path = join(dir, entry);
-    const stat = statSync(path);
-    if (stat.isDirectory()) {
-      walk(path);
-      continue;
-    }
-    if (stat.isFile() && shouldScan(path)) scanFile(path);
+function repositorySourceFiles() {
+  let output;
+  try {
+    output = execFileSync(
+      'git',
+      ['-C', repoRoot, 'ls-files', '--cached', '--others', '--exclude-standard', '-z'],
+      { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+    );
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`dependency policy could not enumerate repository source files: ${reason}`);
   }
+
+  return output
+    .split('\0')
+    .filter(Boolean)
+    .map((path) => join(repoRoot, path));
 }
 
 function addViolation(path, reason) {
@@ -98,7 +90,11 @@ function assertPackagePolicy() {
   }
 
   const serializedOverrides = JSON.stringify(pkg.overrides ?? {});
-  if (/typeorm[^{}[\]]*uuid|@apollo\/(server|gateway|subgraph)[^{}[\]]*uuid|uuid"\s*:\s*"\^?14/.test(serializedOverrides)) {
+  if (
+    /typeorm[^{}[\]]*uuid|@apollo\/(server|gateway|subgraph)[^{}[\]]*uuid|uuid"\s*:\s*"\^?14/.test(
+      serializedOverrides,
+    )
+  ) {
     addViolation(
       packageJsonPath,
       'uuid overrides for TypeORM/Apollo or global uuid@14 overrides are forbidden',
@@ -118,7 +114,9 @@ function assertNpmPolicy() {
   }
 }
 
-walk(repoRoot);
+for (const path of repositorySourceFiles()) {
+  if (shouldScan(path)) scanFile(path);
+}
 assertPackagePolicy();
 assertNpmPolicy();
 

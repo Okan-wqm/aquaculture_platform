@@ -1,0 +1,118 @@
+name: Scheduled Workflow Watchdog
+
+on:
+  schedule:
+    - cron: '15 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+concurrency:
+  group: scheduled-workflow-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout watchdog manifest
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Verify scheduled workflow freshness and persist incident
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const manifest = require(`${process.env.GITHUB_WORKSPACE}/.github/manifests/scheduled-workflows.json`);
+            const { owner, repo } = context.repo;
+            const now = Date.now();
+            const incidents = [];
+
+            for (const watched of manifest.workflows) {
+              const response = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: watched.workflow,
+                event: 'schedule',
+                per_page: 1,
+              });
+              const run = response.data.workflow_runs[0];
+              const ageHours = run
+                ? (now - new Date(run.created_at).getTime()) / (60 * 60 * 1000)
+                : null;
+              if (!run || run.conclusion !== 'success' || ageHours > watched.maxAgeHours) {
+                incidents.push({
+                  workflow: watched.workflow,
+                  conclusion: run?.conclusion ?? 'missing',
+                  ageHours: ageHours === null ? null : Math.round(ageHours * 10) / 10,
+                  maxAgeHours: watched.maxAgeHours,
+                  runUrl: run?.html_url ?? null,
+                });
+              }
+            }
+
+            const allIssues = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'all',
+              per_page: 100,
+            });
+            const incidentIssue = allIssues.find(
+              issue => !issue.pull_request && issue.title === manifest.incidentTitle,
+            );
+
+            if (incidents.length === 0) {
+              if (incidentIssue?.state === 'open') {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: incidentIssue.number,
+                  body: `Recovered-at: ${new Date(now).toISOString()}\n\nAll scheduled workflows are fresh and green.`,
+                });
+                await github.rest.issues.update({
+                  owner,
+                  repo,
+                  issue_number: incidentIssue.number,
+                  state: 'closed',
+                });
+              }
+              core.notice('All scheduled workflows are fresh and green.');
+              return;
+            }
+
+            const body = [
+              '<!-- scheduled-workflow-watchdog-incident -->',
+              `Detected-at: ${new Date(now).toISOString()}`,
+              '',
+              '| Workflow | Conclusion | Age (hours) | Maximum (hours) | Run |',
+              '|---|---:|---:|---:|---|',
+              ...incidents.map(incident =>
+                `| \`${incident.workflow}\` | ${incident.conclusion} | ${incident.ageHours ?? 'missing'} | ${incident.maxAgeHours} | ${incident.runUrl ? `[open](${incident.runUrl})` : 'none'} |`,
+              ),
+              '',
+              'Owner: repository on-call. Keep this issue open until every listed workflow is fresh and green.',
+            ].join('\n');
+
+            if (incidentIssue) {
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: incidentIssue.number,
+                state: 'open',
+                body,
+                assignees: [owner],
+              });
+            } else {
+              await github.rest.issues.create({
+                owner,
+                repo,
+                title: manifest.incidentTitle,
+                body,
+                assignees: [owner],
+              });
+            }
+
+            core.setFailed(`${incidents.length} scheduled workflow(s) are stale or failing`);

@@ -1,11 +1,17 @@
 #!/usr/bin/env ts-node
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-import { BOOT_INVARIANT_SIGNALS } from '../../libs/backend-common/src/constants/boot-invariant-signals.ts';
-import {
+import type * as BootInvariantModule from '../../libs/backend-common/src/constants/boot-invariant-signals';
+import type * as ServiceCatalogModule from '../../platform/libs/service-catalog/src/index';
+
+const requireFromRepository = createRequire(resolve(process.cwd(), 'package.json'));
+const { BOOT_INVARIANT_SIGNALS } = requireFromRepository(
+  './libs/backend-common/src/constants/boot-invariant-signals.ts',
+) as typeof BootInvariantModule;
+const {
   PLATFORM_SERVICE_CATALOG,
   activeDropletServices,
   backendImageBuildTargets,
@@ -14,6 +20,7 @@ import {
   gatewaySubgraphs,
   getServiceCatalogEntry,
   imageBuildTargets,
+  infraImageBuildMatrix,
   infraImageBuildTargets,
   readinessServices,
   readinessSlaSeconds,
@@ -21,12 +28,18 @@ import {
   requiredRuntimeSecrets,
   serviceDbRolePrefixes,
   validateServiceCatalog,
-} from '../../platform/libs/service-catalog/src/index.ts';
+} = requireFromRepository(
+  './platform/libs/service-catalog/src/index.ts',
+) as typeof ServiceCatalogModule;
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+// npm invokes this command at the repository root. Resolving from cwd keeps the
+// generator independent of Node's CJS/ESM entrypoint mode; the catalog itself
+// is loaded through createRequire above so its extensionless TypeScript imports
+// use ts-node's CommonJS resolver on every supported Node release.
+const REPO_ROOT = resolve(process.cwd());
 const CATALOG_PATH = 'platform/libs/service-catalog/src/index.ts';
 const GENERATOR_PATH = 'scripts/service-catalog/generate-artifacts.ts';
-const GENERATOR_VERSION = 2;
+const GENERATOR_VERSION = 3;
 
 interface Artifact {
   path: string;
@@ -144,12 +157,14 @@ function apolloSubgraphsArtifact(): Artifact {
         schemaUrl: entry.routingUrl,
       })),
       excludedFederatedServices: PLATFORM_SERVICE_CATALOG.filter(
-        (entry) => entry.gatewayParticipation !== 'apollo-subgraph' && entry.classification === 'subgraph',
+        (entry) =>
+          entry.gatewayParticipation !== 'apollo-subgraph' && entry.classification === 'subgraph',
       ).map((entry) => ({
         name: entry.serviceId,
         owner: 'platform-service-catalog',
         removeAfterRelease: `${entry.serviceId}-gateway-participation-cutover`,
-        reason: 'not registered in gatewaySubgraphs(); promotion requires catalog gatewayParticipation change',
+        reason:
+          'not registered in gatewaySubgraphs(); promotion requires catalog gatewayParticipation change',
       })),
     }),
   };
@@ -253,10 +268,16 @@ function requiredSecretsArtifact(): Artifact {
       )}`,
     );
   }
-  const runtimeEntries = variables.filter((name) => runtimeEnv.has(name) && !catalogSecrets.has(name));
+  const runtimeEntries = variables.filter(
+    (name) => runtimeEnv.has(name) && !catalogSecrets.has(name),
+  );
   const secretEntries = variables.filter((name) => !runtimeEntries.includes(name));
 
-  const renderEntry = (name: string, purposePrefix: string, klass: 'runtime-env' | 'secret'): string =>
+  const renderEntry = (
+    name: string,
+    purposePrefix: string,
+    klass: 'runtime-env' | 'secret',
+  ): string =>
     [
       `  - name: ${name}`,
       '    owner: platform-service-catalog',
@@ -315,7 +336,9 @@ function catalogGeneratedArtifact(): Artifact {
   return {
     path: 'infrastructure/deploy/service-catalog.generated.json',
     contents: jsonArtifact({
-      activeDropletComposeServices: activeDropletServices().map((entry) => entry.composeServiceName),
+      activeDropletComposeServices: activeDropletServices().map(
+        (entry) => entry.composeServiceName,
+      ),
       imageBuildTargets: activeDropletServices()
         .filter((entry) => entry.imageTarget && entry.buildKind !== 'infra')
         .map((entry) => entry.imageTarget),
@@ -337,19 +360,13 @@ function catalogGeneratedArtifact(): Artifact {
           dockerfile: frontendDockerfile(target),
           module_path: frontendModulePath(target),
         })),
-        infraImageMatrix: infraImageBuildTargets().map((target) => {
-          if (target !== 'mosquitto') {
-            throw new Error(`No infra image matrix mapping for ${target}`);
-          }
-          return {
-            image: 'mosquitto',
-            dockerfile: 'infrastructure/mosquitto/Dockerfile',
-            context: 'infrastructure/mosquitto',
-          };
-        }),
+        infraImageMatrix: infraImageBuildMatrix(),
       },
       packageBuildProjects: activeDropletServices()
-        .filter((entry) => entry.nxProject && ['node-service', 'frontend', 'one-shot'].includes(entry.buildKind))
+        .filter(
+          (entry) =>
+            entry.nxProject && ['node-service', 'frontend', 'one-shot'].includes(entry.buildKind),
+        )
         .map((entry) => entry.nxProject),
       requiredRuntimeEnv: requiredRuntimeEnv(),
       requiredRuntimeSecrets: requiredRuntimeSecrets(),
@@ -439,7 +456,9 @@ function main(): void {
   }
 
   if (mismatches.length > 0) {
-    throw new Error(`service catalog generated artifacts are out of date:\n${mismatches.join('\n')}`);
+    throw new Error(
+      `service catalog generated artifacts are out of date:\n${mismatches.join('\n')}`,
+    );
   }
 }
 

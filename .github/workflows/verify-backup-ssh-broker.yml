@@ -1,0 +1,1542 @@
+name: Verify Backup SSH Broker
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_run_id:
+        description: Successful Backup SSH Broker Release run ID
+        required: true
+        type: string
+      release_artifact_id:
+        description: Immutable signed broker artifact ID from that run
+        required: true
+        type: string
+      release_artifact_digest:
+        description: Immutable signed broker artifact digest (sha256:<64 lowercase hex>)
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: verify-backup-ssh-broker-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-authority:
+    name: Verify immutable signed broker release
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      artifact_digest: ${{ steps.verify.outputs.artifact_digest }}
+      artifact_id: ${{ steps.verify.outputs.artifact_id }}
+      binary_sha256: ${{ steps.verify.outputs.binary_sha256 }}
+      release_run_attempt: ${{ steps.verify.outputs.release_run_attempt }}
+      release_run_id: ${{ steps.verify.outputs.release_run_id }}
+      release_sha: ${{ steps.verify.outputs.release_sha }}
+      source_sha256: ${{ steps.verify.outputs.source_sha256 }}
+    steps:
+      - name: Checkout exact attestation commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Require protected main authority
+        run: |
+          set -euo pipefail
+          test "${GITHUB_EVENT_NAME}" = 'workflow_dispatch'
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${GITHUB_REF_PROTECTED}" = 'true'
+          test "${GITHUB_SHA}" = "$(git rev-parse --verify HEAD^{commit})"
+          test "${GITHUB_WORKFLOW_REF}" = \
+            "${GITHUB_REPOSITORY}/.github/workflows/verify-backup-ssh-broker.yml@refs/heads/main"
+          test -z "$(git status --porcelain --untracked-files=all)"
+
+      - name: Pin exact release run and artifact
+        id: metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_ARTIFACT_DIGEST: ${{ inputs.release_artifact_digest }}
+          INPUT_ARTIFACT_ID: ${{ inputs.release_artifact_id }}
+          INPUT_RUN_ID: ${{ inputs.release_run_id }}
+        run: |
+          set -euo pipefail
+          umask 077
+          export LC_ALL=C
+          [[ "${INPUT_RUN_ID}" =~ ^[1-9][0-9]{0,19}$ ]]
+          [[ "${INPUT_ARTIFACT_ID}" =~ ^[1-9][0-9]{0,19}$ ]]
+          [[ "${INPUT_ARTIFACT_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          RUN_JSON="${RUNNER_TEMP}/broker-release-run.json"
+          ARTIFACT_PAGES="${RUNNER_TEMP}/broker-release-artifact-pages.json"
+          ARTIFACTS_JSON="${RUNNER_TEMP}/broker-release-artifacts.json"
+          ARTIFACT_JSON="${RUNNER_TEMP}/broker-release-artifact.json"
+          COMPARE_JSON="${RUNNER_TEMP}/broker-release-compare.json"
+
+          gh api \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs/${INPUT_RUN_ID}" > "${RUN_JSON}"
+          jq --exit-status \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg run_id "${INPUT_RUN_ID}" \
+            '
+              (.id | tostring) == $run_id and
+              .event == "push" and
+              .head_branch == "main" and
+              .head_repository.full_name == $repository and
+              .path == ".github/workflows/backup-ssh-broker-release.yml" and
+              .status == "completed" and
+              .conclusion == "success" and
+              (.run_attempt | type == "number") and
+              (.head_sha | test("^[0-9a-f]{40}$"))
+            ' "${RUN_JSON}" >/dev/null
+          RELEASE_SHA=$(jq --raw-output '.head_sha' "${RUN_JSON}")
+          RELEASE_RUN_ATTEMPT=$(jq --raw-output '.run_attempt' "${RUN_JSON}")
+
+          gh api --paginate --slurp \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs/${INPUT_RUN_ID}/artifacts?per_page=100" \
+            > "${ARTIFACT_PAGES}"
+          jq '[.[] | .artifacts[]]' "${ARTIFACT_PAGES}" > "${ARTIFACTS_JSON}"
+          jq \
+            --argjson artifact_id "${INPUT_ARTIFACT_ID}" \
+            '[.[] | select(.id == $artifact_id)]' "${ARTIFACTS_JSON}" > "${ARTIFACT_JSON}"
+          test "$(jq 'length' "${ARTIFACT_JSON}")" -eq 1
+          EXPECTED_ARTIFACT_NAME="backup-ssh-broker-${RELEASE_SHA}-${INPUT_RUN_ID}-${RELEASE_RUN_ATTEMPT}"
+          jq --exit-status \
+            --arg artifact_digest "${INPUT_ARTIFACT_DIGEST}" \
+            --arg artifact_name "${EXPECTED_ARTIFACT_NAME}" \
+            --arg run_id "${INPUT_RUN_ID}" \
+            '
+              .[0].name == $artifact_name and
+              .[0].expired == false and
+              .[0].digest == $artifact_digest and
+              (.[0].workflow_run.id | tostring) == $run_id
+            ' "${ARTIFACT_JSON}" >/dev/null
+
+          gh api \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/compare/${RELEASE_SHA}...${GITHUB_SHA}" \
+            > "${COMPARE_JSON}"
+          jq --exit-status \
+            --arg release_sha "${RELEASE_SHA}" \
+            --arg main_sha "${GITHUB_SHA}" \
+            '
+              (.status == "ahead" or .status == "identical") and
+              .base_commit.sha == $release_sha and
+              .merge_base_commit.sha == $release_sha and
+              .head_commit.sha == $main_sha
+            ' "${COMPARE_JSON}" >/dev/null
+
+          printf 'artifact_digest=%s\n' "${INPUT_ARTIFACT_DIGEST}" >> "${GITHUB_OUTPUT}"
+          printf 'artifact_id=%s\n' "${INPUT_ARTIFACT_ID}" >> "${GITHUB_OUTPUT}"
+          printf 'release_run_attempt=%s\n' "${RELEASE_RUN_ATTEMPT}" >> "${GITHUB_OUTPUT}"
+          printf 'release_run_id=%s\n' "${INPUT_RUN_ID}" >> "${GITHUB_OUTPUT}"
+          printf 'release_sha=%s\n' "${RELEASE_SHA}" >> "${GITHUB_OUTPUT}"
+
+      - name: Download only the pinned signed artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ inputs.release_artifact_id }}
+          github-token: ${{ github.token }}
+          path: release-authority
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.release_run_id }}
+
+      - name: Install pinned cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Verify signed provenance, authority, and exact materials
+        id: verify
+        env:
+          ARTIFACT_DIGEST: ${{ steps.metadata.outputs.artifact_digest }}
+          ARTIFACT_ID: ${{ steps.metadata.outputs.artifact_id }}
+          RELEASE_RUN_ATTEMPT: ${{ steps.metadata.outputs.release_run_attempt }}
+          RELEASE_RUN_ID: ${{ steps.metadata.outputs.release_run_id }}
+          RELEASE_SHA: ${{ steps.metadata.outputs.release_sha }}
+        run: |
+          set -euo pipefail
+          umask 077
+          export LC_ALL=C
+          RELEASE_DIR='release-authority'
+          POLICY_PATH="${RELEASE_DIR}/repository/.github/manifests/backup-ssh-broker-policy.json"
+          REQUIRED_CHECKS_PATH="${RELEASE_DIR}/repository/.github/manifests/main-required-status-checks.json"
+          PROVENANCE_PATH="${RELEASE_DIR}/provenance.json"
+          AUTHORITY_PATH="${RELEASE_DIR}/release-authority.json"
+          BINARY_PATH="${RELEASE_DIR}/aqua-protected-ssh-broker"
+          IDENTITY="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/backup-ssh-broker-release.yml@refs/heads/main"
+
+          mapfile -t RELEASE_FILES < <(
+            cd "${RELEASE_DIR}"
+            find . -type f -printf '%P\n' | sort
+          )
+          EXPECTED_FILES=(
+            SHA256SUMS
+            aqua-protected-ssh-broker
+            aqua-protected-ssh-broker.sigstore.json
+            provenance.json
+            provenance.json.sigstore.json
+            release-authority.json
+            release-authority.json.sigstore.json
+            repository/.github/manifests/backup-ssh-broker-policy.json
+            repository/.github/manifests/main-required-status-checks.json
+            repository/.github/workflows/backup-ssh-broker-release.yml
+            repository/infrastructure/scripts/provision-backup-ssh-broker.sh
+            repository/tools/backup-ssh-broker/main.rs
+            repository/tools/scripts/ci/build-protected-ssh-broker.sh
+          )
+          test "${#RELEASE_FILES[@]}" -eq "${#EXPECTED_FILES[@]}"
+          for index in "${!EXPECTED_FILES[@]}"; do
+            test "${RELEASE_FILES[${index}]}" = "${EXPECTED_FILES[${index}]}"
+          done
+          test -z "$(find "${RELEASE_DIR}" -mindepth 1 -type l -print -quit)"
+
+          for subject in "${BINARY_PATH}" "${PROVENANCE_PATH}" "${AUTHORITY_PATH}"; do
+            cosign verify-blob \
+              --bundle "${subject}.sigstore.json" \
+              --certificate-identity "${IDENTITY}" \
+              --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+              --certificate-github-workflow-repository "${GITHUB_REPOSITORY}" \
+              --certificate-github-workflow-ref 'refs/heads/main' \
+              --certificate-github-workflow-sha "${RELEASE_SHA}" \
+              --certificate-github-workflow-trigger 'push' \
+              --certificate-github-workflow-name 'Backup SSH Broker Release' \
+              "${subject}"
+          done
+
+          (
+            cd "${RELEASE_DIR}"
+            sha256sum --strict --check SHA256SUMS
+          )
+          SOURCE_SHA256=$(sha256sum --binary \
+            "${RELEASE_DIR}/repository/tools/backup-ssh-broker/main.rs" | awk '{print $1}')
+          BUILD_SCRIPT_SHA256=$(sha256sum --binary \
+            "${RELEASE_DIR}/repository/tools/scripts/ci/build-protected-ssh-broker.sh" | awk '{print $1}')
+          POLICY_SHA256=$(sha256sum --binary "${POLICY_PATH}" | awk '{print $1}')
+          REQUIRED_CHECKS_SHA256=$(sha256sum --binary "${REQUIRED_CHECKS_PATH}" | awk '{print $1}')
+          RELEASE_WORKFLOW_SHA256=$(sha256sum --binary \
+            "${RELEASE_DIR}/repository/.github/workflows/backup-ssh-broker-release.yml" | awk '{print $1}')
+          PROVISIONER_SHA256=$(sha256sum --binary \
+            "${RELEASE_DIR}/repository/infrastructure/scripts/provision-backup-ssh-broker.sh" | awk '{print $1}')
+          BINARY_SHA256=$(sha256sum --binary "${BINARY_PATH}" | awk '{print $1}')
+          CHECKSUMS_SHA256=$(sha256sum --binary "${RELEASE_DIR}/SHA256SUMS" | awk '{print $1}')
+
+          # Ancestor status alone permits rollback to an older signed release.
+          # Every executable policy material must still be byte-identical to
+          # the exact protected-main checkout running this verifier.
+          cmp --silent tools/backup-ssh-broker/main.rs \
+            "${RELEASE_DIR}/repository/tools/backup-ssh-broker/main.rs"
+          cmp --silent tools/scripts/ci/build-protected-ssh-broker.sh \
+            "${RELEASE_DIR}/repository/tools/scripts/ci/build-protected-ssh-broker.sh"
+          cmp --silent .github/manifests/backup-ssh-broker-policy.json \
+            "${POLICY_PATH}"
+          cmp --silent .github/manifests/main-required-status-checks.json \
+            "${REQUIRED_CHECKS_PATH}"
+          cmp --silent .github/workflows/backup-ssh-broker-release.yml \
+            "${RELEASE_DIR}/repository/.github/workflows/backup-ssh-broker-release.yml"
+          cmp --silent infrastructure/scripts/provision-backup-ssh-broker.sh \
+            "${RELEASE_DIR}/repository/infrastructure/scripts/provision-backup-ssh-broker.sh"
+
+          jq --exit-status \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg release_sha "${RELEASE_SHA}" \
+            --arg run_id "${RELEASE_RUN_ID}" \
+            --arg run_attempt "${RELEASE_RUN_ATTEMPT}" \
+            --arg source_sha256 "${SOURCE_SHA256}" \
+            --arg build_script_sha256 "${BUILD_SCRIPT_SHA256}" \
+            --arg policy_sha256 "${POLICY_SHA256}" \
+            --arg required_checks_sha256 "${REQUIRED_CHECKS_SHA256}" \
+            --arg release_workflow_sha256 "${RELEASE_WORKFLOW_SHA256}" \
+            --arg provisioner_sha256 "${PROVISIONER_SHA256}" \
+            --arg binary_sha256 "${BINARY_SHA256}" \
+            --arg checksums_sha256 "${CHECKSUMS_SHA256}" \
+            '
+              .schema_version == 1 and
+              .predicate_type == "aqua.protected-ssh-broker-build/v1" and
+              .source == {
+                repository: $repository,
+                ref: "refs/heads/main",
+                commit: $release_sha,
+                path: "tools/backup-ssh-broker/main.rs",
+                sha256: $source_sha256
+              } and
+              .policy == {
+                path: ".github/manifests/backup-ssh-broker-policy.json",
+                sha256: $policy_sha256
+              } and
+              .materials == [
+                {role: "broker-source", path: "tools/backup-ssh-broker/main.rs", sha256: $source_sha256},
+                {role: "broker-build-script", path: "tools/scripts/ci/build-protected-ssh-broker.sh", sha256: $build_script_sha256},
+                {role: "broker-policy", path: ".github/manifests/backup-ssh-broker-policy.json", sha256: $policy_sha256},
+                {role: "required-checks-manifest", path: ".github/manifests/main-required-status-checks.json", sha256: $required_checks_sha256},
+                {role: "release-workflow", path: ".github/workflows/backup-ssh-broker-release.yml", sha256: $release_workflow_sha256},
+                {role: "target-provisioner", path: "infrastructure/scripts/provision-backup-ssh-broker.sh", sha256: $provisioner_sha256}
+              ] and
+              .build.workflow == "Backup SSH Broker Release" and
+              .build.workflow_ref == ($repository + "/.github/workflows/backup-ssh-broker-release.yml@refs/heads/main") and
+              .build.run_id == $run_id and
+              .build.run_attempt == $run_attempt and
+              .subject == {name: "aqua-protected-ssh-broker", sha256: $binary_sha256} and
+              .checksum_manifest == {name: "SHA256SUMS", sha256: $checksums_sha256}
+            ' "${PROVENANCE_PATH}" >/dev/null
+          jq --exit-status \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg release_sha "${RELEASE_SHA}" \
+            --arg run_id "${RELEASE_RUN_ID}" \
+            --arg run_attempt "${RELEASE_RUN_ATTEMPT}" \
+            --arg required_checks_sha256 "${REQUIRED_CHECKS_SHA256}" \
+            '
+              .schema_version == 1 and
+              .predicate_type == "aqua.protected-ssh-broker-release-authority/v1" and
+              .repository == $repository and
+              .ref == "refs/heads/main" and
+              .commit == $release_sha and
+              .event == "push" and
+              .workflow_ref == ($repository + "/.github/workflows/backup-ssh-broker-release.yml@refs/heads/main") and
+              .run_id == $run_id and
+              .run_attempt == $run_attempt and
+              .signing_environment == "production-backup-release" and
+              .signing_environment_protection.name == "production-backup-release" and
+              .signing_environment_protection.can_admins_bypass == false and
+              .signing_environment_protection.prevent_self_review == true and
+              (.signing_environment_protection.reviewers | length) >= 2 and
+              all(.signing_environment_protection.reviewers[];
+                (.type == "User" or .type == "Team") and
+                (.id | type == "number") and
+                (.name | type == "string" and length > 0)
+              ) and
+              .signing_environment_protection.deployment_branch_policies == [
+                {name: "main", type: "branch"}
+              ] and
+              (.pull_request.number | type == "number") and
+              (.pull_request.base_sha | test("^[0-9a-f]{40}$")) and
+              (.pull_request.head_sha | test("^[0-9a-f]{40}$")) and
+              .pull_request.merge_commit_sha == $release_sha and
+              (.pull_request.merged_at | fromdateiso8601 | type == "number") and
+              .required_checks_manifest == {
+                path: ".github/manifests/main-required-status-checks.json",
+                sha256: $required_checks_sha256
+              } and
+              [.required_checks[].context] == ["sens-enterprise-summary", "merge-gate", "aria-merge-authority"] and
+              [.required_checks[] | {context, workflow_path}] == [
+                {context: "sens-enterprise-summary", workflow_path: ".github/workflows/ci-affected.yml"},
+                {context: "merge-gate", workflow_path: ".github/workflows/ci-affected.yml"},
+                {context: "aria-merge-authority", workflow_path: ".github/workflows/aria-merge-authority.yml"}
+              ] and
+              (.pull_request.head_sha as $pr_head_sha |
+                .pull_request.merged_at as $pr_merged_at |
+                all(.required_checks[];
+                  .head_sha == $pr_head_sha and
+                  .status == "completed" and
+                  .conclusion == "success" and
+                  .completed_at != null and
+                  ((.completed_at | fromdateiso8601) <= ($pr_merged_at | fromdateiso8601)) and
+                  (.check_run_id | type == "number") and
+                  (.check_suite_id | type == "number") and
+                  (.workflow_run_id | type == "number") and
+                  (.workflow_run_attempt | type == "number") and
+                  (.details_url | startswith("https://github.com/" + $repository + "/actions/runs/"))
+                )
+              )
+            ' "${AUTHORITY_PATH}" >/dev/null
+          jq --exit-status \
+            --arg source_sha256 "${SOURCE_SHA256}" \
+            '
+              .schema_version == 1 and
+              .release.workflow == ".github/workflows/backup-ssh-broker-release.yml" and
+              .release.event == "push" and
+              .release.ref == "refs/heads/main" and
+              .release.signing_environment == "production-backup-release" and
+              .release.signing_environment_protection == {
+                can_admins_bypass: false,
+                prevent_self_review: true,
+                minimum_reviewers: 2,
+                deployment_branch: "main"
+              } and
+              .release.required_checks_manifest == ".github/manifests/main-required-status-checks.json" and
+              .release.provenance_predicate_type == "aqua.protected-ssh-broker-build/v1" and
+              .release.authority_predicate_type == "aqua.protected-ssh-broker-release-authority/v1" and
+              .broker.source_sha256 == $source_sha256 and
+              .cutover.enabled == false
+            ' "${POLICY_PATH}" >/dev/null
+          jq --exit-status \
+            '
+              .required_status_checks.strict == true and
+              .branch_protection.enforce_admins == true and
+              .required_status_checks.contexts == ["sens-enterprise-summary", "merge-gate", "aria-merge-authority"]
+            ' "${REQUIRED_CHECKS_PATH}" >/dev/null
+
+          EVIDENCE_DIR="${RUNNER_TEMP}/broker-release-authority"
+          mkdir -m 0700 "${EVIDENCE_DIR}"
+          jq --sort-keys --null-input \
+            --arg artifact_digest "${ARTIFACT_DIGEST}" \
+            --arg artifact_id "${ARTIFACT_ID}" \
+            --arg binary_sha256 "${BINARY_SHA256}" \
+            --arg main_sha "${GITHUB_SHA}" \
+            --arg release_run_attempt "${RELEASE_RUN_ATTEMPT}" \
+            --arg release_run_id "${RELEASE_RUN_ID}" \
+            --arg release_sha "${RELEASE_SHA}" \
+            --arg source_sha256 "${SOURCE_SHA256}" \
+            '{
+              schema_version: 1,
+              artifact: {id: $artifact_id, digest: $artifact_digest},
+              release: {run_id: $release_run_id, run_attempt: $release_run_attempt, sha: $release_sha},
+              attestation_main_sha: $main_sha,
+              source_sha256: $source_sha256,
+              binary_sha256: $binary_sha256
+            }' > "${EVIDENCE_DIR}/release-authority.json"
+          chmod 0600 "${EVIDENCE_DIR}/release-authority.json"
+          printf 'artifact_digest=%s\n' "${ARTIFACT_DIGEST}" >> "${GITHUB_OUTPUT}"
+          printf 'artifact_id=%s\n' "${ARTIFACT_ID}" >> "${GITHUB_OUTPUT}"
+          printf 'binary_sha256=%s\n' "${BINARY_SHA256}" >> "${GITHUB_OUTPUT}"
+          printf 'release_run_attempt=%s\n' "${RELEASE_RUN_ATTEMPT}" >> "${GITHUB_OUTPUT}"
+          printf 'release_run_id=%s\n' "${RELEASE_RUN_ID}" >> "${GITHUB_OUTPUT}"
+          printf 'release_sha=%s\n' "${RELEASE_SHA}" >> "${GITHUB_OUTPUT}"
+          printf 'source_sha256=%s\n' "${SOURCE_SHA256}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload verified release authority
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: broker-release-authority-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/broker-release-authority/release-authority.json
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: false
+
+  backup-attestation:
+    name: Verify backup broker authority
+    needs: release-authority
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    environment:
+      name: production-backup
+      deployment: false
+    steps:
+      - name: Checkout exact attestation commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Require protected main authority
+        run: |
+          set -euo pipefail
+          test "${GITHUB_EVENT_NAME}" = 'workflow_dispatch'
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${GITHUB_REF_PROTECTED}" = 'true'
+          test "${GITHUB_SHA}" = "$(git rev-parse --verify HEAD^{commit})"
+          test "${GITHUB_WORKFLOW_REF}" = \
+            "${GITHUB_REPOSITORY}/.github/workflows/verify-backup-ssh-broker.yml@refs/heads/main"
+          test -z "$(git status --porcelain --untracked-files=all)"
+
+      - name: Verify backup key, denial matrix, and broker attestation
+        env:
+          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.DROPLET_SSH_FINGERPRINT }}
+          BROKER_SSH_KEY: ${{ secrets.BACKUP_BROKER_SSH_KEY }}
+          EXPECTED_KEY_FINGERPRINT: ${{ vars.BACKUP_BROKER_SSH_KEY_FINGERPRINT }}
+          EXPECTED_SOURCE_SHA256: ${{ needs.release-authority.outputs.source_sha256 }}
+          EXPECTED_BINARY_SHA256: ${{ needs.release-authority.outputs.binary_sha256 }}
+          RELEASE_ARTIFACT_DIGEST: ${{ needs.release-authority.outputs.artifact_digest }}
+          RELEASE_ARTIFACT_ID: ${{ needs.release-authority.outputs.artifact_id }}
+          RELEASE_RUN_ATTEMPT: ${{ needs.release-authority.outputs.release_run_attempt }}
+          RELEASE_RUN_ID: ${{ needs.release-authority.outputs.release_run_id }}
+          RELEASE_SHA: ${{ needs.release-authority.outputs.release_sha }}
+        run: |
+          set +x
+          set -euo pipefail
+          umask 077
+
+          die() {
+            printf 'FATAL: %s\n' "$*" >&2
+            exit 2
+          }
+
+          PRIVATE_DIR=''
+          cleanup() {
+            status=$?
+            trap - EXIT HUP INT TERM
+            unset BROKER_SSH_KEY DROPLET_HOST DROPLET_SSH_FINGERPRINT
+            cleanup_status=0
+            if [ -n "${PRIVATE_DIR}" ]; then
+              if ! rm -rf -- "${PRIVATE_DIR}" || [ -e "${PRIVATE_DIR}" ] || [ -L "${PRIVATE_DIR}" ]; then
+                printf 'FATAL: private backup-attestation cleanup failed.\n' >&2
+                cleanup_status=1
+              fi
+            fi
+            if [ "${status}" -eq 0 ] && [ "${cleanup_status}" -ne 0 ]; then
+              status=1
+            fi
+            exit "${status}"
+          }
+          trap cleanup EXIT
+          trap 'exit 129' HUP
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+
+          : "${DROPLET_HOST:?DROPLET_HOST is required}"
+          : "${DROPLET_SSH_FINGERPRINT:?DROPLET_SSH_FINGERPRINT is required}"
+          : "${BROKER_SSH_KEY:?BACKUP_BROKER_SSH_KEY is required}"
+          : "${EXPECTED_KEY_FINGERPRINT:?BACKUP_BROKER_SSH_KEY_FINGERPRINT is required}"
+          : "${EXPECTED_SOURCE_SHA256:?Signed provenance source SHA256 is required}"
+          : "${EXPECTED_BINARY_SHA256:?Signed provenance binary SHA256 is required}"
+          : "${RELEASE_ARTIFACT_DIGEST:?Signed release artifact digest is required}"
+          : "${RELEASE_ARTIFACT_ID:?Signed release artifact ID is required}"
+          : "${RELEASE_RUN_ATTEMPT:?Signed release run attempt is required}"
+          : "${RELEASE_RUN_ID:?Signed release run ID is required}"
+          : "${RELEASE_SHA:?Signed release SHA is required}"
+          [[ "${DROPLET_HOST}" =~ ^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$ ]] || \
+            die 'DROPLET_HOST is not a canonical DNS name or IPv4 address.'
+          [[ "${DROPLET_SSH_FINGERPRINT}" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]] || \
+            die 'DROPLET_SSH_FINGERPRINT is not canonical.'
+          [[ "${EXPECTED_KEY_FINGERPRINT}" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]] || \
+            die 'BACKUP_BROKER_SSH_KEY_FINGERPRINT is not canonical.'
+          [[ "${EXPECTED_SOURCE_SHA256}" =~ ^[0-9a-f]{64}$ ]] || \
+            die 'The signed provenance source SHA256 is not canonical.'
+          [[ "${EXPECTED_BINARY_SHA256}" =~ ^[0-9a-f]{64}$ ]] || \
+            die 'The signed provenance binary SHA256 is not canonical.'
+          [[ "${RELEASE_ARTIFACT_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]] || \
+            die 'The signed release artifact digest is not canonical.'
+          [[ "${RELEASE_ARTIFACT_ID}" =~ ^[1-9][0-9]{0,19}$ ]] || \
+            die 'The signed release artifact ID is not canonical.'
+          [[ "${RELEASE_RUN_ATTEMPT}" =~ ^[1-9][0-9]{0,9}$ ]] || \
+            die 'The signed release run attempt is not canonical.'
+          [[ "${RELEASE_RUN_ID}" =~ ^[1-9][0-9]{0,19}$ ]] || \
+            die 'The signed release run ID is not canonical.'
+          [[ "${RELEASE_SHA}" =~ ^[0-9a-f]{40}$ ]] || \
+            die 'The signed release SHA is not canonical.'
+          for command in awk cmp install jq mktemp rm ssh ssh-keygen ssh-keyscan timeout wc; do
+            command -v "${command}" >/dev/null 2>&1 || die "${command} is required."
+          done
+
+          PRIVATE_DIR=$(mktemp -d -t aqua-backup-broker-attestation-XXXXXX)
+          KEY_PATH="${PRIVATE_DIR}/identity"
+          PUBLIC_KEY_PATH="${PRIVATE_DIR}/identity.pub"
+          CANDIDATE_HOST_KEYS="${PRIVATE_DIR}/host-keys.candidate"
+          KNOWN_HOSTS_PATH="${PRIVATE_DIR}/known_hosts"
+          printf '%s\n' "${BROKER_SSH_KEY}" > "${KEY_PATH}"
+          chmod 0600 "${KEY_PATH}"
+          unset BROKER_SSH_KEY
+
+          env -i \
+            PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+            HOME=/nonexistent \
+            LC_ALL=C \
+            SSH_ASKPASS=/bin/false \
+            SSH_ASKPASS_REQUIRE=never \
+            timeout --foreground --kill-after=5s 15s \
+              ssh-keygen -y -P '' -f "${KEY_PATH}" > "${PUBLIC_KEY_PATH}" 2>/dev/null || \
+            die 'The backup private key is invalid or encrypted.'
+          DERIVED_KEY_FINGERPRINT=$(ssh-keygen -lf "${PUBLIC_KEY_PATH}" -E sha256 | awk 'NR == 1 {print $2}')
+          [ "${DERIVED_KEY_FINGERPRINT}" = "${EXPECTED_KEY_FINGERPRINT}" ] || \
+            die 'The backup private key does not match its protected public fingerprint.'
+          VERIFIED_KEY_FINGERPRINT="${DERIVED_KEY_FINGERPRINT}"
+          unset DERIVED_KEY_FINGERPRINT EXPECTED_KEY_FINGERPRINT
+
+          ssh-keyscan -T 15 -p 22 "${DROPLET_HOST}" > "${CANDIDATE_HOST_KEYS}" 2>/dev/null || \
+            die 'The production host did not publish an SSH host key.'
+          : > "${KNOWN_HOSTS_PATH}"
+          while IFS= read -r candidate_key; do
+            [ -n "${candidate_key}" ] || continue
+            candidate_fingerprint=$(printf '%s\n' "${candidate_key}" | ssh-keygen -lf - -E sha256 | awk 'NR == 1 {print $2}')
+            if [ "${candidate_fingerprint}" = "${DROPLET_SSH_FINGERPRINT}" ]; then
+              printf '%s\n' "${candidate_key}" >> "${KNOWN_HOSTS_PATH}"
+            fi
+          done < "${CANDIDATE_HOST_KEYS}"
+          [ "$(wc -l < "${KNOWN_HOSTS_PATH}")" -eq 1 ] || \
+            die 'Exactly one advertised SSH host key must match the protected fingerprint.'
+          chmod 0600 "${KNOWN_HOSTS_PATH}"
+          VERIFIED_HOST_FINGERPRINT="${DROPLET_SSH_FINGERPRINT}"
+          unset candidate_fingerprint DROPLET_SSH_FINGERPRINT
+
+          run_fixed_ssh() {
+            [ "$#" -eq 3 ] || die 'Internal fixed-SSH invocation is malformed.'
+            local account="$1"
+            local command="$2"
+            local stdout_path="$3"
+            env -i \
+              PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+              HOME=/nonexistent \
+              LC_ALL=C \
+              timeout --foreground --kill-after=10s 60s \
+                ssh \
+                  -F /dev/null \
+                  -p 22 \
+                  -i "${KEY_PATH}" \
+                  -o BatchMode=yes \
+                  -o CheckHostIP=no \
+                  -o ClearAllForwardings=yes \
+                  -o ConnectTimeout=15 \
+                  -o ForwardAgent=no \
+                  -o GlobalKnownHostsFile=/dev/null \
+                  -o IdentitiesOnly=yes \
+                  -o IdentityAgent=none \
+                  -o KbdInteractiveAuthentication=no \
+                  -o NumberOfPasswordPrompts=0 \
+                  -o PasswordAuthentication=no \
+                  -o PermitLocalCommand=no \
+                  -o ProxyCommand=none \
+                  -o RequestTTY=no \
+                  -o ServerAliveCountMax=2 \
+                  -o ServerAliveInterval=10 \
+                  -o StrictHostKeyChecking=yes \
+                  -o UpdateHostKeys=no \
+                  -o UserKnownHostsFile="${KNOWN_HOSTS_PATH}" \
+                  "${account}@${DROPLET_HOST}" "${command}" \
+                  </dev/null > "${stdout_path}" 2> "${stdout_path}.stderr"
+          }
+
+          run_boundary_ssh() {
+            [ "$#" -ge 2 ] || die 'Internal boundary-SSH invocation is malformed.'
+            local stdout_path="$1"
+            shift
+            env -i \
+              PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+              HOME=/nonexistent \
+              LC_ALL=C \
+              timeout --foreground --kill-after=10s 60s \
+                ssh \
+                  -F /dev/null \
+                  -p 22 \
+                  -i "${KEY_PATH}" \
+                  -o BatchMode=yes \
+                  -o CheckHostIP=no \
+                  -o ConnectTimeout=15 \
+                  -o ForwardAgent=no \
+                  -o GlobalKnownHostsFile=/dev/null \
+                  -o IdentitiesOnly=yes \
+                  -o IdentityAgent=none \
+                  -o KbdInteractiveAuthentication=no \
+                  -o NumberOfPasswordPrompts=0 \
+                  -o PasswordAuthentication=no \
+                  -o PermitLocalCommand=no \
+                  -o ProxyCommand=none \
+                  -o ServerAliveCountMax=2 \
+                  -o ServerAliveInterval=10 \
+                  -o StrictHostKeyChecking=yes \
+                  -o UpdateHostKeys=no \
+                  -o UserKnownHostsFile="${KNOWN_HOSTS_PATH}" \
+                  "$@" \
+                  </dev/null > "${stdout_path}" 2> "${stdout_path}.stderr"
+          }
+
+          EXPECTED_ATTESTATION="${PRIVATE_DIR}/attestation.expected.json"
+          printf '{"protocol":"aqua-protected-ssh-attestation-v1","account":"aqua-backup","operation":"backup","command":"aqua-backup-v1","source_sha256":"%s","binary_sha256":"%s"}\n' \
+            "${EXPECTED_SOURCE_SHA256}" "${EXPECTED_BINARY_SHA256}" > "${EXPECTED_ATTESTATION}"
+
+          assert_diagonal_attestation() {
+            [ "$#" -eq 3 ] || die 'Internal diagonal assertion is malformed.'
+            local account="$1"
+            local command="$2"
+            local output_path="$3"
+            local ssh_status
+            if run_fixed_ssh "${account}" "${command}" "${output_path}"; then
+              ssh_status=0
+            else
+              ssh_status=$?
+            fi
+            [ "${ssh_status}" -eq 0 ] || \
+              die "Diagonal broker attestation failed with SSH exit ${ssh_status}."
+            [ ! -s "${output_path}.stderr" ] || \
+              die 'Diagonal broker attestation emitted stderr.'
+            cmp --silent "${EXPECTED_ATTESTATION}" "${output_path}" || \
+              die 'The backup broker returned anything other than its one exact JSON attestation.'
+            jq --exit-status . "${output_path}" >/dev/null
+          }
+
+          assert_publickey_denial() {
+            [ "$#" -eq 3 ] || die 'Internal public-key denial assertion is malformed.'
+            local account="$1"
+            local command="$2"
+            local output_path="$3"
+            local ssh_status
+            if run_fixed_ssh "${account}" "${command}" "${output_path}"; then
+              ssh_status=0
+            else
+              ssh_status=$?
+            fi
+            [ "${ssh_status}" -eq 255 ] || \
+              die "Cross-account denial returned SSH exit ${ssh_status}, not canonical exit 255."
+            [ ! -s "${output_path}" ] || die 'Cross-account denial emitted stdout.'
+            printf '%s@%s: Permission denied (publickey).\n' \
+              "${account}" "${DROPLET_HOST}" > "${output_path}.expected.stderr"
+            cmp --silent "${output_path}.expected.stderr" "${output_path}.stderr" || \
+              die 'Cross-account denial was not canonical public-key rejection.'
+          }
+
+          assert_unrecognized_command_denial() {
+            [ "$#" -eq 3 ] || die 'Internal broker-command denial assertion is malformed.'
+            local account="$1"
+            local command="$2"
+            local output_path="$3"
+            local ssh_status
+            if run_fixed_ssh "${account}" "${command}" "${output_path}"; then
+              ssh_status=0
+            else
+              ssh_status=$?
+            fi
+            [ "${ssh_status}" -eq 2 ] || \
+              die "Unrecognized command denial returned SSH exit ${ssh_status}, not broker exit 2."
+            [ ! -s "${output_path}" ] || die 'Unrecognized command denial emitted stdout.'
+            printf '%s\n' \
+              'FATAL: SSH_ORIGINAL_COMMAND does not match the fixed command' \
+              > "${output_path}.expected.stderr"
+            cmp --silent "${output_path}.expected.stderr" "${output_path}.stderr" || \
+              die 'Unrecognized command denial did not return the broker canonical FATAL reason.'
+          }
+
+          assert_boundary_denial() {
+            [ "$#" -ge 4 ] || die 'Internal SSH-boundary denial assertion is malformed.'
+            local expected_status="$1"
+            local boundary="$2"
+            local output_path="$3"
+            local ssh_status
+            shift 3
+            if run_boundary_ssh "${output_path}" "$@"; then
+              ssh_status=0
+            else
+              ssh_status=$?
+            fi
+            [ "${ssh_status}" -eq "${expected_status}" ] || \
+              die "${boundary} denial returned SSH exit ${ssh_status}, expected ${expected_status}."
+            [ ! -s "${output_path}" ] || die "${boundary} denial emitted stdout."
+            [ -s "${output_path}.stderr" ] || die "${boundary} denial emitted no rejection reason."
+          }
+
+          assert_diagonal_attestation \
+            aqua-backup aqua-backup-v1 "${PRIVATE_DIR}/attestation-before.json"
+          assert_publickey_denial aqua-pitr aqua-pitr-v1 "${PRIVATE_DIR}/deny-pitr"
+          assert_publickey_denial \
+            aqua-wal-freshness aqua-wal-freshness-v1 "${PRIVATE_DIR}/deny-wal"
+          assert_unrecognized_command_denial \
+            aqua-backup aqua-broker-denied-v1 "${PRIVATE_DIR}/deny-command"
+          assert_boundary_denial 2 interactive-shell "${PRIVATE_DIR}/deny-shell" \
+            -o ClearAllForwardings=yes -o RequestTTY=no \
+            "aqua-backup@${DROPLET_HOST}"
+          assert_boundary_denial 255 pty "${PRIVATE_DIR}/deny-pty" \
+            -o ClearAllForwardings=yes -o RequestTTY=force \
+            "aqua-backup@${DROPLET_HOST}" aqua-backup-v1
+          assert_boundary_denial 2 subsystem "${PRIVATE_DIR}/deny-subsystem" \
+            -o ClearAllForwardings=yes -o RequestTTY=no -s \
+            "aqua-backup@${DROPLET_HOST}" sftp
+          assert_boundary_denial 255 remote-forward "${PRIVATE_DIR}/deny-remote-forward" \
+            -o ClearAllForwardings=no -o ExitOnForwardFailure=yes -o RequestTTY=no \
+            -N -R 0:127.0.0.1:1 "aqua-backup@${DROPLET_HOST}"
+          assert_boundary_denial 255 direct-stream "${PRIVATE_DIR}/deny-direct-stream" \
+            -o ClearAllForwardings=no -o RequestTTY=no -W 127.0.0.1:1 \
+            "aqua-backup@${DROPLET_HOST}"
+          RAW_ATTESTATION="${PRIVATE_DIR}/attestation-after.json"
+          assert_diagonal_attestation aqua-backup aqua-backup-v1 "${RAW_ATTESTATION}"
+
+          ARTIFACT_DIR="${RUNNER_TEMP}/backup-broker-attestation"
+          [ ! -e "${ARTIFACT_DIR}" ] && [ ! -L "${ARTIFACT_DIR}" ] || \
+            die 'The backup attestation artifact path already exists.'
+          mkdir -m 0700 "${ARTIFACT_DIR}"
+          jq --sort-keys --null-input \
+            --arg artifact_digest "${RELEASE_ARTIFACT_DIGEST}" \
+            --arg artifact_id "${RELEASE_ARTIFACT_ID}" \
+            --arg binary_sha256 "${EXPECTED_BINARY_SHA256}" \
+            --arg host_key_fingerprint "${VERIFIED_HOST_FINGERPRINT}" \
+            --arg main_sha "${GITHUB_SHA}" \
+            --arg operation_key_fingerprint "${VERIFIED_KEY_FINGERPRINT}" \
+            --arg release_run_attempt "${RELEASE_RUN_ATTEMPT}" \
+            --arg release_run_id "${RELEASE_RUN_ID}" \
+            --arg release_sha "${RELEASE_SHA}" \
+            --arg source_sha256 "${EXPECTED_SOURCE_SHA256}" \
+            --arg workflow_run_attempt "${GITHUB_RUN_ATTEMPT}" \
+            --arg workflow_run_id "${GITHUB_RUN_ID}" \
+            --slurpfile remote_attestation "${RAW_ATTESTATION}" \
+            '{
+              schema_version: 1,
+              release: {
+                run_id: $release_run_id,
+                run_attempt: $release_run_attempt,
+                sha: $release_sha,
+                artifact: {id: $artifact_id, digest: $artifact_digest},
+                source_sha256: $source_sha256,
+                binary_sha256: $binary_sha256
+              },
+              verification: {
+                main_sha: $main_sha,
+                workflow_run_id: $workflow_run_id,
+                workflow_run_attempt: $workflow_run_attempt,
+                host_key_fingerprint: $host_key_fingerprint,
+                operation_key_fingerprint: $operation_key_fingerprint,
+                remote_attestation: $remote_attestation[0]
+              }
+            }' > "${ARTIFACT_DIR}/attestation.json"
+          chmod 0600 "${ARTIFACT_DIR}/attestation.json"
+
+      - name: Upload immutable backup broker attestation
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backup-broker-attestation-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/backup-broker-attestation/attestation.json
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: false
+
+  pitr-attestation:
+    name: Verify PITR broker authority
+    needs: release-authority
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    environment:
+      name: production-backup
+      deployment: false
+    steps:
+      - name: Checkout exact attestation commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Require protected main authority
+        run: |
+          set -euo pipefail
+          test "${GITHUB_EVENT_NAME}" = 'workflow_dispatch'
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${GITHUB_REF_PROTECTED}" = 'true'
+          test "${GITHUB_SHA}" = "$(git rev-parse --verify HEAD^{commit})"
+          test "${GITHUB_WORKFLOW_REF}" = \
+            "${GITHUB_REPOSITORY}/.github/workflows/verify-backup-ssh-broker.yml@refs/heads/main"
+          test -z "$(git status --porcelain --untracked-files=all)"
+
+      - name: Verify PITR key, denial matrix, and broker attestation
+        env:
+          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.DROPLET_SSH_FINGERPRINT }}
+          BROKER_SSH_KEY: ${{ secrets.PITR_BROKER_SSH_KEY }}
+          EXPECTED_KEY_FINGERPRINT: ${{ vars.PITR_BROKER_SSH_KEY_FINGERPRINT }}
+          EXPECTED_SOURCE_SHA256: ${{ needs.release-authority.outputs.source_sha256 }}
+          EXPECTED_BINARY_SHA256: ${{ needs.release-authority.outputs.binary_sha256 }}
+          RELEASE_ARTIFACT_DIGEST: ${{ needs.release-authority.outputs.artifact_digest }}
+          RELEASE_ARTIFACT_ID: ${{ needs.release-authority.outputs.artifact_id }}
+          RELEASE_RUN_ATTEMPT: ${{ needs.release-authority.outputs.release_run_attempt }}
+          RELEASE_RUN_ID: ${{ needs.release-authority.outputs.release_run_id }}
+          RELEASE_SHA: ${{ needs.release-authority.outputs.release_sha }}
+        run: |
+          set +x
+          set -euo pipefail
+          umask 077
+
+          die() {
+            printf 'FATAL: %s\n' "$*" >&2
+            exit 2
+          }
+
+          PRIVATE_DIR=''
+          cleanup() {
+            status=$?
+            trap - EXIT HUP INT TERM
+            unset BROKER_SSH_KEY DROPLET_HOST DROPLET_SSH_FINGERPRINT
+            cleanup_status=0
+            if [ -n "${PRIVATE_DIR}" ]; then
+              if ! rm -rf -- "${PRIVATE_DIR}" || [ -e "${PRIVATE_DIR}" ] || [ -L "${PRIVATE_DIR}" ]; then
+                printf 'FATAL: private PITR-attestation cleanup failed.\n' >&2
+                cleanup_status=1
+              fi
+            fi
+            if [ "${status}" -eq 0 ] && [ "${cleanup_status}" -ne 0 ]; then
+              status=1
+            fi
+            exit "${status}"
+          }
+          trap cleanup EXIT
+          trap 'exit 129' HUP
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+
+          : "${DROPLET_HOST:?DROPLET_HOST is required}"
+          : "${DROPLET_SSH_FINGERPRINT:?DROPLET_SSH_FINGERPRINT is required}"
+          : "${BROKER_SSH_KEY:?PITR_BROKER_SSH_KEY is required}"
+          : "${EXPECTED_KEY_FINGERPRINT:?PITR_BROKER_SSH_KEY_FINGERPRINT is required}"
+          : "${EXPECTED_SOURCE_SHA256:?Signed provenance source SHA256 is required}"
+          : "${EXPECTED_BINARY_SHA256:?Signed provenance binary SHA256 is required}"
+          : "${RELEASE_ARTIFACT_DIGEST:?Signed release artifact digest is required}"
+          : "${RELEASE_ARTIFACT_ID:?Signed release artifact ID is required}"
+          : "${RELEASE_RUN_ATTEMPT:?Signed release run attempt is required}"
+          : "${RELEASE_RUN_ID:?Signed release run ID is required}"
+          : "${RELEASE_SHA:?Signed release SHA is required}"
+          [[ "${DROPLET_HOST}" =~ ^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$ ]] || \
+            die 'DROPLET_HOST is not a canonical DNS name or IPv4 address.'
+          [[ "${DROPLET_SSH_FINGERPRINT}" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]] || \
+            die 'DROPLET_SSH_FINGERPRINT is not canonical.'
+          [[ "${EXPECTED_KEY_FINGERPRINT}" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]] || \
+            die 'PITR_BROKER_SSH_KEY_FINGERPRINT is not canonical.'
+          [[ "${EXPECTED_SOURCE_SHA256}" =~ ^[0-9a-f]{64}$ ]] || \
+            die 'The signed provenance source SHA256 is not canonical.'
+          [[ "${EXPECTED_BINARY_SHA256}" =~ ^[0-9a-f]{64}$ ]] || \
+            die 'The signed provenance binary SHA256 is not canonical.'
+          [[ "${RELEASE_ARTIFACT_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]] || \
+            die 'The signed release artifact digest is not canonical.'
+          [[ "${RELEASE_ARTIFACT_ID}" =~ ^[1-9][0-9]{0,19}$ ]] || \
+            die 'The signed release artifact ID is not canonical.'
+          [[ "${RELEASE_RUN_ATTEMPT}" =~ ^[1-9][0-9]{0,9}$ ]] || \
+            die 'The signed release run attempt is not canonical.'
+          [[ "${RELEASE_RUN_ID}" =~ ^[1-9][0-9]{0,19}$ ]] || \
+            die 'The signed release run ID is not canonical.'
+          [[ "${RELEASE_SHA}" =~ ^[0-9a-f]{40}$ ]] || \
+            die 'The signed release SHA is not canonical.'
+          for command in awk cmp install jq mktemp rm ssh ssh-keygen ssh-keyscan timeout wc; do
+            command -v "${command}" >/dev/null 2>&1 || die "${command} is required."
+          done
+
+          PRIVATE_DIR=$(mktemp -d -t aqua-pitr-broker-attestation-XXXXXX)
+          KEY_PATH="${PRIVATE_DIR}/identity"
+          PUBLIC_KEY_PATH="${PRIVATE_DIR}/identity.pub"
+          CANDIDATE_HOST_KEYS="${PRIVATE_DIR}/host-keys.candidate"
+          KNOWN_HOSTS_PATH="${PRIVATE_DIR}/known_hosts"
+          printf '%s\n' "${BROKER_SSH_KEY}" > "${KEY_PATH}"
+          chmod 0600 "${KEY_PATH}"
+          unset BROKER_SSH_KEY
+
+          env -i \
+            PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+            HOME=/nonexistent \
+            LC_ALL=C \
+            SSH_ASKPASS=/bin/false \
+            SSH_ASKPASS_REQUIRE=never \
+            timeout --foreground --kill-after=5s 15s \
+              ssh-keygen -y -P '' -f "${KEY_PATH}" > "${PUBLIC_KEY_PATH}" 2>/dev/null || \
+            die 'The PITR private key is invalid or encrypted.'
+          DERIVED_KEY_FINGERPRINT=$(ssh-keygen -lf "${PUBLIC_KEY_PATH}" -E sha256 | awk 'NR == 1 {print $2}')
+          [ "${DERIVED_KEY_FINGERPRINT}" = "${EXPECTED_KEY_FINGERPRINT}" ] || \
+            die 'The PITR private key does not match its protected public fingerprint.'
+          VERIFIED_KEY_FINGERPRINT="${DERIVED_KEY_FINGERPRINT}"
+          unset DERIVED_KEY_FINGERPRINT EXPECTED_KEY_FINGERPRINT
+
+          ssh-keyscan -T 15 -p 22 "${DROPLET_HOST}" > "${CANDIDATE_HOST_KEYS}" 2>/dev/null || \
+            die 'The production host did not publish an SSH host key.'
+          : > "${KNOWN_HOSTS_PATH}"
+          while IFS= read -r candidate_key; do
+            [ -n "${candidate_key}" ] || continue
+            candidate_fingerprint=$(printf '%s\n' "${candidate_key}" | ssh-keygen -lf - -E sha256 | awk 'NR == 1 {print $2}')
+            if [ "${candidate_fingerprint}" = "${DROPLET_SSH_FINGERPRINT}" ]; then
+              printf '%s\n' "${candidate_key}" >> "${KNOWN_HOSTS_PATH}"
+            fi
+          done < "${CANDIDATE_HOST_KEYS}"
+          [ "$(wc -l < "${KNOWN_HOSTS_PATH}")" -eq 1 ] || \
+            die 'Exactly one advertised SSH host key must match the protected fingerprint.'
+          chmod 0600 "${KNOWN_HOSTS_PATH}"
+          VERIFIED_HOST_FINGERPRINT="${DROPLET_SSH_FINGERPRINT}"
+          unset candidate_fingerprint DROPLET_SSH_FINGERPRINT
+
+          run_fixed_ssh() {
+            [ "$#" -eq 3 ] || die 'Internal fixed-SSH invocation is malformed.'
+            local account="$1"
+            local command="$2"
+            local stdout_path="$3"
+            env -i \
+              PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+              HOME=/nonexistent \
+              LC_ALL=C \
+              timeout --foreground --kill-after=10s 60s \
+                ssh \
+                  -F /dev/null \
+                  -p 22 \
+                  -i "${KEY_PATH}" \
+                  -o BatchMode=yes \
+                  -o CheckHostIP=no \
+                  -o ClearAllForwardings=yes \
+                  -o ConnectTimeout=15 \
+                  -o ForwardAgent=no \
+                  -o GlobalKnownHostsFile=/dev/null \
+                  -o IdentitiesOnly=yes \
+                  -o IdentityAgent=none \
+                  -o KbdInteractiveAuthentication=no \
+                  -o NumberOfPasswordPrompts=0 \
+                  -o PasswordAuthentication=no \
+                  -o PermitLocalCommand=no \
+                  -o ProxyCommand=none \
+                  -o RequestTTY=no \
+                  -o ServerAliveCountMax=2 \
+                  -o ServerAliveInterval=10 \
+                  -o StrictHostKeyChecking=yes \
+                  -o UpdateHostKeys=no \
+                  -o UserKnownHostsFile="${KNOWN_HOSTS_PATH}" \
+                  "${account}@${DROPLET_HOST}" "${command}" \
+                  </dev/null > "${stdout_path}" 2> "${stdout_path}.stderr"
+          }
+
+          EXPECTED_ATTESTATION="${PRIVATE_DIR}/attestation.expected.json"
+          run_boundary_ssh() {
+            [ "$#" -ge 2 ] || die 'Internal boundary-SSH invocation is malformed.'
+            local stdout_path="$1"
+            shift
+            env -i \
+              PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+              HOME=/nonexistent \
+              LC_ALL=C \
+              timeout --foreground --kill-after=10s 60s \
+                ssh \
+                  -F /dev/null \
+                  -p 22 \
+                  -i "${KEY_PATH}" \
+                  -o BatchMode=yes \
+                  -o CheckHostIP=no \
+                  -o ConnectTimeout=15 \
+                  -o ForwardAgent=no \
+                  -o GlobalKnownHostsFile=/dev/null \
+                  -o IdentitiesOnly=yes \
+                  -o IdentityAgent=none \
+                  -o KbdInteractiveAuthentication=no \
+                  -o NumberOfPasswordPrompts=0 \
+                  -o PasswordAuthentication=no \
+                  -o PermitLocalCommand=no \
+                  -o ProxyCommand=none \
+                  -o ServerAliveCountMax=2 \
+                  -o ServerAliveInterval=10 \
+                  -o StrictHostKeyChecking=yes \
+                  -o UpdateHostKeys=no \
+                  -o UserKnownHostsFile="${KNOWN_HOSTS_PATH}" \
+                  "$@" \
+                  </dev/null > "${stdout_path}" 2> "${stdout_path}.stderr"
+          }
+
+          printf '{"protocol":"aqua-protected-ssh-attestation-v1","account":"aqua-pitr","operation":"pitr","command":"aqua-pitr-v1","source_sha256":"%s","binary_sha256":"%s"}\n' \
+            "${EXPECTED_SOURCE_SHA256}" "${EXPECTED_BINARY_SHA256}" > "${EXPECTED_ATTESTATION}"
+
+          assert_diagonal_attestation() {
+            [ "$#" -eq 3 ] || die 'Internal diagonal assertion is malformed.'
+            local account="$1"
+            local command="$2"
+            local output_path="$3"
+            local ssh_status
+            if run_fixed_ssh "${account}" "${command}" "${output_path}"; then
+              ssh_status=0
+            else
+              ssh_status=$?
+            fi
+            [ "${ssh_status}" -eq 0 ] || \
+              die "Diagonal broker attestation failed with SSH exit ${ssh_status}."
+            [ ! -s "${output_path}.stderr" ] || \
+              die 'Diagonal broker attestation emitted stderr.'
+            cmp --silent "${EXPECTED_ATTESTATION}" "${output_path}" || \
+              die 'The PITR broker returned anything other than its one exact JSON attestation.'
+            jq --exit-status . "${output_path}" >/dev/null
+          }
+
+          assert_publickey_denial() {
+            [ "$#" -eq 3 ] || die 'Internal public-key denial assertion is malformed.'
+            local account="$1"
+            local command="$2"
+            local output_path="$3"
+            local ssh_status
+            if run_fixed_ssh "${account}" "${command}" "${output_path}"; then
+              ssh_status=0
+            else
+              ssh_status=$?
+            fi
+            [ "${ssh_status}" -eq 255 ] || \
+              die "Cross-account denial returned SSH exit ${ssh_status}, not canonical exit 255."
+            [ ! -s "${output_path}" ] || die 'Cross-account denial emitted stdout.'
+            printf '%s@%s: Permission denied (publickey).\n' \
+              "${account}" "${DROPLET_HOST}" > "${output_path}.expected.stderr"
+            cmp --silent "${output_path}.expected.stderr" "${output_path}.stderr" || \
+              die 'Cross-account denial was not canonical public-key rejection.'
+          }
+
+          assert_unrecognized_command_denial() {
+            [ "$#" -eq 3 ] || die 'Internal broker-command denial assertion is malformed.'
+            local account="$1"
+            local command="$2"
+            local output_path="$3"
+            local ssh_status
+            if run_fixed_ssh "${account}" "${command}" "${output_path}"; then
+              ssh_status=0
+            else
+              ssh_status=$?
+            fi
+            [ "${ssh_status}" -eq 2 ] || \
+              die "Unrecognized command denial returned SSH exit ${ssh_status}, not broker exit 2."
+            [ ! -s "${output_path}" ] || die 'Unrecognized command denial emitted stdout.'
+            printf '%s\n' \
+              'FATAL: SSH_ORIGINAL_COMMAND does not match the fixed command' \
+              > "${output_path}.expected.stderr"
+            cmp --silent "${output_path}.expected.stderr" "${output_path}.stderr" || \
+              die 'Unrecognized command denial did not return the broker canonical FATAL reason.'
+          }
+
+          assert_boundary_denial() {
+            [ "$#" -ge 4 ] || die 'Internal SSH-boundary denial assertion is malformed.'
+            local expected_status="$1"
+            local boundary="$2"
+            local output_path="$3"
+            local ssh_status
+            shift 3
+            if run_boundary_ssh "${output_path}" "$@"; then
+              ssh_status=0
+            else
+              ssh_status=$?
+            fi
+            [ "${ssh_status}" -eq "${expected_status}" ] || \
+              die "${boundary} denial returned SSH exit ${ssh_status}, expected ${expected_status}."
+            [ ! -s "${output_path}" ] || die "${boundary} denial emitted stdout."
+            [ -s "${output_path}.stderr" ] || die "${boundary} denial emitted no rejection reason."
+          }
+
+          assert_diagonal_attestation aqua-pitr aqua-pitr-v1 "${PRIVATE_DIR}/attestation-before.json"
+          assert_publickey_denial aqua-backup aqua-backup-v1 "${PRIVATE_DIR}/deny-backup"
+          assert_publickey_denial \
+            aqua-wal-freshness aqua-wal-freshness-v1 "${PRIVATE_DIR}/deny-wal"
+          assert_unrecognized_command_denial \
+            aqua-pitr aqua-broker-denied-v1 "${PRIVATE_DIR}/deny-command"
+          assert_boundary_denial 2 interactive-shell "${PRIVATE_DIR}/deny-shell" \
+            -o ClearAllForwardings=yes -o RequestTTY=no \
+            "aqua-pitr@${DROPLET_HOST}"
+          assert_boundary_denial 255 pty "${PRIVATE_DIR}/deny-pty" \
+            -o ClearAllForwardings=yes -o RequestTTY=force \
+            "aqua-pitr@${DROPLET_HOST}" aqua-pitr-v1
+          assert_boundary_denial 2 subsystem "${PRIVATE_DIR}/deny-subsystem" \
+            -o ClearAllForwardings=yes -o RequestTTY=no -s \
+            "aqua-pitr@${DROPLET_HOST}" sftp
+          assert_boundary_denial 255 remote-forward "${PRIVATE_DIR}/deny-remote-forward" \
+            -o ClearAllForwardings=no -o ExitOnForwardFailure=yes -o RequestTTY=no \
+            -N -R 0:127.0.0.1:1 "aqua-pitr@${DROPLET_HOST}"
+          assert_boundary_denial 255 direct-stream "${PRIVATE_DIR}/deny-direct-stream" \
+            -o ClearAllForwardings=no -o RequestTTY=no -W 127.0.0.1:1 \
+            "aqua-pitr@${DROPLET_HOST}"
+          RAW_ATTESTATION="${PRIVATE_DIR}/attestation-after.json"
+          assert_diagonal_attestation aqua-pitr aqua-pitr-v1 "${RAW_ATTESTATION}"
+
+          ARTIFACT_DIR="${RUNNER_TEMP}/pitr-broker-attestation"
+          [ ! -e "${ARTIFACT_DIR}" ] && [ ! -L "${ARTIFACT_DIR}" ] || \
+            die 'The PITR attestation artifact path already exists.'
+          mkdir -m 0700 "${ARTIFACT_DIR}"
+          jq --sort-keys --null-input \
+            --arg artifact_digest "${RELEASE_ARTIFACT_DIGEST}" \
+            --arg artifact_id "${RELEASE_ARTIFACT_ID}" \
+            --arg binary_sha256 "${EXPECTED_BINARY_SHA256}" \
+            --arg host_key_fingerprint "${VERIFIED_HOST_FINGERPRINT}" \
+            --arg main_sha "${GITHUB_SHA}" \
+            --arg operation_key_fingerprint "${VERIFIED_KEY_FINGERPRINT}" \
+            --arg release_run_attempt "${RELEASE_RUN_ATTEMPT}" \
+            --arg release_run_id "${RELEASE_RUN_ID}" \
+            --arg release_sha "${RELEASE_SHA}" \
+            --arg source_sha256 "${EXPECTED_SOURCE_SHA256}" \
+            --arg workflow_run_attempt "${GITHUB_RUN_ATTEMPT}" \
+            --arg workflow_run_id "${GITHUB_RUN_ID}" \
+            --slurpfile remote_attestation "${RAW_ATTESTATION}" \
+            '{
+              schema_version: 1,
+              release: {
+                run_id: $release_run_id,
+                run_attempt: $release_run_attempt,
+                sha: $release_sha,
+                artifact: {id: $artifact_id, digest: $artifact_digest},
+                source_sha256: $source_sha256,
+                binary_sha256: $binary_sha256
+              },
+              verification: {
+                main_sha: $main_sha,
+                workflow_run_id: $workflow_run_id,
+                workflow_run_attempt: $workflow_run_attempt,
+                host_key_fingerprint: $host_key_fingerprint,
+                operation_key_fingerprint: $operation_key_fingerprint,
+                remote_attestation: $remote_attestation[0]
+              }
+            }' > "${ARTIFACT_DIR}/attestation.json"
+          chmod 0600 "${ARTIFACT_DIR}/attestation.json"
+
+      - name: Upload immutable PITR broker attestation
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pitr-broker-attestation-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pitr-broker-attestation/attestation.json
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: false
+
+  wal-freshness-attestation:
+    name: Verify WAL-freshness broker authority
+    needs: release-authority
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    environment:
+      name: production-backup
+      deployment: false
+    steps:
+      - name: Checkout exact attestation commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Require protected main authority
+        run: |
+          set -euo pipefail
+          test "${GITHUB_EVENT_NAME}" = 'workflow_dispatch'
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${GITHUB_REF_PROTECTED}" = 'true'
+          test "${GITHUB_SHA}" = "$(git rev-parse --verify HEAD^{commit})"
+          test "${GITHUB_WORKFLOW_REF}" = \
+            "${GITHUB_REPOSITORY}/.github/workflows/verify-backup-ssh-broker.yml@refs/heads/main"
+          test -z "$(git status --porcelain --untracked-files=all)"
+
+      - name: Verify WAL-freshness key, denial matrix, and broker attestation
+        env:
+          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.DROPLET_SSH_FINGERPRINT }}
+          BROKER_SSH_KEY: ${{ secrets.WAL_FRESHNESS_BROKER_SSH_KEY }}
+          EXPECTED_KEY_FINGERPRINT: ${{ vars.WAL_FRESHNESS_BROKER_SSH_KEY_FINGERPRINT }}
+          EXPECTED_SOURCE_SHA256: ${{ needs.release-authority.outputs.source_sha256 }}
+          EXPECTED_BINARY_SHA256: ${{ needs.release-authority.outputs.binary_sha256 }}
+          RELEASE_ARTIFACT_DIGEST: ${{ needs.release-authority.outputs.artifact_digest }}
+          RELEASE_ARTIFACT_ID: ${{ needs.release-authority.outputs.artifact_id }}
+          RELEASE_RUN_ATTEMPT: ${{ needs.release-authority.outputs.release_run_attempt }}
+          RELEASE_RUN_ID: ${{ needs.release-authority.outputs.release_run_id }}
+          RELEASE_SHA: ${{ needs.release-authority.outputs.release_sha }}
+        run: |
+          set +x
+          set -euo pipefail
+          umask 077
+
+          die() {
+            printf 'FATAL: %s\n' "$*" >&2
+            exit 2
+          }
+
+          PRIVATE_DIR=''
+          cleanup() {
+            status=$?
+            trap - EXIT HUP INT TERM
+            unset BROKER_SSH_KEY DROPLET_HOST DROPLET_SSH_FINGERPRINT
+            cleanup_status=0
+            if [ -n "${PRIVATE_DIR}" ]; then
+              if ! rm -rf -- "${PRIVATE_DIR}" || [ -e "${PRIVATE_DIR}" ] || [ -L "${PRIVATE_DIR}" ]; then
+                printf 'FATAL: private WAL-freshness-attestation cleanup failed.\n' >&2
+                cleanup_status=1
+              fi
+            fi
+            if [ "${status}" -eq 0 ] && [ "${cleanup_status}" -ne 0 ]; then
+              status=1
+            fi
+            exit "${status}"
+          }
+          trap cleanup EXIT
+          trap 'exit 129' HUP
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+
+          : "${DROPLET_HOST:?DROPLET_HOST is required}"
+          : "${DROPLET_SSH_FINGERPRINT:?DROPLET_SSH_FINGERPRINT is required}"
+          : "${BROKER_SSH_KEY:?WAL_FRESHNESS_BROKER_SSH_KEY is required}"
+          : "${EXPECTED_KEY_FINGERPRINT:?WAL_FRESHNESS_BROKER_SSH_KEY_FINGERPRINT is required}"
+          : "${EXPECTED_SOURCE_SHA256:?Signed provenance source SHA256 is required}"
+          : "${EXPECTED_BINARY_SHA256:?Signed provenance binary SHA256 is required}"
+          : "${RELEASE_ARTIFACT_DIGEST:?Signed release artifact digest is required}"
+          : "${RELEASE_ARTIFACT_ID:?Signed release artifact ID is required}"
+          : "${RELEASE_RUN_ATTEMPT:?Signed release run attempt is required}"
+          : "${RELEASE_RUN_ID:?Signed release run ID is required}"
+          : "${RELEASE_SHA:?Signed release SHA is required}"
+          [[ "${DROPLET_HOST}" =~ ^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$ ]] || \
+            die 'DROPLET_HOST is not a canonical DNS name or IPv4 address.'
+          [[ "${DROPLET_SSH_FINGERPRINT}" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]] || \
+            die 'DROPLET_SSH_FINGERPRINT is not canonical.'
+          [[ "${EXPECTED_KEY_FINGERPRINT}" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]] || \
+            die 'WAL_FRESHNESS_BROKER_SSH_KEY_FINGERPRINT is not canonical.'
+          [[ "${EXPECTED_SOURCE_SHA256}" =~ ^[0-9a-f]{64}$ ]] || \
+            die 'The signed provenance source SHA256 is not canonical.'
+          [[ "${EXPECTED_BINARY_SHA256}" =~ ^[0-9a-f]{64}$ ]] || \
+            die 'The signed provenance binary SHA256 is not canonical.'
+          [[ "${RELEASE_ARTIFACT_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]] || \
+            die 'The signed release artifact digest is not canonical.'
+          [[ "${RELEASE_ARTIFACT_ID}" =~ ^[1-9][0-9]{0,19}$ ]] || \
+            die 'The signed release artifact ID is not canonical.'
+          [[ "${RELEASE_RUN_ATTEMPT}" =~ ^[1-9][0-9]{0,9}$ ]] || \
+            die 'The signed release run attempt is not canonical.'
+          [[ "${RELEASE_RUN_ID}" =~ ^[1-9][0-9]{0,19}$ ]] || \
+            die 'The signed release run ID is not canonical.'
+          [[ "${RELEASE_SHA}" =~ ^[0-9a-f]{40}$ ]] || \
+            die 'The signed release SHA is not canonical.'
+          for command in awk cmp install jq mktemp rm ssh ssh-keygen ssh-keyscan timeout wc; do
+            command -v "${command}" >/dev/null 2>&1 || die "${command} is required."
+          done
+
+          PRIVATE_DIR=$(mktemp -d -t aqua-wal-broker-attestation-XXXXXX)
+          KEY_PATH="${PRIVATE_DIR}/identity"
+          PUBLIC_KEY_PATH="${PRIVATE_DIR}/identity.pub"
+          CANDIDATE_HOST_KEYS="${PRIVATE_DIR}/host-keys.candidate"
+          KNOWN_HOSTS_PATH="${PRIVATE_DIR}/known_hosts"
+          printf '%s\n' "${BROKER_SSH_KEY}" > "${KEY_PATH}"
+          chmod 0600 "${KEY_PATH}"
+          unset BROKER_SSH_KEY
+
+          env -i \
+            PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+            HOME=/nonexistent \
+            LC_ALL=C \
+            SSH_ASKPASS=/bin/false \
+            SSH_ASKPASS_REQUIRE=never \
+            timeout --foreground --kill-after=5s 15s \
+              ssh-keygen -y -P '' -f "${KEY_PATH}" > "${PUBLIC_KEY_PATH}" 2>/dev/null || \
+            die 'The WAL-freshness private key is invalid or encrypted.'
+          DERIVED_KEY_FINGERPRINT=$(ssh-keygen -lf "${PUBLIC_KEY_PATH}" -E sha256 | awk 'NR == 1 {print $2}')
+          [ "${DERIVED_KEY_FINGERPRINT}" = "${EXPECTED_KEY_FINGERPRINT}" ] || \
+            die 'The WAL-freshness private key does not match its protected public fingerprint.'
+          VERIFIED_KEY_FINGERPRINT="${DERIVED_KEY_FINGERPRINT}"
+          unset DERIVED_KEY_FINGERPRINT EXPECTED_KEY_FINGERPRINT
+
+          ssh-keyscan -T 15 -p 22 "${DROPLET_HOST}" > "${CANDIDATE_HOST_KEYS}" 2>/dev/null || \
+            die 'The production host did not publish an SSH host key.'
+          : > "${KNOWN_HOSTS_PATH}"
+          while IFS= read -r candidate_key; do
+            [ -n "${candidate_key}" ] || continue
+            candidate_fingerprint=$(printf '%s\n' "${candidate_key}" | ssh-keygen -lf - -E sha256 | awk 'NR == 1 {print $2}')
+            if [ "${candidate_fingerprint}" = "${DROPLET_SSH_FINGERPRINT}" ]; then
+              printf '%s\n' "${candidate_key}" >> "${KNOWN_HOSTS_PATH}"
+            fi
+          done < "${CANDIDATE_HOST_KEYS}"
+          [ "$(wc -l < "${KNOWN_HOSTS_PATH}")" -eq 1 ] || \
+            die 'Exactly one advertised SSH host key must match the protected fingerprint.'
+          chmod 0600 "${KNOWN_HOSTS_PATH}"
+          VERIFIED_HOST_FINGERPRINT="${DROPLET_SSH_FINGERPRINT}"
+          unset candidate_fingerprint DROPLET_SSH_FINGERPRINT
+
+          run_fixed_ssh() {
+            [ "$#" -eq 3 ] || die 'Internal fixed-SSH invocation is malformed.'
+            local account="$1"
+            local command="$2"
+            local stdout_path="$3"
+            env -i \
+              PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+              HOME=/nonexistent \
+              LC_ALL=C \
+              timeout --foreground --kill-after=10s 60s \
+                ssh \
+                  -F /dev/null \
+                  -p 22 \
+                  -i "${KEY_PATH}" \
+                  -o BatchMode=yes \
+                  -o CheckHostIP=no \
+                  -o ClearAllForwardings=yes \
+                  -o ConnectTimeout=15 \
+                  -o ForwardAgent=no \
+                  -o GlobalKnownHostsFile=/dev/null \
+                  -o IdentitiesOnly=yes \
+                  -o IdentityAgent=none \
+                  -o KbdInteractiveAuthentication=no \
+                  -o NumberOfPasswordPrompts=0 \
+                  -o PasswordAuthentication=no \
+                  -o PermitLocalCommand=no \
+                  -o ProxyCommand=none \
+                  -o RequestTTY=no \
+                  -o ServerAliveCountMax=2 \
+                  -o ServerAliveInterval=10 \
+                  -o StrictHostKeyChecking=yes \
+                  -o UpdateHostKeys=no \
+                  -o UserKnownHostsFile="${KNOWN_HOSTS_PATH}" \
+                  "${account}@${DROPLET_HOST}" "${command}" \
+                  </dev/null > "${stdout_path}" 2> "${stdout_path}.stderr"
+          }
+
+          EXPECTED_ATTESTATION="${PRIVATE_DIR}/attestation.expected.json"
+          run_boundary_ssh() {
+            [ "$#" -ge 2 ] || die 'Internal boundary-SSH invocation is malformed.'
+            local stdout_path="$1"
+            shift
+            env -i \
+              PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+              HOME=/nonexistent \
+              LC_ALL=C \
+              timeout --foreground --kill-after=10s 60s \
+                ssh \
+                  -F /dev/null \
+                  -p 22 \
+                  -i "${KEY_PATH}" \
+                  -o BatchMode=yes \
+                  -o CheckHostIP=no \
+                  -o ConnectTimeout=15 \
+                  -o ForwardAgent=no \
+                  -o GlobalKnownHostsFile=/dev/null \
+                  -o IdentitiesOnly=yes \
+                  -o IdentityAgent=none \
+                  -o KbdInteractiveAuthentication=no \
+                  -o NumberOfPasswordPrompts=0 \
+                  -o PasswordAuthentication=no \
+                  -o PermitLocalCommand=no \
+                  -o ProxyCommand=none \
+                  -o ServerAliveCountMax=2 \
+                  -o ServerAliveInterval=10 \
+                  -o StrictHostKeyChecking=yes \
+                  -o UpdateHostKeys=no \
+                  -o UserKnownHostsFile="${KNOWN_HOSTS_PATH}" \
+                  "$@" \
+                  </dev/null > "${stdout_path}" 2> "${stdout_path}.stderr"
+          }
+
+          printf '{"protocol":"aqua-protected-ssh-attestation-v1","account":"aqua-wal-freshness","operation":"archive-freshness","command":"aqua-wal-freshness-v1","source_sha256":"%s","binary_sha256":"%s"}\n' \
+            "${EXPECTED_SOURCE_SHA256}" "${EXPECTED_BINARY_SHA256}" > "${EXPECTED_ATTESTATION}"
+
+          assert_diagonal_attestation() {
+            [ "$#" -eq 3 ] || die 'Internal diagonal assertion is malformed.'
+            local account="$1"
+            local command="$2"
+            local output_path="$3"
+            local ssh_status
+            if run_fixed_ssh "${account}" "${command}" "${output_path}"; then
+              ssh_status=0
+            else
+              ssh_status=$?
+            fi
+            [ "${ssh_status}" -eq 0 ] || \
+              die "Diagonal broker attestation failed with SSH exit ${ssh_status}."
+            [ ! -s "${output_path}.stderr" ] || \
+              die 'Diagonal broker attestation emitted stderr.'
+            cmp --silent "${EXPECTED_ATTESTATION}" "${output_path}" || \
+              die 'The WAL-freshness broker returned anything other than its one exact JSON attestation.'
+            jq --exit-status . "${output_path}" >/dev/null
+          }
+
+          assert_publickey_denial() {
+            [ "$#" -eq 3 ] || die 'Internal public-key denial assertion is malformed.'
+            local account="$1"
+            local command="$2"
+            local output_path="$3"
+            local ssh_status
+            if run_fixed_ssh "${account}" "${command}" "${output_path}"; then
+              ssh_status=0
+            else
+              ssh_status=$?
+            fi
+            [ "${ssh_status}" -eq 255 ] || \
+              die "Cross-account denial returned SSH exit ${ssh_status}, not canonical exit 255."
+            [ ! -s "${output_path}" ] || die 'Cross-account denial emitted stdout.'
+            printf '%s@%s: Permission denied (publickey).\n' \
+              "${account}" "${DROPLET_HOST}" > "${output_path}.expected.stderr"
+            cmp --silent "${output_path}.expected.stderr" "${output_path}.stderr" || \
+              die 'Cross-account denial was not canonical public-key rejection.'
+          }
+
+          assert_unrecognized_command_denial() {
+            [ "$#" -eq 3 ] || die 'Internal broker-command denial assertion is malformed.'
+            local account="$1"
+            local command="$2"
+            local output_path="$3"
+            local ssh_status
+            if run_fixed_ssh "${account}" "${command}" "${output_path}"; then
+              ssh_status=0
+            else
+              ssh_status=$?
+            fi
+            [ "${ssh_status}" -eq 2 ] || \
+              die "Unrecognized command denial returned SSH exit ${ssh_status}, not broker exit 2."
+            [ ! -s "${output_path}" ] || die 'Unrecognized command denial emitted stdout.'
+            printf '%s\n' \
+              'FATAL: SSH_ORIGINAL_COMMAND does not match the fixed command' \
+              > "${output_path}.expected.stderr"
+            cmp --silent "${output_path}.expected.stderr" "${output_path}.stderr" || \
+              die 'Unrecognized command denial did not return the broker canonical FATAL reason.'
+          }
+
+          assert_boundary_denial() {
+            [ "$#" -ge 4 ] || die 'Internal SSH-boundary denial assertion is malformed.'
+            local expected_status="$1"
+            local boundary="$2"
+            local output_path="$3"
+            local ssh_status
+            shift 3
+            if run_boundary_ssh "${output_path}" "$@"; then
+              ssh_status=0
+            else
+              ssh_status=$?
+            fi
+            [ "${ssh_status}" -eq "${expected_status}" ] || \
+              die "${boundary} denial returned SSH exit ${ssh_status}, expected ${expected_status}."
+            [ ! -s "${output_path}" ] || die "${boundary} denial emitted stdout."
+            [ -s "${output_path}.stderr" ] || die "${boundary} denial emitted no rejection reason."
+          }
+
+          assert_diagonal_attestation \
+            aqua-wal-freshness aqua-wal-freshness-v1 "${PRIVATE_DIR}/attestation-before.json"
+          assert_publickey_denial aqua-backup aqua-backup-v1 "${PRIVATE_DIR}/deny-backup"
+          assert_publickey_denial aqua-pitr aqua-pitr-v1 "${PRIVATE_DIR}/deny-pitr"
+          assert_unrecognized_command_denial \
+            aqua-wal-freshness aqua-broker-denied-v1 "${PRIVATE_DIR}/deny-command"
+          assert_boundary_denial 2 interactive-shell "${PRIVATE_DIR}/deny-shell" \
+            -o ClearAllForwardings=yes -o RequestTTY=no \
+            "aqua-wal-freshness@${DROPLET_HOST}"
+          assert_boundary_denial 255 pty "${PRIVATE_DIR}/deny-pty" \
+            -o ClearAllForwardings=yes -o RequestTTY=force \
+            "aqua-wal-freshness@${DROPLET_HOST}" aqua-wal-freshness-v1
+          assert_boundary_denial 2 subsystem "${PRIVATE_DIR}/deny-subsystem" \
+            -o ClearAllForwardings=yes -o RequestTTY=no -s \
+            "aqua-wal-freshness@${DROPLET_HOST}" sftp
+          assert_boundary_denial 255 remote-forward "${PRIVATE_DIR}/deny-remote-forward" \
+            -o ClearAllForwardings=no -o ExitOnForwardFailure=yes -o RequestTTY=no \
+            -N -R 0:127.0.0.1:1 "aqua-wal-freshness@${DROPLET_HOST}"
+          assert_boundary_denial 255 direct-stream "${PRIVATE_DIR}/deny-direct-stream" \
+            -o ClearAllForwardings=no -o RequestTTY=no -W 127.0.0.1:1 \
+            "aqua-wal-freshness@${DROPLET_HOST}"
+          RAW_ATTESTATION="${PRIVATE_DIR}/attestation-after.json"
+          assert_diagonal_attestation \
+            aqua-wal-freshness aqua-wal-freshness-v1 "${RAW_ATTESTATION}"
+
+          ARTIFACT_DIR="${RUNNER_TEMP}/wal-freshness-broker-attestation"
+          [ ! -e "${ARTIFACT_DIR}" ] && [ ! -L "${ARTIFACT_DIR}" ] || \
+            die 'The WAL-freshness attestation artifact path already exists.'
+          mkdir -m 0700 "${ARTIFACT_DIR}"
+          jq --sort-keys --null-input \
+            --arg artifact_digest "${RELEASE_ARTIFACT_DIGEST}" \
+            --arg artifact_id "${RELEASE_ARTIFACT_ID}" \
+            --arg binary_sha256 "${EXPECTED_BINARY_SHA256}" \
+            --arg host_key_fingerprint "${VERIFIED_HOST_FINGERPRINT}" \
+            --arg main_sha "${GITHUB_SHA}" \
+            --arg operation_key_fingerprint "${VERIFIED_KEY_FINGERPRINT}" \
+            --arg release_run_attempt "${RELEASE_RUN_ATTEMPT}" \
+            --arg release_run_id "${RELEASE_RUN_ID}" \
+            --arg release_sha "${RELEASE_SHA}" \
+            --arg source_sha256 "${EXPECTED_SOURCE_SHA256}" \
+            --arg workflow_run_attempt "${GITHUB_RUN_ATTEMPT}" \
+            --arg workflow_run_id "${GITHUB_RUN_ID}" \
+            --slurpfile remote_attestation "${RAW_ATTESTATION}" \
+            '{
+              schema_version: 1,
+              release: {
+                run_id: $release_run_id,
+                run_attempt: $release_run_attempt,
+                sha: $release_sha,
+                artifact: {id: $artifact_id, digest: $artifact_digest},
+                source_sha256: $source_sha256,
+                binary_sha256: $binary_sha256
+              },
+              verification: {
+                main_sha: $main_sha,
+                workflow_run_id: $workflow_run_id,
+                workflow_run_attempt: $workflow_run_attempt,
+                host_key_fingerprint: $host_key_fingerprint,
+                operation_key_fingerprint: $operation_key_fingerprint,
+                remote_attestation: $remote_attestation[0]
+              }
+            }' > "${ARTIFACT_DIR}/attestation.json"
+          chmod 0600 "${ARTIFACT_DIR}/attestation.json"
+
+      - name: Upload immutable WAL-freshness broker attestation
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wal-freshness-broker-attestation-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/wal-freshness-broker-attestation/attestation.json
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: false

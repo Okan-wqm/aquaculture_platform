@@ -1,7 +1,11 @@
 import { LegalHoldService } from '@aquaculture/backend-common/compliance';
 import { BadRequestException } from '@nestjs/common';
 import { IEventBus } from '@platform/event-bus';
-import { TenantDataErasedEvent, TenantStatus } from '@platform/event-contracts';
+import {
+  TENANT_ERASURE_TARGET_SERVICE_COUNT,
+  TenantDataErasedEvent,
+  TenantStatus,
+} from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, EntityManager, QueryRunner } from 'typeorm';
 
@@ -36,14 +40,9 @@ function createQueryRunner(manager: EntityManager): QueryRunner {
   });
 }
 
-function assignTransaction(
-  dataSource: DataSource,
-  manager: EntityManager,
-): void {
+function assignTransaction(dataSource: DataSource, manager: EntityManager): void {
   dataSource.transaction = (async <T>(
-    first:
-      | ((transactionalEntityManager: EntityManager) => Promise<T>)
-      | string,
+    first: ((transactionalEntityManager: EntityManager) => Promise<T>) | string,
     second?: (transactionalEntityManager: EntityManager) => Promise<T>,
   ): Promise<T> => {
     const work = typeof first === 'function' ? first : second;
@@ -79,10 +78,7 @@ describe('RequestTenantErasureHandler', () => {
 
     const manager = {
       findOne: jest.fn().mockResolvedValue(tenant),
-      query: jest
-        .fn()
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce(undefined),
+      query: jest.fn().mockResolvedValueOnce([]).mockResolvedValueOnce(undefined),
     } as Partial<EntityManager> as EntityManager;
     const queryRunner = createQueryRunner(manager);
     const dataSource = createDataSource();
@@ -99,12 +95,7 @@ describe('RequestTenantErasureHandler', () => {
     );
 
     const result = await handler.execute(
-      new RequestTenantErasureCommand(
-        TENANT_ID,
-        'data subject request',
-        USER_ID,
-        true,
-      ),
+      new RequestTenantErasureCommand(TENANT_ID, 'data subject request', USER_ID, true),
     );
 
     expect(result).toEqual({
@@ -126,7 +117,7 @@ describe('RequestTenantErasureHandler', () => {
         operationId: result.operationId,
         requestedBy: USER_ID,
         dryRun: true,
-        targetServiceCount: 10,
+        targetServiceCount: TENANT_ERASURE_TARGET_SERVICE_COUNT,
       }),
       manager,
       {
@@ -158,9 +149,7 @@ describe('RequestTenantErasureHandler', () => {
     );
 
     await expect(
-      handler.execute(
-        new RequestTenantErasureCommand(TENANT_ID, 'data subject request', USER_ID),
-      ),
+      handler.execute(new RequestTenantErasureCommand(TENANT_ID, 'data subject request', USER_ID)),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(outbox.enqueue).not.toHaveBeenCalled();
     expect(queryRunner.rollbackTransaction).toHaveBeenCalledTimes(1);

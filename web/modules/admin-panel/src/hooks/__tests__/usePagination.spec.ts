@@ -13,9 +13,8 @@ import { usePagination } from '../usePagination';
 
 // Wrapper component for router context
 const createWrapper = (initialEntries: string[] = ['/']) => {
-  const Wrapper = ({ children }: { children: React.ReactNode }) => (
-    React.createElement(MemoryRouter, { initialEntries }, children)
-  );
+  const Wrapper = ({ children }: { children: React.ReactNode }) =>
+    React.createElement(MemoryRouter, { initialEntries }, children);
   return Wrapper;
 };
 
@@ -53,7 +52,7 @@ describe('usePagination', () => {
             initialTotal: 200,
             pageSizeOptions: [25, 50, 75, 100],
           }),
-        { wrapper: createWrapper() }
+        { wrapper: createWrapper() },
       );
 
       expect(result.current.page).toBe(3);
@@ -65,10 +64,9 @@ describe('usePagination', () => {
     });
 
     it('should read initial values from URL when syncUrl=true', () => {
-      const { result } = renderHook(
-        () => usePagination({ syncUrl: true }),
-        { wrapper: createWrapper(['/?page=5&limit=50']) }
-      );
+      const { result } = renderHook(() => usePagination({ syncUrl: true }), {
+        wrapper: createWrapper(['/?page=5&limit=50']),
+      });
 
       expect(result.current.page).toBe(5);
       expect(result.current.limit).toBe(50);
@@ -81,10 +79,9 @@ describe('usePagination', () => {
 
   describe('Navigation', () => {
     it('should go to specific page', () => {
-      const { result } = renderHook(
-        () => usePagination({ initialTotal: 100 }),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => usePagination({ initialTotal: 100 }), {
+        wrapper: createWrapper(),
+      });
 
       act(() => {
         result.current.goToPage(3);
@@ -95,10 +92,9 @@ describe('usePagination', () => {
     });
 
     it('should go to next page', () => {
-      const { result } = renderHook(
-        () => usePagination({ initialTotal: 100 }),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => usePagination({ initialTotal: 100 }), {
+        wrapper: createWrapper(),
+      });
 
       act(() => {
         result.current.nextPage();
@@ -108,10 +104,9 @@ describe('usePagination', () => {
     });
 
     it('should go to previous page', () => {
-      const { result } = renderHook(
-        () => usePagination({ initialPage: 3, initialTotal: 100 }),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => usePagination({ initialPage: 3, initialTotal: 100 }), {
+        wrapper: createWrapper(),
+      });
 
       act(() => {
         result.current.prevPage();
@@ -121,10 +116,9 @@ describe('usePagination', () => {
     });
 
     it('should go to first page', () => {
-      const { result } = renderHook(
-        () => usePagination({ initialPage: 5, initialTotal: 100 }),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => usePagination({ initialPage: 5, initialTotal: 100 }), {
+        wrapper: createWrapper(),
+      });
 
       act(() => {
         result.current.firstPage();
@@ -134,10 +128,9 @@ describe('usePagination', () => {
     });
 
     it('should go to last page', () => {
-      const { result } = renderHook(
-        () => usePagination({ initialTotal: 100, initialLimit: 20 }),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => usePagination({ initialTotal: 100, initialLimit: 20 }), {
+        wrapper: createWrapper(),
+      });
 
       act(() => {
         result.current.lastPage();
@@ -147,10 +140,9 @@ describe('usePagination', () => {
     });
 
     it('should not go below page 1', () => {
-      const { result } = renderHook(
-        () => usePagination({ initialTotal: 100 }),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => usePagination({ initialTotal: 100 }), {
+        wrapper: createWrapper(),
+      });
 
       expect(result.current.canPrev).toBe(false);
 
@@ -176,7 +168,7 @@ describe('usePagination', () => {
     it('should not go above total pages', () => {
       const { result } = renderHook(
         () => usePagination({ initialTotal: 100, initialLimit: 20, initialPage: 5 }),
-        { wrapper: createWrapper() }
+        { wrapper: createWrapper() },
       );
 
       expect(result.current.canNext).toBe(false);
@@ -201,10 +193,9 @@ describe('usePagination', () => {
 
   describe('Page Size', () => {
     it('should change page size and reset to page 1', () => {
-      const { result } = renderHook(
-        () => usePagination({ initialPage: 3, initialTotal: 100 }),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => usePagination({ initialPage: 3, initialTotal: 100 }), {
+        wrapper: createWrapper(),
+      });
 
       expect(result.current.page).toBe(3);
 
@@ -218,10 +209,9 @@ describe('usePagination', () => {
     });
 
     it('should recalculate total pages when limit changes', () => {
-      const { result } = renderHook(
-        () => usePagination({ initialTotal: 100, initialLimit: 10 }),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => usePagination({ initialTotal: 100, initialLimit: 10 }), {
+        wrapper: createWrapper(),
+      });
 
       expect(result.current.totalPages).toBe(10);
 
@@ -239,10 +229,9 @@ describe('usePagination', () => {
 
   describe('Total Updates', () => {
     it('should update total and recalculate pages', () => {
-      const { result } = renderHook(
-        () => usePagination({ initialLimit: 20 }),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => usePagination({ initialLimit: 20 }), {
+        wrapper: createWrapper(),
+      });
 
       expect(result.current.total).toBe(0);
       expect(result.current.totalPages).toBe(1);
@@ -258,7 +247,7 @@ describe('usePagination', () => {
     it('should handle total becoming less than current page offset', () => {
       const { result } = renderHook(
         () => usePagination({ initialPage: 5, initialTotal: 100, initialLimit: 20 }),
-        { wrapper: createWrapper() }
+        { wrapper: createWrapper() },
       );
 
       expect(result.current.page).toBe(5);
@@ -293,13 +282,17 @@ describe('usePagination', () => {
             initialLimit: 20,
             initialTotal: 0,
           }),
-        { wrapper: createWrapper() }
+        { wrapper: createWrapper() },
       );
 
       act(() => {
-        result.current.goToPage(5);
-        result.current.setLimit(50);
         result.current.setTotal(500);
+      });
+      act(() => {
+        result.current.setLimit(50);
+      });
+      act(() => {
+        result.current.goToPage(5);
       });
 
       expect(result.current.page).not.toBe(1);
@@ -322,7 +315,7 @@ describe('usePagination', () => {
     it('should return correct API params', () => {
       const { result } = renderHook(
         () => usePagination({ initialPage: 3, initialLimit: 25, initialTotal: 100 }),
-        { wrapper: createWrapper() }
+        { wrapper: createWrapper() },
       );
 
       const params = result.current.getApiParams();
@@ -335,10 +328,9 @@ describe('usePagination', () => {
     });
 
     it('should update params after navigation', () => {
-      const { result } = renderHook(
-        () => usePagination({ initialTotal: 100 }),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => usePagination({ initialTotal: 100 }), {
+        wrapper: createWrapper(),
+      });
 
       act(() => {
         result.current.goToPage(4);
@@ -360,10 +352,9 @@ describe('usePagination', () => {
 
   describe('Navigation Availability', () => {
     it('should correctly report canPrev and canNext', () => {
-      const { result } = renderHook(
-        () => usePagination({ initialTotal: 60, initialLimit: 20 }),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => usePagination({ initialTotal: 60, initialLimit: 20 }), {
+        wrapper: createWrapper(),
+      });
 
       // Page 1 of 3
       expect(result.current.canPrev).toBe(false);
@@ -387,10 +378,9 @@ describe('usePagination', () => {
     });
 
     it('should handle single page correctly', () => {
-      const { result } = renderHook(
-        () => usePagination({ initialTotal: 10, initialLimit: 20 }),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => usePagination({ initialTotal: 10, initialLimit: 20 }), {
+        wrapper: createWrapper(),
+      });
 
       expect(result.current.totalPages).toBe(1);
       expect(result.current.canPrev).toBe(false);
@@ -404,10 +394,9 @@ describe('usePagination', () => {
 
   describe('Edge Cases', () => {
     it('should handle zero total', () => {
-      const { result } = renderHook(
-        () => usePagination({ initialTotal: 0 }),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => usePagination({ initialTotal: 0 }), {
+        wrapper: createWrapper(),
+      });
 
       expect(result.current.totalPages).toBe(1);
       expect(result.current.canPrev).toBe(false);
@@ -415,28 +404,25 @@ describe('usePagination', () => {
     });
 
     it('should handle total less than limit', () => {
-      const { result } = renderHook(
-        () => usePagination({ initialTotal: 5, initialLimit: 20 }),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => usePagination({ initialTotal: 5, initialLimit: 20 }), {
+        wrapper: createWrapper(),
+      });
 
       expect(result.current.totalPages).toBe(1);
     });
 
     it('should handle total exactly divisible by limit', () => {
-      const { result } = renderHook(
-        () => usePagination({ initialTotal: 100, initialLimit: 20 }),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => usePagination({ initialTotal: 100, initialLimit: 20 }), {
+        wrapper: createWrapper(),
+      });
 
       expect(result.current.totalPages).toBe(5);
     });
 
     it('should handle total not divisible by limit', () => {
-      const { result } = renderHook(
-        () => usePagination({ initialTotal: 101, initialLimit: 20 }),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => usePagination({ initialTotal: 101, initialLimit: 20 }), {
+        wrapper: createWrapper(),
+      });
 
       expect(result.current.totalPages).toBe(6);
     });
@@ -448,10 +434,9 @@ describe('usePagination', () => {
 
   describe('E2E Style Integration', () => {
     it('should handle complete pagination workflow', () => {
-      const { result } = renderHook(
-        () => usePagination({ initialLimit: 10 }),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => usePagination({ initialLimit: 10 }), {
+        wrapper: createWrapper(),
+      });
 
       // Simulate receiving data from API
       act(() => {
@@ -498,10 +483,9 @@ describe('usePagination', () => {
 
     it('should handle API response pattern', () => {
       // Simulate typical API response handling
-      const { result } = renderHook(
-        () => usePagination({ initialLimit: 20 }),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => usePagination({ initialLimit: 20 }), {
+        wrapper: createWrapper(),
+      });
 
       // Get params for API call
       let params = result.current.getApiParams();
@@ -532,10 +516,9 @@ describe('usePagination', () => {
     });
 
     it('should handle rapid navigation', () => {
-      const { result } = renderHook(
-        () => usePagination({ initialTotal: 200, initialLimit: 10 }),
-        { wrapper: createWrapper() }
-      );
+      const { result } = renderHook(() => usePagination({ initialTotal: 200, initialLimit: 10 }), {
+        wrapper: createWrapper(),
+      });
 
       // Rapid navigation
       act(() => {

@@ -26,7 +26,7 @@
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "react-leaflet": "^5.0.0",
-    "react-router-dom": "6.30.3",
+    "react-router-dom": "6.30.4",
     "recharts": "^2.10.0",
     "terraformer-wkt-parser": "^1.2.1"
   },

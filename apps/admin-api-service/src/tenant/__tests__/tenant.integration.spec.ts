@@ -38,6 +38,7 @@ import {
 import { AuthTenantProvisioningClientService } from '../services/auth-tenant-provisioning-client.service';
 import { TenantActivityService } from '../services/tenant-activity.service';
 import { TenantDetailService } from '../services/tenant-detail.service';
+import { TenantProvisioningWorkflowService } from '../services/tenant-provisioning-workflow.service';
 import { TenantProvisioningService } from '../services/tenant-provisioning.service';
 import { TenantAdminController } from '../tenant.controller';
 
@@ -73,6 +74,13 @@ const mockDetailService = {
   getActivitiesTimeline: jest.fn().mockResolvedValue({ data: [], total: 0, totalPages: 0 }),
   bulkSuspend: jest.fn(),
   bulkActivate: jest.fn(),
+};
+
+const mockProvisioningWorkflowService = {
+  createTenantOperation: jest.fn(),
+  getOperation: jest.fn(),
+  retryOperation: jest.fn(),
+  processOperation: jest.fn(),
 };
 
 const mockModuleAssignmentService = {
@@ -199,14 +207,13 @@ const mockQueryRunner = {
     findOne: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
-    create: jest.fn(<TEntity extends object>(
-      entityClass: new () => TEntity,
-      data: Partial<TEntity>,
-    ): TEntity => {
-      const instance = new entityClass();
-      Object.assign(instance, data);
-      return instance;
-    }),
+    create: jest.fn(
+      <TEntity extends object>(entityClass: new () => TEntity, data: Partial<TEntity>): TEntity => {
+        const instance = new entityClass();
+        Object.assign(instance, data);
+        return instance;
+      },
+    ),
     query: jest.fn().mockResolvedValue([]),
   },
 };
@@ -295,6 +302,10 @@ describe('Tenant Integration Tests', () => {
         {
           provide: TenantDetailService,
           useValue: mockDetailService,
+        },
+        {
+          provide: TenantProvisioningWorkflowService,
+          useValue: mockProvisioningWorkflowService,
         },
         {
           provide: ModuleAssignmentService,

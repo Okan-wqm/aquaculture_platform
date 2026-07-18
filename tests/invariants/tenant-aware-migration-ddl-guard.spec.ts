@@ -47,6 +47,11 @@ const REVIEWED_SOURCE_SCHEMA_DDL: ReadonlySet<string> = new Set([
   // edge_devices table via the SAME source-template + tenant fan-out pattern
   // (canonical `sensor` copy + every `tenant_*` copy).
   '1809000000000-AddEdgeDeviceConfigAckTracking.ts',
+  // SENSOR-HIGH-083: per-tenant calibration_events table + nullable
+  // calibration_interval_days column on sensor_data_channels, both created in the
+  // canonical `sensor` source schema and fanned out into every `tenant_*` schema
+  // (CREATE TABLE … LIKE INCLUDING ALL for the clone). Per-tenant, not misqualified.
+  '1810000000000-AddCalibrationEventsAndInterval.ts',
   '1803000000000-HashProvisioningSecretsAtRest.ts',
   '1800500000000-EnsureMessagingPartitionContract.ts',
   // ORPHAN-HIGH-408: immutable historical BUG — `ai_proposed_actions` is a

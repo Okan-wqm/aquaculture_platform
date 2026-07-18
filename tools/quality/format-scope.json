@@ -23264,19 +23264,43 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/sensor-service/src/calibration/calibration.entity.ts",
+      "path": "apps/sensor-service/src/calibration/__tests__/calibration.resolver.spec.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/sensor-service/src/calibration/calibration.service.ts",
+      "path": "apps/sensor-service/src/calibration/__tests__/calibration.service.spec.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/sensor-service/src/calibration/drift-detection.service.ts",
+      "path": "apps/sensor-service/src/calibration/calibration-event.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/calibration/calibration-recording.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/calibration/calibration.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/calibration/calibration.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/calibration/dto/calibration.dto.ts",
       "prettier_managed": true
     },
     {
@@ -23826,6 +23850,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/database/migrations/1809000000000-AddEdgeDeviceConfigAckTracking.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1810000000000-AddCalibrationEventsAndInterval.ts",
       "prettier_managed": true
     },
     {
@@ -54954,10 +54984,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9008,
+  "file_count": 9013,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8827,
-  "managed_file_list_sha256": "70749d1a9762a6ce633c5109fecf4aeb0410fd5ebbaacf54e1c6536add930818",
+  "managed_count": 8832,
+  "managed_file_list_sha256": "ad3c878b076410b604ba861ac5a418722c3c258fe3829a15f1fef06c96bb2b57",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

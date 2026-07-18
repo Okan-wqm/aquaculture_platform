@@ -45,6 +45,8 @@ import {
 import { DeploymentLog } from './automation/entities/deployment-log.entity';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { DashboardLayout } from './dashboard/entities/dashboard-layout.entity';
+import { CalibrationEvent } from './calibration/calibration-event.entity';
+import { CalibrationModule } from './calibration/calibration.module';
 import { SensorDataChannel } from './database/entities/sensor-data-channel.entity';
 import { SensorProtocol } from './database/entities/sensor-protocol.entity';
 import { SensorReading } from './database/entities/sensor-reading.entity';
@@ -194,6 +196,7 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
             SensorReading,
             SensorProtocol,
             SensorDataChannel,
+            CalibrationEvent,
             VfdDevice,
             VfdReading,
             VfdRegisterMapping,
@@ -402,6 +405,9 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
     // Protocol and Registration modules
     ProtocolModule.forRoot(),
     RegistrationModule,
+
+    // Calibration aggregate (recordCalibration + calibration history)
+    CalibrationModule,
 
     // VFD (Variable Frequency Drive) module
     VfdModule,

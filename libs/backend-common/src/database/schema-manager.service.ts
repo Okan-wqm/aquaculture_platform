@@ -235,6 +235,10 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'sensor_readings',
       'sensor_metrics',
       'sensor_data_channels',
+      // SENSOR-HIGH-083: per-tenant calibration history (append-only). Written by
+      // the calibration aggregate; its entity omits schema: so it must be cloned
+      // into every tenant schema alongside sensor_data_channels.
+      'calibration_events',
       'sensor_protocols',
       'processes',
 

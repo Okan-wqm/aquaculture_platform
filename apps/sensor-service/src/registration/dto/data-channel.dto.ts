@@ -127,11 +127,14 @@ export class UpdateDataChannelInput {
   @Field({ nullable: true })
   calibrationEnabled?: boolean;
 
-  @Field(() => Float, { nullable: true })
-  calibrationMultiplier?: number;
-
-  @Field(() => Float, { nullable: true })
-  calibrationOffset?: number;
+  // SENSOR-HIGH-083: calibrationMultiplier / calibrationOffset are intentionally
+  // NOT settable here. Coefficient changes go through the `recordCalibration`
+  // mutation, which stamps lastCalibratedAt/nextCalibrationDue so the calibration
+  // status can never again read "never calibrated" on a calibrated channel.
+  // The per-channel calibration interval IS channel config and may be set here;
+  // it feeds nextCalibrationDue the next time a calibration is recorded.
+  @Field(() => Int, { nullable: true })
+  calibrationIntervalDays?: number;
 
   @Field(() => AlertThresholdsInput, { nullable: true })
   alertThresholds?: AlertThresholdsInput;
@@ -322,6 +325,12 @@ export class DataChannelType {
 
   @Field({ nullable: true })
   lastCalibratedAt?: Date;
+
+  @Field({ nullable: true })
+  nextCalibrationDue?: Date;
+
+  @Field(() => Int, { nullable: true })
+  calibrationIntervalDays?: number;
 
   @Field(() => AlertThresholdsType, { nullable: true })
   alertThresholds?: AlertThresholdsType;

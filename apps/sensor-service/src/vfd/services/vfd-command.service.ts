@@ -2,7 +2,6 @@ import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { VfdCommandResult } from '../adapters';
 import { VFD_BRAND_COMMANDS } from '../brand-configs';
 import { VfdCommandAuditLog } from '../entities/vfd-command-audit-log.entity';
 import { VfdDevice } from '../entities/vfd-device.entity';
@@ -11,6 +10,21 @@ import { VfdCommandType, VfdDeviceStatus } from '../entities/vfd.enums';
 import { VfdDeviceService } from './vfd-device.service';
 import { VfdEdgeWriteService } from './vfd-edge-write.service';
 import { VfdRegisterMappingService } from './vfd-register-mapping.service';
+
+/**
+ * Result of dispatching a single VFD control command. `success` is TRUE only on
+ * a real edge acknowledgement (SENSOR-CRITICAL-007) — never a cloud fabrication.
+ *
+ * Re-homed here (Slice 6) from the retired in-process `vfd/adapters` module: the
+ * VFD control/write path is edge-delegated end-to-end and no longer depends on
+ * the fake adapters for anything, not even this type.
+ */
+export interface VfdCommandResult {
+  success: boolean;
+  error?: string;
+  acknowledgedAt?: Date;
+  latencyMs?: number;
+}
 
 /**
  * Command input structure
@@ -64,7 +78,7 @@ export class VfdCommandService {
     private readonly registerMappingService: VfdRegisterMappingService,
     private readonly edgeWriteService: VfdEdgeWriteService,
     @InjectRepository(VfdCommandAuditLog)
-    private readonly commandAuditRepo: Repository<VfdCommandAuditLog>
+    private readonly commandAuditRepo: Repository<VfdCommandAuditLog>,
   ) {}
 
   /**
@@ -74,20 +88,20 @@ export class VfdCommandService {
     deviceId: string,
     tenantId: string,
     commandInput: VfdCommandInput,
-    actor?: VfdCommandActor
+    actor?: VfdCommandActor,
   ): Promise<VfdCommandExecutionResult> {
     const device = await this.vfdDeviceService.findById(deviceId, tenantId);
 
     // Validate device is active
     if (device.status !== VfdDeviceStatus.ACTIVE) {
       throw new BadRequestException(
-        `Device ${deviceId} is not active. Current status: ${device.status}`
+        `Device ${deviceId} is not active. Current status: ${device.status}`,
       );
     }
 
     this.logger.log(
       `Executing command ${commandInput.command} on device ${deviceId}` +
-      (commandInput.value !== undefined ? ` with value ${commandInput.value}` : '')
+        (commandInput.value !== undefined ? ` with value ${commandInput.value}` : ''),
     );
 
     let executionResult: VfdCommandExecutionResult;
@@ -167,7 +181,7 @@ export class VfdCommandService {
     } catch (error) {
       this.logger.error(
         `Failed to execute command ${commandInput.command} on device ${deviceId}`,
-        error
+        error,
       );
 
       executionResult = {
@@ -198,7 +212,7 @@ export class VfdCommandService {
     tenantId: string,
     commandInput: VfdCommandInput,
     result: VfdCommandExecutionResult,
-    actor?: VfdCommandActor
+    actor?: VfdCommandActor,
   ): Promise<void> {
     try {
       await this.commandAuditRepo.save(
@@ -213,12 +227,12 @@ export class VfdCommandService {
           performedByEmail: actor?.email,
           source: actor?.source ?? 'operator',
           latencyMs: result.latencyMs,
-        })
+        }),
       );
     } catch (auditError) {
       this.logger.error(
         `AUDIT GAP: failed to persist command audit for ${commandInput.command} on device ${deviceId} ` +
-          `(command result success=${result.success}) — ${(auditError as Error).message}`
+          `(command result success=${result.success}) — ${(auditError as Error).message}`,
       );
     }
   }
@@ -231,7 +245,7 @@ export class VfdCommandService {
   async getCommandAuditLog(
     deviceId: string,
     tenantId: string,
-    limit = 100
+    limit = 100,
   ): Promise<VfdCommandAuditLog[]> {
     return this.commandAuditRepo.find({
       where: { vfdDeviceId: deviceId, tenantId },
@@ -249,13 +263,13 @@ export class VfdCommandService {
     device: VfdDevice,
     registerAddress: number,
     wireValue: number,
-    intent: string
+    intent: string,
   ): Promise<VfdCommandResult> {
     const result = await this.edgeWriteService.writeRegister(
       device,
       registerAddress,
       wireValue,
-      intent
+      intent,
     );
     return {
       success: result.success,
@@ -279,7 +293,9 @@ export class VfdCommandService {
    * Execute START command
    */
   private async executeStart(device: VfdDevice): Promise<VfdCommandResult> {
-    const controlWordMapping = await this.registerMappingService.getControlWordMapping(device.brand);
+    const controlWordMapping = await this.registerMappingService.getControlWordMapping(
+      device.brand,
+    );
     if (!controlWordMapping) {
       throw new BadRequestException(`Control word mapping not found for brand ${device.brand}`);
     }
@@ -294,7 +310,9 @@ export class VfdCommandService {
    * Execute STOP command
    */
   private async executeStop(device: VfdDevice): Promise<VfdCommandResult> {
-    const controlWordMapping = await this.registerMappingService.getControlWordMapping(device.brand);
+    const controlWordMapping = await this.registerMappingService.getControlWordMapping(
+      device.brand,
+    );
     if (!controlWordMapping) {
       throw new BadRequestException(`Control word mapping not found for brand ${device.brand}`);
     }
@@ -309,7 +327,9 @@ export class VfdCommandService {
    * Execute REVERSE command
    */
   private async executeReverse(device: VfdDevice): Promise<VfdCommandResult> {
-    const controlWordMapping = await this.registerMappingService.getControlWordMapping(device.brand);
+    const controlWordMapping = await this.registerMappingService.getControlWordMapping(
+      device.brand,
+    );
     if (!controlWordMapping) {
       throw new BadRequestException(`Control word mapping not found for brand ${device.brand}`);
     }
@@ -325,9 +345,11 @@ export class VfdCommandService {
    */
   private async executeSetFrequency(
     device: VfdDevice,
-    frequencyHz: number
+    frequencyHz: number,
   ): Promise<VfdCommandResult> {
-    const speedRefMapping = await this.registerMappingService.getSpeedReferenceMapping(device.brand);
+    const speedRefMapping = await this.registerMappingService.getSpeedReferenceMapping(
+      device.brand,
+    );
     if (!speedRefMapping) {
       throw new BadRequestException(`Speed reference mapping not found for brand ${device.brand}`);
     }
@@ -348,12 +370,12 @@ export class VfdCommandService {
     const maxFrequencyHz = speedRefMapping.maxValue ?? 400;
     if (frequencyHz < minFrequencyHz) {
       throw new BadRequestException(
-        `Frequency ${frequencyHz} Hz is below minimum ${minFrequencyHz} Hz`
+        `Frequency ${frequencyHz} Hz is below minimum ${minFrequencyHz} Hz`,
       );
     }
     if (frequencyHz > maxFrequencyHz) {
       throw new BadRequestException(
-        `Frequency ${frequencyHz} Hz is above maximum ${maxFrequencyHz} Hz`
+        `Frequency ${frequencyHz} Hz is above maximum ${maxFrequencyHz} Hz`,
       );
     }
 
@@ -366,14 +388,16 @@ export class VfdCommandService {
    */
   private async executeSetSpeed(
     device: VfdDevice,
-    speedPercent: number
+    speedPercent: number,
   ): Promise<VfdCommandResult> {
     // Validate speed percentage
     if (speedPercent < 0 || speedPercent > 100) {
       throw new BadRequestException(`Speed percentage must be between 0 and 100`);
     }
 
-    const speedRefMapping = await this.registerMappingService.getSpeedReferenceMapping(device.brand);
+    const speedRefMapping = await this.registerMappingService.getSpeedReferenceMapping(
+      device.brand,
+    );
     if (!speedRefMapping) {
       throw new BadRequestException(`Speed reference mapping not found for brand ${device.brand}`);
     }
@@ -400,7 +424,9 @@ export class VfdCommandService {
    * Execute FAULT_RESET command
    */
   private async executeFaultReset(device: VfdDevice): Promise<VfdCommandResult> {
-    const controlWordMapping = await this.registerMappingService.getControlWordMapping(device.brand);
+    const controlWordMapping = await this.registerMappingService.getControlWordMapping(
+      device.brand,
+    );
     if (!controlWordMapping) {
       throw new BadRequestException(`Control word mapping not found for brand ${device.brand}`);
     }
@@ -419,7 +445,9 @@ export class VfdCommandService {
    * in results and audit trails.
    */
   private async executeQuickStop(device: VfdDevice): Promise<VfdCommandResult> {
-    const controlWordMapping = await this.registerMappingService.getControlWordMapping(device.brand);
+    const controlWordMapping = await this.registerMappingService.getControlWordMapping(
+      device.brand,
+    );
     if (!controlWordMapping) {
       throw new BadRequestException(`Control word mapping not found for brand ${device.brand}`);
     }
@@ -428,7 +456,12 @@ export class VfdCommandService {
     // CiA402 QUICK_STOP (OFF3) control word is 0x0002 (VFD_CONTROL_COMMANDS.QUICK_STOP)
     const quickStopCommand = brandCommands?.['QUICK_STOP'] || 0x0002;
 
-    return this.edgeWrite(device, controlWordMapping.registerAddress, quickStopCommand, 'QUICK_STOP');
+    return this.edgeWrite(
+      device,
+      controlWordMapping.registerAddress,
+      quickStopCommand,
+      'QUICK_STOP',
+    );
   }
 
   /**
@@ -436,7 +469,9 @@ export class VfdCommandService {
    * freewheel (CiA402 OFF2 / DISABLE_VOLTAGE).
    */
   private async executeCoastStop(device: VfdDevice): Promise<VfdCommandResult> {
-    const controlWordMapping = await this.registerMappingService.getControlWordMapping(device.brand);
+    const controlWordMapping = await this.registerMappingService.getControlWordMapping(
+      device.brand,
+    );
     if (!controlWordMapping) {
       throw new BadRequestException(`Control word mapping not found for brand ${device.brand}`);
     }
@@ -452,7 +487,9 @@ export class VfdCommandService {
    * Execute EMERGENCY_STOP command
    */
   private async executeEmergencyStop(device: VfdDevice): Promise<VfdCommandResult> {
-    const controlWordMapping = await this.registerMappingService.getControlWordMapping(device.brand);
+    const controlWordMapping = await this.registerMappingService.getControlWordMapping(
+      device.brand,
+    );
     if (!controlWordMapping) {
       throw new BadRequestException(`Control word mapping not found for brand ${device.brand}`);
     }
@@ -465,7 +502,7 @@ export class VfdCommandService {
       device,
       controlWordMapping.registerAddress,
       emergencyCommand,
-      'EMERGENCY_STOP'
+      'EMERGENCY_STOP',
     );
   }
 
@@ -474,23 +511,26 @@ export class VfdCommandService {
    */
   private async executeJog(
     device: VfdDevice,
-    direction: 'forward' | 'reverse'
+    direction: 'forward' | 'reverse',
   ): Promise<VfdCommandResult> {
-    const controlWordMapping = await this.registerMappingService.getControlWordMapping(device.brand);
+    const controlWordMapping = await this.registerMappingService.getControlWordMapping(
+      device.brand,
+    );
     if (!controlWordMapping) {
       throw new BadRequestException(`Control word mapping not found for brand ${device.brand}`);
     }
 
     const brandCommands = VFD_BRAND_COMMANDS[device.brand];
-    const jogCommand = direction === 'forward'
-      ? (brandCommands?.['JOG_FORWARD'] || brandCommands?.['JOG'] || 0x057f)
-      : (brandCommands?.['JOG_REVERSE'] || 0x0d7f);
+    const jogCommand =
+      direction === 'forward'
+        ? brandCommands?.['JOG_FORWARD'] || brandCommands?.['JOG'] || 0x057f
+        : brandCommands?.['JOG_REVERSE'] || 0x0d7f;
 
     return this.edgeWrite(
       device,
       controlWordMapping.registerAddress,
       jogCommand,
-      direction === 'forward' ? 'JOG_FORWARD' : 'JOG_REVERSE'
+      direction === 'forward' ? 'JOG_FORWARD' : 'JOG_REVERSE',
     );
   }
 }

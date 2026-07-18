@@ -25979,6 +25979,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/vfd/services/__tests__/vfd-write-edge-only.arch.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/vfd/services/index.ts",
       "prettier_managed": true
     },
@@ -54930,10 +54936,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9004,
+  "file_count": 9005,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8823,
-  "managed_file_list_sha256": "a16064a39c50dce6a9dadcfbbbe7f108d7046f70334d2f4150fee80fa0d9b42b",
+  "managed_count": 8824,
+  "managed_file_list_sha256": "79e462d99e0651d9f813bacac59f9409482c082800604212a5249a499cbe408d",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

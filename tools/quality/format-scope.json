@@ -23324,6 +23324,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/common/payload/__tests__/sensor-payload-parser.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/common/payload/sensor-payload-parser.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/common/redact-protocol-secrets.ts",
       "prettier_managed": true
     },
@@ -24803,6 +24815,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/protocol/adapters/iot/__tests__/http-rest.adapter.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/protocol/adapters/iot/amqp.adapter.ts",
       "prettier_managed": true
     },
@@ -24996,6 +25014,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/registration/resolvers/registration.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/registration/services/__tests__/channel-discovery.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -54930,10 +54954,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9004,
+  "file_count": 9008,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8823,
-  "managed_file_list_sha256": "0e6fe3f5be9a73f899e6007eb4ee57549de7cd765110e73b5bd0a2d31fecdf3f",
+  "managed_count": 8827,
+  "managed_file_list_sha256": "70749d1a9762a6ce633c5109fecf4aeb0410fd5ebbaacf54e1c6536add930818",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

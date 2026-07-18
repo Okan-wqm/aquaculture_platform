@@ -18,10 +18,10 @@ import {
   findMarineLayer,
   findSentinelLayer,
 } from './marine-layer-catalog';
+import { MarineUpstreamClient } from './providers/marine-upstream.client';
 
 const CMEMS_WMTS_BASE_URL = 'https://wmts.marine.copernicus.eu/teroWmts';
 const CDSE_BASE_URL = 'https://sh.dataspace.copernicus.eu';
-const REQUEST_TIMEOUT_MS = 30_000;
 const MAX_CMEMS_TILE_MATRIX = 12;
 const MAX_SENTINEL_TILE_MATRIX = 18;
 const TILE_SIZE = 256;
@@ -114,6 +114,7 @@ export class MarineDataService {
   constructor(
     private readonly sentinelHubService: SentinelHubService,
     private readonly sentinelPolicy: SentinelProxyPolicy,
+    private readonly upstream: MarineUpstreamClient,
   ) {}
 
   getLayers(): readonly MarineLayerDefinition[] {
@@ -323,7 +324,7 @@ export class MarineDataService {
       throw new BadRequestException('Sentinel Hub is not configured for this tenant');
     }
 
-    const response = await this.fetchSentinel(`${CDSE_BASE_URL}/api/v1/process`, {
+    const response = await this.upstream.fetchSentinel(input.tenantId, `${CDSE_BASE_URL}/api/v1/process`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -407,31 +408,7 @@ export class MarineDataService {
   }
 
   private async fetchCmems(params: URLSearchParams): Promise<Response> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-    try {
-      return await fetch(`${CMEMS_WMTS_BASE_URL}?${params.toString()}`, {
-        signal: controller.signal,
-      });
-    } catch (error) {
-      this.logger.warn(`CMEMS request failed: ${error instanceof Error ? error.message : 'unknown error'}`);
-      throw new BadGatewayException('CMEMS request failed');
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-
-  private async fetchSentinel(url: string, init: RequestInit): Promise<Response> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-    try {
-      return await fetch(url, { ...init, signal: controller.signal });
-    } catch (error) {
-      this.logger.warn(`Sentinel Hub request failed: ${error instanceof Error ? error.message : 'unknown error'}`);
-      throw new BadGatewayException('Sentinel Hub request failed');
-    } finally {
-      clearTimeout(timeout);
-    }
+    return this.upstream.fetchCmems(`${CMEMS_WMTS_BASE_URL}?${params.toString()}`);
   }
 
   private parseCmemsDate(input: string | undefined): string {

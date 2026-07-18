@@ -43,6 +43,10 @@ const REVIEWED_SOURCE_SCHEMA_DDL: ReadonlySet<string> = new Set([
   // 1802000000000 above (canonical `sensor` copy + every `tenant_*` copy). Not a
   // per-tenant table wrongly schema-qualified — the fan-out lands it everywhere.
   '1808000000000-AddVfdDeviceEdgeBinding.ts',
+  // SENSOR-HIGH-064: nullable config-ack tracking columns on the per-tenant
+  // edge_devices table via the SAME source-template + tenant fan-out pattern
+  // (canonical `sensor` copy + every `tenant_*` copy).
+  '1809000000000-AddEdgeDeviceConfigAckTracking.ts',
   '1803000000000-HashProvisioningSecretsAtRest.ts',
   '1800500000000-EnsureMessagingPartitionContract.ts',
   // ORPHAN-HIGH-408: immutable historical BUG — `ai_proposed_actions` is a

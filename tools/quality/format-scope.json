@@ -23813,6 +23813,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1809000000000-AddEdgeDeviceConfigAckTracking.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/deploy-artifact/__tests__/artifact-immutability.spec.ts",
       "prettier_managed": true
     },
@@ -54924,10 +54930,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9003,
+  "file_count": 9004,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8822,
-  "managed_file_list_sha256": "62c7be1bcaedd3e509f088873f2c559f365a0a46cc0016d4892e13aabc9a7d00",
+  "managed_count": 8823,
+  "managed_file_list_sha256": "0e6fe3f5be9a73f899e6007eb4ee57549de7cd765110e73b5bd0a2d31fecdf3f",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

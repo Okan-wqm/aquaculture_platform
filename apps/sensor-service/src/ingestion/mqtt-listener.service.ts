@@ -686,32 +686,40 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       this.vfdEdgeReadService.handleReadResponse(payload as Record<string, unknown>);
     }
 
-    // Handle I/O config update acknowledgements from the edge agent.
-    // The agent responds after applying (or rejecting) the Modbus/GPIO
-    // config pushed by pushIoConfigToDevice().  We log the outcome and
-    // publish a real-time event so the UI can show immediate feedback.
-    if (payload.command === 'update_io_config') {
-      if (payload.success) {
-        this.logger.log(`I/O config accepted by ${deviceCode} (command: ${payload.commandId})`);
-      } else {
-        this.logger.warn(
-          `I/O config rejected by ${deviceCode} (command: ${payload.commandId}): ` +
-            `${payload.error || 'unknown error'}`,
-        );
-      }
+    // SENSOR-HIGH-064 — correlate the edge's update_io_config ack back to the
+    // pending push by commandId. The edge CommandResponse carries no `command`
+    // field (see comment above), so the old `payload.command === 'update_io_config'`
+    // match never fired — the push reported unconditional green and this ack loop
+    // was dead. Routing by commandId settles the push that pushIoConfigToDevice()
+    // is awaiting; a no-op for any response that is not an awaited config push.
+    if (this.edgeDeviceService && payload.commandId) {
+      const ack = this.edgeDeviceService.handleIoConfigAckResponse(
+        deviceCode,
+        payload as Record<string, unknown>,
+      );
+      if (ack.matched) {
+        if (ack.success) {
+          this.logger.log(`I/O config accepted by ${deviceCode} (command: ${payload.commandId})`);
+        } else {
+          this.logger.warn(
+            `I/O config rejected by ${deviceCode} (command: ${payload.commandId}): ` +
+              `${ack.error ?? 'unknown error'}`,
+          );
+        }
 
-      // Emit event so WebSocket subscribers (dashboard UI) get instant feedback
-      if (this.eventBus) {
-        await this.eventBus.publish({
-          ...createBaseEvent('IoConfigPushResult', tenantId || SYSTEM_TENANT_ID, {
-            aggregateId: deviceCode,
-            aggregateType: 'EdgeDevice',
-          }),
-          deviceCode,
-          commandId: payload.commandId,
-          success: payload.success ?? false,
-          error: payload.error,
-        });
+        // Emit the real-time result event exactly once, only on a real ack.
+        if (this.eventBus) {
+          await this.eventBus.publish({
+            ...createBaseEvent('IoConfigPushResult', ack.tenantId || tenantId || SYSTEM_TENANT_ID, {
+              aggregateId: ack.deviceId ?? deviceCode,
+              aggregateType: 'EdgeDevice',
+            }),
+            deviceCode,
+            commandId: payload.commandId,
+            success: ack.success ?? false,
+            error: ack.error,
+          });
+        }
       }
     }
 

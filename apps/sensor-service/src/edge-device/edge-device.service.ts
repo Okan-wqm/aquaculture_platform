@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 
 import {
   getTenantSchemaName,
@@ -248,6 +248,48 @@ interface PendingPing {
 }
 
 /**
+ * Result of an I/O config push. `success` is true only when the edge device
+ * actually acknowledged applying the config (correlated by commandId) —
+ * never merely because the command was published (SENSOR-HIGH-064).
+ */
+export interface IoConfigPushResult {
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * Pending `update_io_config` push awaiting the edge device's ack. Resolved by
+ * `handleIoConfigAckResponse` when the correlated CommandResponse arrives, or by
+ * the timeout. `configHash` is the content hash of the pushed agent config, so
+ * the request context can persist the confirmed applied state on success.
+ */
+interface PendingConfigPush {
+  commandId: string;
+  deviceId: string;
+  deviceCode: string;
+  tenantId: string;
+  configHash: string;
+  startTime: number;
+  resolve: (result: IoConfigPushResult) => void;
+  timeout: NodeJS.Timeout;
+}
+
+/**
+ * Outcome of routing an edge response through the I/O-config ack correlation.
+ * `matched` is true only when the response resolved a pending push this process
+ * was awaiting, so the MQTT listener emits the real-time result event exactly
+ * once, on a real ack.
+ */
+export interface IoConfigAckRouting {
+  matched: boolean;
+  deviceId?: string;
+  tenantId?: string;
+  deviceCode?: string;
+  success?: boolean;
+  error?: string;
+}
+
+/**
  * Edge Device Service
  * Manages industrial edge controllers (Revolution Pi, Raspberry Pi, etc.)
  *
@@ -260,7 +302,11 @@ interface PendingPing {
 export class EdgeDeviceService implements OnModuleDestroy {
   private readonly logger = new Logger(EdgeDeviceService.name);
   private readonly pendingPings: Map<string, PendingPing> = new Map();
+  private readonly pendingConfigPushes: Map<string, PendingConfigPush> = new Map();
   private readonly PING_TIMEOUT_MS = 5000; // 5 seconds
+  // Config apply can involve hardware reconciliation, so it is given a longer
+  // budget than a bare ping before the push is reported as unacknowledged.
+  private readonly CONFIG_PUSH_TIMEOUT_MS = 15000; // 15 seconds
   private readonly CLEANUP_INTERVAL_MS = 60000; // 1 minute
   private cleanupIntervalId: NodeJS.Timeout | null = null;
   private isShuttingDown = false;
@@ -337,6 +383,13 @@ export class EdgeDeviceService implements OnModuleDestroy {
       });
     }
     this.pendingScans.clear();
+
+    // Clear all pending I/O config pushes with a failed resolution
+    for (const [, pending] of this.pendingConfigPushes) {
+      clearTimeout(pending.timeout);
+      pending.resolve({ success: false, error: 'Service shutting down' });
+    }
+    this.pendingConfigPushes.clear();
 
     this.logger.log('EdgeDeviceService cleanup complete');
   }
@@ -1431,10 +1484,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
    * can do a full reconciliation — this avoids subtle drift issues
    * that can occur with incremental config updates in industrial systems.
    */
-  async pushIoConfigToDevice(
-    deviceId: string,
-    tenantId: string,
-  ): Promise<{ success: boolean; error?: string }> {
+  async pushIoConfigToDevice(deviceId: string, tenantId: string): Promise<IoConfigPushResult> {
     const device = await this.findByIdOrFail(deviceId, tenantId);
     const mqtt = this.ensureMqttAvailable();
 
@@ -1445,20 +1495,54 @@ export class EdgeDeviceService implements OnModuleDestroy {
       return { success: false, error: 'Device is offline' };
     }
 
-    const ioConfigs = await this.ioConfigRepository.find({
-      where: { deviceId, isActive: true },
-    });
-
+    // Build the agent config first (may throw on semantic validation).
+    let agentConfig: AgentIoConfig;
+    let ioConfigCount: number;
     try {
-      const agentConfig = this.transformIoConfigsToAgentFormat(ioConfigs);
-
-      // LoRaWAN config'i ayrı tablodan al ve merge et
+      const ioConfigs = await this.ioConfigRepository.find({
+        where: { deviceId, isActive: true },
+      });
+      ioConfigCount = ioConfigs.length;
+      agentConfig = this.transformIoConfigsToAgentFormat(ioConfigs);
       const loraConfig = await this.buildLoRaWanConfig(deviceId);
       if (loraConfig) {
         agentConfig.lorawan = loraConfig;
       }
+    } catch (error) {
+      const msg = (error as Error).message;
+      this.logger.error(`Failed to build I/O config for ${device.deviceCode}: ${msg}`);
+      return { success: false, error: msg };
+    }
 
-      const commandId = randomUUID();
+    const configHash = EdgeDeviceService.computeConfigHash(agentConfig);
+    const commandId = randomUUID();
+    const startTime = Date.now();
+
+    // Register the pending push BEFORE publishing so a fast ack cannot race the
+    // map insert. Resolved by handleIoConfigAckResponse (correlated by commandId)
+    // or the timeout — the push reports success only on a real, correlated ack.
+    const ackPromise = new Promise<IoConfigPushResult>((resolve) => {
+      const timeout = setTimeout(() => {
+        this.pendingConfigPushes.delete(commandId);
+        resolve({
+          success: false,
+          error: `I/O config not acknowledged by ${device.deviceCode} within ${this.CONFIG_PUSH_TIMEOUT_MS}ms`,
+        });
+      }, this.CONFIG_PUSH_TIMEOUT_MS);
+
+      this.pendingConfigPushes.set(commandId, {
+        commandId,
+        deviceId: device.id,
+        deviceCode: device.deviceCode,
+        tenantId: device.tenantId,
+        configHash,
+        startTime,
+        resolve,
+        timeout,
+      });
+    });
+
+    try {
       // Publish to the tenant-scoped command topic.
       // Uses device.id (UUID) — the edge agent resolves topics via device_id.
       await mqtt.publish(`tenants/${device.tenantId}/devices/${device.id}/commands`, {
@@ -1478,27 +1562,125 @@ export class EdgeDeviceService implements OnModuleDestroy {
         };
         await mqtt.publish(`tenants/${device.tenantId}/devices/${device.id}/commands`, loraCommand);
       }
-
-      const loraCount = loraConfig?.devices.length ?? 0;
-      const countByProtocol = agentConfig.tags.reduce(
-        (counts, tag) => {
-          counts[tag.protocol] += 1;
-          return counts;
-        },
-        { gpio: 0, modbus: 0, i2c: 0 },
-      );
-      this.logger.log(
-        `Pushed I/O config to ${device.deviceCode}: ${ioConfigs.length} tags ` +
-          `(${countByProtocol.modbus} modbus tags, ${countByProtocol.gpio} gpio tags, ` +
-          `${countByProtocol.i2c} i2c tags, ${loraCount} lora devices)`,
-      );
-
-      return { success: true };
     } catch (error) {
+      // Publish failed — cancel the pending push and report honestly.
+      const pending = this.pendingConfigPushes.get(commandId);
+      if (pending) {
+        clearTimeout(pending.timeout);
+        this.pendingConfigPushes.delete(commandId);
+      }
       const msg = (error as Error).message;
       this.logger.error(`Failed to push I/O config to ${device.deviceCode}: ${msg}`);
       return { success: false, error: msg };
     }
+
+    const loraCount = agentConfig.lorawan?.devices.length ?? 0;
+    const countByProtocol = agentConfig.tags.reduce(
+      (counts, tag) => {
+        counts[tag.protocol] += 1;
+        return counts;
+      },
+      { gpio: 0, modbus: 0, i2c: 0 },
+    );
+    this.logger.log(
+      `Pushed I/O config to ${device.deviceCode}: ${ioConfigCount} tags ` +
+        `(${countByProtocol.modbus} modbus tags, ${countByProtocol.gpio} gpio tags, ` +
+        `${countByProtocol.i2c} i2c tags, ${loraCount} lora devices) — awaiting ack`,
+    );
+
+    // Block on the real edge ack (or timeout). Runs in the tenant request
+    // context, so persisting the confirmed applied state below hits the correct
+    // per-tenant schema (no MQTT-handler tenant-context gap).
+    const result = await ackPromise;
+
+    if (result.success) {
+      await this.deviceRepository.update(
+        { id: device.id, tenantId },
+        { appliedConfigHash: configHash, lastConfigAckAt: new Date() },
+      );
+      this.logger.log(`I/O config confirmed applied by ${device.deviceCode} (${commandId})`);
+    } else {
+      this.logger.warn(
+        `I/O config push to ${device.deviceCode} not confirmed (${commandId}): ${result.error}`,
+      );
+    }
+
+    return result;
+  }
+
+  /**
+   * Resolve a pending `update_io_config` push from the edge's CommandResponse.
+   *
+   * Called by MqttListenerService for every edge response. Correlates purely by
+   * commandId (the edge CommandResponse carries no `command` field), so it is a
+   * no-op for ping/scan/deploy/VFD acks and for config pushes this process is not
+   * awaiting. Persisting the confirmed state is deliberately left to
+   * `pushIoConfigToDevice` (the tenant request context); this handler only settles
+   * the promise and reports the routing outcome so the listener can emit the
+   * result event exactly once on a real ack.
+   */
+  handleIoConfigAckResponse(
+    deviceCode: string,
+    payload: Record<string, unknown>,
+  ): IoConfigAckRouting {
+    const commandId = payload['commandId'] as string | undefined;
+    if (!commandId) {
+      return { matched: false };
+    }
+
+    const pending = this.pendingConfigPushes.get(commandId);
+    if (!pending) {
+      return { matched: false };
+    }
+
+    if (deviceCode !== pending.deviceCode && deviceCode !== pending.deviceId) {
+      this.logger.debug(
+        `Ignoring I/O config ack for ${deviceCode}; command ${commandId} belongs to ${pending.deviceCode}`,
+      );
+      return { matched: false };
+    }
+
+    clearTimeout(pending.timeout);
+    this.pendingConfigPushes.delete(commandId);
+
+    const success = payload['success'] === true;
+    const error = success
+      ? undefined
+      : ((payload['error'] as string | undefined) ?? 'Edge device rejected the I/O config');
+
+    pending.resolve({ success, error });
+
+    return {
+      matched: true,
+      deviceId: pending.deviceId,
+      tenantId: pending.tenantId,
+      deviceCode: pending.deviceCode,
+      success,
+      error,
+    };
+  }
+
+  /**
+   * Content hash of a pushed agent config, used to record which config a device
+   * has confirmed applying. Canonical (key-sorted) serialization so semantically
+   * identical configs hash identically regardless of property order.
+   */
+  private static computeConfigHash(agentConfig: AgentIoConfig): string {
+    return createHash('sha256').update(EdgeDeviceService.canonicalJson(agentConfig)).digest('hex');
+  }
+
+  private static canonicalJson(value: unknown): string {
+    if (value === null || typeof value !== 'object') {
+      return JSON.stringify(value) ?? 'null';
+    }
+    if (Array.isArray(value)) {
+      return `[${value.map((item) => EdgeDeviceService.canonicalJson(item)).join(',')}]`;
+    }
+    const obj = value as Record<string, unknown>;
+    return `{${Object.keys(obj)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${EdgeDeviceService.canonicalJson(obj[key])}`)
+      .join(',')}}`;
   }
 
   /**

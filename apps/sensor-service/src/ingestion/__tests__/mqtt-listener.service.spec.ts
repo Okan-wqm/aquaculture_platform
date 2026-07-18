@@ -133,6 +133,7 @@ function createMockEdgeDeviceService(): jest.Mocked<EdgeDeviceService> {
     updateDevice: jest.fn().mockResolvedValue(undefined),
     handlePingResponse: jest.fn(),
     handleScanHardwareResponse: jest.fn(),
+    handleIoConfigAckResponse: jest.fn().mockReturnValue({ matched: false }),
     updateLoRaDeviceStatus: jest.fn().mockResolvedValue(undefined),
   } as unknown as jest.Mocked<EdgeDeviceService>;
 }

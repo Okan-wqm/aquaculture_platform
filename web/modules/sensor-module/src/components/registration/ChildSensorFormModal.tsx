@@ -6,6 +6,7 @@ import {
   ChannelDisplaySettings,
   KNOWN_PARAMETERS,
 } from '../../types/registration.types';
+import { useSensorTypeDefinitions } from '../../hooks/useSensorTypeDefinitions';
 
 interface ChildSensorFormModalProps {
   sensor?: ChildSensorConfig;
@@ -80,11 +81,32 @@ export function ChildSensorFormModal({
     }
   }, [sensor]);
 
+  const { types: typeDefinitions } = useSensorTypeDefinitions();
+
   const handleChange = <K extends keyof ChildSensorConfig>(
     field: K,
     value: ChildSensorConfig[K]
   ) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  // SENSOR-MEDIUM-071: selecting a custom type-definition stores its id (which the
+  // backend uses to bootstrap the child's default channels) and mirrors the legacy
+  // enum from its typeKey — matching BasicInfoStep's harvested mapping. Backend has
+  // no OTHER enum, so an unmapped typeKey falls back to MULTI_PARAMETER.
+  const handleTypeDefinitionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const selectedId = e.target.value;
+    if (!selectedId) {
+      setFormData((prev) => ({ ...prev, typeDefinitionId: undefined }));
+      return;
+    }
+    const selected = typeDefinitions.find((t) => t.id === selectedId);
+    if (selected) {
+      const legacyType = Object.values(SensorType).includes(selected.typeKey as SensorType)
+        ? (selected.typeKey as SensorType)
+        : SensorType.MULTI_PARAMETER;
+      setFormData((prev) => ({ ...prev, typeDefinitionId: selected.id, type: legacyType }));
+    }
   };
 
   const handleAlertChange = (
@@ -213,6 +235,31 @@ export function ChildSensorFormModal({
                     />
                   </div>
                 </div>
+
+                {/* SENSOR-MEDIUM-071: optional custom type-definition picker. When
+                    set, the backend bootstraps its default channels for this child. */}
+                {typeDefinitions.length > 0 && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Custom Type (optional)
+                    </label>
+                    <select
+                      value={formData.typeDefinitionId || ''}
+                      onChange={handleTypeDefinitionChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">None — use the data type above</option>
+                      {typeDefinitions.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.icon ? `${t.icon} ` : ''}{t.displayName}{t.isSystem ? '' : ' (custom)'}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Attaches a predefined channel set; its parameters are created automatically.
+                    </p>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>

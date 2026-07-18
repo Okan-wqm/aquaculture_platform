@@ -10,6 +10,7 @@ import { ConnectionTesterService } from '../../../protocol/services/connection-t
 import { ProtocolRegistryService } from '../../../protocol/services/protocol-registry.service';
 import { ProtocolValidatorService } from '../../../protocol/services/protocol-validator.service';
 import { ChannelManagementService } from '../channel-management.service';
+import { SensorTypeService } from '../../../sensor-type/sensor-type.service';
 import { SensorRegistrationService } from '../sensor-registration.service';
 import {
   generateSerialNumber,
@@ -132,6 +133,7 @@ describe('SensorRegistrationService serial-number handling (SENSOR-MEDIUM-072)',
         { provide: ConnectionTesterService, useValue: {} },
         { provide: EventEmitter2, useValue: { emit: jest.fn() } },
         { provide: ChannelManagementService, useValue: { createChannelsForSensor: jest.fn() } },
+        { provide: SensorTypeService, useValue: { createChannelsFromTypeDefinition: jest.fn() } },
         { provide: OutboxPublisher, useValue: { enqueue: jest.fn() } },
       ],
     }).compile();

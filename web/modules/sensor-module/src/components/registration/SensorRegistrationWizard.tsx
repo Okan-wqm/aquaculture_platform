@@ -225,6 +225,9 @@ export function SensorRegistrationWizard({
       children: selectedChildren.map((c): RegisterChildSensorInput => ({
         name: c.name,
         type: c.type,
+        // SENSOR-MEDIUM-071: carry the per-child custom type-definition so the
+        // backend bootstraps its default channels in the registration transaction.
+        typeDefinitionId: c.typeDefinitionId,
         dataPath: c.dataPath,
         unit: c.unit,
         minValue: c.minValue,

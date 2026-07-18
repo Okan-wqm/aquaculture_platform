@@ -205,6 +205,9 @@ export interface RegisteredSensor {
 export interface RegisterSensorInput {
   name: string;
   type: SensorType;
+  // SENSOR-MEDIUM-071: optional custom type-definition; its defaultChannels are
+  // bootstrapped server-side inside the registration transaction. Additive to `type`.
+  typeDefinitionId?: string;
   protocolCode: string;
   protocolConfiguration: Record<string, unknown>;
   manufacturer?: string;
@@ -447,6 +450,8 @@ export interface ChildSensorConfig {
   // Basic sensor info
   name: string;
   type: SensorType;
+  // SENSOR-MEDIUM-071: optional custom type-definition selected in the child form.
+  typeDefinitionId?: string;
   unit?: string;
 
   // Sample value from test
@@ -504,6 +509,8 @@ export interface RegisterParentDeviceInput {
 export interface RegisterChildSensorInput {
   name: string;
   type: SensorType;
+  // SENSOR-MEDIUM-071: optional per-child custom type-definition.
+  typeDefinitionId?: string;
   dataPath: string;
   unit?: string;
   minValue?: number;

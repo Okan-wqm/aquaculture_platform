@@ -25115,6 +25115,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/registration/__tests__/registration-type-definition.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/registration/dto/data-channel.dto.ts",
       "prettier_managed": true
     },
@@ -49905,6 +49911,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/components/registration/__tests__/ChildSensorFormModal.typeDefinition.test.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/components/registration/ChannelEditorModal.tsx",
       "prettier_managed": true
     },
@@ -49924,12 +49936,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/components/registration/SensorRegistrationWizard.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/modules/sensor-module/src/components/registration/steps/BasicInfoStep.tsx",
       "prettier_managed": true
     },
     {
@@ -52486,6 +52492,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/hooks/useSensorThresholds.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/hooks/useSensorTypeDefinitions.ts",
       "prettier_managed": true
     },
     {
@@ -55098,10 +55110,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9032,
+  "file_count": 9034,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8851,
-  "managed_file_list_sha256": "5939b11c3d11c4e1a38ee2fa721b4764c86d4aa6724fca27cf0bf9e09a2bf5a4",
+  "managed_count": 8853,
+  "managed_file_list_sha256": "d2b7f42bca70b5686f34c9404c76a1c05e78735591aa07ec0ec9c722455bdf23",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

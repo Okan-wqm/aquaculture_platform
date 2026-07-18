@@ -11,6 +11,7 @@ import { ChannelDisplaySettings } from '../../database/entities/sensor-data-chan
 import { CreateDataChannelInput } from '../dto/data-channel.dto';
 import { ChannelManagementService, CreateChannelInput } from './channel-management.service';
 import { resolveSerialNumber, throwIfSerialNumberConflict } from './serial-number.policy';
+import { SensorTypeService } from '../../sensor-type/sensor-type.service';
 import { safeSortField, safeSortOrder, createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { assertWithinQuota } from '@aquaculture/backend-common/quota';
 import {
@@ -63,6 +64,9 @@ export class SensorRegistrationService {
     private connectionTester: ConnectionTesterService,
     private eventEmitter: EventEmitter2,
     private channelManagement: ChannelManagementService,
+    // SENSOR-MEDIUM-071: bootstrap a custom type-definition's defaultChannels onto
+    // a newly-registered sensor inside the registration transaction.
+    private readonly sensorTypeService: SensorTypeService,
     // SENSOR-LOW-007: durable, contract-conformant registration lifecycle
     // events published through the transactional outbox → NATS (relay owns
     // delivery post-commit), replacing the in-process EventEmitter2 emissions
@@ -180,6 +184,9 @@ export class SensorRegistrationService {
     const sensor = this.sensorRepository.create({
       name: input.name,
       type: input.type,
+      // SENSOR-MEDIUM-071: persist the custom type-definition reference so the
+      // detail page and future channel re-sync can resolve it.
+      typeDefinitionId: input.typeDefinitionId,
       protocolId: protocolDetails?.id,
       protocolConfiguration: input.protocolConfiguration as Record<string, unknown>,
       manufacturer: input.manufacturer,
@@ -222,6 +229,18 @@ export class SensorRegistrationService {
             persisted.id,
             tenantId,
             this.toChannelInputs(input.dataChannels),
+            manager,
+          );
+        }
+        // SENSOR-MEDIUM-071: bootstrap the type-definition's defaultChannels in the
+        // same transaction. An unresolvable typeDefinitionId throws NotFoundException
+        // here, rolling the whole registration back — the failure is surfaced, not
+        // swallowed as the deleted createSensor back door did.
+        if (input.typeDefinitionId) {
+          await this.sensorTypeService.createChannelsFromTypeDefinition(
+            persisted.id,
+            tenantId,
+            input.typeDefinitionId,
             manager,
           );
         }
@@ -847,6 +866,8 @@ export class SensorRegistrationService {
         const childSensor = queryRunner.manager.create(Sensor, {
           name: childInput.name,
           type: childInput.type,
+          // SENSOR-MEDIUM-071: per-child custom type-definition reference.
+          typeDefinitionId: childInput.typeDefinitionId,
           serialNumber: childSerialNumber,
           tenantId,
           farmId: parent.farmId,
@@ -888,6 +909,17 @@ export class SensorRegistrationService {
         });
 
         const savedChild = await queryRunner.manager.save(Sensor, childSensor);
+        // SENSOR-MEDIUM-071: bootstrap the child's type-definition channels in the
+        // same transaction; an unresolvable id rolls back the whole parent+children
+        // create rather than silently skipping channels.
+        if (childInput.typeDefinitionId) {
+          await this.sensorTypeService.createChannelsFromTypeDefinition(
+            savedChild.id,
+            tenantId,
+            childInput.typeDefinitionId,
+            queryRunner.manager,
+          );
+        }
         savedChildren.push(savedChild);
         this.logger.log(`Created child sensor: ${savedChild.id} (${childInput.dataPath})`);
       }

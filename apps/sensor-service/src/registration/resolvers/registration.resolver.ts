@@ -261,6 +261,8 @@ export class RegistrationResolver {
       id: sensor.id,
       name: sensor.name,
       type: sensor.type,
+      // SENSOR-MEDIUM-071: surface the attached custom type-definition on read-back.
+      typeDefinitionId: sensor.typeDefinitionId,
       protocolCode: sensor.protocol?.code || '',
       // SENSOR-HIGH-081: never echo live device credentials through a read model.
       protocolConfiguration: redactProtocolSecrets(sensor.protocolConfiguration),
@@ -426,6 +428,8 @@ export class RegistrationResolver {
       id: sensor.id,
       name: sensor.name,
       type: sensor.type,
+      // SENSOR-MEDIUM-071: per-child custom type-definition read-back.
+      typeDefinitionId: sensor.typeDefinitionId,
       dataPath: sensor.dataPath ?? '',
       unit: sensor.unit,
       minValue: sensor.minValue,

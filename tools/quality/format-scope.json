@@ -24713,6 +24713,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/protocol/adapters/__tests__/base-protocol-adapter.log-redaction.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/protocol/adapters/__tests__/base-protocol-adapter.ssrf.spec.ts",
       "prettier_managed": true
     },
@@ -24888,6 +24894,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/protocol/adapters/industrial/types/siemens-s7.types.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/protocol/adapters/iot/__tests__/amqp.adapter.spec.ts",
       "prettier_managed": true
     },
     {
@@ -55032,10 +55044,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9021,
+  "file_count": 9023,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8840,
-  "managed_file_list_sha256": "a69f2de6ad6fc1569c1b82e8745883812d64224b2ef92e0e6d4f5b407842fc03",
+  "managed_count": 8842,
+  "managed_file_list_sha256": "cbeb5d062c293ace3f05ea43903c321e775c97a6b463d6504efd377efde1af74",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

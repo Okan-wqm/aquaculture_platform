@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SsrfValidatorService } from '@aquaculture/backend-common/ai-safety';
 
+import { redactProtocolSecrets } from '../../common/redact-protocol-secrets';
 import {
   ProtocolCategory,
   ProtocolSubcategory,
@@ -503,7 +504,11 @@ export abstract class BaseProtocolAdapter<TConfig = Record<string, unknown>> imp
       connectionId: handle.id,
       sensorId: handle.sensorId,
       tenantId: handle.tenantId,
-      ...details,
+      // SENSOR-MEDIUM-059: redact any secret-named detail (password, token, psk,
+      // apiKey…) by field name before it reaches the log sink, so no protocol
+      // adapter can leak a device credential through the shared connection-event
+      // logger. Non-secret diagnostics (host, port, topic…) pass through unchanged.
+      ...(details ? redactProtocolSecrets(details) : {}),
     });
   }
 }

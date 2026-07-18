@@ -24,7 +24,6 @@ const SCAN_ROOTS = [join(SRC_ROOT, 'vfd'), join(SRC_ROOT, 'vfd-programming')];
 // paths pending their edge-rewire). Shrink this to empty, then delete vfd/adapters/.
 const ADAPTER_CONSUMER_ALLOWLIST = new Set([
   join('vfd', 'services', 'vfd-connection-tester.service.ts'),
-  join('vfd', 'services', 'vfd-data-reader.service.ts'),
 ]);
 
 // Services on the drive-WRITE / control path — must never touch the fake adapters.
@@ -73,9 +72,13 @@ describe('VFD writes are edge-only (SENSOR-CRITICAL-007 regression guard)', () =
     expect(ADAPTER_IMPORT.test(src)).toBe(false);
   });
 
-  it('every allowlisted adapter consumer still exists (no stale exemption)', () => {
+  it('every allowlisted adapter consumer still exists AND still uses the factory (no stale exemption)', () => {
     for (const rel of ADAPTER_CONSUMER_ALLOWLIST) {
-      expect(statSync(join(SRC_ROOT, rel)).isFile()).toBe(true);
+      const full = join(SRC_ROOT, rel);
+      expect(statSync(full).isFile()).toBe(true);
+      // A consumer rewired off the adapters MUST be removed from the allowlist,
+      // which shrinks toward deleting vfd/adapters/ outright.
+      expect(readFileSync(full, 'utf8').includes('createVfdAdapter(')).toBe(true);
     }
   });
 });

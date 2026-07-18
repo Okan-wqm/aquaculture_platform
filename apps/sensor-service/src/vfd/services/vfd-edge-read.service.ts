@@ -32,14 +32,45 @@ export interface VfdEdgeReadResult {
   latencyMs?: number;
 }
 
-interface PendingRead {
-  commandId: string;
-  edgeModbusDeviceName: string;
+/** One register from an edge `read_modbus` response. */
+export interface VfdEdgeReadValue {
+  name: string;
   address: number;
-  startTime: number;
-  resolve: (result: VfdEdgeReadResult) => void;
-  timeout: ReturnType<typeof setTimeout>;
+  rawValue: number;
+  scaledValue?: number;
 }
+
+/**
+ * Result of reading ALL of a drive's configured registers via the edge. `success`
+ * is TRUE only on a real edge read; `values` is empty on failure (never fabricated
+ * telemetry).
+ */
+export interface VfdEdgeReadAllResult {
+  success: boolean;
+  commandId: string;
+  values: VfdEdgeReadValue[];
+  error?: string;
+  latencyMs?: number;
+}
+
+type PendingRead =
+  | {
+      kind: 'single';
+      commandId: string;
+      edgeModbusDeviceName: string;
+      address: number;
+      startTime: number;
+      timeout: ReturnType<typeof setTimeout>;
+      resolve: (result: VfdEdgeReadResult) => void;
+    }
+  | {
+      kind: 'all';
+      commandId: string;
+      edgeModbusDeviceName: string;
+      startTime: number;
+      timeout: ReturnType<typeof setTimeout>;
+      resolve: (result: VfdEdgeReadAllResult) => void;
+    };
 
 const U16_MAX = 0xffff;
 
@@ -114,6 +145,7 @@ export class VfdEdgeReadService {
         });
       }, this.readTimeoutMs);
       this.pendingReads.set(commandId, {
+        kind: 'single',
         commandId,
         edgeModbusDeviceName,
         address,
@@ -176,8 +208,29 @@ export class VfdEdgeReadService {
 
     const latencyMs = Date.now() - pending.startTime;
     const success = payload['success'] === true;
+    const edgeError = typeof payload['error'] === 'string' ? payload['error'] : undefined;
+
+    if (pending.kind === 'all') {
+      if (!success) {
+        pending.resolve({
+          success: false,
+          commandId,
+          values: [],
+          latencyMs,
+          error: edgeError ?? 'Edge gateway reported the read failed',
+        });
+        return;
+      }
+      pending.resolve({
+        success: true,
+        commandId,
+        values: this.extractAllRegisters(payload['result'], pending.edgeModbusDeviceName),
+        latencyMs,
+      });
+      return;
+    }
+
     if (!success) {
-      const edgeError = typeof payload['error'] === 'string' ? payload['error'] : undefined;
       pending.resolve({
         success: false,
         commandId,
@@ -203,6 +256,82 @@ export class VfdEdgeReadService {
         ? { error: `Register ${pending.address} not present in the drive's edge register map` }
         : {}),
     });
+  }
+
+  /**
+   * Read ALL of a drive's configured registers via its edge gateway (one
+   * `read_modbus`). Fail-closed when the drive is unbound; resolves `success:false`
+   * with empty `values` on publish failure, edge-reported failure, or ack timeout
+   * (never fabricated telemetry). Backs VFD telemetry reads.
+   */
+  async readAllRegisters(device: VfdDevice, intent: string): Promise<VfdEdgeReadAllResult> {
+    const edgeDeviceId = device.edgeDeviceId;
+    const edgeModbusDeviceName = device.edgeModbusDeviceName;
+    if (!edgeDeviceId || !edgeModbusDeviceName) {
+      throw new BadRequestException(
+        `VFD ${device.id} is not bound to an edge gateway; ` +
+          'edge-delegated reads require both edgeDeviceId and edgeModbusDeviceName',
+      );
+    }
+
+    const mqtt = this.ensureMqtt();
+    const commandId = randomUUID();
+    const startTime = Date.now();
+
+    const result = new Promise<VfdEdgeReadAllResult>((resolve) => {
+      const timeout = setTimeout(() => {
+        this.pendingReads.delete(commandId);
+        this.logger.warn(
+          `Edge read-all (${intent}) on VFD ${device.id} timed out with no gateway ack (command ${commandId})`,
+        );
+        resolve({
+          success: false,
+          commandId,
+          values: [],
+          error: 'Edge gateway did not acknowledge the read within the timeout',
+        });
+      }, this.readTimeoutMs);
+      this.pendingReads.set(commandId, {
+        kind: 'all',
+        commandId,
+        edgeModbusDeviceName,
+        startTime,
+        resolve,
+        timeout,
+      });
+    });
+
+    const envelope = {
+      commandId,
+      command: 'read_modbus',
+      timestamp: new Date().toISOString(),
+      params: { device: edgeModbusDeviceName },
+    };
+    if (!validateCommandEnvelope(envelope)) {
+      this.discard(commandId);
+      throw new BadRequestException(
+        `read_modbus envelope violates the canonical contract: ${formatValidationErrors(
+          validateCommandEnvelope,
+        )}`,
+      );
+    }
+
+    try {
+      await mqtt.publish(`tenants/${device.tenantId}/devices/${edgeDeviceId}/commands`, envelope);
+      this.logger.debug(
+        `Edge read-all (${intent}) published to gateway ${edgeDeviceId} → ${edgeModbusDeviceName} (command ${commandId})`,
+      );
+    } catch (error) {
+      this.discard(commandId);
+      return {
+        success: false,
+        commandId,
+        values: [],
+        error: `Failed to publish edge read command: ${(error as Error).message}`,
+      };
+    }
+
+    return result;
   }
 
   /**
@@ -240,6 +369,42 @@ export class VfdEdgeReadService {
       }
     }
     return null;
+  }
+
+  /**
+   * Pull EVERY register for `deviceName` out of the edge's read_modbus result.
+   * Returns an empty array when the device is absent from the response.
+   */
+  private extractAllRegisters(result: unknown, deviceName: string): VfdEdgeReadValue[] {
+    if (!result || typeof result !== 'object') {
+      return [];
+    }
+    const devices = (result as { devices?: unknown }).devices;
+    if (!Array.isArray(devices)) {
+      return [];
+    }
+    const out: VfdEdgeReadValue[] = [];
+    for (const dev of devices) {
+      if (!dev || typeof dev !== 'object') continue;
+      if ((dev as { device?: unknown }).device !== deviceName) continue;
+      const values = (dev as { values?: unknown }).values;
+      if (!Array.isArray(values)) continue;
+      for (const v of values) {
+        if (!v || typeof v !== 'object') continue;
+        const address = (v as { address?: unknown }).address;
+        const raw = (v as { raw_value?: unknown }).raw_value;
+        if (typeof address !== 'number' || typeof raw !== 'number') continue;
+        const name = (v as { name?: unknown }).name;
+        const scaled = (v as { scaled_value?: unknown }).scaled_value;
+        out.push({
+          name: typeof name === 'string' ? name : String(address),
+          address,
+          rawValue: raw,
+          ...(typeof scaled === 'number' ? { scaledValue: scaled } : {}),
+        });
+      }
+    }
+    return out;
   }
 
   private ensureMqtt(): MqttClientService {

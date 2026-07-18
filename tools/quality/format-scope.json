@@ -25955,6 +25955,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/vfd/services/__tests__/vfd-data-reader.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/vfd/services/__tests__/vfd-device.service.spec.ts",
       "prettier_managed": true
     },
@@ -25974,6 +25980,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/vfd/services/__tests__/vfd-edge-write.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd/services/__tests__/vfd-reading-codec.spec.ts",
       "prettier_managed": true
     },
     {
@@ -26028,6 +26040,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/vfd/services/vfd-edge-write.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd/services/vfd-reading-codec.ts",
       "prettier_managed": true
     },
     {
@@ -54936,10 +54954,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9005,
+  "file_count": 9008,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8824,
-  "managed_file_list_sha256": "79e462d99e0651d9f813bacac59f9409482c082800604212a5249a499cbe408d",
+  "managed_count": 8827,
+  "managed_file_list_sha256": "8f32780f0cfa8aa327056ed0956ed04f007a84384eee3bafabc2308e071a0314",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

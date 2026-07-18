@@ -25445,12 +25445,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/sensor-service/src/sensor/dto/create-sensor.dto.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/sensor-service/src/sensor/dto/ingest-reading.dto.ts",
       "prettier_managed": true
     },
@@ -42144,6 +42138,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/sensor-single-write-path.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/service-criticality-profile-contract.spec.ts",
       "prettier_managed": true
     },
@@ -55089,7 +55089,7 @@
   "file_count": 9030,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
   "managed_count": 8849,
-  "managed_file_list_sha256": "7a567622fcdcf31a309c5461c81a8837314c1f9eeef484772cf01177bdc85866",
+  "managed_file_list_sha256": "94f3bb9711a778ee57e1e7ec310d43ea3e3be3e724c7ca1099c8d7f8bd53dd91",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

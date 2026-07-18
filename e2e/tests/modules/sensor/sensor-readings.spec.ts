@@ -18,15 +18,22 @@ import { gql, TENANT_A, TENANT_B, uniqueSerial, uniqueName, runCleanup } from '.
 // GRAPHQL OPERATIONS
 // ============================================================================
 
-const CREATE_SENSOR = `
-  mutation createSensor($input: CreateSensorInput!) {
-    createSensor(input: $input) {
-      id
-      name
-      serialNumber
-      type
-      status
-      tenantId
+// SENSOR-MEDIUM-064: the createSensor back door was removed; registerSensor
+// is the single write path. These reading tests only need a persisted sensor
+// to ingest against, so they register with skipConnectionTest.
+const REGISTER_SENSOR = `
+  mutation registerSensor($input: RegisterSensorInput!) {
+    registerSensor(input: $input) {
+      success
+      sensor {
+        id
+        name
+        serialNumber
+        type
+        registrationStatus
+        tenantId
+      }
+      error
     }
   }
 `;
@@ -140,24 +147,32 @@ describe('Sensor Readings & Metrics', () => {
   let sensorId2: string;
 
   beforeAll(async () => {
-    // Create sensors for reading tests
-    const res1 = await gql(CREATE_SENSOR, {
+    // Register sensors for reading tests (single write path).
+    const res1 = await gql(REGISTER_SENSOR, {
       input: {
         name: uniqueName('ReadingSensor1'),
-        serialNumber: uniqueSerial('RDG1'),
         type: 'multi_parameter',
+        protocolCode: 'mqtt',
+        protocolConfiguration: { topic: 'sensors/readings/1' },
+        serialNumber: uniqueSerial('RDG1'),
+        skipConnectionTest: true,
       },
     });
-    sensorId = (assertDefined(res1.data).createSensor as Record<string, unknown>).id as string;
+    const result1 = assertDefined(res1.data).registerSensor as Record<string, unknown>;
+    sensorId = (result1.sensor as Record<string, unknown>).id as string;
 
-    const res2 = await gql(CREATE_SENSOR, {
+    const res2 = await gql(REGISTER_SENSOR, {
       input: {
         name: uniqueName('ReadingSensor2'),
-        serialNumber: uniqueSerial('RDG2'),
         type: 'temperature',
+        protocolCode: 'mqtt',
+        protocolConfiguration: { topic: 'sensors/readings/2' },
+        serialNumber: uniqueSerial('RDG2'),
+        skipConnectionTest: true,
       },
     });
-    sensorId2 = (assertDefined(res2.data).createSensor as Record<string, unknown>).id as string;
+    const result2 = assertDefined(res2.data).registerSensor as Record<string, unknown>;
+    sensorId2 = (result2.sensor as Record<string, unknown>).id as string;
   });
 
   afterAll(async () => {

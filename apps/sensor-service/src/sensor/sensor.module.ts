@@ -4,7 +4,6 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
 import { SensorReading } from '../database/entities/sensor-reading.entity';
 import { Sensor } from '../database/entities/sensor.entity';
-import { SensorTypeModule } from '../sensor-type/sensor-type.module';
 
 import { SensorResolver } from './resolvers/sensor.resolver';
 import { SensorReadingResolver } from './resolvers/sensor-reading.resolver';
@@ -30,10 +29,7 @@ import { SensorQueryService } from './services/sensor-query.service';
  * - SensorQueryService: Optimized TimescaleDB queries
  */
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([Sensor, SensorReading, SensorDataChannel]),
-    SensorTypeModule,
-  ],
+  imports: [TypeOrmModule.forFeature([Sensor, SensorReading, SensorDataChannel])],
   providers: [
     // Resolvers
     SensorResolver,

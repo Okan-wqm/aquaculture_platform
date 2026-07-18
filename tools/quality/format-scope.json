@@ -25661,72 +25661,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/sensor-service/src/vfd/adapters/__tests__/base-vfd.adapter.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/vfd/adapters/__tests__/vfd-modbus-tcp.adapter.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/vfd/adapters/base-vfd.adapter.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/vfd/adapters/index.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/vfd/adapters/vfd-bacnet.adapter.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/vfd/adapters/vfd-canopen.adapter.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/vfd/adapters/vfd-ethernet-ip.adapter.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/vfd/adapters/vfd-modbus-rtu.adapter.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/vfd/adapters/vfd-modbus-tcp.adapter.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/vfd/adapters/vfd-profibus-dp.adapter.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/vfd/adapters/vfd-profinet.adapter.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/sensor-service/src/vfd/brand-configs/abb.config.ts",
       "prettier_managed": true
     },
@@ -25896,6 +25830,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/vfd/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd/protocol-config/__tests__/vfd-protocol-catalog.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd/protocol-config/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd/protocol-config/vfd-protocol-catalog.ts",
       "prettier_managed": true
     },
     {
@@ -54972,10 +54924,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9011,
+  "file_count": 9003,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8830,
-  "managed_file_list_sha256": "2ebe1491de77ccef466ff4dfb1acd4a959b10be4d29c073ff360286de4728abc",
+  "managed_count": 8822,
+  "managed_file_list_sha256": "62c7be1bcaedd3e509f088873f2c559f365a0a46cc0016d4892e13aabc9a7d00",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

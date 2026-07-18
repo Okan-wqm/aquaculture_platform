@@ -40,15 +40,18 @@ describe('network adapter SSRF guard coverage', () => {
 
 /**
  * SENSOR-HIGH-072: the connection-test services must not open their own raw
- * sockets to a tenant-supplied host — they delegate to the guarded protocol/VFD
- * adapters, whose connect paths carry the SSRF guard. This pins that delegation
- * so a refactor cannot reintroduce an unguarded raw socket.
+ * sockets to a tenant-supplied host. The PLC tester delegates to the guarded
+ * OPC UA adapter, whose connect path carries the SSRF guard. The VFD tester
+ * (SENSOR-CRITICAL-007/009) goes further: it opens no socket at all and delegates
+ * reachability to the edge gateway via `edgeReadService`, so the cloud never dials
+ * the drive's host. This pins both so a refactor cannot reintroduce an unguarded
+ * raw socket.
  */
 describe('connection-test services delegate to guarded adapters', () => {
   const RAW_SOCKET_OPENS = [/\bnet\.connect\s*\(/, /\bnet\.createConnection\s*\(/, /new\s+net\.Socket\s*\(/];
   const DELEGATING_SERVICES = [
     { path: '../../../plc-control/services/plc-connection.service.ts', delegate: 'opcUaAdapter' },
-    { path: '../../../vfd/services/vfd-connection-tester.service.ts', delegate: 'createVfdAdapter' },
+    { path: '../../../vfd/services/vfd-connection-tester.service.ts', delegate: 'edgeReadService' },
   ];
 
   it.each(DELEGATING_SERVICES)('$path opens no raw socket and delegates via $delegate', ({ path, delegate }) => {

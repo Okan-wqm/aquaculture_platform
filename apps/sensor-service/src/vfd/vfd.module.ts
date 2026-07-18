@@ -1,13 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-import { VfdBacnetAdapter } from './adapters/vfd-bacnet.adapter';
-import { VfdCanopenAdapter } from './adapters/vfd-canopen.adapter';
-import { VfdEthernetIpAdapter } from './adapters/vfd-ethernet-ip.adapter';
-import { VfdModbusRtuAdapter } from './adapters/vfd-modbus-rtu.adapter';
-import { VfdModbusTcpAdapter } from './adapters/vfd-modbus-tcp.adapter';
-import { VfdProfibusAdapter } from './adapters/vfd-profibus-dp.adapter';
-import { VfdProfinetAdapter } from './adapters/vfd-profinet.adapter';
 import { VfdCommandAuditLog } from './entities/vfd-command-audit-log.entity';
 import { VfdDevice } from './entities/vfd-device.entity';
 import { VfdReading } from './entities/vfd-reading.entity';
@@ -27,11 +20,12 @@ import { VfdRegisterMappingService } from './services/vfd-register-mapping.servi
  *
  * Provides comprehensive VFD device management including:
  * - Device registration and management
- * - Multi-protocol communication (Modbus RTU/TCP, PROFIBUS, PROFINET, EtherNet/IP, CANopen, BACnet)
+ * - Edge-delegated Modbus communication (all drive I/O runs on the edge gateway via
+ *   `read_modbus` / `write_modbus`; the cloud opens no sockets)
  * - Multi-brand support (Danfoss, ABB, Siemens, Schneider, Yaskawa, Delta, Mitsubishi, Rockwell)
  * - Real-time parameter reading
  * - Control commands (Start, Stop, Speed Control, Fault Reset)
- * - Connection testing and validation
+ * - Connection testing and validation (edge-delegated; `protocol-config` SSoT)
  */
 @Module({
   imports: [
@@ -52,15 +46,6 @@ import { VfdRegisterMappingService } from './services/vfd-register-mapping.servi
     VfdEdgeWriteService,
     VfdEdgeReadService,
     VfdEdgeProvisioningService,
-
-    // Protocol Adapters
-    VfdModbusRtuAdapter,
-    VfdModbusTcpAdapter,
-    VfdProfibusAdapter,
-    VfdProfinetAdapter,
-    VfdEthernetIpAdapter,
-    VfdCanopenAdapter,
-    VfdBacnetAdapter,
   ],
   exports: [
     // Export services for use in other modules

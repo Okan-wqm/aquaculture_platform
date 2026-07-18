@@ -17,8 +17,8 @@ export * from './services';
 // Resolvers
 export * from './resolvers';
 
-// Adapters
-export * from './adapters';
+// Protocol configuration SSoT (classification, schema, defaults, validation)
+export * from './protocol-config';
 
 // Brand Configurations
 export * from './brand-configs';

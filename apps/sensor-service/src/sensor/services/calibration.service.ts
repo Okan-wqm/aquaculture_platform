@@ -13,6 +13,7 @@ import { Repository } from 'typeorm';
 
 import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
 import { SensorReadings } from '../../database/entities/sensor-reading.entity';
+import { canonicalReadingKey } from '../../database/entities/sensor-reading-key';
 import {
   ICalibrationService,
   ICalibrationStrategy,
@@ -291,7 +292,11 @@ export class CalibrationService implements ICalibrationService {
         continue;
       }
 
-      const key = channel.channelKey as keyof SensorReadings;
+      // SENSOR-MEDIUM-067: reconcile the snake_case channelKey with the
+      // camelCase SensorReadings field via the canonical codec, so a multi-word
+      // metric (dissolved_oxygen -> dissolvedOxygen) actually calibrates instead
+      // of silently no-op'ing on an always-undefined lookup.
+      const key = canonicalReadingKey(channel.channelKey) as keyof SensorReadings;
       const rawValue = transformed[key];
 
       if (rawValue !== undefined && typeof rawValue === 'number') {

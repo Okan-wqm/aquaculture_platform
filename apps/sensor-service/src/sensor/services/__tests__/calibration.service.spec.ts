@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { SensorDataChannel } from '../../../database/entities/sensor-data-channel.entity';
+import { SensorReadings } from '../../../database/entities/sensor-reading.entity';
 import {
   CalibrationService,
   LinearCalibrationStrategy,
@@ -9,6 +10,18 @@ import {
   LookupTableCalibrationStrategy,
 } from '../calibration.service';
 import { CalibrationConfig } from '../../interfaces/calibration-strategy.interface';
+
+/** Minimal SensorDataChannel seed for applyCalibration tests (no ORM row). */
+const seedChannel = (
+  channelKey: string,
+  calibrationEnabled: boolean,
+  calibrationMultiplier?: number,
+  calibrationOffset?: number,
+): SensorDataChannel =>
+  ({ channelKey, calibrationEnabled, calibrationMultiplier, calibrationOffset } as Pick<
+    SensorDataChannel,
+    'channelKey' | 'calibrationEnabled' | 'calibrationMultiplier' | 'calibrationOffset'
+  > as SensorDataChannel);
 
 describe('CalibrationService', () => {
   let service: CalibrationService;
@@ -238,6 +251,37 @@ describe('CalibrationService', () => {
       };
       const result = service.calibrateValue(10, config);
       expect(result.method).toBe('polynomial');
+    });
+  });
+
+  // SENSOR-MEDIUM-067: the channelKey (snake_case) must reconcile with the
+  // camelCase SensorReadings field, or multi-word metrics never calibrate.
+  describe('applyCalibration channel-key reconciliation', () => {
+    it('calibrates a multi-word channel whose channelKey is snake_case', async () => {
+      service.warmChannelCache('sensor-1', [seedChannel('dissolved_oxygen', true, 2, 1)]);
+
+      const readings: SensorReadings = { dissolvedOxygen: 5 };
+      const result = await service.applyCalibration('sensor-1', readings);
+
+      // 5 * 2 + 1 = 11. Before the codec, 'dissolved_oxygen' never matched the
+      // 'dissolvedOxygen' reading key and the value passed through UNCALIBRATED.
+      expect(result.dissolvedOxygen).toBe(11);
+    });
+
+    it('still calibrates single-word channels (regression guard)', async () => {
+      service.warmChannelCache('sensor-2', [seedChannel('ph', true, 1, 0.5)]);
+
+      const result = await service.applyCalibration('sensor-2', { ph: 7 });
+
+      expect(result.ph).toBe(7.5);
+    });
+
+    it('leaves readings untouched when calibration is disabled', async () => {
+      service.warmChannelCache('sensor-3', [seedChannel('dissolved_oxygen', false)]);
+
+      const result = await service.applyCalibration('sensor-3', { dissolvedOxygen: 5 });
+
+      expect(result.dissolvedOxygen).toBe(5);
     });
   });
 });

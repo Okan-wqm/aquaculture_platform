@@ -23468,6 +23468,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/database/entities/__tests__/sensor-reading-key.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/database/entities/channel-detection-log.entity.ts",
       "prettier_managed": true
     },
@@ -23493,6 +23499,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/database/entities/sensor-protocol.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/entities/sensor-reading-key.ts",
       "prettier_managed": true
     },
     {
@@ -55068,10 +55080,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9027,
+  "file_count": 9029,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8846,
-  "managed_file_list_sha256": "6584b8430cdf2e7feb52161b7cb1e12fc19d553b0f7404f3f282cef5d2da7953",
+  "managed_count": 8848,
+  "managed_file_list_sha256": "2ccc368cfacbd161f86ef2c47d441f296e6c15925a53d380775348af291742cf",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

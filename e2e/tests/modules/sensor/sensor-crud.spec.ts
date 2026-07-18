@@ -307,10 +307,10 @@ describe('Sensor CRUD + Registration', () => {
         },
       });
 
-      // A duplicate serial must not create a second sensor. registerSensor
-      // currently surfaces the unique-violation as result.success=false; once
-      // SENSOR-MEDIUM-072 maps it to a ConflictException it surfaces as a
-      // GraphQL error. Accept either — the invariant is "no second row".
+      // A duplicate serial must not create a second sensor. SENSOR-MEDIUM-072
+      // maps the unique-violation to a ConflictException, so it surfaces as a
+      // GraphQL error; the success=false branch is kept as a defensive fallback.
+      // The invariant either way is "no second row".
       if (res.errors) {
         expect(res.errors.length).toBeGreaterThan(0);
       } else {

@@ -25151,6 +25151,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/registration/services/__tests__/serial-number.policy.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/registration/services/channel-discovery.service.ts",
       "prettier_managed": true
     },
@@ -25164,6 +25170,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/registration/services/sensor-registration.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/registration/services/serial-number.policy.ts",
       "prettier_managed": true
     },
     {
@@ -55086,10 +55098,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9030,
+  "file_count": 9032,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8849,
-  "managed_file_list_sha256": "94f3bb9711a778ee57e1e7ec310d43ea3e3be3e724c7ca1099c8d7f8bd53dd91",
+  "managed_count": 8851,
+  "managed_file_list_sha256": "5939b11c3d11c4e1a38ee2fa721b4764c86d4aa6724fca27cf0bf9e09a2bf5a4",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -228,6 +228,46 @@ derive the expected value from the restore target.
 
 Every rotation triggers a WARN log entry via the standard logging middleware. Grep production logs for `secret.rotated` to confirm the deploy picked up the new value. Consider adding a Grafana alert on absence of this entry after a scheduled rotation window.
 
+## Sensor credential-vault key (`CREDENTIAL_ENCRYPTION_KEY`)
+
+The AES-256-GCM key that encrypts sensor-service device credentials at rest via
+`CredentialVaultService` (`apps/sensor-service/src/infrastructure/vault`). It
+protects, in `enc:<iv>:<authTag>:<ciphertext>` form:
+
+- `lora_devices.app_key` — LoRaWAN OTAA root keys (SENSOR-MEDIUM-044).
+- `sensors.protocol_configuration` secret-named fields — MQTT/AMQP/OPC-UA
+  passwords, API keys, OAuth2 secrets, CoAP PSKs (SENSOR-MEDIUM-080), field-level
+  (non-secret fields such as `host`/`topic` stay plaintext).
+- `plc_connections` credential columns.
+
+**Format has no key-version tag**, so a live dual-key overlap is not possible —
+rotation is a scheduled re-encryption, NOT zero-downtime. Do it under
+change-management with a maintenance window.
+
+**Steps:**
+
+1. **Back up** the affected tables (or take a full DB backup) and verify restore
+   on a staging copy before touching production.
+2. **Stage BOTH keys**: keep the current `CREDENTIAL_ENCRYPTION_KEY` as
+   `CREDENTIAL_ENCRYPTION_KEY_OLD` (read side) and set the new 32-byte key as
+   `CREDENTIAL_ENCRYPTION_KEY`.
+3. **Re-encrypt** every affected column with an app-aware migration that decrypts
+   each value with the OLD key and re-encrypts with the NEW key — the same
+   per-schema fan-out + `credential-crypto` helpers the backfill migrations
+   `1811*`/`1812*` use (`decryptSecretValue(value, OLD)` →
+   `encryptSecretValue(clear, NEW)`). SQL cannot decrypt; the update expression
+   MUST be the cipher-aware script.
+4. **Roll sensor-service** replicas so the running vault loads the new key; the
+   transformer then reads/writes exclusively under it.
+5. **Verify**: sample 1% of `lora_devices` / `sensors` rows decrypt successfully
+   via the new key (a failed decrypt surfaces as `[DECRYPTION_FAILED]` in reads).
+6. **Destroy `CREDENTIAL_ENCRYPTION_KEY_OLD`** after the retention window and
+   archive the pre-rotation backup per the retention matrix.
+
+**Rollback**: if step 4 reads report `[DECRYPTION_FAILED]`, redeploy with the OLD
+key as `CREDENTIAL_ENCRYPTION_KEY` and root-cause before retrying — the old
+ciphertext is unchanged until the re-encryption migration commits.
+
 ## Rotation cadence
 
 Closes `docs/reviews/infra-expert/2026-04-14-infrastructure-hardening.md#INFRA-ROTATION-001`. Without an explicit cadence, secrets drift toward "rotate never" by default. The cadence below is the baseline; an observed compromise or suspected leak collapses the interval to "now" and triggers the incident-response runbook instead.
@@ -240,6 +280,7 @@ Closes `docs/reviews/infra-expert/2026-04-14-infrastructure-hardening.md#INFRA-R
 | Per-service DB passwords                                     | 90 days                                          | 14 days            | data oncall         | §"Database passwords (per-service)"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `PASSWORD_PEPPER`                                            | 180 days (or on incident)                        | 30 days            | auth-service oncall | §"Password pepper" (incident-response only outside cadence)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `REDIS_PASSWORD`                                             | 180 days                                         | 30 days            | infra oncall        | roll via droplet env + `docker compose up -d redis`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `CREDENTIAL_ENCRYPTION_KEY` (sensor at-rest)                 | 180 days (or on incident)                        | 30 days            | sensor-service oncall | §"Sensor credential-vault key" — scheduled re-encryption via `credential-crypto`; NOT zero-downtime (no key-version tag)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | NATS mTLS client certs                                       | 12 months                                        | 30 days            | infra oncall        | `scripts/generate-internal-certs.sh` regenerates in lockstep with `infrastructure/nats/services.yaml`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | Droplet SSH host key/fingerprint                             | on authorized host-key change or compromise      | n/a                | infra oncall        | obtain the new fingerprint out of band → update `DROPLET_SSH_FINGERPRINT` → require native OpenSSH exact-match preflight before any remote command                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Backup broker operation SSH keys                             | 90 days or immediately on suspected disclosure   | 14 days            | infra oncall        | while pre-cutover, rotate only the matching broker key/fingerprint → install its public key through the root-owned provisioner → pass that account's attestation and cross-key denial matrix; after cutover, repeat the operation proof before revoking the old key                                                                                                                                                                                                                                                                                                                                                                                |

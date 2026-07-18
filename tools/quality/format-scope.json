@@ -23498,6 +23498,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/__tests__/encrypt-lora-app-keys.migration.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/database/migrations/__tests__/encrypt-protocol-config-secrets.migration.spec.ts",
       "prettier_managed": true
     },
@@ -23868,6 +23874,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/database/migrations/1811000000000-EncryptProtocolConfigSecrets.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1812000000000-EncryptLoraAppKeysAtRest.ts",
       "prettier_managed": true
     },
     {
@@ -55020,10 +55032,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9019,
+  "file_count": 9021,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8838,
-  "managed_file_list_sha256": "cfab9d49013703557cc9674804e06d52ea793e1fb9ea3201f474c2821baa334d",
+  "managed_count": 8840,
+  "managed_file_list_sha256": "a69f2de6ad6fc1569c1b82e8745883812d64224b2ef92e0e6d4f5b407842fc03",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

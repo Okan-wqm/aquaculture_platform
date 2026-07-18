@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -191,32 +193,62 @@ describe('deploy SSOT contract', () => {
 
   it('reports droplet capacity evidence without mutating data-bearing storage', () => {
     const capacity = read('scripts/deploy/droplet-capacity.sh');
+    const duFunction = /du_frontier_snapshot\(\) \{[\s\S]*?\n\}/.exec(capacity)?.[0] ?? '';
 
     expect(capacity).toContain('Top-level disk usage (same filesystem only):');
     expect(capacity).toContain('Docker image inventory:');
-    expect(capacity).toContain('du -x -B1 -d1');
+    expect(duFunction).not.toEqual('');
+    expect(duFunction).toContain('du -sx -B1 --null -- "${scope_path}"');
+    expect(duFunction).not.toContain(' -d1 ');
     expect(capacity).toContain('docker image ls --format');
     expect(capacity).toContain('CAPACITY_DISK_USAGE_MODE');
     expect(capacity).toContain('CAPACITY_DU_TIMEOUT_SECONDS');
     expect(capacity).toContain('CAPACITY_DU_TIMEOUT_SECONDS="${CAPACITY_DU_TIMEOUT_SECONDS:-120}"');
+    expect(capacity).toContain('CAPACITY_DU_TIMEOUT_MAX_SECONDS=120');
+    expect(capacity).toContain('CAPACITY_DU_KILL_GRACE_SECONDS=5');
+    expect(capacity).toContain('CAPACITY_NON_DU_HEADROOM_SECONDS=300');
+    expect(capacity).toContain('CAPACITY_DU_PARALLELISM=4');
+    expect(capacity).toContain('CAPACITY_DU_MAX_SCOPES=512');
+    expect(capacity).toContain('CAPACITY_DU_SCOPE_TIMEOUT_SECONDS=15');
+    expect(capacity).toContain('CAPACITY_DU_DISCOVERY_TIMEOUT_SECONDS=20');
+    expect(capacity).toContain('CAPACITY_DU_MAX_DISCOVERY_CALLS=64');
+    expect(capacity).toContain('CAPACITY_DU_MAX_CHILDREN_PER_DIRECTORY=128');
+    expect(capacity).toContain('CAPACITY_DU_MAX_UNAVAILABLE_RECORDS=64');
+    expect(capacity).toContain('CAPACITY_DU_MAX_RESULT_BYTES=8192');
     // Docker subtrees are excluded from the du walk — their bytes come from
     // `docker system df`; traversing overlay2 inodes is what timed the walk
     // out exactly when capacity triage needed the non-docker attribution.
-    expect(capacity).toContain('--exclude="$(docker_root)" --exclude=/var/lib/containerd');
+    expect(capacity).toContain('emit_exclusion_safe_frontier');
+    expect(capacity).toContain('[ "${candidate_path}" = "${docker_path}" ]');
+    expect(capacity).toContain('[ "${candidate_path}" = "${containerd_path}" ]');
+    // Hotspot children are separate summary scopes; every emitted scope is
+    // disjoint and shares the same discovery + du deadline.
+    expect(capacity).not.toContain('disk_usage_paths()');
+    expect(capacity).toContain('scope=disjoint_frontier');
+    expect(capacity).toContain('capacity_hotspot_frontier');
+    expect(capacity).toContain('head -z -n');
+    expect(capacity).toContain('head -c "${CAPACITY_DU_MAX_RESULT_BYTES}"');
+    expect(duFunction).toContain('"${scope_timeout}s" du -sx');
+    expect(capacity).toContain('global_timeout_seconds=${CAPACITY_DU_TIMEOUT_SECONDS}');
+    expect(capacity).toContain('timeout_label=scope_timeout_seconds');
+    expect(capacity).toContain('timeout_label=discovery_timeout_seconds');
+    expect(capacity).toContain('frontier_scopes_discovered=');
     expect(capacity).toContain('disk_usage_unavailable');
     expect(capacity).toContain('detect_docker_root');
     expect(capacity).toContain("awk 'NF {print; exit}'");
-    expect(capacity).toContain("awk 'NR <= 20");
-    expect(capacity).not.toContain('head -20');
+    expect(capacity).toContain("awk 'NR <= 40");
+    expect(capacity).not.toContain('head -40');
   });
 
-  it('keeps capacity diagnostics bounded below the deploy preflight timeout', () => {
+  it('keeps one final capacity diagnostic bounded below deploy and maintenance budgets', () => {
     const capacity = read('scripts/deploy/droplet-capacity.sh');
     const workflow = read('.github/workflows/deploy-digitalocean.yml');
+    const maintenance = read('.github/workflows/deploy-capacity-maintenance.yml');
     const capacityJobBlock =
       /\n {2}capacity-preflight:\n[\s\S]*?\n {2}# ===========================================================================/.exec(
         workflow,
       )?.[0] ?? '';
+    const maintenanceJobBlock = /\n {2}capacity-maintenance:\n[\s\S]*/.exec(maintenance)?.[0] ?? '';
     const runGateStart = capacity.indexOf('run_gate() {');
     const runGateEnd = capacity.indexOf('case "${command}"');
     const runGateBlock =
@@ -225,21 +257,558 @@ describe('deploy SSOT contract', () => {
         : '';
 
     expect(capacityJobBlock).not.toEqual('');
+    expect(maintenanceJobBlock).not.toEqual('');
     expect(runGateBlock).not.toEqual('');
     expect(runGateBlock).toContain('capacity_core_snapshot');
     expect(runGateBlock).toContain('capacity_diagnostic_snapshot');
     expect(runGateBlock).not.toContain('capacity_snapshot');
-    expect((runGateBlock.match(/capacity_diagnostic_snapshot/g) ?? []).length).toBe(2);
+    expect((runGateBlock.match(/capacity_diagnostic_snapshot/g) ?? []).length).toBe(1);
+    expect(runGateBlock.indexOf('capacity_diagnostic_snapshot')).toBeGreaterThan(
+      runGateBlock.lastIndexOf('capacity_failures'),
+    );
 
     const duTimeoutSeconds = Number(
       /CAPACITY_DU_TIMEOUT_SECONDS="\$\{CAPACITY_DU_TIMEOUT_SECONDS:-(\d+)\}"/.exec(capacity)?.[1],
     );
+    const duKillGraceSeconds = Number(/CAPACITY_DU_KILL_GRACE_SECONDS=(\d+)/.exec(capacity)?.[1]);
+    const nonDuHeadroomSeconds = Number(
+      /CAPACITY_NON_DU_HEADROOM_SECONDS=(\d+)/.exec(capacity)?.[1],
+    );
     const jobTimeoutMinutes = Number(/timeout-minutes:\s*(\d+)/.exec(capacityJobBlock)?.[1]);
     const commandTimeoutMinutes = Number(/command_timeout:\s*(\d+)m/.exec(capacityJobBlock)?.[1]);
+    const maintenanceJobTimeoutMinutes = Number(
+      /timeout-minutes:\s*(\d+)/.exec(maintenanceJobBlock)?.[1],
+    );
+    const maintenanceCommandTimeoutMinutes = Number(
+      /command_timeout:\s*(\d+)m/.exec(maintenanceJobBlock)?.[1],
+    );
 
     expect(duTimeoutSeconds).toBe(120);
+    expect(duKillGraceSeconds).toBe(5);
+    expect(nonDuHeadroomSeconds).toBe(300);
     expect(commandTimeoutMinutes).toBeLessThan(jobTimeoutMinutes);
-    expect(duTimeoutSeconds * 2).toBeLessThan(commandTimeoutMinutes * 60);
+    expect(duTimeoutSeconds + duKillGraceSeconds + nonDuHeadroomSeconds).toBeLessThan(
+      commandTimeoutMinutes * 60,
+    );
+    expect(maintenanceCommandTimeoutMinutes).toBeLessThan(maintenanceJobTimeoutMinutes);
+    expect(duTimeoutSeconds + duKillGraceSeconds + nonDuHeadroomSeconds).toBeLessThan(
+      maintenanceCommandTimeoutMinutes * 60,
+    );
+  });
+
+  it('keeps safe image GC to one post-GC deep traversal', () => {
+    const maintenance = read('.github/workflows/deploy-capacity-maintenance.yml');
+    const safeImageGcBlock = /safe-image-gc\)\n[\s\S]*?\n\s+;;/.exec(maintenance)?.[0] ?? '';
+
+    expect(safeImageGcBlock).not.toEqual('');
+    expect(safeImageGcBlock).toContain(
+      'CAPACITY_DISK_USAGE_MODE=off bash scripts/deploy/droplet-capacity.sh report',
+    );
+    expect(safeImageGcBlock).toContain('bash scripts/deploy/droplet-capacity.sh gc');
+    expect(safeImageGcBlock).toContain(
+      'CAPACITY_GC_MODE=off CAPACITY_DISK_USAGE_MODE=deep bash scripts/deploy/droplet-capacity.sh gate',
+    );
+    expect((safeImageGcBlock.match(/CAPACITY_DISK_USAGE_MODE=deep/g) ?? []).length).toBe(1);
+  });
+
+  it('executes one bounded disjoint frontier and rejects over-limit timeouts before invocation', () => {
+    const fakeBin = mkdtempSync(join(tmpdir(), 'aqua-capacity-du-args-'));
+    const invocationLog = join(fakeBin, 'du-invocations.log');
+    const timeoutPath = join(fakeBin, 'timeout');
+    const duPath = join(fakeBin, 'du');
+    const dockerPath = join(fakeBin, 'docker');
+    const findPath = join(fakeBin, 'find');
+    writeFileSync(
+      timeoutPath,
+      [
+        '#!/usr/bin/env bash',
+        'set -euo pipefail',
+        'while [ "$#" -gt 0 ]; do',
+        '  case "$1" in',
+        '    --signal=*|--kill-after=*) shift ;;',
+        '    *s) shift; break ;;',
+        '    *) exit 64 ;;',
+        '  esac',
+        'done',
+        'exec "$@"',
+        '',
+      ].join('\n'),
+    );
+    writeFileSync(
+      duPath,
+      [
+        '#!/usr/bin/env bash',
+        'set -euo pipefail',
+        'printf "%s\\n" "$*" >> "${DU_INVOCATION_LOG}"',
+        'scope="${!#}"',
+        'printf "4096\\t%s\\0" "${scope}"',
+        '',
+      ].join('\n'),
+    );
+    writeFileSync(
+      findPath,
+      [
+        '#!/usr/bin/env bash',
+        'set -euo pipefail',
+        'case "${1:-}" in',
+        '  /) printf "/opt\\0/tmp\\0/var\\0" ;;',
+        '  /tmp) printf "%s\\0" "${FAKE_HOTSPOT_SCOPE}" ;;',
+        '  /var/aqua-saas|/var/suderra-os) : ;;',
+        '  /var) printf "/var/aqua-saas\\0/var/lib\\0/var/log\\0/var/suderra-os\\0" ;;',
+        '  /var/lib) printf "/var/lib/docker\\0/var/lib/containerd\\0/var/lib/postgresql\\0" ;;',
+        '  *) : ;;',
+        'esac',
+        '',
+      ].join('\n'),
+    );
+    writeFileSync(
+      dockerPath,
+      '#!/usr/bin/env bash\nif [ "${1:-}" = "info" ]; then echo /var/lib/docker; fi\nexit 0\n',
+    );
+    chmodSync(timeoutPath, 0o755);
+    chmodSync(duPath, 0o755);
+    chmodSync(dockerPath, 0o755);
+    chmodSync(findPath, 0o755);
+
+    try {
+      const report = spawnSync(
+        'bash',
+        [join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh'), 'report'],
+        {
+          env: {
+            ...process.env,
+            PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+            CAPACITY_DISK_USAGE_MODE: 'deep',
+            DU_INVOCATION_LOG: invocationLog,
+            FAKE_HOTSPOT_SCOPE: fakeBin,
+            DOCKER_ROOT_DIR: '/var/lib/docker',
+          },
+          encoding: 'utf8',
+        },
+      );
+      expect(report.error).toBeUndefined();
+      expect(report.status).toBe(0);
+      const invocations = readFileSync(invocationLog, 'utf8').trim().split('\n');
+      expect(invocations).toContain(`-sx -B1 --null -- ${fakeBin}`);
+      expect(invocations).toContain('-sx -B1 --null -- /opt');
+      expect(invocations).toContain('-sx -B1 --null -- /var/log');
+      expect(invocations.every((invocation) => invocation.startsWith('-sx '))).toBe(true);
+      expect(invocations).not.toContain('-sx -B1 --null -- /tmp');
+      expect(invocations).not.toContain('-sx -B1 --null -- /var/aqua-saas');
+      expect(invocations).not.toContain('-sx -B1 --null -- /var/suderra-os');
+      expect(invocations.some((invocation) => invocation.includes('/var/lib/docker'))).toBe(false);
+      expect(invocations.some((invocation) => invocation.includes('/var/lib/containerd'))).toBe(
+        false,
+      );
+      expect(new Set(invocations).size).toBe(invocations.length);
+      expect(report.stdout).toContain(`path=${fakeBin}`);
+      const invocationCount = invocations.length;
+
+      for (const invalidTimeout of ['121', '900']) {
+        const rejected = spawnSync(
+          'bash',
+          [join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh'), 'report'],
+          {
+            env: {
+              ...process.env,
+              PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+              CAPACITY_DISK_USAGE_MODE: 'deep',
+              CAPACITY_DU_TIMEOUT_SECONDS: invalidTimeout,
+              DU_INVOCATION_LOG: invocationLog,
+              FAKE_HOTSPOT_SCOPE: fakeBin,
+              DOCKER_ROOT_DIR: '/var/lib/docker',
+            },
+            encoding: 'utf8',
+          },
+        );
+        expect(rejected.error).toBeUndefined();
+        expect(rejected.status).toBe(0);
+        expect(rejected.stdout).toContain(
+          `disk_usage_unavailable reason=invalid_timeout_seconds value=${invalidTimeout} allowed_range=1-120`,
+        );
+        expect(readFileSync(invocationLog, 'utf8').trim().split('\n')).toHaveLength(
+          invocationCount,
+        );
+      }
+    } finally {
+      rmSync(fakeBin, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps a bounded du timeout non-fatal to the canonical capacity verdict', () => {
+    const fakeBin = mkdtempSync(join(tmpdir(), 'aqua-capacity-test-'));
+    const timeoutPath = join(fakeBin, 'timeout');
+    const dockerPath = join(fakeBin, 'docker');
+    const findPath = join(fakeBin, 'find');
+    writeFileSync(timeoutPath, '#!/usr/bin/env bash\nexit 124\n');
+    writeFileSync(
+      dockerPath,
+      '#!/usr/bin/env bash\nif [ "${1:-}" = "info" ]; then echo /var/lib/docker; fi\nexit 0\n',
+    );
+    writeFileSync(
+      findPath,
+      '#!/usr/bin/env bash\nif [ "${1:-}" = / ]; then printf "/tmp\\0"; else exec /usr/bin/find "$@"; fi\n',
+    );
+    chmodSync(timeoutPath, 0o755);
+    chmodSync(dockerPath, 0o755);
+    chmodSync(findPath, 0o755);
+
+    const baseEnv = {
+      ...process.env,
+      PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+      CAPACITY_DISK_USAGE_MODE: 'deep',
+      CAPACITY_DU_TIMEOUT_SECONDS: '3',
+      CAPACITY_GC_MODE: 'off',
+      FULL_DEPLOY: 'false',
+      DEPLOY_PROJECTED_PULL_BYTES: '0',
+      SELECTIVE_HARD_FREE_GIB: '0',
+      SELECTIVE_WARN_FREE_GIB: '0',
+      SELECTIVE_HARD_FREE_PERCENT: '0',
+      SELECTIVE_PROJECTED_RESERVE_GIB: '0',
+      HARD_INODE_FREE_PERCENT: '0',
+      WARN_INODE_FREE_PERCENT: '0',
+    };
+
+    try {
+      const passing = spawnSync(
+        'bash',
+        [join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh'), 'gate'],
+        { env: baseEnv, encoding: 'utf8' },
+      );
+      expect(passing.error).toBeUndefined();
+      expect(passing.status).toBe(0);
+      expect(passing.stdout).toContain('disk_usage_unavailable path=');
+      expect(passing.stdout).toContain(
+        'reason=du_timeout detail=124 global_timeout_seconds=3 scope_timeout_seconds=',
+      );
+      expect(passing.stdout).toContain('Capacity preflight: PASS');
+
+      const failing = spawnSync(
+        'bash',
+        [join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh'), 'gate'],
+        {
+          env: { ...baseEnv, SELECTIVE_HARD_FREE_GIB: '1000000' },
+          encoding: 'utf8',
+        },
+      );
+      expect(failing.error).toBeUndefined();
+      expect(failing.status).toBe(1);
+      expect(failing.stdout).toContain('disk_preflight_low_bytes');
+      expect(failing.stdout).toContain('disk_usage_unavailable path=');
+      expect(failing.stdout).toContain(
+        'reason=du_timeout detail=124 global_timeout_seconds=3 scope_timeout_seconds=',
+      );
+      expect(failing.stdout).toContain('Capacity preflight failed');
+    } finally {
+      rmSync(fakeBin, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves completed frontier evidence when one hotspot times out', () => {
+    const fakeBin = mkdtempSync(join(tmpdir(), 'aqua-capacity-partial-'));
+    const duPath = join(fakeBin, 'du');
+    const dockerPath = join(fakeBin, 'docker');
+    const findPath = join(fakeBin, 'find');
+    writeFileSync(
+      duPath,
+      [
+        '#!/usr/bin/env bash',
+        'set -euo pipefail',
+        'scope="${!#}"',
+        'if [ "${scope}" = "${SLOW_SCOPE}" ]; then while :; do :; done; fi',
+        'printf "4096\\t%s\\0" "${scope}"',
+        '',
+      ].join('\n'),
+    );
+    writeFileSync(
+      dockerPath,
+      '#!/usr/bin/env bash\nif [ "${1:-}" = "info" ]; then echo /var/lib/docker; fi\nexit 0\n',
+    );
+    writeFileSync(
+      findPath,
+      [
+        '#!/usr/bin/env bash',
+        'set -euo pipefail',
+        'case "${1:-}" in',
+        '  /) printf "/tmp\\0/opt\\0" ;;',
+        '  /tmp) printf "%s\\0" "${SLOW_SCOPE}" ;;',
+        '  *) : ;;',
+        'esac',
+        '',
+      ].join('\n'),
+    );
+    for (const executable of [duPath, dockerPath, findPath]) {
+      chmodSync(executable, 0o755);
+    }
+
+    try {
+      const startedAt = Date.now();
+      const report = spawnSync(
+        'bash',
+        [join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh'), 'report'],
+        {
+          env: {
+            ...process.env,
+            PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+            CAPACITY_DISK_USAGE_MODE: 'deep',
+            CAPACITY_DU_TIMEOUT_SECONDS: '3',
+            DOCKER_ROOT_DIR: '/var/lib/docker',
+            SLOW_SCOPE: fakeBin,
+          },
+          encoding: 'utf8',
+        },
+      );
+      const elapsedMs = Date.now() - startedAt;
+      expect(report.error).toBeUndefined();
+      expect(report.status).toBe(0);
+      expect(elapsedMs).toBeLessThan(6_000);
+      expect(report.stdout).toContain('bytes=4096 path=/opt');
+      expect(report.stdout).toContain(
+        `disk_usage_unavailable path=${fakeBin} reason=du_timeout detail=124 global_timeout_seconds=3 scope_timeout_seconds=`,
+      );
+    } finally {
+      rmSync(fakeBin, { recursive: true, force: true });
+    }
+  });
+
+  it('releases four blocked workers at the per-scope quantum and starts the next scope', () => {
+    const fakeBin = mkdtempSync(join(tmpdir(), 'aqua-capacity-quantum-bin-'));
+    const hotspotScopes = Array.from({ length: 5 }, () =>
+      mkdtempSync(join(tmpdir(), 'aqua-capacity-quantum-scope-')),
+    );
+    const invocationLog = join(fakeBin, 'timeout-invocations.log');
+    const timeoutPath = join(fakeBin, 'timeout');
+    const duPath = join(fakeBin, 'du');
+    const dockerPath = join(fakeBin, 'docker');
+    const findPath = join(fakeBin, 'find');
+    writeFileSync(
+      timeoutPath,
+      [
+        '#!/usr/bin/env bash',
+        'set -euo pipefail',
+        'duration=',
+        'while [ "$#" -gt 0 ]; do',
+        '  case "$1" in',
+        '    --signal=*|--kill-after=*) shift ;;',
+        '    *s) duration="$1"; shift; break ;;',
+        '    *) exit 64 ;;',
+        '  esac',
+        'done',
+        'if [ "${1:-}" = du ]; then',
+        '  scope="${!#}"',
+        '  printf "%s\\t%s\\n" "${duration}" "${scope}" >> "${TIMEOUT_INVOCATION_LOG}"',
+        '  case ":${BLOCKED_SCOPES}:" in',
+        '    *":${scope}:"*) sleep 0.2; exit 124 ;;',
+        '  esac',
+        'fi',
+        'exec "$@"',
+        '',
+      ].join('\n'),
+    );
+    writeFileSync(
+      duPath,
+      '#!/usr/bin/env bash\nset -euo pipefail\nscope="${!#}"\nprintf "4096\\t%s\\0" "${scope}"\n',
+    );
+    writeFileSync(
+      dockerPath,
+      '#!/usr/bin/env bash\nif [ "${1:-}" = "info" ]; then echo /var/lib/docker; fi\nexit 0\n',
+    );
+    writeFileSync(
+      findPath,
+      [
+        '#!/usr/bin/env bash',
+        'set -euo pipefail',
+        'case "${1:-}" in',
+        '  /tmp)',
+        '    IFS=: read -r -a scopes <<< "${HOTSPOT_SCOPES}"',
+        '    for scope in "${scopes[@]}"; do printf "%s\\0" "${scope}"; done',
+        '    ;;',
+        '  /) printf "/tmp\\0/opt\\0" ;;',
+        '  *) : ;;',
+        'esac',
+        '',
+      ].join('\n'),
+    );
+    for (const executable of [timeoutPath, duPath, dockerPath, findPath]) {
+      chmodSync(executable, 0o755);
+    }
+
+    try {
+      const startedAt = Date.now();
+      const report = spawnSync(
+        'bash',
+        [join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh'), 'report'],
+        {
+          env: {
+            ...process.env,
+            PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+            CAPACITY_DISK_USAGE_MODE: 'deep',
+            DOCKER_ROOT_DIR: '/var/lib/docker',
+            HOTSPOT_SCOPES: hotspotScopes.join(':'),
+            BLOCKED_SCOPES: hotspotScopes.slice(0, 4).join(':'),
+            TIMEOUT_INVOCATION_LOG: invocationLog,
+          },
+          encoding: 'utf8',
+        },
+      );
+      expect(report.error).toBeUndefined();
+      expect(report.status).toBe(0);
+      expect(Date.now() - startedAt).toBeLessThan(4_000);
+      expect(report.stdout).toContain(`bytes=4096 path=${hotspotScopes[4]}`);
+      for (const blockedScope of hotspotScopes.slice(0, 4)) {
+        expect(report.stdout).toContain(
+          `path=${blockedScope} reason=du_timeout detail=124 global_timeout_seconds=120 scope_timeout_seconds=15`,
+        );
+      }
+      const timeoutInvocations = readFileSync(invocationLog, 'utf8').trim().split('\n');
+      for (const hotspotScope of hotspotScopes) {
+        expect(timeoutInvocations).toContain(`15s\t${hotspotScope}`);
+      }
+    } finally {
+      rmSync(fakeBin, { recursive: true, force: true });
+      for (const hotspotScope of hotspotScopes) {
+        rmSync(hotspotScope, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it('bounds a blocked discovery phase and reports the incomplete parent', () => {
+    const fakeBin = mkdtempSync(join(tmpdir(), 'aqua-capacity-discovery-timeout-'));
+    const duPath = join(fakeBin, 'du');
+    const dockerPath = join(fakeBin, 'docker');
+    const findPath = join(fakeBin, 'find');
+    writeFileSync(
+      duPath,
+      '#!/usr/bin/env bash\nset -euo pipefail\nscope="${!#}"\nprintf "4096\\t%s\\0" "${scope}"\n',
+    );
+    writeFileSync(
+      dockerPath,
+      '#!/usr/bin/env bash\nif [ "${1:-}" = "info" ]; then echo /var/lib/docker; fi\nexit 0\n',
+    );
+    writeFileSync(
+      findPath,
+      [
+        '#!/usr/bin/env bash',
+        'set -euo pipefail',
+        'case "${1:-}" in',
+        '  /tmp) while :; do :; done ;;',
+        '  /) printf "/tmp\\0/opt\\0" ;;',
+        '  *) : ;;',
+        'esac',
+        '',
+      ].join('\n'),
+    );
+    for (const executable of [duPath, dockerPath, findPath]) {
+      chmodSync(executable, 0o755);
+    }
+
+    try {
+      const startedAt = Date.now();
+      const report = spawnSync(
+        'bash',
+        [join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh'), 'report'],
+        {
+          env: {
+            ...process.env,
+            PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+            CAPACITY_DISK_USAGE_MODE: 'deep',
+            CAPACITY_DU_TIMEOUT_SECONDS: '3',
+            DOCKER_ROOT_DIR: '/var/lib/docker',
+          },
+          encoding: 'utf8',
+        },
+      );
+      expect(report.error).toBeUndefined();
+      expect(report.status).toBe(0);
+      expect(Date.now() - startedAt).toBeLessThan(6_000);
+      expect(report.stdout).toContain(
+        'disk_usage_unavailable path=/tmp reason=discovery_timeout detail=124 global_timeout_seconds=3 discovery_timeout_seconds=',
+      );
+      expect(report.stdout).toContain('truncated=true');
+    } finally {
+      rmSync(fakeBin, { recursive: true, force: true });
+    }
+  });
+
+  it('caps discovery records, worker output, and hostile filename handling', () => {
+    const fakeBin = mkdtempSync(join(tmpdir(), 'aqua-capacity-output-cap-'));
+    const hostileScope = mkdtempSync(join(tmpdir(), 'aqua capacity\n'));
+    const invocationLog = join(fakeBin, 'du-scope-base64.log');
+    const duPath = join(fakeBin, 'du');
+    const dockerPath = join(fakeBin, 'docker');
+    const findPath = join(fakeBin, 'find');
+    writeFileSync(
+      duPath,
+      [
+        '#!/usr/bin/env bash',
+        'set -euo pipefail',
+        'scope="${!#}"',
+        'printf "%s" "${scope}" | base64 -w0 >> "${DU_INVOCATION_LOG}"',
+        'printf "\\n" >> "${DU_INVOCATION_LOG}"',
+        'if [ "${scope}" = /opt ]; then printf "%09000d" 0; exit 0; fi',
+        'printf "4096\\t%s\\0" "${scope}"',
+        '',
+      ].join('\n'),
+    );
+    writeFileSync(
+      dockerPath,
+      '#!/usr/bin/env bash\nif [ "${1:-}" = "info" ]; then echo /var/lib/docker; fi\nexit 0\n',
+    );
+    writeFileSync(
+      findPath,
+      [
+        '#!/usr/bin/env bash',
+        'set -euo pipefail',
+        'case "${1:-}" in',
+        '  /tmp)',
+        '    for ((i = 0; i < 129; i++)); do printf "%s\\0" "${HOSTILE_SCOPE}"; done',
+        '    ;;',
+        '  /) printf "/tmp\\0/opt\\0" ;;',
+        '  *) : ;;',
+        'esac',
+        '',
+      ].join('\n'),
+    );
+    for (const executable of [duPath, dockerPath, findPath]) {
+      chmodSync(executable, 0o755);
+    }
+
+    try {
+      const report = spawnSync(
+        'bash',
+        [join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh'), 'report'],
+        {
+          env: {
+            ...process.env,
+            PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+            CAPACITY_DISK_USAGE_MODE: 'deep',
+            DOCKER_ROOT_DIR: '/var/lib/docker',
+            DU_INVOCATION_LOG: invocationLog,
+            HOSTILE_SCOPE: hostileScope,
+          },
+          encoding: 'utf8',
+        },
+      );
+      expect(report.error).toBeUndefined();
+      expect(report.status).toBe(0);
+      expect(report.stdout).toContain(
+        'path=/tmp reason=discovery_scope_limit detail=128 global_timeout_seconds=120 discovery_timeout_seconds=0',
+      );
+      expect(report.stdout).toContain(
+        'path=/opt reason=du_output_limit detail=8192 global_timeout_seconds=120 scope_timeout_seconds=15',
+      );
+      expect(report.stdout).toContain("path=$'/tmp/aqua capacity\\n");
+      const encodedHostileScope = Buffer.from(hostileScope).toString('base64');
+      expect(
+        readFileSync(invocationLog, 'utf8')
+          .trim()
+          .split('\n')
+          .filter((scope) => scope === encodedHostileScope),
+      ).toHaveLength(1);
+    } finally {
+      rmSync(fakeBin, { recursive: true, force: true });
+      rmSync(hostileScope, { recursive: true, force: true });
+    }
   });
 
   it('records deploy capacity and rollback metadata in the release ledger', () => {
@@ -427,7 +996,7 @@ describe('deploy SSOT contract', () => {
     expect(maintenance).toContain('safe-image-gc');
     expect(maintenance).toContain('bash scripts/deploy/droplet-capacity.sh gc');
     expect(maintenance).toContain(
-      'CAPACITY_GC_MODE=auto bash scripts/deploy/droplet-capacity.sh gate',
+      'CAPACITY_GC_MODE=auto CAPACITY_DISK_USAGE_MODE=deep bash scripts/deploy/droplet-capacity.sh gate',
     );
   });
 

@@ -30,12 +30,29 @@ trail for report, image-only GC, gate, and deploy reruns.
 
 For deeper disk attribution through the same audited control plane, run the
 maintenance workflow in report mode with `CAPACITY_DISK_USAGE_MODE=deep`. Deep
-mode may scan `/`, `/var`, Docker root, containerd, logs, repo state, and `/tmp`;
-the script bounds each `du` scope with `CAPACITY_DU_TIMEOUT_SECONDS` (default
-60 seconds) and emits a visible `disk_usage_unavailable` line if diagnostics
-cannot finish. Diagnostic collection is evidence only: capacity pass/fail still
-comes from the canonical filesystem, inode, projected-pull, and safe-image-GC
-gates.
+mode builds a disjoint root-filesystem frontier, excluding Docker and
+containerd (their bytes come from `docker system df`). Immediate entries under
+`/tmp`, `/var/aqua-saas`, and `/var/suderra-os` become separate summary scopes,
+so one large child can time out without erasing completed sibling evidence.
+Known repository `target` and `node_modules` paths are scheduled first. At most
+four workers share one `CAPACITY_DU_TIMEOUT_SECONDS` wall-clock deadline
+(default and hard maximum 120 seconds), including a shared 20-second maximum
+discovery phase. Each scope gets at most 15 seconds, so four slow scopes cannot
+starve later families for the whole global deadline. Enumeration is capped at
+64 calls, 128 children per directory, and 512 total scopes; each worker capture
+is capped at 8 KiB and unavailable evidence at 64 records. Every cap or failed
+discovery is reported explicitly.
+Values outside 1–120 produce unavailable evidence without invoking `du`. Diagnostic
+collection is evidence only: capacity pass/fail still comes from the canonical
+filesystem, inode, projected-pull, and safe-image-GC gates.
+
+The `safe-image-gc` maintenance operation captures its pre-state with disk-usage
+walking disabled, runs image-only GC, and then performs one deep post-GC gate.
+This keeps the final verdict and attribution inside the 12-minute SSH command
+budget while preserving pre/post Docker and filesystem threshold evidence.
+The invariant reserves at least 300 seconds of that outer SSH window as
+non-`du` headroom for checkout, Docker work, threshold evaluation, and teardown;
+the headroom is not a second executable timeout.
 
 If capacity-preflight fails by GitHub Actions timeout instead of an explicit
 capacity threshold, do not lower hard reserves or bypass the gate. Treat it as a

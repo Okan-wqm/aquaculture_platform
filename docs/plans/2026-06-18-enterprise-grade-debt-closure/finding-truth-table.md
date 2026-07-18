@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `8c4f190bc2dd740da6d404b99acbce037488311f530e2fe5e5bd291653739282`
+Registry tip: `f855d7c10ad35eee9802cdd368c4689b3c388df888da3a6f39c31478c7198adc`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -87,21 +87,31 @@ CRITICAL rows are RESOLVED and leave the active table. The independent notary
 (`INFRA-CRITICAL-044`) remain blocked by external operator evidence;
 production deployment remains locked.
 
-Updated 2026-07-17 (sensor device industrial-protocol audit): the 102-finding
+Updated 2026-07-17 (farm/feed cutover adversarial review): five concrete
+single-ledger blockers were registered IN-PROGRESS, bringing the registry to
+1,028 entries. Four are active CRITICALs: depleted feed can fail open without a
+movement (`FARM-CRITICAL-237`), the legacy-balance backfill lacks row-level
+reconciliation provenance (`FARM-CRITICAL-238`), concurrent NULL-lot receipts
+can split the canonical projection (`FARM-CRITICAL-240`), and migration rollback
+can erase live drain writes (`FARM-CRITICAL-241`). They remain `real-open` until
+the implementation wave supplies PostgreSQL concurrency, rerun, rollback, and
+parity evidence.
+
+Updated 2026-07-18 (sensor device industrial-protocol audit): the 102-finding
 sensor `/sensor/devices` audit added 103 registry entries (the 102 findings plus
-SENSOR-MEDIUM-080). Merged onto main's post-close-ceremony chain and re-chained,
-the registry stands at 1125 entries with three new active CRITICALs from the
+SENSOR-MEDIUM-080). Merged onto main's farm/feed cutover chain and re-chained,
+the registry stands at 1132 entries with three new active CRITICALs from the
 sensor audit. `SENSOR-CRITICAL-007` (6 of 7 VFD adapters fake the write path —
 `EMERGENCY_STOP` returns success without transmitting) and `SENSOR-CRITICAL-009`
 (manual approve→apply never writes to the drive — `vfd.changeset.approved` has no
 consumer) are `real-open`: the edge-delegated VFD write path is the tracked fix
-(binding + write primitive have landed; command/apply rewire is in progress).
-`SENSOR-CRITICAL-008` (25 protocol adapters fake connection success — a
-never-contacted device is flipped ACTIVE) is `already-fixed-needs-close`: the
-`ProtocolImplementationStatus` SSoT hides unsupported adapters and
-`ConnectionTesterService` fails honestly for any non-`cloud-real` protocol
-before an adapter runs — OPEN only until the post-merge close ceremony records a
-main-reachable closing commit (PROC-HIGH-001).
+(binding + write primitive + command/apply rewire have landed; telemetry reads
+are edge-delegated). `SENSOR-CRITICAL-008` (25 protocol adapters fake connection
+success — a never-contacted device is flipped ACTIVE) is
+`already-fixed-needs-close`: the `ProtocolImplementationStatus` SSoT hides
+unsupported adapters and `ConnectionTesterService` fails honestly for any
+non-`cloud-real` protocol before an adapter runs — OPEN only until the post-merge
+close ceremony records a main-reachable closing commit (PROC-HIGH-001).
 
 Allowed truth buckets:
 
@@ -125,6 +135,10 @@ Allowed truth buckets:
 | `RBAC-CRITICAL-003`     | OPEN           | 1.2          | auth-security-expert | already-fixed-needs-close |
 | `INFRA-CRITICAL-040`    | IN-PROGRESS    | —            | infra-expert         | blocked                   |
 | `INFRA-CRITICAL-044`    | OPEN           | —            | infra-expert         | blocked                   |
+| `FARM-CRITICAL-237`     | IN-PROGRESS    | 4.1          | farm-expert          | real-open                 |
+| `FARM-CRITICAL-238`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
+| `FARM-CRITICAL-240`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
+| `FARM-CRITICAL-241`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
 | `SENSOR-CRITICAL-007`   | OPEN           | —            | sensor-expert        | real-open                 |
 | `SENSOR-CRITICAL-008`   | OPEN           | —            | sensor-expert        | already-fixed-needs-close |
 | `SENSOR-CRITICAL-009`   | OPEN           | —            | sensor-expert        | real-open                 |

@@ -32587,6 +32587,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/farm-expert/2026-07-15-enterprise-closure-orphans.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/farm-integration/2026-07-02-farm-full-integration.md",
       "prettier_managed": true
     },
@@ -42823,6 +42829,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/gates/farm-service-enterprise-guardrails.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/finding-registry-store.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/finding-registry-store.ts",
       "prettier_managed": true
     },
     {
@@ -54954,10 +54972,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9008,
+  "file_count": 9011,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8827,
-  "managed_file_list_sha256": "8f32780f0cfa8aa327056ed0956ed04f007a84384eee3bafabc2308e071a0314",
+  "managed_count": 8830,
+  "managed_file_list_sha256": "2ebe1491de77ccef466ff4dfb1acd4a959b10be4d29c073ff360286de4728abc",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

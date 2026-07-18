@@ -22,14 +22,14 @@ interface SuggestChannelsInput {
   industryContext?: string;
 }
 
-interface AlertThresholds {
+export interface AlertThresholds {
   warningLow?: number;
   warningHigh?: number;
   criticalLow?: number;
   criticalHigh?: number;
 }
 
-interface ChannelProposal {
+export interface ChannelProposal {
   channelKey: string;
   displayLabel: string;
   dataType: 'number' | 'boolean' | 'string';
@@ -41,7 +41,7 @@ interface ChannelProposal {
   confidence: 'high' | 'medium' | 'low';
 }
 
-interface SuggestChannelsOutput {
+export interface SuggestChannelsOutput {
   sensorId: string;
   tenantId: string;
   proposals: ChannelProposal[];

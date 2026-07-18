@@ -3382,6 +3382,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/sensor-detection/__tests__/sensor-channel-detection.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/sensor-detection/sensor-channel-detection.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/sensor-detection/sensor-channel-detection.responder.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/tenant-config/__tests__/agent-config.encryption.spec.ts",
       "prettier_managed": true
     },
@@ -42102,6 +42120,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/sensor-no-forged-user-payload.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/service-criticality-profile-contract.spec.ts",
       "prettier_managed": true
     },
@@ -55044,10 +55068,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9023,
+  "file_count": 9027,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8842,
-  "managed_file_list_sha256": "cbeb5d062c293ace3f05ea43903c321e775c97a6b463d6504efd377efde1af74",
+  "managed_count": 8846,
+  "managed_file_list_sha256": "6584b8430cdf2e7feb52161b7cb1e12fc19d553b0f7404f3f282cef5d2da7953",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

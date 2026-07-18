@@ -4,18 +4,18 @@ import { BaseTool } from '../core/base-tool';
 import { ToolExecutionContext } from '../core/tool.interface';
 import { formatLabel } from './utils';
 
-interface SensorSample {
+export interface SensorSample {
   timestamp: string;
   values: Record<string, unknown>;
 }
 
-interface AnalyzeSensorDataInput {
+export interface AnalyzeSensorDataInput {
   samples: SensorSample[];
   sensorName?: string;
   mqttTopic?: string;
 }
 
-interface DetectedField {
+export interface DetectedField {
   key: string;
   dataType: 'number' | 'boolean' | 'string';
   sampleCount: number;
@@ -27,7 +27,7 @@ interface DetectedField {
   suggestedWidgetType: string;
 }
 
-interface AnalyzeSensorDataOutput {
+export interface AnalyzeSensorDataOutput {
   detectedFields: DetectedField[];
   sampleCount: number;
   confidence: 'high' | 'medium' | 'low';

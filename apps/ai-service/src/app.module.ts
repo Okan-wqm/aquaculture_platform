@@ -81,6 +81,7 @@ import { AgentConfigModule } from './tenant-config/agent-config.module';
 import { AuditModule } from './audit/audit.module';
 import { CostModule } from './cost/cost.module';
 import { ChatModule } from './chat/chat.module';
+import { SensorChannelDetectionModule } from './sensor-detection/sensor-channel-detection.module';
 import { AiOutboxModule } from './outbox/ai-outbox.module';
 
 // Entities
@@ -292,6 +293,9 @@ type QueryComplexityOperationContext = {
     AuditModule,
     CostModule,
     ChatModule,
+    // SENSOR-MEDIUM-070: request.ai.sensor.detectChannels — deterministic
+    // sensor channel detection for backend services (service-principal, no LLM).
+    SensorChannelDetectionModule,
     // MOB-HIGH-001: human-in-the-loop actuation — proposal persistence +
     // the request.ai.executeAction responder.
     ActionsModule,

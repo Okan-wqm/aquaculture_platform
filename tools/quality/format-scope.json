@@ -25085,6 +25085,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/protocol/services/__tests__/protocol-registry.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/protocol/services/connection-tester.service.ts",
       "prettier_managed": true
     },
@@ -55080,10 +55086,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9029,
+  "file_count": 9030,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8848,
-  "managed_file_list_sha256": "2ccc368cfacbd161f86ef2c47d441f296e6c15925a53d380775348af291742cf",
+  "managed_count": 8849,
+  "managed_file_list_sha256": "7a567622fcdcf31a309c5461c81a8837314c1f9eeef484772cf01177bdc85866",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

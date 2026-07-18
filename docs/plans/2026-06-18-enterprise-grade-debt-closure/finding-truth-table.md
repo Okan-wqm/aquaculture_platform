@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `f855d7c10ad35eee9802cdd368c4689b3c388df888da3a6f39c31478c7198adc`
+Registry tip: `3cca7454a627d1c83256722ba729b0abf07a9f7a2085f0e668e7976c0475d9b4`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -100,7 +100,7 @@ parity evidence.
 Updated 2026-07-18 (sensor device industrial-protocol audit): the 102-finding
 sensor `/sensor/devices` audit added 103 registry entries (the 102 findings plus
 SENSOR-MEDIUM-080). Merged onto main's farm/feed cutover chain and re-chained,
-the registry stands at 1132 entries with three new active CRITICALs from the
+the registry stands at 1136 entries with three new active CRITICALs from the
 sensor audit. `SENSOR-CRITICAL-007` (6 of 7 VFD adapters fake the write path —
 `EMERGENCY_STOP` returns success without transmitting) and `SENSOR-CRITICAL-009`
 (manual approve→apply never writes to the drive — `vfd.changeset.approved` has no
@@ -112,6 +112,16 @@ success — a never-contacted device is flipped ACTIVE) is
 unsupported adapters and `ConnectionTesterService` fails honestly for any
 non-`cloud-real` protocol before an adapter runs — OPEN only until the post-merge
 close ceremony records a main-reachable closing commit (PROC-HIGH-001).
+
+Updated 2026-07-18 (production host control-plane recurrence review): exact-main
+capacity evidence registered four new active findings and closed the already
+merged default-deny image-tag gap. Two findings are CRITICAL and enter the
+active table: `INFRA-CRITICAL-077` covers the missing host-global lock between
+DR recovery and capacity/deploy mutation; `INFRA-CRITICAL-078` covers the
+production deploy/capacity recurrence of opaque, unpinned SSH and mutable
+target-host Git authority. Both remain `real-open` until native fingerprinted
+transport, hermetic release material, the shared lock, and adversarial recovery
+tests merge.
 
 Allowed truth buckets:
 
@@ -142,6 +152,8 @@ Allowed truth buckets:
 | `SENSOR-CRITICAL-007`   | OPEN           | —            | sensor-expert        | real-open                 |
 | `SENSOR-CRITICAL-008`   | OPEN           | —            | sensor-expert        | already-fixed-needs-close |
 | `SENSOR-CRITICAL-009`   | OPEN           | —            | sensor-expert        | real-open                 |
+| `INFRA-CRITICAL-077`    | IN-PROGRESS    | 1.1          | infra-expert         | real-open                 |
+| `INFRA-CRITICAL-078`    | IN-PROGRESS    | 1.1          | security-reviewer    | real-open                 |
 
 ## Mutation Rules
 

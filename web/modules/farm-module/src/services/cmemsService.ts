@@ -273,36 +273,6 @@ export function getDataSource(
 }
 
 /**
- * Check if coordinates are within European seas coverage
- * Covers: Mediterranean, Baltic, North Sea, Norwegian Sea, Barents Sea
- * (Rough bounding box for data availability check)
- *
- * Note: Using GLOBAL products, so this is mainly for UI guidance.
- * Data is available globally over ocean areas.
- */
-export function isInMediterranean(lat: number, lng: number): boolean {
-  // European seas approximate bounds (expanded for global coverage)
-  // Mediterranean: 30-46°N, -6°E to 36.5°E
-  // Baltic Sea: 53-66°N, 10-30°E
-  // North Sea: 51-62°N, -5°E to 12°E
-  // Norwegian Sea: 62-75°N, -10°E to 30°E
-  // Combined bounds for European aquaculture regions
-  const bounds = {
-    minLat: 30,   // Southern Mediterranean
-    maxLat: 75,   // Northern Norway / Barents Sea
-    minLng: -15,  // Atlantic coast
-    maxLng: 45,   // Black Sea / Eastern Mediterranean
-  };
-
-  return (
-    lat >= bounds.minLat &&
-    lat <= bounds.maxLat &&
-    lng >= bounds.minLng &&
-    lng <= bounds.maxLng
-  );
-}
-
-/**
  * Check if coordinates are within global ocean coverage
  * Returns true for any ocean location (CMEMS global products)
  */

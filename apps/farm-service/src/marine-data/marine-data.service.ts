@@ -2,11 +2,13 @@ import { BadGatewayException, BadRequestException, Injectable, Logger } from '@n
 import sharp from 'sharp';
 
 import { SentinelHubService } from '../sentinel-hub/sentinel-hub.service';
-import { SentinelProxyPolicy } from '../sentinel-hub/sentinel-proxy.policy';
+import { buildSentinelProcessBody } from '../sentinel-hub/sentinel-process-request.factory';
 import {
   type SentinelPointProductDefinition,
   getSentinelPointProduct,
+  getSentinelProcessProduct,
 } from '../sentinel-hub/sentinel-product-registry';
+import { MAX_BBOX_DEGREES_AREA, SentinelProxyPolicy } from '../sentinel-hub/sentinel-proxy.policy';
 import {
   CmemsLayerDefinition,
   MARINE_LAYER_CATALOG,
@@ -24,6 +26,39 @@ const MAX_CMEMS_TILE_MATRIX = 12;
 const MAX_SENTINEL_TILE_MATRIX = 18;
 const TILE_SIZE = 256;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Worst-case (equatorial) WMTS tile bbox area in deg² at a given zoom. Web-Mercator
+ * tiles span the most latitude at the equator, so this bounds the area the Sentinel
+ * proxy policy will accept for any tile at that zoom.
+ */
+export function worstCaseTileAreaDeg2(tileMatrix: number): number {
+  const n = 2 ** tileMatrix;
+  const lonSpan = 360 / n;
+  const latSpan = (Math.atan(Math.sinh((2 * Math.PI) / n)) * 180) / Math.PI;
+  return lonSpan * latSpan;
+}
+
+/**
+ * Lowest Sentinel zoom whose worst-case tile still fits the proxy policy's bbox-area
+ * cap. Derived from MAX_BBOX_DEGREES_AREA so the two cannot drift: a tile the service
+ * would emit below this zoom is exactly one the policy would reject with a 400.
+ */
+function minSentinelTileMatrix(maxAreaDeg2: number): number {
+  for (let z = 0; z <= MAX_SENTINEL_TILE_MATRIX; z += 1) {
+    if (worstCaseTileAreaDeg2(z) <= maxAreaDeg2) {
+      return z;
+    }
+  }
+  return MAX_SENTINEL_TILE_MATRIX;
+}
+
+export const MIN_SENTINEL_TILE_MATRIX = minSentinelTileMatrix(MAX_BBOX_DEGREES_AREA);
+
+/** Sentinel point queries render a small window and sample its centre pixel. */
+const SENTINEL_POINT_DIMENSION = 64;
+/** ~64 native (10 m) pixels wide, so the centre pixel is a true sample, not an upsample. */
+const SENTINEL_POINT_BBOX_BUFFER_DEG = 0.0032;
 
 type SentinelPointQuality = 'good' | 'cloud' | 'land' | 'no_data';
 
@@ -201,7 +236,11 @@ export class MarineDataService {
     input: MarineTileRequest & { tenantId: string },
     layer: SentinelLayerDefinition,
   ): Promise<MarineTileResponse> {
-    const tileMatrix = this.parseTileMatrix(input.tileMatrix, MAX_SENTINEL_TILE_MATRIX);
+    const tileMatrix = this.parseTileMatrix(
+      input.tileMatrix,
+      MAX_SENTINEL_TILE_MATRIX,
+      MIN_SENTINEL_TILE_MATRIX,
+    );
     const tileCol = this.parseTileCoordinate('TILECOL', input.tileCol, tileMatrix);
     const tileRow = this.parseTileCoordinate('TILEROW', input.tileRow, tileMatrix);
     const effectiveDate = this.parseSentinelDate(input.date);
@@ -231,25 +270,30 @@ export class MarineDataService {
       throw new BadRequestException(`Sentinel point query is not supported for layer: ${layer.id}`);
     }
 
-    const buffer = await this.fetchSentinelProcess({
+    const rendered = await this.fetchSentinelProcess({
       tenantId: input.tenantId,
       bbox: this.pointBbox(lat, lng).join(','),
       fromDate: this.sentinelWindowStart(effectiveDate),
       toDate: this.endOfDayIso(effectiveDate),
-      width: '1',
-      height: '1',
+      width: String(SENTINEL_POINT_DIMENSION),
+      height: String(SENTINEL_POINT_DIMENSION),
       product: layer.product,
       evalscriptOverride: definition.evalscript,
     });
 
-    const decoded = await this.decodeSentinelPoint(buffer.body, definition);
+    // Upstream failures come back as a non-image body; never feed that to sharp (F3).
+    if (rendered.status !== 200 || !rendered.contentType.startsWith('image/')) {
+      throw new BadGatewayException('Sentinel Hub point query failed');
+    }
+
+    const decoded = await this.decodeSentinelPoint(rendered.body, definition);
     return {
       lat,
       lng,
       value: decoded.value,
       unit: definition.unit,
       variableId: layer.id,
-      datasetId: 'sentinel-2-l2a',
+      datasetId: getSentinelProcessProduct(layer.product)?.collection ?? layer.product,
       timestamp: effectiveDate,
       quality: decoded.quality,
     };
@@ -285,31 +329,7 @@ export class MarineDataService {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${tokenResult.accessToken}`,
       },
-      body: JSON.stringify({
-        input: {
-          bounds: {
-            bbox: requestPolicy.bbox,
-            properties: { crs: 'http://www.opengis.net/def/crs/EPSG/0/4326' },
-          },
-          data: [
-            {
-              type: requestPolicy.collection,
-              dataFilter: {
-                timeRange: {
-                  from: requestPolicy.fromIso,
-                  to: requestPolicy.toIso,
-                },
-              },
-            },
-          ],
-        },
-        output: {
-          width: requestPolicy.width,
-          height: requestPolicy.height,
-          responses: [{ identifier: 'default', format: { type: 'image/png' } }],
-        },
-        evalscript: input.evalscriptOverride ?? requestPolicy.evalscript,
-      }),
+      body: buildSentinelProcessBody(requestPolicy, input.evalscriptOverride),
     });
 
     if (!response.ok) {
@@ -477,10 +497,10 @@ export class MarineDataService {
     return depth;
   }
 
-  private parseTileMatrix(input: string, maxTileMatrix: number): number {
+  private parseTileMatrix(input: string, maxTileMatrix: number, minTileMatrix = 0): number {
     const tileMatrix = this.parseInteger('TILEMATRIX', input);
-    if (tileMatrix < 0 || tileMatrix > maxTileMatrix) {
-      throw new BadRequestException(`TILEMATRIX must be between 0 and ${maxTileMatrix}`);
+    if (tileMatrix < minTileMatrix || tileMatrix > maxTileMatrix) {
+      throw new BadRequestException(`TILEMATRIX must be between ${minTileMatrix} and ${maxTileMatrix}`);
     }
     return tileMatrix;
   }
@@ -545,7 +565,7 @@ export class MarineDataService {
   }
 
   private pointBbox(lat: number, lng: number): [number, number, number, number] {
-    const buffer = 0.0005;
+    const buffer = SENTINEL_POINT_BBOX_BUFFER_DEG;
     return [
       Math.max(-180, lng - buffer),
       Math.max(-90, lat - buffer),
@@ -608,14 +628,21 @@ export class MarineDataService {
       .ensureAlpha()
       .raw()
       .toBuffer({ resolveWithObject: true });
-    if (decoded.data.byteLength < 4) {
+    const { width, height, channels } = decoded.info;
+    if (width < 1 || height < 1 || channels < 4) {
       return { value: null, quality: 'no_data' };
     }
 
-    const red = decoded.data[0] ?? 0;
-    const green = decoded.data[1] ?? 0;
-    const blue = decoded.data[2] ?? 0;
-    const alpha = decoded.data[3] ?? 0;
+    // Sample the centre pixel of the rendered window (the requested lat/lng).
+    const centre = (Math.floor(height / 2) * width + Math.floor(width / 2)) * channels;
+    if (decoded.data.byteLength < centre + 4) {
+      return { value: null, quality: 'no_data' };
+    }
+
+    const red = decoded.data[centre] ?? 0;
+    const green = decoded.data[centre + 1] ?? 0;
+    const blue = decoded.data[centre + 2] ?? 0;
+    const alpha = decoded.data[centre + 3] ?? 0;
 
     if (alpha === 0 || blue === 0) {
       return { value: null, quality: 'no_data' };

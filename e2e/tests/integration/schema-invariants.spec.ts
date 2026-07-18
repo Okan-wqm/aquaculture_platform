@@ -239,6 +239,7 @@ const MOVED_TABLES: Array<[string, string]> = [
   ['feeder_calibrations', 'farm'],
   ['marine_observations', 'farm'],
   ['weather_observations', 'farm'],
+  ['sentinel_hub_settings', 'farm'],
   ['notification_logs', 'notification'],
   // P8 — high-complexity
   ['tenant_roles', 'auth'],

@@ -5,7 +5,7 @@ import {
   getSentinelProcessProduct,
 } from './sentinel-product-registry';
 
-const MAX_BBOX_DEGREES_AREA = 1;
+export const MAX_BBOX_DEGREES_AREA = 1;
 const MAX_DATE_RANGE_DAYS = 31;
 const MIN_DIMENSION = 64;
 const MAX_DIMENSION = 2048;

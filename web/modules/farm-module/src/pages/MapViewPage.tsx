@@ -272,7 +272,9 @@ const MapViewPage: React.FC = () => {
   });
 
   // Minimum zoom level for Sentinel layers
-  const SENTINEL_MIN_ZOOM = 8;
+  // Must match the backend MIN_SENTINEL_TILE_MATRIX: below this zoom a Sentinel tile's
+  // bbox exceeds the proxy policy's area cap and the request would 400.
+  const SENTINEL_MIN_ZOOM = 9;
 
   // Handle AOI creation from GeomanController (inside MapContainer)
   const handleAOICreated = (layer: L.Layer, type: AOIType) => {

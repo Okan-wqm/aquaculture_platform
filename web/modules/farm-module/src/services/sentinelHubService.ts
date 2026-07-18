@@ -55,14 +55,6 @@ export const SENTINEL_LAYERS: LayerInfo[] = [
     description: 'Fitoplankton yoğunluğu göstergesi (mg/m³)',
   },
   {
-    id: 'CYANOBACTERIA',
-    name: 'Siyanobakteri',
-    nameEn: 'Cyanobacteria',
-    icon: '🦠',
-    category: 'water',
-    description: 'Mavi-yeşil alg blomu tespiti (HAB)',
-  },
-  {
     id: 'TURBIDITY',
     name: 'Bulanıklık',
     nameEn: 'Turbidity',
@@ -71,54 +63,12 @@ export const SENTINEL_LAYERS: LayerInfo[] = [
     description: 'Su berraklığı ölçümü (NTU)',
   },
   {
-    id: 'CDOM',
-    name: 'Çözünmüş Organik Madde',
-    nameEn: 'CDOM',
-    icon: '🟤',
-    category: 'water',
-    description: 'Colored Dissolved Organic Matter',
-  },
-  {
-    id: 'TSS',
-    name: 'Askıda Katı Madde',
-    nameEn: 'TSS',
-    icon: '⚪',
-    category: 'water',
-    description: 'Total Suspended Solids (mg/L)',
-  },
-  {
     id: 'NDWI',
     name: 'Su İndeksi',
     nameEn: 'NDWI',
     icon: '💧',
     category: 'water',
     description: 'Normalized Difference Water Index - Su kütlesi tespiti',
-  },
-  {
-    id: 'SECCHI',
-    name: 'Şeffaflık Derinliği',
-    nameEn: 'Secchi Depth',
-    icon: '🔍',
-    category: 'water',
-    description: 'Su şeffaflığı derinlik tahmini (metre)',
-  },
-
-  // Analysis layers
-  {
-    id: 'NDVI',
-    name: 'Bitki İndeksi',
-    nameEn: 'NDVI',
-    icon: '🌱',
-    category: 'analysis',
-    description: 'Normalized Difference Vegetation Index',
-  },
-  {
-    id: 'MOISTURE',
-    name: 'Nem İndeksi',
-    nameEn: 'Moisture Index',
-    icon: '💧',
-    category: 'analysis',
-    description: 'Normalized Difference Moisture Index',
   },
 ];
 

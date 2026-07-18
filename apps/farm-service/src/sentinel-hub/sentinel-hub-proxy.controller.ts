@@ -15,6 +15,7 @@ import type { Request, Response as ExpressResponse } from 'express';
 
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 
+import { buildSentinelProcessBody } from './sentinel-process-request.factory';
 import { SentinelHubService } from './sentinel-hub.service';
 import { SentinelProxyPolicy } from './sentinel-proxy.policy';
 
@@ -99,7 +100,7 @@ export class SentinelHubProxyController {
       if (contentType) {
         res.setHeader('Content-Type', contentType);
       }
-      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.setHeader('Cache-Control', 'private, max-age=3600');
       res.send(buffer);
     } catch (error) {
       if (error instanceof BadRequestException) throw error;
@@ -143,39 +144,13 @@ export class SentinelHubProxyController {
         throw new BadRequestException('Sentinel Hub is not configured for this tenant');
       }
 
-      const requestBody = {
-        input: {
-          bounds: {
-            bbox: requestPolicy.bbox,
-            properties: { crs: 'http://www.opengis.net/def/crs/EPSG/0/4326' },
-          },
-          data: [
-            {
-              type: requestPolicy.collection,
-              dataFilter: {
-                timeRange: {
-                  from: requestPolicy.fromIso,
-                  to: requestPolicy.toIso,
-                },
-              },
-            },
-          ],
-        },
-        output: {
-          width: requestPolicy.width,
-          height: requestPolicy.height,
-          responses: [{ identifier: 'default', format: { type: 'image/png' } }],
-        },
-        evalscript: requestPolicy.evalscript,
-      };
-
       const response = await this.fetchWithTimeout(`${CDSE_BASE_URL}/api/v1/process`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${tokenResult.accessToken}`,
         },
-        body: JSON.stringify(requestBody),
+        body: buildSentinelProcessBody(requestPolicy),
       });
 
       if (!response.ok) {
@@ -198,7 +173,7 @@ export class SentinelHubProxyController {
       if (contentType) {
         res.setHeader('Content-Type', contentType);
       }
-      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.setHeader('Cache-Control', 'private, max-age=3600');
       res.send(buffer);
     } catch (error) {
       if (error instanceof BadRequestException) throw error;
@@ -263,7 +238,7 @@ export class SentinelHubProxyController {
         response.headers.get('content-length'),
       );
       const data = await response.json();
-      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.setHeader('Cache-Control', 'private, max-age=3600');
       res.json(data);
     } catch (error) {
       if (error instanceof BadRequestException) throw error;

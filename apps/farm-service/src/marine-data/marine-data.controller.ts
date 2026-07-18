@@ -15,28 +15,11 @@ import type { Request, Response as ExpressResponse } from 'express';
 
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 
+import { MarineAoiAnalysisDto, MarinePointQueryDto } from './dto/marine-requests.dto';
 import { MarineCachePolicy, type MarineCacheSubject } from './marine-cache.policy';
 import { MarineDataService } from './marine-data.service';
 
 type MarineTenantRequest = TenantRequest & Request;
-
-interface MarinePointQueryBody {
-  layerId?: string;
-  lat?: number | string;
-  lng?: number | string;
-  date?: string;
-  depth?: number | string;
-  zoom?: number | string;
-}
-
-interface MarineAoiAnalysisBody {
-  layerId?: string;
-  bbox?: number[] | string;
-  fromDate?: string;
-  toDate?: string;
-  width?: number | string;
-  height?: number | string;
-}
 
 @Controller('api/internal/marine')
 @UseGuards(JwtAuthGuard)
@@ -96,7 +79,7 @@ export class MarineDataController {
 
   @Post('point-query')
   async getPoint(
-    @Body() body: MarinePointQueryBody,
+    @Body() body: MarinePointQueryDto,
     @Req() req: MarineTenantRequest,
     @Res({ passthrough: true }) res: ExpressResponse,
   ) {
@@ -118,7 +101,7 @@ export class MarineDataController {
 
   @Post('aoi-analysis')
   async analyzeAoi(
-    @Body() body: MarineAoiAnalysisBody,
+    @Body() body: MarineAoiAnalysisDto,
     @Req() req: MarineTenantRequest,
     @Res() res: ExpressResponse,
   ): Promise<void> {

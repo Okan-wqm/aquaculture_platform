@@ -12,9 +12,7 @@
 
 import { LayerType } from './sentinelHubService';
 import {
-  CMEMSLayerType,
-  isInMediterranean,
-} from './cmemsService';
+  CMEMSLayerType,} from './cmemsService';
 import {
   fetchMarinePointValue,
   toMarineLayerId,
@@ -216,16 +214,6 @@ export async function queryPointData(
   try {
     // Route to appropriate data source
     if (dataSource === 'CMEMS') {
-      // Check if location is in European seas coverage
-      if (!isInMediterranean(lat, lng)) {
-        return {
-          ...baseResult,
-          quality: 'no_data',
-          qualityDescription: 'Bu konum Avrupa denizleri kapsamı dışında. CMEMS verileri Akdeniz, Baltık, Kuzey Denizi ve Norveç denizleri için mevcut.',
-          error: 'Konum kapsam dışı',
-        };
-      }
-
       const marineLayerId = toMarineLayerId(layer);
       if (!marineLayerId) {
         return {

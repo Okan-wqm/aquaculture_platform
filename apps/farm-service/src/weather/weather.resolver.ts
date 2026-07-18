@@ -17,6 +17,16 @@ import { WeatherSyncService } from './services/weather-sync.service';
 import { QueryBus } from '@platform/cqrs';
 import { GetWeatherSettingsQuery } from './queries/get-weather-settings.query';
 
+/**
+ * Coerce a decimal-column value to a number for the GraphQL response, preserving a
+ * genuine 0 (calm sea, 0 °C, North = 0°, 0 mm precip, 0 % cloud) and mapping only
+ * null/undefined to undefined. The previous truthy guard silently dropped exact-zero
+ * measurements from the current-conditions payload.
+ */
+function toOptionalNumber(value: number | string | null | undefined): number | undefined {
+  return value === null || value === undefined ? undefined : Number(value);
+}
+
 @Resolver()
 @UseGuards(TenantGuard)
 export class WeatherResolver {
@@ -110,19 +120,19 @@ export class WeatherResolver {
     return {
       siteId,
       observedAt: weather.observedAt,
-      temperature: weather.temperature ? Number(weather.temperature) : undefined,
-      windSpeed: weather.windSpeed ? Number(weather.windSpeed) : undefined,
-      windDirection: weather.windDirection ? Number(weather.windDirection) : undefined,
-      windGusts: weather.windGusts ? Number(weather.windGusts) : undefined,
-      precipitation: weather.precipitation ? Number(weather.precipitation) : undefined,
-      cloudCover: weather.cloudCover ? Number(weather.cloudCover) : undefined,
-      pressureMsl: weather.pressureMsl ? Number(weather.pressureMsl) : undefined,
-      relativeHumidity: weather.relativeHumidity ? Number(weather.relativeHumidity) : undefined,
-      waveHeight: marine?.waveHeight ? Number(marine.waveHeight) : undefined,
-      waveDirection: marine?.waveDirection ? Number(marine.waveDirection) : undefined,
-      wavePeriod: marine?.wavePeriod ? Number(marine.wavePeriod) : undefined,
-      swellWaveHeight: marine?.swellWaveHeight ? Number(marine.swellWaveHeight) : undefined,
-      seaSurfaceTemperature: marine?.seaSurfaceTemperature ? Number(marine.seaSurfaceTemperature) : undefined,
+      temperature: toOptionalNumber(weather.temperature),
+      windSpeed: toOptionalNumber(weather.windSpeed),
+      windDirection: toOptionalNumber(weather.windDirection),
+      windGusts: toOptionalNumber(weather.windGusts),
+      precipitation: toOptionalNumber(weather.precipitation),
+      cloudCover: toOptionalNumber(weather.cloudCover),
+      pressureMsl: toOptionalNumber(weather.pressureMsl),
+      relativeHumidity: toOptionalNumber(weather.relativeHumidity),
+      waveHeight: toOptionalNumber(marine?.waveHeight),
+      waveDirection: toOptionalNumber(marine?.waveDirection),
+      wavePeriod: toOptionalNumber(marine?.wavePeriod),
+      swellWaveHeight: toOptionalNumber(marine?.swellWaveHeight),
+      seaSurfaceTemperature: toOptionalNumber(marine?.seaSurfaceTemperature),
       fetchedAt: weather.fetchedAt,
     };
   }

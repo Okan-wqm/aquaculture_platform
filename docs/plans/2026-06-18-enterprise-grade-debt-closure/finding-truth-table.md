@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `935012cd444c1b96a9b31660e5c84cefafbaa4cbad5daa346e84bb0b452561b1`
+Registry tip: `986cd8f9bb2551ac2f604be79dd9d3d7dd2e32d34040611fe587a1f155104249`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -97,6 +97,16 @@ can erase live drain writes (`FARM-CRITICAL-241`). They remain `real-open` until
 the implementation wave supplies PostgreSQL concurrency, rerun, rollback, and
 parity evidence.
 
+Updated 2026-07-18 (production host control-plane recurrence review): exact-main
+capacity evidence registered four new active findings and closed the already
+merged default-deny image-tag gap. Two findings are CRITICAL and enter the
+active table: `INFRA-CRITICAL-077` covers the missing host-global lock between
+DR recovery and capacity/deploy mutation; `INFRA-CRITICAL-078` covers the
+production deploy/capacity recurrence of opaque, unpinned SSH and mutable
+target-host Git authority. Both remain `real-open` until native fingerprinted
+transport, hermetic release material, the shared lock, and adversarial recovery
+tests merge.
+
 Allowed truth buckets:
 
 - `real-open`
@@ -123,6 +133,8 @@ Allowed truth buckets:
 | `FARM-CRITICAL-238`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
 | `FARM-CRITICAL-240`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
 | `FARM-CRITICAL-241`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
+| `INFRA-CRITICAL-077`    | IN-PROGRESS    | 1.1          | infra-expert         | real-open                 |
+| `INFRA-CRITICAL-078`    | IN-PROGRESS    | 1.1          | security-reviewer    | real-open                 |
 
 ## Mutation Rules
 

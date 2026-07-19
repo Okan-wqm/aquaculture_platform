@@ -24335,12 +24335,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/sensor-service/src/ingestion/__tests__/batch-processor.service.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/sensor-service/src/ingestion/__tests__/mqtt-listener.service.spec.ts",
       "prettier_managed": true
     },
@@ -24371,7 +24365,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/sensor-service/src/ingestion/batch-processor.service.ts",
+      "path": "apps/sensor-service/src/ingestion/__tests__/sensor-metric-writer.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -24420,6 +24414,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/ingestion/sensor-meta-cache.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/ingestion/sensor-metric-writer.service.ts",
       "prettier_managed": true
     },
     {
@@ -55155,7 +55155,7 @@
   "file_count": 9041,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
   "managed_count": 8860,
-  "managed_file_list_sha256": "8f8b6576055a7cff0cb215b41819989dfdb7e4f1b9aed8da6aeb14107aa37dea",
+  "managed_file_list_sha256": "3f9d5056a7147c3ada93e2c58365866326b2ea09cd1ac30abad72265e38b241b",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

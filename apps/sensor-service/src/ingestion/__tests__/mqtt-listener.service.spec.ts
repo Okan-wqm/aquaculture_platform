@@ -213,6 +213,11 @@ function buildService(overrides: {
     configService,
     sensorRepo,
     dataSource,
+    {
+      writeImmediate: jest.fn().mockResolvedValue(undefined),
+      writeManaged: jest.fn().mockResolvedValue(undefined),
+      enqueue: jest.fn(),
+    }, // metricWriter (SensorMetricWriterService)
     eventBus,
     edgeDeviceService,
     sensorTopicCache,
@@ -1409,27 +1414,8 @@ describe('MqttListenerService', () => {
     });
   });
 
-  // ==================== 14. UUID Validation ====================
-
-  describe('UUID validation', () => {
-    it('should accept valid UUIDs', () => {
-      const service = buildService().service;
-      const isValidUUID = (service as any).isValidUUID.bind(service);
-
-      expect(isValidUUID(SENSOR_ID)).toBe(true);
-      expect(isValidUUID('12345678-1234-1234-1234-123456789abc')).toBe(true);
-    });
-
-    it('should reject invalid UUIDs', () => {
-      const service = buildService().service;
-      const isValidUUID = (service as any).isValidUUID.bind(service);
-
-      expect(isValidUUID('not-a-uuid')).toBe(false);
-      expect(isValidUUID(null)).toBe(false);
-      expect(isValidUUID(undefined)).toBe(false);
-      expect(isValidUUID('')).toBe(false);
-    });
-  });
+  // UUID (and non-finite) metric validation moved to SensorMetricWriterService
+  // (SENSOR-MEDIUM-068) — see sensor-metric-writer.service.spec.ts.
 
   // ==================== 15. Alarm Priority Mapping ====================
 

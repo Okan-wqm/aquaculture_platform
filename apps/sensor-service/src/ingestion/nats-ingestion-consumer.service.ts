@@ -26,13 +26,13 @@ import { SensorMetricInput } from '../database/entities/sensor-metric.entity';
 import { Sensor } from '../database/entities/sensor.entity';
 import { TagValueFanoutService } from '../scada-runtime/services/tag-value-fanout.service';
 
-import { BatchProcessorService } from './batch-processor.service';
+import { SensorMetricWriterService } from './sensor-metric-writer.service';
 import { SensorMetaCacheService } from './sensor-meta-cache.service';
 
 /**
  * NATS consumer that bridges the Rust ingestion sidecar
  * (`apps/sensor-ingestion`, ADR-025) into the existing NestJS
- * `BatchProcessorService` persistence path AND re-emits the typed
+ * `SensorMetricWriterService` persistence path AND re-emits the typed
  * `SensorReadingEvent` for downstream consumers.
  *
  * WHY this service exists (ADR-022 control / data plane separation):
@@ -58,7 +58,7 @@ import { SensorMetaCacheService } from './sensor-meta-cache.service';
  *   invalidation event arrived (e.g. raw SQL UPDATE).
  *
  * WHY publish typed event AFTER enqueue (not before):
- *   `BatchProcessorService.enqueue` is fire-and-forget into an
+ *   `SensorMetricWriterService.enqueue` is fire-and-forget into an
  *   in-memory buffer; it returns synchronously without waiting for the
  *   actual DB write. Publishing typed events after the enqueue
  *   guarantees alert-engine receives the event in topology order
@@ -93,7 +93,7 @@ export class NatsIngestionConsumerService
   private statsTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
-    private readonly batchProcessor: BatchProcessorService,
+    private readonly metricWriter: SensorMetricWriterService,
     private readonly configService: ConfigService,
     private readonly metaCache: SensorMetaCacheService,
     @Optional()
@@ -279,7 +279,7 @@ export class NatsIngestionConsumerService
       farmId: event.farmId ?? sensor.farmId ?? undefined,
       pondId: event.pondId ?? sensor.pondId ?? undefined,
     };
-    this.batchProcessor.enqueue(metric);
+    this.metricWriter.enqueue(metric);
     this.enqueuedCount++;
 
     // 4b. Live fan-out to subscribed /scada operator sockets. Best-effort by

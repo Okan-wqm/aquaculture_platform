@@ -3,7 +3,7 @@
  *
  * Covers the Rust-sidecar → NestJS bridge contract:
  *   - SensorMetricIngested events from the sidecar are persisted via
- *     the existing BatchProcessorService.enqueue path.
+ *     the existing SensorMetricWriterService.enqueue path.
  *   - The typed SensorReadingEvent is re-emitted for downstream
  *     consumers, with channelKey selecting the readingXxx field.
  *   - Drops on unknown sensor / unknown channel / tenant mismatch
@@ -21,7 +21,7 @@ import { type SensorMetricIngestedEvent } from '@platform/event-contracts';
 
 import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
 import { Sensor } from '../../database/entities/sensor.entity';
-import { BatchProcessorService } from '../batch-processor.service';
+import { SensorMetricWriterService } from '../sensor-metric-writer.service';
 import { NatsIngestionConsumerService } from '../nats-ingestion-consumer.service';
 
 const TENANT_ID  = '11111111-1111-1111-1111-111111111111';
@@ -70,11 +70,12 @@ function fakeEvent(overrides: Partial<SensorMetricIngestedEvent> = {}): SensorMe
   } as unknown as SensorMetricIngestedEvent;
 }
 
-function makeBatch(): jest.Mocked<BatchProcessorService> {
-  return {
+function makeBatch(): jest.Mocked<SensorMetricWriterService> {
+  const mock: Partial<jest.Mocked<SensorMetricWriterService>> = {
     enqueue: jest.fn(),
     enqueueBatch: jest.fn(),
-  } as unknown as jest.Mocked<BatchProcessorService>;
+  };
+  return mock as jest.Mocked<SensorMetricWriterService>;
 }
 
 function makeBus(): jest.Mocked<IEventBus> {
@@ -96,7 +97,7 @@ function makeService(opts?: {
   bus?: IEventBus | null;
   sensor?: Sensor | null;
   channels?: SensorDataChannel[];
-  batch?: jest.Mocked<BatchProcessorService>;
+  batch?: jest.Mocked<SensorMetricWriterService>;
   fanout?: { fanoutMetric: jest.Mock; drainStats: jest.Mock } | null;
 }) {
   // Faz 3 follow-on: cache extracted to SensorMetaCacheService. The

@@ -14,7 +14,7 @@ import { ReleaseBundleModule } from '../release-bundle/release-bundle.module';
 import { ScadaRuntimeModule } from '../scada-runtime/scada-runtime.module';
 import { VfdModule } from '../vfd/vfd.module';
 
-import { BatchProcessorService } from './batch-processor.service';
+import { SensorMetricWriterService } from './sensor-metric-writer.service';
 import { DataIngestionService } from './data-ingestion.service';
 import { DataProcessorService } from './data-processor.service';
 import { MqttListenerService } from './mqtt-listener.service';
@@ -42,7 +42,7 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     VfdModule,
   ],
   providers: [
-    BatchProcessorService,
+    SensorMetricWriterService,
     DataIngestionService,
     MqttListenerService,
     DataProcessorService,
@@ -52,7 +52,7 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     // handler (write path) share one Map per process.
     SensorMetaCacheService,
     // Faz 3 stage 2 — bridges the Rust ingestion sidecar (ADR-025)
-    // events into the existing BatchProcessor + typed-event publish
+    // events into the shared SensorMetricWriterService + typed-event publish
     // path. Co-exists with MqttListenerService until Faz 3 stage 3
     // wires the SENSOR_SERVICE_PROFILE env-gate that disables MQTT
     // entirely on the control-plane profile.
@@ -72,7 +72,7 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     SensorLookupResponderService,
   ],
   exports: [
-    BatchProcessorService,
+    SensorMetricWriterService,
     DataIngestionService,
     MqttListenerService,
     DataProcessorService,

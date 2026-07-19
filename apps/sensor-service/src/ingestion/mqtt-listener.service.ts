@@ -56,6 +56,7 @@ import { VfdEdgeProvisioningService } from '../vfd/services/vfd-edge-provisionin
 import { VfdEdgeReadService } from '../vfd/services/vfd-edge-read.service';
 import { VfdEdgeWriteService } from '../vfd/services/vfd-edge-write.service';
 import { SensorTopicCacheService, CachedSensorInfo } from './sensor-topic-cache.service';
+import { SensorMetricWriterService } from './sensor-metric-writer.service';
 
 /**
  * MQTT Topic Pattern for tenant-aware sensor data
@@ -200,6 +201,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     private readonly sensorRepository: Repository<Sensor>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly metricWriter: SensorMetricWriterService,
     @Optional()
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus | null,
@@ -1402,11 +1404,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         not_initialized: 32,
       };
 
-      // Batch insert into sensor_metrics
+      // Build metric inputs and hand to the single sensor.sensor_metrics writer.
       const timestamp = new Date();
-      const params: (string | number | null)[] = [];
-      const valuePlaceholders: string[] = [];
-      let paramIdx = 1;
+      const inputs: SensorMetricInput[] = [];
 
       for (const [tagName, tagData] of Object.entries(tags)) {
         const config = configMap.get(tagName);
@@ -1415,58 +1415,25 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         const numericValue =
           typeof tagData.value === 'boolean' ? (tagData.value ? 1.0 : 0.0) : Number(tagData.value);
 
-        // Reject NaN AND Infinity — Number("Infinity") passes isNaN() but
-        // corrupts TimescaleDB AVG/SUM continuous aggregates with Infinity values.
+        // Reject NaN AND Infinity — they corrupt TimescaleDB AVG/SUM aggregates.
         if (!Number.isFinite(numericValue)) continue;
 
-        const qualityCode = qualityMap[tagData.quality] ?? 0;
-
-        // Build parameterized value row: (time, sensor_id, channel_id, tenant_id, raw_value, value, quality_code, quality_bits, source_protocol, source_timestamp, ingestion_latency_ms, batch_id)
-        const placeholders = [];
-        for (const val of [
-          timestamp.toISOString(), // time
-          device.id, // sensor_id (device acts as sensor)
-          config.id, // channel_id (ioConfig acts as channel)
-          tenantId, // tenant_id
-          null,
-          null,
-          null,
-          null,
-          null,
-          null,
-          null, // site_id .. farm_id
-          numericValue, // raw_value
-          numericValue, // value (no calibration on io_data)
-          qualityCode, // quality_code
-          0, // quality_bits
-          'edge_io', // source_protocol
-          timestamp.toISOString(), // source_timestamp
-          0, // ingestion_latency_ms
-          null, // batch_id
-        ]) {
-          placeholders.push(`$${paramIdx}`);
-          params.push(val as string | number | null);
-          paramIdx++;
-        }
-        valuePlaceholders.push(`(${placeholders.join(', ')})`);
+        inputs.push({
+          time: timestamp,
+          sensorId: device.id, // device acts as sensor
+          channelId: config.id, // ioConfig acts as channel
+          tenantId,
+          rawValue: numericValue,
+          value: numericValue, // no calibration on io_data
+          qualityCode: qualityMap[tagData.quality] ?? 0,
+          qualityBits: 0,
+          sourceProtocol: 'edge_io',
+          sourceTimestamp: timestamp,
+        });
       }
 
-      if (valuePlaceholders.length > 0) {
-        await this.dataSource.query(
-          `
-          INSERT INTO sensor.sensor_metrics (
-            time, sensor_id, channel_id, tenant_id,
-            site_id, department_id, system_id, equipment_id, tank_id, pond_id, farm_id,
-            raw_value, value, quality_code, quality_bits,
-            source_protocol, source_timestamp, ingestion_latency_ms, batch_id
-          ) VALUES ${valuePlaceholders.join(',\n')}
-          ON CONFLICT (time, sensor_id, channel_id) DO UPDATE SET
-            value = EXCLUDED.value,
-            raw_value = EXCLUDED.raw_value,
-            quality_code = EXCLUDED.quality_code
-        `,
-          params,
-        );
+      if (inputs.length > 0) {
+        await this.metricWriter.writeImmediate(inputs);
       }
     } catch (error) {
       this.logger.error(`Failed to persist io_data for ${deviceCode}: ${(error as Error).message}`);
@@ -2164,7 +2131,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         }
 
         if (metrics.length > 0) {
-          await this.batchInsertMetrics(queryRunner.manager, metrics);
+          await this.metricWriter.writeManaged(metrics, queryRunner.manager);
         }
 
         const legacyEnabled =
@@ -2237,92 +2204,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Validate UUID format to prevent SQL injection
-   */
-  private isValidUUID(str: string | null | undefined): boolean {
-    if (!str) return false;
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    return uuidRegex.test(str);
-  }
-
-  /**
-   * Batch insert metrics using parameterized SQL for plan cache reuse and safety
-   */
-  private async batchInsertMetrics(
-    manager: EntityManager,
-    metrics: SensorMetricInput[],
-  ): Promise<void> {
-    if (metrics.length === 0) return;
-
-    // Validate required UUIDs
-    const validMetrics = metrics.filter((m) => {
-      if (
-        !this.isValidUUID(m.sensorId) ||
-        !this.isValidUUID(m.channelId) ||
-        !this.isValidUUID(m.tenantId)
-      ) {
-        this.logger.warn(
-          `Skipping metric with invalid UUID - sensorId: ${m.sensorId}, channelId: ${m.channelId}`,
-        );
-        return false;
-      }
-      return true;
-    });
-
-    if (validMetrics.length === 0) return;
-
-    // Build parameterized query for plan cache reuse
-    const params: (string | number | null | Date)[] = [];
-    const valuePlaceholders: string[] = [];
-    let paramIdx = 1;
-
-    for (const m of validMetrics) {
-      const placeholders = [];
-      for (const val of [
-        m.time.toISOString(),
-        m.sensorId,
-        m.channelId,
-        m.tenantId,
-        m.siteId || null,
-        m.departmentId || null,
-        m.systemId || null,
-        m.equipmentId || null,
-        m.tankId || null,
-        m.pondId || null,
-        m.farmId || null,
-        Number.isFinite(m.rawValue) ? m.rawValue : 0,
-        Number.isFinite(m.value) ? m.value : 0,
-        Number.isInteger(m.qualityCode) ? m.qualityCode : 192,
-        Number.isInteger(m.qualityBits) ? m.qualityBits : 0,
-        'mqtt',
-        m.time.toISOString(),
-        0,
-        null,
-      ]) {
-        placeholders.push(`$${paramIdx}`);
-        params.push(val as string | number | null);
-        paramIdx++;
-      }
-      valuePlaceholders.push(`(${placeholders.join(', ')})`);
-    }
-
-    await manager.query(
-      `
-      INSERT INTO sensor.sensor_metrics (
-        time, sensor_id, channel_id, tenant_id,
-        site_id, department_id, system_id, equipment_id, tank_id, pond_id, farm_id,
-        raw_value, value, quality_code, quality_bits,
-        source_protocol, source_timestamp, ingestion_latency_ms, batch_id
-      ) VALUES ${valuePlaceholders.join(',\n')}
-      ON CONFLICT (time, sensor_id, channel_id) DO UPDATE SET
-        value = EXCLUDED.value,
-        raw_value = EXCLUDED.raw_value,
-        quality_code = EXCLUDED.quality_code
-    `,
-      params,
-    );
-  }
+  // UUID/finite validation + the sensor.sensor_metrics INSERT are owned by
+  // SensorMetricWriterService (SENSOR-MEDIUM-068). saveReading builds
+  // SensorMetricInput[] with sourceProtocol 'mqtt' and hands them to
+  // writeManaged(metrics, queryRunner.manager) so they commit atomically with
+  // the legacy reading in the same tenant transaction.
 
   /**
    * Write to legacy sensor_readings table for backward compatibility

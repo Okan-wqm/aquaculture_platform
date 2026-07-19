@@ -9,6 +9,7 @@ import {
   SensorReadings,
 } from '../../../database/entities/sensor-reading.entity';
 import { Sensor } from '../../../database/entities/sensor.entity';
+import { SensorMetricWriterService } from '../../../ingestion/sensor-metric-writer.service';
 import { CalibrationService } from '../calibration.service';
 import { DataQualityService } from '../data-quality.service';
 import { ReadingMapperRegistry } from '../reading-mapper.service';
@@ -69,6 +70,13 @@ describe('SensorIngestionService — outbox durability', () => {
     applyCalibration: jest.fn(),
     warmChannelCache: jest.fn(),
     clearCache: jest.fn(),
+    getChannels: jest.fn().mockResolvedValue([]),
+  };
+
+  // The single writer for sensor.sensor_metrics. Only writeManaged() is on the
+  // GraphQL ingest path (inside the reading-save transaction).
+  const mockMetricWriter = {
+    writeManaged: jest.fn().mockResolvedValue(undefined),
   };
 
   const mockDataQualityService = {
@@ -112,6 +120,8 @@ describe('SensorIngestionService — outbox durability', () => {
     mockCalibrationService.applyCalibration.mockImplementation(
       async (_sensorId: string, readings: SensorReadings) => readings,
     );
+    mockCalibrationService.getChannels.mockResolvedValue([]);
+    mockMetricWriter.writeManaged.mockResolvedValue(undefined);
     mockDataSource.transaction.mockImplementation(
       (cb: (m: typeof transactionManager) => Promise<unknown>): Promise<unknown> =>
         cb(transactionManager),
@@ -130,6 +140,7 @@ describe('SensorIngestionService — outbox durability', () => {
         { provide: CalibrationService, useValue: mockCalibrationService },
         { provide: DataQualityService, useValue: mockDataQualityService },
         { provide: ReadingMapperRegistry, useValue: mockReadingMapperRegistry },
+        { provide: SensorMetricWriterService, useValue: mockMetricWriter },
       ],
     }).compile();
 
@@ -244,6 +255,76 @@ describe('SensorIngestionService — outbox durability', () => {
         tenantId: TENANT_ID,
         parentId: '55555555-5555-4555-8555-555555555555',
         childCount: 1,
+      });
+    });
+  });
+
+  describe('sensor_metrics projection (SENSOR-MEDIUM-066/068)', () => {
+    // A real SensorDataChannel instance so validateValue() is the production
+    // method (undefined bounds → in-range → good quality), no mock behaviour.
+    const buildChannel = (over: Partial<SensorDataChannel>): SensorDataChannel =>
+      Object.assign(new SensorDataChannel(), over);
+
+    it('writes a channel-keyed sensor_metrics row on the SAME transaction manager', async () => {
+      const reading = buildReading({ readings: { temperature: 24.5 } });
+      mockReadingRepository.create.mockReturnValue(reading);
+      transactionManager.save.mockResolvedValue(reading);
+      const channel = buildChannel({
+        id: '66666666-6666-4666-8666-666666666666',
+        channelKey: 'temperature',
+      });
+      mockCalibrationService.getChannels.mockResolvedValue([channel]);
+
+      await service.ingestReading({ ...baseInput, readings: { temperature: 24.5 } });
+
+      // Metric written on the SAME manager as the reading save + outbox enqueue —
+      // the three-way write is atomic (SENSOR-CRITICAL-001).
+      expect(mockMetricWriter.writeManaged).toHaveBeenCalledTimes(1);
+      const [metrics, managerArg] = mockMetricWriter.writeManaged.mock.calls[0];
+      expect(managerArg).toBe(transactionManager);
+      expect(metrics).toHaveLength(1);
+      expect(metrics[0]).toMatchObject({
+        sensorId: reading.sensorId,
+        channelId: channel.id,
+        tenantId: TENANT_ID,
+        value: 24.5,
+        rawValue: 24.5,
+        sourceProtocol: 'graphql',
+      });
+    });
+
+    it('skips metrics for parameters with no channel (the JSONB row still saves)', async () => {
+      const reading = buildReading({ readings: { temperature: 24.5 } });
+      mockReadingRepository.create.mockReturnValue(reading);
+      transactionManager.save.mockResolvedValue(reading);
+      // No channels → temperature resolves to no channel → no metric row.
+      mockCalibrationService.getChannels.mockResolvedValue([]);
+
+      await service.ingestReading({ ...baseInput, readings: { temperature: 24.5 } });
+
+      expect(transactionManager.save).toHaveBeenCalledWith(SensorReading, reading);
+      expect(mockMetricWriter.writeManaged).not.toHaveBeenCalled();
+    });
+
+    it('writes one metric per mapped parameter across a batch chunk', async () => {
+      const reading = buildReading({ readings: { temperature: 24.5 } });
+      mockReadingRepository.create.mockReturnValue(reading);
+      transactionManager.insert.mockResolvedValue(undefined);
+      const channel = buildChannel({
+        id: '66666666-6666-4666-8666-666666666666',
+        channelKey: 'temperature',
+      });
+      mockCalibrationService.getChannels.mockResolvedValue([channel]);
+
+      await service.ingestBatch([{ ...baseInput, readings: { temperature: 24.5 } }]);
+
+      expect(mockMetricWriter.writeManaged).toHaveBeenCalledTimes(1);
+      const [metrics, managerArg] = mockMetricWriter.writeManaged.mock.calls[0];
+      expect(managerArg).toBe(transactionManager);
+      expect(metrics).toHaveLength(1);
+      expect(metrics[0]).toMatchObject({
+        channelId: channel.id,
+        sourceProtocol: 'graphql',
       });
     });
   });

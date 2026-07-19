@@ -24419,6 +24419,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/ingestion/sensor-metric-writer.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/ingestion/sensor-metric-writer.service.ts",
       "prettier_managed": true
     },
@@ -55152,10 +55158,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9041,
+  "file_count": 9042,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8860,
-  "managed_file_list_sha256": "3f9d5056a7147c3ada93e2c58365866326b2ea09cd1ac30abad72265e38b241b",
+  "managed_count": 8861,
+  "managed_file_list_sha256": "75b75d405aac512ee62399f1e8c4de2379045804def18c20195cab7454f683c5",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

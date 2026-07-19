@@ -14,6 +14,7 @@ import { ReleaseBundleModule } from '../release-bundle/release-bundle.module';
 import { ScadaRuntimeModule } from '../scada-runtime/scada-runtime.module';
 import { VfdModule } from '../vfd/vfd.module';
 
+import { SensorMetricWriterModule } from './sensor-metric-writer.module';
 import { SensorMetricWriterService } from './sensor-metric-writer.service';
 import { DataIngestionService } from './data-ingestion.service';
 import { DataProcessorService } from './data-processor.service';
@@ -28,6 +29,9 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
   imports: [
     ConfigModule,
     TypeOrmModule.forFeature([Sensor, SensorReading, SensorProtocol, SensorDataChannel]),
+    // SENSOR-MEDIUM-068 — the one writer for sensor.sensor_metrics, shared with
+    // SensorModule's GraphQL path so a single instance owns the store.
+    SensorMetricWriterModule,
     EdgeDeviceModule, // For edge device heartbeat handling (no longer circular)
     AutomationModule, // For deployment confirmation in MQTT responses
     ProcessModule, // For ScadaDeployLogService in MQTT response handling
@@ -42,7 +46,6 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     VfdModule,
   ],
   providers: [
-    SensorMetricWriterService,
     DataIngestionService,
     MqttListenerService,
     DataProcessorService,

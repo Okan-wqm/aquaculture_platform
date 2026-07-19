@@ -367,6 +367,19 @@ export class CalibrationService implements ICalibrationService {
     this.channelCache.set(sensorId, channels);
   }
 
+  /**
+   * The sensor's enabled channels, cache-backed. Exposed so the ingestion path
+   * can key sensor_metrics rows by channel WITHOUT a second DB round-trip: the
+   * applyCalibration()/warmChannelCache() call that precedes every metric build
+   * already warmed this cache for the same sensorId, so this resolves from cache
+   * on the ingest hot path. Keeps the channel fetch a single responsibility of
+   * this service rather than duplicating the query in the ingestion service
+   * (SENSOR-MEDIUM-066/068 convergence).
+   */
+  async getChannels(sensorId: string): Promise<SensorDataChannel[]> {
+    return this.getChannelsForSensor(sensorId);
+  }
+
   private async getChannelsForSensor(sensorId: string): Promise<SensorDataChannel[]> {
     if (!this.channelRepository) {
       return [];

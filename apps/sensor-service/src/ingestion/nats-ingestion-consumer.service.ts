@@ -14,6 +14,8 @@ import {
 } from '@platform/event-bus';
 import {
   createBaseEvent,
+  parameterForChannelKey,
+  readingFieldForParameter,
   type SensorMetricIngestedEvent,
   type SensorReadingEvent,
   validateSensorEvent,
@@ -348,46 +350,14 @@ export class NatsIngestionConsumerService
       pondId: event.pondId ?? sensor.pondId ?? undefined,
     };
 
-    const v = event.value;
-    switch (channel.channelKey.toLowerCase()) {
-      case 'temperature':
-      case 'temp':
-        reading.readingTemperature = v;
-        break;
-      case 'ph':
-        reading.readingPh = v;
-        break;
-      case 'do':
-      case 'dissolved_oxygen':
-      case 'dissolvedoxygen':
-        reading.readingDissolvedOxygen = v;
-        break;
-      case 'salinity':
-        reading.readingSalinity = v;
-        break;
-      case 'ammonia':
-        reading.readingAmmonia = v;
-        break;
-      case 'nitrite':
-        reading.readingNitrite = v;
-        break;
-      case 'nitrate':
-        reading.readingNitrate = v;
-        break;
-      case 'turbidity':
-        reading.readingTurbidity = v;
-        break;
-      case 'water_level':
-      case 'waterlevel':
-      case 'level':
-        reading.readingWaterLevel = v;
-        break;
-      default:
-        // Unknown channelKey: the typed event has no field that fits.
-        // Downstream consumers that filter by channel key will skip it;
-        // the metric is still in the batch processor (DB-side
-        // representation is channel-key-agnostic).
-        break;
+    // SENSOR-MEDIUM-066/068: channelKey → parameter → flat field via the single
+    // event-contract SSoT (was a hand-maintained switch). An out-of-vocabulary
+    // channelKey (flow_rate, orp, co2, …) resolves to undefined — the typed event
+    // has no field that fits; the metric is still in the batch processor, so no
+    // data is lost DB-side.
+    const parameter = parameterForChannelKey(channel.channelKey);
+    if (parameter !== undefined) {
+      reading[readingFieldForParameter(parameter)] = event.value;
     }
     return reading;
   }

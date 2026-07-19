@@ -22,7 +22,10 @@ import { Injectable, Logger, Optional, BadRequestException } from '@nestjs/commo
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import {
   createBaseEvent,
+  readingFieldForParameter,
+  SENSOR_READING_PARAMETERS,
   type SensorReadingEvent,
+  type SensorReadingField,
   type ParentReadingRoutedEvent,
 } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
@@ -623,6 +626,15 @@ export class SensorIngestionService {
    * (SENSOR-CRITICAL-001). It performs no I/O and no eventBus publish.
    */
   private buildReadingEvent(reading: SensorReading): SensorReadingEvent {
+    // Project the JSONB readings onto the flat `readingXxx` event fields via the
+    // single mapping SSoT (SENSOR-MEDIUM-066/068). The SensorReadings keys ARE
+    // the canonical parameter names, so a new parameter is added in exactly one
+    // place (`SENSOR_READING_PARAMETERS`) and producer + consumers stay aligned.
+    const readingFields: Partial<Record<SensorReadingField, number | undefined>> = {};
+    for (const parameter of SENSOR_READING_PARAMETERS) {
+      readingFields[readingFieldForParameter(parameter)] = reading.readings[parameter];
+    }
+
     return {
       ...createBaseEvent<SensorReadingEvent>('SensorReading', reading.tenantId, {
         aggregateId: reading.sensorId,
@@ -634,15 +646,7 @@ export class SensorIngestionService {
       sensorId: reading.sensorId,
       farmId: reading.farmId,
       pondId: reading.pondId,
-      readingTemperature: reading.readings.temperature,
-      readingPh: reading.readings.ph,
-      readingDissolvedOxygen: reading.readings.dissolvedOxygen,
-      readingSalinity: reading.readings.salinity,
-      readingAmmonia: reading.readings.ammonia,
-      readingNitrite: reading.readings.nitrite,
-      readingNitrate: reading.readings.nitrate,
-      readingTurbidity: reading.readings.turbidity,
-      readingWaterLevel: reading.readings.waterLevel,
+      ...readingFields,
     };
   }
 

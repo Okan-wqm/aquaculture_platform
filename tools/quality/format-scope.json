@@ -37690,6 +37690,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/__tests__/sensor-reading-parameters.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/__tests__/websocket-envelopes.parity.spec.ts",
       "prettier_managed": true
     },
@@ -37991,6 +37997,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/sensor-events.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/sensor-reading-parameters.ts",
       "prettier_managed": true
     },
     {
@@ -55134,10 +55146,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9038,
+  "file_count": 9040,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8857,
-  "managed_file_list_sha256": "80d35d0b67cee55f8bf10322fd59f0ea52ec831b04ce9bbea8f656cdbb2324a8",
+  "managed_count": 8859,
+  "managed_file_list_sha256": "a246bc6cfe69519795734879c81e13609617c54028f2315f978d3bd290458fa1",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -25679,6 +25679,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/timescale/__tests__/continuous-aggregate.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/timescale/continuous-aggregate.service.ts",
       "prettier_managed": true
     },
@@ -55158,10 +55164,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9042,
+  "file_count": 9043,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8861,
-  "managed_file_list_sha256": "75b75d405aac512ee62399f1e8c4de2379045804def18c20195cab7454f683c5",
+  "managed_count": 8862,
+  "managed_file_list_sha256": "896c0f3d0ab472a42b3ecca1ee531c75c8d95998a0dd1daf680716fc12ca2014",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

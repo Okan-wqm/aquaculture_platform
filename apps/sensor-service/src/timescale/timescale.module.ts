@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 
 import { ContinuousAggregateService } from './continuous-aggregate.service';
 import { HypertableService } from './hypertable.service';
@@ -13,11 +14,13 @@ import { TimeBucketService } from '../aggregation/time-bucket.service';
  *
  * Relies on TypeOrmModule (and its DataSource) being provided by AppModule.
  *
- * NOTE: import TimescaleModule in app.module.ts when TimescaleDB
- * continuous-aggregate migrations are active (metrics_1min, metrics_1hour,
- * metrics_1day views must exist before TimeBucketService queries run).
+ * On bootstrap, ContinuousAggregateService creates the sensor.metrics_1min/
+ * 1hour/1day continuous aggregates (SENSOR-MEDIUM-066/068, OPEN-ADR-030-CAGG) —
+ * the rollup views MetricQueryService + TimeBucketService read from. This is
+ * why the module must be imported in app.module.ts (it now is).
  */
 @Module({
+  imports: [ConfigModule],
   providers: [
     HypertableService,
     ContinuousAggregateService,

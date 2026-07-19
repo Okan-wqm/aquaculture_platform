@@ -70,6 +70,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { HealthModule } from './health/health.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { SensorMetricsModule } from './metrics/metrics.module';
+import { TimescaleModule } from './timescale/timescale.module';
 import { ScadaRuntimeModule } from './scada-runtime/scada-runtime.module';
 import { SensorOutboxModule } from './outbox/sensor-outbox.module';
 import { SensorOutbox } from './outbox/sensor-outbox.entity';
@@ -417,6 +418,12 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
 
     // Data ingestion module (MQTT listener, data processing)
     IngestionModule,
+
+    // TimescaleDB lifecycle: creates the sensor.metrics_1min/1hour/1day
+    // continuous aggregates over sensor_metrics at bootstrap (the rollup views
+    // the >1h read tiers depend on) and owns their refresh/retention policies
+    // (SENSOR-MEDIUM-066/068, OPEN-ADR-030-CAGG).
+    TimescaleModule,
 
     // SCADA operator runtime: the /scada WebSocket gateway (tag subscribe /
     // write / alarm ack), tag manager, alarm engine, DAQ storage. Without

@@ -6,24 +6,29 @@
 //!   replaceable in tests ([`LoggingSink`]) and at deploy time
 //!   ([`PostgresSink`] writes binary COPY into TimescaleDB).
 //!
-//! WHY UNLOGGED staging table + INSERT ... ON CONFLICT:
-//!   The existing NestJS path (`apps/sensor-service/src/ingestion/
+//! WHY a per-transaction TEMP staging table + INSERT ... ON CONFLICT:
+//!   The NestJS path (`apps/sensor-service/src/ingestion/
 //!   batch-processor.service.ts`) issues `INSERT ... ON CONFLICT DO
 //!   UPDATE SET value/raw_value/quality_code = EXCLUDED.*`. PostgreSQL
-//!   `COPY` does not support `ON CONFLICT`, so the existing semantic
-//!   ("re-publish updates the row") would silently break if we
-//!   COPY-ed straight into the hypertable. Plan-blessed Option A:
-//!   COPY into an UNLOGGED `<tenant>.sensor_metrics_stage` then
-//!   `INSERT ... SELECT ... ON CONFLICT DO UPDATE` from the stage to
-//!   the hypertable, then `TRUNCATE` the stage. Atomic per tenant
-//!   per batch via `BEGIN ... COMMIT`.
+//!   `COPY` does not support `ON CONFLICT`, so COPY-ing straight into
+//!   the hypertable would silently break the "re-publish updates the
+//!   row" semantic. So per batch we `CREATE TEMP TABLE
+//!   _sensor_metrics_stage (... ON COMMIT DROP)`, binary-COPY into it,
+//!   then `INSERT ... SELECT ... ON CONFLICT DO UPDATE` into the
+//!   hypertable and commit (the temp stage auto-drops). A session-local
+//!   temp stage is self-cleaning: no persistent stage table, no
+//!   cross-batch residue, no clear-stage DELETE. Atomic per tenant per
+//!   batch via `BEGIN ... COMMIT`.
 //!
-//! WHY tenant-scoped schema name:
-//!   ADR-011: every tenant gets its own schema `tenant_<32-hex>`. The
-//!   schema name is derived from the `TenantId` via
-//!   [`SchemaName::from_tenant_id`] — the schema string never enters
-//!   this module from operator input, so SQL identifier injection is
-//!   structurally impossible.
+//! WHY a single cross-tenant `sensor` schema (SENSOR-MEDIUM-068):
+//!   sensor_metrics is ONE cross-tenant TimescaleDB hypertable in the
+//!   `sensor` schema, isolated by its mandatory tenant_id column (the
+//!   same model as scada_* / edge_device_directory) — NOT a per-tenant
+//!   clone. Every row carries its own tenant_id; the target identifiers
+//!   (`sensor.sensor_metrics`, the temp stage) are compile-time string
+//!   constants, so SQL identifier injection is structurally impossible.
+//!   Readings are still grouped by tenant so one tenant's failure does
+//!   not abort another tenant's commit.
 //!
 //! WHY mTLS via tokio-postgres-rustls:
 //!   `tokio-postgres` is TLS-agnostic by default (`NoTls`). The
@@ -47,7 +52,7 @@ use tokio_postgres::types::{ToSql, Type as PgType};
 use tracing::instrument;
 
 use crate::payload::SensorReading;
-use tenant_context::SchemaName;
+use tenant_context::TenantId;
 
 /// Errors raised by [`BatchSink`] implementations.
 #[derive(Debug, Error)]
@@ -295,33 +300,35 @@ impl BatchSink for PostgresSink {
         // tenant. Tenants in the same batch are independent so a
         // failure on tenant A does not abort tenant B's commit.
         let by_tenant = group_by_tenant(batch);
-        for (tenant, readings) in by_tenant {
-            self.write_tenant_batch(tenant, readings).await?;
+        for (_tenant, readings) in by_tenant {
+            self.write_tenant_batch(readings).await?;
         }
         Ok(())
     }
 }
 
 impl PostgresSink {
-    async fn write_tenant_batch(
-        &self,
-        schema: SchemaName,
-        readings: Vec<SensorReading>,
-    ) -> Result<(), SinkError> {
+    async fn write_tenant_batch(&self, readings: Vec<SensorReading>) -> Result<(), SinkError> {
         if readings.is_empty() {
             return Ok(());
         }
         let mut conn = self.pool.get().await.map_err(SinkError::PoolGet)?;
         let tx = conn.transaction().await.map_err(SinkError::Postgres)?;
 
-        let copy_sql = build_copy_in_sql(&schema);
+        // Private per-transaction staging table (ON COMMIT DROP) — see module docs.
+        tx.batch_execute(STAGE_DDL)
+            .await
+            .map_err(SinkError::Postgres)?;
+
+        let copy_sql = build_copy_in_sql();
         let copy_sink = tx.copy_in(&copy_sql).await.map_err(SinkError::Postgres)?;
-        // Column types match the `(time, sensor_id, channel_id, value,
-        // raw_value, quality_code)` order in build_copy_in_sql.
+        // Column types match the `(time, sensor_id, channel_id, tenant_id,
+        // value, raw_value, quality_code)` order in build_copy_in_sql.
         let writer = tokio_postgres::binary_copy::BinaryCopyInWriter::new(
             copy_sink,
             &[
                 PgType::TIMESTAMPTZ,
+                PgType::UUID,
                 PgType::UUID,
                 PgType::UUID,
                 PgType::FLOAT8,
@@ -348,10 +355,11 @@ impl PostgresSink {
             let value = r.value;
             let raw_value = r.value;
             let quality = i16::from(r.quality);
-            let row: [&(dyn ToSql + Sync); 6] = [
+            let row: [&(dyn ToSql + Sync); 7] = [
                 &ts,
                 r.sensor_id.as_uuid_ref(),
                 r.channel_id.as_uuid_ref(),
+                r.tenant_id.as_uuid(),
                 &value,
                 &raw_value,
                 &quality,
@@ -369,12 +377,10 @@ impl PostgresSink {
             "BinaryCopyInWriter row count mismatch",
         );
 
-        // Upsert from stage to hypertable, then clear the stage with DML.
-        // batch_execute runs both in one round-trip.
-        let upsert_sql = build_upsert_sql(&schema);
-        let clear_stage_sql = build_clear_stage_sql(&schema);
-        let combined = format!("{upsert_sql};\n{clear_stage_sql};");
-        tx.batch_execute(&combined)
+        // Upsert from the temp stage into the shared hypertable, then commit
+        // (the ON COMMIT DROP stage is discarded automatically — no clear DML).
+        let upsert_sql = build_upsert_sql();
+        tx.batch_execute(&upsert_sql)
             .await
             .map_err(SinkError::Postgres)?;
         tx.commit().await.map_err(SinkError::Postgres)?;
@@ -394,47 +400,53 @@ impl UuidExt for uuid::Uuid {
     }
 }
 
-fn group_by_tenant(batch: Vec<SensorReading>) -> HashMap<SchemaName, Vec<SensorReading>> {
-    let mut groups: HashMap<SchemaName, Vec<SensorReading>> = HashMap::new();
+fn group_by_tenant(batch: Vec<SensorReading>) -> HashMap<TenantId, Vec<SensorReading>> {
+    let mut groups: HashMap<TenantId, Vec<SensorReading>> = HashMap::new();
     for r in batch {
-        let schema = SchemaName::from_tenant_id(r.tenant_id);
-        groups.entry(schema).or_default().push(r);
+        groups.entry(r.tenant_id).or_default().push(r);
     }
     groups
 }
 
-/// Per-tenant `COPY ... FROM STDIN BINARY` SQL. Pure function so the
-/// SQL shape can be unit-tested without postgres.
+/// DDL for the private per-transaction staging table. `ON COMMIT DROP` makes
+/// each transaction's stage session-local and self-cleaning: no persistent
+/// per-tenant stage table, no cross-batch residue, no clear-stage DELETE. It
+/// carries `tenant_id` because the single cross-tenant hypertable requires it.
+pub const STAGE_DDL: &str = "CREATE TEMP TABLE _sensor_metrics_stage (\
+    time timestamptz NOT NULL, \
+    sensor_id uuid NOT NULL, \
+    channel_id uuid NOT NULL, \
+    tenant_id uuid NOT NULL, \
+    value double precision NOT NULL, \
+    raw_value double precision NOT NULL, \
+    quality_code smallint NOT NULL\
+) ON COMMIT DROP";
+
+/// `COPY ... FROM STDIN BINARY` into the per-transaction temp stage. Pure
+/// function so the SQL shape can be unit-tested without postgres. The stage
+/// identifier is a compile-time constant — no schema string is interpolated.
 #[must_use]
-pub fn build_copy_in_sql(schema: &SchemaName) -> String {
-    format!(
-        "COPY {schema}.sensor_metrics_stage \
-         (time, sensor_id, channel_id, value, raw_value, quality_code) \
-         FROM STDIN WITH (FORMAT BINARY)"
-    )
+pub fn build_copy_in_sql() -> String {
+    "COPY _sensor_metrics_stage \
+     (time, sensor_id, channel_id, tenant_id, value, raw_value, quality_code) \
+     FROM STDIN WITH (FORMAT BINARY)"
+        .to_owned()
 }
 
-/// Per-tenant upsert from staging table to the hypertable. Preserves
-/// the existing NestJS contract: re-publish updates value/raw_value/
-/// quality_code on conflict.
+/// Upsert from the temp stage into the single cross-tenant
+/// `sensor.sensor_metrics` hypertable. Preserves the NestJS contract:
+/// re-publish updates value/raw_value/quality_code on conflict.
 #[must_use]
-pub fn build_upsert_sql(schema: &SchemaName) -> String {
-    format!(
-        "INSERT INTO {schema}.sensor_metrics \
-         (time, sensor_id, channel_id, value, raw_value, quality_code) \
-         SELECT time, sensor_id, channel_id, value, raw_value, quality_code \
-           FROM {schema}.sensor_metrics_stage \
-         ON CONFLICT (time, sensor_id, channel_id) DO UPDATE \
-           SET value = EXCLUDED.value, \
-               raw_value = EXCLUDED.raw_value, \
-               quality_code = EXCLUDED.quality_code"
-    )
-}
-
-/// Clear the staging table after a successful upsert without DDL.
-#[must_use]
-pub fn build_clear_stage_sql(schema: &SchemaName) -> String {
-    format!("DELETE FROM {schema}.sensor_metrics_stage")
+pub fn build_upsert_sql() -> String {
+    "INSERT INTO sensor.sensor_metrics \
+     (time, sensor_id, channel_id, tenant_id, value, raw_value, quality_code) \
+     SELECT time, sensor_id, channel_id, tenant_id, value, raw_value, quality_code \
+       FROM _sensor_metrics_stage \
+     ON CONFLICT (time, sensor_id, channel_id) DO UPDATE \
+       SET value = EXCLUDED.value, \
+           raw_value = EXCLUDED.raw_value, \
+           quality_code = EXCLUDED.quality_code"
+        .to_owned()
 }
 
 #[cfg(test)]
@@ -445,7 +457,7 @@ mod tests {
     use super::{BatchSink, LoggingSink, SinkError, run_sink_loop};
     use crate::payload::{PayloadSource, SensorReading};
     use std::sync::Arc;
-    use tenant_context::{SchemaName, TenantId};
+    use tenant_context::TenantId;
     use tokio::sync::mpsc;
 
     fn fixed_uuid(seed: u8) -> Uuid {
@@ -485,24 +497,25 @@ mod tests {
     }
 
     #[test]
-    fn copy_sql_uses_validated_schema_name() {
-        let tenant = TenantId::from_uuid(fixed_uuid(0xAA));
-        let schema = SchemaName::from_tenant_id(tenant);
-        let sql = super::build_copy_in_sql(&schema);
-        assert!(sql.contains(schema.as_str()));
-        assert!(sql.contains("sensor_metrics_stage"));
+    fn copy_in_sql_targets_temp_stage_with_tenant_id() {
+        let sql = super::build_copy_in_sql();
+        assert!(sql.contains("_sensor_metrics_stage"));
         assert!(sql.contains("FORMAT BINARY"));
-        assert!(sql.contains("(time, sensor_id, channel_id, value, raw_value, quality_code)"));
+        assert!(
+            sql.contains(
+                "(time, sensor_id, channel_id, tenant_id, value, raw_value, quality_code)"
+            )
+        );
     }
 
     #[test]
-    fn upsert_sql_preserves_on_conflict_semantic() {
-        let tenant = TenantId::from_uuid(fixed_uuid(0xBB));
-        let schema = SchemaName::from_tenant_id(tenant);
-        let sql = super::build_upsert_sql(&schema);
+    fn upsert_sql_targets_cross_tenant_hypertable_and_preserves_on_conflict() {
+        let sql = super::build_upsert_sql();
+        // Single cross-tenant hypertable; tenant_id is carried per row.
+        assert!(sql.contains("INSERT INTO sensor.sensor_metrics"));
+        assert!(sql.contains("tenant_id"));
         // Mirrors the NestJS path's INSERT ... ON CONFLICT DO UPDATE
         // SET value/raw_value/quality_code = EXCLUDED.* contract.
-        assert!(sql.contains(schema.as_str()));
         assert!(sql.contains("ON CONFLICT (time, sensor_id, channel_id) DO UPDATE"));
         assert!(sql.contains("SET value = EXCLUDED.value"));
         assert!(sql.contains("raw_value = EXCLUDED.raw_value"));
@@ -510,33 +523,10 @@ mod tests {
     }
 
     #[test]
-    fn clear_stage_sql_uses_correct_table() {
-        let tenant = TenantId::from_uuid(fixed_uuid(0xCC));
-        let schema = SchemaName::from_tenant_id(tenant);
-        let sql = super::build_clear_stage_sql(&schema);
-        assert!(sql.contains("DELETE FROM"));
-        assert!(sql.contains(schema.as_str()));
-        assert!(sql.contains("sensor_metrics_stage"));
-        assert!(!sql.contains("sensor_metrics ")); // not the hypertable
-    }
-
-    #[test]
-    fn schema_name_in_sql_cannot_be_attacker_supplied() {
-        // SchemaName::try_parse rejects anything outside
-        // ^tenant_[0-9a-f]{32}$, so the SQL builders cannot embed an
-        // injected string.
-        for attempt in [
-            "tenant_; DROP TABLE sensor_metrics; --",
-            "tenant_00000000000000000000000000000000\"; DROP TABLE",
-            "tenant_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-            "evil_schema_name",
-            "",
-        ] {
-            assert!(
-                SchemaName::try_parse(attempt).is_err(),
-                "attacker bytes {attempt:?} unexpectedly accepted"
-            );
-        }
+    fn stage_ddl_is_temp_and_self_dropping() {
+        assert!(super::STAGE_DDL.contains("CREATE TEMP TABLE _sensor_metrics_stage"));
+        assert!(super::STAGE_DDL.contains("tenant_id uuid NOT NULL"));
+        assert!(super::STAGE_DDL.contains("ON COMMIT DROP"));
     }
 
     #[test]
@@ -555,10 +545,8 @@ mod tests {
         };
         let batch = vec![mk(tenant_a), mk(tenant_b), mk(tenant_a), mk(tenant_a)];
         let groups = super::group_by_tenant(batch);
-        let schema_a = SchemaName::from_tenant_id(tenant_a);
-        let schema_b = SchemaName::from_tenant_id(tenant_b);
-        assert_eq!(groups.get(&schema_a).map(Vec::len), Some(3));
-        assert_eq!(groups.get(&schema_b).map(Vec::len), Some(1));
+        assert_eq!(groups.get(&tenant_a).map(Vec::len), Some(3));
+        assert_eq!(groups.get(&tenant_b).map(Vec::len), Some(1));
     }
 
     #[tokio::test]
@@ -602,9 +590,9 @@ mod tests {
 
     /// Live-postgres integration test. Skipped by default; set
     /// `SENSOR_INGESTION_PG_INTEGRATION=1` and ensure a TimescaleDB
-    /// instance with the per-tenant schema + sensor_metrics +
-    /// sensor_metrics_stage tables is reachable to run it. CI ships
-    /// a service-container `timescale/timescaledb-ha:pg16` for this.
+    /// instance with the `sensor` schema + sensor_metrics hypertable is
+    /// reachable to run it (the temp stage is created per transaction).
+    /// CI ships a service-container `timescale/timescaledb-ha:pg16`.
     #[tokio::test]
     #[ignore = "requires SENSOR_INGESTION_PG_INTEGRATION=1 + reachable TimescaleDB; CI service-container job in follow-on commit"]
     async fn postgres_sink_live_smoke_writes_and_upserts() {

@@ -2,10 +2,10 @@ import { randomUUID } from 'crypto';
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { InjectRepository } from '@nestjs/typeorm';
 import { IEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
-import { Repository, DataSource } from 'typeorm';
+import { Repository } from 'typeorm';
 
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
 import { QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
@@ -55,8 +55,6 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
     private readonly readingRepository: Repository<SensorReading>,
     @InjectRepository(SensorDataChannel)
     private readonly channelRepository: Repository<SensorDataChannel>,
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
     private readonly metricWriter: SensorMetricWriterService,
     private readonly configService: ConfigService,
     @Optional()

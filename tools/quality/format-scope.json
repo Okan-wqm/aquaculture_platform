@@ -25571,6 +25571,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/sensor/services/__tests__/sensor-query.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/sensor/services/calibration.service.ts",
       "prettier_managed": true
     },
@@ -55164,10 +55170,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9043,
+  "file_count": 9044,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8862,
-  "managed_file_list_sha256": "896c0f3d0ab472a42b3ecca1ee531c75c8d95998a0dd1daf680716fc12ca2014",
+  "managed_count": 8863,
+  "managed_file_list_sha256": "1fdf43cebd13d7500d811f2a3b26f421995d66812d764d3cb4d444bfc3db241d",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

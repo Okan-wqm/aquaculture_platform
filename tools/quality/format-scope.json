@@ -23927,6 +23927,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1813000000000-ConsolidateSensorMetricsToSensorSchema.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/deploy-artifact/__tests__/artifact-immutability.spec.ts",
       "prettier_managed": true
     },
@@ -55146,10 +55152,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9040,
+  "file_count": 9041,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8859,
-  "managed_file_list_sha256": "a246bc6cfe69519795734879c81e13609617c54028f2315f978d3bd290458fa1",
+  "managed_count": 8860,
+  "managed_file_list_sha256": "8f8b6576055a7cff0cb215b41819989dfdb7e4f1b9aed8da6aeb14107aa37dea",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -77,7 +77,6 @@ const isEnabled = process.env[GATE_ENV] === '1';
     const tenantId = randomUUID();
     const sensorId = randomUUID();
     const channelId = randomUUID();
-    const tenantSchema = `tenant_${tenantId.replace(/-/g, '')}`;
 
     beforeAll(async () => {
       pg = new PgClient({ connectionString: PG_URL });
@@ -92,7 +91,7 @@ const isEnabled = process.env[GATE_ENV] === '1';
     afterAll(async () => {
       try {
         await pg.query(
-          `DELETE FROM ${tenantSchema}.sensor_metrics WHERE sensor_id = $1`,
+          `DELETE FROM sensor.sensor_metrics WHERE sensor_id = $1`,
           [sensorId],
         );
       } catch {
@@ -163,7 +162,7 @@ const isEnabled = process.env[GATE_ENV] === '1';
       // 4. Assert exactly one row in the hypertable for this composite key.
       const result = await pg.query(
         `SELECT COUNT(*)::int AS n, MAX(value)::float AS v, MAX(quality_code)::int AS q
-         FROM ${tenantSchema}.sensor_metrics
+         FROM sensor.sensor_metrics
          WHERE sensor_id = $1 AND channel_id = $2 AND time = to_timestamp($3 / 1000.0)`,
         [sensorId, channelId, producerTs],
       );

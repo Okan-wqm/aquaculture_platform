@@ -1454,7 +1454,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       if (valuePlaceholders.length > 0) {
         await this.dataSource.query(
           `
-          INSERT INTO sensor_metrics (
+          INSERT INTO sensor.sensor_metrics (
             time, sensor_id, channel_id, tenant_id,
             site_id, department_id, system_id, equipment_id, tank_id, pond_id, farm_id,
             raw_value, value, quality_code, quality_bits,
@@ -2309,7 +2309,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
     await manager.query(
       `
-      INSERT INTO sensor_metrics (
+      INSERT INTO sensor.sensor_metrics (
         time, sensor_id, channel_id, tenant_id,
         site_id, department_id, system_id, equipment_id, tank_id, pond_id, farm_id,
         raw_value, value, quality_code, quality_bits,

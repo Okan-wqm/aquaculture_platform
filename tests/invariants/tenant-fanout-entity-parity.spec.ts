@@ -92,6 +92,9 @@ const CROSS_TENANT_FILENAME_PATTERNS: readonly RegExp[] = [
   /vfd-register-mapping\.entity\.ts$/i,
   // SENSOR-MEDIUM-004: cross-tenant O(1) device→tenant index pinned to `sensor`.
   /edge-device-directory\.entity\.ts$/i,
+  // SENSOR-MEDIUM-068: sensor_metrics is the single cross-tenant TimescaleDB
+  // hypertable pinned to `sensor` (tenant_id-isolated), not a per-tenant clone.
+  /sensor-metric\.entity\.ts$/i,
 ];
 
 const TENANT_OWNED_FILENAME_OVERRIDES = new Set<string>([

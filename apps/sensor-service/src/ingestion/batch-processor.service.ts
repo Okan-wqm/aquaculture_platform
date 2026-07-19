@@ -66,7 +66,7 @@ export class BatchProcessorService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Enqueue a metric for deferred batch insertion.
+   * Enqueue a metric for buffered batch insertion.
    * If the buffer reaches MAX_BUFFER_SIZE the flush is triggered immediately.
    */
   enqueue(metric: SensorMetricInput): void {
@@ -161,7 +161,7 @@ export class BatchProcessorService implements OnModuleInit, OnModuleDestroy {
     }
 
     await this.dataSource.query(
-      `INSERT INTO sensor_metrics (
+      `INSERT INTO sensor.sensor_metrics (
          time, sensor_id, channel_id, tenant_id,
          site_id, department_id, system_id, equipment_id, tank_id, pond_id, farm_id,
          raw_value, value, quality_code, quality_bits,

@@ -74,7 +74,7 @@ describe('BatchProcessorService', () => {
 
       expect(dataSource.query).toHaveBeenCalledTimes(1);
       const sql = dataSource.query.mock.calls[0]![0] as string;
-      expect(sql).toContain('INSERT INTO sensor_metrics');
+      expect(sql).toContain('INSERT INTO sensor.sensor_metrics');
     });
 
     it('should reject metric with invalid sensorId', async () => {

@@ -227,13 +227,18 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     // (added by 1806000000000-ScadaTenantIsolation), exactly like
     // edge_device_directory. vfd_command_audit_logs is the append-only VFD
     // command audit ledger (cross-tenant, same class).
-    infrastructureTables: ['migrations', 'sensor_audit_logs', 'sensor_outbox', 'vfd_register_mappings', 'edge_device_directory', 'scada_alarms', 'scada_alarm_chronicle', 'scada_tag_history', 'vfd_command_audit_logs', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    // SENSOR-MEDIUM-068: sensor_metrics is the SINGLE cross-tenant TimescaleDB
+    // hypertable (one physical table in `sensor`, isolated by the tenant_id
+    // column) — written by process-wide ingestion singletons with no per-request
+    // search_path, exactly like scada_*. Per-tenant clones were plain
+    // non-hypertable tables that fragmented the store, so it lives here, not in
+    // `tables`.
+    infrastructureTables: ['migrations', 'sensor_audit_logs', 'sensor_outbox', 'sensor_metrics', 'vfd_register_mappings', 'edge_device_directory', 'scada_alarms', 'scada_alarm_chronicle', 'scada_tag_history', 'vfd_command_audit_logs', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: ['sensor_protocols', 'sensor_type_definitions', 'industry_templates'],
     tables: [
       // Core sensor entities
       'sensors',
       'sensor_readings',
-      'sensor_metrics',
       'sensor_data_channels',
       // SENSOR-HIGH-083: per-tenant calibration history (append-only). Written by
       // the calibration aggregate; its entity omits schema: so it must be cloned

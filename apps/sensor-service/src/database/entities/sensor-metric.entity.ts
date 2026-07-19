@@ -72,10 +72,17 @@ export const QualityCodes = {
  * - Continuous aggregates for fast historical queries
  * - OPC-UA aligned quality codes
  *
- * Schema comes from search_path (tenant-specific)
+ * SENSOR-MEDIUM-068: this is a SINGLE cross-tenant hypertable pinned to the
+ * `sensor` schema (NOT a per-tenant clone). Isolation is by the mandatory
+ * tenant_id column — the same model as scada_* / edge_device_directory. It is
+ * written by process-wide singleton ingestion services (batch processor,
+ * MQTT/edge listeners, Rust sidecar) that run with no per-request search_path,
+ * so a single schema-qualified hypertable is the only correct home; the former
+ * per-tenant clones were plain non-hypertable tables that fragmented the store.
+ * All access is schema-qualified `sensor.sensor_metrics`.
  */
 @ObjectType()
-@Entity('sensor_metrics')
+@Entity({ schema: 'sensor', name: 'sensor_metrics' })
 @Index(['sensorId', 'time'])
 @Index(['channelId', 'time'])
 @Index(['tenantId', 'time'])

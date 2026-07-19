@@ -515,7 +515,7 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
     }
 
     const sql = `
-      INSERT INTO sensor_metrics (
+      INSERT INTO sensor.sensor_metrics (
         time, sensor_id, channel_id, tenant_id,
         site_id, department_id, system_id, equipment_id, tank_id, pond_id, farm_id,
         raw_value, value, quality_code, quality_bits,

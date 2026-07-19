@@ -8,6 +8,8 @@ import {
   normalizeChannelKey,
   isMetadataFieldKey,
 } from '../../common/payload/sensor-payload-parser';
+// SENSOR-MEDIUM-065: the aquaculture parameter dictionary lives in ONE place now.
+import { lookupParameter } from '../../common/sensor-parameter-catalog';
 
 /**
  * Discovered channel information from test reading
@@ -33,234 +35,6 @@ export interface DiscoveryResult {
   error?: string;
   rawPayload?: unknown;
 }
-
-/**
- * Known aquaculture parameters with their metadata
- */
-const KNOWN_PARAMETERS: Record<
-  string,
-  {
-    label: string;
-    unit: string;
-    min: number;
-    max: number;
-    dataType: ChannelDataType;
-  }
-> = {
-  // Temperature variants
-  temperature: {
-    label: 'Temperature',
-    unit: '°C',
-    min: 0,
-    max: 40,
-    dataType: ChannelDataType.NUMBER,
-  },
-  temp: { label: 'Temperature', unit: '°C', min: 0, max: 40, dataType: ChannelDataType.NUMBER },
-  water_temperature: {
-    label: 'Water Temperature',
-    unit: '°C',
-    min: 0,
-    max: 40,
-    dataType: ChannelDataType.NUMBER,
-  },
-  water_temp: {
-    label: 'Water Temperature',
-    unit: '°C',
-    min: 0,
-    max: 40,
-    dataType: ChannelDataType.NUMBER,
-  },
-
-  // pH variants
-  ph: { label: 'pH', unit: 'pH', min: 0, max: 14, dataType: ChannelDataType.NUMBER },
-  ph_level: { label: 'pH Level', unit: 'pH', min: 0, max: 14, dataType: ChannelDataType.NUMBER },
-
-  // Dissolved Oxygen variants
-  dissolved_oxygen: {
-    label: 'Dissolved Oxygen',
-    unit: 'mg/L',
-    min: 0,
-    max: 20,
-    dataType: ChannelDataType.NUMBER,
-  },
-  do: {
-    label: 'Dissolved Oxygen',
-    unit: 'mg/L',
-    min: 0,
-    max: 20,
-    dataType: ChannelDataType.NUMBER,
-  },
-  do_level: {
-    label: 'Dissolved Oxygen',
-    unit: 'mg/L',
-    min: 0,
-    max: 20,
-    dataType: ChannelDataType.NUMBER,
-  },
-  oxygen: {
-    label: 'Dissolved Oxygen',
-    unit: 'mg/L',
-    min: 0,
-    max: 20,
-    dataType: ChannelDataType.NUMBER,
-  },
-  o2: {
-    label: 'Dissolved Oxygen',
-    unit: 'mg/L',
-    min: 0,
-    max: 20,
-    dataType: ChannelDataType.NUMBER,
-  },
-
-  // Salinity variants
-  salinity: { label: 'Salinity', unit: 'ppt', min: 0, max: 50, dataType: ChannelDataType.NUMBER },
-  salt: { label: 'Salinity', unit: 'ppt', min: 0, max: 50, dataType: ChannelDataType.NUMBER },
-
-  // Ammonia variants
-  ammonia: { label: 'Ammonia', unit: 'mg/L', min: 0, max: 10, dataType: ChannelDataType.NUMBER },
-  nh3: { label: 'Ammonia', unit: 'mg/L', min: 0, max: 10, dataType: ChannelDataType.NUMBER },
-  nh4: { label: 'Ammonium', unit: 'mg/L', min: 0, max: 10, dataType: ChannelDataType.NUMBER },
-  total_ammonia: {
-    label: 'Total Ammonia Nitrogen',
-    unit: 'mg/L',
-    min: 0,
-    max: 10,
-    dataType: ChannelDataType.NUMBER,
-  },
-  tan: {
-    label: 'Total Ammonia Nitrogen',
-    unit: 'mg/L',
-    min: 0,
-    max: 10,
-    dataType: ChannelDataType.NUMBER,
-  },
-
-  // Nitrite variants
-  nitrite: { label: 'Nitrite', unit: 'mg/L', min: 0, max: 5, dataType: ChannelDataType.NUMBER },
-  no2: { label: 'Nitrite', unit: 'mg/L', min: 0, max: 5, dataType: ChannelDataType.NUMBER },
-
-  // Nitrate variants
-  nitrate: { label: 'Nitrate', unit: 'mg/L', min: 0, max: 100, dataType: ChannelDataType.NUMBER },
-  no3: { label: 'Nitrate', unit: 'mg/L', min: 0, max: 100, dataType: ChannelDataType.NUMBER },
-
-  // Turbidity variants
-  turbidity: {
-    label: 'Turbidity',
-    unit: 'NTU',
-    min: 0,
-    max: 1000,
-    dataType: ChannelDataType.NUMBER,
-  },
-  ntu: { label: 'Turbidity', unit: 'NTU', min: 0, max: 1000, dataType: ChannelDataType.NUMBER },
-
-  // Water Level variants
-  water_level: {
-    label: 'Water Level',
-    unit: 'cm',
-    min: 0,
-    max: 500,
-    dataType: ChannelDataType.NUMBER,
-  },
-  level: { label: 'Water Level', unit: 'cm', min: 0, max: 500, dataType: ChannelDataType.NUMBER },
-
-  // Flow Rate variants
-  flow_rate: {
-    label: 'Flow Rate',
-    unit: 'L/min',
-    min: 0,
-    max: 1000,
-    dataType: ChannelDataType.NUMBER,
-  },
-  flow: { label: 'Flow Rate', unit: 'L/min', min: 0, max: 1000, dataType: ChannelDataType.NUMBER },
-
-  // Pressure variants
-  pressure: { label: 'Pressure', unit: 'bar', min: 0, max: 10, dataType: ChannelDataType.NUMBER },
-
-  // Conductivity variants
-  conductivity: {
-    label: 'Conductivity',
-    unit: 'µS/cm',
-    min: 0,
-    max: 50000,
-    dataType: ChannelDataType.NUMBER,
-  },
-  ec: {
-    label: 'Electrical Conductivity',
-    unit: 'µS/cm',
-    min: 0,
-    max: 50000,
-    dataType: ChannelDataType.NUMBER,
-  },
-
-  // ORP variants
-  orp: { label: 'ORP', unit: 'mV', min: -500, max: 500, dataType: ChannelDataType.NUMBER },
-  redox: { label: 'ORP', unit: 'mV', min: -500, max: 500, dataType: ChannelDataType.NUMBER },
-
-  // CO2 variants
-  co2: { label: 'CO2', unit: 'mg/L', min: 0, max: 100, dataType: ChannelDataType.NUMBER },
-  carbon_dioxide: {
-    label: 'Carbon Dioxide',
-    unit: 'mg/L',
-    min: 0,
-    max: 100,
-    dataType: ChannelDataType.NUMBER,
-  },
-
-  // Alkalinity variants
-  alkalinity: {
-    label: 'Alkalinity',
-    unit: 'mg/L CaCO3',
-    min: 0,
-    max: 500,
-    dataType: ChannelDataType.NUMBER,
-  },
-
-  // TDS variants
-  tds: {
-    label: 'Total Dissolved Solids',
-    unit: 'ppm',
-    min: 0,
-    max: 50000,
-    dataType: ChannelDataType.NUMBER,
-  },
-
-  // Chlorine variants
-  chlorine: { label: 'Chlorine', unit: 'mg/L', min: 0, max: 10, dataType: ChannelDataType.NUMBER },
-  cl: { label: 'Chlorine', unit: 'mg/L', min: 0, max: 10, dataType: ChannelDataType.NUMBER },
-
-  // Humidity (for ambient sensors)
-  humidity: { label: 'Humidity', unit: '%', min: 0, max: 100, dataType: ChannelDataType.NUMBER },
-
-  // Battery/Status
-  battery: {
-    label: 'Battery Level',
-    unit: '%',
-    min: 0,
-    max: 100,
-    dataType: ChannelDataType.NUMBER,
-  },
-  battery_level: {
-    label: 'Battery Level',
-    unit: '%',
-    min: 0,
-    max: 100,
-    dataType: ChannelDataType.NUMBER,
-  },
-  rssi: {
-    label: 'Signal Strength',
-    unit: 'dBm',
-    min: -120,
-    max: 0,
-    dataType: ChannelDataType.NUMBER,
-  },
-  signal: {
-    label: 'Signal Strength',
-    unit: 'dBm',
-    min: -120,
-    max: 0,
-    dataType: ChannelDataType.NUMBER,
-  },
-};
 
 /**
  * Service for discovering data channels from sensor test readings
@@ -371,7 +145,7 @@ export class ChannelDiscoveryService {
     value: unknown,
     dataPath?: string,
   ): DiscoveredChannel {
-    const known = KNOWN_PARAMETERS[key.toLowerCase()];
+    const known = lookupParameter(key);
     const dataType = this.inferDataType(value);
 
     return {
@@ -391,7 +165,7 @@ export class ChannelDiscoveryService {
    */
   suggestDisplayLabel(key: string): string {
     // Check known parameters first
-    const known = KNOWN_PARAMETERS[key.toLowerCase()];
+    const known = lookupParameter(key);
     if (known) {
       return known.label;
     }
@@ -410,7 +184,7 @@ export class ChannelDiscoveryService {
     const normalizedKey = key.toLowerCase();
 
     // Check known parameters
-    const known = KNOWN_PARAMETERS[normalizedKey];
+    const known = lookupParameter(normalizedKey);
     if (known) {
       return known.unit;
     }
@@ -468,7 +242,7 @@ export class ChannelDiscoveryService {
    */
   inferRangeFromKey(key: string): { min?: number; max?: number } {
     const normalizedKey = key.toLowerCase();
-    const known = KNOWN_PARAMETERS[normalizedKey];
+    const known = lookupParameter(normalizedKey);
 
     if (known) {
       return { min: known.min, max: known.max };

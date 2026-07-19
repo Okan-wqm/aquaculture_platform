@@ -4,7 +4,6 @@ import {
   SensorType,
   AlertThresholds,
   ChannelDisplaySettings,
-  KNOWN_PARAMETERS,
 } from '../../types/registration.types';
 import { useSensorTypeDefinitions } from '../../hooks/useSensorTypeDefinitions';
 

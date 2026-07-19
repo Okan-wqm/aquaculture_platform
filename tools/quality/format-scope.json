@@ -23348,6 +23348,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/common/__tests__/sensor-parameter-catalog.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/common/errors.ts",
       "prettier_managed": true
     },
@@ -23379,6 +23385,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/common/redact-protocol-secrets.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/common/sensor-parameter-catalog.ts",
       "prettier_managed": true
     },
     {
@@ -42156,6 +42168,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/sensor-parameter-catalog-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/sensor-single-write-path.spec.ts",
       "prettier_managed": true
     },
@@ -49953,12 +49971,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/modules/sensor-module/src/components/registration/steps/DataChannelsStep.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "web/modules/sensor-module/src/components/registration/steps/ParentDeviceInfoStep.tsx",
       "prettier_managed": true
     },
@@ -52473,6 +52485,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/hooks/useSensorParameterCatalog.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/hooks/useSensorReadings.ts",
       "prettier_managed": true
     },
@@ -53284,6 +53302,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/test-setup.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/types/__tests__/inferChildSensorConfig.test.ts",
       "prettier_managed": true
     },
     {
@@ -55110,10 +55134,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9034,
+  "file_count": 9038,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8853,
-  "managed_file_list_sha256": "d2b7f42bca70b5686f34c9404c76a1c05e78735591aa07ec0ec9c722455bdf23",
+  "managed_count": 8857,
+  "managed_file_list_sha256": "80d35d0b67cee55f8bf10322fd59f0ea52ec831b04ce9bbea8f656cdbb2324a8",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

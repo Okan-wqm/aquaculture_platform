@@ -620,54 +620,38 @@ export interface ParentChildWizardState {
 }
 
 /**
- * Known parameter mappings for auto-discovery
+ * SENSOR-MEDIUM-065: the aquaculture parameter catalog now has ONE owner — the
+ * backend SSoT (`apps/sensor-service/src/common/sensor-parameter-catalog.ts`),
+ * served via the `sensorParameterCatalog` query. The FE consumes it through
+ * useSensorParameterCatalog() instead of a hardcoded map that disagreed with the
+ * backend on units/ranges (which feed alarm thresholds).
  */
-export const KNOWN_PARAMETERS: Record<string, {
-  type: SensorType;
+export interface SensorParameterCatalogEntry {
+  key: string;
+  sensorType: SensorType;
   label: string;
   unit: string;
-  minValue?: number;
-  maxValue?: number;
-}> = {
-  temperature: { type: SensorType.TEMPERATURE, label: 'Temperature', unit: '°C', minValue: 0, maxValue: 50 },
-  temp: { type: SensorType.TEMPERATURE, label: 'Temperature', unit: '°C', minValue: 0, maxValue: 50 },
-  ph: { type: SensorType.PH, label: 'pH', unit: 'pH', minValue: 0, maxValue: 14 },
-  dissolved_oxygen: { type: SensorType.DISSOLVED_OXYGEN, label: 'Dissolved Oxygen', unit: 'mg/L', minValue: 0, maxValue: 20 },
-  do: { type: SensorType.DISSOLVED_OXYGEN, label: 'Dissolved Oxygen', unit: 'mg/L', minValue: 0, maxValue: 20 },
-  oxygen: { type: SensorType.DISSOLVED_OXYGEN, label: 'Dissolved Oxygen', unit: 'mg/L', minValue: 0, maxValue: 20 },
-  salinity: { type: SensorType.SALINITY, label: 'Salinity', unit: 'ppt', minValue: 0, maxValue: 45 },
-  salt: { type: SensorType.SALINITY, label: 'Salinity', unit: 'ppt', minValue: 0, maxValue: 45 },
-  ammonia: { type: SensorType.AMMONIA, label: 'Ammonia', unit: 'mg/L', minValue: 0, maxValue: 10 },
-  nh3: { type: SensorType.AMMONIA, label: 'Ammonia', unit: 'mg/L', minValue: 0, maxValue: 10 },
-  nitrite: { type: SensorType.NITRITE, label: 'Nitrite', unit: 'mg/L', minValue: 0, maxValue: 10 },
-  no2: { type: SensorType.NITRITE, label: 'Nitrite', unit: 'mg/L', minValue: 0, maxValue: 10 },
-  nitrate: { type: SensorType.NITRATE, label: 'Nitrate', unit: 'mg/L', minValue: 0, maxValue: 100 },
-  no3: { type: SensorType.NITRATE, label: 'Nitrate', unit: 'mg/L', minValue: 0, maxValue: 100 },
-  turbidity: { type: SensorType.TURBIDITY, label: 'Turbidity', unit: 'NTU', minValue: 0, maxValue: 1000 },
-  water_level: { type: SensorType.WATER_LEVEL, label: 'Water Level', unit: 'm', minValue: 0, maxValue: 10 },
-  level: { type: SensorType.WATER_LEVEL, label: 'Water Level', unit: 'm', minValue: 0, maxValue: 10 },
-  flow_rate: { type: SensorType.FLOW_RATE, label: 'Flow Rate', unit: 'L/min', minValue: 0, maxValue: 1000 },
-  flow: { type: SensorType.FLOW_RATE, label: 'Flow Rate', unit: 'L/min', minValue: 0, maxValue: 1000 },
-  // SENSOR-HIGH-028: backend has no PRESSURE type; keep the pressure label/unit
-  // but persist as MULTI_PARAMETER (the backend-supported catch-all).
-  pressure: { type: SensorType.MULTI_PARAMETER, label: 'Pressure', unit: 'bar', minValue: 0, maxValue: 10 },
-  conductivity: { type: SensorType.CONDUCTIVITY, label: 'Conductivity', unit: 'µS/cm', minValue: 0, maxValue: 100000 },
-  ec: { type: SensorType.CONDUCTIVITY, label: 'Conductivity', unit: 'µS/cm', minValue: 0, maxValue: 100000 },
-  orp: { type: SensorType.ORP, label: 'ORP', unit: 'mV', minValue: -500, maxValue: 500 },
-  co2: { type: SensorType.CO2, label: 'CO2', unit: 'ppm', minValue: 0, maxValue: 5000 },
-  chlorine: { type: SensorType.CHLORINE, label: 'Chlorine', unit: 'mg/L', minValue: 0, maxValue: 10 },
-};
+  min: number;
+  max: number;
+}
+
+/** Parameter catalog keyed by the normalized (lowercased) channel key. */
+export type ParameterCatalog = Record<string, SensorParameterCatalogEntry>;
 
 /**
- * Helper to infer child sensor config from discovered data
+ * Helper to infer child sensor config from discovered data.
+ * `catalog` is the backend SSoT (SENSOR-MEDIUM-065). While it is still loading the
+ * catalog is empty, so the child falls back to MULTI_PARAMETER with no prefilled
+ * unit/range — exactly the prior no-match behaviour.
  */
 export function inferChildSensorConfig(
   dataPath: string,
   sampleValue: unknown,
-  parentName?: string,
+  parentName: string | undefined,
+  catalog: ParameterCatalog,
 ): ChildSensorConfig {
   const normalizedKey = dataPath.toLowerCase().replace(/[_-]/g, '_');
-  const knownParam = KNOWN_PARAMETERS[normalizedKey];
+  const knownParam = catalog[normalizedKey];
 
   const baseName = parentName
     ? `${parentName} - ${knownParam?.label || dataPath}`
@@ -676,11 +660,11 @@ export function inferChildSensorConfig(
   return {
     dataPath,
     name: baseName,
-    type: knownParam?.type || SensorType.MULTI_PARAMETER,
+    type: knownParam?.sensorType || SensorType.MULTI_PARAMETER,
     unit: knownParam?.unit,
     sampleValue,
-    minValue: knownParam?.minValue,
-    maxValue: knownParam?.maxValue,
+    minValue: knownParam?.min,
+    maxValue: knownParam?.max,
     calibrationEnabled: false,
     calibrationMultiplier: 1,
     calibrationOffset: 0,

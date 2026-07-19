@@ -1,9 +1,11 @@
 import { Logger, UseGuards } from '@nestjs/common';
-import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, ObjectType, Field, Float } from '@nestjs/graphql';
 import { Tenant, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 
 import { SensorDataChannel, ChannelDataType } from '../../database/entities/sensor-data-channel.entity';
+import { SensorType } from '../../database/entities/sensor.entity';
+import { listParameterCatalog } from '../../common/sensor-parameter-catalog';
 import {
   DataChannelType,
   DiscoveryResultType,
@@ -19,6 +21,21 @@ import { ChannelDiscoveryService } from '../services/channel-discovery.service';
 import { ChannelManagementService, CreateChannelInput } from '../services/channel-management.service';
 
 /**
+ * SENSOR-MEDIUM-065: one entry of the aquaculture parameter catalog, served from
+ * the backend SSoT so the FE no longer carries its own (divergent) copy.
+ */
+@ObjectType()
+export class SensorParameterCatalogEntryType {
+  @Field() key!: string;
+  @Field(() => SensorType) sensorType!: SensorType;
+  @Field() label!: string;
+  @Field() unit!: string;
+  @Field(() => Float) min!: number;
+  @Field(() => Float) max!: number;
+  @Field(() => ChannelDataType) dataType!: ChannelDataType;
+}
+
+/**
  * GraphQL resolver for data channel operations
  */
 @Resolver(() => DataChannelType)
@@ -32,6 +49,18 @@ export class ChannelResolver {
   ) {}
 
   // === Queries ===
+
+  /**
+   * SENSOR-MEDIUM-065: the single aquaculture parameter catalog (unit + operational
+   * range + SensorType per channel key). The registration wizard consumes this
+   * instead of a hardcoded FE map, so FE and BE can no longer disagree on units or
+   * ranges. Static reference data — no tenant scoping beyond the authenticated
+   * TenantGuard.
+   */
+  @Query(() => [SensorParameterCatalogEntryType], { name: 'sensorParameterCatalog' })
+  getSensorParameterCatalog(): SensorParameterCatalogEntryType[] {
+    return listParameterCatalog();
+  }
 
   @Query(() => [DataChannelType], { name: 'allDataChannels' })
   async getAllDataChannels(

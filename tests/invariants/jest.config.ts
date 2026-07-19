@@ -243,6 +243,7 @@ export default {
         '<rootDir>/sensor-enum-fe-be-parity.spec.ts',
         '<rootDir>/sensor-no-forged-user-payload.spec.ts',
         '<rootDir>/sensor-single-write-path.spec.ts',
+        '<rootDir>/sensor-parameter-catalog-ssot.spec.ts',
         '<rootDir>/authoritative-runtime-ddl-contract.spec.ts',
         '<rootDir>/source-schema-write-guard-ssot.spec.ts',
         '<rootDir>/no-runtime-synchronize.spec.ts',

@@ -18,10 +18,7 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { parameterForChannelKey, type SensorReadingParameter } from '@platform/event-contracts';
 import { Repository, Between, DataSource } from 'typeorm';
 
-import {
-  SensorReading,
-  SensorReadings,
-} from '../../database/entities/sensor-reading.entity';
+import { SensorReading } from '../../database/entities/sensor-reading.entity';
 import {
   AggregatedReadingType,
   AggregatedReadingsResponse,
@@ -42,50 +39,12 @@ import {
 export type AggregationInterval = SafeAggregationInterval;
 
 /**
- * Query result row for aggregated readings
- */
-interface AggregatedReadingRow {
-  bucket: Date;
-  count: string;
-  avg_temperature?: string;
-  avg_ph?: string;
-  avg_dissolved_oxygen?: string;
-  avg_salinity?: string;
-  avg_ammonia?: string;
-  avg_nitrite?: string;
-  avg_nitrate?: string;
-  avg_turbidity?: string;
-  avg_water_level?: string;
-  min_temperature?: string;
-  max_temperature?: string;
-  min_ph?: string;
-  max_ph?: string;
-  min_dissolved_oxygen?: string;
-  max_dissolved_oxygen?: string;
-  min_salinity?: string;
-  max_salinity?: string;
-  min_ammonia?: string;
-  max_ammonia?: string;
-}
-
-/**
  * Query result row for sensor stats
  */
 interface SensorStatsRow {
   total_readings: string;
   average_quality: string | null;
   last_reading: Date | null;
-}
-
-/**
- * Aggregated sensor data
- */
-export interface AggregatedSensorData {
-  bucket: Date;
-  averages: SensorReadings;
-  minimums?: SensorReadings;
-  maximums?: SensorReadings;
-  count: number;
 }
 
 /**
@@ -118,17 +77,6 @@ export function getOptimalInterval(startTime: Date, endTime: Date): AggregationI
   if (hours <= 168) return '4 hours'; // 42 points max
   if (hours <= 720) return '1 day'; // 30 points max
   return '1 week'; // 52 points max for year
-}
-
-/**
- * Safely parse numeric string to number or undefined
- */
-function parseNumericOrUndefined(value: string | null | undefined): number | undefined {
-  if (value === null || value === undefined || value === '') {
-    return undefined;
-  }
-  const num = parseFloat(value);
-  return Number.isFinite(num) ? num : undefined;
 }
 
 /** Parse a pg driver value (numeric columns arrive as strings, counts as numbers). */
@@ -263,86 +211,6 @@ export class SensorQueryService {
       order: { timestamp: 'DESC' },
       take: validLimit,
     });
-  }
-
-  /**
-   * Get aggregated data using TimescaleDB time_bucket
-   * This provides efficient time-series aggregation
-   *
-   * SECURITY: Uses parameterized queries and whitelist validation for interval
-   */
-  async getAggregatedData(
-    sensorId: string,
-    tenantId: string,
-    startTime: Date,
-    endTime: Date,
-    interval: AggregationInterval,
-  ): Promise<AggregatedSensorData[]> {
-    // Validate all inputs
-    const validSensorId = validateSensorId(sensorId);
-    const validTenantId = validateTenantId(tenantId);
-    const { startTime: validStart, endTime: validEnd } = validateDateRange(
-      startTime,
-      endTime,
-      MAX_QUERY_RANGE_MS,
-    );
-    const validInterval = validateAggregationInterval(interval);
-
-    if (!validInterval) {
-      throw new BadRequestException(
-        `Invalid interval. Allowed values: ${ALLOWED_AGGREGATION_INTERVALS.join(', ')}`,
-      );
-    }
-
-    // Parameterized query - interval is validated against whitelist
-    const query = `
-      SELECT
-        time_bucket($1::interval, timestamp) AS bucket,
-        COUNT(*) AS count,
-        AVG((readings->>'temperature')::numeric) AS avg_temperature,
-        AVG((readings->>'ph')::numeric) AS avg_ph,
-        AVG((readings->>'dissolvedOxygen')::numeric) AS avg_dissolved_oxygen,
-        AVG((readings->>'salinity')::numeric) AS avg_salinity,
-        AVG((readings->>'ammonia')::numeric) AS avg_ammonia,
-        AVG((readings->>'nitrite')::numeric) AS avg_nitrite,
-        AVG((readings->>'nitrate')::numeric) AS avg_nitrate,
-        MIN((readings->>'temperature')::numeric) AS min_temperature,
-        MAX((readings->>'temperature')::numeric) AS max_temperature
-      FROM sensor_readings
-      WHERE sensor_id = $2
-        AND tenant_id = $3
-        AND timestamp BETWEEN $4 AND $5
-      GROUP BY bucket
-      ORDER BY bucket ASC
-    `;
-
-    const results = await this.dataSource.query<AggregatedReadingRow[]>(query, [
-      validInterval,
-      validSensorId,
-      validTenantId,
-      validStart,
-      validEnd,
-    ]);
-
-    return results.map((row: AggregatedReadingRow) => ({
-      bucket: row.bucket,
-      count: parseInt(row.count, 10),
-      averages: {
-        temperature: parseNumericOrUndefined(row.avg_temperature),
-        ph: parseNumericOrUndefined(row.avg_ph),
-        dissolvedOxygen: parseNumericOrUndefined(row.avg_dissolved_oxygen),
-        salinity: parseNumericOrUndefined(row.avg_salinity),
-        ammonia: parseNumericOrUndefined(row.avg_ammonia),
-        nitrite: parseNumericOrUndefined(row.avg_nitrite),
-        nitrate: parseNumericOrUndefined(row.avg_nitrate),
-      },
-      minimums: {
-        temperature: parseNumericOrUndefined(row.min_temperature),
-      },
-      maximums: {
-        temperature: parseNumericOrUndefined(row.max_temperature),
-      },
-    }));
   }
 
   /**

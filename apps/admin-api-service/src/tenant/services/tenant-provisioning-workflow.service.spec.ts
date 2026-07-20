@@ -216,3 +216,102 @@ describe('TenantProvisioningWorkflowService.reconcileTenantSubscription', () => 
     expect(result.replayed).toBe(false);
   });
 });
+
+/**
+ * APA-022 — onboarding-ack barrier decision logic. This directly exercises the
+ * step that gates create_subscription/activate_tenant: a FAILED ack is terminal,
+ * a not-yet-arrived ack REQUEUES (never terminal-fails while it could still
+ * succeed) until a DB-clock deadline, then fails terminally — all while the
+ * tenant is still PROVISIONING. Uses an SQL-dispatching query() mock (no DB).
+ */
+describe('TenantProvisioningWorkflowService.assertTenantOnboardingAcks — APA-022 barrier', () => {
+  let service: TenantProvisioningWorkflowService;
+  let ackRows: Array<{ service: string; status: 'ACK' | 'FAILED'; error: string | null }>;
+  let elapsedMs: number;
+
+  beforeEach(async () => {
+    jest.spyOn(Logger.prototype, 'log').mockImplementation();
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    jest.spyOn(Logger.prototype, 'error').mockImplementation();
+    ackRows = [];
+    elapsedMs = 0;
+    delete process.env['TENANT_ONBOARDING_ACK_TIMEOUT_MS'];
+    delete process.env['TENANT_ONBOARDING_REQUIRED_SERVICES'];
+
+    const query = jest.fn((sql: string) => {
+      if (sql.includes('admin.tenant_onboarding_acks')) return Promise.resolve(ackRows);
+      if (sql.includes('elapsed_ms')) return Promise.resolve([{ elapsed_ms: elapsedMs }]);
+      return Promise.resolve([]);
+    });
+    const mockDataSource = { createQueryRunner: jest.fn(), query };
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        TenantProvisioningWorkflowService,
+        { provide: getDataSourceToken(), useValue: mockDataSource },
+        { provide: OutboxPublisher, useValue: {} },
+        { provide: AuditLogService, useValue: {} },
+        { provide: TenantProvisioningService, useValue: {} },
+        { provide: ModuleAssignmentService, useValue: {} },
+        { provide: AuthTenantProvisioningClientService, useValue: {} },
+        { provide: BillingAdminCommandClientService, useValue: {} },
+      ],
+    }).compile();
+    service = moduleRef.get(TenantProvisioningWorkflowService);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    delete process.env['TENANT_ONBOARDING_ACK_TIMEOUT_MS'];
+    delete process.env['TENANT_ONBOARDING_REQUIRED_SERVICES'];
+  });
+
+  // Private-method access for a focused unit test (bracket form, cast-free).
+  const assertAcks = (): Promise<void> => service['assertTenantOnboardingAcks']('op-1');
+
+  interface WaitError {
+    name: string;
+    message: string;
+    stepName?: string;
+    retryMs?: number;
+  }
+
+  it('resolves when every required service has ACKed', async () => {
+    ackRows = [{ service: 'farm-service', status: 'ACK', error: null }];
+    await expect(assertAcks()).resolves.toBeUndefined();
+  });
+
+  it('throws a TERMINAL error (not a requeue) when a service reports FAILED', async () => {
+    ackRows = [{ service: 'farm-service', status: 'FAILED', error: 'seed failed' }];
+    const err = (await assertAcks().then(
+      () => { throw new Error('expected rejection'); },
+      (e: unknown) => e as WaitError,
+    ));
+    expect(err.name).not.toBe('ProvisioningWaitPendingError');
+    expect(err.message).toMatch(/onboarding failed/i);
+  });
+
+  it('REQUEUES (ProvisioningWaitPendingError) when acks are missing within the deadline', async () => {
+    ackRows = [];
+    elapsedMs = 5_000; // < 10-minute default
+    const err = (await assertAcks().then(
+      () => { throw new Error('expected rejection'); },
+      (e: unknown) => e as WaitError,
+    ));
+    expect(err.name).toBe('ProvisioningWaitPendingError');
+    expect(err.stepName).toBe('wait_for_onboarding_ack');
+    expect(err.retryMs).toBe(15_000);
+  });
+
+  it('throws a TERMINAL deadline error when acks are missing past the deadline', async () => {
+    ackRows = [];
+    process.env['TENANT_ONBOARDING_ACK_TIMEOUT_MS'] = '0';
+    elapsedMs = 1; // >= 0 deadline
+    const err = (await assertAcks().then(
+      () => { throw new Error('expected rejection'); },
+      (e: unknown) => e as WaitError,
+    ));
+    expect(err.name).not.toBe('ProvisioningWaitPendingError');
+    expect(err.message).toMatch(/deadline/i);
+  });
+});

@@ -95,28 +95,56 @@ interface IdRow {
 const MAX_OPERATION_ATTEMPTS = 3;
 const OPERATION_LEASE_MS = 30 * 60 * 1000;
 const DB_MIGRATE_PROVISIONER_RETRY_MS = 30 * 1000;
+// Onboarding-ack wait (APA-022): a not-yet-arrived ack requeues every
+// ONBOARDING_ACK_RETRY_MS until the deadline, then terminally fails while the
+// tenant is still PROVISIONING (never ACTIVE).
+const ONBOARDING_ACK_RETRY_MS = 15 * 1000;
+// Wall-clock deadline default (env override: TENANT_ONBOARDING_ACK_TIMEOUT_MS).
+// NOTE on the effective bound: a crashed/stalled worker's deadline cannot be
+// enforced faster than OPERATION_LEASE_MS (the lease TTL requeueStaleRuns waits
+// on), so a stuck run's worst-case terminal latency is ~max(deadline, lease).
+const ONBOARDING_ACK_DEADLINE_MS = 10 * 60 * 1000;
 
-class DbMigrateProvisioningPendingError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'DbMigrateProvisioningPendingError';
-  }
-}
-
+// APA-022/APA-024: begin_provisioning is now catalogued (it always executed 2nd
+// but was absent, so it sorted last via the removed 999 fallback). The
+// onboarding-ack barrier (wait_for_onboarding_ack) is ordered BEFORE the
+// user-visible commitments (create_subscription, activate_tenant): a terminal
+// failure at or before the barrier therefore fires against a still-PROVISIONING
+// tenant — a legal PROVISIONING→PROVISIONING_FAILED transition — instead of
+// leaving a FAILED run coexisting with an ACTIVE tenant + live subscription.
 const PROVISIONING_STEPS = [
   'reserve_auth_tenant',
+  'begin_provisioning',
   'audit_create_requested',
   'assign_modules',
   'publish_provisioning_requested',
   'wait_for_db_migrate_provisioner',
   'provision_application_resources',
+  'publish_onboarding_requested',
+  'wait_for_onboarding_ack',
   'create_subscription',
   'activate_tenant',
   'audit_provisioned',
-  'publish_onboarding_requested',
-  'wait_for_onboarding_ack',
   'publish_tenant_provisioned',
 ] as const;
+
+type ProvisioningStepName = (typeof PROVISIONING_STEPS)[number];
+
+/**
+ * Generic "this step is not done yet — requeue and try again later" signal.
+ * Generalises the former db-migrate-only wait: it carries the step to requeue
+ * and its backoff so the catch site (processOperation) is fully data-driven.
+ */
+class ProvisioningWaitPendingError extends Error {
+  constructor(
+    readonly stepName: ProvisioningStepName,
+    readonly retryMs: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ProvisioningWaitPendingError';
+  }
+}
 
 @Injectable()
 export class TenantProvisioningWorkflowService {
@@ -330,6 +358,30 @@ export class TenantProvisioningWorkflowService {
         [operationId, TenantProvisioningState.QUEUED, TenantProvisioningState.SUCCEEDED],
       );
 
+      // APA-022: clear the run's onboarding-ack rows and re-arm the (already
+      // SUCCEEDED) onboarding-request step so a retried run does not instantly
+      // re-read a stale FAILED ack row and terminal-fail identically. This
+      // resets the local barrier state; re-delivery to owner services past the
+      // outbox idempotency key is a tracked follow-on (ADMIN-MEDIUM-004) and
+      // out of this change's scope.
+      await this.managerRows(
+        manager,
+        `DELETE FROM admin.tenant_onboarding_acks WHERE "operationId" = $1`,
+        [operationId],
+      );
+      await this.managerRows(
+        manager,
+        `UPDATE admin.tenant_provisioning_steps
+            SET state = $2,
+                attempts = 0,
+                "lastError" = NULL,
+                "startedAt" = NULL,
+                "completedAt" = NULL,
+                "updatedAt" = now()
+          WHERE "runId" = $1 AND "stepName" = 'publish_onboarding_requested'`,
+        [operationId, TenantProvisioningState.QUEUED],
+      );
+
       shouldProcess = true;
       return rows[0];
     });
@@ -427,28 +479,9 @@ export class TenantProvisioningWorkflowService {
         }
       });
 
-      await this.runStep(run.id, leaseToken, 'create_subscription', async () => {
-        await this.createTenantSubscription(run, tenant, payload);
-      });
-
-      await this.runStep(run.id, leaseToken, 'activate_tenant', async () => {
-        await this.activateTenantAfterVerification(run, tenant.id);
-      });
-
-      await this.runStep(run.id, leaseToken, 'audit_provisioned', async () => {
-        await this.auditLogService.log({
-          action: 'TENANT_PROVISIONED',
-          entityType: 'tenant',
-          entityId: tenant.id,
-          performedBy: run.actorUserId,
-          details: {
-            operationId: run.id,
-            moduleIds: payload.moduleIds,
-            tenantStatus: TenantStatus.ACTIVE,
-          },
-        });
-      });
-
+      // APA-022: request onboarding and BLOCK on the owner-service acks BEFORE
+      // any user-visible commitment. create_subscription/activate_tenant run
+      // only after every required owner service has acked.
       await this.runStep(run.id, leaseToken, 'publish_onboarding_requested', async () => {
         await this.enqueueEvent(
           {
@@ -469,38 +502,77 @@ export class TenantProvisioningWorkflowService {
         await this.assertTenantOnboardingAcks(run.id);
       });
 
-      await this.runStep(run.id, leaseToken, 'publish_tenant_provisioned', async () => {
-        await this.enqueueEvent(
-          {
-            ...createBaseEvent('TenantProvisioned', tenant.id, {
-              aggregateId: tenant.id,
-              aggregateType: 'Tenant',
-            }),
-            operationId: run.id,
-            slug: tenant.slug,
-            name: tenant.name,
-          },
-          'tenant-provisioned:' + run.id,
-        );
+      await this.runStep(run.id, leaseToken, 'create_subscription', async () => {
+        await this.createTenantSubscription(run, tenant, payload);
+      });
 
-        await this.enqueueEvent(
-          {
-            ...createBaseEvent('TenantCreated', tenant.id, {
-              aggregateId: tenant.id,
-              aggregateType: 'Tenant',
-            }),
-            slug: tenant.slug,
-            name: tenant.name,
-          },
-          'tenant-created-final:' + run.id,
-        );
+      await this.runStep(run.id, leaseToken, 'activate_tenant', async () => {
+        await this.activateTenantAfterVerification(run, tenant.id);
+      });
+
+      // APA-022: post-activation announce steps are BEST-EFFORT. The tenant is
+      // already committed ACTIVE with a live subscription; a transient throw
+      // here must NOT flip the run to FAILED — that would recreate the
+      // FAILED-but-ACTIVE contradiction the reorder eliminates. Both writes are
+      // append-only/idempotent and self-heal (audit backfill / outbox relay).
+      await this.runStep(run.id, leaseToken, 'audit_provisioned', async () => {
+        try {
+          await this.auditLogService.log({
+            action: 'TENANT_PROVISIONED',
+            entityType: 'tenant',
+            entityId: tenant.id,
+            performedBy: run.actorUserId,
+            details: {
+              operationId: run.id,
+              moduleIds: payload.moduleIds,
+              tenantStatus: TenantStatus.ACTIVE,
+            },
+          });
+        } catch (auditError) {
+          this.logger.error(
+            `audit_provisioned (best-effort) failed for operation ${run.id}; tenant is already ACTIVE: ${(auditError as Error).message}`,
+          );
+        }
+      });
+
+      await this.runStep(run.id, leaseToken, 'publish_tenant_provisioned', async () => {
+        try {
+          await this.enqueueEvent(
+            {
+              ...createBaseEvent('TenantProvisioned', tenant.id, {
+                aggregateId: tenant.id,
+                aggregateType: 'Tenant',
+              }),
+              operationId: run.id,
+              slug: tenant.slug,
+              name: tenant.name,
+            },
+            'tenant-provisioned:' + run.id,
+          );
+
+          await this.enqueueEvent(
+            {
+              ...createBaseEvent('TenantCreated', tenant.id, {
+                aggregateId: tenant.id,
+                aggregateType: 'Tenant',
+              }),
+              slug: tenant.slug,
+              name: tenant.name,
+            },
+            'tenant-created-final:' + run.id,
+          );
+        } catch (publishError) {
+          this.logger.error(
+            `publish_tenant_provisioned (best-effort) failed for operation ${run.id}; tenant is already ACTIVE: ${(publishError as Error).message}`,
+          );
+        }
       });
 
       await this.markRunSucceeded(run.id, leaseToken);
       this.logger.log(`Tenant provisioning operation ${run.id} completed for tenant ${tenant.id}`);
     } catch (error) {
-      if (error instanceof DbMigrateProvisioningPendingError) {
-        await this.markRunWaitingForDbMigrate(run.id, error, run.leaseToken);
+      if (error instanceof ProvisioningWaitPendingError) {
+        await this.markRunWaiting(run.id, error, run.leaseToken);
         return;
       }
       const markedFailed = await this.markRunFailed(run.id, error, run.leaseToken);
@@ -619,9 +691,37 @@ export class TenantProvisioningWorkflowService {
     }
     const acked = new Set(rows.filter((row) => row.status === 'ACK').map((row) => row.service));
     const missing = requiredServices.filter((service) => !acked.has(service));
-    if (missing.length > 0) {
-      throw new Error(`Tenant onboarding ack missing from owner services: ${missing.join(', ')}`);
+    if (missing.length === 0) {
+      return;
     }
+
+    // APA-022: a not-yet-arrived ack is NOT a terminal failure — requeue until a
+    // deadline, then fail terminally while the tenant is still PROVISIONING.
+    // Elapsed time is computed on the DATABASE clock (the same clock that
+    // stamped the wait step's startedAt), not the app clock: this avoids
+    // app/DB skew and the NaN-from-ISO-string livelock an app-side
+    // `Date.now() - startedAt` would produce (which would requeue forever and
+    // silently defeat the deadline).
+    const elapsedRows = await this.queryRows<{ elapsed_ms: string | number | null }>(
+      `SELECT EXTRACT(EPOCH FROM (now() - "startedAt")) * 1000 AS elapsed_ms
+         FROM admin.tenant_provisioning_steps
+        WHERE "runId" = $1 AND "stepName" = 'wait_for_onboarding_ack'
+        LIMIT 1`,
+      [operationId],
+    );
+    const elapsedMs = Number(elapsedRows[0]?.elapsed_ms ?? 0);
+    const deadlineMs = this.onboardingAckDeadlineMs();
+    const missingMessage = `Tenant onboarding ack missing from owner services: ${missing.join(', ')}`;
+    if (Number.isFinite(elapsedMs) && elapsedMs >= deadlineMs) {
+      throw new Error(
+        `${missingMessage} — onboarding-ack deadline of ${deadlineMs}ms exceeded (waited ${Math.round(elapsedMs)}ms). Failing provisioning while the tenant is still PROVISIONING.`,
+      );
+    }
+    throw new ProvisioningWaitPendingError(
+      'wait_for_onboarding_ack',
+      ONBOARDING_ACK_RETRY_MS,
+      missingMessage,
+    );
   }
 
   private requiredOnboardingServices(): string[] {
@@ -629,6 +729,12 @@ export class TenantProvisioningWorkflowService {
       .split(',')
       .map((service) => service.trim())
       .filter((service) => service.length > 0);
+  }
+
+  private onboardingAckDeadlineMs(): number {
+    const raw = process.env['TENANT_ONBOARDING_ACK_TIMEOUT_MS'];
+    const parsed = raw !== undefined ? Number(raw) : Number.NaN;
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : ONBOARDING_ACK_DEADLINE_MS;
   }
 
   private buildAuthCommandMetadata(
@@ -1298,7 +1404,9 @@ export class TenantProvisioningWorkflowService {
     );
     const schemaRow = schemaRows[0];
     if (!schemaRow?.schemaName) {
-      throw new DbMigrateProvisioningPendingError(
+      throw new ProvisioningWaitPendingError(
+        'wait_for_db_migrate_provisioner',
+        DB_MIGRATE_PROVISIONER_RETRY_MS,
         `db-migrate tenant provisioner has not completed operation ${operationId} for tenant ${tenantId}`,
       );
     }
@@ -1467,9 +1575,10 @@ export class TenantProvisioningWorkflowService {
     }
   }
 
-  private stepOrder(stepName: string): number {
-    const index = PROVISIONING_STEPS.indexOf(stepName as (typeof PROVISIONING_STEPS)[number]);
-    return index === -1 ? 999 : index + 1;
+  private stepOrder(stepName: ProvisioningStepName): number {
+    // begin_provisioning is now catalogued, so indexOf can never be -1 and the
+    // 999 fallback is gone — an uncatalogued step name is a compile error.
+    return PROVISIONING_STEPS.indexOf(stepName) + 1;
   }
 
   private getWorkerId(): string {
@@ -1504,7 +1613,7 @@ export class TenantProvisioningWorkflowService {
   private async runStep(
     runId: string,
     leaseToken: string | null | undefined,
-    stepName: string,
+    stepName: ProvisioningStepName,
     work: () => Promise<void>,
   ): Promise<void> {
     const existingRows = await this.queryRows<TenantProvisioningStepRow>(
@@ -1525,13 +1634,16 @@ export class TenantProvisioningWorkflowService {
       `INSERT INTO admin.tenant_provisioning_steps (
           id, "runId", "stepName", "stepOrder", state, attempts, "startedAt", "createdAt", "updatedAt"
         ) VALUES (
-          uuid_generate_v4(), $1, $2, COALESCE($4, 999), $3, 1, now(), now(), now()
+          uuid_generate_v4(), $1, $2, $4, $3, 1, now(), now(), now()
         )
         ON CONFLICT ("runId", "stepName")
         DO UPDATE SET
           state = $3,
           attempts = admin.tenant_provisioning_steps.attempts + 1,
-          "startedAt" = now(),
+          -- APA-022: preserve the FIRST attempt time so a step-scoped deadline
+          -- (onboarding-ack wait) survives cron requeues; retryOperation resets
+          -- it to NULL for a fresh clock.
+          "startedAt" = COALESCE(admin.tenant_provisioning_steps."startedAt", now()),
           "completedAt" = NULL,
           "lastError" = NULL,
           "updatedAt" = now()
@@ -1639,9 +1751,9 @@ export class TenantProvisioningWorkflowService {
     }
   }
 
-  private async markRunWaitingForDbMigrate(
+  private async markRunWaiting(
     runId: string,
-    error: DbMigrateProvisioningPendingError,
+    error: ProvisioningWaitPendingError,
     leaseToken?: string | null,
   ): Promise<void> {
     const rows = await this.queryRows<TenantProvisioningRunRow>(
@@ -1666,17 +1778,19 @@ export class TenantProvisioningWorkflowService {
         TenantProvisioningState.QUEUED,
         error.message,
         leaseToken ?? null,
-        `${DB_MIGRATE_PROVISIONER_RETRY_MS} milliseconds`,
+        `${error.retryMs} milliseconds`,
       ],
     );
 
     if (rows.length === 0) {
       this.logger.warn(
-        `Skipping db-migrate wait requeue for operation ${runId} because this worker no longer holds the lease`,
+        `Skipping ${error.stepName} wait requeue for operation ${runId} because this worker no longer holds the lease`,
       );
       return;
     }
 
+    // Reset the waiting step to QUEUED but leave "startedAt" untouched so a
+    // deadline anchored on the step's first-attempt time survives requeues.
     await this.queryRows(
       `UPDATE admin.tenant_provisioning_steps
           SET state = $3,
@@ -1684,11 +1798,11 @@ export class TenantProvisioningWorkflowService {
               "completedAt" = NULL,
               "updatedAt" = now()
         WHERE "runId" = $1 AND "stepName" = $2`,
-      [runId, 'wait_for_db_migrate_provisioner', TenantProvisioningState.QUEUED, error.message],
+      [runId, error.stepName, TenantProvisioningState.QUEUED, error.message],
     );
 
     this.logger.log(
-      `Tenant provisioning operation ${runId} is waiting for db-migrate tenant provisioner`,
+      `Tenant provisioning operation ${runId} is waiting at step ${error.stepName} (retry in ${error.retryMs}ms)`,
     );
   }
 

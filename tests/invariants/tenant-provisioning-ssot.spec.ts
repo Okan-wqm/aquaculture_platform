@@ -102,6 +102,43 @@ describe('INVARIANT: tenant creation route SSOT', () => {
     expect(workflow).toContain('Succeeded tenant provisioning operations cannot be retried');
   });
 
+  it('orders the onboarding-ack barrier BEFORE every user-visible commitment (APA-022)', () => {
+    const workflow = readRepoFile(
+      'apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts',
+    );
+
+    // (1) Catalogue order: begin_provisioning is catalogued (APA-024) and the
+    // barrier precedes create_subscription/activate_tenant in PROVISIONING_STEPS.
+    const stepsBlock = workflow.slice(
+      workflow.indexOf('const PROVISIONING_STEPS = ['),
+      workflow.indexOf('] as const;', workflow.indexOf('const PROVISIONING_STEPS = [')),
+    );
+    expect(stepsBlock).toContain("'begin_provisioning'");
+    const ackIdx = stepsBlock.indexOf("'wait_for_onboarding_ack'");
+    expect(ackIdx).toBeGreaterThan(-1);
+    expect(ackIdx).toBeLessThan(stepsBlock.indexOf("'create_subscription'"));
+    expect(ackIdx).toBeLessThan(stepsBlock.indexOf("'activate_tenant'"));
+
+    // (2) Decisive RUNTIME gate: the actual runStep(...) CALL SEQUENCE in
+    // processOperation must place the barrier before the commitments. The
+    // catalogue check above only pins ledger sort; this pins execution order,
+    // which is what actually prevents the FAILED-but-ACTIVE contradiction.
+    const runAckIdx = workflow.indexOf("runStep(run.id, leaseToken, 'wait_for_onboarding_ack'");
+    const runSubIdx = workflow.indexOf("runStep(run.id, leaseToken, 'create_subscription'");
+    const runActIdx = workflow.indexOf("runStep(run.id, leaseToken, 'activate_tenant'");
+    expect(runAckIdx).toBeGreaterThan(-1);
+    expect(runSubIdx).toBeGreaterThan(-1);
+    expect(runActIdx).toBeGreaterThan(-1);
+    expect(runAckIdx).toBeLessThan(runSubIdx);
+    expect(runAckIdx).toBeLessThan(runActIdx);
+
+    // (3) The one-off db-migrate wait was GENERALISED, not duplicated.
+    expect(workflow).toContain('ProvisioningWaitPendingError');
+    expect(workflow).toContain('markRunWaiting(');
+    expect(workflow).not.toContain('DbMigrateProvisioningPendingError');
+    expect(workflow).not.toContain('markRunWaitingForDbMigrate');
+  });
+
   it('does not expose auth-service GraphQL createTenant as an external create path', () => {
     const resolver = readRepoFile(
       'apps/auth-service/src/modules/tenant/resolvers/tenant.resolver.ts',

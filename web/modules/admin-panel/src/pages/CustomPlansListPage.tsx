@@ -94,7 +94,7 @@ const CustomPlansListPage: React.FC = () => {
         page,
         limit,
       });
-      setPlans(result.items || []);
+      setPlans(result.data || []);
       setTotal(result.total || 0);
     } catch (err) {
       console.error('Failed to load custom plans:', err);

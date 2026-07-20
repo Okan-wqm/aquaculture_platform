@@ -70,21 +70,10 @@ export const FeatureTogglesPage: React.FC = () => {
         category: filterCategory !== 'all' ? filterCategory : undefined,
         search: searchTerm || undefined,
       });
-      // Normalise the API response shape to a flat array (BUG-014)
-      type FeatureToggleListResponse = FeatureToggle[] | { data: FeatureToggle[] } | { items: FeatureToggle[]; total?: number };
-      const r = response as unknown as FeatureToggleListResponse;
-      let toggleList: FeatureToggle[];
-      if (Array.isArray(r)) {
-        toggleList = r;
-      } else if ('items' in r && Array.isArray(r.items)) {
-        toggleList = r.items;
-      } else if ('data' in r && Array.isArray(r.data)) {
-        toggleList = r.data;
-      } else {
-        console.error('API returned unexpected format for feature toggles', r);
-        toggleList = [];
-      }
-      setToggles(toggleList);
+      // RC-1: getFeatureToggles returns the canonical PaginatedResult envelope;
+      // the rows are in .data. (Replaces the BUG-014 items|data|array
+      // normalizer that existed only because the backend shape was ambiguous.)
+      setToggles(response.data ?? []);
     } catch (err) {
       console.error('Failed to load feature toggles:', err);
       setError('Failed to load feature toggles');

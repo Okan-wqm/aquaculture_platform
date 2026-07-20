@@ -22,6 +22,7 @@ export {
   // repository exports.
   type IStandardPaginatedResult,
   createStandardPaginatedResult,
+  isStandardPaginatedResult,
   fromCqrsPaginated,
   safeSortField,
   safeSortOrder,

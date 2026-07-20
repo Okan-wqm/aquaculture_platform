@@ -592,8 +592,10 @@ export interface CustomPlanFilter {
   limit?: number;
 }
 
+// RC-1: custom-plans now emits the canonical paginated envelope, so the rows
+// arrive under .data (like every other admin-panel PaginatedResult) — not .items.
 export interface PaginatedCustomPlans {
-  items: CustomPlan[];
+  data: CustomPlan[];
   total: number;
   page: number;
   limit: number;

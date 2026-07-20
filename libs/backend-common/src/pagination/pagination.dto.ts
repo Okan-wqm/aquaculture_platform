@@ -250,6 +250,29 @@ export function createStandardPaginatedResult<T>(
 }
 
 /**
+ * Runtime guard for the canonical paginated shape (RC-1). Requires ALL FOUR
+ * numeric fields alongside the items array, so a bare {items,total} or a
+ * {data,total} never partially matches. Producers, the admin-api
+ * ResponseInterceptor, and the pagination contract tests all import THIS guard
+ * so "is this a paginated list?" has a single definition.
+ */
+export function isStandardPaginatedResult<T = unknown>(
+  value: unknown,
+): value is IStandardPaginatedResult<T> {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    Array.isArray(candidate['items']) &&
+    typeof candidate['total'] === 'number' &&
+    typeof candidate['page'] === 'number' &&
+    typeof candidate['limit'] === 'number' &&
+    typeof candidate['totalPages'] === 'number'
+  );
+}
+
+/**
  * Bridge: CQRS PaginatedQueryResult → IStandardPaginatedResult.
  * Uses structural typing to avoid a hard dependency on @platform/cqrs.
  */

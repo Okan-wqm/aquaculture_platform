@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, LessThan, LessThanOrEqual, IsNull } from 'typeorm';
@@ -511,7 +512,7 @@ export class JobQueueService {
     search?: string;
     page?: number;
     limit?: number;
-  }): Promise<{ items: BackgroundJob[]; total: number }> {
+  }): Promise<IStandardPaginatedResult<BackgroundJob>> {
     const query = this.jobRepo.createQueryBuilder('j');
 
     if (params.queueName) {
@@ -540,7 +541,7 @@ export class JobQueueService {
     query.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await query.getManyAndCount();
-    return { items, total };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   // ============================================================================
@@ -550,7 +551,7 @@ export class JobQueueService {
   async getJobLogs(
     jobId: string,
     params: { page?: number; limit?: number },
-  ): Promise<{ items: JobExecutionLog[]; total: number }> {
+  ): Promise<IStandardPaginatedResult<JobExecutionLog>> {
     const page = params.page || 1;
     const limit = params.limit || 20;
 
@@ -561,7 +562,7 @@ export class JobQueueService {
       take: limit,
     });
 
-    return { items, total };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   // ============================================================================

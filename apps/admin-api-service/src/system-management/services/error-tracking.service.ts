@@ -1,4 +1,5 @@
 import * as crypto from 'crypto';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -340,7 +341,7 @@ export class ErrorTrackingService {
     limit?: number;
     sortBy?: 'occurrenceCount' | 'lastSeenAt' | 'firstSeenAt' | 'userCount';
     sortOrder?: 'ASC' | 'DESC';
-  }): Promise<{ items: ErrorGroup[]; total: number }> {
+  }): Promise<IStandardPaginatedResult<ErrorGroup>> {
     const query = this.groupRepo.createQueryBuilder('g');
 
     if (params.status) {
@@ -374,7 +375,7 @@ export class ErrorTrackingService {
     query.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await query.getManyAndCount();
-    return { items, total };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   // ============================================================================
@@ -392,7 +393,7 @@ export class ErrorTrackingService {
   async getOccurrencesForGroup(
     groupId: string,
     params: { page?: number; limit?: number },
-  ): Promise<{ items: ErrorOccurrence[]; total: number }> {
+  ): Promise<IStandardPaginatedResult<ErrorOccurrence>> {
     const page = params.page || 1;
     const limit = params.limit || 20;
 
@@ -403,7 +404,7 @@ export class ErrorTrackingService {
       take: limit,
     });
 
-    return { items, total };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   async queryOccurrences(params: {
@@ -416,7 +417,7 @@ export class ErrorTrackingService {
     end?: Date;
     page?: number;
     limit?: number;
-  }): Promise<{ items: ErrorOccurrence[]; total: number }> {
+  }): Promise<IStandardPaginatedResult<ErrorOccurrence>> {
     const query = this.occurrenceRepo.createQueryBuilder('o');
 
     if (params.service) {
@@ -448,7 +449,7 @@ export class ErrorTrackingService {
     query.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await query.getManyAndCount();
-    return { items, total };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   // ============================================================================

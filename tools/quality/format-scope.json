@@ -41082,6 +41082,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-api-pagination-canonical.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-api-schema-boundaries.spec.ts",
       "prettier_managed": true
     },
@@ -55002,10 +55008,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9016,
+  "file_count": 9017,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8835,
-  "managed_file_list_sha256": "7a5f43d16f90accff38849c3d5f58266acdfeb6e0f9550cd9d021d70559ab207",
+  "managed_count": 8836,
+  "managed_file_list_sha256": "c1d1af130e034aba282af0f1bad4f12fcc369005fa6635bcff368e49e3f001a0",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

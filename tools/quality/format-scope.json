@@ -37540,6 +37540,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/sensor/__tests__/sensor-reading-id.codec.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/sensor/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/sensor/sensor-reading-id.codec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/telemetry/index.ts",
       "prettier_managed": true
     },
@@ -55170,10 +55188,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9044,
+  "file_count": 9047,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8863,
-  "managed_file_list_sha256": "1fdf43cebd13d7500d811f2a3b26f421995d66812d764d3cb4d444bfc3db241d",
+  "managed_count": 8866,
+  "managed_file_list_sha256": "2f713ebdacc828f9ee17b802c62fc30cdeaa42aba15021151e3cd73471cf216f",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

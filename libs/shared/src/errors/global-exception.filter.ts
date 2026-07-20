@@ -36,16 +36,10 @@
 // ExternalServiceException). This ensures typed error codes from error-codes.ts flow through
 // getErrorResponse() automatically and appear in the response envelope. See application-exception.ts
 // and error-codes.ts for the full registry of typed codes.
-import {
-  ExceptionFilter,
-  Catch,
-  ArgumentsHost,
-  HttpException,
-  HttpStatus,
-  Logger,
-} from '@nestjs/common';
+import { ExceptionFilter, Catch, ArgumentsHost, Logger } from '@nestjs/common';
 import { Request, Response } from 'express';
-import { ApplicationException, ErrorResponse } from './application-exception';
+
+import { buildErrorEnvelope, JSON_ERROR_CONTENT_TYPE } from './error-envelope';
 
 /**
  * Global Exception Filter
@@ -62,168 +56,48 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
-    const errorResponse = this.buildErrorResponse(exception, request);
-    const status = this.getStatus(exception);
+    const correlationIdHeader =
+      request.headers['x-correlation-id'] ?? request.headers['x-request-id'];
+    const correlationId = typeof correlationIdHeader === 'string' ? correlationIdHeader : undefined;
+    const canonical = buildErrorEnvelope(exception, {
+      path: request.originalUrl ?? request.url,
+      correlationId,
+    });
 
-    // Log error details
-    this.logError(exception, request, status);
+    this.logError(
+      exception,
+      request,
+      canonical.statusCode,
+      canonical.body.error.code,
+      canonical.body.error.correlationId,
+    );
 
-    response.status(status).json(errorResponse);
+    response.status(canonical.statusCode).type(JSON_ERROR_CONTENT_TYPE).json(canonical.body);
   }
 
-  private buildErrorResponse(exception: unknown, request: Request): ErrorResponse {
-    const correlationId =
-      (request.headers['x-correlation-id'] as string) ||
-      (request.headers['x-request-id'] as string) ||
-      undefined;
-
-    // Handle ApplicationException
-    if (exception instanceof ApplicationException) {
-      const errorResponse = exception.getErrorResponse();
-      errorResponse.error.path = request.url;
-      errorResponse.error.correlationId = correlationId;
-      return errorResponse;
-    }
-
-    // Handle standard HttpException
-    if (exception instanceof HttpException) {
-      const exceptionResponse = exception.getResponse();
-      const message = this.extractMessage(exceptionResponse);
-      const details = this.extractDetails(exceptionResponse);
-
-      return {
-        success: false,
-        error: {
-          code: this.getErrorCode(exception.getStatus()),
-          message,
-          details,
-          timestamp: new Date().toISOString(),
-          path: request.url,
-          correlationId,
-        },
-      };
-    }
-
-    // Handle unknown errors
-    const isProduction = process.env.NODE_ENV === 'production';
-    return {
-      success: false,
-      error: {
-        code: 'INTERNAL_SERVER_ERROR',
-        message: isProduction
-          ? 'An unexpected error occurred'
-          : (exception instanceof Error ? exception.message : 'Unknown error'),
-        timestamp: new Date().toISOString(),
-        path: request.url,
-        correlationId,
-      },
-    };
-  }
-
-  private getStatus(exception: unknown): number {
-    if (exception instanceof HttpException) {
-      return exception.getStatus();
-    }
-    return HttpStatus.INTERNAL_SERVER_ERROR;
-  }
-
-  private extractMessage(response: string | object): string {
-    if (typeof response === 'string') {
-      return response;
-    }
-    if (typeof response === 'object' && response !== null) {
-      const obj = response as Record<string, unknown>;
-      if ('message' in obj) {
-        return Array.isArray(obj.message)
-          ? obj.message.join(', ')
-          : String(obj.message);
-      }
-      if ('error' in obj && typeof obj.error === 'object' && obj.error !== null) {
-        const errorObj = obj.error as Record<string, unknown>;
-        if ('message' in errorObj) {
-          return String(errorObj.message);
-        }
-      }
-    }
-    return 'An error occurred';
-  }
-
-  private extractDetails(response: string | object): Record<string, unknown> | undefined {
-    if (typeof response !== 'object' || response === null) {
-      return undefined;
-    }
-
-    const obj = response as Record<string, unknown>;
-
-    // Check for validation errors (class-validator / ValidationPipe)
-    // Standardize to { fields: Record<string, string[]> } format
-    // matching ValidationException's structure
-    if ('message' in obj && Array.isArray(obj.message) && obj.message.length > 1) {
-      const fields: Record<string, string[]> = {};
-      for (const msg of obj.message) {
-        const strMsg = String(msg);
-        // Try to extract field name from messages like "email must be a valid email"
-        const match = strMsg.match(/^(\w+)\s/);
-        const fieldName = match?.[1] ?? '_general';
-        if (!fields[fieldName]) {
-          fields[fieldName] = [];
-        }
-        fields[fieldName].push(strMsg);
-      }
-      return { fields };
-    }
-
-    // Check for nested error details
-    if ('error' in obj && typeof obj.error === 'object' && obj.error !== null) {
-      const errorObj = obj.error as Record<string, unknown>;
-      if ('details' in errorObj) {
-        return errorObj.details as Record<string, unknown>;
-      }
-    }
-
-    return undefined;
-  }
-
-  private getErrorCode(status: number): string {
-    // All codes reference entries in ERROR_CODES to eliminate phantom codes
-    const statusCodeMap: Record<number, string> = {
-      400: 'VALIDATION_FAILED',
-      401: 'AUTH_TOKEN_INVALID',
-      403: 'AUTH_FORBIDDEN',
-      404: 'RESOURCE_NOT_FOUND',
-      409: 'RESOURCE_CONFLICT',
-      422: 'VALIDATION_FAILED',
-      429: 'RATE_LIMIT_EXCEEDED',
-      500: 'INTERNAL_SERVER_ERROR',
-      502: 'EXTERNAL_SERVICE_UNAVAILABLE',
-      503: 'EXTERNAL_SERVICE_UNAVAILABLE',
-      504: 'EXTERNAL_SERVICE_TIMEOUT',
-    };
-
-    return statusCodeMap[status] || 'INTERNAL_SERVER_ERROR';
-  }
-
-  private logError(exception: unknown, request: Request, status: number): void {
+  private logError(
+    exception: unknown,
+    request: Request,
+    status: number,
+    code: string,
+    correlationId: string | undefined,
+  ): void {
+    const isProduction = process.env['NODE_ENV'] === 'production';
     const errorDetails = {
       method: request.method,
-      url: request.url,
       status,
-      userId: (request as Request & { user?: { id?: string } }).user?.id,
-      tenantId: request.headers['x-tenant-id'],
-      correlationId: request.headers['x-correlation-id'] || request.headers['x-request-id'],
+      code,
+      correlationId,
     };
 
     if (status >= 500) {
       this.logger.error(
-        `Server Error: ${exception instanceof Error ? exception.message : 'Unknown error'}`,
-        exception instanceof Error ? exception.stack : undefined,
+        'HTTP request failed with a server error',
+        !isProduction && exception instanceof Error ? exception.stack : undefined,
         errorDetails,
       );
     } else if (status >= 400) {
-      this.logger.warn(
-        `Client Error: ${exception instanceof Error ? exception.message : 'Unknown error'}`,
-        errorDetails,
-      );
+      this.logger.warn('HTTP request was rejected', errorDetails);
     }
   }
 }

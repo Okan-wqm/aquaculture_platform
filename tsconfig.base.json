@@ -88,6 +88,9 @@
         "libs/backend-common/src/health/index.ts"
       ],
       "@aquaculture/backend-common/http": ["libs/backend-common/src/http/index.ts"],
+      "@aquaculture/backend-common/feature-toggle": [
+        "libs/backend-common/src/feature-toggle/index.ts"
+      ],
       "@aquaculture/backend-common/logging": [
         "libs/backend-common/src/logging/index.ts"
       ],

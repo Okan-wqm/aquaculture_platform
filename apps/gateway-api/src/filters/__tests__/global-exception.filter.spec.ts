@@ -1,522 +1,225 @@
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
-
-/**
- * Global Exception Filter Tests
- *
- * Comprehensive test suite for global exception handling
- */
-
-import { HttpException, HttpStatus, ArgumentsHost } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
+import { ArgumentsHost, HttpException, HttpStatus, Logger } from '@nestjs/common';
+import type { ErrorResponse } from '@platform/shared';
 import { GraphQLError } from 'graphql';
 
 import { GlobalExceptionFilter } from '../global-exception.filter';
 
-/**
- * Error response body structure
- * SECURITY: tenantId is intentionally excluded — it is logged server-side only
- */
-interface ErrorResponseBody {
-  statusCode: number;
-  message: string;
-  error?: string;
-  path?: string;
-  timestamp?: string;
-  correlationId?: string;
-  details?: unknown;
+interface MockResponse {
+  status: jest.Mock<MockResponse, [number]>;
+  type: jest.Mock<MockResponse, [string]>;
+  json: jest.Mock<MockResponse, [ErrorResponse]>;
 }
 
-/**
- * Mock response with properly typed methods
- */
-interface MockResponseObject {
-  status: jest.Mock<MockResponseObject, [number]>;
-  json: jest.Mock<MockResponseObject, [ErrorResponseBody]>;
-}
-
-/**
- * Mock request structure
- */
-interface MockRequestObject {
+interface MockRequest {
   url: string;
+  originalUrl?: string;
   method: string;
   headers: Record<string, string | undefined>;
   tenantId?: string;
 }
 
-/**
- * Mock HTTP host structure
- */
-interface MockHttpHost {
-  getRequest: () => MockRequestObject;
-  getResponse: () => MockResponseObject;
+function createHttpHost(
+  options: {
+    url?: string;
+    correlationId?: string;
+    tenantId?: string;
+  } = {},
+): { host: ArgumentsHost; response: MockResponse } {
+  const request: MockRequest = {
+    url: options.url ?? '/api/test',
+    originalUrl: options.url ?? '/api/test',
+    method: 'GET',
+    headers: {
+      'x-correlation-id': options.correlationId,
+      'x-tenant-id': options.tenantId,
+    },
+    tenantId: options.tenantId,
+  };
+  const response: MockResponse = {
+    status: jest.fn().mockReturnThis() as jest.Mock<MockResponse, [number]>,
+    type: jest.fn().mockReturnThis() as jest.Mock<MockResponse, [string]>,
+    json: jest.fn().mockReturnThis() as jest.Mock<MockResponse, [ErrorResponse]>,
+  };
+
+  return {
+    response,
+    host: {
+      getType: () => 'http',
+      switchToHttp: () => ({
+        getRequest: () => request,
+        getResponse: () => response,
+      }),
+    } as ArgumentsHost,
+  };
 }
 
-describe('GlobalExceptionFilter', () => {
-  let filter: GlobalExceptionFilter;
-  const originalEnv = process.env['NODE_ENV'];
-
-  /**
-   * Create mock HTTP arguments host
-   */
-  const createMockHttpHost = (options: {
-    url?: string;
-    method?: string;
-    correlationId?: string;
-    tenantId?: string;
-  } = {}): ArgumentsHost => {
-    const mockRequest: MockRequestObject = {
-      url: options.url ?? '/api/test',
-      method: options.method ?? 'GET',
-      headers: {
-        'x-correlation-id': options.correlationId,
-        'x-tenant-id': options.tenantId,
-      },
-      tenantId: options.tenantId,
-    };
-
-    const mockResponse: MockResponseObject = {
-      status: jest.fn().mockReturnThis() as jest.Mock<MockResponseObject, [number]>,
-      json: jest.fn().mockReturnThis() as jest.Mock<MockResponseObject, [ErrorResponseBody]>,
-    };
-
-    const mockHttpHost: MockHttpHost = {
-      getRequest: () => mockRequest,
-      getResponse: () => mockResponse,
-    };
-
-    return {
-      switchToHttp: () => mockHttpHost,
-      getType: () => 'http',
-    } as unknown as ArgumentsHost;
+function createGraphqlHost(
+  options: { correlationId?: string; tenantId?: string } = {},
+): ArgumentsHost {
+  const request: MockRequest = {
+    url: '/graphql?token=private',
+    method: 'POST',
+    headers: {
+      'x-correlation-id': options.correlationId,
+      'x-tenant-id': options.tenantId,
+    },
+    tenantId: options.tenantId,
   };
 
-  /**
-   * Create mock GraphQL arguments host
-   */
-  const createMockGraphQLHost = (options: {
-    url?: string;
-    correlationId?: string;
-    tenantId?: string;
-  } = {}): ArgumentsHost => {
-    const mockRequest: MockRequestObject = {
-      url: options.url ?? '/graphql',
-      method: 'POST',
-      headers: {
-        'x-correlation-id': options.correlationId,
-        'x-tenant-id': options.tenantId,
-      },
-      tenantId: options.tenantId,
-    };
+  return {
+    getType: () => 'graphql',
+    getArgs: () => [{}, {}, { req: request }, {}],
+  } as ArgumentsHost;
+}
 
-    return {
-      switchToHttp: () => ({
-        getRequest: () => mockRequest,
-        getResponse: () => ({}),
-      }),
-      getType: () => 'graphql',
-      getArgs: () => [{}, {}, { req: mockRequest }, {}],
-    } as unknown as ArgumentsHost;
-  };
-
-  /**
-   * Helper to get response body from mock
-   */
-  const getResponseBody = (host: ArgumentsHost): ErrorResponseBody | undefined => {
-    const httpHost = host.switchToHttp() as MockHttpHost;
-    const response = httpHost.getResponse();
-    const calls = response.json.mock.calls;
-    if (calls.length > 0) {
-      const lastCall = calls[calls.length - 1];
-      return lastCall ? lastCall[0] : undefined;
-    }
-    return undefined;
-  };
-
-  /**
-   * Helper to get mock response
-   */
-  const getMockResponse = (host: ArgumentsHost): MockResponseObject => {
-    const httpHost = host.switchToHttp() as MockHttpHost;
-    return httpHost.getResponse();
-  };
-
-  beforeEach(async () => {
-    process.env['NODE_ENV'] = 'development';
-
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [GlobalExceptionFilter],
-    }).compile();
-
-    filter = module.get<GlobalExceptionFilter>(GlobalExceptionFilter);
-  });
+describe('Gateway GlobalExceptionFilter', () => {
+  const originalNodeEnv = process.env['NODE_ENV'];
 
   afterEach(() => {
-    process.env['NODE_ENV'] = originalEnv;
+    process.env['NODE_ENV'] = originalNodeEnv;
+    jest.restoreAllMocks();
   });
 
-  describe('HTTP Exception Handling', () => {
-    it('should handle HttpException and return proper response', () => {
-      const host = createMockHttpHost({ url: '/api/users' });
-      const exception = new HttpException('Not Found', HttpStatus.NOT_FOUND);
-
-      filter.catch(exception, host);
-
-      const response = getMockResponse(host);
-      expect(response.status).toHaveBeenCalledWith(404);
-      expect(response.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          statusCode: 404,
-          message: 'Not Found',
-          path: '/api/users',
-        }),
-      );
+  it('emits the exact canonical JSON envelope for HTTP', () => {
+    process.env['NODE_ENV'] = 'development';
+    const filter = new GlobalExceptionFilter();
+    const { host, response } = createHttpHost({
+      url: '/api/users/user-1?access_token=private',
+      correlationId: 'corr-123',
+      tenantId: 'tenant-private',
     });
 
-    it('should include correlation ID in response', () => {
-      const host = createMockHttpHost({ correlationId: 'corr-123' });
-      const exception = new HttpException('Error', HttpStatus.BAD_REQUEST);
+    filter.catch(new HttpException('User not found', HttpStatus.NOT_FOUND), host);
 
-      filter.catch(exception, host);
+    expect(response.status).toHaveBeenCalledWith(404);
+    expect(response.type).toHaveBeenCalledWith('application/json');
+    expect(response.json).toHaveBeenCalledWith({
+      success: false,
+      error: {
+        code: 'RESOURCE_NOT_FOUND',
+        message: 'User not found',
+        timestamp: expect.any(String),
+        path: '/api/users/user-1',
+        correlationId: 'corr-123',
+      },
+    });
+    expect(JSON.stringify(response.json.mock.calls[0]?.[0])).not.toContain('tenant-private');
+  });
 
-      const response = getMockResponse(host);
-      expect(response.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          correlationId: 'corr-123',
-        }),
-      );
+  it('uses a production allowlist and never logs or reflects PII, signed URLs, or details', () => {
+    process.env['NODE_ENV'] = 'production';
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const filter = new GlobalExceptionFilter();
+    const { host, response } = createHttpHost({
+      url: '/api/users/alice@example.com?X-Amz-Signature=private',
+      correlationId: 'alice@example.com',
+      tenantId: 'tenant-private',
     });
 
-    it('should NOT include tenant ID in response (security: information disclosure)', () => {
-      const host = createMockHttpHost({ tenantId: 'tenant-456' });
-      const exception = new HttpException('Error', HttpStatus.BAD_REQUEST);
+    filter.catch(
+      new HttpException(
+        {
+          message: 'alice@example.com https://storage/object?signature=private',
+          details: { password: 'private' },
+        },
+        HttpStatus.BAD_REQUEST,
+      ),
+      host,
+    );
 
-      filter.catch(exception, host);
-
-      const responseBody = getResponseBody(host);
-      expect(responseBody).toBeDefined();
-      expect(responseBody).not.toHaveProperty('tenantId');
+    expect(response.json).toHaveBeenCalledWith({
+      success: false,
+      error: {
+        code: 'VALIDATION_FAILED',
+        message: 'Validation failed',
+        timestamp: expect.any(String),
+      },
     });
+    expect(JSON.stringify(response.json.mock.calls)).not.toMatch(
+      /alice@example\.com|signature|private|password|tenant-private/i,
+    );
+    expect(JSON.stringify(warnSpy.mock.calls)).not.toMatch(
+      /alice@example\.com|signature|private|password|tenant-private/i,
+    );
+  });
 
-    it('should include timestamp in response', () => {
-      const host = createMockHttpHost();
-      const exception = new HttpException('Error', HttpStatus.BAD_REQUEST);
+  it.each([
+    [HttpStatus.METHOD_NOT_ALLOWED, 'HTTP_METHOD_NOT_ALLOWED'],
+    [HttpStatus.UNSUPPORTED_MEDIA_TYPE, 'HTTP_UNSUPPORTED_MEDIA_TYPE'],
+  ])('keeps status %d aligned with code %s', (status, code) => {
+    process.env['NODE_ENV'] = 'development';
+    const filter = new GlobalExceptionFilter();
+    const { host, response } = createHttpHost();
 
-      filter.catch(exception, host);
+    filter.catch(new HttpException('Rejected', status), host);
 
-      const responseBody = getResponseBody(host);
-      expect(responseBody).toBeDefined();
-      expect(responseBody?.timestamp).toBeDefined();
-      if (responseBody?.timestamp) {
-        expect(new Date(responseBody.timestamp).toISOString()).toBe(responseBody.timestamp);
-      }
+    expect(response.status).toHaveBeenCalledWith(status);
+    expect(response.json.mock.calls[0]?.[0].error.code).toBe(code);
+  });
+
+  it('normalizes an unregistered HTTP status to the consistent 500 pair', () => {
+    process.env['NODE_ENV'] = 'production';
+    const filter = new GlobalExceptionFilter();
+    const { host, response } = createHttpHost();
+
+    filter.catch(new HttpException('teapot detail', 418), host);
+
+    expect(response.status).toHaveBeenCalledWith(500);
+    expect(response.json.mock.calls[0]?.[0].error).toEqual({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: 'An unexpected error occurred',
+      timestamp: expect.any(String),
     });
+  });
 
-    it('should handle HttpException with object response', () => {
-      const host = createMockHttpHost();
-      const exception = new HttpException(
-        { message: 'Custom message', error: 'Custom Error', details: { field: 'email' } },
+  it('preserves the existing GraphQL mapping and development validation details', () => {
+    process.env['NODE_ENV'] = 'development';
+    const filter = new GlobalExceptionFilter();
+
+    const result = filter.catch(
+      new HttpException(
+        { message: 'Invalid input', details: { field: 'email' } },
         HttpStatus.UNPROCESSABLE_ENTITY,
-      );
+      ),
+      createGraphqlHost({ correlationId: 'gql-corr-1' }),
+    ) as GraphQLError;
 
-      filter.catch(exception, host);
-
-      const response = getMockResponse(host);
-      expect(response.status).toHaveBeenCalledWith(422);
-      expect(response.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: 'Custom message',
-          error: 'Custom Error',
-        }),
-      );
-    });
-
-    it('should include details in development mode', () => {
-      process.env['NODE_ENV'] = 'development';
-
-      const host = createMockHttpHost();
-      const exception = new HttpException(
-        { message: 'Error', details: { extra: 'info' } },
-        HttpStatus.BAD_REQUEST,
-      );
-
-      // Need to create new filter instance to pick up env change
-      const devFilter = new GlobalExceptionFilter();
-      devFilter.catch(exception, host);
-
-      const response = getMockResponse(host);
-      expect(response.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          details: { extra: 'info' },
-        }),
-      );
-    });
-
-    it('should hide details in production mode', () => {
-      process.env['NODE_ENV'] = 'production';
-
-      const host = createMockHttpHost();
-      const exception = new HttpException(
-        { message: 'Error', details: { sensitive: 'data' } },
-        HttpStatus.BAD_REQUEST,
-      );
-
-      const prodFilter = new GlobalExceptionFilter();
-      prodFilter.catch(exception, host);
-
-      const responseBody = getResponseBody(host);
-      expect(responseBody?.details).toBeUndefined();
+    expect(result.message).toBe('Invalid input');
+    expect(result.extensions).toEqual({
+      code: 'UNPROCESSABLE_ENTITY',
+      statusCode: 422,
+      timestamp: expect.any(String),
+      correlationId: 'gql-corr-1',
+      path: '/graphql?token=private',
+      details: { field: 'email' },
     });
   });
 
-  describe('Generic Error Handling', () => {
-    it('should handle generic Error', () => {
-      const host = createMockHttpHost();
-      const exception = new Error('Something went wrong');
+  it('redacts production GraphQL messages, details, paths, and unsafe correlation IDs', () => {
+    process.env['NODE_ENV'] = 'production';
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const filter = new GlobalExceptionFilter();
 
-      filter.catch(exception, host);
+    const result = filter.catch(
+      new HttpException(
+        { message: 'alice@example.com token=private', details: { password: 'private' } },
+        HttpStatus.FORBIDDEN,
+      ),
+      createGraphqlHost({
+        correlationId: 'alice@example.com',
+        tenantId: 'tenant-private',
+      }),
+    ) as GraphQLError;
 
-      const response = getMockResponse(host);
-      expect(response.status).toHaveBeenCalledWith(500);
-      expect(response.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          statusCode: 500,
-          message: 'Something went wrong',
-          error: 'Internal Server Error',
-        }),
-      );
+    expect(result.message).toBe('You do not have permission to perform this action');
+    expect(result.extensions).toEqual({
+      code: 'FORBIDDEN',
+      statusCode: 403,
+      timestamp: expect.any(String),
+      correlationId: undefined,
     });
-
-    it('should include stack trace in development', () => {
-      process.env['NODE_ENV'] = 'development';
-
-      const host = createMockHttpHost();
-      const exception = new Error('Test error');
-
-      const devFilter = new GlobalExceptionFilter();
-      devFilter.catch(exception, host);
-
-      const responseBody = getResponseBody(host);
-      expect(responseBody?.details).toContain('Error: Test error');
-    });
-
-    it('should hide stack trace in production', () => {
-      process.env['NODE_ENV'] = 'production';
-
-      const host = createMockHttpHost();
-      const exception = new Error('Test error');
-
-      const prodFilter = new GlobalExceptionFilter();
-      prodFilter.catch(exception, host);
-
-      const responseBody = getResponseBody(host);
-      expect(responseBody?.details).toBeUndefined();
-    });
-
-    it('should handle unknown exception types', () => {
-      const host = createMockHttpHost();
-      const exception = 'string exception';
-
-      filter.catch(exception, host);
-
-      const response = getMockResponse(host);
-      expect(response.status).toHaveBeenCalledWith(500);
-      expect(response.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: 'An unexpected error occurred',
-        }),
-      );
-    });
-  });
-
-  describe('GraphQL Exception Handling', () => {
-    it('should handle GraphQL exception and return GraphQLError', () => {
-      const host = createMockGraphQLHost();
-      const exception = new HttpException('GraphQL Error', HttpStatus.BAD_REQUEST);
-
-      const result = filter.catch(exception, host);
-
-      expect(result).toBeInstanceOf(GraphQLError);
-      expect((result as GraphQLError).message).toBe('GraphQL Error');
-    });
-
-    it('should include correct code in GraphQL error extensions', () => {
-      const host = createMockGraphQLHost();
-      const exception = new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
-
-      const result = filter.catch(exception, host) as GraphQLError;
-
-      expect(result.extensions?.['code']).toBe('UNAUTHENTICATED');
-    });
-
-    it('should map status codes to GraphQL error codes', () => {
-      const statusCodeMappings: Array<[number, string]> = [
-        [400, 'BAD_REQUEST'],
-        [401, 'UNAUTHENTICATED'],
-        [403, 'FORBIDDEN'],
-        [404, 'NOT_FOUND'],
-        [409, 'CONFLICT'],
-        [422, 'UNPROCESSABLE_ENTITY'],
-        [429, 'TOO_MANY_REQUESTS'],
-        [500, 'INTERNAL_SERVER_ERROR'],
-      ];
-
-      for (const [status, expectedCode] of statusCodeMappings) {
-        const host = createMockGraphQLHost();
-        const exception = new HttpException('Test', status);
-
-        const result = filter.catch(exception, host) as GraphQLError;
-        expect(result.extensions?.['code']).toBe(expectedCode);
-      }
-    });
-
-    it('should include correlation ID in GraphQL error', () => {
-      const host = createMockGraphQLHost({ correlationId: 'gql-corr-123' });
-      const exception = new HttpException('Error', HttpStatus.BAD_REQUEST);
-
-      const result = filter.catch(exception, host) as GraphQLError;
-
-      expect(result.extensions?.['correlationId']).toBe('gql-corr-123');
-    });
-
-    it('should handle GraphQLError exception', () => {
-      const host = createMockGraphQLHost();
-      const exception = new GraphQLError('GraphQL specific error', {
-        extensions: { code: 'CUSTOM_CODE', statusCode: 400 },
-      });
-
-      const result = filter.catch(exception, host) as GraphQLError;
-
-      expect(result).toBeInstanceOf(GraphQLError);
-    });
-  });
-
-  describe('Message Sanitization', () => {
-    it('should not sanitize messages in development', () => {
-      process.env['NODE_ENV'] = 'development';
-
-      const host = createMockHttpHost();
-      const exception = new HttpException('Invalid password format', HttpStatus.BAD_REQUEST);
-
-      const devFilter = new GlobalExceptionFilter();
-      devFilter.catch(exception, host);
-
-      const response = getMockResponse(host);
-      expect(response.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: 'Invalid password format',
-        }),
-      );
-    });
-
-    it('should sanitize sensitive messages in production', () => {
-      process.env['NODE_ENV'] = 'production';
-
-      const sensitiveMessages = [
-        'Invalid password',
-        'Secret key expired',
-        'Token validation failed',
-        'API key invalid',
-        'Credential mismatch',
-        'SQL syntax error',
-        'Query execution failed',
-        'Database connection error',
-      ];
-
-      for (const msg of sensitiveMessages) {
-        const host = createMockHttpHost();
-        const exception = new HttpException(msg, HttpStatus.BAD_REQUEST);
-
-        const prodFilter = new GlobalExceptionFilter();
-        prodFilter.catch(exception, host);
-
-        const responseBody = getResponseBody(host);
-        expect(responseBody?.message).toBe('An error occurred while processing your request');
-      }
-    });
-
-    it('should not sanitize non-sensitive messages in production', () => {
-      process.env['NODE_ENV'] = 'production';
-
-      const host = createMockHttpHost();
-      const exception = new HttpException('Resource not found', HttpStatus.NOT_FOUND);
-
-      const prodFilter = new GlobalExceptionFilter();
-      prodFilter.catch(exception, host);
-
-      const response = getMockResponse(host);
-      expect(response.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: 'Resource not found',
-        }),
-      );
-    });
-  });
-
-  describe('Status Code Handling', () => {
-    it.each([
-      [HttpStatus.BAD_REQUEST, 400],
-      [HttpStatus.UNAUTHORIZED, 401],
-      [HttpStatus.FORBIDDEN, 403],
-      [HttpStatus.NOT_FOUND, 404],
-      [HttpStatus.CONFLICT, 409],
-      [HttpStatus.UNPROCESSABLE_ENTITY, 422],
-      [HttpStatus.TOO_MANY_REQUESTS, 429],
-      [HttpStatus.INTERNAL_SERVER_ERROR, 500],
-      [HttpStatus.BAD_GATEWAY, 502],
-      [HttpStatus.SERVICE_UNAVAILABLE, 503],
-      [HttpStatus.GATEWAY_TIMEOUT, 504],
-    ])('should handle status code %d correctly', (status, expectedStatus) => {
-      const host = createMockHttpHost();
-      const exception = new HttpException('Test', status);
-
-      filter.catch(exception, host);
-
-      const response = getMockResponse(host);
-      expect(response.status).toHaveBeenCalledWith(expectedStatus);
-    });
-  });
-
-  describe('Error Type Detection', () => {
-    it('should detect HTTP exception', () => {
-      const host = createMockHttpHost();
-      const exception = new HttpException('Test', HttpStatus.BAD_REQUEST);
-
-      filter.catch(exception, host);
-
-      const response = getMockResponse(host);
-      expect(response.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          error: 'BAD_REQUEST',
-        }),
-      );
-    });
-
-    it('should use error type from exception response', () => {
-      const host = createMockHttpHost();
-      const exception = new HttpException(
-        { message: 'Custom', error: 'Custom Error Type' },
-        HttpStatus.BAD_REQUEST,
-      );
-
-      filter.catch(exception, host);
-
-      const response = getMockResponse(host);
-      expect(response.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          error: 'Custom Error Type',
-        }),
-      );
-    });
+    expect(JSON.stringify(warnSpy.mock.calls)).not.toMatch(
+      /alice@example\.com|token|private|password|tenant-private/i,
+    );
   });
 });

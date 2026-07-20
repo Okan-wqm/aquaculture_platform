@@ -9,8 +9,23 @@
  * - MODULE_USER: Limited module access
  */
 
-import React, { createContext, useContext, useReducer, useEffect, useCallback, useMemo } from 'react';
-import { setTokens, clearSession, getAccessToken, setTenantId, graphqlClient } from '../utils/api-client';
+import React, {
+  createContext,
+  useContext,
+  useReducer,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from 'react';
+import {
+  setTokens,
+  clearSession,
+  getAccessToken,
+  setTenantId,
+  graphqlClient,
+  restClient,
+} from '../utils/api-client';
 import { tokenLifecycle, decodeResourcePermissions } from '../utils/token-lifecycle';
 import { logoutCleanup } from '../utils/logout-cleanup';
 
@@ -59,12 +74,17 @@ export interface AuthUser {
   resourcePermissions?: string[];
 }
 
+export interface MarineExplorerCapability {
+  enabled: boolean;
+}
+
 /**
  * Auth state
  */
 interface AuthState {
   user: AuthUser | null;
   modules: UserModule[];
+  marineExplorer: MarineExplorerCapability;
   redirectPath: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
@@ -74,6 +94,7 @@ interface AuthState {
 type AuthBridgeSnapshot = Readonly<{
   user: AuthUser;
   modules: UserModule[];
+  marineExplorer: MarineExplorerCapability;
   redirectPath: string;
   isAuthenticated: true;
   isLoading: false;
@@ -97,7 +118,16 @@ declare global {
  */
 type AuthAction =
   | { type: 'AUTH_START' }
-  | { type: 'AUTH_SUCCESS'; payload: { user: AuthUser; modules: UserModule[]; redirectPath: string } }
+  | {
+      type: 'AUTH_SUCCESS';
+      payload: {
+        user: AuthUser;
+        modules: UserModule[];
+        marineExplorer: MarineExplorerCapability;
+        redirectPath: string;
+      };
+    }
+  | { type: 'MARINE_EXPLORER_CAPABILITY_REFRESHED'; payload: MarineExplorerCapability }
   | { type: 'AUTH_FAILURE'; payload: string }
   | { type: 'LOGOUT' }
   | { type: 'CLEAR_ERROR' }
@@ -172,12 +202,40 @@ function roleHasPermission(userRole: UserRole, requiredRole: UserRole): boolean 
   return ROLE_HIERARCHY[userRole]?.includes(requiredRole) ?? false;
 }
 
-function roleHasModuleAccess(userRole: UserRole | undefined, modules: UserModule[], moduleCode: string): boolean {
+function roleHasModuleAccess(
+  userRole: UserRole | undefined,
+  modules: UserModule[],
+  moduleCode: string,
+): boolean {
   if (!userRole) return false;
   // SUPER_ADMIN has platform access, not tenant-module access.
   if (userRole === 'SUPER_ADMIN') return false;
   if (userRole === 'TENANT_ADMIN') return true;
   return modules.some((m) => m.code === moduleCode);
+}
+
+const MARINE_CAPABILITY_REFRESH_TTL_MS = 15_000;
+const MARINE_EXPLORER_DISABLED: MarineExplorerCapability = Object.freeze({ enabled: false });
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseMarineExplorerCapability(value: unknown): MarineExplorerCapability {
+  if (!isRecord(value) || Object.keys(value).length !== 1) {
+    return MARINE_EXPLORER_DISABLED;
+  }
+
+  const marineExplorer = value['marineExplorer'];
+  if (
+    !isRecord(marineExplorer) ||
+    Object.keys(marineExplorer).length !== 1 ||
+    typeof marineExplorer['enabled'] !== 'boolean'
+  ) {
+    return MARINE_EXPLORER_DISABLED;
+  }
+
+  return Object.freeze({ enabled: marineExplorer['enabled'] });
 }
 
 function getAuthBridgeState(): AuthBridgeState | null {
@@ -206,11 +264,13 @@ function getAuthBridgeState(): AuthBridgeState | null {
 function createAuthBridgeSnapshot(payload: {
   user: AuthUser;
   modules: UserModule[];
+  marineExplorer: MarineExplorerCapability;
   redirectPath: string;
 }): AuthBridgeSnapshot {
   return Object.freeze({
     user: Object.freeze({ ...payload.user }),
     modules: Object.freeze(payload.modules.map((m) => Object.freeze({ ...m }))) as UserModule[],
+    marineExplorer: Object.freeze({ ...payload.marineExplorer }),
     redirectPath: payload.redirectPath,
     isAuthenticated: true,
     isLoading: false,
@@ -218,11 +278,14 @@ function createAuthBridgeSnapshot(payload: {
   });
 }
 
-function publishAuthBridgeSnapshot(payload: {
-  user: AuthUser;
-  modules: UserModule[];
-  redirectPath: string;
-} | null): void {
+function publishAuthBridgeSnapshot(
+  payload: {
+    user: AuthUser;
+    modules: UserModule[];
+    marineExplorer: MarineExplorerCapability;
+    redirectPath: string;
+  } | null,
+): void {
   const bridge = getAuthBridgeState();
   if (!bridge) return;
   bridge.snapshot = payload ? createAuthBridgeSnapshot(payload) : null;
@@ -235,6 +298,7 @@ function publishAuthBridgeSnapshot(payload: {
 const initialState: AuthState = {
   user: null,
   modules: [],
+  marineExplorer: { enabled: false },
   redirectPath: null,
   isLoading: true,
   isAuthenticated: false,
@@ -251,17 +315,22 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
         ...state,
         user: action.payload.user,
         modules: action.payload.modules,
+        marineExplorer: action.payload.marineExplorer,
         redirectPath: action.payload.redirectPath,
         isLoading: false,
         isAuthenticated: true,
         error: null,
       };
 
+    case 'MARINE_EXPLORER_CAPABILITY_REFRESHED':
+      return { ...state, marineExplorer: action.payload };
+
     case 'AUTH_FAILURE':
       return {
         ...state,
         user: null,
         modules: [],
+        marineExplorer: { enabled: false },
         redirectPath: null,
         isLoading: false,
         isAuthenticated: false,
@@ -299,6 +368,21 @@ export interface AuthProviderProps {
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck = true }) => {
   const [state, dispatch] = useReducer(authReducer, initialState);
+  const lastMarineCapabilityRefreshAt = useRef(0);
+  const authSessionGeneration = useRef(0);
+
+  const fetchMarineExplorerCapability = useCallback(async (): Promise<MarineExplorerCapability> => {
+    try {
+      const response = await restClient.request<unknown>('GET', '/marine-explorer/capabilities', {
+        timeout: 5_000,
+      });
+      return parseMarineExplorerCapability(response);
+    } catch {
+      return MARINE_EXPLORER_DISABLED;
+    } finally {
+      lastMarineCapabilityRefreshAt.current = Date.now();
+    }
+  }, []);
 
   /**
    * Fetch current user with modules and redirect path
@@ -306,6 +390,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
   const fetchMe = useCallback(async (): Promise<{
     user: AuthUser;
     modules: UserModule[];
+    marineExplorer: MarineExplorerCapability;
     redirectPath: string;
   } | null> => {
     try {
@@ -351,14 +436,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
       // is the same trust anchor the FE already uses for role/tenantId.
       const token = getAccessToken();
       const resourcePermissions = token ? decodeResourcePermissions(token) : [];
-      return { ...me, user: { ...me.user, resourcePermissions } };
+      const marineExplorer = await fetchMarineExplorerCapability();
+      return { ...me, user: { ...me.user, resourcePermissions }, marineExplorer };
     } catch (error) {
       if (import.meta.env.DEV) {
         console.error('Failed to fetch user:', error);
       }
       return null;
     }
-  }, []);
+  }, [fetchMarineExplorerCapability]);
 
   /**
    * Initial auth check
@@ -369,10 +455,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
       return;
     }
 
+    const authCheckGeneration = authSessionGeneration.current;
     const checkAuth = async () => {
       // Use lifecycle manager to initialize token.
       // This handles silent refresh, barrier management, and proactive refresh scheduling.
       const initialized = await tokenLifecycle.initialize();
+      if (authSessionGeneration.current !== authCheckGeneration) return;
 
       if (!initialized) {
         // No session to restore (new visitor or expired refresh token)
@@ -390,6 +478,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
       dispatch({ type: 'AUTH_START' });
 
       const meData = await fetchMe();
+      if (authSessionGeneration.current !== authCheckGeneration) return;
       if (meData) {
         // Restore tenant ID from server response. Passing null is intentional:
         // SUPER_ADMIN sessions are platform-scoped and must clear any stale
@@ -413,16 +502,73 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
     // The singleton's timers are cleaned up by the browser on page unload.
   }, [autoCheck, fetchMe]);
 
+  useEffect(() => {
+    const authenticatedUser = state.user;
+    const authenticatedRedirectPath = state.redirectPath;
+    if (!state.isAuthenticated || !authenticatedUser || !authenticatedRedirectPath) {
+      return;
+    }
+
+    let active = true;
+    let refreshInFlight = false;
+    const effectSessionGeneration = authSessionGeneration.current;
+    const refreshCapability = async (): Promise<void> => {
+      if (refreshInFlight || authSessionGeneration.current !== effectSessionGeneration) return;
+      refreshInFlight = true;
+      try {
+        const marineExplorer = await fetchMarineExplorerCapability();
+        if (!active || authSessionGeneration.current !== effectSessionGeneration) return;
+        publishAuthBridgeSnapshot({
+          user: authenticatedUser,
+          modules: state.modules,
+          marineExplorer,
+          redirectPath: authenticatedRedirectPath,
+        });
+        dispatch({ type: 'MARINE_EXPLORER_CAPABILITY_REFRESHED', payload: marineExplorer });
+      } finally {
+        refreshInFlight = false;
+      }
+    };
+
+    const intervalId = window.setInterval(() => {
+      void refreshCapability();
+    }, MARINE_CAPABILITY_REFRESH_TTL_MS);
+    const refreshWhenVisible = (): void => {
+      if (
+        document.visibilityState === 'visible' &&
+        Date.now() - lastMarineCapabilityRefreshAt.current >= MARINE_CAPABILITY_REFRESH_TTL_MS
+      ) {
+        void refreshCapability();
+      }
+    };
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [
+    fetchMarineExplorerCapability,
+    state.isAuthenticated,
+    state.modules,
+    state.redirectPath,
+    state.user,
+  ]);
+
   /**
    * Login - returns redirect path for navigation, or MFA challenge if MFA is enabled
    */
-  const login = useCallback(async (payload: LoginPayload): Promise<LoginResult> => {
-    dispatch({ type: 'AUTH_START' });
+  const login = useCallback(
+    async (payload: LoginPayload): Promise<LoginResult> => {
+      const authOperationGeneration = authSessionGeneration.current + 1;
+      authSessionGeneration.current = authOperationGeneration;
+      dispatch({ type: 'AUTH_START' });
 
-    try {
-      // WHY: Fetch accessType on login so platform access guard can be enforced
-      // immediately without waiting for a separate me() query.
-      const LOGIN_MUTATION = `
+      try {
+        // WHY: Fetch accessType on login so platform access guard can be enforced
+        // immediately without waiting for a separate me() query.
+        const LOGIN_MUTATION = `
         mutation Login($input: LoginInput!) {
           login(input: $input) {
             accessToken
@@ -444,79 +590,98 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
         }
       `;
 
-      const response = await graphqlClient.request<{
-        login: {
-          accessToken: string;
-          refreshToken: string;
-          redirectUrl: string;
-          mfaRequired?: boolean;
-          mfaToken?: string;
-          user: AuthUser;
+        const response = await graphqlClient.request<{
+          login: {
+            accessToken: string;
+            refreshToken: string;
+            redirectUrl: string;
+            mfaRequired?: boolean;
+            mfaToken?: string;
+            user: AuthUser;
+          };
+        }>(LOGIN_MUTATION, {
+          input: {
+            email: payload.email,
+            password: payload.password,
+            rememberMe: payload.rememberMe ?? false,
+          },
+        });
+
+        if (authSessionGeneration.current !== authOperationGeneration) {
+          throw new Error('Authentication operation was superseded');
+        }
+
+        if (!response?.login) {
+          throw new Error('Invalid server response');
+        }
+
+        // MFA required — return challenge info without completing login
+        if (response.login.mfaRequired && response.login.mfaToken) {
+          // Stop loading state but don't set error — MFA challenge UI will take over
+          dispatch({ type: 'SET_LOADING', payload: false });
+          return {
+            mfaRequired: true,
+            mfaToken: response.login.mfaToken,
+          };
+        }
+
+        const { accessToken: loginAccessToken, user, redirectUrl } = response.login;
+
+        // Save access token in memory (refresh token is set as httpOnly cookie by server)
+        setTokens(loginAccessToken);
+
+        // Save tenant ID for multi-tenant context. Null clears stale tenant scope
+        // for platform-level SUPER_ADMIN sessions.
+        setTenantId(user.tenantId ?? null);
+
+        // Validate redirectUrl is a safe relative path (SEC-005: prevent open redirect)
+        const safeRedirectUrl = sanitizeRedirectUrl(redirectUrl);
+        const redirectPath = safeRedirectUrl || getDefaultRedirect(user.role);
+
+        // Fetch user data with modules after login
+        const meData = await fetchMe();
+        if (authSessionGeneration.current !== authOperationGeneration) {
+          throw new Error('Authentication operation was superseded');
+        }
+        if (!meData) {
+          clearSession();
+          publishAuthBridgeSnapshot(null);
+          throw new Error('Session verification failed');
+        }
+
+        setTenantId(meData.user.tenantId ?? null);
+        const authSuccessPayload = {
+          user: meData.user,
+          modules: meData.modules,
+          marineExplorer: meData.marineExplorer,
+          redirectPath,
         };
-      }>(LOGIN_MUTATION, {
-        input: {
-          email: payload.email,
-          password: payload.password,
-          rememberMe: payload.rememberMe ?? false,
-        },
-      });
+        publishAuthBridgeSnapshot(authSuccessPayload);
+        dispatch({ type: 'AUTH_SUCCESS', payload: authSuccessPayload });
 
-      if (!response?.login) {
-        throw new Error('Invalid server response');
+        return { redirectPath };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Login failed';
+        if (authSessionGeneration.current === authOperationGeneration) {
+          dispatch({ type: 'AUTH_FAILURE', payload: message });
+        }
+        throw error;
       }
-
-      // MFA required — return challenge info without completing login
-      if (response.login.mfaRequired && response.login.mfaToken) {
-        // Stop loading state but don't set error — MFA challenge UI will take over
-        dispatch({ type: 'SET_LOADING', payload: false });
-        return {
-          mfaRequired: true,
-          mfaToken: response.login.mfaToken,
-        };
-      }
-
-      const { accessToken: loginAccessToken, user, redirectUrl } = response.login;
-
-      // Save access token in memory (refresh token is set as httpOnly cookie by server)
-      setTokens(loginAccessToken);
-
-      // Save tenant ID for multi-tenant context. Null clears stale tenant scope
-      // for platform-level SUPER_ADMIN sessions.
-      setTenantId(user.tenantId ?? null);
-
-      // Validate redirectUrl is a safe relative path (SEC-005: prevent open redirect)
-      const safeRedirectUrl = sanitizeRedirectUrl(redirectUrl);
-      const redirectPath = safeRedirectUrl || getDefaultRedirect(user.role);
-
-      // Fetch user data with modules after login
-      const meData = await fetchMe();
-      if (!meData) {
-        clearSession();
-        publishAuthBridgeSnapshot(null);
-        throw new Error('Session verification failed');
-      }
-
-      setTenantId(meData.user.tenantId ?? null);
-      const authSuccessPayload = { user: meData.user, modules: meData.modules, redirectPath };
-      publishAuthBridgeSnapshot(authSuccessPayload);
-      dispatch({ type: 'AUTH_SUCCESS', payload: authSuccessPayload });
-
-      return { redirectPath };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Login failed';
-      dispatch({ type: 'AUTH_FAILURE', payload: message });
-      throw error;
-    }
-  }, [fetchMe]);
+    },
+    [fetchMe],
+  );
 
   /**
    * Verify MFA login — completes login after MFA challenge
    */
-  const verifyMfaLogin = useCallback(async (payload: VerifyMfaLoginPayload): Promise<{ redirectPath: string }> => {
-    dispatch({ type: 'AUTH_START' });
+  const verifyMfaLogin = useCallback(
+    async (payload: VerifyMfaLoginPayload): Promise<{ redirectPath: string }> => {
+      const authOperationGeneration = authSessionGeneration.current + 1;
+      authSessionGeneration.current = authOperationGeneration;
+      dispatch({ type: 'AUTH_START' });
 
-    try {
-      const VERIFY_MFA_LOGIN_MUTATION = `
+      try {
+        const VERIFY_MFA_LOGIN_MUTATION = `
         mutation VerifyMfaLogin($input: VerifyMfaLoginInput!) {
           verifyMfaLogin(input: $input) {
             accessToken
@@ -536,57 +701,73 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
         }
       `;
 
-      const response = await graphqlClient.request<{
-        verifyMfaLogin: {
-          accessToken: string;
-          refreshToken: string;
-          redirectUrl: string;
-          user: AuthUser;
+        const response = await graphqlClient.request<{
+          verifyMfaLogin: {
+            accessToken: string;
+            refreshToken: string;
+            redirectUrl: string;
+            user: AuthUser;
+          };
+        }>(VERIFY_MFA_LOGIN_MUTATION, {
+          input: {
+            mfaToken: payload.mfaToken,
+            code: payload.code,
+          },
+        });
+
+        if (authSessionGeneration.current !== authOperationGeneration) {
+          throw new Error('Authentication operation was superseded');
+        }
+
+        if (!response?.verifyMfaLogin) {
+          throw new Error('Invalid server response');
+        }
+
+        const { accessToken: loginAccessToken, user, redirectUrl } = response.verifyMfaLogin;
+
+        // Save access token in memory (refresh token is set as httpOnly cookie by server)
+        setTokens(loginAccessToken);
+
+        // Save tenant ID for multi-tenant context. Null clears stale tenant scope
+        // for platform-level SUPER_ADMIN sessions.
+        setTenantId(user.tenantId ?? null);
+
+        // Validate redirectUrl is a safe relative path (SEC-005: prevent open redirect)
+        const safeRedirectUrl = sanitizeRedirectUrl(redirectUrl);
+        const redirectPath = safeRedirectUrl || getDefaultRedirect(user.role);
+
+        // Fetch user data with modules after login
+        const meData = await fetchMe();
+        if (authSessionGeneration.current !== authOperationGeneration) {
+          throw new Error('Authentication operation was superseded');
+        }
+        if (!meData) {
+          clearSession();
+          publishAuthBridgeSnapshot(null);
+          throw new Error('Session verification failed');
+        }
+
+        setTenantId(meData.user.tenantId ?? null);
+        const authSuccessPayload = {
+          user: meData.user,
+          modules: meData.modules,
+          marineExplorer: meData.marineExplorer,
+          redirectPath,
         };
-      }>(VERIFY_MFA_LOGIN_MUTATION, {
-        input: {
-          mfaToken: payload.mfaToken,
-          code: payload.code,
-        },
-      });
+        publishAuthBridgeSnapshot(authSuccessPayload);
+        dispatch({ type: 'AUTH_SUCCESS', payload: authSuccessPayload });
 
-      if (!response?.verifyMfaLogin) {
-        throw new Error('Invalid server response');
+        return { redirectPath };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'MFA verification failed';
+        if (authSessionGeneration.current === authOperationGeneration) {
+          dispatch({ type: 'AUTH_FAILURE', payload: message });
+        }
+        throw error;
       }
-
-      const { accessToken: loginAccessToken, user, redirectUrl } = response.verifyMfaLogin;
-
-      // Save access token in memory (refresh token is set as httpOnly cookie by server)
-      setTokens(loginAccessToken);
-
-      // Save tenant ID for multi-tenant context. Null clears stale tenant scope
-      // for platform-level SUPER_ADMIN sessions.
-      setTenantId(user.tenantId ?? null);
-
-      // Validate redirectUrl is a safe relative path (SEC-005: prevent open redirect)
-      const safeRedirectUrl = sanitizeRedirectUrl(redirectUrl);
-      const redirectPath = safeRedirectUrl || getDefaultRedirect(user.role);
-
-      // Fetch user data with modules after login
-      const meData = await fetchMe();
-      if (!meData) {
-        clearSession();
-        publishAuthBridgeSnapshot(null);
-        throw new Error('Session verification failed');
-      }
-
-      setTenantId(meData.user.tenantId ?? null);
-      const authSuccessPayload = { user: meData.user, modules: meData.modules, redirectPath };
-      publishAuthBridgeSnapshot(authSuccessPayload);
-      dispatch({ type: 'AUTH_SUCCESS', payload: authSuccessPayload });
-
-      return { redirectPath };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'MFA verification failed';
-      dispatch({ type: 'AUTH_FAILURE', payload: message });
-      throw error;
-    }
-  }, [fetchMe]);
+    },
+    [fetchMe],
+  );
 
   /**
    * Logout
@@ -597,6 +778,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
    * structurally impossible.
    */
   const logout = useCallback(async (): Promise<void> => {
+    // Invalidate capability requests immediately. Cleanup and server revocation
+    // are asynchronous, so waiting to dispatch LOGOUT would let a stale request
+    // republish an enabled capability while logout is already in progress.
+    authSessionGeneration.current += 1;
     try {
       const LOGOUT_MUTATION = `
         mutation Logout {
@@ -609,6 +794,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
     } finally {
       // FE-HIGH-005: Complete cleanup across all storage layers
       await logoutCleanup({ revokeServerToken: false });
+      // Logout remains terminal even if another auth operation was started
+      // while server revocation or browser cleanup was still in progress.
+      authSessionGeneration.current += 1;
       publishAuthBridgeSnapshot(null);
       dispatch({ type: 'LOGOUT' });
     }
@@ -618,7 +806,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
    * Refresh auth state
    */
   const refreshAuth = useCallback(async (): Promise<void> => {
+    const authRefreshGeneration = authSessionGeneration.current;
     const meData = await fetchMe();
+    if (authSessionGeneration.current !== authRefreshGeneration) return;
     if (meData) {
       setTenantId(meData.user.tenantId ?? null);
       publishAuthBridgeSnapshot(meData);
@@ -652,7 +842,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
       if (!userRole) return false;
       return roleHasPermission(userRole, role);
     },
-    [userRole]
+    [userRole],
   );
 
   const stateModules = state.modules;
@@ -660,26 +850,40 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
     (moduleCode: string): boolean => {
       return roleHasModuleAccess(userRole, stateModules, moduleCode);
     },
-    [userRole, stateModules]
+    [userRole, stateModules],
   );
 
   // PERF-001: Memoize context value to prevent full subtree re-render on every parent render
-  const value = useMemo<AuthContextValue>(() => ({
-    ...state,
-    login,
-    verifyMfaLogin,
-    logout,
-    clearError,
-    refreshAuth,
-    isSuperAdmin,
-    isTenantAdmin,
-    isModuleManager,
-    isModuleUser,
-    hasRoleOrHigher,
-    hasModuleAccess,
-  }), [state, login, verifyMfaLogin, logout, clearError, refreshAuth,
-      isSuperAdmin, isTenantAdmin, isModuleManager,
-      isModuleUser, hasRoleOrHigher, hasModuleAccess]);
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      ...state,
+      login,
+      verifyMfaLogin,
+      logout,
+      clearError,
+      refreshAuth,
+      isSuperAdmin,
+      isTenantAdmin,
+      isModuleManager,
+      isModuleUser,
+      hasRoleOrHigher,
+      hasModuleAccess,
+    }),
+    [
+      state,
+      login,
+      verifyMfaLogin,
+      logout,
+      clearError,
+      refreshAuth,
+      isSuperAdmin,
+      isTenantAdmin,
+      isModuleManager,
+      isModuleUser,
+      hasRoleOrHigher,
+      hasModuleAccess,
+    ],
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
@@ -733,10 +937,11 @@ export function useAuthContext(): AuthContextValue {
   const bridgeSnapshot = getAuthBridgeState()?.snapshot ?? null;
   const bridgeToken = getAccessToken();
   if (bridgeSnapshot && bridgeToken) {
-    const { user, modules, redirectPath } = bridgeSnapshot;
+    const { user, modules, marineExplorer, redirectPath } = bridgeSnapshot;
     return {
       user,
       modules,
+      marineExplorer,
       redirectPath,
       isLoading: false,
       isAuthenticated: true,
@@ -765,12 +970,15 @@ export function useAuthContext(): AuthContextValue {
   // snapshot was published by AuthProvider. Never trust client-decoded JWT
   // role claims for route authorization.
   if (import.meta.env.DEV) {
-    console.warn('AuthContext not available — microfrontend loaded outside AuthProvider. Denying access.');
+    console.warn(
+      'AuthContext not available — microfrontend loaded outside AuthProvider. Denying access.',
+    );
   }
 
   const fallbackValue: AuthContextValue = {
     user: null,
     modules: [],
+    marineExplorer: MARINE_EXPLORER_DISABLED,
     redirectPath: null,
     isLoading: false,
     isAuthenticated: false,

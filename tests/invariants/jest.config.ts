@@ -134,6 +134,7 @@ export default {
         '<rootDir>/walg-evidence-attestation.spec.ts',
         '<rootDir>/walg-pitr-contract.spec.ts',
         '<rootDir>/deploy-ssot-contract.spec.ts',
+        '<rootDir>/marine-explorer-edge-wiring.spec.ts',
         '<rootDir>/schema-role-drift-ssot.spec.ts',
         '<rootDir>/no-unguarded-drop-type-in-migration.spec.ts',
         '<rootDir>/platform-topology-ssot.spec.ts',

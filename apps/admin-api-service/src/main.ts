@@ -11,6 +11,19 @@ bootstrapService(AppModule, {
   serviceName: 'admin-api-service',
   portEnvVar: 'PORT',
 
+  environmentGuards: [
+    () => {
+      if (
+        process.env['NODE_ENV'] === 'production' &&
+        (!process.env['SERVICE_IDENTITY_KEYRING'] || !process.env['SERVICE_IDENTITY_SIGNING_KID'])
+      ) {
+        throw new Error(
+          'FATAL: SERVICE_IDENTITY_KEYRING and SERVICE_IDENTITY_SIGNING_KID are required to sign internal feature evaluations',
+        );
+      }
+    },
+  ],
+
   // API Versioning — URI-based (e.g., /v1/tenants)
   // VERSION_NEUTRAL keeps existing unversioned routes working.
   versioning: {
@@ -28,9 +41,5 @@ bootstrapService(AppModule, {
 
   helmetOptions: { crossOriginEmbedderPolicy: false },
 
-  additionalCorsHeaders: [
-    'X-Tenant-ID',
-    'X-Request-ID',
-    'X-Impersonate-User',
-  ],
+  additionalCorsHeaders: ['X-Tenant-ID', 'X-Request-ID', 'X-Impersonate-User'],
 });

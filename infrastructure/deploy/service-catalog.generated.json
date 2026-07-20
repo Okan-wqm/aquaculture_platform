@@ -3,7 +3,7 @@
     "generatedFrom": "platform/libs/service-catalog/src/index.ts",
     "generator": "scripts/service-catalog/generate-artifacts.ts",
     "generatorVersion": 3,
-    "catalogHash": "f44b96cec0525bae08f5b95fc0140cd0f04a7a1c49cad05634046ce6b90f3432",
+    "catalogHash": "2745eb33f61b50a22cd0b80cd017da27022920f6c44901afe19b3abfbb9707e6",
     "note": "do not edit by hand"
   },
   "activeDropletComposeServices": [
@@ -325,6 +325,7 @@
     "tenant-admin"
   ],
   "requiredRuntimeEnv": [
+    "ADMIN_SERVICE_REST_URL",
     "MINIO_USER",
     "SERVICE_IDENTITY_SIGNING_KID",
     "SPACES_ENDPOINT",
@@ -360,7 +361,9 @@
     "PASSWORD_PEPPER",
     "POSTGRES_PASSWORD",
     "REDIS_PASSWORD",
+    "REGULATORY_ENCRYPTION_KEY",
     "SENSOR_SERVICE_DB_PASS",
+    "SENTINEL_HUB_ENCRYPTION_KEY",
     "SERVICE_IDENTITY_KEYRING",
     "SUPER_ADMIN_PASSWORD",
     "WEBHOOK_ENCRYPTION_KEY"

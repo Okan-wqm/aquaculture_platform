@@ -372,7 +372,7 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     dbRoles: { migrator: 'db_migrate' },
     eventStoreTenantScopePolicy: 'all-tenants',
     requiredSignals: [MIGRATION_BOOT_SIGNAL_CONTRACT.completeSignal],
-    requiredEnv: ['POSTGRES_PASSWORD'],
+    requiredEnv: ['POSTGRES_PASSWORD', 'SENTINEL_HUB_ENCRYPTION_KEY', 'REGULATORY_ENCRYPTION_KEY'],
   }),
   buildEntry({
     serviceId: 'tenant-schema-provisioner',
@@ -416,6 +416,7 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     requiredSignals: [],
     requiredEnv: [
       'GATEWAY_SERVICE_DB_PASS',
+      'ADMIN_SERVICE_REST_URL',
       'SERVICE_IDENTITY_KEYRING',
       'SERVICE_IDENTITY_SIGNING_KID',
     ],
@@ -477,7 +478,15 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     // (entity metadata + migrations check) and the current SLA-defining max.
     startupBudgetSeconds: 120,
     requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
-    requiredEnv: ['FARM_SERVICE_DB_PASS', 'ENCRYPTION_KEY'],
+    requiredEnv: [
+      'FARM_SERVICE_DB_PASS',
+      'ENCRYPTION_KEY',
+      'SENTINEL_HUB_ENCRYPTION_KEY',
+      'REGULATORY_ENCRYPTION_KEY',
+      'ADMIN_SERVICE_REST_URL',
+      'SERVICE_IDENTITY_KEYRING',
+      'SERVICE_IDENTITY_SIGNING_KID',
+    ],
     gatewaySubgraph: subgraph(
       'farm',
       'farm-service',
@@ -776,7 +785,12 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     // Matches compose start_period: 60s.
     startupBudgetSeconds: 60,
     requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
-    requiredEnv: ['ADMIN_SERVICE_DB_PASS', 'ENCRYPTION_KEY'],
+    requiredEnv: [
+      'ADMIN_SERVICE_DB_PASS',
+      'ENCRYPTION_KEY',
+      'SERVICE_IDENTITY_KEYRING',
+      'SERVICE_IDENTITY_SIGNING_KID',
+    ],
   }),
   buildEntry({
     serviceId: 'config-service',

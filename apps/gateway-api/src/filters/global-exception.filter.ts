@@ -9,6 +9,7 @@ import {
 import { GqlArgumentsHost, GqlContextType } from '@nestjs/graphql';
 import { Response, Request } from 'express';
 import { GraphQLError } from 'graphql';
+import { buildErrorEnvelope, JSON_ERROR_CONTENT_TYPE } from '@platform/shared';
 
 import { GqlContext } from '../types/index';
 
@@ -76,56 +77,51 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<ExtendedRequest>();
 
-    const { statusCode, message, errorType, details } =
-      this.parseException(exception);
+    const correlationIdHeader =
+      request.headers['x-correlation-id'] ?? request.headers['x-request-id'];
+    const canonical = buildErrorEnvelope(exception, {
+      path: request.originalUrl ?? request.url,
+      correlationId: typeof correlationIdHeader === 'string' ? correlationIdHeader : undefined,
+      isProduction: this.isProduction,
+    });
 
-    const correlationId = request.headers['x-correlation-id'];
-    const tenantIdHeader = request.headers['x-tenant-id'];
+    this.logError(exception, {
+      statusCode: canonical.statusCode,
+      message: canonical.body.error.message,
+      error: canonical.body.error.code,
+      timestamp: canonical.body.error.timestamp,
+      path: canonical.body.error.path ?? '',
+      correlationId: canonical.body.error.correlationId,
+    });
 
-    // SECURITY: tenantId is resolved for server-side logging only — never sent to client
-    const tenantId = request.tenantId ?? (typeof tenantIdHeader === 'string' ? tenantIdHeader : undefined);
-
-    const errorResponse: ErrorResponse = {
-      statusCode,
-      message: this.sanitizeMessage(message),
-      error: errorType,
-      timestamp: new Date().toISOString(),
-      path: request.url,
-      correlationId: typeof correlationId === 'string' ? correlationId : undefined,
-    };
-
-    // Include details only in non-production
-    if (!this.isProduction && details) {
-      errorResponse.details = details;
-    }
-
-    this.logError(exception, errorResponse, tenantId);
-
-    response.status(statusCode).json(errorResponse);
+    response.status(canonical.statusCode).type(JSON_ERROR_CONTENT_TYPE).json(canonical.body);
   }
 
-  private handleGraphQLException(
-    exception: unknown,
-    host: ArgumentsHost,
-  ): GraphQLError {
+  private handleGraphQLException(exception: unknown, host: ArgumentsHost): GraphQLError {
     const gqlHost = GqlArgumentsHost.create(host);
     const context = gqlHost.getContext<GqlContext>();
     const request = context?.req;
 
-    const { statusCode, message, errorType, details } =
-      this.parseException(exception);
+    const { statusCode, message, errorType, details } = this.parseException(exception);
 
-    const correlationId = request?.headers?.['x-correlation-id'];
+    const correlationIdHeader =
+      request?.headers?.['x-correlation-id'] ?? request?.headers?.['x-request-id'];
     const tenantIdHeader = request?.headers?.['x-tenant-id'];
+    const presentation = buildErrorEnvelope(new HttpException(message, statusCode), {
+      correlationId: typeof correlationIdHeader === 'string' ? correlationIdHeader : undefined,
+      isProduction: this.isProduction,
+    });
+    const correlationId = presentation.body.error.correlationId;
 
     // SECURITY: tenantId is resolved for server-side logging only — never sent to client
-    const tenantId = request?.tenantId ?? (typeof tenantIdHeader === 'string' ? tenantIdHeader : undefined);
+    const tenantId =
+      request?.tenantId ?? (typeof tenantIdHeader === 'string' ? tenantIdHeader : undefined);
 
     const extensions: GraphQLErrorExtensions = {
       code: this.getGraphQLErrorCode(statusCode),
       statusCode,
       timestamp: new Date().toISOString(),
-      correlationId: typeof correlationId === 'string' ? correlationId : undefined,
+      correlationId,
     };
 
     // Include path in non-production
@@ -149,7 +145,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     this.logError(exception, errorResponse, tenantId);
 
-    return new GraphQLError(this.sanitizeMessage(message), {
+    return new GraphQLError(this.isProduction ? presentation.body.error.message : message, {
       extensions,
     });
   }
@@ -176,8 +172,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       return {
         statusCode: status,
         message: (responseObj['message'] as string) ?? exception.message,
-        errorType:
-          (responseObj['error'] as string) ?? HttpStatus[status] ?? 'Error',
+        errorType: (responseObj['error'] as string) ?? HttpStatus[status] ?? 'Error',
         details: responseObj['details'],
       };
     }
@@ -198,9 +193,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         // SECURITY: In production, always return generic message for plain Error
         // instances to prevent leaking implementation details (column names,
         // property paths, internal class names, etc.)
-        message: this.isProduction
-          ? 'An internal error occurred'
-          : exception.message,
+        message: exception.message,
         errorType: 'Internal Server Error',
         details: this.isProduction ? undefined : exception.stack,
       };
@@ -234,52 +227,23 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     }
   }
 
-  private sanitizeMessage(message: string): string {
-    if (!this.isProduction) {
-      return message;
-    }
-
-    // In production, sanitize potentially sensitive error messages
-    const sensitivePatterns = [
-      /password/i,
-      /secret/i,
-      /token/i,
-      /key/i,
-      /credential/i,
-      /sql/i,
-      /query/i,
-      /database/i,
-    ];
-
-    for (const pattern of sensitivePatterns) {
-      if (pattern.test(message)) {
-        return 'An error occurred while processing your request';
-      }
-    }
-
-    return message;
-  }
-
   private logError(exception: unknown, errorResponse: ErrorResponse, tenantId?: string): void {
     const logContext = {
       statusCode: errorResponse.statusCode,
-      path: errorResponse.path,
+      path: this.isProduction ? undefined : errorResponse.path,
       correlationId: errorResponse.correlationId,
-      tenantId, // Logged server-side only, never in client response
+      tenantId: this.isProduction ? undefined : tenantId,
       timestamp: errorResponse.timestamp,
     };
 
     if (errorResponse.statusCode >= 500) {
       this.logger.error(
-        `[${errorResponse.correlationId ?? 'N/A'}] ${errorResponse.message}`,
-        exception instanceof Error ? exception.stack : undefined,
+        'Gateway request failed with a server error',
+        !this.isProduction && exception instanceof Error ? exception.stack : undefined,
         logContext,
       );
     } else if (errorResponse.statusCode >= 400) {
-      this.logger.warn(
-        `[${errorResponse.correlationId ?? 'N/A'}] ${errorResponse.message}`,
-        logContext,
-      );
+      this.logger.warn('Gateway request was rejected', logContext);
     }
   }
 }

@@ -141,6 +141,8 @@ services:
       CONFIG_SERVICE_URL: http://config-service:3000/graphql
       NOTIFICATION_SERVICE_URL: http://notification-service:3000/graphql
       MESSAGING_SERVICE_URL: http://messaging-service:3000/graphql
+      ADMIN_SERVICE_REST_URL: http://admin-api-service:3000
+      SERVICE_IDENTITY_SIGNING_SECRET: "${SERVICE_IDENTITY_SIGNING_SECRET:-local-dev-only-change-me-feature-evaluation-signing-secret-32-byte-minimum}"
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
       MINIO_USE_SSL: "false"
@@ -170,6 +172,8 @@ services:
       hr-service:
         condition: service_started
       billing-service:
+        condition: service_started
+      admin-api-service:
         condition: service_started
     networks:
       - aqua-network
@@ -246,6 +250,9 @@ services:
       CREDENTIAL_ENCRYPTION_KEY: "${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY is required}"
       # SEC-NEW08: Sentinel Hub encryption key must be unique per environment
       SENTINEL_HUB_ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
+      REGULATORY_ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
+      ADMIN_SERVICE_REST_URL: http://admin-api-service:3000
+      SERVICE_IDENTITY_SIGNING_SECRET: "${SERVICE_IDENTITY_SIGNING_SECRET:-local-dev-only-change-me-feature-evaluation-signing-secret-32-byte-minimum}"
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
       interval: 30s
@@ -461,6 +468,7 @@ services:
       NATS_URL: nats://nats:4222
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
       JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
+      SERVICE_IDENTITY_SIGNING_SECRET: "${SERVICE_IDENTITY_SIGNING_SECRET:-local-dev-only-change-me-feature-evaluation-signing-secret-32-byte-minimum}"
     depends_on:
       postgres:
         condition: service_healthy

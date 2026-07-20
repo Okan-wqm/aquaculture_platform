@@ -120,7 +120,14 @@ export {
 export { AuthProvider, useAuthContext } from './contexts/AuthContext';
 // WHY: Export AccessType and AuthUser so consumers (tenant-admin, aquamobil) can
 // type-check accessType values without duplicating the type definition.
-export type { AuthProviderProps, MfaChallengeResult, LoginResult, AccessType, AuthUser } from './contexts/AuthContext';
+export type {
+  AuthProviderProps,
+  MfaChallengeResult,
+  LoginResult,
+  AccessType,
+  AuthUser,
+  MarineExplorerCapability,
+} from './contexts/AuthContext';
 
 export { TenantProvider, useTenantContext } from './contexts/TenantContext';
 export type { TenantProviderProps } from './contexts/TenantContext';

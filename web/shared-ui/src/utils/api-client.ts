@@ -362,7 +362,9 @@ export async function silentRefresh(): Promise<boolean> {
   // Concurrent callers (handleUnauthorized) catch the rejection via their own await.
   // Without this, a rejection here surfaces as "Uncaught (in promise)" in the console
   // even though silentRefresh() itself returns a boolean (not this promise).
-  tokenRefreshPromise.catch(() => { /* handled by concurrent waiters */ });
+  tokenRefreshPromise.catch(() => {
+    /* handled by concurrent waiters */
+  });
 
   try {
     const success = await performTokenRefresh();
@@ -431,7 +433,9 @@ const tenantChangeCallbacks: Set<(oldTenantId: string) => void> = new Set();
  */
 export function onTenantChange(fn: (oldTenantId: string) => void): () => void {
   tenantChangeCallbacks.add(fn);
-  return () => { tenantChangeCallbacks.delete(fn); };
+  return () => {
+    tenantChangeCallbacks.delete(fn);
+  };
 }
 
 /**
@@ -528,7 +532,7 @@ class GraphQLClient {
     query: string | DocumentNode,
     variables?: TVariables,
     options?: GraphQLRequestOptions,
-    retryCount = 0
+    retryCount = 0,
   ): Promise<TData> {
     const { headers: customHeaders, timeout, signal } = options || {};
 
@@ -577,10 +581,7 @@ class GraphQLClient {
 
     // Timeout controller
     const controller = new AbortController();
-    const timeoutId = setTimeout(
-      () => controller.abort(),
-      timeout || this.config.timeout
-    );
+    const timeoutId = setTimeout(() => controller.abort(), timeout || this.config.timeout);
 
     try {
       const response = await fetch(this.config.graphqlUrl, {
@@ -623,10 +624,7 @@ class GraphQLClient {
           response.status >= 502 && response.status <= 504
             ? 'BACKEND_UNAVAILABLE'
             : 'NETWORK_ERROR';
-        throw new GraphQLClientError(
-          `Backend unavailable (HTTP ${response.status})`,
-          code,
-        );
+        throw new GraphQLClientError(`Backend unavailable (HTTP ${response.status})`, code);
       }
 
       // Response parse
@@ -663,7 +661,7 @@ class GraphQLClient {
         throw new GraphQLClientError(
           error.message,
           error.extensions?.code || 'GRAPHQL_ERROR',
-          result.errors
+          result.errors,
         );
       }
 
@@ -752,6 +750,57 @@ export class GraphQLClientError extends Error {
 // REST Client
 // ============================================================================
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function getCanonicalRestErrorMessage(payload: unknown, status: number): string {
+  if (!isRecord(payload) || payload['success'] !== false || !isRecord(payload['error'])) {
+    return `HTTP ${status}`;
+  }
+
+  const error = payload['error'];
+  const message = error['message'];
+  if (
+    typeof error['code'] !== 'string' ||
+    typeof message !== 'string' ||
+    message.length === 0 ||
+    message.length > 1_000 ||
+    typeof error['timestamp'] !== 'string'
+  ) {
+    return `HTTP ${status}`;
+  }
+
+  return message;
+}
+
+function abortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new RestClientError('Request timed out', 408);
+}
+
+async function awaitWithAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    throw abortReason(signal);
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => reject(abortReason(signal));
+    signal.addEventListener('abort', onAbort, { once: true });
+    operation.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error instanceof Error ? error : new Error('Asynchronous operation failed'));
+      },
+    );
+  });
+}
+
 /**
  * REST API client
  */
@@ -775,21 +824,25 @@ class RestClient {
   private async send(
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
+    signal: AbortSignal,
     options?: {
       body?: unknown;
       params?: Record<string, string | number | boolean>;
       headers?: Record<string, string>;
       timeout?: number;
     },
-    retryCount = 0
+    retryCount = 0,
   ): Promise<Response> {
-    const { body, params, headers: customHeaders, timeout } = options || {};
+    const { body, params, headers: customHeaders } = options || {};
 
     // LIFECYCLE BARRIER: Wait for token to be ready before sending request.
     // REST calls never contain refreshToken mutations, so always await.
     try {
-      await tokenLifecycle.waitForReady();
+      await awaitWithAbort(tokenLifecycle.waitForReady(), signal);
     } catch {
+      if (signal.aborted) {
+        throw abortReason(signal);
+      }
       // Barrier timed out or auth permanently failed.
       // If we have a token in memory anyway, proceed.
       if (!getAccessToken()) {
@@ -841,50 +894,77 @@ class RestClient {
       requestBody = JSON.stringify(body);
     }
 
-    // Timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(
-      () => controller.abort(),
-      timeout || this.config.timeout
-    );
-
     try {
       const response = await fetch(url, {
         method,
         headers,
         credentials: 'include',
         body: requestBody,
-        signal: controller.signal,
+        signal,
       });
-
-      clearTimeout(timeoutId);
+      if (signal.aborted) {
+        throw abortReason(signal);
+      }
 
       // 401 — attempt a single token refresh, then retry.
       // retryCount === 0 caps the retry to exactly one attempt (no infinite loop).
       if (response.status === 401 && retryCount === 0) {
         try {
-          await this.handleUnauthorized();
+          await awaitWithAbort(this.handleUnauthorized(), signal);
         } catch {
+          if (signal.aborted) {
+            throw abortReason(signal);
+          }
           // Refresh failed — clear full session and throw
           clearSession();
           throw new RestClientError('Session expired', 401);
         }
-        return this.send(method, path, options, retryCount + 1);
+        return this.send(method, path, signal, options, retryCount + 1);
       }
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const errorData: unknown = await awaitWithAbort(response.json(), signal).catch(() => {
+          if (signal.aborted) {
+            throw abortReason(signal);
+          }
+          return undefined;
+        });
         throw new RestClientError(
-          errorData.message || `HTTP ${response.status}`,
+          getCanonicalRestErrorMessage(errorData, response.status),
           response.status,
-          errorData
+          errorData,
         );
       }
 
       return response;
     } catch (error) {
-      clearTimeout(timeoutId);
+      if (signal.aborted) {
+        throw abortReason(signal);
+      }
       throw error;
+    }
+  }
+
+  private async withDeadline<T>(
+    timeout: number | undefined,
+    operation: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    const controller = new AbortController();
+    const timeoutMs = timeout || this.config.timeout;
+    const timeoutId = setTimeout(
+      () => controller.abort(new RestClientError('Request timed out', 408)),
+      timeoutMs,
+    );
+
+    try {
+      return await operation(controller.signal);
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw abortReason(controller.signal);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
@@ -900,16 +980,18 @@ class RestClient {
       headers?: Record<string, string>;
       timeout?: number;
     },
-    retryCount = 0
+    retryCount = 0,
   ): Promise<T> {
-    const response = await this.send(method, path, options, retryCount);
+    return this.withDeadline(options?.timeout, async (signal) => {
+      const response = await this.send(method, path, signal, options, retryCount);
 
-    // 204 No Content
-    if (response.status === 204) {
-      return undefined as T;
-    }
+      // 204 No Content
+      if (response.status === 204) {
+        return undefined as T;
+      }
 
-    return await response.json();
+      return (await awaitWithAbort(response.json(), signal)) as T;
+    });
   }
 
   /**
@@ -926,10 +1008,12 @@ class RestClient {
       params?: Record<string, string | number | boolean>;
       headers?: Record<string, string>;
       timeout?: number;
-    }
+    },
   ): Promise<Blob> {
-    const response = await this.send(method, path, options);
-    return response.blob();
+    return this.withDeadline(options?.timeout, async (signal) => {
+      const response = await this.send(method, path, signal, options);
+      return await awaitWithAbort(response.blob(), signal);
+    });
   }
 
   /**

@@ -109,6 +109,7 @@ export interface SignedFetchCircuitBreakerLike {
     fn: () => Promise<T>;
     options: SignedFetchCircuitBreakerOptionsLike;
     fallback?: () => T | Promise<T>;
+    shouldRecordFailure?: (error: unknown) => boolean;
   }): Promise<T>;
 }
 

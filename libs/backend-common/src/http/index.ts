@@ -6,6 +6,7 @@
  */
 
 export * from './signed-http-client';
+export * from './bounded-http-stream';
 export * from './resolve-tenant-id.util';
 export * from './gateway-verified-user-assertion';
 export * from './client-network-context.util';

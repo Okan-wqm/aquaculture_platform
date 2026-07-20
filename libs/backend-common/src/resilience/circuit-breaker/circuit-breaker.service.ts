@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+
 import {
   CircuitBreakerOptions,
   CircuitOpenError,
@@ -7,6 +8,13 @@ import {
   DEFAULT_BREAKER_OPTIONS,
   FailureMode,
 } from './circuit-breaker.types';
+
+interface SlidingWindowBucket {
+  success: number;
+  failure: number;
+  slow: number;
+  timestamp: number;
+}
 
 /**
  * Sliding window over N buckets × bucketDuration ms.
@@ -22,9 +30,12 @@ import {
  * before any read so getStats() reflects ONLY the current window.
  */
 class SlidingWindow {
-  private readonly buckets: { success: number; failure: number; slow: number; timestamp: number }[] = [];
+  private readonly buckets: SlidingWindowBucket[] = [];
 
-  constructor(private readonly windowSize: number, private readonly bucketDurationMs: number) {}
+  constructor(
+    private readonly windowSize: number,
+    private readonly bucketDurationMs: number,
+  ) {}
 
   recordSuccess(slow: boolean): void {
     const b = this.currentBucket();
@@ -52,7 +63,7 @@ class SlidingWindow {
     this.buckets.length = 0;
   }
 
-  private currentBucket() {
+  private currentBucket(): SlidingWindowBucket {
     const now = Date.now();
     const bucketTs = Math.floor(now / this.bucketDurationMs) * this.bucketDurationMs;
     this.cleanup();
@@ -132,6 +143,15 @@ class CircuitBreaker {
     this.evaluateTrip();
   }
 
+  recordNeutral(): void {
+    // Caller/downstream cancellation is neither dependency success nor
+    // dependency failure. Release a HALF_OPEN probe slot without letting a
+    // cancelled browser request close or re-open the upstream circuit.
+    if (this.state === 'HALF_OPEN' && this.halfOpenAdmitted > 0) {
+      this.halfOpenAdmitted -= 1;
+    }
+  }
+
   getStats(): CircuitStats {
     const ws = this.window.getStats();
     const failureRatePct = ws.total > 0 ? (ws.failure / ws.total) * 100 : 0;
@@ -186,9 +206,7 @@ class CircuitBreaker {
     this.stateChangedAt = Date.now();
     if (next === 'HALF_OPEN') this.halfOpenAdmitted = 0;
     if (next === 'CLOSED') this.consecutiveFailures = 0;
-    this.logger.log(
-      `CircuitBreaker[${this.serviceName}:${this.tenantKey}] ${prev} → ${next}`,
-    );
+    this.logger.log(`CircuitBreaker[${this.serviceName}:${this.tenantKey}] ${prev} → ${next}`);
   }
 }
 
@@ -226,6 +244,9 @@ export class CircuitBreakerService {
    * @param args.fallback      Consulted ONLY when failureMode='fail-open-degraded'
    *                           AND the breaker is OPEN. fail-closed callers MUST
    *                           NOT pass a fallback — they want the rejection.
+   * @param args.shouldRecordFailure Optional classifier for caller-driven
+   *                           cancellation. Returning false keeps the outcome
+   *                           neutral and releases any HALF_OPEN probe slot.
    *
    * @returns the value of `fn` on success, the value of `fallback` on
    *          fail-open-degraded trip, or throws CircuitOpenError on
@@ -237,6 +258,7 @@ export class CircuitBreakerService {
     fn: () => Promise<T>;
     options: CircuitBreakerOptions;
     fallback?: () => T | Promise<T>;
+    shouldRecordFailure?: (error: unknown) => boolean;
   }): Promise<T> {
     const tenantKey = args.tenantId ?? '*';
     const breaker = this.getOrCreate(args.serviceName, tenantKey, args.options);
@@ -262,7 +284,17 @@ export class CircuitBreakerService {
       breaker.recordSuccess(Date.now() - startMs);
       return result;
     } catch (err) {
-      breaker.recordFailure();
+      let shouldRecordFailure = true;
+      try {
+        shouldRecordFailure = args.shouldRecordFailure?.(err) ?? true;
+      } catch {
+        // A broken classifier cannot be allowed to hide a dependency failure.
+      }
+      if (shouldRecordFailure) {
+        breaker.recordFailure();
+      } else {
+        breaker.recordNeutral();
+      }
       throw err;
     }
   }

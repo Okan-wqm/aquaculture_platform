@@ -365,6 +365,9 @@ services:
       DB_MIGRATE_VERSION: ${TAG:?TAG required}
       DEPLOY_SHA: ${DEPLOY_SHA:-}
       DEPLOY_RELEASE_ID: ${DEPLOY_RELEASE_ID:-}
+      # Transition aliases: migrations and entity metadata resolve the domain-specific names.
+      SENTINEL_HUB_ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      REGULATORY_ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       # ─── ADR-031: per-service role passwords are owned by the
       # platform-bootstrap atom (apps/db-migrate/src/platform-bootstrap.service.ts).
       # The atom CREATE-or-ALTER ROLE ... PASSWORD on every Phase-0 run so
@@ -608,6 +611,7 @@ services:
       NOTIFICATION_SERVICE_URL: http://notification-service:3000/graphql
       HYDROPONICS_SERVICE_URL: http://hydroponics-service:3000/graphql
       ADMIN_SERVICE_URL: http://admin-api-service:3000/graphql
+      ADMIN_SERVICE_REST_URL: http://admin-api-service:3000
       CONFIG_SERVICE_URL: http://config-service:3000/graphql
       MESSAGING_SERVICE_URL: http://messaging-service:3000/graphql
       # ai-service is a REST surface (not an Apollo subgraph) — base URL, no /graphql.
@@ -820,6 +824,9 @@ services:
       <<: *nats-farm-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      SENTINEL_HUB_ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      REGULATORY_ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      ADMIN_SERVICE_REST_URL: http://admin-api-service:3000
       SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
       SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
     depends_on:

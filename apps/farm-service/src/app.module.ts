@@ -103,6 +103,7 @@ import { WorkerModule } from './worker/worker.module';
 import { SystemModule } from './system/system.module';
 import { SentinelHubModule } from './sentinel-hub/sentinel-hub.module';
 import { MarineDataModule } from './marine-data/marine-data.module';
+import { MarineExplorerPlatformModule } from './marine-explorer/marine-explorer-platform.module';
 import { FinanceModule } from './finance/finance.module';
 import { RegulatoryModule } from './regulatory/regulatory.module';
 import { WeatherModule } from './weather/weather.module';
@@ -430,6 +431,7 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     SystemModule,
     SentinelHubModule,
     MarineDataModule,
+    MarineExplorerPlatformModule,
     RegulatoryModule,
     // Farm operational finance: manual expense ledger + query-time derived
     // cost projections + tenant currency SSoT (finance_settings).

@@ -16,23 +16,11 @@
 // Do NOT migrate everything at once — tackle one service at a time after it has been
 // switched to GlobalExceptionFilter (see ARCH-CRIT-001 in global-exception.filter.ts).
 import { HttpException, Logger } from '@nestjs/common';
-import { ERROR_CODES, ErrorCode } from './error-codes';
 
-/**
- * Standardized error response format
- */
-export interface ErrorResponse {
-  success: false;
-  error: {
-    code: string;
-    message: string;
-    details?: Record<string, unknown>;
-    timestamp: string;
-    path?: string;
-    /** Correlation ID from the x-correlation-id / x-request-id request header. */
-    correlationId?: string;
-  };
-}
+import { ERROR_CODES, ErrorCode } from './error-codes';
+import type { ErrorResponse } from './error-envelope';
+
+export type { ErrorResponse } from './error-envelope';
 
 /**
  * Application Exception
@@ -56,11 +44,7 @@ export class ApplicationException extends HttpException {
    */
   public readonly category: 'application' | 'business' | 'validation' | 'external' = 'application';
 
-  constructor(
-    errorCode: ErrorCode,
-    details?: Record<string, unknown>,
-    customMessage?: string,
-  ) {
+  constructor(errorCode: ErrorCode, details?: Record<string, unknown>, customMessage?: string) {
     const errorDef = ERROR_CODES[errorCode];
     const message = customMessage || errorDef.message;
     const timestamp = new Date().toISOString();
@@ -86,10 +70,7 @@ export class ApplicationException extends HttpException {
   /**
    * Create a validation error with field-specific details
    */
-  static validation(
-    fields: Record<string, string[]>,
-    message?: string,
-  ): ApplicationException {
+  static validation(fields: Record<string, string[]>, message?: string): ApplicationException {
     return new ApplicationException(
       'VALIDATION_FAILED',
       { fields },
@@ -115,15 +96,11 @@ export class ApplicationException extends HttpException {
       const logger = new Logger('ApplicationException');
       logger.warn(
         `No specific error code found for "${resource}_NOT_FOUND". ` +
-        `Register it in ERROR_CODES for better error discrimination.`,
+          `Register it in ERROR_CODES for better error discrimination.`,
       );
     }
 
-    return new ApplicationException(
-      'RESOURCE_NOT_FOUND',
-      details,
-      `${resource} not found`,
-    );
+    return new ApplicationException('RESOURCE_NOT_FOUND', details, `${resource} not found`);
   }
 
   /**
@@ -148,33 +125,21 @@ export class ApplicationException extends HttpException {
    * Create an unauthorized error
    */
   static unauthorized(message?: string): ApplicationException {
-    return new ApplicationException(
-      'AUTH_INVALID_CREDENTIALS',
-      undefined,
-      message,
-    );
+    return new ApplicationException('AUTH_INVALID_CREDENTIALS', undefined, message);
   }
 
   /**
    * Create a forbidden error
    */
   static forbidden(message?: string): ApplicationException {
-    return new ApplicationException(
-      'AUTH_FORBIDDEN',
-      undefined,
-      message,
-    );
+    return new ApplicationException('AUTH_FORBIDDEN', undefined, message);
   }
 
   /**
    * Create an internal error
    */
   static internal(message?: string, details?: Record<string, unknown>): ApplicationException {
-    return new ApplicationException(
-      'INTERNAL_SERVER_ERROR',
-      details,
-      message,
-    );
+    return new ApplicationException('INTERNAL_SERVER_ERROR', details, message);
   }
 
   /**
@@ -251,10 +216,7 @@ export class ValidationException extends ApplicationException {
   public override readonly category = 'validation' as const;
   public readonly fieldErrors: Record<string, string[]>;
 
-  constructor(
-    fieldErrors: Record<string, string[]>,
-    message?: string,
-  ) {
+  constructor(fieldErrors: Record<string, string[]>, message?: string) {
     super('VALIDATION_FAILED', { fields: fieldErrors }, message);
     this.fieldErrors = fieldErrors;
   }

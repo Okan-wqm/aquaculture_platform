@@ -194,9 +194,7 @@ describe('api-client', () => {
     it('should include Authorization header when token is set', async () => {
       apiClient.setTokens('gql-test-token');
 
-      mockFetch.mockResolvedValueOnce(
-        mockResponse(200, { data: { users: [] } })
-      );
+      mockFetch.mockResolvedValueOnce(mockResponse(200, { data: { users: [] } }));
 
       await apiClient.graphqlClient.request('{ users { id } }');
 
@@ -227,9 +225,7 @@ describe('api-client', () => {
       apiClient.setTokens('token');
       apiClient.setTenantId('tenant-42');
 
-      mockFetch.mockResolvedValueOnce(
-        mockResponse(200, { data: { tenants: [] } })
-      );
+      mockFetch.mockResolvedValueOnce(mockResponse(200, { data: { tenants: [] } }));
 
       await apiClient.graphqlClient.request('{ tenants { id } }');
 
@@ -238,9 +234,7 @@ describe('api-client', () => {
     });
 
     it('should include X-Request-Id header for distributed tracing', async () => {
-      mockFetch.mockResolvedValueOnce(
-        mockResponse(200, { data: { ok: true } })
-      );
+      mockFetch.mockResolvedValueOnce(mockResponse(200, { data: { ok: true } }));
 
       await apiClient.graphqlClient.request('{ ok }');
 
@@ -250,9 +244,7 @@ describe('api-client', () => {
     });
 
     it('should send credentials: include for cookie-based auth', async () => {
-      mockFetch.mockResolvedValueOnce(
-        mockResponse(200, { data: { ok: true } })
-      );
+      mockFetch.mockResolvedValueOnce(mockResponse(200, { data: { ok: true } }));
 
       await apiClient.graphqlClient.request('{ ok }');
 
@@ -262,12 +254,12 @@ describe('api-client', () => {
 
     it('should return data on successful response', async () => {
       mockFetch.mockResolvedValueOnce(
-        mockResponse(200, { data: { users: [{ id: '1', name: 'Test' }] } })
+        mockResponse(200, { data: { users: [{ id: '1', name: 'Test' }] } }),
       );
 
-      const result = await apiClient.graphqlClient.request<{ users: { id: string; name: string }[] }>(
-        '{ users { id name } }'
-      );
+      const result = await apiClient.graphqlClient.request<{
+        users: { id: string; name: string }[];
+      }>('{ users { id name } }');
 
       expect(result.users).toHaveLength(1);
       expect(result.users[0].name).toBe('Test');
@@ -277,12 +269,12 @@ describe('api-client', () => {
       mockFetch.mockResolvedValueOnce(
         mockResponse(200, {
           errors: [{ message: 'Not found', extensions: { code: 'NOT_FOUND' } }],
-        })
+        }),
       );
 
-      await expect(
-        apiClient.graphqlClient.request('{ users { id } }')
-      ).rejects.toThrow(apiClient.GraphQLClientError);
+      await expect(apiClient.graphqlClient.request('{ users { id } }')).rejects.toThrow(
+        apiClient.GraphQLClientError,
+      );
     });
 
     describe('401 retry with token refresh', () => {
@@ -295,15 +287,13 @@ describe('api-client', () => {
         mockFetch.mockResolvedValueOnce(
           mockResponse(200, {
             data: { refreshToken: { accessToken: 'new-token' } },
-          })
+          }),
         );
         // 2nd (retry) call: success
-        mockFetch.mockResolvedValueOnce(
-          mockResponse(200, { data: { users: [] } })
-        );
+        mockFetch.mockResolvedValueOnce(mockResponse(200, { data: { users: [] } }));
 
         const result = await apiClient.graphqlClient.request<{ users: unknown[] }>(
-          '{ users { id } }'
+          '{ users { id } }',
         );
 
         expect(result.users).toEqual([]);
@@ -320,7 +310,7 @@ describe('api-client', () => {
         mockFetch.mockResolvedValueOnce(
           mockResponse(200, {
             data: { refreshToken: { accessToken: 'new-token-2' } },
-          })
+          }),
         );
         // 2nd (retry) call: 401 again
         mockFetch.mockResolvedValueOnce(mockResponse(401, {}));
@@ -341,9 +331,9 @@ describe('api-client', () => {
         // Refresh call: fails
         mockFetch.mockResolvedValueOnce(mockResponse(401, {}));
 
-        await expect(
-          apiClient.graphqlClient.request('{ users { id } }')
-        ).rejects.toThrow('Session expired');
+        await expect(apiClient.graphqlClient.request('{ users { id } }')).rejects.toThrow(
+          'Session expired',
+        );
       });
 
       it('should clear tokens when refresh fails', async () => {
@@ -353,12 +343,10 @@ describe('api-client', () => {
         mockFetch.mockResolvedValueOnce(mockResponse(401, {}));
         // Refresh call: fails
         mockFetch.mockResolvedValueOnce(
-          mockResponse(200, { errors: [{ message: 'Refresh expired' }] })
+          mockResponse(200, { errors: [{ message: 'Refresh expired' }] }),
         );
 
-        await expect(
-          apiClient.graphqlClient.request('{ users { id } }')
-        ).rejects.toThrow();
+        await expect(apiClient.graphqlClient.request('{ users { id } }')).rejects.toThrow();
 
         expect(apiClient.getAccessToken()).toBeNull();
       });
@@ -377,21 +365,19 @@ describe('api-client', () => {
                 extensions: { code: 'UNAUTHENTICATED' },
               },
             ],
-          })
+          }),
         );
         // Refresh: success
         mockFetch.mockResolvedValueOnce(
           mockResponse(200, {
             data: { refreshToken: { accessToken: 'refreshed-token' } },
-          })
+          }),
         );
         // Retry: success
-        mockFetch.mockResolvedValueOnce(
-          mockResponse(200, { data: { me: { id: '1' } } })
-        );
+        mockFetch.mockResolvedValueOnce(mockResponse(200, { data: { me: { id: '1' } } }));
 
         const result = await apiClient.graphqlClient.request<{ me: { id: string } }>(
-          '{ me { id } }'
+          '{ me { id } }',
         );
 
         expect(result.me.id).toBe('1');
@@ -405,16 +391,17 @@ describe('api-client', () => {
           mockResponse(200, {
             errors: [
               {
-                message: 'Invalid service identity signature. Request may be forged, expired, or fields tampered with.',
+                message:
+                  'Invalid service identity signature. Request may be forged, expired, or fields tampered with.',
                 extensions: { code: 'GRAPHQL_ERROR' },
               },
             ],
-          })
+          }),
         );
 
-        await expect(
-          apiClient.graphqlClient.request('{ tenantBilling { id } }')
-        ).rejects.toThrow(apiClient.GraphQLClientError);
+        await expect(apiClient.graphqlClient.request('{ tenantBilling { id } }')).rejects.toThrow(
+          apiClient.GraphQLClientError,
+        );
 
         expect(mockFetch).toHaveBeenCalledTimes(1);
         expect(apiClient.getAccessToken()).toBe('valid-user-token');
@@ -429,22 +416,20 @@ describe('api-client', () => {
               const err = new Error('AbortError');
               err.name = 'AbortError';
               reject(err);
-            })
+            }),
         );
 
-        await expect(
-          apiClient.graphqlClient.request('{ ok }')
-        ).rejects.toThrow('Request timed out');
+        await expect(apiClient.graphqlClient.request('{ ok }')).rejects.toThrow(
+          'Request timed out',
+        );
       });
 
       it('should throw NETWORK_ERROR on fetch failure', async () => {
-        mockFetch.mockImplementationOnce(
-          () => Promise.reject(new TypeError('Failed to fetch'))
-        );
+        mockFetch.mockImplementationOnce(() => Promise.reject(new TypeError('Failed to fetch')));
 
-        await expect(
-          apiClient.graphqlClient.request('{ ok }')
-        ).rejects.toThrow('Unable to connect to server');
+        await expect(apiClient.graphqlClient.request('{ ok }')).rejects.toThrow(
+          'Unable to connect to server',
+        );
       });
     });
   });
@@ -496,9 +481,7 @@ describe('api-client', () => {
     it('should use getAccessToken() for Authorization header', async () => {
       apiClient.setTokens('rest-test-token');
 
-      mockFetch.mockResolvedValueOnce(
-        mockResponse(200, { items: [] })
-      );
+      mockFetch.mockResolvedValueOnce(mockResponse(200, { items: [] }));
 
       await apiClient.restClient.get('/users');
 
@@ -511,9 +494,7 @@ describe('api-client', () => {
       apiClient.setTokens('token');
       apiClient.setTenantId('rest-tenant-99');
 
-      mockFetch.mockResolvedValueOnce(
-        mockResponse(200, { ok: true })
-      );
+      mockFetch.mockResolvedValueOnce(mockResponse(200, { ok: true }));
 
       await apiClient.restClient.get('/data');
 
@@ -522,9 +503,7 @@ describe('api-client', () => {
     });
 
     it('should send credentials: include for cookie-based auth', async () => {
-      mockFetch.mockResolvedValueOnce(
-        mockResponse(200, { ok: true })
-      );
+      mockFetch.mockResolvedValueOnce(mockResponse(200, { ok: true }));
 
       await apiClient.restClient.get('/data');
 
@@ -533,9 +512,7 @@ describe('api-client', () => {
     });
 
     it('should append query params', async () => {
-      mockFetch.mockResolvedValueOnce(
-        mockResponse(200, { items: [] })
-      );
+      mockFetch.mockResolvedValueOnce(mockResponse(200, { items: [] }));
 
       await apiClient.restClient.get('/users', { page: 1, limit: 10 });
 
@@ -545,9 +522,7 @@ describe('api-client', () => {
     });
 
     it('should send JSON body for POST', async () => {
-      mockFetch.mockResolvedValueOnce(
-        mockResponse(201, { id: '1' })
-      );
+      mockFetch.mockResolvedValueOnce(mockResponse(201, { id: '1' }));
 
       await apiClient.restClient.post('/users', { name: 'Test' });
 
@@ -563,6 +538,24 @@ describe('api-client', () => {
       expect(result).toBeUndefined();
     });
 
+    it('keeps the request deadline active while the JSON body is still streaming', async () => {
+      vi.useFakeTimers();
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => new Promise<unknown>(() => {}),
+      } as Response);
+
+      const request = apiClient.restClient.request('GET', '/stalled-json', { timeout: 5_000 });
+      const rejection = expect(request).rejects.toMatchObject({
+        message: 'Request timed out',
+        statusCode: 408,
+      });
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      await rejection;
+    });
+
     describe('401 retry with token refresh', () => {
       it('should retry once after successful token refresh on 401', async () => {
         apiClient.setTokens('expired-rest-token');
@@ -573,12 +566,10 @@ describe('api-client', () => {
         mockFetch.mockResolvedValueOnce(
           mockResponse(200, {
             data: { refreshToken: { accessToken: 'new-rest-token' } },
-          })
+          }),
         );
         // Retry call: success
-        mockFetch.mockResolvedValueOnce(
-          mockResponse(200, { items: ['a', 'b'] })
-        );
+        mockFetch.mockResolvedValueOnce(mockResponse(200, { items: ['a', 'b'] }));
 
         const result = await apiClient.restClient.get<{ items: string[] }>('/items');
         expect(result.items).toEqual(['a', 'b']);
@@ -594,17 +585,13 @@ describe('api-client', () => {
         mockFetch.mockResolvedValueOnce(
           mockResponse(200, {
             data: { refreshToken: { accessToken: 'new-token' } },
-          })
+          }),
         );
         // Retry: 401 again
-        mockFetch.mockResolvedValueOnce(
-          mockResponse(401, { message: 'Still unauthorized' })
-        );
+        mockFetch.mockResolvedValueOnce(mockResponse(401, { message: 'Still unauthorized' }));
 
         // Should throw RestClientError, not infinite loop
-        await expect(
-          apiClient.restClient.get('/restricted')
-        ).rejects.toThrow();
+        await expect(apiClient.restClient.get('/restricted')).rejects.toThrow();
 
         // Exactly 3 calls: original + refresh + one retry
         expect(mockFetch).toHaveBeenCalledTimes(3);
@@ -618,28 +605,39 @@ describe('api-client', () => {
         // Refresh: fails
         mockFetch.mockResolvedValueOnce(mockResponse(500, {}));
 
-        await expect(
-          apiClient.restClient.get('/items')
-        ).rejects.toThrow('Session expired');
+        await expect(apiClient.restClient.get('/items')).rejects.toThrow('Session expired');
       });
     });
 
     describe('REST error handling', () => {
       it('should throw RestClientError for non-OK responses', async () => {
+        apiClient.setTokens('token');
         mockFetch.mockResolvedValueOnce(
-          mockResponse(404, { message: 'Not found' })
+          mockResponse(404, {
+            success: false,
+            error: {
+              code: 'RESOURCE_NOT_FOUND',
+              message: 'Resource not found',
+              timestamp: '2026-07-20T12:00:00.000Z',
+            },
+          }),
         );
 
-        await expect(
-          apiClient.restClient.get('/missing')
-        ).rejects.toThrow(apiClient.RestClientError);
+        await expect(apiClient.restClient.get('/missing')).rejects.toThrow('Resource not found');
       });
 
       it('should include status code in RestClientError', async () => {
         apiClient.setTokens('token');
 
         mockFetch.mockResolvedValueOnce(
-          mockResponse(422, { message: 'Validation error' })
+          mockResponse(422, {
+            success: false,
+            error: {
+              code: 'HTTP_UNPROCESSABLE_ENTITY',
+              message: 'The request data could not be processed',
+              timestamp: '2026-07-20T12:00:00.000Z',
+            },
+          }),
         );
 
         try {
@@ -650,15 +648,23 @@ describe('api-client', () => {
           expect((error as InstanceType<typeof apiClient.RestClientError>).statusCode).toBe(422);
         }
       });
+
+      it.each([
+        { message: 'legacy top-level message' },
+        { success: false, error: { message: 'missing code and timestamp' } },
+        '<html>proxy failure</html>',
+      ])('uses only a safe status fallback for malformed error bodies', async (body) => {
+        mockFetch.mockResolvedValueOnce(mockResponse(415, body));
+
+        await expect(apiClient.restClient.get('/invalid-media')).rejects.toThrow('HTTP 415');
+      });
     });
 
     describe('Convenience methods', () => {
       it('should support PUT method', async () => {
         apiClient.setTokens('token');
 
-        mockFetch.mockResolvedValueOnce(
-          mockResponse(200, { updated: true })
-        );
+        mockFetch.mockResolvedValueOnce(mockResponse(200, { updated: true }));
 
         await apiClient.restClient.put('/users/1', { name: 'Updated' });
 
@@ -669,9 +675,7 @@ describe('api-client', () => {
       it('should support PATCH method', async () => {
         apiClient.setTokens('token');
 
-        mockFetch.mockResolvedValueOnce(
-          mockResponse(200, { patched: true })
-        );
+        mockFetch.mockResolvedValueOnce(mockResponse(200, { patched: true }));
 
         await apiClient.restClient.patch('/users/1', { name: 'Patched' });
 
@@ -706,7 +710,7 @@ describe('api-client', () => {
               user: { id: '1', email: 'test@example.com', role: 'TENANT_ADMIN', tenantId: 't1' },
             },
           },
-        })
+        }),
       );
 
       const result = await apiClient.silentRefresh();
@@ -720,7 +724,7 @@ describe('api-client', () => {
           data: {
             refreshToken: { accessToken: 'token' },
           },
-        })
+        }),
       );
 
       await apiClient.silentRefresh();
@@ -740,7 +744,7 @@ describe('api-client', () => {
       mockFetch.mockResolvedValueOnce(
         mockResponse(200, {
           errors: [{ message: 'Refresh token expired' }],
-        })
+        }),
       );
 
       const result = await apiClient.silentRefresh();
@@ -751,7 +755,7 @@ describe('api-client', () => {
       mockFetch.mockResolvedValueOnce(
         mockResponse(200, {
           data: { refreshToken: {} },
-        })
+        }),
       );
 
       const result = await apiClient.silentRefresh();
@@ -771,7 +775,7 @@ describe('api-client', () => {
       mockFetch.mockResolvedValueOnce(
         mockResponse(200, {
           data: { refreshToken: { accessToken: 'token' } },
-        })
+        }),
       );
 
       await apiClient.silentRefresh();
@@ -784,7 +788,7 @@ describe('api-client', () => {
       mockFetch.mockResolvedValueOnce(
         mockResponse(200, {
           data: { refreshToken: { accessToken: 'token', user: { tenantId: null } } },
-        })
+        }),
       );
 
       await apiClient.silentRefresh();
@@ -812,7 +816,7 @@ describe('api-client', () => {
           return Promise.resolve(
             mockResponse(200, {
               data: { refreshToken: { accessToken: 'deduped-token' } },
-            })
+            }),
           );
         }
 
@@ -820,9 +824,7 @@ describe('api-client', () => {
         if (refreshCallCount === 0) {
           return Promise.resolve(mockResponse(401, {}));
         }
-        return Promise.resolve(
-          mockResponse(200, { data: { result: 'ok' } })
-        );
+        return Promise.resolve(mockResponse(200, { data: { result: 'ok' } }));
       });
 
       // Fire two requests concurrently — both should hit 401
@@ -851,9 +853,7 @@ describe('api-client', () => {
     });
 
     it('should store graphqlErrors array', () => {
-      const gqlErrors = [
-        { message: 'Field error', path: ['users', 'id'] },
-      ];
+      const gqlErrors = [{ message: 'Field error', path: ['users', 'id'] }];
       const error = new apiClient.GraphQLClientError('Error', 'GQL_ERROR', gqlErrors);
       expect(error.graphqlErrors).toEqual(gqlErrors);
     });

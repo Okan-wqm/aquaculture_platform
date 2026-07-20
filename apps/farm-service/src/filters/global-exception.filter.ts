@@ -7,7 +7,9 @@ import {
   Logger,
 } from '@nestjs/common';
 import { GqlArgumentsHost, GqlContextType } from '@nestjs/graphql';
+import type { Request, Response } from 'express';
 import { GraphQLError } from 'graphql';
+import { buildErrorEnvelope, JSON_ERROR_CONTENT_TYPE } from '@platform/shared';
 
 /**
  * Global Exception Filter for Farm Service
@@ -30,44 +32,54 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
   private handleHttpException(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
-    const response = ctx.getResponse();
-    const request = ctx.getRequest();
+    const response = ctx.getResponse<Response>();
+    const request = ctx.getRequest<Request>();
+    const correlationIdHeader =
+      request.headers['x-correlation-id'] ?? request.headers['x-request-id'];
+    const canonical = buildErrorEnvelope(exception, {
+      path: request.originalUrl ?? request.url,
+      correlationId: typeof correlationIdHeader === 'string' ? correlationIdHeader : undefined,
+      isProduction: this.isProduction,
+    });
 
-    const { statusCode, message } = this.parseException(exception);
+    this.logError(
+      exception,
+      canonical.statusCode,
+      canonical.body.error.code,
+      canonical.body.error.correlationId,
+    );
 
-    const errorResponse = {
-      statusCode,
-      message: this.isProduction ? this.sanitizeMessage(message) : message,
-      timestamp: new Date().toISOString(),
-      path: request.url,
-      correlationId: request.headers?.['x-correlation-id'],
-    };
-
-    this.logError(exception, errorResponse);
-
-    response.status(statusCode).json(errorResponse);
+    response.status(canonical.statusCode).type(JSON_ERROR_CONTENT_TYPE).json(canonical.body);
   }
 
-  private handleGraphQLException(
-    exception: unknown,
-    host: ArgumentsHost,
-  ): GraphQLError {
+  private handleGraphQLException(exception: unknown, host: ArgumentsHost): GraphQLError {
     const gqlHost = GqlArgumentsHost.create(host);
     const context = gqlHost.getContext();
     const request = context?.req;
 
     const { statusCode, message, validationErrors } = this.parseException(exception);
 
-    const sanitizedMessage = this.isProduction ? this.sanitizeMessage(message) : message;
+    const correlationIdHeader =
+      request?.headers?.['x-correlation-id'] ?? request?.headers?.['x-request-id'];
+    const presentation = buildErrorEnvelope(new HttpException(message, statusCode), {
+      correlationId: typeof correlationIdHeader === 'string' ? correlationIdHeader : undefined,
+      isProduction: this.isProduction,
+    });
+    const sanitizedMessage = this.isProduction ? presentation.body.error.message : message;
 
     const errorResponse = {
       statusCode,
       message: sanitizedMessage,
       timestamp: new Date().toISOString(),
-      correlationId: request?.headers?.['x-correlation-id'],
+      correlationId: presentation.body.error.correlationId,
     };
 
-    this.logError(exception, errorResponse);
+    this.logError(
+      exception,
+      statusCode,
+      this.getGraphQLErrorCode(statusCode),
+      typeof errorResponse.correlationId === 'string' ? errorResponse.correlationId : undefined,
+    );
 
     // Build extensions with optional validation error details
     const extensions: Record<string, unknown> = {
@@ -78,10 +90,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       extensions['validationErrors'] = validationErrors;
     }
 
-    return new GraphQLError(
-      this.isProduction ? this.sanitizeMessage(message) : message,
-      { extensions },
-    );
+    return new GraphQLError(sanitizedMessage, { extensions });
   }
 
   private parseException(exception: unknown): {
@@ -137,57 +146,26 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     }
   }
 
-  private sanitizeMessage(message: string): string {
-    const sensitivePatterns = [
-      /password/i,
-      /secret/i,
-      /token/i,
-      /database/i,
-      /sql/i,
-    ];
-
-    for (const pattern of sensitivePatterns) {
-      if (pattern.test(message)) {
-        return 'An error occurred while processing your request';
-      }
-    }
-
-    return message;
-  }
-
   /**
    * Log error details including field-level validation messages
    * from BadRequestException responses (class-validator output).
    */
   private logError(
     exception: unknown,
-    errorResponse: Record<string, unknown>,
+    statusCode: number,
+    code: string,
+    correlationId: string | undefined,
   ): void {
-    const statusCode = errorResponse['statusCode'] as number;
-    const correlationId = errorResponse['correlationId'] || 'N/A';
+    const context = { statusCode, code, correlationId };
 
     if (statusCode >= 500) {
       this.logger.error(
-        `[${correlationId}] ${errorResponse['message']}`,
-        exception instanceof Error ? exception.stack : undefined,
+        'Farm request failed with a server error',
+        !this.isProduction && exception instanceof Error ? exception.stack : undefined,
+        context,
       );
     } else if (statusCode >= 400) {
-      // For 400 errors, include the full validation details so we can
-      // see WHICH fields failed and WHY (class-validator messages).
-      let detail = '';
-      if (exception instanceof HttpException) {
-        const response = exception.getResponse();
-        if (typeof response === 'object' && response !== null) {
-          try {
-            detail = ` | details: ${JSON.stringify(response)}`;
-          } catch {
-            detail = ` | details: [unserializable response]`;
-          }
-        }
-      }
-      this.logger.warn(
-        `[${correlationId}] ${errorResponse['message']}${detail}`,
-      );
+      this.logger.warn('Farm request was rejected', context);
     }
   }
 }

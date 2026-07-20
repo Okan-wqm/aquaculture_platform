@@ -28,8 +28,9 @@ export interface FeatureCondition {
 }
 
 export interface RolloutSchedule {
-  startDate: Date;
-  endDate?: Date;
+  /** JSONB hydration returns ISO strings; command DTOs may provide Date objects. */
+  startDate: Date | string;
+  endDate?: Date | string;
   percentage: number;
   targetPercentage?: number;
   incrementPerDay?: number;

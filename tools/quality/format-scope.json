@@ -1773,6 +1773,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/__tests__/1801600000000-SeedMarineExplorerFeatureToggle.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/migrations/__tests__/backfill-messaging-ai-role-capabilities.spec.ts",
       "prettier_managed": true
     },
@@ -2124,6 +2130,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/migrations/1801500000000-DropRetiredUserPermissions.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1801600000000-SeedMarineExplorerFeatureToggle.ts",
       "prettier_managed": true
     },
     {
@@ -2483,6 +2495,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/shared/skip-response-envelope.decorator.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/shared/structured-logger.service.ts",
       "prettier_managed": true
     },
@@ -2549,7 +2567,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/__tests__/marine-feature-evaluation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/system-management/__tests__/provisioning-config.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/controllers/__tests__/internal-feature-toggle.controller.spec.ts",
       "prettier_managed": true
     },
     {
@@ -2568,6 +2598,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/system-management/controllers/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/controllers/internal-feature-toggle.controller.ts",
       "prettier_managed": true
     },
     {
@@ -2646,6 +2682,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/system-management/services/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/services/internal-feature-evaluation-signer.service.ts",
       "prettier_managed": true
     },
     {
@@ -8518,6 +8560,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/common/http/__tests__/farm-streaming-response.adapter.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/common/http/farm-streaming-response.adapter.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/common/jsonb/__tests__/jsonb-patch.service.spec.ts",
       "prettier_managed": true
     },
@@ -11565,6 +11619,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/filters/__tests__/global-exception-filter.conformance.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/filters/global-exception.filter.ts",
       "prettier_managed": true
     },
@@ -13209,6 +13269,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/marine-explorer/__tests__/marine-explorer-platform.module.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/marine-explorer/catalog/__tests__/copernicus-catalog-lock.spec.ts",
       "prettier_managed": true
     },
@@ -13228,6 +13294,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/marine-explorer/catalog/recipes/sentinel-2-l2a-ndwi.v1.evalscript.js",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/marine-explorer/marine-explorer-feature-gate.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/marine-explorer/marine-explorer-platform.module.ts",
       "prettier_managed": true
     },
     {
@@ -16886,7 +16964,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "96149f2f688a14b698943348e79617424c1c2e507aae6f443d4abbcbe000d512",
+      "content_sha256": "9e5d925d98c1eb4a6313e0b6be2d47db8e81ebe2ee9653ed871b668fb0631439",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "apps/gateway-api/src/config/federated-subgraphs.generated.ts",
@@ -17156,6 +17234,36 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/gateway-api/src/marine-explorer/__tests__/marine-explorer-capability.controller.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/gateway-api/src/marine-explorer/__tests__/marine-explorer.module.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/gateway-api/src/marine-explorer/marine-explorer-capability.controller.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/gateway-api/src/marine-explorer/marine-explorer-feature.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/gateway-api/src/marine-explorer/marine-explorer.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/gateway-api/src/metrics/metrics.controller.ts",
       "prettier_managed": true
     },
@@ -17306,6 +17414,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/gateway-api/src/proxy/__tests__/signed-streaming-proxy.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/gateway-api/src/proxy/circuit-breaker.service.ts",
       "prettier_managed": true
     },
@@ -17319,6 +17433,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/gateway-api/src/proxy/service-proxy.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/gateway-api/src/proxy/signed-streaming-proxy.service.ts",
       "prettier_managed": true
     },
     {
@@ -34580,7 +34700,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "033ed7170e216677e35938923a4210659132bbdd18f256ad7121447febd78f00",
+      "content_sha256": "389865eb325ccffaf336803b79d5aa00c357054920b0ec967ab9c7ace9c95508",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/apollo-router/codegen-schema.generated.json",
@@ -34603,7 +34723,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "f6c14217f260960545ad0c91ac7923594263ebacb524cb71011b1c8c24498690",
+      "content_sha256": "553ba9425e2e6b433aa842ff3e1741b2a3422f1b5e60092b69193fc39821b038",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/deploy/service-catalog.generated.json",
@@ -36316,6 +36436,60 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/feature-toggle/__tests__/fail-closed-feature-toggle.client.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/feature-toggle/__tests__/feature-evaluation-keyring.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/feature-toggle/__tests__/feature-evaluation-snapshot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/feature-toggle/__tests__/signed-feature-evaluation.transport.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/feature-toggle/fail-closed-feature-toggle.client.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/feature-toggle/feature-evaluation-keyring.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/feature-toggle/feature-evaluation-snapshot.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/feature-toggle/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/feature-toggle/signed-feature-evaluation.transport.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/filters/http-exception.filter.ts",
       "prettier_managed": true
     },
@@ -36370,6 +36544,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/guards/__tests__/internal-service-callers.guard.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/guards/__tests__/mobile-feature.guard.spec.ts",
       "prettier_managed": true
     },
@@ -36395,6 +36575,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/guards/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/guards/internal-service-callers.guard.ts",
       "prettier_managed": true
     },
     {
@@ -36466,6 +36652,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/http/__tests__/bounded-http-stream.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/http/__tests__/client-network-context.util.spec.ts",
       "prettier_managed": true
     },
@@ -36473,6 +36665,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/http/__tests__/signed-http-client.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/http/bounded-http-stream.ts",
       "prettier_managed": true
     },
     {
@@ -37049,6 +37247,60 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/security/assert-self-scope.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/security/credential-cipher/__tests__/credential-cipher.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/security/credential-cipher/__tests__/credential-keyring.loader.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/security/credential-cipher/credential-cipher.aad.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/security/credential-cipher/credential-cipher.errors.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/security/credential-cipher/credential-cipher.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/security/credential-cipher/credential-cipher.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/security/credential-cipher/credential-cipher.types.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/security/credential-cipher/credential-keyring.loader.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/security/credential-cipher/index.ts",
       "prettier_managed": true
     },
     {
@@ -38988,7 +39240,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/shared/jest.config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/shared/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/shared/src/decorators/api-response.decorators.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/shared/src/errors/__tests__/error-envelope.spec.ts",
       "prettier_managed": true
     },
     {
@@ -39001,6 +39271,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/shared/src/errors/error-codes.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/shared/src/errors/error-envelope.ts",
       "prettier_managed": true
     },
     {
@@ -39019,6 +39295,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/shared/src/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/shared/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/shared/tsconfig.lib.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/shared/tsconfig.spec.json",
       "prettier_managed": true
     },
     {
@@ -41808,6 +42102,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/maintenance-isolation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/marine-explorer-edge-wiring.spec.ts",
       "prettier_managed": true
     },
     {
@@ -55079,10 +55379,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9028,
+  "file_count": 9078,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8846,
-  "managed_file_list_sha256": "052a3af1e9cc2100a4c4c9f284634d80c48abc4ddae69cfbf97cc89a2f76f8c3",
+  "managed_count": 8896,
+  "managed_file_list_sha256": "6ed56f83fa1cbd05721dcfd193b32d472e8a18b6ee95821137a596055feb0fd9",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

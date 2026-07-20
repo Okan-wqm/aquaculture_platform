@@ -55,6 +55,9 @@ vi.mock('../../utils/api-client', () => {
     graphqlClient: {
       request: vi.fn(),
     },
+    restClient: {
+      request: vi.fn(),
+    },
     // Reset helper for tests
     __resetTokens: () => {
       _accessToken = null;
@@ -64,8 +67,22 @@ vi.mock('../../utils/api-client', () => {
 });
 
 // Import after mocking
-import { AuthProvider, useAuthContext, type UserRole, type AuthUser, type LoginResult } from '../AuthContext';
-import { setTokens, clearSession, getAccessToken, silentRefresh, graphqlClient, setTenantId } from '../../utils/api-client';
+import {
+  AuthProvider,
+  useAuthContext,
+  type UserRole,
+  type AuthUser,
+  type LoginResult,
+} from '../AuthContext';
+import {
+  setTokens,
+  clearSession,
+  getAccessToken,
+  silentRefresh,
+  graphqlClient,
+  restClient,
+  setTenantId,
+} from '../../utils/api-client';
 import { tokenLifecycle } from '../../utils/token-lifecycle';
 
 // ============================================================================
@@ -73,6 +90,7 @@ import { tokenLifecycle } from '../../utils/token-lifecycle';
 // ============================================================================
 
 const mockGraphqlRequest = graphqlClient.request as ReturnType<typeof vi.fn>;
+const mockRestRequest = restClient.request as ReturnType<typeof vi.fn>;
 const mockSilentRefresh = silentRefresh as ReturnType<typeof vi.fn>;
 const mockGetAccessToken = getAccessToken as ReturnType<typeof vi.fn>;
 const mockSetTokens = setTokens as ReturnType<typeof vi.fn>;
@@ -93,7 +111,10 @@ function createMockUser(overrides: Partial<AuthUser> = {}): AuthUser {
   };
 }
 
-function createMeResponse(user: AuthUser, modules = [{ code: 'sensor', name: 'Sensor', defaultRoute: '/sensor' }]) {
+function createMeResponse(
+  user: AuthUser,
+  modules = [{ code: 'sensor', name: 'Sensor', defaultRoute: '/sensor' }],
+) {
   return {
     me: {
       user,
@@ -137,6 +158,8 @@ describe('AuthContext', () => {
     mockGetAccessToken.mockReturnValue(null);
     mockSilentRefresh.mockResolvedValue(false);
     mockGraphqlRequest.mockReset();
+    mockRestRequest.mockReset();
+    mockRestRequest.mockResolvedValue({ marineExplorer: { enabled: false } });
     // Reset tokenLifecycle mock defaults
     mockTokenLifecycle.initialize.mockResolvedValue(true);
     mockTokenLifecycle.getState.mockReturnValue('READY');
@@ -153,6 +176,7 @@ describe('AuthContext', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -170,6 +194,7 @@ describe('AuthContext', () => {
       expect(result.current.isAuthenticated).toBe(false);
       expect(result.current.user).toBeNull();
       expect(result.current.modules).toEqual([]);
+      expect(result.current.marineExplorer).toEqual({ enabled: false });
       expect(result.current.error).toBeNull();
     });
 
@@ -185,6 +210,205 @@ describe('AuthContext', () => {
       // It may already have resolved since silentRefresh returns immediately
       // Just verify it eventually finishes loading
       expect(result.current.isAuthenticated).toBe(false);
+    });
+  });
+
+  describe('Marine Explorer capability projection', () => {
+    it('accepts only the exact authenticated boolean capability response', async () => {
+      const user = createMockUser();
+      mockRestRequest.mockResolvedValueOnce({ marineExplorer: { enabled: true } });
+      mockGraphqlRequest
+        .mockResolvedValueOnce(createLoginResponse(user))
+        .mockResolvedValueOnce(createMeResponse(user));
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapper(false),
+      });
+
+      await act(async () => {
+        await result.current.login({ email: 'a@b.com', password: 'p' });
+      });
+
+      expect(mockRestRequest).toHaveBeenCalledWith('GET', '/marine-explorer/capabilities', {
+        timeout: 5_000,
+      });
+      expect(result.current.marineExplorer).toEqual({ enabled: true });
+    });
+
+    it.each([
+      { marineExplorer: { enabled: 'true' } },
+      { marineExplorer: { enabled: 1 } },
+      { marineExplorer: { enabled: true, source: 'untrusted' } },
+      { marineExplorer: { enabled: true }, extra: true },
+    ])('fails closed for malformed or widened capability payloads', async (capability) => {
+      const user = createMockUser();
+      mockRestRequest.mockResolvedValueOnce(capability);
+      mockGraphqlRequest
+        .mockResolvedValueOnce(createLoginResponse(user))
+        .mockResolvedValueOnce(createMeResponse(user));
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapper(false),
+      });
+
+      await act(async () => {
+        await result.current.login({ email: 'a@b.com', password: 'p' });
+      });
+
+      expect(result.current.marineExplorer).toEqual({ enabled: false });
+    });
+
+    it('refreshes within the bounded TTL and disables the UI capability on failure', async () => {
+      vi.useFakeTimers();
+      const user = createMockUser();
+      mockRestRequest.mockResolvedValueOnce({ marineExplorer: { enabled: true } });
+      mockGraphqlRequest
+        .mockResolvedValueOnce(createLoginResponse(user))
+        .mockResolvedValueOnce(createMeResponse(user));
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapper(false),
+      });
+
+      await act(async () => {
+        await result.current.login({ email: 'a@b.com', password: 'p' });
+      });
+      expect(result.current.marineExplorer.enabled).toBe(true);
+
+      mockRestRequest.mockRejectedValueOnce(new Error('capability endpoint unavailable'));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+
+      expect(result.current.marineExplorer.enabled).toBe(false);
+      expect(mockRestRequest).toHaveBeenCalledTimes(2);
+    });
+
+    it('refreshes a stale capability when the document becomes visible', async () => {
+      vi.useFakeTimers();
+      const now = new Date('2026-07-20T12:00:00.000Z');
+      vi.setSystemTime(now);
+      const user = createMockUser();
+      mockRestRequest.mockResolvedValueOnce({ marineExplorer: { enabled: true } });
+      mockGraphqlRequest
+        .mockResolvedValueOnce(createLoginResponse(user))
+        .mockResolvedValueOnce(createMeResponse(user));
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapper(false),
+      });
+
+      await act(async () => {
+        await result.current.login({ email: 'a@b.com', password: 'p' });
+      });
+      expect(result.current.marineExplorer.enabled).toBe(true);
+
+      mockRestRequest.mockResolvedValueOnce({ marineExplorer: { enabled: false } });
+      vi.setSystemTime(new Date(now.getTime() + 15_001));
+      vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'));
+        await Promise.resolve();
+      });
+
+      expect(result.current.marineExplorer.enabled).toBe(false);
+      expect(mockRestRequest).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not publish an in-flight capability refresh once logout starts', async () => {
+      vi.useFakeTimers();
+      const user = createMockUser();
+      mockRestRequest.mockResolvedValueOnce({ marineExplorer: { enabled: false } });
+      mockGraphqlRequest
+        .mockResolvedValueOnce(createLoginResponse(user))
+        .mockResolvedValueOnce(createMeResponse(user));
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapper(false),
+      });
+      await act(async () => {
+        await result.current.login({ email: 'a@b.com', password: 'p' });
+      });
+
+      let resolveRefresh: ((value: unknown) => void) | undefined;
+      mockRestRequest.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveRefresh = resolve;
+          }),
+      );
+      act(() => {
+        vi.advanceTimersByTime(15_000);
+      });
+      let resolveLogout: ((value: unknown) => void) | undefined;
+      mockGraphqlRequest.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveLogout = resolve;
+          }),
+      );
+      let logoutPromise: Promise<void> | undefined;
+      act(() => {
+        logoutPromise = result.current.logout();
+      });
+
+      await act(async () => {
+        resolveRefresh?.({ marineExplorer: { enabled: true } });
+        await Promise.resolve();
+      });
+
+      expect(result.current.isAuthenticated).toBe(true);
+      expect(result.current.marineExplorer.enabled).toBe(false);
+
+      await act(async () => {
+        resolveLogout?.({ logout: { success: true } });
+        await logoutPromise;
+      });
+
+      expect(result.current.isAuthenticated).toBe(false);
+      expect(result.current.marineExplorer.enabled).toBe(false);
+    });
+
+    it('does not restore auth from an in-flight refreshAuth after logout', async () => {
+      const user = createMockUser();
+      mockRestRequest.mockResolvedValueOnce({ marineExplorer: { enabled: false } });
+      mockGraphqlRequest
+        .mockResolvedValueOnce(createLoginResponse(user))
+        .mockResolvedValueOnce(createMeResponse(user));
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapper(false),
+      });
+      await act(async () => {
+        await result.current.login({ email: 'a@b.com', password: 'p' });
+      });
+
+      let resolveCapability: ((value: unknown) => void) | undefined;
+      mockGraphqlRequest.mockResolvedValueOnce(createMeResponse(user));
+      mockRestRequest.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveCapability = resolve;
+          }),
+      );
+      let refreshPromise: Promise<void> | undefined;
+      act(() => {
+        refreshPromise = result.current.refreshAuth();
+      });
+      await waitFor(() => expect(mockRestRequest).toHaveBeenCalledTimes(2));
+
+      mockGraphqlRequest.mockResolvedValueOnce({ logout: { success: true } });
+      await act(async () => {
+        await result.current.logout();
+      });
+
+      await act(async () => {
+        resolveCapability?.({ marineExplorer: { enabled: true } });
+        await refreshPromise;
+      });
+
+      expect(result.current.isAuthenticated).toBe(false);
+      expect(result.current.marineExplorer.enabled).toBe(false);
     });
   });
 
@@ -273,7 +497,7 @@ describe('AuthContext', () => {
             email: 'test@example.com',
             password: 'password',
           });
-        })
+        }),
       ).rejects.toThrow('Invalid server response');
     });
 
@@ -294,7 +518,7 @@ describe('AuthContext', () => {
             email: 'test@example.com',
             password: 'password',
           });
-        })
+        }),
       ).rejects.toThrow('Session verification failed');
 
       await waitFor(() => {
@@ -475,7 +699,7 @@ describe('AuthContext', () => {
         });
 
         expect(result.current.hasRoleOrHigher(checkRole)).toBe(expected);
-      }
+      },
     );
 
     it('should return false when no user is logged in', () => {
@@ -543,7 +767,9 @@ describe('AuthContext', () => {
 
       mockGraphqlRequest
         .mockResolvedValueOnce(createLoginResponse(user))
-        .mockResolvedValueOnce(createMeResponse(user, [{ code: 'sensor', name: 'Sensor', defaultRoute: '/sensor' }]));
+        .mockResolvedValueOnce(
+          createMeResponse(user, [{ code: 'sensor', name: 'Sensor', defaultRoute: '/sensor' }]),
+        );
 
       const { result } = renderHook(() => useAuthContext(), {
         wrapper: createWrapper(false),

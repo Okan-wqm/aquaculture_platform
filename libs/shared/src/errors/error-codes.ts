@@ -420,6 +420,46 @@ export const SENSOR_ERRORS = {
 // Generic Resource Errors (6500-6599)
 // ============================================================================
 export const RESOURCE_ERRORS = {
+  HTTP_PAYMENT_REQUIRED: {
+    code: 'HTTP_PAYMENT_REQUIRED',
+    status: 402,
+    message: 'Payment is required to access this resource',
+  },
+  HTTP_METHOD_NOT_ALLOWED: {
+    code: 'HTTP_METHOD_NOT_ALLOWED',
+    status: 405,
+    message: 'The HTTP method is not allowed for this resource',
+  },
+  HTTP_NOT_ACCEPTABLE: {
+    code: 'HTTP_NOT_ACCEPTABLE',
+    status: 406,
+    message: 'The requested response format is not available',
+  },
+  HTTP_REQUEST_TIMEOUT: {
+    code: 'HTTP_REQUEST_TIMEOUT',
+    status: 408,
+    message: 'The request timed out',
+  },
+  HTTP_RESOURCE_GONE: {
+    code: 'HTTP_RESOURCE_GONE',
+    status: 410,
+    message: 'The requested resource is no longer available',
+  },
+  HTTP_PAYLOAD_TOO_LARGE: {
+    code: 'HTTP_PAYLOAD_TOO_LARGE',
+    status: 413,
+    message: 'The request payload is too large',
+  },
+  HTTP_UNSUPPORTED_MEDIA_TYPE: {
+    code: 'HTTP_UNSUPPORTED_MEDIA_TYPE',
+    status: 415,
+    message: 'The request media type is not supported',
+  },
+  HTTP_UNPROCESSABLE_ENTITY: {
+    code: 'HTTP_UNPROCESSABLE_ENTITY',
+    status: 422,
+    message: 'The request data could not be processed',
+  },
   RESOURCE_NOT_FOUND: {
     code: 'RESOURCE_NOT_FOUND',
     status: 404,
@@ -434,6 +474,16 @@ export const RESOURCE_ERRORS = {
     code: 'RATE_LIMIT_EXCEEDED',
     status: 429,
     message: 'Too many requests',
+  },
+  HTTP_NOT_IMPLEMENTED: {
+    code: 'HTTP_NOT_IMPLEMENTED',
+    status: 501,
+    message: 'The requested operation is not implemented',
+  },
+  HTTP_BAD_GATEWAY: {
+    code: 'HTTP_BAD_GATEWAY',
+    status: 502,
+    message: 'The upstream service returned an invalid response',
   },
 } as const;
 

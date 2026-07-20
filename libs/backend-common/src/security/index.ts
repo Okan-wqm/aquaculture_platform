@@ -51,6 +51,9 @@ export * from './validators';
 // Encryption - AES-256-GCM column-level encryption for PII at rest
 export * from './encryption';
 
+// Versioned credential envelope cipher with strict file-backed keyring loading
+export * from './credential-cipher';
+
 // Security Event Service (Audit logging for security events)
 export * from './security-event.service';
 

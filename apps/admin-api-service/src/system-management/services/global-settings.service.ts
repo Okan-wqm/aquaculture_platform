@@ -1,6 +1,13 @@
 import * as crypto from 'crypto';
 
-import { GoneException, Injectable, Logger, NotFoundException, BadRequestException, OnModuleInit } from '@nestjs/common';
+import {
+  GoneException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  OnModuleInit,
+} from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThanOrEqual, Repository } from 'typeorm';
@@ -10,6 +17,7 @@ import {
   FeatureToggleScope,
   FeatureToggleStatus,
   FeatureCondition,
+  type RolloutSchedule,
 } from '../entities/feature-toggle.entity';
 import { ConfigCategory, ConfigValueType } from '../entities/global-config.entity';
 import {
@@ -57,6 +65,16 @@ export interface SystemHealthStatus {
   activeConfigs: number;
 }
 
+interface ParsedRolloutSchedule {
+  readonly startMs: number;
+  readonly endMs?: number;
+  readonly percentage: number;
+  readonly targetPercentage?: number;
+  readonly incrementPerDay?: number;
+}
+
+const FEATURE_TENANT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // ============================================================================
 // Feature Toggle Service
 // ============================================================================
@@ -66,7 +84,11 @@ export class GlobalSettingsService implements OnModuleInit {
   private readonly logger = new Logger(GlobalSettingsService.name);
   private featureToggleCache: Map<string, FeatureToggle> = new Map();
   private lastCacheRefresh: Date = new Date(0);
-  private readonly CACHE_TTL_MS = 60000; // 1 minute
+  private cacheRefreshInFlight?: Promise<void>;
+  // Feature decisions feed a 15-second signed snapshot. Keep the admin-side
+  // cache shorter too so another admin pod cannot keep signing a minute-old
+  // rollout decision after an operator disables the feature.
+  private readonly CACHE_TTL_MS = 10_000;
 
   constructor(
     @InjectRepository(FeatureToggle)
@@ -94,6 +116,7 @@ export class GlobalSettingsService implements OnModuleInit {
     category?: string;
     conditions?: FeatureCondition[];
     rolloutPercentage?: number;
+    rolloutSchedule?: RolloutSchedule;
     defaultValue?: unknown;
     variants?: Array<{ key: string; value: unknown; weight: number; description?: string }>;
     requiresRestart?: boolean;
@@ -226,29 +249,64 @@ export class GlobalSettingsService implements OnModuleInit {
       return { key, enabled: false, reason: 'Feature is disabled', value: toggle.defaultValue };
     }
 
+    if (!this.isFeatureToggleStatus(toggle.status) || !this.isFeatureToggleScope(toggle.scope)) {
+      return { key, enabled: false, reason: 'Feature configuration is invalid' };
+    }
+    if (
+      !this.isOptionalTenantIdList(toggle.enabledTenants) ||
+      !this.isOptionalTenantIdList(toggle.disabledTenants) ||
+      (toggle.conditions !== undefined && !Array.isArray(toggle.conditions))
+    ) {
+      return { key, enabled: false, reason: 'Feature configuration is invalid' };
+    }
+
+    // A per-tenant deny always wins, including over a globally enabled flag.
+    if (context.tenantId && toggle.disabledTenants?.includes(context.tenantId)) {
+      return { key, enabled: false, reason: 'Disabled for this tenant' };
+    }
+
+    // Tenant-scoped flags are explicit allowlists. Merely setting status=enabled
+    // cannot activate every tenant; the caller must carry a tenant and that
+    // tenant must be present in enabledTenants.
+    if (toggle.scope === FeatureToggleScope.TENANT) {
+      if (!context.tenantId) {
+        return { key, enabled: false, reason: 'Tenant context is required' };
+      }
+      if (!toggle.enabledTenants?.includes(context.tenantId)) {
+        return { key, enabled: false, reason: 'Tenant is not allowlisted' };
+      }
+    }
+
     if (toggle.status === FeatureToggleStatus.ENABLED) {
       return this.evaluateWithVariants(toggle, context, 'Feature is enabled');
     }
 
-    // Check scheduled rollout
-    if (toggle.status === FeatureToggleStatus.SCHEDULED && toggle.rolloutSchedule) {
-      const now = new Date();
-      if (now < toggle.rolloutSchedule.startDate) {
+    let scheduledPercentage: number | undefined;
+    if (toggle.status === FeatureToggleStatus.SCHEDULED) {
+      const schedule = this.parseRolloutSchedule(toggle.rolloutSchedule);
+      if (!schedule) {
+        return { key, enabled: false, reason: 'Scheduled rollout configuration is invalid' };
+      }
+
+      const nowMs = Date.now();
+      if (nowMs < schedule.startMs) {
         return { key, enabled: false, reason: 'Scheduled rollout not started' };
       }
-      if (toggle.rolloutSchedule.endDate && now > toggle.rolloutSchedule.endDate) {
-        return this.evaluateWithVariants(toggle, context, 'Scheduled rollout completed');
-      }
+      scheduledPercentage = this.scheduledRolloutPercentage(
+        schedule,
+        schedule.endMs === undefined ? nowMs : Math.min(nowMs, schedule.endMs),
+      );
     }
 
-    // Check tenant-specific settings
-    if (context.tenantId) {
-      if (toggle.disabledTenants?.includes(context.tenantId)) {
-        return { key, enabled: false, reason: 'Disabled for this tenant' };
-      }
-      if (toggle.enabledTenants?.includes(context.tenantId)) {
-        return this.evaluateWithVariants(toggle, context, 'Enabled for this tenant');
-      }
+    // Preserve the established explicit override for non-tenant scoped
+    // scheduled/percentage flags. Tenant-scoped flags use the stricter
+    // mandatory allowlist above and continue through their rollout policy.
+    if (
+      toggle.scope !== FeatureToggleScope.TENANT &&
+      context.tenantId &&
+      toggle.enabledTenants?.includes(context.tenantId)
+    ) {
+      return this.evaluateWithVariants(toggle, context, 'Enabled for this tenant');
     }
 
     // Evaluate conditions
@@ -261,6 +319,9 @@ export class GlobalSettingsService implements OnModuleInit {
 
     // Percentage rollout
     if (toggle.status === FeatureToggleStatus.PERCENTAGE_ROLLOUT) {
+      if (!this.isPercentage(toggle.rolloutPercentage)) {
+        return { key, enabled: false, reason: 'Rollout percentage is invalid' };
+      }
       const bucket = this.calculateBucket(key, context.tenantId || context.userId || 'anonymous');
       if (bucket > toggle.rolloutPercentage) {
         return { key, enabled: false, reason: 'Not in rollout percentage' };
@@ -268,7 +329,91 @@ export class GlobalSettingsService implements OnModuleInit {
       return this.evaluateWithVariants(toggle, context, 'In rollout percentage');
     }
 
-    return this.evaluateWithVariants(toggle, context, 'Default evaluation');
+    if (toggle.status === FeatureToggleStatus.SCHEDULED && scheduledPercentage !== undefined) {
+      const bucket = this.calculateBucket(key, context.tenantId || context.userId || 'anonymous');
+      if (bucket > scheduledPercentage) {
+        return { key, enabled: false, reason: 'Not in scheduled rollout percentage' };
+      }
+      return this.evaluateWithVariants(toggle, context, 'In scheduled rollout percentage');
+    }
+
+    return { key, enabled: false, reason: 'Feature status is invalid' };
+  }
+
+  private parseRolloutSchedule(
+    schedule: RolloutSchedule | undefined,
+  ): ParsedRolloutSchedule | undefined {
+    if (!schedule || !this.isPercentage(schedule.percentage)) return undefined;
+
+    const startMs = this.parseRolloutInstant(schedule.startDate);
+    const endMs =
+      schedule.endDate === undefined ? undefined : this.parseRolloutInstant(schedule.endDate);
+    if (startMs === undefined || (schedule.endDate !== undefined && endMs === undefined)) {
+      return undefined;
+    }
+    if (endMs !== undefined && endMs <= startMs) return undefined;
+
+    const hasTarget = schedule.targetPercentage !== undefined;
+    const hasIncrement = schedule.incrementPerDay !== undefined;
+    if (hasTarget !== hasIncrement) return undefined;
+    if (
+      hasTarget &&
+      (!this.isPercentage(schedule.targetPercentage) ||
+        schedule.targetPercentage < schedule.percentage ||
+        typeof schedule.incrementPerDay !== 'number' ||
+        !Number.isFinite(schedule.incrementPerDay) ||
+        schedule.incrementPerDay < 0)
+    ) {
+      return undefined;
+    }
+
+    return {
+      startMs,
+      endMs,
+      percentage: schedule.percentage,
+      targetPercentage: schedule.targetPercentage,
+      incrementPerDay: schedule.incrementPerDay,
+    };
+  }
+
+  private parseRolloutInstant(value: Date | string): number | undefined {
+    const instant = value instanceof Date ? value.getTime() : Date.parse(value);
+    if (!Number.isFinite(instant)) return undefined;
+    if (typeof value === 'string' && new Date(instant).toISOString() !== value) return undefined;
+    return instant;
+  }
+
+  private isPercentage(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100;
+  }
+
+  private isFeatureToggleStatus(value: unknown): value is FeatureToggleStatus {
+    return Object.values(FeatureToggleStatus).includes(value as FeatureToggleStatus);
+  }
+
+  private isFeatureToggleScope(value: unknown): value is FeatureToggleScope {
+    return Object.values(FeatureToggleScope).includes(value as FeatureToggleScope);
+  }
+
+  private isOptionalTenantIdList(value: unknown): value is string[] | undefined {
+    return (
+      value === undefined ||
+      (Array.isArray(value) &&
+        value.every((tenantId) =>
+          typeof tenantId === 'string' ? FEATURE_TENANT_ID_PATTERN.test(tenantId) : false,
+        ))
+    );
+  }
+
+  private scheduledRolloutPercentage(schedule: ParsedRolloutSchedule, nowMs: number): number {
+    if (schedule.targetPercentage === undefined || schedule.incrementPerDay === undefined) {
+      return schedule.percentage;
+    }
+    const daysSinceStart = Math.floor((nowMs - schedule.startMs) / (24 * 60 * 60 * 1000));
+    return Math.min(
+      schedule.percentage + daysSinceStart * schedule.incrementPerDay,
+      schedule.targetPercentage,
+    );
   }
 
   private evaluateWithVariants(
@@ -320,9 +465,13 @@ export class GlobalSettingsService implements OnModuleInit {
             this.conditionValueToString(condition.value),
           );
         case 'in':
-          return Array.isArray(condition.value) && (condition.value as unknown[]).includes(contextValue);
+          return (
+            Array.isArray(condition.value) && (condition.value as unknown[]).includes(contextValue)
+          );
         case 'not_in':
-          return Array.isArray(condition.value) && !(condition.value as unknown[]).includes(contextValue);
+          return (
+            Array.isArray(condition.value) && !(condition.value as unknown[]).includes(contextValue)
+          );
         case 'regex':
           return new RegExp(this.conditionValueToString(condition.value)).test(
             this.conditionValueToString(contextValue),
@@ -340,11 +489,7 @@ export class GlobalSettingsService implements OnModuleInit {
     if (typeof value === 'string') {
       return value;
     }
-    if (
-      typeof value === 'number' ||
-      typeof value === 'boolean' ||
-      typeof value === 'bigint'
-    ) {
+    if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
       return value.toString();
     }
     return '';
@@ -380,7 +525,11 @@ export class GlobalSettingsService implements OnModuleInit {
     type?: MaintenanceType;
     tenantId?: string;
     affectedTenants?: string[];
-    affectedServices?: Array<{ name: string; status: 'unavailable' | 'degraded' | 'read_only'; message?: string }>;
+    affectedServices?: Array<{
+      name: string;
+      status: 'unavailable' | 'degraded' | 'read_only';
+      message?: string;
+    }>;
     scheduledStart: Date;
     scheduledEnd?: Date;
     estimatedDurationMinutes?: number;
@@ -477,10 +626,10 @@ export class GlobalSettingsService implements OnModuleInit {
     const query = this.maintenanceModeRepo
       .createQueryBuilder('m')
       .where('m.status = :status', { status: MaintenanceStatus.IN_PROGRESS })
-      .orWhere(
-        'm.status = :scheduled AND m.scheduledStart <= :now',
-        { scheduled: MaintenanceStatus.SCHEDULED, now },
-      );
+      .orWhere('m.status = :scheduled AND m.scheduledStart <= :now', {
+        scheduled: MaintenanceStatus.SCHEDULED,
+        now,
+      });
 
     const activeMaintenance = await query.getMany();
 
@@ -561,10 +710,10 @@ export class GlobalSettingsService implements OnModuleInit {
       query.andWhere('m.type = :type', { type: params.type });
     }
     if (params.tenantId) {
-      query.andWhere(
-        '(m.tenantId = :tenantId OR m.affectedTenants @> :tenantArray)',
-        { tenantId: params.tenantId, tenantArray: JSON.stringify([params.tenantId]) },
-      );
+      query.andWhere('(m.tenantId = :tenantId OR m.affectedTenants @> :tenantArray)', {
+        tenantId: params.tenantId,
+        tenantArray: JSON.stringify([params.tenantId]),
+      });
     }
     if (params.startDate) {
       query.andWhere('m.scheduledStart >= :startDate', { startDate: params.startDate });
@@ -632,10 +781,7 @@ export class GlobalSettingsService implements OnModuleInit {
     }
 
     // Mark previous current version as not current
-    await this.systemVersionRepo.update(
-      { isCurrentVersion: true },
-      { isCurrentVersion: false },
-    );
+    await this.systemVersionRepo.update({ isCurrentVersion: true }, { isCurrentVersion: false });
 
     // Update this version
     version.status = ReleaseStatus.DEPLOYED;
@@ -707,7 +853,8 @@ export class GlobalSettingsService implements OnModuleInit {
     const page = params.page || 1;
     const limit = params.limit || 20;
 
-    query.orderBy('v.majorVersion', 'DESC')
+    query
+      .orderBy('v.majorVersion', 'DESC')
       .addOrderBy('v.minorVersion', 'DESC')
       .addOrderBy('v.patchVersion', 'DESC');
     query.skip((page - 1) * limit).take(limit);
@@ -747,12 +894,7 @@ export class GlobalSettingsService implements OnModuleInit {
     this.throwGlobalConfigGone();
   }
 
-  updateConfig(
-    id: string,
-    value: unknown,
-    updatedBy: string,
-    reason?: string,
-  ): never {
+  updateConfig(id: string, value: unknown, updatedBy: string, reason?: string): never {
     void id;
     void value;
     void updatedBy;
@@ -782,10 +924,7 @@ export class GlobalSettingsService implements OnModuleInit {
     return { items: [], total: 0 };
   }
 
-  bulkUpdateConfigs(
-    updates: Array<{ key: string; value: unknown }>,
-    updatedBy: string,
-  ): never {
+  bulkUpdateConfigs(updates: Array<{ key: string; value: unknown }>, updatedBy: string): never {
     void updates;
     void updatedBy;
     this.throwGlobalConfigGone();
@@ -803,6 +942,16 @@ export class GlobalSettingsService implements OnModuleInit {
   }
 
   async refreshCaches(): Promise<void> {
+    if (this.cacheRefreshInFlight) return this.cacheRefreshInFlight;
+
+    const refresh = this.loadFeatureToggleCache().finally(() => {
+      if (this.cacheRefreshInFlight === refresh) this.cacheRefreshInFlight = undefined;
+    });
+    this.cacheRefreshInFlight = refresh;
+    return refresh;
+  }
+
+  private async loadFeatureToggleCache(): Promise<void> {
     const toggles = await this.featureToggleRepo.find();
 
     this.featureToggleCache.clear();
@@ -834,36 +983,35 @@ export class GlobalSettingsService implements OnModuleInit {
 
   @Cron(CronExpression.EVERY_5_MINUTES)
   async handleScheduledFeatureRollouts(): Promise<void> {
-    const now = new Date();
+    const nowMs = Date.now();
     const scheduled = await this.featureToggleRepo.find({
       where: { status: FeatureToggleStatus.SCHEDULED },
     });
 
     for (const toggle of scheduled) {
-      if (toggle.rolloutSchedule && toggle.rolloutSchedule.startDate <= now) {
-        // Calculate current percentage based on schedule
-        if (toggle.rolloutSchedule.incrementPerDay && toggle.rolloutSchedule.targetPercentage) {
-          const daysSinceStart = Math.floor(
-            (now.getTime() - toggle.rolloutSchedule.startDate.getTime()) / (24 * 60 * 60 * 1000),
-          );
-          const newPercentage = Math.min(
-            toggle.rolloutSchedule.percentage + daysSinceStart * toggle.rolloutSchedule.incrementPerDay,
-            toggle.rolloutSchedule.targetPercentage,
-          );
+      const schedule = this.parseRolloutSchedule(toggle.rolloutSchedule);
+      if (!schedule || nowMs < schedule.startMs) continue;
 
-          if (newPercentage !== toggle.rolloutPercentage) {
-            toggle.rolloutPercentage = newPercentage;
-            toggle.status = FeatureToggleStatus.PERCENTAGE_ROLLOUT;
-            await this.featureToggleRepo.save(toggle);
-            this.logger.log(`Updated rollout for ${toggle.key}: ${newPercentage}%`);
-          }
-
-          if (newPercentage >= toggle.rolloutSchedule.targetPercentage) {
-            toggle.status = FeatureToggleStatus.ENABLED;
-            await this.featureToggleRepo.save(toggle);
-            this.logger.log(`Completed rollout for ${toggle.key}`);
-          }
-        }
+      const newPercentage = this.scheduledRolloutPercentage(
+        schedule,
+        schedule.endMs === undefined ? nowMs : Math.min(nowMs, schedule.endMs),
+      );
+      let changed = false;
+      if (newPercentage !== toggle.rolloutPercentage) {
+        toggle.rolloutPercentage = newPercentage;
+        changed = true;
+      }
+      // A partial rollout must never silently become 100% enabled merely
+      // because its end/target instant was reached. Operators promote only by
+      // configuring a schedule whose effective percentage reaches 100.
+      if (newPercentage >= 100) {
+        toggle.status = FeatureToggleStatus.ENABLED;
+        changed = true;
+      }
+      if (changed) {
+        await this.featureToggleRepo.save(toggle);
+        this.featureToggleCache.set(toggle.key, toggle);
+        this.logger.log(`Updated rollout for ${toggle.key}: ${newPercentage}%`);
       }
     }
   }
@@ -887,7 +1035,10 @@ export class GlobalSettingsService implements OnModuleInit {
     return {
       provisioningApiUrl: this.provisioningDefault('provisioning.api_url'),
       mqttBrokerHost: this.provisioningDefault('provisioning.mqtt_broker_host'),
-      mqttBrokerPort: Number.parseInt(this.provisioningDefault('provisioning.mqtt_broker_port'), 10),
+      mqttBrokerPort: Number.parseInt(
+        this.provisioningDefault('provisioning.mqtt_broker_port'),
+        10,
+      ),
       githubReleaseUrl: this.provisioningDefault('provisioning.github_release_url'),
       agentDefaultVersion: this.provisioningDefault('provisioning.agent_default_version'),
       githubRepo: this.provisioningDefault('provisioning.github_repo'),
@@ -897,10 +1048,7 @@ export class GlobalSettingsService implements OnModuleInit {
   /**
    * Update provisioning configuration
    */
-  updateProvisioningConfig(
-    updates: Record<string, string>,
-    updatedBy: string,
-  ): never {
+  updateProvisioningConfig(updates: Record<string, string>, updatedBy: string): never {
     void updates;
     void updatedBy;
     this.throwGlobalConfigGone();

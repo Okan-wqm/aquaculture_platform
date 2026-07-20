@@ -14,6 +14,7 @@ export * from './roles.guard';
 export * from './tenant.guard';
 export * from './tenant-permission.guard';
 export * from './service-identity.guard';
+export * from './internal-service-callers.guard';
 export * from './token-revocation.service';
 // SEC-HIGH-052: mobile feature-entitlement guard (paired with @RequiresMobileFeature)
 export * from './mobile-feature.guard';

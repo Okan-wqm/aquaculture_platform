@@ -7,6 +7,7 @@ import {
   PerformanceController,
   ErrorTrackingController,
   JobQueueController,
+  InternalFeatureToggleController,
 } from './controllers';
 import {
   FeatureToggle,
@@ -26,6 +27,7 @@ import {
   PerformanceMonitoringService,
   ErrorTrackingService,
   JobQueueService,
+  InternalFeatureEvaluationSigner,
 } from './services';
 
 @Module({
@@ -54,12 +56,14 @@ import {
     PerformanceController,
     ErrorTrackingController,
     JobQueueController,
+    InternalFeatureToggleController,
   ],
   providers: [
     GlobalSettingsService,
     PerformanceMonitoringService,
     ErrorTrackingService,
     JobQueueService,
+    InternalFeatureEvaluationSigner,
   ],
   exports: [
     GlobalSettingsService,

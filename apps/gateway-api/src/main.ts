@@ -13,6 +13,15 @@ bootstrapService(AppModule, {
   portEnvVar: 'GATEWAY_PORT',
   enableTelemetry: true,
   hasGraphQL: true,
+  // The public contract is /api/marine-explorer (without the default /api/v1
+  // prefix). Farm's internal authority remains versioned and network-private.
+  prefixExclusions: [
+    'health',
+    'health/(.*)',
+    'metrics',
+    'api/marine-explorer',
+    'api/marine-explorer/(.*)',
+  ],
 
   // SECURITY: In production, v2 service-identity keyring signing is required for
   // authenticating inter-service requests. Without it, gateway subgraph requests
@@ -21,13 +30,12 @@ bootstrapService(AppModule, {
     () => {
       if (
         process.env['NODE_ENV'] === 'production' &&
-        (!process.env['SERVICE_IDENTITY_KEYRING'] ||
-          !process.env['SERVICE_IDENTITY_SIGNING_KID'])
+        (!process.env['SERVICE_IDENTITY_KEYRING'] || !process.env['SERVICE_IDENTITY_SIGNING_KID'])
       ) {
         throw new Error(
           'FATAL: SERVICE_IDENTITY_KEYRING and SERVICE_IDENTITY_SIGNING_KID must be set in production. ' +
-          'Without them, inter-service authentication is disabled and attackers can ' +
-          'spoof internal service headers to bypass authorization.',
+            'Without them, inter-service authentication is disabled and attackers can ' +
+            'spoof internal service headers to bypass authorization.',
         );
       }
     },
@@ -76,8 +84,7 @@ bootstrapService(AppModule, {
     // ── Socket.IO Redis adapter ─────────────────────────────────────
     const logger = new Logger('GatewayBootstrap');
     const configService = app.get(ConfigService);
-    const redisUrl =
-      configService.get<string>('REDIS_URL') ?? process.env['REDIS_URL'];
+    const redisUrl = configService.get<string>('REDIS_URL') ?? process.env['REDIS_URL'];
     const isProduction =
       configService.get<string>('NODE_ENV') === 'production' ||
       process.env['NODE_ENV'] === 'production';
@@ -85,9 +92,7 @@ bootstrapService(AppModule, {
     if (redisUrl) {
       try {
         await registerRedisIoAdapter(app, redisUrl);
-        logger.log(
-          'Socket.IO Redis adapter registered for all gateway namespaces',
-        );
+        logger.log('Socket.IO Redis adapter registered for all gateway namespaces');
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         if (isProduction) {

@@ -27,5 +27,6 @@
  */
 
 export * from './error-codes';
+export * from './error-envelope';
 export * from './application-exception';
 export * from './global-exception.filter';

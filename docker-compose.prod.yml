@@ -147,6 +147,9 @@ services:
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_MIGRATIONS_RUN: 'true'
       DATABASE_SSL: 'false'
+      # Transition aliases: migrations and entity metadata resolve the domain-specific names.
+      SENTINEL_HUB_ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      REGULATORY_ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
     depends_on:
       postgres:
         condition: service_healthy
@@ -192,6 +195,9 @@ services:
       HYDROPONICS_SERVICE_URL: http://hydroponics-service:3000/graphql
       CONFIG_SERVICE_URL: http://config-service:3000/graphql
       ADMIN_SERVICE_URL: http://admin-api-service:3000/graphql
+      ADMIN_SERVICE_REST_URL: http://admin-api-service:3000
+      SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
+      SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
     volumes:
       - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
       # SECURITY (HIGH-002): NATS mTLS — CA cert, shared client cert, and client key.
@@ -289,6 +295,11 @@ services:
       # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      SENTINEL_HUB_ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      REGULATORY_ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      ADMIN_SERVICE_REST_URL: http://admin-api-service:3000
+      SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
+      SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
     volumes:
       - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
       # SECURITY (HIGH-002): NATS mTLS — CA cert, shared client cert, and client key.
@@ -611,6 +622,8 @@ services:
       # ACL surface without adding isolation value.
       # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
+      SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
+      SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
     volumes:
       - backup_data:/backups
       - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro

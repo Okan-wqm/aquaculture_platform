@@ -231,23 +231,37 @@
 
 ### APA-089 [MEDIUM] Stat cards (Succeeded/Refunded/Net) computed from the current 50-row page while Total Payments is the server-wide count
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** totalPayments comes from the server COUNT, but totalSucceeded/totalRefunded/net are reduced over the currently loaded page (fixed limit 50, no pagination UI). With more than 50 payments the money cards silently understate platform totals while sitting next to an accurate count — inconsistent financial numbers on one screen; amounts also sum across currencies and render as USD.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/PaymentsPage.tsx:259-261 (client-side reduce over page)`
   - `web/modules/admin-panel/src/pages/PaymentsPage.tsx:131-135 (limit: 50, no offset)`
   - `web/modules/admin-panel/src/pages/PaymentsPage.tsx:297-314 (cards mixing server total with page sums)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** PaymentsPage derives the Succeeded/Refunded/Net money cards by client-side reduce over the currently loaded page (fixed limit 50, no offset/pagination UI) while Total Payments uses the server-wide COUNT — there is no server-side payments aggregate endpoint, so the page has nothing correct to render. The reduce also adds mixed-currency amounts and formats them as USD.
+- **Fix design:** Make the correct number the only available number (tier 2): add PaymentManagementService.getPaymentStats() computing currency-partitioned aggregates in SQL over billing.payments (SUM(amount) FILTER (WHERE status IN ('succeeded','partially_refunded')), SUM(refunded_amount), COUNT(*), all GROUP BY currency), expose GET /billing/payments/stats in BillingController (registered before the parameterized payment routes), add PaymentStats to the FE billing types + billingApi.getPaymentStats(), and drive all four cards from it — delete the client reduce at PaymentsPage.tsx:259-261. Render amounts per-currency per the xc|i2 Money-by-currency contract (no cross-currency sum, no default-USD format). Verification: extend apps/admin-api-service/src/billing/__tests__/payment-management.service.spec.ts with a >50-row, two-currency fixture asserting stats are table-wide and currency-keyed, plus a PaymentsPage spec asserting cards render server stats independent of the loaded page.
+- **Files to change:**
+  - `apps/admin-api-service/src/billing/services/payment-management.service.ts`
+  - `apps/admin-api-service/src/billing/billing.controller.ts`
+  - `web/modules/admin-panel/src/services/types/billing.ts`
+  - `web/modules/admin-panel/src/services/api/billing.ts`
+  - `web/modules/admin-panel/src/pages/PaymentsPage.tsx`
+  - `apps/admin-api-service/src/billing/__tests__/payment-management.service.spec.ts`
+- **Effort:** M
 
 ### APA-090 [LOW] FE PaymentOverview type omits invoiceNumber; page reads it through an inline cast
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The backend returns invoiceNumber (joined from billing.invoices) but the hand-written FE type lacks the field, forcing '(payment as PaymentOverview & { invoiceNumber?: string })' in the render path — contract drift that currently works only by accident of the cast.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/types/billing.ts:310-328 (no invoiceNumber)`
   - `web/modules/admin-panel/src/pages/PaymentsPage.tsx:433 (inline cast)`
   - `apps/admin-api-service/src/billing/services/payment-management.service.ts:161 (invoiceNumber selected)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Hand-written FE PaymentOverview (web/modules/admin-panel/src/services/types/billing.ts:310-328) drifted from the backend PaymentOverview (payment-management.service.ts:12-31), which gained invoiceNumber (and tenantName) from the billing.invoices join; the page papers over the gap with an inline intersection cast at PaymentsPage.tsx:433. Instance of the systemic FE-type-drift class (hand-maintained duplicate types with no contract link).
+- **Fix design:** Fix the contract at the source: add invoiceNumber?: string and tenantName?: string to the FE PaymentOverview so it matches the backend response shape, then delete the cast at PaymentsPage.tsx:433 and read payment.invoiceNumber directly. Pattern-level: this is the same drift class already flagged for the section — the durable fix is a single shared response-contract module (backend admin-api response interfaces exported from a shared lib or generated from the existing Swagger via openapi codegen) consumed by web/modules/admin-panel/src/services/types; the local field addition is the immediate application. Verification: TS compile (npm run type-check) fails on any remaining cast; the future contract test / codegen gate covers the class.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/types/billing.ts`
+  - `web/modules/admin-panel/src/pages/PaymentsPage.tsx`
+- **Effort:** S
 
 
 ## BillingReportsPage — `/admin/billing/reports` — verdict: **PARTIAL**
@@ -282,13 +296,21 @@
 
 ### APA-092 [MEDIUM] Refund count additionally capped at 100 rows and export is summary-only
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** Even if the status filter were fixed, refundedPayments is counted client-side over at most 100 fetched rows (no pagination loop), and the 'Export CSV' produces only the 8 aggregate numbers — there is no server-side report export of underlying rows despite admin-api having a reports controller with financial_revenue/financial_payments report types this page never calls.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/BillingReportsPage.tsx:37,48 (limit:100 + client count)`
   - `web/modules/admin-panel/src/pages/BillingReportsPage.tsx:62-88 (summary-only CSV)`
   - `apps/admin-api-service/src/analytics/controllers/reports.controller.ts:323-326,411-421 (unused real report endpoints)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** BillingReportsPage re-implements aggregation the backend already owns: refundedPayments is counted client-side over at most 100 fetched rows (BillingReportsPage.tsx:37,48) because no server aggregate exposes it, and Export CSV hand-builds a Blob of the 8 summary numbers (62-88) while reports.controller.ts already serves financial_revenue/payments report generation with CSV format and an execution download route the page never calls.
+- **Fix design:** Move all aggregation and export server-side. (a) Refund/succeeded counts come from the GET /billing/payments/stats endpoint designed in p2|i2 (add COUNT(*) FILTER (WHERE refunded_amount > 0) per currency); drop the limit:100 getPayments call entirely. (b) Export CSV invokes the existing reports pipeline (POST reports/quick/revenue or GET reports/payments with format=csv via a reportsApi fn in services/api) and downloads the server-produced row-level CSV through the executions/:id/download route, replacing the summary Blob. Verification: BillingReportsPage spec asserting no client-side reduce/filter over payments and that export calls the reports API; extend the reports controller/service spec to cover the csv payments report path end-to-end.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/BillingReportsPage.tsx`
+  - `web/modules/admin-panel/src/services/api/billing.ts`
+  - `web/modules/admin-panel/src/services/types/billing.ts`
+  - `apps/admin-api-service/src/billing/services/payment-management.service.ts`
+  - `apps/admin-api-service/src/billing/billing.controller.ts`
+- **Effort:** M
 
 
 ## Cross-cutting findings
@@ -325,42 +347,68 @@
 
 ### APA-094 [MEDIUM] Financial mutation endpoints use interface-typed @Body DTOs, silently bypassing the global ValidationPipe
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** POST /billing/payments, /billing/payments/refund, /billing/invoices (CreateInvoiceRequest), /billing/subscriptions/change-plan and /billing/pricing/calculate type their @Body as TypeScript interfaces (RecordPaymentDto/RefundPaymentDto from payment-management.service.ts, CreateInvoiceRequest, PlanChangeRequest, QuoteRequest). Interfaces erase to Object at runtime, so the platform's global ValidationPipe (whitelist:true, forbidNonWhitelisted:true in create-service-app.ts) skips them entirely — no field validation, no whitelisting, no 400s on garbage. Malformed amounts/dates flow over NATS into billing-service handlers, which validate business rules but return INTERNAL_ERROR->502 for type garbage instead of a clean 400, and arbitrary extra fields ride through untouched. Contrast with MarkInvoicePaidDto/VoidInvoiceDto which are proper class-validator classes.
 - **Evidence:**
   - `apps/admin-api-service/src/billing/services/payment-management.service.ts:44-57 (interface DTOs)`
   - `apps/admin-api-service/src/billing/billing.controller.ts:88-90,682,774,782 (interface-typed @Body params)`
   - `libs/backend-common/src/bootstrap/create-service-app.ts:458-460 (global pipe assumes class DTOs)`
   - `apps/billing-service/src/billing/handlers/billing-admin-nats.handler.ts:299-339 (spread of unvalidated input; only paymentMethod parsed)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Five financial mutation routes type @Body with TypeScript interfaces (RecordPaymentDto/RefundPaymentDto payment-management.service.ts:44-57; CreateInvoiceRequest billing.controller.ts:88-90; PlanChangeRequest subscription-types.ts:38; QuoteRequest pricing-calculator.service.ts:76). Interfaces erase to Object at runtime, so the global ValidationPipe (create-service-app.ts:458-461) skips them — no field validation, no whitelisting, no 400s; the controller even hand-strips changedBy at line 379 because whitelist never runs. Systemic class: unvalidated interface-DTO.
+- **Fix design:** Local (tier 2): convert the five request shapes into class-validator classes in apps/admin-api-service/src/billing/dto/billing.dto.ts, following the existing MarkInvoicePaidDto/VoidInvoiceDto pattern: RecordPaymentDto (@IsUUID invoiceId, @IsPositive amount, @IsEnum paymentMethod, @IsISO8601 optional paymentDate, @IsOptional @IsString notes/currency), RefundPaymentDto, CreateInvoiceDto implementing BillingAdminCreateInvoiceInput & {tenantId} with @ValidateNested + @Type subclasses for lineItems/billingAddress/tax/discount, ChangePlanDto (without changedBy — delete the manual strip at billing.controller.ts:379; whitelist now enforces it), PricingQuoteDto with nested ModuleSelection class. Classes structurally satisfy the old interfaces, so services accept them unchanged; delete the interface exports so the drift cannot recur. Pattern gate (tier 3): add apps/admin-api-service/src/__tests__/architecture/body-dto-validation.architecture.spec.ts that reflects over every controller (ROUTE_ARGS_METADATA + design:paramtypes) and fails any @Body whose metatype is Object/undefined or has no class-validator metadata in getMetadataStorage() — making the whole class of silent-bypass endpoints detectable at test time across the service. Verification: that architecture spec plus controller e2e cases asserting 400 on garbage amounts and on unknown extra fields.
+- **Files to change:**
+  - `apps/admin-api-service/src/billing/dto/billing.dto.ts`
+  - `apps/admin-api-service/src/billing/billing.controller.ts`
+  - `apps/admin-api-service/src/billing/services/payment-management.service.ts`
+  - `apps/admin-api-service/src/billing/services/subscription-types.ts`
+  - `apps/admin-api-service/src/billing/services/pricing-calculator.service.ts`
+  - `apps/admin-api-service/src/__tests__/architecture/body-dto-validation.architecture.spec.ts`
+- **Effort:** M
 
 ### APA-095 [MEDIUM] Multi-currency amounts are summed into single totals and always rendered as USD
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** Invoices can be created in USD/EUR/GBP/TRY (CreateInvoiceModal currency select; billing.invoices.currency column), but InvoiceManagementService.getStats SUMs total/amount_paid across all currencies into one number, the byCurrency breakdown it computes is ignored by the FE, and every stats card formats with hardcoded USD. AnalyticsService likewise hardcodes byCurrency = { USD: mrr } with a 'single-currency tenancy' comment while the invoice UI actively offers four currencies — cross-currency addition produces meaningless platform totals the moment one non-USD invoice exists.
 - **Evidence:**
   - `apps/admin-api-service/src/billing/services/invoice-management.service.ts:308-333 (SUM without currency partition in totals)`
   - `web/modules/admin-panel/src/pages/InvoicesPage.tsx:39-44,400-415 (formatCurrency defaults USD for stats)`
   - `web/modules/admin-panel/src/components/CreateInvoiceModal.tsx:300-311 (EUR/GBP/TRY offered)`
   - `apps/admin-api-service/src/analytics/services/analytics.service.ts:537 (byCurrency hardcoded USD)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The stats contracts drop the currency dimension: InvoiceManagementService.getStats SUMs total/amount_paid across all currencies (invoice-management.service.ts:308-351) and its byCurrency side-channel is never consumed (InvoicesPage declares its own local InvoiceStats without byCurrency and formats everything as USD at 400-415); AnalyticsService hardcodes byCurrency = { USD: mrr } (analytics.service.ts:537) while CreateInvoiceModal actively offers USD/EUR/GBP/TRY. One non-USD invoice makes every platform total meaningless. Systemic class: scalar money aggregates without a currency key.
+- **Fix design:** Make cross-currency addition impossible at the contract level (tier 1): change every monetary aggregate to be currency-partitioned. InvoiceStats becomes { totalInvoices, avgPaymentDays, byCurrency: Record<string, { totalAmount; totalPaid; totalPending; totalOverdue; paidThisMonth; pendingThisMonth }> } produced by GROUP BY currency, status SQL (remove the currency-less SUM columns so no scalar total exists to misuse); the new payment stats (p2|i2) uses the same shape; AnalyticsService derives byCurrency from the actual subscription/invoice currency columns instead of the literal, and its scalar mrr/totalRevenue fields are kept only per-currency. FE: delete InvoicesPage's local duplicate InvoiceStats, import the shared type from services/types/billing.ts, and render stats per currency (single card when one currency exists, stacked per-currency rows otherwise) with formatCurrency(amount, currency) — remove default-'USD' at aggregate call sites in InvoicesPage, PaymentsPage, BillingReportsPage. Verification: extend the invoice-management/analytics service specs with a two-currency fixture asserting the response contains no cross-currency scalar total; FE page tests assert per-currency rendering; npm run type-check fails any consumer still reading the old scalar fields.
+- **Files to change:**
+  - `apps/admin-api-service/src/billing/services/invoice-management.service.ts`
+  - `apps/admin-api-service/src/billing/services/payment-management.service.ts`
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts`
+  - `web/modules/admin-panel/src/services/types/billing.ts`
+  - `web/modules/admin-panel/src/services/types/analytics.ts`
+  - `web/modules/admin-panel/src/pages/InvoicesPage.tsx`
+  - `web/modules/admin-panel/src/pages/PaymentsPage.tsx`
+  - `web/modules/admin-panel/src/pages/BillingReportsPage.tsx`
+- **Effort:** L
 
 ### APA-096 [LOW] FE double-submit CSRF token is decorative — admin-api never sets or verifies XSRF-TOKEN
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** http-client.ts attaches X-CSRF-Token from an XSRF-TOKEN cookie on all mutations and documents that 'the server set this cookie and will reject mutating requests whose header does not match', but admin-api-service and the shared bootstrap contain no CSRF middleware — the only reference is a CORS header example. Auth is Bearer-token so practical CSRF risk is low, yet the FE comment claims a server-side control that does not exist, which can mask a future regression if cookie-based auth is ever added.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/http-client.ts:96-106,256-263 (token read + claim of server enforcement)`
   - `libs/backend-common/src/bootstrap/create-service-app.ts:558 (only CSRF mention is a CORS header example; no middleware)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** http-client.ts ships the client half of double-submit CSRF (reads XSRF-TOKEN cookie, sends X-CSRF-Token on mutations) with comments asserting the server sets the cookie and rejects mismatches — but no backend code sets or verifies either: the only csrf/xsrf hits in admin-api-service and backend-common are a CORS-header doc example, a security-event enum value, and a test comment. The control is dead code documenting a nonexistent guarantee.
+- **Fix design:** Eliminate the half-state; pick one truthful state. Primary (auth is Bearer-header, so CSRF is structurally inapplicable to admin-api mutations): remove getCsrfTokenFromCookie, the CSRF_PROTECTED_METHODS block and both false comments from http-client.ts, replacing them with an accurate note that admin-api auth is Authorization-header-only and any future cookie-authenticated route must add server-side CSRF middleware first. Alternative (only if cookie-auth is planned): implement real double-submit in libs/backend-common (middleware issuing XSRF-TOKEN and verifying X-CSRF-Token on state-changing methods, opt-in via createServiceApp) and enable it for admin-api — then the FE code becomes correct as-is. Verification: for the removal path, an http-client unit spec asserting mutation requests carry no X-CSRF-Token header and a grep-style invariant that no XSRF-TOKEN reference remains in admin-panel; for the implement path, an e2e case asserting a mutating request with a mismatched token is rejected.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/http-client.ts`
+- **Effort:** S
 
 ### APA-097 [LOW] Positive verification: auth, routing and envelope chain are sound for this section
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** Recorded for audit completeness: every billing/analytics endpoint sits behind the global APP_GUARD PlatformAdminGuard (RS256 verifyAsync, SUPER_ADMIN role required, roles cannot be widened by decorators) plus per-route @ThrottleSensitive on money mutations; nginx rewrites /api/* to /api/v1/* matching the global prefix + VERSION_NEUTRAL versioning; the ResponseInterceptor envelope is correctly unwrapped by the FE http-client; NATS write path keeps billing-service as single writer with audited RLS bypass, idempotent receipts, pessimistic locks, transactional outbox events, and real Stripe refunds keyed idempotently. No unguarded endpoint or route mismatch was found in this section.
 - **Evidence:**
   - `apps/admin-api-service/src/app.module.ts:283-290 (APP_GUARD PlatformAdminGuard + ThrottlerGuard)`
   - `apps/admin-api-service/src/guards/platform-admin.guard.ts:151-177 (SUPER_ADMIN enforcement)`
   - `infrastructure/nginx/droplet.conf:377-385 (rewrite /api -> /api/v1)`
   - `apps/billing-service/src/billing/handlers/refund-payment.handler.ts:76-86 (real Stripe refund with idempotency key)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Not a defect — positive assurance record. Spot-checked and accurate: APP_GUARD wiring via useExisting PlatformAdminGuard + ThrottlerGuard (app.module.ts:278-290), SUPER_ADMIN enforcement in the guard, nginx /api -> /api/v1 rewrite matching globalPrefix + VERSION_NEUTRAL, envelope unwrap in the FE http-client, and the billing-service single-writer NATS path with idempotent Stripe refunds all hold as described.
+- **Fix design:** No change required. Retain the entry in the audit log as the section's positive verification baseline; any future finding that contradicts it must cite which of these controls regressed.
+- **Effort:** S

@@ -146,83 +146,139 @@ DETECTION GATE (Tier 3): New tests/invariants/admin-audit-severity-contract.spec
 
 ### APA-005 [MEDIUM] Service Status card can never show 'unhealthy' for remote services — a dead service renders as 'degraded'
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** checkServicesHealth maps every non-OK/unreachable remote probe to status 'degraded' (response?.ok ? 'healthy' : 'degraded'); 'unhealthy' is only ever emitted for the local database check. The FE's red 'Unhealthy' counter and red styling (AdminDashboard.tsx:69,78,91) are dead branches for the 12 remote services, understating outages. Additionally the probe list omits ai-service and event-store-service entirely, so those runtime services are invisible on the dashboard.
 - **Evidence:**
   - `apps/admin-api-service/src/metrics/system-metrics.service.ts:340 — status: response?.ok ? 'healthy' : 'degraded'`
   - `apps/admin-api-service/src/metrics/system-metrics.service.ts:345-353 — catch branch also 'degraded'`
   - `apps/admin-api-service/src/metrics/system-metrics.service.ts:273-286 — endpoint list lacks ai-service and event-store-service`
   - `web/modules/admin-panel/src/pages/AdminDashboard.tsx:69,78 — unhealthyCount rendering`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** checkServicesHealth collapses three distinct probe outcomes (HTTP non-2xx, network unreachable/timeout, breaker-open) into the single literal 'degraded' — the breaker fallback returns null and the mapping is response?.ok ? 'healthy' : 'degraded', so the 'unhealthy' member of the ServiceHealth union is only reachable from the local DB check. Separately, the probe roster is a hand-maintained inline array that has drifted from the runtime service set (missing ai-service and event-store-service) — an instance of the roster-nobody-verifies drift class.
+- **Fix design:** (1) Encode outcome as a discriminated result instead of Response|null: probe fn resolves {kind:'http', response} and throws on network error/timeout; breaker fallback returns {kind:'breaker-open'}. Map 2xx->healthy, non-2xx->degraded, throw/timeout->unhealthy (details.error), breaker-open->unhealthy (details: circuit open). FE already renders 'unhealthy' — no FE change. (2) Extract the roster to a typed const module (service-health-roster.ts) adding ai-service + event-store-service, and add a roster-parity invariant spec that derives the expected runtime HTTP-service set (parse docker-compose service definitions) and fails on drift — tier-3 detectability for the systemic class.
+- **Files to change:**
+  - `apps/admin-api-service/src/metrics/system-metrics.service.ts`
+  - `apps/admin-api-service/src/metrics/service-health-roster.ts`
+  - `apps/admin-api-service/src/metrics/__tests__/system-metrics.service.spec.ts`
+  - `apps/admin-api-service/src/metrics/__tests__/service-health-roster.spec.ts`
+- **Effort:** M
 
 ### APA-006 [MEDIUM] Total backend failure renders as an all-zero dashboard with no error message
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The page uses Promise.allSettled and maps every rejection to null/[] — the catch block that sets data.error is effectively unreachable (allSettled never rejects), so 401/500 on all five calls shows '—' tenants, 0 users, 'No activity found' with no Alert. The backend compounds this: getPlatformMetrics/getDatabaseMetrics catch errors and return zeros ('unknown' size), and AuditLogService.query catches errors and returns an empty page, so even a DB outage yields HTTP 200 with zeros. An operator cannot distinguish 'platform empty' from 'metrics pipeline broken'.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/AdminDashboard.tsx:399-419 — allSettled with fulfilled-only mapping; error stays null`
   - `apps/admin-api-service/src/metrics/system-metrics.service.ts:175-185,218-232,431-433 — catch -> zeros/'unknown'`
   - `apps/admin-api-service/src/audit/audit.service.ts:199-211 — catch -> {data: [], total: 0}`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Two stacked error-masking layers (systemic catch-returns-zeros class): backend getDatabaseMetrics/getPlatformMetrics and AuditLogService.query catch DB failures and return zero/empty success payloads as HTTP 200; the FE maps every Promise.allSettled rejection to null/[] and never sets data.error (its catch is unreachable — allSettled never rejects). Total outage is therefore indistinguishable from an empty platform.
+- **Fix design:** Fix each layer at the source. Backend: delete the catch-return-zeros blocks in getDatabaseMetrics/getPlatformMetrics and catch-return-empty-page in AuditLogService.query — let exceptions propagate to the global exception filter so outages produce 5xx envelopes (errors are errors; any sub-metric allowed to degrade must say so explicitly in the contract, not silently zero). Frontend: after allSettled, derive data.error from the rejected entries (first rejection message + failed-call count) while keeping fulfilled partial data, so the existing Alert renders automatically on any failure. Specs: BE tests asserting DB failure -> throws (not zeros) for metrics and audit query; FE dashboard spec asserting a rejected call surfaces the Alert.
+- **Files to change:**
+  - `apps/admin-api-service/src/metrics/system-metrics.service.ts`
+  - `apps/admin-api-service/src/audit/audit.service.ts`
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx`
+  - `apps/admin-api-service/src/metrics/__tests__/system-metrics.service.spec.ts`
+  - `apps/admin-api-service/src/audit/__tests__/audit.service.spec.ts`
+  - `web/modules/admin-panel/src/pages/__tests__/AdminDashboard.spec.tsx`
+- **Effort:** M
 
 ### APA-007 [MEDIUM] Cache card and 'Clear Cache' button are unreachable dead UI; backing /debug endpoints are 404 by default
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** cacheStats is initialized/reset to null on every fetch (line 416) and is only ever set inside handleClearCache — but the only button that invokes handleClearCache lives inside CacheStatsCard, which renders only when cacheStats is truthy (line 606). The card therefore can never appear and the handler is dead code. Even if reached, GET /debug/cache/stats and POST /debug/cache/invalidate exist only when DebugToolsModule.forRoot() is enabled via ENABLE_DEBUG_TOOLS=true (disabled by default in ALL environments), and the FE swallows the failure with an empty catch.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/AdminDashboard.tsx:416 — cacheStats: null on every fetch`
   - `web/modules/admin-panel/src/pages/AdminDashboard.tsx:606-614 — {cacheStats && <CacheStatsCard .../>} gates the only trigger`
   - `web/modules/admin-panel/src/pages/AdminDashboard.tsx:478-489 — handleClearCache with silent empty catch`
   - `apps/admin-api-service/src/debug-tools/debug-tools.module.ts:53-61 — empty module unless ENABLE_DEBUG_TOOLS='true'`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The cache card is an orphan left behind when cache management moved to the env-gated Debug Tools page (the comment at AdminDashboard.tsx:476 states this): cacheStats is reset to null on every fetch and only ever set inside handleClearCache, whose sole trigger renders behind {cacheStats && ...} — mutually unreachable dead UI. The backing /debug endpoints are 404 unless ENABLE_DEBUG_TOOLS=true regardless.
+- **Fix design:** Delete the dead surface at the root: remove CacheStatsCard, the CacheStats interface, the cacheStats field of DashboardData, handleClearCache, clearingCache state, and the debugApi import from AdminDashboard. Cache management stays solely on the Debug Tools page, which is its deliberate env-gated home — the dashboard must not render controls for endpoints the deployment does not expose. Verification: lint (unused imports/vars) plus a dashboard spec assertion that the page renders with no debugApi reference and no Cache card.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx`
+  - `web/modules/admin-panel/src/pages/__tests__/AdminDashboard.spec.tsx`
+- **Effort:** S
 
 ### APA-008 [MEDIUM] Circuit Breakers panel shows only the SMTP breaker — the platform's real cross-service breakers are not surfaced
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** HealthService.getCircuitBreakers returns a single hardcoded entry {smtp} from EmailSenderService. The canonical CircuitBreakerService (CircuitBreakerModule, used for the 12 health-probe breakers named 'admin-api-health-check:*' and other cross-service fetches) is never exposed, so the panel titled 'Circuit Breakers' materially under-reports breaker state. Reset likewise only supports 'smtp'. State literals do match the FE ('closed'/'open'/'half_open'), and the chain itself works.
 - **Evidence:**
   - `apps/admin-api-service/src/health/health.service.ts:53-57 — return { smtp: ... } only`
   - `apps/admin-api-service/src/health/health.service.ts:60-66 — reset supports only 'smtp'`
   - `apps/admin-api-service/src/settings/services/email-sender.service.ts:30-34,69-75 — state enum closed/open/half_open`
   - `apps/admin-api-service/src/metrics/system-metrics.service.ts:298-306 — real breakers exist in CircuitBreakerService but are not queryable`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** HealthService.getCircuitBreakers hardcodes the legacy ad-hoc SMTP breaker and predates the canonical CircuitBreakerService, which already exposes getAllStats() explicitly for health endpoints; the status/reset contract was never unified across the two breaker implementations (an instance of the tracked five-ad-hoc-breakers class the resilience library was built to eliminate — see the W3 note in circuit-breaker.types.ts). resetCircuitBreaker only knows 'smtp'; the FE CircuitBreakerInfo shape (lowercase states, consecutiveFailures, lastFailureTime) diverges from canonical CircuitStats.
+- **Fix design:** Unify on the canonical contract: (1) add per-breaker reset(serviceName, tenantKey) to CircuitBreakerService alongside resetAll(); (2) migrate EmailSenderService's hand-rolled SMTP state machine onto circuitBreaker.execute (removes the special case instead of adapting it — this is the tracked W3 migration applied locally); (3) HealthService.getCircuitBreakers returns CircuitBreakerService.getAllStats() mapped into one shared status DTO keyed by breaker name, and reset delegates per name; (4) update the FE contract: CircuitBreakerInfo in types/system.ts becomes the CircuitStats-derived shape ('CLOSED'|'OPEN'|'HALF_OPEN', window counts, ISO timestamps) and AdminDashboard stateStyles/reset wiring follow. Spec: health service/controller test asserting all active breakers (admin-api-health-check:* included) appear and per-name reset round-trips; email-sender spec updated for the canonical breaker.
+- **Files to change:**
+  - `libs/backend-common/src/resilience/circuit-breaker/circuit-breaker.service.ts`
+  - `apps/admin-api-service/src/health/health.service.ts`
+  - `apps/admin-api-service/src/health/health.controller.ts`
+  - `apps/admin-api-service/src/settings/services/email-sender.service.ts`
+  - `web/modules/admin-panel/src/services/types/system.ts`
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx`
+  - `apps/admin-api-service/src/health/__tests__/health.service.spec.ts`
+- **Effort:** M
 
 ### APA-009 [MEDIUM] GET /system/services/health probes 12 services sequentially with 3s timeouts — worst case ~36s response
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The probe loop awaits each circuit-breaker-wrapped fetch in series (for...of with await). With multiple services unreachable before breakers open, the endpoint can take tens of seconds; the FE has no request timeout and refreshes every 30s (no pile-up since the next refresh is scheduled after completion, but the Service Status card lags far behind reality during incidents — exactly when it matters).
 - **Evidence:**
   - `apps/admin-api-service/src/metrics/system-metrics.service.ts:290-336 — sequential for-loop, AbortController 3000ms per probe`
   - `web/modules/admin-panel/src/pages/AdminDashboard.tsx:452-463 — 30s reschedule after await`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The probe loop serializes 12 independent network calls (for...of with await on each breaker-wrapped fetch), so worst-case endpoint latency is additive (~12 x 3s AbortController timeout) instead of bounded by the slowest single probe — worst during incidents, exactly when the card matters.
+- **Fix design:** Run all probes concurrently: map the roster to promises and await Promise.all, preserving roster order in the output (with i4's discriminated-result design each probe resolves rather than rejects, so allSettled is unnecessary; each probe keeps its own 3s timeout and breaker). Worst case drops to ~3s + DB check. Spec: mocked-fetch test asserting every probe is started before any completes (capture fetch invocation order under fake timers) and that total elapsed time is bounded by one timeout, not the sum.
+- **Files to change:**
+  - `apps/admin-api-service/src/metrics/system-metrics.service.ts`
+  - `apps/admin-api-service/src/metrics/__tests__/system-metrics.service.spec.ts`
+- **Effort:** S
 
 ### APA-010 [LOW] 'System Resources' card shows only admin-api-service's own process stats, labeled as system-wide
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** Heap/RSS/uptime/node version come from process.memoryUsage()/process.uptime() of admin-api-service itself, not any platform aggregate; 'Uptime' is the admin-api container's uptime. Misleading label, correct data.
 - **Evidence:**
   - `apps/admin-api-service/src/metrics/system-metrics.service.ts:238-257 — process.* only`
   - `web/modules/admin-panel/src/pages/AdminDashboard.tsx:647-683 — rendered as 'System Resources'`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Label/contract mismatch: ResourceMetrics is genuinely admin-api-service's own process.memoryUsage()/process.uptime() output, but the FE card titles it 'System Resources', implying a platform-wide aggregate. Data correct, provenance absent from the contract.
+- **Fix design:** Make provenance part of the wire contract, then label truthfully: add a literal provenance field to ResourceMetrics (e.g. scope: 'process', service: 'admin-api-service') in the backend interface and mirror it in the FE SystemMetrics type; retitle the card 'Admin API Process' with 'Process uptime'. Encoding scope in the type prevents any future consumer from re-mislabeling the same data (tier-1 for the class, not just a caption edit).
+- **Files to change:**
+  - `apps/admin-api-service/src/metrics/system-metrics.service.ts`
+  - `web/modules/admin-panel/src/services/types/system.ts`
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx`
+- **Effort:** S
 
 ### APA-011 [LOW] 'Logins (Last 24h)' counts users with a recent lastLoginAt, not login events
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The query counts auth.users rows whose lastLoginAt is within 24h — a user who logged in five times counts once, and an active session refreshing tokens may or may not bump lastLoginAt. Real data, imprecise label (actual login events exist in audit logs as LOGIN_SUCCESS).
 - **Evidence:**
   - `apps/admin-api-service/src/users/users.service.ts:267-271 — COUNT users WHERE lastLoginAt >= NOW() - 24h`
   - `web/modules/admin-panel/src/pages/AdminDashboard.tsx:565-567 — MetricCard 'Logins (Last 24h)'`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The metric counts distinct auth.users rows with lastLoginAt in the last 24h (users-who-logged-in) while the field name and card label promise login events. Actual per-login LOGIN_SUCCESS events are recorded in auth.audit_logs by AuthenticationService.logSecurityEvent (authentication.service.ts:489), so the correct source exists and is unused.
+- **Fix design:** Fix the data source, not the label: change getUserStats' loginsLast24Hours query to COUNT(*) FROM auth.audit_logs WHERE action = 'LOGIN_SUCCESS' AND createdAt >= NOW() - INTERVAL '24 hours' — admin-api already reads auth.* cross-schema for every other stat in this method, so this follows the established pattern and makes the existing field name and FE label true with zero FE change. Check the query plan against existing indexes (IDX_audit_tenant_created leads with tenantId); if measurable, add an (action, createdAt) index via a new auth-service migration. Spec: users.service test asserting the logins stat is sourced from auth.audit_logs LOGIN_SUCCESS events, not lastLoginAt.
+- **Files to change:**
+  - `apps/admin-api-service/src/users/users.service.ts`
+  - `apps/admin-api-service/src/users/__tests__/users.service.spec.ts`
+- **Effort:** S
 
 ### APA-012 [LOW] AbortController is never wired to fetch — in-flight requests survive unmount and stale-abort
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** fetchDashboardData creates AbortControllers only to gate setState (controller.signal.aborted checks); the signal is never passed into apiFetch/fetch, so aborted requests still complete on the network, and the unmount cleanup aborts the effect's controller but not the latest fetch controller held in the ref — a late response can call setData after unmount (harmless no-op in React 18, but the abort machinery gives false confidence).
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/AdminDashboard.tsx:387-429 — controller created, signal never passed to systemApi/usersApi/auditApi calls`
   - `web/modules/admin-panel/src/services/http-client.ts:215-274 — apiFetch has no signal parameter`
   - `web/modules/admin-panel/src/pages/AdminDashboard.tsx:465-471 — cleanup aborts only the effect's own controller`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The api-layer wrapper functions (services/api/*.ts) accept no AbortSignal, so page controllers can only gate setState. Note one evidence correction: apiFetch itself CAN carry a signal (ApiFetchOptions extends RequestInit and fetchOptions is spread into fetch) — the gap is the wrapper layer never exposes it and AdminDashboard never passes one, making the abort machinery decorative. Systemic across all 18 api modules.
+- **Fix design:** Establish the convention at the layer boundary: every api function gains a trailing optional options?: { signal?: AbortSignal } forwarded into apiFetch (RequestInit.signal already reaches fetch); additionally make apiFetch abort-aware in its retry loop (bail before sleep/retry when signal.aborted so a cancelled request cannot burn the backoff budget). Apply to the five dashboard calls (systemApi.getMetrics/getServicesHealth/getCircuitBreakers, usersApi.getStats, auditApi.query), pass controller.signal in fetchDashboardData, and treat AbortError as silent return; roll the same signature across the remaining api modules as the pattern application. Specs: http-client test asserting an aborted signal cancels the in-flight fetch and suppresses retries; dashboard spec asserting unmount aborts the in-flight cycle.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/http-client.ts`
+  - `web/modules/admin-panel/src/services/api/system.ts`
+  - `web/modules/admin-panel/src/services/api/users.ts`
+  - `web/modules/admin-panel/src/services/api/audit.ts`
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx`
+  - `web/modules/admin-panel/src/services/__tests__/http-client.spec.ts`
+- **Effort:** M
 
 
 ## Cross-cutting findings
@@ -253,17 +309,25 @@ DETECTION GATE (Tier 3): New tests/invariants/admin-audit-severity-contract.spec
 
 ### APA-014 [LOW] Frontend double-submit CSRF is a no-op: admin-api never issues nor validates the XSRF-TOKEN cookie
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** http-client.ts reads an XSRF-TOKEN cookie and attaches X-CSRF-Token on POST/PUT/PATCH/DELETE, with comments claiming 'server rejects on mismatch'. No code in admin-api-service or the shared bootstrap sets that cookie or validates the header (the only 'csrf' references are a security-event type string and a test comment; the bootstrap mentions X-CSRF-Token solely as a CORS header example). The cookie is never present, the header is never sent, and nothing would check it. Actual mutation protection rests entirely on the Bearer token (held in JS memory, not a cookie), which does mitigate classic CSRF — but the FE's security comments describe a control that does not exist, and credentials:'include' is set on every request.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/http-client.ts:96-106,256-263 — cookie read + conditional header, with 'server rejects on mismatch' claim`
   - `apps/admin-api-service/src (grep 'csrf') — only security/entities/security.entity.ts:47 ('csrf_attempt' event type) and a test comment; no middleware`
   - `libs/backend-common/src/bootstrap/create-service-app.ts:558 — X-CSRF-Token appears only as a CORS-header doc example`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The FE ships only the client half of the double-submit CSRF pattern: no backend code issues the XSRF-TOKEN cookie or validates X-CSRF-Token (grep of admin-api-service yields only a security-event type string and a test comment), yet http-client comments assert 'server rejects on mismatch'. Actual CSRF resistance comes from Bearer-token-in-JS-memory auth, which is sound — the defect is dead machinery, false security comments, and blanket credentials:'include'. The same client-only half exists in blob-client.ts and web/shared-ui/src/utils/api-client.ts (systemic).
+- **Fix design:** Make the documented control the real one: remove getCsrfTokenFromCookie, the CSRF_PROTECTED_METHODS header logic, and 'x-csrf-token' from RESERVED_SECURITY_HEADERS in admin-panel http-client and blob-client; rewrite the security comment to state the actual control (Authorization: Bearer held in JS memory — non-cookie auth is CSRF-immune by construction). Audit credentials:'include': no admin-api endpoint reads cookies, so drop it from apiFetch unless verification shows the refresh flow depends on it (silentRefresh runs outside apiFetch). For shared-ui api-client apply the same removal — or, if any surface genuinely uses cookie auth, implement issuance + validation once server-side in backend-common; never leave a client-only half. Guard: invariant spec asserting no XSRF-TOKEN reference exists in FE clients without a matching server-side setter (prevents the theater from returning).
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/http-client.ts`
+  - `web/modules/admin-panel/src/services/blob-client.ts`
+  - `web/shared-ui/src/utils/api-client.ts`
+  - `web/modules/admin-panel/src/services/__tests__/http-client.spec.ts`
+  - `tests/invariants/fe-csrf-theater.spec.ts`
+- **Effort:** M
 
 ### APA-015 [LOW] Auth/envelope/routing chain verified sound for the dashboard (informational)
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** Adversarial checks that came back clean, recorded for the audit trail: (1) every dashboard endpoint is behind the global APP_GUARD PlatformAdminGuard enforcing RS256-verified JWT + SUPER_ADMIN (decorators can only narrow, never widen, roles filtered to SUPER_ADMIN); /health/live|ready|startup and GET /health are the only @Public routes and expose no sensitive data; the circuit-breaker GET/POST are NOT public. (2) The {success,data,meta} envelope contract matches the FE unwrap in both directions, including the /health skip-prefix (raw JSON) which the FE handles by returning non-envelope JSON as-is. (3) Nginx path rewrites align FE '/api' paths with the 'api/v1' global prefix and the prefix-excluded /health controller — no method/path mismatches found on this page. (4) admin.audit_logs entity, columns, severity enum and indexes exactly match the Baseline migration.
 - **Evidence:**
   - `apps/admin-api-service/src/app.module.ts:283-290 — APP_GUARD PlatformAdminGuard + ThrottlerGuard`
@@ -271,4 +335,6 @@ DETECTION GATE (Tier 3): New tests/invariants/admin-audit-severity-contract.spec
   - `apps/admin-api-service/src/shared/response.interceptor.ts:24,44-74 + web/modules/admin-panel/src/services/http-client.ts:341-351 — envelope parity`
   - `infrastructure/nginx/droplet.conf:305-319,375-383 — /api/health strip + /api -> /api/v1 rewrite`
   - `apps/admin-api-service/src/migrations/1800000000000-Baseline.ts:7-14 vs apps/admin-api-service/src/audit/audit.entity.ts:83-158 — schema parity`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Not a defect — informational record of adversarial checks that came back clean: global PlatformAdminGuard coverage, envelope parity both directions (including /health raw-JSON passthrough), nginx /api -> /api/v1 rewrite alignment, and admin.audit_logs entity/migration parity. All consistent with the code re-read in this pass.
+- **Fix design:** No change required. Retain in the audit trail as the clean-chain baseline for the dashboard section; future findings in these areas should be diffed against this record.
+- **Effort:** S

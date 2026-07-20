@@ -119,53 +119,85 @@
 
 ### APA-189 [MEDIUM] Ticket numbers generated from an in-memory counter: guaranteed unique-constraint collision after service restart
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** generateTicketNumber increments a private field starting at 1000 per process. After any restart, the counter resets and the next create produces TKT-<year>-01001 again, violating the UNIQUE(ticketNumber) constraint and 500ing (once creation itself is fixed). Also collides across multiple replicas.
 - **Evidence:**
   - `apps/admin-api-service/src/support/services/ticket.service.ts:41 (private ticketCounter = 1000)`
   - `apps/admin-api-service/src/support/services/ticket.service.ts:103-107 (generateTicketNumber)`
   - `apps/admin-api-service/src/support/entities/support.entity.ts:250-251 (unique: true ticketNumber)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Uniqueness of ticketNumber is enforced by the DB (unique: true) but generated from process-local mutable state (private ticketCounter = 1000 in TicketService). The counter resets on every restart and is not shared across replicas, so generateTicketNumber() re-issues TKT-<year>-01001 and the INSERT violates the unique constraint.
+- **Fix design:** Tier 1 — move number generation into the database so collision is structurally impossible. New migration creates a Postgres sequence admin.support_ticket_number_seq and setval()s it above the max existing numeric suffix (parsed from admin.support_tickets.ticket_number). createTicket obtains the number via SELECT nextval('admin.support_ticket_number_seq') in the same transaction as the insert and formats TKT-<year>-<padded seq>. Delete the ticketCounter field and the in-memory generateTicketNumber logic entirely. Spec: two TicketService instances (simulated restart/replica) create tickets against the same DB and never collide; unit test asserts the service holds no counter state.
+- **Files to change:**
+  - `apps/admin-api-service/src/migrations/1801600000000-SupportTicketNumberSequence.ts`
+  - `apps/admin-api-service/src/support/services/ticket.service.ts`
+  - `apps/admin-api-service/src/support/__tests__/ticket.service.spec.ts`
+- **Effort:** S
 
 ### APA-190 [MEDIUM] Internal notes and system status-change comments count as SLA 'first response'
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** addComment sets firstResponseAt for ANY authorType 'admin' comment including isInternal notes, and changeStatus/changePriority create admin-authored internal comments, so merely changing status marks the ticket as responded and computes SLA compliance from it. SLA metrics (avgFirstResponseMinutes, slaBreached) are silently wrong.
 - **Evidence:**
   - `apps/admin-api-service/src/support/services/ticket.service.ts:458-468 (firstResponseAt on any admin comment)`
   - `apps/admin-api-service/src/support/services/ticket.service.ts:373-380 (changeStatus adds internal admin comment)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** addComment (ticket.service.ts:458) sets firstResponseAt for ANY authorType==='admin' comment, ignoring isInternal; changeStatus (373-380) and changePriority (408-414) create admin-authored isInternal comments for audit, so a mere status flip records a 'first response' and drives avgFirstResponseMinutes/slaBreached. SLA semantics ('customer-visible reply') are conflated with 'any admin comment' and the audit-comment authorship is wrong.
+- **Fix design:** Encode the SLA rule in one named predicate isSlaFirstResponse(comment): authorType === 'admin' && !isInternal, used by addComment. Additionally reclassify the status/priority-change audit comments as authorType 'system' (like assignTicket already does), keeping the acting admin in authorId/authorName — they are events, not responses. Spec: internal admin note does NOT set firstResponseAt; status/priority change does NOT; a public admin reply DOES and computes slaBreached from slaResponseMinutes. Note this also corrects getTicketStats().avgFirstResponseMinutes downstream with no further change.
+- **Files to change:**
+  - `apps/admin-api-service/src/support/services/ticket.service.ts`
+  - `apps/admin-api-service/src/support/__tests__/ticket.service.spec.ts`
+- **Effort:** S
 
 ### APA-191 [MEDIUM] FE contract drift on stats/by-category, stats/by-priority, sla-risk and satisfaction endpoints
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** supportApi types expect Array<{category,count,avgResolutionTime}> and Array<{...hoursUntilBreach,tenantName}> but the backend returns Record<category,number> / raw SupportTicket[] respectively; submitSatisfaction sends a 'submittedBy' field the DTO lacks, so it 400s under forbidNonWhitelisted. None are used by TicketsPage today, but any consumer of these api functions misrenders or fails.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/api/support.ts:49-61 (declared shapes)`
   - `apps/admin-api-service/src/support/services/ticket.service.ts:655-682 (Record returns)`
   - `apps/admin-api-service/src/support/services/ticket.service.ts:559-571 (sla-risk returns entities)`
   - `apps/admin-api-service/src/support/controllers/ticket.controller.ts:140-147 (SatisfactionRatingDto: rating+feedback only)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Instance of the systemic FE-type-drift class: hand-written types in web/modules/admin-panel/src/services/api/support.ts were authored against an imagined API. getStatsByCategory/getStatsByPriority return Record<enum, number> (ticket.service.ts:655-682) while FE declares Array<{category,count,avgResolutionTime}>; sla-risk returns raw SupportTicket[] entities (559-571) while FE expects {hoursUntilBreach,tenantName} summaries; submitSatisfaction posts submittedBy which SatisfactionRatingDto (controller:140-147) whitelists away → 400 under forbidNonWhitelisted.
+- **Fix design:** Fix the contract at the source, backend-first, then align FE to it. (a) Backend: give the three read endpoints purpose-built typed response DTOs — stats/by-category and stats/by-priority return Array<{category|priority, count}> (drop the fictional avgResolutionTime, or compute it if product wants it); sla-risk returns Array<{id, ticketNumber, subject, priority, tenantId, tenantName, dueAt, minutesUntilBreach}> computed server-side from dueAt. (b) FE: update supportApi return types to the exact DTO shapes; delete submittedBy from submitSatisfaction — the admin JWT (CurrentUser) is the actor identity, the DTO stays rating+feedback. (c) Pattern-level gate: add a support-contract spec that boots the controller and asserts serialized response shapes structurally match the FE-declared types for every supportApi read endpoint (extend the existing admin FE/BE contract-test approach), so future drift fails CI. Say-so: this is the shared-contract/codegen class — the durable fix is a single shared TS contract module (or OpenAPI-generated types) consumed by both sides; this finding lands the support-domain slice of it.
+- **Files to change:**
+  - `apps/admin-api-service/src/support/services/ticket.service.ts`
+  - `apps/admin-api-service/src/support/controllers/ticket.controller.ts`
+  - `web/modules/admin-panel/src/services/api/support.ts`
+  - `web/modules/admin-panel/src/services/types/support.ts`
+  - `apps/admin-api-service/src/support/__tests__/support-contract.spec.ts`
+- **Effort:** M
 
 ### APA-192 [MEDIUM] All mutation failures swallowed with console.error; no user feedback or rollback
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** handleAssign/handleStatusChange/handlePriorityChange/handleAddComment catch errors and only console.error. Given assignment always 500s and filters 400, the operator sees no error UI; status/priority selects also optimistically update selectedTicket state before server confirmation in the failure path.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/TicketsPage.tsx:313-315`
   - `web/modules/admin-panel/src/pages/TicketsPage.tsx:326-328`
   - `web/modules/admin-panel/src/pages/TicketsPage.tsx:338-340`
   - `web/modules/admin-panel/src/pages/TicketsPage.tsx:355-357`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Instance of the systemic silent-mutation-failure class: handleAssign/handleStatusChange/handlePriorityChange/handleAddComment (TicketsPage.tsx:313-357) catch and console.error only — no user-visible feedback (console.* is also banned repo-wide). (Sub-claim correction: setSelectedTicket runs after the awaited call succeeds, so there is no pre-confirmation optimistic write; the real defect is purely the swallowed error.)
+- **Fix design:** Tier 2 — make correct feedback automatic. Add an admin-panel mutation hook (useAdminMutation) that wraps a supportApi call, on success runs the refetch callbacks, and on failure surfaces the server error via the existing shared-ui useToast + ToastContainer (mounted once at the admin-panel page shell) using useErrorMessage for the text; no catch blocks in page code at all. Convert the four TicketsPage handlers to it and delete every console.error. This is the same fix as support|p2|i4 — one hook, applied per page. Spec: TicketsPage test mocks a rejected updateTicketStatus and asserts an error toast renders and selectedTicket state is unchanged.
+- **Files to change:**
+  - `web/modules/admin-panel/src/hooks/useAdminMutation.ts`
+  - `web/modules/admin-panel/src/pages/TicketsPage.tsx`
+  - `web/modules/admin-panel/src/pages/__tests__/TicketsPage.spec.tsx`
+- **Effort:** M
 
 ### APA-193 [LOW] commentCount hardcoded to 0 in the ticket list
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The list badge always shows 0 comments ('Not provided by API' per the FE comment); the backend exposes no comment count on the list endpoint.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/TicketsPage.tsx:130 (commentCount: 0, // Not provided by API)`
   - `web/modules/admin-panel/src/pages/TicketsPage.tsx:537-540 (renders ticket.commentCount)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The list endpoint returns bare SupportTicket rows with no comment count, so the FE hardcodes commentCount: 0 (TicketsPage.tsx:130) yet renders it as a badge (537-540) — a config-value-nobody-provides gap in the list contract.
+- **Fix design:** Provide the count at the source, derived not denormalized. TypeORM 0.3.27 supports @VirtualColumn: add commentCount to SupportTicket as @VirtualColumn({ query: alias => `SELECT COUNT(*) FROM admin.ticket_comments c WHERE c."ticketId" = ${alias}.id` }) so every SELECT of the entity carries it automatically (tier 2, no writes to keep in sync). Remove the FE hardcoded 0 and map ticket.commentCount from the API row; add commentCount to the FE SupportTicket type. Spec: ticket.service list test asserts commentCount equals the number of persisted comments; the support-contract spec (from support|p0|i6) asserts the field is present on the list shape.
+- **Files to change:**
+  - `apps/admin-api-service/src/support/entities/support.entity.ts`
+  - `web/modules/admin-panel/src/pages/TicketsPage.tsx`
+  - `web/modules/admin-panel/src/services/types/support.ts`
+  - `apps/admin-api-service/src/support/__tests__/ticket.service.spec.ts`
+- **Effort:** S
 
 
 ## MessagingPage — `/admin/support/messaging` — verdict: **PARTIAL**
@@ -280,32 +312,49 @@
 
 ### APA-198 [MEDIUM] Thread list tenant name always 'Unknown Tenant'
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** getAllThreads reads tenantName from thread.metadata.tenantName, but createThread never writes metadata (and no other code does), so every thread summary carries 'Unknown'. The operator cannot tell which tenant a conversation belongs to.
 - **Evidence:**
   - `apps/admin-api-service/src/support/services/messaging.service.ts:161 (metadata?.tenantName || 'Unknown')`
   - `apps/admin-api-service/src/support/services/messaging.service.ts:56-64 (createThread writes no metadata)`
   - `web/modules/admin-panel/src/pages/MessagingPage.tsx:396-398 (renders tenantName || 'Unknown Tenant')`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** tenantName was designed as a denormalized copy in thread.metadata that no writer ever populates: createThread (messaging.service.ts:56-64) writes no metadata, so getAllThreads:161 always falls through to 'Unknown'. The authoritative name lives in auth.tenants, and MessagingService already injects the TenantReadOnly repository but never uses it here.
+- **Fix design:** Tier 2 — resolve the name from the source of truth at read time so staleness is impossible. In getAllThreads, after loading the page of threads, batch-fetch tenant names in one query (tenantRepository.find({ where: { id: In(tenantIds) } })), build an id→name map, and populate ThreadSummary.tenantName from it (fallback only for genuinely deleted tenants). Delete the metadata.tenantName read entirely — no stored copy. Spec: messaging.service test seeds a tenant row and a thread and asserts the summary carries the auth.tenants name, plus the deleted-tenant fallback case.
+- **Files to change:**
+  - `apps/admin-api-service/src/support/services/messaging.service.ts`
+  - `apps/admin-api-service/src/support/__tests__/messaging.service.spec.ts`
+- **Effort:** S
 
 ### APA-199 [MEDIUM] New Conversation takes free-text Tenant ID: non-UUID input 500s, no tenant existence check
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** NewThreadModal asks the operator to type a raw tenant ID; the DTO validates only IsString. admin.message_threads.tenantId is uuid, so any typo produces a Postgres invalid-uuid 500 (swallowed by console.error), and a syntactically valid but nonexistent tenant UUID silently creates an orphan thread.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/MessagingPage.tsx:780-793 (free-text tenantId input)`
   - `apps/admin-api-service/src/support/controllers/messaging.controller.ts:31-44 (CreateThreadDto IsString only)`
   - `apps/admin-api-service/src/support/entities/support.entity.ts:42-43 (tenantId uuid column)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The create-thread boundary trusts free text: NewThreadModal (MessagingPage.tsx:786-793) takes a typed tenant ID, CreateThreadDto.tenantId is only @IsString() (messaging.controller.ts:32-33) while the column is uuid, so malformed input reaches Postgres as an invalid-uuid 500, and a well-formed but nonexistent UUID silently creates an orphan thread — an unvalidated interface-DTO instance.
+- **Fix design:** Three layers, all at the source. (a) DTO: @IsUUID() on CreateThreadDto.tenantId — malformed input becomes a 400 at the boundary. (b) Service: createThread verifies the tenant exists via the already-injected TenantReadOnly repository and throws NotFoundException otherwise — orphan threads become impossible. (c) FE: replace the free-text input with a tenant selector (searchable select fed by the existing tenants list API), so the operator picks a real tenant by name — which also complements the tenantName fix (support|p1|i4); submit errors surface via the useAdminMutation/toast pattern from support|p0|i7. Spec: controller test rejects non-UUID with 400; service test rejects unknown tenant; MessagingPage test asserts the picker submits a selected tenant id.
+- **Files to change:**
+  - `apps/admin-api-service/src/support/controllers/messaging.controller.ts`
+  - `apps/admin-api-service/src/support/services/messaging.service.ts`
+  - `web/modules/admin-panel/src/pages/MessagingPage.tsx`
+  - `apps/admin-api-service/src/support/__tests__/messaging.service.spec.ts`
+- **Effort:** M
 
 ### APA-200 [LOW] New thread double-counts the first message as unread (unreadTenantCount = 2)
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** createThread seeds unreadTenantCount 1 for an admin sender, then addMessage increments it again for the same initial message, so a fresh thread reports 2 unread tenant messages after one message.
 - **Evidence:**
   - `apps/admin-api-service/src/support/services/messaging.service.ts:57-73 (seed then addMessage)`
   - `apps/admin-api-service/src/support/services/messaging.service.ts:250-253 (increment)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Unread-count ownership is split between two writers: createThread pre-seeds unreadTenantCount/unreadAdminCount to 1 for the initial sender (messaging.service.ts:61-62), then delegates the same initial message to addMessage, which increments the same counter again (250-255) — so a fresh thread reports 2 unread for one message (both directions affected).
+- **Fix design:** Single-writer principle: addMessage is the only code allowed to mutate unread counters. createThread creates the thread with both counts 0 (drop the senderType-conditional seeding) and lets the delegated addMessage do the one increment. Spec: messaging.service test asserts a new admin-created thread has unreadTenantCount === 1 and unreadAdminCount === 0 after the initial message (and the mirror case for tenant_admin sender).
+- **Files to change:**
+  - `apps/admin-api-service/src/support/services/messaging.service.ts`
+  - `apps/admin-api-service/src/support/__tests__/messaging.service.spec.ts`
+- **Effort:** S
 
 
 ## AnnouncementsPage — `/admin/support/announcements` — verdict: **PARTIAL**
@@ -430,21 +479,33 @@
 
 ### APA-205 [MEDIUM] Publish/cancel/delete failures are silent
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** handlePublish/handleCancel/handleDelete catch and console.error only. Backend 400s (e.g. 'Announcement is already published', 'Cannot delete published announcement') produce no UI feedback; the list simply refreshes unchanged.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/AnnouncementsPage.tsx:148-176 (three silent catch blocks)`
   - `apps/admin-api-service/src/support/services/announcement.service.ts:149-151,163-165 (400 paths)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Same systemic silent-mutation-failure class as support|p0|i7: handlePublish/handleCancel/handleDelete (AnnouncementsPage.tsx:148-176) swallow errors with console.error, so deliberate backend 400s ('Announcement is already published', 'Cannot delete published announcement. Cancel it instead.' — announcement.service.ts:149-165) never reach the operator; the list just refreshes unchanged.
+- **Fix design:** Apply the shared useAdminMutation + shared-ui useToast/ToastContainer pattern (built in support|p0|i7) to the three handlers so backend error messages render as toasts with zero per-page catch code. Additionally make the invalid actions unreachable in the UI (tier 1 locally): render Publish only for draft/scheduled, Cancel only for published/scheduled, Delete only for non-published — driven by announcement.status, mirroring the service's state machine. Spec: AnnouncementsPage test mocks a 400 from publishAnnouncement and asserts the toast shows the server message, and asserts Delete is not rendered for a published announcement.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/AnnouncementsPage.tsx`
+  - `web/modules/admin-panel/src/hooks/useAdminMutation.ts`
+  - `web/modules/admin-panel/src/pages/__tests__/AnnouncementsPage.spec.tsx`
+- **Effort:** S
 
 ### APA-206 [LOW] FE AnnouncementType includes 'success' which the backend does not support
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** types/support.ts adds 'success' to the union; the entity/DTO only know info|warning|critical|maintenance, and the page's icon/color switches have no 'success' branch (would render undefined className). Latent drift.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/types/support.ts:161 (union with 'success')`
   - `apps/admin-api-service/src/support/entities/support.entity.ts:24 (backend union)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Instance of the systemic FE-type-drift class: the hand-written FE union (types/support.ts:161) adds 'success' which the backend AnnouncementType (support.entity.ts:24), DTOs, and the page's getTypeIcon/getTypeColor switches (AnnouncementsPage.tsx:110-126) do not know — a 'success' value would render undefined className and can never round-trip the API.
+- **Fix design:** Align the FE union to the backend at the source: remove 'success' so both sides read 'info' | 'warning' | 'critical' | 'maintenance' (folds into the shared support-contract module from support|p0|i6 as the durable home for the union). Then make future drift a compile error (tier 3): convert getTypeIcon/getTypeColor to exhaustive Record<AnnouncementType, ...> maps (or add a never-typed exhaustiveness default) so adding a member on either side without the other fails npm run type-check. Verification: type-check plus the support-contract spec asserting the announcement type enum values accepted by the API equal the FE union.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/types/support.ts`
+  - `web/modules/admin-panel/src/pages/AnnouncementsPage.tsx`
+  - `apps/admin-api-service/src/support/__tests__/support-contract.spec.ts`
+- **Effort:** S
 
 
 ## OnboardingPage — `/admin/support/onboarding` — verdict: **PARTIAL**
@@ -488,7 +549,7 @@
 
 ### APA-208 [HIGH] Field drift blanks the core renders: 'undefined% complete', empty step names, dead Needs-Attention filter
 
-- **Status:** PENDING
+- **Status:** CONFIRMED+DESIGNED
 - **Symptom:** The page renders progress.progress but the backend entity field is completionPercent (so '% complete' text and the progress-bar width are undefined); step.name but the backend step field is title (step names render blank); progress.lastActivityAt, progress.assignedTo and progress.notes do not exist on the entity (backend has updatedAt, assignedGuide/assignedGuideName, no notes), so the Needs Attention toggle filters out every row (requires lastActivityAt), the guide is never shown, and the notes card never appears.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/OnboardingPage.tsx:412-422 (progress.progress in text and bar width)`
@@ -497,7 +558,23 @@
   - `apps/admin-api-service/src/support/services/onboarding.service.ts:22-92 (steps carry title, not name)`
   - `web/modules/admin-panel/src/pages/OnboardingPage.tsx:137-141 (Needs Attention requires lastActivityAt, never present)`
   - `apps/admin-api-service/src/support/entities/support.entity.ts:420-424 (assignedGuide/assignedGuideName, no notes/lastActivityAt)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Verification:** Refutation attempted and failed. The chain is fully wired and reachable: SupportModule is registered (app.module.ts:229), OnboardingController returns raw OnboardingProgress entities with no mapper/response-DTO on any read path, ResponseInterceptor only wraps the envelope (lifts {data,total,page,limit} to meta, never renames item fields), and the FE http-client's meta.page unwrap returns {data,...meta}, so the page loads and renders drifted data. Verified field-by-field: (1) entity has completionPercent, FE renders progress.progress (OnboardingPage.tsx:413/421/468) — the '% complete' number is missing and the bar's width:'undefined%' is invalid CSS that is dropped, so the block div fills its parent and every tenant shows a 100% bar; (2) backend steps carry title (support.entity.ts:505-514, onboarding.service.ts ONBOARDING_STEPS), FE renders step.name (page:537) — blank; (3) no lastActivityAt exists anywhere on the wire (entity has updatedAt; backend's own getTenantsNeedingAttention uses updatedAt and a dedicated /needs-attention endpoint exists but the page never calls it), so the Needs Attention toggle (page:137-141) filters out every row; (4) assignedGuide/assignedGuideName vs FE assignedTo — guide chip never renders; (5) no notes column — notes card dead. Verification also found adjacent same-class drift the auditor missed: FE status enum 'stalled' vs backend 'skipped' (support.entity.ts:29) — dead filter option, undefined status-badge class for skipped rows, stats.stalled undefined making totalTenants NaN (page:272) despite the backend stats payload containing a correct total. Severity stays HIGH: the page's three core renders (progress %, step names, attention filter) are broken on a SUPER_ADMIN operational surface; not CRITICAL because there is no security or data-integrity impact.
+- **Root cause:** The FE→BE link broke at the hand-written type layer: web/modules/admin-panel/src/services/types/support.ts declares TenantOnboarding/OnboardingStep shapes (progress, name, code, helpUrl, lastActivityAt, assignedTo, notes, status 'stalled') that were authored for the page's original mock data (the page header says 'Sprint 3 Fix: Mock data removed') and were never reconciled with the real backend contract when the API was wired in. Nothing could catch the drift because the backend has NO response contract at all — OnboardingController returns raw TypeORM entities, so the wire shape is implicitly 'whatever the entity serializes to' (completionPercent, title, updatedAt, assignedGuideName, 'skipped'), and the two TypeScript projects never share a type, so tsc passes on both sides while every field name disagrees. This is an instance of the systemic FE-type-drift class already established in this audit (hand-written services/types/* vs entity-serialization wire truth).
+- **Fix design:** Systemic-class fix (FE-type drift) at the pattern level plus local application, per the tier hierarchy. TIER 1 — make drift impossible by giving the onboarding wire contract a single source both sides compile against: create a shared contract module libs/admin-contracts/src/support/onboarding.ts (new small Nx lib, path-aliased in tsconfig.base.json; importable by both apps/admin-api-service and web/modules/admin-panel — backend-common cannot be used because the FE must not depend on it) exporting OnboardingStatus = 'not_started'|'in_progress'|'completed'|'skipped', OnboardingStepDto {id,title,description,order,isRequired,estimatedMinutes,videoUrl?,resourceUrl?}, OnboardingProgressDto {tenantId,tenantName,status,completionPercent,completedSteps,currentStep?,assignedGuide?,assignedGuideName?,welcomeEmailSent,startedAt?,completedAt?,createdAt,updatedAt} with ISO-string dates, and OnboardingStatsDto matching getOnboardingStats() (total, notStarted, inProgress, completed, skipped, avgCompletionPercent, avgCompletionDays, completionByStep). Backend: add an explicit entity→DTO mapper (toOnboardingProgressDto with Date.toISOString at the serialization boundary) and give every OnboardingController read method an explicit Promise<OnboardingProgressDto|...> return type; type ONBOARDING_STEPS as OnboardingStepDto[] and move the duplicate OnboardingStep interface out of support.entity.ts (the entity file keeps only persistence types). Any future entity rename now fails compilation in the controller, and any FE misuse fails npm run type-check. FE: services/types/support.ts deletes the fictional TenantOnboarding/OnboardingStep and re-exports the contract types; services/api/support.ts types getOnboardingStats/getTenantOnboardings/etc. against the contract. Local application in OnboardingPage.tsx: render completionPercent; render step.title; Needs Attention switches to the already-declared supportApi.getTenantsNeedingAttention() endpoint so the 30-day/in_progress rule lives in exactly one place (backend), instead of re-deriving it client-side from a field that does not exist; render assignedGuideName; delete the notes card (the field is fiction — adding a notes column to satisfy dead UI would be inventing product scope, not fixing the contract); replace 'stalled' with 'skipped' in the status filter, OnboardingStatus union, getStatusColor, and the stats cards; compute Total Tenants from stats.total instead of summing (kills the NaN). No defensive ?., no shims — the wrong field names simply stop compiling. TIER 3 backstop for the class: a controller contract spec asserting the serialized JSON keys of each onboarding endpoint equal the contract DTO keys, so an entity change that bypasses the mapper is caught at test time.
+- **Files to change:**
+  - `libs/admin-contracts/src/support/onboarding.ts`
+  - `libs/admin-contracts/src/index.ts`
+  - `tsconfig.base.json`
+  - `apps/admin-api-service/src/support/controllers/onboarding.controller.ts`
+  - `apps/admin-api-service/src/support/services/onboarding.service.ts`
+  - `apps/admin-api-service/src/support/entities/support.entity.ts`
+  - `web/modules/admin-panel/src/services/types/support.ts`
+  - `web/modules/admin-panel/src/services/api/support.ts`
+  - `web/modules/admin-panel/src/pages/OnboardingPage.tsx`
+  - `apps/admin-api-service/src/support/__tests__/onboarding.controller.contract.spec.ts`
+  - `web/modules/admin-panel/src/pages/__tests__/OnboardingPage.spec.tsx`
+- **Proof of fix:** Add apps/admin-api-service/src/support/__tests__/onboarding.controller.contract.spec.ts: instantiate OnboardingController with a stubbed service returning a fully-populated OnboardingProgress entity, JSON-round-trip each read endpoint's result, and assert the exact key set equals Object.keys of an OnboardingProgressDto fixture (fails if anyone returns a raw entity again or renames a column without updating the mapper); same assertion for /steps (title present, name absent) and /stats (skipped present, stalled absent). Add web/modules/admin-panel/src/pages/__tests__/OnboardingPage.spec.tsx: render the page with mocked supportApi returning contract-typed fixtures and assert (a) the list shows '25% complete' and the bar width is '25%', (b) step titles from the fixture appear, (c) toggling Needs Attention calls supportApi.getTenantsNeedingAttention and shows exactly the rows that endpoint returns, (d) a 'skipped' row gets a styled badge and Total Tenants renders stats.total (a number, never NaN). Structural gate: npm run type-check goes red if either side drifts from libs/admin-contracts, because both import the same types; nx affected --target=test covers both new specs.
+- **Effort:** M
 
 ### APA-209 [HIGH] Stats header shows 'Total Tenants: NaN' — backend has no 'stalled' bucket
 

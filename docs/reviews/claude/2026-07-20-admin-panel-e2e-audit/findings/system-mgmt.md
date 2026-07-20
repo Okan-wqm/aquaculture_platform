@@ -615,14 +615,35 @@ DETECTABLE (tier 3 — so this cannot regress): (a) integration spec proving the
 
 ### APA-283 [CRITICAL] Systemic paginated-response contract break: backend {items,total} vs FE PaginatedResult {data,...} kills three of five pages
 
-- **Status:** PENDING
+- **Status:** CONFIRMED+DESIGNED
 - **Symptom:** Every system-management list endpoint returns {items,total} (queryMaintenanceModes global-settings.service.ts:582-583, queryErrorGroups error-tracking.service.ts:376-377, getOccurrencesForGroup l.399-407, queryJobs job-queue.service.ts:542-543, queryFeatureToggles l.198-199). The ResponseInterceptor only promotes {data,total} shapes into meta (response.interceptor.ts:47-65), so http-client's meta.page branch (http-client.ts:343-349) never fires and the FE's hand-written PaginatedResult {data,total,page,limit,totalPages} (services/types/common.ts:5-11) never matches reality. Consequences: MaintenancePage list always empty, JobQueuePage jobs list always empty, ErrorTrackingPage crashes on render. Only FeatureTogglesPage survives via an ad-hoc 'items' normalization labeled BUG-014 (FeatureTogglesPage.tsx:73-86) - proof the drift was seen once and patched locally instead of fixed at the contract.
 - **Evidence:**
   - `apps/admin-api-service/src/shared/response.interceptor.ts:47-65`
   - `web/modules/admin-panel/src/services/http-client.ts:341-349`
   - `web/modules/admin-panel/src/services/types/common.ts:5-11`
   - `web/modules/admin-panel/src/pages/system/FeatureTogglesPage.tsx:73-86`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Verification:** Verified end-to-end. Every system-management list service returns {items,total} (global-settings.service.ts:198,582,715; error-tracking.service.ts:376,406,450; job-queue.service.ts:542,564). Controllers (@Controller('system/settings'|'system/errors'|'system/jobs')) return the service result verbatim, and the FE routes resolve through nginx /api->/api/v1 + globalPrefix api/v1 (VERSION_NEUTRAL), so this is a genuine shape mismatch, not a 404. ResponseInterceptor (globally registered, app.module.ts:292) only promotes a shape containing BOTH 'data' and 'total' (response.interceptor.ts:47-65); {items,total} lacks 'data' so it falls to the else branch and becomes {success,data:{items,total},meta:{timestamp}}. http-client sees meta without 'page' (http-client.ts:344) and returns envelope.data = {items,total}. Consumers then break concretely: MaintenancePage does Array.isArray(response)?...:[] so the list is always [] (MaintenancePage.tsx:90-93); JobQueuePage reads response?.data (undefined) -> [] (JobQueuePage.tsx:88-90); ErrorTrackingPage does setErrorGroups(groupsData.data) with data undefined, then errorGroups.map at render (ErrorTrackingPage.tsx:82,170,355) throws -> page crash. FeatureTogglesPage only survives via the ad-hoc 'items' normalization labelled BUG-014 (FeatureTogglesPage.tsx:73-86), proving the drift was seen and patched locally. Three SUPER_ADMIN pages non-functional, one white-screens on render: CRITICAL and systemic — the umbrella case for the paginated-response contract break in this section. Not over-graded.
+- **Root cause:** No single source of truth for the paginated-list wire contract; three incompatible definitions coexist. (1) The platform pagination SSoT createStandardPaginatedResult/IStandardPaginatedResult (libs/backend-common/src/pagination/pagination.dto.ts) keys results on `items`. (2) The admin-api REST ResponseInterceptor + FE hand-written PaginatedResult<T> (services/types/common.ts) key on `data` and lift page/limit/totalPages into meta. (3) The system-management services bypass the SSoT entirely and hand-roll `{items,total}` straight from TypeORM getManyAndCount(), missing page/limit/totalPages too. The interceptor's duck-typed `'data' in && 'total' in` promotion silently no-ops on `{items,total}` (wraps instead of erroring), so the drift produces empty lists / a render crash with zero compile-time or test-time signal. The broken link: the service->interceptor boundary emits a shape that neither the interceptor nor the FE type recognises, and nothing enforces agreement.
+- **Fix design:** Umbrella / pattern-level fix (per-page consumer fixes carried by the per-instance findings in this section). Reconcile the three forks at one contract, using the existing platform SSoT:
+
+1. Tier 2 (automatic): every admin-api list method returns createStandardPaginatedResult(items,total,page,limit) from @aquaculture/backend-common instead of a hand-rolled `{items,total}`. This alone gives page/limit/totalPages.
+
+2. Tier 1 (impossible to drift): add a nominal type guard isStandardPaginatedResult() exported alongside the helper (pagination.dto.ts, the SSoT). Rework ResponseInterceptor to detect IStandardPaginatedResult via that guard and map it to the REST envelope: {success, data: items, meta:{total,page,limit,totalPages,timestamp}}. Replace the fragile `'data' in && 'total' in` sniff so mapping is type-driven and centralised. Post-interceptor shape then matches FE PaginatedResult exactly (data,total,page,limit,totalPages) and http-client's meta.page branch fires.
+
+3. Remove the BUG-014 items-normalization patch in FeatureTogglesPage now that the contract holds at source.
+
+4. Tier 3 (detectable): contract spec + invariant (see verification).
+
+This makes createStandardPaginatedResult the single backend pagination SSoT, the interceptor the single REST-mapping point, and PaginatedResult the matching FE type — no fourth definition.
+- **Files to change:**
+  - `libs/backend-common/src/pagination/pagination.dto.ts`
+  - `apps/admin-api-service/src/shared/response.interceptor.ts`
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts`
+  - `apps/admin-api-service/src/system-management/services/error-tracking.service.ts`
+  - `apps/admin-api-service/src/system-management/services/job-queue.service.ts`
+  - `web/modules/admin-panel/src/pages/system/FeatureTogglesPage.tsx`
+- **Proof of fix:** Add apps/admin-api-service/src/__tests__/integration/paginated-response-contract.spec.ts: boot each system-management list endpoint (maintenance, feature-toggles, versions, errors/groups, errors/groups/:id/occurrences, jobs) through the real ResponseInterceptor and assert the HTTP envelope is exactly {success:true, data:<array>, meta:{total,page,limit,totalPages,timestamp}} (no `items` key anywhere in the body). Add a static invariant (extend tests/invariants/, e.g. admin-api-paginated-contract.spec.ts) that forbids admin-api service methods from returning a bare `{ items` object literal — list results MUST flow through createStandardPaginatedResult. Extend the FE http-client test (web/modules/admin-panel/src/services/__tests__/) to assert the {success,data,meta:{page,...}} envelope round-trips into PaginatedResult {data,total,page,limit,totalPages}. A unit test on isStandardPaginatedResult() guards the interceptor detection.
+- **Effort:** L
 
 ### APA-284 [HIGH] Telemetry ingestion endpoints are architecturally unreachable: SUPER_ADMIN user-JWT guard on service-to-service write paths
 
@@ -653,14 +674,43 @@ DETECTABLE (tier 3 — so this cannot regress): (a) integration spec proving the
 
 ### APA-285 [HIGH] Control-plane theater: feature toggles, maintenance mode, and the job queue all persist real rows that nothing in the platform consumes
 
-- **Status:** PENDING
+- **Status:** CONFIRMED+DESIGNED
 - **Symptom:** Three of the five features are write-only control planes: feature toggles have no evaluate/gating callers anywhere (only the admin panel's own unused wrappers, settings.ts:88,97-101); maintenance checkMaintenanceMode has no gateway/middleware/shell consumer (grep of gateway-api/src for 'maintenance' is empty); the job queue has no registered handlers and no external producers (registerHandler job-queue.service.ts:224, zero callers). A SUPER_ADMIN can 'enable' a flag, 'start' a global maintenance, or 'create' a job and the platform behaves identically. These pages pass shallow testing (data persists and reloads) while delivering none of their operational purpose.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/api/settings.ts:88`
   - `apps/admin-api-service/src/system-management/services/global-settings.service.ts:469-519`
   - `apps/admin-api-service/src/system-management/services/job-queue.service.ts:224-227`
   - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts:477-483`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Verification:** All three "write-only control plane" claims survive adversarial verification against real wiring.
+
+1. FEATURE TOGGLES: `evaluateFeatureToggle`/`getFeatureToggleByKey` (global-settings.service.ts:161,202) are reachable only from the admin controller endpoint and the service's own internals. Repo-wide grep finds no backend service, no gateway guard/middleware, and no FE module that evaluates a flag to gate behavior. The FE wrappers `evaluateFeature` (settings.ts:97) and `getFeatureToggleByKey` (settings.ts:88) are imported by zero pages — FeatureTogglesPage.tsx calls only CRUD/toggle wrappers. Enabling a flag changes nothing.
+
+2. MAINTENANCE MODE: `checkMaintenanceMode` (global-settings.service.ts:469) is consumed only by the admin controller and by the same service's `getSystemStatus` (line 916, self-referential). `grep -i maintenance apps/gateway-api` → zero files; no guard/middleware in libs/backend-common enforces it (the 4 hits are schema/column helpers, not consumers). FE `checkMaintenanceStatus` (settings.ts:119) is imported by no page. Starting a global maintenance blocks no tenant request.
+
+3. JOB QUEUE: ScheduleModule.forRoot() is active (app.module.ts:178) and `processJobs` runs every 10s, but there is NO `.registerHandler(` call anywhere in the repo (the only registerHandler callers belong to alert-engine's unrelated NotificationDispatcher). `executeJob` (line 298-303) therefore always logs "No handler registered" and returns, leaving jobs PENDING forever. `createJob`/`scheduleJob`/`scheduleRecurringJob` are reachable only from JobQueueController (admin CRUD) — no external producer; real platform scheduling uses per-service `@Cron` directly (e.g. farm feeding-cron), bypassing this queue.
+
+Severity HIGH is correct: three admin surfaces present operational capability (kill-switches, incident maintenance lockout, background jobs) that silently no-ops — a false safety signal during incidents. Not CRITICAL (no data loss/security breach). Umbrella finding; per-instance detail lives in APA-267 (maintenance), the feature-toggle-theater instance, and the job-queue instance in system-mgmt.md.
+- **Root cause:** For all three subsystems the control plane (admin-api entities + CRUD controllers + admin-panel pages) was fully built, but the data plane — the runtime enforcement/consumption/production side — was never wired. The link broke at a cross-boundary seam: enforcement for flags and maintenance must live in the gateway or the shared bootstrap guard chain (libs/backend-common), and job execution needs handlers registered by the services that own the work — none of which the admin-api can supply on its own. Because admin-api owns the tables and CRUD, the feature looked "done" at the service boundary and passed shallow persist-and-reload testing, so no one closed the cross-service consumer link. The FE compounded it by shipping evaluate/check wrappers (settings.ts:88,97,119) that no component ever calls, cementing the illusion.
+- **Fix design:** Systemic class: "control-plane theater" — an admin surface whose stored state has no runtime consumer/producer. Two architectural moves, applied per instance (detailed per-instance design lives in the maintenance/feature-toggle/job-queue findings in system-mgmt.md — do not re-derive here):
+
+(A) Close the data-plane link at the enforcement point, not with local patches:
+- Maintenance: add a global `MaintenanceGuard` installed automatically by the shared bootstrap (libs/backend-common/src/bootstrap/create-service-app.ts) / gateway-api guard chain, calling checkMaintenanceMode and returning 503 for non-bypassed requests. Enforcement becomes the zero-effort default (tier 2).
+- Feature flags: add a `@RequiresFeature(key)`/evaluation client in backend-common that services call to gate; migrate the FE wrappers to it or delete them.
+- Job queue: register real handlers where the owning work lives, OR delete the subsystem (entity + migration + controller + service + FE page/wrappers) rather than ship non-functional CRUD.
+
+(B) Make recurrence impossible via a build/test gate (tier 3): an invariant that a control surface must have a wired consumer — a maintenance-enforcement integration test, a flag-gating test, and a job invariant asserting every producible job.name has a registered handler (produced-without-handler fails the build). Also delete or wire the three dead FE wrappers.
+
+Whichever direction is chosen per instance (enforce vs delete), the outcome must be that no admin page presents a capability the platform ignores.
+- **Files to change:**
+  - `libs/backend-common/src/bootstrap/create-service-app.ts`
+  - `apps/gateway-api/src`
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts`
+  - `apps/admin-api-service/src/system-management/services/job-queue.service.ts`
+  - `apps/admin-api-service/src/system-management/system-management.module.ts`
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `e2e/tests/integration/control-plane-enforcement.spec.ts`
+- **Proof of fix:** Add e2e/tests/integration/control-plane-enforcement.spec.ts asserting the umbrella invariant per subsystem: (1) with a GLOBAL maintenance IN_PROGRESS, a normal tenant request returns 503 and a bypass (SUPER_ADMIN/whitelisted IP) passes; (2) a DISABLED feature flag causes its gated codepath to be skipped while ENABLED runs it (drive an actual @RequiresFeature-guarded route); (3) a created job with a registered handler transitions PENDING→COMPLETED, and a static invariant fails the build if any producible job.name lacks a registered handler. Plus a grep-style unit invariant asserting the FE settings.ts wrappers evaluateFeature/getFeatureToggleByKey/checkMaintenanceStatus are either imported by a page or removed. All green under nx affected --target=test.
+- **Effort:** L
 
 ### APA-286 [MEDIUM] contract-validation.spec.ts KNOWN_DRIFT allowlist masks live breakage and contains stale/incorrect reasons
 

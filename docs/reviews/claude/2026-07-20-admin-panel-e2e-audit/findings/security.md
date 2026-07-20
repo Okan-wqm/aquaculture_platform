@@ -556,9 +556,9 @@ TIER 3 — make regressions detectable:
 
 ## Cross-cutting findings
 
-### APA-245 [CRITICAL] Admin security telemetry ledgers have no producers anywhere in the platform
+### APA-245 [HIGH] Admin security telemetry ledgers have no producers anywhere in the platform
 
-- **Status:** PENDING
+- **Status:** CONFIRMED+DESIGNED (audited CRITICAL → verified HIGH)
 - **Symptom:** admin.activity_logs, admin.login_attempts, admin.api_usage_logs, admin.user_sessions, and admin.security_events are fully modelled (entities with schema:'admin', Baseline migration, indexed) and fully queryable, but no service, interceptor, middleware, or NATS consumer anywhere in the monorepo writes to them: ActivityLoggingService's write methods have zero callers; auth-service never calls admin-api's ingest endpoints (and cannot — the global PlatformAdminGuard demands a SUPER_ADMIN user JWT on every route, including the POST ingest endpoints); the SecurityModule registers no event-bus subscription. Two of the four security pages (Activity Log, Security Dashboard) and the retention/alerting machinery are therefore built on structurally empty tables — the admin panel presents an 'all clear' security posture that reflects nothing. This is an architectural gap (missing ingestion pipeline / event contract from auth-service, gateway-api, and other services into the admin security schema), not a UI bug.
 - **Evidence:**
   - `apps/admin-api-service/src/security/services/activity-logging.service.ts:130-499 (all writers defined, none invoked — repo-wide grep)`
@@ -566,7 +566,27 @@ TIER 3 — make regressions detectable:
   - `apps/admin-api-service/src/security/security.module.ts:40-82 (no consumers/subscriptions)`
   - `apps/auth-service/src: grep for admin-api security endpoints -> no matches`
   - `apps/admin-api-service/src/migrations/1800000000000-Baseline.ts:116-163 (tables exist and are real)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Verification:** Verified against real wiring. All five tables (admin.activity_logs, security_events, login_attempts, api_usage_logs, user_sessions) are created + indexed in 1800000000000-Baseline.ts under schema 'admin' and registered in TypeOrmModule.forFeature. Every write method is uncalled in production code: recordLoginAttempt, logApiUsage, updateSessionActivity, admin createSession have zero callers repo-wide (grep confirms only definitions/tests); logActivity + specialized loggers are self-referential with no external entry; createSecurityEvent/analyzeLoginAttempt are reachable only via the security/monitoring HTTP controller. The only write paths are HTTP POST endpoints (security/activities, security/monitoring/events, security/monitoring/analyze/login), none marked @Public(), so the global APP_GUARD PlatformAdminGuard (verified: honors IS_PUBLIC_KEY else requires RS256 SUPER_ADMIN JWT) blocks machine ingest; no service references those routes. SecurityModule registers no NATS/event-bus consumer (imports only ScheduleModule, AuditLogModule, TypeOrmModule). compliance.service.ts:1004 is a comment, not a call. auth-service DOES hold the signal (failedLoginAttempts/lockouts on auth.users, Redis sessions) but never bridges it into the admin schema. Finding is real. Downgraded CRITICAL->HIGH: this is a security-observability/false-assurance gap, not an exploitable defect — the enforcement control (auth-service lockout) still works; what is missing is central detection/visibility/forensics. No data loss, auth bypass, or privilege escalation, so CRITICAL over-grades it; HIGH reflects a serious multi-tenant security-monitoring blind spot presenting a false 'all clear'.
+- **Root cause:** The producer link of the FE->BE->DB chain was never built. The admin security schema was modelled destination-first: entities, Baseline migration, indexes, query controllers, retention cron, and alerting were all landed, but the ingestion pipeline was deferred and never shipped. The only machine-writable door — HTTP POST ingest — is architecturally unreachable to real producers because the global PlatformAdminGuard demands a SUPER_ADMIN user JWT, which auth-service/gateway-api do not (and should not) hold. No event contract exists to carry the domain signals (login succeeded/failed, session created/terminated, request served, threat detected) onto the shared event bus, and SecurityModule registers no consumer to sink them. This is a systemic class: a modelled ledger with read+retention machinery but no producer (self-empty telemetry). It drifted because the read side was demoed against an empty table that looks identical whether the platform is secure or unmonitored.
+- **Fix design:** Umbrella / pattern-level fix — build event-driven ingestion, not HTTP push (per-stream detail lives in the sibling security.md instance findings: Activity Log page, Security Dashboard, login_attempts writer, api-usage interceptor, session tracking).
+
+Tier-1/2 (impossible/automatic): (1) Add flat event contracts in libs/event-contracts (UserLoginSucceeded/Failed, SessionCreated/Terminated, SecurityThreatDetected, ApiRequestServed) via createBaseEvent(), export from index.ts, add JSON Schema validators for the trust-boundary crossing. (2) Producers emit via outbox/event-bus at existing call sites: auth-service at its failedLoginAttempts/lockout + session points; gateway-api from its request pipeline for API-usage telemetry; any detector emits SecurityThreatDetected. (3) admin-api SecurityModule registers NATS consumers (the missing subscription) that map each event onto the existing zero-caller ActivityLoggingService / SecurityMonitoringService writers — making the ledgers the automatic sink. Because ingestion is bus-driven with cert-CN identity (ADR-015), no SUPER_ADMIN JWT is needed, so the guard is satisfied correctly rather than weakened; the HTTP POST endpoints remain only for manual admin entry.
+
+Tier-3 (detectable): add an architecture invariant asserting every security telemetry table has a registered producer/consumer, and a contract/integration test asserting each published event lands a row — so a modelled-but-unfed ledger fails CI going forward.
+- **Files to change:**
+  - `libs/event-contracts/src/security-events.ts`
+  - `libs/event-contracts/src/index.ts`
+  - `libs/event-contracts/src/schemas/security-events.schema.ts`
+  - `apps/auth-service/src/modules/authentication/services/authentication.service.ts`
+  - `apps/auth-service/src/modules/authentication/services/token.service.ts`
+  - `apps/auth-service/src/modules/authentication/services/account.service.ts`
+  - `apps/gateway-api/src`
+  - `apps/admin-api-service/src/security/security.module.ts`
+  - `apps/admin-api-service/src/security/consumers/security-telemetry.consumer.ts`
+  - `apps/admin-api-service/src/security/services/activity-logging.service.ts`
+  - `apps/admin-api-service/src/security/services/security-monitoring.service.ts`
+- **Proof of fix:** Add apps/admin-api-service/src/security/__tests__/integration/security-telemetry-ingestion.spec.ts: publish each new contract event onto the test event bus and assert a row lands in each of the five admin telemetry tables (activity_logs, login_attempts, api_usage_logs, user_sessions, security_events). Add architecture invariant apps/admin-api-service/src/__tests__/e2e/security-telemetry-producers.architecture.spec.ts asserting every telemetry entity/table has a registered consumer subscription in SecurityModule (fails when a ledger has no producer). Extend event-contract validation in e2e/tests/integration/ (alongside schema-invariants.spec.ts) to cover the new security events. Add producer-side unit tests in auth-service/gateway-api asserting emission at the lockout/session/request call sites.
+- **Effort:** L
 
 ### APA-246 [HIGH] Security alerting/notification layer is stubbed end-to-end
 

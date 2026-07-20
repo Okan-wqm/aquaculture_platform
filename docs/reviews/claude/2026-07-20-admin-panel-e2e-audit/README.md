@@ -8,10 +8,10 @@
 
 ## Status / coverage
 
-- Findings total: **383** — with root-cause+fix design: **369**, REFUTED: **9**, PENDING (verification + fix design queued in staged continuation): **5**
-- Current severity distribution (verified where available): **CRITICAL: 14**, **HIGH: 115**, **MEDIUM: 169**, **LOW: 76**
+- Findings total: **383** — all verified. With root-cause + architectural fix design: **374**, REFUTED (dropped after adversarial verification): **9** — **0 pending, audit + remediation design complete**
+- Current severity distribution (verified where available): **CRITICAL: 13**, **HIGH: 116**, **MEDIUM: 169**, **LOW: 76**
 - Page verdicts: **BROKEN: 12**, **MOCK_ONLY: 2**, **NOT_WIRED: 2**, **PARTIAL: 32**, **WORKING: 2**
-- Every PENDING entry keeps its auditor severity and full evidence; its root-cause/fix-design section will be appended by the staged continuation run. IDs (`APA-xxx`) are stable and safe to reference from `Closes:` lines.
+- IDs (`APA-xxx`) are stable and safe to reference from `Closes:` lines. Where the verified severity differs from the auditor grade, both are shown on the finding.
 
 ## Executive summary
 
@@ -53,7 +53,7 @@ Most of the 383 findings are instances of 12 recurring classes. Fixing class-by-
 - **Phase 3 — control-plane decisions:** RC-7 and RC-10/11 per-feature wire-or-remove decisions (product involvement needed: enforce module gating, IP rules, maintenance mode, email templates; unify support silos).
 - **Phase 4 — polish:** MEDIUM/LOW UX findings (silent failures, pagination UIs, debounce, dead links).
 
-Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a handful of **L**; per-finding grades are in the section files.
+Effort totals across the 374 designed findings: **94 S** (<2h), **208 M** (2–8h), **72 L** (>8h); per-finding grades are in the section files. Severity after full adversarial verification: **13 CRITICAL, 116 HIGH, 169 MEDIUM, 76 LOW** (9 findings were refuted and dropped). Note several findings the auditors graded CRITICAL were verified down to HIGH once the real wiring was examined (e.g. an orphan route with no nav link, a mutation that 410s rather than corrupts) — the report shows both the audited and the verified grade.
 
 ## Page verdict matrix
 
@@ -358,7 +358,7 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-242 | MEDIUM | ✅ designed | [security](findings/security.md) | SecurityDashboardPage | Incident field drift: FE reads columns the entity does not have |
 | APA-243 | MEDIUM | ✅ designed | [security](findings/security.md) | SecurityDashboardPage | 'Affected Tenants' hardcoded 0; 'Unique IPs' capped at 10 |
 | APA-244 | LOW | ✅ designed | [security](findings/security.md) | SecurityDashboardPage | Status/search filters exist as dead state; resolved-count only scans first incident page |
-| APA-245 | CRITICAL | ⏳ pending | [security](findings/security.md) | (cross-cutting) | Admin security telemetry ledgers have no producers anywhere in the platform |
+| APA-245 | HIGH | ✅ designed | [security](findings/security.md) | (cross-cutting) | Admin security telemetry ledgers have no producers anywhere in the platform |
 | APA-246 | HIGH | ✅ designed | [security](findings/security.md) | (cross-cutting) | Security alerting/notification layer is stubbed end-to-end |
 | APA-247 | MEDIUM | ✅ designed | [security](findings/security.md) | (cross-cutting) | Actor attribution hardcoded to 'admin' on audit-relevant mutations |
 | APA-248 | MEDIUM | ✅ designed | [security](findings/security.md) | (cross-cutting) | Hand-written FE response types drift systematically (no codegen) |
@@ -396,9 +396,9 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-280 | HIGH | ✅ designed | [system-mgmt](findings/system-mgmt.md) | JobQueuePage | The queue executes nothing: no job handler is ever registered and no platform component enqueues int |
 | APA-281 | HIGH | ✅ designed | [system-mgmt](findings/system-mgmt.md) | JobQueuePage | Dashboard shape drift empties the Queues tab and blanks stats: FE expects queues/failedToday, backen |
 | APA-282 | MEDIUM | ✅ designed | [system-mgmt](findings/system-mgmt.md) | JobQueuePage | Route shadowing and a wrong stat: /jobs/scheduled and /jobs/failed resolve to GET :id; completedLast |
-| APA-283 | CRITICAL | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | (cross-cutting) | Systemic paginated-response contract break: backend {items,total} vs FE PaginatedResult {data,...} k |
+| APA-283 | CRITICAL | ✅ designed | [system-mgmt](findings/system-mgmt.md) | (cross-cutting) | Systemic paginated-response contract break: backend {items,total} vs FE PaginatedResult {data,...} k |
 | APA-284 | HIGH | ✅ designed | [system-mgmt](findings/system-mgmt.md) | (cross-cutting) | Telemetry ingestion endpoints are architecturally unreachable: SUPER_ADMIN user-JWT guard on service |
-| APA-285 | HIGH | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | (cross-cutting) | Control-plane theater: feature toggles, maintenance mode, and the job queue all persist real rows th |
+| APA-285 | HIGH | ✅ designed | [system-mgmt](findings/system-mgmt.md) | (cross-cutting) | Control-plane theater: feature toggles, maintenance mode, and the job queue all persist real rows th |
 | APA-286 | MEDIUM | ✅ designed | [system-mgmt](findings/system-mgmt.md) | (cross-cutting) | contract-validation.spec.ts KNOWN_DRIFT allowlist masks live breakage and contains stale/incorrect r |
 | APA-287 | NOT_A_BUG | ❌ refuted | [system-mgmt](findings/system-mgmt.md) | (cross-cutting) | Schema/migration discipline is correct for this module (verified, no finding) |
 | APA-288 | CRITICAL | ✅ designed | [impersonation-debug](findings/impersonation-debug.md) | ImpersonationPage | DB append-only trigger on impersonation_sessions makes every session-lifecycle mutation fail (end/te |
@@ -454,7 +454,7 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-338 | MEDIUM | ✅ designed | [database-mgmt](findings/database-mgmt.md) | (cross-cutting) | Hand-written FE types drift systemically from backend responses (no codegen) — three of the drifts s |
 | APA-339 | LOW | ✅ designed | [database-mgmt](findings/database-mgmt.md) | (cross-cutting) | Security posture of the section is otherwise solid (verified, not assumed) |
 | APA-340 | HIGH | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | SystemSettingsPage.tsx | Email, Security, Rate-Limit and Maintenance settings persist but nothing enforces or consumes them ( |
-| APA-341 | HIGH | ⏳ pending | [settings-email-audit](findings/settings-email-audit.md) | SystemSettingsPage.tsx | 'Send Test' tests the env-var SMTP config, not the settings the admin typed or saved |
+| APA-341 | HIGH | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | SystemSettingsPage.tsx | 'Send Test' tests the env-var SMTP config, not the settings the admin typed or saved |
 | APA-342 | MEDIUM | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | SystemSettingsPage.tsx | System Info tab contract drift — server/database sections never render, returned data not displayed |
 | APA-343 | LOW | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | SystemSettingsPage.tsx | Retired settings endpoints still exposed and return 410 at runtime |
 | APA-344 | HIGH | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | EmailTemplatesPage.tsx | Email templates are never consumed by any real send path — edits have zero effect on emails actually |
@@ -476,7 +476,7 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-360 | MEDIUM | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | AuditLogPage.tsx | Search is doubly broken: uuid ILIKE would raise a DB error that the service converts into a silent e |
 | APA-361 | LOW | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | AuditLogPage.tsx | Table column sort flags are cosmetic and CSV export omits tenant/metadata columns |
 | APA-362 | HIGH | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | (cross-cutting) | Service-wide footgun: mixing named @Query params with an un-named @Query() PaginationQueryDto 400s e |
-| APA-363 | HIGH | ⏳ pending | [settings-email-audit](findings/settings-email-audit.md) | (cross-cutting) | Admin 'configuration' is split across three disconnected stores; the admin panel writes the one noth |
+| APA-363 | HIGH | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | (cross-cutting) | Admin 'configuration' is split across three disconnected stores; the admin panel writes the one noth |
 | APA-364 | MEDIUM | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | (cross-cutting) | Settings-module CRUD DTOs are TypeScript interfaces, so the global ValidationPipe validates nothing  |
 | APA-365 | NOT_A_BUG | ❌ refuted | [settings-email-audit](findings/settings-email-audit.md) | (cross-cutting) | Auth/guard coverage verified — no unguarded endpoints in this section |
 | APA-366 | LOW | ✅ designed | [xc-auth-guards](findings/xc-auth-guards.md) | (cross-cutting) | CSRF double-submit is false security: FE sends X-CSRF-Token but admin-api-service has zero server-si |

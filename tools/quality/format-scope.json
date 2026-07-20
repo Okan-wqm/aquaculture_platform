@@ -2585,6 +2585,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/__tests__/global-settings-feature-toggles.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/system-management/__tests__/provisioning-config.spec.ts",
       "prettier_managed": true
     },
@@ -55062,10 +55068,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9026,
+  "file_count": 9027,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8845,
-  "managed_file_list_sha256": "8250a9cc8daa3010617b8a6990ddabead7ba0000367a07379111fd3affe22a2b",
+  "managed_count": 8846,
+  "managed_file_list_sha256": "fcd225a4088b403c46efa72a7987c24cc8148ef6a34443f331344b1c2b5cd110",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

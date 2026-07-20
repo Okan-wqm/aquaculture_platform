@@ -23,6 +23,7 @@ import type {
   BackgroundJob,
   JobQueue,
   JobStatus,
+  FeatureToggleStatus,
 } from '../types';
 
 // Re-export extracted APIs for barrel convenience
@@ -85,15 +86,23 @@ export const systemSettingsApi = {
   getFeatureToggles: (params?: { scope?: string; status?: string; category?: string; search?: string } & PaginationParams) =>
     apiFetch<PaginatedResult<FeatureToggle>>(`/system/settings/feature-toggles?${buildQueryString(params || {})}`),
   getFeatureToggle: (id: string) => apiFetch<FeatureToggle>(`/system/settings/feature-toggles/${id}`),
-  getFeatureToggleByKey: (key: string) => apiFetch<FeatureToggle>(`/system/settings/feature-toggles/key/${key}`),
   createFeatureToggle: (data: Omit<FeatureToggle, 'id' | 'createdAt' | 'updatedAt'>) =>
     apiFetch<FeatureToggle>('/system/settings/feature-toggles', { method: 'POST', body: JSON.stringify(data) }),
   updateFeatureToggle: (id: string, data: Partial<FeatureToggle>) =>
     apiFetch<FeatureToggle>(`/system/settings/feature-toggles/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteFeatureToggle: (id: string) =>
     apiFetch<void>(`/system/settings/feature-toggles/${id}`, { method: 'DELETE' }),
-  toggleFeature: (id: string, enabled: boolean) =>
-    apiFetch<FeatureToggle>(`/system/settings/feature-toggles/${id}/toggle`, { method: 'POST', body: JSON.stringify({ enabled }) }),
+  // APA-251: the canonical mutation is PUT :id with the 4-state status enum, not
+  // a lossy binary POST :id/toggle (which never existed on the backend and 404'd
+  // the FeatureTogglesPage primary action). The (id, enabled) signature is kept
+  // so the page needs no change; enabled maps to the enabled/disabled states.
+  toggleFeature: (id: string, enabled: boolean) => {
+    const status: FeatureToggleStatus = enabled ? 'enabled' : 'disabled';
+    return apiFetch<FeatureToggle>(`/system/settings/feature-toggles/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    });
+  },
   evaluateFeature: (key: string, context: Record<string, unknown>) =>
     apiFetch<{ key: string; enabled: boolean; variant?: string; value?: unknown; reason: string }>('/system/settings/feature-toggles/evaluate', {
       method: 'POST',

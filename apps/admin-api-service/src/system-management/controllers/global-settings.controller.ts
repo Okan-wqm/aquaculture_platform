@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsString, IsOptional, IsBoolean, IsArray, IsNumber, IsObject, IsDefined, MaxLength, Min, Max, ArrayMaxSize, ValidateNested } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsArray, IsNumber, IsObject, IsDefined, IsEnum, MaxLength, Min, Max, ArrayMaxSize, ValidateNested } from 'class-validator';
 import { Request } from 'express';
 
 import { getAuthUser } from '../../shared/authenticated-request';
@@ -36,7 +36,7 @@ import { GlobalSettingsService } from '../services/global-settings.service';
 // DTOs
 // ============================================================================
 
-class CreateFeatureToggleDto {
+export class CreateFeatureToggleDto {
   @IsString()
   key!: string;
 
@@ -47,12 +47,14 @@ class CreateFeatureToggleDto {
   @IsString()
   description?: string;
 
+  // APA-251: enum-bound so an out-of-vocabulary scope/status can never reach the
+  // service's Object.assign — tier-1, wrong value rejected at the boundary (400).
   @IsOptional()
-  @IsString()
+  @IsEnum(FeatureToggleScope)
   scope?: FeatureToggleScope;
 
   @IsOptional()
-  @IsString()
+  @IsEnum(FeatureToggleStatus)
   status?: FeatureToggleStatus;
 
   @IsOptional()
@@ -83,7 +85,7 @@ class CreateFeatureToggleDto {
   isExperimental?: boolean;
 }
 
-class UpdateFeatureToggleDto {
+export class UpdateFeatureToggleDto {
   @IsOptional()
   @IsString()
   name?: string;
@@ -92,8 +94,10 @@ class UpdateFeatureToggleDto {
   @IsString()
   description?: string;
 
+  // APA-251: the canonical status-transition path (PUT :id) — enum-bound so
+  // toggleFeature's {status:'enabled'|'disabled'} is validated and 'bogus' 400s.
   @IsOptional()
-  @IsString()
+  @IsEnum(FeatureToggleStatus)
   status?: FeatureToggleStatus;
 
   @IsOptional()

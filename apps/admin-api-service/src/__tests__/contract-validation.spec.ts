@@ -624,19 +624,11 @@ const KNOWN_EXCEPTIONS: Array<{ url: string; method: string; reason: string }> =
     reason: 'Backend uses /sessions/:id/log-action',
   },
 
-  // Feature toggle key lookup
-  {
-    url: '/system/settings/feature-toggles/key/:param',
-    method: 'GET',
-    reason: 'No dedicated key-based lookup in controller; use query with search',
-  },
-
-  // Feature toggle toggle action
-  {
-    url: '/system/settings/feature-toggles/:param/toggle',
-    method: 'POST',
-    reason: 'Backend uses PUT /system/settings/feature-toggles/:id with status field',
-  },
+  // APA-251: the two feature-toggle phantom routes were removed from this
+  // allowlist and reconciled at the source — the dead getFeatureToggleByKey FE
+  // fn was deleted, and toggleFeature now calls the real PUT
+  // /system/settings/feature-toggles/:id (status enum). Re-introducing either
+  // phantom route fails this gate. Do NOT re-add them here.
 
   // System performance endpoints
   {

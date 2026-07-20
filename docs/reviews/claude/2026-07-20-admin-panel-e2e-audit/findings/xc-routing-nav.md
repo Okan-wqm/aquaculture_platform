@@ -225,3 +225,9 @@
   - `web/modules/admin-panel/src/services/types/common.ts`
   - `apps/admin-api-service/src/shared/__tests__/response.interceptor.spec.ts (new/extend)`
 - **Effort:** M
+
+## Finding registry anchors
+
+Registry IDs (`docs/reviews/_registry/findings.jsonl`) tracking findings in this document:
+
+- **ADMIN-CRITICAL-015** — APA-251: FeatureTogglesPage's primary action called a phantom `feature-toggles/:id/toggle` route (404 on every flip); FE repointed to the canonical `PUT feature-toggles/:id` (status enum), DTOs tightened to `@IsEnum`, and the two phantom `KNOWN_EXCEPTIONS` entries removed so the contract gate enforces the real contract.

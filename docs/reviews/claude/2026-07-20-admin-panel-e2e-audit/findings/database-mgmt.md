@@ -249,13 +249,22 @@
 
 ### APA-327 [HIGH] CSV/JSON export downloads a JSON envelope, not the data — global ResponseInterceptor wraps the StreamableFile
 
-- **Status:** PENDING
+- **Status:** CONFIRMED+DESIGNED
 - **Symptom:** exportTableData returns a StreamableFile (CSV) or a rows array (JSON) with Content-Disposition set, but the app-wide ResponseInterceptor (skip list only /health,/docs) maps EVERY body into {success,data,meta}. A StreamableFile wrapped inside a plain object is no longer detected by Nest's response handler, so the 'CSV' download serializes the envelope object instead of streaming the buffer; the JSON export delivers {success:true,data:[...],meta:...} instead of the row array. The FE only checks response.ok and saves whatever arrives — user silently gets a corrupted export file. This breaks any binary/file endpoint in admin-api, not just this one.
 - **Evidence:**
   - `apps/admin-api-service/src/shared/response.interceptor.ts:23-24,44-74`
   - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts:543-647 (StreamableFile + rows return)`
   - `web/modules/admin-panel/src/pages/DatabaseExplorerPage.tsx:96-126 (blind blob download)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Verification:** Confirmed reachable. ResponseInterceptor is a global APP_INTERCEPTOR registered first (app.module.ts:292-294), so its map runs last on the return value; skip list is only /health,/docs (response.interceptor.ts:24), export route not skipped. exportTableData uses Res passthrough:true (explorer.controller.ts:549) so Nest processes the return through the chain and map wraps it into success/data/meta (lines 67-73). Nest v11 only streams when the result is still instanceof StreamableFile; the wrapper defeats that, so res.json serializes the wrapper (CSV line 643 -> garbage) or the wrapped rows array (JSON line 611 -> envelope not bare array). FE (DatabaseExplorerPage.tsx:107-124) raw-fetches, blobs, and saves verbatim, bypassing apiFetch unwrap. HIGH not CRITICAL: silent break of a SUPER_ADMIN export and a systemic class hitting every future binary endpoint, but no data-loss/security/cross-tenant impact.
+- **Root cause:** Backend response-shaping. The global ResponseInterceptor assumes every handler returns an enveloped JSON DTO; its only opt-out is a hardcoded URL-prefix skip list, with no awareness of Nest non-JSON response types (StreamableFile/Readable/Buffer). The DB-explorer export is the first file/stream endpoint here; the outermost interceptor envelopes both its StreamableFile (CSV) and raw array (JSON) before Nest can detect the StreamableFile. The enveloping policy and the file-response policy were never reconciled.
+- **Fix design:** Systemic envelope/shape mismatch: a global interceptor wraps a response type it must never wrap. Tier 2 automatic plus Tier 3 detectable. Part 1 response.interceptor.ts: before enveloping, return data unchanged when it is instanceof StreamableFile, instanceof Readable, or Buffer.isBuffer(data) (import StreamableFile from nestjs/common, Readable from node stream); this makes all current and future stream/file endpoints immune by default, not a defensive optional-chain. Part 2 explorer.controller.ts exportTableData: return a StreamableFile for BOTH formats so both hit the passthrough. JSON = StreamableFile from Buffer of JSON.stringify(rows) with options type application/json and an attachment disposition; CSV = carry type and disposition via StreamableFile options instead of res.setHeader. Collapses the split return type to one StreamableFile and drops Res passthrough plus manual headers. Rejected a RawResponse/NoEnvelope decorator via Reflector: forgettable on the next endpoint, ranks below structural passthrough. FE unchanged.
+- **Files to change:**
+  - `apps/admin-api-service/src/shared/response.interceptor.ts`
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts`
+  - `apps/admin-api-service/src/shared/__tests__/response.interceptor.spec.ts`
+  - `apps/admin-api-service/src/__tests__/integration/explorer-export.envelope-passthrough.integration.spec.ts`
+- **Proof of fix:** Unit spec response.interceptor.spec.ts: intercept returns StreamableFile/Buffer/Readable unwrapped while a plain object is still enveloped. Integration spec explorer-export.envelope-passthrough.integration.spec.ts: boot Nest with the global ResponseInterceptor, GET the export route; format csv -> Content-Type text/csv, first body line equals CSV header, no success envelope marker; format json -> body JSON-parses to a bare array (Array.isArray true), not an object with a data key.
+- **Effort:** M
 
 ### APA-328 [HIGH] Edit Row writes the '********' mask back into real sensitive columns when writes are enabled
 

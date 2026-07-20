@@ -487,11 +487,16 @@
 
 ### APA-125 [LOW] getAllTenantsUsage issues N+1 queries
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** After the distinct-tenant query, it loops calling getTenantUsageOverview per tenant (default limit 50) — up to 51 sequential aggregate queries per dashboard load.
 - **Evidence:**
   - `apps/admin-api-service/src/billing/services/usage-metering-management.service.ts:285-294`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** getAllTenantsUsage (usage-metering-management.service.ts:285-294) runs a distinct-tenant query (limit 50) then a sequential for-loop that awaits getTenantUsageOverview per tenant. Each overview is itself a GROUP BY aggregate query (lines 197-212), so a dashboard load fires 1 distinct + 1 count + up to 50 sequential per-tenant aggregates = an N+1 fan-out whose query count scales with the page size.
+- **Fix design:** Root-cause is per-tenant iteration of a query that can be expressed set-based. Rewrite getTenantUsageOverview's aggregate to also SELECT/GROUP BY ua.tenantId, add a private buildOverviewsForTenants(tenantIds[]) that runs ONE query with WHERE ua.tenantId IN (:...tenantIds) GROUP BY tenantId, meterType, unit, then partitions the raw rows into TenantUsageOverview[] in JS. getAllTenantsUsage calls it once with the page's tenantIds; getTenantUsageOverview becomes a thin single-id wrapper over the same builder so the two paths cannot diverge (tier 2: correct behavior automatic). Collapses 51 queries to 3 (distinct + count + one grouped fetch), independent of page size.
+- **Files to change:**
+  - `apps/admin-api-service/src/billing/services/usage-metering-management.service.ts`
+  - `apps/admin-api-service/src/billing/services/__tests__/usage-metering-management.service.spec.ts`
+- **Effort:** M
 
 
 ## Cross-cutting findings
@@ -570,20 +575,43 @@
 
 ### APA-128 [MEDIUM] Service-exported interface 'DTOs' bypass the global ValidationPipe across the billing surface
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** CreatePlanDto, UpdatePlanDto, CreateDiscountCodeDto, UpdateDiscountCodeDto, SetModulePricingDto, CreateCustomPlanDto, UpdateCustomPlanDto, QuoteRequest, and PlanChangeRequest are TypeScript interfaces imported from service files, so their @Body() metatype erases to Object and the global ValidationPipe (whitelist:true, forbidNonWhitelisted:true, transform:true) skips them entirely. Nine billing write endpoints on a financial admin surface accept arbitrary payload shapes with no runtime validation — contrary to the platform's own mandated ValidationPipe posture. (All are still behind the SUPER_ADMIN PlatformAdminGuard, which was verified as a global APP_GUARD with RS256 verify + role check, so this is a defense-in-depth gap rather than an open hole.)
 - **Evidence:**
   - `apps/admin-api-service/src/billing/billing.controller.ts:142,150,227,234,376,477,507,562,569 (interface-typed @Body params)`
   - `apps/admin-api-service/src/billing/services/discount-code.service.ts:21-54 and plan-definition.service.ts:16-57 and module-pricing.service.ts:19-28 (interface definitions)`
   - `apps/admin-api-service/src/app.module.ts:277-290 (PlatformAdminGuard as APP_GUARD) and guards/platform-admin.guard.ts:151-179 (SUPER_ADMIN enforcement)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** CreatePlanDto/UpdatePlanDto (plan-definition.service.ts:16-57), CreateDiscountCodeDto/UpdateDiscountCodeDto (discount-code.service.ts:21-54), SetModulePricingDto (module-pricing.service.ts:19-28), CreateCustomPlanDto/UpdateCustomPlanDto, QuoteRequest and PlanChangeRequest are TypeScript interfaces co-located with business logic and used directly as @Body() types in billing.controller.ts (142,150,227,234,376,477,562,569). Interfaces erase to nothing at runtime, so the reflected param metatype is Object; NestJS ValidationPipe.toValidate() returns false for Object, so whitelist/forbidNonWhitelisted/transform are complete no-ops. Nine financial-admin write endpoints accept arbitrary payloads. This is the systemic 'unvalidated interface-DTO' class — same footgun everywhere an interface is used as @Body(). Guard (SUPER_ADMIN APP_GUARD) still applies, so it is defense-in-depth, not an open hole.
+- **Fix design:** Promote each to a class DTO in billing/dto/ with class-validator decorators (@IsString/@IsEnum/@IsNumber/@IsOptional; nested @ValidateNested()+@Type() classes for PlanLimits/PlanPricing/PlanFeatures, PricingMetric[]/TierMultipliers, quote/plan-change shapes). Model ONLY client-supplied fields — drop server-injected createdBy/updatedBy from the request DTO since the controller already spreads userId in. Services import the class as their param type (or a structural input type it satisfies) so domain layer stays decorator-free. Highest tier: make future drift detectable — add an architecture spec that reflects every controller's ROUTE_ARGS metadata and asserts each @Body() metatype is a class carrying class-validator metadata (rejects Object/interface-typed bodies) so a new interface @Body() fails CI.
+- **Files to change:**
+  - `apps/admin-api-service/src/billing/dto/billing.dto.ts`
+  - `apps/admin-api-service/src/billing/billing.controller.ts`
+  - `apps/admin-api-service/src/billing/services/plan-definition.service.ts`
+  - `apps/admin-api-service/src/billing/services/discount-code.service.ts`
+  - `apps/admin-api-service/src/billing/services/module-pricing.service.ts`
+  - `apps/admin-api-service/src/billing/services/custom-plan.service.ts`
+  - `apps/admin-api-service/src/billing/services/pricing-calculator.service.ts`
+  - `apps/admin-api-service/src/billing/services/subscription-management.service.ts`
+  - `apps/admin-api-service/src/__tests__/e2e/body-dto-validation.architecture.spec.ts`
+- **Effort:** L
 
 ### APA-129 [MEDIUM] Unmanaged envelope/pagination contract between ResponseInterceptor and hand-written FE types
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** ResponseInterceptor lifts any handler result containing both 'data' and 'total' keys into {data, meta:{page,...}}, and the FE http-client re-flattens meta.page results into {data,...meta}. Because FE types are hand-written with no codegen, every endpoint whose service returns the {data,total,page,limit} shape silently changes contract at the boundary: discounts list (broken page), tenant redemptions, and module-pricing history all return {data:[...],...} where FE types expect bare arrays. Endpoints returning {items,...} or {subscriptions,...} dodge the lift only by accident of key naming. This shape-dependent magic is the root cause of the DiscountCodePage break and a standing trap for every new billing endpoint.
 - **Evidence:**
   - `apps/admin-api-service/src/shared/response.interceptor.ts:46-65 (key-sniffing lift condition)`
   - `web/modules/admin-panel/src/services/http-client.ts:341-351 (meta.page re-flattening)`
   - `apps/admin-api-service/src/billing/services/discount-code.service.ts:114,410 and module-pricing.service.ts:287 (three {data,total,page,limit} producers vs array-typed FE signatures in services/api/billing.ts:64,94,96)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The pagination envelope is negotiated by key-sniffing on BOTH sides with no shared contract or codegen. ResponseInterceptor (response.interceptor.ts:46-65) lifts any result containing both 'data' and 'total' into {data, meta:{page,limit,total,totalPages}}; the FE http-client (http-client.ts:341-351) re-flattens results whose meta has a 'page' key into {data,...meta}. So discount-code.service.findAll (:114), getTenantRedemptions (:410) and module-pricing.getPricingHistory (:287) all emit {data,total,page,limit} and get lifted, but the FE signatures getDiscountCodes/getTenantRedemptions/history (services/api/billing.ts:64,96) are typed as bare arrays — silent contract break (the DiscountCodePage crash). Meanwhile getRedemptions ({redemptions,total}) and getSubscriptions ({subscriptions,total}) dodge the lift only because they lack a 'data' key. Whether the magic fires depends on accidental key naming — a standing trap for every new list endpoint.
+- **Fix design:** Replace key-sniffing with an explicit, typed pagination contract (tier 1). Introduce a canonical Paginated<T> = {data:T[]; total; page; limit; totalPages} plus a paginate() helper in a shared module; make ALL list services return it (rename {redemptions}->data, {subscriptions}->data, {items}->data). Change ResponseInterceptor to lift ONLY a branded marker (a non-enumerable Symbol tag set by paginate(), or instanceof PaginatedResult) instead of the 'data'+'total' heuristic, so ordinary DTOs that happen to carry those keys are never misread. On FE, key the http-client re-flatten off that same stable envelope marker (meta present with total/page from a tagged list response), and retype every list api fn as Paginated<T> instead of T[]. Highest tier for the hand-written-types gap: add a cross-boundary contract spec (e2e/tests/integration/response-envelope-contract.spec.ts) enumerating list endpoints, asserting each returns the canonical envelope AND that the FE Paginated<T> matches, so envelope drift fails CI rather than surfacing as a runtime .map crash.
+- **Files to change:**
+  - `apps/admin-api-service/src/shared/response.interceptor.ts`
+  - `apps/admin-api-service/src/shared/pagination-query.dto.ts`
+  - `apps/admin-api-service/src/billing/services/discount-code.service.ts`
+  - `apps/admin-api-service/src/billing/services/module-pricing.service.ts`
+  - `apps/admin-api-service/src/billing/services/subscription-management.service.ts`
+  - `web/modules/admin-panel/src/services/http-client.ts`
+  - `web/modules/admin-panel/src/services/api/billing.ts`
+  - `e2e/tests/integration/response-envelope-contract.spec.ts`
+- **Effort:** L

@@ -137,7 +137,7 @@ LOCAL APPLICATION — (4) Admin-panel rebuild on the sanctioned GraphQL path (mi
 
 ### APA-036 [MEDIUM] FE echoes whole GET objects back into PUTs whose DTOs lack fields — would 400 via forbidNonWhitelisted even if writes were restored
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** saveNotificationConfig sends the full TenantNotificationConfig including 'webhooks: WebhookConfig[]' (the GET default includes webhooks: []), but UpdateNotificationConfigDto has no 'webhooks' property; saveFeatureFlags sends 'planOverrides' (present in the GET default), but UpdateFeatureFlagsDto has no 'planOverrides'. With the global ValidationPipe (whitelist + forbidNonWhitelisted, backend-common bootstrap), both saves would be rejected 400 before reaching the handler. Also numeric inputs coerce empty input to 0 (parseInt(...) || 0) which violates @Min(1) constraints on most DTO fields.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx:359`
@@ -148,48 +148,79 @@ LOCAL APPLICATION — (4) Admin-panel rebuild on the sanctioned GraphQL path (mi
   - `apps/admin-api-service/src/settings/entities/tenant-configuration.entity.ts:270`
   - `libs/backend-common/src/bootstrap/create-service-app.ts:8`
   - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx:625`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The FE reuses the full read-model types as write payloads: saveNotificationConfig PUTs the whole TenantNotificationConfig (includes webhooks:[], present in the GET default) and saveFeatureFlags PUTs the whole FeatureFlagsConfig (includes planOverrides:{}). Neither webhooks nor planOverrides exists in UpdateNotificationConfigDto/UpdateFeatureFlagsDto, so the platform ValidationPipe (whitelist+forbidNonWhitelisted) rejects both with 400 before the handler. Systemic class: read-model === write-model shape reuse (FE-type drift + DTO-whitelist rejection). Secondary: parseInt(e.target.value)||0 emits 0 for cleared numeric inputs, violating @Min(1) on most DTO fields. Currently masked by the 410 on these write endpoints.
+- **Fix design:** Pattern-level: make the write-model distinct from the read-model and derived from the backend Update DTOs (the writable SSoT). Narrow each tenantConfigApi.updateX param type to a dedicated Update* type that mirrors the backend DTO exactly (drop webhooks from the notification update type, planOverrides from the feature-flags update type, apiKeys/ipWhitelist etc.), and have the save handlers construct that narrowed object (as saveApiConfig already does with an explicit field pick) rather than echoing the GET response. That turns any extra field into a compile error (tier 1). Fix the numeric inputs to clamp to the DTO minimum (or send undefined when empty) instead of coercing to 0. Add a contract test asserting every FE Update* type's key set is a subset of the corresponding backend DTO's class-validator property set so future drift is caught at build time (tier 3).
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/api/tenant-config.ts`
+  - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx`
+  - `apps/admin-api-service/src/settings/dto/tenant-configuration.dto.ts`
+  - `web/modules/admin-panel/src/services/api/__tests__/tenant-config-write-shape.spec.ts`
+- **Effort:** M
 
 ### APA-037 [MEDIUM] Failed tab loads leave an infinite spinner with only a dismissible banner
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** loadTabData catches errors, shows a feedback banner, and clears sectionLoading — but the tab renderers return renderSectionLoading() whenever their data state is null (e.g. renderUserLimitsTab). After a failed load (which is guaranteed never for GETs here, but applies on network failure) the operator sees a permanent spinner with no retry affordance; dismissing the banner leaves a spinner forever.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx:255-260`
   - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx:605-609`
   - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx:615-616`
   - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx:1005`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** loadTabData catches load errors, shows a dismissible banner, and clears the shared sectionLoading boolean — but the tab renderers (e.g. renderUserLimitsTab: `if (!userLimits) return renderSectionLoading()`) gate the spinner on data===null, not on sectionLoading. A failed load leaves the section data null, so the tab shows the loading spinner permanently; dismissing the banner leaves a spinner with no retry. The component conflates three states (loading / loaded / failed) into one nullable-data + one boolean, so 'failed' is indistinguishable from 'still loading'. Low likelihood today because these GETs return static defaults and never throw, but real on any network/401 failure.
+- **Fix design:** Model each section as an explicit state machine instead of nullable-data + shared boolean. Reuse the existing useAsyncData hook (already used by ProvisioningSettingsPage) which exposes {loading,error,canRetry,retry}; render an error card with a Retry button when a section is in the error state, so 'failed' can never render as 'loading' (tier 2 make-correct-automatic). Because useAsyncData is the established admin-panel pattern, adopting it per tab removes the bespoke sectionLoading flag entirely.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx`
+- **Effort:** M
 
 ### APA-038 [MEDIUM] IP list UI invites CIDR ranges that the backend DTO rejects
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The IpListManager placeholder is '192.168.1.0/24' and the copy says 'IP addresses/ranges', but IpAddressDto validates with @IsIP() which rejects CIDR notation — any range entry would 400 (contract drift; currently masked by the 410 on the same endpoints, since validation pipes run before the handler the user actually sees the 400 for CIDR and 410 for plain IPs — two different failure modes for the same button).
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx:125`
   - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx:1316-1337`
   - `apps/admin-api-service/src/settings/dto/tenant-configuration.dto.ts:342-345`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The single-IP add path validates with IpAddressDto.ip = @IsIP() (accepts only bare IPv4/IPv6, rejects CIDR), yet the IpListManager placeholder is '192.168.1.0/24' and both list descriptions say 'IP addresses/ranges'. Worse, the bulk security PUT validates ipWhitelist/ipBlacklist as @IsString({each}) — arbitrary strings, CIDR included. So the same domain concept ('allowed/blocked address or range') has two contradictory validators, and the UI invites input that only the bulk path accepts. A CIDR entry via Add 400s (@IsIP) while a bare IP 410s — two failure modes for one button.
+- **Fix design:** Encode the real domain rule once as a custom class-validator constraint @IsIpOrCidr() and apply it to BOTH IpAddressDto.ip and the each-item validation of ipWhitelist/ipBlacklist in UpdateTenantSecurityDto, replacing the mismatched @IsIP/@IsString pair (tier 1: the type system now expresses exactly what the UI offers, consistently across single-add and bulk). Add a unit spec covering bare IPv4, IPv6, valid CIDR (accepted) and garbage (rejected). If downstream enforcement genuinely cannot honor CIDR, the alternative root-cause fix is to strip 'ranges' from the copy and set a bare-IP placeholder — but the 'ranges' intent plus the CIDR-accepting bulk path indicate CIDR should be supported.
+- **Files to change:**
+  - `apps/admin-api-service/src/settings/dto/tenant-configuration.dto.ts`
+  - `apps/admin-api-service/src/settings/validators/is-ip-or-cidr.validator.ts`
+  - `apps/admin-api-service/src/settings/__tests__/is-ip-or-cidr.validator.spec.ts`
+- **Effort:** S
 
 ### APA-039 [LOW] Unvalidated bodies on several endpoints: controller uses service interfaces as DTOs
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** createApiKey, createWebhook, domain verify, and updateBranding take types imported from the service file (plain TS interfaces, not class-validator classes), so the global ValidationPipe skips them entirely (non-class metatype). Additionally the FE createTenantApiKey payload omits 'createdBy' which the CreateApiKeyDto interface requires — invisible at runtime because nothing validates it. Moot while the endpoints 410, but a latent validation gap if restored.
 - **Evidence:**
   - `apps/admin-api-service/src/settings/controllers/tenant-configuration.controller.ts:18-26`
   - `apps/admin-api-service/src/settings/services/tenant-configuration.service.ts:46-51`
   - `web/modules/admin-panel/src/services/api/tenant-config.ts:263-271`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** createConfiguration, updateConfiguration, createApiKey, createWebhook, initiateCustomDomainVerification and updateBranding type their @Body() as CreateTenantConfigurationDto/UpdateTenantConfigurationDto/CreateApiKeyDto/CreateWebhookDto/VerifyDomainDto/UpdateBrandingDto — all plain `export interface`s in tenant-configuration.service.ts. Interfaces erase at compile time, so the param metatype is Object and the global ValidationPipe's shouldValidate returns false: these bodies are completely unvalidated (no whitelist, no type checks). Systemic class: unvalidated interface-DTO. Also FE createTenantApiKey omits createdBy that the CreateApiKeyDto interface requires — invisible because nothing validates it (and createdBy should come from the JWT, not the body). Moot while endpoints 410, latent if restored.
+- **Fix design:** Convert these six interfaces into class-validator DTO classes living in settings/dto/tenant-configuration.dto.ts (their correct home), decorate each field, and import them in the controller so validation becomes automatic (tier 1). Source createApiKey's createdBy from the JWT via getAuthUserId (matching the C6 pattern already applied to the PUT handlers) rather than the request body, and drop createdBy from the FE payload. Make the whole class detectable: add an architecture spec that reflects over every admin-api @Body() param and asserts its metatype is a class carrying class-validator metadata (never an interface/Object), so an interface-as-DTO regression fails CI (tier 3).
+- **Files to change:**
+  - `apps/admin-api-service/src/settings/dto/tenant-configuration.dto.ts`
+  - `apps/admin-api-service/src/settings/controllers/tenant-configuration.controller.ts`
+  - `apps/admin-api-service/src/settings/services/tenant-configuration.service.ts`
+  - `web/modules/admin-panel/src/services/api/tenant-config.ts`
+  - `apps/admin-api-service/src/__tests__/body-dto-is-class.architecture.spec.ts`
+- **Effort:** M
 
 ### APA-040 [LOW] testWebhook FE method targets a route that does not exist
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** tenantConfigApi.testWebhook POSTs to /settings/tenant/:id/webhooks/:id/test; the controller has no such route (would 404). The FE file itself admits 'no backend endpoint yet'. Not reachable from this page's UI, but exported and re-exported via settingsApi.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/api/tenant-config.ts:323-328`
   - `apps/admin-api-service/src/settings/controllers/tenant-configuration.controller.ts:214-243`
   - `web/modules/admin-panel/src/services/api/settings.ts:57`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** tenantConfigApi.testWebhook POSTs /settings/tenant/:id/webhooks/:id/test, but TenantConfigurationController exposes no such route (GET/POST webhooks, PUT/DELETE webhooks/:webhookId only) — the call 404s. The FE comment itself admits 'no backend endpoint yet'. It is unused by TenantConfigurationPage but exported and re-exported through settingsApi.testWebhook. Systemic class: FE API method with no backend route (FE-route-with-no-backend).
+- **Fix design:** Remove the dead testWebhook method from tenant-config.ts and its re-export in settings.ts — shipping a client method for a nonexistent endpoint is the defect. If webhook test-fire is a wanted capability, it must be built backend-first (controller route + service + DTO) and only then wired to a FE method. To catch this class going forward, add a route-parity test that extracts every apiFetch path literal in the admin-panel services and asserts each resolves to a declared admin-api route (tier 3 detectable).
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/api/tenant-config.ts`
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `web/modules/admin-panel/src/services/api/__tests__/route-parity.spec.ts`
+- **Effort:** S
 
 
 ## ProvisioningSettingsPage — `/admin/settings/provisioning` — verdict: **BROKEN**
@@ -315,25 +346,39 @@ Result: one SSoT (config-service rows), one write path (SUPER_ADMIN GraphQL muta
 
 ### APA-044 [MEDIUM] Two of six form fields are ignored by the consumer even by design
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The page collects 'GitHub Release URL' and 'GitHub Repo', but InstallerScriptService deliberately pins the repo from EDGE_AGENT_GITHUB_REPO and always derives the release URL from that pinned value (MED-07 supply-chain hardening) — the remote githubRepo/githubReleaseUrl are dropped in parseRemoteProvisioningConfig (they are not even parsed). Those inputs could never influence anything even in a fully repaired chain; they should not be editable.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/ProvisioningSettingsPage.tsx:186-197`
   - `apps/sensor-service/src/edge-device/installer-script.service.ts:68-70`
   - `apps/sensor-service/src/edge-device/installer-script.service.ts:113-115`
   - `apps/sensor-service/src/edge-device/installer-script.service.ts:152-165`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** ProvisioningSettingsPage renders editable 'GitHub Release URL' and 'GitHub Repo' inputs, but the real consumer InstallerScriptService pins the repo from EDGE_AGENT_GITHUB_REPO and always derives githubReleaseUrl from that pinned value (MED-07 supply-chain hardening); parseRemoteProvisioningConfig doesn't even parse githubRepo/githubReleaseUrl. So those two fields are inert by design — they could never influence edge-agent downloads even in a fully repaired chain — yet the admin GET returns them and the UI presents them as controls, which is misleading. Systemic class: editable control for a value nobody reads / server-pinned value shown as writable.
+- **Fix design:** Reflect the pinning in the contract: mark githubRepo/githubReleaseUrl as server-derived (non-editable) and render them read-only in ProvisioningSettingsPage with a note that they are env-pinned for supply-chain safety, or remove them from the editable form entirely (drop from ProvisioningConfig, DEFAULT_CONFIG, and mapResponseToConfig). Root-cause tier-1 option: have getProvisioningConfig return these keys under a distinct 'derived'/read-only section so the FE structurally cannot offer them as inputs. Aligns the UI with the single source of truth (the pinned env var).
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/ProvisioningSettingsPage.tsx`
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts`
+- **Effort:** S
 
 ### APA-045 [MEDIUM] Asymmetric read/write contract with an unvalidated PUT body and an unsafe FE cast
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** GET returns camelCase fields (provisioningApiUrl, mqttBrokerHost, ...) which the page maps into dotted snake_case keys ('provisioning.api_url'), then PUTs the dotted-key object back cast via 'as unknown as Record<string, string>' (a banned-pattern cast per repo rules, and mqtt_broker_port travels as a string). The backend accepts @Body() as a raw Record<string,string> with only an is-object check — no DTO, no key whitelist — so any arbitrary keys would be accepted if the 410 were lifted. mapResponseToConfig is also typed 'any' and coerces a missing agentDefaultVersion to '' rather than the 'latest' default.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/ProvisioningSettingsPage.tsx:36-45`
   - `web/modules/admin-panel/src/pages/ProvisioningSettingsPage.tsx:96`
   - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts:682-688`
   - `apps/admin-api-service/src/system-management/__tests__/provisioning-config.spec.ts:207`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The provisioning read and write use different, unenforced shapes. GET returns camelCase {provisioningApiUrl, mqttBrokerHost, mqttBrokerPort:number, ...}; the page remaps them into dotted snake_case keys ('provisioning.api_url', mqtt_broker_port carried as a string), then PUTs that object back via `config as unknown as Record<string,string>` — a banned double-cast. The backend PUT types @Body() as a raw Record<string,string> with only an is-object guard: no DTO class, no key whitelist, so any keys are accepted if the 410 were lifted. mapResponseToConfig is typed `any` and coerces a missing agentDefaultVersion to '' (overriding the 'latest' default via the spread). Systemic class: asymmetric read/write contract bridged by an unsafe cast and an untyped Record body.
+- **Fix design:** Introduce one ProvisioningConfigDto class-validator class (camelCase, @IsUrl/@IsString/@IsInt+@Min/@Max per field, default agentDefaultVersion='latest') and use it as BOTH the GET response type and the PUT @Body type in global-settings.controller/service — the whitelist then rejects stray keys automatically (tier 1), replacing the ad-hoc is-object check. Share the same camelCase shape with the FE so ProvisioningSettingsPage drops the dotted-key remap, the `as unknown as Record<string,string>` cast, and the `any`-typed mapper, keeping mqttBrokerPort a number end-to-end and the 'latest' default in the DTO rather than FE coercion. Add a test asserting GET response keys === PUT DTO keys so read/write symmetry is enforced.
+- **Files to change:**
+  - `apps/admin-api-service/src/system-management/dto/provisioning-config.dto.ts`
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts`
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts`
+  - `web/modules/admin-panel/src/pages/ProvisioningSettingsPage.tsx`
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `apps/admin-api-service/src/system-management/__tests__/provisioning-config.spec.ts`
+- **Effort:** M
 
 
 ## Cross-cutting findings
@@ -410,9 +455,9 @@ The page is reachable only by hand-typed URL (no nav item, no TenantDetailPage l
 - **Proof of fix:** 1) Extend apps/admin-api-service/src/__tests__/contract-validation.spec.ts (blocking in CI via tests/admin-route-contract, enforced by tests/invariants/admin-route-contract-ci.spec.ts) with the RETIRED-handler classification: the suite fails if any admin-panel apiFetch endpoint maps to a handler whose service implementation is a GoneException tombstone, and — post-fix — proves zero FE references to /settings/tenant/:tenantId* remain and that PUT /system/settings/provisioning-config no longer exists as a route (unmatched-FE check covers accidental resurrection). 2) Extend web/modules/admin-panel/src/services/api/__tests__/platform-configuration.spec.ts: provisioning rows map into the ProvisioningConfig tab model (typed and string GraphQLJSON values) and buildProvisioningWrites emits canonical string writes for exactly the four seeded keys. 3) Extend apps/config-service/src/database/__tests__/platform-configuration-seed.spec.ts: the provisioning seed contains exactly the four keys, excludes github_repo/github_release_url, and is idempotent. 4) Rewrite apps/admin-api-service/src/system-management/__tests__/provisioning-config.spec.ts: getProvisioningConfig resolves from the config-service client (SYSTEM tenant, service 'platform') and degrades to env bootstrap defaults on outage; updateProvisioningConfig no longer exists on the service. 5) apps/sensor-service/src/edge-device/__tests__/provisioning-config.spec.ts stays green unchanged (facade URL and shape preserved — proves the machine consumer is unaffected). 6) nx affected --target=test && nx affected --target=lint green.
 - **Effort:** L
 
-### APA-048 [LOW] Auth/routing plumbing for the audited surface is sound (verified, no finding)
+### APA-048 [NOT_A_BUG] Auth/routing plumbing for the audited surface is sound (verified, no finding)
 
-- **Status:** PENDING
+- **Status:** REFUTED
 - **Symptom:** Verified working, recorded for audit completeness: browser chain '/api' base → nginx rewrite ^/api/(.*)→/api/v1/$1 → global prefix 'api/v1' with URI versioning defaultVersion ['1', VERSION_NEUTRAL] resolves every FE path in this section to an existing route; the global APP_GUARD PlatformAdminGuard enforces RS256 JWT verification (issuer/audience/algorithm pinned via getJwtVerifyOptions) and hard-codes SUPER_ADMIN as the only accepted role (decorators can never widen access), and SEC-M19 removed the former @Public() from provisioning-config. No unguarded endpoint was found in scope. The controllers' C6 fix also sources updatedBy identity from the JWT (getAuthUserId) rather than the request body.
 - **Evidence:**
   - `infrastructure/nginx/droplet.conf:377-383`
@@ -421,4 +466,4 @@ The page is reachable only by hand-typed URL (no nav item, no TenantDetailPage l
   - `apps/admin-api-service/src/app.module.ts:283-290`
   - `apps/admin-api-service/src/guards/platform-admin.guard.ts:149-177`
   - `apps/admin-api-service/src/settings/controllers/tenant-configuration.controller.ts:117-127`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Refutation (brief check):** Not a defect — this is a positive verification entry for audit completeness. The claims check out against the code: the browser chain '/api' base -> nginx rewrite ^/api/(.*)->/api/v1/$1 -> global prefix api/v1 with URI versioning defaultVersion ['1', VERSION_NEUTRAL] resolves every FE path in this section; the global APP_GUARD PlatformAdminGuard enforces RS256 JWT (pinned issuer/audience/algorithm) and hard-codes SUPER_ADMIN; SEC-M19 removed @Public() from provisioning-config (comment present at global-settings.controller.ts:674-675); and the C6 fix sources updatedBy/createdBy identity from the JWT (getAuthUserId in the tenant-config controller, getAuthUser in the global-settings controller) rather than the body. No unguarded endpoint in scope.

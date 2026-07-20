@@ -278,13 +278,21 @@ TIER 3 — make regressions detectable:
 
 ### APA-233 [HIGH] Reports 'Key Findings' has the same object-render crash — and monthly cron guarantees reports exist
 
-- **Status:** PENDING
+- **Status:** CONFIRMED+DESIGNED
 - **Symptom:** mapComplianceReport maps finding.category ?? finding.requirement — for persisted detailedFindings.complianceResults, category is undefined and requirement is the full requirement object, so category/description become objects rendered at CompliancePage.tsx:1061-1062 -> React crash. Since generateMonthlyReports auto-creates a GDPR report on the 1st of every month, the Reports tab is expected to crash in any running deployment.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/security/CompliancePage.tsx:221-232,1044-1072`
   - `apps/admin-api-service/src/security/services/compliance.service.ts:541-584,933-951`
   - `web/modules/admin-panel/src/services/types/security.ts:167-176 (type declares category/description that backend results lack)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Verification:** Confirmed end-to-end by reading the code. Backend ComplianceCheckResult (compliance.service.ts lines 51-57) has requirement as a nested ComplianceRequirement object (not a string) plus details and remediation, and has NO top-level category or description. generateComplianceReport (541-584) stores the array verbatim into detailedFindings, a jsonb column (security.entity.ts line 756), and getComplianceReports (601-628) returns full entities via getManyAndCount with detailedFindings intact. In mapComplianceReport (CompliancePage.tsx 221-232) finding.category is undefined at runtime so the expression finding.category then finding.requirement resolves to the requirement object, assigned to both category and description; the toPrimitiveString guard (line 110) is applied to the violations branch (211-219) but NOT to this resultFindings branch. At render (1061-1062) the object is emitted as a React child, so React throws Objects are not valid as a React child. No ErrorBoundary exists anywhere in admin-panel/src (grep empty), so the Reports tab hard-crashes. generateMonthlyReports (Cron on the 1st of every month, lines 933-951) auto-creates a GDPR report, guaranteeing at least one crashing report; GDPR yields 8 findings so findings length is above zero and the first sliced finding crashes. Graded HIGH not CRITICAL: it is a UI-tab crash, not data loss or a security-boundary breach, but it makes the entire Reports tab unusable with certainty.
+- **Root cause:** Hand-written FE type drift against a backend-owned persisted JSON shape. web/modules/admin-panel/src/services/types/security.ts declares detailedFindings.complianceResults items as flat optional strings (requirement as string, category and description as optional strings), but the backend persists the ComplianceCheckResult shape where requirement is a full ComplianceRequirement OBJECT and the human-readable fields live at requirement.requirement, requirement.category and requirement.description, with the check message in details and the fix in remediation. Because the FE type lies, the mapper fallback of finding.requirement reads an object and TypeScript cannot catch it, and the mapper omits the toPrimitiveString guard on this branch even though it applies that guard on the sibling violations branch, so the object flows straight into JSX. Same object-render-crash class as sibling i1: an unvalidated hand-written interface-DTO whose shape was never pinned to the backend contract.
+- **Fix design:** Fix the contract at the source and make an object structurally unable to reach JSX. Step 1: correct the FE type in services/types/security.ts so detailedFindings.complianceResults items match the real shape - requirement as a nested object (id, framework, requirement, description, category, isMandatory, verificationMethod), status as the backend union, plus details string and optional remediation string; drop the fictional flat category/description/recommendation strings. This makes the compiler see requirement as an object so the finding.requirement fallback no longer type-checks as a string. Step 2: fix the resultFindings branch of mapComplianceReport to read the correct nested paths and route EVERY rendered field through the existing toPrimitiveString guard - category from requirement.requirement or requirement.category, description from details, recommendation from remediation. Because toPrimitiveString returns a string for objects and undefined, the mapper output (typed category and description as string) can never contain an object, which is a tier-1 local guarantee. Step 3, pattern-level for the i1/i2 class: hoist toPrimitiveString into a shared mapper util so every security mapper uses one render-safety guard, and export mapComplianceReport (or extract mappers into a testable module) so its output invariant can be unit-tested. The deepest tier-1 (a shared cross-boundary contract type for ComplianceCheckResult consumed by both apps/admin-api-service and the FE) is a larger extraction tracked separately; the type-correction plus guard plus invariant test closes this finding and detects the whole class.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/pages/security/CompliancePage.tsx`
+  - `web/modules/admin-panel/src/pages/security/__tests__/CompliancePage.mapper.spec.ts`
+- **Proof of fix:** Add web/modules/admin-panel/src/pages/security/__tests__/CompliancePage.mapper.spec.ts: build a BackendComplianceReport fixture whose detailedFindings.complianceResults uses the REAL backend ComplianceCheckResult shape (requirement as a nested object, details and remediation strings, no top-level category or description), call mapComplianceReport, and assert for every mapped finding that typeof category is string and typeof description is string (and that category equals the requirement name and description equals details). This fails on current code (category and description are objects) and passes after the fix. Add a companion React Testing Library render test that renders the Reports tab with such a report and asserts it does not throw and shows the requirement name as the Key Findings title. Extending an invariant to scan security mappers for un-guarded object fields would cover the i1/i2 class platform-wide.
+- **Effort:** M
 
 ### APA-234 [HIGH] All five compliance stat cards are hardcoded zeros while a real stats endpoint sits unused
 
@@ -298,44 +306,72 @@ TIER 3 — make regressions detectable:
 
 ### APA-235 [MEDIUM] GET data-requests/stats is route-shadowed by data-requests/:id
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** @Get('data-requests/:id') is declared before @Get('data-requests/stats'), so /stats resolves as id='stats' and throws NotFoundException('Data request not found: stats'). Latent today (FE never calls it) but blocks the correct fix for the zeros above.
 - **Evidence:**
   - `apps/admin-api-service/src/security/controllers/compliance.controller.ts:239-244 (declared first),354-365 (shadowed)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** In compliance.controller.ts the parameterized route @Get('data-requests/:id') (line 239) is declared BEFORE the static route @Get('data-requests/stats') (line 354). NestJS/Express matches in declaration order, so a GET /data-requests/stats binds :id='stats', calls complianceService.getDataRequest('stats'), and throws NotFoundException('Data request not found: stats'). Same latent hazard applies to /data-requests/status/overdue (line 346) which only survives because 'status/overdue' is a two-segment path. This is an instance of the systemic 'static route shadowed by a param route' class — the correct fix for the CompliancePage stats-zeros finding is blocked until this is reordered.
+- **Fix design:** Tier-1/3: move ALL static/literal sub-paths (data-requests/stats, data-requests/status/overdue) above @Get('data-requests/:id') so the specific routes win. To make the wrong ordering detectable rather than relying on reviewer vigilance, add a controller-route-ordering invariant spec that reflects over the controller's route metadata (via Reflector/PATH_METADATA) and asserts no static segment route is registered after a same-prefix ':param' route. Prefer this over renaming stats to a query flag so the URL contract is preserved.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/controllers/compliance.controller.ts`
+  - `apps/admin-api-service/src/security/controllers/__tests__/compliance.controller.route-order.spec.ts`
+- **Effort:** S
 
 ### APA-236 [MEDIUM] Status filter offers states the backend does not have
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** Dropdown includes 'identity_verification' and 'processing'; backend DataRequestStatus is pending|in_progress|completed|rejected|expired (DB CHECK constraint). Selecting them silently returns an empty list (status is @IsString, no 400).
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/security/CompliancePage.tsx:877-884`
   - `apps/admin-api-service/src/security/entities/security.entity.ts:65,578`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** CompliancePage.tsx status dropdown (lines 877-884) offers 'identity_verification' and 'processing', but the backend DataRequestStatus union (security.entity.ts:65) is only pending|in_progress|completed|rejected|expired and is backed by a DB CHECK constraint. QueryDataRequestsDto.status is @IsString (no enum validation), so selecting those two values passes ValidationPipe, is sent as a filter, matches zero rows, and silently returns an empty list. This is an instance of the systemic 'FE offers values the backend does not accept' drift class, compounded by an unvalidated interface DTO.
+- **Fix design:** Tier-1: make the option set impossible to drift by sourcing it from a single DataRequestStatus SSoT. Export the DataRequestStatus union as a runtime const-array (readonly tuple) shared/mirrored in the admin-panel security types, drive the dropdown <option> list from that array (removing identity_verification/processing), and type the FE filter state as DataRequestStatus|'all'. On the backend, tighten QueryDataRequestsDto.status from @IsString to @IsEnum(DataRequestStatus) so an out-of-domain value returns 400 instead of an empty 200. Add a test asserting the FE option values are a subset of the backend enum.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/security/CompliancePage.tsx`
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `apps/admin-api-service/src/security/dto/query-data-requests.dto.ts`
+  - `apps/admin-api-service/src/security/entities/security.entity.ts`
+- **Effort:** S
 
 ### APA-237 [MEDIUM] Expired GDPR download URLs are never actually cleared
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** expireDownloadUrls cron does .set({ downloadUrl: undefined }) — TypeORM does not translate undefined into NULL in UPDATE set clauses, so the hourly job either no-ops or errors and PII export links outlive downloadExpiresAt.
 - **Evidence:**
   - `apps/admin-api-service/src/security/services/compliance.service.ts:956-969`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** compliance.service.ts expireDownloadUrls cron (lines 956-969) does createQueryBuilder().update(DataRequest).set({ downloadUrl: undefined }). TypeORM's UpdateQueryBuilder omits undefined values from the SET clause rather than emitting NULL; with only one set field that yields an empty SET and throws UpdateValuesMissingError (or at best no-ops). Either way the expired GDPR/PII export links are never nulled, so download URLs outlive downloadExpiresAt — a real PII-retention defect on the hourly job.
+- **Fix design:** Tier-1/2: replace .set({ downloadUrl: undefined }) with an explicit SQL NULL: .set({ downloadUrl: () => 'NULL' }) (raw-value function form), keeping the existing WHERE downloadExpiresAt < now AND downloadUrl IS NOT NULL guard so result.affected stays meaningful. Add a service integration test that seeds an expired row with a non-null downloadUrl, runs expireDownloadUrls(), and asserts the persisted column is NULL and affected===1 (guards the general 'undefined is not NULL in TypeORM UPDATE' trap).
+- **Files to change:**
+  - `apps/admin-api-service/src/security/services/compliance.service.ts`
+  - `apps/admin-api-service/src/security/services/__tests__/compliance.service.expire-urls.spec.ts`
+- **Effort:** S
 
 ### APA-238 [MEDIUM] Generate Report / Download / Run Assessment buttons are dead
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** None of these three buttons has an onClick, though real endpoints exist (POST /security/compliance/reports, GET /checks/:framework). Report generation is only reachable via the monthly cron.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/security/CompliancePage.tsx:979-984,1019-1022,1096-1099`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** In CompliancePage.tsx the 'Generate Report' button (line 980), per-report 'Download' button (line 1019), and 'Run Assessment' button (line 1096) render with no onClick handler, so they are dead UI. Real endpoints exist (POST /security/compliance/reports for generation, GET /security/compliance/checks/:framework for assessment), meaning report generation is only reachable via the monthly cron and the checks tab cannot be refreshed on demand. Instance of the systemic 'FE control with no wired backend call' class.
+- **Fix design:** Tier-2: wire each button to its existing api function. 'Run Assessment' calls the checks/:framework endpoint and reloads the checks list; 'Generate Report' calls POST reports (framework + period) then refetches reports; 'Download' needs a real artifact source — either surface the report's stored downloadUrl/exportUrl field or add a GET reports/:id/export endpoint if none exists (confirm before assuming), and have the button open it. Add loading/disabled states so the click has feedback. Add a page test asserting each button has an onClick that invokes the corresponding api service fn.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/security/CompliancePage.tsx`
+  - `web/modules/admin-panel/src/services/api/security.ts`
+  - `web/modules/admin-panel/src/pages/security/__tests__/CompliancePage.actions.spec.tsx`
+- **Effort:** M
 
 ### APA-239 [LOW] Non-GDPR frameworks silently reuse the GDPR requirement set; dead broken Not() helper
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** getRequirements returns GDPR_REQUIREMENTS for every framework (documented). File also carries an unused local Not() returning {$not:value}, which is not a valid TypeORM operator if ever used.
 - **Evidence:**
   - `apps/admin-api-service/src/security/services/compliance.service.ts:648-661,1009-1012`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** compliance.service.ts getRequirements (lines 648-661) returns GDPR_REQUIREMENTS for every ComplianceType via the default branch, so KVKK/SOC2/ISO27001/CCPA/HIPAA/PCI/SOX assessments silently reuse the GDPR requirement set (documented in-code). Separately, a module-local Not() helper (lines 1009-1012) returns { $not: value }, which is not a valid TypeORM operator; grep confirms it has zero call sites, so it is dead code that would silently produce a wrong WHERE if ever wired in. LOW.
+- **Fix design:** Tier-1 for the dead helper: delete the local Not() function outright (if a NOT filter is ever needed, import TypeORM's Not from 'typeorm' — never a hand-rolled {$not}). For the framework reuse: since divergence is currently documented (Tier-4) but structurally invisible, make it detectable — replace the catch-all default with an explicit switch arm per ComplianceType returning a named requirement set (initially aliasing GDPR_REQUIREMENTS where intentional) so a newly added framework fails to compile until an author consciously maps it, and add a test asserting getRequirements(framework).length>0 and that non-GDPR frameworks are explicitly enumerated rather than falling through.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/services/compliance.service.ts`
+  - `apps/admin-api-service/src/security/services/__tests__/compliance.service.requirements.spec.ts`
+- **Effort:** S
 
 
 ## SecurityDashboardPage — `/admin/security/threats` — verdict: **PARTIAL**
@@ -382,40 +418,66 @@ TIER 3 — make regressions detectable:
 
 ### APA-241 [MEDIUM] 'Critical (24h)' and 'Blocked (24h)' cards actually show all-time counts
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** dashboard.criticalEvents and threatsBlocked are unbounded counts (no createdAt filter) but the cards label them as 24h figures.
 - **Evidence:**
   - `apps/admin-api-service/src/security/services/security-monitoring.service.ts:941-950`
   - `web/modules/admin-panel/src/pages/security/SecurityDashboardPage.tsx:210-218,763-795`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** security-monitoring.service.ts getSecurityDashboardStats computes criticalEvents (lines 942-944, where threatLevel='critical') and threatsBlocked (lines 948-950, where autoMitigated=true) as unbounded all-time counts — neither has a createdAt filter, though last24h is computed at line 936 and used for eventsLast24h. SecurityDashboardPage.tsx maps them to criticalEvents24h/blockedAttacks24h (lines 212,216) and renders cards labelled 'Critical (24h)' (line 769) and 'Blocked (24h)' (line 791). All-time figures are presented as 24h measurements. Instance of the systemic 'card label claims a time window the query does not apply' class (shares root with p3|i3).
+- **Fix design:** Tier-1: make the field name carry the window so label and data cannot diverge. Add createdAt: MoreThan(last24h) to the criticalEvents and threatsBlocked count queries (and rename the SecurityDashboardStats/BackendSecurityDashboardStats fields to criticalEvents24h/threatsBlocked24h so the 24h semantics are encoded in the contract), then the FE mapper and cards line up truthfully. If an all-time critical count is also wanted, add it as a separately named field rather than overloading. Add a service test asserting a critical event older than 24h is excluded from criticalEvents24h.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/services/security-monitoring.service.ts`
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/pages/security/SecurityDashboardPage.tsx`
+  - `apps/admin-api-service/src/security/services/__tests__/security-monitoring.dashboard.spec.ts`
+- **Effort:** M
 
 ### APA-242 [MEDIUM] Incident field drift: FE reads columns the entity does not have
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** FE type BackendSecurityIncident declares affectedUsers/relatedEvents/remediation/resolvedAt; the entity has affectedUsersCount/relatedSecurityEvents/remediationSteps and no resolvedAt. Incident cards therefore always show '0 users affected' and never show remediation/related events even when data exists. Timeline actor field also drifts (backend 'actor' vs FE 'user').
 - **Evidence:**
   - `web/modules/admin-panel/src/services/types/security.ts:240-259`
   - `apps/admin-api-service/src/security/entities/security.entity.ts:421-422,457-458,468,481-482`
   - `web/modules/admin-panel/src/pages/security/SecurityDashboardPage.tsx:279-299,932-935`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** FE-type drift vs entity. BackendSecurityIncident (security.ts:240-259) declares affectedUsers/relatedEvents/remediation/resolvedAt, but the SecurityIncident entity (security.entity.ts) exposes affectedUsersCount (421-422), relatedSecurityEvents (457-458), remediationSteps (467-468, a jsonb step[] not a string) and has NO resolvedAt column. The API returns the entity as-is, so mapSecurityIncident (SecurityDashboardPage.tsx:279-299) reads undefined for all four — incident cards always show '0 users affected' (line 934) and never surface remediation/related events even when populated. Timeline actor also drifts: entity stores { actor } (482) while the FE type declares { user? } (252). Instance of the systemic 'hand-written FE type drifted from backend entity/response' class.
+- **Fix design:** Tier-1 root fix: align the FE type and mapper to the actual response field names — affectedUsersCount, relatedSecurityEvents, remediationSteps (typed as the {step,completed,completedAt}[] jsonb shape, not string), timeline actor as 'actor' — and drop resolvedAt (or derive a display timestamp from closedAt/recoveredAt which DO exist, 443-444). Systemically, close the drift class: introduce a shared response contract / codegen so admin-panel security types are generated from the backend DTO instead of hand-copied; at minimum add a structural type-parity test that asserts BackendSecurityIncident keys are a subset of the entity's persisted columns. Fixing field names at the source (mapper + type together) is required, not a defensive rename in one place.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/pages/security/SecurityDashboardPage.tsx`
+  - `apps/admin-api-service/src/security/entities/security.entity.ts`
+- **Effort:** M
 
 ### APA-243 [MEDIUM] 'Affected Tenants' hardcoded 0; 'Unique IPs' capped at 10
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** mapDashboardData sets affectedTenants: 0 unconditionally and uniqueSourceIps = topSourceIPs.length, which the backend caps with LIMIT 10 — both cards present placeholder math as measurements.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/security/SecurityDashboardPage.tsx:210-219`
   - `apps/admin-api-service/src/security/services/security-monitoring.service.ts:1000-1009 (.limit(10))`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** SecurityDashboardPage.tsx mapDashboardData hardcodes affectedTenants: 0 (line 218) and derives uniqueSourceIps from topSourceIPs.length (line 217), but topSourceIPs is capped by the backend query's .limit(10) (security-monitoring.service.ts:1008) — so 'Unique IPs' can never exceed 10 and 'Affected Tenants' is a literal placeholder. Both cards present placeholder math as measurements. Note the entity DOES carry an affectedTenants simple-array column (security.entity.ts:414-415), so a real aggregate is derivable. Instance of the systemic 'placeholder constant rendered as a real metric' class (shares root with p3|i1).
+- **Fix design:** Tier-2: compute the values on the backend and expose them as first-class SecurityDashboardStats fields. Add a dedicated uniqueSourceIps count (SELECT COUNT(DISTINCT event.ipAddress)) independent of the LIMIT-10 topSourceIPs list, and an affectedTenants count (COUNT DISTINCT tenantId across security events, or distinct expansion of incident.affectedTenants) to the stats contract; the FE mapper then reads real fields instead of .length and the 0 literal. Do not repurpose the top-N list for a cardinality metric. Add a service test asserting uniqueSourceIps > 10 when >10 distinct IPs exist.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/services/security-monitoring.service.ts`
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/pages/security/SecurityDashboardPage.tsx`
+  - `apps/admin-api-service/src/security/services/__tests__/security-monitoring.dashboard.spec.ts`
+- **Effort:** M
 
 ### APA-244 [LOW] Status/search filters exist as dead state; resolved-count only scans first incident page
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** statusFilter/searchTerm have no UI controls (_setStatusFilter/_setSearchTerm unused), and resolvedIncidents counts status==='closed' within the default 20-row first page only. Event modal 'Tenant' always shows N/A (no tenantName in entity or response).
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/security/SecurityDashboardPage.tsx:582-583,607,530`
   - `apps/admin-api-service/src/security/services/security-monitoring.service.ts:909 (limit=20 default)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Three coupled LOW defects on SecurityDashboardPage. (a) statusFilter/searchTerm state exists (lines 582-583) and IS passed to fetchSecurityEvents (591-592), but the setters are named _setStatusFilter/_setSearchTerm and are never called — there is no UI control, so both are permanently 'all'/'' (dead filters). (b) resolvedIncidents is computed at line 607 by filtering incidentsValue for status==='closed', but incidentsValue comes from fetchIncidents() with no limit, so it counts only the backend's default first page (queryIncidents limit=20, service line 909) — resolved count is capped/undercounted. (c) The event modal 'Tenant' field (line 530) reads event.tenantName, but mapSecurityEvent (245-263) never maps tenantName and no such field exists on the event entity/response, so it is always 'N/A'.
+- **Fix design:** Tier-2/1: (a) either add real <select>/search inputs bound to setStatusFilter/setSearchTerm (rename off the underscore) so the already-plumbed server-side filtering works, or delete the dead state and its params — no half-wired state. (b) Source resolvedIncidents from a server-side aggregate (the incidents/stats/summary endpoint already computes byStatus with limit=10000) instead of counting a 20-row page. (c) For tenant display, either add tenantName to the event response/mapper via a join to the tenant record and map it, or remove the Tenant field — don't render a permanent N/A. Add a page test covering the filter controls actually driving fetch params and resolvedIncidents matching the stats endpoint.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/security/SecurityDashboardPage.tsx`
+  - `web/modules/admin-panel/src/services/api/security.ts`
+  - `web/modules/admin-panel/src/services/types/security.ts`
+- **Effort:** M
 
 
 ## Cross-cutting findings
@@ -472,12 +534,18 @@ TIER 3 — make regressions detectable:
 
 ### APA-247 [MEDIUM] Actor attribution hardcoded to 'admin' on audit-relevant mutations
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** createRetentionPolicy/updateRetentionPolicy pass createdBy/updatedBy 'admin' ('Would come from auth context') and updateIncident records actor 'admin'/'Admin User' — on a service whose whole purpose is attribution, retention-policy changes and incident-response timeline entries cannot be traced to the operator who made them, while the same file already demonstrates the JWT pattern (compliance controller C6 fixes).
 - **Evidence:**
   - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts:481-495`
   - `apps/admin-api-service/src/security/controllers/security-monitoring.controller.ts:547-558`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Actor attribution hardcoded on audit-relevant mutations. audit-trail.controller.ts createRetentionPolicy passes createdBy: 'admin' (line 483, '// Would come from auth context') and updateRetentionPolicy passes 'admin' (line 495); security-monitoring.controller.ts updateIncident passes 'admin'/'Admin User' (lines 555-556). These write the operator identity into retention-policy records and incident-response timeline entries on a service whose entire purpose is attribution, so those changes cannot be traced to the acting SUPER_ADMIN. This is an instance of the systemic 'hardcoded actor / unresolved auth context' class — and the correct pattern already exists in the same codebase: compliance.controller.ts uses getAuthUserId(req)/getAuthUser(req) with @Req() (the C6 fix, lines 231/279-282).
+- **Fix design:** Tier-2/3: apply the existing getAuthUser(req) helper. Inject @Req() req: Request into createRetentionPolicy/updateRetentionPolicy/updateIncident, resolve userId (throw UnauthorizedException if absent) and displayName (name||email||id) exactly as compliance.controller does, and pass those through instead of the string literals. Systemically make the drift detectable: add an invariant/ESLint or AST test over apps/admin-api-service/src/security/controllers/** that fails on a literal 'admin'/'Admin User' or the comment 'Would come from auth context' being passed as a createdBy/updatedBy/actor argument, so no future mutation controller can re-hardcode identity.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts`
+  - `apps/admin-api-service/src/security/controllers/security-monitoring.controller.ts`
+  - `apps/admin-api-service/src/security/controllers/__tests__/actor-attribution.invariant.spec.ts`
+- **Effort:** S
 
 ### APA-248 [MEDIUM] Hand-written FE response types drift systematically (no codegen)
 

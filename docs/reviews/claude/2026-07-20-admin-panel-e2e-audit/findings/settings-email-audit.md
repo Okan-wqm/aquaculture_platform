@@ -61,21 +61,37 @@
 
 ### APA-342 [MEDIUM] System Info tab contract drift — server/database sections never render, returned data not displayed
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** FE SystemInfo type expects {platform, server, database}; backend GET /settings/system/info returns {platform:{name,version}, security, rateLimits, maintenance}. The tab therefore renders only a two-field Platform card; the 'Server Information' and 'Database Information' cards are permanently absent, and the security/rateLimits/maintenance payload the backend does return is silently discarded. platform name/version are also hardcoded strings, not live values.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/SystemSettingsPage.tsx:41-45,438-474 (SystemInfo type + conditional cards)`
   - `apps/admin-api-service/src/settings/settings.controller.ts:389-409 (actual response shape, hardcoded name/version)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The hand-written FE `SystemInfo` type (SystemSettingsPage.tsx:41-45) declares `{platform?, server?, database?}`, but `GET /settings/system/info` (settings.controller.ts:389-409) returns `{platform:{name,version}, security, rateLimits, maintenance}`. SystemInfoTab only renders sections keyed `platform/server/database`, so it shows a 2-field Platform card, never renders Server/Database (backend never sends them), and silently drops the security/rateLimits/maintenance payload the backend does send. platform name/version are hardcoded literals ('Aquaculture Platform'/'1.0.0') in the controller, not live values. Instance of the systemic FE-type-drift class: hand-authored FE response types with no shared contract or response-shape gate against the backend DTO.
+- **Fix design:** Bind both sides to ONE response contract. Define an exported `SystemInfoResponse` DTO in the backend (dto/system-info.dto.ts) and set the controller return type to it. Decide the real shape by the endpoint's purpose ('System Info' panel): populate `platform` (name from a shared version/app-name constant + build env, version from package version — not literals), `server` (process.version, uptime, memory via os/process), and `database` (name + pool/liveness via injected DataSource). Drop security/rateLimits/maintenance from THIS endpoint — they already have dedicated Security/RateLimit tabs and belong to config-service, so returning them here is redundant. Mirror the exact shape in the FE `SystemInfo` type and type `getSystemInfo()` to it instead of `Record<string,unknown>`. Tier-3 gate: extend contract-validation.spec (or add settings-system-info.contract.spec.ts) to assert the response keys equal the FE `SystemInfo` keys so future drift fails CI.
+- **Files to change:**
+  - `apps/admin-api-service/src/settings/settings.controller.ts`
+  - `apps/admin-api-service/src/settings/dto/system-info.dto.ts`
+  - `apps/admin-api-service/src/settings/services/system-setting.service.ts`
+  - `web/modules/admin-panel/src/pages/SystemSettingsPage.tsx`
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `apps/admin-api-service/src/__tests__/contract-validation.spec.ts`
+- **Effort:** M
 
 ### APA-343 [LOW] Retired settings endpoints still exposed and return 410 at runtime
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** SettingsController still mounts PUT /settings/key/:key, PUT /settings/bulk, PUT /settings/config/email|security|rate-limits|maintenance|billing and POST /settings/import — all of which unconditionally throw GoneException from SystemSettingService. Dead guarded surface; any stale client gets 410s.
 - **Evidence:**
   - `apps/admin-api-service/src/settings/settings.controller.ts:140-177,195-204,249-283,297-334,371-380`
   - `apps/admin-api-service/src/settings/services/system-setting.service.ts:121-142,418-421`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** SettingsController still mounts the full write surface — PUT key/:key, POST key/:key/reset, PUT bulk, PUT config/email|security|rate-limits|maintenance|billing, POST import (settings.controller.ts:140-380) — but each delegates to a SystemSettingService method that unconditionally calls `throwLegacyGone()` → GoneException 410 (system-setting.service.ts:121-142,418-421). The config-service migration retired the write PATH at the service layer but left the routes, DTOs, throttle decorators, and `never`-returning stubs mounted. Dead guarded surface: any input returns 410, and the routes/DTOs must be maintained forever.
+- **Fix design:** Retire the endpoints, not just their bodies (hierarchy tier 1 — a removed route 404s, which is the correct semantics for something that no longer exists; a hand-maintained 410 stub is exactly the compat-shim CLAUDE.md bans). Delete the 9 write handlers from SettingsController, delete the matching `never` stub methods + `throwLegacyGone`/`LEGACY_CONFIG_STORE_GONE` from SystemSettingService (keep the GET config getters — getSystemInfo consumes them internally), and delete the now-unused write DTOs (BulkUpdateSettingsDto, UpdateEmailConfigDto, SetMaintenanceModeDto, UpdateBillingConfigDto, ImportSettingsDto, and the inline UpdateSecurityConfigDto/UpdateRateLimitConfigDto). Keep only the live surface: reads, system/info, config/email/test. Update contract-validation.spec / any route inventory to drop these paths. Verification: a route-inventory test asserting the removed paths are absent (404, not 410).
+- **Files to change:**
+  - `apps/admin-api-service/src/settings/settings.controller.ts`
+  - `apps/admin-api-service/src/settings/services/system-setting.service.ts`
+  - `apps/admin-api-service/src/settings/dto/settings.dto.ts`
+  - `apps/admin-api-service/src/__tests__/contract-validation.spec.ts`
+- **Effort:** S
 
 
 ## EmailTemplatesPage.tsx — `/admin/settings/email` — verdict: **PARTIAL**
@@ -86,16 +102,34 @@
 
 **DB tables:** `admin.email_templates`
 
-### APA-344 [CRITICAL] Email templates are never consumed by any real send path — edits have zero effect on emails actually sent
+### APA-344 [HIGH] Email templates are never consumed by any real send path — edits have zero effect on emails actually sent
 
-- **Status:** PENDING
+- **Status:** CONFIRMED+DESIGNED (audited CRITICAL → verified HIGH)
 - **Symptom:** Every real email the platform sends (welcome/invitation, alerts, regulatory reports) is generated by notification-service EmailService from hardcoded inline template strings with env-var SMTP config; it never queries admin.email_templates. EmailTemplateService (render/getTemplateByCode) is referenced only inside admin-api's own settings module, whose sole 'send' consumer is the stubbed test endpoint. An admin editing the 'Welcome Email' or 'Password Reset' template — including deactivating a template — changes nothing in production email, while the UI reports 'Template saved successfully'. This is exactly the silent-wrong-data scenario the audit was asked to check.
 - **Evidence:**
   - `apps/notification-service/src/notification/services/email.service.ts:224-306,311-391,506-643 (hardcoded generate*Template methods; no repository/template read)`
   - `apps/notification-service/src/notification/services/email.service.ts:134-160 (env-var SMTP transporter)`
   - `grep EmailTemplateService across apps/: only apps/admin-api-service/src/settings/* match`
   - `apps/admin-api-service/src/settings/controllers/email-template.controller.ts:162-181 (only send-adjacent consumer is the stub)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Verification:** Confirmed and concretely reachable. admin.email_templates is written/read only within admin-api's own settings module (email-template.service.ts / email-template.controller.ts, entity in settings/entities/system-setting.entity.ts, seeded in migrations/1800000000000-Baseline.ts) and surfaced by the admin FE (services/api/email-templates.ts). The ONLY real email send path is notification-service EmailService, whose bodies come from hardcoded generate*Template methods (welcome L224-306, alert L311-391, regulatory L506-782) over env-var SMTP (L134-160), invoked by auth-event.handler.ts:433 (UserInvited welcome), regulatory-report.handler.ts:118/136/154, and notification-dispatcher.service.ts:862 (alert). notification-command.handler.ts:265 renderTemplate is a separate hardcoded switch (messaging/HR), also not backed by the table. No NATS TemplateUpdated event exists in libs/event-contracts, no signed-HTTP call from notification-service to admin's template API, and the controller :id/test endpoint (L162-181) is an explicit stub. Refutation attempts (alternate consumer, event bridge, HTTP proxy, later migration) all fail. Editing or deactivating a template therefore changes nothing about production email while the UI reports 'Template saved successfully'. Downgraded CRITICAL->HIGH: whole-feature silent-wrong-data / false-success integrity defect, but no security/safety/data-loss/cross-tenant impact and emails still send with hardcoded content. Instance of the systemic config-table-nobody-reads / silent-wrong-data class.
+- **Root cause:** The BE->send link is missing entirely. Template AUTHORING (admin-api bounded context, admin.email_templates) and template RENDERING/SENDING (notification-service bounded context, EmailService) were built independently with no contract between them: notification-service has no dependency on the admin template store and instead inlines HTML in generate*Template. The FE->admin-api->admin.email_templates chain is intact but terminates in a store the sole send runtime never consults. It drifted because two bounded contexts each modeled 'the email template' locally and nothing structurally forces the send path to resolve templates from the authored SSoT — the hardcoded generators are the path of least resistance and became the live path. The admin CRUD/render/test endpoints, including the :id/test stub, are decorative over a store with zero live consumers.
+- **Fix design:** Establish a single email-template SSoT that the send path is structurally forced to consult, and make an orphan (unbacked) template impossible and detectable. (Tier 1/2) Define a canonical contract lib exporting an EMAIL_TEMPLATE_CODES enum + per-code variable schema (welcome/invitation, password_reset, alert, regulatory welfare/disease/escape, plus messaging/HR codes) — the SSoT of which templates exist and their variables. Give the SENDING service (notification-service, the only send runtime) ownership of the persisted registry: a new email-template entity with schema:'notification' (platform-level cross-tenant per ADR-011) and a notification migration that SEEDS the current generate*Template HTML as the default active row for each code, so day-0 behavior is byte-identical but every subsequent edit takes effect. Refactor EmailService to a single renderByCode(code, variables) that loads the active template body from the registry and interpolates; delete the hardcoded generate*Template methods from the live path (they survive only as seed data in the migration). Rewire callers (auth-event.handler UserInvited, regulatory-report.handler, notification-dispatcher, and notification-command.handler's switch) to renderByCode; deactivating a code must suppress/refuse the send rather than no-op. Make admin authoring the front-end of the SAME store: admin-api's EmailTemplateService/controller proxy to notification-service's template API via the signed HTTP client (libs/backend-common service-identity util), and retire the duplicate admin.email_templates authoring table (dropped in an admin migration) so exactly one SSoT remains. Replace the :id/test stub with a real NotificationSendCommand dispatch so 'test' exercises the live path. Align the FE EmailTemplate type to the shared code contract. Because this is the config-table-nobody-reads class, land the pattern-level gate below, not just local wiring.
+- **Files to change:**
+  - `libs/event-contracts/src/email-template-contract.ts`
+  - `apps/notification-service/src/notification/entities/email-template.entity.ts`
+  - `apps/notification-service/src/database/migrations/`
+  - `apps/notification-service/src/notification/services/email.service.ts`
+  - `apps/notification-service/src/notification/event-handlers/auth-event.handler.ts`
+  - `apps/notification-service/src/notification/event-handlers/regulatory-report.handler.ts`
+  - `apps/notification-service/src/notification/services/notification-dispatcher.service.ts`
+  - `apps/notification-service/src/notification/event-handlers/notification-command.handler.ts`
+  - `apps/admin-api-service/src/settings/services/email-template.service.ts`
+  - `apps/admin-api-service/src/settings/controllers/email-template.controller.ts`
+  - `apps/admin-api-service/src/settings/entities/system-setting.entity.ts`
+  - `apps/admin-api-service/src/migrations/1800000000000-Baseline.ts`
+  - `web/modules/admin-panel/src/services/types/index.ts`
+- **Proof of fix:** Add apps/notification-service/src/notification/services/__tests__/email.service.registry.spec.ts: proves sendWelcomeEmail/sendAlertEmail/regulatory render from the registry — editing a seeded row changes the produced HTML, and deactivating a code causes the send to be suppressed/refused (not the current no-op). Add invariant e2e/tests/integration/email-template-ssot.spec.ts: (a) every EMAIL_TEMPLATE_CODES entry resolves to exactly one active seeded registry row; (b) the set of codes the admin authoring endpoint can edit === the set of codes the send path resolves (single SSoT, no divergence); (c) a static/AST guard asserting EmailService has no inline template-HTML branch on the live path (bans reintroduction of hardcoded generators) and that admin has no independent email_templates table. Add an end-to-end check that a template edit made via the admin API is reflected in the HTML notification-service renders, proving the FE->authoring->send chain is closed.
+- **Effort:** L
 
 ### APA-345 [HIGH] 'New Template' creation is impossible — modal state never initializes, typing is a no-op, Save silently does nothing
 
@@ -119,41 +153,64 @@
 
 ### APA-347 [MEDIUM] DB unique constraint on code makes the tenant-override feature impossible
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** admin.email_templates has UNIQUE("code") (entity @Column({unique:true}) + Baseline migration), but EmailTemplateService models per-tenant overrides as a second row with the same code and a tenantId (createTenantOverride, getTemplateByCode fallback). Any POST /settings/email-templates/code/:code/override will violate the unique constraint and 500. Service-level duplicate check is code+tenantId; DB enforces global code uniqueness — the two contracts contradict.
 - **Evidence:**
   - `apps/admin-api-service/src/settings/entities/system-setting.entity.ts:52-60 (@Index unique + @Column unique on code)`
   - `apps/admin-api-service/src/migrations/1800000000000-Baseline.ts:109-111 (UQ + unique index on code)`
   - `apps/admin-api-service/src/settings/services/email-template.service.ts:624-665 (creates second row with same code)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The domain models email templates as 'one global row (tenantId NULL) plus optional per-tenant override rows sharing the same code' — createTenantOverride inserts a second row with the same `code` + a tenantId (email-template.service.ts:648-660), getTemplateByCode falls back tenant→global (532-553), and createTemplate's duplicate check is scoped (code, tenantId) (573-575). But persistence enforces a single-column GLOBAL unique on code: @Column({unique:true}) + @Index(['code'],{unique:true}) (system-setting.entity.ts:59,53) and the Baseline migration's UQ_e65f... + unique index (1800000000000-Baseline.ts:109,111). So the first override POST hits a unique_violation → 500. The seed only ever inserts global rows, which is why it never surfaced; the whole override feature is structurally dead.
+- **Fix design:** Make the constraint match the domain (tier 1). Replace the single-column unique on code with two partial unique indexes (Postgres treats NULLs as distinct, so a plain UNIQUE(code,tenantId) would wrongly allow two global rows): unique on (code) WHERE tenantId IS NULL, and unique on (code, tenantId) WHERE tenantId IS NOT NULL. Express both via @Index(..., {unique:true, where:...}) on the entity and remove the @Column unique flag. Generate a NEW migration (never edit Baseline) that drops UQ_e65f... + IDX_e65f... and creates the two partial indexes — safe blue-green since existing rows are all global. The service scope checks already align to (code, tenantId), so the override path becomes functional. Also align the migration's `tenantId` column (character varying) with the DTO's @IsUUID('4'). Verification: integration spec that seeds a global template, creates a tenant override (asserts success, no 500), and asserts a second global row with the same code is rejected.
+- **Files to change:**
+  - `apps/admin-api-service/src/settings/entities/system-setting.entity.ts`
+  - `apps/admin-api-service/src/migrations/`
+  - `apps/admin-api-service/src/settings/__tests__/email-template-tenant-override.integration.spec.ts`
+- **Effort:** M
 
 ### APA-348 [MEDIUM] Template CRUD bodies bypass the global ValidationPipe — DTOs are TS interfaces, no server-side validation
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** CreateEmailTemplateDto/UpdateEmailTemplateDto are plain interfaces exported from the service, so the global ValidationPipe (whitelist+forbidNonWhitelisted) skips them (metatype erases to Object). Arbitrary/oversized bodies, wrong-typed variables arrays, or junk categories are persisted unvalidated. Same applies to the variables jsonb payload rendered later in an iframe preview.
 - **Evidence:**
   - `apps/admin-api-service/src/settings/services/email-template.service.ts:20-43 (interface DTOs)`
   - `apps/admin-api-service/src/settings/controllers/email-template.controller.ts:87-101 (@Body typed with interfaces)`
   - `libs/backend-common/src/bootstrap/create-service-app.ts:458-489 (global pipe config that these bodies bypass)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** CreateEmailTemplateDto/UpdateEmailTemplateDto are TypeScript `interface`s exported from the service (email-template.service.ts:20-43) and used as @Body types in the controller (email-template.controller.ts:88,98). Interfaces erase at runtime to metatype `Object`, which ValidationPipe.toValidate treats as a non-validatable native type, so the global pipe (whitelist+forbidNonWhitelisted, create-service-app.ts:458-489) skips them entirely — arbitrary/oversized bodies, junk categories, and malformed `variables` (later rendered into an iframe srcDoc) persist unvalidated. Instance of the systemic 'unvalidated interface-DTO' class (identical to the IP-access DTOs, finding p2|i4).
+- **Fix design:** Convert both to class-validator classes in dto/email-template.dto.ts (where CreateTenantOverrideDto/ValidateTemplateDto already live): @IsString+@MaxLength on code/name/subject, @IsIn(getTemplateCategories()) on category, @MaxLength on bodyHtml/bodyText, @IsBoolean isActive, @IsUUID tenantId, and a nested EmailTemplateVariableDto (@IsString/@IsBoolean/@IsOptional) referenced via @IsArray+@ArrayMaxSize+@ValidateNested+@Type so array element shapes are actually validated (the existing override/validate DTOs also only shallow-validate variables — fix them to use the nested class too). Controller and service import these classes. Tier-3 systemic gate: add an invariant test that scans admin-api controllers and fails if any @Body() parameter resolves to an interface rather than a decorated class, preventing recurrence platform-wide. Verification: e2e posting an extra/oversized field returns 400.
+- **Files to change:**
+  - `apps/admin-api-service/src/settings/dto/email-template.dto.ts`
+  - `apps/admin-api-service/src/settings/controllers/email-template.controller.ts`
+  - `apps/admin-api-service/src/settings/services/email-template.service.ts`
+  - `apps/admin-api-service/src/__tests__/controller-body-dto-classes.spec.ts`
+- **Effort:** M
 
 ### APA-349 [MEDIUM] Enable/Disable toggle failures are swallowed — console.error only, optimistic UI already reconciled
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** handleToggleActive catches errors with console.error and sets no error state; on failure the user gets no feedback at all (state is only updated after success, so the row silently stays unchanged with no message). Also console.* usage violates the repo logging rule.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/EmailTemplatesPage.tsx:89-98`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** handleToggleActive (EmailTemplatesPage.tsx:89-98) awaits updateEmailTemplate and only mutates local state after success; its catch logs to console.error with no setError, so a failed toggle produces zero user feedback — the row silently stays unchanged (not optimistic; state simply never updates). The page already owns a setError/error banner (used by loadTemplates/handleSaveTemplate) that this handler ignores. console.* also violates the repo no-console rule. Systemic: every mutation handler on this page hand-rolls its own try/catch/console instead of a shared feedback path.
+- **Fix design:** Route the failure through the existing error banner: on catch call setError(err instanceof Error ? err.message : 'Failed to update template') and drop the console call (matching handleAddRule). Tier-2 systemic improvement: extract a shared runWithFeedback(fn, successMsg) helper (mirroring SystemSettingsPage's saveWithFeedback) into web/modules/admin-panel/src/hooks so every mutation surfaces errors to the banner uniformly and no handler touches console — making correct feedback the zero-effort default. Verification: React Testing Library test asserting the error banner renders when updateEmailTemplate rejects; confirm ESLint no-console is enabled for admin-panel so console usage fails lint.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/EmailTemplatesPage.tsx`
+  - `web/modules/admin-panel/src/hooks/`
+- **Effort:** S
 
 ### APA-350 [LOW] Preview API response shape drift (latent)
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** FE previewEmailTemplate types the response as {html,text,subject}; backend previewTemplate returns {subject,bodyHtml,bodyText}. The page does client-side preview so nothing breaks today, but any consumer of the FE function would read undefined fields. contract-validation.spec.ts still lists the pre-fix POST/GET drift entries as accepted exceptions.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/api/email-templates.ts:22-23`
   - `apps/admin-api-service/src/settings/services/email-template.service.ts:735-755`
   - `apps/admin-api-service/src/__tests__/contract-validation.spec.ts:779-789`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** FE previewEmailTemplate types the response as {html, text, subject} (email-templates.ts:22-23), but backend previewTemplate/GET :id/preview returns {subject, bodyHtml, bodyText} (email-template.service.ts:735-755). Field names drift (html vs bodyHtml, text vs bodyText). Latent only because the page previews client-side (handlePreview builds HTML from template.bodyHtml directly) and never calls the API fn — any consumer would read undefined. Compounding: contract-validation.spec KNOWN_EXCEPTIONS still lists the preview and test endpoints as POST-vs-GET drift exceptions (779-789), but the FE was already migrated to GET/matching-POST, so those allowlist entries are now stale and mask the real (response-shape) drift — an instance of the banned 'allowlisting drift in contract tests' pattern, and the broader class of contract tests that check URL/method parity but not response body shape.
+- **Fix design:** Align the FE preview return type to the backend field names {subject, bodyHtml, bodyText}. Remove the two now-stale KNOWN_EXCEPTIONS entries (the FE preview is GET and test is POST, both matching the backend — the exception reasons no longer hold), and instead extend the contract test to assert response-body key parity for these settings endpoints, not just URL/method — so shape drift is detectable at CI (tier 3) rather than allowlisted. Verification: contract-validation.spec passes with the exceptions removed and a response-shape assertion added for /settings/email-templates/:id/preview.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/api/email-templates.ts`
+  - `apps/admin-api-service/src/__tests__/contract-validation.spec.ts`
+- **Effort:** S
 
 
 ## IpAccessRulesPage.tsx — `/admin/settings/integrations` — verdict: **PARTIAL**
@@ -178,40 +235,65 @@
 
 ### APA-352 [MEDIUM] Backend route shadowing: GET /settings/ip-access/stats is captured by @Get(':id')
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** @Get('stats') is declared after @Get(':id') in IpAccessController, so /settings/ip-access/stats resolves to getRuleById('stats'); the id column is uuid so the lookup errors (invalid uuid input) instead of returning statistics. The FE dodges this by computing stats client-side, but the server statistics endpoint (incl. mostHitRules) is unreachable.
 - **Evidence:**
   - `apps/admin-api-service/src/settings/controllers/ip-access.controller.ts:98-101 (@Get(':id')) vs 216-219 (@Get('stats') declared later)`
   - `apps/admin-api-service/src/migrations/1800000000000-Baseline.ts:112 (id uuid)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** In IpAccessController, @Get(':id') getRuleById is declared at line 98, before @Get('stats') getStatistics at line 216. Express matches in declaration order, so GET /settings/ip-access/stats binds to getRuleById('stats') → service findOne({where:{id:'stats'}}) against a uuid `id` column (Baseline:112) → Postgres invalid-uuid-syntax error → 500. The server statistics endpoint (including mostHitRules) is unreachable; the FE only dodges it by computing stats client-side. Classic literal-route-shadowed-by-param-route bug (the sibling EmailTemplateController avoids it by declaring all literals before :id).
+- **Fix design:** Move @Get('stats') above @Get(':id') so the literal wins (tier 2), AND constrain the param route so it structurally cannot swallow literals (tier 1): declare it as @Get(':id') with a uuid regex path constraint (e.g. ':id([0-9a-fA-F-]{36})') so any non-uuid segment like 'stats' falls through to the literal handler regardless of ordering. Verification: e2e test hitting GET /settings/ip-access/stats asserts a 200 statistics object (with mostHitRules), plus a route-collision invariant covering the controller.
+- **Files to change:**
+  - `apps/admin-api-service/src/settings/controllers/ip-access.controller.ts`
+- **Effort:** S
 
 ### APA-353 [MEDIUM] Rule list and stats capped at first 100 rules with no pagination UI
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** loadData requests limit=100 and the page renders no pager; the stats cards (Total Rules, counts, Total Hits) are computed from that first-page subset, so once more than 100 rules exist both the table and every stat silently under-report. Backend getAllRules also loads ALL rules into memory before slicing (in-process pagination).
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/IpAccessRulesPage.tsx:60-73 (limit:100 + client-side stats)`
   - `apps/admin-api-service/src/settings/controllers/ip-access.controller.ts:62-82 (in-memory slice pagination)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** IpAccessRulesPage.loadData requests {limit:100} and renders no pager; the six stat cards (Total Rules, whitelist/blacklist counts, active/expired, Total Hits) are computed from that first-page subset (IpAccessRulesPage.tsx:60-73), so beyond 100 rules both the table and every stat silently under-report — the FE ignores result.total and uses rulesData.length. Backend getAllRules also loads ALL rules into memory then array-slices (ip-access.controller.ts:62-82), so pagination is in-process, not in the query.
+- **Fix design:** Two-part. (1) Stats must be server-authoritative: consume the getStatistics endpoint (which already aggregates over all rules incl. mostHitRules) instead of deriving from a page — this requires finding p2|i1's shadowing fix first, then add settingsApi.getIpAccessStats and render from it (tier 2, correct regardless of page size). (2) Add real pagination: render a pager driven by page/limit using the server's total/totalPages, and push pagination into the query — backend getAllRules should use findAndCount with skip/take rather than loading all rows and slicing. Verification: e2e asserting stats aggregate over the full set with >100 rules; FE test that the pager advances pages and totals come from result.total.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/IpAccessRulesPage.tsx`
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `apps/admin-api-service/src/settings/controllers/ip-access.controller.ts`
+  - `apps/admin-api-service/src/settings/services/ip-access.service.ts`
+- **Effort:** M
 
 ### APA-354 [MEDIUM] Bulk Add loops single-create and aborts on first failure, leaving partial inserts; backend bulk endpoints unused
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** handleBulkAdd issues one POST per line; a duplicate (409) or invalid IP mid-list throws, aborting the remaining IPs while earlier ones are already committed — the error banner gives no per-IP breakdown. The purpose-built POST /settings/ip-access/{whitelist,blacklist}/bulk endpoints (ArrayMaxSize 500, per-IP validation, added/skipped/errors report) are never called by the FE. Note the bulk endpoints' @IsIP would also reject CIDR entries the single-create path accepts, so the two paths have divergent contracts.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/IpAccessRulesPage.tsx:107-130 (sequential loop, single try/catch)`
   - `apps/admin-api-service/src/settings/controllers/ip-access.controller.ts:37-46,161-195 (unused bulk endpoints; @IsIP each)`
   - `apps/admin-api-service/src/settings/services/ip-access.service.ts:425-433 (single-create accepts CIDR)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** handleBulkAdd (IpAccessRulesPage.tsx:107-130) issues one POST per line inside a single try/catch, so the first failure (a 409 duplicate or an invalid IP mid-list) throws and aborts the remaining IPs while earlier ones are already committed — a partial insert with a single opaque error banner. The purpose-built POST /settings/ip-access/{whitelist,blacklist}/bulk endpoints (ip-access.controller.ts:161-195), which return an {added, skipped, errors} report and skip duplicates instead of aborting, are never called. Worse, those bulk endpoints validate with @IsIP(each) (controller:40) which REJECTS CIDR, while the single-create service path accepts CIDR (ip-access.service.ts:425-433) — two divergent IP-validation contracts, so the bulk endpoint can't even be adopted as-is (the FE bulk modal advertises CIDR examples).
+- **Fix design:** Fix the split validation contract at the source: introduce one shared CIDR-aware validator (a custom @IsIpOrCidr class-validator constraint backed by the same predicate the service uses) and apply it to BOTH the bulk DTO (replacing @IsIP each) and the single-create DTO — so the two paths agree structurally (tier 1). Then wire the FE bulk-add to the bulk endpoint and render its {added, skipped, errors} report per-IP; this removes the client loop and inherits the server's skip-don't-abort behavior and partial-result feedback. Verification: e2e posting a bulk list mixing a valid IP, a CIDR, a duplicate, and junk → asserts the {added, skipped, errors} breakdown and that CIDR is accepted; unit test for the shared validator.
+- **Files to change:**
+  - `apps/admin-api-service/src/settings/dto/is-ip-or-cidr.validator.ts`
+  - `apps/admin-api-service/src/settings/controllers/ip-access.controller.ts`
+  - `web/modules/admin-panel/src/pages/IpAccessRulesPage.tsx`
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+- **Effort:** M
 
 ### APA-355 [LOW] CRUD DTOs are TS interfaces — global ValidationPipe skipped; FE 'isActive' on create silently ignored
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** CreateIpAccessRuleDto/UpdateIpAccessRuleDto are interfaces, so bodies bypass whitelist validation (service does its own IP/CIDR regex — IPv6 regex only matches full uncompressed form, rejecting '::1'-style addresses). The FE sends isActive on create but the service unconditionally sets isActive:true.
 - **Evidence:**
   - `apps/admin-api-service/src/settings/services/ip-access.service.ts:17-31 (interface DTOs), 144-148 (isActive:true override), 425-432 (simplified IPv6 regex)`
   - `web/modules/admin-panel/src/pages/IpAccessRulesPage.tsx:90-96 (isActive in payload)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Three defects rooted in the same interface-DTO + ad-hoc-service-validation pattern. (1) CreateIpAccessRuleDto/UpdateIpAccessRuleDto are TS interfaces (ip-access.service.ts:17-31) used as @Body types (controller:109,125), so they erase to metatype Object and the global ValidationPipe skips whitelist/type validation entirely — same class as finding p1|i4. (2) createRule hardcodes isActive:true (ip-access.service.ts:146), silently discarding the isActive the FE sends on create (IpAccessRulesPage.tsx:94) — the FE type advertises a field the backend ignores. (3) The service IPv6 regex only matches the full 8-group uncompressed form (line 430), rejecting valid compressed addresses like ::1 / fe80::1.
+- **Fix design:** Convert Create/Update IP DTOs to class-validator classes in dto/ip-access.dto.ts, using the shared @IsIpOrCidr validator from finding p2|i3 — and implement that validator with a robust check (Node net.isIP for the address portion + range validation, or ipaddr.js) so it accepts compressed IPv6 and CIDR, replacing the broken regex at the single source of truth (kills defects 1 and 3 together). Add isActive to CreateIpAccessRuleDto and change createRule to honor `dto.isActive ?? true` (mirroring createTemplate) so create can produce an inactive rule (defect 2). Reuse the systemic 'no @Body interface' invariant test from finding p1|i4 to prevent recurrence. Verification: validator unit test accepting ::1 and CIDR + rejecting junk; createRule test that isActive:false persists inactive; e2e posting an unknown field returns 400.
+- **Files to change:**
+  - `apps/admin-api-service/src/settings/dto/ip-access.dto.ts`
+  - `apps/admin-api-service/src/settings/dto/is-ip-or-cidr.validator.ts`
+  - `apps/admin-api-service/src/settings/controllers/ip-access.controller.ts`
+  - `apps/admin-api-service/src/settings/services/ip-access.service.ts`
+- **Effort:** M
 
 
 ## AuditLogPage.tsx — `/admin/audit` — verdict: **PARTIAL**

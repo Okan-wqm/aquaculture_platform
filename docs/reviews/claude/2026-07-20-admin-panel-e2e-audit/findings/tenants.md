@@ -60,39 +60,63 @@
 
 ### APA-018 [MEDIUM] Trial badge and Last Activity column render fields the list DTO never carries
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The page renders tenant.isTrialActive (Trial badge) and tenant.lastActivityAt, and the hand-written FE Tenant type declares both, but TenantListItemDto contains neither (lastActivityAt was deliberately removed — DB-ADMIN-HIGH-003 — and isTrialActive is only computed on the /detail endpoint). Result: trial tenants are never flagged in the list and Last Activity is always '-'. sensorCount is returned but unused; userCount comes from the unmaintained auth.tenants.user_count denormalization.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/TenantManagementPage.tsx:278`
   - `web/modules/admin-panel/src/pages/TenantManagementPage.tsx:310-313`
   - `apps/admin-api-service/src/tenant/dto/tenant-detail.dto.ts:168-183`
   - `web/modules/admin-panel/src/services/types/tenant.ts:70-100`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The hand-written FE Tenant type is a superset of three backend shapes, so TenantManagementPage.tsx:278/310-313 type-checks while rendering isTrialActive and lastActivityAt that TenantListItemDto (tenant-detail.dto.ts:168-183) never emits: lastActivityAt was deliberately deleted (DB-ADMIN-HIGH-003, no backing column) and isTrialActive is computed only on /detail. userCount comes from the unmaintained auth.tenants.user_count denormalization instead of counting auth.users.
+- **Fix design:** Fix the contract at the source, then make the FE mirror exact. Backend: add isTrialActive to TenantListItemDto, derived in ListTenantsHandler.toTenantListItem from the SSoT trialEndsAt (trialEndsAt > now, same rule as detail); replace tenant.userCount with a real count by adding one grouped query (SELECT "tenantId", COUNT(*) FROM auth.users WHERE "tenantId" = ANY($1) GROUP BY 1) to the existing batched countTenantResources round-trip. FE: introduce an endpoint-scoped TenantListItem type mirroring TenantListItemDto field-for-field; the list page consumes it, renders the Trial badge from the new field, and DELETES the Last Activity column (the concept has no tenant-row data source by design; activity lives in admin.tenant_activities on the detail page). Pin the mirror with the source-parsing invariant spec (tier-enum-ssot.spec.ts mechanism) so future DTO edits fail CI — this is one instance of the systemic FE-type-drift class fixed pattern-wide in tenants|xc|i1.
+- **Files to change:**
+  - `apps/admin-api-service/src/tenant/dto/tenant-detail.dto.ts`
+  - `apps/admin-api-service/src/tenant/query-handlers/tenant-query.handlers.ts`
+  - `web/modules/admin-panel/src/services/types/tenant.ts`
+  - `web/modules/admin-panel/src/services/api/tenants.ts`
+  - `web/modules/admin-panel/src/pages/TenantManagementPage.tsx`
+  - `tests/invariants/admin-tenant-api-contract.spec.ts`
+- **Effort:** M
 
 ### APA-019 [MEDIUM] Stats cards stay stale up to 1 hour after lifecycle actions despite FE cache-busting
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** GetTenantStatsHandler caches the aggregate in Redis under 'tenant:stats:global' with a 3600s TTL and nothing invalidates it on suspend/activate/provisioning. The page carefully clears its own 2-minute cache (statsCacheRef.current = null) after every suspend/activate and refetches — but gets the same stale Redis payload back, so Active/Suspended counters contradict the freshly updated table.
 - **Evidence:**
   - `apps/admin-api-service/src/tenant/query-handlers/tenant-query.handlers.ts:273-294`
   - `apps/admin-api-service/src/tenant/query-handlers/tenant-query.handlers.ts:350-355`
   - `web/modules/admin-panel/src/pages/TenantManagementPage.tsx:100`
   - `web/modules/admin-panel/src/pages/TenantManagementPage.tsx:141-143`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** GetTenantStatsHandler owns a private Redis key 'tenant:stats:global' with 3600s TTL (tenant-query.handlers.ts:273-274) and no write-side hook exists: grep confirms no code anywhere invalidates the key. All lifecycle transitions (SuspendTenantHandler/ActivateTenantHandler/Deactivate/Archive in suspend-tenant.handler.ts, plus the provisioning workflow's activate_tenant) commit without touching it, so the FE's own cache-busting (statsCacheRef.current = null) refetches the same stale payload.
+- **Fix design:** Make invalidation automatic at the only write choke-points. Extract a TenantStatsCacheService (owns CACHE_KEY + TTL, methods get/set/invalidate) registered in tenant.module.ts; GetTenantStatsHandler delegates to it. Call invalidate() after commit in the four lifecycle command handlers (all admin status writes funnel through them per the single-writer design) and in the provisioning workflow after activate_tenant / markRunSucceeded — invalidation is then complete by construction, no TTL guesswork. Extend apps/admin-api-service/src/tenant/__tests__/performance/tenant-stats-caching.spec.ts and __tests__/suspend-tenant.handler.spec.ts to assert each handler invalidates and a subsequent stats query recomputes.
+- **Files to change:**
+  - `apps/admin-api-service/src/tenant/services/tenant-stats-cache.service.ts`
+  - `apps/admin-api-service/src/tenant/query-handlers/tenant-query.handlers.ts`
+  - `apps/admin-api-service/src/tenant/handlers/suspend-tenant.handler.ts`
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts`
+  - `apps/admin-api-service/src/tenant/tenant.module.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/performance/tenant-stats-caching.spec.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/suspend-tenant.handler.spec.ts`
+- **Effort:** M
 
 ### APA-020 [LOW] Per-row suspend/activate UI is unreachable dead code on the list page
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The detail Modal (and with it handleToggleStatus, the only path into the single-tenant suspend-reason modal on this page) can never open: setIsDetailModalOpen(true) is never called anywhere — row clicks navigate to the detail page instead. Only bulk actions work from the list.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/TenantManagementPage.tsx:57-58`
   - `web/modules/admin-panel/src/pages/TenantManagementPage.tsx:131-147`
   - `web/modules/admin-panel/src/pages/TenantManagementPage.tsx:499-563`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Row clicks were repointed to navigate('/admin/tenants/:id') but the detail Modal and its feeders were left behind: setIsDetailModalOpen(true) and setSelectedTenant(tenant) are never called anywhere in TenantManagementPage.tsx, so the Modal (lines 499-563) and handleToggleStatus — the only entry into the single-tenant suspend-reason modal on this page — are unreachable. Only bulk actions work from the list.
+- **Fix design:** Restore the intended per-row lifecycle path and delete the orphan: add Suspend/Activate buttons to the existing per-row actions column, gated by tenant.status (ACTIVE shows Suspend, SUSPENDED shows Activate) and wired to handleToggleStatus (which already opens the suspend-reason modal and calls tenantsApi.activate); delete the never-opened detail Modal plus isDetailModalOpen/selectedTenant state (tenant detail is the detail page's job). Add a component spec asserting the row Suspend button opens the reason modal and Activate calls the API — that is the build-time detection for this dead-UI class.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/TenantManagementPage.tsx`
+  - `web/modules/admin-panel/src/pages/__tests__/TenantManagementPage.spec.tsx`
+- **Effort:** S
 
 ### APA-021 [LOW] tenants API surface exposes endpoints that cannot work
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** tenantsApi.getApproachingLimits targets a handler that deliberately throws 501 NotImplementedException (C-9 fix). tenantsApi.getById returns the raw entity whose 'tier' and 'limits' are prototype getters that do not survive JSON serialization, so any consumer typing the result as Tenant gets tier === undefined (the list handler materializes tier for exactly this reason). Neither is called by the three tenant pages today, but both are live drift traps. TenantStatsDto also returns byPlan only while the FE type additionally declares byTier.
 - **Evidence:**
   - `apps/admin-api-service/src/tenant/query-handlers/tenant-query.handlers.ts:415-421`
@@ -100,7 +124,16 @@
   - `apps/admin-api-service/src/tenant/entities/tenant.entity.ts:167-213`
   - `apps/admin-api-service/src/tenant/query-handlers/tenant-query.handlers.ts:172-189`
   - `apps/admin-api-service/src/tenant/query-handlers/tenant-query.handlers.ts:329-348`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The FE api module mechanically mirrors every backend route as the fat Tenant type: getApproachingLimits targets a handler that deliberately throws 501 (tenant-query.handlers.ts:415-421), and getById/getBySlug/search/getExpiringTrials return the raw Tenant entity whose tier/limits are prototype getters (tenant.entity.ts:168,186) that vanish in JSON serialization — the exact failure the list handler's materialized `tier` comment documents. TenantStatsDto emits byPlan only while the FE TenantStats also declares byTier.
+- **Fix design:** Stop serializing entities: add a toTenantResponseDto() mapper (materializes tier, limits, isTrialActive from trialEndsAt, hydrated compat fields) and use it in GetTenantByIdHandler, GetTenantBySlugHandler, SearchTenantsHandler and GetExpiringTrialsHandler; controller signatures change from Tenant to the DTO class. Remove tenantsApi.getApproachingLimits from the FE surface (the 501 is a deliberate C-9 block — a typed Tenant[] fn is a live trap) and drop byTier from the FE TenantStats. Detection at the pattern level: extend tests/invariants/dead-contract-fe-operations.spec.ts so an FE api fn targeting a NotImplementedException route fails CI, and add a serialization spec asserting JSON.parse(JSON.stringify(response)) carries tier/limits as own properties. Instance of the systemic FE-type-drift class (tenants|xc|i1).
+- **Files to change:**
+  - `apps/admin-api-service/src/tenant/query-handlers/tenant-query.handlers.ts`
+  - `apps/admin-api-service/src/tenant/dto/tenant-detail.dto.ts`
+  - `apps/admin-api-service/src/tenant/tenant.controller.ts`
+  - `web/modules/admin-panel/src/services/api/tenants.ts`
+  - `web/modules/admin-panel/src/services/types/tenant.ts`
+  - `tests/invariants/dead-contract-fe-operations.spec.ts`
+- **Effort:** M
 
 
 ## CreateTenantPage — `/admin/tenants/new` — verdict: **BROKEN**
@@ -159,33 +192,51 @@ FE (web/modules/admin-panel/src/pages/CreateTenantPage.tsx) needs no change: the
 
 ### APA-023 [MEDIUM] wait_for_onboarding_ack has no pending/requeue semantics even if the transport were wired
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The step performs one synchronous SELECT immediately after enqueueing TenantOnboardingRequested into the outbox. Only DbMigrateProvisioningPendingError gets the QUEUED-with-nextRetryAt requeue treatment; a missing ack is a plain Error and terminally fails the run. Even with a working listener, the outbox relay latency plus farm-service's six seeders make it near-certain the ack has not landed within the same tick, so first-attempt runs would still fail. The step needs its own pending/backoff class like the db-migrate wait.
 - **Evidence:**
   - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts:452-470`
   - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts:99-104`
   - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts:501-514`
   - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts:517-545`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The pending/requeue mechanism was built as a one-off (DbMigrateProvisioningPendingError) for the db-migrate wait instead of a general step outcome. assertTenantOnboardingAcks (workflow service:601-625) does one synchronous SELECT right after the outbox enqueue and throws a plain Error when acks are merely absent; processOperation's catch (:501-514) treats any non-pending error as terminal — markRunFailed sets FAILED and even sends FailProvisioning to auth-service. Outbox relay latency plus farm-service's seeders make a same-tick ack near-impossible, so first attempts would terminally fail.
+- **Fix design:** Generalize the pending contract: introduce ProvisioningStepPendingError { retryAfterMs } as the base class (DbMigrateProvisioningPendingError becomes an instance) and parameterize markRunWaitingForDbMigrate into markRunWaiting(runId, error, retryMs, leaseToken). assertTenantOnboardingAcks throws pending when required acks are missing, and a hard Error only when a row reports status FAILED. Add a wall-clock deadline (env TENANT_ONBOARDING_ACK_TIMEOUT_MS checked against the run's startedAt) so a never-arriving ack converts pending into a real terminal failure instead of waiting forever. Spec: new workflow test asserting missing ack requeues with nextRetryAt (state QUEUED, no FailProvisioning call), FAILED ack terminally fails, and deadline expiry terminally fails.
+- **Files to change:**
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/tenant-provisioning-workflow.service.spec.ts`
+- **Effort:** M
 
 ### APA-024 [LOW] 'begin_provisioning' step is executed but missing from the seeded step catalog
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** PROVISIONING_STEPS does not include 'begin_provisioning' although processOperation runs it via runStep; it is inserted ad hoc with fallback stepOrder 999, so the step timeline sorts it last instead of second. Cosmetic ordering defect in the operation's step ledger.
 - **Evidence:**
   - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts:106-119`
   - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts:366-368`
   - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts:1470-1473`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The step catalog and step execution are unlinked: runStep accepts `stepName: string`, so processOperation executes 'begin_provisioning' (workflow service:366) although PROVISIONING_STEPS (:106-119) never lists it — seedProvisioningSteps skips it and stepOrder() falls back to 999, sorting it last in the step ledger instead of second.
+- **Fix design:** Make an uncataloged step a compile error (tier 1): add 'begin_provisioning' to PROVISIONING_STEPS between 'reserve_auth_tenant' and 'audit_create_requested', and narrow the stepName parameter of runStep and stepOrder from string to (typeof PROVISIONING_STEPS)[number]. The 999 fallback in stepOrder and the COALESCE($4, 999) in the runStep upsert become dead and are removed (indexOf can no longer be -1). Existing rows self-heal: seedProvisioningSteps' ON CONFLICT updates stepOrder on the next retry. Extend the workflow spec to assert seeded step order equals execution order.
+- **Files to change:**
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/tenant-provisioning-workflow.service.spec.ts`
+- **Effort:** S
 
 ### APA-025 [LOW] Success screen shows the locally computed price, not the provisioned subscription's amount
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The 'Monthly Price' on the success card is the wizard's client-side calculatedTotal (admin.module_pricing rendering in the browser), not the amount billing-service actually persisted on the subscription. Discounts/tier multipliers applied server-side would not be reflected.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/CreateTenantPage.tsx:910-939`
   - `web/modules/admin-panel/src/pages/CreateTenantPage.tsx:1030-1039`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** CreateTenantAcceptedResponse carries no billing outcome (only status/statusUrl/retryAfterMs/availableActions, tenant.dto.ts:380-395), so the success card (CreateTenantPage.tsx:1030-1039) has nothing server-authoritative and renders the wizard's own calculatedTotal — client-side math over admin.module_pricing that ignores any server-side discount/tier adjustment billing-service persisted at create_subscription.
+- **Fix design:** Extend the provisioning contract with the persisted outcome: during the create_subscription step, store the billing reply's summary (subscriptionId, monthlyAmount, currency, billingCycle) on the run — new nullable jsonb column on admin.tenant_provisioning_runs added by a new migration — and surface it as an optional `subscription` field on CreateTenantAcceptedResponse via toAcceptedResponse (populated once the step succeeded). Mirror the field on the FE CreateTenantAcceptedResponse type and render the server amount on the success card, dropping calculatedTotal there (it remains the pre-submit estimate in the wizard only). Spec: workflow test asserting the accepted response of a SUCCEEDED run carries the billing summary persisted by the step.
+- **Files to change:**
+  - `apps/admin-api-service/src/tenant/dto/tenant.dto.ts`
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts`
+  - `apps/admin-api-service/src/migrations/`
+  - `web/modules/admin-panel/src/services/types/tenant.ts`
+  - `web/modules/admin-panel/src/pages/CreateTenantPage.tsx`
+- **Effort:** M
 
 
 ## TenantDetailPage — `/admin/tenants/:tenantId` — verdict: **PARTIAL**
@@ -274,23 +325,37 @@ FE (web/modules/admin-panel/src/pages/CreateTenantPage.tsx) needs no change: the
 
 ### APA-028 [MEDIUM] Overview renders lastActivityAt which was removed from the backend contract — always '-'
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** TenantDetailDto explicitly removed lastActivityAt (DB-ADMIN-HIGH-003: no auth.tenants column ever backed it), but the FE TenantDetail/Tenant types still declare it and the Overview card renders it, so 'Last Activity' is permanently '-'. The hand-written FE type also keeps userCount/farmCount/sensorCount required on the base Tenant while only /detail actually supplies farm/sensor counts.
 - **Evidence:**
   - `apps/admin-api-service/src/tenant/dto/tenant-detail.dto.ts:159-165`
   - `web/modules/admin-panel/src/pages/TenantDetailPage.tsx:418-423`
   - `web/modules/admin-panel/src/services/types/tenant.ts:88-99`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Same FE-type-drift class: TenantDetailDto explicitly removed lastActivityAt (tenant-detail.dto.ts:162-164, DB-ADMIN-HIGH-003 — no auth.tenants column ever backed it) but the hand-written FE Tenant type (types/tenant.ts:92) still declares it and TenantDetailPage.tsx:418-423 renders it, so 'Last Activity' is permanently '-'. The base Tenant type also keeps userCount/farmCount/sensorCount required although only /detail supplies farm/sensor counts.
+- **Fix design:** Delete lastActivityAt from the FE Tenant/TenantDetail types (aligning with the deliberate backend removal) and render the Overview field from the truthful SSoT already in the detail payload: recentActivities[0]?.createdAt (admin.tenant_activities), labeled 'Last Admin Activity', with '-' only when no activity rows exist. Move userCount/farmCount/sensorCount off the base Tenant type onto the endpoint-scoped list/detail mirrors created in tenants|xc|i1, and pin TenantDetail to TenantDetailDto in the contract invariant spec so a future one-sided removal fails CI.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/types/tenant.ts`
+  - `web/modules/admin-panel/src/pages/TenantDetailPage.tsx`
+  - `tests/invariants/admin-tenant-api-contract.spec.ts`
+- **Effort:** S
 
 ### APA-029 [LOW] Note update/delete ownership violations surface as HTTP 500, and user-stats errors are silently zeroed
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** TenantActivityService.updateNote/deleteNote throw plain Error for 'Note not found' and cross-tenant mismatch, which the global filter maps to 500 instead of 404/403. Separately, getUserStats catches all query errors and returns all-zero stats (roles supervisor/operator are hardcoded 0), so a broken auth.users read renders as a tenant with zero users rather than an error state.
 - **Evidence:**
   - `apps/admin-api-service/src/tenant/services/tenant-activity.service.ts:156-162`
   - `apps/admin-api-service/src/tenant/services/tenant-activity.service.ts:173-181`
   - `apps/admin-api-service/src/tenant/services/tenant-detail.service.ts:186-210`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Two error-shape defects: (a) TenantActivityService.updateNote/deleteNote throw untyped Error for 'Note not found' and cross-tenant mismatch (tenant-activity.service.ts:156-181), which the global filter maps to 500; the ownership check is also optional (tenantId?: string), so the guard depends on the callsite remembering to pass it. (b) TenantDetailService.getUserStats (tenant-detail.service.ts:195-210) swallows every query error into an all-zero UserStatsByRole — a broken auth.users read is indistinguishable from an empty tenant — and byRole hardcodes supervisor/operator to 0.
+- **Fix design:** (a) Make ownership structural, not conditional: tenantId becomes a required parameter and the lookup is findOne({ where: { id: noteId, tenantId } }) — a cross-tenant noteId is simply absent and throws NotFoundException (404, no existence leak); untyped Errors disappear. (b) Let the contract express absence: userStats is already optional on TenantDetailDto, so on query failure log and return undefined instead of fabricated zeros; TenantDetailPage renders an explicit 'stats unavailable' state when userStats is missing. Replace the hardcoded role columns with GROUP BY role so byRole reflects actual role values. Specs: service tests asserting 404 for missing/foreign notes and undefined userStats on query failure.
+- **Files to change:**
+  - `apps/admin-api-service/src/tenant/services/tenant-activity.service.ts`
+  - `apps/admin-api-service/src/tenant/services/tenant-detail.service.ts`
+  - `web/modules/admin-panel/src/pages/TenantDetailPage.tsx`
+  - `apps/admin-api-service/src/tenant/__tests__/tenant-activity.service.spec.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/tenant-detail.service.spec.ts`
+- **Effort:** M
 
 
 ## Cross-cutting findings
@@ -332,7 +397,7 @@ Plus a unit spec for the reworked handler (mock EVENT_BUS + DataSource): onModul
 
 ### APA-031 [MEDIUM] Hand-written FE tenant types drift from backend DTOs in both directions (no codegen)
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** web/modules/admin-panel/src/services/types/tenant.ts is maintained by hand against three different backend shapes (raw Tenant entity, TenantListItemDto, TenantDetailDto). Concrete drift found: Tenant declares isTrialActive/lastActivityAt/sensorCount/limits/settings as if the list returned them (it does not); TenantStats declares byTier which the stats handler never emits (byPlan only); UpdateTenantDto allows tier 'custom' which backend @IsEnum(TenantPlan) rejects; the raw-entity endpoints (getById, getBySlug, search, expiring-trials) serialize without the prototype getters tier/limits, so the required Tenant.tier field is absent from those responses. Each individual symptom is reported on its page; the structural fix is a single generated (or invariant-pinned, like tier-enum-ssot.spec.ts) response type per endpoint.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/types/tenant.ts:70-111`
@@ -341,7 +406,18 @@ Plus a unit spec for the reworked handler (mock EVENT_BUS + DataSource): onModul
   - `apps/admin-api-service/src/tenant/query-handlers/tenant-query.handlers.ts:329-348`
   - `apps/admin-api-service/src/tenant/entities/tenant.entity.ts:167-213`
   - `apps/admin-api-service/src/tenant/dto/tenant.dto.ts:420-422`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** One hand-maintained fat FE type (types/tenant.ts) serves three different backend response shapes (raw Tenant entity with prototype getters, TenantListItemDto, TenantDetailDto) with no build-time link. Every verified drift follows: phantom isTrialActive/lastActivityAt/sensorCount/limits/settings on list consumers, byTier never emitted (handler builds byPlan only), FE UpdateTenantDto offering 'custom' against backend @IsEnum(TenantPlan) (tenant.dto.ts:420-422 — itself mismatched, decorating a TenantTier-typed field with the TenantPlan enum), and required Tenant.tier absent from raw-entity endpoint JSON.
+- **Fix design:** Pattern-level fix in two layers. (1) Backend: every tenant endpoint returns a declared response DTO, never a raw entity (completes the toTenantResponseDto work from tenants|p0|i5) — with getters materialized, the response shape IS the DTO class and becomes pinnable. (2) Contract gate: replace the fat Tenant with per-endpoint FE mirrors (TenantListItem, TenantDetail, TenantResponse, TenantStats, UpdateTenantRequest) and add tests/invariants/admin-tenant-api-contract.spec.ts using the proven tier-enum-ssot.spec.ts mechanism (source-parse both sides, assert member-for-member field-set equality) since web modules cannot import backend libs — any one-sided field change fails CI. For the tier enum: decide one enum per operation and pin it via the existing tier-enum-ssot spec — UpdateTenantDto persists into tenant.plan (TenantPlan), so either backend routes 'custom' through customPlanId like CreateTenantDto or the FE update type drops CUSTOM; both sides then validate against the same pinned member list. This is the systemic fix that subsumes p0|i2, p0|i5 and p2|i2's type edits.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/types/tenant.ts`
+  - `web/modules/admin-panel/src/services/api/tenants.ts`
+  - `apps/admin-api-service/src/tenant/dto/tenant.dto.ts`
+  - `apps/admin-api-service/src/tenant/dto/tenant-detail.dto.ts`
+  - `apps/admin-api-service/src/tenant/query-handlers/tenant-query.handlers.ts`
+  - `apps/admin-api-service/src/tenant/tenant.controller.ts`
+  - `tests/invariants/admin-tenant-api-contract.spec.ts`
+  - `tests/invariants/tier-enum-ssot.spec.ts`
+- **Effort:** L
 
 ### APA-032 [LOW] Auth, routing, and schema discipline for the tenants section verified sound (context, not a defect)
 

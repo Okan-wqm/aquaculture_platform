@@ -578,7 +578,7 @@
 
 ### APA-209 [HIGH] Stats header shows 'Total Tenants: NaN' — backend has no 'stalled' bucket
 
-- **Status:** PENDING
+- **Status:** CONFIRMED+DESIGNED
 - **Symptom:** getOnboardingStats returns {total, notStarted, inProgress, completed, skipped, avgCompletionPercent, avgCompletionDays, completionByStep}. The FE expects and sums a 'stalled' field: totalTenants = notStarted + inProgress + completed + stats.stalled -> number + undefined = NaN, rendered directly. The Stalled tile renders empty and 'stalled' as a status filter matches nothing server-side (backend status enum is not_started|in_progress|completed|skipped).
 - **Evidence:**
   - `apps/admin-api-service/src/support/services/onboarding.service.ts:559-568 (returned keys: skipped, no stalled)`
@@ -586,34 +586,75 @@
   - `web/modules/admin-panel/src/pages/OnboardingPage.tsx:310-313 (Stalled tile)`
   - `web/modules/admin-panel/src/services/api/support.ts:134-135 (FE declares stalled in stats type)`
   - `apps/admin-api-service/src/support/entities/support.entity.ts:29 (OnboardingStatus enum has skipped, not stalled)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Verification:** Refutation attempts all failed. (1) Route shadowing: @Get('stats') is declared before @Get(':tenantId') in onboarding.controller.ts:110-125, so /support/onboarding/stats resolves correctly. (2) Controller reshaping: getStats() returns the service result verbatim; grep for 'stalled' across apps/admin-api-service yields zero hits (only 'installed'), so no layer injects the key. (3) Envelope handling: http-client.ts parseApiEnvelope returns envelope.data for non-paginated responses, so the raw service object {total, notStarted, inProgress, completed, skipped, avgCompletionPercent, avgCompletionDays, completionByStep} reaches setStats unmodified. (4) Type safety: apiFetch<T> is a blind cast; the FE-declared 'stalled: number' (services/api/support.ts:134-135) compiles clean against reality. Therefore OnboardingPage.tsx:272 computes number + undefined = NaN, rendered in the 'Total Tenants' headline tile on every load; the Stalled tile (lines 310-313) renders undefined (empty). (5) Filter path: '?status=stalled' hits a bare unvalidated @Query('status') param (ValidationPipe only validates DTO classes), flows into where.status='stalled' in getAllProgress and matches zero rows since the persisted enum is not_started|in_progress|completed|skipped (support.entity.ts:29) — the admin is told no stalled tenants exist, which is silently misleading for the triage workflow. Severity HIGH stands: the SUPER_ADMIN onboarding-ops page shows a visibly broken KPI and its stuck-tenant triage filter is nonfunctional-but-plausible. Note the FE arithmetic is doubly wrong: even if a stalled count existed, stalled tenants are a subset of in_progress (per the backend's needs-attention definition), so the sum would double-count and omit skipped — the server-provided 'total' field is the only correct source. This is a confirmed instance of the systemic FE-type-drift class (hand-written services/types/* + apiFetch<T> casts vs backend inline anonymous return shapes): TenantOnboarding.status also carries 'stalled'/omits 'skipped', and declares progress/lastActivityAt/assignedTo fields the backend never returns.
+- **Root cause:** The FE→BE contract link broke at the type layer: OnboardingPage and the hand-written FE types were authored against a mock-era domain model (page header: 'Sprint 3 Fix... Mock data removed, real API integration') in which 'stalled' was a persisted fourth status. The backend's actual domain persists 'skipped' as the fourth status and models 'stalled' as a DERIVED condition (in_progress + 30 days inactive), exposed only via GET /support/onboarding/needs-attention and never surfaced in the stats payload. Nothing binds the FE's declared response types to the controller: apiFetch<T> is an unchecked cast, the backend returns inline anonymous shapes (no response DTO), and no shared contract module or contract spec covers the support domain — so the drift compiled clean on both sides and shipped. A second, compounding break: the FE re-derives 'total' by summing buckets client-side instead of consuming the server's existing 'total' field, which converted a missing key into NaN in the headline KPI and would have produced silently wrong arithmetic (double-counting stalled, omitting skipped) even if the key had existed.
+- **Fix design:** Pattern-level (tier 1 — make drift a compile error) plus local application; this is an instance of the systemic FE-type-drift class, so fix the contract at the source once and consume it on both sides. PATTERN: make the existing-but-unused libs/shared-contracts (@aquaculture/shared-contracts, already aliased in tsconfig.base.json) the SSoT for admin API wire shapes. Add libs/shared-contracts/src/admin/onboarding.ts exporting: ONBOARDING_STATUSES = ['not_started','in_progress','completed','skipped'] as const with OnboardingStatus derived from it; OnboardingStatsDto {total; notStarted; inProgress; completed; skipped; stalled; avgCompletionPercent; avgCompletionDays; completionByStep: Record<string,number>}; OnboardingProgressDto and OnboardingStepDto matching the backend's real shapes (title, completionPercent, updatedAt, assignedGuideName). Export from index.ts; wire the alias into web/modules/admin-panel tsconfig.json paths and vite.config.ts resolve.alias. BACKEND: (a) support.entity.ts types status from the contract OnboardingStatus so persisted enum and wire enum are one type; (b) onboarding.service.ts extracts a single isStalled(progress, now) predicate (named 30-day constant) used by BOTH getTenantsNeedingAttention() and getOnboardingStats() — one definition, cannot drift — and getOnboardingStats(): Promise<OnboardingStatsDto> adds stalled computed from that predicate ('stalled' is a real domain concept the stats endpoint failed to expose; it is an overlay of in_progress, not a fifth bucket, so total remains the sum of the four persisted statuses); (c) onboarding.controller.ts replaces the bare unvalidated @Query('status') with a query DTO using @IsOptional() @IsIn(ONBOARDING_STATUSES) so an unknown status is a 400 instead of a silent empty result, and annotates getStats(): Promise<OnboardingStatsDto>. FRONTEND: services/types/support.ts deletes the drifted hand-written onboarding types and re-exports the contract types (import sites stay stable); services/api/support.ts types getOnboardingStats as apiFetch<OnboardingStatsDto> (inline literal at lines 134-135 deleted); OnboardingPage.tsx deletes its local OnboardingStats/OnboardingStatus, renders stats.total directly (client-side sum removed — server total is the SSoT), shows a six-tile grid (Total / Not Started / In Progress / Completed / Skipped / Stalled) with Stalled bound to the now-real stats.stalled, generates the status filter options by mapping ONBOARDING_STATUSES (new enum members appear automatically — tier 2), removes 'stalled' from the filter (stalled is not a status; the stalled list view is the existing 'Needs Attention' toggle, rewired to call supportApi.getTenantsNeedingAttention() instead of client-side filtering on a nonexistent lastActivityAt field), and makes getStatusColor exhaustive over the contract union with a never-check so a future enum change fails type-check. The contract swap will surface this page's remaining field drift (progress→completionPercent, lastActivityAt→updatedAt, assignedTo→assignedGuideName, step.name→step.title) as compile errors — fixed in the same change, which is the intended tier-1 payoff. No migration needed: no persisted shape changes.
+- **Files to change:**
+  - `libs/shared-contracts/src/admin/onboarding.ts`
+  - `libs/shared-contracts/src/index.ts`
+  - `web/modules/admin-panel/tsconfig.json`
+  - `web/modules/admin-panel/vite.config.ts`
+  - `apps/admin-api-service/src/support/entities/support.entity.ts`
+  - `apps/admin-api-service/src/support/services/onboarding.service.ts`
+  - `apps/admin-api-service/src/support/controllers/onboarding.controller.ts`
+  - `apps/admin-api-service/src/support/__tests__/onboarding-stats.contract.spec.ts`
+  - `web/modules/admin-panel/src/services/types/support.ts`
+  - `web/modules/admin-panel/src/services/api/support.ts`
+  - `web/modules/admin-panel/src/pages/OnboardingPage.tsx`
+  - `web/modules/admin-panel/src/pages/__tests__/OnboardingPage.stats.spec.tsx`
+- **Proof of fix:** (1) NEW apps/admin-api-service/src/support/__tests__/onboarding-stats.contract.spec.ts (first spec in the support domain, following the existing apps/admin-api-service/src/tenant/__tests__/list-tenants-contract.spec.ts pattern): instantiate OnboardingService with a mocked OnboardingProgress repository over a fixture covering all four persisted statuses plus one stalled row (in_progress, updatedAt 31 days ago); assert (a) the resolved stats object's Object.keys().sort() exactly equals the key list of a `satisfies OnboardingStatsDto` fixture (no allowlist — any added/removed key fails), (b) total === notStarted + inProgress + completed + skipped, (c) stalled === getTenantsNeedingAttention().length on the same fixture (shared-predicate agreement pin), (d) the list-endpoint query DTO rejects status='stalled' with a validation error via plainToInstance + validate. (2) Type gate: npm run type-check — after the contract swap, any FE reference to a key absent from OnboardingStatsDto (the exact defect here) or any backend return shape diverging from the annotated DTO is a compile error; this is the pattern-level regression gate for the FE-type-drift class. (3) NEW web/modules/admin-panel/src/pages/__tests__/OnboardingPage.stats.spec.tsx: render OnboardingPage with supportApi mocked to a contract-shaped stats fixture; assert the Total Tenants tile shows the fixture total, the Stalled tile shows the fixture stalled, and screen.queryByText(/NaN/) is null. Run via nx affected --target=test and nx affected --target=lint per repo law.
+- **Effort:** M
 
 ### APA-210 [MEDIUM] Training resources and step tutorial links are hardcoded with dead URLs
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** getTrainingResources returns a static in-code array whose urls (/videos/..., /docs/..., /webinars/...) and step videoUrls (/tutorials/...) point at routes that do not exist anywhere in the platform. The Resources tab presents fabricated content as clickable real material — MOCK_ONLY data inside an otherwise DB-backed page.
 - **Evidence:**
   - `apps/admin-api-service/src/support/services/onboarding.service.ts:109-190 (TRAINING_RESOURCES hardcoded)`
   - `apps/admin-api-service/src/support/services/onboarding.service.ts:54,63,72 (step videoUrl '/tutorials/...')`
   - `web/modules/admin-panel/src/pages/OnboardingPage.tsx:632-637 (renders resource.url as external link)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Training content has no owner or persistence: TRAINING_RESOURCES (onboarding.service.ts:109-190) and ONBOARDING_STEPS videoUrls (:54,63,72,81,90) are fabricated compile-time constants whose URLs (/docs/*, /videos/*, /webinars/*, /tutorials/*) resolve to no route in the shell or any backend. The FE (OnboardingPage.tsx:632-637) renders resource.url as a real anchor, presenting MOCK_ONLY data as clickable material inside an otherwise DB-backed page. Instance of the systemic 'fabricated in-code catalog nobody can edit or verify' class.
+- **Fix design:** Make the catalog DB-backed and empty-by-default so fabricated content is structurally impossible (tier 1) and dead URLs are detectable (tier 3). (a) Add a TrainingResource @Entity (schema:'admin', table admin.training_resources) mirroring the existing TrainingResource interface, plus a new migration. (b) OnboardingService.getTrainingResources reads from the repository; add SUPER_ADMIN CRUD endpoints (POST/PUT/DELETE /support/onboarding/resources) with a class-validator DTO whose url field is @IsUrl-validated, so only operator-entered URLs can exist. (c) Delete the TRAINING_RESOURCES const and remove the dead videoUrl values from ONBOARDING_STEPS (field stays optional; FE empty-state at OnboardingPage.tsx:646-651 already handles zero resources). (d) Replace the inline anonymous FE type (services/api/support.ts:137-138) with a named TrainingResource type in services/types matching the entity. Verification: new apps/admin-api-service/src/support/__tests__/onboarding.controller.spec.ts asserting resources round-trip through the repository and CRUD DTO validation; extend it with a source-invariant assertion that no /videos/|/webinars/|/tutorials/ literals remain in support/ sources.
+- **Files to change:**
+  - `apps/admin-api-service/src/support/entities/support.entity.ts`
+  - `apps/admin-api-service/src/support/services/onboarding.service.ts`
+  - `apps/admin-api-service/src/support/controllers/onboarding.controller.ts`
+  - `apps/admin-api-service/src/support/support.module.ts`
+  - `apps/admin-api-service/src/migrations/<new>-AddTrainingResources.ts`
+  - `web/modules/admin-panel/src/services/api/support.ts`
+  - `web/modules/admin-panel/src/services/types/support.ts`
+  - `apps/admin-api-service/src/support/__tests__/onboarding.controller.spec.ts`
+- **Effort:** M
 
 ### APA-211 [MEDIUM] sendWelcomeEmail returns fake success: no email is ever sent but welcomeEmailSent is persisted true
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The service logs, skips the commented-out TODO email integration, then marks welcomeEmailSent=true/welcomeEmailSentAt and the controller replies {success:true, message:'Welcome email sent'}. The database now permanently asserts an email was delivered that never existed. (Endpoint not wired into this page's UI, but it is the documented welcome-email path.)
 - **Evidence:**
   - `apps/admin-api-service/src/support/services/onboarding.service.ts:383-409 (TODO email; flags set true anyway)`
   - `apps/admin-api-service/src/support/controllers/onboarding.controller.ts:165-181 (returns 'Welcome email sent')`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Side-effect stub with unconditional success persistence: sendWelcomeEmail (onboarding.service.ts:383-409) never dispatches anything (email integration is a commented-out TODO) yet persists welcomeEmailSent=true/welcomeEmailSentAt and completes the 'welcome' step; the controller (onboarding.controller.ts:165-181) returns 'Welcome email sent'. The DB permanently asserts a delivery that never occurred. The platform already owns the correct contract — NotificationSendEmailCommand (libs/event-contracts/src/notification-commands.ts) handled by notification-service — and admin-api-service already runs AdminOutboxModule/OutboxPublisher; this path simply never adopted it.
+- **Fix design:** Wire the existing platform email contract instead of the stub (tier 2 — correct behavior becomes the default path). In sendWelcomeEmail, build a NotificationSendEmailCommand (source 'admin-api-service', deterministic requestReference 'admin-onboarding-welcome:<tenantId>' for idempotency, new templateId 'admin.onboarding_welcome.email', templateVariables {recipientName, tenantName, loginUrl}) following the established producer pattern in apps/hr-service/src/scheduling/services/schedule-notification.service.ts:349-382. Publish it via OutboxPublisher in the SAME transaction that sets welcomeEmailSent/welcomeEmailSentAt (import AdminOutboxModule into support.module.ts), so the flag truthfully means 'dispatch durably enqueued with at-least-once delivery' — on publish failure the transaction rolls back and no false success is ever recorded. Register the 'admin.onboarding_welcome.email' template in notification-service's email template handling (email.service.ts / notification-command.handler template resolution). Harden SendWelcomeEmailDto.recipientEmail with @IsEmail (contract fix at source). Controller message becomes 'Welcome email queued'. Verification: apps/admin-api-service/src/support/__tests__/onboarding.service.spec.ts asserting (1) outbox publish and flag update are atomic, (2) publish failure leaves welcomeEmailSent false, plus a notification-service handler spec for the new templateId.
+- **Files to change:**
+  - `apps/admin-api-service/src/support/services/onboarding.service.ts`
+  - `apps/admin-api-service/src/support/controllers/onboarding.controller.ts`
+  - `apps/admin-api-service/src/support/support.module.ts`
+  - `apps/notification-service/src/notification/services/email.service.ts`
+  - `apps/admin-api-service/src/support/__tests__/onboarding.service.spec.ts`
+- **Effort:** M
 
 ### APA-212 [LOW] Skipping a required step throws a plain Error -> 500 instead of 400
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** skipStep uses `throw new Error(...)` for the required-step guard, which the exception filter surfaces as a 500 rather than a BadRequestException 400.
 - **Evidence:**
   - `apps/admin-api-service/src/support/services/onboarding.service.ts:351-353`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The required-step guard in skipStep (onboarding.service.ts:352) throws an untyped `throw new Error('Cannot skip required step: ...')`, which Nest's exception layer maps to HTTP 500. It is a client-input violation and must be a 400. The same method already throws NotFoundException correctly two lines above — this is the single untyped throw in the support domain (grep-verified), so it is a local defect, not a systemic class.
+- **Fix design:** Replace `throw new Error(...)` with `throw new BadRequestException(`Cannot skip required step: ${stepId}`)` (add BadRequestException to the existing @nestjs/common import at onboarding.service.ts:7), consistent with the service's established HTTP-exception usage. Verification: add a case to apps/admin-api-service/src/support/__tests__/onboarding.service.spec.ts asserting skipStep on a required step ('welcome', 'profile_setup', 'farm_setup') rejects with BadRequestException and that no OnboardingProgress mutation is persisted.
+- **Files to change:**
+  - `apps/admin-api-service/src/support/services/onboarding.service.ts`
+  - `apps/admin-api-service/src/support/__tests__/onboarding.service.spec.ts`
+- **Effort:** S
 
 
 ## Cross-cutting findings
@@ -698,7 +739,7 @@
 
 ### APA-216 [MEDIUM] Guard posture verified sound; schema/migration parity verified sound (no finding — audit confirmation)
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** Positive verification for the record: all support controllers are protected by the global APP_GUARD PlatformAdminGuard (RS256 verifyAsync + issuer/audience + access-token-type enforcement, default-deny to SUPER_ADMIN even on undecorated handlers), so no unguarded admin endpoint exists in this section. All seven support entities correctly declare schema 'admin' (platform-level service per ADR-011), and every table/column used by the code exists in the active Baseline migration (archived pre-baseline migrations under src/migrations/.archive are excluded from the runner glob '[0-9]*'). The remaining MEDIUM: TicketController/DTO validation gaps noted per-page (e.g. AddCommentDto.attachments is @IsArray with no nested validation, allowing arbitrary JSON into the jsonb attachments column via a SUPER_ADMIN token).
 - **Evidence:**
   - `apps/admin-api-service/src/app.module.ts:277-290 (APP_GUARD registration)`
@@ -706,4 +747,9 @@
   - `apps/admin-api-service/src/migrations/1800000000000-Baseline.ts:72-101,242-244 (all support tables + FKs)`
   - `apps/admin-api-service/src/app.module.ts:117 (migrations glob '[0-9]*' excludes .archive)`
   - `apps/admin-api-service/src/support/controllers/ticket.controller.ts:117-120 (attachments @IsArray only)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Audit confirmation stands as verified (global APP_GUARD PlatformAdminGuard default-deny; all seven support entities on schema 'admin'; Baseline migration parity; .archive excluded by the '[0-9]*' glob). The residual defect is real and is an instance of the systemic 'unvalidated interface-DTO' class: AddCommentDto.attachments (ticket.controller.ts:117-119) is @IsArray-only and typed with the TypeScript *interface* TicketAttachment (support.entity.ts:465-472) — class-validator cannot validate interfaces, and the whitelist ValidationPipe strips only top-level unknown props, so arbitrary nested JSON of any shape/size flows into the jsonb attachments column (support.entity.ts:362-363). Same class on @IsArray-only tags fields in CreateTicketDto (:63-64) and UpdateTicketDto (:89-90) lacking @IsString({each:true}).
+- **Fix design:** Tier 1 locally + tier 3 for the pattern. Local: define class TicketAttachmentDto in ticket.controller.ts (@IsString id/fileName, @IsString mimeType, @IsInt @Min(0) @Max fileSize, @IsUrl url, @IsISO8601 uploadedAt — mirroring the TicketAttachment interface exactly) and change AddCommentDto.attachments to @IsOptional @IsArray @ArrayMaxSize(10) @ValidateNested({each:true}) @Type(() => TicketAttachmentDto) attachments?: TicketAttachmentDto[]; add @IsString({each:true}) @ArrayMaxSize to the tags fields. Pattern gate: add a new invariant spec apps/admin-api-service/src/__tests__/dto-nested-validation.spec.ts that reflects over every controller DTO via class-validator getMetadataStorage() and fails when a property carries @IsArray/@IsObject without either primitive each-validation or @ValidateNested+@Type metadata — making any future interface-typed jsonb-bound DTO field a test-time failure across the service, with no allowlist. Verification: that invariant spec (red on current AddCommentDto, green after fix) plus a controller e2e-style spec asserting a malformed attachment element is rejected 400.
+- **Files to change:**
+  - `apps/admin-api-service/src/support/controllers/ticket.controller.ts`
+  - `apps/admin-api-service/src/__tests__/dto-nested-validation.spec.ts`
+- **Effort:** M

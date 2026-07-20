@@ -91,13 +91,27 @@
 - **Proof of fix:** 1) New apps/admin-api-service/src/database-management/__tests__/monitoring-slow-queries.contract.spec.ts: supertest against a test module wired with the real ResponseInterceptor and a stubbed slowQueryRepository/queryRunner returning rows; GET /database/monitoring/slow-queries?grouped=true must yield {success:true, data:{source:'slow_query_logs', data:[...rows], metadata:{total,limit,minExecutionTimeMs}}} — asserting rows live under data.data and the interceptor's pagination branch did not restructure the payload; the body is type-checked against the shared SlowQueryResult contract. 2) New web/modules/admin-panel/src/pages/__tests__/DatabaseManagementPage.monitoring.spec.tsx: render MonitoringTab with fetch mocked to the same wire envelope and assert the grouped query text and count appear in the table (this test FAILS on current code — 'No slow queries detected.' renders — proving the defect and the fix); also assert the source/metadata note surfaces for a pg_stat_activity fallback payload. 3) Compile-time invariant: npm run type-check fails if either side drifts from @aquaculture/shared-contracts SlowQueryResult (BE service return type and FE consumption both import it). Existing contract-validation.spec.ts continues to guard route existence.
 - **Effort:** M
 
-### APA-319 [HIGH] Database Health 'Slow Queries' check uses an inverted time filter — counts everything EXCEPT the last hour
+### APA-319 [MEDIUM] Database Health 'Slow Queries' check uses an inverted time filter — counts everything EXCEPT the last hour
 
-- **Status:** PENDING
+- **Status:** CONFIRMED+DESIGNED (audited HIGH → verified MEDIUM)
 - **Symptom:** getDatabaseHealthStatus counts recentSlowQueries with recordedAt: LessThan(Date.now() - 3600000) — i.e. rows OLDER than one hour — while the comment and check say 'last hour'. The count grows monotonically until the 30-day cleanup, so the health score/status degrades over time based on historical rows and never reflects the actual last hour. Silent wrong data on the page's headline health widget.
 - **Evidence:**
   - `apps/admin-api-service/src/database-management/services/database-monitoring.service.ts:989-1020 (LessThan with 'Last hour' comment)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Verification:** CONFIRMED at apps/admin-api-service/src/database-management/services/database-monitoring.service.ts:989-993: recordedAt: LessThan(new Date(Date.now() - 3600000)) with comment '// Last hour' counts rows OLDER than one hour, the inverse of the stated intent (check messages say 'in last hour'; thresholds 20/100 and the index-recommendation text confirm recency semantics). Fully reachable: MonitoringTab in DatabaseManagementPage.tsx:1152-1155 calls databaseApi.getDatabaseHealth() (services/api/database.ts:164) -> GET /database/monitoring/health (monitoring.controller.ts:49-52) -> getDatabaseHealthStatus(); the FE renders health.checks and the headline score/status badge. The 30-day cleanup (lines 1116-1130) confirms the count would grow monotonically on a populated table. SEVERITY CORRECTED HIGH->MEDIUM: the sole writer of admin.slow_query_logs, logSlowQuery() (lines 243-261), has zero callers repo-wide (no endpoint, no TypeORM logger hook, no other service — despite the docblock at lines 277-281 claiming the application layer populates it), so the table is empty in current wiring and both the inverted and correct predicates return 0 today. The wrong-data scenario is real but latent: it manifests only once the recording path is activated or against deployments with historical rows. Confirmed correctness defect on a wired SUPER_ADMIN headline widget with currently-masked user-visible impact = MEDIUM.
+- **Root cause:** BE service->DB link. A recency window ('rows within the last hour') was hand-built inline with the retention idiom operator: LessThan(now - window) is the correct shape for cleanup/staleness (used correctly in cleanupOldMetrics at lines 1123-1128 and job-queue.service.ts:757) but inverted for recency, where MoreThanOrEqual(now - window) is required. The direction of the predicate is encoded only in a comment, which the type system cannot check — classic comment-as-contract drift. Two factors let it ship: (1) no unit spec exists for DatabaseMonitoringService.getDatabaseHealthStatus pinning the window direction (only migration-management and explorer-sql-security specs exist in this module); (2) the ingestion path is dead — logSlowQuery() has no callers — so the table is always empty and every end-to-end observation returns 0 for both the wrong and right predicate, making the inversion undetectable at runtime. Systemic class: inline FindOperator time-window predicates with intent in comments — 4 instances in admin-api-service (compliance.service.ts:727, security-monitoring.service.ts:460, database-monitoring.service.ts:991, job-queue.service.ts:757).
+- **Fix design:** Pattern-level fix (tier 2 — make correct behavior automatic) plus local application, per the systemic class above. (1) Add intent-named time-window FindOperator helpers to backend-common: libs/backend-common/src/database/time-window.operators.ts exporting withinLast(ms: number): FindOperator<Date> => MoreThanOrEqual(new Date(Date.now() - ms)) and olderThan(ms: number): FindOperator<Date> => LessThan(new Date(Date.now() - ms)), with explicit return types; export via the backend-common barrel. The helper name carries the direction, eliminating the comment/operator mismatch class — an inverted window becomes visibly wrong at the call site. (2) Local root fix: in getDatabaseHealthStatus replace the predicate with recordedAt: withinLast(3_600_000) (hoist the window into a named constant SLOW_QUERY_HEALTH_WINDOW_MS alongside the existing threshold constants) and delete the now-redundant comment. (3) Apply the helpers at the other three inline call sites (compliance.service.ts:727 -> withinLast(72h), security-monitoring.service.ts:460 -> withinLast(30d), job-queue.service.ts:757 -> olderThan(7d)) and at cleanupOldMetrics (lines 1123-1128 -> olderThan(30d)) so the idiom has exactly one spelling. (4) Tier-3 gate: add an invariant spec banning new inline (LessThan|LessThanOrEqual|MoreThan|MoreThanOrEqual)\(new Date\(Date\.now\(\) in apps/** so the class cannot silently reappear. NOT in scope of this finding but must be tracked as its own finding per discipline: logSlowQuery() is a dead write path (table-nobody-writes), which means the Slow Queries health check reads a perpetually empty table — the check is non-functional even after the operator fix; the docblock at lines 277-281 is also wrong. That requires wiring a real recorder (e.g., TypeORM slow-query logger hook) and is a separate architectural change with its own owner/ID.
+- **Files to change:**
+  - `libs/backend-common/src/database/time-window.operators.ts`
+  - `libs/backend-common/src/index.ts`
+  - `libs/backend-common/src/database/__tests__/time-window.operators.spec.ts`
+  - `apps/admin-api-service/src/database-management/services/database-monitoring.service.ts`
+  - `apps/admin-api-service/src/security/services/compliance.service.ts`
+  - `apps/admin-api-service/src/security/services/security-monitoring.service.ts`
+  - `apps/admin-api-service/src/system-management/services/job-queue.service.ts`
+  - `apps/admin-api-service/src/database-management/__tests__/database-monitoring.service.spec.ts`
+  - `tests/invariants/time-window-operator-usage.spec.ts`
+- **Proof of fix:** (1) New unit spec apps/admin-api-service/src/database-management/__tests__/database-monitoring.service.spec.ts (London-school, mocked slowQueryRepository): assert getDatabaseHealthStatus() calls slowQueryRepository.count with a FindOperator of type 'moreThanOrEqual' whose value is within tolerance of Date.now() - 3600000 (this exact assertion fails RED against the current LessThan code); plus threshold behavior cases: count 0 -> check 'pass', 21 -> 'warn' and score -5, 101 -> 'fail' and score -20. (2) New libs/backend-common/src/database/__tests__/time-window.operators.spec.ts: withinLast(ms) yields moreThanOrEqual at now-ms, olderThan(ms) yields lessThan at now-ms. (3) New tests/invariants/time-window-operator-usage.spec.ts: greps apps/** for inline (LessThan|LessThanOrEqual|MoreThan|MoreThanOrEqual)\(new Date\(Date\.now\(\) and fails on any occurrence, proving all call sites migrated and freezing the class out. Run nx affected --target=test and --target=lint green.
+- **Effort:** M
 
 ### APA-320 [HIGH] Validate Isolation always reports 'Issues found' — field name drift (isIsolated vs valid)
 
@@ -111,64 +125,118 @@
 
 ### APA-321 [MEDIUM] Backup Schedule card always shows 'Not configured' + suspended — response shape drift
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** Backend GET /database/backups/schedule returns {dailyBackupEnabled, weeklyBackupEnabled, nextDailyBackup, nextWeeklyBackup, lastDailyBackup, lastWeeklyBackup}; the FE expects {enabled, schedule, lastRun, nextRun}. scheduleState.data.schedule and .enabled are undefined, so the card renders 'Not configured' with a suspended badge even though daily/weekly cron backups are registered — factually wrong operator information.
 - **Evidence:**
   - `apps/admin-api-service/src/database-management/services/backup-restore.service.ts:804-841`
   - `web/modules/admin-panel/src/services/api/database.ts:126-127`
   - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx:854-874`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Instance of the systemic FE-type-drift class: web/modules/admin-panel/src/services/api/database.ts:126-127 hand-declares GET /database/backups/schedule as {enabled, schedule, lastRun, nextRun}, but backup-restore.service.ts:804-841 returns {dailyBackupEnabled, weeklyBackupEnabled, nextDailyBackup, nextWeeklyBackup, lastDailyBackup, lastWeeklyBackup}. The card reads .schedule/.enabled which are always undefined, so it renders 'Not configured' with a suspended badge — factually wrong operator information.
+- **Fix design:** Fix the contract at the source (tier 1): define a single BackupScheduleStatus interface in the shared admin API contract module (created under i12), matching the backend's actual daily/weekly shape. Backend getBackupScheduleStatus() types its return against it; the FE api fn imports the same interface (no hand-written duplicate). Rewrite the Backup Schedule card to render what the contract actually carries: a Daily row and a Weekly row, each with enabled badge (dailyBackupEnabled/weeklyBackupEnabled), Next Run (nextDailyBackup/nextWeeklyBackup) and Last Run (lastDailyBackup/lastWeeklyBackup). Verification: shared-contract compile break on drift + a DatabaseManagementPage BackupsTab test (web/modules/admin-panel/src/pages/__tests__/DatabaseManagementPage.spec.tsx) asserting the card shows active daily/weekly schedules from a contract-shaped fixture; endpoint covered by the i12 route-contract spec.
+- **Files to change:**
+  - `libs/admin-contracts/src/database-management.ts`
+  - `apps/admin-api-service/src/database-management/services/backup-restore.service.ts`
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx`
+  - `web/modules/admin-panel/src/pages/__tests__/DatabaseManagementPage.spec.tsx`
+- **Effort:** S
 
 ### APA-322 [MEDIUM] Point-in-Time Recovery modal is not wired — inputs are dead and the API is never called
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The PITR modal's Target Tenant ID and Recovery Point inputs are uncontrolled (no state, no onChange) and the Start Restore button only executes when selectedBackup exists (the non-PITR path). databaseApi.pointInTimeRecovery exists in the FE api layer and POST /database/backups/restore/point-in-time exists on the backend, but the page never calls it — clicking Start Restore in PITR mode is a no-op.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx:1093-1111 (uncontrolled inputs),1128-1133 (only handleRestoreBackup when selectedBackup)`
   - `web/modules/admin-panel/src/services/api/database.ts:140-144 (unused pointInTimeRecovery)`
   - `apps/admin-api-service/src/database-management/controllers/backup.controller.ts:212-229`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** PITR modal was scaffolded but never wired: the Target Tenant ID and Recovery Point inputs (DatabaseManagementPage.tsx:1095-1108) have no state or onChange, and the Start Restore handler (1128-1133) only executes the selectedBackup (non-PITR) branch. databaseApi.pointInTimeRecovery and the backend POST /database/backups/restore/point-in-time (backup.controller.ts:212-229, real implementation in backup-restore.service.ts:476-502) are complete but unreachable from the UI — clicking Start Restore in PITR mode is a silent no-op on a destructive-recovery flow.
+- **Fix design:** Wire the existing, working contract end-to-end (tier 2 — correct behavior becomes the default path). Add pitrForm state {tenantId, targetTime} bound to both inputs; make Start Restore branch on PITR mode and call databaseApi.pointInTimeRecovery({tenantId, targetTime: new Date(targetTime).toISOString()}); disable the button until tenantId is a UUID and targetTime is set (mirrors the backend PointInTimeRecoveryDto so validation failures are impossible to trigger from the happy path); surface success/error and refresh backupsState. Type the request body from the shared contract's PointInTimeRecoveryRequest so the FE cannot drift from the DTO. Verification: BackupsTab test asserting (a) Start Restore is disabled with empty PITR fields, (b) filling both fields and clicking calls pointInTimeRecovery with the entered values, (c) the selectedBackup branch is unchanged.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx`
+  - `libs/admin-contracts/src/database-management.ts`
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `web/modules/admin-panel/src/pages/__tests__/DatabaseManagementPage.spec.tsx`
+- **Effort:** S
 
 ### APA-323 [MEDIUM] Migrations tab is vestigial — registry is permanently empty and all run/rollback/batch endpoints unconditionally 403
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** MIGRATION_REGISTRY = [] ('Runtime admin-api does not own migration definitions'), so GET /database/migrations/available always returns [] and the Available Migrations list is permanently empty; the Batch Migration modal can never select a version. Even if forced, POST batch/run, tenant/:id/run and tenant/:id/rollback call assertRuntimeMigrationEndpointAllowed() which throws ForbiddenException before any work (the version checks after it are dead code). Only migration HISTORY (admin.schema_migrations reads) is real.
 - **Evidence:**
   - `apps/admin-api-service/src/database-management/services/migration-management.service.ts:37-39 (empty registry),129-157,215-224 (always reject)`
   - `apps/admin-api-service/src/database-management/controllers/migration.controller.ts:88-92,122-187 (throw-first, unreachable code after)`
   - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx:527-544,559-569`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Instance of the systemic vestigial-surface class: runtime migration execution was architecturally moved to apps/db-migrate (MIGRATION_REGISTRY = [] at migration-management.service.ts:39; runMigration/runBatchMigration/rollbackMigration are never-typed throwers; migration.controller.ts:88-92 throws ForbiddenException before any work, leaving the version checks after it as dead code), but the FE Migrations tab, its Batch Migration modal, and the FE api fns were left promising capabilities the backend forbids by design. Only migration history/summary reads are real.
+- **Fix design:** Remove the surface instead of gating it (tier 1 — a route that must never succeed should not exist). Backend: delete POST tenant/:id/run, tenant/:id/rollback, batch/run routes, assertRuntimeMigrationEndpointAllowed, the never-methods, MIGRATION_REGISTRY, getAvailableMigrations and getPendingMigrations (permanently-empty registry reads); keep history, summary, tenant history, batch/:version/status (ledger reads). Recompute getMigrationSummary.latestVersion from admin.schema_migrations instead of the deleted registry. FE: rework MigrationsTab into a read-only Migration History view (history table + summary card, with a note that schema changes are executed by db-migrate); delete the Available Migrations card, Batch Migration modal, and the runTenantMigration/rollbackTenantMigration/runBatchMigration/getAvailableMigrations/getPendingMigrationsForTenant api fns plus the legacy getMigration/createMigration/runMigration/rollbackMigration/getPendingMigrations wrappers. Verification: the i12 route-contract spec proves no POST /database/migrations/* route is registered and no FE fn references a removed path; extend apps/admin-api-service/src/__tests__/integration/admin-route-contract.spec.ts with an explicit invariant 'admin-api exposes zero migration-execution routes'.
+- **Files to change:**
+  - `apps/admin-api-service/src/database-management/controllers/migration.controller.ts`
+  - `apps/admin-api-service/src/database-management/services/migration-management.service.ts`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx`
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `web/modules/admin-panel/src/services/types/database.ts`
+  - `apps/admin-api-service/src/__tests__/integration/admin-route-contract.spec.ts`
+- **Effort:** M
 
 ### APA-324 [MEDIUM] Index Recommendations render an empty SQL block — backend has no createStatement field
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The page renders rec.createStatement in a <code> block, but the backend IndexRecommendation contains recommendedAction/indexName/authority instead of createStatement — the recommendation is real (pg_stat_user_tables seq-scan/unused-index analysis) but the actionable SQL the UI promises is always undefined/empty.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx:1443-1445`
   - `apps/admin-api-service/src/database-management/services/database-monitoring.service.ts:852-864,882-893`
   - `apps/admin-api-service/src/database-management/entities/database-management.entity.ts:543-552`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Instance of the systemic FE-type-drift class: the backend deliberately replaced actionable SQL with a db-migrate-authority model — IndexRecommendation (database-management.entity.ts:543-552) carries recommendedAction ('add_index'|'review_unused_index'), indexName, authority: 'db-migrate' and no createStatement — but the FE type (database.ts:192) and the page (DatabaseManagementPage.tsx:1443-1445) still declare/render rec.createStatement, producing a permanently empty <code> block.
+- **Fix design:** Make the drift impossible (tier 1): move the IndexRecommendation interface into the shared admin contract module; the backend entity file re-exports it (single definition) and the FE api fn + page import it — createStatement ceases to compile. Rewrite the recommendation card to render the contract's actual fields: recommendedAction badge, indexName, columns, reason, estimatedImpact, and an explicit 'apply via db-migrate' authority note (matching the platform's single-writer migration discipline) instead of a copy-paste SQL block the runtime is forbidden to promise. Verification: contract import makes the wrong field a compile error; MonitoringTab test asserting a recommendation fixture renders indexName + recommendedAction and no empty code block.
+- **Files to change:**
+  - `libs/admin-contracts/src/database-management.ts`
+  - `apps/admin-api-service/src/database-management/entities/database-management.entity.ts`
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx`
+  - `web/modules/admin-panel/src/pages/__tests__/DatabaseManagementPage.spec.tsx`
+- **Effort:** S
 
 ### APA-325 [MEDIUM] Schemas tab stats may be stale/zero — tenant_schemas sizeBytes/tableCount are ledger columns with no runtime refresh path
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The summary cards (Total Size, Total Tables) and per-row Size/Tables read admin.tenant_schemas.sizeBytes/tableCount, which default to 0 and can only be updated by db-migrate: updateSchemaStats/refresh-stats always throws 409, so the 'Refresh Stats' button always alerts a failure and the numbers on screen are whatever the last db-migrate ledger write left (live sizes ARE computed by getSchemaInfo, but that endpoint is not used by the page list). Also the 'Create Schema' button has no onClick handler at all (dead), and the backend createTenantSchema is disabled anyway.
 - **Evidence:**
   - `apps/admin-api-service/src/database-management/entities/database-management.entity.ts:56-63 (defaults 0)`
   - `apps/admin-api-service/src/database-management/services/schema-management.service.ts:68-74,441-447`
   - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx:304-315,329-331 (no onClick),466-473`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Two instances of the systemic config-nobody-writes / vestigial-surface classes: (1) the Schemas list serves admin.tenant_schemas.sizeBytes/tableCount ledger columns that default to 0 (entity:56-63) and whose only writer is db-migrate — updateSchemaStats/refresh-stats always throws 409 (schema-management.service.ts:441-447), so the Refresh Stats button always alerts failure and on-screen numbers are stale, while the live computation (getSchemaInfo) exists but is not used by the list; (2) the Create Schema button has no onClick at all (page:329-331) and backend createTenantSchema is disabled by design (service:68-74).
+- **Fix design:** Make correct data automatic (tier 2): extend getAllSchemas to join live stats in one catalog query (aggregate pg_total_relation_size + table count per schemaName across the page of schemas, reusing the getTableInfo/getSchemaSize SQL) and return them as the sizeBytes/tableCount the contract exposes, keeping ledger columns as db-migrate's durable evidence only. Then delete the permanently-failing surface (tier 1): remove POST /database/schemas and POST :tenantId/refresh-stats routes plus createTenantSchema/updateSchemaStats never-methods, remove the FE Refresh Stats button, the dead Create Schema button, and the createSchema/refreshSchemaStats api fns (tenant creation belongs to the provisioning workflow, which has its own UI). Verification: integration spec (apps/admin-api-service/src/database-management/__tests__/integration/schema-list-live-stats.spec.ts) seeding a tenant schema with tables and asserting GET /database/schemas returns nonzero live tableCount/sizeBytes; i12 route-contract spec asserts the removed routes are gone and no FE fn references them.
+- **Files to change:**
+  - `apps/admin-api-service/src/database-management/services/schema-management.service.ts`
+  - `apps/admin-api-service/src/database-management/controllers/schema.controller.ts`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx`
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `apps/admin-api-service/src/database-management/__tests__/integration/schema-list-live-stats.spec.ts`
+  - `apps/admin-api-service/src/__tests__/integration/admin-route-contract.spec.ts`
+- **Effort:** M
 
 ### APA-326 [MEDIUM] FE api layer declares ~14 endpoints that do not exist on the backend (404 if ever used) plus hand-written type drift
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** database.ts ships functions with no matching route: getSchemaInfo-adjacent resetSchema/optimizeSchema/analyzeSchema (schema.controller has no reset/optimize/analyze); legacy getMigration(:id), createMigration POST /migrations, runMigration(:id/run), rollbackMigration(:id/rollback), getPendingMigrations(/pending); monitoring getDatabaseStats(/stats), getTableStats(/tables), runVacuum(/vacuum), runAnalyze(/analyze); scheduleBackup POST /backups/schedule (route is GET-only); deleteSchema cannot pass the required confirmToken for hardDelete. types/database.ts also drifts from entities: TenantSchema.tenantName/rowCount never returned, status enum mismatch ('archived'/'migration_pending' vs 'creating'/'migrating'/'pending_deletion'/'deleted'); SchemaMigration.appliedToSchemas/failedSchemas/createdBy/sql do not exist (entity: migrationName/upScript/executedBy); DatabaseBackup.type/location/compressionType/encryptionKey/createdBy vs entity backupType/filePath/isCompressed/isEncrypted — the page survives only via ad-hoc inline fallback fields.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/api/database.ts:56-61,106-115,156-157,197-204`
   - `apps/admin-api-service/src/database-management/controllers/schema.controller.ts:72-196 (route set)`
   - `apps/admin-api-service/src/database-management/controllers/monitoring.controller.ts:49-137 (route set)`
   - `web/modules/admin-panel/src/services/types/database.ts:5-83 vs apps/admin-api-service/src/database-management/entities/database-management.entity.ts:37-211`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** This is the umbrella of the systemic class behind i7/i10/i11: the FE api layer and types are hand-written with no build-time link to the backend. Verified: ~14 fns target routes that do not exist (schema reset/optimize/analyze; legacy migration :id/create/run/rollback/pending; monitoring stats/tables/vacuum/analyze; POST backups/schedule where only GET exists), deleteSchema cannot pass the confirmToken required for hardDelete (schema.controller.ts:136-143), and types/database.ts contradicts the entities on TenantSchema status enum and SchemaMigration/DatabaseBackup field names — the pages survive only via ad-hoc inline fallback interfaces.
+- **Fix design:** Pattern-level fix, applied here: create libs/admin-contracts (buildable TS lib consumable by both apps/admin-api-service and web/modules/admin-panel) as the SSoT with (a) request/response interfaces derived from the entities/service returns (SchemaStatus, TenantSchema, SchemaMigration, SchemaBackup, BackupScheduleStatus, IndexRecommendation, paginated envelopes), (b) an endpoint manifest of {method, path template} for every database-management route. Backend controllers/services annotate return types from (a) — drift is a compile error (tier 1). FE: services/types/database.ts becomes re-exports of contract types; services/api/database.ts builds every URL from the manifest and deletes all 14 phantom fns; deleteSchema signature gains confirmToken wired into the query string per the manifest's declared params. Detection gate (tier 3): new spec apps/admin-api-service/src/__tests__/integration/admin-route-contract.spec.ts boots the app, walks the Nest route map, and asserts exact 1:1 coverage against the manifest — a manifest entry without a route (phantom FE endpoint) or a route without a manifest entry fails CI, with no allowlist. Page inline fallback interfaces (SchemaItem/BackupItem/MigrationHistoryItem dual-field unions) are then deleted in favor of the contract types.
+- **Files to change:**
+  - `libs/admin-contracts/src/database-management.ts`
+  - `libs/admin-contracts/src/endpoint-manifest.ts`
+  - `libs/admin-contracts/src/index.ts`
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `web/modules/admin-panel/src/services/types/database.ts`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx`
+  - `apps/admin-api-service/src/database-management/controllers/schema.controller.ts`
+  - `apps/admin-api-service/src/database-management/controllers/backup.controller.ts`
+  - `apps/admin-api-service/src/database-management/controllers/monitoring.controller.ts`
+  - `apps/admin-api-service/src/__tests__/integration/admin-route-contract.spec.ts`
+- **Effort:** L
 
 
 ## DatabaseExplorerPage.tsx — `/admin/database/explorer` — verdict: **PARTIAL**
@@ -208,37 +276,65 @@
 
 ### APA-330 [MEDIUM] insert/update responses return the raw RETURNING * row unmasked
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** insertRow and updateRow return result[0] from 'INSERT/UPDATE ... RETURNING *' without maskSensitiveData, so when writes are enabled the HTTP response exposes the very columns (password_hash, tokens, secrets) that the read path always masks. deleteRow similarly returns the full deleted row.
 - **Evidence:**
   - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts:709-715,774-784,824-834`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Instance of the systemic unmasked-row-egress class: masking is applied ad hoc per endpoint instead of at a choke point. insertRow returns result[0] from INSERT ... RETURNING * (explorer.controller.ts:709-715), updateRow returns result[0] (774-784), and deleteRow returns {deleted, row} (824-834) — none call maskSensitiveData, so with writes enabled the HTTP response exposes password_hash/token/secret columns the read path always masks.
+- **Fix design:** Make unmasked egress structurally impossible (tier 1): introduce a single private serializeRow(queryRunner, schema, table, row) in the controller that resolves column info (getColumnInfo, already available) and applies maskSensitiveData; every method that returns row data — getTableData, exportTableData, insertRow, updateRow, deleteRow — returns only through it, and the raw result arrays never escape a method scope. This is the same choke point i5/i6 extend, so the classification is applied exactly once. Verification: extend apps/admin-api-service/src/database-management/__tests__/security/explorer-security.spec.ts with cases asserting insert/update/delete responses mask a password_hash column (writes flag enabled, non-prod) and that the delete response row is masked.
+- **Files to change:**
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts`
+  - `apps/admin-api-service/src/database-management/__tests__/security/explorer-security.spec.ts`
+- **Effort:** S
 
 ### APA-331 [MEDIUM] Write UI (New Row / Edit / Delete) is always rendered but always 403 in production
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** assertExplorerWritesEnabled requires ENABLE_DB_EXPLORER_WRITES='true' and rejects outright when NODE_ENV=production. The page renders New Row, per-row Edit and Delete unconditionally with no capability check, so in production every save/delete attempt ends in a 403 error message. The FE should not offer permanently-disabled controls.
 - **Evidence:**
   - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts:313-322`
   - `web/modules/admin-panel/src/pages/DatabaseExplorerPage.tsx:595-600,757-776`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Instance of the systemic vestigial-surface class: write capability is decided server-side only (assertExplorerWritesEnabled, explorer.controller.ts:313-322 — requires ENABLE_DB_EXPLORER_WRITES=true and hard-fails when NODE_ENV=production) but the FE renders New Row (DatabaseExplorerPage.tsx:595-600) and per-row Edit/Delete (757-776) unconditionally, so in production every write attempt is a guaranteed 403 error dialog.
+- **Fix design:** Capability truth flows from the backend (tier 2 — the UI cannot disagree with the server because it renders from the server's own predicate). Refactor the assertion into a pure explorerWritesEnabled(): boolean used by both assertExplorerWritesEnabled() and a new capabilities field returned from GET /database/explorer/schemas (contract: {schemas: string[], capabilities: {writesEnabled: boolean}} — one round trip, no new endpoint family), declared in the shared admin contract. FE stores capabilities from the initial schemas load and renders New Row/Edit/Delete (and the edit/delete modals) only when writesEnabled; no defensive fallback — the field is non-optional in the contract. Verification: controller spec asserting capabilities.writesEnabled=false when NODE_ENV=production regardless of the flag, true only when flag set outside prod; DatabaseExplorerPage test asserting write controls absent when capabilities report false.
+- **Files to change:**
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts`
+  - `libs/admin-contracts/src/database-management.ts`
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `web/modules/admin-panel/src/pages/DatabaseExplorerPage.tsx`
+  - `apps/admin-api-service/src/database-management/__tests__/security/explorer-security.spec.ts`
+- **Effort:** M
 
 ### APA-332 [MEDIUM] Raw SQL endpoint returns rows unmasked and its catalog blocklist misses unqualified references
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** POST /database/explorer/query (no FE caller; gated to non-prod + ENABLE_RAW_SQL_EXPLORER) returns query results with NO sensitive-column masking — SELECT password_hash FROM auth.users returns real hashes, bypassing the masking layer the browse path enforces. The schema blocklist only matches 'pg_catalog.'/'information_schema.' PREFIXED references, so unqualified catalog names resolve via search_path (e.g. SELECT * FROM pg_stat_activity exposes other sessions' SQL text). Mitigations are real (read-only DataSource, SELECT/WITH-only, semicolon/multi-statement block, dangerous-function blocklist, tenant_/module-table patterns, 30s timeout, fail-closed audit), so this is a defense-in-depth gap rather than a live hole.
 - **Evidence:**
   - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts:919-1069 (no masking on result),1016-1029 (prefix-only schema blocklist)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Two defense-in-depth gaps in POST /database/explorer/query (non-prod + flag-gated): (1) result rows are returned with no sensitive-column masking (explorer.controller.ts:1063-1066) — SELECT password_hash FROM auth.users returns real hashes, bypassing the masking every other read path enforces; (2) the schema blocklist matches only prefix-qualified references ('pg_catalog.'/'information_schema.' via `blocked\.` regex, 1018-1023), so unqualified catalog names resolve via the implicit search_path (e.g. pg_stat_activity), and the readonly DataSource falls back to the primary DB user (app.module.ts:145-148), so catalog visibility is not restricted at the role level either.
+- **Fix design:** Layered root-cause fix. (1) Masking: raw results flow through the same egress choke point as i3 — for arbitrary SQL there is no table metadata, so mask by result-key using isSensitiveColumn over each row's keys (aliasing a secret column to a benign name is already out of reach for masking-by-metadata too; the role fix below is the real backstop). (2) Catalog access: make it structurally impossible (tier 1) — production/absence of a dedicated role fails closed: the explorer-readonly DataSource factory requires DATABASE_READONLY_USER to be set (no silent fallback to the privileged main user), and the provisioning of that role (NOSUPERUSER, not in pg_read_all_stats, SELECT only on public/auth/admin/billing) is added to the db-migrate baseline so pg_stat_activity query text and pg_read_* are denied by PostgreSQL itself. (3) Tighten the regex as detectable defense (tier 3): block unqualified relation-position references matching (FROM|JOIN)\s+"?(pg_|information_schema) in addition to the prefix rule. Verification: extend apps/admin-api-service/src/database-management/controllers/__tests__/explorer-sql-security.spec.ts — unqualified pg_stat_activity rejected, SELECT password_hash result masked, and DataSource factory throws when DATABASE_READONLY_USER is unset in production.
+- **Files to change:**
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts`
+  - `apps/admin-api-service/src/app.module.ts`
+  - `apps/db-migrate/src (readonly-role grant migration)`
+  - `apps/admin-api-service/src/database-management/controllers/__tests__/explorer-sql-security.spec.ts`
+- **Effort:** M
 
 ### APA-333 [MEDIUM] Personal PII is not masked — masking covers credentials only, and export pulls up to 10K rows
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** SENSITIVE_COLUMNS matches password/token/secret/key/hash-style names only. Emails, names, phone numbers, addresses in auth.* and billing.* (cross-tenant data for ALL tenants) render fully and can be exported (limit 10,000 rows, 5 exports/hr). For a SUPER_ADMIN debug tool this may be accepted, but it contradicts the platform's mask-PII-in-logs posture and makes bulk PII exfiltration a single audited click.
 - **Evidence:**
   - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts:73-98 (mask list),557 (export limit 10000)`
   - `ALLOWED_SCHEMAS includes auth/billing: explorer.controller.ts:46`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Masking classification covers credentials only (SENSITIVE_COLUMNS, explorer.controller.ts:73-96: password/token/secret/key/hash patterns), while ALLOWED_SCHEMAS includes auth and billing (line 46) — cross-tenant PII for ALL tenants (emails, names, phones, addresses) renders fully in browse and exports up to 10,000 rows per call (line 557, 5/hr). This contradicts the platform's mask-PII posture, whose SSoT already exists (libs/backend-common/src/utils/pii-mask.util.ts) but is applied only to logs, not to this data-egress surface.
+- **Fix design:** Pattern-level: promote data classification to a two-tier shared policy and apply it at the single egress choke point from i3. Extend libs/backend-common pii-mask.util (the existing SSoT) with an exported column-name classifier: SECRET tier (current credential list → full '********') and PII tier (email, *_name, phone, address, iban/tax/vat, dob patterns → partial mask, e.g. j***@d***.com), so explorer, log masking, and any future admin egress share one list. explorer.controller.ts replaces its private SENSITIVE_COLUMNS/isSensitiveColumn with the shared classifier inside serializeRow, covering browse, export, write-returns, and raw SQL uniformly; column metadata marks tier so the FE can badge PII columns distinctly. If operators genuinely need raw PII for support, add an explicit ?revealPii=true param that requires the existing requireAuditLog with AuditSeverity.CRITICAL per request — visible, audited, deliberate. Verification: extend explorer-security.spec.ts asserting email/phone columns are partially masked in table data AND export payloads by default, fully present only with revealPii=true and a persisted CRITICAL audit row; pii-mask.util spec extended for the classifier.
+- **Files to change:**
+  - `libs/backend-common/src/utils/pii-mask.util.ts`
+  - `libs/backend-common/src/utils/__tests__/pii-mask.util.spec.ts`
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts`
+  - `apps/admin-api-service/src/database-management/__tests__/security/explorer-security.spec.ts`
+  - `web/modules/admin-panel/src/pages/DatabaseExplorerPage.tsx`
+- **Effort:** M
 
 ### APA-334 [LOW] Sorting on masked columns leaks relative ordering of the hidden values
 

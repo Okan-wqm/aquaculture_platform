@@ -46,21 +46,33 @@
 
 ### APA-100 [MEDIUM] Cancel leaves status 'active' — UI appears to have failed
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The FE never sends cancelImmediately, so billing-service keeps status=subscription.status (unchanged), only setting auto_renew=false and end_date. After a successful cancel the reloaded row still shows ACTIVE with a Cancel button and no Reactivate (which requires status CANCELLED), so the operator cannot tell the cancel worked and cannot reactivate an end-of-period cancel.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/api/billing.ts:118-122 (body only {reason})`
   - `apps/billing-service/src/billing/handlers/billing-admin-nats.handler.ts:369-386 (status stays subscription.status when !cancelImmediately)`
   - `web/modules/admin-panel/src/pages/SubscriptionManagementPage.tsx:359-380 (Reactivate only when status === CANCELLED)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The cancellation contract is only half-plumbed: admin-api's CancelSubscriptionDto already accepts cancelImmediately (apps/admin-api-service/src/billing/billing.controller.ts:385-394) and billing-service implements both modes, but the FE api fn sends only {reason} (web/modules/admin-panel/src/services/api/billing.ts:118-122) and the page has no way to choose. For the default end-of-period path, billing-service keeps status unchanged (billing-admin-nats.handler.ts:386) — a correct domain state — but the FE renders pending-cancellation as plain ACTIVE (it ignores the cancelledAt field that SubscriptionOverview already carries on both sides), and billing-service reactivate rejects anything not status=CANCELLED (handler line 414), so an end-of-period cancel is invisible and irreversible in the UI.
+- **Fix design:** Complete the contract on all three legs, no new fields needed on the read side (cancelledAt already exists in both SubscriptionOverview types). (1) FE: cancel modal gains an explicit choice (radio: 'At period end' default / 'Immediately'); billingApi.cancelSubscription signature becomes (tenantId, reason, cancelImmediately) and sends it in the body — drop the dead _cancelledBy param. (2) FE rendering: derive a pending-cancellation state (status ACTIVE/TRIAL && cancelledAt set) — render a 'CANCELS <formatDate(currentPeriodEnd)>' badge instead of the bare ACTIVE badge, hide the Cancel button, show Reactivate. (3) billing-service: reactivateSubscription accepts both terminal CANCELLED and pending-cancel (cancelled_at NOT NULL with active/trial status), clearing cancelled_at/cancellation_reason/end_date and restoring auto_renew; reject only rows with no cancellation state. Verification: extend apps/billing-service/src/billing/handlers/__tests__/billing-admin-nats.handler.spec.ts (reactivate of pending-cancel row succeeds; untouched row rejected) and add a SubscriptionManagementPage test asserting the pending-cancel row shows the cancels-on badge + Reactivate and that the modal sends cancelImmediately.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/api/billing.ts`
+  - `web/modules/admin-panel/src/pages/SubscriptionManagementPage.tsx`
+  - `apps/billing-service/src/billing/handlers/billing-admin-nats.handler.ts`
+  - `apps/billing-service/src/billing/handlers/__tests__/billing-admin-nats.handler.spec.ts`
+- **Effort:** M
 
 ### APA-101 [LOW] Search refetches subscriptions+stats on every keystroke
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** useEffect depends on `search` with no debounce, firing both getSubscriptions and getSubscriptionStats per character typed.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/SubscriptionManagementPage.tsx:43-59`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** SubscriptionManagementPage.tsx:43-45 puts raw `search` in the useEffect deps and loadData fires BOTH getSubscriptions and getSubscriptionStats in one Promise.all, so every keystroke issues two requests; stats do not depend on any filter at all.
+- **Fix design:** Two-part: (a) split stats out of loadData into its own effect that runs on mount and after mutations (cancel/reactivate/extend-trial) — stats never depend on search/filter/page; (b) debounce the query input at the pattern level: add a reusable useDebouncedValue(value, 300) hook under web/modules/admin-panel/src/hooks/ (several admin pages share this search-refetch shape) and drive the list effect from the debounced value while the input stays controlled by the raw state. Verification: a hooks test for useDebouncedValue plus a page test with fake timers asserting typing 5 chars produces one getSubscriptions call and zero extra getSubscriptionStats calls.
+- **Files to change:**
+  - `web/modules/admin-panel/src/hooks/useDebouncedValue.ts`
+  - `web/modules/admin-panel/src/pages/SubscriptionManagementPage.tsx`
+- **Effort:** S
 
 
 ## PlanManagementPage — `/admin/billing/plans` — verdict: **PARTIAL**
@@ -98,29 +110,55 @@
 
 ### APA-103 [MEDIUM] POST/PUT /billing/plans bodies are completely unvalidated
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** CreatePlanDto/UpdatePlanDto are TypeScript interfaces exported from the service, so the global ValidationPipe (whitelist+forbidNonWhitelisted) skips them (metatype Object). Arbitrary nested limits/pricing/features JSON is persisted as-is into jsonb columns.
 - **Evidence:**
   - `apps/admin-api-service/src/billing/services/plan-definition.service.ts:16-57 (export interface CreatePlanDto / UpdatePlanDto)`
   - `libs/backend-common/src/bootstrap/create-service-app.ts:458-460 (whitelist/forbidNonWhitelisted defaults only apply to class metatypes)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** CreatePlanDto/UpdatePlanDto are TS interfaces exported from plan-definition.service.ts:16-57, so the reflected @Body metatype is Object and the global ValidationPipe (whitelist+forbidNonWhitelisted) skips them entirely — arbitrary nested limits/pricing/features JSON persists into the jsonb columns. This is one instance of a systemic class in billing.controller.ts: CreateDiscountCodeDto, UpdateDiscountCodeDto, PlanChangeRequest, and SetModulePricingDto (finding p3|i0) are interface-typed @Body params too.
+- **Fix design:** Pattern-level fix (tier 3 gate + tier 1 local). Local: move the plan write contracts into class-validator classes in apps/admin-api-service/src/billing/dto/billing.dto.ts — CreatePlanDto/UpdatePlanDto classes with fully validated nested DTOs (PlanLimitsDto mirroring the entity PlanLimits with @IsInt/@IsBoolean per field, PlanPricingDto with per-cycle PlanCyclePricingDto {@IsNumber @Min(0) prices, @Min(0)@Max(100) discountPercent}, PlanFeaturesDto with @IsString({each:true}) arrays and @ValidateNested add-ons), all wired with @ValidateNested + @Type; the service keeps its interfaces (the classes implement them) or imports the class types — no `as` casts. Do the same conversion for CreateDiscountCodeDto/UpdateDiscountCodeDto/PlanChangeRequest bodies. Systemic gate: new invariant tests/invariants/admin-body-dto-class.spec.ts scanning apps/admin-api-service/src/**/*.controller.ts, extracting every `@Body() x: T` type identifier and asserting T resolves to an `export class` declaration in a dto/ file (no allowlist), so an interface-typed @Body can never reappear. Verification: that invariant spec plus a controller e2e-style test asserting a plan create with an unknown nested key or negative price is rejected 400.
+- **Files to change:**
+  - `apps/admin-api-service/src/billing/dto/billing.dto.ts`
+  - `apps/admin-api-service/src/billing/billing.controller.ts`
+  - `apps/admin-api-service/src/billing/services/plan-definition.service.ts`
+  - `apps/admin-api-service/src/billing/services/discount-code.service.ts`
+  - `tests/invariants/admin-body-dto-class.spec.ts`
+- **Effort:** M
 
 ### APA-104 [LOW] FE PlanLimits type drifts from backend PlanLimits
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** FE declares apiCallsPerMonth/customReports/advancedAnalytics/apiAccess/whiteLabeling; backend has apiRateLimit/reportsEnabled/customBrandingEnabled/apiAccessEnabled/maxModules/alertsEnabled/auditLogEnabled/dedicatedAccountManager. The page renders limits via Object.entries so nothing crashes, but any typed access to the phantom fields would be undefined.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/types/billing.ts:96-111`
   - `apps/admin-api-service/src/billing/entities/plan-definition.entity.ts:40-58`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** FE PlanLimits (web/modules/admin-panel/src/services/types/billing.ts:96-111) was hand-written against an older shape (apiCallsPerMonth/customReports/advancedAnalytics/apiAccess/whiteLabeling) and never updated to the backend PlanLimits (plan-definition.entity.ts:40-58: apiRateLimit/reportsEnabled/customBrandingEnabled/apiAccessEnabled/maxModules/alertsEnabled/auditLogEnabled/dedicatedAccountManager/etc.); the `[key: string]: number | boolean` index signature masks the drift from the compiler, and unlike PlanTier there is no FE-parity invariant pinning it.
+- **Fix design:** Rewrite the FE PlanLimits member-for-member to the backend interface and DELETE the index signature (the signature is what makes drift type-invisible — removing it makes any future phantom-field access a compile error, tier 1). Fix any FE usages that referenced phantom keys (pages render via Object.entries; grep shows no typed access to the phantom fields in billing pages — TenantConfigurationPage uses a separate tenant-config type, untouched). Systemic gate: add a parity invariant following the existing tier-enum-ssot.spec.ts mirror-pin pattern — tests/invariants/plan-limits-fe-parity.spec.ts parses the property names of PlanLimits in apps/admin-api-service/src/billing/entities/plan-definition.entity.ts and web/modules/admin-panel/src/services/types/billing.ts and asserts set equality (web modules cannot import backend libs, so mirror-pin is the established mechanism). Verification: that spec fails today, passes after the rewrite; npm run type-check stays green.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/types/billing.ts`
+  - `tests/invariants/plan-limits-fe-parity.spec.ts`
+- **Effort:** S
 
 ### APA-105 [LOW] console.error used (banned by repo lint rules)
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** loadPlans catch logs via console.error; repo standard is structured logging / no console.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/PlanManagementPage.tsx:38`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** PlanManagementPage.tsx:38 calls console.error, but the true root cause is that admin-panel's per-project lint policy sets no-console: 'off' (eslint.project-overrides.mjs, web/modules/admin-panel block) — a faithfully-preserved legacy quirk from the flat-config migration — so ~40 console.* callsites exist across the module and nothing stops new ones.
+- **Fix design:** Fix the gate, not just the line (tier 3). Flip no-console to ['error'] in the admin-panel block of eslint.project-overrides.mjs as a deliberate policy change (the flat-parity harness compares against the ESLint-8 golden, so update the golden alongside per its documented process), then remove every console.* callsite in web/modules/admin-panel/src — at each site the error is already surfaced via setError/UI state, so deletion is the correct fix; the one non-page site (hooks/useAsyncData.ts:252) routes through the hook's existing error state. Local instance: delete the console.error in PlanManagementPage.tsx loadPlans (setError already carries the failure). Verification: `nx lint admin-panel` (now enforcing no-console) is the invariant — no bespoke spec needed once the rule is on.
+- **Files to change:**
+  - `eslint.project-overrides.mjs`
+  - `web/modules/admin-panel/src/pages/PlanManagementPage.tsx`
+  - `web/modules/admin-panel/src/hooks/useAsyncData.ts`
+  - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx`
+  - `web/modules/admin-panel/src/pages/CustomPlanBuilderPage.tsx`
+  - `web/modules/admin-panel/src/pages/system/FeatureTogglesPage.tsx`
+  - `web/modules/admin-panel/src/pages/system/ImpersonationPage.tsx`
+  - `web/modules/admin-panel/src/pages/system/JobQueuePage.tsx`
+  - `web/modules/admin-panel/src/pages/system/ErrorTrackingPage.tsx`
+  - `web/modules/admin-panel/src/pages/system/PerformanceDashboardPage.tsx`
+- **Effort:** M
 
 
 ## DiscountCodePage — `/admin/billing/discounts` — verdict: **BROKEN**
@@ -166,40 +204,60 @@
 
 ### APA-107 [MEDIUM] Generate->Create silently mutates the code (underscore stripped)
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** generateUniqueCode('PROMO', 8) returns 'PROMO_XXXXXXXX' which is shown to the admin; create() then normalizes with replace(/[^A-Z0-9]/g,'') storing 'PROMOXXXXXXXX'. A customer given the displayed underscore code will fail findByCode lookup — the code communicated is not the code stored.
 - **Evidence:**
   - `apps/admin-api-service/src/billing/services/discount-code.service.ts:492 (code = prefix ? `${prefix}_` : '')`
   - `apps/admin-api-service/src/billing/services/discount-code.service.ts:168 (const normalizedCode = dto.code.toUpperCase().replace(/[^A-Z0-9]/g, ''))`
   - `web/modules/admin-panel/src/pages/DiscountCodePage.tsx:71-72`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Two normalization regimes for one financial identifier: generateUniqueCode (discount-code.service.ts:492) emits `PREFIX_XXXXXXXX` while create() (line 168) canonicalizes with replace(/[^A-Z0-9]/g,''), silently storing `PREFIXXXXXXXXX`. The admin communicates the displayed underscore form, findByCode never matches it, and the generator's own uniqueness check (line 497) runs against the un-normalized form so it can never collide with anything actually stored.
+- **Fix design:** Single canonical form, divergence made impossible (tier 1). Add one private normalizeCode(raw) helper (uppercase + strip non-[A-Z0-9]) used everywhere: (a) generateUniqueCode composes prefix+random WITHOUT the underscore join (or normalizes the composed candidate) and uniqueness-checks/returns the canonical form, so what the admin sees IS what will be stored; (b) create() throws BadRequestException('code contains characters outside A-Z0-9') whenever normalizeCode(dto.code) !== dto.code.toUpperCase() instead of silently mutating — the code the caller supplied is exactly the code stored or the request fails; findByCode keeps the uppercase lookup. FE needs no change (it displays whatever generate returns). Verification: extend/create apps/admin-api-service/src/billing/__tests__/discount-code.service.spec.ts with a generate→create round-trip test (stored code === displayed code, including a prefix) and a rejection test for an underscore/hyphen code.
+- **Files to change:**
+  - `apps/admin-api-service/src/billing/services/discount-code.service.ts`
+  - `apps/admin-api-service/src/billing/__tests__/discount-code.service.spec.ts`
+- **Effort:** S
 
 ### APA-108 [MEDIUM] applyDiscount redemption counting is not atomic
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** currentRedemptions is incremented via entity read-modify-write (discountCode.currentRedemptions += 1; save) after a separate validation read — concurrent redemptions can both pass the maxRedemptions check and oversubscribe a capped financial instrument.
 - **Evidence:**
   - `apps/admin-api-service/src/billing/services/discount-code.service.ts:256-263 (validation read)`
   - `apps/admin-api-service/src/billing/services/discount-code.service.ts:369-370 (non-atomic increment)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** applyDiscount does check-then-act across separate statements with no transaction: validateCode reads currentRedemptions (line 260), then the redemption row is saved and the counter incremented via entity read-modify-write (lines 366-370). Two concurrent redemptions of a maxRedemptions-capped code both pass validation and both persist — the cap on a financial instrument is advisory, and the increment itself can lose updates.
+- **Fix design:** Make oversubscription impossible at the database (tier 1). Wrap redeem in one transaction: (1) lock the discount_codes row (repo.findOne with lock {mode:'pessimistic_write'} inside dataSource.transaction) — this serializes all redemptions of a code; (2) re-run the cap checks (global + per-tenant redemption count) under the lock; (3) insert the redemption and increment the counter with a guarded atomic UPDATE `SET current_redemptions = current_redemptions + 1 WHERE id = :id AND (max_redemptions IS NULL OR current_redemptions < max_redemptions)`, treating 0 affected rows as cap-reached (defense in depth even if the lock path changes). validateCode stays lock-free for the read-only /validate endpoint; only applyDiscount takes the transactional path. Verification: a concurrency spec in apps/admin-api-service/src/billing/__tests__/ firing N parallel applyDiscount calls against maxRedemptions=1 and asserting exactly one success and currentRedemptions===1 (integration-level against Postgres, e.g. under apps/admin-api-service/src/__tests__/integration/ if the unit harness cannot exercise real locking).
+- **Files to change:**
+  - `apps/admin-api-service/src/billing/services/discount-code.service.ts`
+  - `apps/admin-api-service/src/__tests__/integration/discount-redemption-atomicity.spec.ts`
+- **Effort:** M
 
 ### APA-109 [LOW] List capped at 50 codes with no pagination UI
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The FE never sends page/limit so the backend default limit=50 applies; codes beyond 50 would be invisible even after the array bug is fixed, and the page renders no pager.
 - **Evidence:**
   - `apps/admin-api-service/src/billing/services/discount-code.service.ts:116 (const limit = options?.limit || 50)`
   - `web/modules/admin-panel/src/services/api/billing.ts:64-65 (only isActive/includeExpired sent)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The backend list is paginated ({data,total,page,limit}, default limit 50 at discount-code.service.ts:116, surfaced as meta by ResponseInterceptor) but the FE half of the contract was never built: getDiscountCodes sends only isActive/includeExpired (billing.ts:64-65), types the response as a bare DiscountCode[], and DiscountCodePage renders no pager — codes 51+ are unreachable.
+- **Fix design:** Adopt the paginated contract end-to-end, reusing the pattern SubscriptionManagementPage already implements: getDiscountCodes gains page/limit params and its return type becomes the unwrapped paginated shape the http-client actually produces for meta.page responses ({data: DiscountCode[]; total; page; limit}) — this simultaneously kills the Array.isArray-fallback-to-[] shape bug at line 60 of the page (the FE type finally matches the wire shape). DiscountCodePage adds page state + the same Previous/Next pager block as SubscriptionManagementPage, resetting page on filter change. Verification: a DiscountCodePage test asserting the pager renders when total > limit, page 2 requests carry page=2, and the list populates from the {data,total} shape (no empty-array fallback).
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/api/billing.ts`
+  - `web/modules/admin-panel/src/pages/DiscountCodePage.tsx`
+- **Effort:** S
 
 ### APA-110 [LOW] getDiscountRedemptions FE contract mismatch (unused endpoint)
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** FE types the response as an array with tenantName, but the backend returns {redemptions,total} of raw DiscountRedemption rows (no tenantName). Latent drift — no current page calls it.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/api/billing.ts:94-95`
   - `apps/admin-api-service/src/billing/services/discount-code.service.ts:390-402`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** getDiscountRedemptions (billing.ts:94-95) types a hand-invented shape — an array of rows with tenantName — while the backend endpoint returns {redemptions: DiscountRedemption[]; total} (discount-code.service.ts:390-402) whose rows have tenantId but no tenantName. Classic hand-written-FE-type drift; latent only because no page calls it yet, so it is also a dead FE operation.
+- **Fix design:** Fix the contract at the source rather than leave a booby-trap: add a DiscountRedemption FE type mirroring the entity fields actually returned (id, discountCodeId, tenantId, subscriptionId?, invoiceId?, discountAmount, currency, redeemedAt, redeemedBy?) to services/types/billing.ts and retype getDiscountRedemptions as {redemptions: DiscountRedemption[]; total} with optional {limit,offset} params matching the service. Drop the phantom tenantName — if a future page needs it, that is a backend join added at the source, not an FE type claim. Because the operation is currently uncalled, register/verify it against the dead-contract gate: ensure tests/invariants/dead-contract-fe-operations.spec.ts + its baseline still account for it (do NOT grow the baseline; if it is already listed the retype is neutral, and the first consuming page removes it). Verification: the retype compiles (npm run type-check) and the dead-contract invariant stays green with no baseline growth.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/api/billing.ts`
+  - `web/modules/admin-panel/src/services/types/billing.ts`
+- **Effort:** S
 
 
 ## ModulePricingPage — `/admin/billing/module-pricing` — verdict: **WORKING**
@@ -212,12 +270,19 @@
 
 ### APA-111 [MEDIUM] pricingMetrics accepted with only @IsArray — no element validation
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** UpdateModulePricingDto validates pricingMetrics as a bare array (no nested type/price checks) and SetModulePricingDto (POST path) is a service interface with no validation at all — negative prices, unknown metric types, or NaN survive to jsonb and flow into every downstream pricing calculation.
 - **Evidence:**
   - `apps/admin-api-service/src/billing/dto/billing.dto.ts:34-36 (@IsOptional() @IsArray() pricingMetrics?: PricingMetric[])`
   - `apps/admin-api-service/src/billing/services/module-pricing.service.ts:19-28 (export interface SetModulePricingDto)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The module-pricing write path has no element-level validation anywhere: UpdateModulePricingDto (billing.dto.ts:34-36) validates pricingMetrics with a bare @IsArray (no @ValidateNested/@Type, so elements are arbitrary), and the POST path's SetModulePricingDto is a TS interface (module-pricing.service.ts:19-28) skipped entirely by the ValidationPipe — negative prices, unknown metric types, and NaN persist to jsonb and feed every pricing calculation. Same systemic interface-@Body class as billing-plans|p1|i1.
+- **Fix design:** Local application of the p1|i1 pattern fix. Add PricingMetricDto to dto/billing.dto.ts implementing the entity PricingMetric: @IsEnum(PricingMetricType) type, @IsNumber() @Min(0) price, @IsString() @MaxLength(10) currency, optional @IsString description, optional @IsInt @Min(0) minQuantity/maxQuantity/includedQuantity; TierMultipliersDto with one optional @IsNumber() @Min(0) prop per PlanTier key. Convert SetModulePricingDto into a validated class in dto/billing.dto.ts (moduleId @IsUUID, moduleCode @IsString @MaxLength(100), pricingMetrics @IsArray @ArrayMinSize(1) @ValidateNested({each:true}) @Type(()=>PricingMetricDto), tierMultipliers @ValidateNested @Type, currency/effectiveFrom/effectiveTo/notes as in UpdateModulePricingDto); UpdateModulePricingDto becomes PartialType(SetModulePricingDto) so the two paths cannot diverge; the controller imports both from dto/, the service accepts the class (it satisfies the current interface, which is deleted). The systemic gate is the shared tests/invariants/admin-body-dto-class.spec.ts from p1|i1. Verification: controller validation tests asserting POST/PUT module-pricing rejects a negative price, an unknown metric type, and a non-numeric price with 400; the shared invariant spec confirms no interface-typed @Body remains.
+- **Files to change:**
+  - `apps/admin-api-service/src/billing/dto/billing.dto.ts`
+  - `apps/admin-api-service/src/billing/services/module-pricing.service.ts`
+  - `apps/admin-api-service/src/billing/billing.controller.ts`
+  - `tests/invariants/admin-body-dto-class.spec.ts`
+- **Effort:** M
 
 ### APA-112 [LOW] Every save creates a new version row with effectiveFrom=now; currency/effectiveFrom dropped from payload
 

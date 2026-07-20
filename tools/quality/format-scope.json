@@ -13209,6 +13209,30 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/marine-explorer/catalog/__tests__/copernicus-catalog-lock.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/marine-explorer/catalog/copernicus-catalog-lock.v2.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/marine-explorer/catalog/recipes/sentinel-2-l2a-natural-color.v1.evalscript.js",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/marine-explorer/catalog/recipes/sentinel-2-l2a-ndwi.v1.evalscript.js",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/mobile-command/entities/farm-mobile-command-receipt.entity.ts",
       "prettier_managed": true
     },
@@ -20709,6 +20733,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/hydroponics-service/tsconfig.spec.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/marine-analysis-worker/copernicus-toolbox.lock.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/marine-analysis-worker/project.json",
       "prettier_managed": true
     },
     {
@@ -30499,6 +30535,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-07-18-marine-data-explorer/PLAN.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/multi-agent-architecture.md",
       "prettier_managed": true
     },
@@ -31958,6 +32000,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/architect-review/2026-06-14-r1-router-coprocessor.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/architect-review/2026-07-19-marine-data-explorer-rebuild.md",
       "prettier_managed": true
     },
     {
@@ -34555,7 +34603,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "f8f6e3e770625cdc6671152f763afdbb3cdab61cc03e760d992fad3134861d27",
+      "content_sha256": "f6c14217f260960545ad0c91ac7923594263ebacb524cb71011b1c8c24498690",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/deploy/service-catalog.generated.json",
@@ -37390,6 +37438,96 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/fixtures/marine-analysis-requested.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/fixtures/marine-artifact-lease-reply.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/fixtures/marine-artifact-lease-request.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/fixtures/marine-credential-lease-reply.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/fixtures/marine-credential-lease-request.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/fixtures/marine-execution-finalize-reply.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/fixtures/marine-execution-finalize-request.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/fixtures/marine-execution-lease-reply.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/fixtures/marine-execution-lease-request.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/fixtures/marine-execution-renew-reply.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/fixtures/marine-execution-renew-request.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/fixtures/marine-usage-finalize-reply.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/fixtures/marine-usage-finalize-request.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/fixtures/marine-usage-reserve-reply.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/fixtures/marine-usage-reserve-request.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/jest.config.ts",
       "prettier_managed": true
     },
@@ -37427,6 +37565,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/__tests__/legacy-farm-migration-events.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/__tests__/marine-contracts.spec.ts",
       "prettier_managed": true
     },
     {
@@ -37506,6 +37650,17 @@
       "owner": "source",
       "path": "libs/event-contracts/src/billing/plan-catalog.ts",
       "prettier_managed": true
+    },
+    {
+      "class": "generated",
+      "content_sha256": "80856bf0557c3ac35dca8342a835b3ae4b76e90cee1dae0941eb5bb79281bfcf",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "libs/event-contracts/src/catalog/cmems-resolved-selection-lock.v2.generated.json",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
     },
     {
       "class": "canonical_source",
@@ -37588,6 +37743,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/marine-events.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/marine-worker-control.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/messaging-event-registry.ts",
       "prettier_managed": true
     },
@@ -37618,6 +37785,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/portable-sha256.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/schema-migration-events.ts",
       "prettier_managed": true
     },
@@ -37636,7 +37809,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/schemas/__tests__/cmems-resolved-selection-lock.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/schemas/__tests__/ingest-backend-policy.schema.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/schemas/__tests__/marine-contracts.schema.spec.ts",
       "prettier_managed": true
     },
     {
@@ -37697,6 +37882,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/schemas/ingest-backend-policy.schema.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/schemas/marine-events.schema.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/schemas/marine-worker-control.schema.ts",
       "prettier_managed": true
     },
     {
@@ -37829,6 +38026,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/websocket-envelopes.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/tools/cmems-resolved-selection-lock.ts",
       "prettier_managed": true
     },
     {
@@ -39396,7 +39599,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "platform/libs/event-bus/eslint-suppressions.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "platform/libs/event-bus/jest.config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/event-bus/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/event-bus/README.md",
       "prettier_managed": true
     },
     {
@@ -39469,6 +39690,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "platform/libs/event-bus/src/subjects/tenant-event-subject.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/event-bus/tsconfig.lib.json",
       "prettier_managed": true
     },
     {
@@ -54852,10 +55079,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8991,
+  "file_count": 9028,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8810,
-  "managed_file_list_sha256": "2bf935f30fa75f7bcab66d27cb473a13fd4dd9d4530b6bfe5707067d8817117c",
+  "managed_count": 8846,
+  "managed_file_list_sha256": "052a3af1e9cc2100a4c4c9f284634d80c48abc4ddae69cfbf97cc89a2f76f8c3",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -1,0 +1,69 @@
+{
+  "platform/libs/event-bus/src/decorators/event-handler.decorator.ts": {
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 2
+    }
+  },
+  "platform/libs/event-bus/src/nats/__tests__/handler-registration.spec.ts": {
+    "@typescript-eslint/no-non-null-assertion": {
+      "count": 6
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    },
+    "import/order": {
+      "count": 5
+    }
+  },
+  "platform/libs/event-bus/src/nats/__tests__/nats-event-bus.signals.spec.ts": {
+    "@typescript-eslint/explicit-function-return-type": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "@typescript-eslint/require-await": {
+      "count": 1
+    },
+    "require-yield": {
+      "count": 1
+    }
+  },
+  "platform/libs/event-bus/src/nats/nats-event-bus.ts": {
+    "@nx/enforce-module-boundaries": {
+      "count": 1
+    }
+  },
+  "platform/libs/event-bus/src/nats/nats.module.ts": {
+    "@nx/enforce-module-boundaries": {
+      "count": 1
+    },
+    "@typescript-eslint/no-explicit-any": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 5
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 9
+    },
+    "@typescript-eslint/no-unsafe-function-type": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 11
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "import/order": {
+      "count": 5
+    }
+  }
+}

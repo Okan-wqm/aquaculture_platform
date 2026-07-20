@@ -10,6 +10,7 @@ members = [
     "crates/outbox-rs",
     "crates/router-coprocessor",
     "apps/sensor-ingestion",
+    "apps/marine-analysis-worker",
 ]
 exclude = [
     "sens-api-gateway",
@@ -70,6 +71,8 @@ metrics-exporter-prometheus = "0.16"
 
 nom = "7.1"
 hex = "0.4"
+base64 = "0.22"
+url = "2.5"
 
 # R1 router-coprocessor: service-identity HMAC-v2 signing (byte-for-byte parity
 # with the TS generateServiceIdentityHeadersV2).

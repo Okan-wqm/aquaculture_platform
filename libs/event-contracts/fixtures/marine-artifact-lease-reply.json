@@ -1,0 +1,14 @@
+{
+  "leaseId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "method": "PUT",
+  "issuedAt": "2026-07-19T12:00:00.000Z",
+  "url": "https://minio.example.invalid/marine-artifact-capability?fixture=1",
+  "objectKey": "marine/22222222-2222-4222-8222-222222222222/55555555-5555-4555-8555-555555555555/33333333-3333-4333-8333-333333333333/ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff/statistics.json",
+  "expiresAt": "2026-07-19T12:01:00.000Z",
+  "requiredHeaders": {
+    "content-type": "application/json",
+    "content-length": "4096",
+    "x-amz-checksum-sha256": "//////////////////////////////////////////8=",
+    "if-none-match": "*"
+  }
+}

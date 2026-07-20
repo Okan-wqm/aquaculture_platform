@@ -58,6 +58,8 @@ import {
   CONFIG_RUNTIME_NONSECRET_ALLOWLIST,
   CONFIG_RUNTIME_SECRET_ALLOWLIST,
   CONFIG_RUNTIME_SUBJECTS,
+  MARINE_WORKER_CONTROL_SUBJECTS,
+  MARINE_WORKER_SCOPED_INBOX_PREFIX,
 } from '@platform/event-contracts';
 import Ajv from 'ajv';
 import { parse as yamlParse } from 'yaml';
@@ -322,9 +324,9 @@ function extractRpcUsage(appDir: string, constants: Map<string, string>): RpcUsa
  *     connection today (verified 2026-07-02: no EventBusModule import, no
  *     NATS boot log lines). Onboarding one = services.yaml entry + cert CN
  *     + compose mount, per docs/runbooks/nats-service-addition.md.
- *   - sensor-ingestion is Rust — outside TS extraction; its grants are
- *     pinned by apps/sensor-ingestion/src/sensor_lookup.rs LOOKUP_SUBJECT
- *     and the events.*.SensorReading publish path (ADR-025).
+ *   - Rust services are outside TS extraction. Their identities still map to
+ *     services.yaml so the registry remains exhaustive; protocol-specific
+ *     grants are pinned by dedicated invariants in this file.
  */
 const APP_TO_SERVICE: Record<string, string | null> = {
   'admin-api-service': 'gateway_service',
@@ -339,6 +341,7 @@ const APP_TO_SERVICE: Record<string, string | null> = {
   'gateway-api': 'gateway_service',
   'hr-service': 'hr_service',
   'hydroponics-service': 'hydroponics_service',
+  'marine-analysis-worker': 'marine_analysis_worker',
   'messaging-service': 'messaging_service',
   'notification-service': 'notification_service',
   'observability-service': 'observability_service',
@@ -346,11 +349,25 @@ const APP_TO_SERVICE: Record<string, string | null> = {
   'sensor-service': 'sensor_service',
 };
 
+const MARINE_STREAM = 'AQUACULTURE_EVENTS';
+const MARINE_DURABLE = 'marine-analysis-worker-v1';
+const MARINE_JETSTREAM_PUBLISH_GRANTS = [
+  `$JS.API.CONSUMER.INFO.${MARINE_STREAM}.${MARINE_DURABLE}`,
+  `$JS.API.CONSUMER.MSG.NEXT.${MARINE_STREAM}.${MARINE_DURABLE}`,
+  `$JS.ACK.${MARINE_STREAM}.${MARINE_DURABLE}.>`,
+] as const;
+
 describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subject scheme)', () => {
   const servicesDoc = loadServicesYaml();
   const authBlock = loadNatsConfAuthBlock();
   const parsedUsers = parseAuthBlockUsers(authBlock);
   const serviceByName = new Map(servicesDoc.services.map((s) => [s.name, s]));
+
+  const requireService = (name: string): Service => {
+    const svc = serviceByName.get(name);
+    if (!svc) throw new Error(`services.yaml is missing the "${name}" service`);
+    return svc;
+  };
 
   it('services.yaml is valid against services.schema.json', () => {
     const schema = loadServicesSchema();
@@ -359,6 +376,26 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
     const valid = validate(servicesDoc);
     if (!valid) {
       throw new Error(`services.yaml schema violations: ${JSON.stringify(validate.errors)}`);
+    }
+  });
+
+  it('the subject schema admits exact acknowledgements without opening broad $JS access', () => {
+    const schema = loadServicesSchema();
+    const ajv = new Ajv({ strict: false });
+    const validate = ajv.compile(schema);
+    for (const invalidGrant of ['$JS.ADMIN.>', '$JS.ACK.>', '$JS.ACK.AQUACULTURE_EVENTS.>']) {
+      const invalidDoc: ServicesYaml = {
+        ...servicesDoc,
+        services: servicesDoc.services.map((service) =>
+          service.name === 'marine_analysis_worker'
+            ? { ...service, publish: [...service.publish, invalidGrant] }
+            : service,
+        ),
+      };
+
+      if (validate(invalidDoc)) {
+        throw new Error(`services.schema.json must reject broad grant "${invalidGrant}"`);
+      }
     }
   });
 
@@ -372,7 +409,13 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
         if (s.startsWith('AQUACULTURE_EVENTS.')) offenders.push(`${svc.name}: ${s}`);
       }
     }
-    if (authBlock.includes('AQUACULTURE_EVENTS.')) offenders.push('nats.conf GENERATED block');
+    for (const user of parsedUsers) {
+      for (const grant of [...user.publish, ...user.subscribe]) {
+        if (grant.startsWith('AQUACULTURE_EVENTS.')) {
+          offenders.push(`nats.conf CN=${user.name}: ${grant}`);
+        }
+      }
+    }
     if (offenders.length > 0) {
       throw new Error(
         `Legacy AQUACULTURE_EVENTS.* subject grants found:\n  ${offenders.join('\n  ')}\n` +
@@ -674,17 +717,175 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
     );
   });
 
-  describe('config-runtime secret-read grants (ARCH-HIGH-001 + ARCH-MEDIUM-004 + SEC-CRITICAL-001)', () => {
-    // Representative subject under the scoped reply-inbox token — createInbox
-    // appends `.<nuid>`, so any real reply subject is `_INBOXBILLINGCFG.<nuid>`.
-    const scopedInboxSubject = `${CONFIG_RUNTIME_INBOX_PREFIX}.reply`;
-
-    const requireService = (name: string): Service => {
-      const svc = serviceByName.get(name);
-      if (!svc) throw new Error(`services.yaml is missing the "${name}" service`);
-      return svc;
+  describe('scoped reply-inbox ownership', () => {
+    const scopedPrefixFromGrant = (grant: string): string | undefined => {
+      const match = /^(_INBOX[A-Z][A-Z0-9]*)\./.exec(grant);
+      if (!match) return undefined;
+      return match[1];
     };
 
+    const scopedOwners = (prefix: string): { publishers: string[]; subscribers: string[] } => {
+      const representativeSubject = `${prefix}.reply`;
+      return {
+        publishers: servicesDoc.services
+          .filter((svc) => svc.publish.some((grant) => isCovered(representativeSubject, [grant])))
+          .map((svc) => svc.name),
+        subscribers: servicesDoc.services
+          .filter((svc) => svc.subscribe.some((grant) => isCovered(representativeSubject, [grant])))
+          .map((svc) => svc.name),
+      };
+    };
+
+    it('every scoped inbox grant resolves to one exact publisher and one exact subscriber', () => {
+      const scopedPrefixes = new Set<string>();
+      for (const svc of servicesDoc.services) {
+        for (const grant of [...svc.publish, ...svc.subscribe]) {
+          const prefix = scopedPrefixFromGrant(grant);
+          if (prefix) scopedPrefixes.add(prefix);
+        }
+      }
+
+      if (scopedPrefixes.size === 0) {
+        throw new Error('services.yaml must contain at least one scoped reply-inbox grant');
+      }
+
+      for (const prefix of scopedPrefixes) {
+        const exactGrant = `${prefix}.>`;
+        const { publishers, subscribers } = scopedOwners(prefix);
+
+        if (isCovered(`${prefix}.reply`, ['_INBOX.>'])) {
+          throw new Error(`${prefix} must be a distinct first token from the platform-wide _INBOX`);
+        }
+        if (publishers.length !== 1) {
+          throw new Error(
+            `scoped inbox "${prefix}" must have exactly one publisher; found: ` +
+              `${publishers.join(', ') || 'none'}`,
+          );
+        }
+        if (subscribers.length !== 1) {
+          throw new Error(
+            `scoped inbox "${prefix}" must have exactly one subscriber; found: ` +
+              `${subscribers.join(', ') || 'none'}`,
+          );
+        }
+        if (!requireService(publishers[0]).publish.includes(exactGrant)) {
+          throw new Error(`${publishers[0]} must use the exact PUBLISH grant "${exactGrant}"`);
+        }
+        if (!requireService(subscribers[0]).subscribe.includes(exactGrant)) {
+          throw new Error(`${subscribers[0]} must use the exact SUBSCRIBE grant "${exactGrant}"`);
+        }
+      }
+    });
+
+    it('the config-runtime inbox is pinned to its contract and CN pair', () => {
+      const { publishers, subscribers } = scopedOwners(CONFIG_RUNTIME_INBOX_PREFIX);
+      if (
+        publishers.join('|') !== 'config_service' ||
+        subscribers.join('|') !== 'billing_service'
+      ) {
+        throw new Error(
+          `${CONFIG_RUNTIME_INBOX_PREFIX} must be published by config_service and subscribed ` +
+            'by billing_service',
+        );
+      }
+    });
+  });
+
+  describe('Marine analysis worker control-plane ACL', () => {
+    it('pins exact worker-publish and farm-subscribe grants for every authoritative RPC', () => {
+      const worker = requireService('marine_analysis_worker');
+      const farm = requireService('farm_service');
+      for (const subject of Object.values(MARINE_WORKER_CONTROL_SUBJECTS)) {
+        if (!worker.publish.includes(subject)) {
+          throw new Error(`marine_analysis_worker is missing exact PUBLISH grant "${subject}"`);
+        }
+        if (!farm.subscribe.includes(subject)) {
+          throw new Error(`farm_service is missing exact SUBSCRIBE grant "${subject}"`);
+        }
+      }
+    });
+
+    it('makes worker and farm the exclusive broker owners of every Marine RPC subject', () => {
+      for (const subject of Object.values(MARINE_WORKER_CONTROL_SUBJECTS)) {
+        const publishers = servicesDoc.services
+          .filter((service) => service.publish.some((grant) => isCovered(subject, [grant])))
+          .map((service) => service.name)
+          .sort();
+        const subscribers = servicesDoc.services
+          .filter((service) => service.subscribe.some((grant) => isCovered(subject, [grant])))
+          .map((service) => service.name)
+          .sort();
+
+        expect({ subject, publishers, subscribers }).toEqual({
+          subject,
+          publishers: ['marine_analysis_worker'],
+          subscribers: ['farm_service'],
+        });
+      }
+    });
+
+    it('pins the complete worker ACL to RPC plus one pre-provisioned durable consumer', () => {
+      const worker = requireService('marine_analysis_worker');
+      const expectedPublish = [
+        ...Object.values(MARINE_WORKER_CONTROL_SUBJECTS),
+        ...MARINE_JETSTREAM_PUBLISH_GRANTS,
+      ].sort();
+      const expectedSubscribe = [`${MARINE_WORKER_SCOPED_INBOX_PREFIX}.>`, '_INBOX.>'].sort();
+
+      expect([...worker.publish].sort()).toEqual(expectedPublish);
+      expect([...worker.subscribe].sort()).toEqual(expectedSubscribe);
+
+      const eventSubject = 'events.11111111-1111-1111-1111-111111111111.MarineAnalysisRequested';
+      if (isCovered(eventSubject, worker.subscribe)) {
+        throw new Error(
+          'marine_analysis_worker must consume MarineAnalysisRequested through a JetStream ' +
+            'pull consumer, not a Core NATS events.* subscribe grant',
+        );
+      }
+    });
+
+    it('denies JetStream administration and lateral stream or consumer access', () => {
+      const worker = requireService('marine_analysis_worker');
+      const forbiddenSubjects = [
+        `$JS.API.CONSUMER.CREATE.${MARINE_STREAM}.${MARINE_DURABLE}`,
+        `$JS.API.CONSUMER.DURABLE.CREATE.${MARINE_STREAM}.${MARINE_DURABLE}`,
+        `$JS.API.CONSUMER.DELETE.${MARINE_STREAM}.${MARINE_DURABLE}`,
+        `$JS.API.CONSUMER.LIST.${MARINE_STREAM}`,
+        `$JS.API.STREAM.INFO.${MARINE_STREAM}`,
+        `$JS.API.CONSUMER.INFO.${MARINE_STREAM}.other-consumer`,
+        `$JS.API.CONSUMER.MSG.NEXT.${MARINE_STREAM}.other-consumer`,
+        `$JS.ACK.${MARINE_STREAM}.other-consumer.1.1.1.1.1`,
+        '$JS.API.CONSUMER.INFO.OTHER_STREAM.marine-analysis-worker-v1',
+      ];
+
+      for (const subject of forbiddenSubjects) {
+        if (isCovered(subject, worker.publish)) {
+          throw new Error(`marine_analysis_worker must not be allowed to publish "${subject}"`);
+        }
+      }
+    });
+
+    it('pins the Marine scoped inbox to worker subscriber and farm publisher', () => {
+      const representativeSubject = `${MARINE_WORKER_SCOPED_INBOX_PREFIX}.reply`;
+      const publishers = servicesDoc.services
+        .filter((svc) => svc.publish.some((grant) => isCovered(representativeSubject, [grant])))
+        .map((svc) => svc.name);
+      const subscribers = servicesDoc.services
+        .filter((svc) => svc.subscribe.some((grant) => isCovered(representativeSubject, [grant])))
+        .map((svc) => svc.name);
+      if (
+        publishers.join('|') !== 'farm_service' ||
+        subscribers.join('|') !== 'marine_analysis_worker'
+      ) {
+        throw new Error(
+          `${MARINE_WORKER_SCOPED_INBOX_PREFIX} must be published by farm_service and subscribed ` +
+            'by marine_analysis_worker',
+        );
+      }
+    });
+  });
+
+  describe('config-runtime secret-read grants (ARCH-HIGH-001 + ARCH-MEDIUM-004 + SEC-CRITICAL-001)', () => {
     it('billing_service PUBLISHES both config.runtime subjects; config_service SUBSCRIBES both (pinned)', () => {
       const billing = requireService('billing_service');
       const config = requireService('config_service');
@@ -694,40 +895,6 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
         }
         if (!isCovered(subject, config.subscribe)) {
           throw new Error(`config_service is missing the SUBSCRIBE grant for "${subject}"`);
-        }
-      }
-    });
-
-    it('the decrypted-secret reply inbox is scoped to billing↔config ONLY (SEC-CRITICAL-001)', () => {
-      const billing = requireService('billing_service');
-      const config = requireService('config_service');
-      // billing subscribes the scoped inbox; config publishes replies to it.
-      if (!isCovered(scopedInboxSubject, billing.subscribe)) {
-        throw new Error(`billing_service is missing SUBSCRIBE for the scoped secret-reply inbox`);
-      }
-      if (!isCovered(scopedInboxSubject, config.publish)) {
-        throw new Error(`config_service is missing PUBLISH for the scoped secret-reply inbox`);
-      }
-      // The broad `_INBOX.>` must NOT match the scoped token (first-token distinctness) —
-      // this is the whole point: a `_INBOX.>` holder cannot read the secret reply.
-      if (isCovered(scopedInboxSubject, ['_INBOX.>'])) {
-        throw new Error(
-          `${CONFIG_RUNTIME_INBOX_PREFIX} must be a DISTINCT first token from _INBOX so the ` +
-            'platform-wide _INBOX.> grant cannot match the scoped secret-reply subject',
-        );
-      }
-      // No OTHER service may grant the scoped inbox token, on publish or subscribe.
-      for (const svc of servicesDoc.services) {
-        if (svc.name === 'billing_service' || svc.name === 'config_service') continue;
-        const leaks = [...svc.publish, ...svc.subscribe].filter(
-          (g) => g.startsWith(CONFIG_RUNTIME_INBOX_PREFIX) || isCovered(scopedInboxSubject, [g]),
-        );
-        if (leaks.length > 0) {
-          throw new Error(
-            `${svc.name} must NOT hold any grant on the scoped secret-reply inbox ` +
-              `(${CONFIG_RUNTIME_INBOX_PREFIX}) — it could passively read the plaintext ` +
-              `Stripe secret. Offending grants: ${leaks.join(', ')}`,
-          );
         }
       }
     });

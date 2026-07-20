@@ -34,14 +34,23 @@
  */
 
 /**
- * Canonical UUID v1-v5 pattern, case-insensitive. Mirrors the
+ * Canonical lowercase UUID wire pattern. Mirrors the
  * `TENANT_ID_REGEX`/`UUID_REGEX` helpers in `@aquaculture/backend-common`
  * so the bridge validator and the application-layer validators share
  * one rule. Used for `tenantId`, `eventId`, `batchId`, `tankId`,
  * `farmId`, etc.
  */
-export const UUID_PATTERN =
-  '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+export const UUID_PATTERN = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+
+/** Canonical UTC instant shared by TypeScript and Rust Marine wire contracts. */
+export const UTC_MILLISECOND_TIMESTAMP_PATTERN =
+  '^\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}Z$';
+
+export const UTC_MILLISECOND_TIMESTAMP_SCHEMA = {
+  type: 'string',
+  format: 'date-time',
+  pattern: UTC_MILLISECOND_TIMESTAMP_PATTERN,
+} as const;
 
 /**
  * Maximum length for free-text reason / detail / notes fields carried

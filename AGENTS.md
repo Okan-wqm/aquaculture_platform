@@ -38,8 +38,9 @@ tool-agnostic setup/run reference; read `CLAUDE.md` before making any change.
 - Lint & format: `npm run lint` (affected) · `npm run lint:all`; `npm run format` / `npm run format:check`; `npm run type-check`.
 
 ## Repo map
-- `apps/`: 17 entries — 15 NestJS runtime services + the Rust `sensor-ingestion` sidecar + the
-  `db-migrate` CLI. See the service/schema table in `CLAUDE.md` for responsibilities.
+- `apps/`: 18 entries — 15 NestJS runtime services + the Rust `sensor-ingestion` sidecar + the
+  inactive Rust `marine-analysis-worker` spine + the `db-migrate` CLI. See the service/schema
+  table in `CLAUDE.md` for responsibilities.
 - `web/`: Module-Federation microfrontends — `web/shell` (host), `web/shared-ui` (design system),
   `web/modules/*` (federated remotes), `web/apps/aquamobil` (standalone offline-first PWA).
 - `platform/libs/`: `@platform/cqrs`, `@platform/event-bus` (NATS), `@platform/outbox`.

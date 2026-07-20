@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "tool": "copernicusmarine",
+  "version": "2.4.1",
+  "artifact": {
+    "name": "copernicusmarine_linux-glibc-2.35.cli",
+    "sizeBytes": 154166192,
+    "sha256": "e65f72db9fc7075f91fc9bd90368246248aa39a599a8a79eb4d06a5705b15864"
+  }
+}

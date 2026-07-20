@@ -1,0 +1,7 @@
+{
+  "operationId": "99999999-9999-4999-8999-999999999999",
+  "state": "RESERVED",
+  "attempt": 1,
+  "reservedAt": "2026-07-19T12:00:01.000Z",
+  "replayed": false
+}

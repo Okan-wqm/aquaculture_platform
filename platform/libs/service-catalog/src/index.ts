@@ -535,6 +535,23 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     requiredEnv: [],
   }),
   buildEntry({
+    serviceId: 'marine-analysis-worker',
+    nxProject: 'marine-analysis-worker',
+    buildKind: 'rust-sidecar',
+    deploymentStatus: 'inactive',
+    deployTarget: 'unsupported',
+    deployProfiles: [],
+    criticality: 'ignored',
+    classification: 'internal-service',
+    // Phase 0 contains a configuration-validating no-op binary and no
+    // image/compose contract. Omitting imageTarget keeps every generated
+    // build and deploy view structurally unable to select this worker.
+    startupBudgetSeconds: 30,
+    privilegeMode: 'none',
+    requiredSignals: [],
+    requiredEnv: [],
+  }),
+  buildEntry({
     serviceId: 'hr-service',
     nxProject: 'hr-service',
     imageTarget: 'hr-service',

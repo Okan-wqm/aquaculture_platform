@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `986cd8f9bb2551ac2f604be79dd9d3d7dd2e32d34040611fe587a1f155104249`
+Registry tip: `8021ebca064cbcccdf703e8d570adf59dd426e0aa014b12e76bff065831d655a`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -107,6 +107,14 @@ target-host Git authority. Both remain `real-open` until native fingerprinted
 transport, hermetic release material, the shared lock, and adversarial recovery
 tests merge.
 
+Updated 2026-07-19 (Marine Explorer architecture registration): seven
+IN-PROGRESS findings were registered, bringing the registry to 1,040 entries.
+`SEC-CRITICAL-055` enters the active table as the fail-closed credential-cipher
+and scoped plaintext-lease prerequisite. It remains `real-open`; provider
+credential persistence and migration cannot activate until the Phase 1
+rotation, AAD, startup-validation, re-encryption, scoped-lease, nonce,
+generation, and redaction gates pass.
+
 Allowed truth buckets:
 
 - `real-open`
@@ -135,6 +143,7 @@ Allowed truth buckets:
 | `FARM-CRITICAL-241`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
 | `INFRA-CRITICAL-077`    | IN-PROGRESS    | 1.1          | infra-expert         | real-open                 |
 | `INFRA-CRITICAL-078`    | IN-PROGRESS    | 1.1          | security-reviewer    | real-open                 |
+| `SEC-CRITICAL-055`      | IN-PROGRESS    | 1.2          | security-reviewer    | real-open                 |
 
 ## Mutation Rules
 

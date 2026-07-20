@@ -23,6 +23,8 @@
 //!
 //! WHAT lives here:
 //!   - [`MtlsConfig`]     — required cert paths + server URL.
+//!   - [`ScopedInboxPrefix`] — validated custom request-reply inbox
+//!     namespace.
 //!   - [`NatsClient`]     — thin wrapper over `async_nats::Client`.
 //!   - [`NatsClientError`] — typed errors at the connect / publish /
 //!     subscribe / request boundaries.
@@ -50,7 +52,10 @@
 pub use async_nats::HeaderMap;
 
 pub mod request_reply;
-pub use request_reply::{RequestError, request_typed};
+pub use request_reply::{
+    RemoteErrorPolicyError, RequestError, RequestReplyOptions, SanitizedRemoteErrorPolicy,
+    request_typed, request_typed_with_options,
+};
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -103,6 +108,93 @@ pub enum NatsClientError {
     Request(#[source] async_nats::RequestError),
 }
 
+/// Maximum byte length accepted for a scoped request-reply inbox prefix.
+///
+/// NATS server limits are configurable, so the client owns a tighter
+/// bound that keeps the deployable `<prefix>.>` ACL at or below the
+/// service schema's 120-byte subject-pattern ceiling.
+pub const MAX_SCOPED_INBOX_PREFIX_LEN: usize = 118;
+
+/// Why a custom inbox prefix was rejected.
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum ScopedInboxPrefixError {
+    /// The prefix exceeds [`MAX_SCOPED_INBOX_PREFIX_LEN`].
+    #[error("scoped inbox prefix exceeds {MAX_SCOPED_INBOX_PREFIX_LEN} bytes")]
+    TooLong,
+
+    /// The prefix is not one purpose-specific NATS inbox token.
+    #[error("scoped inbox prefix must match _INBOX[A-Z][A-Z0-9]* as one concrete token")]
+    InvalidToken,
+}
+
+/// Validated purpose-specific NATS request-reply inbox prefix.
+///
+/// `async-nats` appends a unique token to this value when it creates a
+/// reply inbox. Only one uppercase purpose token matching
+/// `_INBOX[A-Z][A-Z0-9]*` is representable, mirroring the NATS service
+/// schema and certificate-bound publish/subscribe ACLs.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ScopedInboxPrefix(String);
+
+impl ScopedInboxPrefix {
+    /// Validate and construct a custom inbox prefix.
+    ///
+    /// # Errors
+    /// Returns [`ScopedInboxPrefixError`] when `value` exceeds the
+    /// platform length bound or is not one purpose-specific token.
+    pub fn try_new(value: impl Into<String>) -> Result<Self, ScopedInboxPrefixError> {
+        let value = value.into();
+        if value.len() > MAX_SCOPED_INBOX_PREFIX_LEN {
+            return Err(ScopedInboxPrefixError::TooLong);
+        }
+
+        let Some(purpose) = value.strip_prefix("_INBOX") else {
+            return Err(ScopedInboxPrefixError::InvalidToken);
+        };
+        let mut bytes = purpose.bytes();
+        let valid = bytes.next().is_some_and(|byte| byte.is_ascii_uppercase())
+            && bytes.all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit());
+        if !valid {
+            return Err(ScopedInboxPrefixError::InvalidToken);
+        }
+
+        Ok(Self(value))
+    }
+
+    /// Borrow the validated prefix.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for ScopedInboxPrefix {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl TryFrom<String> for ScopedInboxPrefix {
+    type Error = ScopedInboxPrefixError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_new(value)
+    }
+}
+
+impl Serialize for ScopedInboxPrefix {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for ScopedInboxPrefix {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = String::deserialize(deserializer)?;
+        Self::try_new(value).map_err(serde::de::Error::custom)
+    }
+}
+
 /// mTLS configuration for [`NatsClient::connect`]. Constructable only
 /// via the public fields — a future "without TLS" constructor would
 /// require editing this struct, which is the point.
@@ -127,6 +219,13 @@ pub struct MtlsConfig {
     /// Connect timeout. Defaults to 10 seconds when missing in config.
     #[serde(default = "default_connect_timeout", with = "duration_secs")]
     pub connect_timeout: Duration,
+
+    /// Optional custom namespace for request-reply inboxes created by
+    /// this connection. When absent, async-nats uses its `_INBOX`
+    /// default. Services with certificate-scoped reply ACLs supply a
+    /// dedicated [`ScopedInboxPrefix`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbox_prefix: Option<ScopedInboxPrefix>,
 }
 
 fn default_connect_timeout() -> Duration {
@@ -189,11 +288,15 @@ impl NatsClient {
         //   * NO add_user_password / token / nkey calls — the absence
         //     is the architectural enforcement of ADR-014/015.
         //   * connection_timeout from config.
-        let opts = async_nats::ConnectOptions::new()
+        let mut opts = async_nats::ConnectOptions::new()
             .require_tls(true)
             .add_root_certificates(cfg.server_ca_cert_pem.clone())
             .add_client_certificate(cfg.client_cert_pem.clone(), cfg.client_key_pem.clone())
             .connection_timeout(cfg.connect_timeout);
+
+        if let Some(prefix) = &cfg.inbox_prefix {
+            opts = opts.custom_inbox_prefix(prefix.as_str());
+        }
 
         let inner = opts
             .connect(&cfg.server_url)
@@ -342,7 +445,10 @@ mod tests {
 
     use tempfile::NamedTempFile;
 
-    use super::{MtlsConfig, NatsClient, NatsClientError, validate_url_scheme};
+    use super::{
+        MAX_SCOPED_INBOX_PREFIX_LEN, MtlsConfig, NatsClient, NatsClientError, ScopedInboxPrefix,
+        ScopedInboxPrefixError, validate_url_scheme,
+    };
 
     fn dummy_pem_file() -> NamedTempFile {
         let f = NamedTempFile::new().unwrap();
@@ -392,10 +498,56 @@ mod tests {
             client_cert_pem: "/etc/aqua/client.crt".into(),
             client_key_pem: "/etc/aqua/client.key".into(),
             connect_timeout: Duration::from_secs(15),
+            inbox_prefix: Some(ScopedInboxPrefix::try_new("_INBOXMARINEANALYSIS").unwrap()),
         };
         let json = serde_json::to_string(&cfg).unwrap();
         let back: MtlsConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(back, cfg);
+    }
+
+    #[test]
+    fn scoped_inbox_prefix_accepts_one_uppercase_purpose_token() {
+        let prefix = ScopedInboxPrefix::try_new("_INBOXMARINEANALYSIS1").unwrap();
+        assert_eq!(prefix.as_str(), "_INBOXMARINEANALYSIS1");
+    }
+
+    #[test]
+    fn scoped_inbox_prefix_rejects_default_dotted_lowercase_hyphenated_and_wildcard_values() {
+        for invalid in [
+            "",
+            "_INBOX",
+            "_INBOX.*",
+            "_INBOX.>",
+            "_INBOXMARINE.REPLY",
+            "_INBOXMarine",
+            "_INBOXMARINE-analysis",
+            "_INBOX1MARINE",
+            "INBOXMARINE",
+        ] {
+            assert!(
+                ScopedInboxPrefix::try_new(invalid).is_err(),
+                "accepted {invalid:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn scoped_inbox_prefix_enforces_the_nats_schema_length_bound() {
+        let exact = format!("_INBOXA{}", "1".repeat(MAX_SCOPED_INBOX_PREFIX_LEN - 7));
+        assert_eq!(exact.len(), 118);
+        assert!(ScopedInboxPrefix::try_new(exact).is_ok());
+        let value = format!("_INBOXA{}", "1".repeat(MAX_SCOPED_INBOX_PREFIX_LEN - 6));
+        assert_eq!(value.len(), 119);
+        assert_eq!(
+            ScopedInboxPrefix::try_new(value),
+            Err(ScopedInboxPrefixError::TooLong)
+        );
+    }
+
+    #[test]
+    fn scoped_inbox_prefix_deserialization_is_fail_closed() {
+        let error = serde_json::from_str::<ScopedInboxPrefix>(r#""_INBOX.*""#).unwrap_err();
+        assert!(error.to_string().contains("scoped inbox prefix"));
     }
 
     #[test]
@@ -408,6 +560,7 @@ mod tests {
         }"#;
         let cfg: MtlsConfig = serde_json::from_str(json).unwrap();
         assert_eq!(cfg.connect_timeout, Duration::from_secs(10));
+        assert_eq!(cfg.inbox_prefix, None);
     }
 
     #[tokio::test]
@@ -420,6 +573,7 @@ mod tests {
             client_cert_pem: client.path().to_path_buf(),
             client_key_pem: key.path().to_path_buf(),
             connect_timeout: Duration::from_secs(1),
+            inbox_prefix: None,
         };
         match NatsClient::connect(&cfg).await {
             Err(NatsClientError::TlsMaterial { path, .. }) => {
@@ -439,6 +593,7 @@ mod tests {
             client_cert_pem: "/nonexistent/client.crt".into(),
             client_key_pem: key.path().to_path_buf(),
             connect_timeout: Duration::from_secs(1),
+            inbox_prefix: None,
         };
         match NatsClient::connect(&cfg).await {
             Err(NatsClientError::TlsMaterial { path, .. }) => {
@@ -457,6 +612,7 @@ mod tests {
             client_cert_pem: f.path().to_path_buf(),
             client_key_pem: f.path().to_path_buf(),
             connect_timeout: Duration::from_secs(1),
+            inbox_prefix: None,
         };
         match NatsClient::connect(&cfg).await {
             Err(NatsClientError::InvalidServerUrl { got }) => assert_eq!(got, "http"),

@@ -6,6 +6,14 @@ export type PlatformRegistryKind = 'event' | 'command';
 export type PlatformPiiClass = 'none' | 'low' | 'contact-ref' | 'operational' | 'financial';
 export type PlatformDurability = 'outbox' | 'request-reply-receipt' | 'jetstream';
 
+export interface PlatformJetStreamConsumerMetadata {
+  service: string;
+  stream: string;
+  durable: string;
+  filterSubject: string;
+  provisioning: 'INFRASTRUCTURE';
+}
+
 export interface PlatformEventRegistryEntry {
   type: string;
   kind: PlatformRegistryKind;
@@ -20,6 +28,7 @@ export interface PlatformEventRegistryEntry {
   };
   piiClass: PlatformPiiClass;
   durability: PlatformDurability;
+  jetStreamConsumer?: PlatformJetStreamConsumerMetadata;
   backendOnly: boolean;
   aliasExpiresAt?: string;
   retention: string;
@@ -249,6 +258,30 @@ export const PLATFORM_EVENT_REGISTRY = {
     durability: 'outbox',
     backendOnly: true,
     retention: 'finance-settings-ledger',
+  },
+  MarineAnalysisRequested: {
+    type: 'MarineAnalysisRequested',
+    kind: 'event',
+    subject: 'events.{tenantId}.MarineAnalysisRequested',
+    producer: 'farm-service',
+    consumers: ['marine-analysis-worker'],
+    schema: 'libs/event-contracts/src/marine-events.ts#MarineAnalysisRequestedEvent',
+    fixture: 'libs/event-contracts/fixtures/marine-analysis-requested.json',
+    acl: {
+      publish: ['farm-service'],
+      subscribe: [],
+    },
+    piiClass: 'operational',
+    durability: 'outbox',
+    jetStreamConsumer: {
+      service: 'marine-analysis-worker',
+      stream: 'AQUACULTURE_EVENTS',
+      durable: 'marine-analysis-worker-v1',
+      filterSubject: 'events.*.MarineAnalysisRequested',
+      provisioning: 'INFRASTRUCTURE',
+    },
+    backendOnly: true,
+    retention: 'marine-analysis-retention',
   },
   SensorDeprovisioned: {
     type: 'SensorDeprovisioned',

@@ -24,6 +24,8 @@ export * from './auth-events';
 export * from './tenant-events';
 export * from './tenant-commands';
 export * from './farm-events';
+export * from './marine-events';
+export * from './marine-worker-control';
 export * from './sensor-events';
 export * from './alert-events';
 export * from './notification-events';
@@ -85,6 +87,7 @@ import type { FarmEvent } from './farm-events';
 import type { FinanceEvent } from './finance-events';
 import type { HREvent } from './hr-events';
 import type { MessagingEvent } from './messaging-events';
+import type { MarineEvent } from './marine-events';
 import type { NotificationEvent } from './notification-events';
 import type { SecurityEvent } from './security';
 import type { SensorEvent } from './sensor-events';
@@ -101,6 +104,7 @@ export type AnyPlatformEvent =
   | AuthEvent
   | TenantEvent
   | FarmEvent
+  | MarineEvent
   | SensorEvent
   | AlertEvent
   | NotificationEvent

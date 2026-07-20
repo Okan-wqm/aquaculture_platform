@@ -801,10 +801,15 @@ dependencies = [
 name = "event-contracts-rs"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
+ "hex",
+ "secrecy",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "thiserror 2.0.18",
+ "url",
  "uuid",
 ]
 
@@ -1557,6 +1562,18 @@ name = "log"
 version = "0.4.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
+
+[[package]]
+name = "marine-analysis-worker"
+version = "0.1.0"
+dependencies = [
+ "event-contracts-rs",
+ "nats-client",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+ "tracing-subscriber",
+]
 
 [[package]]
 name = "matchers"

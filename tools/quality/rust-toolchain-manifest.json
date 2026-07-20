@@ -1,12 +1,21 @@
 {
   "authority": "rust-toolchain.toml",
-  "cargo_lock_sha256": "0f3632a1f9028f592b3f7dcd0871f552922a0de2c18bdb22252384982abec0c7",
+  "cargo_lock_sha256": "11d31218962a39c01eca7481916c81b6bd035fe2257bcdd4aacff1437bcfd1bb",
   "channel": "1.88.0",
-  "components": ["clippy", "rust-src", "rustfmt"],
+  "components": [
+    "clippy",
+    "rust-src",
+    "rustfmt"
+  ],
   "generated_by": "tools/quality/quality.mjs rust-toolchain generate",
   "schema_version": 1,
-  "targets": ["aarch64-unknown-linux-musl", "wasm32-unknown-unknown", "x86_64-unknown-linux-musl"],
+  "targets": [
+    "aarch64-unknown-linux-musl",
+    "wasm32-unknown-unknown",
+    "x86_64-unknown-linux-musl"
+  ],
   "workspace_members": [
+    "apps/marine-analysis-worker",
     "apps/sensor-ingestion",
     "crates/alarm-core",
     "crates/event-contracts-rs",

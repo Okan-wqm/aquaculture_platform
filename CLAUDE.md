@@ -39,7 +39,7 @@ docker compose -f docker-compose.droplet.yml up -d   # Production droplet (also 
 
 Nx monorepo: NestJS microservices (`apps/`), React microfrontends (`web/`), platform libs (`platform/libs/`), shared libs (`libs/`), Rust edge gateway (`sens-api-gateway/`).
 
-### Backend Services (`apps/`) — 17 services (15 runtime + `sensor-ingestion` Rust sidecar + `db-migrate` CLI)
+### Backend Services (`apps/`) — 18 entries (15 runtime + 2 Rust sidecars + `db-migrate` CLI)
 | Service | Schema | Responsibility |
 |---|---|---|
 | `gateway-api` | — | API gateway, auth guard, rate limiting, CSP, OPA |
@@ -47,6 +47,7 @@ Nx monorepo: NestJS microservices (`apps/`), React microfrontends (`web/`), plat
 | `farm-service` | `farm` | Farm, pond, batch, feed, harvest, water quality (schema-per-tenant) |
 | `sensor-service` | `sensor` | Sensor ingestion, calibration, aggregation, MQTT/LoRaWAN (schema-per-tenant) |
 | `sensor-ingestion` | `sensor` | Rust sidecar: high-throughput sensor decode + NATS publish (ADR-025; `docs/plans/sensor-rust-migration/PLAN.md`) |
+| `marine-analysis-worker` | — | Inactive Rust Marine analysis contract/bootstrap spine; no deploy or provider execution path |
 | `hydroponics-service` | `hydroponics` | Hydroponics config, grow cycles (schema-per-tenant) |
 | `alert-engine` | `alert` | Alert rules, risk scoring, escalation (schema-per-tenant) |
 | `billing-service` | `billing` | Subscription, invoicing, Stripe webhook/API |

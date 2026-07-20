@@ -1,0 +1,57 @@
+{
+  "name": "marine-analysis-worker",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": "apps/marine-analysis-worker/src",
+  "implicitDependencies": ["event-contracts-rs", "nats-client"],
+  "tags": ["scope:rust", "type:service", "layer:analysis"],
+  "targets": {
+    "build": {
+      "executor": "@aqua/cargo:run",
+      "options": {
+        "command": "build",
+        "package": "marine-analysis-worker",
+        "release": false
+      },
+      "outputs": ["{workspaceRoot}/target/debug/marine-analysis-worker"],
+      "cache": true
+    },
+    "build-release": {
+      "executor": "@aqua/cargo:run",
+      "options": {
+        "command": "build",
+        "package": "marine-analysis-worker",
+        "release": true
+      },
+      "outputs": ["{workspaceRoot}/target/release/marine-analysis-worker"],
+      "cache": true
+    },
+    "test": {
+      "executor": "@aqua/cargo:run",
+      "options": {
+        "command": "test",
+        "package": "marine-analysis-worker",
+        "allFeatures": true
+      },
+      "cache": true
+    },
+    "lint": {
+      "executor": "@aqua/cargo:run",
+      "options": {
+        "command": "clippy",
+        "package": "marine-analysis-worker",
+        "args": ["--all-targets", "--all-features", "--", "-D", "warnings"]
+      },
+      "cache": true
+    },
+    "fmt-check": {
+      "executor": "@aqua/cargo:run",
+      "options": {
+        "command": "fmt",
+        "package": "marine-analysis-worker",
+        "args": ["--", "--check"]
+      },
+      "cache": true
+    }
+  }
+}

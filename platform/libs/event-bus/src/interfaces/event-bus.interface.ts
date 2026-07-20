@@ -70,10 +70,7 @@ export interface IEventPublisher {
   /**
    * Publish to a specific topic/subject
    */
-  publishTo<TEvent extends IEvent>(
-    topic: string,
-    event: TEvent,
-  ): Promise<void>;
+  publishTo<TEvent extends IEvent>(topic: string, event: TEvent): Promise<void>;
 }
 
 /**
@@ -142,10 +139,7 @@ export interface IEventSubscriber {
   /**
    * Subscribe to a specific topic/subject
    */
-  subscribeTo<TEvent extends IEvent>(
-    topic: string,
-    handler: IEventHandler<TEvent>,
-  ): Promise<void>;
+  subscribeTo<TEvent extends IEvent>(topic: string, handler: IEventHandler<TEvent>): Promise<void>;
 
   /**
    * Unsubscribe from an event type
@@ -181,26 +175,23 @@ export interface IRequestReply {
    * / Encode / Decode) so operator alarms can route by shelf
    * without parsing log strings.
    */
-  requestTyped<Req, Res>(
-    subject: string,
-    request: Req,
-    options: RequestReplyOptions,
-  ): Promise<Res>;
+  requestTyped<Req, Res>(subject: string, request: Req, options: RequestReplyOptions): Promise<Res>;
 
   /**
    * Register a responder for `subject`. Each incoming message is
    * JSON-decoded into `Req`, passed to the handler, and the returned
    * `Res` is JSON-encoded and sent back on the message's reply
-   * inbox. Decode errors NAK'd (do not starve the subject); handler
-   * errors are surfaced to the caller via the reply channel as a
-   * structured error payload so the typed client raises a
-   * `RequestError` rather than hanging.
+   * inbox. Decode and handler failures are surfaced to the caller via the
+   * reply channel as a structured error payload rather than leaving it to
+   * time out. `options` can require an exact scoped reply inbox before JSON
+   * decode and opt into closed, sanitized error envelopes.
    *
    * Returns a handle the caller can `.drain()` during shutdown.
    */
   respond<Req, Res>(
     subject: string,
     handler: RequestReplyHandler<Req, Res>,
+    options?: RequestReplyResponderOptions,
   ): Promise<RequestReplyResponderHandle>;
 }
 
@@ -214,12 +205,65 @@ export interface RequestReplyOptions {
    * operator's observability SLO.
    */
   timeoutMs: number;
+
+  /**
+   * Opt in to the closed, bounded application-error envelope used at
+   * security-sensitive RPC boundaries. Codes outside `allowedCodes`, extra
+   * envelope properties, and overlong messages are contract decode failures.
+   * The remote message is validated and then discarded; it is never retained
+   * on the thrown error.
+   *
+   * Omit this policy only for callers that still consume the legacy,
+   * unbounded error envelope.
+   */
+  remoteErrorPolicy?: RequestReplySanitizedRemoteErrorPolicy;
+}
+
+/**
+ * Client-side policy for a closed, bounded remote-error envelope.
+ */
+export interface RequestReplySanitizedRemoteErrorPolicy {
+  readonly mode: 'sanitized';
+  readonly allowedCodes: readonly [string, ...string[]];
+}
+
+/**
+ * Optional responder hardening. Existing responders remain source-compatible
+ * when this object is omitted.
+ */
+export interface RequestReplyResponderOptions {
+  /** Reject requests whose reply subject is outside one exact inbox token. */
+  readonly replyInboxPolicy?: RequestReplyScopedInboxPolicy;
+  /** Emit only allowlisted codes and the platform's generic public message. */
+  readonly errorPolicy?: RequestReplySanitizedResponderErrorPolicy;
+}
+
+/**
+ * Accept only `${prefix}.${concreteToken}`. The prefix and suffix are each one
+ * concrete NATS subject token; wildcard, default-inbox, empty, and multi-token
+ * reply subjects fail before JSON decoding or handler execution.
+ */
+export interface RequestReplyScopedInboxPolicy {
+  readonly mode: 'exact-prefix';
+  readonly prefix: string;
+}
+
+/**
+ * Responder-side sanitized application-error policy.
+ *
+ * `fallbackCode` is used for malformed request JSON, response encode failures,
+ * ordinary thrown values, and handler error codes not in `allowedCodes`.
+ */
+export interface RequestReplySanitizedResponderErrorPolicy {
+  readonly mode: 'sanitized';
+  readonly allowedCodes: readonly [string, ...string[]];
+  readonly fallbackCode: string;
 }
 
 /**
  * Responder callback shape. Must be async — JSON encode / decode
  * boundaries are sync but the handler's own work (DB read,
- * authorisation probe, cert CN check) often is not.
+ * authorisation probe, authoritative state lookup) often is not.
  */
 export type RequestReplyHandler<Req, Res> = (
   request: Req,
@@ -227,17 +271,28 @@ export type RequestReplyHandler<Req, Res> = (
 ) => Promise<Res>;
 
 /**
- * Metadata a responder can access about the incoming request: the
- * subject it hit (for fan-out responders) and the cert CN that
- * NATS mapped to the connection when available. The CN is the
- * ADR-015 identity anchor — responders that guard by service can
- * reject unauthorised callers before reading the body.
+ * Transport metadata a responder can access about the incoming request.
+ * Neither the reply subject nor any message header is an authentication
+ * authority. Broker authorization is established independently by the NATS
+ * mTLS certificate CN and subject ACLs (ADR-015); `Msg` does not expose that
+ * peer certificate identity to application handlers.
  */
 export interface RequestReplyContext {
   /** Subject the responder was invoked on. */
   subject: string;
-  /** Client cert CN NATS mapped at connect time, when present. */
-  authenticatedIdentity?: string;
+
+  /**
+   * Untrusted transport-provided reply subject. A scoped-inbox responder
+   * policy validates it before this context is created.
+   */
+  replySubject?: string;
+
+  /**
+   * Untrusted, publisher-supplied `authenticated-identity` message header.
+   * The explicit name prevents it from being confused with the certificate CN
+   * enforced by the broker.
+   */
+  untrustedAuthenticatedIdentityHeader?: string;
 }
 
 /**

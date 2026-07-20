@@ -22,7 +22,11 @@
 #   - sensor.lookup.by-topic               Rust sidecar cache-miss RPC (ADR-029)
 #   - st.language.>                        ST Language IDE bridge
 #   - policy.ingest_backend.>              dynamic policy fan-out (ADR-027/031)
-#   - $JS.API.> + _INBOX.>                 JetStream API + request-reply inboxes
+#   - $JS.API.> + _INBOX.>                 Existing general JetStream clients
+#   - $JS.API.CONSUMER.{INFO|MSG.NEXT}.…   Pre-provisioned pull-consumer access
+#   - $JS.ACK.<stream>.<consumer>.>         Exact durable-consumer acknowledgements
+#   - _INBOX{PURPOSE}.>                    scoped reply inbox; exactly one
+#                                           publisher and one subscriber
 #
 # The legacy `AQUACULTURE_EVENTS.<Type>.>` grant scheme is BANNED (and
 # structurally rejected by services.schema.json): AQUACULTURE_EVENTS is the
@@ -34,12 +38,14 @@
 # # Consumption model (why subscribe lists are short)
 #
 #   Domain-event consumption goes through JetStream PULL consumers
-#   (NatsEventBus.createSubscription): the client only needs $JS.API.> +
-#   _INBOX.> — per-subject subscribe grants are NOT consulted for pull
-#   consumers. Subject-level subscribe grants are therefore listed ONLY for
-#   CORE NATS subscriptions: @MessagePattern/@EventPattern handlers
-#   (request.*, events.> bridges), st.language.>, policy snapshots and the
-#   sensor.lookup responder. CI invariant: e2e/tests/integration/
+#   (NatsEventBus.createSubscription), so per-event subscribe grants are NOT
+#   consulted. Existing general clients retain $JS.API.> while new dedicated
+#   workers bind to infrastructure-provisioned durables with exact INFO,
+#   MSG.NEXT and ACK publish grants. Both models subscribe only to reply
+#   inboxes for pull delivery. Subject-level subscribe grants are therefore
+#   listed ONLY for CORE NATS subscriptions: @MessagePattern/@EventPattern
+#   handlers (request.*, events.> bridges), st.language.>, policy snapshots
+#   and the sensor.lookup responder. CI invariant: e2e/tests/integration/
 #   nats-invariants.spec.ts (publish-coverage + RPC-coverage + scheme ban).
 #
 version: 1
@@ -136,6 +142,7 @@ services:
       - "events.*.HarvestRecordUpdated"
       - "events.*.HarvestRegulatoryRecorded"
       - "events.*.LowStockDetected"
+      - "events.*.MarineAnalysisRequested"
       - "events.*.MortalityAlertRaised"
       - "events.*.MortalityRecorded"
       - "events.*.RegulatoryReportDeadlineApproaching"
@@ -172,6 +179,9 @@ services:
       - "events.*.WelfareEventReported"
       - "events.platform.schema-migration.>"
       - "events.security.events.>"
+      # Marine worker control-plane replies carry execution state and short-lived
+      # credentials on a first-token-distinct inbox that no other CN can read.
+      - "_INBOXMARINEANALYSIS.>"
       - "$JS.API.>"
       - "_INBOX.>"
     subscribe:
@@ -182,6 +192,13 @@ services:
       - "request.farm.getWaterQualityOverview"
       - "request.farm.getHarvestOverview"
       - "request.farm.getFeedingOverview"
+      - "request.farm.marineExecutionLease"
+      - "request.farm.marineExecutionRenew"
+      - "request.farm.marineCredentialLease"
+      - "request.farm.marineUsageReserve"
+      - "request.farm.marineUsageFinalize"
+      - "request.farm.marineArtifactLease"
+      - "request.farm.marineExecutionFinalize"
       - "$JS.API.>"
       - "_INBOX.>"
 
@@ -241,6 +258,29 @@ services:
       - "policy.ingest_backend.>"
       - "_INBOX.>"
       - "$JS.API.>"
+
+  # ---------------------------------------------------------------------------
+  # marine-analysis-worker: pre-provisioned Rust analysis identity. Runtime
+  # activation is separately gated by capacity and deployment acceptance.
+  # Durable event consumption uses a JetStream pull consumer; there is no Core
+  # `events.*.MarineAnalysisRequested` subscribe grant.
+  # ---------------------------------------------------------------------------
+  - name: marine_analysis_worker
+    description: Rust Marine analysis executor — JetStream job claims and scoped farm control-plane RPC
+    publish:
+      - "request.farm.marineExecutionLease"
+      - "request.farm.marineExecutionRenew"
+      - "request.farm.marineCredentialLease"
+      - "request.farm.marineUsageReserve"
+      - "request.farm.marineUsageFinalize"
+      - "request.farm.marineArtifactLease"
+      - "request.farm.marineExecutionFinalize"
+      - "$JS.API.CONSUMER.INFO.AQUACULTURE_EVENTS.marine-analysis-worker-v1"
+      - "$JS.API.CONSUMER.MSG.NEXT.AQUACULTURE_EVENTS.marine-analysis-worker-v1"
+      - "$JS.ACK.AQUACULTURE_EVENTS.marine-analysis-worker-v1.>"
+    subscribe:
+      - "_INBOXMARINEANALYSIS.>"
+      - "_INBOX.>"
 
   # ---------------------------------------------------------------------------
   # gateway-api + admin-api-service (shared account)

@@ -7,13 +7,16 @@ import 'reflect-metadata';
 // byte-identical wire to the v2 producer). ErrorCode/NatsError were
 // REMOVED in favour of discrete error classes — a request timeout is
 // `TimeoutError`, a no-responders failure is `NoRespondersError`.
-import { NoRespondersError, TimeoutError } from '@nats-io/nats-core';
-import type { Msg, NatsConnection } from '@nats-io/nats-core';
+import { headers, NoRespondersError, TimeoutError } from '@nats-io/nats-core';
+import type { Msg, MsgCallback, NatsConnection, Subscription } from '@nats-io/nats-core';
+
 import { NatsEventBus } from '../nats-event-bus';
 import {
   NatsRequestReply,
+  RequestReplyHandlerError,
   RequestReplyDecodeError,
   RequestReplyEncodeError,
+  RequestReplyPolicyError,
   RequestReplyRemoteError,
   RequestReplyTimeoutError,
   RequestReplyTransportError,
@@ -44,7 +47,22 @@ function stubConnection(
     request: jest.fn(),
     subscribe: jest.fn(),
   };
-  return { ...base, ...overrides } as unknown as NatsConnection;
+  return Object.assign(Object.create(null) as NatsConnection, base, overrides);
+}
+
+function resolvedRequestMock(message: Msg): NatsConnection['request'] {
+  const request: NatsConnection['request'] = jest.fn(() => Promise.resolve(message));
+  return request;
+}
+
+function rejectedRequestMock(error: Error): NatsConnection['request'] {
+  const request: NatsConnection['request'] = jest.fn(() => Promise.reject(error));
+  return request;
+}
+
+function unusedRequestMock(): NatsConnection['request'] {
+  const request: NatsConnection['request'] = jest.fn(() => Promise.resolve(replyMsg('{}')));
+  return request;
 }
 
 /**
@@ -53,9 +71,9 @@ function stubConnection(
  * keeps the tests fast + isolated from the JetStream boot path.
  */
 function fakeEventBus(connection: NatsConnection | null): NatsEventBus {
-  return {
+  return Object.assign(Object.create(NatsEventBus.prototype) as NatsEventBus, {
     getRawConnection: () => connection,
-  } as unknown as NatsEventBus;
+  });
 }
 
 /**
@@ -81,14 +99,138 @@ function replyMsg(bodyJson: string): Msg {
   };
 }
 
+function incomingMsg(bodyJson: string, reply: string, authenticatedIdentityHeader?: string): Msg {
+  const messageHeaders = headers();
+  if (authenticatedIdentityHeader !== undefined) {
+    messageHeaders.set('authenticated-identity', authenticatedIdentityHeader);
+  }
+
+  return {
+    data: new TextEncoder().encode(bodyJson),
+    string: jest.fn(() => bodyJson),
+    json: <T>() => JSON.parse(bodyJson) as T,
+    subject: 'request.farm.marineExecutionLease',
+    reply,
+    respond: jest.fn(() => true),
+    headers: messageHeaders,
+    sid: 1,
+  };
+}
+
+function firstResponseBody(message: Msg): string {
+  const body = jest.mocked(message.respond).mock.calls[0]?.[0];
+  if (typeof body !== 'string') {
+    throw new Error('expected responder to write one string payload');
+  }
+  return body;
+}
+
+class FiniteSubscription implements Subscription {
+  readonly closed = Promise.resolve();
+  readonly callback: MsgCallback<Msg> = () => undefined;
+  private unsubscribed = false;
+
+  constructor(
+    private readonly messages: readonly Msg[],
+    private readonly resolveConsumed: () => void,
+  ) {}
+
+  unsubscribe(): void {
+    this.unsubscribed = true;
+  }
+
+  drain(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  [Symbol.asyncDispose](): Promise<void> {
+    return Promise.resolve();
+  }
+
+  isDraining(): boolean {
+    return false;
+  }
+
+  isClosed(): boolean {
+    return this.unsubscribed;
+  }
+
+  getSubject(): string {
+    return 'request.farm.marineExecutionLease';
+  }
+
+  getReceived(): number {
+    return this.messages.length;
+  }
+
+  getProcessed(): number {
+    return this.messages.length;
+  }
+
+  getPending(): number {
+    return 0;
+  }
+
+  getID(): number {
+    return 1;
+  }
+
+  getMax(): number | undefined {
+    return undefined;
+  }
+
+  async *[Symbol.asyncIterator](): AsyncIterator<Msg> {
+    await Promise.resolve();
+    for (const message of this.messages) {
+      yield message;
+    }
+    this.resolveConsumed();
+  }
+}
+
+function finiteSubscription(messages: readonly Msg[]): {
+  subscription: Subscription;
+  consumed: Promise<void>;
+} {
+  let resolveConsumed = (): void => undefined;
+  const consumed = new Promise<void>((resolve) => {
+    resolveConsumed = resolve;
+  });
+
+  const subscription = new FiniteSubscription(messages, resolveConsumed);
+
+  return { subscription, consumed };
+}
+
+function subscribeMock(subscription: Subscription): NatsConnection['subscribe'] {
+  const subscribe: NatsConnection['subscribe'] = jest.fn(() => subscription);
+  return subscribe;
+}
+
+const MARINE_RESPONDER_OPTIONS = {
+  replyInboxPolicy: {
+    mode: 'exact-prefix',
+    prefix: '_INBOXMARINEANALYSIS',
+  },
+  errorPolicy: {
+    mode: 'sanitized',
+    allowedCodes: ['HANDLER_ERROR', 'LEASE_FENCED'],
+    fallbackCode: 'HANDLER_ERROR',
+  },
+} as const;
+
 describe('NatsRequestReply — requestTyped', () => {
   it('round-trips happy-path JSON', async () => {
-    interface Req { a: number }
-    interface Res { b: string }
+    interface Req {
+      a: number;
+    }
+    interface Res {
+      b: string;
+    }
 
     const responseJson = JSON.stringify({ b: 'ok' });
     const connection = stubConnection({
-      request: jest.fn().mockResolvedValue(replyMsg(responseJson)) as unknown as NatsConnection['request'],
+      request: resolvedRequestMock(replyMsg(responseJson)),
     });
     const rr = new NatsRequestReply(fakeEventBus(connection));
 
@@ -107,7 +249,7 @@ describe('NatsRequestReply — requestTyped', () => {
       { timeout: 500 },
     );
     // The string payload must be the JSON we supplied, byte-for-byte.
-    const [[, payload]] = (connection.request as jest.Mock).mock.calls;
+    const payload = jest.mocked(connection.request).mock.calls[0]?.[1];
     expect(payload).toBe('{"a":42}');
   });
 
@@ -116,7 +258,7 @@ describe('NatsRequestReply — requestTyped', () => {
     // (replacing v2's `new NatsError(msg, ErrorCode.Timeout)` sentinel).
     const timeoutErr = new TimeoutError();
     const connection = stubConnection({
-      request: jest.fn().mockRejectedValue(timeoutErr) as unknown as NatsConnection['request'],
+      request: rejectedRequestMock(timeoutErr),
     });
     const rr = new NatsRequestReply(fakeEventBus(connection));
 
@@ -138,7 +280,7 @@ describe('NatsRequestReply — requestTyped', () => {
     // It is not a TimeoutError, so the client maps it to the transport shelf.
     const transportErr = new NoRespondersError('ns.subj');
     const connection = stubConnection({
-      request: jest.fn().mockRejectedValue(transportErr) as unknown as NatsConnection['request'],
+      request: rejectedRequestMock(transportErr),
     });
     const rr = new NatsRequestReply(fakeEventBus(connection));
 
@@ -157,7 +299,7 @@ describe('NatsRequestReply — requestTyped', () => {
 
   it('raises RequestReplyEncodeError on non-encodable request bodies', async () => {
     const connection = stubConnection({
-      request: jest.fn() as unknown as NatsConnection['request'],
+      request: unusedRequestMock(),
     });
     const rr = new NatsRequestReply(fakeEventBus(connection));
 
@@ -165,11 +307,7 @@ describe('NatsRequestReply — requestTyped', () => {
     // TypeError. The client wraps as RequestReplyEncodeError so
     // callers see the canonical shelf.
     await expect(
-      rr.requestTyped<{ n: bigint }, object>(
-        'ns.subj',
-        { n: 1n },
-        { timeoutMs: 50 },
-      ),
+      rr.requestTyped<{ n: bigint }, object>('ns.subj', { n: 1n }, { timeoutMs: 50 }),
     ).rejects.toBeInstanceOf(RequestReplyEncodeError);
 
     // AND the request was never actually sent.
@@ -178,7 +316,7 @@ describe('NatsRequestReply — requestTyped', () => {
 
   it('raises RequestReplyDecodeError when the reply is not valid JSON', async () => {
     const connection = stubConnection({
-      request: jest.fn().mockResolvedValue(replyMsg('not json')) as unknown as NatsConnection['request'],
+      request: resolvedRequestMock(replyMsg('not json')),
     });
     const rr = new NatsRequestReply(fakeEventBus(connection));
 
@@ -198,7 +336,7 @@ describe('NatsRequestReply — requestTyped', () => {
       message: 'no snapshot',
     });
     const connection = stubConnection({
-      request: jest.fn().mockResolvedValue(replyMsg(envelope)) as unknown as NatsConnection['request'],
+      request: resolvedRequestMock(replyMsg(envelope)),
     });
     const rr = new NatsRequestReply(fakeEventBus(connection));
 
@@ -212,6 +350,377 @@ describe('NatsRequestReply — requestTyped', () => {
       code: 'SNAPSHOT_UNAVAILABLE',
       message: 'no snapshot',
     });
+  });
+
+  it('validates and discards a bounded remote message in sanitized mode', async () => {
+    const secret = 'provider-token-super-secret';
+    const envelope = JSON.stringify({
+      __error: true,
+      code: 'LEASE_FENCED',
+      message: secret,
+    });
+    const connection = stubConnection({
+      request: resolvedRequestMock(replyMsg(envelope)),
+    });
+    const rr = new NatsRequestReply(fakeEventBus(connection));
+
+    const attempt = rr.requestTyped<object, object>(
+      'request.farm.marineExecutionRenew',
+      {},
+      {
+        timeoutMs: 50,
+        remoteErrorPolicy: {
+          mode: 'sanitized',
+          allowedCodes: ['LEASE_FENCED'],
+        },
+      },
+    );
+
+    const error = await attempt.catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(RequestReplyRemoteError);
+    expect(error).toMatchObject({ code: 'LEASE_FENCED', sanitized: true });
+    expect(String(error)).not.toContain(secret);
+    expect((error as Error).stack).not.toContain(secret);
+    expect(JSON.stringify(error)).not.toContain(secret);
+  });
+
+  it('accepts the exact Rust-compatible code and UTF-8 message bounds', async () => {
+    const code = `A${'B'.repeat(63)}`;
+    const message = 'x'.repeat(2_048);
+    const connection = stubConnection({
+      request: resolvedRequestMock(replyMsg(JSON.stringify({ __error: true, code, message }))),
+    });
+    const rr = new NatsRequestReply(fakeEventBus(connection));
+
+    const error = await rr
+      .requestTyped<object, object>(
+        'request.farm.marineExecutionRenew',
+        {},
+        {
+          timeoutMs: 50,
+          remoteErrorPolicy: {
+            mode: 'sanitized',
+            allowedCodes: [code],
+          },
+        },
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ code, sanitized: true });
+    expect(String(error)).not.toContain(message);
+  });
+
+  it.each([
+    {
+      name: 'lowercase code',
+      envelope: { __error: true, code: 'lease_denied', message: 'Request failed' },
+    },
+    {
+      name: 'overlong code',
+      envelope: { __error: true, code: `A${'B'.repeat(64)}`, message: 'Request failed' },
+    },
+    {
+      name: 'code outside the caller allowlist',
+      envelope: { __error: true, code: 'NOT_ALLOWED', message: 'Request failed' },
+    },
+    {
+      name: 'overlong message',
+      envelope: { __error: true, code: 'LEASE_FENCED', message: 'x'.repeat(2_049) },
+    },
+    {
+      name: 'UTF-8 byte-overlong message',
+      envelope: { __error: true, code: 'LEASE_FENCED', message: 'é'.repeat(1_025) },
+    },
+    {
+      name: 'empty message',
+      envelope: { __error: true, code: 'LEASE_FENCED', message: '' },
+    },
+    {
+      name: 'open envelope',
+      envelope: {
+        __error: true,
+        code: 'LEASE_FENCED',
+        message: 'Request failed',
+        detail: 'must not cross the boundary',
+      },
+    },
+  ])('rejects a $name error envelope as sanitized contract drift', async ({ envelope }) => {
+    const connection = stubConnection({
+      request: resolvedRequestMock(replyMsg(JSON.stringify(envelope))),
+    });
+    const rr = new NatsRequestReply(fakeEventBus(connection));
+
+    await expect(
+      rr.requestTyped<object, object>(
+        'request.farm.marineExecutionRenew',
+        {},
+        {
+          timeoutMs: 50,
+          remoteErrorPolicy: {
+            mode: 'sanitized',
+            allowedCodes: ['LEASE_FENCED'],
+          },
+        },
+      ),
+    ).rejects.toBeInstanceOf(RequestReplyDecodeError);
+  });
+
+  it('does not retain invalid JSON bytes in a sanitized decode error', async () => {
+    const secret = 'provider-token-in-invalid-json';
+    const connection = stubConnection({
+      request: resolvedRequestMock(replyMsg(`{"token":"${secret}"`)),
+    });
+    const rr = new NatsRequestReply(fakeEventBus(connection));
+
+    const error = await rr
+      .requestTyped<object, object>(
+        'request.farm.marineExecutionRenew',
+        {},
+        {
+          timeoutMs: 50,
+          remoteErrorPolicy: {
+            mode: 'sanitized',
+            allowedCodes: ['LEASE_FENCED'],
+          },
+        },
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(RequestReplyDecodeError);
+    expect(String(error)).not.toContain(secret);
+    expect((error as Error).stack).not.toContain(secret);
+  });
+});
+
+describe('NatsRequestReply — hardened responder', () => {
+  it('accepts exactly one concrete suffix under the configured inbox prefix', async () => {
+    const message = incomingMsg(
+      '{"jobId":"018f65f2-c964-77c9-89a1-4d17ee6f9674"}',
+      '_INBOXMARINEANALYSIS.7JxUVhVtVq5jQv0HWpUx3B',
+      'attacker-controlled-header',
+    );
+    const { subscription, consumed } = finiteSubscription([message]);
+    const connection = stubConnection({
+      subscribe: subscribeMock(subscription),
+    });
+    const rr = new NatsRequestReply(fakeEventBus(connection));
+    const handler = jest.fn(() => Promise.resolve({ decision: 'CONTINUE' }));
+
+    await rr.respond('request.farm.marineExecutionLease', handler, MARINE_RESPONDER_OPTIONS);
+    await consumed;
+
+    expect(handler).toHaveBeenCalledWith(
+      { jobId: '018f65f2-c964-77c9-89a1-4d17ee6f9674' },
+      {
+        subject: 'request.farm.marineExecutionLease',
+        replySubject: '_INBOXMARINEANALYSIS.7JxUVhVtVq5jQv0HWpUx3B',
+        // The library surfaces the self-asserted header verbatim. This proves
+        // it is transport metadata, not a broker-derived certificate identity.
+        untrustedAuthenticatedIdentityHeader: 'attacker-controlled-header',
+      },
+    );
+    expect(message.respond).toHaveBeenCalledWith('{"decision":"CONTINUE"}');
+  });
+
+  it.each([
+    ['default inbox', '_INBOX.defaultToken'],
+    ['wrong scoped inbox', '_INBOXOTHER.oneToken'],
+    ['wildcard suffix', '_INBOXMARINEANALYSIS.*'],
+    ['tail wildcard suffix', '_INBOXMARINEANALYSIS.>'],
+    ['multi-token suffix', '_INBOXMARINEANALYSIS.one.two'],
+    ['missing suffix', '_INBOXMARINEANALYSIS'],
+  ])('rejects a %s before decode or handler execution', async (_name, reply) => {
+    const message = incomingMsg('{not-json', reply);
+    const { subscription, consumed } = finiteSubscription([message]);
+    const connection = stubConnection({
+      subscribe: subscribeMock(subscription),
+    });
+    const rr = new NatsRequestReply(fakeEventBus(connection));
+    const handler = jest.fn(() => Promise.resolve({ accepted: true }));
+
+    await rr.respond('request.farm.marineExecutionLease', handler, MARINE_RESPONDER_OPTIONS);
+    await consumed;
+
+    expect(message.string).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
+    expect(message.respond).not.toHaveBeenCalled();
+  });
+
+  it('emits only an allowlisted fallback code and generic message for thrown secrets', async () => {
+    const secret = 'signed-url-and-provider-token';
+    const message = incomingMsg('{}', '_INBOXMARINEANALYSIS.oneToken');
+    const { subscription, consumed } = finiteSubscription([message]);
+    const connection = stubConnection({
+      subscribe: subscribeMock(subscription),
+    });
+    const rr = new NatsRequestReply(fakeEventBus(connection));
+
+    await rr.respond(
+      'request.farm.marineExecutionLease',
+      () => Promise.reject(new Error(secret)),
+      MARINE_RESPONDER_OPTIONS,
+    );
+    await consumed;
+
+    const wireBody = firstResponseBody(message);
+    expect(JSON.parse(wireBody)).toEqual({
+      __error: true,
+      code: 'HANDLER_ERROR',
+      message: 'Request failed',
+    });
+    expect(wireBody).not.toContain(secret);
+  });
+
+  it('does not expose JSON parser text from a malformed request', async () => {
+    const secret = 'credential-inside-malformed-json';
+    const message = incomingMsg(`{"credential":"${secret}"`, '_INBOXMARINEANALYSIS.oneToken');
+    const { subscription, consumed } = finiteSubscription([message]);
+    const connection = stubConnection({
+      subscribe: subscribeMock(subscription),
+    });
+    const rr = new NatsRequestReply(fakeEventBus(connection));
+    const handler = jest.fn(() => Promise.resolve({ accepted: true }));
+
+    await rr.respond('request.farm.marineCredentialLease', handler, MARINE_RESPONDER_OPTIONS);
+    await consumed;
+
+    const wireBody = firstResponseBody(message);
+    expect(JSON.parse(wireBody)).toEqual({
+      __error: true,
+      code: 'HANDLER_ERROR',
+      message: 'Request failed',
+    });
+    expect(wireBody).not.toContain(secret);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('does not expose response encoder exceptions', async () => {
+    const secret = 'signed-url-inside-to-json-error';
+    const message = incomingMsg('{}', '_INBOXMARINEANALYSIS.oneToken');
+    const { subscription, consumed } = finiteSubscription([message]);
+    const connection = stubConnection({
+      subscribe: subscribeMock(subscription),
+    });
+    const rr = new NatsRequestReply(fakeEventBus(connection));
+    const response = {
+      toJSON(): never {
+        throw new Error(secret);
+      },
+    };
+
+    await rr.respond(
+      'request.farm.marineArtifactLease',
+      () => Promise.resolve(response),
+      MARINE_RESPONDER_OPTIONS,
+    );
+    await consumed;
+
+    const wireBody = firstResponseBody(message);
+    expect(JSON.parse(wireBody)).toEqual({
+      __error: true,
+      code: 'HANDLER_ERROR',
+      message: 'Request failed',
+    });
+    expect(wireBody).not.toContain(secret);
+  });
+
+  it('does not derive a sanitized code from a thrown Error name', async () => {
+    const message = incomingMsg('{}', '_INBOXMARINEANALYSIS.oneToken');
+    const { subscription, consumed } = finiteSubscription([message]);
+    const connection = stubConnection({
+      subscribe: subscribeMock(subscription),
+    });
+    const rr = new NatsRequestReply(fakeEventBus(connection));
+    const forged = new Error('secret-provider-body');
+    forged.name = 'LEASE_FENCED';
+
+    await rr.respond(
+      'request.farm.marineExecutionRenew',
+      () => Promise.reject(forged),
+      MARINE_RESPONDER_OPTIONS,
+    );
+    await consumed;
+
+    const wireBody = firstResponseBody(message);
+    expect(JSON.parse(wireBody)).toEqual({
+      __error: true,
+      code: 'HANDLER_ERROR',
+      message: 'Request failed',
+    });
+    expect(wireBody).not.toContain(forged.message);
+  });
+
+  it('emits an explicitly allowlisted handler code without its thrown message', async () => {
+    const message = incomingMsg('{}', '_INBOXMARINEANALYSIS.oneToken');
+    const { subscription, consumed } = finiteSubscription([message]);
+    const connection = stubConnection({
+      subscribe: subscribeMock(subscription),
+    });
+    const rr = new NatsRequestReply(fakeEventBus(connection));
+
+    await rr.respond(
+      'request.farm.marineExecutionRenew',
+      () => Promise.reject(new RequestReplyHandlerError('LEASE_FENCED')),
+      MARINE_RESPONDER_OPTIONS,
+    );
+    await consumed;
+
+    const wireBody = firstResponseBody(message);
+    expect(JSON.parse(wireBody)).toEqual({
+      __error: true,
+      code: 'LEASE_FENCED',
+      message: 'Request failed',
+    });
+  });
+
+  it('accepts the longest scoped inbox prefix deployable as a 120-character ACL subject', async () => {
+    const prefix = `_INBOX${'A'.repeat(112)}`;
+    const { subscription, consumed } = finiteSubscription([]);
+    const connection = stubConnection({
+      subscribe: subscribeMock(subscription),
+    });
+    const rr = new NatsRequestReply(fakeEventBus(connection));
+
+    await rr.respond('request.farm.marineExecutionLease', () => Promise.resolve({}), {
+      ...MARINE_RESPONDER_OPTIONS,
+      replyInboxPolicy: { mode: 'exact-prefix', prefix },
+    });
+    await consumed;
+
+    expect(prefix).toHaveLength(118);
+    expect(connection.subscribe).toHaveBeenCalledWith('request.farm.marineExecutionLease');
+  });
+
+  it.each([
+    ['default prefix', '_INBOX'],
+    ['wildcard prefix', '_INBOX*'],
+    ['multi-token prefix', '_INBOX.MARINE'],
+    ['lowercase scoped prefix', '_INBOXmarine'],
+    ['hyphenated scoped prefix', '_INBOX-MARINE'],
+    ['119-character scoped prefix', `_INBOX${'A'.repeat(113)}`],
+    ['lowercase code', 'lease_fenced'],
+    ['overlong code', `A${'B'.repeat(64)}`],
+  ])('fails registration for an invalid %s policy value', async (kind, value) => {
+    const connection = stubConnection();
+    const rr = new NatsRequestReply(fakeEventBus(connection));
+    const options = kind.includes('prefix')
+      ? {
+          ...MARINE_RESPONDER_OPTIONS,
+          replyInboxPolicy: { mode: 'exact-prefix' as const, prefix: value },
+        }
+      : {
+          ...MARINE_RESPONDER_OPTIONS,
+          errorPolicy: {
+            mode: 'sanitized' as const,
+            allowedCodes: [value] as [string],
+            fallbackCode: value,
+          },
+        };
+
+    await expect(
+      rr.respond('request.farm.marineExecutionLease', () => Promise.resolve({}), options),
+    ).rejects.toBeInstanceOf(RequestReplyPolicyError);
+    expect(connection.subscribe).not.toHaveBeenCalled();
   });
 });
 

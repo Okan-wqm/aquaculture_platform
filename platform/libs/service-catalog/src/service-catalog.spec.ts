@@ -37,6 +37,24 @@ describe('platform service catalog executable views', () => {
     expect(gatewaySubgraphs().map((entry) => entry.nxProject)).not.toContain('event-store-service');
   });
 
+  it('registers the Marine worker without exposing image or deployment path', () => {
+    const worker = PLATFORM_SERVICE_CATALOG.find(
+      (entry) => entry.serviceId === 'marine-analysis-worker',
+    );
+
+    expect(worker).toMatchObject({
+      nxProject: 'marine-analysis-worker',
+      buildKind: 'rust-sidecar',
+      deploymentStatus: 'inactive',
+      deployTarget: 'unsupported',
+      deployProfiles: [],
+      readinessContract: 'none',
+    });
+    expect(worker?.imageTarget).toBeUndefined();
+    expect(activeDropletComposeServices()).not.toContain('marine-analysis-worker');
+    expect(imageBuildTargets()).not.toContain('marine-analysis-worker');
+  });
+
   it('models config-service visibility separately from Apollo participation', () => {
     const configService = PLATFORM_SERVICE_CATALOG.find(
       (entry) => entry.serviceId === 'config-service',

@@ -1,0 +1,29 @@
+{
+  "name": "event-bus",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "platform/libs/event-bus/src",
+  "projectType": "library",
+  "tags": ["scope:platform", "type:lib"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "outputs": [],
+      "options": {
+        "command": "npx tsc -p platform/libs/event-bus/tsconfig.lib.json --noEmit"
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/platform/libs/event-bus"],
+      "options": {
+        "jestConfig": "platform/libs/event-bus/jest.config.ts"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node --max-old-space-size=4096 ./node_modules/eslint/bin/eslint.js --rule \"@typescript-eslint/explicit-function-return-type:error\" --max-warnings=0 --suppressions-location platform/libs/event-bus/eslint-suppressions.json \"platform/libs/event-bus/src/**/*.ts\""
+      }
+    }
+  }
+}

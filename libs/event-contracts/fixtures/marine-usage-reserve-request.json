@@ -1,0 +1,12 @@
+{
+  "tenantId": "22222222-2222-4222-8222-222222222222",
+  "jobId": "33333333-3333-4333-8333-333333333333",
+  "executionId": "44444444-4444-4444-8444-444444444444",
+  "executionLeaseId": "77777777-7777-4777-8777-777777777777",
+  "leaseVersion": 1,
+  "operationId": "99999999-9999-4999-8999-999999999999",
+  "idempotencyKey": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "provider": "CMEMS",
+  "operationType": "CMEMS_SUBSET",
+  "requestFingerprint": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+}

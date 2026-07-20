@@ -42,6 +42,44 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 use uuid::Uuid;
 
+pub(crate) fn parse_canonical_uuid(value: &str) -> Result<Uuid, &'static str> {
+    let parsed = Uuid::try_parse(value).map_err(|_| "UUID is invalid")?;
+    if parsed.hyphenated().to_string() != value {
+        return Err("UUID must use canonical lowercase hyphenated text");
+    }
+    Ok(parsed)
+}
+
+pub(crate) fn deserialize_canonical_uuid<'de, D>(deserializer: D) -> Result<Uuid, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    parse_canonical_uuid(&value).map_err(serde::de::Error::custom)
+}
+
+pub(crate) fn deserialize_optional_canonical_uuid<'de, D>(
+    deserializer: D,
+) -> Result<Option<Uuid>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer)?
+        .map(|value| parse_canonical_uuid(&value))
+        .transpose()
+        .map_err(serde::de::Error::custom)
+}
+
+mod marine;
+pub use marine::{
+    MARINE_ANALYSIS_REQUESTED_EVENT_TYPE, MarineAnalysisJobAggregateType, MarineAnalysisJobKind,
+    MarineAnalysisProvider, MarineAnalysisRequestedEvent, MarineAnalysisRequestedEventType,
+    MarineAnalysisRequestedEventVersion, MarineCredentialGeneration, RequestFingerprint,
+    RequestFingerprintError,
+};
+mod marine_control;
+pub use marine_control::*;
+
 /// Crate version for diagnostic / drift-detection telemetry.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 

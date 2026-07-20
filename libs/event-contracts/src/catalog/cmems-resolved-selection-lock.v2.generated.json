@@ -1,0 +1,1404 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "libs/event-contracts/tools/cmems-resolved-selection-lock.ts",
+  "sourcePath": "apps/farm-service/src/marine-explorer/catalog/copernicus-catalog-lock.v2.json",
+  "sourceCatalog": {
+    "schemaVersion": 2,
+    "catalogVersion": "2026-07-19.2",
+    "catalogRevision": "6776655b7961f860ec5b88ce02e6b5b41b18296367da07229f8ff5c17d339e5b"
+  },
+  "resolvedSelections": [
+    {
+      "dataRole": "ANALYSIS",
+      "selectionProvenance": {
+        "catalogSchemaVersion": 2,
+        "catalogVersion": "2026-07-19.2",
+        "catalogRevision": "6776655b7961f860ec5b88ce02e6b5b41b18296367da07229f8ff5c17d339e5b",
+        "catalogEntryId": "cmems.operational.temperature.analysis",
+        "provider": "CMEMS",
+        "dataKind": "SCALAR",
+        "productId": "GLOBAL_ANALYSISFORECAST_PHY_001_024",
+        "datasetId": "cmems_mod_glo_phy-thetao_anfc_0.083deg_P1D-m",
+        "datasetVersionPart": "202406",
+        "variables": [
+          {
+            "id": "thetao",
+            "unit": "degrees_C"
+          }
+        ],
+        "spatialResolution": {
+          "x": 0.083,
+          "y": 0.083,
+          "unit": "degree"
+        },
+        "depthSelection": {
+          "semantics": "DEPTH_BELOW_SEA_SURFACE",
+          "method": "strict-inside",
+          "verticalAxis": "depth",
+          "positiveDirection": "DOWN",
+          "unit": "m",
+          "levelCount": 50,
+          "coordinateValuesSource": "PROVIDER_DATASET_METADATA",
+          "outOfBounds": "REJECT",
+          "raiseIfUpdating": true
+        },
+        "selectionMethodId": "cmems.toolbox.strict-inside.depth.v1",
+        "processing": {
+          "providerLevel": "L4",
+          "toolboxVersion": "2.4.1",
+          "derivationId": "marine.cmems.raw-scalar",
+          "derivationVersion": 1,
+          "vectorDerivation": null
+        },
+        "noData": {
+          "rule": "EXCLUDE_METADATA_NODATA_AND_NON_FINITE",
+          "valueSource": "PROVIDER_VARIABLE_METADATA",
+          "metadataKeysInPriorityOrder": [
+            "_FillValue",
+            "missing_value"
+          ],
+          "onMissingValue": "REJECT"
+        },
+        "recipeSha256": null,
+        "display": {
+          "wmtsCapabilitiesUrl": "https://wmts.marine.copernicus.eu/teroWmts/GLOBAL_ANALYSISFORECAST_PHY_001_024/cmems_mod_glo_phy-thetao_anfc_0.083deg_P1D-m_202406?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities",
+          "variable": "thetao",
+          "style": "cmap:thermal",
+          "legendId": "legend.cmems.operational.temperature.202406.thermal",
+          "legendPolicyId": "legend-policy.cmems.wmts-getlegend.v1",
+          "artifact": {
+            "dataKind": "RASTER",
+            "mediaType": "image/png",
+            "authority": "DISPLAY_ONLY"
+          }
+        },
+        "attribution": {
+          "id": "attribution.cmems.global-analysisforecast-phy-001-024.v1",
+          "provider": "COPERNICUS_MARINE",
+          "creditTemplate": "Generated using E.U. Copernicus Marine Service Information; https://doi.org/10.48670/moi-00016",
+          "citationTemplate": "Global Ocean Physics Analysis and Forecast. E.U. Copernicus Marine Service Information (CMEMS). Marine Data Store (MDS). DOI: 10.48670/moi-00016 (Accessed on {{ACCESSED_ON}})",
+          "requiredTemplateVariables": [
+            "ACCESSED_ON"
+          ],
+          "doi": "10.48670/moi-00016",
+          "doiUrl": "https://doi.org/10.48670/moi-00016",
+          "sourceUrl": "https://data.marine.copernicus.eu/product/GLOBAL_ANALYSISFORECAST_PHY_001_024/description",
+          "guidanceUrl": "https://help.marine.copernicus.eu/en/articles/4444611-how-to-cite-copernicus-marine-products-and-services"
+        },
+        "toolbox": {
+          "schemaVersion": 1,
+          "tool": "copernicusmarine",
+          "version": "2.4.1",
+          "artifact": {
+            "name": "copernicusmarine_linux-glibc-2.35.cli",
+            "sizeBytes": 154166192,
+            "sha256": "e65f72db9fc7075f91fc9bd90368246248aa39a599a8a79eb4d06a5705b15864"
+          }
+        }
+      }
+    },
+    {
+      "dataRole": "FORECAST",
+      "selectionProvenance": {
+        "catalogSchemaVersion": 2,
+        "catalogVersion": "2026-07-19.2",
+        "catalogRevision": "6776655b7961f860ec5b88ce02e6b5b41b18296367da07229f8ff5c17d339e5b",
+        "catalogEntryId": "cmems.operational.temperature.forecast",
+        "provider": "CMEMS",
+        "dataKind": "SCALAR",
+        "productId": "GLOBAL_ANALYSISFORECAST_PHY_001_024",
+        "datasetId": "cmems_mod_glo_phy-thetao_anfc_0.083deg_P1D-m",
+        "datasetVersionPart": "202406",
+        "variables": [
+          {
+            "id": "thetao",
+            "unit": "degrees_C"
+          }
+        ],
+        "spatialResolution": {
+          "x": 0.083,
+          "y": 0.083,
+          "unit": "degree"
+        },
+        "depthSelection": {
+          "semantics": "DEPTH_BELOW_SEA_SURFACE",
+          "method": "strict-inside",
+          "verticalAxis": "depth",
+          "positiveDirection": "DOWN",
+          "unit": "m",
+          "levelCount": 50,
+          "coordinateValuesSource": "PROVIDER_DATASET_METADATA",
+          "outOfBounds": "REJECT",
+          "raiseIfUpdating": true
+        },
+        "selectionMethodId": "cmems.toolbox.strict-inside.depth.v1",
+        "processing": {
+          "providerLevel": "L4",
+          "toolboxVersion": "2.4.1",
+          "derivationId": "marine.cmems.raw-scalar",
+          "derivationVersion": 1,
+          "vectorDerivation": null
+        },
+        "noData": {
+          "rule": "EXCLUDE_METADATA_NODATA_AND_NON_FINITE",
+          "valueSource": "PROVIDER_VARIABLE_METADATA",
+          "metadataKeysInPriorityOrder": [
+            "_FillValue",
+            "missing_value"
+          ],
+          "onMissingValue": "REJECT"
+        },
+        "recipeSha256": null,
+        "display": {
+          "wmtsCapabilitiesUrl": "https://wmts.marine.copernicus.eu/teroWmts/GLOBAL_ANALYSISFORECAST_PHY_001_024/cmems_mod_glo_phy-thetao_anfc_0.083deg_P1D-m_202406?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities",
+          "variable": "thetao",
+          "style": "cmap:thermal",
+          "legendId": "legend.cmems.operational.temperature.202406.thermal",
+          "legendPolicyId": "legend-policy.cmems.wmts-getlegend.v1",
+          "artifact": {
+            "dataKind": "RASTER",
+            "mediaType": "image/png",
+            "authority": "DISPLAY_ONLY"
+          }
+        },
+        "attribution": {
+          "id": "attribution.cmems.global-analysisforecast-phy-001-024.v1",
+          "provider": "COPERNICUS_MARINE",
+          "creditTemplate": "Generated using E.U. Copernicus Marine Service Information; https://doi.org/10.48670/moi-00016",
+          "citationTemplate": "Global Ocean Physics Analysis and Forecast. E.U. Copernicus Marine Service Information (CMEMS). Marine Data Store (MDS). DOI: 10.48670/moi-00016 (Accessed on {{ACCESSED_ON}})",
+          "requiredTemplateVariables": [
+            "ACCESSED_ON"
+          ],
+          "doi": "10.48670/moi-00016",
+          "doiUrl": "https://doi.org/10.48670/moi-00016",
+          "sourceUrl": "https://data.marine.copernicus.eu/product/GLOBAL_ANALYSISFORECAST_PHY_001_024/description",
+          "guidanceUrl": "https://help.marine.copernicus.eu/en/articles/4444611-how-to-cite-copernicus-marine-products-and-services"
+        },
+        "toolbox": {
+          "schemaVersion": 1,
+          "tool": "copernicusmarine",
+          "version": "2.4.1",
+          "artifact": {
+            "name": "copernicusmarine_linux-glibc-2.35.cli",
+            "sizeBytes": 154166192,
+            "sha256": "e65f72db9fc7075f91fc9bd90368246248aa39a599a8a79eb4d06a5705b15864"
+          }
+        }
+      }
+    },
+    {
+      "dataRole": "ANALYSIS",
+      "selectionProvenance": {
+        "catalogSchemaVersion": 2,
+        "catalogVersion": "2026-07-19.2",
+        "catalogRevision": "6776655b7961f860ec5b88ce02e6b5b41b18296367da07229f8ff5c17d339e5b",
+        "catalogEntryId": "cmems.operational.salinity.analysis",
+        "provider": "CMEMS",
+        "dataKind": "SCALAR",
+        "productId": "GLOBAL_ANALYSISFORECAST_PHY_001_024",
+        "datasetId": "cmems_mod_glo_phy-so_anfc_0.083deg_P1D-m",
+        "datasetVersionPart": "202406",
+        "variables": [
+          {
+            "id": "so",
+            "unit": "1e-3"
+          }
+        ],
+        "spatialResolution": {
+          "x": 0.083,
+          "y": 0.083,
+          "unit": "degree"
+        },
+        "depthSelection": {
+          "semantics": "DEPTH_BELOW_SEA_SURFACE",
+          "method": "strict-inside",
+          "verticalAxis": "depth",
+          "positiveDirection": "DOWN",
+          "unit": "m",
+          "levelCount": 50,
+          "coordinateValuesSource": "PROVIDER_DATASET_METADATA",
+          "outOfBounds": "REJECT",
+          "raiseIfUpdating": true
+        },
+        "selectionMethodId": "cmems.toolbox.strict-inside.depth.v1",
+        "processing": {
+          "providerLevel": "L4",
+          "toolboxVersion": "2.4.1",
+          "derivationId": "marine.cmems.raw-scalar",
+          "derivationVersion": 1,
+          "vectorDerivation": null
+        },
+        "noData": {
+          "rule": "EXCLUDE_METADATA_NODATA_AND_NON_FINITE",
+          "valueSource": "PROVIDER_VARIABLE_METADATA",
+          "metadataKeysInPriorityOrder": [
+            "_FillValue",
+            "missing_value"
+          ],
+          "onMissingValue": "REJECT"
+        },
+        "recipeSha256": null,
+        "display": {
+          "wmtsCapabilitiesUrl": "https://wmts.marine.copernicus.eu/teroWmts/GLOBAL_ANALYSISFORECAST_PHY_001_024/cmems_mod_glo_phy-so_anfc_0.083deg_P1D-m_202406?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities",
+          "variable": "so",
+          "style": "cmap:haline",
+          "legendId": "legend.cmems.operational.salinity.202406.haline",
+          "legendPolicyId": "legend-policy.cmems.wmts-getlegend.v1",
+          "artifact": {
+            "dataKind": "RASTER",
+            "mediaType": "image/png",
+            "authority": "DISPLAY_ONLY"
+          }
+        },
+        "attribution": {
+          "id": "attribution.cmems.global-analysisforecast-phy-001-024.v1",
+          "provider": "COPERNICUS_MARINE",
+          "creditTemplate": "Generated using E.U. Copernicus Marine Service Information; https://doi.org/10.48670/moi-00016",
+          "citationTemplate": "Global Ocean Physics Analysis and Forecast. E.U. Copernicus Marine Service Information (CMEMS). Marine Data Store (MDS). DOI: 10.48670/moi-00016 (Accessed on {{ACCESSED_ON}})",
+          "requiredTemplateVariables": [
+            "ACCESSED_ON"
+          ],
+          "doi": "10.48670/moi-00016",
+          "doiUrl": "https://doi.org/10.48670/moi-00016",
+          "sourceUrl": "https://data.marine.copernicus.eu/product/GLOBAL_ANALYSISFORECAST_PHY_001_024/description",
+          "guidanceUrl": "https://help.marine.copernicus.eu/en/articles/4444611-how-to-cite-copernicus-marine-products-and-services"
+        },
+        "toolbox": {
+          "schemaVersion": 1,
+          "tool": "copernicusmarine",
+          "version": "2.4.1",
+          "artifact": {
+            "name": "copernicusmarine_linux-glibc-2.35.cli",
+            "sizeBytes": 154166192,
+            "sha256": "e65f72db9fc7075f91fc9bd90368246248aa39a599a8a79eb4d06a5705b15864"
+          }
+        }
+      }
+    },
+    {
+      "dataRole": "FORECAST",
+      "selectionProvenance": {
+        "catalogSchemaVersion": 2,
+        "catalogVersion": "2026-07-19.2",
+        "catalogRevision": "6776655b7961f860ec5b88ce02e6b5b41b18296367da07229f8ff5c17d339e5b",
+        "catalogEntryId": "cmems.operational.salinity.forecast",
+        "provider": "CMEMS",
+        "dataKind": "SCALAR",
+        "productId": "GLOBAL_ANALYSISFORECAST_PHY_001_024",
+        "datasetId": "cmems_mod_glo_phy-so_anfc_0.083deg_P1D-m",
+        "datasetVersionPart": "202406",
+        "variables": [
+          {
+            "id": "so",
+            "unit": "1e-3"
+          }
+        ],
+        "spatialResolution": {
+          "x": 0.083,
+          "y": 0.083,
+          "unit": "degree"
+        },
+        "depthSelection": {
+          "semantics": "DEPTH_BELOW_SEA_SURFACE",
+          "method": "strict-inside",
+          "verticalAxis": "depth",
+          "positiveDirection": "DOWN",
+          "unit": "m",
+          "levelCount": 50,
+          "coordinateValuesSource": "PROVIDER_DATASET_METADATA",
+          "outOfBounds": "REJECT",
+          "raiseIfUpdating": true
+        },
+        "selectionMethodId": "cmems.toolbox.strict-inside.depth.v1",
+        "processing": {
+          "providerLevel": "L4",
+          "toolboxVersion": "2.4.1",
+          "derivationId": "marine.cmems.raw-scalar",
+          "derivationVersion": 1,
+          "vectorDerivation": null
+        },
+        "noData": {
+          "rule": "EXCLUDE_METADATA_NODATA_AND_NON_FINITE",
+          "valueSource": "PROVIDER_VARIABLE_METADATA",
+          "metadataKeysInPriorityOrder": [
+            "_FillValue",
+            "missing_value"
+          ],
+          "onMissingValue": "REJECT"
+        },
+        "recipeSha256": null,
+        "display": {
+          "wmtsCapabilitiesUrl": "https://wmts.marine.copernicus.eu/teroWmts/GLOBAL_ANALYSISFORECAST_PHY_001_024/cmems_mod_glo_phy-so_anfc_0.083deg_P1D-m_202406?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities",
+          "variable": "so",
+          "style": "cmap:haline",
+          "legendId": "legend.cmems.operational.salinity.202406.haline",
+          "legendPolicyId": "legend-policy.cmems.wmts-getlegend.v1",
+          "artifact": {
+            "dataKind": "RASTER",
+            "mediaType": "image/png",
+            "authority": "DISPLAY_ONLY"
+          }
+        },
+        "attribution": {
+          "id": "attribution.cmems.global-analysisforecast-phy-001-024.v1",
+          "provider": "COPERNICUS_MARINE",
+          "creditTemplate": "Generated using E.U. Copernicus Marine Service Information; https://doi.org/10.48670/moi-00016",
+          "citationTemplate": "Global Ocean Physics Analysis and Forecast. E.U. Copernicus Marine Service Information (CMEMS). Marine Data Store (MDS). DOI: 10.48670/moi-00016 (Accessed on {{ACCESSED_ON}})",
+          "requiredTemplateVariables": [
+            "ACCESSED_ON"
+          ],
+          "doi": "10.48670/moi-00016",
+          "doiUrl": "https://doi.org/10.48670/moi-00016",
+          "sourceUrl": "https://data.marine.copernicus.eu/product/GLOBAL_ANALYSISFORECAST_PHY_001_024/description",
+          "guidanceUrl": "https://help.marine.copernicus.eu/en/articles/4444611-how-to-cite-copernicus-marine-products-and-services"
+        },
+        "toolbox": {
+          "schemaVersion": 1,
+          "tool": "copernicusmarine",
+          "version": "2.4.1",
+          "artifact": {
+            "name": "copernicusmarine_linux-glibc-2.35.cli",
+            "sizeBytes": 154166192,
+            "sha256": "e65f72db9fc7075f91fc9bd90368246248aa39a599a8a79eb4d06a5705b15864"
+          }
+        }
+      }
+    },
+    {
+      "dataRole": "ANALYSIS",
+      "selectionProvenance": {
+        "catalogSchemaVersion": 2,
+        "catalogVersion": "2026-07-19.2",
+        "catalogRevision": "6776655b7961f860ec5b88ce02e6b5b41b18296367da07229f8ff5c17d339e5b",
+        "catalogEntryId": "cmems.operational.currents.analysis",
+        "provider": "CMEMS",
+        "dataKind": "VECTOR",
+        "productId": "GLOBAL_ANALYSISFORECAST_PHY_001_024",
+        "datasetId": "cmems_mod_glo_phy-cur_anfc_0.083deg_P1D-m",
+        "datasetVersionPart": "202406",
+        "variables": [
+          {
+            "id": "uo",
+            "unit": "m s-1"
+          },
+          {
+            "id": "vo",
+            "unit": "m s-1"
+          }
+        ],
+        "spatialResolution": {
+          "x": 0.083,
+          "y": 0.083,
+          "unit": "degree"
+        },
+        "depthSelection": {
+          "semantics": "DEPTH_BELOW_SEA_SURFACE",
+          "method": "strict-inside",
+          "verticalAxis": "depth",
+          "positiveDirection": "DOWN",
+          "unit": "m",
+          "levelCount": 50,
+          "coordinateValuesSource": "PROVIDER_DATASET_METADATA",
+          "outOfBounds": "REJECT",
+          "raiseIfUpdating": true
+        },
+        "selectionMethodId": "cmems.toolbox.strict-inside.depth.v1",
+        "processing": {
+          "providerLevel": "L4",
+          "toolboxVersion": "2.4.1",
+          "derivationId": "marine.cmems.raw-uv-speed-bearing",
+          "derivationVersion": 1,
+          "vectorDerivation": {
+            "version": 1,
+            "eastwardVariable": "uo",
+            "northwardVariable": "vo",
+            "speed": {
+              "id": "speed",
+              "formula": "sqrt(uo^2 + vo^2)",
+              "unit": "m s-1"
+            },
+            "bearing": {
+              "id": "bearing",
+              "formula": "(atan2(uo, vo) * 180 / pi + 360) % 360",
+              "unit": "degrees_true",
+              "convention": "clockwise_from_true_north_toward_flow"
+            }
+          }
+        },
+        "noData": {
+          "rule": "EXCLUDE_METADATA_NODATA_AND_NON_FINITE",
+          "valueSource": "PROVIDER_VARIABLE_METADATA",
+          "metadataKeysInPriorityOrder": [
+            "_FillValue",
+            "missing_value"
+          ],
+          "onMissingValue": "REJECT"
+        },
+        "recipeSha256": null,
+        "display": {
+          "wmtsCapabilitiesUrl": "https://wmts.marine.copernicus.eu/teroWmts/GLOBAL_ANALYSISFORECAST_PHY_001_024/cmems_mod_glo_phy-cur_anfc_0.083deg_P1D-m_202406?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities",
+          "variable": "sea_water_velocity",
+          "style": "cmap:speed,vectorStyle:solidAndVector",
+          "legendId": "legend.cmems.operational.currents.202406.speed-vector",
+          "legendPolicyId": "legend-policy.cmems.wmts-getlegend.v1",
+          "artifact": {
+            "dataKind": "RASTER",
+            "mediaType": "image/png",
+            "authority": "DISPLAY_ONLY"
+          }
+        },
+        "attribution": {
+          "id": "attribution.cmems.global-analysisforecast-phy-001-024.v1",
+          "provider": "COPERNICUS_MARINE",
+          "creditTemplate": "Generated using E.U. Copernicus Marine Service Information; https://doi.org/10.48670/moi-00016",
+          "citationTemplate": "Global Ocean Physics Analysis and Forecast. E.U. Copernicus Marine Service Information (CMEMS). Marine Data Store (MDS). DOI: 10.48670/moi-00016 (Accessed on {{ACCESSED_ON}})",
+          "requiredTemplateVariables": [
+            "ACCESSED_ON"
+          ],
+          "doi": "10.48670/moi-00016",
+          "doiUrl": "https://doi.org/10.48670/moi-00016",
+          "sourceUrl": "https://data.marine.copernicus.eu/product/GLOBAL_ANALYSISFORECAST_PHY_001_024/description",
+          "guidanceUrl": "https://help.marine.copernicus.eu/en/articles/4444611-how-to-cite-copernicus-marine-products-and-services"
+        },
+        "toolbox": {
+          "schemaVersion": 1,
+          "tool": "copernicusmarine",
+          "version": "2.4.1",
+          "artifact": {
+            "name": "copernicusmarine_linux-glibc-2.35.cli",
+            "sizeBytes": 154166192,
+            "sha256": "e65f72db9fc7075f91fc9bd90368246248aa39a599a8a79eb4d06a5705b15864"
+          }
+        }
+      }
+    },
+    {
+      "dataRole": "FORECAST",
+      "selectionProvenance": {
+        "catalogSchemaVersion": 2,
+        "catalogVersion": "2026-07-19.2",
+        "catalogRevision": "6776655b7961f860ec5b88ce02e6b5b41b18296367da07229f8ff5c17d339e5b",
+        "catalogEntryId": "cmems.operational.currents.forecast",
+        "provider": "CMEMS",
+        "dataKind": "VECTOR",
+        "productId": "GLOBAL_ANALYSISFORECAST_PHY_001_024",
+        "datasetId": "cmems_mod_glo_phy-cur_anfc_0.083deg_P1D-m",
+        "datasetVersionPart": "202406",
+        "variables": [
+          {
+            "id": "uo",
+            "unit": "m s-1"
+          },
+          {
+            "id": "vo",
+            "unit": "m s-1"
+          }
+        ],
+        "spatialResolution": {
+          "x": 0.083,
+          "y": 0.083,
+          "unit": "degree"
+        },
+        "depthSelection": {
+          "semantics": "DEPTH_BELOW_SEA_SURFACE",
+          "method": "strict-inside",
+          "verticalAxis": "depth",
+          "positiveDirection": "DOWN",
+          "unit": "m",
+          "levelCount": 50,
+          "coordinateValuesSource": "PROVIDER_DATASET_METADATA",
+          "outOfBounds": "REJECT",
+          "raiseIfUpdating": true
+        },
+        "selectionMethodId": "cmems.toolbox.strict-inside.depth.v1",
+        "processing": {
+          "providerLevel": "L4",
+          "toolboxVersion": "2.4.1",
+          "derivationId": "marine.cmems.raw-uv-speed-bearing",
+          "derivationVersion": 1,
+          "vectorDerivation": {
+            "version": 1,
+            "eastwardVariable": "uo",
+            "northwardVariable": "vo",
+            "speed": {
+              "id": "speed",
+              "formula": "sqrt(uo^2 + vo^2)",
+              "unit": "m s-1"
+            },
+            "bearing": {
+              "id": "bearing",
+              "formula": "(atan2(uo, vo) * 180 / pi + 360) % 360",
+              "unit": "degrees_true",
+              "convention": "clockwise_from_true_north_toward_flow"
+            }
+          }
+        },
+        "noData": {
+          "rule": "EXCLUDE_METADATA_NODATA_AND_NON_FINITE",
+          "valueSource": "PROVIDER_VARIABLE_METADATA",
+          "metadataKeysInPriorityOrder": [
+            "_FillValue",
+            "missing_value"
+          ],
+          "onMissingValue": "REJECT"
+        },
+        "recipeSha256": null,
+        "display": {
+          "wmtsCapabilitiesUrl": "https://wmts.marine.copernicus.eu/teroWmts/GLOBAL_ANALYSISFORECAST_PHY_001_024/cmems_mod_glo_phy-cur_anfc_0.083deg_P1D-m_202406?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities",
+          "variable": "sea_water_velocity",
+          "style": "cmap:speed,vectorStyle:solidAndVector",
+          "legendId": "legend.cmems.operational.currents.202406.speed-vector",
+          "legendPolicyId": "legend-policy.cmems.wmts-getlegend.v1",
+          "artifact": {
+            "dataKind": "RASTER",
+            "mediaType": "image/png",
+            "authority": "DISPLAY_ONLY"
+          }
+        },
+        "attribution": {
+          "id": "attribution.cmems.global-analysisforecast-phy-001-024.v1",
+          "provider": "COPERNICUS_MARINE",
+          "creditTemplate": "Generated using E.U. Copernicus Marine Service Information; https://doi.org/10.48670/moi-00016",
+          "citationTemplate": "Global Ocean Physics Analysis and Forecast. E.U. Copernicus Marine Service Information (CMEMS). Marine Data Store (MDS). DOI: 10.48670/moi-00016 (Accessed on {{ACCESSED_ON}})",
+          "requiredTemplateVariables": [
+            "ACCESSED_ON"
+          ],
+          "doi": "10.48670/moi-00016",
+          "doiUrl": "https://doi.org/10.48670/moi-00016",
+          "sourceUrl": "https://data.marine.copernicus.eu/product/GLOBAL_ANALYSISFORECAST_PHY_001_024/description",
+          "guidanceUrl": "https://help.marine.copernicus.eu/en/articles/4444611-how-to-cite-copernicus-marine-products-and-services"
+        },
+        "toolbox": {
+          "schemaVersion": 1,
+          "tool": "copernicusmarine",
+          "version": "2.4.1",
+          "artifact": {
+            "name": "copernicusmarine_linux-glibc-2.35.cli",
+            "sizeBytes": 154166192,
+            "sha256": "e65f72db9fc7075f91fc9bd90368246248aa39a599a8a79eb4d06a5705b15864"
+          }
+        }
+      }
+    },
+    {
+      "dataRole": "ANALYSIS",
+      "selectionProvenance": {
+        "catalogSchemaVersion": 2,
+        "catalogVersion": "2026-07-19.2",
+        "catalogRevision": "6776655b7961f860ec5b88ce02e6b5b41b18296367da07229f8ff5c17d339e5b",
+        "catalogEntryId": "cmems.operational.oxygen.analysis",
+        "provider": "CMEMS",
+        "dataKind": "SCALAR",
+        "productId": "GLOBAL_ANALYSISFORECAST_BGC_001_028",
+        "datasetId": "cmems_mod_glo_bgc-bio_anfc_0.25deg_P1D-m",
+        "datasetVersionPart": "202311",
+        "variables": [
+          {
+            "id": "o2",
+            "unit": "mmol m-3"
+          }
+        ],
+        "spatialResolution": {
+          "x": 0.25,
+          "y": 0.25,
+          "unit": "degree"
+        },
+        "depthSelection": {
+          "semantics": "DEPTH_BELOW_SEA_SURFACE",
+          "method": "strict-inside",
+          "verticalAxis": "depth",
+          "positiveDirection": "DOWN",
+          "unit": "m",
+          "levelCount": 50,
+          "coordinateValuesSource": "PROVIDER_DATASET_METADATA",
+          "outOfBounds": "REJECT",
+          "raiseIfUpdating": true
+        },
+        "selectionMethodId": "cmems.toolbox.strict-inside.depth.v1",
+        "processing": {
+          "providerLevel": "L4",
+          "toolboxVersion": "2.4.1",
+          "derivationId": "marine.cmems.raw-scalar",
+          "derivationVersion": 1,
+          "vectorDerivation": null
+        },
+        "noData": {
+          "rule": "EXCLUDE_METADATA_NODATA_AND_NON_FINITE",
+          "valueSource": "PROVIDER_VARIABLE_METADATA",
+          "metadataKeysInPriorityOrder": [
+            "_FillValue",
+            "missing_value"
+          ],
+          "onMissingValue": "REJECT"
+        },
+        "recipeSha256": null,
+        "display": {
+          "wmtsCapabilitiesUrl": "https://wmts.marine.copernicus.eu/teroWmts/GLOBAL_ANALYSISFORECAST_BGC_001_028/cmems_mod_glo_bgc-bio_anfc_0.25deg_P1D-m_202311?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities",
+          "variable": "o2",
+          "style": "cmap:matter",
+          "legendId": "legend.cmems.operational.oxygen.202311.matter",
+          "legendPolicyId": "legend-policy.cmems.wmts-getlegend.v1",
+          "artifact": {
+            "dataKind": "RASTER",
+            "mediaType": "image/png",
+            "authority": "DISPLAY_ONLY"
+          }
+        },
+        "attribution": {
+          "id": "attribution.cmems.global-analysisforecast-bgc-001-028.v1",
+          "provider": "COPERNICUS_MARINE",
+          "creditTemplate": "Generated using E.U. Copernicus Marine Service Information; https://doi.org/10.48670/moi-00015",
+          "citationTemplate": "Global Ocean Biogeochemistry Analysis and Forecast. E.U. Copernicus Marine Service Information (CMEMS). Marine Data Store (MDS). DOI: 10.48670/moi-00015 (Accessed on {{ACCESSED_ON}})",
+          "requiredTemplateVariables": [
+            "ACCESSED_ON"
+          ],
+          "doi": "10.48670/moi-00015",
+          "doiUrl": "https://doi.org/10.48670/moi-00015",
+          "sourceUrl": "https://data.marine.copernicus.eu/product/GLOBAL_ANALYSISFORECAST_BGC_001_028/description",
+          "guidanceUrl": "https://help.marine.copernicus.eu/en/articles/4444611-how-to-cite-copernicus-marine-products-and-services"
+        },
+        "toolbox": {
+          "schemaVersion": 1,
+          "tool": "copernicusmarine",
+          "version": "2.4.1",
+          "artifact": {
+            "name": "copernicusmarine_linux-glibc-2.35.cli",
+            "sizeBytes": 154166192,
+            "sha256": "e65f72db9fc7075f91fc9bd90368246248aa39a599a8a79eb4d06a5705b15864"
+          }
+        }
+      }
+    },
+    {
+      "dataRole": "FORECAST",
+      "selectionProvenance": {
+        "catalogSchemaVersion": 2,
+        "catalogVersion": "2026-07-19.2",
+        "catalogRevision": "6776655b7961f860ec5b88ce02e6b5b41b18296367da07229f8ff5c17d339e5b",
+        "catalogEntryId": "cmems.operational.oxygen.forecast",
+        "provider": "CMEMS",
+        "dataKind": "SCALAR",
+        "productId": "GLOBAL_ANALYSISFORECAST_BGC_001_028",
+        "datasetId": "cmems_mod_glo_bgc-bio_anfc_0.25deg_P1D-m",
+        "datasetVersionPart": "202311",
+        "variables": [
+          {
+            "id": "o2",
+            "unit": "mmol m-3"
+          }
+        ],
+        "spatialResolution": {
+          "x": 0.25,
+          "y": 0.25,
+          "unit": "degree"
+        },
+        "depthSelection": {
+          "semantics": "DEPTH_BELOW_SEA_SURFACE",
+          "method": "strict-inside",
+          "verticalAxis": "depth",
+          "positiveDirection": "DOWN",
+          "unit": "m",
+          "levelCount": 50,
+          "coordinateValuesSource": "PROVIDER_DATASET_METADATA",
+          "outOfBounds": "REJECT",
+          "raiseIfUpdating": true
+        },
+        "selectionMethodId": "cmems.toolbox.strict-inside.depth.v1",
+        "processing": {
+          "providerLevel": "L4",
+          "toolboxVersion": "2.4.1",
+          "derivationId": "marine.cmems.raw-scalar",
+          "derivationVersion": 1,
+          "vectorDerivation": null
+        },
+        "noData": {
+          "rule": "EXCLUDE_METADATA_NODATA_AND_NON_FINITE",
+          "valueSource": "PROVIDER_VARIABLE_METADATA",
+          "metadataKeysInPriorityOrder": [
+            "_FillValue",
+            "missing_value"
+          ],
+          "onMissingValue": "REJECT"
+        },
+        "recipeSha256": null,
+        "display": {
+          "wmtsCapabilitiesUrl": "https://wmts.marine.copernicus.eu/teroWmts/GLOBAL_ANALYSISFORECAST_BGC_001_028/cmems_mod_glo_bgc-bio_anfc_0.25deg_P1D-m_202311?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities",
+          "variable": "o2",
+          "style": "cmap:matter",
+          "legendId": "legend.cmems.operational.oxygen.202311.matter",
+          "legendPolicyId": "legend-policy.cmems.wmts-getlegend.v1",
+          "artifact": {
+            "dataKind": "RASTER",
+            "mediaType": "image/png",
+            "authority": "DISPLAY_ONLY"
+          }
+        },
+        "attribution": {
+          "id": "attribution.cmems.global-analysisforecast-bgc-001-028.v1",
+          "provider": "COPERNICUS_MARINE",
+          "creditTemplate": "Generated using E.U. Copernicus Marine Service Information; https://doi.org/10.48670/moi-00015",
+          "citationTemplate": "Global Ocean Biogeochemistry Analysis and Forecast. E.U. Copernicus Marine Service Information (CMEMS). Marine Data Store (MDS). DOI: 10.48670/moi-00015 (Accessed on {{ACCESSED_ON}})",
+          "requiredTemplateVariables": [
+            "ACCESSED_ON"
+          ],
+          "doi": "10.48670/moi-00015",
+          "doiUrl": "https://doi.org/10.48670/moi-00015",
+          "sourceUrl": "https://data.marine.copernicus.eu/product/GLOBAL_ANALYSISFORECAST_BGC_001_028/description",
+          "guidanceUrl": "https://help.marine.copernicus.eu/en/articles/4444611-how-to-cite-copernicus-marine-products-and-services"
+        },
+        "toolbox": {
+          "schemaVersion": 1,
+          "tool": "copernicusmarine",
+          "version": "2.4.1",
+          "artifact": {
+            "name": "copernicusmarine_linux-glibc-2.35.cli",
+            "sizeBytes": 154166192,
+            "sha256": "e65f72db9fc7075f91fc9bd90368246248aa39a599a8a79eb4d06a5705b15864"
+          }
+        }
+      }
+    },
+    {
+      "dataRole": "ANALYSIS",
+      "selectionProvenance": {
+        "catalogSchemaVersion": 2,
+        "catalogVersion": "2026-07-19.2",
+        "catalogRevision": "6776655b7961f860ec5b88ce02e6b5b41b18296367da07229f8ff5c17d339e5b",
+        "catalogEntryId": "cmems.operational.chlorophyll.analysis",
+        "provider": "CMEMS",
+        "dataKind": "SCALAR",
+        "productId": "GLOBAL_ANALYSISFORECAST_BGC_001_028",
+        "datasetId": "cmems_mod_glo_bgc-pft_anfc_0.25deg_P1D-m",
+        "datasetVersionPart": "202311",
+        "variables": [
+          {
+            "id": "chl",
+            "unit": "mg m-3"
+          }
+        ],
+        "spatialResolution": {
+          "x": 0.25,
+          "y": 0.25,
+          "unit": "degree"
+        },
+        "depthSelection": {
+          "semantics": "DEPTH_BELOW_SEA_SURFACE",
+          "method": "strict-inside",
+          "verticalAxis": "depth",
+          "positiveDirection": "DOWN",
+          "unit": "m",
+          "levelCount": 50,
+          "coordinateValuesSource": "PROVIDER_DATASET_METADATA",
+          "outOfBounds": "REJECT",
+          "raiseIfUpdating": true
+        },
+        "selectionMethodId": "cmems.toolbox.strict-inside.depth.v1",
+        "processing": {
+          "providerLevel": "L4",
+          "toolboxVersion": "2.4.1",
+          "derivationId": "marine.cmems.raw-scalar",
+          "derivationVersion": 1,
+          "vectorDerivation": null
+        },
+        "noData": {
+          "rule": "EXCLUDE_METADATA_NODATA_AND_NON_FINITE",
+          "valueSource": "PROVIDER_VARIABLE_METADATA",
+          "metadataKeysInPriorityOrder": [
+            "_FillValue",
+            "missing_value"
+          ],
+          "onMissingValue": "REJECT"
+        },
+        "recipeSha256": null,
+        "display": {
+          "wmtsCapabilitiesUrl": "https://wmts.marine.copernicus.eu/teroWmts/GLOBAL_ANALYSISFORECAST_BGC_001_028/cmems_mod_glo_bgc-pft_anfc_0.25deg_P1D-m_202311?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities",
+          "variable": "chl",
+          "style": "cmap:algae",
+          "legendId": "legend.cmems.operational.chlorophyll.202311.algae",
+          "legendPolicyId": "legend-policy.cmems.wmts-getlegend.v1",
+          "artifact": {
+            "dataKind": "RASTER",
+            "mediaType": "image/png",
+            "authority": "DISPLAY_ONLY"
+          }
+        },
+        "attribution": {
+          "id": "attribution.cmems.global-analysisforecast-bgc-001-028.v1",
+          "provider": "COPERNICUS_MARINE",
+          "creditTemplate": "Generated using E.U. Copernicus Marine Service Information; https://doi.org/10.48670/moi-00015",
+          "citationTemplate": "Global Ocean Biogeochemistry Analysis and Forecast. E.U. Copernicus Marine Service Information (CMEMS). Marine Data Store (MDS). DOI: 10.48670/moi-00015 (Accessed on {{ACCESSED_ON}})",
+          "requiredTemplateVariables": [
+            "ACCESSED_ON"
+          ],
+          "doi": "10.48670/moi-00015",
+          "doiUrl": "https://doi.org/10.48670/moi-00015",
+          "sourceUrl": "https://data.marine.copernicus.eu/product/GLOBAL_ANALYSISFORECAST_BGC_001_028/description",
+          "guidanceUrl": "https://help.marine.copernicus.eu/en/articles/4444611-how-to-cite-copernicus-marine-products-and-services"
+        },
+        "toolbox": {
+          "schemaVersion": 1,
+          "tool": "copernicusmarine",
+          "version": "2.4.1",
+          "artifact": {
+            "name": "copernicusmarine_linux-glibc-2.35.cli",
+            "sizeBytes": 154166192,
+            "sha256": "e65f72db9fc7075f91fc9bd90368246248aa39a599a8a79eb4d06a5705b15864"
+          }
+        }
+      }
+    },
+    {
+      "dataRole": "FORECAST",
+      "selectionProvenance": {
+        "catalogSchemaVersion": 2,
+        "catalogVersion": "2026-07-19.2",
+        "catalogRevision": "6776655b7961f860ec5b88ce02e6b5b41b18296367da07229f8ff5c17d339e5b",
+        "catalogEntryId": "cmems.operational.chlorophyll.forecast",
+        "provider": "CMEMS",
+        "dataKind": "SCALAR",
+        "productId": "GLOBAL_ANALYSISFORECAST_BGC_001_028",
+        "datasetId": "cmems_mod_glo_bgc-pft_anfc_0.25deg_P1D-m",
+        "datasetVersionPart": "202311",
+        "variables": [
+          {
+            "id": "chl",
+            "unit": "mg m-3"
+          }
+        ],
+        "spatialResolution": {
+          "x": 0.25,
+          "y": 0.25,
+          "unit": "degree"
+        },
+        "depthSelection": {
+          "semantics": "DEPTH_BELOW_SEA_SURFACE",
+          "method": "strict-inside",
+          "verticalAxis": "depth",
+          "positiveDirection": "DOWN",
+          "unit": "m",
+          "levelCount": 50,
+          "coordinateValuesSource": "PROVIDER_DATASET_METADATA",
+          "outOfBounds": "REJECT",
+          "raiseIfUpdating": true
+        },
+        "selectionMethodId": "cmems.toolbox.strict-inside.depth.v1",
+        "processing": {
+          "providerLevel": "L4",
+          "toolboxVersion": "2.4.1",
+          "derivationId": "marine.cmems.raw-scalar",
+          "derivationVersion": 1,
+          "vectorDerivation": null
+        },
+        "noData": {
+          "rule": "EXCLUDE_METADATA_NODATA_AND_NON_FINITE",
+          "valueSource": "PROVIDER_VARIABLE_METADATA",
+          "metadataKeysInPriorityOrder": [
+            "_FillValue",
+            "missing_value"
+          ],
+          "onMissingValue": "REJECT"
+        },
+        "recipeSha256": null,
+        "display": {
+          "wmtsCapabilitiesUrl": "https://wmts.marine.copernicus.eu/teroWmts/GLOBAL_ANALYSISFORECAST_BGC_001_028/cmems_mod_glo_bgc-pft_anfc_0.25deg_P1D-m_202311?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities",
+          "variable": "chl",
+          "style": "cmap:algae",
+          "legendId": "legend.cmems.operational.chlorophyll.202311.algae",
+          "legendPolicyId": "legend-policy.cmems.wmts-getlegend.v1",
+          "artifact": {
+            "dataKind": "RASTER",
+            "mediaType": "image/png",
+            "authority": "DISPLAY_ONLY"
+          }
+        },
+        "attribution": {
+          "id": "attribution.cmems.global-analysisforecast-bgc-001-028.v1",
+          "provider": "COPERNICUS_MARINE",
+          "creditTemplate": "Generated using E.U. Copernicus Marine Service Information; https://doi.org/10.48670/moi-00015",
+          "citationTemplate": "Global Ocean Biogeochemistry Analysis and Forecast. E.U. Copernicus Marine Service Information (CMEMS). Marine Data Store (MDS). DOI: 10.48670/moi-00015 (Accessed on {{ACCESSED_ON}})",
+          "requiredTemplateVariables": [
+            "ACCESSED_ON"
+          ],
+          "doi": "10.48670/moi-00015",
+          "doiUrl": "https://doi.org/10.48670/moi-00015",
+          "sourceUrl": "https://data.marine.copernicus.eu/product/GLOBAL_ANALYSISFORECAST_BGC_001_028/description",
+          "guidanceUrl": "https://help.marine.copernicus.eu/en/articles/4444611-how-to-cite-copernicus-marine-products-and-services"
+        },
+        "toolbox": {
+          "schemaVersion": 1,
+          "tool": "copernicusmarine",
+          "version": "2.4.1",
+          "artifact": {
+            "name": "copernicusmarine_linux-glibc-2.35.cli",
+            "sizeBytes": 154166192,
+            "sha256": "e65f72db9fc7075f91fc9bd90368246248aa39a599a8a79eb4d06a5705b15864"
+          }
+        }
+      }
+    },
+    {
+      "dataRole": "REANALYSIS",
+      "selectionProvenance": {
+        "catalogSchemaVersion": 2,
+        "catalogVersion": "2026-07-19.2",
+        "catalogRevision": "6776655b7961f860ec5b88ce02e6b5b41b18296367da07229f8ff5c17d339e5b",
+        "catalogEntryId": "cmems.reanalysis.temperature.reanalysis",
+        "provider": "CMEMS",
+        "dataKind": "SCALAR",
+        "productId": "GLOBAL_MULTIYEAR_PHY_001_030",
+        "datasetId": "cmems_mod_glo_phy_my_0.083deg_P1D-m",
+        "datasetVersionPart": "202311",
+        "variables": [
+          {
+            "id": "thetao",
+            "unit": "degrees_C"
+          }
+        ],
+        "spatialResolution": {
+          "x": 0.083,
+          "y": 0.083,
+          "unit": "degree"
+        },
+        "depthSelection": {
+          "semantics": "DEPTH_BELOW_SEA_SURFACE",
+          "method": "strict-inside",
+          "verticalAxis": "depth",
+          "positiveDirection": "DOWN",
+          "unit": "m",
+          "levelCount": 50,
+          "coordinateValuesSource": "PROVIDER_DATASET_METADATA",
+          "outOfBounds": "REJECT",
+          "raiseIfUpdating": true
+        },
+        "selectionMethodId": "cmems.toolbox.strict-inside.depth.v1",
+        "processing": {
+          "providerLevel": "L4",
+          "toolboxVersion": "2.4.1",
+          "derivationId": "marine.cmems.raw-scalar",
+          "derivationVersion": 1,
+          "vectorDerivation": null
+        },
+        "noData": {
+          "rule": "EXCLUDE_METADATA_NODATA_AND_NON_FINITE",
+          "valueSource": "PROVIDER_VARIABLE_METADATA",
+          "metadataKeysInPriorityOrder": [
+            "_FillValue",
+            "missing_value"
+          ],
+          "onMissingValue": "REJECT"
+        },
+        "recipeSha256": null,
+        "display": {
+          "wmtsCapabilitiesUrl": "https://wmts.marine.copernicus.eu/teroWmts/GLOBAL_MULTIYEAR_PHY_001_030/cmems_mod_glo_phy_my_0.083deg_P1D-m_202311?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities",
+          "variable": "thetao",
+          "style": "cmap:thermal",
+          "legendId": "legend.cmems.reanalysis.temperature.202311.thermal",
+          "legendPolicyId": "legend-policy.cmems.wmts-getlegend.v1",
+          "artifact": {
+            "dataKind": "RASTER",
+            "mediaType": "image/png",
+            "authority": "DISPLAY_ONLY"
+          }
+        },
+        "attribution": {
+          "id": "attribution.cmems.global-multiyear-phy-001-030.v1",
+          "provider": "COPERNICUS_MARINE",
+          "creditTemplate": "Generated using E.U. Copernicus Marine Service Information; https://doi.org/10.48670/moi-00021",
+          "citationTemplate": "Global Ocean Physics Reanalysis. E.U. Copernicus Marine Service Information (CMEMS). Marine Data Store (MDS). DOI: 10.48670/moi-00021 (Accessed on {{ACCESSED_ON}})",
+          "requiredTemplateVariables": [
+            "ACCESSED_ON"
+          ],
+          "doi": "10.48670/moi-00021",
+          "doiUrl": "https://doi.org/10.48670/moi-00021",
+          "sourceUrl": "https://data.marine.copernicus.eu/product/GLOBAL_MULTIYEAR_PHY_001_030/description",
+          "guidanceUrl": "https://help.marine.copernicus.eu/en/articles/4444611-how-to-cite-copernicus-marine-products-and-services"
+        },
+        "toolbox": {
+          "schemaVersion": 1,
+          "tool": "copernicusmarine",
+          "version": "2.4.1",
+          "artifact": {
+            "name": "copernicusmarine_linux-glibc-2.35.cli",
+            "sizeBytes": 154166192,
+            "sha256": "e65f72db9fc7075f91fc9bd90368246248aa39a599a8a79eb4d06a5705b15864"
+          }
+        }
+      }
+    },
+    {
+      "dataRole": "REANALYSIS",
+      "selectionProvenance": {
+        "catalogSchemaVersion": 2,
+        "catalogVersion": "2026-07-19.2",
+        "catalogRevision": "6776655b7961f860ec5b88ce02e6b5b41b18296367da07229f8ff5c17d339e5b",
+        "catalogEntryId": "cmems.reanalysis.salinity.reanalysis",
+        "provider": "CMEMS",
+        "dataKind": "SCALAR",
+        "productId": "GLOBAL_MULTIYEAR_PHY_001_030",
+        "datasetId": "cmems_mod_glo_phy_my_0.083deg_P1D-m",
+        "datasetVersionPart": "202311",
+        "variables": [
+          {
+            "id": "so",
+            "unit": "1e-3"
+          }
+        ],
+        "spatialResolution": {
+          "x": 0.083,
+          "y": 0.083,
+          "unit": "degree"
+        },
+        "depthSelection": {
+          "semantics": "DEPTH_BELOW_SEA_SURFACE",
+          "method": "strict-inside",
+          "verticalAxis": "depth",
+          "positiveDirection": "DOWN",
+          "unit": "m",
+          "levelCount": 50,
+          "coordinateValuesSource": "PROVIDER_DATASET_METADATA",
+          "outOfBounds": "REJECT",
+          "raiseIfUpdating": true
+        },
+        "selectionMethodId": "cmems.toolbox.strict-inside.depth.v1",
+        "processing": {
+          "providerLevel": "L4",
+          "toolboxVersion": "2.4.1",
+          "derivationId": "marine.cmems.raw-scalar",
+          "derivationVersion": 1,
+          "vectorDerivation": null
+        },
+        "noData": {
+          "rule": "EXCLUDE_METADATA_NODATA_AND_NON_FINITE",
+          "valueSource": "PROVIDER_VARIABLE_METADATA",
+          "metadataKeysInPriorityOrder": [
+            "_FillValue",
+            "missing_value"
+          ],
+          "onMissingValue": "REJECT"
+        },
+        "recipeSha256": null,
+        "display": {
+          "wmtsCapabilitiesUrl": "https://wmts.marine.copernicus.eu/teroWmts/GLOBAL_MULTIYEAR_PHY_001_030/cmems_mod_glo_phy_my_0.083deg_P1D-m_202311?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities",
+          "variable": "so",
+          "style": "cmap:haline",
+          "legendId": "legend.cmems.reanalysis.salinity.202311.haline",
+          "legendPolicyId": "legend-policy.cmems.wmts-getlegend.v1",
+          "artifact": {
+            "dataKind": "RASTER",
+            "mediaType": "image/png",
+            "authority": "DISPLAY_ONLY"
+          }
+        },
+        "attribution": {
+          "id": "attribution.cmems.global-multiyear-phy-001-030.v1",
+          "provider": "COPERNICUS_MARINE",
+          "creditTemplate": "Generated using E.U. Copernicus Marine Service Information; https://doi.org/10.48670/moi-00021",
+          "citationTemplate": "Global Ocean Physics Reanalysis. E.U. Copernicus Marine Service Information (CMEMS). Marine Data Store (MDS). DOI: 10.48670/moi-00021 (Accessed on {{ACCESSED_ON}})",
+          "requiredTemplateVariables": [
+            "ACCESSED_ON"
+          ],
+          "doi": "10.48670/moi-00021",
+          "doiUrl": "https://doi.org/10.48670/moi-00021",
+          "sourceUrl": "https://data.marine.copernicus.eu/product/GLOBAL_MULTIYEAR_PHY_001_030/description",
+          "guidanceUrl": "https://help.marine.copernicus.eu/en/articles/4444611-how-to-cite-copernicus-marine-products-and-services"
+        },
+        "toolbox": {
+          "schemaVersion": 1,
+          "tool": "copernicusmarine",
+          "version": "2.4.1",
+          "artifact": {
+            "name": "copernicusmarine_linux-glibc-2.35.cli",
+            "sizeBytes": 154166192,
+            "sha256": "e65f72db9fc7075f91fc9bd90368246248aa39a599a8a79eb4d06a5705b15864"
+          }
+        }
+      }
+    },
+    {
+      "dataRole": "REANALYSIS",
+      "selectionProvenance": {
+        "catalogSchemaVersion": 2,
+        "catalogVersion": "2026-07-19.2",
+        "catalogRevision": "6776655b7961f860ec5b88ce02e6b5b41b18296367da07229f8ff5c17d339e5b",
+        "catalogEntryId": "cmems.reanalysis.currents.reanalysis",
+        "provider": "CMEMS",
+        "dataKind": "VECTOR",
+        "productId": "GLOBAL_MULTIYEAR_PHY_001_030",
+        "datasetId": "cmems_mod_glo_phy_my_0.083deg_P1D-m",
+        "datasetVersionPart": "202311",
+        "variables": [
+          {
+            "id": "uo",
+            "unit": "m s-1"
+          },
+          {
+            "id": "vo",
+            "unit": "m s-1"
+          }
+        ],
+        "spatialResolution": {
+          "x": 0.083,
+          "y": 0.083,
+          "unit": "degree"
+        },
+        "depthSelection": {
+          "semantics": "DEPTH_BELOW_SEA_SURFACE",
+          "method": "strict-inside",
+          "verticalAxis": "depth",
+          "positiveDirection": "DOWN",
+          "unit": "m",
+          "levelCount": 50,
+          "coordinateValuesSource": "PROVIDER_DATASET_METADATA",
+          "outOfBounds": "REJECT",
+          "raiseIfUpdating": true
+        },
+        "selectionMethodId": "cmems.toolbox.strict-inside.depth.v1",
+        "processing": {
+          "providerLevel": "L4",
+          "toolboxVersion": "2.4.1",
+          "derivationId": "marine.cmems.raw-uv-speed-bearing",
+          "derivationVersion": 1,
+          "vectorDerivation": {
+            "version": 1,
+            "eastwardVariable": "uo",
+            "northwardVariable": "vo",
+            "speed": {
+              "id": "speed",
+              "formula": "sqrt(uo^2 + vo^2)",
+              "unit": "m s-1"
+            },
+            "bearing": {
+              "id": "bearing",
+              "formula": "(atan2(uo, vo) * 180 / pi + 360) % 360",
+              "unit": "degrees_true",
+              "convention": "clockwise_from_true_north_toward_flow"
+            }
+          }
+        },
+        "noData": {
+          "rule": "EXCLUDE_METADATA_NODATA_AND_NON_FINITE",
+          "valueSource": "PROVIDER_VARIABLE_METADATA",
+          "metadataKeysInPriorityOrder": [
+            "_FillValue",
+            "missing_value"
+          ],
+          "onMissingValue": "REJECT"
+        },
+        "recipeSha256": null,
+        "display": {
+          "wmtsCapabilitiesUrl": "https://wmts.marine.copernicus.eu/teroWmts/GLOBAL_MULTIYEAR_PHY_001_030/cmems_mod_glo_phy_my_0.083deg_P1D-m_202311?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities",
+          "variable": "sea_water_velocity",
+          "style": "cmap:speed,vectorStyle:solidAndVector",
+          "legendId": "legend.cmems.reanalysis.currents.202311.speed-vector",
+          "legendPolicyId": "legend-policy.cmems.wmts-getlegend.v1",
+          "artifact": {
+            "dataKind": "RASTER",
+            "mediaType": "image/png",
+            "authority": "DISPLAY_ONLY"
+          }
+        },
+        "attribution": {
+          "id": "attribution.cmems.global-multiyear-phy-001-030.v1",
+          "provider": "COPERNICUS_MARINE",
+          "creditTemplate": "Generated using E.U. Copernicus Marine Service Information; https://doi.org/10.48670/moi-00021",
+          "citationTemplate": "Global Ocean Physics Reanalysis. E.U. Copernicus Marine Service Information (CMEMS). Marine Data Store (MDS). DOI: 10.48670/moi-00021 (Accessed on {{ACCESSED_ON}})",
+          "requiredTemplateVariables": [
+            "ACCESSED_ON"
+          ],
+          "doi": "10.48670/moi-00021",
+          "doiUrl": "https://doi.org/10.48670/moi-00021",
+          "sourceUrl": "https://data.marine.copernicus.eu/product/GLOBAL_MULTIYEAR_PHY_001_030/description",
+          "guidanceUrl": "https://help.marine.copernicus.eu/en/articles/4444611-how-to-cite-copernicus-marine-products-and-services"
+        },
+        "toolbox": {
+          "schemaVersion": 1,
+          "tool": "copernicusmarine",
+          "version": "2.4.1",
+          "artifact": {
+            "name": "copernicusmarine_linux-glibc-2.35.cli",
+            "sizeBytes": 154166192,
+            "sha256": "e65f72db9fc7075f91fc9bd90368246248aa39a599a8a79eb4d06a5705b15864"
+          }
+        }
+      }
+    },
+    {
+      "dataRole": "HINDCAST",
+      "selectionProvenance": {
+        "catalogSchemaVersion": 2,
+        "catalogVersion": "2026-07-19.2",
+        "catalogRevision": "6776655b7961f860ec5b88ce02e6b5b41b18296367da07229f8ff5c17d339e5b",
+        "catalogEntryId": "cmems.hindcast.oxygen.hindcast",
+        "provider": "CMEMS",
+        "dataKind": "SCALAR",
+        "productId": "GLOBAL_MULTIYEAR_BGC_001_029",
+        "datasetId": "cmems_mod_glo_bgc_my_0.25deg_P1D-m",
+        "datasetVersionPart": "202406",
+        "variables": [
+          {
+            "id": "o2",
+            "unit": "mmol m-3"
+          }
+        ],
+        "spatialResolution": {
+          "x": 0.25,
+          "y": 0.25,
+          "unit": "degree"
+        },
+        "depthSelection": {
+          "semantics": "DEPTH_BELOW_SEA_SURFACE",
+          "method": "strict-inside",
+          "verticalAxis": "depth",
+          "positiveDirection": "DOWN",
+          "unit": "m",
+          "levelCount": 75,
+          "coordinateValuesSource": "PROVIDER_DATASET_METADATA",
+          "outOfBounds": "REJECT",
+          "raiseIfUpdating": true
+        },
+        "selectionMethodId": "cmems.toolbox.strict-inside.depth.v1",
+        "processing": {
+          "providerLevel": "L4",
+          "toolboxVersion": "2.4.1",
+          "derivationId": "marine.cmems.raw-scalar",
+          "derivationVersion": 1,
+          "vectorDerivation": null
+        },
+        "noData": {
+          "rule": "EXCLUDE_METADATA_NODATA_AND_NON_FINITE",
+          "valueSource": "PROVIDER_VARIABLE_METADATA",
+          "metadataKeysInPriorityOrder": [
+            "_FillValue",
+            "missing_value"
+          ],
+          "onMissingValue": "REJECT"
+        },
+        "recipeSha256": null,
+        "display": {
+          "wmtsCapabilitiesUrl": "https://wmts.marine.copernicus.eu/teroWmts/GLOBAL_MULTIYEAR_BGC_001_029/cmems_mod_glo_bgc_my_0.25deg_P1D-m_202406?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities",
+          "variable": "o2",
+          "style": "cmap:matter",
+          "legendId": "legend.cmems.hindcast.oxygen.202406.matter",
+          "legendPolicyId": "legend-policy.cmems.wmts-getlegend.v1",
+          "artifact": {
+            "dataKind": "RASTER",
+            "mediaType": "image/png",
+            "authority": "DISPLAY_ONLY"
+          }
+        },
+        "attribution": {
+          "id": "attribution.cmems.global-multiyear-bgc-001-029.v1",
+          "provider": "COPERNICUS_MARINE",
+          "creditTemplate": "Generated using E.U. Copernicus Marine Service Information; https://doi.org/10.48670/moi-00019",
+          "citationTemplate": "Global Ocean Biogeochemistry Hindcast. E.U. Copernicus Marine Service Information (CMEMS). Marine Data Store (MDS). DOI: 10.48670/moi-00019 (Accessed on {{ACCESSED_ON}})",
+          "requiredTemplateVariables": [
+            "ACCESSED_ON"
+          ],
+          "doi": "10.48670/moi-00019",
+          "doiUrl": "https://doi.org/10.48670/moi-00019",
+          "sourceUrl": "https://data.marine.copernicus.eu/product/GLOBAL_MULTIYEAR_BGC_001_029/description",
+          "guidanceUrl": "https://help.marine.copernicus.eu/en/articles/4444611-how-to-cite-copernicus-marine-products-and-services"
+        },
+        "toolbox": {
+          "schemaVersion": 1,
+          "tool": "copernicusmarine",
+          "version": "2.4.1",
+          "artifact": {
+            "name": "copernicusmarine_linux-glibc-2.35.cli",
+            "sizeBytes": 154166192,
+            "sha256": "e65f72db9fc7075f91fc9bd90368246248aa39a599a8a79eb4d06a5705b15864"
+          }
+        }
+      }
+    },
+    {
+      "dataRole": "HINDCAST",
+      "selectionProvenance": {
+        "catalogSchemaVersion": 2,
+        "catalogVersion": "2026-07-19.2",
+        "catalogRevision": "6776655b7961f860ec5b88ce02e6b5b41b18296367da07229f8ff5c17d339e5b",
+        "catalogEntryId": "cmems.hindcast.chlorophyll.hindcast",
+        "provider": "CMEMS",
+        "dataKind": "SCALAR",
+        "productId": "GLOBAL_MULTIYEAR_BGC_001_029",
+        "datasetId": "cmems_mod_glo_bgc_my_0.25deg_P1D-m",
+        "datasetVersionPart": "202406",
+        "variables": [
+          {
+            "id": "chl",
+            "unit": "mg m-3"
+          }
+        ],
+        "spatialResolution": {
+          "x": 0.25,
+          "y": 0.25,
+          "unit": "degree"
+        },
+        "depthSelection": {
+          "semantics": "DEPTH_BELOW_SEA_SURFACE",
+          "method": "strict-inside",
+          "verticalAxis": "depth",
+          "positiveDirection": "DOWN",
+          "unit": "m",
+          "levelCount": 75,
+          "coordinateValuesSource": "PROVIDER_DATASET_METADATA",
+          "outOfBounds": "REJECT",
+          "raiseIfUpdating": true
+        },
+        "selectionMethodId": "cmems.toolbox.strict-inside.depth.v1",
+        "processing": {
+          "providerLevel": "L4",
+          "toolboxVersion": "2.4.1",
+          "derivationId": "marine.cmems.raw-scalar",
+          "derivationVersion": 1,
+          "vectorDerivation": null
+        },
+        "noData": {
+          "rule": "EXCLUDE_METADATA_NODATA_AND_NON_FINITE",
+          "valueSource": "PROVIDER_VARIABLE_METADATA",
+          "metadataKeysInPriorityOrder": [
+            "_FillValue",
+            "missing_value"
+          ],
+          "onMissingValue": "REJECT"
+        },
+        "recipeSha256": null,
+        "display": {
+          "wmtsCapabilitiesUrl": "https://wmts.marine.copernicus.eu/teroWmts/GLOBAL_MULTIYEAR_BGC_001_029/cmems_mod_glo_bgc_my_0.25deg_P1D-m_202406?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities",
+          "variable": "chl",
+          "style": "cmap:algae",
+          "legendId": "legend.cmems.hindcast.chlorophyll.202406.algae",
+          "legendPolicyId": "legend-policy.cmems.wmts-getlegend.v1",
+          "artifact": {
+            "dataKind": "RASTER",
+            "mediaType": "image/png",
+            "authority": "DISPLAY_ONLY"
+          }
+        },
+        "attribution": {
+          "id": "attribution.cmems.global-multiyear-bgc-001-029.v1",
+          "provider": "COPERNICUS_MARINE",
+          "creditTemplate": "Generated using E.U. Copernicus Marine Service Information; https://doi.org/10.48670/moi-00019",
+          "citationTemplate": "Global Ocean Biogeochemistry Hindcast. E.U. Copernicus Marine Service Information (CMEMS). Marine Data Store (MDS). DOI: 10.48670/moi-00019 (Accessed on {{ACCESSED_ON}})",
+          "requiredTemplateVariables": [
+            "ACCESSED_ON"
+          ],
+          "doi": "10.48670/moi-00019",
+          "doiUrl": "https://doi.org/10.48670/moi-00019",
+          "sourceUrl": "https://data.marine.copernicus.eu/product/GLOBAL_MULTIYEAR_BGC_001_029/description",
+          "guidanceUrl": "https://help.marine.copernicus.eu/en/articles/4444611-how-to-cite-copernicus-marine-products-and-services"
+        },
+        "toolbox": {
+          "schemaVersion": 1,
+          "tool": "copernicusmarine",
+          "version": "2.4.1",
+          "artifact": {
+            "name": "copernicusmarine_linux-glibc-2.35.cli",
+            "sizeBytes": 154166192,
+            "sha256": "e65f72db9fc7075f91fc9bd90368246248aa39a599a8a79eb4d06a5705b15864"
+          }
+        }
+      }
+    }
+  ]
+}

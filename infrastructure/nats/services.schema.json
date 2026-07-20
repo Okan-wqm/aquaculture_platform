@@ -53,7 +53,7 @@
           "items": {
             "$ref": "#/definitions/subject"
           },
-          "description": "Subjects this service is permitted to publish to. Must include $JS.API.> and _INBOX.> for JetStream + request-reply."
+          "description": "Subjects this service is permitted to publish to. General JetStream clients use $JS.API.> plus _INBOX.>; a dedicated pre-provisioned pull consumer may instead use exact $JS.API.CONSUMER.INFO, $JS.API.CONSUMER.MSG.NEXT, and $JS.ACK.<stream>.<consumer>.> grants. Scoped reply inboxes use a purpose-specific first token matching _INBOX[A-Z][A-Z0-9]*. and are constrained to one publisher by the NATS invariant."
         },
         "subscribe": {
           "type": "array",
@@ -61,16 +61,16 @@
           "items": {
             "$ref": "#/definitions/subject"
           },
-          "description": "Subjects this service is permitted to subscribe to. Must include $JS.API.> and _INBOX.> for JetStream + request-reply."
+          "description": "Subjects this service is permitted to subscribe to. Pull-consumer delivery and JetStream API responses arrive on _INBOX.>; no $JS.API subscribe grant is required. Scoped reply inboxes use a purpose-specific first token matching _INBOX[A-Z][A-Z0-9]*. and are constrained to one subscriber by the NATS invariant."
         }
       }
     },
     "subject": {
       "type": "string",
-      "pattern": "^(events\\.|commands\\.|request\\.|config\\.runtime\\.|sensor\\.|st\\.language\\.|policy\\.|\\$JS\\.API\\.|_INBOX\\.|_INBOXBILLINGCFG\\.)[A-Za-z0-9_.*>-]+$",
+      "pattern": "^(?:(?:events\\.|commands\\.|request\\.|config\\.runtime\\.|sensor\\.|st\\.language\\.|policy\\.|\\$JS\\.API\\.|_INBOX\\.|_INBOX[A-Z][A-Z0-9]*\\.)[A-Za-z0-9_.*>-]+|\\$JS\\.ACK\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.>)$",
       "minLength": 3,
       "maxLength": 120,
-      "description": "NATS subject pattern. Must begin with one of: events., commands., request., config.runtime., sensor., st.language., policy., $JS.API., _INBOX. \u2014 platform subject-space conventions enforced by SSoT. The legacy AQUACULTURE_EVENTS. prefix is STRUCTURALLY REJECTED (ORPHAN-HIGH-317): it is the JetStream stream NAME, never a subject prefix \u2014 grants written in that scheme are dead weight that silently deny the real events.* publishes. The `policy.` namespace carries dynamic-policy propagation (e.g. policy.ingest_backend.> \u2014 ADR-027 per-tenant toggle + ADR-031 request-reply snapshot); `sensor.lookup.by-topic` is the Rust sidecar cache-miss RPC (ADR-029); `config.runtime.get`/`config.runtime.get_secret` are config-service's request-reply reads for effective configuration (Billing Revival Faz C / D6) \u2014 the get_secret subject is granted to exactly one CN (billing_service); `_INBOXBILLINGCFG.` is the SCOPED reply-inbox token for that secret read (a DISTINCT first token from `_INBOX.` so the platform-wide `_INBOX.>` grant cannot match it \u2014 SEC-CRITICAL-001), granted only to billing_service (subscribe) + config_service (publish)."
+      "description": "NATS subject pattern. Must begin with one of: events., commands., request., config.runtime., sensor., st.language., policy., $JS.API., $JS.ACK., _INBOX., or a purpose-specific scoped inbox token matching _INBOX[A-Z][A-Z0-9]*. \u2014 platform subject-space conventions enforced by SSoT. $JS.ACK is admitted only in the exact $JS.ACK.<stream>.<consumer>.> allow-grant shape; service-specific invariants pin its stream and durable suffix. Scoped tokens are distinct first tokens from `_INBOX.` so the platform-wide `_INBOX.>` grant cannot match them; the NATS invariant requires exactly one publisher and one subscriber for every scoped token. The legacy AQUACULTURE_EVENTS. prefix is STRUCTURALLY REJECTED (ORPHAN-HIGH-317): it is the JetStream stream NAME, never a subject prefix \u2014 grants written in that scheme are dead weight that silently deny the real events.* publishes. The `policy.` namespace carries dynamic-policy propagation (e.g. policy.ingest_backend.> \u2014 ADR-027 per-tenant toggle + ADR-031 request-reply snapshot); `sensor.lookup.by-topic` is the Rust sidecar cache-miss RPC (ADR-029); `config.runtime.get`/`config.runtime.get_secret` are config-service's request-reply reads for effective configuration (Billing Revival Faz C / D6)."
     }
   }
 }

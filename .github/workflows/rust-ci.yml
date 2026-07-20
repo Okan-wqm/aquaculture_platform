@@ -4,53 +4,95 @@ on:
   push:
     branches: [main, agentic]
     paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - "rustfmt.toml"
-      - "deny.toml"
-      - ".cargo/config.toml"
-      - "crates/**"
-      - "apps/sensor-ingestion/**"
-      - "tools/scripts/check-codec-drift.ts"
-      - ".github/workflows/rust-ci.yml"
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'rustfmt.toml'
+      - 'deny.toml'
+      - '.cargo/config.toml'
+      - 'crates/**'
+      - 'apps/sensor-ingestion/**'
+      - 'apps/marine-analysis-worker/**'
+      - 'libs/event-contracts/src/marine-events.ts'
+      - 'libs/event-contracts/src/marine-worker-control.ts'
+      - 'libs/event-contracts/src/platform-event-registry.ts'
+      - 'libs/event-contracts/src/portable-sha256.ts'
+      - 'libs/event-contracts/src/index.ts'
+      - 'libs/event-contracts/src/schemas/marine-events.schema.ts'
+      - 'libs/event-contracts/src/schemas/marine-worker-control.schema.ts'
+      - 'libs/event-contracts/src/schemas/validator.ts'
+      - 'libs/event-contracts/src/schemas/common.schema.ts'
+      - 'libs/event-contracts/src/schemas/index.ts'
+      - 'libs/event-contracts/src/__tests__/marine-contracts.spec.ts'
+      - 'libs/event-contracts/src/schemas/__tests__/marine-contracts.schema.spec.ts'
+      - 'libs/event-contracts/src/schemas/__tests__/cmems-resolved-selection-lock.spec.ts'
+      - 'libs/event-contracts/src/catalog/**'
+      - 'libs/event-contracts/tools/cmems-resolved-selection-lock.ts'
+      - 'libs/event-contracts/fixtures/marine-*.json'
+      - 'apps/farm-service/src/marine-explorer/catalog/__tests__/copernicus-catalog-lock.spec.ts'
+      - 'apps/farm-service/src/marine-explorer/catalog/copernicus-catalog-lock.v2.json'
+      - 'apps/farm-service/src/marine-explorer/catalog/recipes/**'
+      - 'apps/marine-analysis-worker/copernicus-toolbox.lock.json'
+      - 'tools/scripts/check-codec-drift.ts'
+      - '.github/workflows/rust-ci.yml'
       # SUPPLY-HIGH-002: the advisory-ignore-sync gate polices files OUTSIDE
       # the original Rust paths. Every policed surface must trigger the
       # workflow that runs the gate, or a single-file drift PR bypasses it.
-      - ".cargo/audit.toml"
-      - "sens-api-gateway/deny.toml"
-      - "sens-api-gateway/.cargo/audit.toml"
-      - "sens-api-gateway/Cargo.toml"
-      - "sens-api-gateway/Cargo.lock"
-      - "scripts/ci/check-advisory-ignore-sync.ts"
-      - "tools/gates/local-rumqttc-fork-hygiene.spec.ts"
-      - ".github/workflows/dependency-review.yml"
-      - ".github/workflows/sens-api-gateway-ci.yml"
-      - ".github/workflows/edge-agent-release.yml"
+      - '.cargo/audit.toml'
+      - 'sens-api-gateway/deny.toml'
+      - 'sens-api-gateway/.cargo/audit.toml'
+      - 'sens-api-gateway/Cargo.toml'
+      - 'sens-api-gateway/Cargo.lock'
+      - 'scripts/ci/check-advisory-ignore-sync.ts'
+      - 'tools/gates/local-rumqttc-fork-hygiene.spec.ts'
+      - '.github/workflows/dependency-review.yml'
+      - '.github/workflows/sens-api-gateway-ci.yml'
+      - '.github/workflows/edge-agent-release.yml'
   pull_request:
     branches: [main, agentic]
     paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - "rustfmt.toml"
-      - "deny.toml"
-      - ".cargo/config.toml"
-      - "crates/**"
-      - "apps/sensor-ingestion/**"
-      - "tools/scripts/check-codec-drift.ts"
-      - ".github/workflows/rust-ci.yml"
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'rustfmt.toml'
+      - 'deny.toml'
+      - '.cargo/config.toml'
+      - 'crates/**'
+      - 'apps/sensor-ingestion/**'
+      - 'apps/marine-analysis-worker/**'
+      - 'libs/event-contracts/src/marine-events.ts'
+      - 'libs/event-contracts/src/marine-worker-control.ts'
+      - 'libs/event-contracts/src/platform-event-registry.ts'
+      - 'libs/event-contracts/src/portable-sha256.ts'
+      - 'libs/event-contracts/src/index.ts'
+      - 'libs/event-contracts/src/schemas/marine-events.schema.ts'
+      - 'libs/event-contracts/src/schemas/marine-worker-control.schema.ts'
+      - 'libs/event-contracts/src/schemas/validator.ts'
+      - 'libs/event-contracts/src/schemas/common.schema.ts'
+      - 'libs/event-contracts/src/schemas/index.ts'
+      - 'libs/event-contracts/src/__tests__/marine-contracts.spec.ts'
+      - 'libs/event-contracts/src/schemas/__tests__/marine-contracts.schema.spec.ts'
+      - 'libs/event-contracts/src/schemas/__tests__/cmems-resolved-selection-lock.spec.ts'
+      - 'libs/event-contracts/src/catalog/**'
+      - 'libs/event-contracts/tools/cmems-resolved-selection-lock.ts'
+      - 'libs/event-contracts/fixtures/marine-*.json'
+      - 'apps/farm-service/src/marine-explorer/catalog/__tests__/copernicus-catalog-lock.spec.ts'
+      - 'apps/farm-service/src/marine-explorer/catalog/copernicus-catalog-lock.v2.json'
+      - 'apps/farm-service/src/marine-explorer/catalog/recipes/**'
+      - 'apps/marine-analysis-worker/copernicus-toolbox.lock.json'
+      - 'tools/scripts/check-codec-drift.ts'
+      - '.github/workflows/rust-ci.yml'
       # SUPPLY-HIGH-002 mirror of the push path list above.
-      - ".cargo/audit.toml"
-      - "sens-api-gateway/deny.toml"
-      - "sens-api-gateway/.cargo/audit.toml"
-      - "sens-api-gateway/Cargo.toml"
-      - "sens-api-gateway/Cargo.lock"
-      - "scripts/ci/check-advisory-ignore-sync.ts"
-      - "tools/gates/local-rumqttc-fork-hygiene.spec.ts"
-      - ".github/workflows/dependency-review.yml"
-      - ".github/workflows/sens-api-gateway-ci.yml"
-      - ".github/workflows/edge-agent-release.yml"
+      - '.cargo/audit.toml'
+      - 'sens-api-gateway/deny.toml'
+      - 'sens-api-gateway/.cargo/audit.toml'
+      - 'sens-api-gateway/Cargo.toml'
+      - 'sens-api-gateway/Cargo.lock'
+      - 'scripts/ci/check-advisory-ignore-sync.ts'
+      - 'tools/gates/local-rumqttc-fork-hygiene.spec.ts'
+      - '.github/workflows/dependency-review.yml'
+      - '.github/workflows/sens-api-gateway-ci.yml'
+      - '.github/workflows/edge-agent-release.yml'
   workflow_dispatch: {}
 
 concurrency:
@@ -63,7 +105,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
-  RUSTFLAGS: "-D warnings"
+  RUSTFLAGS: '-D warnings'
   RUST_BACKTRACE: 1
 
 jobs:
@@ -174,7 +216,7 @@ jobs:
         uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe # v2.0.20
         with:
           command: check advisories bans licenses sources
-          rust-version: "1.88.0"
+          rust-version: '1.88.0'
 
   audit:
     name: cargo-audit (RustSec)
@@ -218,8 +260,19 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: '22'
+          cache: npm
+      - name: Install Node dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund --prefer-offline
       - name: codec-drift script (validates fixtures + runs Rust golden test)
         run: node --experimental-strip-types tools/scripts/check-codec-drift.ts
+      - name: Check generated CMEMS selection catalog bytes
+        run: npx ts-node --project libs/event-contracts/tsconfig.spec.json libs/event-contracts/tools/cmems-resolved-selection-lock.ts
+      - name: Marine TypeScript contract and resolved-catalog suites
+        run: npx nx test event-contracts --runInBand --skip-nx-cache
+      - name: Copernicus catalog lock suite
+        run: npx jest --config apps/farm-service/jest.config.ts apps/farm-service/src/marine-explorer/catalog/__tests__/copernicus-catalog-lock.spec.ts --runInBand
+      - name: Marine Rust fixture parity
+        run: cargo test -p event-contracts-rs marine --all-features
       # NB: the committed protocol-codec wasm bindings are guarded FUNCTIONALLY,
       # not by a byte-diff — the wasm binary is not reproducible byte-for-byte
       # across build hosts. The TypeScript golden twin
@@ -245,7 +298,7 @@ jobs:
       # section, untracked feature gate) to a hard fail. Note this is
       # a per-job override — the top-level RUSTFLAGS stays -D warnings
       # for compiler lints, RUSTDOCFLAGS is the rustdoc equivalent.
-      RUSTDOCFLAGS: "-D warnings"
+      RUSTDOCFLAGS: '-D warnings'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install Rust toolchain

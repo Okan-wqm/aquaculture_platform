@@ -611,3 +611,10 @@ TIER-3 (make the drift detectable so it cannot silently return): (a) add an arch
   - `apps/admin-api-service/src/impersonation/controllers/debug-tools.controller.ts`
   - `tests/invariants/controller-route-shadowing.spec.ts`
 - **Effort:** M
+
+## Finding registry anchors
+
+Registry IDs (`docs/reviews/_registry/findings.jsonl`) tracking findings in this document:
+
+- **ADMIN-CRITICAL-013** — APA-288: `admin.impersonation_sessions` reclassified operational; the append-only `prevent_update` trigger is dropped (lifecycle restored), classification moved to the `APPEND_ONLY_TABLES` / `LIFECYCLE_GUARDED_TABLES` SSoT. See docs/adr/046.
+- **ADMIN-CRITICAL-014** — APA-289: impersonation credential has no request-path consumer (RC-11 split-brain); access-plane binding is tracked with a drift gate + architecture-of-record in docs/adr/046.

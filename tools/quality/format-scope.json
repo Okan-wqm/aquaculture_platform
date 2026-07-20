@@ -1659,6 +1659,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/impersonation/services/__tests__/impersonation.service.lifecycle-mutations.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/impersonation/services/__tests__/impersonation.service.lifecycle.spec.ts",
       "prettier_managed": true
     },
@@ -2136,6 +2142,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/migrations/1801500000000-DropRetiredUserPermissions.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1801600000000-DropImpersonationSessionsWriteGuard.ts",
       "prettier_managed": true
     },
     {
@@ -26851,6 +26863,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/adr/046-impersonation-session-operational-classification.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/adr/2026-04-30-apollo-router-self-hosted-static-supergraph.md",
       "prettier_managed": true
     },
@@ -41682,6 +41700,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/impersonation-sessions-operational.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/impersonation-token-consumer.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/infrastructure-ledger-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -55032,10 +55062,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9021,
+  "file_count": 9026,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8840,
-  "managed_file_list_sha256": "55d5daa8a8eaf11acea8c2a1b3d29b630bc610e39d31162e2d910bfd8496ddf3",
+  "managed_count": 8845,
+  "managed_file_list_sha256": "8250a9cc8daa3010617b8a6990ddabead7ba0000367a07379111fd3affe22a2b",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

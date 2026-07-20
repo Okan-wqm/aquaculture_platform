@@ -734,3 +734,11 @@ Whichever direction is chosen per instance (enforce vs delete), the outcome must
   - `apps/admin-api-service/src/migrations/1800000000000-Baseline.ts:35-69`
   - `apps/admin-api-service/src/app.module.ts:117`
 - **Refutation (brief check):** This is a recorded verification note, not a defect. Confirmed against the cited files: all system-management entities declare schema:'admin' (e.g. feature-toggle.entity.ts, maintenance-mode.entity.ts, job-queue.entity.ts, error-tracking.entity.ts, performance-metric.entity.ts) as required for a platform-level (cross-tenant) service, their tables are created by the active Baseline migration (migrations/1800000000000-Baseline.ts:35-69) with matching indexes, the archived initial migration is outside the runtime glob (app.module.ts:117 'migrations/[0-9]*'), and SUPER_ADMIN guarding is applied uniformly via the global APP_GUARD PlatformAdminGuard. No architectural violation.
+
+## Finding registry anchors
+
+Registry IDs (`docs/reviews/_registry/findings.jsonl`) tracking findings in this document:
+
+- **ADMIN-CRITICAL-009** — APA-283: RC-1a canonical paginated-response envelope (broken `{items,total}` producers migrated + interceptor recognition).
+- **ADMIN-CRITICAL-007** — RC-1b: migrate the remaining `{data,total}` list producers to the canonical envelope (tracked follow-up to ADMIN-CRITICAL-009).
+- **ADMIN-HIGH-008** — MaintenancePage renders a LOCAL `MaintenanceWindow` type that diverges from the backend maintenance shape (tracked type-drift).

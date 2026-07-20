@@ -91,6 +91,15 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync 
 import { resolve, join, basename, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// The append-only WORM-ledger set is owned by the ONE SSoT in
+// libs/backend-common/src/constants/protected-tables.ts. The audit below
+// derives its expected `trg_<table>_prevent_update` set from that list instead
+// of a hand-copied array — killing the triple-hardcode (ADMIN-CRITICAL-013 /
+// APA-288) that classified the OPERATIONAL admin.impersonation_sessions as
+// append-only and would have re-injected its lifecycle-deadlocking trigger at
+// the next baseline regeneration.
+import { appendOnlyTableBaseNames } from '../../libs/backend-common/src/constants/protected-tables';
+
 // ESM-safe __dirname equivalent — tools/gates/tsconfig.json compiles
 // modules as ESM; require/__dirname is unavailable. fileURLToPath +
 // dirname recovers the script's directory.
@@ -324,19 +333,16 @@ function audit(svc: { service: string; schema: string; tenantScoped: boolean }):
     }
   }
 
-  // (e) immutability triggers for known audit tables.
+  // (e) immutability triggers for known append-only audit tables.
   // Use schema-qualified exact-name regex so a bare 'audit_logs' check
   // does not false-match 'farm_audit_logs' / 'sensor_audit_logs'.
-  const PROTECTED_TABLE_NAMES = [
-    'audit_logs',
-    'farm_audit_logs',
-    'sensor_audit_logs',
-    'payroll_audit',
-    'alert_audit_log',
-    'tool_execution_audit',
-    'compliance_audit_log',
-    'impersonation_sessions',
-  ];
+  //
+  // The set is DERIVED from the APPEND_ONLY_TABLES SSoT (protected-tables.ts),
+  // never hand-copied. admin.impersonation_sessions is deliberately absent: it
+  // is an OPERATIONAL lifecycle table (LIFECYCLE_GUARDED_TABLES), not an
+  // append-only ledger, so it must NOT carry trg_..._prevent_update
+  // (ADMIN-CRITICAL-013 / APA-288).
+  const PROTECTED_TABLE_NAMES = appendOnlyTableBaseNames();
   for (const tbl of PROTECTED_TABLE_NAMES) {
     // Exact match against `CREATE TABLE "<schema>"."<tbl>"`.
     if (new RegExp(`CREATE TABLE "[^"]+"\\."${tbl}"`, 'i').test(src)) {

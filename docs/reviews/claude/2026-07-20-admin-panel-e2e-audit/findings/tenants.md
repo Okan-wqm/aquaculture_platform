@@ -433,3 +433,10 @@ Plus a unit spec for the reworked handler (mock EVENT_BUS + DataSource): onModul
   - `web/modules/admin-panel/src/services/api/tenants.ts:18-36`
   - `tests/invariants/tenant-provisioning-ssot.spec.ts:515-537`
 - **Refutation (brief check):** Not a defect. This is a cross-cutting verification note, and every claim in it checks out against the cited code: (1) PlatformAdminGuard is registered as a global APP_GUARD (app.module.ts:283-290) and performs RS256 jwtService.verifyAsync + case-insensitive SUPER_ADMIN role enforcement with isPublic as the only bypass (platform-admin.guard.ts:78-179); no tenant controller opts into isPublic. (2) nginx rewrites ^/api/(.*) -> /api/v1/$1 into admin-api-service (droplet.conf:377-383), aligning FE '/api' calls with the api/v1 global prefix, and the FE provisioning normalizer round-trips the '/tenants/provisioning/<uuid>' same-origin contract (tenants.ts:18-36). (3) admin-owned tenant tables declare schema 'admin' via migrations, while Tenant maps the auth replica read-only (@Entity('tenants',{schema:'auth',synchronize:false}) tenant.entity.ts:49) and the invariant tenant-provisioning-ssot.spec.ts:515-537 forbids direct auth.tenants writes, requiring delegation through authProvisioningClient. The claims are grounded and correct.
+
+## Finding registry anchors
+
+Registry IDs (`docs/reviews/_registry/findings.jsonl`) tracking findings in this document:
+
+- **ADMIN-CRITICAL-006** — APA-022: tenant-provisioning onboarding-ack barrier ordered before `create_subscription`/`activate_tenant` (+ generic wait/requeue).
+- **ADMIN-MEDIUM-004** — APA-022 (retry recovery): `retryOperation` clears local ack state and re-arms the onboarding-ack publish.

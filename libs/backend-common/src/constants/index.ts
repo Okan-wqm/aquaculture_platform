@@ -23,16 +23,21 @@ export {
   VALIDATION_PATTERNS,
 } from './validation-patterns';
 export {
+  APPEND_ONLY_TABLES,
   COMPLIANCE_WAIVER_MARKER_RE,
+  LIFECYCLE_GUARDED_TABLES,
   PROTECTED_SCHEMAS,
   PROTECTED_TABLE_PATTERNS,
   PROTECTED_TABLES,
+  appendOnlyTableBaseNames,
   isExplicitlyProtectedTable,
   isProtectedSchema,
   isProtectedTable,
   matchesProtectedTablePattern,
 } from './protected-tables';
 export type {
+  AppendOnlyTable,
+  LifecycleGuardedTable,
   ProtectedSchema,
   ProtectedTable,
 } from './protected-tables';

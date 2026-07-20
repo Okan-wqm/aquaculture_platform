@@ -134,6 +134,92 @@ export const PROTECTED_TABLES = [
 ] as const;
 
 /**
+ * Append-only WORM ledgers — the subset of {@link PROTECTED_TABLES} on which
+ * the day-one-reset immutability tooling installs a
+ * `trg_<table>_prevent_update` BEFORE UPDATE OR DELETE trigger that
+ * unconditionally RAISEs. These are the tables whose ROWS are insert-only:
+ * the SOC 2 CC4 / SOX § 802 append-only invariant is enforced at the DB, so a
+ * row can never be mutated or removed after it is written.
+ *
+ * # WHY this is a SEPARATE list from PROTECTED_TABLES
+ *
+ * `PROTECTED_TABLES` answers "may this table be DROPPED/TRUNCATED without a
+ * compliance waiver?" (destructive-DDL protection). It is a STRICT SUPERSET of
+ * the append-only set: some protected tables are OPERATIONAL — their rows have
+ * a legitimate mutable lifecycle — yet must still never be dropped (they hold a
+ * security-relevant record). Conflating the two contracts is the exact category
+ * error behind ADMIN-CRITICAL-013 / APA-288: `admin.impersonation_sessions` was
+ * listed as append-only and given a blanket BEFORE UPDATE trigger, which then
+ * RAISEd on every session-lifecycle transition (end/terminate/extend/expire/
+ * log-action) — bricking the feature after creation. Its immutable audit record
+ * lives in `admin.audit_logs` (a true append-only ledger, below); the session
+ * row itself is an operational state machine (see {@link LIFECYCLE_GUARDED_TABLES}).
+ *
+ * # SSoT CONTRACT
+ *
+ * This constant is the ONE source the trigger-installing tooling reads:
+ *   - `scripts/migration/baseline-generator.ts` (--audit) requires exactly a
+ *     `trg_<table>_prevent_update` on each of these (and NOT on any table
+ *     absent from this list).
+ *   - `scripts/migration/apply-audit-immutability.mjs` injects the trigger for
+ *     exactly these tables.
+ * `tests/invariants/impersonation-sessions-operational.spec.ts` asserts both
+ * scripts stay in lockstep with this list and that no operational table
+ * (LIFECYCLE_GUARDED_TABLES) leaks in.
+ *
+ * Fully-qualified; lowercase canonical form. The bare table name is what the
+ * per-service baseline tooling matches (a baseline creates one schema), so
+ * {@link appendOnlyTableBaseNames} projects to the unique bare names.
+ */
+export const APPEND_ONLY_TABLES = [
+  // Cross-service + platform audit trails (audit_logs across its three schemas)
+  'shared.audit_logs',
+  'auth.audit_logs',
+  'admin.audit_logs',
+  // Per-service audit ledgers (cross-tenant within tenant-scoped services)
+  'farm.farm_audit_logs',
+  'sensor.sensor_audit_logs',
+  'hr.payroll_audit',
+  'alert.alert_audit_log',
+  'ai.tool_execution_audit',
+  'messaging.compliance_audit_log',
+] as const;
+
+/**
+ * Operational tables that are DESTRUCTIVE-DDL-protected (in
+ * {@link PROTECTED_TABLES}) but are NOT append-only: their rows transition
+ * through a legitimate lifecycle and the owning service issues UPDATEs on them.
+ * They MUST NOT carry a `trg_<table>_prevent_update` blanket-immutability
+ * trigger — doing so deadlocks the lifecycle (ADMIN-CRITICAL-013 / APA-288).
+ *
+ * `admin.impersonation_sessions` is the canonical member: its rows go
+ * ACTIVE -> ENDED | EXPIRED | TERMINATED, `expiresAt` is extended, and the
+ * in-row action log is appended, all via `repo.save()` UPDATEs; the regulatory
+ * append-only trail is duplicated into `admin.audit_logs` on every transition.
+ *
+ * Tier-1 hardening — a DB state-machine guard that permits only legal
+ * transitions and freezes identity columns while still allowing lifecycle
+ * UPDATEs — is tracked for a future PR (see docs/adr/046; it needs a
+ * PR-gated real-Postgres integration test the sandbox lane cannot run).
+ */
+export const LIFECYCLE_GUARDED_TABLES = ['admin.impersonation_sessions'] as const;
+
+export type AppendOnlyTable = (typeof APPEND_ONLY_TABLES)[number];
+export type LifecycleGuardedTable = (typeof LIFECYCLE_GUARDED_TABLES)[number];
+
+/**
+ * Unique bare (unqualified) table names of the append-only ledgers. The
+ * baseline tooling runs per service — one schema per baseline — so it matches
+ * `CREATE TABLE "<schema>"."<table>"` on the bare name. Deriving the bare set
+ * here keeps the two hardcoded scripts from re-drifting from the SSoT.
+ */
+export function appendOnlyTableBaseNames(): string[] {
+  return [
+    ...new Set(APPEND_ONLY_TABLES.map((t) => t.slice(t.indexOf('.') + 1))),
+  ];
+}
+
+/**
  * Pattern-based protected tables. Any table matching one of these patterns
  * is treated as protected regardless of explicit listing.
  *

@@ -9,9 +9,11 @@
  *
  * Idempotent — re-runnable; checks for the marker comment before adding.
  *
- * Audit tables addressed:
+ * Audit tables addressed (the APPEND_ONLY_TABLES SSoT in
+ * libs/backend-common/src/constants/protected-tables.ts is authoritative;
+ * tests/invariants/impersonation-sessions-operational.spec.ts holds this list
+ * in lockstep with it):
  *   admin.audit_logs                  (admin-api-service)
- *   admin.impersonation_sessions      (admin-api-service)
  *   auth.audit_logs                   (auth-service)
  *   farm.farm_audit_logs              (farm-service)
  *   hr.payroll_audit                  (hr-service)
@@ -29,7 +31,11 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const TARGETS = [
-  { svc: 'admin-api-service', schema: 'admin', migDir: 'src/migrations', tables: ['audit_logs', 'impersonation_sessions'] },
+  // impersonation_sessions removed (ADMIN-CRITICAL-013 / APA-288): it is an
+  // OPERATIONAL lifecycle table (LIFECYCLE_GUARDED_TABLES), not an append-only
+  // ledger. Re-injecting trg_impersonation_sessions_prevent_update here would
+  // resurrect the trigger that deadlocked every session-lifecycle mutation.
+  { svc: 'admin-api-service', schema: 'admin', migDir: 'src/migrations', tables: ['audit_logs'] },
   { svc: 'auth-service', schema: 'auth', migDir: 'src/migrations', tables: ['audit_logs'] },
   { svc: 'farm-service', schema: 'farm', migDir: 'src/database/migrations', tables: ['farm_audit_logs'] },
   { svc: 'hr-service', schema: 'hr', migDir: 'src/database/migrations', tables: ['payroll_audit'] },

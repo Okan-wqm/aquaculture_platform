@@ -267,6 +267,8 @@ export default {
         '<rootDir>/farm-service-migration-array-completeness.spec.ts',
         '<rootDir>/three-store-invariants.spec.ts',
         '<rootDir>/protected-tables-guard.spec.ts',
+        '<rootDir>/impersonation-sessions-operational.spec.ts',
+        '<rootDir>/impersonation-token-consumer.spec.ts',
         '<rootDir>/no-savepoint-in-migrations.spec.ts',
         '<rootDir>/rls-predicate-canonical.spec.ts',
         '<rootDir>/entity-schema-declaration.spec.ts',

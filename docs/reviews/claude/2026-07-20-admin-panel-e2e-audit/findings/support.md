@@ -784,3 +784,11 @@
   - `apps/admin-api-service/src/support/controllers/ticket.controller.ts`
   - `apps/admin-api-service/src/__tests__/dto-nested-validation.spec.ts`
 - **Effort:** M
+
+## Finding registry anchors
+
+Registry IDs (`docs/reviews/_registry/findings.jsonl`) tracking findings in this document:
+
+- **ADMIN-CRITICAL-010** — APA-185 / APA-186: support ticket create + assign 22P02 500s (actor UUID sourced from the authenticated context).
+- **ADMIN-HIGH-011** — feature-flag override auto-revert wrote the non-UUID literal `system` into `revertedBy` (uuid) → 22P02 (SYSTEM_ACTOR_ID at both callers).
+- **ADMIN-MEDIUM-012** — support-module DTOs validated client uuid fields as `@IsString` → 22P02 500 instead of a clean 400 (`@IsUUID`).

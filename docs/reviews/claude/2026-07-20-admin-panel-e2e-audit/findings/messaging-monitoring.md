@@ -430,12 +430,21 @@ TIER 3 GATE (keeps the class fixed): invariant test asserting the import edges e
 
 ### APA-174 [LOW] Hardcoded 'Next cleanup: 02:00 UTC' chip
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The header chip is static text; it happens to match the real cron ('0 2 * * *' in RetentionPolicyService) today but will silently lie if the schedule changes.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/messaging/MessagingRetentionPage.tsx:260-262`
   - `apps/messaging-service/src/compliance/services/retention-policy.service.ts:192`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The cleanup schedule has no API surface: it exists only as the @Cron('0 2 * * *', { name: 'retention-cleanup' }) decorator in RetentionPolicyService (apps/messaging-service/src/compliance/services/retention-policy.service.ts:192), so the FE chip at MessagingRetentionPage.tsx:260-262 hardcodes a copied constant that will silently diverge if the schedule changes. Instance of the config-nobody-reads / hardcoded-claim class.
+- **Fix design:** Tier 2 (make correct automatic): derive the value from the live cron registration, not a copy. In messaging-service, inject NestJS SchedulerRegistry and expose getCleanupSchedule(): { cronExpression, nextRunAt } from schedulerRegistry.getCronJob('retention-cleanup').nextDate() — single source is the actual registered job. Add NATS pattern request.messaging.admin.getRetentionSchedule in MessagingAdminNatsHandler, proxy it from MessagingAdminController (GET messaging/retention/schedule), add messagingApi.getRetentionSchedule() to the FE api, and render the chip from the response (hide chip while loading/on error — no fallback constant). Delete the static string. Verification: extend apps/messaging-service/src/compliance/services/__tests__/retention-policy.service.spec.ts to assert getCleanupSchedule() returns the SchedulerRegistry job's next fire time, and a controller spec for the new proxy route.
+- **Files to change:**
+  - `apps/messaging-service/src/compliance/services/retention-policy.service.ts`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingRetentionPage.tsx`
+  - `apps/messaging-service/src/compliance/services/__tests__/retention-policy.service.spec.ts`
+- **Effort:** M
 
 
 ## MessagingAiDashboardPage — `/admin/messaging/ai-dashboard` — verdict: **NOT_WIRED**
@@ -444,11 +453,18 @@ TIER 3 GATE (keeps the class fixed): invariant test asserting the import edges e
 
 ### APA-175 [LOW] Static claims about backend infrastructure are unverifiable and can silently rot
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The page hardcodes requirement text (e.g. 'Requires: GET /ai/model-info endpoint') that is not derived from any capability probe; when the pipelines land, this page will continue to claim they don't exist until manually edited.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/messaging/MessagingAiDashboardPage.tsx:93-188`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** MessagingAiDashboardPage.tsx:93-188 is pure hardcoded prose: every 'Not Available' section and its 'Requires: ...' string is static JSX with no capability probe, while the actual implemented/not-implemented state lives in MessagingAdminController (which throws 501 for unimplemented routes). Two unlinked sources of truth — when a pipeline lands, the page keeps claiming it doesn't exist. Same static-claim class as p4|i4.
+- **Fix design:** Tier 3 (make drift detectable) + Tier 2: introduce a capability manifest owned by the controller that already owns the 501s. Add GET messaging/ai/capabilities to MessagingAdminController returning a typed map { featureKey: { implemented: boolean, requirement: string } } colocated in the same file as the 501-throwing endpoints, so replacing a 501 with a real implementation and flipping the manifest entry is one edit in one file. FE fetches the manifest and renders each NotAvailableSection (title/description stay in FE, availability + requirement come from the manifest); an implemented=true entry renders a 'available — UI pending' state instead of 'does not exist'. Gate: a controller spec asserting every route in the controller that throws NOT_IMPLEMENTED has a manifest entry with implemented=false (reflection over the controller's route handlers), so the manifest cannot rot against the 501s. Add the spec as apps/admin-api-service/src/messaging/__tests__/messaging-admin.capabilities.spec.ts.
+- **Files to change:**
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAiDashboardPage.tsx`
+  - `apps/admin-api-service/src/messaging/__tests__/messaging-admin.capabilities.spec.ts`
+- **Effort:** M
 
 
 ## MessagingAiPersonasPage — `/admin/messaging/ai-personas` — verdict: **PARTIAL**
@@ -488,21 +504,33 @@ TIER 3 GATE (keeps the class fixed): invariant test asserting the import edges e
 
 ### APA-177 [MEDIUM] Mandatory tenant UUID input has zero effect — backend registry ignores tenantId
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The page refuses to load without a tenant UUID ('required to load personas') and the FE api sends it, but AiPersonasRegistryService.getAvailablePersonas(_tenantId) returns the same static DEFAULT_PERSONAS for any input (including garbage strings — no validation on the query param). The tenant-scoping is theater; per-tenant persona configuration does not exist.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/messaging/MessagingAiPersonasPage.tsx:248-274`
   - `apps/messaging-service/src/ai/services/ai-personas-registry.service.ts:106-115`
   - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts:340-349`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The admin contract asserts per-tenant scoping that does not exist: FE refuses to load without a tenant UUID (MessagingAiPersonasPage.tsx:247-274), the controller forwards an unvalidated bare @Query('tenantId') string (messaging-admin.controller.ts:340-349, no ParseUUIDPipe and no DTO so the platform ValidationPipe never touches it), and AiPersonasRegistryService.getAvailablePersonas(_tenantId) discards the argument and returns static DEFAULT_PERSONAS (ai-personas-registry.service.ts:113-115). Per-tenant persona config was in fact recently removed (migration 1802100000000-DropTenantAiSettings), so the FE gate is pure theater.
+- **Fix design:** Tier 1 (make the false claim impossible): align the admin contract with reality — the admin page reads the PLATFORM registry, so tenantId leaves the admin path entirely. Registry: add getAllPersonas(): AiPersonaDefinition[] as the platform-registry read; getAvailablePersonas(tenantId) delegates to it (that seam stays because real tenant-context callers exist, e.g. ai.resolver.ts:153). NATS: GetPersonasPayload drops tenantId; handler calls getAllPersonas(). Controller: getPersonas() takes no query param. FE: delete the tenant-UUID input/gate, load personas on mount, and keep the existing 'All Tenants' badge as the honest scope statement. When per-tenant persona config genuinely lands, tenantId returns as a validated (ParseUUIDPipe/DTO) parameter that the registry actually consumes. Verification: handler spec in apps/messaging-service/src/event-handlers/__tests__/ asserting the persona pattern accepts an empty payload and returns the registry set; FE page test asserting personas load without tenant input.
+- **Files to change:**
+  - `apps/messaging-service/src/ai/services/ai-personas-registry.service.ts`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAiPersonasPage.tsx`
+- **Effort:** M
 
 ### APA-178 [LOW] '+ Add Custom Persona' button opens a future-release placeholder
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The primary-styled header button only toggles a dashed card saying custom persona registration 'will be available in a future release' — a dead-end primary CTA.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/messaging/MessagingAiPersonasPage.tsx:216-223,329-336`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Primary-styled '+ Add Custom Persona' CTA (MessagingAiPersonasPage.tsx:216-223) toggles only a dashed 'will be available in a future release' card (329-336). No registration capability exists anywhere in the backend (PUT /personas/:id is a hard 501; registry is static), so the button is a dead-end promise in the UI.
+- **Fix design:** Remove the CTA, the showAddForm state, and the placeholder card. The future capability is already tracked in the AiPersonasRegistryService docblock ('Custom personas backed by external MCP servers will be registerable here') — an unshipped roadmap item belongs there, not as a primary button. When registration ships (with p6|i1's contract), the button returns wired to a real endpoint. Verification: page test asserting no 'future release' placeholder UI renders; optionally fold into the same admin-panel dead-CTA sweep as other sections if the audit tracks that class.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAiPersonasPage.tsx`
+- **Effort:** S
 
 
 ## Cross-cutting findings
@@ -594,29 +622,46 @@ TIER 3 GATE (keeps the class fixed): invariant test asserting the import edges e
 
 ### APA-182 [MEDIUM] Hand-written FE types systematically expect enrichment (tenantName/userName/channelName) that no layer produces
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** LegalHold.tenantName/channelName, RetentionPolicy.tenantName, MessagingAuditEntry.tenantName/userName exist only in web/modules/admin-panel/src/services/types — admin-api proxies messaging-service entities verbatim and never joins auth.tenants (the tenant SSoT) or user records. Since admin-api has read access to auth for analytics (app.module.ts comment), the enrichment belongs there; today every 'Tenant' column in this section would render blank. This is the predicted no-codegen drift: FE response types were written against an imagined API, and the controller's own response interfaces (ComplianceStatsResponse, PersonaResponse with isActive, ExportResponse with exportId) don't match what the NATS handlers actually return either — interfaces are compile-time only, so nobody noticed.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/api/messaging.ts:36-48,65-75,86-97`
   - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts:63-102`
   - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts:276-328`
   - `apps/admin-api-service/src/app.module.ts:97-99`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Systemic no-codegen drift across THREE independently hand-written type layers with zero cross-checking: (1) FE types (services/api/messaging.ts) invent enrichment (LegalHold.tenantName/channelName, RetentionPolicy.tenantName/defaultRetention-enum/nextCleanup/counts, MessagingAuditEntry.tenantName/userName) and offset pagination that no layer produces; (2) the controller's response interfaces drift from the NATS handlers' actual returns (ExportResponse.exportId vs handler jobId, PersonaResponse.isActive vs handler icon/color/capabilities, LegalHoldResponse missing entity fields) — generic type params on sendNatsRequest<T> are unchecked assertions; (3) the release path is runtime-broken: the handler's ReleaseLegalHoldPayload REQUIRES approverId + releaseReason (LEGAL-MEDIUM-002) but the controller sends only {holdId, tenantId, userId}, so every admin-panel legal-hold release fails. No layer joins auth.tenants for names even though admin-api has documented read access to auth (app.module.ts:97-99).
+- **Fix design:** Pattern-level fix at the contract source. (1) Create a shared contract lib libs/admin-contracts/src/messaging-admin.contract.ts: one set of request/response types (and zod or JSON-schema validators for the NATS trust boundary) imported by ALL THREE layers — MessagingAdminNatsHandler return types declared as the contract types (compile error on drift), MessagingAdminController deletes its private interfaces and uses the contract, admin-panel services/api/messaging.ts re-exports the contract types instead of hand-written copies. Tier 1: one source, three consumers, drift is a compile error. (2) Enrichment where the data lives: admin-api gains a TenantDirectoryService (apps/admin-api-service/src/messaging/) reading auth.tenants via its existing read access; the controller composes the contract's Enriched* DTOs (tenantName, userName) after the NATS reply — the contract defines the enriched shape so the FE column can never reference a field nobody produces. (3) Fix the broken release contract: controller DTO adds approverId + releaseReason (validated, minLength 50), FE releaseLegalHold() and the release UI collect the second approver + justification. (4) Runtime validation at the NATS boundary per repo trust-boundary rule: admin-api validates NATS replies against the contract schema before enveloping. Verification: new contract spec apps/admin-api-service/src/messaging/__tests__/messaging-admin.contract.spec.ts (handler returns satisfy contract via type-level satisfies + schema round-trip) and an integration test exercising createLegalHold→releaseLegalHold end-to-end over NATS.
+- **Files to change:**
+  - `libs/admin-contracts/src/messaging-admin.contract.ts`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `apps/admin-api-service/src/messaging/tenant-directory.service.ts`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingLegalHoldsPage.tsx`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingRetentionPage.tsx`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAuditPage.tsx`
+  - `apps/admin-api-service/src/messaging/__tests__/messaging-admin.contract.spec.ts`
+- **Effort:** L
 
 ### APA-183 [MEDIUM] Documented DB-level dual-approver CHECK constraint is missing from the active migration ledger
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** legal-hold.entity.ts and legal-hold.service.ts state that PostgreSQL enforces `chk_legal_hold_no_self_approval` ('so a code regression cannot leak around it'), but the constraint only exists in the ARCHIVED migration 1782700000001-AddLegalHoldDualApprover.ts (.archive/2026-05-18). The active Baseline creates legal_holds WITHOUT any CHECK constraint, so freshly-provisioned databases (and every new tenant-schema clone) lack the schema-level invariant while the code relies on it as defense-in-depth.
 - **Evidence:**
   - `apps/messaging-service/src/migrations/1800000000000-Baseline.ts:48`
   - `apps/messaging-service/src/migrations/.archive/2026-05-18T09-42-38-476Z/1782700000001-AddLegalHoldDualApprover.ts:79-84`
   - `apps/messaging-service/src/compliance/entities/legal-hold.entity.ts:81-91`
   - `apps/messaging-service/src/compliance/services/legal-hold.service.ts:253-258`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The baseline squash lost DDL that only lived in a now-archived migration: 1800000000000-Baseline.ts:48 creates legal_holds WITH the dual-approver columns (releasedByApprover, releaseReason) but WITHOUT the chk_legal_hold_no_self_approval CHECK, which exists only in .archive/2026-05-18/1782700000001-AddLegalHoldDualApprover.ts:79-84. Entity (legal-hold.entity.ts:85-88) and service (legal-hold.service.ts:253-258) both document the DB as enforcing it ('a code regression cannot leak around it'), so every freshly-provisioned DB and its tenant clones silently lack the documented defense-in-depth. Class: baseline-squash constraint loss with no schema-level invariant test.
+- **Fix design:** Two parts. (1) Restore the constraint via a NEW active migration (never edit Baseline): apps/messaging-service/src/migrations/1802200000000-RestoreLegalHoldNoSelfApprovalCheck.ts, tenant-aware and idempotent, reusing the archived migration's constraintExists guard + ADD CONSTRAINT chk_legal_hold_no_self_approval CHECK ("releasedByApprover" IS NULL OR "releasedBy" <> "releasedByApprover") against the source messaging schema and every tenant_<uuid> schema. Since tenant clones use CREATE TABLE LIKE INCLUDING ALL, fixing the source table also covers all future clones. (2) Tier 3 gate against recurrence of the class: extend e2e/tests/integration/schema-invariants.spec.ts (or the messaging integration suite) to assert pg_constraint contains chk_legal_hold_no_self_approval on messaging.legal_holds and on a provisioned tenant schema — so any future baseline re-squash that drops a documented constraint fails CI instead of silently degrading. Verification: that invariant assertion plus a migration-runner spec run (messaging-migration-runner.spec.ts already exercises the ledger).
+- **Files to change:**
+  - `apps/messaging-service/src/migrations/1802200000000-RestoreLegalHoldNoSelfApprovalCheck.ts`
+  - `e2e/tests/integration/schema-invariants.spec.ts`
+- **Effort:** M
 
 ### APA-184 [LOW] Auth/guard chain and schema discipline are correct across the section
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** Positive finding: PlatformAdminGuard is a global APP_GUARD requiring SUPER_ADMIN with RS256 verifyAsync + issuer/audience checks, so every messaging admin endpoint is role-protected; the FE path chain resolves correctly (FE '/api' -> nginx rewrite ^/api/(.*) -> /api/v1/$1 -> bootstrap default globalPrefix 'api/v1' with VERSION_NEUTRAL); and the three compliance entities correctly OMIT schema: (per-tenant tables per the messaging inversion rule), created by the Baseline migration and cloned per tenant. The plumbing is sound — the failures in this section are contract-level, not auth/transport/schema-level.
 - **Evidence:**
   - `apps/admin-api-service/src/app.module.ts:277-290`
@@ -625,4 +670,6 @@ TIER 3 GATE (keeps the class fixed): invariant test asserting the import edges e
   - `libs/backend-common/src/bootstrap/create-service-app.ts:610`
   - `apps/messaging-service/src/compliance/entities/legal-hold.entity.ts:22`
   - `apps/messaging-service/src/migrations/1800000000000-Baseline.ts:46-54`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** None — this is a verified POSITIVE finding, re-confirmed against current code: PlatformAdminGuard is registered as APP_GUARD via useExisting (app.module.ts:277-290) with RS256 verify + SUPER_ADMIN-only role narrowing (platform-admin.guard.ts:148-177); nginx rewrites ^/api/(.*) -> /api/v1/$1 to admin-api-service:3000 (droplet.conf:377-383) matching the bootstrap globalPrefix; and the three compliance entities correctly OMIT schema: per the messaging inversion rule (legal-hold.entity.ts:22), created by Baseline and cloned per tenant.
+- **Fix design:** No fix required. Record as a positive control in the audit report: auth, transport routing, and schema discipline are sound for this section — remediation effort should concentrate on the contract-level findings (xc|i3, xc|i4).
+- **Effort:** S

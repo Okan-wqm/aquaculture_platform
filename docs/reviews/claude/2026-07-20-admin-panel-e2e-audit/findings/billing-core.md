@@ -13,41 +13,73 @@
 
 ### APA-078 [MEDIUM] Five of nine dashboard metrics are hardcoded null and render permanent N/A
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** transformRevenueData sets activeSubscriptions, churnRate, outstandingInvoices, growth and paymentSuccessRate to null with TODO comments, so the Active Subscriptions and Churn Rate cards and two of three Quick Stats always show 'N/A'/'—'/'Not yet connected'. Backend data exists to populate them (GET /billing/subscriptions/stats returns churnRate, totalSubscriptions, mrr; GET /billing/invoices/stats returns pending counts) but is never called from this page.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/BillingDashboardPage.tsx:64-74 (nulls + TODO comments)`
   - `web/modules/admin-panel/src/pages/BillingDashboardPage.tsx:407-428,476-494 (N/A rendering)`
   - `apps/admin-api-service/src/billing/billing.controller.ts:360-363 (existing subscriptions/stats endpoint not used)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** transformRevenueData (BillingDashboardPage.tsx:64-74) hardcodes 5 of 9 metrics to null with TODOs even though admin-api already serves the data and the FE api layer already wraps it (billingApi.getSubscriptionStats -> churnRate/totalSubscriptions, billingApi.getInvoiceStats -> pending counts, analyticsApi.getRevenueTrend -> growth). Only paymentSuccessRate has a genuine backend gap: PaymentManagementService has no stats method/endpoint.
+- **Fix design:** Compose the dashboard from the real contracts and delete nullability (tier 1): fetchMetrics = Promise.all([analyticsApi.getRevenueAnalytics(), billingApi.getSubscriptionStats(), billingApi.getInvoiceStats(), analyticsApi.getRevenueTrend()]) mapping activeSubscriptions<-totalSubscriptions, churnRate<-stats.churnRate, outstandingInvoices<-invoiceStats.byStatus pending+sent+overdue+partially_paid counts, growth<-last-two trend points. Fill the one real gap: add PaymentManagementService.getStats() (succeeded/failed counts + success rate, last 30d) exposed as GET /billing/payments/stats plus billingApi.getPaymentStats + PaymentStats FE type. Then make every BillingMetrics field a non-nullable number and delete all 'N/A'/'—'/'Not yet connected' branches so a permanently-disconnected metric is a compile error. Verification: new web/modules/admin-panel/src/pages/__tests__/BillingDashboardPage.spec.tsx asserting all 9 metrics render from mocked APIs; extend apps/admin-api-service/src/billing/__tests__/billing.controller.spec.ts for payments/stats.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/BillingDashboardPage.tsx`
+  - `web/modules/admin-panel/src/services/api/billing.ts`
+  - `web/modules/admin-panel/src/services/types/billing.ts`
+  - `apps/admin-api-service/src/billing/services/payment-management.service.ts`
+  - `apps/admin-api-service/src/billing/billing.controller.ts`
+  - `apps/admin-api-service/src/billing/__tests__/billing.controller.spec.ts`
+  - `web/modules/admin-panel/src/pages/__tests__/BillingDashboardPage.spec.tsx`
+- **Effort:** M
 
 ### APA-079 [MEDIUM] Export Report button and Revenue Trend chart are dead UI
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The 'Export Report' button has no onClick handler, so it silently does nothing. The Revenue Trend panel renders a hardcoded dashed placeholder box and its 12m/6m/3m select has no onChange — no chart data is ever fetched or drawn even though GET /analytics/revenue returns revenueByMonth and GET /analytics/revenue/trend exists.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/BillingDashboardPage.tsx:379-381 (button without handler)`
   - `web/modules/admin-panel/src/pages/BillingDashboardPage.tsx:434-451 (placeholder chart + inert select)`
   - `apps/admin-api-service/src/analytics/controllers/analytics.controller.ts:318-343 (unused revenue trend endpoints)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Placeholder UI shipped as final: Export Report button has no onClick (BillingDashboardPage.tsx:379-381), the Revenue Trend panel is a hardcoded dashed box and the 12m/6m/3m select has no state/onChange (:434-451), while GET /analytics/revenue/trend exists, analyticsApi.getRevenueTrend(range) is already written, and AnalyticsDashboardPage already contains a working inline SVG MiniChart (duplicated-inline-chart pattern).
+- **Fix design:** Extract MiniChart (polyline SVG, AnalyticsDashboardPage.tsx:251-278) into a shared component web/modules/admin-panel/src/components/charts/MiniChart.tsx and reuse it: drive the select from state ('12m'|'6m'|'3m' -> getRevenueTrend range), fetch via useAsyncData keyed on the range, render the chart with loading/empty/error states. Wire Export Report to a real client-side CSV of metrics + trend points, extracting InvoicesPage's escapeCell/Blob CSV code into a shared util (services/utils/csv.ts) instead of duplicating it; no handler-less buttons remain. Verification: BillingDashboardPage.spec.tsx asserts range change refetches with the new range param, chart renders points, and Export produces a Blob download.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/BillingDashboardPage.tsx`
+  - `web/modules/admin-panel/src/components/charts/MiniChart.tsx`
+  - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx`
+  - `web/modules/admin-panel/src/utils/csv.ts`
+  - `web/modules/admin-panel/src/pages/InvoicesPage.tsx`
+  - `web/modules/admin-panel/src/pages/__tests__/BillingDashboardPage.spec.tsx`
+- **Effort:** M
 
 ### APA-080 [MEDIUM] Recent Transactions swallows all errors and shows empty state on 500
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** fetchTransactions wraps the API call in try/catch and returns [] on any failure, so a backend 500/502 renders 'No recent transactions' with no error indication — an operator cannot distinguish an outage from a genuinely empty ledger.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/BillingDashboardPage.tsx:322-338 (catch { return []; })`
   - `web/modules/admin-panel/src/pages/BillingDashboardPage.tsx:462-465 (empty state rendering)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** fetchTransactions (BillingDashboardPage.tsx:324-337) wraps the API call in try/catch returning [], defeating useAsyncData's built-in error channel (the metrics fetch on the same page uses it correctly), so a 500 renders 'No recent transactions'. Instance of the systemic swallow-errors-into-empty-state class.
+- **Fix design:** Delete the try/catch — fetchers passed to useAsyncData must never catch (the hook is the error contract; correct behavior is automatic once the fetcher just throws). Destructure error from the transactions useAsyncData call and render a distinct error + Retry state in the Recent Transactions panel, keeping the empty state only for a successful empty result. Verification: BillingDashboardPage.spec.tsx case: billingApi.getInvoices rejection renders the error/retry UI, not 'No recent transactions'.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/BillingDashboardPage.tsx`
+  - `web/modules/admin-panel/src/pages/__tests__/BillingDashboardPage.spec.tsx`
+- **Effort:** S
 
 ### APA-081 [MEDIUM] Invoice statuses 'sent'/'draft'/'partially_paid'/'overdue' all misrender as 'failed' transactions
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The invoice->transaction mapping treats anything that is not 'paid' or 'pending' as status 'failed', so a legitimately sent or partially paid invoice appears as a red failed transaction on the dashboard — silently wrong financial signal.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/BillingDashboardPage.tsx:332 (ternary collapses all other statuses to 'failed')`
   - `apps/admin-api-service/src/analytics/entities/external/invoice.entity.ts:12-21 (8 real invoice statuses)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The invoice->transaction mapping (BillingDashboardPage.tsx:332) projects the 8-value InvoiceStatus domain onto a 3-value union with an else->'failed' branch, and re-declares the invoice shape inline instead of using the shared InvoiceOverview type — so sent/draft/partially_paid/overdue invoices render as red 'failed'. Instance of FE-type-drift: two pages each hand-roll status presentation.
+- **Fix design:** Stop collapsing: type RecentTransaction.status as the real InvoiceStatus (add the 8-value union/enum to services/types/billing.ts — InvoicesPage.tsx:21 already lists it inline) and extract InvoicesPage's statusColors/statusLabels maps into a shared InvoiceStatusBadge component typed Record<InvoiceStatus, string> so a status without a mapping is a compile error (tier 1). TransactionItem renders the badge; fetchTransactions consumes InvoiceOverview instead of its inline structural type. Verification: BillingDashboardPage.spec.tsx asserts a 'sent' invoice renders the blue Sent badge and a 'partially_paid' invoice the Partial badge, never 'failed'.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/BillingDashboardPage.tsx`
+  - `web/modules/admin-panel/src/pages/InvoicesPage.tsx`
+  - `web/modules/admin-panel/src/components/InvoiceStatusBadge.tsx`
+  - `web/modules/admin-panel/src/services/types/billing.ts`
+  - `web/modules/admin-panel/src/pages/__tests__/BillingDashboardPage.spec.tsx`
+- **Effort:** S
 
 
 ## InvoicesPage — `/admin/billing/invoices (+ /admin/billing/invoices/new)` — verdict: **PARTIAL**
@@ -86,41 +118,71 @@
 
 ### APA-083 [MEDIUM] No pagination — list hard-capped at 100 invoices with no offset controls
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** fetchInvoices always sends limit:100 and never sends offset; the table has no pager even though the backend supports offset and returns total. Past 100 invoices, older rows are silently invisible, and the client-side CSV 'Export' exports only those loaded rows while implying a full export.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/InvoicesPage.tsx:98-102 (limit:100, no offset)`
   - `web/modules/admin-panel/src/pages/InvoicesPage.tsx:256-318 (CSV built from loaded state only)`
   - `apps/admin-api-service/src/billing/services/invoice-management.service.ts:249-258 (offset supported server-side)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** fetchInvoices (InvoicesPage.tsx:98-102) hardcodes limit:100 and never sends offset; the page discards the server-returned total (invoice-management.service.ts supports LIMIT/OFFSET and returns {invoices,total}) and renders no pager, so rows past 100 are invisible; handleExportCsv (:256-318) serializes only loaded state while implying a full export. The existing usePagination hook was never adopted.
+- **Fix design:** Adopt the existing web/modules/admin-panel/src/hooks/usePagination.ts: page/pageSize state -> limit/offset params, pager UI fed by the returned total (pattern already proven on other admin pages). handleExportCsv iterates all pages for the current filters (loop fetch with increasing offset until total collected) so the CSV covers the full filtered set, and the success toast reports the true count. Verification: new web/modules/admin-panel/src/pages/__tests__/InvoicesPage.spec.tsx asserting offset is sent on page change, pager renders from total, and export issues paged fetches until total rows are gathered.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/InvoicesPage.tsx`
+  - `web/modules/admin-panel/src/pages/__tests__/InvoicesPage.spec.tsx`
+- **Effort:** M
 
 ### APA-084 [MEDIUM] Search fires a full list+stats refetch on every keystroke with no debounce
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** searchTerm is a dependency of fetchInvoices; the useEffect re-runs on each identity change and also re-invokes fetchStats, so each character typed issues two backend requests plus a router navigate. Under the shared per-user ThrottlerGuard this can 429 an operator typing quickly and hammers billing.invoices with ILIKE scans.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/InvoicesPage.tsx:93-118 (fetchInvoices deps [statusFilter, searchTerm])`
   - `web/modules/admin-panel/src/pages/InvoicesPage.tsx:135-138 (effect runs both fetches)`
   - `web/modules/admin-panel/src/pages/InvoicesPage.tsx:168-171 (handleSearchChange per keystroke)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** searchTerm is a dep of fetchInvoices (InvoicesPage.tsx:118) and the single effect (:135-138) re-invokes BOTH fetchInvoices and fetchStats when the callback identity changes, plus handleSearchChange navigates per keystroke — 2 requests + a router update per character. The page hand-rolls filter/URL state although hooks/useFilters.ts already provides debounceKeys + debouncedFilters + syncUrl for exactly this.
+- **Fix design:** Replace searchTerm/statusFilter/updateInvoiceListQuery with useFilters({ initialFilters: { search, status }, syncUrl: true, debounceKeys: ['search'] }); the fetch effect depends on debouncedFilters only. Split fetchStats into its own mount-only effect, refreshed explicitly after mutations (stats never depended on search). Pattern-level fix already exists as the hook; this closes the non-adoption. Verification: InvoicesPage.spec.tsx with fake timers asserting one getInvoices call per debounce window while typing and zero getInvoiceStats calls triggered by typing.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/InvoicesPage.tsx`
+  - `web/modules/admin-panel/src/pages/__tests__/InvoicesPage.spec.tsx`
+- **Effort:** S
 
 ### APA-085 [LOW] Void offered for partially_paid invoices but backend always rejects it
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** FE canVoid only excludes paid/void/refunded, so partially_paid invoices show a Void button; billing-service VOIDABLE_STATUSES is draft/pending/sent/overdue, so the request always fails with 400 'Cannot void invoice with status partially_paid' surfaced as an error toast.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/InvoicesPage.tsx:333 (canVoid predicate)`
   - `apps/billing-service/src/billing/handlers/void-invoice.handler.ts:9-14 (VOIDABLE_STATUSES excludes partially_paid)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Invoice status-transition rules exist only inside billing-service handlers (VOIDABLE_STATUSES = draft/pending/sent/overdue in void-invoice.handler.ts:9-14) while the FE re-derives eligibility with an ad-hoc negative predicate (InvoicesPage.tsx:333 excludes only paid/void/refunded), so partially_paid shows a Void button that always 400s. Systemic FE-guessing-transition-rules drift; web modules deliberately do not import @platform/event-contracts, so no compiler link exists.
+- **Fix design:** Make affordances server-computed (tier 2): define canonical INVOICE_VOIDABLE_STATUSES / INVOICE_PAYABLE_STATUSES in @platform/event-contracts (libs/event-contracts/src, exported from index); billing-service VoidInvoiceHandler and RecordPaymentHandler import them (deleting local arrays); admin-api InvoiceManagementService imports the same sets and emits computed canVoid/canMarkPaid booleans on InvoiceOverview; FE InvoiceOverview type gains the fields and InvoicesPage renders buttons from invoice.canVoid/canMarkPaid, deleting both local predicates — the FE can no longer disagree with the handler. Verification: billing-service handler specs assert rejection sets come from the contract; new invoice-management.service spec asserts partially_paid -> canVoid:false, draft -> canMarkPaid:false; InvoicesPage.spec.tsx asserts no Void button for a partially_paid invoice.
+- **Files to change:**
+  - `libs/event-contracts/src/billing-invoice-status.ts`
+  - `libs/event-contracts/src/index.ts`
+  - `apps/billing-service/src/billing/handlers/void-invoice.handler.ts`
+  - `apps/billing-service/src/billing/handlers/record-payment.handler.ts`
+  - `apps/admin-api-service/src/billing/services/invoice-management.service.ts`
+  - `web/modules/admin-panel/src/services/types/billing.ts`
+  - `web/modules/admin-panel/src/pages/InvoicesPage.tsx`
+  - `web/modules/admin-panel/src/pages/__tests__/InvoicesPage.spec.tsx`
+- **Effort:** M
 
 ### APA-086 [LOW] MarkInvoicePaidDto accepts amount 0, creating a $0 payment that flips status to partially_paid
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The DTO uses @Min(0) rather than @Min(0.01); a 0 amount passes admin-api validation and billing-service RecordPaymentHandler (0 is not greater than amountDue), creating a SUCCEEDED $0 payment row and setting the invoice to PARTIALLY_PAID though nothing was paid. FE blocks 0 but the API does not.
 - **Evidence:**
   - `apps/admin-api-service/src/billing/dto/billing.dto.ts:222-226 (@Min(0))`
   - `apps/billing-service/src/billing/handlers/record-payment.handler.ts:79-127 (no lower-bound check; PARTIALLY_PAID branch)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** MarkInvoicePaidDto uses @Min(0) (billing.dto.ts:222-226) so amount:0 passes admin-api validation, and RecordPaymentHandler's only bound check is paymentMoney.greaterThan(amountDueMoney) (record-payment.handler.ts:79) — zero (and any value the DTO lets through) creates a SUCCEEDED $0 payment row and the else-branch at :126 flips the invoice to PARTIALLY_PAID with nothing paid. Aggravating instance of the unvalidated-interface-DTO class: POST /billing/payments takes RecordPaymentDto as a TS interface with zero class-validator coverage, so the handler is the only real gate for that path.
+- **Fix design:** Enforce at the source of truth: RecordPaymentHandler rejects non-positive amounts (paymentMoney.isZero() || paymentMoney.isNegative() -> BadRequestException) before any write, protecting every caller (admin mark-paid, record-payment, Stripe paths). Tighten the edges: MarkInvoicePaidDto -> @IsPositive() (drop @Min(0)), and convert admin-api's RecordPaymentDto interface into a validated class DTO (@IsUUID invoiceId, @IsPositive amount, enum paymentMethod) in dto/billing.dto.ts — local application of the systemic fix. Verification: extend apps/billing-service/src/billing/__tests__/record-payment.handler.spec.ts with amount 0 and negative -> BadRequest and invoice status unchanged; extend billing.controller.spec.ts for DTO rejection of amount:0.
+- **Files to change:**
+  - `apps/billing-service/src/billing/handlers/record-payment.handler.ts`
+  - `apps/admin-api-service/src/billing/dto/billing.dto.ts`
+  - `apps/admin-api-service/src/billing/services/payment-management.service.ts`
+  - `apps/admin-api-service/src/billing/billing.controller.ts`
+  - `apps/billing-service/src/billing/__tests__/record-payment.handler.spec.ts`
+  - `apps/admin-api-service/src/billing/__tests__/billing.controller.spec.ts`
+- **Effort:** S
 
 
 ## PaymentsPage — `/admin/billing/payments` — verdict: **PARTIAL**
@@ -133,24 +195,39 @@
 
 ### APA-087 [MEDIUM] Invoice-ID filter throws 500 on every keystroke of a non-UUID value
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The free-text filter fires fetchPayments per keystroke and the backend interpolates it as p.invoice_id = $n::uuid; any partial input ('abc', or a pasted invoice NUMBER like INV-202607-...) makes Postgres raise 'invalid input syntax for type uuid', which surfaces as a 500 and flips the page into the error state. The placeholder invites typing yet no UUID validation or debounce exists on either side.
 - **Evidence:**
   - `apps/admin-api-service/src/billing/services/payment-management.service.ts:117-121 ($::uuid cast on raw filter)`
   - `web/modules/admin-panel/src/pages/PaymentsPage.tsx:334-339 (free-text input)`
   - `web/modules/admin-panel/src/pages/PaymentsPage.tsx:126-151 (refetch per keystroke, error state)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** GET /billing/payments takes invoiceId as a raw @Query string (billing.controller.ts:747) and PaymentManagementService interpolates it as p.invoice_id = $n::uuid (payment-management.service.ts:117-121); any non-UUID (partial keystroke, pasted INV- number) makes Postgres raise 22P02 -> unhandled 500, and PaymentsPage feeds a free-text field into it with a refetch per keystroke and no debounce (:126-151, :334-339). Systemic: admin-api list endpoints use raw string @Query params instead of validated query DTOs despite the global ValidationPipe.
+- **Fix design:** Backend: introduce ListPaymentsQueryDto (@IsOptional @IsUUID('4') invoiceId, typed status/search/limit/offset) consumed via @Query() dto so malformed ids are a 400 at the boundary, never a Postgres error — apply the query-DTO pattern as the fix for this endpoint class. Semantics: the operator-facing filter is a search, not a raw UUID — extend PaymentFilters.search to also match i.invoice_number ILIKE (the billing.invoices join already exists at :175) and have PaymentsPage send a debounced search (useFilters debounceKeys:['search']); invoiceId remains an exact-UUID deep-link param only. Verification: billing.controller.spec.ts: invoiceId=abc -> 400 with validation message; payment-management spec: search='INV-2026' matches by invoice_number; new PaymentsPage.spec.tsx: typing 'abc' never flips the page to the error state.
+- **Files to change:**
+  - `apps/admin-api-service/src/billing/dto/billing.dto.ts`
+  - `apps/admin-api-service/src/billing/billing.controller.ts`
+  - `apps/admin-api-service/src/billing/services/payment-management.service.ts`
+  - `web/modules/admin-panel/src/pages/PaymentsPage.tsx`
+  - `apps/admin-api-service/src/billing/__tests__/billing.controller.spec.ts`
+  - `web/modules/admin-panel/src/pages/__tests__/PaymentsPage.spec.tsx`
+- **Effort:** M
 
 ### APA-088 [MEDIUM] Refund history is never returned — payment detail modal's Refund History section is permanently dead
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** billing.payments has a refunds jsonb column populated by RefundPaymentHandler (amount, reason, refundedAt, refundId), and the FE modal renders selectedPayment.refunds. But PaymentManagementService.getPayments SELECT list omits the refunds column entirely, so the field is always undefined and per-refund reasons/dates are unviewable in the admin panel despite existing in the DB.
 - **Evidence:**
   - `apps/admin-api-service/src/billing/services/payment-management.service.ts:155-179 (SELECT omits refunds)`
   - `web/modules/admin-panel/src/pages/PaymentsPage.tsx:567-584 (Refund History UI keyed on payment.refunds)`
   - `apps/billing-service/src/billing/entities/payment.entity.ts:163-165 (refunds jsonb column exists)`
   - `web/modules/admin-panel/src/services/types/billing.ts:322 (FE type declares refunds)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** PaymentManagementService.getPayments SELECT list (payment-management.service.ts:155-179) omits the refunds jsonb column, and the service's hand-written PaymentOverview interface (:12-31) omits the field entirely, while billing.payments.refunds exists (payment.entity.ts:163-165, populated by RefundPaymentHandler) and the FE type (:322) + modal (PaymentsPage.tsx:567-584) already consume it. Instance of the FE-type-drift class: admin-api and FE each hand-maintain PaymentOverview with no contract check, so the omission was silent.
+- **Fix design:** Fix the contract at the source: add p.refunds to the SELECT, add a RefundInfo interface (amount, reason, refundedAt, refundId — matching billing-service and the FE type) and refunds?: RefundInfo[] to admin-api's PaymentOverview + PaymentOverviewRow so the mapper now carries the column by type. Pattern-level: add a contract spec that a refunded payment's refunds array round-trips through getPayments — the detectable gate for this admin-api/FE shape pair (full codegen for admin-panel types is the tracked class-level fix). Verification: new apps/admin-api-service/src/billing/__tests__/payment-management.service.spec.ts asserting a row with refunds jsonb is returned with the array intact; PaymentsPage.spec.tsx asserting Refund History renders when refunds are present.
+- **Files to change:**
+  - `apps/admin-api-service/src/billing/services/payment-management.service.ts`
+  - `apps/admin-api-service/src/billing/__tests__/payment-management.service.spec.ts`
+  - `web/modules/admin-panel/src/pages/__tests__/PaymentsPage.spec.tsx`
+- **Effort:** S
 
 ### APA-089 [MEDIUM] Stat cards (Succeeded/Refunded/Net) computed from the current 50-row page while Total Payments is the server-wide count
 

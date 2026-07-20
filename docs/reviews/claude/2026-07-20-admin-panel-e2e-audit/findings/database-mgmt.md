@@ -143,15 +143,24 @@
 - **Proof of fix:** (1) New unit spec apps/admin-api-service/src/database-management/__tests__/database-monitoring.service.spec.ts (London-school, mocked slowQueryRepository): assert getDatabaseHealthStatus() calls slowQueryRepository.count with a FindOperator of type 'moreThanOrEqual' whose value is within tolerance of Date.now() - 3600000 (this exact assertion fails RED against the current LessThan code); plus threshold behavior cases: count 0 -> check 'pass', 21 -> 'warn' and score -5, 101 -> 'fail' and score -20. (2) New libs/backend-common/src/database/__tests__/time-window.operators.spec.ts: withinLast(ms) yields moreThanOrEqual at now-ms, olderThan(ms) yields lessThan at now-ms. (3) New tests/invariants/time-window-operator-usage.spec.ts: greps apps/** for inline (LessThan|LessThanOrEqual|MoreThan|MoreThanOrEqual)\(new Date\(Date\.now\(\) and fails on any occurrence, proving all call sites migrated and freezing the class out. Run nx affected --target=test and --target=lint green.
 - **Effort:** M
 
-### APA-320 [HIGH] Validate Isolation always reports 'Issues found' — field name drift (isIsolated vs valid)
+### APA-320 [MEDIUM] Validate Isolation always reports 'Issues found' — field name drift (isIsolated vs valid)
 
-- **Status:** PENDING
+- **Status:** CONFIRMED+DESIGNED (audited HIGH → verified MEDIUM)
 - **Symptom:** Backend returns {isIsolated, issues}; the FE api type and the page read result.valid, which is always undefined/falsy, so the alert always takes the failure branch and prints 'Issues found: ' (empty list) even for a perfectly isolated schema. The real validation (cross-schema FK + shared-sequence queries) runs, but its verdict is never rendered correctly.
 - **Evidence:**
   - `apps/admin-api-service/src/database-management/services/schema-management.service.ts:197-252 (returns isIsolated)`
   - `web/modules/admin-panel/src/services/api/database.ts:46-47 (typed {valid, issues})`
   - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx:454-459`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Verification:** Chain confirmed end-to-end in real wiring. schema-management.service.ts:197-252 returns {isIsolated, issues}; schema.controller.ts:165-168 (@Get(':tenantId/validate')) returns that object verbatim with no DTO transform; ResponseInterceptor wraps it and the admin-panel http-client unwraps the envelope back to data, so the FE receives {isIsolated, issues}. database.ts:47 inline-types the return as {valid, issues} (wrong field name), and DatabaseManagementPage.tsx:457 reads result.valid, which is always undefined -> always falsy -> the alert always renders the else branch 'Issues found: '+issues.join(). The real isolation queries (cross-schema FK + shared-sequence) still run and issues renders via the correctly-named field, but the boolean verdict is read from a nonexistent field, so the 'Schema isolation is valid.' branch is unreachable and a perfectly isolated schema is falsely reported as having issues (empty list). Corrected HIGH->MEDIUM: the miswiring only produces false alarms on healthy schemas (never false reassurance on broken ones, since the issues list itself renders), and the blast radius is a single diagnostic alert() with no data or security consequence. This is an instance of the systemic FE-type-drift class: admin-panel service/api return types are hand-written literals mirrored from backend return shapes with no shared contract, no codegen, and no contract test, so a field rename drifts silently past tsc.
+- **Root cause:** The broken link is the FE api-type<->backend-contract boundary. The backend contract for GET /database/schemas/:tenantId/validate is an anonymous inline object literal ({isIsolated, issues}) with no named/exported DTO, and the admin-panel mirrors it by hand as {valid, issues}. Because the shape is an untyped literal on both ends and admin-panel has no codegen or contract gate over its hand-written services/types + services/api literals, the field-name divergence (isIsolated vs valid) compiles cleanly on both sides and only surfaces at runtime as a wrong alert branch. It drifted because there is no single source of truth for the response shape that both ends import or that a test pins.
+- **Fix design:** Fix the contract at the source and make the drift detectable (discipline tiers 1+3), not just rename the FE field. (1) Name the backend contract: in schema-management.service.ts extract the anonymous return into an exported interface (e.g. SchemaIsolationResult { isIsolated: boolean; issues: string[] }) and annotate validateSchemaIsolation()'s return with it, and give schema.controller.ts's validateSchemaIsolation() that explicit return type so the wire shape has a nameable SSoT. (2) Local FE application: in database.ts change the validateSchemaIsolation return type literal from {valid: boolean; issues: string[]} to {isIsolated: boolean; issues: string[]}, and in DatabaseManagementPage.tsx line 457 read result.isIsolated so the success branch ('Schema isolation is valid.') becomes reachable. (3) Systemic/detectable gate (the real root-cause fix for the class): add a backend contract test that pins the JSON body of GET /database/schemas/:tenantId/validate to exactly {isIsolated: boolean, issues: string[]}, so any future rename of the field fails CI at the source; and add an FE handler/render test on the Validate Isolation button asserting isIsolated:true renders 'Schema isolation is valid.' and isIsolated:false renders the issues list. This closes the loop the same way for the whole FE-type-drift class: every admin-panel api literal that mirrors a backend shape should be pinned by a contract test (recommend generalizing this into a shape-drift gate over services/api literals, tracked separately as the pattern-level remediation).
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx`
+  - `apps/admin-api-service/src/database-management/services/schema-management.service.ts`
+  - `apps/admin-api-service/src/database-management/controllers/schema.controller.ts`
+- **Proof of fix:** Add apps/admin-api-service/src/database-management/__tests__/integration/schema-validate-contract.spec.ts: call GET /database/schemas/:tenantId/validate (or the controller method directly) and assert the response data has boolean isIsolated and array issues, and NOT a 'valid' key — this fails today if the field is renamed at the source. Add a FE test web/modules/admin-panel/src/pages/__tests__/DatabaseManagementPage.validate.spec.tsx that mocks databaseApi.validateSchemaIsolation to resolve {isIsolated:true, issues:[]} and asserts the alert text is 'Schema isolation is valid.', and with {isIsolated:false, issues:['x']} asserts 'Issues found: x'. Both tests fail on the current code (undefined result.valid) and pass after the field-name fix.
+- **Effort:** S
 
 ### APA-321 [MEDIUM] Backup Schedule card always shows 'Not configured' + suspended — response shape drift
 
@@ -392,11 +401,15 @@
 
 ### APA-334 [LOW] Sorting on masked columns leaks relative ordering of the hidden values
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** orderBy accepts any valid identifier including sensitive columns; the server sorts by the REAL value then masks, so an operator can binary-search relative ordering of masked data (e.g. token prefixes) via ORDER BY. Niche, but trivially closed by rejecting orderBy on sensitive columns.
 - **Evidence:**
   - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts:463-464,491-499 (order by real column, mask after)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** In explorer.controller.ts both getTableData (491-492) and exportTableData (576-577) build `ORDER BY "<orderBy>" <dir>` against the REAL column value and only apply maskSensitiveData() to the returned rows AFTER the DB has sorted. orderBy is gated solely on SQL-identifier syntax (`isValidIdentifier` at 463/558; DTO @Matches at 147-148 and 173-174) and is never checked against isSensitiveColumn() (the SSoT helper at 103 + SENSITIVE_COLUMNS at 73). So an operator can ORDER BY / paginate on a masked column (e.g. token, hash, api_key) and binary-search the relative ordering of values that masking is supposed to hide — masking is defeated for ordering information. Both the data and export paths accept orderBy, so the leak has two entry points.
+- **Fix design:** Reject orderBy on sensitive columns at the source, reusing the existing isSensitiveColumn() SSoT (tier 3 make-it-detectable + tier 2 automatic). Replace the duplicated `query.orderBy && this.isValidIdentifier(query.orderBy) ? query.orderBy : null` expression in BOTH getTableData and exportTableData with one private helper, e.g. resolveOrderBy(raw?: string): string|null, that returns null when raw is empty/invalid and THROWS BadRequestException('Cannot sort by a masked column') when isValidIdentifier(raw) but isSensitiveColumn(raw). Throwing (not silently dropping) makes the rejection observable to the caller and prevents a silent fallback to unordered results. Routing both call sites through the single helper closes the export entry point automatically and prevents a future third call site from reintroducing the gap.
+- **Files to change:**
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts`
+- **Effort:** S
 
 
 ## Cross-cutting findings
@@ -476,17 +489,29 @@
 
 ### APA-338 [MEDIUM] Hand-written FE types drift systemically from backend responses (no codegen) — three of the drifts silently blank out real data
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** services/types/database.ts and the inline api-function generics were written from an older backend. Confirmed field-level drift: SlowQueryResult object vs array (panel always empty), isIsolated vs valid (always 'Issues found'), backup schedule shape (always 'Not configured'), IndexRecommendation.createStatement missing, TenantSchema/SchemaMigration/DatabaseBackup field mismatches, plus ~14 FE functions targeting nonexistent routes. Because the envelope-unwrapping http-client returns 'unknown-shaped' data as T, none of this fails loudly — it renders wrong. A generated client (OpenAPI from the existing Swagger setup) would make this class of bug impossible.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/types/database.ts:5-83`
   - `web/modules/admin-panel/src/services/api/database.ts:56-61,106-115,126-127,172-174,197-204`
   - `web/modules/admin-panel/src/services/http-client.ts:341-351 (unchecked cast to T)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** FE contract for the whole database section is hand-authored (services/types/database.ts + inline generics in services/api/database.ts) with no generated linkage to the backend, and http-client returns `envelope.data as T` (http-client.ts:348) — an unchecked cast — so any shape/route mismatch renders wrong or blank instead of failing. Two live sub-classes remain after cross-checking all 5 controllers' routes: (a) ~13 FE api functions target routes that exist on NO database-management controller and thus 404 silently — schema.resetSchema/optimizeSchema/analyzeSchema, migration.getMigration/createMigration/runMigration/rollbackMigration/getPendingMigrations, backup.scheduleBackup, monitoring.getDatabaseStats/getTableStats/runVacuum/runAnalyze; (b) backend controller methods have no explicit return type or @ApiResponse DTO (they return `this.svc.method()` untyped, e.g. monitoring 84/118, schema 167), so even with Swagger wired (main.ts:22) the OpenAPI doc carries no typed response bodies to validate the FE against. NOTE: the specific field drifts the finding named (SlowQuery object-vs-array, isIsolated-vs-valid, backup schedule shape, IndexRecommendation.createStatement) are actually consistent in the CURRENT code and consumed correctly by DatabaseManagementPage.tsx — they were hand-patched, which is itself the recurring-drift failure mode, not a permanent fix.
+- **Fix design:** Make wrong shape/route structurally impossible via a generated contract (tier 1), not another hand-patch. (1) Give every database-management controller method an explicit response DTO + @ApiResponse so the already-wired Swagger document emits typed schemas — this is the load-bearing prerequisite; without it codegen yields `unknown`. (2) Add an OpenAPI codegen step (openapi-typescript or openapi-typescript-codegen) as an npm script that regenerates the admin-panel client + types from the emitted OpenAPI JSON, replacing services/types/database.ts and the inline api generics; http-client keeps unwrapping the envelope but its cast is now backed by a generated type that matches the server. (3) CI gate: run codegen in CI and fail on any git diff (drift becomes a build error) — tier 3 for whatever is not yet fully migrated. Immediate cheaper detectable gate for the nonexistent-route sub-class specifically: add an invariant spec that enumerates every path literal in services/api/database.ts and asserts a matching registered route exists on the admin-api-service router, and delete the ~13 dead functions.
+- **Files to change:**
+  - `apps/admin-api-service/src/database-management/controllers/schema.controller.ts`
+  - `apps/admin-api-service/src/database-management/controllers/migration.controller.ts`
+  - `apps/admin-api-service/src/database-management/controllers/backup.controller.ts`
+  - `apps/admin-api-service/src/database-management/controllers/monitoring.controller.ts`
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts`
+  - `web/modules/admin-panel/src/services/types/database.ts`
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `package.json`
+  - `e2e/tests/integration/admin-api-fe-route-contract.spec.ts`
+- **Effort:** L
 
 ### APA-339 [LOW] Security posture of the section is otherwise solid (verified, not assumed)
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** Positive findings recorded for completeness: every /database/* route is behind the global PlatformAdminGuard (SUPER_ADMIN-only, RS256 verifyAsync with issuer/audience, access-token-type enforcement) plus ThrottlerGuard; no @Public escapes exist in the five controllers; all seven database-management entities declare schema:'admin' and match the Baseline migration column-for-column; the explorer uses a separate read-only DataSource with default_transaction_read_only=on; tenant_<uuid> schemas are structurally unreachable from the explorer (allowlist public/auth/admin/billing + MODULE_SCHEMAS-derived table blocklist + tenant_ regex in raw SQL); identifiers are regex-validated and values parameterized throughout; read/export/raw-SQL are fail-closed on audit persistence; nginx /api -> /api/v1 rewrite matches the service prefix exactly.
 - **Evidence:**
   - `apps/admin-api-service/src/app.module.ts:283-304`
@@ -494,4 +519,6 @@
   - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts:46-67,280-322,1230-1233`
   - `apps/admin-api-service/src/migrations/1800000000000-Baseline.ts:191-213`
   - `infrastructure/nginx/droplet.conf:377-383`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Not a defect — a positive-posture note recorded for completeness, and spot-checking corroborates it: global APP_GUARD PlatformAdminGuard (SUPER_ADMIN + RS256) plus ThrottlerGuard cover the section (export throttle comment at explorer.controller.ts:542), no @Public escapes in the 5 controllers, the 7 entities declare schema:'admin' matching the Baseline migration, the explorer uses a read-only DataSource, tenant_* schemas are unreachable (allowlist + blocklist + tenant_ regex), identifiers are regex-validated (isValidIdentifier 1230-1233) and values parameterized (496-497), and read/export/raw-SQL are fail-closed on audit persistence (requireAuditLog awaited at 518).
+- **Fix design:** No code change required; nothing is broken. To keep the posture from silently regressing (tier 3 make-it-detectable), optionally add/confirm two invariant specs: a guard-coverage test asserting no @Public decorator exists on any database-management controller method, and an explorer-access test asserting tenant_* schemas and MODULE_SCHEMAS-blocklisted tables are rejected. These lock in the verified behavior but are enhancement, not remediation.
+- **Effort:** S

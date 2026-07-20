@@ -57,47 +57,79 @@
 
 ### APA-219 [MEDIUM] 'Avg Response' metric hardcoded to 0ms and rendered as a real stat
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** fetchActivityStats sets averageResponseTime: 0 unconditionally; the card shows '0ms' as if measured. Response-time data lives in admin.api_usage_logs, which is also never written.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/security/ActivityLogPage.tsx:154,614-623`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** fetchActivityStats hardcodes averageResponseTime:0 because the backend ActivityStats contract (activity-logging.service.ts:79-88, returned verbatim by GET /security/activities/stats/overview) has no response-time field, and ActivityStatsOverview (FE type) has none either. The real response-time store, api_usage_logs.responseTimeMs, is never written: logApiUsage() has zero callers (grep confirms only its definition). activity_logs.duration IS a real column but is unaggregated. So the 'Avg Response' card renders a fabricated 0ms as if measured. Systemic class: a metric surfaced with no data source, sibling of the api_usage_logs table that nobody writes.
+- **Fix design:** Compute a real average in getActivityStats via AVG(activity.duration) FILTER (WHERE duration IS NOT NULL) in the same query builder, and add averageResponseTime: number|null to the ActivityStats interface (null when no samples). Add averageResponseTime to ActivityStatsOverview (FE type). In ActivityLogPage.fetchActivityStats read stats.averageResponseTime; render the card value 'N/A' when null instead of '0ms'. This makes the card reflect measured data (tier 2: correct behavior automatic) and removes the hardcode. Separately flag (tracked finding) that api_usage_logs has no writer — either wire an interceptor to call logApiUsage or drop the dead table; do not leave a metric table nobody populates.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/services/activity-logging.service.ts`
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/pages/security/ActivityLogPage.tsx`
+  - `apps/admin-api-service/src/security/__tests__/activity-logging.service.spec.ts`
+- **Effort:** M
 
 ### APA-220 [MEDIUM] ORDER BY built from unvalidated sortBy query param
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** queryActivities interpolates `activity.${sortBy}` directly into orderBy from the request DTO (@IsString only). A bad column name 500s the endpoint and it is a raw-SQL interpolation surface (SUPER_ADMIN-only, but still an injection-shaped hole).
 - **Evidence:**
   - `apps/admin-api-service/src/security/services/activity-logging.service.ts:661`
   - `apps/admin-api-service/src/security/controllers/activity-log.controller.ts:96-102,249-250`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** queryActivities does qb.orderBy(`activity.${sortBy}`, sortOrder) (activity-logging.service.ts:661) where sortBy comes from QueryActivitiesDto.sortBy validated only by @IsString (controller:96-98). TypeORM inserts the orderBy expression raw (not parameterized), so an unknown column 500s the endpoint and the field is a raw-SQL interpolation surface (SUPER_ADMIN-gated, but injection-shaped). Systemic: the identical pattern exists in QueryAuditTrailDto.sortBy (audit-trail.controller.ts:130-131) consumed by AuditTrailService.getAuditTrail (audit-trail.service.ts:283, `log.${sortBy}`).
+- **Fix design:** Tier-1 make-impossible: define a single exported const array of sortable columns for activity_logs (e.g. ACTIVITY_LOG_SORTABLE_COLUMNS = ['createdAt','severity','category','action','userName','ipAddress']) next to the entity. Constrain both DTOs' sortBy with @IsIn(ACTIVITY_LOG_SORTABLE_COLUMNS) so an invalid column is rejected at the ValidationPipe (400, not 500). Add a defensive allowlist guard in both services (fall back to 'createdAt' if sortBy not in the set) so the service cannot be reached with an unvalidated column from any future caller. Verification: controller spec posting sortBy='id;DROP' and sortBy='bogus' asserts HTTP 400.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/entities/security.entity.ts`
+  - `apps/admin-api-service/src/security/controllers/activity-log.controller.ts`
+  - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts`
+  - `apps/admin-api-service/src/security/services/activity-logging.service.ts`
+  - `apps/admin-api-service/src/security/services/audit-trail.service.ts`
+  - `apps/admin-api-service/src/security/__tests__/activity-log.controller.spec.ts`
+- **Effort:** M
 
 ### APA-221 [MEDIUM] Export button only dumps the current 50-row page client-side
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** handleExport builds a CSV from the in-memory page slice; the real backend export (POST /security/audit/export with format/date-range, 100k rows) is never called, so 'Export' silently produces an incomplete artifact.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/security/ActivityLogPage.tsx:510-533`
   - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts:430-451`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** ActivityLogPage.handleExport (510-533) builds a CSV from the in-memory `activities` state, which is only the current 50-row page. The real server export POST /security/audit/export (audit-trail.controller.ts:430-451) — which queries activity_logs with a date range up to 100k rows — is never bound: securityApi has no export function at all. So 'Export' silently yields an incomplete artifact. Systemic: AuditTrailPage.handleExport (521-544) has the identical page-slice bug.
+- **Fix design:** Add securityApi.exportActivityTrail(options:{format,startDate,endDate,...}) posting to /security/audit/export and returning the response blob (requires http-client to support a non-JSON/blob response path). Rewrite ActivityLogPage.handleExport to call it with the active filters/date range and stream the server blob to download, replacing the client-side slice. Note: the export endpoint's ExportAuditTrailDto requires startDate/endDate (non-optional) — the page must pass its dateRange (defaulting to a sane window) or the DTO must make them optional. Apply the same wiring to AuditTrailPage, but that page displays immutable audit_logs while the export endpoint dumps activity_logs — reconcile per finding p1|i4 before pointing AuditTrail's export at it. Verification: component test asserting handleExport calls the export API (not the local CSV builder).
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/api/security.ts`
+  - `web/modules/admin-panel/src/services/http-client.ts`
+  - `web/modules/admin-panel/src/pages/security/ActivityLogPage.tsx`
+- **Effort:** M
 
 ### APA-222 [MEDIUM] securityApi.getUserActivities targets a nonexistent route (404)
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** FE defines GET /security/activities/user/:userId but ActivityLogController has no such route (only '', ':id', 'entity/:entityType/:entityId', 'stats/overview', 'login-attempts/:ipAddress', 'sessions/user/:userId'). Latent: not called by this page, but any consumer 404s.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/api/security.ts:45-46`
   - `apps/admin-api-service/src/security/controllers/activity-log.controller.ts:224-341 (route inventory)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** securityApi.getUserActivities (security.ts:45-46) targets GET /security/activities/user/:userId. ActivityLogController exposes only '', ':id', 'entity/:entityType/:entityId', POST '', 'stats/overview', 'login-attempts/:ipAddress', 'sessions/user/:userId', POST 'sessions/user/:userId/terminate' — no 'user/:userId' route, so the two-segment path /user/{id} matches nothing and 404s. Latent (ActivityLogPage does not call it) but any consumer breaks. Systemic class: hand-written FE client path with no backend route, invisible until called.
+- **Fix design:** The capability already exists: GET /security/activities?userId= (queryActivities filters by userId). Root-cause fix is to eliminate the phantom route — either delete getUserActivities (it is unused) or reimplement it as apiFetch('/security/activities?'+buildQueryString({userId,...})) so it hits the real filtered-query endpoint. Prefer deletion unless a caller is planned. To make the whole class detectable: add an invariant test that parses securityApi's literal paths and asserts each has a matching controller route (route-contract spec), so future FE/BE drift fails CI.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/api/security.ts`
+  - `web/modules/admin-panel/src/__tests__/security-api-routes.spec.ts`
+- **Effort:** S
 
 ### APA-223 [LOW] FE type invents fields the entity never returns (userAgent, location, timestamp)
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** BackendActivityLog declares userAgent/location/timestamp; the ActivityLog entity has none of these top-level (userAgent lives inside deviceInfo jsonb), so the detail modal's User-Agent section and location fallback can never populate from list data.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/types/security.ts:65-96`
   - `web/modules/admin-panel/src/pages/security/ActivityLogPage.tsx:127,137,409-417`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** BackendActivityLog (types/security.ts:65-96) declares top-level userAgent, location, and timestamp, none of which the ActivityLog entity returns: userAgent lives nested inside deviceInfo jsonb (entity:202-203; DeviceInfo.userAgent), the geo field is geoLocation (not location), and the time field is createdAt (not timestamp). fetchActivities maps userAgent:log.userAgent (always undefined) and createdAt:log.createdAt||log.timestamp (timestamp dead). Result: the detail modal's User-Agent section (ActivityLogPage:409-417) can never populate from list data. geoLocation already works, so the location fallback is merely dead. FE-type-drift class.
+- **Fix design:** Model the actual contract: add deviceInfo?: { userAgent?: string; ... } to BackendActivityLog and delete the fictional top-level userAgent, location, and timestamp fields (the query returns the full entity including deviceInfo jsonb, so the data is genuinely present nested). In fetchActivities map userAgent: log.deviceInfo?.userAgent and drop the ??log.location / ||log.timestamp fallbacks. This makes the User-Agent section populate from real data. Long-term: generate FE types from the entity/DTO so invented fields are impossible (tier 1).
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/pages/security/ActivityLogPage.tsx`
+- **Effort:** S
 
 
 ## AuditTrailPage — `/admin/security/audit` — verdict: **PARTIAL**
@@ -182,48 +214,78 @@ TIER 3 — make regressions detectable:
 
 ### APA-226 [MEDIUM] DB errors render as clean empty audit data
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** AuditLogService.query catches all exceptions and returns {data:[],total:0} with a 200; the page then shows 'No audit entries found' — a DB outage is indistinguishable from a clean ledger on a compliance surface. AuditTrailService.getAuditSummary has the same catch-and-zero pattern ('Return empty summary on error to prevent 500').
 - **Evidence:**
   - `apps/admin-api-service/src/audit/audit.service.ts:199-211`
   - `apps/admin-api-service/src/security/services/audit-trail.service.ts:416-432`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** AuditLogService.query (audit.service.ts:199-211) wraps the whole query in try/catch and returns {data:[],total:0,...} with HTTP 200 on any DB error; AuditTrailService.getAuditSummary (audit-trail.service.ts:416-432) does the same 'return empty summary on error to prevent 500'. On the AuditTrailPage compliance surface, a DB outage is then indistinguishable from a genuinely empty ledger — the page renders 'No audit entries found' and zeroed stats. Catch-and-zero on a read path is the systemic anti-pattern.
+- **Fix design:** Remove both catch-and-zero blocks and let the exception propagate so Nest returns 500 (wrapped by ResponseInterceptor as an error envelope). The FE already uses Promise.allSettled with an error UI (AuditTrailPage:449-514) and will surface the failure instead of a fake-empty ledger. Keep logging the error before rethrowing. Verification: service specs that mock the repository/queryBuilder to throw and assert query()/getAuditSummary() reject rather than resolving to zeros; optionally an e2e asserting the endpoint returns 500 on a forced DB error.
+- **Files to change:**
+  - `apps/admin-api-service/src/audit/audit.service.ts`
+  - `apps/admin-api-service/src/security/services/audit-trail.service.ts`
+  - `apps/admin-api-service/src/audit/__tests__/audit.service.spec.ts`
+- **Effort:** M
 
 ### APA-227 [MEDIUM] Add/Edit/Delete buttons for retention policies and alert rules have no handlers
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** 'Add Policy', 'Add Rule', and all Edit2/Trash2 buttons render with no onClick — the management UI is dead even though real backend CRUD endpoints exist (POST/PUT/DELETE /security/audit/retention-policies, /alert-rules).
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/security/AuditTrailPage.tsx:823-828,854-861,889-894,922-929`
   - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts:476-523,540-564`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** On AuditTrailPage the 'Add Policy' (824), 'Add Rule' (890), and every Edit2/Trash2 button (855-861, 923-929) render with no onClick — the retention-policy and alert-rule management UI is entirely inert even though backend CRUD exists (audit-trail.controller.ts POST/PUT/DELETE retention-policies:476-505 and alert-rules:540-564). Compounding: securityApi only has retention-policy CRUD; it has NO alert-rule create/update/delete functions (only getAlertRules), so the alert side has no client binding at all. Dead-control class.
+- **Fix design:** Wire real handlers: add create/edit/delete form modals for retention policies calling the existing securityApi.createRetentionPolicy/updateRetentionPolicy/deleteRetentionPolicy, and add the missing securityApi.createAlertRule/updateAlertRule/deleteAlertRule functions plus modals for alert rules. Refresh via loadData() after mutations. Caveat to fix at the source: AuditTrailService alert rules are an in-memory array (initializeDefaultAlertRules; createAlertRule pushes to memory) so CRUD is non-durable and resets on restart — persist alert rules as a proper @Entity (schema 'admin', new migration) so writes survive, otherwise the wired buttons mutate volatile state. Verification: component tests asserting each button invokes its API; service test asserting alert-rule CRUD persists.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/security/AuditTrailPage.tsx`
+  - `web/modules/admin-panel/src/services/api/security.ts`
+  - `apps/admin-api-service/src/security/services/audit-trail.service.ts`
+  - `apps/admin-api-service/src/security/entities/security.entity.ts`
+  - `apps/admin-api-service/src/migrations/1800000000000-Baseline.ts`
+- **Effort:** L
 
 ### APA-228 [MEDIUM] Retention Policies tab governs a table the page never shows (and one with no writers)
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** Retention policies archive/delete admin.activity_logs (AuditTrailService.applyRetentionPolicy), not the displayed immutable admin.audit_logs — which is explicitly never purged (purgeOldLogs refuses). The tab implies retention control over the audit entries listed next to it; it actually controls the never-written activity ledger. FE mapping also mislabels: archiveBeforeDelete = archiveAfterDays !== undefined is true even when the column is null.
 - **Evidence:**
   - `apps/admin-api-service/src/security/services/audit-trail.service.ts:814-862`
   - `apps/admin-api-service/src/audit/audit.service.ts:463-475`
   - `web/modules/admin-panel/src/pages/security/AuditTrailPage.tsx:161-174`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The 'Retention Policies' tab sits on the Audit Trail page whose 'Audit Entries' tab lists immutable audit_logs (AuditLog via /security/audit → AuditLogService.query). But retention policies govern a DIFFERENT table: AuditTrailService.applyRetentionPolicy archives/deletes activity_logs (ActivityLog, audit-trail.service.ts:814-862), and the displayed audit_logs are explicitly never purged (audit.service.ts purgeOldLogs:469-475 refuses). So the tab implies retention control over the entries shown while actually controlling the activity ledger. Additionally the FE mapping archiveBeforeDelete = policy.archiveAfterDays !== undefined (AuditTrailPage:169) is always true because JSON serializes a null column as null (null !== undefined === true), so every policy shows 'Archive Before Delete: Yes' even when archiveAfterDays is null. Two-audit-systems-conflated class.
+- **Fix design:** Fix the mapping bug: archiveBeforeDelete should reflect a real archive stage — policy.archiveAfterDays != null (covers both null and undefined). Fix the semantic mismatch: relabel the tab/section to make explicit these policies govern activity logs, not the immutable audit trail shown alongside (e.g. 'Activity Log Retention'), and add a note that the immutable audit_logs ledger is retained indefinitely (never purged). Longer term, the two ledgers (immutable AuditLog in audit/ and mutable ActivityLog in security/) should be presented on separate surfaces so retention scope is unambiguous. Verification: unit test on the mapper asserting archiveBeforeDelete is false when archiveAfterDays is null/undefined and true when a number.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/security/AuditTrailPage.tsx`
+- **Effort:** M
 
 ### APA-229 [LOW] 'Total Entries' is actually a 30-day count
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** GET /security/audit/summary defaults startDate to end-30d, so totalLogs is a 30-day window presented as 'Total Entries'.
 - **Evidence:**
   - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts:417-420`
   - `web/modules/admin-panel/src/pages/security/AuditTrailPage.tsx:143-144,606-611`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** GET /security/audit/summary defaults startDate to end-30d (audit-trail.controller.ts:417-420) and AuditLogService.getStatistics applies that window to totalLogs via baseWhere+dateWhere (audit.service.ts:377). The FE renders summary.totalLogs as 'Total Entries' (AuditTrailPage:143-144,606-611), so a 30-day count is presented as the all-time total.
+- **Fix design:** Make 'Total Entries' truthful: compute totalLogs in getStatistics WITHOUT the date filter (all-time count for the tenant scope), keeping last24Hours and the windowed breakdowns as-is (last24Hours is already computed with its own window, so the pattern exists). The windowed byAction/bySeverity/etc remain 30-day, which is fine as breakdowns. Alternatively, if a windowed total is intended, relabel the FE card to 'Entries (30d)'. Prefer the backend all-time total to match the existing label. Verification: getStatistics spec asserting totalLogs ignores start/end while last24Hours respects its window.
+- **Files to change:**
+  - `apps/admin-api-service/src/audit/audit.service.ts`
+  - `apps/admin-api-service/src/audit/__tests__/audit.service.spec.ts`
+- **Effort:** S
 
 ### APA-230 [LOW] Alert-rule card renders Invalid Date and fake trigger count
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** fetchAlertRules maps createdAt:'' (formatDate('') = Invalid Date) and triggeredCount:0 always ('Triggered: 0 times' regardless of history).
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/security/AuditTrailPage.tsx:176-189,941-950`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** fetchAlertRules (AuditTrailPage:176-189) maps triggeredCount:0 unconditionally and createdAt:'' because the backend AuditAlertRule contract (audit-trail.service.ts:36-54) carries neither a trigger count nor a createdAt — rules are in-memory defaults with only lastTriggeredAt. The card then always shows 'Triggered: 0 times' regardless of history. (Note: the createdAt:'' → formatDate('') Invalid Date is NOT actually rendered — the alerts card at 932-950 shows Threshold/Actions/Triggered/Last Triggered but not createdAt — so that sub-claim is not user-visible; the fabricated trigger count IS.) Contract-lacks-field / fabricated-value class.
+- **Fix design:** Track and expose real data at the source: add triggeredCount (incremented in triggerAlert, audit-trail.service.ts:979) and createdAt to the alert-rule model, which requires persisting alert rules as an entity (they are currently a volatile in-memory array — see p1|i3), then add triggeredCount/createdAt to BackendAuditAlertRule (FE type) and read them in fetchAlertRules. Until persistence lands, remove the fabricated triggeredCount display rather than show a constant 0 (do not render a metric with no backing data). Drop the dead createdAt:'' mapping. Verification: service test asserting triggeredCount increments on trigger; component test asserting the card reflects the returned count.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/services/audit-trail.service.ts`
+  - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts`
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/pages/security/AuditTrailPage.tsx`
+- **Effort:** M
 
 
 ## CompliancePage — `/admin/security/compliance` — verdict: **PARTIAL**
@@ -296,13 +358,25 @@ TIER 3 — make regressions detectable:
 
 ### APA-234 [HIGH] All five compliance stat cards are hardcoded zeros while a real stats endpoint sits unused
 
-- **Status:** PENDING
+- **Status:** CONFIRMED+DESIGNED
 - **Symptom:** fetchDataRequests fabricates stats {pendingRequests:0, inProgressRequests:0, completedRequests:0, overdueRequests:0, averageResolutionTime:0}; only totalRequests is real. The backend GET /security/compliance/data-requests/stats computes all of these for real. 'Overdue: 0' on a GDPR SLA dashboard is false assurance.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/security/CompliancePage.tsx:143-154,761-818`
   - `apps/admin-api-service/src/security/controllers/compliance.controller.ts:354-365`
   - `apps/admin-api-service/src/security/services/compliance.service.ts:439-502`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Verification:** Confirmed against real wiring, and the finding is understated. (1) CompliancePage.tsx:146-153 hardcodes pending/inProgress/completed/overdue/averageResolutionTime to literal 0; only totalRequests is real (and it is merely the paginated total, which is filter-dependent). Stat cards at 761-818 render these zeros. (2) The FE api layer services/api/security.ts has no getDataRequestStats method at all, so the real aggregate ComplianceService.getDataRequestStats (compliance.service.ts:439-502, real byStatus/overdueCount/avgResponseDays/completionRate) is never called. (3) LATENT SECOND BUG: @Get('data-requests/:id') (controller line 239) is declared before @Get('data-requests/stats') (line 354). NestJS registers routes in method-declaration order and Express matches first-registered-first with :id capturing one segment, so GET .../data-requests/stats is dispatched to getDataRequest('stats') -> findOne({where:{id:'stats'}}) against a uuid PK (security.entity.ts:585) -> Postgres 22P02 invalid input syntax for type uuid -> 500. The endpoint is thus not just unused but currently unreachable; a naive FE-only fix would fail. This is genuine false assurance on a GDPR/DSAR SLA dashboard ('Overdue: 0'), warranting HIGH; it is not CRITICAL (no auth bypass, cross-tenant leak, or data loss).
+- **Root cause:** Two links of the FE->BE->DB chain are broken and reinforce each other, an instance of two systemic classes. Systemic class A (hardcoded-placeholder / dead-endpoint): the admin-panel renders confident literal zeros instead of wiring to a backend aggregate that already exists — securityApi never exposed getDataRequestStats, and fetchDataRequests fabricated the stats object rather than mapping a real response. Systemic class B (static route declared after a param route -> silently shadowed): compliance.controller.ts declares @Get('data-requests/:id') before the static @Get('data-requests/stats'); NestJS/Express first-match-wins ordering makes the static path unreachable, and because the PK is uuid the shadow surfaces as a 500 rather than a clean 404. Both drifted because the FE hand-writes its types/api and never had a contract test asserting that the stats endpoint is (a) reachable and (b) consumed, and the backend never had a route-ordering invariant.
+- **Fix design:** Fix the whole chain at the source, addressing both systemic classes. BACKEND (make the endpoint reachable - Tier 1): in compliance.controller.ts move the static GET routes (data-requests/stats and data-requests/status/overdue) ABOVE the @Get('data-requests/:id') param route so the router cannot capture 'stats' as an id. Give the stats handler an explicit return type (CLAUDE.md requires explicit return types): define and export an interface DataRequestStatsResponse ({ total; byStatus: Record<DataRequestStatus,number>; byType: Record<DataRequestType,number>; avgResponseDays; overdueCount; completionRate }) from the service and annotate both ComplianceService.getDataRequestStats and the controller method with it, so the wire shape is a named contract rather than an inferred literal. FRONTEND (wire the real endpoint and delete the fabricated zeros - Tier 2, make correct behavior the default): add BackendDataRequestStats to services/types/security.ts mirroring DataRequestStatsResponse (kills hand-type drift); add securityApi.getDataRequestStats(params?) in services/api/security.ts calling /security/compliance/data-requests/stats (returns the unwrapped envelope data); in CompliancePage.tsx fetchDataRequests, fetch list and stats in parallel via Promise.all (root rule: batch independent calls) and MAP the real response into ComplianceStats (totalRequests=total, pendingRequests=byStatus.pending, inProgressRequests=byStatus.in_progress, completedRequests=byStatus.completed, overdueRequests=overdueCount, averageResolutionTime=avgResponseDays), removing the hardcoded 0 literals entirely. DETECTION (Tier 3, prevent regression of both classes): add a controller route-ordering/reachability regression spec (boot the Nest app or inspect route metadata) asserting GET .../data-requests/stats resolves to the stats handler and returns the stats keys, never routing into getDataRequest; and an FE test asserting getDataRequestStats is invoked and the five cards render the mapped non-zero values. Optionally generalize the ordering check into an architecture invariant that flags any static route registered after a param route that would capture it.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/controllers/compliance.controller.ts`
+  - `apps/admin-api-service/src/security/services/compliance.service.ts`
+  - `web/modules/admin-panel/src/services/api/security.ts`
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/pages/security/CompliancePage.tsx`
+  - `apps/admin-api-service/src/security/controllers/__tests__/compliance-route-ordering.spec.ts`
+  - `web/modules/admin-panel/src/pages/security/__tests__/CompliancePage.stats.spec.tsx`
+- **Proof of fix:** Add apps/admin-api-service/src/security/controllers/__tests__/compliance-route-ordering.spec.ts: a Nest e2e/supertest test (or route-metadata assertion) that boots the compliance controller with a mocked ComplianceService and asserts GET /api/v1/security/compliance/data-requests/stats returns 200 and delegates to complianceService.getDataRequestStats (never to getDataRequest, i.e. no NotFound/500 uuid error) — this pins the reordering and proves the endpoint is reachable at its own path. Add web/modules/admin-panel/src/pages/security/__tests__/CompliancePage.stats.spec.tsx: mock securityApi.getDataRequestStats to return {total:12, byStatus:{pending:3,in_progress:2,completed:5,rejected:2,expired:0}, overdueCount:4, avgResponseDays:6.5, ...} and assert the five stat cards render 12/3/2/5/4 and averageResolutionTime maps from avgResponseDays, and that getDataRequestStats was called (guards against re-introducing hardcoded zeros). Both specs run under nx affected --target=test.
+- **Effort:** M
 
 ### APA-235 [MEDIUM] GET data-requests/stats is route-shadowed by data-requests/:id
 

@@ -286,12 +286,20 @@
 
 ### APA-112 [LOW] Every save creates a new version row with effectiveFrom=now; currency/effectiveFrom dropped from payload
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The edit modal sends only pricingMetrics/tierMultipliers/notes; updateModulePricing always mints a new version effective immediately and deactivates the prior row (setting its effectiveTo 1s in the past), so repeated saves accrete version rows and there is no way to schedule a future effective date from the UI.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/ModulePricingPage.tsx:283-287`
   - `apps/admin-api-service/src/billing/services/module-pricing.service.ts:250-279 and 213-223`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The edit modal (ModulePricingPage.handleSave) only submits {pricingMetrics, tierMultipliers, notes} and exposes no effectiveFrom/effectiveTo/currency controls, while updateModulePricing() unconditionally defaults effectiveFrom to `new Date()` and setModulePricing() deactivates the prior row at (effectiveFrom-1s). The backend versioning machinery already supports future-dated rows, but the admin UI cannot reach it, so every save mints an immediately-effective version and accretes history with no scheduling capability.
+- **Fix design:** Make scheduling a first-class, explicit input rather than a silent default. Add effectiveFrom (required date) and optional effectiveTo to the edit modal, thread them through a validated update DTO -> the PUT module-pricing controller -> updateModulePricing/setModulePricing so a future effective date is honored (blue/green: prior row's effectiveTo = new effectiveFrom-1s only when the new row actually becomes active). Surface/edit currency in the same modal (it is on the entity + FE type but never editable) or drop it from the payload contract to remove the phantom field. Row accretion is acceptable given price history is immutable-by-design; the real fix is reachable scheduling. Tier 2: correct behavior (explicit effective date) becomes the default the UI drives.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/ModulePricingPage.tsx`
+  - `apps/admin-api-service/src/billing/services/module-pricing.service.ts`
+  - `apps/admin-api-service/src/billing/billing.controller.ts`
+  - `apps/admin-api-service/src/billing/dto/update-module-pricing.dto.ts`
+  - `apps/admin-api-service/src/billing/__tests__/module-pricing.service.spec.ts`
+- **Effort:** M
 
 
 ## CustomPlansListPage — `/admin/billing/custom-plans` — verdict: **PARTIAL**
@@ -356,21 +364,32 @@
 
 ### APA-115 [MEDIUM] FE CustomPlanStatus.CANCELLED does not exist in the backend
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The page offers a 'Cancelled' filter and summary card, but the backend enum and the custom_plans_status_enum DB type contain only draft/pending_approval/approved/active/expired/rejected. Even with the 400 fixed, filtering 'cancelled' would raise a Postgres invalid-enum error; the card count is permanently 0.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/types/billing.ts:74-82 (CANCELLED = 'cancelled')`
   - `apps/admin-api-service/src/billing/entities/custom-plan.entity.ts:18-25 (no CANCELLED)`
   - `apps/admin-api-service/src/migrations/1800000000000-Baseline.ts:237 (enum without 'cancelled')`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** FE CustomPlanStatus (services/types/billing.ts:81) declares CANCELLED='cancelled', but the backend TS enum (custom-plan.entity.ts:18-25) and the Postgres custom_plans_status_enum (Baseline migration:237) contain only draft/pending_approval/approved/active/expired/rejected, and no service transition ever sets a cancelled status. Unlike PlanTier (pinned by tests/invariants/tier-enum-ssot.spec.ts), CustomPlanStatus has no SSoT invariant, so the FE enum silently drifted. Selecting the Cancelled filter sends status=cancelled into a parameterized enum comparison in listCustomPlans, raising a Postgres 22P02 invalid-enum error, and the summary card count is permanently 0.
+- **Fix design:** Realign the enum to the actual backend SSoT and make future drift detectable. Since there is no cancel transition anywhere in CustomPlanService and no DB value, remove CANCELLED from the FE enum plus its STATUS_CONFIG and STATUS_FILTERS entries in CustomPlansListPage. Add an invariant spec (mirroring tier-enum-ssot) that pins the FE CustomPlanStatus members to the backend entity enum member-for-member so any future addition without a matching entity+migration change fails CI. (If product genuinely wants cancellation, that is a separate feature: ALTER TYPE to add 'cancelled', a cancelPlan() transition + guard + controller route + FE action — but the drift itself is fixed by aligning to the SSoT.) Tier 3: make-detectable.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/types/billing.ts`
+  - `web/modules/admin-panel/src/pages/CustomPlansListPage.tsx`
+  - `tests/invariants/custom-plan-status-enum-ssot.spec.ts`
+- **Effort:** M
 
 ### APA-116 [LOW] Clone copies stale approval artifacts
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** clonePlan spreads the source entity, resetting id/status/approvedBy/approvedAt/subscriptionId but carrying over rejectionReason and the original validFrom/validTo onto the new draft.
 - **Evidence:**
   - `apps/admin-api-service/src/billing/services/custom-plan.service.ts:419-435`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** clonePlan (custom-plan.service.ts:419-435) builds the clone by spreading the entire source entity and then nulling only a subset of lifecycle fields (id/tenantId/name/status/approvedBy/approvedAt/subscriptionId/createdAt/updatedAt). rejectionReason and the validity window (validFrom/validTo) are not reset, so a cloned draft inherits the source's rejection note and its original (possibly past) effective dates. Allowlist-by-omission is inherently drift-prone: any lifecycle field added later also silently carries over.
+- **Fix design:** Invert to an explicit allowlist: construct the clone only from the fields that legitimately transfer (name base, description, tier, billingCycle, modules, discountPercent/Amount/Reason, currency, notes) and derive every lifecycle/approval field fresh (status=DRAFT, approvedBy/approvedAt/subscriptionId/rejectionReason=null, validFrom=today, validTo cleared). This makes 'what carries over' explicit and makes accidental leakage of new fields impossible. Add a unit test asserting a cloned plan has rejectionReason=null, a fresh validFrom, and no approval artifacts.
+- **Files to change:**
+  - `apps/admin-api-service/src/billing/services/custom-plan.service.ts`
+  - `apps/admin-api-service/src/billing/__tests__/custom-plan.service.spec.ts`
+- **Effort:** S
 
 
 ## CustomPlanBuilderPage — `/admin/billing/custom-plans/new` — verdict: **WORKING**
@@ -383,39 +402,63 @@
 
 ### APA-117 [MEDIUM] Silent client-side pricing fallback with hardcoded multipliers
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** If POST /billing/pricing/calculate fails, the catch block fabricates a PricingCalculation from local math using hardcoded tier multipliers (ENTERPRISE 0.7, PROFESSIONAL 0.9) instead of the DB tierMultipliers, ignoring cycle discounts and tax — the operator sees a quote that can diverge from what the server persists on create, with no error indication.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/CustomPlanBuilderPage.tsx:150-172 (catch -> setPricing(localTotal ...))`
   - `web/modules/admin-panel/src/pages/CustomPlanBuilderPage.tsx:181-205 (hardcoded 0.7/0.9 multipliers)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The calculatePricing catch block (CustomPlanBuilderPage.tsx:150-172) substitutes a client-side reimplementation (calculateLocalPricing, 181-205) using hardcoded tier multipliers (ENTERPRISE 0.7, PROFESSIONAL 0.9), ignoring DB tierMultipliers, billing-cycle discounts, and tax. Pricing is server-authoritative (createCustomPlan recomputes via calculatePlanPricing from real DB pricing), so the fallback both hides the backend failure and shows a quote that will not match what is persisted. It is a duplicated-source-of-truth defect plus a silent-failure mask.
+- **Fix design:** Delete calculateLocalPricing and the fallback entirely; the server's PricingCalculatorService is the single source of truth. On calculate failure, set an explicit error state and setPricing(null), and gate the Create/Submit and Save-as-Draft actions so a plan cannot be created without a valid server quote (Create button already partly gated; add pricing!==null). Tier 1/2: server-only pricing becomes the only path, so a fabricated quote can never be shown.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/CustomPlanBuilderPage.tsx`
+- **Effort:** S
 
 ### APA-118 [MEDIUM] POST /billing/pricing/calculate and /billing/custom-plans bodies unvalidated
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** QuoteRequest and CreateCustomPlanDto are TS interfaces (service exports), so the global ValidationPipe skips them entirely — negative quantities/discounts and arbitrary extra fields pass straight into pricing math and jsonb persistence; the only guard is the Math.max(0, total) floor.
 - **Evidence:**
   - `apps/admin-api-service/src/billing/billing.controller.ts:506-509 (@Body() request: QuoteRequest) and 561-566 (@Body() dto: CreateCustomPlanDto)`
   - `apps/admin-api-service/src/billing/services/custom-plan.service.ts:32-52 (interface CreateCustomPlanDto)`
   - `apps/admin-api-service/src/billing/services/custom-plan.service.ts:558-574 (calculateFinalTotal floor)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** QuoteRequest (@Body() at billing.controller.ts:507) and CreateCustomPlanDto (@Body() at 562) are TypeScript interfaces (custom-plan.service.ts:32-52). Interfaces have no runtime representation, so Nest's global ValidationPipe (whitelist/forbidNonWhitelisted/transform) reflects metatype Object, skips validation, and passes the body through unchecked — negative quantities, negative discountPercent/Amount, and arbitrary extra keys flow straight into pricing math and jsonb columns; the only guard is calculateFinalTotal's Math.max(0,total) floor. This is the systemic 'interface-as-DTO silently disables ValidationPipe' class; several billing endpoints (create, update, quote, set-module-pricing) share it.
+- **Fix design:** Replace the interface @Body() types with decorated class DTOs (dto/quote-request.dto.ts, dto/create-custom-plan.dto.ts) using class-validator: @IsUUID/@IsString/@IsEnum on scalars, @ValidateNested + @Type for nested modules/quantities (which become classes), @Min(0) on all quantities and discountAmount, @Min(0)@Max(100) on discountPercent, @IsOptional where appropriate; classes can implement the existing service interfaces. Because an interface silently disables validation with zero signal, add a pattern-level architecture spec that scans admin-api controllers and fails if any @Body() parameter's type is not a validation class — this makes the whole class detectable at build/test time (tier 3) and forces conversion of the sibling interface-DTOs the gate surfaces.
+- **Files to change:**
+  - `apps/admin-api-service/src/billing/dto/quote-request.dto.ts`
+  - `apps/admin-api-service/src/billing/dto/create-custom-plan.dto.ts`
+  - `apps/admin-api-service/src/billing/billing.controller.ts`
+  - `apps/admin-api-service/src/billing/services/custom-plan.service.ts`
+  - `apps/admin-api-service/src/__tests__/architecture/body-dto-must-be-class.spec.ts`
+- **Effort:** L
 
 ### APA-119 [LOW] Raw icon names rendered instead of emoji
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** auth.modules.icon stores names like 'fish'; ModulePricingPage maps them to emoji but this page renders module.moduleIcon verbatim, showing literal text like 'fish' in module cards.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/CustomPlanBuilderPage.tsx:476 and 511 ({module.moduleIcon || '📦'})`
   - `web/modules/admin-panel/src/pages/ModulePricingPage.tsx:46-76 (ICON_MAP the builder skips)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The icon-name-to-emoji mapping (ICON_MAP + getModuleIcon) lives only inside ModulePricingPage.tsx; CustomPlanBuilderPage renders module.moduleIcon raw at lines 476 and 511, so auth.modules.icon names like 'fish' display as literal text. Root cause is a page-local, non-shared mapping helper (copy/duplication gap), not a data problem.
+- **Fix design:** Extract ICON_MAP + getModuleIcon into a single shared admin-panel util (src/utils/moduleIcon.ts) as the SSoT for icon rendering; have ModulePricingPage import it (removing its local copy) and use it at CustomPlanBuilderPage lines 476 and 511. Optionally, resolve the emoji server-side in getAllModulePricingsWithModuleInfo so the API returns a display icon directly (tier 2, automatic) — but the shared FE helper is the minimal architectural dedupe.
+- **Files to change:**
+  - `web/modules/admin-panel/src/utils/moduleIcon.ts`
+  - `web/modules/admin-panel/src/pages/ModulePricingPage.tsx`
+  - `web/modules/admin-panel/src/pages/CustomPlanBuilderPage.tsx`
+- **Effort:** S
 
 ### APA-120 [LOW] Hardcoded discount claims in tier/cycle selectors
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** Option labels assert fixed discounts ('Professional (10% off)', 'Annual (15% off)') that are actually data-driven via tierMultipliers and BILLING_CYCLE_DISCOUNTS — labels will lie whenever pricing config changes.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/CustomPlanBuilderPage.tsx:417-419 and 430-433`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The tier and billing-cycle <option> labels (CustomPlanBuilderPage.tsx:417-419, 430-433) and the tier-info panel (694-699) embed literal discount percentages ('Professional (10% off)', 'Enterprise (30% off)', 'Annual (15% off)') that duplicate — and can contradict — the authoritative data-driven pricing (per-module tierMultipliers + backend BILLING_CYCLE_DISCOUNTS). Worse, tier discount is per-module, so a single global percentage label is intrinsically inaccurate. Hardcoded copy is a second source of truth for numbers the backend owns.
+- **Fix design:** Remove the hardcoded percentages from the tier/cycle option labels and the tier-info panel; let the computed server quote (Pricing Summary, pricing.tierDiscount) display the real, per-config discount instead of a static string. For billing-cycle, if a label hint is desired, expose BILLING_CYCLE_DISCOUNTS from the backend (config or pricing response) and render the label from that data rather than a literal. Tier 2: the displayed discount always derives from the real pricing source.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/CustomPlanBuilderPage.tsx`
+  - `apps/admin-api-service/src/billing/billing.controller.ts`
+  - `web/modules/admin-panel/src/services/types/billing.ts`
+- **Effort:** S
 
 
 ## UsageDashboardPage — `/admin/billing/usage` — verdict: **PARTIAL**
@@ -461,29 +504,45 @@
 
 ### APA-122 [MEDIUM] getUsageSummary swallows DB errors and returns zeros
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The summary endpoint catches every error and returns {totalTenants:0, totalEvents:0, meterBreakdown:[]} — a broken cross-schema read renders as the friendly 'No usage data available' empty state instead of an error, making failures indistinguishable from genuinely empty data.
 - **Evidence:**
   - `apps/admin-api-service/src/billing/services/usage-metering-management.service.ts:169-177 (catch -> zeroed stats)`
   - `web/modules/admin-panel/src/pages/UsageDashboardPage.tsx:590-598 (empty state on empty meterBreakdown)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** getUsageSummary (usage-metering-management.service.ts:169-177) wraps its query in a try/catch that on any failure logs and returns a fully zeroed UsageSummaryStats. The FE (UsageDashboardPage.tsx:590-598) renders 'No usage data available' whenever meterBreakdown is empty, so a broken cross-schema read is indistinguishable from a legitimately empty period. Every other read method in the same service lets errors propagate, so this one is an inconsistent silent-failure mask.
+- **Fix design:** Remove the swallow: delete the try/catch (or rethrow) so the exception propagates to the controller and returns a non-2xx, matching the rest of the service. In UsageDashboardPage add an explicit error branch (error banner) for the summary query rejection, distinct from the empty-data state the page currently shows. Add a service spec asserting getUsageSummary rejects when the repository throws. Tier 1/3: failures become visible and testable rather than rendered as empty.
+- **Files to change:**
+  - `apps/admin-api-service/src/billing/services/usage-metering-management.service.ts`
+  - `web/modules/admin-panel/src/pages/UsageDashboardPage.tsx`
+  - `apps/admin-api-service/src/billing/__tests__/usage-metering-management.service.spec.ts`
+- **Effort:** S
 
 ### APA-123 [MEDIUM] 'Metered Billing Pricing Tiers' panel is hardcoded static content
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The included quantities and per-unit rates ('$0.0005-0.001/call', '5-500 GB' etc.) are a literal array in the page, unrelated to any pricing table — fabricated pricing presented as live configuration.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/UsageDashboardPage.tsx:727-731 (hardcoded meter/included/rate array)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The 'Metered Billing Pricing Tiers' panel (UsageDashboardPage.tsx:720-748) renders a literal in-component array of meter names, included-quantity ranges, and per-unit rate ranges that exist nowhere in the data model — the ModulePricing model prices per-metric-per-module via pricingMetrics[].price + tierMultipliers and has no included-range/rate-card concept, and no metered_rate table backs these numbers. It is fabricated pricing shown to operators as authoritative live configuration ('See plan management for full pricing details').
+- **Fix design:** Root-cause fix is removal: delete the fabricated static panel, since presenting invented numbers as configuration is the defect and there is no source to bind it to. If published metered/overage rates are a genuine product requirement, model them properly instead of hardcoding — a metered_rate_card table in the admin schema (entity + Baseline-style migration + read endpoint + FE type + api fn) — and render the panel from that data. Do not present static invented pricing as live under any circumstances.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/UsageDashboardPage.tsx`
+- **Effort:** S
 
 ### APA-124 [LOW] tenantName never populated — rows show truncated UUIDs
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** TenantUsageOverview/TopTenantUsage declare tenantName but the service never joins auth.tenants, so the FE fallback tenantId.slice(0,8) is what every row displays.
 - **Evidence:**
   - `apps/admin-api-service/src/billing/services/usage-metering-management.service.ts:229-241 and 392-398 (no tenantName in mapping)`
   - `web/modules/admin-panel/src/pages/UsageDashboardPage.tsx:192,235 (tenant.tenantName || tenant.tenantId.slice(0, 8))`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** TenantUsageOverview and TopTenantUsage declare an optional tenantName (usage-metering-management.service.ts:36, 62), but the service never resolves it — the return mappings (229-241 for getTenantUsageOverview, 392-398 for getTopTenantsByUsage) omit tenantName and no query joins auth.tenants. It is therefore always undefined and the FE always falls back to tenantId.slice(0,8) (UsageDashboardPage.tsx:192, 235). A declared-but-never-populated contract hole.
+- **Fix design:** Populate tenantName from the authoritative tenant record in auth.tenants (per D14). In getAllTenantsUsage and getTopTenantsByUsage, after collecting the tenantId set, run a single batched cross-schema lookup `SELECT id, name FROM auth.tenants WHERE id = ANY($1)` (the same pattern module-pricing.service uses for auth.modules) and map names onto results; do the same for getTenantUsageOverview. Once consistently populated, make tenantName required in the return types (tier 1) so a missing name is a compile-time gap rather than a silent UUID fallback. Add a service spec asserting tenantName is resolved.
+- **Files to change:**
+  - `apps/admin-api-service/src/billing/services/usage-metering-management.service.ts`
+  - `web/modules/admin-panel/src/services/types/billing.ts`
+  - `apps/admin-api-service/src/billing/__tests__/usage-metering-management.service.spec.ts`
+- **Effort:** M
 
 ### APA-125 [LOW] getAllTenantsUsage issues N+1 queries
 

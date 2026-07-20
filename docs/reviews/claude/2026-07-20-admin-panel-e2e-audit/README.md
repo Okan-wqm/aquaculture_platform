@@ -8,8 +8,8 @@
 
 ## Status / coverage
 
-- Findings total: **383** — with root-cause+fix design: **341**, REFUTED: **8**, PENDING (verification + fix design queued in staged continuation): **34**
-- Current severity distribution (verified where available): **CRITICAL: 14**, **HIGH: 116**, **MEDIUM: 168**, **LOW: 77**
+- Findings total: **383** — with root-cause+fix design: **369**, REFUTED: **9**, PENDING (verification + fix design queued in staged continuation): **5**
+- Current severity distribution (verified where available): **CRITICAL: 14**, **HIGH: 115**, **MEDIUM: 169**, **LOW: 76**
 - Page verdicts: **BROKEN: 12**, **MOCK_ONLY: 2**, **NOT_WIRED: 2**, **PARTIAL: 32**, **WORKING: 2**
 - Every PENDING entry keeps its auditor severity and full evidence; its root-cause/fix-design section will be appended by the staged continuation run. IDs (`APA-xxx`) are stable and safe to reference from `Closes:` lines.
 
@@ -145,7 +145,7 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-029 | LOW | ✅ designed | [tenants](findings/tenants.md) | TenantDetailPage | Note update/delete ownership violations surface as HTTP 500, and user-stats errors are silently zero |
 | APA-030 | HIGH | ✅ designed | [tenants](findings/tenants.md) | (cross-cutting) | admin-api-service has no NATS microservice transport — every @EventPattern consumer in the service i |
 | APA-031 | MEDIUM | ✅ designed | [tenants](findings/tenants.md) | (cross-cutting) | Hand-written FE tenant types drift from backend DTOs in both directions (no codegen) |
-| APA-032 | LOW | ⏳ pending | [tenants](findings/tenants.md) | (cross-cutting) | Auth, routing, and schema discipline for the tenants section verified sound (context, not a defect) |
+| APA-032 | NOT_A_BUG | ❌ refuted | [tenants](findings/tenants.md) | (cross-cutting) | Auth, routing, and schema discipline for the tenants section verified sound (context, not a defect) |
 | APA-033 | HIGH | ✅ designed | [tenant-config](findings/tenant-config.md) | TenantConfigurationPage | Every mutation on the page returns 410 Gone — no tenant configuration can be changed at all |
 | APA-034 | MEDIUM | ✅ designed | [tenant-config](findings/tenant-config.md) | TenantConfigurationPage | All reads return fabricated, identical hardcoded defaults for every tenant — silent wrong data on a  |
 | APA-035 | HIGH | ✅ designed | [tenant-config](findings/tenant-config.md) | TenantConfigurationPage | The promised config-service replacement for tenant configuration does not exist anywhere |
@@ -225,19 +225,19 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-109 | LOW | ✅ designed | [billing-plans](findings/billing-plans.md) | DiscountCodePage | List capped at 50 codes with no pagination UI |
 | APA-110 | LOW | ✅ designed | [billing-plans](findings/billing-plans.md) | DiscountCodePage | getDiscountRedemptions FE contract mismatch (unused endpoint) |
 | APA-111 | MEDIUM | ✅ designed | [billing-plans](findings/billing-plans.md) | ModulePricingPage | pricingMetrics accepted with only @IsArray — no element validation |
-| APA-112 | LOW | ⏳ pending | [billing-plans](findings/billing-plans.md) | ModulePricingPage | Every save creates a new version row with effectiveFrom=now; currency/effectiveFrom dropped from pay |
+| APA-112 | LOW | ✅ designed | [billing-plans](findings/billing-plans.md) | ModulePricingPage | Every save creates a new version row with effectiveFrom=now; currency/effectiveFrom dropped from pay |
 | APA-113 | HIGH | ✅ designed | [billing-plans](findings/billing-plans.md) | CustomPlansListPage | Activate always throws 409 — approval workflow dead-ends before subscription creation |
 | APA-114 | HIGH | ✅ designed | [billing-plans](findings/billing-plans.md) | CustomPlansListPage | Status/search/tier filters return 400 Bad Request |
-| APA-115 | MEDIUM | ⏳ pending | [billing-plans](findings/billing-plans.md) | CustomPlansListPage | FE CustomPlanStatus.CANCELLED does not exist in the backend |
-| APA-116 | LOW | ⏳ pending | [billing-plans](findings/billing-plans.md) | CustomPlansListPage | Clone copies stale approval artifacts |
-| APA-117 | MEDIUM | ⏳ pending | [billing-plans](findings/billing-plans.md) | CustomPlanBuilderPage | Silent client-side pricing fallback with hardcoded multipliers |
-| APA-118 | MEDIUM | ⏳ pending | [billing-plans](findings/billing-plans.md) | CustomPlanBuilderPage | POST /billing/pricing/calculate and /billing/custom-plans bodies unvalidated |
-| APA-119 | LOW | ⏳ pending | [billing-plans](findings/billing-plans.md) | CustomPlanBuilderPage | Raw icon names rendered instead of emoji |
-| APA-120 | LOW | ⏳ pending | [billing-plans](findings/billing-plans.md) | CustomPlanBuilderPage | Hardcoded discount claims in tier/cycle selectors |
+| APA-115 | MEDIUM | ✅ designed | [billing-plans](findings/billing-plans.md) | CustomPlansListPage | FE CustomPlanStatus.CANCELLED does not exist in the backend |
+| APA-116 | LOW | ✅ designed | [billing-plans](findings/billing-plans.md) | CustomPlansListPage | Clone copies stale approval artifacts |
+| APA-117 | MEDIUM | ✅ designed | [billing-plans](findings/billing-plans.md) | CustomPlanBuilderPage | Silent client-side pricing fallback with hardcoded multipliers |
+| APA-118 | MEDIUM | ✅ designed | [billing-plans](findings/billing-plans.md) | CustomPlanBuilderPage | POST /billing/pricing/calculate and /billing/custom-plans bodies unvalidated |
+| APA-119 | LOW | ✅ designed | [billing-plans](findings/billing-plans.md) | CustomPlanBuilderPage | Raw icon names rendered instead of emoji |
+| APA-120 | LOW | ✅ designed | [billing-plans](findings/billing-plans.md) | CustomPlanBuilderPage | Hardcoded discount claims in tier/cycle selectors |
 | APA-121 | HIGH | ✅ designed | [billing-plans](findings/billing-plans.md) | UsageDashboardPage | Usage metering has no ingestion source — dashboard is permanently empty |
-| APA-122 | MEDIUM | ⏳ pending | [billing-plans](findings/billing-plans.md) | UsageDashboardPage | getUsageSummary swallows DB errors and returns zeros |
-| APA-123 | MEDIUM | ⏳ pending | [billing-plans](findings/billing-plans.md) | UsageDashboardPage | 'Metered Billing Pricing Tiers' panel is hardcoded static content |
-| APA-124 | LOW | ⏳ pending | [billing-plans](findings/billing-plans.md) | UsageDashboardPage | tenantName never populated — rows show truncated UUIDs |
+| APA-122 | MEDIUM | ✅ designed | [billing-plans](findings/billing-plans.md) | UsageDashboardPage | getUsageSummary swallows DB errors and returns zeros |
+| APA-123 | MEDIUM | ✅ designed | [billing-plans](findings/billing-plans.md) | UsageDashboardPage | 'Metered Billing Pricing Tiers' panel is hardcoded static content |
+| APA-124 | LOW | ✅ designed | [billing-plans](findings/billing-plans.md) | UsageDashboardPage | tenantName never populated — rows show truncated UUIDs |
 | APA-125 | LOW | ✅ designed | [billing-plans](findings/billing-plans.md) | UsageDashboardPage | getAllTenantsUsage issues N+1 queries |
 | APA-126 | HIGH | ✅ designed | [billing-plans](findings/billing-plans.md) | (cross-cutting) | Two disconnected plan catalogs: admin.plan_definitions is never enforced at subscription time |
 | APA-127 | HIGH | ✅ designed | [billing-plans](findings/billing-plans.md) | (cross-cutting) | Discount codes are never applied in any real revenue flow |
@@ -332,22 +332,22 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-216 | MEDIUM | ✅ designed | [support](findings/support.md) | (cross-cutting) | Guard posture verified sound; schema/migration parity verified sound (no finding — audit confirmatio |
 | APA-217 | HIGH | ✅ designed | [security](findings/security.md) | ActivityLogPage | Activity ledger has zero writers — page is permanent false assurance |
 | APA-218 | MEDIUM | ✅ designed | [security](findings/security.md) | ActivityLogPage | 'Unique Users' / 'Unique IPs' stat cards are silently capped at 10 |
-| APA-219 | MEDIUM | ⏳ pending | [security](findings/security.md) | ActivityLogPage | 'Avg Response' metric hardcoded to 0ms and rendered as a real stat |
-| APA-220 | MEDIUM | ⏳ pending | [security](findings/security.md) | ActivityLogPage | ORDER BY built from unvalidated sortBy query param |
-| APA-221 | MEDIUM | ⏳ pending | [security](findings/security.md) | ActivityLogPage | Export button only dumps the current 50-row page client-side |
-| APA-222 | MEDIUM | ⏳ pending | [security](findings/security.md) | ActivityLogPage | securityApi.getUserActivities targets a nonexistent route (404) |
-| APA-223 | LOW | ⏳ pending | [security](findings/security.md) | ActivityLogPage | FE type invents fields the entity never returns (userAgent, location, timestamp) |
+| APA-219 | MEDIUM | ✅ designed | [security](findings/security.md) | ActivityLogPage | 'Avg Response' metric hardcoded to 0ms and rendered as a real stat |
+| APA-220 | MEDIUM | ✅ designed | [security](findings/security.md) | ActivityLogPage | ORDER BY built from unvalidated sortBy query param |
+| APA-221 | MEDIUM | ✅ designed | [security](findings/security.md) | ActivityLogPage | Export button only dumps the current 50-row page client-side |
+| APA-222 | MEDIUM | ✅ designed | [security](findings/security.md) | ActivityLogPage | securityApi.getUserActivities targets a nonexistent route (404) |
+| APA-223 | LOW | ✅ designed | [security](findings/security.md) | ActivityLogPage | FE type invents fields the entity never returns (userAgent, location, timestamp) |
 | APA-224 | HIGH | ✅ designed | [security](findings/security.md) | AuditTrailPage | Action filter can never match: lowercase FE values vs UPPERCASE backend enum |
 | APA-225 | HIGH | ✅ designed | [security](findings/security.md) | AuditTrailPage | Alert Rules tab is decorative: in-memory rules, evaluation never runs, channels are stubs |
-| APA-226 | MEDIUM | ⏳ pending | [security](findings/security.md) | AuditTrailPage | DB errors render as clean empty audit data |
-| APA-227 | MEDIUM | ⏳ pending | [security](findings/security.md) | AuditTrailPage | Add/Edit/Delete buttons for retention policies and alert rules have no handlers |
-| APA-228 | MEDIUM | ⏳ pending | [security](findings/security.md) | AuditTrailPage | Retention Policies tab governs a table the page never shows (and one with no writers) |
-| APA-229 | LOW | ⏳ pending | [security](findings/security.md) | AuditTrailPage | 'Total Entries' is actually a 30-day count |
-| APA-230 | LOW | ⏳ pending | [security](findings/security.md) | AuditTrailPage | Alert-rule card renders Invalid Date and fake trigger count |
+| APA-226 | MEDIUM | ✅ designed | [security](findings/security.md) | AuditTrailPage | DB errors render as clean empty audit data |
+| APA-227 | MEDIUM | ✅ designed | [security](findings/security.md) | AuditTrailPage | Add/Edit/Delete buttons for retention policies and alert rules have no handlers |
+| APA-228 | MEDIUM | ✅ designed | [security](findings/security.md) | AuditTrailPage | Retention Policies tab governs a table the page never shows (and one with no writers) |
+| APA-229 | LOW | ✅ designed | [security](findings/security.md) | AuditTrailPage | 'Total Entries' is actually a 30-day count |
+| APA-230 | LOW | ✅ designed | [security](findings/security.md) | AuditTrailPage | Alert-rule card renders Invalid Date and fake trigger count |
 | APA-231 | HIGH | ✅ designed | [security](findings/security.md) | CompliancePage | Typing in the search box 400s the whole data-request list |
 | APA-232 | HIGH | ✅ designed | [security](findings/security.md) | CompliancePage | Compliance Checks tab crashes: backend returns requirement as an OBJECT, page renders it as a React  |
 | APA-233 | HIGH | ✅ designed | [security](findings/security.md) | CompliancePage | Reports 'Key Findings' has the same object-render crash — and monthly cron guarantees reports exist |
-| APA-234 | HIGH | ⏳ pending | [security](findings/security.md) | CompliancePage | All five compliance stat cards are hardcoded zeros while a real stats endpoint sits unused |
+| APA-234 | HIGH | ✅ designed | [security](findings/security.md) | CompliancePage | All five compliance stat cards are hardcoded zeros while a real stats endpoint sits unused |
 | APA-235 | MEDIUM | ✅ designed | [security](findings/security.md) | CompliancePage | GET data-requests/stats is route-shadowed by data-requests/:id |
 | APA-236 | MEDIUM | ✅ designed | [security](findings/security.md) | CompliancePage | Status filter offers states the backend does not have |
 | APA-237 | MEDIUM | ✅ designed | [security](findings/security.md) | CompliancePage | Expired GDPR download URLs are never actually cleared |
@@ -422,7 +422,7 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-306 | MEDIUM | ✅ designed | [impersonation-debug](findings/impersonation-debug.md) | DebugToolsPage | SQL Query Executor is a facade: warns about executing on the production database, then always throws |
 | APA-307 | MEDIUM | ✅ designed | [impersonation-debug](findings/impersonation-debug.md) | DebugToolsPage | Route-declaration-order shadowing in DebugToolsController makes two endpoints unreachable |
 | APA-308 | LOW | ✅ designed | [impersonation-debug](findings/impersonation-debug.md) | DebugToolsPage | Cache key is URL-decoded twice (FE encode -> Express decode -> controller decodeURIComponent) |
-| APA-309 | HIGH | ⏳ pending | [impersonation-debug](findings/impersonation-debug.md) | (cross-cutting) | Platform audit trail is best-effort by construction: AuditLogService.log swallows every persistence  |
+| APA-309 | HIGH | ✅ designed | [impersonation-debug](findings/impersonation-debug.md) | (cross-cutting) | Platform audit trail is best-effort by construction: AuditLogService.log swallows every persistence  |
 | APA-310 | HIGH | ✅ designed | [impersonation-debug](findings/impersonation-debug.md) | (cross-cutting) | DB immutability triggers were applied to an operational (mutable-lifecycle) table, not just audit ta |
 | APA-311 | MEDIUM | ✅ designed | [impersonation-debug](findings/impersonation-debug.md) | (cross-cutting) | Hand-written FE types with no codegen have drifted to the point of conceptual inversion |
 | APA-312 | MEDIUM | ✅ designed | [impersonation-debug](findings/impersonation-debug.md) | (cross-cutting) | Backend feature availability (env flags, nginx blocks) is invisible to the admin-panel: pages ship f |
@@ -433,7 +433,7 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-317 | MEDIUM | ✅ designed | [database-mgmt](findings/database-mgmt.md) | DatabaseManagementPage.tsx | Suspend/Activate schema buttons silently do nothing — backend always throws 409 and FE has no .catch |
 | APA-318 | HIGH | ✅ designed | [database-mgmt](findings/database-mgmt.md) | DatabaseManagementPage.tsx | Slow Queries panel can never display data — backend returns a SlowQueryResult object, FE expects an  |
 | APA-319 | MEDIUM | ✅ designed | [database-mgmt](findings/database-mgmt.md) | DatabaseManagementPage.tsx | Database Health 'Slow Queries' check uses an inverted time filter — counts everything EXCEPT the las |
-| APA-320 | HIGH | ⏳ pending | [database-mgmt](findings/database-mgmt.md) | DatabaseManagementPage.tsx | Validate Isolation always reports 'Issues found' — field name drift (isIsolated vs valid) |
+| APA-320 | MEDIUM | ✅ designed | [database-mgmt](findings/database-mgmt.md) | DatabaseManagementPage.tsx | Validate Isolation always reports 'Issues found' — field name drift (isIsolated vs valid) |
 | APA-321 | MEDIUM | ✅ designed | [database-mgmt](findings/database-mgmt.md) | DatabaseManagementPage.tsx | Backup Schedule card always shows 'Not configured' + suspended — response shape drift |
 | APA-322 | MEDIUM | ✅ designed | [database-mgmt](findings/database-mgmt.md) | DatabaseManagementPage.tsx | Point-in-Time Recovery modal is not wired — inputs are dead and the API is never called |
 | APA-323 | MEDIUM | ✅ designed | [database-mgmt](findings/database-mgmt.md) | DatabaseManagementPage.tsx | Migrations tab is vestigial — registry is permanently empty and all run/rollback/batch endpoints unc |
@@ -447,12 +447,12 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-331 | MEDIUM | ✅ designed | [database-mgmt](findings/database-mgmt.md) | DatabaseExplorerPage.tsx | Write UI (New Row / Edit / Delete) is always rendered but always 403 in production |
 | APA-332 | MEDIUM | ✅ designed | [database-mgmt](findings/database-mgmt.md) | DatabaseExplorerPage.tsx | Raw SQL endpoint returns rows unmasked and its catalog blocklist misses unqualified references |
 | APA-333 | MEDIUM | ✅ designed | [database-mgmt](findings/database-mgmt.md) | DatabaseExplorerPage.tsx | Personal PII is not masked — masking covers credentials only, and export pulls up to 10K rows |
-| APA-334 | LOW | ⏳ pending | [database-mgmt](findings/database-mgmt.md) | DatabaseExplorerPage.tsx | Sorting on masked columns leaks relative ordering of the hidden values |
+| APA-334 | LOW | ✅ designed | [database-mgmt](findings/database-mgmt.md) | DatabaseExplorerPage.tsx | Sorting on masked columns leaks relative ordering of the hidden values |
 | APA-335 | HIGH | ✅ designed | [database-mgmt](findings/database-mgmt.md) | (cross-cutting) | db-migrate authority boundary was implemented server-side but never propagated to the admin-panel FE |
 | APA-336 | HIGH | ✅ designed | [database-mgmt](findings/database-mgmt.md) | (cross-cutting) | Global ResponseInterceptor has no StreamableFile/binary bypass — every file-download endpoint in adm |
 | APA-337 | HIGH | ✅ designed | [database-mgmt](findings/database-mgmt.md) | (cross-cutting) | Admin-panel 'Backups' feature is a paper capability in production — runtime dependencies absent from |
-| APA-338 | MEDIUM | ⏳ pending | [database-mgmt](findings/database-mgmt.md) | (cross-cutting) | Hand-written FE types drift systemically from backend responses (no codegen) — three of the drifts s |
-| APA-339 | LOW | ⏳ pending | [database-mgmt](findings/database-mgmt.md) | (cross-cutting) | Security posture of the section is otherwise solid (verified, not assumed) |
+| APA-338 | MEDIUM | ✅ designed | [database-mgmt](findings/database-mgmt.md) | (cross-cutting) | Hand-written FE types drift systemically from backend responses (no codegen) — three of the drifts s |
+| APA-339 | LOW | ✅ designed | [database-mgmt](findings/database-mgmt.md) | (cross-cutting) | Security posture of the section is otherwise solid (verified, not assumed) |
 | APA-340 | HIGH | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | SystemSettingsPage.tsx | Email, Security, Rate-Limit and Maintenance settings persist but nothing enforces or consumes them ( |
 | APA-341 | HIGH | ⏳ pending | [settings-email-audit](findings/settings-email-audit.md) | SystemSettingsPage.tsx | 'Send Test' tests the env-var SMTP config, not the settings the admin typed or saved |
 | APA-342 | MEDIUM | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | SystemSettingsPage.tsx | System Info tab contract drift — server/database sections never render, returned data not displayed |
@@ -472,10 +472,10 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-356 | HIGH | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | AuditLogPage.tsx | Every filter on the audit page returns 400 — @Query() DTO + forbidNonWhitelisted rejects the filter  |
 | APA-357 | HIGH | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | AuditLogPage.tsx | Export always fails (limit=10000 > @Max(100)); even if accepted it would silently truncate to 100 ro |
 | APA-358 | MEDIUM | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | AuditLogPage.tsx | Severity vocabulary drift: FE uses low/medium/high/critical, backend enum is info/warning/critical |
-| APA-359 | HIGH | ⏳ pending | [settings-email-audit](findings/settings-email-audit.md) | AuditLogPage.tsx | Detail modal 'Metadata' section can never display — FE reads log.metadata, backend field is 'details |
+| APA-359 | HIGH | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | AuditLogPage.tsx | Detail modal 'Metadata' section can never display — FE reads log.metadata, backend field is 'details |
 | APA-360 | MEDIUM | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | AuditLogPage.tsx | Search is doubly broken: uuid ILIKE would raise a DB error that the service converts into a silent e |
 | APA-361 | LOW | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | AuditLogPage.tsx | Table column sort flags are cosmetic and CSV export omits tenant/metadata columns |
-| APA-362 | HIGH | ⏳ pending | [settings-email-audit](findings/settings-email-audit.md) | (cross-cutting) | Service-wide footgun: mixing named @Query params with an un-named @Query() PaginationQueryDto 400s e |
+| APA-362 | HIGH | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | (cross-cutting) | Service-wide footgun: mixing named @Query params with an un-named @Query() PaginationQueryDto 400s e |
 | APA-363 | HIGH | ⏳ pending | [settings-email-audit](findings/settings-email-audit.md) | (cross-cutting) | Admin 'configuration' is split across three disconnected stores; the admin panel writes the one noth |
 | APA-364 | MEDIUM | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | (cross-cutting) | Settings-module CRUD DTOs are TypeScript interfaces, so the global ValidationPipe validates nothing  |
 | APA-365 | NOT_A_BUG | ❌ refuted | [settings-email-audit](findings/settings-email-audit.md) | (cross-cutting) | Auth/guard coverage verified — no unguarded endpoints in this section |

@@ -238,7 +238,10 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     tables: [
       // Core sensor entities
       'sensors',
-      'sensor_readings',
+      // SENSOR-HIGH-085: sensor_readings is retired — a reading is now an as-of
+      // projection over the cross-tenant sensor_metrics hypertable, not a stored
+      // per-tenant row. Removed from the fan-out list so new tenants get no such
+      // table; existing tenants' orphan tables are dropped by F-085-DROP.
       'sensor_data_channels',
       // SENSOR-HIGH-083: per-tenant calibration history (append-only). Written by
       // the calibration aggregate; its entity omits schema: so it must be cloned

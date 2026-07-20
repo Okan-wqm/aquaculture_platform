@@ -329,10 +329,23 @@
 
 ### APA-064 [LOW] FE double-submit CSRF header is sent but admin-api never validates it
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** http-client.ts attaches X-CSRF-Token from the XSRF-TOKEN cookie on all mutations (web/modules/admin-panel/src/services/http-client.ts:256-263) and documents that 'server rejects on mismatch', but no admin-api middleware/guard consumes the header (only unrelated matches in the security-monitoring module). The protection is currently cosmetic; actual CSRF resistance rests on the Bearer-token auth model. Either enforce the token server-side or remove the misleading FE comment.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/http-client.ts:96-106`
   - `web/modules/admin-panel/src/services/http-client.ts:256-263`
   - `apps/admin-api-service/src/app.module.ts:267-306`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** SYSTEMIC (FE-asserts-a-server-contract-no-backend-enforces + duplicated/drifting security middleware). The admin-panel http-client (services/http-client.ts:256-263) sends X-CSRF-Token from the XSRF-TOKEN cookie on every mutation and its comment claims 'server rejects on mismatch', but admin-api-service — which the admin panel hits directly (nginx /api/* -> admin-api globalPrefix, NOT via gateway) — registers no CSRF middleware/guard (app.module.ts:267-306; grep finds only a `csrf_attempt` enum in security.entity.ts + a test). A real double-submit middleware exists but ONLY in gateway-api/src/middleware/csrf.middleware.ts, and it is itself drifted: it sets/reads cookie `csrf-token` while the FE reads `XSRF-TOKEN`, so the two would never match even if the request transited the gateway. Net: for the admin surface the CSRF control is cosmetic, and the codebase has two divergent, unreconciled truths (one enforcing service, one non-enforcing service, mismatched cookie names). Actual CSRF resistance today rests solely on the Bearer-access-token model (Authorization header set by JS, not auto-attached by the browser), which is unverified for cookie-trusting paths since the client sends credentials:'include'.
+- **Fix design:** Root-cause = eliminate the divergence by making CSRF enforcement automatic and name-consistent across every cookie-bearing service, and make drift detectable. (Tier 2 automatic + Tier 3 detectable.) 1) Promote the existing gateway double-submit middleware into libs/backend-common as a shared, parameter-free middleware, backed by a single SSoT constants module (csrf.constants.ts) exporting the canonical cookie name `XSRF-TOKEN` and header `X-CSRF-Token` (adopt the FE/axios convention; retire gateway's `csrf-token` so the names reconcile). 2) Add an `enableCsrf` opt-in to create-service-app.ts bootstrap that wires cookieParser + the shared middleware, so any session/cookie-bearing service gets identical enforcement as a zero-effort default; enable it for admin-api-service (and repoint gateway-api at the shared middleware, deleting its local copy). 3) Make the FE import/derive its cookie name from a shared contract constant rather than the hardcoded regex, so FE and BE cannot drift. 4) If the platform decision is that admin mutations are Bearer-only and cookies are never trusted for state change, the equally-valid root-cause is to DELETE the FE CSRF echo + its false comment and document Bearer-header auth as the CSRF control — but only after confirming no state-changing endpoint (e.g. refresh) authorizes off an httpOnly cookie. Enforce-and-reconcile is the recommended path since credentials:'include' already flows cookies. Either way the misleading 'server rejects on mismatch' comment must stop being a lie.
+- **Files to change:**
+  - `libs/backend-common/src/middleware/csrf.middleware.ts`
+  - `libs/backend-common/src/middleware/csrf.constants.ts`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts`
+  - `apps/admin-api-service/src/app.module.ts`
+  - `apps/gateway-api/src/middleware/csrf.middleware.ts`
+  - `apps/gateway-api/src/app.module.ts`
+  - `apps/gateway-api/src/main.ts`
+  - `web/modules/admin-panel/src/services/http-client.ts`
+  - `apps/admin-api-service/src/__tests__/integration/csrf.spec.ts`
+  - `tests/invariants/csrf-name-parity.spec.ts`
+- **Effort:** M

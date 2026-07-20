@@ -522,17 +522,24 @@ No schema change: ReportExecution already persists startDate/endDate (entity 305
 
 ### APA-152 [LOW] X-CSRF-Token double-submit machinery is decorative for admin-api — no server-side check, cookie never set
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** http-client attaches X-CSRF-Token from an XSRF-TOKEN cookie on mutations (web/modules/admin-panel/src/services/http-client.ts:256-263), but a repo search of apps/admin-api-service/src and libs/backend-common/src finds no CSRF validation middleware and nothing that sets the XSRF-TOKEN cookie for this service (only a doc example mentioning the header in create-service-app.ts:558). Auth is Bearer-header (not cookie) based via PlatformAdminGuard so actual CSRF exposure is low, but the FE security comment ('server rejects on mismatch') describes enforcement that does not exist; report mutations succeed with no CSRF token at all.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/http-client.ts:96-106, 256-263`
   - `libs/backend-common/src/bootstrap/create-service-app.ts:558`
   - `apps/admin-api-service/src/guards/platform-admin.guard.ts:90-106`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The admin-panel http-client implements the OWASP double-submit-cookie CSRF pattern on mutating methods (reads XSRF-TOKEN cookie, echoes it as X-CSRF-Token; http-client.ts:96-106,256-263) and its comment asserts 'server rejects on mismatch'. But nothing on the server side participates: admin-api main.ts registers no cookieParser/CSRF middleware, create-service-app registers none by default (cookieParser is only a doc-example at :560), no code path sets the XSRF-TOKEN cookie for this service, and the only backend 'csrf' references are 'csrf_attempt' security-event enum values. Admin-api's CORS additionalCorsHeaders doesn't even list X-CSRF-Token. Net: mutations succeed with no CSRF token at all and the FE security comment describes enforcement that does not exist. This is an instance of the systemic 'security-theater / misleading-security-comment' class: a client contract half implemented with no server counterpart and no test proving the loop closes. Real exposure is low because admin auth is Bearer-header (JS-attached), not browser-auto-attached cookies, so cross-site forgery of an authenticated admin mutation is not possible.
+- **Fix design:** Resolve the client/server contract mismatch at the source so the claim is either true-and-automatic or removed — no defensive shim. Preferred (tier-2 make-correct-behavior-automatic, platform-wide since the FE already sends the header for every service): add an opt-in double-submit CSRF middleware to create-service-app bootstrap — set a non-httpOnly XSRF-TOKEN cookie (SameSite=Strict, Secure in prod) on safe (GET/HEAD/OPTIONS) responses, and reject mutating methods (POST/PUT/PATCH/DELETE) whose X-CSRF-Token header is absent or does not match the cookie. Enable it via bootstrapService options for browser-facing services and add 'X-CSRF-Token' to admin-api's additionalCorsHeaders so the preflight allows it; the FE machinery then becomes real end-to-end (a priming GET seeds the cookie before the first mutation). Alternative if the platform ratifies Bearer-only as the intended CSRF posture: delete the decorative getCsrfTokenFromCookie()/CSRF_PROTECTED_METHODS code and the false 'server rejects on mismatch' comment so the client stops claiming a protection it doesn't have. Either way the misleading comment must go. Lock the chosen behavior with an integration test.
+- **Files to change:**
+  - `libs/backend-common/src/bootstrap/create-service-app.ts`
+  - `apps/admin-api-service/src/main.ts`
+  - `web/modules/admin-panel/src/services/http-client.ts`
+  - `e2e/tests/integration/csrf-double-submit.spec.ts`
+- **Effort:** M
 
-### APA-153 [LOW] Routing, guard, envelope, schema and storage plumbing verified sound (positive assurance)
+### APA-153 [NOT_A_BUG] Routing, guard, envelope, schema and storage plumbing verified sound (positive assurance)
 
-- **Status:** PENDING
+- **Status:** REFUTED
 - **Symptom:** Full-chain checks that passed: (1) nginx rewrites /api/* -> /api/v1/* (infrastructure/nginx/droplet.conf:377-383) matching the bootstrap default globalPrefix 'api/v1' (create-service-app.ts:610), so every FE path in this section resolves; (2) PlatformAdminGuard is a global APP_GUARD enforcing RS256 JWT + SUPER_ADMIN on both controllers with no @Public escapes in analytics/reports (app.module.ts:283-286, platform-admin.guard.ts:155-177); (3) ResponseInterceptor envelope {success,data,meta} (shared/response.interceptor.ts:44-75) matches the FE unwrap logic including the meta.page paginated branch (http-client.ts:341-351); (4) all three admin entities declare schema 'admin' (analytics-snapshot.entity.ts:99, 223, 282) with full column/index parity in migrations 1800200000000 (lines 159-238) and 1800300000000 (lines 9-40); external read-models are schema-qualified to auth/billing with SSoT enums (external/tenant.entity.ts:23, external/subscription.entity.ts:46); (5) StorageModule is @Global and registered in AppModule so ReportsService's @Optional() MinioClientService resolves and report artifacts genuinely persist to MinIO (libs/storage/src/storage.module.ts:17, app.module.ts:194-206); (6) ScheduleModule.forRoot() is registered (app.module.ts:178) so the daily snapshot cron actually runs.
 - **Evidence:**
   - `infrastructure/nginx/droplet.conf:377-383`
@@ -540,4 +547,4 @@ No schema change: ReportExecution already persists startDate/endDate (entity 305
   - `apps/admin-api-service/src/app.module.ts:178, 194-206, 283-286`
   - `apps/admin-api-service/src/shared/response.interceptor.ts:44-75`
   - `apps/admin-api-service/src/migrations/1800200000000-CreateAdminEntitySurfaceTables.ts:159-238`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Refutation (brief check):** Positive-assurance note, not a defect. Spot-verified and accurate: response.interceptor.ts:44-75 emits the {success,data,meta} envelope with the paginated (data+total => meta.page) branch matching the FE unwrap at http-client.ts:341-351; all three admin entities declare @Entity(..., { schema: 'admin' }) (analytics-snapshot.entity.ts:99,223,282); ScheduleModule.forRoot() (app.module.ts:178) and @Global StorageModule (app.module.ts:194) are registered. Nothing to remediate.

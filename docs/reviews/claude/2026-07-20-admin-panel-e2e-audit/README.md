@@ -8,8 +8,8 @@
 
 ## Status / coverage
 
-- Findings total: **383** — with root-cause+fix design: **282**, REFUTED: **3**, PENDING (verification + fix design queued in staged continuation): **98**
-- Current severity distribution (verified where available): **CRITICAL: 18**, **HIGH: 117**, **MEDIUM: 164**, **LOW: 81**
+- Findings total: **383** — with root-cause+fix design: **302**, REFUTED: **6**, PENDING (verification + fix design queued in staged continuation): **75**
+- Current severity distribution (verified where available): **CRITICAL: 16**, **HIGH: 116**, **MEDIUM: 166**, **LOW: 79**
 - Page verdicts: **BROKEN: 12**, **MOCK_ONLY: 2**, **NOT_WIRED: 2**, **PARTIAL: 32**, **WORKING: 2**
 - Every PENDING entry keeps its auditor severity and full evidence; its root-cause/fix-design section will be appended by the staged continuation run. IDs (`APA-xxx`) are stable and safe to reference from `Closes:` lines.
 
@@ -177,7 +177,7 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-061 | HIGH | ✅ designed | [users-roles](findings/users-roles.md) | (cross-cutting) | Systemic role-enum drift in admin-api-service DTOs: a role vocabulary ('MANAGER','OPERATOR','VIEWER' |
 | APA-062 | MEDIUM | ✅ designed | [users-roles](findings/users-roles.md) | (cross-cutting) | Two divergent nginx topologies for /api: droplet config targets admin-api-service with /api/v1 rewri |
 | APA-063 | MEDIUM | ✅ designed | [users-roles](findings/users-roles.md) | (cross-cutting) | Hand-written FE types drift from backend response shapes with no build-time detection |
-| APA-064 | LOW | ⏳ pending | [users-roles](findings/users-roles.md) | (cross-cutting) | FE double-submit CSRF header is sent but admin-api never validates it |
+| APA-064 | LOW | ✅ designed | [users-roles](findings/users-roles.md) | (cross-cutting) | FE double-submit CSRF header is sent but admin-api never validates it |
 | APA-065 | HIGH | ✅ designed | [modules](findings/modules.md) | ModulesPage | Catalog activate/deactivate toggle writes real state that almost nothing enforces |
 | APA-066 | HIGH | ✅ designed | [modules](findings/modules.md) | ModulesPage | Toggle feedback silently wrong: refresh() after activate/deactivate serves the 30s useAsyncData cach |
 | APA-067 | HIGH | ✅ designed | [modules](findings/modules.md) | ModulesPage | Assign-module-to-tenant with expiresAt throws 500: interface DTOs bypass the global ValidationPipe a |
@@ -265,8 +265,8 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-149 | MEDIUM | ✅ designed | [analytics](findings/analytics.md) | (cross-cutting) | Hand-written FE analytics types drift from actual backend response shapes on ~10 endpoints — consume |
 | APA-150 | MEDIUM | ✅ designed | [analytics](findings/analytics.md) | (cross-cutting) | FE ReportDefinition contract drift: createReportDefinition payload would be 400-rejected by forbidNo |
 | APA-151 | MEDIUM | ✅ designed | [analytics](findings/analytics.md) | (cross-cutting) | Dead FE API functions throw synchronously ('Not implemented') — landmines for any future caller |
-| APA-152 | LOW | ⏳ pending | [analytics](findings/analytics.md) | (cross-cutting) | X-CSRF-Token double-submit machinery is decorative for admin-api — no server-side check, cookie neve |
-| APA-153 | LOW | ⏳ pending | [analytics](findings/analytics.md) | (cross-cutting) | Routing, guard, envelope, schema and storage plumbing verified sound (positive assurance) |
+| APA-152 | LOW | ✅ designed | [analytics](findings/analytics.md) | (cross-cutting) | X-CSRF-Token double-submit machinery is decorative for admin-api — no server-side check, cookie neve |
+| APA-153 | NOT_A_BUG | ❌ refuted | [analytics](findings/analytics.md) | (cross-cutting) | Routing, guard, envelope, schema and storage plumbing verified sound (positive assurance) |
 | APA-154 | LOW | ⏳ pending | [messaging-monitoring](findings/messaging-monitoring.md) | MessagingMonitoringPage | Dead FE API function for monitoring stats |
 | APA-155 | HIGH | ✅ designed | [messaging-monitoring](findings/messaging-monitoring.md) | MessagingTenantsPage | Export artifact is generated then thrown away — no persistence, no download path |
 | APA-156 | MEDIUM | ⏳ pending | [messaging-monitoring](findings/messaging-monitoring.md) | MessagingTenantsPage | Synchronous full-tenant export inside a 15s NATS request-reply; FE retries 504 and re-runs the whole |
@@ -369,11 +369,11 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-253 | HIGH | ✅ designed | [xc-routing-nav](findings/xc-routing-nav.md) | (cross-cutting) | No dev-mode route to admin-api: shell vite has no /api proxy and the default/dev compose stacks have |
 | APA-254 | HIGH | ✅ designed | [xc-routing-nav](findings/xc-routing-nav.md) | (cross-cutting) | 19 additional admin-panel API functions target routes that do not exist (or wrong method) on admin-a |
 | APA-255 | HIGH | ✅ designed | [xc-routing-nav](findings/xc-routing-nav.md) | (cross-cutting) | 10 mounted admin routes are unreachable: no sidebar entry and no in-page link (7 messaging pages, pr |
-| APA-256 | MEDIUM | ⏳ pending | [xc-routing-nav](findings/xc-routing-nav.md) | (cross-cutting) | Duplicate, already-drifted navigation SSoT: admin-panel's AdminLayout/admin-nav-items are dead code; |
-| APA-257 | MEDIUM | ⏳ pending | [xc-routing-nav](findings/xc-routing-nav.md) | (cross-cutting) | CSRF double-submit is inert platform-wide: XSRF-TOKEN cookie is never issued and X-CSRF-Token is nev |
-| APA-258 | MEDIUM | ⏳ pending | [xc-routing-nav](findings/xc-routing-nav.md) | (cross-cutting) | Validation-error detail is lost end-to-end: ValidationPipe's message array is dropped by the FE erro |
-| APA-259 | LOW | ⏳ pending | [xc-routing-nav](findings/xc-routing-nav.md) | (cross-cutting) | Response envelope parity verified, with two structural fragilities in the pagination heuristic |
-| APA-260 | CRITICAL | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | FeatureTogglesPage | Enable/Disable button calls POST feature-toggles/:id/toggle which has no backend route (404) |
+| APA-256 | MEDIUM | ✅ designed | [xc-routing-nav](findings/xc-routing-nav.md) | (cross-cutting) | Duplicate, already-drifted navigation SSoT: admin-panel's AdminLayout/admin-nav-items are dead code; |
+| APA-257 | MEDIUM | ✅ designed | [xc-routing-nav](findings/xc-routing-nav.md) | (cross-cutting) | CSRF double-submit is inert platform-wide: XSRF-TOKEN cookie is never issued and X-CSRF-Token is nev |
+| APA-258 | MEDIUM | ✅ designed | [xc-routing-nav](findings/xc-routing-nav.md) | (cross-cutting) | Validation-error detail is lost end-to-end: ValidationPipe's message array is dropped by the FE erro |
+| APA-259 | LOW | ✅ designed | [xc-routing-nav](findings/xc-routing-nav.md) | (cross-cutting) | Response envelope parity verified, with two structural fragilities in the pagination heuristic |
+| APA-260 | HIGH | ✅ designed | [system-mgmt](findings/system-mgmt.md) | FeatureTogglesPage | Enable/Disable button calls POST feature-toggles/:id/toggle which has no backend route (404) |
 | APA-261 | HIGH | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | FeatureTogglesPage | Edit form always 400s: FE sends scope and isExperimental but UpdateFeatureToggleDto does not whiteli |
 | APA-262 | HIGH | ✅ designed | [system-mgmt](findings/system-mgmt.md) | FeatureTogglesPage | Feature toggles are persisted but consumed by nothing - no gating code exists anywhere |
 | APA-263 | MEDIUM | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | FeatureTogglesPage | evaluateFeature FE contract mismatched with backend (key in query vs body) - would 400 if ever used |
@@ -383,7 +383,7 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-267 | HIGH | ✅ designed | [system-mgmt](findings/system-mgmt.md) | MaintenancePage | Maintenance mode blocks nothing - checkMaintenanceMode has zero consumers |
 | APA-268 | HIGH | ✅ designed | [system-mgmt](findings/system-mgmt.md) | MaintenancePage | Edit modal submits via handleCreate - updates are silently turned into duplicate creations |
 | APA-269 | HIGH | ✅ designed | [system-mgmt](findings/system-mgmt.md) | PerformanceDashboardPage | Application metrics have no producer - response time/error rate/throughput/apdex are permanently zer |
-| APA-270 | HIGH | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | PerformanceDashboardPage | 'Infrastructure Metrics' are the admin-api container's own OS stats presented as platform infrastruc |
+| APA-270 | MEDIUM | ✅ designed | [system-mgmt](findings/system-mgmt.md) | PerformanceDashboardPage | 'Infrastructure Metrics' are the admin-api container's own OS stats presented as platform infrastruc |
 | APA-271 | MEDIUM | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | PerformanceDashboardPage | Time-range selector is a silent no-op: FE sends start/end, backend reads startDate/endDate |
 | APA-272 | MEDIUM | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | PerformanceDashboardPage | Health probes hardcode droplet docker hostnames; charts are an explicit placeholder |
 | APA-273 | LOW | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | PerformanceDashboardPage | When no snapshot exists the FE fabricates healthScore 100 / apdex 1 defaults |
@@ -397,7 +397,7 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-281 | HIGH | ✅ designed | [system-mgmt](findings/system-mgmt.md) | JobQueuePage | Dashboard shape drift empties the Queues tab and blanks stats: FE expects queues/failedToday, backen |
 | APA-282 | MEDIUM | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | JobQueuePage | Route shadowing and a wrong stat: /jobs/scheduled and /jobs/failed resolve to GET :id; completedLast |
 | APA-283 | CRITICAL | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | (cross-cutting) | Systemic paginated-response contract break: backend {items,total} vs FE PaginatedResult {data,...} k |
-| APA-284 | CRITICAL | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | (cross-cutting) | Telemetry ingestion endpoints are architecturally unreachable: SUPER_ADMIN user-JWT guard on service |
+| APA-284 | HIGH | ✅ designed | [system-mgmt](findings/system-mgmt.md) | (cross-cutting) | Telemetry ingestion endpoints are architecturally unreachable: SUPER_ADMIN user-JWT guard on service |
 | APA-285 | HIGH | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | (cross-cutting) | Control-plane theater: feature toggles, maintenance mode, and the job queue all persist real rows th |
 | APA-286 | MEDIUM | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | (cross-cutting) | contract-validation.spec.ts KNOWN_DRIFT allowlist masks live breakage and contains stale/incorrect r |
 | APA-287 | LOW | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | (cross-cutting) | Schema/migration discipline is correct for this module (verified, no finding) |
@@ -407,7 +407,7 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-291 | HIGH | ✅ designed | [impersonation-debug](findings/impersonation-debug.md) | ImpersonationPage | Permissions tab crashes / renders undefined on real data: FE ImpersonationPermission type shares alm |
 | APA-292 | MEDIUM | ✅ designed | [impersonation-debug](findings/impersonation-debug.md) | ImpersonationPage | 'View Actions' always shows an empty audit trail even when actions exist |
 | APA-293 | HIGH | ✅ designed | [impersonation-debug](findings/impersonation-debug.md) | ImpersonationPage | No separation of duties: a SUPER_ADMIN self-grants impersonation permission, and nothing prevents im |
-| APA-294 | HIGH | ⏳ pending | [impersonation-debug](findings/impersonation-debug.md) | ImpersonationPage | Audit-write failures are silently swallowed despite in-code claims that they propagate (AUDITTRAIL-C |
+| APA-294 | HIGH | ✅ designed | [impersonation-debug](findings/impersonation-debug.md) | ImpersonationPage | Audit-write failures are silently swallowed despite in-code claims that they propagate (AUDITTRAIL-C |
 | APA-295 | MEDIUM | ✅ designed | [impersonation-debug](findings/impersonation-debug.md) | ImpersonationPage | End/Extend failures are swallowed silently, and the operator-override Terminate flow is unreachable  |
 | APA-296 | MEDIUM | ✅ designed | [impersonation-debug](findings/impersonation-debug.md) | ImpersonationPage | Grant form drift: duration input allows 15-480 min vs backend @Max(60), and 'Allowed Actions' checkb |
 | APA-297 | MEDIUM | ✅ designed | [impersonation-debug](findings/impersonation-debug.md) | ImpersonationPage | Stats mislabeled and aggregates truncated to first 20 sessions (no pagination) |
@@ -428,7 +428,7 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-312 | MEDIUM | ✅ designed | [impersonation-debug](findings/impersonation-debug.md) | (cross-cutting) | Backend feature availability (env flags, nginx blocks) is invisible to the admin-panel: pages ship f |
 | APA-313 | LOW | ✅ designed | [impersonation-debug](findings/impersonation-debug.md) | (cross-cutting) | NestJS static-segment routes declared after parameterized siblings are shadowed — recurring pattern  |
 | APA-314 | HIGH | ✅ designed | [database-mgmt](findings/database-mgmt.md) | DatabaseManagementPage.tsx | Create Backup always fails with 400 — FE sends 'encrypt' field the DTO does not whitelist |
-| APA-315 | HIGH | ⏳ pending | [database-mgmt](findings/database-mgmt.md) | DatabaseManagementPage.tsx | Backups can never actually complete in the deployed container — pg_dump binary, /backups volume, and |
+| APA-315 | HIGH | ✅ designed | [database-mgmt](findings/database-mgmt.md) | DatabaseManagementPage.tsx | Backups can never actually complete in the deployed container — pg_dump binary, /backups volume, and |
 | APA-316 | HIGH | ⏳ pending | [database-mgmt](findings/database-mgmt.md) | DatabaseManagementPage.tsx | Restore from backup always fails — runtime restore is disabled at the authority boundary but the FE  |
 | APA-317 | MEDIUM | ✅ designed | [database-mgmt](findings/database-mgmt.md) | DatabaseManagementPage.tsx | Suspend/Activate schema buttons silently do nothing — backend always throws 409 and FE has no .catch |
 | APA-318 | HIGH | ✅ designed | [database-mgmt](findings/database-mgmt.md) | DatabaseManagementPage.tsx | Slow Queries panel can never display data — backend returns a SlowQueryResult object, FE expects an  |
@@ -442,7 +442,7 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-326 | MEDIUM | ✅ designed | [database-mgmt](findings/database-mgmt.md) | DatabaseManagementPage.tsx | FE api layer declares ~14 endpoints that do not exist on the backend (404 if ever used) plus hand-wr |
 | APA-327 | HIGH | ✅ designed | [database-mgmt](findings/database-mgmt.md) | DatabaseExplorerPage.tsx | CSV/JSON export downloads a JSON envelope, not the data — global ResponseInterceptor wraps the Strea |
 | APA-328 | MEDIUM | ✅ designed | [database-mgmt](findings/database-mgmt.md) | DatabaseExplorerPage.tsx | Edit Row writes the '********' mask back into real sensitive columns when writes are enabled |
-| APA-329 | HIGH | ⏳ pending | [database-mgmt](findings/database-mgmt.md) | DatabaseExplorerPage.tsx | Explorer read/export/raw-SQL audit rows record performedBy:'SUPER_ADMIN' literal instead of the actu |
+| APA-329 | HIGH | ✅ designed | [database-mgmt](findings/database-mgmt.md) | DatabaseExplorerPage.tsx | Explorer read/export/raw-SQL audit rows record performedBy:'SUPER_ADMIN' literal instead of the actu |
 | APA-330 | MEDIUM | ✅ designed | [database-mgmt](findings/database-mgmt.md) | DatabaseExplorerPage.tsx | insert/update responses return the raw RETURNING * row unmasked |
 | APA-331 | MEDIUM | ✅ designed | [database-mgmt](findings/database-mgmt.md) | DatabaseExplorerPage.tsx | Write UI (New Row / Edit / Delete) is always rendered but always 403 in production |
 | APA-332 | MEDIUM | ✅ designed | [database-mgmt](findings/database-mgmt.md) | DatabaseExplorerPage.tsx | Raw SQL endpoint returns rows unmasked and its catalog blocklist misses unqualified references |
@@ -459,7 +459,7 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-343 | LOW | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | SystemSettingsPage.tsx | Retired settings endpoints still exposed and return 410 at runtime |
 | APA-344 | HIGH | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | EmailTemplatesPage.tsx | Email templates are never consumed by any real send path — edits have zero effect on emails actually |
 | APA-345 | HIGH | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | EmailTemplatesPage.tsx | 'New Template' creation is impossible — modal state never initializes, typing is a no-op, Save silen |
-| APA-346 | HIGH | ⏳ pending | [settings-email-audit](findings/settings-email-audit.md) | EmailTemplatesPage.tsx | Backend template test-send endpoint is a stub — returns 'Test email would be sent (email service int |
+| APA-346 | MEDIUM | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | EmailTemplatesPage.tsx | Backend template test-send endpoint is a stub — returns 'Test email would be sent (email service int |
 | APA-347 | MEDIUM | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | EmailTemplatesPage.tsx | DB unique constraint on code makes the tenant-override feature impossible |
 | APA-348 | MEDIUM | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | EmailTemplatesPage.tsx | Template CRUD bodies bypass the global ValidationPipe — DTOs are TS interfaces, no server-side valid |
 | APA-349 | MEDIUM | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | EmailTemplatesPage.tsx | Enable/Disable toggle failures are swallowed — console.error only, optimistic UI already reconciled |
@@ -479,16 +479,16 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-363 | HIGH | ⏳ pending | [settings-email-audit](findings/settings-email-audit.md) | (cross-cutting) | Admin 'configuration' is split across three disconnected stores; the admin panel writes the one noth |
 | APA-364 | MEDIUM | ✅ designed | [settings-email-audit](findings/settings-email-audit.md) | (cross-cutting) | Settings-module CRUD DTOs are TypeScript interfaces, so the global ValidationPipe validates nothing  |
 | APA-365 | NOT_A_BUG | ❌ refuted | [settings-email-audit](findings/settings-email-audit.md) | (cross-cutting) | Auth/guard coverage verified — no unguarded endpoints in this section |
-| APA-366 | HIGH | ⏳ pending | [xc-auth-guards](findings/xc-auth-guards.md) | (cross-cutting) | CSRF double-submit is false security: FE sends X-CSRF-Token but admin-api-service has zero server-si |
+| APA-366 | LOW | ✅ designed | [xc-auth-guards](findings/xc-auth-guards.md) | (cross-cutting) | CSRF double-submit is false security: FE sends X-CSRF-Token but admin-api-service has zero server-si |
 | APA-367 | HIGH | ⏳ pending | [xc-auth-guards](findings/xc-auth-guards.md) | (cross-cutting) | PlatformAdminGuard never consults the token blacklist — force-logout / revocation is silently ineffe |
-| APA-368 | MEDIUM | ⏳ pending | [xc-auth-guards](findings/xc-auth-guards.md) | (cross-cutting) | All app-level rate limiting is in-memory per-process (not Redis) and globally disableable — public p |
-| APA-369 | MEDIUM | ⏳ pending | [xc-auth-guards](findings/xc-auth-guards.md) | (cross-cutting) | Guard ordering makes failed-auth requests invisible to app-level throttling, and failed admin auth i |
-| APA-370 | MEDIUM | ⏳ pending | [xc-auth-guards](findings/xc-auth-guards.md) | (cross-cutting) | Sensitive admin mutations missing tightened throttles; circuit-breaker reset has no app-level rate l |
-| APA-371 | LOW | ⏳ pending | [xc-auth-guards](findings/xc-auth-guards.md) | (cross-cutting) | Public-route metadata key is string-coupled and triplicated; password-reset controller redefines its |
-| APA-372 | LOW | ⏳ pending | [xc-auth-guards](findings/xc-auth-guards.md) | (cross-cutting) | Unauthenticated Prometheus /metrics endpoint exposed on the container network |
-| APA-373 | LOW | ⏳ pending | [xc-auth-guards](findings/xc-auth-guards.md) | (cross-cutting) | CORS allowlist drift: dead X-Impersonate-User header allowed; X-CSRF-Token not allowed |
-| APA-374 | LOW | ⏳ pending | [xc-auth-guards](findings/xc-auth-guards.md) | (cross-cutting) | AdminBypassRlsInterceptor wraps ALL requests — including unauthenticated @Public routes — in RLS byp |
-| APA-375 | LOW | ⏳ pending | [xc-auth-guards](findings/xc-auth-guards.md) | (cross-cutting) | Coverage summary (provable): all 35 HTTP controllers sit behind global PlatformAdminGuard (RS256 JWT |
+| APA-368 | MEDIUM | ✅ designed | [xc-auth-guards](findings/xc-auth-guards.md) | (cross-cutting) | All app-level rate limiting is in-memory per-process (not Redis) and globally disableable — public p |
+| APA-369 | MEDIUM | ✅ designed | [xc-auth-guards](findings/xc-auth-guards.md) | (cross-cutting) | Guard ordering makes failed-auth requests invisible to app-level throttling, and failed admin auth i |
+| APA-370 | MEDIUM | ✅ designed | [xc-auth-guards](findings/xc-auth-guards.md) | (cross-cutting) | Sensitive admin mutations missing tightened throttles; circuit-breaker reset has no app-level rate l |
+| APA-371 | LOW | ✅ designed | [xc-auth-guards](findings/xc-auth-guards.md) | (cross-cutting) | Public-route metadata key is string-coupled and triplicated; password-reset controller redefines its |
+| APA-372 | LOW | ✅ designed | [xc-auth-guards](findings/xc-auth-guards.md) | (cross-cutting) | Unauthenticated Prometheus /metrics endpoint exposed on the container network |
+| APA-373 | LOW | ✅ designed | [xc-auth-guards](findings/xc-auth-guards.md) | (cross-cutting) | CORS allowlist drift: dead X-Impersonate-User header allowed; X-CSRF-Token not allowed |
+| APA-374 | NOT_A_BUG | ❌ refuted | [xc-auth-guards](findings/xc-auth-guards.md) | (cross-cutting) | AdminBypassRlsInterceptor wraps ALL requests — including unauthenticated @Public routes — in RLS byp |
+| APA-375 | NOT_A_BUG | ❌ refuted | [xc-auth-guards](findings/xc-auth-guards.md) | (cross-cutting) | Coverage summary (provable): all 35 HTTP controllers sit behind global PlatformAdminGuard (RS256 JWT |
 | APA-376 | HIGH | ✅ designed | [xc-db-parity](findings/xc-db-parity.md) | (cross-cutting) | Auth-schema RBAC + invitation DDL is owned by admin-api's migration chain (ownership inversion, depl |
 | APA-377 | MEDIUM | ⏳ pending | [xc-db-parity](findings/xc-db-parity.md) | (cross-cutting) | Dead table + dead entity: auth.tenant_invitations (TenantInvitation) — created and forFeature-regist |
 | APA-378 | MEDIUM | ⏳ pending | [xc-db-parity](findings/xc-db-parity.md) | (cross-cutting) | Dead table + dead entity: admin.plan_module_assignments (PlanModuleAssignment) — zero consumers repo |

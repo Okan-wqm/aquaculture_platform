@@ -1545,6 +1545,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/filters/global-exception.filter.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/filters/global-exception.filter.ts",
       "prettier_managed": true
     },
@@ -2472,6 +2478,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/shared/pagination-query.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/shared/response.interceptor.spec.ts",
       "prettier_managed": true
     },
     {
@@ -30499,6 +30511,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-07-20-admin-panel-remediation/by-phase.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-07-20-admin-panel-remediation/ROADMAP.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/multi-agent-architecture.md",
       "prettier_managed": true
     },
@@ -32066,6 +32090,120 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/claude/2026-07-17-droplet-capacity-gate.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/analytics.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/billing-core.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/billing-plans.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/dashboard.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/database-mgmt.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/impersonation-debug.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/messaging-monitoring.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/modules.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/security.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/settings-email-audit.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/support.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/system-mgmt.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenants.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/users-roles.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/xc-auth-guards.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/xc-db-parity.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/xc-routing-nav.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/README.md",
       "prettier_managed": true
     },
     {
@@ -35159,6 +35297,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/billing/stripe-client.factory.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/bootstrap/create-service-app.orphaned-handlers.spec.ts",
       "prettier_managed": true
     },
     {
@@ -41281,6 +41425,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/eslint-rule-presence.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/event-consumer-liveness.spec.ts",
       "prettier_managed": true
     },
     {
@@ -54852,10 +55002,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8991,
+  "file_count": 9016,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8810,
-  "managed_file_list_sha256": "2bf935f30fa75f7bcab66d27cb473a13fd4dd9d4530b6bfe5707067d8817117c",
+  "managed_count": 8835,
+  "managed_file_list_sha256": "7a5f43d16f90accff38849c3d5f58266acdfeb6e0f9550cd9d021d70559ab207",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

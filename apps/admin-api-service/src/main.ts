@@ -11,6 +11,17 @@ bootstrapService(AppModule, {
   serviceName: 'admin-api-service',
   portEnvVar: 'PORT',
 
+  // NATS microservice transport. admin-api-service is a hybrid app: it serves
+  // HTTP (the admin REST surface) AND consumes platform events over NATS —
+  // TenantOnboardingAckHandler subscribes to events.*.TenantOnboardingAck /
+  // .TenantOnboardingFailed (PLATFORM_EVENT_REGISTRY declares admin-api-service
+  // as their consumer). Without this transport the @EventPattern handlers are
+  // dead code and the tenant-provisioning saga never receives the acks it waits
+  // on. Identity is the broker-verified mTLS cert CN (ADR-015); no user/pass.
+  // Enforced by tests/invariants/event-consumer-liveness.spec.ts and the
+  // orphaned-microservice-handler bootstrap guard in create-service-app.
+  natsTransport: { queue: 'admin-api-service' },
+
   // API Versioning — URI-based (e.g., /v1/tenants)
   // VERSION_NEUTRAL keeps existing unversioned routes working.
   versioning: {

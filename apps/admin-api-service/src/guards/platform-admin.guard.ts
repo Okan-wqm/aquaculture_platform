@@ -76,6 +76,17 @@ export class PlatformAdminGuard implements CanActivate {
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    // Hybrid-app boundary: this guard authenticates the HTTP surface only.
+    // admin-api-service also consumes NATS events (RPC context) — those are
+    // authenticated by the broker-verified mTLS client-cert CN (ADR-015) and
+    // the per-subject publish ACL (e.g. only farm-service may publish
+    // TenantOnboardingAck), NOT by a Bearer JWT, which does not exist on the
+    // NATS surface. Without this short-circuit the guard would call
+    // switchToHttp().getRequest() on an RPC context and reject every event.
+    if (context.getType() !== 'http') {
+      return true;
+    }
+
     // Check if route is marked as public
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),

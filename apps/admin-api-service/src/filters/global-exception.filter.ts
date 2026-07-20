@@ -29,6 +29,15 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(GlobalExceptionFilter.name);
 
   catch(exception: unknown, host: ArgumentsHost): void {
+    // HTTP-only filter. In the hybrid app this APP_FILTER also catches errors
+    // thrown by NATS (RPC) message handlers, where there is no HTTP response to
+    // write. Rethrow so Nest's microservice exception layer handles it (the
+    // NATS server then applies its retry/nack policy) — mirrors the non-http
+    // guard in notification-service's GlobalExceptionFilter.
+    if (host.getType() !== 'http') {
+      throw exception;
+    }
+
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();

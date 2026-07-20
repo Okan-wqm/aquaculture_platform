@@ -47,8 +47,9 @@ import type {
 import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
 import type { NestApplicationOptions } from '@nestjs/common/interfaces/nest-application-options.interface';
 import { ConfigService } from '@nestjs/config';
-import { NestFactory } from '@nestjs/core';
+import { ModulesContainer, NestFactory } from '@nestjs/core';
 import type { MicroserviceOptions } from '@nestjs/microservices';
+import { PATTERN_METADATA } from '@nestjs/microservices/constants';
 import type { RequestHandler } from 'express';
 import helmet from 'helmet';
 import type { HelmetOptions } from 'helmet';
@@ -600,6 +601,60 @@ const PLATFORM_SECRET_ENV_VARS: readonly string[] = [
   'OBSERVABILITY_INTERNAL_API_KEY',
 ];
 
+/**
+ * Scan the initialised Nest module tree for controller methods decorated with
+ * `@EventPattern`/`@MessagePattern` (both set `PATTERN_METADATA`). Returns a
+ * `Controller#method` label for each — used by the cold-start liveness guard to
+ * refuse to boot a service that has microservice handlers but no transport.
+ *
+ * Defensive by construction: any error while reflecting is swallowed with a
+ * warning and treated as "no orphans found", so this diagnostic can never crash
+ * an otherwise-healthy service. A hard exit only ever follows a POSITIVE find.
+ */
+export function findOrphanedMicroserviceHandlers(
+  // Interface-segregated: the scan only reads the module tree via `get` and
+  // reports via `warn`, so it depends on exactly those — which also lets a unit
+  // test supply a cast-free double.
+  app: Pick<INestApplication, 'get'>,
+  serviceName: string,
+  logger: Pick<Logger, 'warn'>,
+): string[] {
+  const orphaned: string[] = [];
+  try {
+    const modulesContainer = app.get(ModulesContainer);
+    for (const moduleRef of modulesContainer.values()) {
+      for (const wrapper of moduleRef.controllers.values()) {
+        const instance = wrapper.instance as Record<string, unknown> | undefined;
+        if (!instance) continue;
+        const prototype = Object.getPrototypeOf(instance) as object | null;
+        if (!prototype) continue;
+        for (const methodName of Object.getOwnPropertyNames(prototype)) {
+          if (methodName === 'constructor') continue;
+          const handler = (prototype as Record<string, unknown>)[methodName];
+          if (typeof handler !== 'function') continue;
+          if (Reflect.getMetadata(PATTERN_METADATA, handler) !== undefined) {
+            const wrapperName: unknown = wrapper.name;
+            const ctorName = (instance.constructor as { name?: unknown } | undefined)?.name;
+            const controllerName =
+              (typeof wrapperName === 'string' && wrapperName) ||
+              (typeof ctorName === 'string' && ctorName) ||
+              'UnknownController';
+            orphaned.push(`${controllerName}#${methodName}`);
+          }
+        }
+      }
+    }
+  } catch (err: unknown) {
+    logger.warn(
+      `[${serviceName}] microservice-handler liveness scan skipped: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    return [];
+  }
+  return orphaned;
+}
+
 export async function createServiceApp(
   appModule: Type<unknown>,
   options: ServiceBootstrapOptions,
@@ -737,6 +792,29 @@ export async function createServiceApp(
       }),
     });
     logger.log(`NATS microservice transport connected (queue: ${natsTransport.queue ?? 'default'})`);
+  } else {
+    // Fail-fast on the "declared event consumer with no live listener" class
+    // (the defect behind admin-api-service's dead TenantOnboardingAckHandler):
+    // a service that registers @EventPattern/@MessagePattern handlers but does
+    // NOT configure natsTransport can never receive those messages, so the
+    // handlers are silent dead code. Turn that into a cold-start failure —
+    // caught in dev, CI e2e, and the deploy health gate — instead of a
+    // production-only silent stall. The build-time backstop is
+    // tests/invariants/event-consumer-liveness.spec.ts.
+    const orphanedHandlers = findOrphanedMicroserviceHandlers(app, serviceName, logger);
+    if (orphanedHandlers.length > 0) {
+      logBootstrapError(
+        serviceName,
+        new Error(
+          `Service registers ${orphanedHandlers.length} microservice message handler(s) ` +
+            `but no natsTransport is configured — they are dead code and will never fire: ` +
+            orphanedHandlers.join(', ') +
+            `. Set natsTransport in bootstrapService(...) options.`,
+        ),
+        'Microservice handler liveness',
+      );
+      process.exit(1);
+    }
   }
 
   // -----------------------------------------------------------------------

@@ -31,6 +31,14 @@ export class ResponseInterceptor<T>
     context: ExecutionContext,
     next: CallHandler,
   ): Observable<ApiResponse<T> | T> {
+    // The {success,data,meta} envelope is an HTTP response contract. In the
+    // hybrid app this APP_INTERCEPTOR also wraps NATS (RPC) message handlers
+    // (e.g. TenantOnboardingAckHandler), whose return value must not be
+    // reshaped and which have no HTTP request. Pass RPC through untouched.
+    if (context.getType() !== 'http') {
+      return next.handle();
+    }
+
     const request = context.switchToHttp().getRequest<Request>();
     const url = request.url;
 

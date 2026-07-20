@@ -75,6 +75,10 @@ describe('PlatformAdminGuard', () => {
     });
 
     return {
+      // These are HTTP-boundary tests. The guard short-circuits non-http
+      // (rpc/ws) contexts (APA-030), so the mock must report 'http' or every
+      // assertion below would pass trivially via the rpc bypass.
+      getType: () => 'http',
       switchToHttp: () => ({
         getRequest: <T = MockRequest>() => request as T,
         getResponse: () => ({}),
@@ -413,6 +417,41 @@ describe('PlatformAdminGuard', () => {
       } catch (e) {
         expect(e).not.toBeInstanceOf(UnauthorizedException);
       }
+    });
+  });
+
+  describe('hybrid-app RPC scoping (APA-030)', () => {
+    // admin-api-service is a hybrid app (HTTP + NATS microservice). The global
+    // APP_GUARD must authenticate the HTTP boundary only and let NATS (rpc)
+    // message handlers through — their identity is the broker-verified mTLS cert
+    // CN (ADR-015), not a Bearer JWT. Before the fix the guard called
+    // switchToHttp().getRequest() unconditionally and would have rejected every
+    // inbound event, keeping TenantOnboardingAckHandler dead.
+    function makeRpcContext(): ExecutionContext {
+      // Fully-typed double: every method is a jest.fn() (assignable to the
+      // framework interface, including generic getType), so no cast is needed.
+      const context: ExecutionContext = {
+        getType: jest.fn(),
+        getClass: jest.fn(),
+        getHandler: jest.fn(),
+        getArgs: jest.fn(),
+        getArgByIndex: jest.fn(),
+        switchToRpc: jest.fn(),
+        switchToWs: jest.fn(),
+        switchToHttp: jest.fn(),
+      };
+      (context.getType as jest.Mock).mockReturnValue('rpc');
+      (context.switchToHttp as jest.Mock).mockImplementation(() => {
+        throw new Error('switchToHttp() must not be called for an rpc context');
+      });
+      return context;
+    }
+
+    it('returns true for a NATS (rpc) context without inspecting a JWT or the request', async () => {
+      const spy = jest.spyOn(reflector, 'getAllAndOverride');
+      await expect(guard.canActivate(makeRpcContext())).resolves.toBe(true);
+      // Short-circuits before any reflector/JWT/request access.
+      expect(spy).not.toHaveBeenCalled();
     });
   });
 });

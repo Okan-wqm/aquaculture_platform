@@ -31,49 +31,79 @@
 
 ### APA-377 [MEDIUM] Dead table + dead entity: auth.tenant_invitations (TenantInvitation) — created and forFeature-registered but has zero consumers; the live invitation flow uses auth.invitations
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** TenantInvitation (@Entity('tenant_invitations', { schema: 'auth', synchronize: false })) is registered in TenantManagementModule's TypeOrmModule.forFeature but a repo-wide search (apps/ + web/) finds no service, controller, or repository injection that reads or writes it — only the entity declaration, the module registration, and the creating migration. Meanwhile auth-service owns a separate, live auth.invitations table (its migration 1800800000000-InvitationTenantIdNotNull actively evolves it). Result: admin-api ships DDL for, and registers metadata of, an invitation table in ANOTHER service's schema that nothing in the platform ever populates or queries — a ghost table that will always read empty and a second invitation store that invites split-brain if anyone wires it up later.
 - **Evidence:**
   - `/home/user/aquaculture_platform/apps/admin-api-service/src/tenant/entities/tenant.entity.ts:247 (@Entity('tenant_invitations', { schema: 'auth', synchronize: false }))`
   - `/home/user/aquaculture_platform/apps/admin-api-service/src/tenant/tenant.module.ts:83 (forFeature registration — the only reference besides the entity file)`
   - `/home/user/aquaculture_platform/apps/admin-api-service/src/migrations/1800200000000-CreateAdminEntitySurfaceTables.ts:98 (CREATE TABLE IF NOT EXISTS auth.tenant_invitations)`
   - `/home/user/aquaculture_platform/apps/auth-service/src/migrations/1800800000000-InvitationTenantIdNotNull.ts (the live invitation table is auth.invitations, not tenant_invitations)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** admin-api owns a migration (1800200000000-CreateAdminEntitySurfaceTables.ts:98) that CREATE TABLEs auth.tenant_invitations and maps it via the TenantInvitation entity (tenant.entity.ts:247) + forFeature (tenant.module.ts:83), but nothing reads or writes it: the only non-declaration reference is a test mock (getRepositoryToken(TenantInvitation) in tenant.integration.spec.ts:267). The live invitation flow is auth-service's auth.invitations (invitation.entity.ts). The table is not even in MODULE_SCHEMAS['auth'].tables (schema-manager.service.ts:820), so it is an unregistered ghost in ANOTHER service's schema written by admin-api DDL — a permanent empty read plus a split-brain second invitation store. Systemic class: 'dead-entity+table registered but zero consumers' (shared with i2), and cross-schema ownership violation (admin-api writing DDL into auth).
+- **Fix design:** Retire root-cause, not cosmetically. (1) Remove the TenantInvitation @Entity class from tenant.entity.ts and its forFeature registration in tenant.module.ts:83, and drop the test-mock provider in tenant.integration.spec.ts:267. (2) Add a new admin-api migration (never edit 1800200000000) that drops auth.tenant_invitations using the established archive-before-drop DO-block pattern (as 1801400000000 did for the legacy config trio): assert row count, jsonb-archive into retired_config_backups (or a dedicated retired ledger) if non-empty, then DROP TABLE. Because the table sits in auth schema, coordinate the drop with auth-service ownership — long term auth.invitations is the SSoT and admin-api should own no auth-schema DDL. (3) Make the class detectable at test time: extend the admin architecture invariant to fail when an admin-api @Entity has no repository consumer (getRepositoryToken usage outside test mocks) — closes both i1 and i2 as a pattern gate.
+- **Files to change:**
+  - `apps/admin-api-service/src/tenant/entities/tenant.entity.ts`
+  - `apps/admin-api-service/src/tenant/tenant.module.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/tenant.integration.spec.ts`
+  - `apps/admin-api-service/src/migrations/1801600000000-DropDeadTenantInvitations.ts`
+  - `apps/admin-api-service/src/__tests__/architecture/no-orphan-registered-entity.spec.ts`
+- **Effort:** M
 
 ### APA-378 [MEDIUM] Dead table + dead entity: admin.plan_module_assignments (PlanModuleAssignment) — zero consumers repo-wide
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** PlanModuleAssignment is created by the Baseline migration and registered in BillingModule's forFeature, but a repo-wide search across apps/ and web/ for 'PlanModuleAssignment' or 'plan_module_assignments' matches only the entity file, billing.module.ts, and the Baseline migration. No service, handler, or query-builder ever touches it; billing-service's plan/module logic reads admin.module_pricing and admin.plan_definitions instead. The table is registered in MODULE_SCHEMAS['admin'].tables (schema-manager.service.ts:800s block) so the drift validator protects a table nothing uses. Either wire it to the plan<->module assignment feature it was built for or retire it via the established archive-before-drop pattern (as done for global_configs/system_settings/tenant_configurations in 1801400000000).
 - **Evidence:**
   - `/home/user/aquaculture_platform/apps/admin-api-service/src/billing/entities/plan-module-assignment.entity.ts:41 (@Entity('plan_module_assignments', { schema: 'admin' }))`
   - `/home/user/aquaculture_platform/apps/admin-api-service/src/billing/billing.module.ts:44 (forFeature registration — sole non-entity reference)`
   - `/home/user/aquaculture_platform/apps/admin-api-service/src/migrations/1800000000000-Baseline.ts:220 (CREATE TABLE admin.plan_module_assignments)`
   - `Repo-wide grep of apps/ and web/ for PlanModuleAssignment|plan_module_assignments: only the three files above (verified 2026-07-19)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** PlanModuleAssignment (plan-module-assignment.entity.ts:41, @Entity('plan_module_assignments',{schema:'admin'})) is created by Baseline (1800000000000) and registered in BillingModule forFeature (billing.module.ts:44) and in MODULE_SCHEMAS['admin'].tables (schema-manager.service.ts:805), but no service, handler, or query-builder ever injects its repository. Billing's plan/module logic uses admin.module_pricing and admin.plan_definitions instead. The drift validator protects a table nothing uses. Same systemic class as i1: dead-entity+table with zero consumers, kept alive only by its own registration.
+- **Fix design:** Same tier-2/3 remediation path as i1. (1) Remove PlanModuleAssignment from billing.module.ts:44 forFeature and delete the entity file. (2) Remove 'plan_module_assignments' from MODULE_SCHEMAS['admin'].tables (schema-manager.service.ts:805) so the registry SSoT reflects reality. (3) Add a new admin-api migration that drops admin.plan_module_assignments via the archive-before-drop DO-block pattern (count-assert + jsonb archive if non-empty, then DROP) mirroring 1801400000000. (4) Covered by the same no-orphan-registered-entity invariant added in i1 so reintroducing a consumer-less registered entity fails CI. If instead the plan<->module bundle feature is genuinely intended, the root-cause alternative is to WIRE it (PlanDefinitionService reads/writes it) — but absent any caller, retirement is the correct root-cause fix.
+- **Files to change:**
+  - `apps/admin-api-service/src/billing/entities/plan-module-assignment.entity.ts`
+  - `apps/admin-api-service/src/billing/billing.module.ts`
+  - `libs/backend-common/src/database/schema-manager.service.ts`
+  - `apps/admin-api-service/src/migrations/1801700000000-DropDeadPlanModuleAssignments.ts`
+  - `apps/admin-api-service/src/__tests__/architecture/no-orphan-registered-entity.spec.ts`
+- **Effort:** M
 
 ### APA-379 [MEDIUM] auth.tenants is mapped by TWO hand-written entity classes in the same DataSource — a duplication that has already caused two HIGH drift bugs
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** admin-api carries two independent read-only mirrors of auth.tenants: Tenant (tenant/entities/tenant.entity.ts:49) and TenantReadOnly (analytics/entities/external/tenant.entity.ts:23), both @Entity('tenants', { schema: 'auth', synchronize: false }) and both registered via forFeature into the default connection. The TenantReadOnly file's own comments document that this mirror previously drifted twice with HIGH impact: DBR-HIGH-003 (UPPERCASE enum copies that never matched the lowercase column — every analytics query returned zero rows) and MT-HIGH-003 (a 4-value status subset that silently dropped tenants in missing states). The enum drift was fixed by re-exporting the event-contracts SSoT, but the structural duplication remains: the two classes still disagree today (Tenant defaults plan to TenantPlan.STARTER, TenantReadOnly to TenantPlan.TRIAL; TenantReadOnly omits 14 of Tenant's 25 columns). Any future auth.tenants change must be mirrored twice, and only column-name parity — not completeness — is checked. Consolidating to one shared read-only entity removes the recurring drift channel (tier-1 make-it-impossible).
 - **Evidence:**
   - `/home/user/aquaculture_platform/apps/admin-api-service/src/tenant/entities/tenant.entity.ts:49 (@Entity('tenants', { schema: 'auth', synchronize: false }), plan default STARTER at ~:70)`
   - `/home/user/aquaculture_platform/apps/admin-api-service/src/analytics/entities/external/tenant.entity.ts:12-23 (drift-history comments for DBR-HIGH-003 and MT-HIGH-003; @Entity('tenants', { schema: 'auth', synchronize: false }); plan default TRIAL)`
   - `/home/user/aquaculture_platform/apps/admin-api-service/src/analytics/analytics.module.ts:19,27 (TenantReadOnly forFeature-registered in the same default connection as Tenant)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Two hand-written entities map the same physical table into admin-api's default DataSource: Tenant (tenant/entities/tenant.entity.ts:49, plan default STARTER, 25 columns) and TenantReadOnly (analytics/entities/external/tenant.entity.ts:23, plan default TRIAL, 11 columns), both @Entity('tenants',{schema:'auth',synchronize:false}) and both forFeature-registered (tenant.module.ts:82, analytics.module.ts:19,33). The TenantReadOnly file's own comments record two prior HIGH drift bugs (DBR-HIGH-003 enum-case, MT-HIGH-003 status-subset). The enum SSoT was centralized but the structural duplication — the actual drift channel — remains: every auth.tenants change must be mirrored twice and only column-name parity is checked, not completeness. Systemic class: duplicate read-only mirror of an external table in one DataSource (backend analog of FE-type drift).
+- **Fix design:** Tier-1 make-it-impossible: collapse to a single canonical read-only mirror of auth.tenants. Delete TenantReadOnly (analytics/entities/external/tenant.entity.ts), register the existing Tenant entity in AnalyticsModule forFeature, and have analytics.service.ts/reports.service.ts inject Repository<Tenant> selecting only the columns they need (synchronize:false means the extra mapped columns cost nothing at DDL time; defaults never apply on read, so the STARTER/TRIAL divergence dissolves with the second class). Update reports-caching.spec.ts type refs. Then make reintroduction detectable: add an architecture invariant that scans admin-api @Entity decorators and fails if any two classes map the same (table, schema) tuple in the default connection. This removes the recurring mirror-drift channel structurally rather than re-checking column parity by hand.
+- **Files to change:**
+  - `apps/admin-api-service/src/analytics/entities/external/tenant.entity.ts`
+  - `apps/admin-api-service/src/analytics/analytics.module.ts`
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts`
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts`
+  - `apps/admin-api-service/src/analytics/__tests__/performance/reports-caching.spec.ts`
+  - `apps/admin-api-service/src/__tests__/architecture/no-duplicate-external-entity-mapping.spec.ts`
+- **Effort:** M
 
 ### APA-380 [LOW] Migration location and runner deviate from the platform ADR-011 pattern, and the two in-repo comments about who runs production migrations point in different directions
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** CLAUDE.md's Migration Runners section says each service owns apps/<svc>/src/database/migrations/ and registers createMigrationRunnerService('<schema>') with migrationsRun: false. admin-api instead keeps migrations in src/migrations/ (src/database/ holds only data-source.ts), registers no createMigrationRunnerService anywhere, and runs migrations through TypeORM's built-in runner gated by DATABASE_MIGRATIONS_RUN. Internally consistent (data-source.ts and app.module.ts both reference src/migrations), but the two docblocks disagree about the production execution path: data-source.ts:12-22 says 'Application boot is the only path that runs migrations', while app.module.ts:118-119 says 'Single-writer deploy contract: aqua-db-migrate owns production migrations. Local/E2E can still opt in explicitly.' An operator following the data-source comment during an incident would expect boot-time execution that production explicitly disables. Align the comments and either adopt the shared runner factory or record the exemption where the convention is stated.
 - **Evidence:**
   - `/home/user/aquaculture_platform/apps/admin-api-service/src/database/data-source.ts:12-22 ('Application boot is the only path that runs migrations'), :35 (migrations: ['src/migrations/[0-9]*.ts'])`
   - `/home/user/aquaculture_platform/apps/admin-api-service/src/app.module.ts:117-121 (migrations glob __dirname + '/migrations/...', 'Single-writer deploy contract: aqua-db-migrate owns production migrations', migrationsRunFromEnv DATABASE_MIGRATIONS_RUN default 'false')`
   - `grep for createMigrationRunnerService under apps/admin-api-service/src returns zero matches (verified 2026-07-19); apps/admin-api-service/src/database/ contains no migrations/ directory`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** admin-api deviates from CLAUDE.md's ADR-011 Migration Runners convention (migrations under src/database/migrations/ + createMigrationRunnerService('<schema>')): it keeps migrations in src/migrations/, registers no runner factory, and executes via TypeORM's built-in runner gated by DATABASE_MIGRATIONS_RUN. Beyond the deviation, the two docblocks contradict each other on the production execution path: data-source.ts:22 states 'Application boot is the only path that runs migrations' while app.module.ts:118-119 states 'aqua-db-migrate owns production migrations. Local/E2E can still opt in explicitly' (migrationsRunFromEnv defaults DATABASE_MIGRATIONS_RUN='false'). An operator following the data-source comment during an incident would expect boot-time execution that production explicitly disables.
+- **Fix design:** Root-cause is a documentation/contract divergence, so fix the SSoT of the statement. Correct data-source.ts:12-22 to say the CLI is operator-only (show/revert/inspect) and that in production the aqua-db-migrate single-writer applies migrations — boot-time run is opt-in for local/E2E only, matching app.module.ts:118-121. Prefer tier-2 over prose: if feasible, adopt createMigrationRunnerService('admin') as every other service does so the execution path is the zero-effort default and the divergent comments disappear (that raises effort to M/L). At minimum, record the intentional exemption from the ADR-011 runner pattern where the convention is stated (CLAUDE.md Migration Runners section or an ADR note) so the deviation is a documented decision, not silent drift.
+- **Files to change:**
+  - `apps/admin-api-service/src/database/data-source.ts`
+  - `apps/admin-api-service/src/app.module.ts`
+- **Effort:** S
 
 ### APA-381 [LOW] CLI data-source entity glob excludes the LegalHold entity although admin-api owns the compliance.legal_holds table's DDL
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** compliance.legal_holds is created by admin-api's migration 1787500000000-CreateComplianceLegalHolds and MODULE_SCHEMAS assigns ownership to admin-api ('Owner: admin-api-service' in the compliance registry entry), but the mapping entity lives in libs/backend-common/src/compliance/legal-hold/legal-hold.entity.ts. The runtime app picks it up via LegalHoldModule's TypeOrmModule.forFeature + autoLoadEntities, so the service works; the operator CLI DataSource, however, globs entities: ['src/**/*.entity.ts'] only, so migration:generate / schema-diff runs from the CLI see legal_holds as a table with no entity and could propose dropping or re-creating it. Add the backend-common entity path (or the class) to the CLI data-source entity list.
 - **Evidence:**
   - `/home/user/aquaculture_platform/apps/admin-api-service/src/database/data-source.ts:34 (entities: ['src/**/*.entity.ts'] — excludes libs/)`
@@ -81,20 +111,30 @@
   - `/home/user/aquaculture_platform/apps/admin-api-service/src/migrations/1787500000000-CreateComplianceLegalHolds.ts:9 (CREATE TABLE IF NOT EXISTS compliance.legal_holds)`
   - `/home/user/aquaculture_platform/libs/backend-common/src/database/schema-manager.service.ts:861-866 (compliance registry entry: 'Owner: admin-api-service ... the LegalHold entity lives there')`
   - `/home/user/aquaculture_platform/libs/backend-common/src/compliance/legal-hold/legal-hold.module.ts:47 (TypeOrmModule.forFeature([LegalHoldEntity]) — runtime path is correctly wired)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The operator CLI DataSource globs entities: ['src/**/*.entity.ts'] (data-source.ts:34), which cannot see LegalHoldEntity — the sole @Entity for compliance.legal_holds — because it lives in libs/backend-common/src/compliance/legal-hold/legal-hold.entity.ts. admin-api owns that table's DDL (migration 1787500000000; MODULE_SCHEMAS compliance entry at schema-manager.service.ts:681/868 names admin-api owner). The runtime app is correct via autoLoadEntities + LegalHoldModule forFeature, but a CLI migration:generate / schema-diff sees legal_holds as an entity-less table and could propose dropping/recreating it. Systemic class: CLI data-source entity list drifts from the runtime autoLoadEntities set.
+- **Fix design:** Make the CLI see every entity the runtime maps. Add the backend-common compliance entities to the CLI DataSource entities array — either the explicit class import (entities: [..., LegalHoldEntity] and any sibling compliance entities) or an additional glob covering the compiled/backed lib path (e.g. include the LegalHoldEntity module path). Prefer explicit class imports so a moved file cannot silently re-drop it. To prevent recurrence at tier-3, add an invariant that asserts the CLI DataSource entity set is a superset of the runtime-registered @Entity classes for the admin schema (fails when a forFeature/autoLoad entity is not resolvable by the CLI glob), so any future lib-hosted admin entity is caught before a destructive generate.
+- **Files to change:**
+  - `apps/admin-api-service/src/database/data-source.ts`
+  - `apps/admin-api-service/src/__tests__/architecture/cli-datasource-entity-parity.spec.ts`
+- **Effort:** S
 
 ### APA-382 [LOW] admin.audit_logs: performedByEmail filter has no supporting index (all other list filters are indexed)
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The audit list query supports equality filters on action, entityType, entityId, tenantId, performedBy, severity, createdAt ranges, and performedByEmail, ordered by createdAt DESC. The Baseline creates indexes for severity, createdAt, tenantId, performedBy, (entityType,entityId), and action — but none for performedByEmail (audit.service.ts:155). On a large append-only audit table, an email-filtered search degrades to a scan bounded only by the createdAt sort index. Minor today; add a performedByEmail (or (performedByEmail, createdAt)) index if operator email-search is a supported flow.
 - **Evidence:**
   - `/home/user/aquaculture_platform/apps/admin-api-service/src/audit/audit.service.ts:155 (andWhere('audit.performedByEmail = :performedByEmail'))`
   - `/home/user/aquaculture_platform/apps/admin-api-service/src/migrations/1800000000000-Baseline.ts:8-14 region — audit_logs indexes cover severity, createdAt, tenantId, performedBy, (entityType,entityId), action only (index list extracted 2026-07-19)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The audit list query filters equality on performedByEmail (audit.service.ts:154-158) ordered by createdAt DESC, but Baseline (1800000000000) creates admin.audit_logs indexes only for severity, createdAt, tenantId, performedBy, (entityType,entityId), and action — none on performedByEmail. On a large append-only audit table an email-filtered search degrades to a scan bounded only by the createdAt sort index. Minor today but the only list filter without index support.
+- **Fix design:** Add the missing index via a NEW admin-api migration (never hand-edit Baseline, per ADR-011). Create a composite index on admin.audit_logs (performedByEmail, createdAt) so the email-equality + createdAt-DESC order is index-served in one shape (mirrors the (entityType, entityId) composite already present). Keep the entity's @Index decorators consistent so entity<->DDL parity (the drift validator + column/index invariants) stays green. Optionally extend the existing hot-table index-coverage assertion referenced in i7(f) to require an index backing every supported audit list filter, making a future unindexed filter detectable at test time.
+- **Files to change:**
+  - `apps/admin-api-service/src/migrations/1801800000000-AddAuditLogsPerformedByEmailIndex.ts`
+  - `apps/admin-api-service/src/audit/entities/audit-log.entity.ts`
+- **Effort:** S
 
-### APA-383 [LOW] Verified-clean baseline for everything else: full entity<->migration<->registry parity across all 60 admin-schema tables
+### APA-383 [NOT_A_BUG] Verified-clean baseline for everything else: full entity<->migration<->registry parity across all 60 admin-schema tables
 
-- **Status:** PENDING
+- **Status:** REFUTED
 - **Symptom:** Positive assurance for the rest of the audit scope, so the findings above are the complete gap list: (a) all 68 @Entity classes in admin-api declare schema explicitly (57 'admin', plus read-only externals on 'auth'/'billing' with synchronize:false) — zero missing-schema violations; (b) scripted column-name diff of every entity against the cumulative up() DDL (CREATE TABLE + ADD/DROP/RENAME COLUMN across all 18 live migrations, including the DO-block archive-before-drop retirements in 1801400000000/1801500000000) found zero mismatches, including inherited columns (AdminOutbox<-OutboxEntityBase 14/14) and the helper-generated tenant_erasure_target_proofs ledger; (c) MODULE_SCHEMAS['admin'] registers every live table (zero live-but-unregistered; entity-less raw-SQL workflow tables — tenant_provisioning_runs/steps, tenant_onboarding_acks, cleanup_runs/steps/events/evidence, retired_config_backups — are correctly declared as infrastructureTables and all have live raw-SQL consumers whose quoted column references all exist in the DDL); (d) the retired legacy config trio (global_configs/system_settings/tenant_configurations) and shared.user_permissions were dropped with count-asserted jsonb archival and their entity classes correctly un-decorated with 410-Gone write paths; (e) external read-only entities match the owning services' migration chains column-for-column (auth.tenants 25/25, auth.users, billing.subscriptions, billing.invoices, billing.usage_aggregations 18/18); (f) index coverage on hot tables (activity_logs, security_events, api_usage_logs, background_jobs, support_tickets, error_groups) matches observed filter+createdAt query patterns.
 - **Evidence:**
   - `/home/user/aquaculture_platform/apps/admin-api-service/src/migrations/1800000000000-Baseline.ts (59 admin CREATE TABLEs + index set)`
@@ -102,4 +142,4 @@
   - `/home/user/aquaculture_platform/apps/admin-api-service/src/migrations/1801400000000-DropRetiredLegacyConfigStores.ts:37-95 and 1801500000000-DropRetiredUserPermissions.ts:47-119 (archive-before-drop retirements)`
   - `/home/user/aquaculture_platform/platform/libs/outbox/src/outbox-entity.base.ts:34-164 (14 inherited admin_outbox columns, matching 1800400000000-TenantProvisioningWorkflow.ts:10-64)`
   - `/home/user/aquaculture_platform/apps/admin-api-service/src/tenant/handlers/tenant-erasure.handler.ts:128-152 (raw-SQL columns all present in 1800900000000-CreateTenantErasureOperations.ts)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Refutation (brief check):** Not a defect — this is a positive-assurance statement asserting entity<->migration<->registry parity across the remaining ~60 admin-schema tables (schema declared on all @Entity classes, column-name diff clean, MODULE_SCHEMAS complete, archive-before-drop retirements verified, external read-only mirrors column-matched, hot-table index coverage adequate). Spot-checks against the cited files (schema-manager.service.ts:723-816 admin registry, Baseline index set, external entity parity) are consistent with the claim, and it correctly scopes i1-i6 as the complete gap list. There is nothing to remediate.

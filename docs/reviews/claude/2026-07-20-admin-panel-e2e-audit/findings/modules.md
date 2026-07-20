@@ -129,50 +129,78 @@
 
 ### APA-070 [MEDIUM] assignedBy/removedBy audit fields record the TENANT UUID instead of the acting SUPER_ADMIN
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** AssignModuleDto has no assignedBy and the controller never injects request.user, so admin-api falls back to assignedBy = dto.tenantId (modules.service.ts:600) and removedBy = tenantId (modules.service.ts:721-722); the actor in the command metadata is likewise the tenantId (buildModuleLifecycleCommandMetadata call sites, modules.service.ts:601-607,715-720). auth.tenant_modules.assignedBy is documented as 'Assigned by (SUPER_ADMIN user ID)' (tenant-module.entity.ts:95-100) — every admin-panel assignment writes a falsified audit trail.
 - **Evidence:**
   - `apps/admin-api-service/src/modules/modules.service.ts:600-607,715-722`
   - `apps/admin-api-service/src/modules/modules.controller.ts:196-212`
   - `apps/auth-service/src/modules/tenant/entities/tenant-module.entity.ts:95-100`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The admin-panel assignment/removal flow never sources the acting SUPER_ADMIN identity. ModulesController.assignModuleToTenant/removeModuleFromTenant take only @Body()/@Param and never read the authenticated principal that PlatformAdminGuard already attaches to the request. ModulesService.AssignModuleDto exposes an optional assignedBy? (line 104) that the controller never fills, so `assignedBy = dto.assignedBy || dto.tenantId` (line 600) and `removedBy: tenantId` (line 722) resolve to the TENANT uuid, and buildModuleLifecycleCommandMetadata gets the tenantId as the actor (lines 605,718). auth.tenant_modules.assignedBy is documented as the SUPER_ADMIN user id, so every admin-panel assign/remove writes a falsified audit trail. Instance of the systemic 'actor identity not sourced from JWT' class.
+- **Fix design:** Make the falsified value structurally impossible (Tier-1). Inject the authenticated SUPER_ADMIN principal in the controller (PlatformAdminGuard already puts it on request.user — read it via @Req()/a CurrentUser decorator) and pass a REQUIRED actorUserId into both service methods. Change ModulesService.assignModuleToTenant(dto, actorUserId: string)/removeModuleFromTenant(tenantId, moduleId, actorUserId: string) so omitting the actor is a compile error; delete the optional assignedBy? from AssignModuleDto and drop the `|| dto.tenantId` fallback. buildModuleLifecycleCommandMetadata + assignedBy/removedBy then use actorUserId only. Verification: a ModulesController spec that authenticates as a SUPER_ADMIN and asserts assignedBy/removedBy and the command actor equal the JWT user id, never dto.tenantId.
+- **Files to change:**
+  - `apps/admin-api-service/src/modules/modules.controller.ts`
+  - `apps/admin-api-service/src/modules/modules.service.ts`
+  - `apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts`
+- **Effort:** M
 
 ### APA-071 [MEDIUM] 'Add Module' button is dead — no onClick, create flow unreachable from the page
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The header button renders with styling only and no handler (ModulesPage.tsx:129-134). modulesApi.create exists and the backend POST /modules chain is fully wired to auth-service (modules.ts:28-29; modules.controller.ts:151-155; auth-admin-nats.handler.ts:429-451), but nothing on this page (or a modal) invokes it, so the page's advertised create capability does not exist.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/ModulesPage.tsx:129-134`
   - `web/modules/admin-panel/src/services/api/modules.ts:28-29`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The 'Add Module' header button (ModulesPage.tsx:129-134) is presentational only — it has styling but no onClick and no create modal. The create path is otherwise fully wired (modulesApi.create -> POST /modules -> auth-admin-nats.handler), so the page's advertised create capability is simply unreachable. Instance of the systemic 'FE advertises a capability with no wiring' class.
+- **Fix design:** Wire the button to a create-module modal/form that submits via modulesApi.create with fields matching CreateModuleDto (code, name, defaultRoute required; description/icon/isCore optional) and calls refresh() on success. Add local open/close state and inline validation error surfacing. Verification: an RTL test asserting the button opens the modal and that submitting invokes modulesApi.create with the entered payload and refreshes the list.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/ModulesPage.tsx`
+  - `web/modules/admin-panel/src/pages/__tests__/ModulesPage.test.tsx`
+- **Effort:** M
 
 ### APA-072 [MEDIUM] tenant_modules.expiresAt is written but never enforced on any read path
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** Time-limited assignments can be created (expiresAt persisted, tenant-provisioning-command.service.ts:349-368), and TenantModule.isAccessible() models expiry (tenant-module.entity.ts:138-142), but the raw-SQL paths that actually gate access ignore it: the TENANT_ADMIN module list (token.service.ts:421-429) and the RBAC entitlement SSoT (permission-catalogue.ts:281-286) filter only isEnabled. An expired module assignment keeps granting menu access and grant-time entitlements indefinitely.
 - **Evidence:**
   - `apps/auth-service/src/modules/authentication/services/token.service.ts:421-429`
   - `apps/auth-service/src/modules/tenant/services/permission-catalogue.ts:281-286`
   - `apps/auth-service/src/modules/tenant/entities/tenant-module.entity.ts:138-142`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** tenant_modules.expiresAt is persisted at assignment time and modeled by TenantModule.isAccessible()/isExpired(), but the raw-SQL SSoT read paths that actually gate access bypass the entity and filter only isEnabled: the TENANT_ADMIN module-menu query (token.service.ts:422-429) and the RBAC entitlement query ENABLED_MODULE_CODES_SQL (permission-catalogue.ts:281-286). An expired assignment keeps granting menu access and grant-time entitlements forever. Instance of the systemic 'column written but never read on the gating path' class (the two SQL paths also duplicate the same join+filter with no single SSoT).
+- **Fix design:** Add the expiry predicate `AND (tm."expiresAt" IS NULL OR tm."expiresAt" > NOW())` to the active-tenant-module filter, and centralize it: token.service currently duplicates the join+filter that ENABLED_MODULE_CODES_SQL already expresses — collapse both onto one exported SSoT fragment/const in permission-catalogue.ts (the 'enabled AND not expired' definition) so the predicate cannot drift between the two consumers (Tier-1 via single source). Verification: an auth-service integration spec inserting an expired tenant_modules row and asserting both the TENANT_ADMIN module list and resolveEntitledCapabilities exclude it, plus a non-expired row still included.
+- **Files to change:**
+  - `apps/auth-service/src/modules/tenant/services/permission-catalogue.ts`
+  - `apps/auth-service/src/modules/authentication/services/token.service.ts`
+  - `apps/auth-service/src/modules/tenant/__tests__/permission-catalogue.spec.ts`
+- **Effort:** M
 
 ### APA-073 [LOW] Stats fetch errors are swallowed; fallback figures computed from a single page of 50 can be wrong
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The stats useAsyncData call destructures only data (ModulesPage.tsx:58-61); on failure the tiles silently fall back to values computed from the currently loaded module list (239-256), which is capped at the default limit of 50 with no pagination UI — Total Assignments falls back to summing tenantsCount of visible modules only. No error indicator distinguishes real stats from the fallback.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/ModulesPage.tsx:58-61,239-259`
   - `apps/admin-api-service/src/modules/modules.controller.ts:87`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The stats useAsyncData call destructures only `data` (ModulesPage.tsx:58-61), discarding error/loading. On stats failure `stats` is undefined and each tile silently falls back to `?? modules.<derived>` (239-256) computed from the currently loaded module list — which is capped at the default limit of 50 with no pagination UI — so 'Total Assignments' becomes the sum of tenantsCount of only the visible modules, presented as a real figure with no degraded-state signal.
+- **Fix design:** Capture the stats error/loading from useAsyncData and render an explicit unavailable/error indicator (or a dash) for the tiles when stats failed, instead of substituting a page-capped derived number. Remove the misleading `?? modules.reduce(...)` fallback for Total Assignments since it can never be correct from one page; keep genuine skeleton/loading only. Verification: an RTL test where the stats fetch rejects and the tiles show the unavailable/error state rather than a fabricated total.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/ModulesPage.tsx`
+  - `web/modules/admin-panel/src/pages/__tests__/ModulesPage.test.tsx`
+- **Effort:** S
 
 ### APA-074 [LOW] Search fires a request per keystroke despite the 'debounced' comment; filter clicks double-fetch
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** Every keystroke changes searchTerm, which changes the cacheKey, which changes fetchData identity and triggers the immediate-refetch effect (ModulesPage.tsx:54,66-68; useAsyncData.ts:340-348) — there is no debounce, and the Enter handler's refresh() is redundant. Filter buttons call refresh() synchronously after setState (ModulesPage.tsx:162-166), issuing one request against the OLD cacheKey plus a second from the effect on the new key.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/ModulesPage.tsx:54,66-75,162-216`
   - `web/modules/admin-panel/src/hooks/useAsyncData.ts:293,344-348`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** cacheKey is derived directly from searchTerm (ModulesPage.tsx:54) and useAsyncData refetches whenever fetchData identity — which depends only on [cacheKey,cacheTTL,timeout] (useAsyncData.ts:293) — changes via the effect at 344-348. So every keystroke issues a request despite the 'Debounced search' comment; nothing debounces. The Enter handler's refresh() (73) and each filter button's synchronous refresh() after setState (162-216) additionally fire a fetch against the stale cacheKey closure, then the effect fires again on the new cacheKey — a double-fetch. Admin-panel-scoped useAsyncData pattern issue.
+- **Fix design:** Feed a debounced search value (add/reuse a useDebouncedValue hook) into cacheKey so typing collapses to a single request, and delete the redundant refresh() calls in the Enter and filter handlers — let the cacheKey change be the single fetch trigger (setState updating isActive/isCore already changes cacheKey and drives exactly one fetch). Verification: an RTL test asserting rapid typing issues one debounced request and a filter click issues exactly one request (no double-fetch on the stale key).
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/ModulesPage.tsx`
+  - `web/modules/admin-panel/src/hooks/useDebouncedValue.ts`
+  - `web/modules/admin-panel/src/pages/__tests__/ModulesPage.test.tsx`
+- **Effort:** S
 
 
 ## Cross-cutting findings
@@ -212,18 +240,30 @@
 
 ### APA-076 [MEDIUM] admin-api modules controller pattern (interface DTOs) silently disables the platform's global validation contract
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** bootstrapService installs ValidationPipe({whitelist:true, forbidNonWhitelisted:true, transform:true}) globally (create-service-app.ts:458-461), but any controller that types @Body() with a TypeScript interface instead of a decorated class gets metatype Object at runtime and the pipe skips it entirely — no stripping, no rejection, no primitive/date transformation. ModulesController does this for all three of its body DTOs (modules.controller.ts:26-62). This is a structural gap (Tier-3 'make it detectable' is absent): nothing in build or CI flags an interface-typed @Body(), so the security default is unenforced exactly where it is assumed to hold.
 - **Evidence:**
   - `libs/backend-common/src/bootstrap/create-service-app.ts:453-461`
   - `apps/admin-api-service/src/modules/modules.controller.ts:26-62,153,163,198`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** bootstrapService installs ValidationPipe({whitelist,forbidNonWhitelisted,transform}) globally (create-service-app.ts:458-461), but a @Body() typed with a TypeScript interface compiles to runtime metatype Object, so ValidationPipe.toValidate() returns false and skips it entirely — no whitelist stripping, no forbidNonWhitelisted rejection, no primitive/Date transform (AssignModuleDto.expiresAt?: Date is never actually coerced to a Date). ModulesController types all three body DTOs as interfaces (modules.controller.ts:26-62). Nothing at build/CI flags an interface-typed @Body(), so the platform's security default is silently unenforced exactly where callers assume it holds. Systemic 'unvalidated interface-DTO' class spanning the platform.
+- **Fix design:** Local: convert CreateModuleDto/UpdateModuleDto/AssignModuleDto (and ModuleQuantitiesDto) to decorated classes with class-validator/class-transformer decorators (@IsString/@IsOptional/@IsBoolean/@Type(()=>Date), @ValidateNested for quantities), moved into modules/dto/*.dto.ts. Pattern (Tier-3 make-it-detectable, currently absent): add an architecture invariant test (or ESLint rule) that parses every controller and fails when a @Body()/@Query() parameter's type is not a class carrying validation metadata — so interface-typed request bodies can never silently bypass the pipe again. Run the new gate to surface and fix the rest of the platform's interface DTOs. Verification: tests/invariants/body-dto-must-be-validated-class.spec.ts red on an interface @Body(), plus a ModulesController e2e asserting an unknown body field is rejected (400) and expiresAt arrives as a Date.
+- **Files to change:**
+  - `apps/admin-api-service/src/modules/modules.controller.ts`
+  - `apps/admin-api-service/src/modules/dto/create-module.dto.ts`
+  - `apps/admin-api-service/src/modules/dto/update-module.dto.ts`
+  - `apps/admin-api-service/src/modules/dto/assign-module.dto.ts`
+  - `tests/invariants/body-dto-must-be-validated-class.spec.ts`
+- **Effort:** L
 
 ### APA-077 [LOW] FE double-submit CSRF header has no server-side counterpart in admin-api
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** http-client.ts attaches X-CSRF-Token from an XSRF-TOKEN cookie on all mutating methods and documents that 'the server rejects on mismatch' (http-client.ts:96-106,256-263), but admin-api-service has no CSRF verification middleware/guard — the only csrf hits in the service are security-event telemetry types (grep of apps/admin-api-service/src matched only security entities/controllers). Risk is mitigated because auth is a Bearer token rather than a cookie, but the client comment misstates the actual protection and the cookie may never be set at all.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/http-client.ts:96-106,256-263`
   - `apps/admin-api-service/src/app.module.ts:267-306`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** http-client.ts attaches X-CSRF-Token from the XSRF-TOKEN cookie on all mutating methods and documents that 'the server set this cookie and will reject mutating requests whose header does not match' (96-106,256-263), but admin-api-service has no CSRF verification: the only csrf references in the service are security-event telemetry entities/controllers, and it never issues an XSRF-TOKEN cookie. gateway-api does have csrf.middleware, but the admin-panel path (nginx rewrite /api/* -> admin-api-service) bypasses gateway-api, so no server on this path enforces the header. The documented protection does not exist; actual CSRF exposure is low because auth is a Bearer token (not an ambient cookie). Contract/documentation mismatch.
+- **Fix design:** Resolve the mismatch at the source rather than leave a comment asserting a non-existent check. Preferred root-cause given Bearer-token auth is the deliberate CSRF control: correct the http-client docblock to state that CSRF protection derives from the non-cookie Bearer credential and drop the unbacked X-CSRF-Token header + cookie read (nothing sets or checks it). Alternatively, if cookie-authable browser sessions are intended, make the claim true by lifting gateway-api's csrf.middleware + XSRF-TOKEN issuance into the shared bootstrap so every browser-facing service enforces double-submit — but that is only warranted if a cookie credential exists. Document the chosen decision (ADR/comment) so the contract and code agree. Verification: if header dropped, an http-client unit test asserts no X-CSRF-Token on mutating requests; if enforced, an admin-api e2e asserts a mutating request without the matching token is rejected.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/http-client.ts`
+- **Effort:** S

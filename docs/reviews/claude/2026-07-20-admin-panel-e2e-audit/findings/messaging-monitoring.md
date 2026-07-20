@@ -9,13 +9,18 @@
 
 ### APA-154 [LOW] Dead FE API function for monitoring stats
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** messagingApi.getMonitoringStats() is defined and typed as Promise<unknown> but no page calls it; the page hardcodes the 501 explanation instead of probing the endpoint, so if the backend ever implements monitoring stats the page will keep showing 'not available'.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/api/messaging.ts:232-238`
   - `web/modules/admin-panel/src/pages/messaging/MessagingMonitoringPage.tsx:19-93`
   - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts:249-257`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** MessagingMonitoringPage is a purely static component that hardcodes the 501 'not available' copy; messagingApi.getMonitoringStats() (messaging.ts:237, typed Promise<unknown>) has zero callers (grep-confirmed). The 'not implemented' fact now lives in two places that can drift: the backend 501 (controller:249-257) and the FE static text. When the backend ships real stats the page cannot self-activate.
+- **Fix design:** Tier-2 (make correct behavior automatic): wire the page to actually consume the endpoint. Define a typed MonitoringStats contract, have the page call getMonitoringStats() via useAsyncData, and branch on the response: render the metrics when data returns, render the current 'not available' panel only when the call yields HTTP 501. Then the page self-heals with no FE change once the backend implements the endpoint, and the typed fn stops being dead code. (If the endpoint is intended to stay unimplemented indefinitely, the honest alternative is to delete the dead getMonitoringStats export so there is no drift surface — but wiring is the higher-tier fix.)
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingMonitoringPage.tsx`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+- **Effort:** S
 
 
 ## MessagingTenantsPage — `/admin/messaging/tenants` — verdict: **PARTIAL**
@@ -71,23 +76,40 @@
 
 ### APA-156 [MEDIUM] Synchronous full-tenant export inside a 15s NATS request-reply; FE retries 504 and re-runs the whole export
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** exportTenant streams EVERY message of the tenant into an in-memory array inside one NATS request. Beyond MESSAGING_NATS_TIMEOUT_MS (default 15000ms, messaging-admin.controller.ts:38,118-122) admin-api returns 504; http-client retries 502/503/504 up to 3 times with backoff (http-client.ts:316-330), so one click on a large tenant triggers up to 4 full export runs and 4 compliance_audit_log MESSAGE_EXPORT entries while the user sees only a timeout error. The 'streaming to avoid OOM' claim is also false — rows are accumulated in an unbounded array (data-export.service.ts:196-214).
 - **Evidence:**
   - `apps/messaging-service/src/compliance/services/data-export.service.ts:150-214`
   - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts:38,398-404`
   - `web/modules/admin-panel/src/services/http-client.ts:316-330`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** triggerExport is a synchronous, non-idempotent, unbounded full-tenant export executed inside a NATS request-reply bounded by MESSAGING_NATS_TIMEOUT_MS (default 15s). data-export.service.exportTenant streams via cursor but pushes every row into an in-memory array (lines 196-214) then JSON.stringifies it, so the 'streaming to avoid OOM' comment (147-155) is false. On timeout admin-api returns 504; http-client retries ALL methods (no idempotency gate) on 502/503/504 up to maxRetries, so one click can fire up to 4 full server-side exports — each running to completion after the client gives up, each writing a MESSAGE_EXPORT compliance_audit_log entry — while the user only ever sees a timeout.
+- **Fix design:** This is the same architectural defect as p1|i2 (sync export masquerading as async). Root-cause fix, resolving both: (1) make export genuinely asynchronous — triggerExport persists an ExportJob row (schema 'messaging', new migration) with status 'pending' and an idempotencyKey, returns {jobId,status:'pending'} immediately (well under the NATS timeout); a background worker streams message rows to object storage via @platform/storage (bounded memory, no in-array accumulation) and flips status to 'completed'/'failed'; a separate GET status/download endpoint serves progress + signed URL. (2) Gate http-client retries to idempotent methods only (GET/HEAD) — retrying a mutation is structurally unsafe; a non-idempotent POST must not be auto-replayed. (3) The idempotencyKey dedupes any accidental replay so at most one export + one audit entry per logical request. Contract/verification below.
+- **Files to change:**
+  - `apps/messaging-service/src/compliance/services/data-export.service.ts`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `web/modules/admin-panel/src/services/http-client.ts`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingTenantsPage.tsx`
+  - `apps/messaging-service/src/migrations/`
+- **Effort:** L
 
 ### APA-157 [LOW] 202 Accepted + 'runs asynchronously' UI text contradict the synchronous 'completed' status
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The controller replies HTTP 202 (@HttpCode(HttpStatus.ACCEPTED)) and the page says 'The export job runs asynchronously', but DataExportService performs the entire export inline and returns status 'completed'. Misleading job semantics.
 - **Evidence:**
   - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts:316-318`
   - `web/modules/admin-panel/src/pages/messaging/MessagingTenantsPage.tsx:125-128`
   - `apps/messaging-service/src/compliance/services/data-export.service.ts:245-253`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Instance of the same class as p1|i1: the controller declares @HttpCode(202 ACCEPTED) and the FE copy says 'The export job runs asynchronously', but DataExportService.exportTenant does the entire export inline and returns status:'completed'. The 202/async job semantics are a fiction — there is no job, no queue, no polling; the HTTP response only returns after the whole export finishes (or times out).
+- **Fix design:** Subsumed by the async-job redesign in p1|i1: once triggerExport enqueues an ExportJob and returns {status:'pending'} synchronously, the 202 + 'runs asynchronously' copy becomes truthful and the FE polls the status endpoint until 'completed'. No separate remediation is needed beyond p1|i1; do NOT 'fix' this by merely changing the 202 to 200 or editing the UI text, which would paper over the real sync/async mismatch. Verification lands with p1|i1.
+- **Files to change:**
+  - `apps/messaging-service/src/compliance/services/data-export.service.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingTenantsPage.tsx`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+- **Effort:** M
 
 
 ## MessagingAuditPage — `/admin/messaging/audit` — verdict: **BROKEN**
@@ -190,21 +212,34 @@ TIER 3 GATE (keeps the class fixed): invariant test asserting the import edges e
 
 ### APA-161 [MEDIUM] Offset pagination UI over a cursor-based backend — page navigation is a no-op
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The FE sends page/pageSize query params; the controller only binds tenantId/limit/cursor/userId/action/resourceType/startDate/endDate, so page & pageSize are silently ignored and every 'page' returns the same first 25 rows (limit defaults to 25). The returned cursor is never used by the FE.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/api/messaging.ts:99-107,243-248`
   - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts:269-292`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Systemic envelope/shape mismatch + FE-type drift. Backend audit is cursor-paginated: NATS handler + GetAuditLogHandler return {items,hasMore,cursor,totalCount}, and admin-api getAuditLog only binds tenantId/limit/cursor/userId/action/resourceType/startDate/endDate — page & pageSize are never read. The ResponseInterceptor wraps this object with no meta.page, so http-client returns envelope.data verbatim ({items,...}), never the {data,...meta} branch. The FE types it as PaginatedResult<MessagingAuditEntry> ({data,total,page,limit,totalPages}), so result.data and result.total are undefined (backend has items/totalCount) — pagination is a no-op AND entries never populate; the returned cursor is discarded.
+- **Fix design:** Align the audit contract end-to-end on cursor pagination (tier-1: one shape, structurally enforced). Give admin-api a typed AuditLogResponse DTO ({items:MessagingAuditEntry[],cursor,hasMore,totalCount}); change FE getAuditLog to return that cursor-page type instead of PaginatedResult; rewrite MessagingAuditPage to drive next/prev from cursor (or a load-more) rather than offset page math, and to read entries from .items. Also correct the item mapping (createdAt→timestamp, action enum, details jsonb) as part of p2|i4/p3 shape work. Add a contract spec asserting the admin-api audit response type is identical to the FE MessagingAuditEntry/page type so drift fails at build.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAuditPage.tsx`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `apps/admin-api-service/src/messaging/__tests__/messaging-audit-contract.spec.ts`
+- **Effort:** M
 
 ### APA-162 [MEDIUM] Action filter vocabulary mismatch — every filtered query returns zero rows
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** FE offers action values 'send','edit','delete','create_channel','join_channel','leave_channel','upload_file'; the backend column stores ComplianceAction values 'message_send','message_edit','message_delete','channel_create','channel_archive','member_add','member_remove','message_export','data_anonymize','retention_set','legal_hold_toggle'. No value overlaps, so filtering by action can never match a row.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/messaging/MessagingAuditPage.tsx:32-41`
   - `apps/messaging-service/src/compliance/entities/compliance-audit-log.entity.ts:14-26`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Instance of FE-type drift from an enum SSoT. MessagingAuditPage ACTION_OPTIONS invents values ('send','edit','delete','create_channel','join_channel','leave_channel','upload_file') that share no value with ComplianceAction (message_send/message_edit/message_delete/channel_create/channel_archive/member_add/member_remove/message_export/data_anonymize/retention_set/legal_hold_toggle), the actual column vocabulary. The filter is passed straight to the WHERE clause, so any selected action matches zero rows. It also mis-frames the log as a per-message activity feed when compliance_audit_log records compliance operations.
+- **Fix design:** Make the FE options derive from the ComplianceAction SSoT rather than a hand-typed list (tier-1/3). Expose ComplianceAction values through the shared contract used by admin-panel (a generated/shared enum or a checked-in mirror) and build ACTION_OPTIONS/ACTION_COLORS from it; relabel the page as a compliance-operations audit. Add a contract test asserting every FE action option value is a member of ComplianceAction so an invented value fails CI.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAuditPage.tsx`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `apps/admin-api-service/src/messaging/__tests__/messaging-audit-contract.spec.ts`
+- **Effort:** M
 
 
 ## MessagingCompliancePage — `/admin/messaging/compliance` — verdict: **BROKEN**
@@ -296,39 +331,67 @@ TIER 3 GATE (keeps the class fixed): invariant test asserting the import edges e
 
 ### APA-166 [MEDIUM] LegalHold rows lack tenantName/channelName the table renders; channel-scoped holds would display as 'Tenant-wide'
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The LegalHold entity has no tenantName/channelName and no enrichment join exists in admin-api. The table renders hold.tenantName (blank) and hold.channelName ?? 'Tenant-wide' — a channel-scoped hold (channelId set, channelName absent) would be presented as covering the whole tenant, misstating the legal scope of a hold.
 - **Evidence:**
   - `apps/messaging-service/src/compliance/entities/legal-hold.entity.ts:25-119`
   - `web/modules/admin-panel/src/services/api/messaging.ts:36-48`
   - `web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx:422-425`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** FE-type drift + missing enrichment. The FE LegalHold type declares tenantName/channelName (plus startedAt/releasedAt/startedBy) but neither the LegalHold entity, the NATS getLegalHolds result (returns raw entities), nor admin-api's LegalHoldResponse carry those name fields — admin-api even returns a narrower {id,tenantId,channelId,reason,isActive,createdAt}. So hold.channelName is always undefined and the table renders `hold.channelName ?? 'Tenant-wide'`, presenting a channel-scoped hold (channelId set) as covering the whole tenant — misstating legal scope. tenantName renders blank and startedAt/releasedAt are Invalid Date.
+- **Fix design:** Two-part tier-1 fix. (1) Derive scope structurally from channelId, which IS the SSoT of scope: render 'Tenant-wide' only when channelId===null, otherwise show the channel identifier — never key scope off an always-absent channelName. (2) Return an enriched, typed LegalHoldResponse from admin-api that matches the FE type exactly: join the tenant display name (auth.tenants) and channel name (messaging channels) and map startedAt/releasedAt/startedBy/releasedBy. Add a contract test asserting LegalHoldResponse ≡ FE LegalHold.
+- **Files to change:**
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `apps/messaging-service/src/compliance/services/legal-hold.service.ts`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx`
+  - `apps/admin-api-service/src/messaging/__tests__/messaging-legal-hold-contract.spec.ts`
+- **Effort:** M
 
 ### APA-167 [MEDIUM] Fabricated 'Compliance Score 100%' rendered while the backend fetch fails
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** On fetch failure statsQuery.data stays null and EMPTY_STATS (complianceScore: 100) fills the grid, so a GDPR compliance dashboard shows a green '100%' score and all-zero counters alongside the error banner. complianceScore is not computed anywhere in the backend at all.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx:33-41,225,336-340`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Fabricated-default masking failure + FE-type drift. EMPTY_STATS seeds complianceScore:100 and is used both pre-load and on error (`stats = statsQuery.data ?? EMPTY_STATS`), so on a failed fetch the GDPR dashboard renders a green '100%' score with zeroed counters beside the error banner. complianceScore is not computed anywhere in the backend; ComplianceStatsResponse returns only {activeHoldsCount,retentionPoliciesCount,auditLogEntriesCount} (and auditLogEntriesCount ≠ FE auditEntriesCount), so complianceScore/messagesUnderLegalHold/pendingRetentionCleanup/activeExports are fabricated client-side even on success.
+- **Fix design:** (1) Never render metrics from a fabricated default on error — gate the stats grid behind statsQuery.data; on error show a blank/skeleton, not a synthetic 100%. (2) Align the FE ComplianceStats type to the actual backend DTO (rename auditEntriesCount→auditLogEntriesCount; drop fields the backend does not send). (3) If complianceScore is a genuine product metric, compute it in the messaging-service complianceStats handler and add it to the DTO; otherwise remove it from the FE type entirely. Add a contract test asserting ComplianceStatsResponse ≡ FE ComplianceStats.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `apps/admin-api-service/src/messaging/__tests__/messaging-compliance-stats-contract.spec.ts`
+- **Effort:** M
 
 ### APA-168 [MEDIUM] Create-legal-hold chain fully implemented backend-to-DB but unreachable — no UI invokes it
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** POST /messaging/compliance/legal-holds -> createLegalHold NATS chain -> ToggleLegalHoldHandler.activate writes legal_holds + audit + outbox atomically, but messagingApi.createLegalHold is called by no page/component (grep confirms only the definition). A SUPER_ADMIN cannot place a hold from the admin panel.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/api/messaging.ts:196-201`
   - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts:161-181`
   - `apps/messaging-service/src/compliance/commands/toggle-legal-hold.handler.ts:104-124`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Dead feature / missing UI wiring. The full create-legal-hold path is implemented (POST /messaging/compliance/legal-holds → createLegalHold NATS → ToggleLegalHoldHandler.activate writes legal_holds + audit + outbox atomically) and messagingApi.createLegalHold is defined, but grep confirms no page/component calls it. MessagingCompliancePage only lists and releases holds, so a SUPER_ADMIN can never place a hold from the admin panel.
+- **Fix design:** Add a 'Create Legal Hold' action + modal to MessagingCompliancePage that calls messagingApi.createLegalHold with the CreateLegalHoldInput the backend requires (tenantId, optional channelId, reason, legalMatterId, and optional description/requestedBy/expiresAt — note reason and legalMatterId are validated as required in ToggleLegalHoldHandler), then refreshes holds+stats on success. Tier-3 guard against recurrence: add an FE invariant test that flags exported api functions with no in-repo caller (dead-endpoint detector) so FE↔UI wiring gaps surface at build (this same gap produced p0|i0).
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx`
+  - `web/modules/admin-panel/src/services/api/__tests__/api-usage.spec.ts`
+- **Effort:** M
 
 ### APA-169 [LOW] Exports table, retention buckets, and daily-audit chart are hardcoded empty locals
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** exports, retentionBuckets (all tenantCount:0) and dailyAudit are constants; the 'Export Jobs' section and both charts can never show data, while summary labels like 'Total: N entries' mix in (would-be) live stats — a half-live, half-static dashboard.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx:228-238,343-378,453-516`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Half-live dashboard. On MessagingCompliancePage, exports (ExportRecord[]=[]), retentionBuckets (all tenantCount:0) and dailyAudit ([]) are hardcoded constant locals with no backing endpoint, so the 'Export Jobs' table and both charts can never populate, while sibling labels like 'Total: {stats.auditEntriesCount} entries' show live data — a misleading mix of live and permanently-empty UI.
+- **Fix design:** Back the sections with real queries or remove them (no permanently-dead UI). Preferred (tier-2): retention distribution can be computed from the existing getRetentionPolicies result by bucketing on defaultRetention (no new backend needed); the daily-audit series and export-jobs list are naturally served by the audit cursor endpoint (p2|i3) and the ExportJob table introduced in p1|i1 respectively — wire those once they land. Minimum honest fix if backends are deferred: delete the placeholder sections so the dashboard never implies data that cannot arrive. Do not keep constant empties beside live labels.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+- **Effort:** M
 
 
 ## MessagingRetentionPage — `/admin/messaging/retention` — verdict: **BROKEN**
@@ -421,12 +484,20 @@ TIER 3 GATE (keeps the class fixed): invariant test asserting the import edges e
 
 ### APA-173 [MEDIUM] 'Add Channel Override' modal is a silent no-op
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** handleAddOverride ignores all three inputs (prefixed _tenantId/_channelId/_retentionDays), just refetches and closes the modal — the user gets success-like behavior with nothing saved. The backend PUT actually supports channelId overrides (UpdateRetentionPolicyDto.channelId), so the capability exists but is not wired.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/messaging/MessagingRetentionPage.tsx:239-247`
   - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts:52-56,232-240`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Silent no-op + contract mismatch. handleAddOverride ignores its three inputs (_tenantId/_channelId/_retentionDays), just refetches and closes the modal, so the user gets success-like behavior with nothing saved. The backend PUT /retention/policies/:id does accept channel overrides (UpdateRetentionPolicyDto {channelId,retentionDays}), but the FE updateRetentionPolicy sends {defaultRetention,applyToAll} — a shape that carries neither channelId nor retentionDays, so even the edit path's values are dropped server-side. Compounding it, admin-api's UpdateRetentionPolicyDto (and CreateLegalHoldDto/TriggerExportDto) are bare interfaces, not class-validator classes, so the platform ValidationPipe whitelist/forbidNonWhitelisted never fires and the mismatched/missing fields are silently ignored rather than rejected — the systemic 'unvalidated interface-DTO' class on this controller.
+- **Fix design:** Align the retention-update contract end-to-end. (1) FE RetentionPolicyUpdate carries {retentionDays:number, channelId?:string|null}; map the '90d'/'1y'/'3y'/'indefinite' UI selection to days via the existing RETENTION_OPTIONS.days; handleAddOverride calls updateRetentionPolicy with {channelId, retentionDays} and handleSaveRetention sends {retentionDays} (channelId null). (2) Convert admin-api UpdateRetentionPolicyDto (and CreateLegalHoldDto/TriggerExportDto) from interfaces to class-validator DTO classes so whitelist/forbidNonWhitelisted structurally reject unknown/missing fields — this makes the mismatch impossible (tier-1) instead of silently dropped. (3) Add a contract test asserting the FE update payload type is assignable to the validated UpdateRetentionPolicyDto.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingRetentionPage.tsx`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `apps/admin-api-service/src/messaging/dto/update-retention-policy.dto.ts`
+  - `apps/admin-api-service/src/messaging/__tests__/messaging-retention-contract.spec.ts`
+- **Effort:** M
 
 ### APA-174 [LOW] Hardcoded 'Next cleanup: 02:00 UTC' chip
 

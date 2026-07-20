@@ -8,8 +8,8 @@
 
 ## Status / coverage
 
-- Findings total: **383** — with root-cause+fix design: **206**, REFUTED: **1**, PENDING (verification + fix design queued in staged continuation): **176**
-- Current severity distribution (verified where available): **CRITICAL: 22**, **HIGH: 115**, **MEDIUM: 162**, **LOW: 83**
+- Findings total: **383** — with root-cause+fix design: **212**, REFUTED: **1**, PENDING (verification + fix design queued in staged continuation): **170**
+- Current severity distribution (verified where available): **CRITICAL: 20**, **HIGH: 117**, **MEDIUM: 162**, **LOW: 83**
 - Page verdicts: **BROKEN: 12**, **MOCK_ONLY: 2**, **NOT_WIRED: 2**, **PARTIAL: 32**, **WORKING: 2**
 - Every PENDING entry keeps its auditor severity and full evidence; its root-cause/fix-design section will be appended by the staged continuation run. IDs (`APA-xxx`) are stable and safe to reference from `Closes:` lines.
 
@@ -326,7 +326,7 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-210 | MEDIUM | ✅ designed | [support](findings/support.md) | OnboardingPage | Training resources and step tutorial links are hardcoded with dead URLs |
 | APA-211 | MEDIUM | ✅ designed | [support](findings/support.md) | OnboardingPage | sendWelcomeEmail returns fake success: no email is ever sent but welcomeEmailSent is persisted true |
 | APA-212 | LOW | ✅ designed | [support](findings/support.md) | OnboardingPage | Skipping a required step throws a plain Error -> 500 instead of 400 |
-| APA-213 | CRITICAL | ⏳ pending | [support](findings/support.md) | (cross-cutting) | Split-brain support architecture: admin panel and tenants operate on two disconnected persistence si |
+| APA-213 | CRITICAL | ✅ designed | [support](findings/support.md) | (cross-cutting) | Split-brain support architecture: admin panel and tenants operate on two disconnected persistence si |
 | APA-214 | HIGH | ✅ designed | [support](findings/support.md) | (cross-cutting) | Abandoned mid-migration: correct GraphQL hooks exist in admin-panel but no support page uses them |
 | APA-215 | HIGH | ✅ designed | [support](findings/support.md) | (cross-cutting) | Every outbound notification path in the support module is an unimplemented TODO that reports success |
 | APA-216 | MEDIUM | ✅ designed | [support](findings/support.md) | (cross-cutting) | Guard posture verified sound; schema/migration parity verified sound (no finding — audit confirmatio |
@@ -345,7 +345,7 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-229 | LOW | ⏳ pending | [security](findings/security.md) | AuditTrailPage | 'Total Entries' is actually a 30-day count |
 | APA-230 | LOW | ⏳ pending | [security](findings/security.md) | AuditTrailPage | Alert-rule card renders Invalid Date and fake trigger count |
 | APA-231 | HIGH | ✅ designed | [security](findings/security.md) | CompliancePage | Typing in the search box 400s the whole data-request list |
-| APA-232 | HIGH | ⏳ pending | [security](findings/security.md) | CompliancePage | Compliance Checks tab crashes: backend returns requirement as an OBJECT, page renders it as a React  |
+| APA-232 | HIGH | ✅ designed | [security](findings/security.md) | CompliancePage | Compliance Checks tab crashes: backend returns requirement as an OBJECT, page renders it as a React  |
 | APA-233 | HIGH | ⏳ pending | [security](findings/security.md) | CompliancePage | Reports 'Key Findings' has the same object-render crash — and monthly cron guarantees reports exist |
 | APA-234 | HIGH | ⏳ pending | [security](findings/security.md) | CompliancePage | All five compliance stat cards are hardcoded zeros while a real stats endpoint sits unused |
 | APA-235 | MEDIUM | ⏳ pending | [security](findings/security.md) | CompliancePage | GET data-requests/stats is route-shadowed by data-requests/:id |
@@ -366,7 +366,7 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-250 | LOW | ⏳ pending | [security](findings/security.md) | (cross-cutting) | PDF export is a plaintext placeholder served as application/pdf |
 | APA-251 | CRITICAL | ✅ designed | [xc-routing-nav](findings/xc-routing-nav.md) | (cross-cutting) | Feature-toggle switch (FeatureTogglesPage primary action) calls a route that does not exist on the b |
 | APA-252 | HIGH | ✅ designed | [xc-routing-nav](findings/xc-routing-nav.md) | (cross-cutting) | docker-compose.prod.yml stack routes /api/ to gateway-api, which has no admin proxy — entire admin p |
-| APA-253 | HIGH | ⏳ pending | [xc-routing-nav](findings/xc-routing-nav.md) | (cross-cutting) | No dev-mode route to admin-api: shell vite has no /api proxy and the default/dev compose stacks have |
+| APA-253 | HIGH | ✅ designed | [xc-routing-nav](findings/xc-routing-nav.md) | (cross-cutting) | No dev-mode route to admin-api: shell vite has no /api proxy and the default/dev compose stacks have |
 | APA-254 | HIGH | ⏳ pending | [xc-routing-nav](findings/xc-routing-nav.md) | (cross-cutting) | 19 additional admin-panel API functions target routes that do not exist (or wrong method) on admin-a |
 | APA-255 | HIGH | ⏳ pending | [xc-routing-nav](findings/xc-routing-nav.md) | (cross-cutting) | 10 mounted admin routes are unreachable: no sidebar entry and no in-page link (7 messaging pages, pr |
 | APA-256 | MEDIUM | ⏳ pending | [xc-routing-nav](findings/xc-routing-nav.md) | (cross-cutting) | Duplicate, already-drifted navigation SSoT: admin-panel's AdminLayout/admin-nav-items are dead code; |
@@ -380,7 +380,7 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-264 | LOW | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | FeatureTogglesPage | No pagination UI despite server-side pagination (default limit 50) - toggles beyond 50 are invisible |
 | APA-265 | HIGH | ✅ designed | [system-mgmt](findings/system-mgmt.md) | MaintenancePage | Maintenance list is always empty: FE expects a bare array but receives {items,total} |
 | APA-266 | HIGH | ✅ designed | [system-mgmt](findings/system-mgmt.md) | MaintenancePage | Schedule Maintenance always 400s: payload includes createdBy which CreateMaintenanceDto does not whi |
-| APA-267 | CRITICAL | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | MaintenancePage | Maintenance mode blocks nothing - checkMaintenanceMode has zero consumers |
+| APA-267 | HIGH | ✅ designed | [system-mgmt](findings/system-mgmt.md) | MaintenancePage | Maintenance mode blocks nothing - checkMaintenanceMode has zero consumers |
 | APA-268 | HIGH | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | MaintenancePage | Edit modal submits via handleCreate - updates are silently turned into duplicate creations |
 | APA-269 | HIGH | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | PerformanceDashboardPage | Application metrics have no producer - response time/error rate/throughput/apdex are permanently zer |
 | APA-270 | HIGH | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | PerformanceDashboardPage | 'Infrastructure Metrics' are the admin-api container's own OS stats presented as platform infrastruc |
@@ -393,7 +393,7 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-277 | MEDIUM | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | ErrorTrackingPage | Dashboard stat drift: FE reads unresolvedErrors/criticalErrors which the backend never returns |
 | APA-278 | MEDIUM | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | ErrorTrackingPage | Alert-rule notification actions are log-only stubs (email/slack/webhook never sent) |
 | APA-279 | HIGH | ✅ designed | [system-mgmt](findings/system-mgmt.md) | JobQueuePage | Jobs list is always empty: getJobs reads response.data from an {items,total} payload and the guard s |
-| APA-280 | CRITICAL | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | JobQueuePage | The queue executes nothing: no job handler is ever registered and no platform component enqueues int |
+| APA-280 | HIGH | ✅ designed | [system-mgmt](findings/system-mgmt.md) | JobQueuePage | The queue executes nothing: no job handler is ever registered and no platform component enqueues int |
 | APA-281 | HIGH | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | JobQueuePage | Dashboard shape drift empties the Queues tab and blanks stats: FE expects queues/failedToday, backen |
 | APA-282 | MEDIUM | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | JobQueuePage | Route shadowing and a wrong stat: /jobs/scheduled and /jobs/failed resolve to GET :id; completedLast |
 | APA-283 | CRITICAL | ⏳ pending | [system-mgmt](findings/system-mgmt.md) | (cross-cutting) | Systemic paginated-response contract break: backend {items,total} vs FE PaginatedResult {data,...} k |
@@ -404,7 +404,7 @@ Effort totals for the 85 designed findings so far: mostly **M** (2–8h) with a 
 | APA-288 | CRITICAL | ✅ designed | [impersonation-debug](findings/impersonation-debug.md) | ImpersonationPage | DB append-only trigger on impersonation_sessions makes every session-lifecycle mutation fail (end/te |
 | APA-289 | CRITICAL | ✅ designed | [impersonation-debug](findings/impersonation-debug.md) | ImpersonationPage | Impersonation access chain is not wired end-to-end: the issued token is discarded and nothing can co |
 | APA-290 | HIGH | ✅ designed | [impersonation-debug](findings/impersonation-debug.md) | ImpersonationPage | Revoke Permission always 404s: FE sends the permission row id where the route requires superAdminId |
-| APA-291 | HIGH | ⏳ pending | [impersonation-debug](findings/impersonation-debug.md) | ImpersonationPage | Permissions tab crashes / renders undefined on real data: FE ImpersonationPermission type shares alm |
+| APA-291 | HIGH | ✅ designed | [impersonation-debug](findings/impersonation-debug.md) | ImpersonationPage | Permissions tab crashes / renders undefined on real data: FE ImpersonationPermission type shares alm |
 | APA-292 | HIGH | ⏳ pending | [impersonation-debug](findings/impersonation-debug.md) | ImpersonationPage | 'View Actions' always shows an empty audit trail even when actions exist |
 | APA-293 | HIGH | ⏳ pending | [impersonation-debug](findings/impersonation-debug.md) | ImpersonationPage | No separation of duties: a SUPER_ADMIN self-grants impersonation permission, and nothing prevents im |
 | APA-294 | HIGH | ⏳ pending | [impersonation-debug](findings/impersonation-debug.md) | ImpersonationPage | Audit-write failures are silently swallowed despite in-code claims that they propagate (AUDITTRAIL-C |

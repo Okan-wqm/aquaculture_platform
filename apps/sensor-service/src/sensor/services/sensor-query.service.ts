@@ -39,15 +39,6 @@ import {
 export type AggregationInterval = SafeAggregationInterval;
 
 /**
- * Query result row for sensor stats
- */
-interface SensorStatsRow {
-  total_readings: string;
-  average_quality: string | null;
-  last_reading: Date | null;
-}
-
-/**
  * Maximum allowed query time range (365 days)
  */
 const MAX_QUERY_RANGE_MS = 365 * 24 * 60 * 60 * 1000;
@@ -423,90 +414,6 @@ export class SensorQueryService {
   }
 
   /**
-   * Get readings for a pond (all sensors in a pond)
-   */
-  async getPondReadings(
-    pondId: string,
-    tenantId: string,
-    startTime: Date,
-    endTime: Date,
-  ): Promise<SensorReading[]> {
-    // Validate inputs
-    const validPondId = validateSensorId(pondId); // UUID format
-    const validTenantId = validateTenantId(tenantId);
-    const { startTime: validStart, endTime: validEnd } = validateDateRange(
-      startTime,
-      endTime,
-      MAX_QUERY_RANGE_MS,
-    );
-
-    return await this.readingRepository.find({
-      where: {
-        pondId: validPondId,
-        tenantId: validTenantId,
-        timestamp: Between(validStart, validEnd),
-      },
-      order: { timestamp: 'ASC' },
-      take: 5000,
-    });
-  }
-
-  /**
-   * Get reading statistics for a sensor
-   */
-  async getSensorStatistics(
-    sensorId: string,
-    tenantId: string,
-    days = 7,
-  ): Promise<{
-    totalReadings: number;
-    averageQuality: number;
-    lastReading: Date | null;
-    readingsPerDay: number;
-  }> {
-    // Validate inputs
-    const validSensorId = validateSensorId(sensorId);
-    const validTenantId = validateTenantId(tenantId);
-
-    // Validate days parameter
-    if (!Number.isInteger(days) || days < 1 || days > 365) {
-      throw new BadRequestException('Days must be an integer between 1 and 365');
-    }
-
-    const startTime = new Date();
-    startTime.setDate(startTime.getDate() - days);
-
-    const query = `
-      SELECT
-        COUNT(*) AS total_readings,
-        AVG(quality) AS average_quality,
-        MAX(timestamp) AS last_reading
-      FROM sensor_readings
-      WHERE sensor_id = $1
-        AND tenant_id = $2
-        AND timestamp >= $3
-    `;
-
-    const results: SensorStatsRow[] = await this.dataSource.query(query, [
-      validSensorId,
-      validTenantId,
-      startTime,
-    ]);
-
-    const result = results[0];
-    const totalReadings = parseInt(result?.total_readings || '0', 10);
-
-    return {
-      totalReadings,
-      averageQuality: result?.average_quality
-        ? parseFloat(result.average_quality)
-        : 0,
-      lastReading: result?.last_reading || null,
-      readingsPerDay: days > 0 ? totalReadings / days : 0,
-    };
-  }
-
-  /**
    * Get multiple sensors' latest readings efficiently
    * Useful for dashboard views
    *
@@ -558,47 +465,5 @@ export class SensorQueryService {
     ]);
 
     return results;
-  }
-
-  /**
-   * Get aggregated readings for multiple sensors
-   * Useful for comparing sensors
-   */
-  async getMultiSensorAggregatedReadings(
-    sensorIds: string[],
-    tenantId: string,
-    startTime: Date,
-    endTime: Date,
-    interval?: AggregationInterval,
-  ): Promise<Map<string, AggregatedReadingsResponse>> {
-    if (sensorIds.length === 0) {
-      return new Map();
-    }
-
-    // Limit to prevent performance issues
-    if (sensorIds.length > 10) {
-      throw new BadRequestException('Maximum 10 sensors can be queried at once');
-    }
-
-    const resultsMap = new Map<string, AggregatedReadingsResponse>();
-
-    // Fetch in parallel but with controlled concurrency
-    const promises = sensorIds.map((sensorId) =>
-      this.getAggregatedReadings(sensorId, tenantId, startTime, endTime, interval)
-        .then((result) => ({ sensorId, result, error: null }))
-        .catch((error) => ({ sensorId, result: null, error })),
-    );
-
-    const results = await Promise.all(promises);
-
-    for (const { sensorId, result, error } of results) {
-      if (result) {
-        resultsMap.set(sensorId, result);
-      } else {
-        this.logger.warn(`Failed to get readings for sensor ${sensorId}: ${error?.message}`);
-      }
-    }
-
-    return resultsMap;
   }
 }

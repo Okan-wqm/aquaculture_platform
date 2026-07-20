@@ -50,11 +50,15 @@ MANIFEST=.github/manifests/backup-script.sha256
 DR_CONTRACT_MANIFEST=.github/manifests/postgres-dr-contract.sha256
 EXPECTED_RUNTIME_PATHS=$(printf '%s\n' \
   .github/manifests/postgres-dr-contract.sha256 \
+  scripts/deploy/production-host-control-plane.sh \
   tools/scripts/database/backup-databases.sh \
   tools/scripts/database/database-verification.sql \
   tools/scripts/database/evaluate-walg-evidence.mjs \
   tools/scripts/database/materialize-walg-secrets.sh \
+  tools/scripts/database/pitr-source-verification-locks.sql \
+  tools/scripts/database/read-bounded-line.mjs \
   tools/scripts/database/walg-base-backup.sh \
+  tools/scripts/database/walg-pitr-ceremony.sh \
   tools/scripts/database/walg-pitr-restore.sh)
 EXPECTED_ARCHIVE_PATHS=$(printf '%s\n%s\n' \
   "${MANIFEST}" "${EXPECTED_RUNTIME_PATHS}")
@@ -112,6 +116,9 @@ EXPECTED_RAW_ARCHIVE_PATHS=$(printf '%s\n' \
   .github/manifests/ \
   .github/manifests/backup-script.sha256 \
   .github/manifests/postgres-dr-contract.sha256 \
+  scripts/ \
+  scripts/deploy/ \
+  scripts/deploy/production-host-control-plane.sh \
   tools/ \
   tools/scripts/ \
   tools/scripts/database/ \
@@ -119,7 +126,10 @@ EXPECTED_RAW_ARCHIVE_PATHS=$(printf '%s\n' \
   tools/scripts/database/database-verification.sql \
   tools/scripts/database/evaluate-walg-evidence.mjs \
   tools/scripts/database/materialize-walg-secrets.sh \
+  tools/scripts/database/pitr-source-verification-locks.sql \
+  tools/scripts/database/read-bounded-line.mjs \
   tools/scripts/database/walg-base-backup.sh \
+  tools/scripts/database/walg-pitr-ceremony.sh \
   tools/scripts/database/walg-pitr-restore.sh)
 RAW_ARCHIVE_PATHS=$(tar -tf "${RAW_ARCHIVE}" | sort)
 UNIQUE_RAW_ARCHIVE_PATHS=$(tar -tf "${RAW_ARCHIVE}" | sort -u)
@@ -128,8 +138,8 @@ RAW_DIRECTORY_COUNT=$(tar -tvf "${RAW_ARCHIVE}" | awk '$1 ~ /^d/ {count++} END {
 RAW_UNSAFE_TYPE_COUNT=$(tar -tvf "${RAW_ARCHIVE}" | awk '$1 !~ /^[-d]/ {count++} END {print count + 0}')
 if [ "${RAW_ARCHIVE_PATHS}" != "${EXPECTED_RAW_ARCHIVE_PATHS}" ] || \
    [ "${UNIQUE_RAW_ARCHIVE_PATHS}" != "${EXPECTED_RAW_ARCHIVE_PATHS}" ] || \
-   [ "${RAW_REGULAR_COUNT}" -ne 8 ] || \
-   [ "${RAW_DIRECTORY_COUNT}" -ne 5 ] || \
+   [ "${RAW_REGULAR_COUNT}" -ne 12 ] || \
+   [ "${RAW_DIRECTORY_COUNT}" -ne 7 ] || \
    [ "${RAW_UNSAFE_TYPE_COUNT}" -ne 0 ]; then
   die 'protected commit archive membership or entry types are not exact.'
 fi

@@ -1,4 +1,4 @@
-import { Test, TestingModule } from '@nestjs/testing';
+import { Test, type TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { BadRequestException } from '@nestjs/common';
 
@@ -6,6 +6,7 @@ import { ScadaPackage, ScadaPackageStatus } from '../../entities/scada-package.e
 import { Process, ProcessStatus } from '../../entities/process.entity';
 import { ScadaPackageService } from '../scada-package.service';
 import { ProcessService } from '../process.service';
+import { createScadaPackageTestingModule } from './scada-package-service.testing';
 
 /**
  * SENSOR-HIGH-043 — a soft-deleted (ARCHIVED) package/process must not deploy.
@@ -25,13 +26,10 @@ describe('deploy archived guard (SENSOR-HIGH-043)', () => {
 
     beforeEach(async () => {
       repo = { findOne: jest.fn(), save: jest.fn() };
-      const module: TestingModule = await Test.createTestingModule({
-        providers: [
-          ScadaPackageService,
-          { provide: getRepositoryToken(ScadaPackage), useValue: repo },
-          { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
-        ],
-      }).compile();
+      const module: TestingModule = await createScadaPackageTestingModule([
+        { provide: getRepositoryToken(ScadaPackage), useValue: repo },
+        { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
+      ]);
       service = module.get(ScadaPackageService);
     });
 
@@ -66,10 +64,7 @@ describe('deploy archived guard (SENSOR-HIGH-043)', () => {
     beforeEach(async () => {
       repo = { findOne: jest.fn() };
       const module: TestingModule = await Test.createTestingModule({
-        providers: [
-          ProcessService,
-          { provide: getRepositoryToken(Process), useValue: repo },
-        ],
+        providers: [ProcessService, { provide: getRepositoryToken(Process), useValue: repo }],
       }).compile();
       service = module.get(ProcessService);
     });

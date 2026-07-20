@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -7,6 +7,29 @@ const REPO_ROOT = resolve(__dirname, '..', '..');
 
 function read(path: string): string {
   return readFileSync(join(REPO_ROOT, path), 'utf8');
+}
+
+function capacityTestScript(testRoot: string): string {
+  const scriptDirectory = join(testRoot, 'capacity-harness', 'scripts', 'deploy');
+  const capacityPath = join(scriptDirectory, 'droplet-capacity.sh');
+  const controlPath = join(scriptDirectory, 'production-host-control-plane.sh');
+  const deployPathsPath = join(scriptDirectory, 'deploy-paths.sh');
+  mkdirSync(scriptDirectory, { recursive: true });
+  writeFileSync(capacityPath, read('scripts/deploy/droplet-capacity.sh'));
+  const productionControl = read('scripts/deploy/production-host-control-plane.sh');
+  const testControl = productionControl.replace(
+    /^export PATH=.*$/m,
+    '# Test copy intentionally preserves the fixture PATH.',
+  );
+  if (testControl === productionControl) {
+    throw new Error('production host control-plane PATH assignment was not found');
+  }
+  writeFileSync(controlPath, testControl);
+  writeFileSync(deployPathsPath, read('scripts/deploy/deploy-paths.sh'));
+  chmodSync(capacityPath, 0o755);
+  chmodSync(controlPath, 0o755);
+  chmodSync(deployPathsPath, 0o755);
+  return capacityPath;
 }
 
 function uncommentedLines(text: string): string[] {
@@ -72,17 +95,18 @@ describe('deploy SSOT contract', () => {
     expect(capacity).toContain('rollback-*)');
     expect(capacity).toContain('remove superseded rollback retag');
     expect(capacity).toContain('keep protected rollback retag');
-    // Default-deny tag policy: an app tag outside the closed keep-allowlist
-    // (latest/staging/buildcache-*/current sha/rollback retention) is
-    // reclaimed when unprotected — ad-hoc retags (incident-clean-*) were
-    // immortal because they matched no GC branch.
-    expect(capacity).toContain('remove unclassified app tag');
-    expect(capacity).toContain('removed_unclassified=');
-    // Untag passes must convert into reclaimed bytes — the final
-    // dangling-only prune is what fixes the historical before=after
-    // symptom.
+    // GC authority is closed over the generated service catalog and known
+    // rollback generations. Unknown/ad-hoc refs are evidence, not safe
+    // deletion candidates, so they remain visible for operator review.
+    expect(capacity).toContain('keep unclassified application ref outside GC authority');
+    expect(capacity).not.toContain('remove unclassified app tag');
+    expect(capacity).toContain('removed_unclassified=${removed_unclassified}');
+    // Known rollback retags remain reclaimable without a global image/system
+    // prune that could cross this workflow's ownership boundary.
     expect(capacity).toContain('removed_rollback_retags=');
     expect(capacity).toContain('GC_DRY_RUN');
+    expect(capacity).not.toMatch(/docker\s+(?:image\s+)?prune/);
+    expect(capacity).not.toMatch(/docker\s+system\s+prune/);
   });
 
   it('keeps production deploy scripts away from local builds and volume pruning', () => {
@@ -185,9 +209,12 @@ describe('deploy SSOT contract', () => {
     const deploy = read('scripts/deploy/droplet-up.sh');
 
     expect(deploy).toContain('scope_services=()');
-    expect(deploy).toContain('done < <(restartable_deploy_services)');
-    expect(deploy).toContain('Rollback scope had no restorable images.');
-    expect(deploy).toContain('up -d --no-deps --no-build --force-recreate "${scope_services[@]}"');
+    expect(deploy).toContain('done < <(rollback_scope_services)');
+    expect(deploy).toContain('absent_services+=("${svc}")');
+    expect(deploy).toContain(
+      'up -d --no-deps --no-build --force-recreate "${restore_services[@]}"',
+    );
+    expect(deploy).toContain('Previously absent service ${svc} container authority is invalid.');
     expect(deploy).not.toContain('up -d --no-build --remove-orphans');
   });
 
@@ -275,30 +302,37 @@ describe('deploy SSOT contract', () => {
       /CAPACITY_NON_DU_HEADROOM_SECONDS=(\d+)/.exec(capacity)?.[1],
     );
     const jobTimeoutMinutes = Number(/timeout-minutes:\s*(\d+)/.exec(capacityJobBlock)?.[1]);
-    const commandTimeoutMinutes = Number(/command_timeout:\s*(\d+)m/.exec(capacityJobBlock)?.[1]);
+    const commandTimeoutSeconds = Number(
+      /SSH_COMMAND_TIMEOUT_SECONDS:\s*'?([0-9]+)'?/.exec(capacityJobBlock)?.[1],
+    );
     const maintenanceJobTimeoutMinutes = Number(
       /timeout-minutes:\s*(\d+)/.exec(maintenanceJobBlock)?.[1],
     );
-    const maintenanceCommandTimeoutMinutes = Number(
-      /command_timeout:\s*(\d+)m/.exec(maintenanceJobBlock)?.[1],
+    const maintenanceCommandTimeoutSeconds = Number(
+      /SSH_COMMAND_TIMEOUT_SECONDS:\s*'?([0-9]+)'?/.exec(maintenanceJobBlock)?.[1],
     );
 
     expect(duTimeoutSeconds).toBe(120);
     expect(duKillGraceSeconds).toBe(5);
     expect(nonDuHeadroomSeconds).toBe(300);
-    expect(commandTimeoutMinutes).toBeLessThan(jobTimeoutMinutes);
+    expect(commandTimeoutSeconds).toBeLessThan(jobTimeoutMinutes * 60);
     expect(duTimeoutSeconds + duKillGraceSeconds + nonDuHeadroomSeconds).toBeLessThan(
-      commandTimeoutMinutes * 60,
+      commandTimeoutSeconds,
     );
-    expect(maintenanceCommandTimeoutMinutes).toBeLessThan(maintenanceJobTimeoutMinutes);
+    expect(maintenanceCommandTimeoutSeconds).toBeLessThan(maintenanceJobTimeoutMinutes * 60);
     expect(duTimeoutSeconds + duKillGraceSeconds + nonDuHeadroomSeconds).toBeLessThan(
-      maintenanceCommandTimeoutMinutes * 60,
+      maintenanceCommandTimeoutSeconds,
     );
   });
 
   it('keeps safe image GC to one post-GC deep traversal', () => {
-    const maintenance = read('.github/workflows/deploy-capacity-maintenance.yml');
-    const safeImageGcBlock = /safe-image-gc\)\n[\s\S]*?\n\s+;;/.exec(maintenance)?.[0] ?? '';
+    const capacity = read('scripts/deploy/droplet-capacity.sh');
+    const safeImageGcStart = capacity.indexOf('run_safe_image_gc() {');
+    const safeImageGcEnd = capacity.indexOf('\n}', safeImageGcStart);
+    const safeImageGcBlock =
+      safeImageGcStart >= 0 && safeImageGcEnd > safeImageGcStart
+        ? capacity.slice(safeImageGcStart, safeImageGcEnd)
+        : '';
 
     expect(safeImageGcBlock).not.toEqual('');
     expect(safeImageGcBlock).toContain(
@@ -371,21 +405,19 @@ describe('deploy SSOT contract', () => {
     chmodSync(findPath, 0o755);
 
     try {
-      const report = spawnSync(
-        'bash',
-        [join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh'), 'report'],
-        {
-          env: {
-            ...process.env,
-            PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
-            CAPACITY_DISK_USAGE_MODE: 'deep',
-            DU_INVOCATION_LOG: invocationLog,
-            FAKE_HOTSPOT_SCOPE: fakeBin,
-            DOCKER_ROOT_DIR: '/var/lib/docker',
-          },
-          encoding: 'utf8',
+      const report = spawnSync('bash', [capacityTestScript(fakeBin), 'report'], {
+        env: {
+          ...process.env,
+          PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+          NODE_ENV: 'test',
+          AQUA_CONTROL_PLANE_TEST_ROOT: join(fakeBin, 'control-root'),
+          CAPACITY_DISK_USAGE_MODE: 'deep',
+          DU_INVOCATION_LOG: invocationLog,
+          FAKE_HOTSPOT_SCOPE: fakeBin,
+          DOCKER_ROOT_DIR: '/var/lib/docker',
         },
-      );
+        encoding: 'utf8',
+      });
       expect(report.error).toBeUndefined();
       expect(report.status).toBe(0);
       const invocations = readFileSync(invocationLog, 'utf8').trim().split('\n');
@@ -405,22 +437,20 @@ describe('deploy SSOT contract', () => {
       const invocationCount = invocations.length;
 
       for (const invalidTimeout of ['121', '900']) {
-        const rejected = spawnSync(
-          'bash',
-          [join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh'), 'report'],
-          {
-            env: {
-              ...process.env,
-              PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
-              CAPACITY_DISK_USAGE_MODE: 'deep',
-              CAPACITY_DU_TIMEOUT_SECONDS: invalidTimeout,
-              DU_INVOCATION_LOG: invocationLog,
-              FAKE_HOTSPOT_SCOPE: fakeBin,
-              DOCKER_ROOT_DIR: '/var/lib/docker',
-            },
-            encoding: 'utf8',
+        const rejected = spawnSync('bash', [capacityTestScript(fakeBin), 'report'], {
+          env: {
+            ...process.env,
+            PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+            NODE_ENV: 'test',
+            AQUA_CONTROL_PLANE_TEST_ROOT: join(fakeBin, 'control-root'),
+            CAPACITY_DISK_USAGE_MODE: 'deep',
+            CAPACITY_DU_TIMEOUT_SECONDS: invalidTimeout,
+            DU_INVOCATION_LOG: invocationLog,
+            FAKE_HOTSPOT_SCOPE: fakeBin,
+            DOCKER_ROOT_DIR: '/var/lib/docker',
           },
-        );
+          encoding: 'utf8',
+        });
         expect(rejected.error).toBeUndefined();
         expect(rejected.status).toBe(0);
         expect(rejected.stdout).toContain(
@@ -456,6 +486,8 @@ describe('deploy SSOT contract', () => {
     const baseEnv = {
       ...process.env,
       PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+      NODE_ENV: 'test',
+      AQUA_CONTROL_PLANE_TEST_ROOT: join(fakeBin, 'control-root'),
       CAPACITY_DISK_USAGE_MODE: 'deep',
       CAPACITY_DU_TIMEOUT_SECONDS: '3',
       CAPACITY_GC_MODE: 'off',
@@ -470,11 +502,10 @@ describe('deploy SSOT contract', () => {
     };
 
     try {
-      const passing = spawnSync(
-        'bash',
-        [join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh'), 'gate'],
-        { env: baseEnv, encoding: 'utf8' },
-      );
+      const passing = spawnSync('bash', [capacityTestScript(fakeBin), 'gate'], {
+        env: baseEnv,
+        encoding: 'utf8',
+      });
       expect(passing.error).toBeUndefined();
       expect(passing.status).toBe(0);
       expect(passing.stdout).toContain('disk_usage_unavailable path=');
@@ -483,14 +514,10 @@ describe('deploy SSOT contract', () => {
       );
       expect(passing.stdout).toContain('Capacity preflight: PASS');
 
-      const failing = spawnSync(
-        'bash',
-        [join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh'), 'gate'],
-        {
-          env: { ...baseEnv, SELECTIVE_HARD_FREE_GIB: '1000000' },
-          encoding: 'utf8',
-        },
-      );
+      const failing = spawnSync('bash', [capacityTestScript(fakeBin), 'gate'], {
+        env: { ...baseEnv, SELECTIVE_HARD_FREE_GIB: '1000000' },
+        encoding: 'utf8',
+      });
       expect(failing.error).toBeUndefined();
       expect(failing.status).toBe(1);
       expect(failing.stdout).toContain('disk_preflight_low_bytes');
@@ -543,21 +570,19 @@ describe('deploy SSOT contract', () => {
 
     try {
       const startedAt = Date.now();
-      const report = spawnSync(
-        'bash',
-        [join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh'), 'report'],
-        {
-          env: {
-            ...process.env,
-            PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
-            CAPACITY_DISK_USAGE_MODE: 'deep',
-            CAPACITY_DU_TIMEOUT_SECONDS: '3',
-            DOCKER_ROOT_DIR: '/var/lib/docker',
-            SLOW_SCOPE: fakeBin,
-          },
-          encoding: 'utf8',
+      const report = spawnSync('bash', [capacityTestScript(fakeBin), 'report'], {
+        env: {
+          ...process.env,
+          PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+          NODE_ENV: 'test',
+          AQUA_CONTROL_PLANE_TEST_ROOT: join(fakeBin, 'control-root'),
+          CAPACITY_DISK_USAGE_MODE: 'deep',
+          CAPACITY_DU_TIMEOUT_SECONDS: '3',
+          DOCKER_ROOT_DIR: '/var/lib/docker',
+          SLOW_SCOPE: fakeBin,
         },
-      );
+        encoding: 'utf8',
+      });
       const elapsedMs = Date.now() - startedAt;
       expect(report.error).toBeUndefined();
       expect(report.status).toBe(0);
@@ -635,22 +660,20 @@ describe('deploy SSOT contract', () => {
 
     try {
       const startedAt = Date.now();
-      const report = spawnSync(
-        'bash',
-        [join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh'), 'report'],
-        {
-          env: {
-            ...process.env,
-            PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
-            CAPACITY_DISK_USAGE_MODE: 'deep',
-            DOCKER_ROOT_DIR: '/var/lib/docker',
-            HOTSPOT_SCOPES: hotspotScopes.join(':'),
-            BLOCKED_SCOPES: hotspotScopes.slice(0, 4).join(':'),
-            TIMEOUT_INVOCATION_LOG: invocationLog,
-          },
-          encoding: 'utf8',
+      const report = spawnSync('bash', [capacityTestScript(fakeBin), 'report'], {
+        env: {
+          ...process.env,
+          PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+          NODE_ENV: 'test',
+          AQUA_CONTROL_PLANE_TEST_ROOT: join(fakeBin, 'control-root'),
+          CAPACITY_DISK_USAGE_MODE: 'deep',
+          DOCKER_ROOT_DIR: '/var/lib/docker',
+          HOTSPOT_SCOPES: hotspotScopes.join(':'),
+          BLOCKED_SCOPES: hotspotScopes.slice(0, 4).join(':'),
+          TIMEOUT_INVOCATION_LOG: invocationLog,
         },
-      );
+        encoding: 'utf8',
+      });
       expect(report.error).toBeUndefined();
       expect(report.status).toBe(0);
       expect(Date.now() - startedAt).toBeLessThan(4_000);
@@ -704,20 +727,18 @@ describe('deploy SSOT contract', () => {
 
     try {
       const startedAt = Date.now();
-      const report = spawnSync(
-        'bash',
-        [join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh'), 'report'],
-        {
-          env: {
-            ...process.env,
-            PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
-            CAPACITY_DISK_USAGE_MODE: 'deep',
-            CAPACITY_DU_TIMEOUT_SECONDS: '3',
-            DOCKER_ROOT_DIR: '/var/lib/docker',
-          },
-          encoding: 'utf8',
+      const report = spawnSync('bash', [capacityTestScript(fakeBin), 'report'], {
+        env: {
+          ...process.env,
+          PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+          NODE_ENV: 'test',
+          AQUA_CONTROL_PLANE_TEST_ROOT: join(fakeBin, 'control-root'),
+          CAPACITY_DISK_USAGE_MODE: 'deep',
+          CAPACITY_DU_TIMEOUT_SECONDS: '3',
+          DOCKER_ROOT_DIR: '/var/lib/docker',
         },
-      );
+        encoding: 'utf8',
+      });
       expect(report.error).toBeUndefined();
       expect(report.status).toBe(0);
       expect(Date.now() - startedAt).toBeLessThan(6_000);
@@ -774,21 +795,19 @@ describe('deploy SSOT contract', () => {
     }
 
     try {
-      const report = spawnSync(
-        'bash',
-        [join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh'), 'report'],
-        {
-          env: {
-            ...process.env,
-            PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
-            CAPACITY_DISK_USAGE_MODE: 'deep',
-            DOCKER_ROOT_DIR: '/var/lib/docker',
-            DU_INVOCATION_LOG: invocationLog,
-            HOSTILE_SCOPE: hostileScope,
-          },
-          encoding: 'utf8',
+      const report = spawnSync('bash', [capacityTestScript(fakeBin), 'report'], {
+        env: {
+          ...process.env,
+          PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+          NODE_ENV: 'test',
+          AQUA_CONTROL_PLANE_TEST_ROOT: join(fakeBin, 'control-root'),
+          CAPACITY_DISK_USAGE_MODE: 'deep',
+          DOCKER_ROOT_DIR: '/var/lib/docker',
+          DU_INVOCATION_LOG: invocationLog,
+          HOSTILE_SCOPE: hostileScope,
         },
-      );
+        encoding: 'utf8',
+      });
       expect(report.error).toBeUndefined();
       expect(report.status).toBe(0);
       expect(report.stdout).toContain(
@@ -962,21 +981,25 @@ describe('deploy SSOT contract', () => {
   it('keeps CI-Affected as the main release orchestrator with explicit deploy mutation proof', () => {
     // A reusable-workflow caller's `result == success` only proves the called
     // workflow did not fail. The production deploy workflow keeps an explicit
-    // mutation output and CI-Affected uses that output as the single release
-    // orchestration contract: quality gates -> staging -> production -> proof.
+    // verified-baseline output and CI-Affected uses that output as the single
+    // release contract: quality gates -> staging -> host mutation -> proof ->
+    // atomic baseline promotion.
     const deployWorkflow = read('.github/workflows/deploy-digitalocean.yml');
     const ciAffected = read('.github/workflows/ci-affected.yml');
     expect(deployWorkflow).toContain('deployed:');
-    expect(deployWorkflow).toContain("value: ${{ jobs.deploy.outputs.performed == 'true' }}");
+    expect(deployWorkflow).toContain(
+      "value: ${{ jobs.advance-production-baseline.outputs.advanced == 'true' }}",
+    );
     expect(deployWorkflow).toContain('Mark deployment performed');
+    expect(deployWorkflow).toContain('production-post-deploy-verify:');
+    expect(deployWorkflow).toContain('advance-production-baseline:');
+    expect(deployWorkflow).toContain('uses: ./.github/workflows/production-post-deploy-verify.yml');
     expect(ciAffected).toContain('deploy-staging:');
     expect(ciAffected).toContain('deploy-production:');
-    expect(ciAffected).toContain('production-post-deploy-verify:');
     expect(ciAffected).toContain('uses: ./.github/workflows/deploy-staging.yml');
     expect(ciAffected).toContain('uses: ./.github/workflows/deploy-digitalocean.yml');
-    expect(ciAffected).toContain('uses: ./.github/workflows/production-post-deploy-verify.yml');
     expect(ciAffected).toContain('services: auto');
-    expect(ciAffected).toContain("needs.deploy-production.outputs.deployed == 'true'");
+    expect(ciAffected).not.toMatch(/^ {2}production-post-deploy-verify:/mu);
     expect(ciAffected).toContain("needs.deploy-staging.result == 'success'");
     expect(ciAffected).toContain("needs.pre-flight.result == 'success'");
     expect(ciAffected).toContain("- '.github/workflows/production-post-deploy-verify.yml'");
@@ -990,14 +1013,13 @@ describe('deploy SSOT contract', () => {
     expect(workflow).toContain('capacity-preflight:');
     expect(workflow).toContain('DEPLOY_IMAGE_DIGESTS_B64');
     expect(workflow).toContain(
-      'CAPACITY_GC_MODE=auto bash scripts/deploy/droplet-capacity.sh gate',
+      'PRODUCTION_HOST_REMOTE_ENTRYPOINT=scripts/deploy/droplet-capacity.sh',
     );
+    expect(workflow).toContain('PRODUCTION_HOST_REMOTE_MODE=lock-exec');
     expect(maintenance).toContain('workflow_dispatch:');
     expect(maintenance).toContain('safe-image-gc');
-    expect(maintenance).toContain('bash scripts/deploy/droplet-capacity.sh gc');
-    expect(maintenance).toContain(
-      'CAPACITY_GC_MODE=auto CAPACITY_DISK_USAGE_MODE=deep bash scripts/deploy/droplet-capacity.sh gate',
-    );
+    expect(maintenance).toContain('prepare-production-host-ssh-payload.sh');
+    expect(maintenance).toContain('run-protected-ssh.sh');
   });
 
   it('routes required-secret validation through the canonical npm script', () => {

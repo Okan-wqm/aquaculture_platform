@@ -443,8 +443,8 @@ jobs:
 
       - name: Verify backup key, denial matrix, and broker attestation
         env:
-          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
-          DROPLET_SSH_FINGERPRINT: ${{ secrets.DROPLET_SSH_FINGERPRINT }}
+          DROPLET_HOST: ${{ secrets.PRODUCTION_BACKUP_DROPLET_HOST }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.PRODUCTION_BACKUP_DROPLET_SSH_FINGERPRINT }}
           BROKER_SSH_KEY: ${{ secrets.BACKUP_BROKER_SSH_KEY }}
           EXPECTED_KEY_FINGERPRINT: ${{ vars.BACKUP_BROKER_SSH_KEY_FINGERPRINT }}
           EXPECTED_SOURCE_SHA256: ${{ needs.release-authority.outputs.source_sha256 }}
@@ -820,8 +820,8 @@ jobs:
 
       - name: Verify PITR key, denial matrix, and broker attestation
         env:
-          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
-          DROPLET_SSH_FINGERPRINT: ${{ secrets.DROPLET_SSH_FINGERPRINT }}
+          DROPLET_HOST: ${{ secrets.PRODUCTION_BACKUP_DROPLET_HOST }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.PRODUCTION_BACKUP_DROPLET_SSH_FINGERPRINT }}
           BROKER_SSH_KEY: ${{ secrets.PITR_BROKER_SSH_KEY }}
           EXPECTED_KEY_FINGERPRINT: ${{ vars.PITR_BROKER_SSH_KEY_FINGERPRINT }}
           EXPECTED_SOURCE_SHA256: ${{ needs.release-authority.outputs.source_sha256 }}
@@ -1196,8 +1196,8 @@ jobs:
 
       - name: Verify WAL-freshness key, denial matrix, and broker attestation
         env:
-          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
-          DROPLET_SSH_FINGERPRINT: ${{ secrets.DROPLET_SSH_FINGERPRINT }}
+          DROPLET_HOST: ${{ secrets.PRODUCTION_BACKUP_DROPLET_HOST }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.PRODUCTION_BACKUP_DROPLET_SSH_FINGERPRINT }}
           BROKER_SSH_KEY: ${{ secrets.WAL_FRESHNESS_BROKER_SSH_KEY }}
           EXPECTED_KEY_FINGERPRINT: ${{ vars.WAL_FRESHNESS_BROKER_SSH_KEY_FINGERPRINT }}
           EXPECTED_SOURCE_SHA256: ${{ needs.release-authority.outputs.source_sha256 }}

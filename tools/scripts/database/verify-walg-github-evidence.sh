@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Verify backup/PITR authority from immutable GitHub Actions artifacts and
-# Cosign v3 Rekor bundles. DigitalOcean Spaces is checked only as a
-# content-addressed audit mirror and never acts as the closure authority.
+# Cosign v3 Rekor bundles, then stage the exact verified file set for the
+# separately credentialed read-only audit-mirror verifier.
 
 set +x
 set -euo pipefail
@@ -9,20 +9,32 @@ umask 077
 
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY required}"
 : "${GH_TOKEN:?GH_TOKEN required}"
-: "${SPACES_ENDPOINT:?SPACES_ENDPOINT required}"
-: "${EVIDENCE_SPACES_BUCKET:?EVIDENCE_SPACES_BUCKET required}"
-: "${AWS_ACCESS_KEY_ID:?read-only evidence mirror access key required}"
-: "${AWS_SECRET_ACCESS_KEY:?read-only evidence mirror secret required}"
-: "${AWS_REGION:?AWS_REGION required}"
-: "${AWS_DEFAULT_REGION:?AWS_DEFAULT_REGION required}"
 : "${CLOSURE_MAIN_SHA:?CLOSURE_MAIN_SHA required}"
+
+for forbidden_credential in \
+  AWS_ACCESS_KEY_ID \
+  AWS_SECRET_ACCESS_KEY \
+  AWS_SESSION_TOKEN \
+  AWS_REGION \
+  AWS_DEFAULT_REGION \
+  SPACES_ENDPOINT \
+  EVIDENCE_SPACES_BUCKET; do
+  if [ "${!forbidden_credential+x}" = x ]; then
+    echo "FATAL: GitHub evidence verifier refuses co-resident credential ${forbidden_credential}." >&2
+    exit 2
+  fi
+done
 
 EVIDENCE_OUTPUT_DIR="${EVIDENCE_OUTPUT_DIR:-walg-verified-evidence}"
 MAX_HISTORY_RUNS="${MAX_HISTORY_RUNS:-30}"
 MAX_BACKUP_EVIDENCE_AGE_SECONDS="${MAX_BACKUP_EVIDENCE_AGE_SECONDS:-345600}"
 MAX_PITR_EVIDENCE_AGE_SECONDS="${MAX_PITR_EVIDENCE_AGE_SECONDS:-86400}"
+MAX_STAGED_MIRROR_FILES=65
+MAX_STAGED_MIRROR_BYTES=122683392
+MAX_STAGED_MANIFEST_BYTES=32768
 API_VERSION='2022-11-28'
 COSIGN_ISSUER='https://token.actions.githubusercontent.com'
+EXPECTED_COSIGN_SHA256='c956e5dfcac53d52bcf058360d579472f0c1d2d9b69f55209e256fe7783f4c74'
 DR_CONTRACT_MANIFEST='.github/manifests/postgres-dr-contract.sha256'
 
 if [[ ! "${MAX_HISTORY_RUNS}" =~ ^[1-9][0-9]*$ ]] || [ "${MAX_HISTORY_RUNS}" -gt 100 ]; then
@@ -39,12 +51,26 @@ for age_limit in "${MAX_BACKUP_EVIDENCE_AGE_SECONDS}" "${MAX_PITR_EVIDENCE_AGE_S
     exit 2
   fi
 done
-for command_name in aws base64 cmp cosign curl date gh jq node sha256sum unzip; do
+
+github_token_material=${GH_TOKEN}
+unset GH_TOKEN
+
+for command_name in awk cmp curl date find gh grep install jq node python3 sed sha256sum sort stat wc; do
   command -v "${command_name}" >/dev/null 2>&1 || {
     echo "FATAL: ${command_name} is required." >&2
     exit 2
   }
 done
+COSIGN_BIN=$(command -v cosign) || {
+  echo 'FATAL: cosign is required.' >&2
+  exit 2
+}
+if [[ "${COSIGN_BIN}" != /* ]] || [ ! -f "${COSIGN_BIN}" ] || [ ! -x "${COSIGN_BIN}" ] || \
+   [ "$(sha256sum "${COSIGN_BIN}" | awk '{print $1}')" != "${EXPECTED_COSIGN_SHA256}" ]; then
+  echo 'FATAL: installed cosign is not the pinned v3.0.6 Linux amd64 binary.' >&2
+  exit 2
+fi
+readonly COSIGN_BIN
 if [ ! -f "${DR_CONTRACT_MANIFEST}" ] || [ -L "${DR_CONTRACT_MANIFEST}" ]; then
   echo 'FATAL: PostgreSQL DR contract manifest must be a regular non-symlink file.' >&2
   exit 2
@@ -87,18 +113,36 @@ if [ -e "${EVIDENCE_OUTPUT_DIR}" ]; then
   exit 2
 fi
 mkdir -m 0700 "${EVIDENCE_OUTPUT_DIR}"
+mkdir -m 0700 "${EVIDENCE_OUTPUT_DIR}/objects"
 
 TMP_DIR=$(mktemp -d -t aqua-walg-github-evidence-XXXXXX)
+EVALUATION_OUTPUT_DIR="${TMP_DIR}/evaluation"
+STAGED_MANIFEST_INPUT="${TMP_DIR}/mirror-manifest.unsorted"
+mkdir -m 0700 "${EVALUATION_OUTPUT_DIR}"
+: > "${STAGED_MANIFEST_INPUT}"
+chmod 0600 "${STAGED_MANIFEST_INPUT}"
 cleanup() {
   rm -rf -- "${TMP_DIR}"
 }
 trap cleanup EXIT
 
 gh_api() {
-  gh api \
+  GH_TOKEN="${github_token_material}" gh api \
     -H 'Accept: application/vnd.github+json' \
     -H "X-GitHub-Api-Version: ${API_VERSION}" \
     "$@"
+}
+
+assert_exact_current_main() {
+  local remote_main_sha
+  remote_main_sha=$(gh_api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha') || return
+  [[ "${remote_main_sha}" =~ ^[0-9a-f]{40}$ ]] || return
+  [ "${remote_main_sha}" = "${CLOSURE_MAIN_SHA}" ]
+}
+
+assert_exact_current_main || {
+  echo 'FATAL: closure SHA is not the exact current protected main SHA.' >&2
+  exit 1
 }
 
 declare -A VERIFIED_SOURCE_IMAGE_AUTHORITIES=()
@@ -156,19 +200,102 @@ assert_current_run_authority() {
   fi
 }
 
-mirror_verify() {
-  local file=$1
-  local sha key mirror
-  sha=$(sha256sum "${file}" | awk '{print $1}')
-  key="wal-g-evidence/v2/sha256/${sha}/$(basename "${file}")"
-  mirror="${TMP_DIR}/mirror-${sha}"
-  aws s3api get-object \
-    --bucket "${EVIDENCE_SPACES_BUCKET}" \
-    --key "${key}" \
-    --endpoint-url "${SPACES_ENDPOINT}" \
-    "${mirror}" >/dev/null
-  if ! cmp -s "${file}" "${mirror}"; then
-    echo "FATAL: signed artifact and content-addressed mirror differ: ${key}" >&2
+stage_verified_file() {
+  local source_file=$1
+  local file_name source_bytes sha object_dir object_path
+
+  if [ ! -f "${source_file}" ] || [ -L "${source_file}" ]; then
+    echo "FATAL: refusing to stage an unsafe verified evidence file: ${source_file}." >&2
+    exit 1
+  fi
+  file_name=$(basename "${source_file}")
+  case "${file_name}" in
+    base-backup.json|timestamp-pitr.json|evidence-attestation.json|evidence-attestation.sigstore.json|run-record.json|run-record.sigstore.json) ;;
+    *)
+      echo "FATAL: verified evidence file has an unsupported basename: ${file_name}." >&2
+      exit 1
+      ;;
+  esac
+  source_bytes=$(stat -c '%s' "${source_file}")
+  if [[ ! "${source_bytes}" =~ ^[1-9][0-9]*$ ]] || [ "${source_bytes}" -gt 8388608 ]; then
+    echo "FATAL: verified evidence file exceeds its staging bound: ${file_name}." >&2
+    exit 1
+  fi
+  sha=$(sha256sum "${source_file}" | awk '{print $1}')
+  if [[ ! "${sha}" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "FATAL: verified evidence digest is invalid: ${file_name}." >&2
+    exit 1
+  fi
+  object_dir="${EVIDENCE_OUTPUT_DIR}/objects/${sha}"
+  object_path="${object_dir}/${file_name}"
+  if [ ! -e "${object_dir}" ]; then
+    mkdir -m 0700 "${object_dir}"
+  elif [ ! -d "${object_dir}" ] || [ -L "${object_dir}" ]; then
+    echo "FATAL: content-addressed staging directory is unsafe: ${object_dir}." >&2
+    exit 1
+  fi
+  if [ -e "${object_path}" ] || [ -L "${object_path}" ]; then
+    if [ ! -f "${object_path}" ] || [ -L "${object_path}" ] || \
+       ! cmp -s "${source_file}" "${object_path}"; then
+      echo "FATAL: content-addressed staging collision: ${object_path}." >&2
+      exit 1
+    fi
+  else
+    install -m 0400 -- "${source_file}" "${object_path}"
+    if [ -L "${object_path}" ] || ! cmp -s "${source_file}" "${object_path}"; then
+      echo "FATAL: staged evidence bytes changed during installation: ${object_path}." >&2
+      exit 1
+    fi
+  fi
+  printf '%s  objects/%s/%s\n' "${sha}" "${sha}" "${file_name}" \
+    >> "${STAGED_MANIFEST_INPUT}"
+}
+
+finalize_staged_manifest() {
+  local manifest_path line_count manifest_bytes staged_bytes actual_paths expected_paths
+  manifest_path="${EVIDENCE_OUTPUT_DIR}/mirror-manifest.sha256"
+  LC_ALL=C sort -u "${STAGED_MANIFEST_INPUT}" > "${manifest_path}"
+  chmod 0400 "${manifest_path}"
+  line_count=$(wc -l < "${manifest_path}")
+  manifest_bytes=$(stat -c '%s' "${manifest_path}")
+  if [ "${line_count}" -lt 1 ] || [ "${line_count}" -gt "${MAX_STAGED_MIRROR_FILES}" ] || \
+     [ "${manifest_bytes}" -lt 1 ] || [ "${manifest_bytes}" -gt "${MAX_STAGED_MANIFEST_BYTES}" ]; then
+    echo 'FATAL: staged evidence manifest exceeds its file-count or byte bound.' >&2
+    exit 1
+  fi
+  if ! awk '
+    BEGIN { previous = "" }
+    !/^[0-9a-f]{64}  objects\/[0-9a-f]{64}\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/ { exit 1 }
+    {
+      sha = substr($0, 1, 64)
+      path_sha = substr($0, 75, 64)
+      if (sha != path_sha || (previous != "" && previous >= $0)) exit 1
+      previous = $0
+    }
+    END { if (NR < 1) exit 1 }
+  ' "${manifest_path}"; then
+    echo 'FATAL: staged evidence manifest is not canonical.' >&2
+    exit 1
+  fi
+  (
+    cd "${EVIDENCE_OUTPUT_DIR}"
+    sha256sum --strict --check mirror-manifest.sha256 >/dev/null
+  )
+  actual_paths="${TMP_DIR}/staged-actual-paths"
+  expected_paths="${TMP_DIR}/staged-expected-paths"
+  find "${EVIDENCE_OUTPUT_DIR}/objects" -mindepth 2 -maxdepth 2 -type f -printf '%P\n' \
+    | LC_ALL=C sort > "${actual_paths}"
+  sed -n 's/^[0-9a-f]\{64\}  objects\///p' "${manifest_path}" > "${expected_paths}"
+  if ! cmp -s "${actual_paths}" "${expected_paths}" || \
+     find "${EVIDENCE_OUTPUT_DIR}" -type l -print -quit | grep -q . || \
+     find "${EVIDENCE_OUTPUT_DIR}/objects" -mindepth 1 ! -type d ! -type f -print -quit | grep -q .; then
+    echo 'FATAL: staged evidence tree does not exactly match its manifest.' >&2
+    exit 1
+  fi
+  staged_bytes=$(find "${EVIDENCE_OUTPUT_DIR}/objects" -type f -printf '%s\n' \
+    | awk '{ total += $1 } END { print total + 0 }')
+  if [ "${staged_bytes}" -gt "${MAX_STAGED_MIRROR_BYTES}" ]; then
+    echo 'FATAL: staged evidence tree exceeds its aggregate byte bound.' >&2
     exit 1
   fi
 }
@@ -182,7 +309,7 @@ verify_cosign_record() {
   local event_name=$6
   local identity
   identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/${workflow_file}@refs/heads/main"
-  cosign verify-blob \
+  "${COSIGN_BIN}" verify-blob \
     --bundle "${bundle}" \
     --certificate-identity "${identity}" \
     --certificate-oidc-issuer "${COSIGN_ISSUER}" \
@@ -199,14 +326,16 @@ download_attempt_artifact() {
   local workflow_name=$2
   local run_json=$3
   local workflow_json=$4
-  local run_id attempt main_sha event_name artifact_name artifact_json artifact_count
-  local artifact_id artifact_digest artifact_zip actual_digest extract_dir entries allowed entry
+  local run_id attempt main_sha event_name run_started_at run_updated_at artifact_name artifact_json artifact_count
+  local artifact_id artifact_digest artifact_bytes artifact_zip actual_digest extract_dir allowed raw_evidence_file
 
   run_id=$(jq -er '.id | tostring' "${run_json}")
   attempt=$(jq -er '.run_attempt | tostring' "${run_json}")
   main_sha=$(jq -er '.head_sha' "${run_json}")
   event_name=$(jq -er '.event' "${run_json}")
-  artifact_name="walg-evidence-v2-${workflow_file}-${run_id}-${attempt}"
+  run_started_at=$(jq -er '.run_started_at' "${run_json}")
+  run_updated_at=$(jq -er '.updated_at' "${run_json}")
+  artifact_name="walg-evidence-v3-${workflow_file}-${run_id}-${attempt}"
   artifact_json="${TMP_DIR}/artifact-${workflow_file}-${run_id}-${attempt}.json"
   gh_api "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?name=${artifact_name}&per_page=100" \
     > "${artifact_json}"
@@ -219,12 +348,17 @@ download_attempt_artifact() {
     --arg name "${artifact_name}" \
     --argjson run_id "${run_id}" \
     --arg sha "${main_sha}" \
+    --arg run_started_at "${run_started_at}" \
+    --arg run_updated_at "${run_updated_at}" \
     '.artifacts[0]
       | .name == $name
         and .expired == false
         and .workflow_run.id == $run_id
         and .workflow_run.head_branch == "main"
         and .workflow_run.head_sha == $sha
+        and .created_at >= $run_started_at
+        and .created_at <= $run_updated_at
+        and (.size_in_bytes > 0 and .size_in_bytes <= 10485760)
         and (.digest | test("^sha256:[0-9a-f]{64}$"))' \
     "${artifact_json}" >/dev/null || {
       echo "FATAL: artifact identity/digest contract failed for ${artifact_name}." >&2
@@ -233,38 +367,97 @@ download_attempt_artifact() {
 
   artifact_id=$(jq -er '.artifacts[0].id | tostring' "${artifact_json}")
   artifact_digest=$(jq -er '.artifacts[0].digest' "${artifact_json}")
+  artifact_bytes=$(jq -er '.artifacts[0].size_in_bytes | tostring' "${artifact_json}")
   artifact_zip="${TMP_DIR}/${artifact_name}.zip"
-  curl --fail --silent --show-error --location \
+  assert_exact_current_main || {
+    echo 'FATAL: main advanced before the signed artifact download boundary.' >&2
+    exit 1
+  }
+  curl --fail --silent --show-error --location --max-filesize 10485760 \
     -H 'Accept: application/vnd.github+json' \
-    -H "Authorization: Bearer ${GH_TOKEN}" \
+    -H "Authorization: Bearer ${github_token_material}" \
     -H "X-GitHub-Api-Version: ${API_VERSION}" \
     "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
     --output "${artifact_zip}"
   actual_digest="sha256:$(sha256sum "${artifact_zip}" | awk '{print $1}')"
-  if [ "${actual_digest}" != "${artifact_digest}" ]; then
+  if [ "$(stat -c '%s' "${artifact_zip}")" != "${artifact_bytes}" ] || \
+     [ "${actual_digest}" != "${artifact_digest}" ]; then
     echo "FATAL: downloaded artifact digest mismatch for ${artifact_name}." >&2
     exit 1
   fi
-
-  entries="${TMP_DIR}/${artifact_name}.entries"
-  unzip -Z1 "${artifact_zip}" | sort > "${entries}"
-  if [ "$(wc -l < "${entries}")" -lt 2 ] || [ "$(sort -u "${entries}" | wc -l)" -ne "$(wc -l < "${entries}")" ]; then
-    echo "FATAL: artifact has missing or duplicate archive members: ${artifact_name}." >&2
+  if [ "$(stat -c '%s' "${artifact_zip}")" -gt 10485760 ]; then
+    echo "FATAL: signed evidence artifact exceeds its archive bound: ${artifact_name}." >&2
     exit 1
   fi
-  while IFS= read -r entry; do
-    case "${entry}" in
-      run-record.json|run-record.sigstore.json|evidence-attestation.json|evidence-attestation.sigstore.json) ;;
-      *) echo "FATAL: unsafe or unexpected artifact member: ${entry}" >&2; exit 1 ;;
-    esac
-  done < "${entries}"
+  case "${workflow_file}" in
+    backup-production.yml) raw_evidence_file=base-backup.json ;;
+    pitr-restore-production.yml) raw_evidence_file=timestamp-pitr.json ;;
+    *) echo "FATAL: unsupported evidence workflow: ${workflow_file}." >&2; exit 1 ;;
+  esac
 
   extract_dir="${TMP_DIR}/extracted-${workflow_file}-${run_id}-${attempt}"
-  mkdir -m 0700 "${extract_dir}"
-  while IFS= read -r allowed; do
-    unzip -p "${artifact_zip}" "${allowed}" > "${extract_dir}/${allowed}"
-    chmod 0600 "${extract_dir}/${allowed}"
-  done < "${entries}"
+  python3 - "${artifact_zip}" "${extract_dir}" "${raw_evidence_file}" <<'PY'
+import os
+import stat
+import sys
+import zipfile
+
+archive_path, destination, raw_evidence_file = sys.argv[1:]
+minimal = {'run-record.json', 'run-record.sigstore.json'}
+full = minimal | {
+    raw_evidence_file,
+    'evidence-attestation.json',
+    'evidence-attestation.sigstore.json',
+}
+limits = {
+    raw_evidence_file: 8388608,
+    'evidence-attestation.json': 262144,
+    'evidence-attestation.sigstore.json': 262144,
+    'run-record.json': 262144,
+    'run-record.sigstore.json': 262144,
+}
+with zipfile.ZipFile(archive_path, 'r') as archive:
+    entries = archive.infolist()
+    names = [entry.filename for entry in entries]
+    if len(names) != len(set(names)) or set(names) not in (minimal, full):
+        raise SystemExit('signed evidence artifact has an unexpected or duplicate file set')
+    total_expanded = 0
+    for entry in entries:
+        name = entry.filename
+        if (
+            entry.is_dir()
+            or name != os.path.basename(name)
+            or '/' in name
+            or '\\' in name
+            or stat.S_ISLNK(entry.external_attr >> 16)
+            or entry.file_size <= 0
+            or entry.file_size > limits[name]
+        ):
+            raise SystemExit(f'unsafe signed evidence artifact entry: {name!r}')
+        total_expanded += entry.file_size
+    if total_expanded > 9437184:
+        raise SystemExit('expanded signed evidence artifact exceeds its bound')
+    os.mkdir(destination, 0o700)
+    for entry in entries:
+        target = os.path.join(destination, entry.filename)
+        descriptor = os.open(
+            target,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o400,
+        )
+        written = 0
+        with archive.open(entry, 'r') as source, os.fdopen(descriptor, 'wb') as output:
+            while True:
+                chunk = source.read(65536)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > limits[entry.filename]:
+                    raise SystemExit(f'signed evidence entry exceeded bound: {entry.filename!r}')
+                output.write(chunk)
+        if written != entry.file_size:
+            raise SystemExit(f'signed evidence entry size changed: {entry.filename!r}')
+PY
 
   for allowed in run-record.json run-record.sigstore.json; do
     [ -f "${extract_dir}/${allowed}" ] || {
@@ -284,9 +477,6 @@ download_attempt_artifact() {
     --api-run "${run_json}" \
     --api-workflow "${workflow_json}" >/dev/null
 
-  while IFS= read -r allowed; do
-    mirror_verify "${extract_dir}/${allowed}"
-  done < "${entries}"
   DOWNLOADED_ARTIFACT_DIR="${extract_dir}"
 }
 
@@ -297,7 +487,9 @@ extract_signed_evidence() {
   local run_json=$4
   local workflow_json=$5
   local output=$6
-  local main_sha event_name
+  local main_sha event_name run_id attempt run_started_at run_updated_at raw_file raw_artifact_id raw_artifact_name
+  local raw_artifact_digest raw_artifact_created_at raw_artifact_path expected_raw_name raw_metadata raw_zip raw_extract_dir
+  local raw_artifact_bytes actual_raw_digest
   for required_file in evidence-attestation.json evidence-attestation.sigstore.json; do
     [ -f "${artifact_dir}/${required_file}" ] || {
       echo "FATAL: successful evidence-producing run omits ${required_file}." >&2
@@ -306,6 +498,19 @@ extract_signed_evidence() {
   done
   main_sha=$(jq -er '.head_sha' "${run_json}")
   event_name=$(jq -er '.event' "${run_json}")
+  run_id=$(jq -er '.id | tostring' "${run_json}")
+  attempt=$(jq -er '.run_attempt | tostring' "${run_json}")
+  run_started_at=$(jq -er '.run_started_at' "${run_json}")
+  run_updated_at=$(jq -er '.updated_at' "${run_json}")
+  case "${workflow_file}" in
+    backup-production.yml) raw_file=base-backup.json ;;
+    pitr-restore-production.yml) raw_file=timestamp-pitr.json ;;
+    *) echo "FATAL: unsupported evidence workflow: ${workflow_file}." >&2; exit 1 ;;
+  esac
+  [ -f "${artifact_dir}/${raw_file}" ] && [ ! -L "${artifact_dir}/${raw_file}" ] || {
+    echo "FATAL: signed artifact omits canonical raw evidence ${raw_file}." >&2
+    exit 1
+  }
   verify_cosign_record \
     "${artifact_dir}/evidence-attestation.json" \
     "${artifact_dir}/evidence-attestation.sigstore.json" \
@@ -313,23 +518,132 @@ extract_signed_evidence() {
     "${workflow_name}" \
     "${main_sha}" \
     "${event_name}"
+  raw_artifact_id=$(jq -er '.source_transport.artifact.id | tostring' \
+    "${artifact_dir}/evidence-attestation.json")
+  raw_artifact_name=$(jq -er '.source_transport.artifact.name' \
+    "${artifact_dir}/evidence-attestation.json")
+  raw_artifact_digest=$(jq -er '.source_transport.artifact.digest' \
+    "${artifact_dir}/evidence-attestation.json")
+  raw_artifact_created_at=$(jq -er '.source_transport.artifact.artifact_created_at' \
+    "${artifact_dir}/evidence-attestation.json")
+  raw_artifact_path=$(jq -er '.source_transport.artifact.path' \
+    "${artifact_dir}/evidence-attestation.json")
+  expected_raw_name="walg-raw-evidence-v1-${workflow_file}-${run_id}-${attempt}"
+  if [[ ! "${raw_artifact_id}" =~ ^[1-9][0-9]*$ ]] || \
+     [ "${raw_artifact_name}" != "${expected_raw_name}" ] || \
+     [[ ! "${raw_artifact_digest}" =~ ^sha256:[0-9a-f]{64}$ ]] || \
+     [[ ! "${raw_artifact_created_at}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || \
+     [ "${raw_artifact_path}" != "${raw_file}" ]; then
+    echo 'FATAL: signed raw evidence artifact binding is invalid.' >&2
+    exit 1
+  fi
+
+  raw_metadata="${TMP_DIR}/raw-artifact-${workflow_file}-${run_id}-${attempt}.json"
+  gh_api "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${raw_artifact_id}" > "${raw_metadata}"
+  jq -e \
+    --argjson artifact_id "${raw_artifact_id}" \
+    --arg artifact_name "${raw_artifact_name}" \
+    --arg artifact_digest "${raw_artifact_digest}" \
+    --arg artifact_created_at "${raw_artifact_created_at}" \
+    --argjson run_id "${run_id}" \
+    --arg main_sha "${main_sha}" \
+    --arg run_started_at "${run_started_at}" \
+    --arg run_updated_at "${run_updated_at}" '
+      .id == $artifact_id
+      and .name == $artifact_name
+      and .expired == false
+      and .digest == $artifact_digest
+      and (.size_in_bytes > 0 and .size_in_bytes <= 9437184)
+      and .workflow_run.id == $run_id
+      and .workflow_run.head_branch == "main"
+      and .workflow_run.head_sha == $main_sha
+      and .created_at == $artifact_created_at
+      and .created_at >= $run_started_at
+      and .created_at <= $run_updated_at
+    ' "${raw_metadata}" >/dev/null || {
+      echo 'FATAL: raw evidence artifact server identity does not match its signed binding.' >&2
+      exit 1
+    }
+  raw_artifact_bytes=$(jq -er '.size_in_bytes | tostring' "${raw_metadata}")
+  raw_zip="${TMP_DIR}/${raw_artifact_name}.zip"
+  assert_exact_current_main || {
+    echo 'FATAL: main advanced before the raw artifact download boundary.' >&2
+    exit 1
+  }
+  curl --fail --silent --show-error --location --max-filesize 9437184 \
+    -H 'Accept: application/vnd.github+json' \
+    -H "Authorization: Bearer ${github_token_material}" \
+    -H "X-GitHub-Api-Version: ${API_VERSION}" \
+    "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${raw_artifact_id}/zip" \
+    --output "${raw_zip}"
+  actual_raw_digest="sha256:$(sha256sum "${raw_zip}" | awk '{print $1}')"
+  if [ "$(stat -c '%s' "${raw_zip}")" != "${raw_artifact_bytes}" ] || \
+     [ "${actual_raw_digest}" != "${raw_artifact_digest}" ]; then
+    echo 'FATAL: downloaded raw evidence artifact bytes do not match the signed binding.' >&2
+    exit 1
+  fi
+  raw_extract_dir="${TMP_DIR}/raw-${workflow_file}-${run_id}-${attempt}"
+  python3 - "${raw_zip}" "${raw_extract_dir}" "${raw_file}" <<'PY'
+import os
+import stat
+import sys
+import zipfile
+
+archive_path, destination, expected_name = sys.argv[1:]
+with zipfile.ZipFile(archive_path, 'r') as archive:
+    entries = archive.infolist()
+    if len(entries) != 1 or entries[0].filename != expected_name:
+        raise SystemExit('raw evidence artifact has an unexpected file set')
+    entry = entries[0]
+    if (
+        entry.is_dir()
+        or expected_name != os.path.basename(expected_name)
+        or stat.S_ISLNK(entry.external_attr >> 16)
+        or entry.file_size <= 0
+        or entry.file_size > 8388608
+    ):
+        raise SystemExit('raw evidence artifact entry is unsafe')
+    os.mkdir(destination, 0o700)
+    output_path = os.path.join(destination, expected_name)
+    descriptor = os.open(
+        output_path,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+        0o400,
+    )
+    written = 0
+    with archive.open(entry, 'r') as source, os.fdopen(descriptor, 'wb') as output:
+        while True:
+            chunk = source.read(65536)
+            if not chunk:
+                break
+            written += len(chunk)
+            if written > 8388608:
+                raise SystemExit('expanded raw evidence exceeds its bound')
+            output.write(chunk)
+    if written != entry.file_size:
+        raise SystemExit('raw evidence entry size changed during extraction')
+PY
+  if ! cmp -s "${raw_extract_dir}/${raw_file}" "${artifact_dir}/${raw_file}"; then
+    echo 'FATAL: signed artifact raw evidence differs from the immutable producer artifact.' >&2
+    exit 1
+  fi
   node tools/scripts/database/walg-evidence-attestation.mjs extract-evidence \
     --attestation "${artifact_dir}/evidence-attestation.json" \
     --run-record "${artifact_dir}/run-record.json" \
     --api-run "${run_json}" \
     --api-workflow "${workflow_json}" \
+    --evidence "${artifact_dir}/${raw_file}" \
+    --artifact-id "${raw_artifact_id}" \
+    --artifact-name "${raw_artifact_name}" \
+    --artifact-digest "${raw_artifact_digest}" \
+    --artifact-created-at "${raw_artifact_created_at}" \
     --output "${output}"
+  stage_verified_file "${artifact_dir}/run-record.json"
+  stage_verified_file "${artifact_dir}/run-record.sigstore.json"
+  stage_verified_file "${artifact_dir}/${raw_file}"
+  stage_verified_file "${artifact_dir}/evidence-attestation.json"
+  stage_verified_file "${artifact_dir}/evidence-attestation.sigstore.json"
 }
-
-VERSIONING_STATUS=$(aws s3api get-bucket-versioning \
-  --bucket "${EVIDENCE_SPACES_BUCKET}" \
-  --endpoint-url "${SPACES_ENDPOINT}" \
-  --query Status \
-  --output text)
-if [ "${VERSIONING_STATUS}" != 'Enabled' ]; then
-  echo 'FATAL: signed evidence mirror bucket versioning must be Enabled.' >&2
-  exit 1
-fi
 
 BACKUP_WORKFLOW_FILE='backup-production.yml'
 BACKUP_WORKFLOW_NAME='Backup - Production Postgres'
@@ -366,8 +680,8 @@ while IFS= read -r RUN_ID; do
     "${DOWNLOADED_ARTIFACT_DIR}" \
     "${BACKUP_WORKFLOW_FILE}" "${BACKUP_WORKFLOW_NAME}" \
     "${ATTEMPT_RUN_JSON}" "${BACKUP_WORKFLOW_JSON}" \
-    "${EVIDENCE_OUTPUT_DIR}/base-${BACKUP_COUNT}.json"
-  assert_source_image_authority "${EVIDENCE_OUTPUT_DIR}/base-${BACKUP_COUNT}.json"
+    "${EVALUATION_OUTPUT_DIR}/base-${BACKUP_COUNT}.json"
+  assert_source_image_authority "${EVALUATION_OUTPUT_DIR}/base-${BACKUP_COUNT}.json"
   if [ "${BACKUP_COUNT}" -eq 3 ]; then
     break
   fi
@@ -406,8 +720,8 @@ while IFS= read -r RUN_ID; do
     "${DOWNLOADED_ARTIFACT_DIR}" \
     "${PITR_WORKFLOW_FILE}" "${PITR_WORKFLOW_NAME}" \
     "${ATTEMPT_RUN_JSON}" "${PITR_WORKFLOW_JSON}" \
-    "${EVIDENCE_OUTPUT_DIR}/pitr-${PITR_COUNT}.json"
-  assert_source_image_authority "${EVIDENCE_OUTPUT_DIR}/pitr-${PITR_COUNT}.json"
+    "${EVALUATION_OUTPUT_DIR}/pitr-${PITR_COUNT}.json"
+  assert_source_image_authority "${EVALUATION_OUTPUT_DIR}/pitr-${PITR_COUNT}.json"
   if [ "${PITR_COUNT}" -ge 10 ]; then
     break
   fi
@@ -418,7 +732,16 @@ if [ "${PITR_COUNT}" -lt 1 ]; then
   exit 1
 fi
 
+assert_exact_current_main || {
+  echo 'FATAL: main advanced before WAL-G closure evaluation.' >&2
+  exit 1
+}
 node tools/scripts/database/evaluate-walg-evidence.mjs \
-  --evidence-dir "${EVIDENCE_OUTPUT_DIR}" \
+  --evidence-dir "${EVALUATION_OUTPUT_DIR}" \
   --expected-main-sha "${CLOSURE_MAIN_SHA}" \
   --expected-postgres-dr-contract-sha256 "${EXPECTED_POSTGRES_DR_CONTRACT_SHA256}"
+finalize_staged_manifest
+assert_exact_current_main || {
+  echo 'FATAL: main advanced while WAL-G closure evidence was being evaluated.' >&2
+  exit 1
+}

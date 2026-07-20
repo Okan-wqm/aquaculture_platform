@@ -228,6 +228,12 @@ def splice_into_nats_conf(generated_block: str) -> tuple[str, bool]:
 
 
 def main() -> int:
+    args = sys.argv[1:]
+    if args not in ([], ["--check"]):
+        sys.stderr.write("usage: generate-nats-conf.py [--check]\n")
+        return 2
+    check_only = args == ["--check"]
+
     services = load_services()
     block = render_generated_block(services)
     new_contents, modified = splice_into_nats_conf(block)
@@ -237,6 +243,13 @@ def main() -> int:
             f"no change — {NATS_CONF.relative_to(REPO_ROOT)} already matches SSoT\n"
         )
         return 0
+
+    if check_only:
+        sys.stderr.write(
+            f"error: {NATS_CONF.relative_to(REPO_ROOT)} does not match "
+            "infrastructure/nats/services.yaml; regenerate and commit it\n"
+        )
+        return 1
 
     NATS_CONF.write_text(new_contents)
     sys.stdout.write(

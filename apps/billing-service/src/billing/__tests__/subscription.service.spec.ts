@@ -17,6 +17,12 @@ import {
   PlanPricing,
 } from '../entities/subscription.entity';
 
+const TEST_NOW = new Date('2026-03-14T12:00:00Z');
+
+function dateAtOffset(days: number): Date {
+  return new Date(TEST_NOW.getTime() + days * 24 * 60 * 60 * 1000);
+}
+
 describe('Subscription Service', () => {
   let subscriptionRepository: jest.Mocked<Repository<Subscription>>;
   let eventEmitter: jest.Mocked<EventEmitter2>;
@@ -973,20 +979,21 @@ describe('Subscription Service', () => {
     });
 
     it('should send renewal notification in advance', () => {
-      const shouldSendRenewalNotice = (currentPeriodEnd: Date, daysBefore: number = 7): boolean => {
+      const shouldSendRenewalNotice = (
+        currentPeriodEnd: Date,
+        now: Date,
+        daysBefore: number = 7,
+      ): boolean => {
         const noticeDate = new Date(currentPeriodEnd);
         noticeDate.setDate(noticeDate.getDate() - daysBefore);
-        return new Date() >= noticeDate && new Date() < currentPeriodEnd;
+        return now >= noticeDate && now < currentPeriodEnd;
       };
 
-      const periodEndIn5Days = new Date();
-      periodEndIn5Days.setDate(periodEndIn5Days.getDate() + 5);
+      const periodEndIn5Days = dateAtOffset(5);
+      const periodEndIn10Days = dateAtOffset(10);
 
-      const periodEndIn10Days = new Date();
-      periodEndIn10Days.setDate(periodEndIn10Days.getDate() + 10);
-
-      expect(shouldSendRenewalNotice(periodEndIn5Days, 7)).toBe(true);
-      expect(shouldSendRenewalNotice(periodEndIn10Days, 7)).toBe(false);
+      expect(shouldSendRenewalNotice(periodEndIn5Days, TEST_NOW, 7)).toBe(true);
+      expect(shouldSendRenewalNotice(periodEndIn10Days, TEST_NOW, 7)).toBe(false);
     });
 
     it('should handle failed renewal payment', () => {
@@ -1103,16 +1110,17 @@ describe('Subscription Service', () => {
     it('should automatically resume after pause', () => {
       const checkAutoResume = (
         subscription: Partial<Subscription>,
+        now: Date,
       ): Partial<Subscription> | null => {
         if (
           subscription.status === SubscriptionStatus.SUSPENDED &&
           subscription.scheduledResumeDate &&
-          new Date() >= subscription.scheduledResumeDate
+          now >= subscription.scheduledResumeDate
         ) {
           return {
             ...subscription,
             status: SubscriptionStatus.ACTIVE,
-            resumedAt: new Date(),
+            resumedAt: now,
           };
         }
         return null;
@@ -1120,16 +1128,16 @@ describe('Subscription Service', () => {
 
       const pastResume: Partial<Subscription> = {
         status: SubscriptionStatus.SUSPENDED,
-        scheduledResumeDate: new Date('2023-01-01'),
+        scheduledResumeDate: dateAtOffset(-1),
       };
 
       const futureResume: Partial<Subscription> = {
         status: SubscriptionStatus.SUSPENDED,
-        scheduledResumeDate: new Date('2025-12-31'),
+        scheduledResumeDate: dateAtOffset(1),
       };
 
-      expect(checkAutoResume(pastResume)).not.toBeNull();
-      expect(checkAutoResume(futureResume)).toBeNull();
+      expect(checkAutoResume(pastResume, TEST_NOW)).not.toBeNull();
+      expect(checkAutoResume(futureResume, TEST_NOW)).toBeNull();
     });
 
     it('should retain usage data during pause', () => {
@@ -1164,39 +1172,42 @@ describe('Subscription Service', () => {
     });
 
     it('should handle trial expiration', () => {
-      const isTrialExpired = (subscription: Partial<Subscription>): boolean => {
+      const isTrialExpired = (subscription: Partial<Subscription>, now: Date): boolean => {
         return (
           subscription.status === SubscriptionStatus.TRIAL &&
           subscription.trialEnd !== undefined &&
-          new Date() > subscription.trialEnd
+          now > subscription.trialEnd
         );
       };
 
       const expiredTrial: Partial<Subscription> = {
         status: SubscriptionStatus.TRIAL,
-        trialEnd: new Date('2023-01-01'),
+        trialEnd: dateAtOffset(-1),
       };
 
       const activeTrial: Partial<Subscription> = {
         status: SubscriptionStatus.TRIAL,
-        trialEnd: new Date('2025-12-31'),
+        trialEnd: dateAtOffset(1),
       };
 
-      expect(isTrialExpired(expiredTrial)).toBe(true);
-      expect(isTrialExpired(activeTrial)).toBe(false);
+      expect(isTrialExpired(expiredTrial, TEST_NOW)).toBe(true);
+      expect(isTrialExpired(activeTrial, TEST_NOW)).toBe(false);
     });
 
     it('should send trial ending notification', () => {
-      const shouldSendTrialEndingNotice = (trialEnd: Date, daysBefore: number = 3): boolean => {
+      const shouldSendTrialEndingNotice = (
+        trialEnd: Date,
+        now: Date,
+        daysBefore: number = 3,
+      ): boolean => {
         const noticeDate = new Date(trialEnd);
         noticeDate.setDate(noticeDate.getDate() - daysBefore);
-        return new Date() >= noticeDate && new Date() < trialEnd;
+        return now >= noticeDate && now < trialEnd;
       };
 
-      const trialEndIn2Days = new Date();
-      trialEndIn2Days.setDate(trialEndIn2Days.getDate() + 2);
+      const trialEndIn2Days = dateAtOffset(2);
 
-      expect(shouldSendTrialEndingNotice(trialEndIn2Days, 3)).toBe(true);
+      expect(shouldSendTrialEndingNotice(trialEndIn2Days, TEST_NOW, 3)).toBe(true);
     });
   });
 

@@ -957,6 +957,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": ".github/manifests/production-deploy-secrets.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": ".github/manifests/scheduled-workflows.json",
       "prettier_managed": true
     },
@@ -6734,6 +6740,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/db-migrate/src/__tests__/orphan-type-reclamation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/db-migrate/src/__tests__/pitr-source-verification.integration.spec.ts",
       "prettier_managed": true
     },
     {
@@ -24545,6 +24557,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/process/services/__tests__/scada-package-service.testing.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/process/services/__tests__/scada-package-undeploy-on-delete.spec.ts",
       "prettier_managed": true
     },
@@ -34555,7 +34573,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "f8f6e3e770625cdc6671152f763afdbb3cdab61cc03e760d992fad3134861d27",
+      "content_sha256": "8c059625170f1ed35f48c10bac1b9a613f4bf59b19a8e8256a3f71cee7b2a5d6",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/deploy/service-catalog.generated.json",
@@ -39324,7 +39342,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "24cb0eee1b28f9abd1b00ea1dfaccca2614b10e15f73203ccdb094a2bb97a804",
+      "content_sha256": "c78a311938d07293d2a8440f71919109f05c0c049b4c0af0d98638144db6cfab",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -41244,6 +41262,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/droplet-capacity-control-plane.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/edge-device-dual-model-guard.spec.ts",
       "prettier_managed": true
     },
@@ -41784,6 +41808,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/platform-binary-installer-authority.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/platform-entity-registry-parity.spec.ts",
       "prettier_managed": true
     },
@@ -41815,6 +41845,36 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/postgres-runtime-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/production-cert-identity-store.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/production-current-release-marker.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/production-host-control-plane-runtime.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/production-host-runtime-bundle.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/production-host-ssh-payload.spec.ts",
       "prettier_managed": true
     },
     {
@@ -43063,6 +43123,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/scripts/database/generate-database-verification-sql.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/database/read-bounded-line.mjs",
       "prettier_managed": true
     },
     {
@@ -54852,10 +54918,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8991,
+  "file_count": 9002,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8810,
-  "managed_file_list_sha256": "2bf935f30fa75f7bcab66d27cb473a13fd4dd9d4530b6bfe5707067d8817117c",
+  "managed_count": 8821,
+  "managed_file_list_sha256": "189cc5574dc075b7b31c146caa52c54fce3d6a06b3cc8a0f43200148b833930f",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

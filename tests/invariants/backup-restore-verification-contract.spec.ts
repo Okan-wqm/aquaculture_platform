@@ -31,13 +31,18 @@ const BUNDLE_PREPARER_PATH = join(
   REPO_ROOT,
   'tools/scripts/ci/prepare-protected-runtime-bundle.sh',
 );
+const PITR_CEREMONY_PATH = join(REPO_ROOT, 'tools/scripts/database/walg-pitr-ceremony.sh');
 const RUNTIME_BUNDLE_PATHS = [
   '.github/manifests/postgres-dr-contract.sha256',
+  'scripts/deploy/production-host-control-plane.sh',
   'tools/scripts/database/backup-databases.sh',
   'tools/scripts/database/database-verification.sql',
   'tools/scripts/database/evaluate-walg-evidence.mjs',
   'tools/scripts/database/materialize-walg-secrets.sh',
+  'tools/scripts/database/pitr-source-verification-locks.sql',
+  'tools/scripts/database/read-bounded-line.mjs',
   'tools/scripts/database/walg-base-backup.sh',
+  'tools/scripts/database/walg-pitr-ceremony.sh',
   'tools/scripts/database/walg-pitr-restore.sh',
 ] as const;
 const MUTABLE_RUNTIME_PATH = 'tools/scripts/database/backup-databases.sh';
@@ -284,11 +289,15 @@ describe('backup and isolated restore verification contract', () => {
     const entries = manifestEntries(manifest);
     const requiredPaths = [
       '.github/manifests/postgres-dr-contract.sha256',
+      'scripts/deploy/production-host-control-plane.sh',
       'tools/scripts/database/backup-databases.sh',
       'tools/scripts/database/database-verification.sql',
       'tools/scripts/database/evaluate-walg-evidence.mjs',
       'tools/scripts/database/materialize-walg-secrets.sh',
+      'tools/scripts/database/pitr-source-verification-locks.sql',
+      'tools/scripts/database/read-bounded-line.mjs',
       'tools/scripts/database/walg-base-backup.sh',
+      'tools/scripts/database/walg-pitr-ceremony.sh',
       'tools/scripts/database/walg-pitr-restore.sh',
     ];
 
@@ -309,7 +318,7 @@ describe('backup and isolated restore verification contract', () => {
     expect(runtimeWorkflow).toContain('bash tools/scripts/ci/run-protected-ssh.sh');
     expect(runtimeWorkflow).toContain('DROPLET_SSH_FINGERPRINT');
     expect(runtimeWorkflow).toContain(
-      'REMOTE_EVIDENCE_B64: ${{ steps.remote_backup.outputs.evidence_b64 }}',
+      'raw_evidence_artifact_id: ${{ steps.preserve_raw_evidence.outputs.artifact-id }}',
     );
     expect(runtimeWorkflow).not.toMatch(
       /\bgit(?:\s+-C\s+(?:"[^"]+"|\S+))?\s+(?:checkout|restore|switch|reset)\b/,
@@ -344,14 +353,21 @@ describe('backup and isolated restore verification contract', () => {
       expect(workflow).toContain('ARCHIVE_MEMBER_TYPES=$(tar -tvf');
       expect(workflow).toContain('tar --extract --no-same-owner --no-same-permissions');
       const remoteScript = extractRemoteScript(workflow);
+      for (const path of RUNTIME_BUNDLE_PATHS) {
+        expect(remoteScript).toContain(path);
+      }
       expect(remoteScript).not.toMatch(
         /(^|[^A-Za-z0-9_])(?:\/[A-Za-z0-9._/-]+\/)?git(?:-[A-Za-z0-9._-]+)?(?=$|[^A-Za-z0-9_])/i,
       );
       expect(remoteScript).not.toMatch(/(^|[\s/'"])\.git(?:[\s/'"]|$)/i);
     }
+
+    expect(pitrWorkflow).toContain('bash tools/scripts/database/walg-pitr-ceremony.sh');
+    expect(extractRemoteScript(pitrWorkflow)).not.toContain('docker create');
+    expect(read(PITR_CEREMONY_PATH)).toContain('TARGET_CONTAINER_ID=$(docker create');
   });
 
-  it('builds an exact eight-file archive from the protected commit instead of the worktree', () => {
+  it('builds an exact control-plane-bound archive from the protected commit instead of the worktree', () => {
     const fixture = createRuntimeBundleFixture();
     const outputPath = join(fixture.root, 'runtime-bundle.tar');
     const protectedContent = read(join(fixture.root, MUTABLE_RUNTIME_PATH));

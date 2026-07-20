@@ -8,6 +8,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
+const TEST_NOW = new Date('2026-03-14T12:00:00Z');
+
+function dateAtOffset(days: number): Date {
+  return new Date(TEST_NOW.getTime() + days * 24 * 60 * 60 * 1000);
+}
+
 describe('Billing Integration Tests', () => {
   let eventEmitter: jest.Mocked<EventEmitter2>;
 
@@ -257,9 +263,7 @@ describe('Billing Integration Tests', () => {
       });
 
       it('should sync payment to QuickBooks', () => {
-        const syncPaymentToQuickBooks = (
-          paymentId: string,
-        ): QuickBooksSyncResult => {
+        const syncPaymentToQuickBooks = (paymentId: string): QuickBooksSyncResult => {
           return {
             success: true,
             quickbooksId: `qb_pay_${paymentId}`,
@@ -365,7 +369,13 @@ describe('Billing Integration Tests', () => {
         };
 
         const payments: PaymentExport[] = [
-          { paymentId: 'pay-1', invoiceId: 'inv-1', amount: 199, method: 'card', date: '2024-06-01' },
+          {
+            paymentId: 'pay-1',
+            invoiceId: 'inv-1',
+            amount: 199,
+            method: 'card',
+            date: '2024-06-01',
+          },
         ];
 
         const exported = exportPayments(payments);
@@ -484,8 +494,7 @@ describe('Billing Integration Tests', () => {
           jurisdictions: string[];
         }
 
-        const validateExemption = (cert: TaxExemptionCert): boolean => {
-          const now = new Date();
+        const validateExemption = (cert: TaxExemptionCert, now: Date): boolean => {
           return now >= cert.validFrom && now <= cert.validUntil;
         };
 
@@ -493,12 +502,12 @@ describe('Billing Integration Tests', () => {
           certificateId: 'cert-123',
           tenantId: 'tenant-1',
           exemptionType: 'reseller',
-          validFrom: new Date('2024-01-01'),
-          validUntil: new Date('2025-12-31'),
+          validFrom: dateAtOffset(-365),
+          validUntil: dateAtOffset(365),
           jurisdictions: ['US-CA', 'US-NY'],
         };
 
-        expect(validateExemption(validCert)).toBe(true);
+        expect(validateExemption(validCert, TEST_NOW)).toBe(true);
       });
     });
   });
@@ -669,10 +678,7 @@ describe('Billing Integration Tests', () => {
       });
 
       it('should support data retention policy', () => {
-        const shouldRetainData = (
-          createdAt: Date,
-          retentionYears: number,
-        ): boolean => {
+        const shouldRetainData = (createdAt: Date, retentionYears: number): boolean => {
           const retentionEnd = new Date(createdAt);
           retentionEnd.setFullYear(retentionEnd.getFullYear() + retentionYears);
           return new Date() < retentionEnd;
@@ -834,15 +840,15 @@ describe('Billing Integration Tests', () => {
   describe('Performance & Scalability', () => {
     describe('Load Testing', () => {
       it('should handle concurrent billing calculations', async () => {
-        const calculateBilling = async (subscriptionId: string): Promise<{ id: string; total: number }> => {
+        const calculateBilling = async (
+          subscriptionId: string,
+        ): Promise<{ id: string; total: number }> => {
           // Simulate calculation
           return { id: subscriptionId, total: 199 };
         };
 
         const startTime = Date.now();
-        const promises = Array.from({ length: 100 }, (_, i) =>
-          calculateBilling(`sub-${i}`),
-        );
+        const promises = Array.from({ length: 100 }, (_, i) => calculateBilling(`sub-${i}`));
 
         const results = await Promise.all(promises);
         const duration = Date.now() - startTime;
@@ -1054,10 +1060,7 @@ describe('Billing Integration Tests', () => {
       });
 
       it('should calculate revenue churn rate', () => {
-        const calculateRevenueChurn = (
-          churnedMRR: number,
-          startingMRR: number,
-        ): number => {
+        const calculateRevenueChurn = (churnedMRR: number, startingMRR: number): number => {
           return startingMRR > 0 ? (churnedMRR / startingMRR) * 100 : 0;
         };
 
@@ -1065,10 +1068,7 @@ describe('Billing Integration Tests', () => {
       });
 
       it('should calculate customer lifetime value', () => {
-        const calculateLTV = (
-          avgRevenuePerMonth: number,
-          avgLifetimeMonths: number,
-        ): number => {
+        const calculateLTV = (avgRevenuePerMonth: number, avgLifetimeMonths: number): number => {
           return avgRevenuePerMonth * avgLifetimeMonths;
         };
 
@@ -1078,9 +1078,7 @@ describe('Billing Integration Tests', () => {
 
     describe('Financial Metrics', () => {
       it('should calculate gross revenue', () => {
-        const calculateGrossRevenue = (
-          invoices: { total: number; status: string }[],
-        ): number => {
+        const calculateGrossRevenue = (invoices: { total: number; status: string }[]): number => {
           return invoices
             .filter((inv) => inv.status === 'paid')
             .reduce((sum, inv) => sum + inv.total, 0);
@@ -1158,10 +1156,7 @@ describe('Billing Integration Tests', () => {
       });
 
       it('should calculate collection rate', () => {
-        const calculateCollectionRate = (
-          collected: number,
-          invoiced: number,
-        ): number => {
+        const calculateCollectionRate = (collected: number, invoiced: number): number => {
           return invoiced > 0 ? (collected / invoiced) * 100 : 0;
         };
 
@@ -1169,10 +1164,7 @@ describe('Billing Integration Tests', () => {
       });
 
       it('should calculate average revenue per user', () => {
-        const calculateARPU = (
-          totalRevenue: number,
-          activeUsers: number,
-        ): number => {
+        const calculateARPU = (totalRevenue: number, activeUsers: number): number => {
           return activeUsers > 0 ? totalRevenue / activeUsers : 0;
         };
 

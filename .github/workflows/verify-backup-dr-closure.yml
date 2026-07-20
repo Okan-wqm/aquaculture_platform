@@ -12,13 +12,16 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  verify:
-    if: github.ref == 'refs/heads/main'
+  verify-github:
+    name: Verify GitHub and Rekor evidence authority
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    environment:
-      name: production-backup
-      deployment: false
+    outputs:
+      artifact_id: ${{ steps.preserve_verified.outputs.artifact-id }}
+      manifest_sha256: ${{ steps.bind_verified.outputs.manifest_sha256 }}
+    permissions:
+      actions: read
+      contents: read
     steps:
       - name: Checkout verifier from exact main run SHA
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -34,7 +37,96 @@ jobs:
           test "${GITHUB_REF}" = 'refs/heads/main'
           test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
 
-      - name: Assert read-only evidence verifier profile
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.0.6
+
+      - name: Verify GitHub and Rekor authority and stage mirror inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLOSURE_MAIN_SHA: ${{ github.sha }}
+        run: |
+          set +x
+          bash tools/scripts/database/verify-walg-github-evidence.sh
+
+      - name: Bind staged evidence manifest to downstream authority
+        id: bind_verified
+        run: |
+          set +x
+          set -euo pipefail
+          MANIFEST=walg-verified-evidence/mirror-manifest.sha256
+          test -f "${MANIFEST}"
+          test ! -L "${MANIFEST}"
+          MANIFEST_SHA256="$(sha256sum "${MANIFEST}" | awk '{print $1}')"
+          [[ "${MANIFEST_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          echo "manifest_sha256=${MANIFEST_SHA256}" >> "${GITHUB_OUTPUT}"
+
+      - name: Preserve bounded verified mirror inputs
+        id: preserve_verified
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: verified-walg-closure-inputs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: walg-verified-evidence/
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+          compression-level: 0
+          archive: true
+
+      - name: Reassert exact protected main after staging verified inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLOSURE_MAIN_SHA: ${{ github.sha }}
+        run: |
+          set +x
+          set -euo pipefail
+          remote_main_sha=$(gh api \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
+            --jq '.object.sha')
+          if [[ ! "${remote_main_sha}" =~ ^[0-9a-f]{40}$ ]] || \
+             [ "${remote_main_sha}" != "${CLOSURE_MAIN_SHA}" ]; then
+            echo 'FATAL: protected main advanced while staging verified evidence.' >&2
+            exit 1
+          fi
+
+  verify-mirror:
+    name: Verify read-only evidence mirror parity
+    needs: [verify-github]
+    if: ${{ always() && needs.verify-github.result == 'success' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production-backup
+      deployment: false
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout exact mirror verifier
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Require exact staged verifier checkout
+        run: |
+          set +x
+          set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
+
+      - name: Download exact verified mirror inputs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.verify-github.outputs.artifact_id }}
+          path: walg-verified-evidence
+          merge-multiple: true
+
+      - name: Verify AWS mirror in a sanitized process boundary
         env:
           BACKUP_SECRET_PROFILE: evidence-verifier
           SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
@@ -42,23 +134,66 @@ jobs:
           EVIDENCE_SPACES_BUCKET: ${{ secrets.EVIDENCE_SPACES_BUCKET }}
           EVIDENCE_VERIFIER_SPACES_ACCESS_KEY_ID: ${{ secrets.EVIDENCE_VERIFIER_SPACES_ACCESS_KEY_ID }}
           EVIDENCE_VERIFIER_SPACES_SECRET_ACCESS_KEY: ${{ secrets.EVIDENCE_VERIFIER_SPACES_SECRET_ACCESS_KEY }}
-        run: |
-          set +x
-          bash tools/scripts/database/assert-backup-secrets.sh
-
-      - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-
-      - name: Verify GitHub/Rekor authority, mirror parity, and DR bounds
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
-          EVIDENCE_SPACES_BUCKET: ${{ secrets.EVIDENCE_SPACES_BUCKET }}
+          EXPECTED_EVIDENCE_MANIFEST_SHA256: ${{ needs.verify-github.outputs.manifest_sha256 }}
           AWS_ACCESS_KEY_ID: ${{ secrets.EVIDENCE_VERIFIER_SPACES_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.EVIDENCE_VERIFIER_SPACES_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ secrets.SPACES_REGION }}
           AWS_DEFAULT_REGION: ${{ secrets.SPACES_REGION }}
+        run: |
+          set +x
+          set -euo pipefail
+          set +a
+          if [ "${AQUA_MIRROR_SANITIZED:-}" != 'aws-read-only-v1' ]; then
+            MIRROR_SCRIPT="$(/usr/bin/readlink -f -- "${BASH_SOURCE[0]}")"
+            test -f "${MIRROR_SCRIPT}"
+            test ! -L "${MIRROR_SCRIPT}"
+            exec /usr/bin/env -i \
+              PATH=/usr/local/bin:/usr/bin:/bin \
+              HOME=/nonexistent \
+              LC_ALL=C \
+              AQUA_MIRROR_SANITIZED=aws-read-only-v1 \
+              BACKUP_SECRET_PROFILE="${BACKUP_SECRET_PROFILE}" \
+              SPACES_ENDPOINT="${SPACES_ENDPOINT}" \
+              SPACES_REGION="${SPACES_REGION}" \
+              EVIDENCE_SPACES_BUCKET="${EVIDENCE_SPACES_BUCKET}" \
+              EVIDENCE_VERIFIER_SPACES_ACCESS_KEY_ID="${EVIDENCE_VERIFIER_SPACES_ACCESS_KEY_ID}" \
+              EVIDENCE_VERIFIER_SPACES_SECRET_ACCESS_KEY="${EVIDENCE_VERIFIER_SPACES_SECRET_ACCESS_KEY}" \
+              EXPECTED_EVIDENCE_MANIFEST_SHA256="${EXPECTED_EVIDENCE_MANIFEST_SHA256}" \
+              AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}" \
+              AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}" \
+              AWS_REGION="${AWS_REGION}" \
+              AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION}" \
+              EVIDENCE_INPUT_DIR=walg-verified-evidence \
+              /bin/bash --noprofile --norc -e -u -o pipefail "${MIRROR_SCRIPT}"
+          fi
+          bash tools/scripts/database/assert-backup-secrets.sh
+          unset EVIDENCE_VERIFIER_SPACES_ACCESS_KEY_ID
+          unset EVIDENCE_VERIFIER_SPACES_SECRET_ACCESS_KEY
+          bash tools/scripts/database/verify-walg-evidence-mirror.sh
+
+  verify-final-main:
+    name: Reassert exact protected main after mirror verification
+    needs: [verify-mirror]
+    if: ${{ always() && needs.verify-mirror.result == 'success' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Reassert exact protected main after mirror verification
+        env:
+          GH_TOKEN: ${{ github.token }}
           CLOSURE_MAIN_SHA: ${{ github.sha }}
         run: |
           set +x
-          bash tools/scripts/database/verify-walg-github-evidence.sh
+          set -euo pipefail
+          remote_main_sha=$(gh api \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
+            --jq '.object.sha')
+          if [[ ! "${remote_main_sha}" =~ ^[0-9a-f]{40}$ ]] || \
+             [ "${remote_main_sha}" != "${CLOSURE_MAIN_SHA}" ]; then
+            echo 'FATAL: protected main advanced during evidence mirror verification.' >&2
+            exit 1
+          fi

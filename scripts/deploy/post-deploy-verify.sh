@@ -10,14 +10,12 @@ POSTGRES_DB="${POSTGRES_DB:-aquaculture}"
 POSTGRES_USER="${POSTGRES_USER:-aquaculture}"
 DEPLOY_STATE_ROOT="${DEPLOY_STATE_ROOT:-/var/lib/aqua/deploy/releases}"
 
-# Deploy filesystem SSoT. This verifier is piped to the droplet over SSH via
-# `bash -s`, so its initial cwd is the login home — it sources deploy-paths.sh
-# from the persistent source repo (always present) to learn the deploy-owned,
-# SHA-pinned DEPLOY_CHECKOUT_DIR it must verify from. The verifier reads the
-# deploy's worktree, NOT the interactive /var/aqua-saas tree, so the HEAD check
-# below can no longer false-fail when a parallel session drifts that tree.
+# Deploy filesystem SSoT. The protected payload executes this verifier from the
+# exact runner-built bundle for TARGET_SHA. It sources only its sibling helper;
+# the target's interactive checkout and Git configuration are not authorities.
 # shellcheck source=scripts/deploy/deploy-paths.sh
-source "${DEPLOY_SOURCE_REPO:-/var/aqua-saas}/scripts/deploy/deploy-paths.sh"
+VERIFY_SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+source "${VERIFY_SCRIPT_DIR}/deploy-paths.sh"
 
 case "${TARGET_SHA}" in
   *[!0-9a-f]*)
@@ -31,7 +29,7 @@ if [ "${#TARGET_SHA}" -ne 40 ]; then
 fi
 
 # docker-compose.droplet.yml image refs interpolate ${TAG:?TAG required},
-# so EVERY compose invocation below (check-service-health.ts runs
+# so EVERY compose invocation below (the bundled health runtime runs
 # `compose config --services`; the readiness sweep runs `compose ps -q`)
 # needs TAG in the environment. droplet-up.sh owns the same contract via
 # TAG="${TAG:-${DEPLOY_SHA}}"; the verifier's equivalent deploy identity
@@ -58,22 +56,106 @@ require_command() {
 }
 
 require_command docker
-require_command git
 require_command node
 require_command python3
 
-# Verify from the dedicated, deploy-owned SHA-pinned checkout — not the shared
-# interactive working tree. The HEAD check is now a true invariant: the deploy
-# pins this worktree to the deploy SHA and nothing else writes to it, so a
-# session checking out a feature branch in /var/aqua-saas cannot make this
-# false-fail (the historical expected=<sha> actual=<feature-branch-sha> bug).
+# The shared-exec wrapper already holds this exact FD in the normal workflow.
+# Reacquiring it validates inherited-lock identity and keeps direct invocation
+# fail-closed. Verification observes source bytes, the release marker, Docker,
+# and PostgreSQL under one shared host-state snapshot; it never publishes or
+# prunes source material.
+configure_deploy_paths "${TARGET_SHA}"
+assert_deploy_source_bundle "${TARGET_SHA}"
+aqua_control_plane_lock_acquire shared 120
+aqua_control_plane_lock_assert
+aqua_control_plane_guard_dr_state
 cd "${DEPLOY_CHECKOUT_DIR}"
 
-log "=== Post-deploy verification for ${TARGET_SHA} (checkout ${DEPLOY_CHECKOUT_DIR}) ==="
+log "=== Post-deploy verification for ${TARGET_SHA} (bundle ${DEPLOY_SOURCE_DIR}) ==="
+aqua_control_plane_verify_source
 
-deployed_head="$(git rev-parse HEAD)"
-if [ "${deployed_head}" != "${TARGET_SHA}" ]; then
-  echo "::error::deploy checkout mismatch in ${DEPLOY_CHECKOUT_DIR}: expected=${TARGET_SHA} actual=${deployed_head}" >&2
+CATALOG_DEPLOY_ENV="${CATALOG_DEPLOY_ENV:-infrastructure/deploy/service-catalog.deploy.vars}"
+if [ ! -r "${CATALOG_DEPLOY_ENV}" ]; then
+  echo "::error::Missing generated service catalog deploy artifact: ${CATALOG_DEPLOY_ENV}" >&2
+  exit 1
+fi
+# shellcheck source=infrastructure/deploy/service-catalog.deploy.vars
+. "${CATALOG_DEPLOY_ENV}"
+read -r -a catalog_image_services \
+  <<< "${CATALOG_APPLICATION_IMAGE_SERVICES:?generated application image services missing}"
+read -r -a catalog_compose_image_bindings \
+  <<< "${CATALOG_APPLICATION_COMPOSE_IMAGE_MAP:?generated application compose-image map missing}"
+if [ "${#catalog_image_services[@]}" -eq 0 ] || \
+  [ "${#catalog_image_services[@]}" -gt 64 ] || \
+  [ "${#catalog_compose_image_bindings[@]}" -eq 0 ] || \
+  [ "${#catalog_compose_image_bindings[@]}" -gt 128 ]; then
+  echo "::error::application image service catalog has an invalid bounded size." >&2
+  exit 1
+fi
+
+declare -A catalog_services_seen=()
+declare -A catalog_image_services_seen=()
+for service in "${catalog_image_services[@]}"; do
+  if [[ ! "${service}" =~ ^[a-z0-9][a-z0-9-]*$ ]] || \
+    [[ -n "${catalog_image_services_seen[${service}]+present}" ]]; then
+    echo "::error::application image target catalog contains an invalid or duplicate service." >&2
+    exit 1
+  fi
+  catalog_image_services_seen["${service}"]=1
+done
+
+catalog_application_services=()
+long_running_services=()
+db_migrate_catalog_count=0
+for binding in "${catalog_compose_image_bindings[@]}"; do
+  service=${binding%%:*}
+  image_service=${binding#*:}
+  if [ "${binding}" = "${service}" ] || \
+    [[ ! "${service}" =~ ^[a-z0-9][a-z0-9-]*$ ]] || \
+    [[ ! "${image_service}" =~ ^[a-z0-9][a-z0-9-]*$ ]] || \
+    [[ -z "${catalog_image_services_seen[${image_service}]+present}" ]] || \
+    [[ -n "${catalog_services_seen[${service}]+present}" ]]; then
+    echo "::error::application compose-image map contains an invalid or duplicate binding." >&2
+    exit 1
+  fi
+  catalog_services_seen["${service}"]=1
+  catalog_application_services+=("${service}")
+  if [ "${service}" = "db-migrate" ]; then
+    db_migrate_catalog_count=$((db_migrate_catalog_count + 1))
+  else
+    long_running_services+=("${service}")
+  fi
+done
+if [ "${db_migrate_catalog_count}" -ne 1 ] || \
+  [ "${#long_running_services[@]}" -eq 0 ]; then
+  echo "::error::application image service catalog must contain exactly one db-migrate and at least one long-running service." >&2
+  exit 1
+fi
+export CATALOG_APPLICATION_IMAGE_SERVICES CATALOG_APPLICATION_COMPOSE_IMAGE_MAP
+
+# Read the atomic marker before SQL so the verifier selects the exact release
+# attempt, not merely the newest row sharing its Git SHA. A later rolled-back
+# attempt for the same commit must never shadow the marker-authoritative release.
+current_release_json="$(read_deploy_current_release)"
+export CURRENT_RELEASE_JSON="${current_release_json}"
+IFS=$'\t' read -r marker_main_sha marker_release_id marker_manifest_hash < <(
+  python3 - <<'PY'
+import json
+import os
+
+marker = json.loads(os.environ["CURRENT_RELEASE_JSON"])
+print(
+    marker.get("main_sha", ""),
+    marker.get("release_id", ""),
+    marker.get("image_digest_manifest_sha256", ""),
+    sep="\t",
+)
+PY
+)
+if [ "${marker_main_sha}" != "${TARGET_SHA}" ] || \
+  [[ ! "${marker_release_id}" =~ ^${TARGET_SHA}-[0-9]{8}T[0-9]{6}Z$ ]] || \
+  [[ ! "${marker_manifest_hash}" =~ ^[0-9a-f]{64}$ ]]; then
+  echo "::error::current-release marker does not identify the requested exact release." >&2
   exit 1
 fi
 
@@ -82,11 +164,14 @@ if ! docker ps --format '{{.Names}}' | grep -qx 'aqua-postgres'; then
   exit 1
 fi
 
+# BEGIN release-ledger-read-only-query
 release_json="$(
-  docker exec -i aqua-postgres psql \
+  docker exec -e 'PGOPTIONS=-c default_transaction_read_only=on' \
+    -i aqua-postgres psql -X \
     -U "${POSTGRES_USER}" \
     -d "${POSTGRES_DB}" \
     -v ON_ERROR_STOP=1 \
+    -v release_id="${marker_release_id}" \
     -v git_sha="${TARGET_SHA}" \
     -tA <<'SQL'
 WITH latest AS (
@@ -98,22 +183,24 @@ WITH latest AS (
     schema_may_be_forward,
     deploy_metadata,
     image_digests,
+    db_migrate_image,
     expected_heads,
     applied_heads,
     completed_at,
     updated_at
   FROM platform.release_ledger
-  WHERE git_sha = :'git_sha'
-  ORDER BY updated_at DESC
-  LIMIT 1
+  WHERE release_id = :'release_id'
+    AND git_sha = :'git_sha'
 )
 SELECT COALESCE(jsonb_pretty(to_jsonb(latest)), '{}')
-FROM latest;
+FROM latest
+WHERE current_setting('transaction_read_only') = 'on';
 SQL
 )"
+# END release-ledger-read-only-query
 
 if [ -z "${release_json}" ] || [ "${release_json}" = "{}" ]; then
-  echo "::error::release ledger row missing for git_sha=${TARGET_SHA}" >&2
+  echo "::error::release ledger row missing for release_id=${marker_release_id} git_sha=${TARGET_SHA}" >&2
   exit 1
 fi
 
@@ -132,6 +219,10 @@ row = json.loads(os.environ["RELEASE_JSON"])
 print(row.get("status", ""))
 PY
 )"
+if [ "${release_id}" != "${marker_release_id}" ]; then
+  echo "::error::release ledger row does not match the marker-authoritative release id." >&2
+  exit 1
+fi
 heads_match="$(
   python3 - <<'PY'
 import json, os
@@ -148,8 +239,77 @@ print(metadata.get("imageDigestManifestSha256", ""))
 PY
 )"
 
+ledger_image_rows=""
+if ! ledger_image_rows="$(python3 - <<'LEDGER_IMAGE_ATTESTATION_PY'
+import json
+import os
+import re
+import sys
+
+row = json.loads(os.environ["RELEASE_JSON"])
+binding_tokens = os.environ["CATALOG_APPLICATION_COMPOSE_IMAGE_MAP"].split()
+long_running: list[str] = []
+for token in binding_tokens:
+    fields = token.split(":")
+    if len(fields) != 2:
+        raise SystemExit("release compose-image binding schema is invalid")
+    compose_service, _image_service = fields
+    if compose_service != "db-migrate":
+        long_running.append(compose_service)
+images = row.get("image_digests")
+if not isinstance(images, dict):
+    raise SystemExit("release ledger image_digests must be a JSON object")
+
+expected = set(long_running)
+actual = set(images)
+if actual != expected:
+    missing = ",".join(sorted(expected - actual)) or "none"
+    extra = ",".join(sorted(actual - expected)) or "none"
+    raise SystemExit(
+        f"release ledger image_digests catalog mismatch: missing={missing} extra={extra}"
+    )
+
+image_id_pattern = re.compile(r"sha256:[0-9a-f]{64}")
+for service in long_running:
+    image_id = images[service]
+    if not isinstance(image_id, str) or image_id_pattern.fullmatch(image_id) is None:
+        raise SystemExit(f"release ledger has malformed image ID for {service}")
+
+db_migrate_image = row.get("db_migrate_image")
+if not isinstance(db_migrate_image, str) or image_id_pattern.fullmatch(db_migrate_image) is None:
+    raise SystemExit("release ledger has malformed db_migrate_image")
+
+for service in long_running:
+    print(f"{service}\t{images[service]}")
+print(f"db-migrate\t{db_migrate_image}")
+LEDGER_IMAGE_ATTESTATION_PY
+)"; then
+  echo "::error::release ledger image attestation is incomplete or malformed." >&2
+  exit 1
+fi
+
+declare -A ledger_image_ids=()
+ledger_image_rows_seen=0
+while IFS=$'\t' read -r service image_id extra || \
+  [ -n "${service:-}${image_id:-}${extra:-}" ]; do
+  if [ -n "${extra:-}" ] || \
+    [[ ! "${service:-}" =~ ^[a-z0-9][a-z0-9-]*$ ]] || \
+    [[ ! "${image_id:-}" =~ ^sha256:[0-9a-f]{64}$ ]] || \
+    [[ -z "${catalog_services_seen[${service:-}]+present}" ]] || \
+    [[ -n "${ledger_image_ids[${service:-}]+present}" ]]; then
+    echo "::error::release ledger image attestation emitted an invalid or duplicate row." >&2
+    exit 1
+  fi
+  ledger_image_ids["${service}"]="${image_id}"
+  ledger_image_rows_seen=$((ledger_image_rows_seen + 1))
+done <<< "${ledger_image_rows}"
+if [ "${ledger_image_rows_seen}" -ne "${#catalog_application_services[@]}" ]; then
+  echo "::error::release ledger image attestation row count does not match the service catalog." >&2
+  exit 1
+fi
+
 if [ "${release_status}" != "promoted" ]; then
-  echo "::error::latest release ledger row is not promoted: ${release_status}" >&2
+  echo "::error::marker-authoritative release ledger row is not promoted: ${release_status}" >&2
   exit 1
 fi
 if [ "${heads_match}" != "true" ]; then
@@ -172,20 +332,115 @@ if [ "${actual_manifest_hash}" != "${ledger_manifest_hash}" ]; then
   echo "::error::image digest manifest hash mismatch: ledger=${ledger_manifest_hash} actual=${actual_manifest_hash}" >&2
   exit 1
 fi
+if [ "${actual_manifest_hash}" != "${marker_manifest_hash}" ]; then
+  echo "::error::image digest manifest hash does not match the current-release marker." >&2
+  exit 1
+fi
+
+# The release ledger is historical. Bind it to the host's atomically promoted
+# current-release marker under the same control-plane lock so an older verifier
+# cannot certify a newer deployment's containers.
+assert_deploy_current_release "${TARGET_SHA}" "${release_id}" "${actual_manifest_hash}"
+deployed_head="${TARGET_SHA}"
+
+log "=== Full release-ledger image parity for current release ==="
+for service in "${long_running_services[@]}"; do
+  expected_image_id="${ledger_image_ids[${service}]:-}"
+  mapfile -t service_containers < <(
+    docker compose -f docker-compose.droplet.yml ps --all --quiet "${service}" 2>/dev/null
+  )
+  if [ "${#service_containers[@]}" -ne 1 ] || \
+    [[ ! "${service_containers[0]}" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "::error::${service} does not resolve to exactly one canonical compose container." >&2
+    exit 1
+  fi
+  actual_image_id="$(docker inspect --format='{{.Image}}' \
+    "${service_containers[0]}" 2>/dev/null || true)"
+  running_state="$(docker inspect --format='{{.State.Running}}' \
+    "${service_containers[0]}" 2>/dev/null || true)"
+  if [[ ! "${actual_image_id}" =~ ^sha256:[0-9a-f]{64}$ ]] || \
+    [ "${running_state}" != "true" ] || \
+    [ "${actual_image_id}" != "${expected_image_id}" ]; then
+    echo "::error::release-ledger live image parity failed for ${service}." >&2
+    exit 1
+  fi
+  log "  ${service}: running image matches the promoted release ledger"
+done
+
+mapfile -t db_migrate_containers < <(
+  docker compose -f docker-compose.droplet.yml ps --all --quiet db-migrate 2>/dev/null
+)
+if [ "${#db_migrate_containers[@]}" -ne 1 ] || \
+  [[ ! "${db_migrate_containers[0]}" =~ ^[0-9a-f]{64}$ ]]; then
+  echo "::error::db-migrate does not resolve to exactly one canonical completed compose container." >&2
+  exit 1
+fi
+db_migrate_actual_image="$(docker inspect --format='{{.Image}}' \
+  "${db_migrate_containers[0]}" 2>/dev/null || true)"
+db_migrate_state="$(docker inspect --format='{{.State.Running}} {{.State.ExitCode}}' \
+  "${db_migrate_containers[0]}" 2>/dev/null || true)"
+if [[ ! "${db_migrate_actual_image}" =~ ^sha256:[0-9a-f]{64}$ ]] || \
+  [ "${db_migrate_actual_image}" != "${ledger_image_ids[db-migrate]:-}" ] || \
+  [ "${db_migrate_state}" != "false 0" ]; then
+  echo "::error::db-migrate image or successful terminal state does not match the promoted release ledger." >&2
+  exit 1
+fi
+log "  db-migrate: completed image matches the promoted release ledger"
+
+log "=== Selective registry-digest manifest parity for current release ==="
+declare -A manifest_services_seen=()
+manifest_rows=0
+while IFS=$'\t' read -r service repository digest extra || \
+  [ -n "${service:-}${repository:-}${digest:-}${extra:-}" ]; do
+  if [ -n "${extra:-}" ] || \
+    [[ ! "${service:-}" =~ ^[a-z0-9][a-z0-9-]*$ ]] || \
+    [[ ! "${repository:-}" =~ ^[a-z0-9][a-z0-9._/-]*$ ]] || \
+    [[ ! "${digest:-}" =~ ^sha256:[0-9a-f]{64}$ ]] || \
+    [[ -z "${catalog_services_seen[${service:-}]+present}" ]] || \
+    [[ -n "${manifest_services_seen[${service:-}]+present}" ]]; then
+    echo "::error::deploy digest manifest contains an invalid or duplicate row." >&2
+    exit 1
+  fi
+  manifest_services_seen["${service}"]=1
+  manifest_rows=$((manifest_rows + 1))
+  if [ "${manifest_rows}" -gt 64 ]; then
+    echo "::error::deploy digest manifest exceeds the bounded service count." >&2
+    exit 1
+  fi
+
+  expected_image_id="$(docker image inspect --format='{{.Id}}' \
+    "${repository}@${digest}" 2>/dev/null || true)"
+  if [[ ! "${expected_image_id}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    echo "::error::expected image digest is unavailable locally for ${service}." >&2
+    exit 1
+  fi
+  mapfile -t service_containers < <(
+    docker compose -f docker-compose.droplet.yml ps --all --quiet "${service}" 2>/dev/null
+  )
+  if [ "${#service_containers[@]}" -ne 1 ] || \
+    [[ ! "${service_containers[0]}" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "::error::${service} does not resolve to exactly one release container." >&2
+    exit 1
+  fi
+  actual_image_id="$(docker inspect --format='{{.Image}}' \
+    "${service_containers[0]}" 2>/dev/null || true)"
+  if [ "${actual_image_id}" != "${expected_image_id}" ]; then
+    echo "::error::live image parity failed for ${service}." >&2
+    exit 1
+  fi
+  log "  ${service}: live image matches attested digest"
+done < "${digest_manifest}"
+if [ "${manifest_rows}" -eq 0 ]; then
+  echo "::error::deploy digest manifest contains no services." >&2
+  exit 1
+fi
 
 log "=== Service criticality health gate ==="
 COMPOSE_FILE=docker-compose.droplet.yml \
   MANIFEST=infrastructure/deploy/service-criticality.yaml \
   POLL_INTERVAL="${POLL_INTERVAL:-10}" \
-  node scripts/deploy/check-service-health.ts >&2
+  node "${DEPLOY_SOURCE_DIR}/runtime/check-service-health.mjs" >&2
 
-CATALOG_DEPLOY_ENV="${CATALOG_DEPLOY_ENV:-infrastructure/deploy/service-catalog.deploy.vars}"
-if [ ! -r "${CATALOG_DEPLOY_ENV}" ]; then
-  echo "::error::Missing generated service catalog deploy artifact: ${CATALOG_DEPLOY_ENV}" >&2
-  exit 1
-fi
-# shellcheck source=infrastructure/deploy/service-catalog.deploy.vars
-. "${CATALOG_DEPLOY_ENV}"
 read -r -a ready_services <<< "${CATALOG_READINESS_SERVICES:?generated readiness service list missing}"
 
 ready_ok=()
@@ -371,6 +626,10 @@ cat <<JSON
   "release_id": $(json_string "${release_id}"),
   "release_status": $(json_string "${release_status}"),
   "release_ledger_heads_match": true,
+  "current_release_marker_match": true,
+  "release_ledger_full_image_parity": true,
+  "db_migrate_image_parity": true,
+  "live_image_digest_parity": true,
   "image_digest_manifest_sha256": $(json_string "${actual_manifest_hash}"),
   "digest_manifest_path": $(json_string "${digest_manifest}"),
   "criticality_health_gate": "passed",

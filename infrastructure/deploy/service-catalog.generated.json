@@ -140,6 +140,124 @@
       "aquamobil",
       "mosquitto"
     ],
+    "applicationComposeImages": [
+      {
+        "composeService": "postgres",
+        "image": "postgres"
+      },
+      {
+        "composeService": "db-migrate",
+        "image": "db-migrate"
+      },
+      {
+        "composeService": "tenant-schema-provisioner",
+        "image": "db-migrate"
+      },
+      {
+        "composeService": "gateway-api",
+        "image": "gateway-api"
+      },
+      {
+        "composeService": "auth-service",
+        "image": "auth-service"
+      },
+      {
+        "composeService": "farm-service",
+        "image": "farm-service"
+      },
+      {
+        "composeService": "sensor-service",
+        "image": "sensor-service"
+      },
+      {
+        "composeService": "hr-service",
+        "image": "hr-service"
+      },
+      {
+        "composeService": "hydroponics-service",
+        "image": "hydroponics-service"
+      },
+      {
+        "composeService": "messaging-service",
+        "image": "messaging-service"
+      },
+      {
+        "composeService": "alert-engine",
+        "image": "alert-engine"
+      },
+      {
+        "composeService": "billing-service",
+        "image": "billing-service"
+      },
+      {
+        "composeService": "notification-service",
+        "image": "notification-service"
+      },
+      {
+        "composeService": "admin-api-service",
+        "image": "admin-api-service"
+      },
+      {
+        "composeService": "config-service",
+        "image": "config-service"
+      },
+      {
+        "composeService": "event-store-service",
+        "image": "event-store-service"
+      },
+      {
+        "composeService": "observability-service",
+        "image": "observability-service"
+      },
+      {
+        "composeService": "ai-service",
+        "image": "ai-service"
+      },
+      {
+        "composeService": "shell",
+        "image": "shell"
+      },
+      {
+        "composeService": "dashboard",
+        "image": "dashboard"
+      },
+      {
+        "composeService": "farm-module",
+        "image": "farm-module"
+      },
+      {
+        "composeService": "sensor-module",
+        "image": "sensor-module"
+      },
+      {
+        "composeService": "hr-module",
+        "image": "hr-module"
+      },
+      {
+        "composeService": "hydroponics-module",
+        "image": "hydroponics-module"
+      },
+      {
+        "composeService": "messaging-module",
+        "image": "messaging-module"
+      },
+      {
+        "composeService": "admin-panel",
+        "image": "admin-panel"
+      },
+      {
+        "composeService": "tenant-admin",
+        "image": "tenant-admin"
+      },
+      {
+        "composeService": "aquamobil",
+        "image": "aquamobil"
+      },
+      {
+        "composeService": "mosquitto",
+        "image": "mosquitto"
+      }
+    ],
     "serviceDbRolePrefixes": [
       "ADMIN",
       "AI",

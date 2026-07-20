@@ -2,13 +2,17 @@ import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, LessThanOrEqual, LessThan, In } from 'typeorm';
+import Decimal from 'decimal.js';
 import { NatsEventBus } from '@platform/event-bus';
 import { toEventIso, createBaseEvent, InvoiceGeneratedEvent } from '@platform/event-contracts';
-import { Money } from '@aquaculture/backend-common/monetary';
+import { getCurrencyScale, Money } from '@aquaculture/backend-common/monetary';
 import { StripeApiService } from '@aquaculture/backend-common/billing';
 import { Subscription, SubscriptionStatus, BillingCycle } from './entities/subscription.entity';
 import { Plan } from './entities/plan.entity';
-import { ScheduledPlanChange, ScheduledChangeStatus } from './entities/scheduled-plan-change.entity';
+import {
+  ScheduledPlanChange,
+  ScheduledChangeStatus,
+} from './entities/scheduled-plan-change.entity';
 import { Invoice, InvoiceStatus } from './entities/invoice.entity';
 import { randomBytes } from 'crypto';
 
@@ -99,9 +103,7 @@ export class BillingSchedulerService {
         sub.currentPeriodEnd = this.calculatePeriodEnd(now, sub.billingCycle);
         sub.updatedBy = 'system';
         await this.subscriptionRepo.save(sub);
-        this.logger.log(
-          `Trial expired: subscription ${sub.id}, tenant ${sub.tenantId} -> ACTIVE`,
-        );
+        this.logger.log(`Trial expired: subscription ${sub.id}, tenant ${sub.tenantId} -> ACTIVE`);
       } catch (error) {
         // Log and continue — don't let one failure block the rest
         this.logger.error(
@@ -146,9 +148,7 @@ export class BillingSchedulerService {
         sub.status = SubscriptionStatus.EXPIRED;
         sub.updatedBy = 'system';
         await this.subscriptionRepo.save(sub);
-        this.logger.log(
-          `Subscription expired: ${sub.id}, tenant ${sub.tenantId} -> EXPIRED`,
-        );
+        this.logger.log(`Subscription expired: ${sub.id}, tenant ${sub.tenantId} -> EXPIRED`);
 
         // Publish event — admin and notification services need to react to expiry
         // (suspension notices, feature deactivation, tenant downgrade).
@@ -202,9 +202,7 @@ export class BillingSchedulerService {
       try {
         invoice.status = InvoiceStatus.OVERDUE;
         await this.invoiceRepo.save(invoice);
-        this.logger.log(
-          `Invoice ${invoice.id} (tenant ${invoice.tenantId}) marked as OVERDUE`,
-        );
+        this.logger.log(`Invoice ${invoice.id} (tenant ${invoice.tenantId}) marked as OVERDUE`);
       } catch (error) {
         this.logger.error(
           `Failed to mark invoice ${invoice.id} as OVERDUE: ${
@@ -235,180 +233,176 @@ export class BillingSchedulerService {
     // per-subscription idempotency check only catches WITHIN a single run —
     // not across concurrent runs that interleave reads and writes.
     const INVOICE_GEN_LOCK_ID = 900001; // unique advisory lock ID
-    const lockResult = await this.dataSource.query(
-      'SELECT pg_try_advisory_lock($1) as acquired', [INVOICE_GEN_LOCK_ID],
-    );
+    const lockResult = await this.dataSource.query('SELECT pg_try_advisory_lock($1) as acquired', [
+      INVOICE_GEN_LOCK_ID,
+    ]);
     if (!lockResult?.[0]?.acquired) {
       this.logger.log('Another instance holds the invoice generation lock — skipping');
       return;
     }
 
     try {
-    const now = new Date();
-    this.logger.log('Starting auto-invoice generation run...');
+      const now = new Date();
+      this.logger.log('Starting auto-invoice generation run...');
 
-    const activeSubscriptions = await this.subscriptionRepo.find({
-      where: {
-        status: In([SubscriptionStatus.ACTIVE]),
-        currentPeriodEnd: LessThanOrEqual(now),
-      },
-    });
+      const activeSubscriptions = await this.subscriptionRepo.find({
+        where: {
+          status: In([SubscriptionStatus.ACTIVE]),
+          currentPeriodEnd: LessThanOrEqual(now),
+        },
+      });
 
-    if (activeSubscriptions.length === 0) {
-      this.logger.log('No subscriptions due for invoicing');
-      return;
-    }
+      if (activeSubscriptions.length === 0) {
+        this.logger.log('No subscriptions due for invoicing');
+        return;
+      }
 
-    this.logger.log(`Found ${activeSubscriptions.length} subscription(s) due for invoicing`);
+      this.logger.log(`Found ${activeSubscriptions.length} subscription(s) due for invoicing`);
 
-    let generated = 0;
-    let skipped = 0;
+      let generated = 0;
+      let skipped = 0;
 
-    for (const sub of activeSubscriptions) {
-      try {
-        // Idempotency check: skip if an invoice already exists for this period
-        const existingInvoice = await this.invoiceRepo.findOne({
-          where: {
-            subscriptionId: sub.id,
+      for (const sub of activeSubscriptions) {
+        try {
+          // Idempotency check: skip if an invoice already exists for this period
+          const existingInvoice = await this.invoiceRepo.findOne({
+            where: {
+              subscriptionId: sub.id,
+              tenantId: sub.tenantId,
+              periodStart: sub.currentPeriodStart,
+              periodEnd: sub.currentPeriodEnd,
+            },
+          });
+
+          if (existingInvoice) {
+            this.logger.debug(
+              `Invoice already exists for subscription ${sub.id}, period ${sub.currentPeriodStart.toISOString()} - ${sub.currentPeriodEnd.toISOString()}. Skipping.`,
+            );
+            skipped++;
+            // Still advance the period so we don't get stuck
+            await this.advanceSubscriptionPeriod(sub, now);
+            continue;
+          }
+
+          // Build line items from subscription pricing using Money
+          const pricingCurrency = sub.pricing.currency || 'USD';
+          const basePriceMoney = Money.of(sub.pricing.basePrice || 0, pricingCurrency);
+          const cycleMonths = this.cycleToMonths(sub.billingCycle);
+          const billedBasePrice = this.quantizeCurrencyAmount(basePriceMoney.multiply(cycleMonths));
+          const lineItems = [
+            {
+              description:
+                cycleMonths > 1
+                  ? `${sub.planName} - Base subscription (${cycleMonths} months)`
+                  : `${sub.planName} - Base subscription`,
+              quantity: 1,
+              unitPrice: billedBasePrice.toNumber(),
+            },
+          ];
+
+          const invoiceTotalMoney = lineItems.reduce(
+            (sum, item) =>
+              sum.add(Money.of(item.unitPrice, pricingCurrency).multiply(item.quantity)),
+            Money.zero(pricingCurrency),
+          );
+          const invoiceTotal = this.quantizeCurrencyAmount(invoiceTotalMoney);
+
+          // Generate invoice number
+          const invoiceNumber = this.generateInvoiceNumber(sub.tenantId);
+
+          // Due date: 30 days from now
+          const dueDate = new Date(now);
+          dueDate.setDate(dueDate.getDate() + 30);
+
+          const invoice = this.invoiceRepo.create({
             tenantId: sub.tenantId,
+            invoiceNumber,
+            subscriptionId: sub.id,
+            status: InvoiceStatus.PENDING,
+            billingAddress: {
+              companyName: sub.tenantId, // Placeholder - tenant name resolved via service
+              street: '',
+              city: '',
+              state: '',
+              postalCode: '',
+              country: '',
+            },
+            lineItems: lineItems.map((item) => {
+              const lineMoney = Money.of(item.unitPrice, pricingCurrency).multiply(item.quantity);
+              return {
+                description: item.description,
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+                amount: this.quantizeCurrencyAmount(lineMoney).toNumber(),
+              };
+            }),
+            subtotal: new Decimal(invoiceTotal),
+            total: new Decimal(invoiceTotal),
+            amountPaid: Money.zero(pricingCurrency).toDecimal(),
+            amountDue: new Decimal(invoiceTotal),
+            currency: pricingCurrency,
+            issueDate: now,
+            dueDate,
             periodStart: sub.currentPeriodStart,
             periodEnd: sub.currentPeriodEnd,
-          },
-        });
+            notes: 'Auto-generated invoice for billing period',
+            createdBy: 'system',
+            updatedBy: 'system',
+          });
 
-        if (existingInvoice) {
-          this.logger.debug(
-            `Invoice already exists for subscription ${sub.id}, period ${sub.currentPeriodStart.toISOString()} - ${sub.currentPeriodEnd.toISOString()}. Skipping.`,
+          const savedInvoice = await this.invoiceRepo.save(invoice);
+
+          this.logger.log(
+            `Auto-invoice created: ${savedInvoice.id} (${savedInvoice.invoiceNumber}) for tenant ${sub.tenantId}, subscription ${sub.id}`,
           );
-          skipped++;
-          // Still advance the period so we don't get stuck
-          await this.advanceSubscriptionPeriod(sub, now);
-          continue;
-        }
 
-        // Build line items from subscription pricing using Money
-        const pricingCurrency = sub.pricing.currency || 'USD';
-        const basePriceMoney = Money.of(sub.pricing.basePrice || 0, pricingCurrency);
-        const lineItems = [
-          {
-            description: `${sub.planName} - Base subscription`,
-            quantity: 1,
-            unitPrice: basePriceMoney.toDecimal().toNumber(),
-          },
-        ];
-
-        // Calculate cycle multiplier for non-monthly billing
-        const cycleMonths = this.cycleToMonths(sub.billingCycle);
-        if (cycleMonths > 1 && lineItems[0]) {
-          lineItems[0].description = `${sub.planName} - Base subscription (${cycleMonths} months)`;
-          lineItems[0].unitPrice = basePriceMoney.multiply(cycleMonths).toDecimal().toNumber();
-        }
-
-        // Generate invoice number
-        const invoiceNumber = this.generateInvoiceNumber(sub.tenantId);
-
-        // Due date: 30 days from now
-        const dueDate = new Date(now);
-        dueDate.setDate(dueDate.getDate() + 30);
-
-        const invoice = this.invoiceRepo.create({
-          tenantId: sub.tenantId,
-          invoiceNumber,
-          subscriptionId: sub.id,
-          status: InvoiceStatus.PENDING,
-          billingAddress: {
-            companyName: sub.tenantId, // Placeholder - tenant name resolved via service
-            street: '',
-            city: '',
-            state: '',
-            postalCode: '',
-            country: '',
-          },
-          lineItems: lineItems.map((item) => {
-            const lineMoney = Money.of(item.unitPrice, pricingCurrency).multiply(item.quantity);
-            return {
-              description: item.description,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-              amount: lineMoney.toDecimal().toNumber(),
+          // Publish NATS event
+          try {
+            const event: InvoiceGeneratedEvent = {
+              ...createBaseEvent<InvoiceGeneratedEvent>('InvoiceGenerated', sub.tenantId),
+              invoiceId: savedInvoice.id,
+              invoiceNumber: savedInvoice.invoiceNumber,
+              subscriptionId: sub.id,
+              subtotal: savedInvoice.subtotal.toNumber(),
+              tax: 0,
+              total: savedInvoice.total.toNumber(),
+              currency: savedInvoice.currency,
+              dueDate: toEventIso(savedInvoice.dueDate),
+              billingPeriodStart: toEventIso(savedInvoice.periodStart),
+              billingPeriodEnd: toEventIso(savedInvoice.periodEnd),
             };
-          }),
-          subtotal: lineItems.reduce(
-            (sum, item) => sum.add(Money.of(item.unitPrice, pricingCurrency).multiply(item.quantity)),
-            Money.zero(pricingCurrency),
-          ).toDecimal(),
-          total: lineItems.reduce(
-            (sum, item) => sum.add(Money.of(item.unitPrice, pricingCurrency).multiply(item.quantity)),
-            Money.zero(pricingCurrency),
-          ).toDecimal(),
-          amountPaid: Money.zero(pricingCurrency).toDecimal(),
-          amountDue: lineItems.reduce(
-            (sum, item) => sum.add(Money.of(item.unitPrice, pricingCurrency).multiply(item.quantity)),
-            Money.zero(pricingCurrency),
-          ).toDecimal(),
-          currency: pricingCurrency,
-          issueDate: now,
-          dueDate,
-          periodStart: sub.currentPeriodStart,
-          periodEnd: sub.currentPeriodEnd,
-          notes: 'Auto-generated invoice for billing period',
-          createdBy: 'system',
-          updatedBy: 'system',
-        });
+            await this.eventBus?.publish(event);
+          } catch (eventError) {
+            this.logger.warn(
+              `Failed to publish InvoiceGenerated event for auto-invoice ${savedInvoice.id}: ${
+                eventError instanceof Error ? eventError.message : 'Unknown error'
+              }`,
+            );
+          }
 
-        const savedInvoice = await this.invoiceRepo.save(invoice);
+          // Advance the subscription period
+          await this.advanceSubscriptionPeriod(sub, now);
 
-        this.logger.log(
-          `Auto-invoice created: ${savedInvoice.id} (${savedInvoice.invoiceNumber}) for tenant ${sub.tenantId}, subscription ${sub.id}`,
-        );
-
-        // Publish NATS event
-        try {
-          const event: InvoiceGeneratedEvent = {
-            ...createBaseEvent<InvoiceGeneratedEvent>('InvoiceGenerated', sub.tenantId),
-            invoiceId: savedInvoice.id,
-            invoiceNumber: savedInvoice.invoiceNumber,
-            subscriptionId: sub.id,
-            subtotal: savedInvoice.subtotal.toNumber(),
-            tax: 0,
-            total: savedInvoice.total.toNumber(),
-            currency: savedInvoice.currency,
-            dueDate: toEventIso(savedInvoice.dueDate),
-            billingPeriodStart: toEventIso(savedInvoice.periodStart),
-            billingPeriodEnd: toEventIso(savedInvoice.periodEnd),
-          };
-          await this.eventBus?.publish(event);
-        } catch (eventError) {
-          this.logger.warn(
-            `Failed to publish InvoiceGenerated event for auto-invoice ${savedInvoice.id}: ${
-              eventError instanceof Error ? eventError.message : 'Unknown error'
+          generated++;
+        } catch (error) {
+          // Log and continue -- don't let one failure block the rest
+          this.logger.error(
+            `Failed to generate auto-invoice for subscription ${sub.id}, tenant ${sub.tenantId}: ${
+              error instanceof Error ? error.message : 'Unknown error'
             }`,
+            error instanceof Error ? error.stack : undefined,
           );
         }
-
-        // Advance the subscription period
-        await this.advanceSubscriptionPeriod(sub, now);
-
-        generated++;
-      } catch (error) {
-        // Log and continue -- don't let one failure block the rest
-        this.logger.error(
-          `Failed to generate auto-invoice for subscription ${sub.id}, tenant ${sub.tenantId}: ${
-            error instanceof Error ? error.message : 'Unknown error'
-          }`,
-          error instanceof Error ? error.stack : undefined,
-        );
       }
-    }
 
-    this.logger.log(
-      `Auto-invoice generation complete: ${generated} generated, ${skipped} skipped (already invoiced)`,
-    );
+      this.logger.log(
+        `Auto-invoice generation complete: ${generated} generated, ${skipped} skipped (already invoiced)`,
+      );
     } finally {
       // Always release advisory lock — even on error, so next cron run can acquire it.
-      await this.dataSource.query(
-        'SELECT pg_advisory_unlock($1)', [INVOICE_GEN_LOCK_ID],
-      ).catch((err: Error) => this.logger.warn(`Advisory unlock failed: ${err.message}`));
+      await this.dataSource
+        .query('SELECT pg_advisory_unlock($1)', [INVOICE_GEN_LOCK_ID])
+        .catch((err: Error) => this.logger.warn(`Advisory unlock failed: ${err.message}`));
     }
   }
 
@@ -471,11 +465,21 @@ export class BillingSchedulerService {
 
   private cycleToMonths(billingCycle: BillingCycle): number {
     switch (billingCycle) {
-      case BillingCycle.MONTHLY:     return 1;
-      case BillingCycle.QUARTERLY:   return 3;
-      case BillingCycle.SEMI_ANNUAL: return 6;
-      case BillingCycle.ANNUAL:      return 12;
+      case BillingCycle.MONTHLY:
+        return 1;
+      case BillingCycle.QUARTERLY:
+        return 3;
+      case BillingCycle.SEMI_ANNUAL:
+        return 6;
+      case BillingCycle.ANNUAL:
+        return 12;
     }
+  }
+
+  private quantizeCurrencyAmount(money: Money): Decimal {
+    return money
+      .toDecimal()
+      .toDecimalPlaces(getCurrencyScale(money.currency), Decimal.ROUND_HALF_EVEN);
   }
 
   /**
@@ -515,10 +519,9 @@ export class BillingSchedulerService {
 
     // ── Distributed lock ────────────────────────────────────────────────
     const lockId = 900002; // Unique advisory lock ID for scheduled plan changes
-    const lockResult = await this.dataSource.query(
-      'SELECT pg_try_advisory_lock($1) as acquired',
-      [lockId],
-    );
+    const lockResult = await this.dataSource.query('SELECT pg_try_advisory_lock($1) as acquired', [
+      lockId,
+    ]);
     if (!lockResult?.[0]?.acquired) {
       this.logger.debug('Another instance is processing scheduled plan changes — skipping');
       return;
@@ -558,7 +561,9 @@ export class BillingSchedulerService {
           });
 
           if (!subscription) {
-            this.logger.warn(`Subscription ${change.subscriptionId} not found — marking change ${change.id} as cancelled`);
+            this.logger.warn(
+              `Subscription ${change.subscriptionId} not found — marking change ${change.id} as cancelled`,
+            );
             change.status = ScheduledChangeStatus.CANCELLED;
             change.cancelledAt = now;
             change.cancellationReason = 'Subscription not found';
@@ -607,7 +612,7 @@ export class BillingSchedulerService {
 
           this.logger.log(
             `Scheduled plan change applied: tenant=${change.tenantId}, ` +
-            `${change.currentPlanTier} → ${change.newPlanTier}, changeId=${change.id}`,
+              `${change.currentPlanTier} → ${change.newPlanTier}, changeId=${change.id}`,
           );
 
           // ── Publish event ───────────────────────────────────────────────
@@ -627,7 +632,9 @@ export class BillingSchedulerService {
               isScheduledChange: true,
             });
           } catch (eventError) {
-            this.logger.warn(`Event publish failed for change ${change.id}: ${(eventError as Error).message}`);
+            this.logger.warn(
+              `Event publish failed for change ${change.id}: ${(eventError as Error).message}`,
+            );
           }
         } catch (error) {
           await queryRunner.rollbackTransaction();

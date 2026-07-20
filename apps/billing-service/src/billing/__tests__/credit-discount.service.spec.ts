@@ -7,6 +7,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
+const TEST_NOW = new Date('2026-03-14T12:00:00Z');
+
+function dateAtOffset(days: number): Date {
+  return new Date(TEST_NOW.getTime() + days * 24 * 60 * 60 * 1000);
+}
+
 describe('Credit & Discount Service', () => {
   let eventEmitter: jest.Mocked<EventEmitter2>;
 
@@ -141,12 +147,12 @@ describe('Credit & Discount Service', () => {
 
         const account: AccountCredit = {
           tenantId: 'tenant-1',
-          balance: 150.50,
+          balance: 150.5,
           currency: 'USD',
           transactions: [],
         };
 
-        expect(getBalance(account)).toBe(150.50);
+        expect(getBalance(account)).toBe(150.5);
       });
 
       it('should handle credit expiration', () => {
@@ -241,8 +247,18 @@ describe('Credit & Discount Service', () => {
           };
         };
 
-        const source: AccountCredit = { tenantId: 't1', balance: 100, currency: 'USD', transactions: [] };
-        const target: AccountCredit = { tenantId: 't2', balance: 50, currency: 'USD', transactions: [] };
+        const source: AccountCredit = {
+          tenantId: 't1',
+          balance: 100,
+          currency: 'USD',
+          transactions: [],
+        };
+        const target: AccountCredit = {
+          tenantId: 't2',
+          balance: 50,
+          currency: 'USD',
+          transactions: [],
+        };
 
         const result = transferCredit(source, target, 30);
 
@@ -289,10 +305,7 @@ describe('Credit & Discount Service', () => {
       });
 
       it('should prevent negative credit', () => {
-        const validateCreditDeduction = (
-          currentBalance: number,
-          deductAmount: number,
-        ): boolean => {
+        const validateCreditDeduction = (currentBalance: number, deductAmount: number): boolean => {
           return deductAmount <= currentBalance;
         };
 
@@ -357,7 +370,9 @@ describe('Credit & Discount Service', () => {
       });
 
       it('should track credit usage', () => {
-        const getCreditUsageStats = (account: AccountCredit): {
+        const getCreditUsageStats = (
+          account: AccountCredit,
+        ): {
           totalEarned: number;
           totalUsed: number;
           totalExpired: number;
@@ -398,10 +413,7 @@ describe('Credit & Discount Service', () => {
       });
 
       it('should set credit expiration date', () => {
-        const createExpiringCredit = (
-          amount: number,
-          expiresInDays: number,
-        ): CreditTransaction => {
+        const createExpiringCredit = (amount: number, expiresInDays: number): CreditTransaction => {
           const expiresAt = new Date();
           expiresAt.setDate(expiresAt.getDate() + expiresInDays);
 
@@ -444,7 +456,11 @@ describe('Credit & Discount Service', () => {
           if (conditions.validPlanTiers && !conditions.validPlanTiers.includes(context.planTier)) {
             return false;
           }
-          if (conditions.validModules && context.moduleId && !conditions.validModules.includes(context.moduleId)) {
+          if (
+            conditions.validModules &&
+            context.moduleId &&
+            !conditions.validModules.includes(context.moduleId)
+          ) {
             return false;
           }
           if (conditions.firstPurchaseOnly && !context.isFirstPurchase) {
@@ -480,20 +496,35 @@ describe('Credit & Discount Service', () => {
         const canStackCredits = (
           existingCredits: CreditTransaction[],
           maxStackedCredits: number,
+          now: Date,
         ): boolean => {
           const activeCredits = existingCredits.filter(
-            (c) => c.type === 'add' && (!c.expiresAt || c.expiresAt > new Date()),
+            (c) => c.type === 'add' && (!c.expiresAt || c.expiresAt > now),
           );
           return activeCredits.length < maxStackedCredits;
         };
 
         const existingCredits: CreditTransaction[] = [
-          { id: '1', type: 'add', amount: 50, reason: 'Promo 1', createdAt: new Date(), expiresAt: new Date('2025-12-31') },
-          { id: '2', type: 'add', amount: 30, reason: 'Promo 2', createdAt: new Date(), expiresAt: new Date('2025-12-31') },
+          {
+            id: '1',
+            type: 'add',
+            amount: 50,
+            reason: 'Promo 1',
+            createdAt: TEST_NOW,
+            expiresAt: dateAtOffset(30),
+          },
+          {
+            id: '2',
+            type: 'add',
+            amount: 30,
+            reason: 'Promo 2',
+            createdAt: TEST_NOW,
+            expiresAt: dateAtOffset(30),
+          },
         ];
 
-        expect(canStackCredits(existingCredits, 3)).toBe(true);
-        expect(canStackCredits(existingCredits, 2)).toBe(false);
+        expect(canStackCredits(existingCredits, 3, TEST_NOW)).toBe(true);
+        expect(canStackCredits(existingCredits, 2, TEST_NOW)).toBe(false);
       });
     });
   });
@@ -518,12 +549,15 @@ describe('Credit & Discount Service', () => {
 
     describe('Code Validation', () => {
       it('should validate coupon code', () => {
-        const validateCouponCode = (code: string, coupons: DiscountCode[]): DiscountCode | null => {
+        const validateCouponCode = (
+          code: string,
+          coupons: DiscountCode[],
+          now: Date,
+        ): DiscountCode | null => {
           const coupon = coupons.find((c) => c.code.toUpperCase() === code.toUpperCase());
 
           if (!coupon) return null;
 
-          const now = new Date();
           if (now < coupon.validFrom || now > coupon.validUntil) return null;
           if (coupon.currentUses >= coupon.maxUses) return null;
 
@@ -535,8 +569,8 @@ describe('Credit & Discount Service', () => {
             code: 'SAVE20',
             type: 'percentage',
             value: 20,
-            validFrom: new Date('2024-01-01'),
-            validUntil: new Date('2026-12-31'),
+            validFrom: dateAtOffset(-30),
+            validUntil: dateAtOffset(30),
             maxUses: 100,
             currentUses: 10,
             singleUsePerCustomer: true,
@@ -544,8 +578,8 @@ describe('Credit & Discount Service', () => {
           },
         ];
 
-        expect(validateCouponCode('SAVE20', coupons)).not.toBeNull();
-        expect(validateCouponCode('INVALID', coupons)).toBeNull();
+        expect(validateCouponCode('SAVE20', coupons, TEST_NOW)).not.toBeNull();
+        expect(validateCouponCode('INVALID', coupons, TEST_NOW)).toBeNull();
       });
 
       it('should apply percentage discount', () => {
@@ -600,23 +634,31 @@ describe('Credit & Discount Service', () => {
           return discount.monthsApplied < discount.durationMonths;
         };
 
-        const activeDiscount: RecurringDiscount = { discountPercent: 20, durationMonths: 6, monthsApplied: 3 };
-        const expiredDiscount: RecurringDiscount = { discountPercent: 20, durationMonths: 6, monthsApplied: 6 };
+        const activeDiscount: RecurringDiscount = {
+          discountPercent: 20,
+          durationMonths: 6,
+          monthsApplied: 3,
+        };
+        const expiredDiscount: RecurringDiscount = {
+          discountPercent: 20,
+          durationMonths: 6,
+          monthsApplied: 6,
+        };
 
         expect(shouldApplyRecurringDiscount(activeDiscount)).toBe(true);
         expect(shouldApplyRecurringDiscount(expiredDiscount)).toBe(false);
       });
 
       it('should check coupon expiration', () => {
-        const isCouponExpired = (validUntil: Date): boolean => {
-          return new Date() > validUntil;
+        const isCouponExpired = (validUntil: Date, now: Date): boolean => {
+          return now > validUntil;
         };
 
-        const futureDate = new Date('2025-12-31');
-        const pastDate = new Date('2023-01-01');
+        const futureDate = dateAtOffset(1);
+        const pastDate = dateAtOffset(-1);
 
-        expect(isCouponExpired(futureDate)).toBe(false);
-        expect(isCouponExpired(pastDate)).toBe(true);
+        expect(isCouponExpired(futureDate, TEST_NOW)).toBe(false);
+        expect(isCouponExpired(pastDate, TEST_NOW)).toBe(true);
       });
 
       it('should track coupon usage limit', () => {
@@ -628,8 +670,8 @@ describe('Credit & Discount Service', () => {
           code: 'SAVE10',
           type: 'percentage',
           value: 10,
-          validFrom: new Date(),
-          validUntil: new Date('2025-12-31'),
+          validFrom: TEST_NOW,
+          validUntil: dateAtOffset(30),
           maxUses: 100,
           currentUses: 50,
           singleUsePerCustomer: false,
@@ -651,9 +693,7 @@ describe('Credit & Discount Service', () => {
           tenantId: string,
           usageHistory: { couponCode: string; tenantId: string }[],
         ): boolean => {
-          return usageHistory.some(
-            (u) => u.couponCode === couponCode && u.tenantId === tenantId,
-          );
+          return usageHistory.some((u) => u.couponCode === couponCode && u.tenantId === tenantId);
         };
 
         const history = [{ couponCode: 'SAVE20', tenantId: 'tenant-1' }];
@@ -686,7 +726,8 @@ describe('Credit & Discount Service', () => {
 
         const getVolumeDiscount = (quantity: number, tiers: VolumeTier[]): number => {
           const tier = tiers.find(
-            (t) => quantity >= t.minQuantity && (t.maxQuantity === null || quantity <= t.maxQuantity),
+            (t) =>
+              quantity >= t.minQuantity && (t.maxQuantity === null || quantity <= t.maxQuantity),
           );
           return tier?.discountPercent || 0;
         };
@@ -788,20 +829,20 @@ describe('Credit & Discount Service', () => {
           {
             tenantId: 'enterprise-1',
             discountPercent: 25,
-            validUntil: new Date('2025-12-31'),
+            validUntil: dateAtOffset(30),
             approvedBy: 'sales@example.com',
           },
         ];
 
-        const getNegotiatedDiscount = (tenantId: string): number => {
+        const getNegotiatedDiscount = (tenantId: string, now: Date): number => {
           const discount = negotiatedDiscounts.find(
-            (d) => d.tenantId === tenantId && d.validUntil > new Date(),
+            (d) => d.tenantId === tenantId && d.validUntil > now,
           );
           return discount?.discountPercent || 0;
         };
 
-        expect(getNegotiatedDiscount('enterprise-1')).toBe(25);
-        expect(getNegotiatedDiscount('unknown')).toBe(0);
+        expect(getNegotiatedDiscount('enterprise-1', TEST_NOW)).toBe(25);
+        expect(getNegotiatedDiscount('unknown', TEST_NOW)).toBe(0);
       });
     });
 
@@ -868,10 +909,7 @@ describe('Credit & Discount Service', () => {
       });
 
       it('should handle discount exclusions', () => {
-        const isExcludedFromDiscount = (
-          itemType: string,
-          exclusions: string[],
-        ): boolean => {
+        const isExcludedFromDiscount = (itemType: string, exclusions: string[]): boolean => {
           return exclusions.includes(itemType);
         };
 
@@ -923,8 +961,18 @@ describe('Credit & Discount Service', () => {
           { code: 'EXCLUSIVE', type: 'percentage', value: 30, stackable: false },
         ];
 
-        const newStackable: AppliedDiscount = { code: 'STACK2', type: 'percentage', value: 5, stackable: true };
-        const newNonStackable: AppliedDiscount = { code: 'EXCLUSIVE2', type: 'percentage', value: 25, stackable: false };
+        const newStackable: AppliedDiscount = {
+          code: 'STACK2',
+          type: 'percentage',
+          value: 5,
+          stackable: true,
+        };
+        const newNonStackable: AppliedDiscount = {
+          code: 'EXCLUSIVE2',
+          type: 'percentage',
+          value: 25,
+          stackable: false,
+        };
 
         expect(canStackDiscount(newStackable, existingStackable)).toBe(true);
         expect(canStackDiscount(newStackable, existingNonStackable)).toBe(false);

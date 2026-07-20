@@ -82,7 +82,10 @@ describe('protected backup SSH broker substrate', () => {
       schema_version: 1,
       finding_ids: ['INFRA-CRITICAL-044'],
       environment: 'production-backup',
-      shared_secrets: ['DROPLET_HOST', 'DROPLET_SSH_FINGERPRINT'],
+      shared_secrets: [
+        'PRODUCTION_BACKUP_DROPLET_HOST',
+        'PRODUCTION_BACKUP_DROPLET_SSH_FINGERPRINT',
+      ],
       release: {
         workflow: '.github/workflows/backup-ssh-broker-release.yml',
         event: 'push',
@@ -106,7 +109,10 @@ describe('protected backup SSH broker substrate', () => {
       },
       cutover: {
         enabled: false,
-        legacy_environment_secrets: ['DROPLET_USER', 'DROPLET_SSH_KEY'],
+        legacy_environment_secrets: [
+          'PRODUCTION_BACKUP_DROPLET_USER',
+          'PRODUCTION_BACKUP_DROPLET_SSH_KEY',
+        ],
       },
     });
     expect(contract.broker.source_sha256).toBe(sha256(BROKER_SOURCE_PATH));

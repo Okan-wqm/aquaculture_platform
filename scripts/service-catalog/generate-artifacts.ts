@@ -301,6 +301,18 @@ ${secretEntries.map((name) => renderEntry(name, 'secret deploy variable', 'secre
   };
 }
 
+function applicationComposeImageBindings(): Array<{
+  readonly composeService: string;
+  readonly image: string;
+}> {
+  const buildTargets = new Set(imageBuildTargets());
+  return activeDropletServices().flatMap((entry) =>
+    typeof entry.imageName === 'string' && buildTargets.has(entry.imageName)
+      ? [{ composeService: entry.composeServiceName, image: entry.imageName }]
+      : [],
+  );
+}
+
 function catalogDeployEnvArtifact(): Artifact {
   const frontendTargets = [...frontendImageBuildTargets()];
   // frontendPrebuildPlan() is the SSOT split: dockerfile-self-build
@@ -318,6 +330,10 @@ ${shellAssignment('CATALOG_BACKEND_IMAGE_SERVICES', [...backendImageBuildTargets
 ${shellAssignment('CATALOG_FRONTEND_IMAGE_SERVICES', frontendTargets)}
 ${shellAssignment('CATALOG_INFRA_IMAGE_SERVICES', [...infraImageBuildTargets()])}
 ${shellAssignment('CATALOG_APPLICATION_IMAGE_SERVICES', [...imageBuildTargets()])}
+${shellAssignment(
+  'CATALOG_APPLICATION_COMPOSE_IMAGE_MAP',
+  applicationComposeImageBindings().map((entry) => `${entry.composeService}:${entry.image}`),
+)}
 ${shellAssignment('CATALOG_SERVICE_DB_ROLE_PREFIXES', [...serviceDbRolePrefixes()])}
 ${shellAssignment('CATALOG_NX_FRONTEND_PROJECTS', nxFrontend)}
 ${shellAssignment('CATALOG_NON_NX_FRONTEND_PROJECTS', nonNxFrontend)}
@@ -347,6 +363,7 @@ function catalogGeneratedArtifact(): Artifact {
         frontendImageTargets: frontendTargets,
         infraImageTargets: infraImageBuildTargets(),
         applicationImageServices: imageBuildTargets(),
+        applicationComposeImages: applicationComposeImageBindings(),
         serviceDbRolePrefixes: serviceDbRolePrefixes(),
         nxFrontendProjects: nxFrontend,
         nonNxFrontendProjects: nonNxFrontend,

@@ -1,10 +1,11 @@
-import { Test, TestingModule } from '@nestjs/testing';
+import type { TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { ScadaPackage, ScadaPackageStatus } from '../../entities/scada-package.entity';
 import { Process } from '../../entities/process.entity';
 import { ScadaPackageService } from '../scada-package.service';
 import { hashPin, isPinHash, verifyPin } from '../pin-hash.util';
+import { createScadaPackageTestingModule } from './scada-package-service.testing';
 
 /**
  * SENSOR-CRITICAL-006 — server-side control-security PIN.
@@ -51,13 +52,10 @@ describe('PIN control security (SENSOR-CRITICAL-006)', () => {
       create: jest.fn().mockImplementation((e) => e),
       save: jest.fn().mockImplementation((e) => Promise.resolve(e)),
     };
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        ScadaPackageService,
-        { provide: getRepositoryToken(ScadaPackage), useValue: repo },
-        { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
-      ],
-    }).compile();
+    const module: TestingModule = await createScadaPackageTestingModule([
+      { provide: getRepositoryToken(ScadaPackage), useValue: repo },
+      { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
+    ]);
     service = module.get(ScadaPackageService);
   });
 
@@ -80,7 +78,9 @@ describe('PIN control security (SENSOR-CRITICAL-006)', () => {
         'user-1',
       );
 
-      const screens = saved.packageData.screens as Array<{ widgets: Array<{ id: string; config: Record<string, unknown> }> }>;
+      const screens = saved.packageData.screens as Array<{
+        widgets: Array<{ id: string; config: Record<string, unknown> }>;
+      }>;
       const cfg = screens[0]!.widgets[0]!.config;
       expect(cfg.pin).toBeUndefined(); // plaintext never persists
       expect(cfg.requirePin).toBe(true);
@@ -105,7 +105,11 @@ describe('PIN control security (SENSOR-CRITICAL-006)', () => {
         packageData: {
           meta: { schemaVersion: 2 },
           screens: [],
-          controlPermissions: { securityLevels: { none: [], confirm: [], pin: ['w1'] }, pinHash: storedHash, emergencyStop: null },
+          controlPermissions: {
+            securityLevels: { none: [], confirm: [], pin: ['w1'] },
+            pinHash: storedHash,
+            emergencyStop: null,
+          },
         },
       });
 
@@ -119,7 +123,12 @@ describe('PIN control security (SENSOR-CRITICAL-006)', () => {
           emergencyStop: null,
         },
       };
-      const saved = await service.updateScadaPackage('pkg-1', { packageData: incoming }, TENANT, 'user-1');
+      const saved = await service.updateScadaPackage(
+        'pkg-1',
+        { packageData: incoming },
+        TENANT,
+        'user-1',
+      );
 
       const cp = saved.packageData.controlPermissions as { pinHash: string };
       expect(cp.pinHash).toBe(storedHash); // marker never hashed, hash never lost
@@ -132,7 +141,11 @@ describe('PIN control security (SENSOR-CRITICAL-006)', () => {
           packageData: {
             meta: { schemaVersion: 2, packageName: 'P' },
             screens: [],
-            controlPermissions: { securityLevels: { none: [], confirm: [], pin: [] }, pinHash: '9999', emergencyStop: null },
+            controlPermissions: {
+              securityLevels: { none: [], confirm: [], pin: [] },
+              pinHash: '9999',
+              emergencyStop: null,
+            },
           },
         },
         TENANT,
@@ -151,12 +164,18 @@ describe('PIN control security (SENSOR-CRITICAL-006)', () => {
         tenantId: TENANT,
         packageData: {
           ...docWithWidgetPin(),
-          controlPermissions: { securityLevels: { none: [], confirm: [], pin: [] }, pinHash: hashPin('4321'), emergencyStop: null },
+          controlPermissions: {
+            securityLevels: { none: [], confirm: [], pin: [] },
+            pinHash: hashPin('4321'),
+            emergencyStop: null,
+          },
         },
       });
 
       const pkg = await service.getScadaPackage('pkg-1', TENANT);
-      const screens = pkg!.packageData.screens as Array<{ widgets: Array<{ config: Record<string, unknown> }> }>;
+      const screens = pkg!.packageData.screens as Array<{
+        widgets: Array<{ config: Record<string, unknown> }>;
+      }>;
       const cfg = screens[0]!.widgets[0]!.config;
       expect(cfg.pin).toBeUndefined();
       expect(cfg.requirePin).toBe(true);
@@ -172,7 +191,11 @@ describe('PIN control security (SENSOR-CRITICAL-006)', () => {
         tenantId: TENANT,
         packageData: {
           screens: [],
-          controlPermissions: { securityLevels: { none: [], confirm: [], pin: [] }, pinHash: hashPin('4321'), emergencyStop: null },
+          controlPermissions: {
+            securityLevels: { none: [], confirm: [], pin: [] },
+            pinHash: hashPin('4321'),
+            emergencyStop: null,
+          },
         },
       });
       await expect(service.verifyPackagePin('pkg-1', TENANT, '4321')).resolves.toBe(true);
@@ -180,7 +203,11 @@ describe('PIN control security (SENSOR-CRITICAL-006)', () => {
     });
 
     it('falls back to legacy widget plaintext pins on pre-hardening rows', async () => {
-      repo.findOne.mockResolvedValue({ id: 'pkg-1', tenantId: TENANT, packageData: docWithWidgetPin() });
+      repo.findOne.mockResolvedValue({
+        id: 'pkg-1',
+        tenantId: TENANT,
+        packageData: docWithWidgetPin(),
+      });
       await expect(service.verifyPackagePin('pkg-1', TENANT, '4321')).resolves.toBe(true);
       await expect(service.verifyPackagePin('pkg-1', TENANT, '9999')).resolves.toBe(false);
     });
@@ -198,17 +225,31 @@ describe('PIN control security (SENSOR-CRITICAL-006)', () => {
         {
           status: ScadaPackageStatus.PUBLISHED,
           packageData: {
-            screens: [{ widgets: [
-              { id: 'w2', config: { tagRef: 'EDGE-01/valve.cmd' } }, // unprotected
-              { id: 'w3', config: { tagRef: 'EDGE-01/estop.cmd', requirePin: true } },
-            ] }],
-            controlPermissions: { securityLevels: { none: [], confirm: [], pin: [] }, pinHash: null, emergencyStop: null },
+            screens: [
+              {
+                widgets: [
+                  { id: 'w2', config: { tagRef: 'EDGE-01/valve.cmd' } }, // unprotected
+                  { id: 'w3', config: { tagRef: 'EDGE-01/estop.cmd', requirePin: true } },
+                ],
+              },
+            ],
+            controlPermissions: {
+              securityLevels: { none: [], confirm: [], pin: [] },
+              pinHash: null,
+              emergencyStop: null,
+            },
           },
         },
         {
           status: ScadaPackageStatus.ARCHIVED,
           packageData: {
-            screens: [{ widgets: [{ id: 'w4', config: { tagRef: 'EDGE-01/archived.cmd', requirePin: true } }] }],
+            screens: [
+              {
+                widgets: [
+                  { id: 'w4', config: { tagRef: 'EDGE-01/archived.cmd', requirePin: true } },
+                ],
+              },
+            ],
           },
         },
       ]);

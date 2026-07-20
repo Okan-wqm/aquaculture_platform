@@ -89,11 +89,11 @@ replace them with a shared `SPACES_ACCESS_KEY_ID` /
 
 Do not omit the control values that bind transport and storage coordinates:
 
-| Environment secret             | Rotation/configuration rule                                                                                                       |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| `DROPLET_SSH_FINGERPRINT`      | Obtain the canonical SHA256 host-key fingerprint out of band; change it only for an authorized host-key rotation.                 |
-| `SPACES_REGION`                | Supply the explicit Spaces signing region to every AWS CLI and WAL-G process; change it only with an authorized region migration. |
-| `LOGICAL_BACKUP_GPG_RECIPIENT` | Pin the independently escrowed GPG public-key fingerprint used for mandatory client-side logical-dump encryption.                 |
+| Environment secret                          | Rotation/configuration rule                                                                                                       |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `PRODUCTION_BACKUP_DROPLET_SSH_FINGERPRINT` | Obtain the canonical SHA256 host-key fingerprint out of band; change it only for an authorized host-key rotation.                 |
+| `SPACES_REGION`                             | Supply the explicit Spaces signing region to every AWS CLI and WAL-G process; change it only with an authorized region migration. |
+| `LOGICAL_BACKUP_GPG_RECIPIENT`              | Pin the independently escrowed GPG public-key fingerprint used for mandatory client-side logical-dump encryption.                 |
 
 The Environment variables `WALG_SPACES_BUCKET`, `WALG_BACKUP_EPOCH`,
 `PITR_WALG_SPACES_BUCKET`, and `PITR_WALG_BACKUP_EPOCH` are not credentials,
@@ -109,8 +109,28 @@ configuration, not reusable credentials.
 
 The backup, PITR, and freshness workflows use the runner's native system
 OpenSSH client and accept exactly one advertised host key matching the
-protected `DROPLET_SSH_FINGERPRINT`. Do not replace this with a downloaded SSH
+protected `PRODUCTION_BACKUP_DROPLET_SSH_FINGERPRINT`. Do not replace this with a downloaded SSH
 action, `accept-new`, or an unprotected `ssh-keyscan` result.
+
+## Production GHCR pull principal
+
+The `production` GitHub Environment is the sole authority for
+`PRODUCTION_DROPLET_HOST`, `PRODUCTION_DROPLET_USER`,
+`PRODUCTION_DROPLET_SSH_KEY`, and `PRODUCTION_DROPLET_SSH_FINGERPRINT`; these
+values must not be repository-wide secrets or
+forwarded through reusable-workflow inputs. It also carries a dedicated
+`PRODUCTION_GHCR_READ_USERNAME` / `PRODUCTION_GHCR_READ_TOKEN` pair described by
+`.github/manifests/production-deploy-secrets.json`. Its token is package-read
+only. It must not have repository contents, workflow, OIDC, or package-write
+authority, and it must never be replaced by `GITHUB_TOKEN` or another fallback.
+
+Rotate the pair by creating a new package-read principal, updating both
+Environment secrets in one protected change, then running an exact-current-main
+deployment through independent post-deploy verification. Confirm the host
+pulled the expected SHA/digests and that the atomic `deployed/production`
+compare-and-swap advanced only after verification; then revoke the prior
+principal. A failed pull or verification keeps the prior baseline and blocks
+revocation.
 
 The operation-specific broker keys declared in
 `.github/manifests/backup-ssh-broker-policy.json` are a staged authority and
@@ -241,7 +261,8 @@ Closes `docs/reviews/infra-expert/2026-04-14-infrastructure-hardening.md#INFRA-R
 | `PASSWORD_PEPPER`                                            | 180 days (or on incident)                        | 30 days            | auth-service oncall | §"Password pepper" (incident-response only outside cadence)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `REDIS_PASSWORD`                                             | 180 days                                         | 30 days            | infra oncall        | roll via droplet env + `docker compose up -d redis`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | NATS mTLS client certs                                       | 12 months                                        | 30 days            | infra oncall        | `scripts/generate-internal-certs.sh` regenerates in lockstep with `infrastructure/nats/services.yaml`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| Droplet SSH host key/fingerprint                             | on authorized host-key change or compromise      | n/a                | infra oncall        | obtain the new fingerprint out of band → update `DROPLET_SSH_FINGERPRINT` → require native OpenSSH exact-match preflight before any remote command                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Droplet SSH host key/fingerprint                             | on authorized host-key change or compromise      | n/a                | infra oncall        | obtain the new fingerprint out of band → update `PRODUCTION_DROPLET_SSH_FINGERPRINT` and `PRODUCTION_BACKUP_DROPLET_SSH_FINGERPRINT` in their owning Environments → require native OpenSSH exact-match preflight before any remote command                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Production GHCR package-read principal                       | 90 days or immediately on suspected disclosure   | 14 days            | infra oncall        | rotate `PRODUCTION_GHCR_READ_USERNAME` / `PRODUCTION_GHCR_READ_TOKEN` in the protected `production` Environment → exact-digest pull → independent post-deploy proof → atomic baseline CAS → revoke old principal; never grant contents/workflow/OIDC/package-write authority                                                                                                                                                                                                                                                                                                                                                                       |
 | Backup broker operation SSH keys                             | 90 days or immediately on suspected disclosure   | 14 days            | infra oncall        | while pre-cutover, rotate only the matching broker key/fingerprint → install its public key through the root-owned provisioner → pass that account's attestation and cross-key denial matrix; after cutover, repeat the operation proof before revoking the old key                                                                                                                                                                                                                                                                                                                                                                                |
 | WAL-G Spaces principal                                       | 90 days                                          | 14 days            | infra oncall        | rotate `WALG_SPACES_ACCESS_KEY_ID` / `WALG_SPACES_SECRET_ACCESS_KEY` → non-dry full backup + WAL verification + timestamp PITR                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | PITR read-only Spaces principal                              | 90 days                                          | 14 days            | infra oncall        | rotate `PITR_WALG_SPACES_ACCESS_KEY_ID` / `PITR_WALG_SPACES_SECRET_ACCESS_KEY` → isolated target fetch succeeds while the live source bundle digest remains unchanged                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |

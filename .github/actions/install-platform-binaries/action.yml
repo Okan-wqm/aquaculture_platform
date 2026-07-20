@@ -5,7 +5,9 @@ description: >
   tarball is verified against its package-lock.json sha512 integrity entry
   (SEC-CI-007) before extraction.
 
-  Safe to re-run: each binary is skipped if already present on disk.
+  Safe to re-run: every native package is re-published from its verified
+  lockfile-bound tarball, so a pre-existing executable cannot bypass integrity
+  verification.
 
   Consumers: ci-affected.yml#install (graph-invariant precondition),
   deploy-digitalocean.yml#build-backend-artifacts and #build-frontend-artifacts
@@ -20,87 +22,207 @@ runs:
       # composite-action steps do not support `timeout-minutes` directly.
       # Each network call below is independently bounded by `curl --max-time`.
       run: |
+        set +x
+        set -euo pipefail
+        umask 077
+
         # Lockfile generated on Windows/macOS only carries those platforms'
         # native binaries. The linux-x64-gnu tarballs must be fetched
         # out-of-band so NX (native graph walker), SWC (TS compile), esbuild
         # (Vite bundler), and rollup (Vite bundler) can run on the CI runner.
         #
-        # SEC-CI-007: Each tarball is downloaded to a temp file and its
-        # SHA-512 digest is verified against the 'integrity' field recorded
-        # in package-lock.json before extraction. This detects registry
-        # compromise or MitM even over HTTPS.
+        # SEC-CI-007: package-lock.json is the sole name/version/source/hash
+        # authority. Downloaded bytes remain in a private temp directory and
+        # are not extracted until their exact SHA-512 authority is proven.
+        readonly LOCKFILE_PATH=package-lock.json
+        [ -f "${LOCKFILE_PATH}" ] && [ ! -L "${LOCKFILE_PATH}" ] || {
+          echo '::error::package-lock.json must be a regular non-symlink file'
+          exit 1
+        }
+
+        INSTALLER_TMP_ROOT=$(mktemp -d "${RUNNER_TEMP:-/tmp}/aqua-platform-binaries.XXXXXXXX")
+        readonly INSTALLER_TMP_ROOT
+
+        cleanup_installer_tmp() {
+          local status=$?
+          local cleanup_status=0
+          trap - EXIT HUP INT TERM
+          if ! rm -rf -- "${INSTALLER_TMP_ROOT}" || [ -e "${INSTALLER_TMP_ROOT}" ]; then
+            echo '::error::Platform-binary staging-file cleanup failed'
+            cleanup_status=1
+          fi
+          if [ "${status}" -eq 0 ] && [ "${cleanup_status}" -ne 0 ]; then
+            status=1
+          fi
+          exit "${status}"
+        }
+        trap cleanup_installer_tmp EXIT
+        trap 'exit 129' HUP
+        trap 'exit 130' INT
+        trap 'exit 143' TERM
+
         install_pkg() {
           local name=$1
-          local ver=$2
-          local dest=${3:-"node_modules/${name}"}
+          local lock_path=$2
+          local owner_lock_path=$3
+          local dest=${lock_path}
+          local authority
+          local ver
+          local resolved
+          local expected_hex
+          local actual_hex
           local tmpfile
-          tmpfile=$(mktemp /tmp/npm-pkg-XXXXXX.tgz)
+          local stage
+          local expected_entrypoint
+          local expected_entrypoint_mode
+
+          case "${name}" in
+            '@swc/core-linux-x64-gnu')
+              expected_entrypoint='swc.linux-x64-gnu.node'
+              expected_entrypoint_mode='regular'
+              ;;
+            '@esbuild/linux-x64')
+              expected_entrypoint='bin/esbuild'
+              expected_entrypoint_mode='executable'
+              ;;
+            '@rollup/rollup-linux-x64-gnu')
+              expected_entrypoint='rollup.linux-x64-gnu.node'
+              expected_entrypoint_mode='regular'
+              ;;
+            '@nx/nx-linux-x64-gnu')
+              expected_entrypoint='nx.linux-x64-gnu.node'
+              expected_entrypoint_mode='regular'
+              ;;
+            *)
+              echo "::error::Unapproved platform package requested: ${name}"
+              return 1
+              ;;
+          esac
+          case "${lock_path}" in
+            node_modules/*) ;;
+            *)
+              echo "::error::Invalid platform package lock path: ${lock_path}"
+              return 1
+              ;;
+          esac
+          case "${lock_path}" in
+            *$'\n'* | *$'\r'* | *'..'*)
+              echo "::error::Non-canonical platform package lock path: ${lock_path}"
+              return 1
+              ;;
+          esac
+
+          authority=$(node -e '
+            const fs = require("node:fs");
+            const [lockfilePath, lockPath, ownerLockPath, expectedName] = process.argv.slice(1);
+            const fail = (message) => { throw new Error(message); };
+            const lock = JSON.parse(fs.readFileSync(lockfilePath, "utf8"));
+            if (!lock.packages || typeof lock.packages !== "object") fail("lockfile packages map is missing");
+            if (!Object.prototype.hasOwnProperty.call(lock.packages, lockPath)) fail(`lockfile entry is missing: ${lockPath}`);
+            if (!Object.prototype.hasOwnProperty.call(lock.packages, ownerLockPath)) fail(`owner lockfile entry is missing: ${ownerLockPath}`);
+            const entry = lock.packages[lockPath];
+            const owner = lock.packages[ownerLockPath];
+            if (!entry || typeof entry !== "object") fail(`lockfile entry is invalid: ${lockPath}`);
+            if (!owner || typeof owner !== "object") fail(`owner lockfile entry is invalid: ${ownerLockPath}`);
+            if (typeof entry.version !== "string" || entry.version.length === 0) fail(`lockfile version is missing: ${lockPath}`);
+            if (owner.version !== entry.version) fail(`native/owner version mismatch: ${lockPath}`);
+            if (entry.optional !== true || JSON.stringify(entry.os) !== "[\"linux\"]" || JSON.stringify(entry.cpu) !== "[\"x64\"]") {
+              fail(`platform authority mismatch: ${lockPath}`);
+            }
+            const archiveName = expectedName.split("/").at(-1);
+            const expectedResolved = `https://registry.npmjs.org/${expectedName}/-/${archiveName}-${entry.version}.tgz`;
+            if (entry.resolved !== expectedResolved) fail(`registry source mismatch: ${lockPath}`);
+            const integrityMatch = /^sha512-([A-Za-z0-9+/]{86}==)$/.exec(entry.integrity || "");
+            if (!integrityMatch) fail(`canonical sha512 integrity is missing: ${lockPath}`);
+            const digest = Buffer.from(integrityMatch[1], "base64");
+            if (digest.length !== 64 || digest.toString("base64") !== integrityMatch[1]) fail(`sha512 integrity is malformed: ${lockPath}`);
+            process.stdout.write(`${entry.version}\t${entry.resolved}\t${digest.toString("hex")}`);
+          ' "${LOCKFILE_PATH}" "${lock_path}" "${owner_lock_path}" "${name}")
+          IFS=$'\t' read -r ver resolved expected_hex <<< "${authority}"
+          [ -n "${ver}" ] && [ -n "${resolved}" ] && [ "${#expected_hex}" -eq 128 ] || {
+            echo "::error::Incomplete lockfile authority for ${name}"
+            return 1
+          }
+
+          tmpfile=$(mktemp "${INSTALLER_TMP_ROOT}/package.XXXXXXXX.tgz")
+          stage=$(mktemp -d "${INSTALLER_TMP_ROOT}/stage.XXXXXXXX")
           echo "Installing ${name}@${ver} → ${dest}"
-          mkdir -p "${dest}"
 
           # Download tarball to temp file (do not pipe directly into tar)
           curl -sfL --max-time 30 \
-            "https://registry.npmjs.org/${name}/-/$(basename ${name})-${ver}.tgz" \
+            "${resolved}" \
             -o "${tmpfile}"
 
-          # SEC-CI-007: Verify integrity hash from package-lock.json
-          # The integrity field is base64-encoded sha512: "sha512-<base64>"
-          LOCK_INTEGRITY=$(node -p "
-            try {
-              const lock = require('./package-lock.json');
-              const pkg = lock.packages && lock.packages['node_modules/${name}'];
-              (pkg && pkg.integrity) || ''
-            } catch(e) { '' }
-          " 2>/dev/null || true)
+          actual_hex=$(sha512sum "${tmpfile}" | awk 'NR == 1 { print $1 }')
+          [ "${actual_hex}" = "${expected_hex}" ] || {
+            echo "::error::Integrity mismatch for ${name}@${ver}"
+            return 1
+          }
+          echo '  Integrity verified (sha512 matches package-lock.json)'
 
-          # SEC-CI-007: Platform-specific packages (linux-x64 etc.) may have
-          # different hashes than what's in the lockfile (generated on Windows
-          # or macOS). Treat mismatch as a warning for platform binaries,
-          # hard error for everything else.
-          if [ -n "${LOCK_INTEGRITY}" ] && echo "${LOCK_INTEGRITY}" | grep -q '^sha512-'; then
-            B64="${LOCK_INTEGRITY#sha512-}"
-            EXPECTED_HEX=$(echo "${B64}" | base64 -d | xxd -p | tr -d '\n')
-            ACTUAL_HEX=$(sha512sum "${tmpfile}" | cut -d ' ' -f 1)
-            if [ "${EXPECTED_HEX}" != "${ACTUAL_HEX}" ]; then
-              echo "  ::warning::Integrity mismatch for ${name}@${ver} (cross-platform lockfile)"
-            else
-              echo "  Integrity verified (sha512 matches package-lock.json)"
-            fi
-          else
-            echo "  ::warning::No lockfile integrity entry for ${name}@${ver} — skipping hash check"
-          fi
+          tar xzf "${tmpfile}" -C "${stage}" --strip-components=1
+          node -e '
+            const fs = require("node:fs");
+            const path = require("node:path");
+            const [rootArgument, expectedName, expectedVersion, expectedEntrypoint, expectedMode] = process.argv.slice(1);
+            const root = path.resolve(rootArgument);
+            const packagePath = path.join(root, "package.json");
+            const packageStat = fs.lstatSync(packagePath);
+            if (!packageStat.isFile() || packageStat.isSymbolicLink()) throw new Error("package.json is not a regular file");
+            const manifest = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+            if (manifest.name !== expectedName || manifest.version !== expectedVersion) throw new Error("tarball package identity mismatch");
+            if (!expectedEntrypoint || !["regular", "executable"].includes(expectedMode)) throw new Error("native package entrypoint authority is invalid");
+            const absolute = path.resolve(root, expectedEntrypoint);
+            if (!absolute.startsWith(`${root}${path.sep}`)) throw new Error("native package entrypoint escapes package root");
+            const stat = fs.lstatSync(absolute);
+            if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("native package entrypoint is not a regular file");
+            if (expectedMode === "executable" && (stat.mode & 0o111) === 0) throw new Error("native package executable lacks execute permission");
+          ' \
+            "${stage}" \
+            "${name}" \
+            "${ver}" \
+            "${expected_entrypoint}" \
+            "${expected_entrypoint_mode}"
 
-          tar xz -C "${dest}" --strip-components=1 < "${tmpfile}"
-          rm -f "${tmpfile}"
-          if [ -f "${dest}/package.json" ]; then
-            echo "  OK ($(node -p "require('./${dest}/package.json').name"))"
-          else
-            echo "  FAILED - no package.json found"
-          fi
+          mkdir -p "$(dirname "${dest}")"
+          rm -rf -- "${dest}"
+          mv -- "${stage}" "${dest}"
+          rm -f -- "${tmpfile}"
+          echo "  Verified and published ${name}@${ver}"
         }
 
         # SWC (needed by NX for fast TypeScript compilation)
-        install_pkg "@swc/core-linux-x64-gnu" "$(node -p "require('./node_modules/@swc/core/package.json').version")"
+        install_pkg \
+          '@swc/core-linux-x64-gnu' \
+          'node_modules/@swc/core-linux-x64-gnu' \
+          'node_modules/@swc/core'
 
         # esbuild linux-x64 for ALL esbuild installations (needed when nx affected
         # includes frontend/library projects that use Vite in the backend build job)
-        for esbuild_pkg in $(find node_modules -name "package.json" -path "*/esbuild/package.json" -not -path "*/@esbuild/*" 2>/dev/null); do
+        while IFS= read -r -d '' esbuild_pkg; do
           esbuild_dir=$(dirname "$esbuild_pkg")
-          esbuild_ver=$(node -p "require('./${esbuild_pkg}').version")
           parent_dir=$(dirname "$esbuild_dir")
           target="${parent_dir}/@esbuild/linux-x64"
-          if [ ! -d "$target" ]; then
-            install_pkg "@esbuild/linux-x64" "$esbuild_ver" "$target"
-          else
-            echo "Skipping ${target} (already exists)"
-          fi
-        done
+          install_pkg '@esbuild/linux-x64' "${target}" "${esbuild_dir}"
+        done < <(
+          find node_modules \
+            -name package.json \
+            -path '*/esbuild/package.json' \
+            -not -path '*/@esbuild/*' \
+            -print0
+        )
 
         # Rollup native binary (needed by Vite when frontend libs are in affected set)
-        install_pkg "@rollup/rollup-linux-x64-gnu" "$(node -p "require('./node_modules/rollup/package.json').version")"
+        install_pkg \
+          '@rollup/rollup-linux-x64-gnu' \
+          'node_modules/@rollup/rollup-linux-x64-gnu' \
+          'node_modules/rollup'
 
         # NX native binary (CRITICAL - without this NX hangs on Linux!)
-        install_pkg "@nx/nx-linux-x64-gnu" "$(node -p "require('./node_modules/nx/package.json').version")"
+        install_pkg \
+          '@nx/nx-linux-x64-gnu' \
+          'node_modules/@nx/nx-linux-x64-gnu' \
+          'node_modules/nx'
 
         timeout 30 node node_modules/nx/bin/post-install || true
 

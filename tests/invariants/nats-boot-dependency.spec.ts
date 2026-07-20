@@ -12,19 +12,16 @@ import { resolve } from 'node:path';
  * `nats` dependency, and two used the weaker `service_started` — on a cold full
  * deploy (~14 containers up at once on a CPU-starved droplet) NATS may not be
  * healthy when they boot, so the factory throws and they crash-loop until the
- * deploy health-gate window expires (ORPHAN-HIGH-409). The signal that a
- * service connects to NATS is that it mounts a NATS client cert.
+ * deploy health-gate window expires (ORPHAN-HIGH-409). Every NATS consumer
+ * mounts the canonical public-CA anchor in addition to its exact identity.
  */
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const COMPOSE = 'docker-compose.droplet.yml';
 
-// A service references one of these mount anchors iff it talks to NATS.
-const NATS_CERT_ANCHORS = [
-  '*nats-client-cert-mount',
-  '*nats-client-key-mount',
-  '*nats-clients-mount',
-  '*nats-ca-mount',
-];
+// Every NATS client references the one public-CA anchor. Private identities
+// are deliberately exact-file mounts, enforced independently by
+// production-cert-identity-store.spec.ts; no shared private-key anchor exists.
+const NATS_CA_ANCHOR = '*nats-ca-mount';
 
 interface ServiceBlock {
   name: string;
@@ -55,7 +52,7 @@ describe('NATS boot dependency', () => {
     const offenders: string[] = [];
     for (const svc of serviceBlocks()) {
       if (svc.name === 'nats') continue;
-      const connectsToNats = NATS_CERT_ANCHORS.some((a) => svc.body.includes(a));
+      const connectsToNats = svc.body.includes(NATS_CA_ANCHOR);
       if (!connectsToNats) continue;
       const dep = dependsOnBlock(svc.body);
       const healthy = / {6}nats:\n {8}condition: service_healthy/.test(dep);

@@ -51,6 +51,7 @@ interface GeneratedServiceCatalog {
     infraImageTargets: string[];
     infraImageMatrix: Array<{ image: string; dockerfile: string; context: string }>;
     applicationImageServices: string[];
+    applicationComposeImages: Array<{ composeService: string; image: string }>;
     serviceDbRolePrefixes: string[];
     readinessServices: Array<{ serviceId: string; port: number }>;
   };
@@ -73,6 +74,21 @@ function readShellStringList(source: string, name: string): string[] {
 
 function generatedDeployEnv(): string {
   return readFileSync('infrastructure/deploy/service-catalog.deploy.vars', 'utf8');
+}
+
+function applicationComposeImageBindings(): Array<{
+  readonly composeService: string;
+  readonly image: string;
+}> {
+  const buildTargets = new Set(imageBuildTargets());
+  return PLATFORM_SERVICE_CATALOG.flatMap((entry) =>
+    entry.deploymentStatus === 'active' &&
+    entry.deployProfiles.includes('droplet') &&
+    typeof entry.imageName === 'string' &&
+    buildTargets.has(entry.imageName)
+      ? [{ composeService: entry.composeServiceName, image: entry.imageName }]
+      : [],
+  );
 }
 
 describe('platform service catalog parity', () => {
@@ -175,6 +191,13 @@ describe('platform service catalog parity', () => {
     expect(generated.deploy.applicationImageServices.sort()).toEqual(
       [...imageBuildTargets()].sort(),
     );
+    expect(generated.deploy.applicationComposeImages).toEqual([
+      ...applicationComposeImageBindings(),
+    ]);
+    expect(generated.deploy.applicationComposeImages).toContainEqual({
+      composeService: 'tenant-schema-provisioner',
+      image: 'db-migrate',
+    });
     expect(generated.deploy.serviceDbRolePrefixes.sort()).toEqual(
       [...serviceDbRolePrefixes()].sort(),
     );
@@ -193,6 +216,11 @@ describe('platform service catalog parity', () => {
     );
     expect(readShellStringList(deployEnv, 'CATALOG_INFRA_IMAGE_SERVICES')).toEqual(
       [...infraImageBuildTargets()].sort(),
+    );
+    expect(readShellStringList(deployEnv, 'CATALOG_APPLICATION_COMPOSE_IMAGE_MAP')).toEqual(
+      applicationComposeImageBindings()
+        .map((entry) => `${entry.composeService}:${entry.image}`)
+        .sort(),
     );
     expect(readShellStringList(deployEnv, 'CATALOG_SERVICE_DB_ROLE_PREFIXES')).toEqual(
       [...serviceDbRolePrefixes()].sort(),
@@ -303,6 +331,7 @@ describe('platform service catalog parity', () => {
 
     expect(script).toContain('service-catalog.deploy.vars');
     expect(script).toContain('CATALOG_APPLICATION_IMAGE_SERVICES');
+    expect(script).toContain('CATALOG_APPLICATION_COMPOSE_IMAGE_MAP');
     expect(script).toContain('CATALOG_SERVICE_DB_ROLE_PREFIXES');
     expect(script).not.toContain('SERVICE_DB_ROLES="AUTH TENANT FARM');
     expect(script).not.toContain('service-catalog.deploy.env');

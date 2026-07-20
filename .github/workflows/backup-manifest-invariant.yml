@@ -27,8 +27,12 @@ on:
       - 'tools/scripts/database/evaluate-walg-evidence.mjs'
       - 'tools/scripts/database/generate-database-verification-sql.ts'
       - 'tools/scripts/database/materialize-walg-secrets.sh'
+      - 'tools/scripts/database/pitr-source-verification-locks.sql'
+      - 'tools/scripts/database/read-bounded-line.mjs'
       - 'tools/scripts/database/walg-base-backup.sh'
+      - 'tools/scripts/database/walg-pitr-ceremony.sh'
       - 'tools/scripts/database/walg-pitr-restore.sh'
+      - 'scripts/deploy/production-host-control-plane.sh'
       - 'tools/scripts/ci/prepare-protected-runtime-bundle.sh'
       - '.github/manifests/backup-script.sha256'
       - '.github/manifests/postgres-dr-contract.sha256'
@@ -84,11 +88,15 @@ jobs:
           MANIFEST=.github/manifests/backup-script.sha256
           EXPECTED_PATHS=$(printf '%s\n' \
             .github/manifests/postgres-dr-contract.sha256 \
+            scripts/deploy/production-host-control-plane.sh \
             tools/scripts/database/backup-databases.sh \
             tools/scripts/database/database-verification.sql \
             tools/scripts/database/evaluate-walg-evidence.mjs \
             tools/scripts/database/materialize-walg-secrets.sh \
+            tools/scripts/database/pitr-source-verification-locks.sql \
+            tools/scripts/database/read-bounded-line.mjs \
             tools/scripts/database/walg-base-backup.sh \
+            tools/scripts/database/walg-pitr-ceremony.sh \
             tools/scripts/database/walg-pitr-restore.sh)
           ACTUAL_PATHS=$(awk '$1 !~ /^#/ && NF == 2 {print $2}' "$MANIFEST" | sort)
 

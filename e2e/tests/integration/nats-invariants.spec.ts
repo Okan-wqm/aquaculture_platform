@@ -318,13 +318,12 @@ function extractRpcUsage(appDir: string, constants: Map<string, string>): RpcUsa
  *
  *   - admin-api-service shares the gateway_service account (documented in
  *     services.yaml — shared cert CN).
- *   - event-store-service, config-service and db-migrate have NO NATS
- *     connection today (verified 2026-07-02: no EventBusModule import, no
- *     NATS boot log lines). Onboarding one = services.yaml entry + cert CN
- *     + compose mount, per docs/runbooks/nats-service-addition.md.
- *   - sensor-ingestion is Rust — outside TS extraction; its grants are
- *     pinned by apps/sensor-ingestion/src/sensor_lookup.rs LOOKUP_SUBJECT
- *     and the events.*.SensorReading publish path (ADR-025).
+ *   - config-service and event-store-service each use their own registered
+ *     cert CN. db-migrate is the only null-mapped application because it does
+ *     not connect to NATS.
+ *   - sensor-ingestion is Rust — null here means outside this TS extraction,
+ *     not unauthenticated. Its distinct cert CN and grants are pinned by the
+ *     services.yaml/nats.conf assertions plus the Rust subject contracts.
  */
 const APP_TO_SERVICE: Record<string, string | null> = {
   'admin-api-service': 'gateway_service',

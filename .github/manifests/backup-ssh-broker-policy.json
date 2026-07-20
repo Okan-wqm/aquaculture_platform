@@ -25,7 +25,7 @@
     "attestation_protocol": "aqua-protected-ssh-attestation-v1",
     "source_sha256": "521254074489c5d70df3b6ee054a4de3b4c534530e4e0575c06245758855735e"
   },
-  "shared_secrets": ["DROPLET_HOST", "DROPLET_SSH_FINGERPRINT"],
+  "shared_secrets": ["PRODUCTION_BACKUP_DROPLET_HOST", "PRODUCTION_BACKUP_DROPLET_SSH_FINGERPRINT"],
   "operations": [
     {
       "operation": "backup",
@@ -51,7 +51,10 @@
   ],
   "cutover": {
     "enabled": false,
-    "legacy_environment_secrets": ["DROPLET_USER", "DROPLET_SSH_KEY"],
+    "legacy_environment_secrets": [
+      "PRODUCTION_BACKUP_DROPLET_USER",
+      "PRODUCTION_BACKUP_DROPLET_SSH_KEY"
+    ],
     "required_before_enable": [
       "signed broker release from protected main",
       "main-only signing environment with administrator bypass disabled, self-review prevention, and at least two eligible reviewers",

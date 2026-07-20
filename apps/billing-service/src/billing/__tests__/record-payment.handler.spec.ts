@@ -11,7 +11,11 @@
  */
 
 import Decimal from 'decimal.js';
-import { NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  NotFoundException,
+  BadRequestException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, EntityManager } from 'typeorm';
@@ -31,17 +35,24 @@ function buildInvoice(overrides: Partial<Invoice> = {}): Invoice {
     tenantId: 'tenant-001',
     invoiceNumber: 'INV-202603-T001-ABC',
     status: InvoiceStatus.SENT,
-    total: 200,
-    amountPaid: 0,
-    amountDue: 200,
+    total: new Decimal('200'),
+    amountPaid: new Decimal('0'),
+    amountDue: new Decimal('200'),
     currency: 'USD',
     issueDate: new Date('2026-03-01'),
     dueDate: new Date('2026-03-31'),
     periodStart: new Date('2026-03-01'),
     periodEnd: new Date('2026-03-31'),
     lineItems: [],
-    billingAddress: { companyName: 'Test', street: '', city: '', state: '', postalCode: '', country: '' },
-    subtotal: 200,
+    billingAddress: {
+      companyName: 'Test',
+      street: '',
+      city: '',
+      state: '',
+      postalCode: '',
+      country: '',
+    },
+    subtotal: new Decimal('200'),
     createdAt: new Date(),
     updatedAt: new Date(),
     version: 1,
@@ -100,7 +111,9 @@ function createMockManager(invoiceResult: Invoice | null) {
   return manager;
 }
 
-function createMockDataSource(manager: ReturnType<typeof createMockManager>): jest.Mocked<Partial<DataSource>> {
+function createMockDataSource(
+  manager: ReturnType<typeof createMockManager>,
+): jest.Mocked<Partial<DataSource>> {
   return {
     transaction: jest.fn().mockImplementation(async (cb: (mgr: EntityManager) => Promise<any>) => {
       return cb(manager as unknown as EntityManager);
@@ -151,14 +164,14 @@ describe('RecordPaymentHandler', () => {
       const result = await handler.execute(buildCommand({ amount: 200 }));
 
       expect(result).toBeDefined();
-      expect(result.amount).toBe(200);
+      expect(result.amount.toString()).toBe('200');
       expect(result.status).toBe(PaymentStatus.SUCCEEDED);
       expect(result.tenantId).toBe('tenant-001');
 
       // Invoice should be marked as PAID
       expect(defaultInvoice.status).toBe(InvoiceStatus.PAID);
-      expect(defaultInvoice.amountPaid).toBe(200);
-      expect(defaultInvoice.amountDue).toBe(0);
+      expect(defaultInvoice.amountPaid.toString()).toBe('200');
+      expect(defaultInvoice.amountDue.toString()).toBe('0');
       expect(defaultInvoice.paidAt).toBeDefined();
     });
 
@@ -166,11 +179,11 @@ describe('RecordPaymentHandler', () => {
       const result = await handler.execute(buildCommand({ amount: 50 }));
 
       expect(result).toBeDefined();
-      expect(result.amount).toBe(50);
+      expect(result.amount.toString()).toBe('50');
 
       expect(defaultInvoice.status).toBe(InvoiceStatus.PARTIALLY_PAID);
-      expect(defaultInvoice.amountPaid).toBe(50);
-      expect(defaultInvoice.amountDue).toBe(150);
+      expect(defaultInvoice.amountPaid.toString()).toBe('50');
+      expect(defaultInvoice.amountDue.toString()).toBe('150');
     });
 
     it('should use invoice currency when payment currency is not specified', async () => {
@@ -210,7 +223,7 @@ describe('RecordPaymentHandler', () => {
 
       expect(result).toBeDefined();
       expect(defaultInvoice.status).toBe(InvoiceStatus.PAID);
-      expect(defaultInvoice.amountDue).toBe(0);
+      expect(defaultInvoice.amountDue.toString()).toBe('0');
     });
   });
 
@@ -220,12 +233,12 @@ describe('RecordPaymentHandler', () => {
 
   describe('Currency mismatch validation', () => {
     it('should reject payment when currency does not match invoice currency', async () => {
-      await expect(
-        handler.execute(buildCommand({ amount: 100, currency: 'EUR' })),
-      ).rejects.toThrow(BadRequestException);
-      await expect(
-        handler.execute(buildCommand({ amount: 100, currency: 'EUR' })),
-      ).rejects.toThrow('Payment currency EUR does not match invoice currency USD');
+      await expect(handler.execute(buildCommand({ amount: 100, currency: 'EUR' }))).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(handler.execute(buildCommand({ amount: 100, currency: 'EUR' }))).rejects.toThrow(
+        'Payment currency EUR does not match invoice currency USD',
+      );
     });
 
     it('should accept payment when currency matches invoice currency explicitly', async () => {
@@ -241,12 +254,12 @@ describe('RecordPaymentHandler', () => {
 
   describe('Overpayment prevention', () => {
     it('should reject payment amount exceeding amount due', async () => {
-      await expect(
-        handler.execute(buildCommand({ amount: 250 })),
-      ).rejects.toThrow(BadRequestException);
-      await expect(
-        handler.execute(buildCommand({ amount: 250 })),
-      ).rejects.toThrow('Payment amount 250 exceeds amount due 200');
+      await expect(handler.execute(buildCommand({ amount: 250 }))).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(handler.execute(buildCommand({ amount: 250 }))).rejects.toThrow(
+        'Payment amount 250.00 USD exceeds amount due 200.00 USD',
+      );
     });
 
     it('should accept payment exactly equal to amount due', async () => {
@@ -256,15 +269,15 @@ describe('RecordPaymentHandler', () => {
       expect(defaultInvoice.status).toBe(InvoiceStatus.PAID);
     });
 
-    it('should reject when amountDue is NaN (invalid invoice data)', async () => {
-      defaultInvoice.amountDue = undefined as any;
+    it('should fail closed when persisted amountDue is non-finite', async () => {
+      defaultInvoice.amountDue = new Decimal(Number.NaN);
 
-      await expect(
-        handler.execute(buildCommand({ amount: 100 })),
-      ).rejects.toThrow(BadRequestException);
-      await expect(
-        handler.execute(buildCommand({ amount: 100 })),
-      ).rejects.toThrow('has invalid amount due value');
+      await expect(handler.execute(buildCommand({ amount: 100 }))).rejects.toThrow(
+        InternalServerErrorException,
+      );
+      await expect(handler.execute(buildCommand({ amount: 100 }))).rejects.toThrow(
+        'has invalid amount due value',
+      );
     });
   });
 
@@ -272,63 +285,61 @@ describe('RecordPaymentHandler', () => {
   // SAFE DECIMAL ARITHMETIC
   // ==========================================================================
 
-  describe('Safe decimal arithmetic (cent-based)', () => {
+  describe('Safe decimal arithmetic', () => {
     it('should handle 0.1 + 0.2 correctly (classic floating point trap)', async () => {
       // Invoice: total=0.30, amountPaid=0.10, amountDue=0.20
       Object.assign(defaultInvoice, {
-        total: 0.3,
-        amountPaid: 0.1,
-        amountDue: 0.2,
+        total: new Decimal('0.3'),
+        amountPaid: new Decimal('0.1'),
+        amountDue: new Decimal('0.2'),
       });
 
       await handler.execute(buildCommand({ amount: 0.2 }));
 
       // With raw floating point: 0.1 + 0.2 = 0.30000000000000004
       // With safeAdd: should be exactly 0.3
-      expect(defaultInvoice.amountPaid).toBe(0.3);
-      expect(defaultInvoice.amountDue).toBe(0);
+      expect(defaultInvoice.amountPaid.toString()).toBe('0.3');
+      expect(defaultInvoice.amountDue.toString()).toBe('0');
       expect(defaultInvoice.status).toBe(InvoiceStatus.PAID);
     });
 
     it('should calculate partial payment math correctly with decimals', async () => {
       Object.assign(defaultInvoice, {
-        total: 99.99,
-        amountPaid: 0,
-        amountDue: 99.99,
+        total: new Decimal('99.99'),
+        amountPaid: new Decimal('0'),
+        amountDue: new Decimal('99.99'),
       });
 
       await handler.execute(buildCommand({ amount: 33.33 }));
 
-      expect(defaultInvoice.amountPaid).toBe(33.33);
-      expect(defaultInvoice.amountDue).toBe(66.66);
+      expect(defaultInvoice.amountPaid.toString()).toBe('33.33');
+      expect(defaultInvoice.amountDue.toString()).toBe('66.66');
       expect(defaultInvoice.status).toBe(InvoiceStatus.PARTIALLY_PAID);
     });
 
-    it('should handle tiny remainder as fully paid (epsilon check)', async () => {
-      // Simulate scenario where accumulated payments leave a tiny sub-cent remainder
+    it('should close an invoice when the exact minor-unit remainder is paid', async () => {
       Object.assign(defaultInvoice, {
-        total: 100,
-        amountPaid: 99.995,
-        amountDue: 0.005,
+        total: new Decimal('100'),
+        amountPaid: new Decimal('99.99'),
+        amountDue: new Decimal('0.01'),
       });
 
-      // Payment of 0.005 — after safeAdd the remainder should be <= 0.01 → PAID
-      await handler.execute(buildCommand({ amount: 0.005 }));
+      await handler.execute(buildCommand({ amount: 0.01 }));
 
       expect(defaultInvoice.status).toBe(InvoiceStatus.PAID);
-      expect(defaultInvoice.amountDue).toBe(0);
+      expect(defaultInvoice.amountDue.toString()).toBe('0');
     });
 
     it('should not produce negative amountDue', async () => {
       Object.assign(defaultInvoice, {
-        total: 100,
-        amountPaid: 0,
-        amountDue: 100,
+        total: new Decimal('100'),
+        amountPaid: new Decimal('0'),
+        amountDue: new Decimal('100'),
       });
 
       await handler.execute(buildCommand({ amount: 100 }));
 
-      expect(defaultInvoice.amountDue).toBeGreaterThanOrEqual(0);
+      expect(defaultInvoice.amountDue.isNegative()).toBe(false);
     });
   });
 
@@ -383,12 +394,12 @@ describe('RecordPaymentHandler', () => {
       async (status) => {
         defaultInvoice.status = status;
 
-        await expect(
-          handler.execute(buildCommand({ amount: 100 })),
-        ).rejects.toThrow(BadRequestException);
-        await expect(
-          handler.execute(buildCommand({ amount: 100 })),
-        ).rejects.toThrow(`Cannot record payment for invoice with status ${status}`);
+        await expect(handler.execute(buildCommand({ amount: 100 }))).rejects.toThrow(
+          BadRequestException,
+        );
+        await expect(handler.execute(buildCommand({ amount: 100 }))).rejects.toThrow(
+          `Cannot record payment for invoice with status ${status}`,
+        );
       },
     );
   });

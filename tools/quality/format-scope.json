@@ -23933,6 +23933,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1814000000000-AddSensorMetricsSensorChannelTimeIndex.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/deploy-artifact/__tests__/artifact-immutability.spec.ts",
       "prettier_managed": true
     },
@@ -55188,10 +55194,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9047,
+  "file_count": 9048,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8866,
-  "managed_file_list_sha256": "2f713ebdacc828f9ee17b802c62fc30cdeaa42aba15021151e3cd73471cf216f",
+  "managed_count": 8867,
+  "managed_file_list_sha256": "3ba0b5fde067aff13d353ea746b0b89c42560001607ca49ca292fd8148fb55ff",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

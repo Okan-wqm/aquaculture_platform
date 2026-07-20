@@ -88,6 +88,11 @@ export const QualityCodes = {
 @Index(['tenantId', 'time'])
 @Index(['tankId', 'time'])
 @Index(['equipmentId', 'time'])
+// SENSOR-HIGH-085: (sensor_id, channel_id, time DESC) — created in DB by
+// migration 1814000000000; leads with (sensor_id, channel_id) so the as-of
+// reading projection's per-channel "latest where time <= T" lookups are index
+// seeks. Declared here for entity↔table parity (the store's DDL is migration-owned).
+@Index(['sensorId', 'channelId', 'time'])
 export class SensorMetric {
   /**
    * Composite primary key: time + sensor_id + channel_id

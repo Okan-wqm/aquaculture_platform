@@ -127,6 +127,9 @@
       "@aquaculture/backend-common/security": [
         "libs/backend-common/src/security/index.ts"
       ],
+      "@aquaculture/backend-common/sensor": [
+        "libs/backend-common/src/sensor/index.ts"
+      ],
       "@aquaculture/backend-common/compliance": [
         "libs/backend-common/src/compliance/index.ts"
       ],

@@ -1,14 +1,49 @@
-import { DataSource, Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
 
-import { SensorReading } from '../../../database/entities/sensor-reading.entity';
+import {
+  decodeSensorReadingId,
+  encodeSensorReadingId,
+} from '@aquaculture/backend-common/sensor';
+
 import { SensorQueryService } from '../sensor-query.service';
+import { DataQualityService } from '../data-quality.service';
 
 /**
- * SENSOR-MEDIUM-066/068 (reads convergence): getAggregatedReadings now
- * aggregates over the channel-keyed sensor.sensor_metrics store (+ continuous
- * aggregates for large ranges) and pivots channel_key → parameter via the
- * event-contract SSoT. These tests lock the pivot, the vocabulary filter, the
- * same-parameter merge, and the range→source tier selection.
+ * The as-of reads (getLatestReading / getReadingsInRange / getLatestReadingsForSensors
+ * / reconstructAsOf) run inside runInTenantRead. Mock ONLY that export (keeping
+ * the rest of backend-common/database real so the entity's DecimalTransformer
+ * still loads), delegating the callback to a jest-controlled query runner.
+ */
+const mockQrQuery = jest.fn();
+const mockRunInTenantRead = jest.fn(
+  (
+    _dataSource: unknown,
+    _sourceSchema: string,
+    _tenantId: string,
+    fn: (qr: { query: jest.Mock }) => unknown,
+  ) => fn({ query: mockQrQuery }),
+);
+
+jest.mock('@aquaculture/backend-common/database', () => {
+  const actual = jest.requireActual('@aquaculture/backend-common/database');
+  // Wrap in an arrow so mockRunInTenantRead is dereferenced at call time (during
+  // a test), not when this factory runs at import time (before the const inits).
+  return {
+    ...actual,
+    runInTenantRead: (...args: Parameters<typeof mockRunInTenantRead>) =>
+      mockRunInTenantRead(...args),
+  };
+});
+
+const SENSOR_ID = '11111111-1111-4111-8111-111111111111';
+const SENSOR_ID_2 = '33333333-3333-4333-8333-333333333333';
+const TENANT_ID = '22222222-2222-4222-8222-222222222222';
+
+/**
+ * SENSOR-MEDIUM-066/068 (reads convergence): getAggregatedReadings aggregates
+ * over the channel-keyed sensor.sensor_metrics store (+ continuous aggregates
+ * for large ranges) and pivots channel_key → parameter via the event-contract
+ * SSoT.
  */
 type AggRow = {
   bucket: string;
@@ -19,9 +54,6 @@ type AggRow = {
   sample_count: number | null;
 };
 
-const SENSOR_ID = '11111111-1111-4111-8111-111111111111';
-const TENANT_ID = '22222222-2222-4222-8222-222222222222';
-
 function createService(aggRows: AggRow[]): { service: SensorQueryService; query: jest.Mock } {
   const query = jest.fn((sql: string): Promise<unknown> => {
     if (sql.includes('SELECT name FROM sensors')) {
@@ -30,11 +62,7 @@ function createService(aggRows: AggRow[]): { service: SensorQueryService; query:
     return Promise.resolve(aggRows);
   });
   const dataSource: Partial<DataSource> = { query: query as DataSource['query'] };
-  const readingRepository: Partial<Repository<SensorReading>> = {};
-  const service = new SensorQueryService(
-    readingRepository as Repository<SensorReading>,
-    dataSource as DataSource,
-  );
+  const service = new SensorQueryService(dataSource as DataSource, new DataQualityService());
   return { service, query };
 }
 
@@ -155,5 +183,236 @@ describe('SensorQueryService.getAggregatedReadings — metric-store convergence'
     const sql = aggregationSql(query);
     expect(sql).toContain('sensor.metrics_1hour');
     expect(sql).toContain('SUM(s.avg_value * s.sample_count)');
+  });
+});
+
+/**
+ * SENSOR-HIGH-085: the per-reading reads are as-of projections over
+ * sensor.sensor_metrics. These pin the channel→parameter pivot, the anchor +
+ * codec id, the DataQualityService-recomputed quality (D4), the modal source
+ * (D5), and the tenant-pinned execution (D8).
+ */
+describe('SensorQueryService — as-of reading projection', () => {
+  beforeEach(() => {
+    mockQrQuery.mockReset();
+    mockRunInTenantRead.mockClear();
+  });
+
+  function newService(): SensorQueryService {
+    const dataSource: Partial<DataSource> = { query: jest.fn() };
+    return new SensorQueryService(dataSource as DataSource, new DataQualityService());
+  }
+
+  describe('getLatestReading', () => {
+    it('assembles the latest value per channel into one reading anchored at the newest time', async () => {
+      mockQrQuery.mockResolvedValueOnce([
+        {
+          channel_key: 'temperature',
+          value: 24.5,
+          time: new Date('2026-03-14T00:05:00Z'),
+          time_text: '2026-03-14 00:05:00+00',
+          quality_code: 192,
+          source_protocol: 'rust-sidecar',
+          pond_id: 'pond-1',
+          farm_id: 'farm-1',
+        },
+        {
+          channel_key: 'ph',
+          value: 7.1,
+          time: new Date('2026-03-14T00:04:00Z'),
+          time_text: '2026-03-14 00:04:00+00',
+          quality_code: 192,
+          source_protocol: 'rust-sidecar',
+          pond_id: 'pond-1',
+          farm_id: 'farm-1',
+        },
+      ]);
+
+      const reading = await newService().getLatestReading(SENSOR_ID, TENANT_ID);
+
+      expect(reading).not.toBeNull();
+      expect(reading!.readings.temperature).toBeCloseTo(24.5);
+      expect(reading!.readings.ph).toBeCloseTo(7.1);
+      // Anchored at the NEWEST channel time (00:05), not 00:04.
+      expect(reading!.timestamp).toEqual(new Date('2026-03-14T00:05:00Z'));
+      expect(decodeSensorReadingId(reading!.id)).toEqual({
+        sensorId: SENSOR_ID,
+        timeText: '2026-03-14 00:05:00+00',
+      });
+      expect(reading!.source).toBe('rust-sidecar');
+      expect(reading!.pondId).toBe('pond-1');
+      expect(reading!.quality).toBe(100); // both values in range
+      // Executed tenant-pinned on the sensor source schema (D8).
+      expect(mockRunInTenantRead).toHaveBeenCalledWith(
+        expect.anything(),
+        'sensor',
+        TENANT_ID,
+        expect.any(Function),
+      );
+    });
+
+    it('returns null when the sensor has no metric data', async () => {
+      mockQrQuery.mockResolvedValueOnce([]);
+
+      const reading = await newService().getLatestReading(SENSOR_ID, TENANT_ID);
+
+      expect(reading).toBeNull();
+    });
+
+    it('skips out-of-vocabulary channels but keeps mapped ones', async () => {
+      mockQrQuery.mockResolvedValueOnce([
+        {
+          channel_key: 'flow_rate', // outside the nine-parameter vocabulary
+          value: 12,
+          time: new Date('2026-03-14T00:06:00Z'),
+          time_text: '2026-03-14 00:06:00+00',
+          quality_code: 192,
+          source_protocol: 'modbus',
+          pond_id: null,
+          farm_id: null,
+        },
+        {
+          channel_key: 'temperature',
+          value: 21,
+          time: new Date('2026-03-14T00:05:00Z'),
+          time_text: '2026-03-14 00:05:00+00',
+          quality_code: 192,
+          source_protocol: 'modbus',
+          pond_id: null,
+          farm_id: null,
+        },
+      ]);
+
+      const reading = await newService().getLatestReading(SENSOR_ID, TENANT_ID);
+
+      expect(reading!.readings.temperature).toBeCloseTo(21);
+      expect(reading!.readings).not.toHaveProperty('flowRate');
+      // Anchor is still the newest metric time regardless of vocabulary.
+      expect(reading!.timestamp).toEqual(new Date('2026-03-14T00:06:00Z'));
+    });
+  });
+
+  describe('getReadingsInRange', () => {
+    it('groups the forward-filled rows into one reading per observation instant, newest-first', async () => {
+      mockQrQuery.mockResolvedValueOnce([
+        // instant 2 (newest) first — the SQL returns rows ORDER BY o.time DESC
+        { as_of: new Date('2026-03-14T00:10:00Z'), as_of_text: '2026-03-14 00:10:00+00', channel_key: 'temperature', value: 25, quality_code: 192, source_protocol: 'mqtt', pond_id: 'p', farm_id: 'f' },
+        { as_of: new Date('2026-03-14T00:10:00Z'), as_of_text: '2026-03-14 00:10:00+00', channel_key: 'ph', value: 7.0, quality_code: 192, source_protocol: 'mqtt', pond_id: 'p', farm_id: 'f' },
+        { as_of: new Date('2026-03-14T00:05:00Z'), as_of_text: '2026-03-14 00:05:00+00', channel_key: 'temperature', value: 24, quality_code: 192, source_protocol: 'mqtt', pond_id: 'p', farm_id: 'f' },
+      ]);
+
+      const readings = await newService().getReadingsInRange(
+        SENSOR_ID,
+        TENANT_ID,
+        new Date('2026-03-14T00:00:00Z'),
+        new Date('2026-03-14T00:30:00Z'),
+      );
+
+      expect(readings).toHaveLength(2);
+      expect(readings[0]!.timestamp).toEqual(new Date('2026-03-14T00:10:00Z'));
+      expect(readings[0]!.readings.temperature).toBeCloseTo(25);
+      expect(readings[0]!.readings.ph).toBeCloseTo(7.0);
+      expect(readings[1]!.timestamp).toEqual(new Date('2026-03-14T00:05:00Z'));
+      expect(readings[1]!.readings.temperature).toBeCloseTo(24);
+      // Each reading's id encodes its own observation anchor.
+      expect(decodeSensorReadingId(readings[0]!.id)!.timeText).toBe('2026-03-14 00:10:00+00');
+    });
+  });
+
+  describe('getLatestReadingsForSensors', () => {
+    it('returns one reading per sensor, each anchored at its own newest channel time', async () => {
+      mockQrQuery.mockResolvedValueOnce([
+        { sensor_id: SENSOR_ID, channel_key: 'temperature', value: 22, time: new Date('2026-03-14T00:08:00Z'), time_text: '2026-03-14 00:08:00+00', quality_code: 192, source_protocol: 'mqtt', pond_id: null, farm_id: null },
+        { sensor_id: SENSOR_ID_2, channel_key: 'ph', value: 6.9, time: new Date('2026-03-14T00:09:00Z'), time_text: '2026-03-14 00:09:00+00', quality_code: 192, source_protocol: 'graphql', pond_id: null, farm_id: null },
+      ]);
+
+      const readings = await newService().getLatestReadingsForSensors(
+        [SENSOR_ID, SENSOR_ID_2],
+        TENANT_ID,
+      );
+
+      expect(readings).toHaveLength(2);
+      const bySensor = new Map(readings.map((r) => [r.sensorId, r]));
+      expect(bySensor.get(SENSOR_ID)!.readings.temperature).toBeCloseTo(22);
+      expect(bySensor.get(SENSOR_ID_2)!.readings.ph).toBeCloseTo(6.9);
+      expect(bySensor.get(SENSOR_ID_2)!.source).toBe('graphql');
+    });
+
+    it('returns [] for an empty sensor list without querying', async () => {
+      const readings = await newService().getLatestReadingsForSensors([], TENANT_ID);
+
+      expect(readings).toEqual([]);
+      expect(mockRunInTenantRead).not.toHaveBeenCalled();
+    });
+
+    it('rejects a batch larger than 100 sensors', async () => {
+      const many = Array.from({ length: 101 }, () => SENSOR_ID);
+
+      await expect(
+        newService().getLatestReadingsForSensors(many, TENANT_ID),
+      ).rejects.toThrow('Maximum 100 sensors');
+    });
+  });
+
+  describe('reconstructAsOf', () => {
+    it('reconstructs the snapshot at the requested anchor and round-trips the id', async () => {
+      const timeText = '2026-03-14 00:07:00.123456+00';
+      mockQrQuery.mockResolvedValueOnce([
+        { as_of: new Date('2026-03-14T00:07:00.123Z'), channel_key: 'temperature', value: 23, quality_code: 192, source_protocol: 'mqtt', pond_id: null, farm_id: null },
+        { as_of: new Date('2026-03-14T00:07:00.123Z'), channel_key: 'dissolved_oxygen', value: 8.0, quality_code: 192, source_protocol: 'modbus', pond_id: null, farm_id: null },
+      ]);
+
+      const reading = await newService().reconstructAsOf(SENSOR_ID, timeText, TENANT_ID);
+
+      expect(reading).not.toBeNull();
+      expect(reading!.readings.temperature).toBeCloseTo(23);
+      expect(reading!.readings.dissolvedOxygen).toBeCloseTo(8.0);
+      // The reconstructed id equals the id it was decoded from — federation-stable.
+      expect(reading!.id).toBe(encodeSensorReadingId(SENSOR_ID, timeText));
+      expect(decodeSensorReadingId(reading!.id)).toEqual({ sensorId: SENSOR_ID, timeText });
+    });
+
+    it('returns null when no channel has a value at or before the anchor', async () => {
+      mockQrQuery.mockResolvedValueOnce([]);
+
+      const reading = await newService().reconstructAsOf(
+        SENSOR_ID,
+        '2026-03-14 00:07:00+00',
+        TENANT_ID,
+      );
+
+      expect(reading).toBeNull();
+    });
+
+    it('recomputes quality from the projected readings via DataQualityService (D4)', async () => {
+      // ph 20 is outside [0,14] and critical → the recomputed score drops below 100.
+      mockQrQuery.mockResolvedValueOnce([
+        { as_of: new Date('2026-03-14T00:07:00Z'), channel_key: 'ph', value: 20, quality_code: 192, source_protocol: 'mqtt', pond_id: null, farm_id: null },
+      ]);
+
+      const reading = await newService().reconstructAsOf(
+        SENSOR_ID,
+        '2026-03-14 00:07:00+00',
+        TENANT_ID,
+      );
+
+      expect(reading!.quality).toBeLessThan(100);
+    });
+
+    it('reports the modal source protocol across the channels (D5)', async () => {
+      mockQrQuery.mockResolvedValueOnce([
+        { as_of: new Date('2026-03-14T00:07:00Z'), channel_key: 'temperature', value: 21, quality_code: 192, source_protocol: 'mqtt', pond_id: null, farm_id: null },
+        { as_of: new Date('2026-03-14T00:07:00Z'), channel_key: 'ph', value: 7, quality_code: 192, source_protocol: 'mqtt', pond_id: null, farm_id: null },
+        { as_of: new Date('2026-03-14T00:07:00Z'), channel_key: 'salinity', value: 30, quality_code: 192, source_protocol: 'modbus', pond_id: null, farm_id: null },
+      ]);
+
+      const reading = await newService().reconstructAsOf(
+        SENSOR_ID,
+        '2026-03-14 00:07:00+00',
+        TENANT_ID,
+      );
+
+      expect(reading!.source).toBe('mqtt');
+    });
   });
 });

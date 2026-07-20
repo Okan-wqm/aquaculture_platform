@@ -13,16 +13,19 @@
  * - Query result caching consideration
  */
 
+import { runInTenantRead } from '@aquaculture/backend-common/database';
+import { encodeSensorReadingId } from '@aquaculture/backend-common/sensor';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
 import { parameterForChannelKey, type SensorReadingParameter } from '@platform/event-contracts';
-import { Repository, Between, DataSource } from 'typeorm';
+import { DataSource, QueryRunner } from 'typeorm';
 
-import { SensorReading } from '../../database/entities/sensor-reading.entity';
+import { SensorReading, SensorReadings } from '../../database/entities/sensor-reading.entity';
 import {
   AggregatedReadingType,
   AggregatedReadingsResponse,
 } from '../dto/aggregated-reading.dto';
+import { DataQualityService } from './data-quality.service';
 import {
   validateSensorId,
   validateTenantId,
@@ -32,6 +35,9 @@ import {
   ALLOWED_AGGREGATION_INTERVALS,
   SafeAggregationInterval,
 } from '../validation/input-sanitizer';
+
+/** The `sensor` source schema runInTenantRead pins alongside the tenant schema. */
+const SENSOR_SCHEMA = 'sensor';
 
 /**
  * Aggregation interval type - restricted to whitelist
@@ -143,6 +149,93 @@ function setAggregateField(
 }
 
 /**
+ * The channel-level parts every as-of read produces: one channel's value at the
+ * anchor instant, its channel_key (→ parameter), and the quality/source/location
+ * columns denormalized on sensor_metrics. Numeric columns arrive from the pg
+ * driver as strings. This is the minimum assembleReading() needs.
+ */
+interface ChannelValueParts {
+  channel_key: string;
+  value: string | number | null;
+  quality_code: number | null;
+  source_protocol: string | null;
+  pond_id: string | null;
+  farm_id: string | null;
+}
+
+/**
+ * A latest-per-channel row: a ChannelValueParts plus the sample's own time (Date
+ * for comparison, lossless `time_text` for the federation-id anchor).
+ */
+interface ChannelAsOfRow extends ChannelValueParts {
+  time: Date;
+  time_text: string;
+}
+
+/** A batch latest-per-channel row additionally carries its owning sensor id. */
+interface SensorChannelAsOfRow extends ChannelAsOfRow {
+  sensor_id: string;
+}
+
+/** A range row: a ChannelValueParts forward-filled to an observation instant. */
+interface RangeChannelAsOfRow extends ChannelValueParts {
+  as_of: Date;
+  as_of_text: string;
+}
+
+/** The newest (time, time_text) anchor among latest-per-channel rows, or null when empty. */
+function latestAnchor(
+  rows: ReadonlyArray<{ time: Date; time_text: string }>,
+): { time: Date; timeText: string } | null {
+  let best: { time: Date; timeText: string } | null = null;
+  for (const row of rows) {
+    if (!best || row.time.getTime() > best.time.getTime()) {
+      best = { time: row.time, timeText: row.time_text };
+    }
+  }
+  return best;
+}
+
+/**
+ * The modal `source_protocol` across a reading's contributing channel rows
+ * (SENSOR-HIGH-085 / D5). A projected reading has no single ingest source the
+ * way a stored row did; the most common protocol among its channels is the
+ * honest summary. Ties break on the lexicographically smallest protocol so the
+ * value is deterministic. Returns undefined when no row carries a protocol.
+ */
+function modalSourceProtocol(rows: ReadonlyArray<{ source_protocol: string | null }>):
+  | string
+  | undefined {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const protocol = row.source_protocol;
+    if (protocol) {
+      counts.set(protocol, (counts.get(protocol) ?? 0) + 1);
+    }
+  }
+  let best: string | undefined;
+  let bestCount = 0;
+  for (const [protocol, count] of counts) {
+    if (count > bestCount || (count === bestCount && (best === undefined || protocol < best))) {
+      best = protocol;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+/** First non-null value of a field across a reading's contributing rows. */
+function firstNonNull<T>(rows: ReadonlyArray<T>, pick: (row: T) => string | null): string | undefined {
+  for (const row of rows) {
+    const value = pick(row);
+    if (value !== null && value !== undefined) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Sensor Query Service
  */
 @Injectable()
@@ -150,31 +243,73 @@ export class SensorQueryService {
   private readonly logger = new Logger(SensorQueryService.name);
 
   constructor(
-    @InjectRepository(SensorReading)
-    private readonly readingRepository: Repository<SensorReading>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly dataQualityService: DataQualityService,
   ) {}
 
   /**
-   * Get the latest reading for a sensor
+   * Latest reading for a sensor, as an as-of projection over sensor.sensor_metrics.
+   *
+   * SENSOR-HIGH-085: a SensorReading is no longer a stored row — it is the
+   * last-known value of each of the sensor's channels. This takes, per channel,
+   * the freshest metric sample (DISTINCT ON (channel_id) ... ORDER BY channel_id,
+   * time DESC — an index descent on the (sensor_id, channel_id, time DESC) index)
+   * and assembles them into one reading anchored at the newest of those
+   * per-channel times. Device-ingested sensors (MQTT/edge/Rust) that never wrote
+   * the retired sensor_readings store now return their real values. Runs inside a
+   * tenant-pinned read (D8) so sensor_data_channels (per-tenant) resolves and the
+   * cross-tenant sensor.sensor_metrics read is RLS-scoped.
    */
   async getLatestReading(
     sensorId: string,
     tenantId: string,
   ): Promise<SensorReading | null> {
-    // Validate inputs
     const validSensorId = validateSensorId(sensorId);
     const validTenantId = validateTenantId(tenantId);
 
-    return await this.readingRepository.findOne({
-      where: { sensorId: validSensorId, tenantId: validTenantId },
-      order: { timestamp: 'DESC' },
+    return runInTenantRead(this.dataSource, SENSOR_SCHEMA, validTenantId, async (qr) => {
+      const rows = (await qr.query(
+        `SELECT c.channel_key AS channel_key,
+                m.value AS value,
+                m.time AS time,
+                m.time::text AS time_text,
+                m.quality_code AS quality_code,
+                m.source_protocol AS source_protocol,
+                m.pond_id AS pond_id,
+                m.farm_id AS farm_id
+           FROM (
+             SELECT DISTINCT ON (channel_id)
+               channel_id, value, time, quality_code, source_protocol, pond_id, farm_id
+             FROM sensor.sensor_metrics
+             WHERE sensor_id = $1 AND tenant_id = $2
+             ORDER BY channel_id, time DESC
+           ) m
+           JOIN sensor_data_channels c ON c.id = m.channel_id AND c.tenant_id = $2`,
+        [validSensorId, validTenantId],
+      )) as ChannelAsOfRow[];
+
+      const anchor = latestAnchor(rows);
+      if (!anchor) {
+        return null;
+      }
+      return this.assembleReading(validSensorId, validTenantId, anchor.time, anchor.timeText, rows);
     });
   }
 
   /**
-   * Get readings within a time range
+   * Readings across a time range, as an as-of series over sensor.sensor_metrics.
+   *
+   * SENSOR-HIGH-085: for the most recent `limit` distinct observation instants in
+   * [start, end], each channel is forward-filled to its last-known value at or
+   * before that instant (a per-channel LATERAL LIMIT 1 index seek), and the
+   * per-instant snapshots are assembled into wide readings. For coherent
+   * GraphQL/MQTT data — where every channel shares one `time` — this degenerates
+   * to exactly one reading per original observation; for per-channel device data
+   * it yields the faithful last-known-state at each instant something changed. The
+   * observation instants are the wall-clock the reading is anchored at, so the
+   * count is bounded by `limit` and each forward-fill is an index seek on the
+   * (sensor_id, channel_id, time DESC) index. Ordered newest-first.
    */
   async getReadingsInRange(
     sensorId: string,
@@ -183,7 +318,6 @@ export class SensorQueryService {
     endTime: Date,
     limit?: number,
   ): Promise<SensorReading[]> {
-    // Validate inputs
     const validSensorId = validateSensorId(sensorId);
     const validTenantId = validateTenantId(tenantId);
     const { startTime: validStart, endTime: validEnd } = validateDateRange(
@@ -193,14 +327,52 @@ export class SensorQueryService {
     );
     const validLimit = validateLimit(limit, MAX_RESULTS_LIMIT);
 
-    return await this.readingRepository.find({
-      where: {
-        sensorId: validSensorId,
-        tenantId: validTenantId,
-        timestamp: Between(validStart, validEnd),
-      },
-      order: { timestamp: 'DESC' },
-      take: validLimit,
+    return runInTenantRead(this.dataSource, SENSOR_SCHEMA, validTenantId, async (qr) => {
+      const rows = (await qr.query(
+        `WITH obs AS (
+           SELECT DISTINCT time
+           FROM sensor.sensor_metrics
+           WHERE sensor_id = $1 AND tenant_id = $2 AND time BETWEEN $3 AND $4
+           ORDER BY time DESC
+           LIMIT $5
+         )
+         SELECT o.time AS as_of,
+                o.time::text AS as_of_text,
+                c.channel_key AS channel_key,
+                lv.value AS value,
+                lv.quality_code AS quality_code,
+                lv.source_protocol AS source_protocol,
+                lv.pond_id AS pond_id,
+                lv.farm_id AS farm_id
+           FROM obs o
+           JOIN sensor_data_channels c ON c.sensor_id = $1 AND c.tenant_id = $2
+           CROSS JOIN LATERAL (
+             SELECT value, quality_code, source_protocol, pond_id, farm_id
+             FROM sensor.sensor_metrics m
+             WHERE m.sensor_id = $1 AND m.channel_id = c.id AND m.tenant_id = $2
+               AND m.time <= o.time
+             ORDER BY m.time DESC
+             LIMIT 1
+           ) lv
+           ORDER BY o.time DESC`,
+        [validSensorId, validTenantId, validStart, validEnd, validLimit],
+      )) as RangeChannelAsOfRow[];
+
+      // Rows arrive newest-first; group by observation instant preserving that
+      // order so the returned readings are DESC by timestamp.
+      const byInstant = new Map<string, { as_of: Date; rows: RangeChannelAsOfRow[] }>();
+      for (const row of rows) {
+        let group = byInstant.get(row.as_of_text);
+        if (!group) {
+          group = { as_of: row.as_of, rows: [] };
+          byInstant.set(row.as_of_text, group);
+        }
+        group.rows.push(row);
+      }
+
+      return [...byInstant.entries()].map(([asOfText, group]) =>
+        this.assembleReading(validSensorId, validTenantId, group.as_of, asOfText, group.rows),
+      );
     });
   }
 
@@ -414,11 +586,13 @@ export class SensorQueryService {
   }
 
   /**
-   * Get multiple sensors' latest readings efficiently
-   * Useful for dashboard views
+   * Multiple sensors' latest readings, each an as-of projection (SENSOR-HIGH-085).
    *
-   * Uses DISTINCT ON for a single-pass scan — no N+1 queries.
-   * Raw SQL returns snake_case columns, so we alias them to match the entity.
+   * DISTINCT ON (sensor_id, channel_id) ... ORDER BY sensor_id, channel_id, time
+   * DESC gives every sensor's latest value per channel in a single index scan on
+   * (sensor_id, channel_id, time DESC); the rows are grouped per sensor and each
+   * sensor's reading is anchored at its newest channel time. Runs tenant-pinned
+   * (D8). One reading per sensor that has any metric data.
    */
   async getLatestReadingsForSensors(
     sensorIds: string[],
@@ -428,7 +602,6 @@ export class SensorQueryService {
       return [];
     }
 
-    // Validate inputs
     const validTenantId = validateTenantId(tenantId);
     const validSensorIds = sensorIds.map((id) => validateSensorId(id));
 
@@ -439,31 +612,134 @@ export class SensorQueryService {
       );
     }
 
-    // Use DISTINCT ON for PostgreSQL to get latest reading per sensor
-    // Alias snake_case columns to camelCase to match the SensorReading entity
-    const query = `
-      SELECT DISTINCT ON (sensor_id)
-        id,
-        sensor_id    AS "sensorId",
-        tenant_id    AS "tenantId",
-        timestamp,
-        readings,
-        pond_id      AS "pondId",
-        farm_id      AS "farmId",
-        quality,
-        source,
-        created_at   AS "createdAt"
-      FROM sensor_readings
-      WHERE sensor_id = ANY($1)
-        AND tenant_id = $2
-      ORDER BY sensor_id, timestamp DESC
-    `;
+    return runInTenantRead(this.dataSource, SENSOR_SCHEMA, validTenantId, async (qr) => {
+      const rows = (await qr.query(
+        `SELECT m.sensor_id AS sensor_id,
+                c.channel_key AS channel_key,
+                m.value AS value,
+                m.time AS time,
+                m.time::text AS time_text,
+                m.quality_code AS quality_code,
+                m.source_protocol AS source_protocol,
+                m.pond_id AS pond_id,
+                m.farm_id AS farm_id
+           FROM (
+             SELECT DISTINCT ON (sensor_id, channel_id)
+               sensor_id, channel_id, value, time, quality_code, source_protocol, pond_id, farm_id
+             FROM sensor.sensor_metrics
+             WHERE sensor_id = ANY($1) AND tenant_id = $2
+             ORDER BY sensor_id, channel_id, time DESC
+           ) m
+           JOIN sensor_data_channels c ON c.id = m.channel_id AND c.tenant_id = $2`,
+        [validSensorIds, validTenantId],
+      )) as SensorChannelAsOfRow[];
 
-    const results: SensorReading[] = await this.dataSource.query(query, [
-      validSensorIds,
-      validTenantId,
-    ]);
+      const bySensor = new Map<string, SensorChannelAsOfRow[]>();
+      for (const row of rows) {
+        const list = bySensor.get(row.sensor_id) ?? [];
+        list.push(row);
+        bySensor.set(row.sensor_id, list);
+      }
 
-    return results;
+      const readings: SensorReading[] = [];
+      for (const [sensorId, sensorRows] of bySensor) {
+        const anchor = latestAnchor(sensorRows);
+        if (!anchor) {
+          continue;
+        }
+        readings.push(
+          this.assembleReading(sensorId, validTenantId, anchor.time, anchor.timeText, sensorRows),
+        );
+      }
+      return readings;
+    });
+  }
+
+  /**
+   * Reconstruct the exact as-of snapshot a federation id was minted from
+   * (SENSOR-HIGH-085). SensorReadingResolver.resolveReference decodes an id into
+   * (sensorId, anchor timeText) and calls this: for each of the sensor's channels
+   * it takes the last-known value at or before the anchor instant (a per-channel
+   * LATERAL LIMIT 1 index seek) and assembles the reading anchored at that exact
+   * instant, so the reconstructed reading's id round-trips back to the input id.
+   * Runs tenant-pinned (D8); `timeText` is fed back verbatim as a $::timestamptz
+   * bound parameter, so the microsecond-precise `time <= T` bound is lossless.
+   */
+  async reconstructAsOf(
+    sensorId: string,
+    timeText: string,
+    tenantId: string,
+  ): Promise<SensorReading | null> {
+    const validSensorId = validateSensorId(sensorId);
+    const validTenantId = validateTenantId(tenantId);
+
+    return runInTenantRead(this.dataSource, SENSOR_SCHEMA, validTenantId, async (qr) => {
+      const rows = (await qr.query(
+        `SELECT $3::timestamptz AS as_of,
+                c.channel_key AS channel_key,
+                lv.value AS value,
+                lv.quality_code AS quality_code,
+                lv.source_protocol AS source_protocol,
+                lv.pond_id AS pond_id,
+                lv.farm_id AS farm_id
+           FROM sensor_data_channels c
+           CROSS JOIN LATERAL (
+             SELECT value, quality_code, source_protocol, pond_id, farm_id
+             FROM sensor.sensor_metrics m
+             WHERE m.sensor_id = $1 AND m.channel_id = c.id AND m.tenant_id = $2
+               AND m.time <= $3::timestamptz
+             ORDER BY m.time DESC
+             LIMIT 1
+           ) lv
+           WHERE c.sensor_id = $1 AND c.tenant_id = $2`,
+        [validSensorId, validTenantId, timeText],
+      )) as Array<ChannelValueParts & { as_of: Date }>;
+
+      if (rows.length === 0) {
+        return null;
+      }
+      return this.assembleReading(validSensorId, validTenantId, rows[0]!.as_of, timeText, rows);
+    });
+  }
+
+  /**
+   * Assemble the channel-level as-of rows for one instant into a SensorReading
+   * read-model (SENSOR-HIGH-085). channel_key → parameter via the event-contract
+   * SSoT; quality is recomputed from the projected readings by the same
+   * DataQualityService the ingest path used (D4); source is the modal channel
+   * protocol (D5); id encodes (sensorId, anchor) via the shared codec (D3).
+   */
+  private assembleReading(
+    sensorId: string,
+    tenantId: string,
+    anchorTime: Date,
+    anchorTimeText: string,
+    rows: ReadonlyArray<ChannelValueParts>,
+  ): SensorReading {
+    const readings: SensorReadings = {};
+    for (const row of rows) {
+      const parameter = parameterForChannelKey(row.channel_key);
+      if (!parameter) {
+        continue;
+      }
+      const value = toNumberOrUndefined(row.value);
+      if (value === undefined) {
+        continue;
+      }
+      readings[parameter] = value;
+    }
+
+    return {
+      id: encodeSensorReadingId(sensorId, anchorTimeText),
+      sensorId,
+      tenantId,
+      timestamp: anchorTime,
+      readings,
+      pondId: firstNonNull(rows, (r) => r.pond_id),
+      farmId: firstNonNull(rows, (r) => r.farm_id),
+      quality: this.dataQualityService.calculateQuality(readings),
+      source: modalSourceProtocol(rows),
+      createdAt: anchorTime,
+    };
   }
 }

@@ -49,7 +49,6 @@ import { CalibrationEvent } from './calibration/calibration-event.entity';
 import { CalibrationModule } from './calibration/calibration.module';
 import { SensorDataChannel } from './database/entities/sensor-data-channel.entity';
 import { SensorProtocol } from './database/entities/sensor-protocol.entity';
-import { SensorReading } from './database/entities/sensor-reading.entity';
 import { ChannelDetectionLog } from './database/entities/channel-detection-log.entity';
 import { IndustryTemplate } from './database/entities/industry-template.entity';
 import { Sensor } from './database/entities/sensor.entity';
@@ -194,7 +193,6 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
             // ("No metadata for SensorOutbox"), crash-looping sensor-service boot.
             SensorOutbox,
             Sensor,
-            SensorReading,
             SensorProtocol,
             SensorDataChannel,
             CalibrationEvent,

@@ -1,5 +1,3 @@
-import { randomUUID } from 'crypto';
-
 import {
   Injectable,
   Logger,
@@ -32,7 +30,6 @@ import { ReleaseBundle } from '../release-bundle/entities/release-bundle.entity'
 import { ReleaseBundleService } from '../release-bundle/release-bundle.service';
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
 import { QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
-import { SensorReading } from '../database/entities/sensor-reading.entity';
 import { Sensor, SensorStatus } from '../database/entities/sensor.entity';
 import {
   DeviceEvent,
@@ -2134,17 +2131,6 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           await this.metricWriter.writeManaged(metrics, queryRunner.manager);
         }
 
-        const legacyEnabled =
-          this.configService.get('LEGACY_SENSOR_READINGS_ENABLED', 'false') === 'true';
-        if (legacyEnabled) {
-          if (this.configService.get('NODE_ENV') === 'production') {
-            this.logger.warn(
-              'LEGACY_SENSOR_READINGS_ENABLED=true in production — dual write doubles I/O. Migrate to sensor_metrics and disable.',
-            );
-          }
-          await this.writeLegacyReading(queryRunner.manager, sensor, data);
-        }
-
         this.logger.debug(`Saved ${metrics.length} metrics for sensor ${sensor.id}`);
       },
     );
@@ -2207,33 +2193,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   // UUID/finite validation + the sensor.sensor_metrics INSERT are owned by
   // SensorMetricWriterService (SENSOR-MEDIUM-068). saveReading builds
   // SensorMetricInput[] with sourceProtocol 'mqtt' and hands them to
-  // writeManaged(metrics, queryRunner.manager) so they commit atomically with
-  // the legacy reading in the same tenant transaction.
-
-  /**
-   * Write to legacy sensor_readings table for backward compatibility
-   * @deprecated Use sensor_metrics table instead. Controlled by LEGACY_SENSOR_READINGS_ENABLED env var.
-   * This method will be removed once all consumers migrate to sensor_metrics.
-   */
-  private async writeLegacyReading(
-    manager: EntityManager,
-    sensor: Sensor,
-    data: Record<string, unknown>,
-  ): Promise<void> {
-    const reading = manager.create(SensorReading, {
-      id: randomUUID(),
-      sensorId: sensor.id,
-      tenantId: sensor.tenantId,
-      timestamp: new Date().toISOString(),
-      readings: data,
-      pondId: sensor.pondId,
-      farmId: sensor.farmId,
-      quality: 100,
-      source: 'mqtt',
-    });
-
-    await manager.save(SensorReading, reading);
-  }
+  // writeManaged(metrics, queryRunner.manager). SENSOR-HIGH-085: there is no
+  // legacy sensor_readings dual write — the per-reading read surface projects
+  // readings from sensor_metrics, so sensor_metrics is the only store.
 
   /**
    * Extract value from object by path

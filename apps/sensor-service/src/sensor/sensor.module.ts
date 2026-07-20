@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
-import { SensorReading } from '../database/entities/sensor-reading.entity';
 import { Sensor } from '../database/entities/sensor.entity';
 import { SensorMetricWriterModule } from '../ingestion/sensor-metric-writer.module';
 
@@ -31,7 +30,7 @@ import { SensorQueryService } from './services/sensor-query.service';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Sensor, SensorReading, SensorDataChannel]),
+    TypeOrmModule.forFeature([Sensor, SensorDataChannel]),
     // SENSOR-MEDIUM-066/068 — the GraphQL ingestion path (SensorIngestionService)
     // shares the one writer for sensor.sensor_metrics with the MQTT/edge/Rust
     // ingestion plane, so a reading ingested over GraphQL lands in the same

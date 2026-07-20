@@ -739,7 +739,6 @@ export class SensorQueryService {
       farmId: firstNonNull(rows, (r) => r.farm_id),
       quality: this.dataQualityService.calculateQuality(readings),
       source: modalSourceProtocol(rows),
-      createdAt: anchorTime,
     };
   }
 }

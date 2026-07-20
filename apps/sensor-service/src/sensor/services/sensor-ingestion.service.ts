@@ -18,6 +18,7 @@
  * - Proper error types for client handling
  */
 
+import { encodeSensorReadingId } from '@aquaculture/backend-common/sensor';
 import { Injectable, Logger, Optional, BadRequestException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import {
@@ -149,8 +150,6 @@ export class SensorIngestionService {
   private static readonly MAX_BATCH_SIZE = 10000;
 
   constructor(
-    @InjectRepository(SensorReading)
-    private readonly readingRepository: Repository<SensorReading>,
     @InjectRepository(Sensor)
     private readonly sensorRepository: Repository<Sensor>,
     @Optional()
@@ -202,18 +201,21 @@ export class SensorIngestionService {
     // Calculate data quality score
     const quality = this.dataQualityService.calculateQuality(transformedReadings);
 
-    // Create reading entity
-    const reading = this.readingRepository.create({
-      id: crypto.randomUUID(),
+    // Build the reading read-model. SENSOR-HIGH-085: the id is the as-of anchor
+    // codec (not a stored uuid), so the reading a client just ingested resolves
+    // back through federation resolveReference to the same projection.
+    const timestamp = validatedData.timestamp ?? new Date();
+    const reading: SensorReading = {
+      id: encodeSensorReadingId(validatedData.sensorId, timestamp.toISOString()),
       sensorId: validatedData.sensorId,
       tenantId: validatedData.tenantId,
       readings: transformedReadings,
       pondId: validatedData.pondId,
       farmId: validatedData.farmId,
-      timestamp: validatedData.timestamp || new Date(),
+      timestamp,
       source: validatedData.source || 'http',
       quality,
-    });
+    };
 
     // Resolve the per-parameter channel map ONCE, before the write transaction.
     // applyCalibration() above warmed CalibrationService's channel cache for this
@@ -232,22 +234,22 @@ export class SensorIngestionService {
       () =>
         this.databaseCircuitBreaker.execute(() =>
           this.dataSource.transaction(async (manager) => {
-            const persisted = await manager.save(SensorReading, reading);
-            await this.outboxPublisher.enqueue(this.buildReadingEvent(persisted), manager);
-            // SENSOR-MEDIUM-066/068: the SAME reading also lands in the
-            // channel-keyed sensor.sensor_metrics store, INSIDE this transaction
-            // so the JSONB row, the metric rows, and the outbox event commit (or
-            // roll back) together — the SENSOR-CRITICAL-001 atomicity guarantee
-            // now spans all three writes, not just save + enqueue.
+            // SENSOR-HIGH-085: no sensor_readings row is written — the reading is
+            // an as-of projection over sensor.sensor_metrics. The SensorReading
+            // event and the channel-keyed metric rows are both derived from the
+            // in-memory reading and enqueued/written INSIDE this transaction, so
+            // the SENSOR-CRITICAL-001 atomicity guarantee now spans enqueue +
+            // metrics (either both commit or neither) with no stored-row write.
+            await this.outboxPublisher.enqueue(this.buildReadingEvent(reading), manager);
             const metrics = this.buildMetricInputs(
-              persisted,
+              reading,
               validatedData.readings,
               channelsByParameter,
             );
             if (metrics.length > 0) {
               await this.metricWriter.writeManaged(metrics, manager);
             }
-            return persisted;
+            return reading;
           }),
         ),
       {
@@ -310,18 +312,19 @@ export class SensorIngestionService {
 
       const quality = this.dataQualityService.calculateQuality(transformedReadings);
 
+      const timestamp = data.timestamp ?? new Date();
       prepared.push({
-        entity: this.readingRepository.create({
-          id: crypto.randomUUID(),
+        entity: {
+          id: encodeSensorReadingId(data.sensorId, timestamp.toISOString()),
           sensorId: data.sensorId,
           tenantId: data.tenantId,
           readings: transformedReadings,
           pondId: data.pondId,
           farmId: data.farmId,
-          timestamp: data.timestamp || new Date(),
+          timestamp,
           source: data.source || 'batch',
           quality,
-        }),
+        },
         rawReadings: data.readings,
       });
     }
@@ -351,11 +354,12 @@ export class SensorIngestionService {
 
     for (let i = 0; i < prepared.length; i += SensorIngestionService.BATCH_CHUNK_SIZE) {
       const chunk = prepared.slice(i, i + SensorIngestionService.BATCH_CHUNK_SIZE);
-      const chunkEntities = chunk.map((p) => p.entity);
       const chunkResult = await withRetry(
         () =>
           this.dataSource.transaction(async (manager) => {
-            await manager.insert(SensorReading, chunkEntities);
+            // SENSOR-HIGH-085: no sensor_readings insert — each reading's event
+            // and its channel-keyed metric rows are derived from the in-memory
+            // reading and committed atomically per chunk (SENSOR-CRITICAL-001).
             const chunkMetrics: SensorMetricInput[] = [];
             for (const { entity, rawReadings } of chunk) {
               await this.outboxPublisher.enqueue(this.buildReadingEvent(entity), manager);
@@ -381,12 +385,12 @@ export class SensorIngestionService {
 
       if (!chunkResult.success) {
         this.logger.error(
-          `Batch insert failed after retries at chunk offset ${i}: ${chunkResult.error?.message}`,
+          `Batch ingest failed after retries at chunk offset ${i}: ${chunkResult.error?.message}`,
         );
         throw chunkResult.error;
       }
 
-      totalInserted += chunkEntities.length;
+      totalInserted += chunk.length;
     }
 
     // Bulk update last seen for all sensors (more efficient)

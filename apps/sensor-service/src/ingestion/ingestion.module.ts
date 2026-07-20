@@ -7,7 +7,6 @@ import { SensorServiceConfigModule } from '../config/sensor-service-config.modul
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
 import { ProcessModule } from '../process/process.module';
 import { SensorProtocol } from '../database/entities/sensor-protocol.entity';
-import { SensorReading } from '../database/entities/sensor-reading.entity';
 import { Sensor } from '../database/entities/sensor.entity';
 import { EdgeDeviceModule } from '../edge-device/edge-device.module';
 import { ReleaseBundleModule } from '../release-bundle/release-bundle.module';
@@ -28,7 +27,7 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([Sensor, SensorReading, SensorProtocol, SensorDataChannel]),
+    TypeOrmModule.forFeature([Sensor, SensorProtocol, SensorDataChannel]),
     // SENSOR-MEDIUM-068 — the one writer for sensor.sensor_metrics, shared with
     // SensorModule's GraphQL path so a single instance owns the store.
     SensorMetricWriterModule,

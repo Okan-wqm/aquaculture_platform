@@ -153,40 +153,61 @@ LOCAL APPLICATION (tiers 1-3 of the hierarchy):
 
 ### APA-134 [MEDIUM] KPI trend indicators hardcoded — negative growth renders as green up-arrow; churn delta is a literal -0.5
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** Tenants/Users/MRR KpiCards pass trend="up" unconditionally and KpiCard shows Math.abs(change) (AnalyticsDashboardPage.tsx:544-546, 557-559, 570-572, 226-231), so a negative growthRate displays as a green upward percentage. The Churn Rate card passes a hardcoded change={-0.5} (610-611) shown as '0.5% vs last month' regardless of data.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx:544-546`
   - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx:610-611`
   - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx:226-231`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** KpiCard derives arrow AND color exclusively from the string `trend` prop (getTrendColor/getTrendIcon, AnalyticsDashboardPage.tsx:206-216) and renders Math.abs(change) (228), so trend and change are two independent inputs that can contradict each other. The three growth cards hardcode trend="up" (546/559/572) regardless of the sign of growthRate/revenueGrowthRate, and the Churn card passes a fabricated change={-0.5} (610-611) that has no backing data field (DashboardSummary carries tenants.churnRate but no churn delta). Instance of the systemic 'FE fabricates/hardcodes presentational data that contradicts the real value' class.
+- **Fix design:** Tier-1/2: make trend un-representable independently of the number. Drop the `trend` prop from KpiCard and compute direction internally from Math.sign(change) (change>0 => up/green, <0 => down/red, ~0 => stable/gray), plus an optional `higherIsWorse` boolean so churn/error-rate invert the color mapping (down = good = green) without inverting the arrow. Pass real deltas only: growthRate/revenueGrowthRate flow through unchanged and now render correct color+arrow; remove the literal change={-0.5} on the Churn card. If a real churn delta is wanted, add `churnRateChange` to TenantMetrics computed backend-side via the existing calculateGrowthRate('tenant','churnRate',…) helper (analytics.service.ts:998) and surface it in the summary; otherwise omit `change` on the churn card so no delta is shown. Verification: add web/modules/admin-panel/src/pages/__tests__/AnalyticsDashboardPage.kpi.spec.tsx asserting a negative change renders the red down-arrow and no card passes a literal trend/change.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx`
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts`
+  - `apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts`
+- **Effort:** S
 
 ### APA-135 [MEDIUM] churnedThisMonth/churnRate proxy is wrong: any update to an already-suspended tenant re-counts it as churned this month
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** Churn is computed as COUNT(*) FILTER (WHERE status IN ('CANCELLED','SUSPENDED') AND "updatedAt" >= date_trunc('month', NOW())) (analytics.service.ts:271-274). updatedAt moves on ANY row update (UpdateDateColumn), so an admin editing a long-suspended tenant inflates this month's churn; conversely tenants cancelled last month but untouched since are not counted in prior months' trend snapshots consistently. KPI 'X churned this month' and churnRate (page 607-609) silently misreport.
 - **Evidence:**
   - `apps/admin-api-service/src/analytics/services/analytics.service.ts:271-274`
   - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx:607-609`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** churned_this_month uses `status IN ('CANCELLED','SUSPENDED') AND "updatedAt" >= date_trunc('month', NOW())` (analytics.service.ts:271-274). updatedAt is a TypeORM @UpdateDateColumn that advances on ANY row mutation, so it is a proxy for 'last touched', not 'churn event date'. Editing a long-suspended tenant re-dates it into the current month (false positive), and a tenant cancelled last month but touched this month is also mis-attributed. There is no authoritative timestamp of the status transition, so churnRate (analytics.service.ts:290) and the 'X churned this month' KPI (page 607-609) are unreliable.
+- **Fix design:** Tier-1: record the actual state-transition instant instead of inferring it. Add a dedicated `canceledAt`/`suspendedAt` (or a single `statusChangedAt`) timestamp to the authoritative tenant record and set it exactly when the status flips. Per repo rules auth owns auth.tenants and billing.subscriptions is the SSoT for subscription lifecycle, so the column + migration + transition handler land in the owning service (auth-service tenant status-change command handler, or billing subscription-cancel handler), then admin reads it via TenantReadOnly (or a subscription read entity) and the FILTER becomes `WHERE "canceledAt" >= date_trunc('month', NOW())`. Blue-green safe: nullable column -> backfill from the latest status-change audit event in shared.audit_logs -> query. Verification: extend the churn aggregation spec to assert an UPDATE to an already-suspended tenant does NOT change churned_this_month once the transition timestamp is the filter key.
+- **Files to change:**
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts`
+  - `apps/admin-api-service/src/analytics/entities/external/tenant.entity.ts`
+  - `apps/auth-service/src/tenant/entities/tenant.entity.ts`
+  - `apps/auth-service/src/database/migrations`
+- **Effort:** L
 
 ### APA-136 [MEDIUM] Total API failure renders an all-zero dashboard with no error indication
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** The catch block sets getDefaultData() (all zeros) and empty trends with no error banner (AnalyticsDashboardPage.tsx:450-455); individual endpoint failures are likewise absorbed by Promise.allSettled defaults (407-415). A SUPER_ADMIN seeing 0 tenants / $0 MRR cannot distinguish outage from an empty platform. Only backend-reported partial degradation (data.unavailable) gets a banner (532-536).
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx:450-455`
   - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx:407-415`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** AnalyticsDashboardPage has no error state. The outer catch collapses any total failure of getDashboardSummary()/trend fetches into getDefaultData() (all zeros) with no banner (450-455), and each Promise.allSettled rejection is silently swapped for defaults (407-449). The only degraded-mode signal shown is the backend-provided data.unavailable[] (532-536), which is only populated on PARTIAL backend aggregation failure — a network/auth/500 on the whole endpoint produces a clean all-zero dashboard indistinguishable from an empty platform. Instance of the systemic 'catch -> silent default data, outage rendered as real zeros' class shared by other admin pages.
+- **Fix design:** Tier-2/3: introduce an explicit fetch-error state. Track per-source settle outcomes: if getDashboardSummary rejects, set an error state and render an error banner (with a Retry that re-invokes loadData) instead of substituting zeros; if only some of the five allSettled promises reject, merge their source names into the same degraded-mode banner already driven by data.unavailable so client-side failures surface identically to backend-side ones. Keep zeros only for genuinely-empty successful responses. Verification: add AnalyticsDashboardPage.error.spec.tsx mocking getDashboardSummary rejection and asserting an error banner (not a $0/0-tenant dashboard) renders.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx`
+- **Effort:** M
 
 ### APA-137 [LOW] Period selector (7d/30d/90d/1y) only affects the three trend charts; every KPI stays fixed to 'this month'
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** selectedPeriod feeds only getTenantGrowthTrend/getRevenueTrend/getUserActivity (AnalyticsDashboardPage.tsx:394-403); getDashboardSummary takes no range and all KPI windows are hardcoded month-to-date in SQL (analytics.service.ts:270-274, 353). The UI implies the whole dashboard re-scopes.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx:394-403`
   - `apps/admin-api-service/src/analytics/services/analytics.service.ts:270-274`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** selectedPeriod is passed only to getTenantGrowthTrend/getRevenueTrend/getUserActivity (394-403); getDashboardSummary() is range-unaware and every KPI window in the backend is hardcoded month-to-date (`date_trunc('month', NOW())` for new/churn/growth, analytics.service.ts:270-274, and revenueThisMonth 513-514). The single top-of-page 7d/30d/90d/1y control (507-519) visually governs the whole dashboard but only the three MiniCharts actually re-scope, so every KPI card silently ignores the selector.
+- **Fix design:** Proportionate root-cause (the control genuinely only drives the trend queries): relocate the range selector out of the page header and into the 'Charts Row' section header so it is structurally scoped to the trends it controls, and label the KPI rows as month-to-date, removing the false whole-page implication (Tier-2: the UI can no longer claim a scope it doesn't apply). Fuller alternative (Tier-1, larger): make getDashboardSummary(range) parameterize the windowed KPI SQL and recompute growth against the range's prior period — note growthRate/churn are inherently period-relative so this is the correct long-term shape but L effort. Verification: AnalyticsDashboardPage spec asserting the period control lives within the charts section and KPI cards carry the month-to-date label.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx`
+- **Effort:** S
 
 
 ## ReportsPage — `/admin/analytics/reports` — verdict: **PARTIAL**
@@ -382,41 +403,59 @@ No schema change: ReportExecution already persists startDate/endDate (entity 305
 
 ### APA-145 [MEDIUM] Generator errors are swallowed into 'completed' executions with empty data
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** generateRevenueReport, generatePaymentsReport and generatePerformanceReport catch all errors and return { data: [], summary: { ..., error: '...' } } (reports.service.ts:545-557, 638-650, 849-861). executeReport then marks the execution 'completed' with rowCount 0 (1322-1335), so a DB failure surfaces to the operator as a Ready report with zero rows; the error string is buried in the summary tiles.
 - **Evidence:**
   - `apps/admin-api-service/src/analytics/services/reports.service.ts:545-557`
   - `apps/admin-api-service/src/analytics/services/reports.service.ts:638-650`
   - `apps/admin-api-service/src/analytics/services/reports.service.ts:1322-1335`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** generateRevenueReport (545-557), generatePaymentsReport (638-650) and generatePerformanceReport (849-861) each wrap their whole body in try/catch and, on any failure, RETURN a success-shaped `{ data: [], summary: { …, error } }`. That defeats executeReport's own try/catch (reports.service.ts:1345-1355) which is designed to mark the execution 'failed' — instead executeReport sees a resolved value and marks status 'completed' with rowCount 0 (1322-1335). generateTenantOverviewReport/generateChurnReport do NOT swallow, so behaviour is inconsistent. Operator sees a 'Ready' report with 0 rows; the real error is buried in a summary tile. Instance of the systemic 'swallowed error rendered as success' class.
+- **Fix design:** Tier-1: delete the three internal try/catch blocks and let the error propagate, exactly like the two non-swallowing generators already do. executeReport's existing catch then sets status='failed' + errorMessage (persisted on ReportExecution.errorMessage) and re-throws, so ReportsPage's mapExecutionStatus renders 'Failed' truthfully. No error-string-in-summary remains. Verification: add apps/admin-api-service/src/analytics/services/__tests__/reports.service.execute.spec.ts mocking a DataSource.query rejection inside a revenue/payments/performance run and asserting executeReport marks status 'failed' (not 'completed') with a populated errorMessage.
+- **Files to change:**
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts`
+- **Effort:** S
 
 ### APA-146 [MEDIUM] ReportResult.downloadUrl from POST /reports/generate is a dead link
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** generateReport sets downloadUrl = `/api/reports/download/${result.id}` where id is 'rpt_<ts>_<hex>' (reports.service.ts:281, 291-293), but the only matching route is GET /reports/download/:reportType which validates the param against the 7 report-type literals and throws 400 for anything else (reports.controller.ts:497-513). Any client following the returned URL gets 'Invalid report type: "rpt_..."'. (ReportsPage itself uses the executions flow, so only the /reports/generate contract is broken.)
 - **Evidence:**
   - `apps/admin-api-service/src/analytics/services/reports.service.ts:281-293`
   - `apps/admin-api-service/src/analytics/controllers/reports.controller.ts:497-513`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** generateReport synthesizes id `rpt_<ts>_<hex>` (reports.service.ts:281) and, for csv/pdf, sets downloadUrl=`/api/reports/download/${id}` (291-293). The only matching route is GET reports/download/:reportType (controller 497-513), whose param is a REPORT TYPE validated against the 7 literals — an `rpt_…` value throws 400 'Invalid report type'. The synchronous generateReport result is never persisted by id, so a by-id download route cannot exist; the URL is structurally dead. The real, persisted download path is the executions flow (reports/executions/:id/download), which ReportsPage already uses.
+- **Fix design:** Tier-1: stop representing a link that cannot resolve. Remove the downloadUrl construction from generateReport and delete downloadUrl from the ReportResult interface (analytics-snapshot.entity.ts:213) and the FE ReportExecution/result type where it mirrors this path — the synchronous /reports/generate endpoint returns data+summary inline for preview, and all file downloads go through the persisted executions artifact flow (getExecutionDownload, which sets a valid downloadUrl at 1330). If a one-shot download off /generate is truly wanted, point it at the valid type-based route `/api/reports/download/${type}?format=${format}` instead of the ephemeral id. Verification: add a reports.controller e2e asserting the /generate response carries no downloadUrl (or a 200-resolving one), plus a guard test that download/:reportType 400s only on invalid types.
+- **Files to change:**
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts`
+  - `apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts`
+- **Effort:** S
 
 ### APA-147 [MEDIUM] Hardcoded plan-price table duplicated 4x in ReportsService, diverging from billing.subscriptions pricing SSoT
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** planPricing {STARTER:99, PROFESSIONAL:299, ENTERPRISE:499} is repeated in tenant_overview (reports.service.ts:349-354), churn (405-410), revenue (464-469) and payments (564-569) generators, while the dashboard's MRR uses actual billing.subscriptions.pricing.basePrice with billing-cycle proration (analytics.service.ts:565-580). Any real price change makes every report's MRR/LTV columns silently wrong and inconsistent with the dashboard on the same screen.
 - **Evidence:**
   - `apps/admin-api-service/src/analytics/services/reports.service.ts:349-354`
   - `apps/admin-api-service/src/analytics/services/reports.service.ts:464-469`
   - `apps/admin-api-service/src/analytics/services/analytics.service.ts:565-580`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The plan->price map {TRIAL:0,STARTER:99,PROFESSIONAL:299,ENTERPRISE:499} is copy-pasted into four generators (reports.service.ts:349-354, 405-410, 464-469, 564-569) and drives their mrr/lifetimeValue/revenue columns, while the dashboard's MRR is computed from the real SSoT billing.subscriptions.pricing.basePrice with billing-cycle proration (analytics.service.ts:494-503 + calculateMonthlyPrice 565-580). The two disagree on the same screen and any actual price/plan change silently corrupts every report. Instance of the systemic 'hardcoded pricing duplicated instead of read from the billing SSoT' class.
+- **Fix design:** Tier-1/2: single source of truth. Extract the subscription->monthly-price resolution into one reusable helper (e.g. AnalyticsService.getTenantMonthlyPriceMap(): Promise<Map<tenantId, number>> that reads billing.subscriptions and applies calculateMonthlyPrice per billingCycle), and consume it from both AnalyticsService.getFinancialMetrics and all four ReportsService generators; delete the four planPricing literals. Tenants without an active subscription resolve to 0 (or trial). This makes reports and dashboard structurally consistent and price changes propagate from one place. Verification: extend reports.service spec to assert a subscription pricing change is reflected in tenant_overview/churn/revenue/payments rows, and a guard test that grep-forbids inline plan-price literals in reports.service.ts.
+- **Files to change:**
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts`
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts`
+- **Effort:** M
 
 ### APA-148 [LOW] Report history capped at first 20 executions with no pagination UI
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** loadReportHistory requests page:1 limit:20 (ReportsPage.tsx:376) and renders the list with no pager, although the backend returns total/page/limit meta (reports.controller.ts:239-254). Older executions become unreachable from the UI even though their download links are still valid for 7 days.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/ReportsPage.tsx:374-381`
   - `apps/admin-api-service/src/analytics/controllers/reports.controller.ts:239-254`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** loadReportHistory hardcodes page:1 limit:20 (ReportsPage.tsx:376) and the 'Recently Generated Reports' card renders the list flat with no pager (519-534), even though getExecutions returns {data,total,page,limit} (controller 239-254) and the FE PaginatedResult type already carries total/page/limit. Any operator with >20 executions cannot reach older ones from the UI although their by-id download links stay valid for 7 days.
+- **Fix design:** Tier-2: lift page into component state, pass it to reportsApi.getReportExecutions({page,limit}), and render prev/next (or numbered) controls driven by the returned total/limit, disabling next when page*limit>=total. No backend change — the pagination contract already exists end-to-end. Verification: ReportsPage.history.spec.tsx asserting a second page request fires on Next and older executions become reachable.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/ReportsPage.tsx`
+- **Effort:** S
 
 
 ## Cross-cutting findings
@@ -452,23 +491,34 @@ No schema change: ReportExecution already persists startDate/endDate (entity 305
 
 ### APA-150 [MEDIUM] FE ReportDefinition contract drift: createReportDefinition payload would be 400-rejected by forbidNonWhitelisted; FE reads fields backend never returns
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** FE ReportDefinition has isActive, columns, filters, nextRunAt (types/reports.ts:16-29) while backend CreateDefinitionDto whitelists name/description/type/defaultFormat/schedule/defaultFilters/recipients/includeCharts (reports.controller.ts:65-95) under the platform-wide ValidationPipe {whitelist:true, forbidNonWhitelisted:true} (libs/backend-common/src/bootstrap/create-service-app.ts:458-461). reportsApi.createReportDefinition sends Omit<ReportDefinition,...> (api/reports.ts:21-22), so isActive/columns/filters trigger a 400; and any list UI reading isActive/nextRunAt gets undefined because the entity exposes status/schedule and has no nextRunAt (analytics-snapshot.entity.ts:242-273). Currently latent (ReportsPage does not use definitions) but breaks the saved-reports feature the API layer advertises.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/types/reports.ts:16-29`
   - `web/modules/admin-panel/src/services/api/reports.ts:21-27`
   - `apps/admin-api-service/src/analytics/controllers/reports.controller.ts:65-95`
   - `libs/backend-common/src/bootstrap/create-service-app.ts:458-461`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Hand-written FE ReportDefinition (types/reports.ts:16-29) has drifted from the backend contract on three axes: (a) forbidden fields — isActive, columns, filters, nextRunAt, createdBy are not in CreateDefinitionDto's whitelist (controller 65-95) so, under the platform ValidationPipe whitelist+forbidNonWhitelisted (create-service-app.ts:459-461), the createReportDefinition payload Omit<ReportDefinition,'id'|'createdAt'|'lastRunAt'> (api/reports.ts:21-22) 400s; (b) renamed fields — FE `filters` vs backend `defaultFilters`, FE `isActive` vs entity `status` (analytics-snapshot.entity.ts:242-243); (c) missing/fabricated — FE lacks defaultFormat/recipients/includeCharts and invents columns/nextRunAt that the entity never returns (so any list UI reading them gets undefined). Latent only because ReportsPage doesn't yet use definitions. Instance of the systemic 'hand-written admin FE type drifts from backend entity/DTO' class.
+- **Fix design:** Tier-1/3 at the source. Local: align ReportDefinition to the entity+DTO — replace isActive with status:'active'|'inactive'|'draft', filters with defaultFilters, add defaultFormat/recipients/includeCharts/runCount/updatedAt, drop columns/nextRunAt; make createReportDefinition's payload type match CreateDefinitionDto exactly (name/description/type/defaultFormat/schedule/defaultFilters/recipients/includeCharts). Pattern-level (make drift detectable): add a contract-parity invariant test that asserts the keys the FE sends to /reports/definitions are a subset of CreateDefinitionDto's whitelisted properties (import the DTO's class-validator metadata or a shared contract), so any future drift fails CI at build time rather than 400ing at runtime. Verification: tests/invariants/report-definition-contract.spec.ts (new) plus a type-level test that createReportDefinition's arg is assignable to CreateDefinitionDto.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/types/reports.ts`
+  - `web/modules/admin-panel/src/services/api/reports.ts`
+  - `apps/admin-api-service/src/analytics/controllers/reports.controller.ts`
+- **Effort:** M
 
 ### APA-151 [MEDIUM] Dead FE API functions throw synchronously ('Not implemented') — landmines for any future caller
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** analyticsApi.getApiUsageByEndpoint, getEngagementMetrics, getFeatureUsage and getGeographicDistribution throw Error('Not implemented: no backend endpoint ...') synchronously (web/modules/admin-panel/src/services/api/analytics.ts:44-61). Unlike a rejected promise, a synchronous throw inside a non-async arrow escapes typical .catch() chains in callers that expect a Promise. The corresponding FE types (UsageAnalytics apiCallsByEndpoint, EngagementMetrics — types/analytics.ts:127-144) still advertise these capabilities.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/api/analytics.ts:44-61`
   - `web/modules/admin-panel/src/services/types/analytics.ts:127-144`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** getApiUsageByEndpoint/getEngagementMetrics/getFeatureUsage/getGeographicDistribution are non-async arrows that `throw new Error('Not implemented…')` synchronously (api/analytics.ts:44-61). A sync throw from a supposedly-Promise-returning API fn escapes any caller `.then().catch()` chain (the throw happens before a promise exists), so a future caller's error handling silently fails to catch. Grep confirms zero current callers, and the advertised capabilities live on in UsageAnalytics.apiCallsByEndpoint and the unused EngagementMetrics type (types/analytics.ts:129,137-144), so the API surface promises endpoints the backend does not have. Instance of the systemic 'FE API/type advertises a non-existent backend endpoint' class.
+- **Fix design:** Tier-1: delete the four dead stub functions outright (removing the landmine — an absent method is a compile error, a throwing method is a latent runtime trap), and delete the now-orphaned EngagementMetrics interface and the apiCallsByEndpoint field on UsageAnalytics that only these stubs backed (verified no consumers). If any capability is genuinely planned, it should be (re)introduced only alongside its real backend route as a normal async apiFetch. Verification: a lint/invariant test forbidding `throw new Error('Not implemented` inside services/api/*, ensuring no future dead-throwing stubs reappear.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/api/analytics.ts`
+  - `web/modules/admin-panel/src/services/types/analytics.ts`
+- **Effort:** S
 
 ### APA-152 [LOW] X-CSRF-Token double-submit machinery is decorative for admin-api — no server-side check, cookie never set
 

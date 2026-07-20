@@ -549,27 +549,50 @@ TIER 3 — make regressions detectable:
 
 ### APA-248 [MEDIUM] Hand-written FE response types drift systematically (no codegen)
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** services/types/security.ts diverges from backend shapes in every direction found in this audit: BackendSecurityIncident (4 renamed/missing fields), getComplianceChecks inline type (object requirement, invented id/category/lastChecked/nextReview -> React crashes), BackendComplianceReport.detailedFindings (category/description that persisted results lack), BackendActivityLog (invented userAgent/location/timestamp), getSecurityDashboard inline type (threatLevel/unresolvedEvents/blockedThreats/recentEvents/topThreats — none exist in SecurityDashboardStats). The security.ts api layer itself carries '// Fix:' comments documenting previously-shipped path mismatches, confirming this drift is chronic. Guard status, for the record, is solid: every security endpoint sits behind the global RS256 SUPER_ADMIN PlatformAdminGuard + ThrottlerGuard.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/types/security.ts:65-96,157-182,240-259`
   - `web/modules/admin-panel/src/services/api/security.ts:69,76,85-86,145,160-168 (in-code fix comments and stale getSecurityDashboard shape)`
   - `apps/admin-api-service/src/security/services/security-monitoring.service.ts:65-89 (actual SecurityDashboardStats)`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** FE response types in web/modules/admin-panel/src/services/types/security.ts are hand-authored with no binding to the backend's real response shapes — no codegen, no shared contract — so every backend rename/omission diverges silently. Concretely confirmed: getSecurityDashboard() (security.ts:160-168) declares threatLevel/unresolvedEvents/blockedThreats/recentEvents/topThreats, but GET /security/monitoring/dashboard returns SecurityDashboardStats (security-monitoring.service.ts:65-89), which contains none of those names except activeIncidents — it is a stale second copy of the very endpoint getMonitoringDashboard() already types correctly against BackendSecurityDashboardStats. The in-code '// Fix:' comments (security.ts:69,76,85,145) show the drift is chronic (paths were hand-corrected once already). This is a SYSTEMIC class (FE-type drift / no-codegen), not a one-off — same failure mode spans BackendSecurityIncident, getComplianceChecks, BackendComplianceReport.detailedFindings, BackendActivityLog.
+- **Fix design:** Establish one source of truth for admin-api response contracts consumed by BOTH sides, designed at the pattern level. Tier 1 (make impossible): extract the response view shapes (SecurityDashboardStats, ComplianceReport findings, ActivityLog/SecurityIncident view DTOs, etc.) into a shared contract lib (e.g. libs/admin-contracts, dual-aliased like backend-common), type controller return values against them, and have the FE import them directly — a rename then breaks compilation on both sides. Where the shared TS package cannot cross the FE/BE build boundary, tier 2/3: annotate controller DTOs with @nestjs/swagger, emit the OpenAPI document at build, and run openapi-typescript to generate web/modules/admin-panel/src/services/types/generated/*.ts, deleting the hand-written Backend* interfaces. Locally: delete the stale getSecurityDashboard() inline shape (dead duplicate of getMonitoringDashboard on the same route) and realign drifted types. Add a CI invariant that fails when a hand-written Backend* type is used where a generated/shared one exists, so drift is detectable at build time.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/services/api/security.ts`
+  - `apps/admin-api-service/src/security/controllers/activity-log.controller.ts`
+  - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts`
+  - `apps/admin-api-service/src/security/controllers/security-monitoring.controller.ts`
+  - `libs/admin-contracts/src/security/*.ts`
+  - `tests/invariants/admin-fe-type-codegen.spec.ts`
+- **Effort:** L
 
 ### APA-249 [MEDIUM] Unvalidated sortBy interpolated into ORDER BY in two query builders
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** queryActivities (reachable from GET /security/activities?sortBy=...) and AuditTrailService.getAuditTrail interpolate the caller-supplied sortBy string directly into orderBy(`alias.${sortBy}`). Minimum impact: 500 on unknown column; it is also a raw-SQL interpolation point behind a single role check.
 - **Evidence:**
   - `apps/admin-api-service/src/security/services/activity-logging.service.ts:661`
   - `apps/admin-api-service/src/security/services/audit-trail.service.ts:283`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** sortBy is accepted as a free-form @IsOptional()@IsString() query param (QueryActivitiesDto sortBy, activity-log.controller.ts:96-98; audit-trail.controller.ts:129-131 — note sortOrder next to it IS guarded with @IsIn(['ASC','DESC']), sortBy is not) and forwarded unchanged (activity-log.controller.ts:249, service option sortBy) into qb.orderBy(`activity.${sortBy}`) (activity-logging.service.ts:661) and qb.orderBy(`log.${sortBy}`) (audit-trail.service.ts:283). TypeORM does NOT parameterize the ORDER BY column expression, so the caller-supplied string is interpolated raw into SQL. Reachable via GET /security/activities?sortBy=... and the audit-trail query. Minimum impact: unknown column → 500; genuinely a raw-SQL interpolation surface behind only the SUPER_ADMIN role guard. Systemic class: unvalidated-DTO / dynamic-ORDER-BY interpolation, present at two callsites and a likely pattern elsewhere.
+- **Fix design:** Make an invalid sort column unrepresentable rather than sanitizing at the sink. Define a per-entity allowlist of sortable columns as a shared const tuple (e.g. ACTIVITY_LOG_SORT_COLUMNS = ['createdAt','severity','category','action','userName'] as const) colocated with the ActivityLog entity, and validate at the DTO boundary with @IsIn(ACTIVITY_LOG_SORT_COLUMNS) on sortBy in BOTH QueryActivitiesDto and the audit-trail query DTO — the already-active ValidationPipe (whitelist:true + forbidNonWhitelisted:true) then rejects anything else with 400 (tier 1/3). Belt-and-braces in each service: narrow the sortBy option type to the same union and clamp to 'createdAt' before orderBy so the raw-interpolation sink can never receive an unvetted string even if a future caller bypasses the DTO. Both callsites import the single shared allowlist so drift can't reintroduce the gap.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/controllers/activity-log.controller.ts`
+  - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts`
+  - `apps/admin-api-service/src/security/services/activity-logging.service.ts`
+  - `apps/admin-api-service/src/security/services/audit-trail.service.ts`
+  - `apps/admin-api-service/src/security/entities/security.entity.ts`
+- **Effort:** M
 
 ### APA-250 [LOW] PDF export is a plaintext placeholder served as application/pdf
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** exportAuditTrail 'pdf' format returns the string 'PDF Export - N audit entries' with mimeType application/pdf — a compliance officer downloading a PDF audit export gets a corrupt one-line file.
 - **Evidence:**
   - `apps/admin-api-service/src/security/services/audit-trail.service.ts:553-559,641-646`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** exportAuditTrail advertises 'pdf' in AuditExportOptions.format (audit-trail.service.ts:25-34) and in ExportAuditTrailDto, but the pdf branch (553-559) returns generatePDFPlaceholder() — the literal string `PDF Export - ${logs.length} audit entries` (643-646) — served with Content-Type application/pdf (controller sets result.mimeType, audit-trail.controller.ts:448). The type union promises a format capability the implementation does not deliver, so a compliance officer downloads a corrupt one-line file.
+- **Fix design:** Make the advertised format match real capability (tier 1). Preferred: implement real PDF generation with a proper library (pdfkit / pdf-lib) that streams a valid PDF of the same columns the CSV path emits, so the application/pdf contract holds — this is the compliance-correct deliverable. If PDF generation is explicitly not implemented this cycle, instead REMOVE 'pdf' from the AuditExportOptions.format union AND the ExportAuditTrailDto @IsIn list so the API structurally cannot request a format it cannot produce (tracked with owner+deadline), and delete generatePDFPlaceholder(). Do not keep returning a placeholder string behind an application/pdf header under any 'for now'.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/services/audit-trail.service.ts`
+  - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts`
+- **Effort:** M

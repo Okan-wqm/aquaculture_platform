@@ -105,61 +105,93 @@
 
 ### APA-052 [MEDIUM] getTenantName queries unqualified 'tenants' table that does not exist on the admin search_path — tenantName always null in create/update responses
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** UsersService.getTenantName runs SELECT name FROM tenants (users.service.ts:691-694) on the main DataSource whose search_path is 'admin,public' (createServiceTypeOrmConfig options '-c search_path=admin,public', libs/backend-common/src/database/typeorm-config.factory.ts:320; app.module.ts:104-123 schema 'admin'). The tenant SSoT is auth.tenants (every other query in the file qualifies it, e.g. users.service.ts:197); no admin.tenants/public.tenants exists (admin migrations create none). The query throws, is swallowed, and returns null — so createUser/updateUser responses always report tenantName: null even when a tenant is assigned, and every mutation logs a spurious error. UI impact is masked because the page refetches the list after save.
 - **Evidence:**
   - `apps/admin-api-service/src/users/users.service.ts:689-700`
   - `libs/backend-common/src/database/typeorm-config.factory.ts:317-321`
   - `apps/admin-api-service/src/users/users.service.ts:196-197`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** UsersService.getTenantName (users.service.ts:691-694) issues `SELECT name FROM tenants` with no schema qualifier. The admin-api DataSource runs with search_path=admin,public (typeorm-config.factory.ts:320); no `tenants` table exists in either schema — the SSoT is auth.tenants, which every OTHER query in this file already qualifies (e.g. LEFT JOIN auth.tenants at :197,:256,:320,:355). The bare reference throws 'relation "tenants" does not exist', the catch swallows it and returns null, so createUser (:481) and updateUser (:558) always return tenantName:null and log a spurious error on every mutation. Instance of the systemic 'bare-table reference in raw SQL relying on search_path' class.
+- **Fix design:** Root-cause: qualify the table as `auth.tenants`, matching every sibling query. Tier-3 systemic guard: add an invariant spec that greps admin-api raw-SQL string literals for unqualified FROM/JOIN of cross-schema tables (tenants/users/audit_logs/refresh_tokens) and fails on any not prefixed with `auth.`; plus an integration test asserting createUser/updateUser return the correct tenantName for a tenant-assigned user (proves the enrichment path). No defensive fallback — the query must succeed.
+- **Files to change:**
+  - `apps/admin-api-service/src/users/users.service.ts`
+  - `apps/admin-api-service/src/users/__tests__/users.service.spec.ts`
+  - `apps/admin-api-service/src/__tests__/integration/admin-raw-sql-schema-qualification.spec.ts`
+- **Effort:** S
 
 ### APA-053 [MEDIUM] GET /users/:id/activity always returns [] — selects a 'metadata' column that does not exist on auth.audit_logs
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** getUserActivity selects id, action, entityType, entityId, metadata, ipAddress, userAgent, createdAt FROM auth.audit_logs (users.service.ts:381-397). The auth-service AuditLog entity has details/previousValue/newValue but no metadata column (apps/auth-service/src/audit/audit-log.entity.ts:44-124), so the query throws 'column metadata does not exist' and the catch swallows it, returning [] (users.service.ts:399-404). The endpoint silently reports no activity for every user. Not called by the two audited pages but exposed via usersApi.getUserActivity (services/api/users.ts:26-27).
 - **Evidence:**
   - `apps/admin-api-service/src/users/users.service.ts:381-404`
   - `apps/auth-service/src/audit/audit-log.entity.ts:44-124`
   - `web/modules/admin-panel/src/services/api/users.ts:26-27`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** getUserActivity (users.service.ts:381-397) selects a `metadata` column from auth.audit_logs, but the auth AuditLog entity has no such column — it exposes `details`/`previousValue`/`newValue` jsonb (audit-log.entity.ts:70-77). The query throws 'column metadata does not exist'; the catch at :399-404 swallows it and returns [], so GET /users/:id/activity silently reports zero activity for every user. Same self-masking catch anti-pattern as i3, and same cross-schema-raw-SQL smell. The column-name drift is the concrete defect.
+- **Fix design:** Root-cause: select the real column `details` (the jsonb metadata bag) and map it into the UserActivity DTO field, aligning the query to the AuditLog entity contract. Remove the blanket catch-and-return-[] that masks schema drift — let a genuine query failure surface (or narrow the catch to NotFound). Tier-3: add an integration test that seeds an auth.audit_logs row and asserts the endpoint returns it with the details payload; this both proves the fix and would have caught the drift.
+- **Files to change:**
+  - `apps/admin-api-service/src/users/users.service.ts`
+  - `apps/admin-api-service/src/users/dto/user-activity.dto.ts`
+  - `apps/admin-api-service/src/users/__tests__/integration/user-activity.spec.ts`
+- **Effort:** S
 
 ### APA-054 [MEDIUM] Search input validation rejects non-ASCII characters — searching Turkish names 400s and empties the table
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** ListUsersQueryDto.search enforces /^[a-zA-Z0-9@._\-\s]*$/ (users.controller.ts:173). The product is Turkish-facing (labels 'E-posta', Turkish comments); typing a name containing Ö, ü, ş, ç, ğ, İ into the search box (UserManagementPage.tsx:510-519 passes raw input) yields 400 'Invalid search characters' -> error banner and users=[] (UserManagementPage.tsx:106-110). Legitimate names are unsearchable.
 - **Evidence:**
   - `apps/admin-api-service/src/users/users.controller.ts:170-174`
   - `web/modules/admin-panel/src/pages/UserManagementPage.tsx:510-519`
   - `web/modules/admin-panel/src/pages/UserManagementPage.tsx:106-110`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** ListUsersQueryDto.search enforces `/^[a-zA-Z0-9@._\-\s]*$/` (users.controller.ts:173), rejecting any Unicode letter. The product is Turkish-facing, so searching names with Ö/ü/ş/ç/ğ/İ yields 400 'Invalid search characters', which UserManagementPage surfaces as an error banner and empties the table (:106-110). Confirmed the regex is redundant for injection defense: the search term is passed as a BOUND parameter (`ILIKE $N`, params.push at users.service.ts:148-153), so parameterization already prevents injection — the allowlist only excludes legitimate names.
+- **Fix design:** Root-cause: make the allowlist Unicode-aware — `/^[\p{L}\p{N}@._\-\s]*$/u` — keeping a sane character class while permitting all letters/digits. Injection safety is already guaranteed by the parameterized ILIKE, so this loosening introduces no risk. Tier-3: add a DTO validation unit test covering Turkish characters (accepted) and control/SQL-meta characters (rejected).
+- **Files to change:**
+  - `apps/admin-api-service/src/users/users.controller.ts`
+  - `apps/admin-api-service/src/users/__tests__/list-users-query.dto.spec.ts`
+- **Effort:** S
 
 ### APA-055 [MEDIUM] Admin reset-password backend is fully wired but no UI invokes it
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** PATCH /users/:id/reset-password (users.controller.ts:333-339) -> UsersService.resetPassword -> NATS AdminResetUserPasswordCommand -> auth-service adminResetPassword which writes via the User entity and revokes all refresh tokens (user-lifecycle.service.ts:508-536). usersApi.resetPassword exists (services/api/users.ts:35-36) but no page or modal calls it — the User Details modal offers only Deactivate/Force Logout (UserManagementPage.tsx:727-745). A SUPER_ADMIN cannot reset a user password from the panel despite a working end-to-end chain.
 - **Evidence:**
   - `apps/admin-api-service/src/users/users.controller.ts:333-339`
   - `apps/auth-service/src/modules/tenant/services/user-lifecycle.service.ts:508-536`
   - `web/modules/admin-panel/src/services/api/users.ts:35-36`
   - `web/modules/admin-panel/src/pages/UserManagementPage.tsx:727-745`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The full end-to-end reset-password chain exists — PATCH /users/:id/reset-password (users.controller.ts:333-339) -> UsersService.resetPassword -> NATS AdminResetUserPasswordCommand -> auth adminResetPassword (writes via User entity, revokes refresh tokens) — and usersApi.resetPassword is defined (services/api/users.ts:35-36), but no page invokes it. The User Details modal offers only Deactivate/Activate and Force Logout (UserManagementPage.tsx:727-745). A SUPER_ADMIN has no UI to reset a password. Pure FE feature gap, not a contract bug.
+- **Fix design:** Add a 'Reset Password' action to the User Details modal that opens a small modal collecting a new password (with the same strength validation the backend ResetPasswordByAdminDto enforces + confirm field), calls usersApi.resetPassword, and shows success/error plus a note that all sessions are revoked. Reuse the existing Modal/Input/Button primitives. Tier-3: component test asserting the button invokes usersApi.resetPassword with the entered value.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/UserManagementPage.tsx`
+  - `web/modules/admin-panel/src/pages/__tests__/UserManagementPage.spec.tsx`
+- **Effort:** M
 
 ### APA-056 [MEDIUM] Silent failure: stats/tenants/role-templates fetch errors are swallowed — page degrades with no error surfaced
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** fetchInitialData uses Promise.allSettled and on rejection sets stats=null (stat cards vanish), tenants=[] (tenant filter and both modals' tenant dropdowns empty — making create/invite impossible with no explanation), roleTemplates=[] (invite dropdown falls back to a hardcoded list) with only console.error (UserManagementPage.tsx:120-152). A 500 on any of the three renders a working-looking page with silently missing critical inputs.
 - **Evidence:**
   - `web/modules/admin-panel/src/pages/UserManagementPage.tsx:120-152`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** fetchInitialData (UserManagementPage.tsx:120-152) uses Promise.allSettled and on any rejection sets stats=null / tenants=[] / roleTemplates=[] with only console.error. A 500 on tenants silently empties the tenant filter and both create/invite dropdowns — making user creation impossible with no message — while the page still renders as if healthy. Silent-degradation anti-pattern: critical inputs vanish with zero user-facing signal.
+- **Fix design:** Track a per-resource load state (loaded/failed) instead of collapsing failures to empty. Render an inline, retryable error indicator for each failed dataset; specifically, when tenants fails, disable/annotate the create+invite actions with an explanatory message rather than presenting empty dropdowns. Keep allSettled (partial success is desirable) but make each rejection detectable in the UI. Tier-3: component test that mocks a rejected tenants fetch and asserts the error affordance renders and create is guarded.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/UserManagementPage.tsx`
+  - `web/modules/admin-panel/src/pages/__tests__/UserManagementPage.spec.tsx`
+- **Effort:** M
 
 ### APA-057 [LOW] GET /users/:id/sessions ignores isRevoked — revoked but unexpired sessions display as active
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** getUserSessions computes isActive solely as expiresAt > NOW() (users.service.ts:410-427) while auth-service soft-revokes tokens via isRevoked/revokedAt (refresh-token.entity.ts:70-74; adminResetPassword sets isRevoked=true at user-lifecycle.service.ts:526-529). A session revoked by password reset still shows isActive=true until natural expiry. Endpoint currently unused by any admin-panel page.
 - **Evidence:**
   - `apps/admin-api-service/src/users/users.service.ts:410-427`
   - `apps/auth-service/src/modules/authentication/entities/refresh-token.entity.ts:70-74`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** getUserSessions (users.service.ts:410-427) computes isActive purely as `("expiresAt" > NOW())`. The auth model soft-revokes tokens via isRevoked/revokedAt (refresh-token.entity.ts:70-74), and adminResetPassword/force-logout set isRevoked=true. A session revoked before its natural expiry therefore still reports isActive=true. The active-session predicate is incomplete versus the token entity's real liveness definition.
+- **Fix design:** Root-cause: make the SQL predicate match the entity's liveness contract — `("expiresAt" > NOW() AND "isRevoked" = false) as "isActive"`. Tier-3: integration/unit test seeding a revoked-but-unexpired refresh_token and asserting the endpoint returns isActive=false.
+- **Files to change:**
+  - `apps/admin-api-service/src/users/users.service.ts`
+  - `apps/admin-api-service/src/users/__tests__/integration/user-sessions.spec.ts`
+- **Effort:** S
 
 
 ## RoleManagementPage.tsx — `/admin/users/roles` — verdict: **MOCK_ONLY**
@@ -204,23 +236,34 @@
 
 ### APA-059 [MEDIUM] Hierarchy contract drift: backend returns permissionCount, FE type expects permissions[] — permission-count column renders an em dash for every role
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** getRoleHierarchy returns {code, name, level, description, color, icon, isSystem, permissionCount} (role-template.service.ts:365-390). The hand-written FE RoleHierarchyItem declares permissions: string[] (required) and no permissionCount (web/modules/admin-panel/src/services/types/users.ts:77-88). The page renders role.permissions != null ? length : em-dash (RoleManagementPage.tsx:151-155), so the 'permissions' figure in the hierarchy list never shows a number — every role displays the dash even though the backend computed the count.
 - **Evidence:**
   - `apps/admin-api-service/src/users/services/role-template.service.ts:365-390`
   - `web/modules/admin-panel/src/services/types/users.ts:77-88`
   - `web/modules/admin-panel/src/pages/RoleManagementPage.tsx:151-155`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** getRoleHierarchy returns {…, permissionCount:number} (role-template.service.ts:365-390), but the hand-written FE RoleHierarchyItem declares `permissions: string[]` (required) with no permissionCount (types/users.ts:77-88). RoleManagementPage renders `role.permissions != null ? role.permissions.length : em-dash` (:153); since the backend never sends `permissions`, it is undefined and every role shows the em dash despite the backend having computed the count. Concrete instance of the FE-type-drift systemic class (xc|i2).
+- **Fix design:** Align the FE type to the source shape: replace `permissions: string[]` on RoleHierarchyItem with `permissionCount: number` and render `role.permissionCount` in the page. Backend intentionally sends a count (hierarchy view needs no full permission array), so the FE type is the side to correct. This lands automatically once the codegen/contract gate from xc|i2 exists; until then fix the hand-written type + render. Tier-3: a type/render test asserting the count renders for a role with permissions.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/types/users.ts`
+  - `web/modules/admin-panel/src/pages/RoleManagementPage.tsx`
+- **Effort:** S
 
 ### APA-060 [LOW] Inconsistent role naming across the panel: catalogue labels MODULE_USER as 'Viewer' while UserManagementPage labels it 'User'
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** RoleTemplateService names MODULE_USER 'Viewer' (role-template.service.ts:246-248), which RoleManagementPage renders verbatim; UserManagementPage's local label map calls the same code 'User' (UserManagementPage.tsx:353-361). The same role appears under two different display names on adjacent pages. The static 'Role Assignment Rules' card (RoleManagementPage.tsx:287-317) is also hardcoded FE copy independent of API data.
 - **Evidence:**
   - `apps/admin-api-service/src/users/services/role-template.service.ts:245-262`
   - `web/modules/admin-panel/src/pages/UserManagementPage.tsx:353-361`
   - `web/modules/admin-panel/src/pages/RoleManagementPage.tsx:287-317`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Two independent SSoTs for role display names: RoleTemplateService labels MODULE_USER 'Viewer' (role-template.service.ts:245-262), which RoleManagementPage renders verbatim, while UserManagementPage's local getRoleLabel map calls the same code 'User' (UserManagementPage.tsx:353-361). The same role shows two names on adjacent pages. Additionally the 'Role Assignment Rules' card (RoleManagementPage.tsx:287-317) is hardcoded FE copy divorced from the API's actual role catalogue/levels.
+- **Fix design:** Establish the backend role catalogue as the single display-name SSoT: UserManagementPage already fetches roleTemplates — derive the label from that (map code->name) instead of the local hardcoded object, deleting getRoleLabel's static map. Reconcile the canonical label for MODULE_USER once (backend value wins). Render the assignment-rules card from role metadata (level + assignable relationships) returned by the API rather than static JSX so it cannot drift from real RBAC. Tier-3: a test asserting both pages resolve MODULE_USER to the same catalogue-sourced label.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/UserManagementPage.tsx`
+  - `web/modules/admin-panel/src/pages/RoleManagementPage.tsx`
+  - `apps/admin-api-service/src/users/services/role-template.service.ts`
+- **Effort:** M
 
 
 ## Cross-cutting findings
@@ -249,25 +292,40 @@
 
 ### APA-062 [MEDIUM] Two divergent nginx topologies for /api: droplet config targets admin-api-service with /api/v1 rewrite, the other routes /api to gateway-api with no rewrite
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** infrastructure/nginx/droplet.conf:377-383 rewrites ^/api/(.*) to /api/v1/$1 and proxies to admin-api-service:3000 — matching admin-api's default global prefix 'api/v1' (create-service-app.ts:610). But nginx/nginx.conf:160-165 proxies location /api/ to gateway-api:3000 with the path unmodified. In any deployment using the latter, every admin-panel REST call ('/api/users', etc.) depends on gateway-api forwarding un-rewritten paths to admin-api — an unverified and differently-shaped chain. Environment-dependent routing for the same FE base URL is a latent whole-panel breakage risk.
 - **Evidence:**
   - `infrastructure/nginx/droplet.conf:373-383`
   - `nginx/nginx.conf:158-165`
   - `libs/backend-common/src/bootstrap/create-service-app.ts:610`
   - `web/modules/admin-panel/src/services/http-client.ts:23`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** Two nginx configs route the same FE base '/api' incompatibly: infrastructure/nginx/droplet.conf:377-383 rewrites ^/api/(.*)->/api/v1/$1 and proxies to admin-api-service:3000 (matching admin-api's global prefix api/v1), while nginx/nginx.conf:160-165 proxies /api/ to gateway-api:3000 with the path unmodified. In the latter deployment every admin-panel REST call depends on gateway-api forwarding un-rewritten /api/* through to admin-api — a differently-shaped, unverified chain. Environment-dependent routing for one FE base URL is a latent whole-panel breakage.
+- **Fix design:** Pick one canonical edge topology and make the other conform (or generate both from a shared include so they cannot diverge). If gateway-api is the intended ingress, its routing must explicitly and verifiably forward /api/* to admin-api with the version rewrite (define the route, don't rely on incidental pass-through); if admin-api is directly fronted, nginx.conf must carry the same rewrite as droplet.conf. Tier-3: an invariant test parsing both nginx confs asserting /api resolves to the same backend + rewrite contract, plus an e2e smoke hitting /api/users through the gateway path.
+- **Files to change:**
+  - `infrastructure/nginx/droplet.conf`
+  - `nginx/nginx.conf`
+  - `apps/gateway-api/src/app.module.ts`
+  - `tests/invariants/nginx-api-routing-consistency.spec.ts`
+- **Effort:** M
 
 ### APA-063 [MEDIUM] Hand-written FE types drift from backend response shapes with no build-time detection
 
-- **Status:** PENDING
+- **Status:** DESIGNED (brief)
 - **Symptom:** No codegen exists for the admin panel; drift already observed in this section: RoleHierarchyItem.permissions vs backend permissionCount (types/users.ts:77-88 vs role-template.service.ts:365-390); User type advertises isEmailVerified/mfaEnabled/profileImageUrl/phoneNumber/preferredLanguage (types/users.ts:14-20) that no /users endpoint ever returns (users.service.ts SELECT lists at 183-201, 338-359); the User index signature [key: string]: unknown (types/users.ts:25) defeats excess-property checking, so future drift is invisible to tsc. A shared contract package or OpenAPI-driven codegen from the Nest DTOs would make this class of bug detectable at build time.
 - **Evidence:**
   - `web/modules/admin-panel/src/services/types/users.ts:5-26`
   - `web/modules/admin-panel/src/services/types/users.ts:77-88`
   - `apps/admin-api-service/src/users/users.service.ts:183-201`
   - `apps/admin-api-service/src/users/services/role-template.service.ts:365-390`
-- **Root cause & fix design:** PENDING — queued in the staged remediation-design continuation (see README §Status).
+- **Root cause:** The admin panel has no codegen; FE response types are hand-written (services/types/*) and already drift from backend shapes: RoleHierarchyItem.permissions vs backend permissionCount (xc|i2 -> p1|i1), and the User type advertises isEmailVerified/mfaEnabled/profileImageUrl/phoneNumber/preferredLanguage (types/users.ts:14-20) that no /users SELECT ever returns (users.service.ts:183-201,338-359). The `[key: string]: unknown` index signature on User (:25) defeats tsc excess-property checking, so drift is invisible at build time. Root systemic class behind i7/p1|i1 and multiple prior findings.
+- **Fix design:** Make the shape the single source of truth generated, not hand-copied. Because several admin-api endpoints currently return raw SQL rows, first give them typed response DTOs (class-validator/OpenAPI-annotated), then generate FE types from the Nest OpenAPI document (or a shared @contracts package consumed by both sides) via `npm run codegen`, and delete the hand-written duplicates. Remove the `[key:string]:unknown` index signature so excess/missing properties fail tsc. Tier-3 gate: a CI check that regenerates types and fails on any diff (drift becomes a build error). Highest tier — makes this bug class structurally impossible.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/types/users.ts`
+  - `apps/admin-api-service/src/users/dto/user.dto.ts`
+  - `apps/admin-api-service/src/users/users.controller.ts`
+  - `package.json`
+  - `tests/invariants/admin-panel-contract-codegen.spec.ts`
+- **Effort:** L
 
 ### APA-064 [LOW] FE double-submit CSRF header is sent but admin-api never validates it
 

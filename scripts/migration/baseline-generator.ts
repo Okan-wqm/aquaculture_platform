@@ -98,7 +98,7 @@ import { fileURLToPath } from 'node:url';
 // APA-288) that classified the OPERATIONAL admin.impersonation_sessions as
 // append-only and would have re-injected its lifecycle-deadlocking trigger at
 // the next baseline regeneration.
-import { appendOnlyTableBaseNames } from '../../libs/backend-common/src/constants/protected-tables';
+import { appendOnlyTableBaseNames } from '../../libs/backend-common/src/constants/protected-tables.js';
 
 // ESM-safe __dirname equivalent — tools/gates/tsconfig.json compiles
 // modules as ESM; require/__dirname is unavailable. fileURLToPath +

@@ -135,6 +135,13 @@ Allowed truth buckets:
 | `FARM-CRITICAL-241`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
 | `INFRA-CRITICAL-077`    | IN-PROGRESS    | 1.1          | infra-expert         | real-open                 |
 | `INFRA-CRITICAL-078`    | IN-PROGRESS    | 1.1          | security-reviewer    | real-open                 |
+| `ADMIN-CRITICAL-006`    | IN-PROGRESS    | —            | admin-expert         | already-fixed-needs-close |
+| `ADMIN-CRITICAL-007`    | IN-PROGRESS    | —            | admin-expert         | real-open                 |
+| `ADMIN-CRITICAL-009`    | IN-PROGRESS    | —            | admin-expert         | already-fixed-needs-close |
+| `ADMIN-CRITICAL-010`    | IN-PROGRESS    | —            | admin-expert         | already-fixed-needs-close |
+| `ADMIN-CRITICAL-013`    | IN-PROGRESS    | —            | admin-expert         | already-fixed-needs-close |
+| `ADMIN-CRITICAL-014`    | IN-PROGRESS    | —            | admin-expert         | real-open                 |
+| `ADMIN-CRITICAL-015`    | IN-PROGRESS    | —            | admin-expert         | already-fixed-needs-close |
 
 ## Mutation Rules
 

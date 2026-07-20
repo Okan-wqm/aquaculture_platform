@@ -5,6 +5,7 @@
  */
 
 export { NATS_PATTERNS } from './nats-patterns';
+export { SYSTEM_ACTOR_ID } from './system-actor';
 export {
   BOOT_INVARIANT_SIGNALS,
   bootInvariantSignalRecord,

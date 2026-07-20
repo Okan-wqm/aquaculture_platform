@@ -1653,6 +1653,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/impersonation/services/__tests__/feature-flag-debug.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/impersonation/services/__tests__/impersonation.service.lifecycle.spec.ts",
       "prettier_managed": true
     },
@@ -2526,6 +2532,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/support/entities/support.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/support/services/__tests__/ticket.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -35434,6 +35446,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/constants/__tests__/system-actor.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/constants/boot-invariant-signals.ts",
       "prettier_managed": true
     },
@@ -35453,6 +35471,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/constants/protected-tables.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/constants/system-actor.ts",
       "prettier_managed": true
     },
     {
@@ -55008,10 +55032,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9017,
+  "file_count": 9021,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8836,
-  "managed_file_list_sha256": "c1d1af130e034aba282af0f1bad4f12fcc369005fa6635bcff368e49e3f001a0",
+  "managed_count": 8840,
+  "managed_file_list_sha256": "55d5daa8a8eaf11acea8c2a1b3d29b630bc610e39d31162e2d910bfd8496ddf3",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

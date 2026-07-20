@@ -18,7 +18,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
-import { IsString, IsOptional, IsNumber, IsIn } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsIn, IsUUID } from 'class-validator';
 
 import { OnboardingStatus, TrainingSession } from '../entities/support.entity';
 import { OnboardingService } from '../services/onboarding.service';
@@ -74,7 +74,7 @@ class UpdateTrainingDto {
 }
 
 class AssignGuideDto {
-  @IsString()
+  @IsUUID()
   guideId!: string;
 
   @IsString()

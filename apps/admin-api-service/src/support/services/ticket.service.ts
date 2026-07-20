@@ -320,6 +320,7 @@ export class TicketService {
     ticketId: string,
     assignedTo: string,
     assignedToName: string,
+    assignedBy: string,
   ): Promise<SupportTicket> {
     const ticket = await this.getTicket(ticketId);
 
@@ -330,9 +331,13 @@ export class TicketService {
       ticket.status = 'in_progress';
     }
 
-    // Add system comment
+    // Add the assignment audit note. APA-185: authorId is the acting admin's
+    // real UUID (previously the non-UUID literal 'system', which 22P02-500s on
+    // the uuid authorId column). authorType stays 'system' — it is the
+    // load-bearing discriminator (the SLA first-response gate fires only for
+    // authorType 'admin', and the UI labels system notes from it).
     await this.addComment(ticketId, {
-      authorId: 'system',
+      authorId: assignedBy,
       authorType: 'system',
       authorName: 'System',
       content: `Ticket assigned to ${assignedToName}`,

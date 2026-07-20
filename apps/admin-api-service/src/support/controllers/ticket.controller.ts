@@ -18,7 +18,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
-import { IsString, IsOptional, IsArray, IsBoolean, IsNumber, IsObject } from 'class-validator';
+import { IsString, IsOptional, IsArray, IsBoolean, IsNumber, IsObject, IsUUID } from 'class-validator';
 
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
 import { PlatformAdminOnly } from '../../decorators/roles.decorator';
@@ -31,7 +31,7 @@ import { TicketService } from '../services/ticket.service';
 // ============================================================================
 
 class CreateTicketDto {
-  @IsString()
+  @IsUUID()
   tenantId!: string;
 
   @IsOptional()
@@ -95,7 +95,7 @@ class UpdateTicketDto {
 }
 
 class AssignTicketDto {
-  @IsString()
+  @IsUUID()
   assignedTo!: string;
 
   @IsString()
@@ -258,7 +258,10 @@ export class TicketController {
   @Post()
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
-  async createTicket(@Body() dto: CreateTicketDto) {
+  async createTicket(
+    @Body() dto: CreateTicketDto,
+    @CurrentUser() user: CurrentUserData,
+  ) {
     if (!dto.tenantId || !dto.subject || !dto.description || !dto.createdByName) {
       throw new BadRequestException('tenantId, subject, description, and createdByName are required');
     }
@@ -266,7 +269,11 @@ export class TicketController {
     return this.ticketService.createTicket({
       tenantId: dto.tenantId,
       tenantName: dto.tenantName,
-      createdBy: 'tenant-user-id', // In production, would come from auth context
+      // APA-186: the actor is the authenticated platform admin (JWT sub, a real
+      // auth.users UUID). The human the ticket is about is captured separately
+      // by the createdByName/createdByEmail display fields. Previously hardcoded
+      // 'tenant-user-id', which 22P02-500s on the uuid createdBy column.
+      createdBy: user.id,
       createdByName: dto.createdByName,
       createdByEmail: dto.createdByEmail,
       subject: dto.subject,
@@ -301,12 +308,15 @@ export class TicketController {
   async assignTicket(
     @Param('id') id: string,
     @Body() dto: AssignTicketDto,
+    @CurrentUser() user: CurrentUserData,
   ) {
     if (!dto.assignedTo || !dto.assignedToName) {
       throw new BadRequestException('assignedTo and assignedToName are required');
     }
 
-    return this.ticketService.assignTicket(id, dto.assignedTo, dto.assignedToName);
+    // APA-185: thread the acting admin's UUID so the auto-generated assignment
+    // note records a real author instead of the non-UUID literal 'system'.
+    return this.ticketService.assignTicket(id, dto.assignedTo, dto.assignedToName, user.id);
   }
 
   @Post(':id/status')

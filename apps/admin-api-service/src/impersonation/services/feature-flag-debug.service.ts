@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
+import { SYSTEM_ACTOR_ID } from '@aquaculture/backend-common/constants';
 import { Repository, LessThan } from 'typeorm';
 
 import { FeatureFlagOverride } from '../entities/debug-session.entity';
@@ -120,7 +121,7 @@ export class FeatureFlagDebugService {
     if (override) {
       // Check expiration
       if (override.expiresAt && override.expiresAt < new Date()) {
-        await this.revertFeatureFlagOverride(override.id, 'system');
+        await this.revertFeatureFlagOverride(override.id, SYSTEM_ACTOR_ID);
         return defaultValue;
       }
       return override.overrideValue;
@@ -180,7 +181,7 @@ export class FeatureFlagDebugService {
     for (const override of expired) {
       override.isActive = false;
       override.revertedAt = new Date();
-      override.revertedBy = 'system';
+      override.revertedBy = SYSTEM_ACTOR_ID;
       await this.overrideRepo.save(override);
     }
 

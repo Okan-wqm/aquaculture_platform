@@ -19,7 +19,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
-import { IsString, IsOptional, IsBoolean, IsObject } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsObject, IsUUID } from 'class-validator';
 
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
 import { PlatformAdminOnly } from '../../decorators/roles.decorator';
@@ -95,10 +95,10 @@ class UpdateAnnouncementDto {
 }
 
 class AcknowledgeDto {
-  @IsString()
+  @IsUUID()
   tenantId!: string;
 
-  @IsString()
+  @IsUUID()
   userId!: string;
 
   @IsString()

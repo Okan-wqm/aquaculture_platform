@@ -17,7 +17,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
-import { IsString, IsOptional, IsBoolean, IsArray, IsObject } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsArray, IsObject, IsUUID } from 'class-validator';
 
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
 import { PlatformAdminOnly } from '../../decorators/roles.decorator';
@@ -29,7 +29,7 @@ import { MessagingService } from '../services/messaging.service';
 // ============================================================================
 
 class CreateThreadDto {
-  @IsString()
+  @IsUUID()
   tenantId!: string;
 
   @IsString()
@@ -73,6 +73,7 @@ class BulkMessageDto {
 
   @IsOptional()
   @IsArray()
+  @IsUUID('all', { each: true })
   tenantIds?: string[];
 
   @IsOptional()

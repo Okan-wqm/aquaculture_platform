@@ -113,7 +113,8 @@ function collectContractEventTypes(): Set<string> {
     const src = readFileSync(file, 'utf8');
     let m: RegExpExecArray | null;
     while ((m = re.exec(src)) !== null) {
-      types.add(m[1]);
+      const eventType = m[1];
+      if (eventType !== undefined) types.add(eventType);
     }
   }
   return types;
@@ -137,6 +138,7 @@ function collectSubscriptions(files: string[], contractEvents: Set<string>): Sub
       let m: RegExpExecArray | null;
       while ((m = pattern.exec(src)) !== null) {
         const eventType = m[1];
+        if (eventType === undefined) continue;
         // Only enforce real platform contract events — ignore framework/example
         // strings and RxJS `.subscribe('...')` on non-event observables.
         if (contractEvents.has(eventType)) {
@@ -159,7 +161,8 @@ function collectPublishers(files: string[]): Set<string> {
     re.lastIndex = 0;
     let m: RegExpExecArray | null;
     while ((m = re.exec(src)) !== null) {
-      published.add(m[1]);
+      const eventType = m[1];
+      if (eventType !== undefined) published.add(eventType);
     }
   }
   return published;

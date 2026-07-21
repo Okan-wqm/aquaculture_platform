@@ -10,8 +10,9 @@
  * `web/modules/admin-panel/src/services/types/users.ts`; both are held in lock-
  * step by `tests/invariants/rbac-vocabulary-ssot.spec.ts` (SSOT-H-06).
  *
- * A literal-union `const` (NOT an `enum`) so the SSOT-H-06 "exactly one
- * `export enum Role`" rule is respected and no dependency cycle is introduced.
+ * A literal-union `const`, NOT a TypeScript enum, so the single-canonical-role-
+ * enum rule (SSOT-H-06) still sees exactly one declaration in backend-common,
+ * and no dependency cycle is introduced.
  *
  * @see libs/backend-common/src/decorators/roles.decorator.ts (the canonical `Role` enum, pinned to this list)
  * @see docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/users-roles.md#APA-050

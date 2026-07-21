@@ -304,7 +304,6 @@ const UserManagementPage: React.FC = () => {
         lastName: inviteFormData.lastName || undefined,
         role: inviteFormData.role,
         message: inviteFormData.message || undefined,
-        invitedBy: 'system', // In real app, get from auth context
       });
 
       setInviteSuccess(`Invitation sent: ${inviteFormData.email}`);

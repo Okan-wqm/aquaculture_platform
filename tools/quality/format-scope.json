@@ -1089,6 +1089,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/__tests__/rc4-fe-dto-parity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/__tests__/security/sliding-window.spec.ts",
       "prettier_managed": true
     },
@@ -2627,6 +2633,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/__tests__/job-queue-dashboard.contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/system-management/__tests__/provisioning-config.spec.ts",
       "prettier_managed": true
     },
@@ -2658,6 +2670,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/system-management/controllers/performance.controller.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/dto/job-dashboard.dto.ts",
       "prettier_managed": true
     },
     {
@@ -55140,10 +55158,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9039,
+  "file_count": 9042,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8858,
-  "managed_file_list_sha256": "e0486c239b4ee433eb57e9c39764c7c7c0b1f4f610ca2a89c54ddf791a237c71",
+  "managed_count": 8861,
+  "managed_file_list_sha256": "46e6a2eb3b98f3291107439ad53fe472da088783ca1a99e0b10762c3e3f8294d",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

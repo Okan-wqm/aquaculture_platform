@@ -229,7 +229,26 @@ export interface JobQueue {
   isPaused: boolean;
   concurrency: number;
   pendingCount: number;
-  activeCount: number;
+  // APA-281: matches the persistence column (JobQueue.runningCount); the FE type
+  // previously drifted to `activeCount`, which the dashboard never populated.
+  runningCount: number;
   completedCount: number;
   failedCount: number;
+}
+
+/**
+ * APA-281: single contract for GET /system/jobs/dashboard, mirroring the backend
+ * JobDashboardDto. Field names are canonical (failedLast24h/completedLast24h/
+ * avgProcessingTime) so the stat cards and Queues tab read real values instead
+ * of the previously-drifted failedToday/completedToday/avgDuration/queueStats.
+ */
+export interface JobDashboard {
+  totalJobs: number;
+  pendingJobs: number;
+  runningJobs: number;
+  failedLast24h: number;
+  completedLast24h: number;
+  avgProcessingTime: number;
+  queues: JobQueue[];
+  recentJobs: BackgroundJob[];
 }

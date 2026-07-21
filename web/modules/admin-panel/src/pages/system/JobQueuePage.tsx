@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
 import { systemSettingsApi } from '../../services/adminApi';
-import type { BackgroundJob, JobQueue } from '../../services/adminApi';
+import type { BackgroundJob, JobDashboard, JobQueue } from '../../services/adminApi';
 
 // ============================================================================
 // Types
@@ -16,28 +16,18 @@ import type { BackgroundJob, JobQueue } from '../../services/adminApi';
 
 type JobStatus = 'pending' | 'scheduled' | 'running' | 'completed' | 'failed' | 'cancelled' | 'retrying';
 
-interface JobDashboard {
-  totalJobs: number;
-  pendingJobs: number;
-  runningJobs: number;
-  completedToday: number;
-  failedToday: number;
-  avgDuration: number;
-  queues: JobQueue[];
-  recentJobs: BackgroundJob[];
-}
-
 // ============================================================================
 // Default Empty Data
 // ============================================================================
 
+// APA-281: mirrors the shared JobDashboard contract (canonical field names).
 const defaultDashboard: JobDashboard = {
   totalJobs: 0,
   pendingJobs: 0,
   runningJobs: 0,
-  completedToday: 0,
-  failedToday: 0,
-  avgDuration: 0,
+  completedLast24h: 0,
+  failedLast24h: 0,
+  avgProcessingTime: 0,
   queues: [],
   recentJobs: [],
 };
@@ -311,7 +301,7 @@ export const JobQueuePage: React.FC = () => {
           <div className="text-sm text-gray-500">Pending</div>
         </Card>
         <Card className="p-4">
-          <div className="text-2xl font-bold text-red-600">{dashboard.failedToday}</div>
+          <div className="text-2xl font-bold text-red-600">{dashboard.failedLast24h}</div>
           <div className="text-sm text-gray-500">Failed Today</div>
         </Card>
       </div>
@@ -543,7 +533,7 @@ export const JobQueuePage: React.FC = () => {
                   <div className="text-xs text-gray-500">Pending</div>
                 </div>
                 <div>
-                  <div className="text-2xl font-bold text-yellow-600">{queue.activeCount}</div>
+                  <div className="text-2xl font-bold text-yellow-600">{queue.runningCount}</div>
                   <div className="text-xs text-gray-500">Running</div>
                 </div>
                 <div>

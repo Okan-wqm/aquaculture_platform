@@ -307,9 +307,9 @@ export const ImpersonationPage: React.FC = () => {
     }
   };
 
-  const handleRevokePermission = async (permissionId: string, reason: string) => {
+  const handleRevokePermission = async (superAdminId: string, reason: string) => {
     try {
-      await impersonationApi.revokePermission(permissionId, currentAdminId, reason);
+      await impersonationApi.revokePermission(superAdminId, currentAdminId, reason);
       fetchData();
     } catch (error) {
       console.error('Failed to revoke permission:', error);
@@ -821,8 +821,11 @@ export const ImpersonationPage: React.FC = () => {
                           size="sm"
                           onClick={() => {
                             setConfirmAction({
+                              // APA-290: revoke targets the admin (superAdminId),
+                              // not the permission row PK — sending permission.id
+                              // resolved to a non-existent admin and 404'd 100%.
                               type: 'revoke_permission',
-                              id: permission.id,
+                              id: permission.superAdminId,
                               title: 'Revoke Permission',
                               message: `Are you sure you want to revoke impersonation permission for ${permission.tenantName}?`,
                             });

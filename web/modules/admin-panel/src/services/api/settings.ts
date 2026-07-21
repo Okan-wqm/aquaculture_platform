@@ -22,6 +22,7 @@ import type {
   ErrorOccurrence,
   BackgroundJob,
   JobQueue,
+  JobDashboard,
   JobStatus,
   FeatureToggleStatus,
 } from '../types';
@@ -128,7 +129,9 @@ export const systemSettingsApi = {
   getMaintenanceWindows: (params?: { status?: string; scope?: string } & PaginationParams) =>
     apiFetch<PaginatedResult<MaintenanceWindow>>(`/system/settings/maintenance?${buildQueryString(params || {})}`),
   getMaintenanceWindow: (id: string) => apiFetch<MaintenanceWindow>(`/system/settings/maintenance/${id}`),
-  createMaintenanceWindow: (data: Omit<MaintenanceWindow, 'id' | 'status' | 'actualStart' | 'actualEnd' | 'createdAt'>) =>
+  // APA-266: `createdBy` is server-derived from the JWT, never a request field —
+  // omit it from the create contract so the actor cannot be client-asserted.
+  createMaintenanceWindow: (data: Omit<MaintenanceWindow, 'id' | 'status' | 'actualStart' | 'actualEnd' | 'createdAt' | 'createdBy'>) =>
     apiFetch<MaintenanceWindow>('/system/settings/maintenance', { method: 'POST', body: JSON.stringify(data) }),
   updateMaintenanceWindow: (id: string, data: Partial<MaintenanceWindow>) =>
     apiFetch<MaintenanceWindow>(`/system/settings/maintenance/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -150,10 +153,13 @@ export const systemSettingsApi = {
     apiFetch<ProvisioningConfigResponse>('/system/settings/provisioning-config', { method: 'PUT', body: JSON.stringify(config) }),
 
   // Performance Monitoring
+  // APA-271: the controller reads @Query('startDate')/@Query('endDate'), so the
+  // time-range selector must emit those canonical names — a bare start/end spread
+  // never bound and the range was a silent no-op.
   getPerformanceDashboard: (service?: string, timeRange?: { start: string; end: string }) =>
-    apiFetch<PerformanceDashboard>(`/system/performance/dashboard?${buildQueryString({ service, ...timeRange })}`),
+    apiFetch<PerformanceDashboard>(`/system/performance/dashboard?${buildQueryString({ service, startDate: timeRange?.start, endDate: timeRange?.end })}`),
   getPerformanceMetrics: (service?: string, timeRange?: { start: string; end: string }) =>
-    apiFetch<PerformanceMetrics[]>(`/system/performance/application?${buildQueryString({ service, ...timeRange })}`),
+    apiFetch<PerformanceMetrics[]>(`/system/performance/application?${buildQueryString({ service, startDate: timeRange?.start, endDate: timeRange?.end })}`),
   getApdexScore: (service?: string) =>
     apiFetch<{ apdexScore: number }>(`/system/performance/application/apdex${service ? `?service=${service}` : ''}`),
   getDatabasePerformance: (database?: string) =>
@@ -205,17 +211,7 @@ export const systemSettingsApi = {
     apiFetch<ErrorGroup>(`/system/errors/groups/${id}/ignore`, { method: 'POST' }),
 
   // Job Queue Management
-  getJobDashboard: () =>
-    apiFetch<{
-      totalJobs: number;
-      pendingJobs: number;
-      runningJobs: number;
-      completedToday: number;
-      failedToday: number;
-      avgDuration: number;
-      queues: JobQueue[];
-      recentJobs: BackgroundJob[];
-    }>('/system/jobs/dashboard'),
+  getJobDashboard: () => apiFetch<JobDashboard>('/system/jobs/dashboard'),
   getQueues: () => apiFetch<JobQueue[]>('/system/jobs/queues'),
   getQueue: (name: string) => apiFetch<JobQueue>(`/system/jobs/queues/${name}`),
   createQueue: (data: { name: string; concurrency?: number; maxJobsPerSecond?: number }) =>

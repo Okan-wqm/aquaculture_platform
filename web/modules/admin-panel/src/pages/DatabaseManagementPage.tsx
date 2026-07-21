@@ -749,7 +749,6 @@ const BackupsTab: React.FC = () => {
     backupType: 'full' as string,
     retentionDays: 30,
     compress: true,
-    encrypt: false,
   });
   const [creating, setCreating] = useState(false);
 
@@ -786,7 +785,6 @@ const BackupsTab: React.FC = () => {
         backupType: createForm.backupType,
         tenantId: createForm.tenantId || undefined,
         compress: createForm.compress,
-        encrypt: createForm.encrypt,
         retentionDays: createForm.retentionDays,
       });
       setShowCreateModal(false);
@@ -1031,15 +1029,6 @@ const BackupsTab: React.FC = () => {
                     className="rounded border-gray-300"
                   />
                   <span className="text-sm text-gray-700">Compress</span>
-                </label>
-                <label className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    checked={createForm.encrypt}
-                    onChange={(e) => setCreateForm(f => ({ ...f, encrypt: e.target.checked }))}
-                    className="rounded border-gray-300"
-                  />
-                  <span className="text-sm text-gray-700">Encrypt</span>
                 </label>
               </div>
               <div className="flex justify-end space-x-3 pt-4">

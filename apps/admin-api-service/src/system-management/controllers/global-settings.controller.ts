@@ -94,6 +94,14 @@ export class UpdateFeatureToggleDto {
   @IsString()
   description?: string;
 
+  // APA-261: FeatureTogglesPage's edit form sends scope + isExperimental (the
+  // same editable fields as create). They are enum/boolean-bound exactly as on
+  // CreateFeatureToggleDto so the edit payload is whitelisted instead of 400'd,
+  // while an out-of-vocabulary scope is still rejected at the boundary.
+  @IsOptional()
+  @IsEnum(FeatureToggleScope)
+  scope?: FeatureToggleScope;
+
   // APA-251: the canonical status-transition path (PUT :id) — enum-bound so
   // toggleFeature's {status:'enabled'|'disabled'} is validated and 'bogus' 400s.
   @IsOptional()
@@ -133,6 +141,12 @@ export class UpdateFeatureToggleDto {
   @IsOptional()
   @IsString()
   deprecationMessage?: string;
+
+  // APA-261: mirrors CreateFeatureToggleDto.isExperimental so the edit form's
+  // experimental flag is accepted rather than rejected by forbidNonWhitelisted.
+  @IsOptional()
+  @IsBoolean()
+  isExperimental?: boolean;
 }
 
 class EvaluateFeatureToggleDto {
@@ -161,7 +175,7 @@ class EvaluateFeatureToggleDto {
   custom?: Record<string, string>;
 }
 
-class CreateMaintenanceDto {
+export class CreateMaintenanceDto {
   @IsString()
   title!: string;
 
@@ -497,11 +511,16 @@ export class GlobalSettingsController {
   // ============================================================================
 
   @Post('maintenance')
-  async createMaintenanceMode(@Body() dto: CreateMaintenanceDto) {
+  async createMaintenanceMode(@Body() dto: CreateMaintenanceDto, @Req() req: Request) {
+    // APA-266: the actor is server-derived from the RS256-verified JWT (never a
+    // client-asserted `createdBy` body field, which forbidNonWhitelisted rejects
+    // and which would be spoofable audit attribution).
+    const user = getAuthUser(req);
     return this.globalSettingsService.createMaintenanceMode({
       ...dto,
       scheduledStart: new Date(dto.scheduledStart),
       scheduledEnd: dto.scheduledEnd ? new Date(dto.scheduledEnd) : undefined,
+      createdBy: user?.email ?? user?.id,
     });
   }
 

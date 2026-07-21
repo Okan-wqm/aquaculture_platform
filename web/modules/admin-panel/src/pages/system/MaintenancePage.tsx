@@ -127,7 +127,6 @@ export const MaintenancePage: React.FC = () => {
         userMessage: formData.userMessage,
         allowReadOnlyAccess: formData.allowReadOnlyAccess,
         bypassForSuperAdmins: formData.bypassForSuperAdmins,
-        createdBy: 'admin', // Would come from auth context
         affectedServices: [],
       };
 

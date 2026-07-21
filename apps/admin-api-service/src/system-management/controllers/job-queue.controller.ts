@@ -14,6 +14,7 @@ import { ApiTags } from '@nestjs/swagger';
 
 import { IsString, IsOptional, IsNumber, IsObject, IsArray, MaxLength, Min, Max } from 'class-validator';
 
+import { JobDashboardDto } from '../dto/job-dashboard.dto';
 import { JobStatus, JobType, JobPriority, JobRetryPolicy } from '../entities/job-queue.entity';
 import { JobQueueService, JobDefinition } from '../services/job-queue.service';
 
@@ -299,7 +300,7 @@ export class JobQueueController {
   // ============================================================================
 
   @Get('dashboard')
-  async getJobDashboard() {
+  async getJobDashboard(): Promise<JobDashboardDto> {
     return this.jobQueueService.getJobDashboard();
   }
 

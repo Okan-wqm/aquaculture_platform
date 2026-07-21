@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, LessThan, LessThanOrEqual, IsNull } from 'typeorm';
+import { Repository, In, LessThan, LessThanOrEqual, MoreThanOrEqual, IsNull } from 'typeorm';
 
 import {
   BackgroundJob,
@@ -14,6 +14,7 @@ import {
   JobProgress,
   JobRetryPolicy,
 } from '../entities/job-queue.entity';
+import { JobDashboardDto } from '../dto/job-dashboard.dto';
 
 // ============================================================================
 // Interfaces
@@ -47,18 +48,6 @@ export interface JobQueueStats {
   throughput: number;
 }
 
-export interface JobDashboard {
-  totalJobs: number;
-  pendingJobs: number;
-  runningJobs: number;
-  failedJobs: number;
-  completedLast24h: number;
-  avgProcessingTime: number;
-  queueStats: JobQueueStats[];
-  recentJobs: BackgroundJob[];
-  failedJobsList: BackgroundJob[];
-  scheduledJobs: BackgroundJob[];
-}
 
 // A handler may resolve to a result object or to nothing. The resolved value
 // is consumed by the caller (stored as job.result), so the "nothing" case is
@@ -569,7 +558,7 @@ export class JobQueueService {
   // Dashboard & Stats
   // ============================================================================
 
-  async getJobDashboard(): Promise<JobDashboard> {
+  async getJobDashboard(): Promise<JobDashboardDto> {
     const now = new Date();
     const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
@@ -577,17 +566,20 @@ export class JobQueueService {
       totalJobs,
       pendingJobs,
       runningJobs,
-      failedJobs,
+      failedLast24h,
       completedLast24h,
       recentJobs,
-      failedJobsList,
-      scheduledJobs,
       queues,
     ] = await Promise.all([
       this.jobRepo.count(),
       this.jobRepo.count({ where: { status: JobStatus.PENDING } }),
       this.jobRepo.count({ where: { status: JobStatus.RUNNING } }),
-      this.jobRepo.count({ where: { status: JobStatus.FAILED } }),
+      this.jobRepo.count({
+        where: {
+          status: JobStatus.FAILED,
+          updatedAt: MoreThanOrEqual(yesterday),
+        },
+      }),
       this.jobRepo.count({
         where: {
           status: JobStatus.COMPLETED,
@@ -596,16 +588,6 @@ export class JobQueueService {
       }),
       this.jobRepo.find({
         order: { createdAt: 'DESC' },
-        take: 10,
-      }),
-      this.jobRepo.find({
-        where: { status: JobStatus.FAILED },
-        order: { updatedAt: 'DESC' },
-        take: 10,
-      }),
-      this.jobRepo.find({
-        where: { status: In([JobStatus.SCHEDULED, JobStatus.PENDING]) },
-        order: { scheduledAt: 'ASC' },
         take: 10,
       }),
       this.queueRepo.find(),
@@ -621,24 +603,26 @@ export class JobQueueService {
 
     const avgProcessingTime = parseFloat(avgResult?.avg) || 0;
 
-    // Get queue stats
-    const queueStats: JobQueueStats[] = [];
-    for (const queue of queues) {
-      const stats = await this.getQueueStats(queue.name);
-      queueStats.push(stats);
-    }
-
+    // APA-281: map the persisted queue rows into the management shape the Queues
+    // tab renders (isPaused + concurrency + live counts). The lossy per-job
+    // queueStats projection dropped isPaused/concurrency, so the tab stayed empty.
     return {
       totalJobs,
       pendingJobs,
       runningJobs,
-      failedJobs,
+      failedLast24h,
       completedLast24h,
       avgProcessingTime,
-      queueStats,
+      queues: queues.map((queue) => ({
+        name: queue.name,
+        isPaused: queue.isPaused,
+        concurrency: queue.concurrency,
+        pendingCount: queue.pendingCount,
+        runningCount: queue.runningCount,
+        completedCount: queue.completedCount,
+        failedCount: queue.failedCount,
+      })),
       recentJobs,
-      failedJobsList,
-      scheduledJobs,
     };
   }
 

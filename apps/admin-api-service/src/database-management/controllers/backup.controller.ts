@@ -44,7 +44,7 @@ import { getAuthUser } from '../../shared/authenticated-request';
 // DTOs
 // ============================================================================
 
-class CreateBackupDto {
+export class CreateBackupDto {
   @IsOptional()
   @IsUUID()
   tenantId?: string;

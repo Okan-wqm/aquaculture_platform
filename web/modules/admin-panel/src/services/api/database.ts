@@ -110,7 +110,10 @@ export const databaseApi = {
     apiFetch<{ enabled: boolean; schedule: string; lastRun?: string; nextRun?: string }>('/database/backups/schedule'),
   getBackupsForTenant: (tenantId: string) =>
     apiFetch<DatabaseBackup[]>(`/database/backups/tenant/${tenantId}`),
-  createBackup: (data: { backupType: string; tenantId?: string; compress?: boolean; encrypt?: boolean; retentionDays?: number; excludeTables?: string[] }) =>
+  // APA-314: encryption is a mandatory server invariant (resolveBackupEncryption
+  // rejects encrypt:false), so a plaintext-backup toggle can never be honored —
+  // `encrypt` is not a request field and must not be sent.
+  createBackup: (data: { backupType: string; tenantId?: string; compress?: boolean; retentionDays?: number; excludeTables?: string[] }) =>
     apiFetch<DatabaseBackup>('/database/backups', { method: 'POST', body: JSON.stringify(data) }),
   deleteBackup: (id: string) => apiFetch<void>(`/database/backups/${id}`, { method: 'DELETE' }),
   /** Backend: POST /database/backups/restore (backupId in body) */

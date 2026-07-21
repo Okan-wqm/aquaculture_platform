@@ -24,6 +24,10 @@ export type ImpersonationReasonCode =
 
 export interface ImpersonationPermission {
   id: string;
+  // APA-290: the grant is a per-admin record keyed by superAdminId; the revoke
+  // route (POST /impersonation/permissions/:superAdminId/revoke) resolves this
+  // identifier, NOT the row `id`. It is a real column on every permission row.
+  superAdminId: string;
   tenantId: string;
   tenantName: string;
   grantedBy: string;

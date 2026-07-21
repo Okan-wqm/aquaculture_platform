@@ -86,7 +86,6 @@ export interface InviteUserDto {
   moduleIds?: string[];
   primaryModuleId?: string;
   message?: string;
-  invitedBy: string;
 }
 
 export interface Permission {

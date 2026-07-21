@@ -51,7 +51,7 @@ import {
   ValidateDiscountCodeDto,
   VoidInvoiceDto,
 } from './dto/billing.dto';
-import { CustomPlanStatus } from './entities/custom-plan.entity';
+import { CustomPlanQueryDto } from './dto/custom-plan-query.dto';
 import { BillingCycle, PlanTier } from './entities/plan-definition.entity';
 import { AggregationPeriod, MeterType } from './entities/usage-aggregation-readonly.entity';
 import { BillingAdminCommandClientService } from './services/billing-admin-command-client.service';
@@ -521,19 +521,15 @@ export class BillingController {
 
   @Get('custom-plans')
   async listCustomPlans(
-    @Query('tenantId') tenantId?: string,
-    @Query('status') status?: CustomPlanStatus,
-    @Query('tier') tier?: PlanTier,
-    @Query('search') search?: string,
-    @Query() pagination?: PaginationQueryDto,
+    @Query() query: CustomPlanQueryDto,
   ): Promise<unknown> {
     const filter: CustomPlanFilter = {
-      tenantId,
-      status,
-      tier,
-      search,
-      page: pagination?.page,
-      limit: pagination?.limit,
+      tenantId: query.tenantId,
+      status: query.status,
+      tier: query.tier,
+      search: query.search,
+      page: query.page,
+      limit: query.limit,
     };
     return this.customPlanService.listCustomPlans(filter);
   }

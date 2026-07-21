@@ -338,3 +338,9 @@ DETECTION GATE (Tier 3): New tests/invariants/admin-audit-severity-contract.spec
 - **Root cause:** Not a defect — informational record of adversarial checks that came back clean: global PlatformAdminGuard coverage, envelope parity both directions (including /health raw-JSON passthrough), nginx /api -> /api/v1 rewrite alignment, and admin.audit_logs entity/migration parity. All consistent with the code re-read in this pass.
 - **Fix design:** No change required. Retain in the audit trail as the clean-chain baseline for the dashboard section; future findings in these areas should be diffed against this record.
 - **Effort:** S
+
+## Finding registry anchors
+
+Registry IDs (`docs/reviews/_registry/findings.jsonl`) tracking findings in this document:
+
+- **ADMIN-HIGH-026** — Phase-1 RC-3 mixed-`@Query` class: `queryAuditLogs` (GET /audit-logs) and `listCustomPlans` (GET /billing/custom-plans) mixed named `@Query('x')` filter params with a bare `@Query() PaginationQueryDto`, so `forbidNonWhitelisted` 400'd every filtered request. Consolidated each to one `@Query()` DTO extending `PaginationQueryDto` (`AuditLogQueryDto`, `CustomPlanQueryDto`) and added the no-allowlist `query-dto-single-source` architecture gate (fail-red on both pre-fix, green after). Closes APA-013 / APA-114; covers APA-356 / APA-362 (the audit page consumes the now-consolidated `/audit-logs`); APA-188 resolved-by-consolidation (APA-213). Adjacent APA-087/319/244 tracked as a separate slice.

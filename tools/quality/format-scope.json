@@ -1089,6 +1089,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/__tests__/query-dto-single-source.architecture.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/__tests__/rc4-fe-dto-parity.spec.ts",
       "prettier_managed": true
     },
@@ -1239,6 +1245,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/audit/dto/audit-log-query.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/auth/__tests__/password-reset.security.spec.ts",
       "prettier_managed": true
     },
@@ -1288,6 +1300,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/billing/dto/billing.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/billing/dto/custom-plan-query.dto.ts",
       "prettier_managed": true
     },
     {
@@ -55158,10 +55176,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9042,
+  "file_count": 9045,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8861,
-  "managed_file_list_sha256": "46e6a2eb3b98f3291107439ad53fe472da088783ca1a99e0b10762c3e3f8294d",
+  "managed_count": 8864,
+  "managed_file_list_sha256": "1d744d8fd73fb2605c9bea92adf9edc2552ef2f0377aac289fb86cf234d6ab1a",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

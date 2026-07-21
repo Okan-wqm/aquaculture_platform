@@ -9,11 +9,11 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 
-import { PaginationQueryDto } from '../shared/pagination-query.dto';
 import { getAuthUser } from '../shared/authenticated-request';
 
-import { AuditLog, AuditSeverity } from './audit.entity';
+import { AuditLog } from './audit.entity';
 import { AuditLogService, AuditLogFilter } from './audit.service';
+import { AuditLogQueryDto } from './dto/audit-log-query.dto';
 
 @ApiTags('Security')
 @Controller('audit-logs')
@@ -42,37 +42,31 @@ export class AuditLogController {
   @Get()
   async queryAuditLogs(
     @Req() req: Request,
-    @Query('action') action?: string,
-    @Query('entityType') entityType?: string,
-    @Query('entityId') entityId?: string,
-    @Query('tenantId') tenantId?: string,
-    @Query('performedBy') performedBy?: string,
-    @Query('severity') severity?: AuditSeverity,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-    @Query('search') search?: string,
-    @Query() pagination?: PaginationQueryDto,
-  ) {
+    @Query() query: AuditLogQueryDto,
+  ): Promise<unknown> {
     const filter: AuditLogFilter = {
-      action,
-      entityType,
-      entityId,
-      tenantId,
-      performedBy,
-      severity,
-      startDate: startDate ? new Date(startDate) : undefined,
-      endDate: endDate ? new Date(endDate) : undefined,
-      search,
+      action: query.action,
+      entityType: query.entityType,
+      entityId: query.entityId,
+      tenantId: query.tenantId,
+      performedBy: query.performedBy,
+      severity: query.severity,
+      startDate: query.startDate ? new Date(query.startDate) : undefined,
+      endDate: query.endDate ? new Date(query.endDate) : undefined,
+      search: query.search,
     };
 
     // ADMIN-MEDIUM-003: meta-audit -- record that audit logs were queried
-    this.writeMetaAudit(req, 'QUERY', { filter: { action, entityType, tenantId, severity } });
+    this.writeMetaAudit(req, 'QUERY', {
+      filter: {
+        action: query.action,
+        entityType: query.entityType,
+        tenantId: query.tenantId,
+        severity: query.severity,
+      },
+    });
 
-    return this.auditLogService.query(
-      filter,
-      pagination?.page ?? 1,
-      pagination?.limit ?? 50,
-    );
+    return this.auditLogService.query(filter, query.page ?? 1, query.limit ?? 50);
   }
 
   @Get('entity/:entityType/:entityId')

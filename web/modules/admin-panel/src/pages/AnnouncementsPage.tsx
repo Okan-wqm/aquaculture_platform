@@ -3,16 +3,20 @@
  *
  * Platform duyuru sistemi - global ve hedefli duyurular.
  * Scheduling, acknowledgment tracking, announcement types.
+ *
+ * APA-201: consolidated onto the auth.announcements SSoT. This page reads and
+ * writes exclusively through the auth-service GraphQL hooks in
+ * ../hooks/useAnnouncements — the legacy admin-api REST vertical is gone. A
+ * published announcement now emits AnnouncementPublished through the outbox, so
+ * it actually reaches tenants (myAnnouncements) and their notifications.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Megaphone,
   Plus,
   Search,
-  Filter,
   Calendar,
-  Clock,
   Eye,
   CheckCircle,
   AlertTriangle,
@@ -25,83 +29,84 @@ import {
   X,
   Globe,
   Target,
-  Users,
   BarChart3,
   RefreshCw,
   Loader2,
 } from 'lucide-react';
 import {
-  supportApi,
-  type Announcement,
-  type AnnouncementType,
-  type AnnouncementStatus,
-  type AnnouncementTarget,
-} from '../services/adminApi';
-
-interface AnnouncementStats {
-  total: number;
-  published: number;
-  scheduled: number;
-  draft: number;
-  expired: number;
-  totalViews: number;
-  totalAcknowledgments: number;
-  byType: Record<AnnouncementType, number>;
-}
+  useAdminAnnouncements,
+  useAnnouncementStats,
+  useAnnouncementAcks,
+  useCreateAnnouncement,
+  usePublishAnnouncement,
+  useCancelAnnouncement,
+  useDeleteAnnouncement,
+  type AdminAnnouncement,
+  type CreatePlatformAnnouncementInput,
+} from '../hooks/useAnnouncements';
+import type {
+  AnnouncementType,
+  AnnouncementStatus,
+} from '../services/types/support';
 
 // ============================================================================
 // Component
 // ============================================================================
 
 export const AnnouncementsPage: React.FC = () => {
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [stats, setStats] = useState<AnnouncementStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<AnnouncementStatus | 'all'>('all');
   const [typeFilter, setTypeFilter] = useState<AnnouncementType | 'all'>('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [selectedAnnouncement, setSelectedAnnouncement] = useState<Announcement | null>(null);
+  const [selectedAnnouncement, setSelectedAnnouncement] = useState<AdminAnnouncement | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  // Fetch announcements from API
-  const fetchAnnouncements = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  const {
+    data: announcements,
+    isLoading: loading,
+    error: listError,
+    refetch: refetchAnnouncements,
+  } = useAdminAnnouncements(
+    statusFilter !== 'all' ? statusFilter : undefined,
+    typeFilter !== 'all' ? typeFilter : undefined,
+  );
+  const { data: stats, refetch: refetchStats } = useAnnouncementStats();
 
-      const params: Record<string, unknown> = { limit: 100 };
-      if (statusFilter !== 'all') params.status = statusFilter;
-      if (typeFilter !== 'all') params.type = typeFilter;
+  const publish = usePublishAnnouncement();
+  const cancel = useCancelAnnouncement();
+  const remove = useDeleteAnnouncement();
+  const create = useCreateAnnouncement();
 
-      const result = await supportApi.getAnnouncements(params);
-      setAnnouncements(result.data || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-      setAnnouncements([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter, typeFilter]);
+  // useGraphQLQuery recreates its refetch callback on every render (its deps
+  // include the freshly-built variables object). Keep the latest refetchers in
+  // refs so the fetch effects can depend on the stable filter primitives
+  // instead of the churning callback identity (which would loop).
+  const refetchAnnouncementsRef = useRef(refetchAnnouncements);
+  refetchAnnouncementsRef.current = refetchAnnouncements;
+  const refetchStatsRef = useRef(refetchStats);
+  refetchStatsRef.current = refetchStats;
 
-  // Fetch stats from API
-  const fetchStats = useCallback(async () => {
-    try {
-      const data = await supportApi.getAnnouncementStats();
-      setStats(data);
-    } catch (err) {
-      console.error('Failed to fetch stats:', err);
-    }
+  const reload = useCallback(() => {
+    void refetchAnnouncementsRef.current();
+    void refetchStatsRef.current();
   }, []);
 
+  // Refetch the list on mount and whenever a filter changes.
   useEffect(() => {
-    fetchAnnouncements();
-    fetchStats();
-  }, [fetchAnnouncements, fetchStats]);
+    void refetchAnnouncementsRef.current();
+  }, [statusFilter, typeFilter]);
 
-  const filteredAnnouncements = announcements.filter(ann => {
-    if (searchQuery && !ann.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
-        !ann.content.toLowerCase().includes(searchQuery.toLowerCase())) {
+  // Fetch stats once on mount.
+  useEffect(() => {
+    void refetchStatsRef.current();
+  }, []);
+
+  const filteredAnnouncements = (announcements ?? []).filter((ann) => {
+    if (
+      searchQuery &&
+      !ann.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
+      !ann.content.toLowerCase().includes(searchQuery.toLowerCase())
+    ) {
       return false;
     }
     return true;
@@ -113,6 +118,7 @@ export const AnnouncementsPage: React.FC = () => {
       case 'warning': return <AlertTriangle size={16} className="text-yellow-500" />;
       case 'critical': return <AlertCircle size={16} className="text-red-500" />;
       case 'maintenance': return <Wrench size={16} className="text-purple-500" />;
+      default: return <Info size={16} className="text-blue-500" />;
     }
   };
 
@@ -122,6 +128,7 @@ export const AnnouncementsPage: React.FC = () => {
       case 'warning': return 'bg-yellow-100 text-yellow-700';
       case 'critical': return 'bg-red-100 text-red-700';
       case 'maintenance': return 'bg-purple-100 text-purple-700';
+      default: return 'bg-blue-100 text-blue-700';
     }
   };
 
@@ -132,6 +139,7 @@ export const AnnouncementsPage: React.FC = () => {
       case 'published': return 'bg-green-100 text-green-700';
       case 'expired': return 'bg-gray-100 text-gray-500';
       case 'cancelled': return 'bg-red-100 text-red-700';
+      default: return 'bg-gray-100 text-gray-700';
     }
   };
 
@@ -145,46 +153,28 @@ export const AnnouncementsPage: React.FC = () => {
     });
   };
 
-  const handlePublish = async (id: string) => {
+  const runAction = async (fn: () => Promise<unknown>) => {
+    setActionError(null);
     try {
-      await supportApi.publishAnnouncement(id);
-      fetchAnnouncements();
-      fetchStats();
+      await fn();
+      reload();
     } catch (err) {
-      console.error('Failed to publish:', err);
+      setActionError(err instanceof Error ? err.message : 'Action failed');
     }
   };
 
-  const handleCancel = async (id: string) => {
-    try {
-      await supportApi.unpublishAnnouncement(id);
-      fetchAnnouncements();
-      fetchStats();
-    } catch (err) {
-      console.error('Failed to cancel:', err);
-    }
+  const handlePublish = (id: string) => runAction(() => publish.mutate({ id }));
+  const handleCancel = (id: string) => runAction(() => cancel.mutate({ id }));
+  const handleDelete = (id: string) => runAction(() => remove.mutate({ id }));
+
+  const handleCreateAnnouncement = async (input: CreatePlatformAnnouncementInput) => {
+    // Throws on failure so the modal can keep itself open and surface the error.
+    await create.mutate({ input });
+    setShowCreateModal(false);
+    reload();
   };
 
-  const handleDelete = async (id: string) => {
-    try {
-      await supportApi.deleteAnnouncement(id);
-      fetchAnnouncements();
-      fetchStats();
-    } catch (err) {
-      console.error('Failed to delete:', err);
-    }
-  };
-
-  const handleCreateAnnouncement = async (data: Partial<Announcement>) => {
-    try {
-      await supportApi.createAnnouncement(data as Parameters<typeof supportApi.createAnnouncement>[0]);
-      setShowCreateModal(false);
-      fetchAnnouncements();
-      fetchStats();
-    } catch (err) {
-      console.error('Failed to create announcement:', err);
-    }
-  };
+  const error = listError ?? actionError;
 
   return (
     <div className="h-full flex flex-col">
@@ -197,7 +187,7 @@ export const AnnouncementsPage: React.FC = () => {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => { fetchAnnouncements(); fetchStats(); }}
+              onClick={reload}
               className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
             >
               <RefreshCw size={18} />
@@ -293,13 +283,13 @@ export const AnnouncementsPage: React.FC = () => {
         </div>
       )}
 
-      {error && (
+      {error && !loading && (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <AlertCircle className="mx-auto text-red-500 mb-2" size={32} />
             <p className="text-red-600">{error}</p>
             <button
-              onClick={fetchAnnouncements}
+              onClick={reload}
               className="mt-2 px-4 py-2 text-sm text-blue-600 hover:text-blue-700"
             >
               Retry
@@ -441,7 +431,7 @@ export const AnnouncementsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Create/Edit Modal */}
+      {/* Create Modal */}
       {showCreateModal && (
         <AnnouncementFormModal
           onClose={() => setShowCreateModal(false)}
@@ -465,50 +455,66 @@ export const AnnouncementsPage: React.FC = () => {
 // ============================================================================
 
 interface AnnouncementFormModalProps {
-  announcement?: Announcement;
   onClose: () => void;
-  onSave: (data: Partial<Announcement>) => void;
+  onSave: (data: CreatePlatformAnnouncementInput) => Promise<void>;
 }
 
 const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
-  announcement,
   onClose,
   onSave,
 }) => {
-  const [title, setTitle] = useState(announcement?.title || '');
-  const [content, setContent] = useState(announcement?.content || '');
-  const [type, setType] = useState<AnnouncementType>(announcement?.type || 'info');
-  const [isGlobal, setIsGlobal] = useState(announcement?.isGlobal ?? true);
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
+  const [type, setType] = useState<AnnouncementType>('info');
+  const [isGlobal, setIsGlobal] = useState(true);
   const [scheduleType, setScheduleType] = useState<'now' | 'scheduled'>('now');
   const [publishAt, setPublishAt] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
-  const [requiresAcknowledgment, setRequiresAcknowledgment] = useState(announcement?.requiresAcknowledgment ?? false);
+  const [requiresAcknowledgment, setRequiresAcknowledgment] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const handleSubmit = () => {
-    onSave({
-      title,
-      content,
-      type,
-      isGlobal,
-      publishAt: scheduleType === 'scheduled' ? new Date(publishAt).toISOString() : undefined,
-      expiresAt: expiresAt ? new Date(expiresAt).toISOString() : undefined,
-      requiresAcknowledgment,
-    });
+  const handleSubmit = async () => {
+    setSubmitError(null);
+    setSubmitting(true);
+    try {
+      await onSave({
+        title,
+        content,
+        type,
+        isGlobal,
+        publishAt:
+          scheduleType === 'scheduled' && publishAt
+            ? new Date(publishAt).toISOString()
+            : undefined,
+        expiresAt: expiresAt ? new Date(expiresAt).toISOString() : undefined,
+        requiresAcknowledgment,
+      });
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Failed to create announcement');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h2 className="text-xl font-semibold text-gray-900">
-            {announcement ? 'Edit Announcement' : 'Create Announcement'}
-          </h2>
+          <h2 className="text-xl font-semibold text-gray-900">Create Announcement</h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-600">
             <X size={24} />
           </button>
         </div>
 
         <div className="p-6 space-y-4">
+          {submitError && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+              <AlertCircle size={16} />
+              {submitError}
+            </div>
+          )}
+
           {/* Title */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Title</label>
@@ -658,10 +664,10 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
           </button>
           <button
             onClick={handleSubmit}
-            disabled={!title || !content}
+            disabled={!title || !content || submitting}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {scheduleType === 'scheduled' ? 'Schedule' : 'Save Draft'}
+            {submitting ? 'Saving…' : scheduleType === 'scheduled' ? 'Schedule' : 'Save Draft'}
           </button>
         </div>
       </div>
@@ -670,7 +676,7 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
 };
 
 interface AnnouncementStatsModalProps {
-  announcement: Announcement;
+  announcement: AdminAnnouncement;
   onClose: () => void;
 }
 
@@ -678,27 +684,12 @@ const AnnouncementStatsModal: React.FC<AnnouncementStatsModalProps> = ({
   announcement,
   onClose,
 }) => {
-  const [acknowledgments, setAcknowledgments] = useState<Array<{
-    userId: string;
-    userName: string;
-    tenantId: string;
-    viewedAt: string;
-    acknowledgedAt: string | null;
-  }>>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: acknowledgments, isLoading: loading, refetch } = useAnnouncementAcks(announcement.id);
+  const refetchRef = useRef(refetch);
+  refetchRef.current = refetch;
 
   useEffect(() => {
-    const fetchAcknowledgments = async () => {
-      try {
-        const data = await supportApi.getAnnouncementAcknowledgments(announcement.id);
-        setAcknowledgments(data.acknowledgments || []);
-      } catch (err) {
-        console.error('Failed to fetch acknowledgments:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchAcknowledgments();
+    void refetchRef.current();
   }, [announcement.id]);
 
   return (
@@ -742,13 +733,13 @@ const AnnouncementStatsModal: React.FC<AnnouncementStatsModalProps> = ({
                 <div className="flex justify-center py-4">
                   <Loader2 className="animate-spin text-blue-600" size={24} />
                 </div>
-              ) : acknowledgments.length > 0 ? (
+              ) : (acknowledgments ?? []).length > 0 ? (
                 <div className="space-y-2">
-                  {acknowledgments.map((ack) => (
-                    <div key={ack.userId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  {(acknowledgments ?? []).map((ack) => (
+                    <div key={ack.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                       <div>
                         <div className="font-medium text-gray-900">{ack.userName}</div>
-                        <div className="text-sm text-gray-500">Tenant: {ack.tenantId}</div>
+                        <div className="text-sm text-gray-500">Tenant: {ack.tenantName ?? ack.tenantId ?? '—'}</div>
                       </div>
                       <div className="text-right">
                         {ack.acknowledgedAt ? (

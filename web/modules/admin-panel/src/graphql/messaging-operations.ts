@@ -296,6 +296,26 @@ export const ADMIN_GET_ANNOUNCEMENT_STATS = `
   }
 `;
 
+/**
+ * Fetch acknowledgment/view records for an announcement (SuperAdmin).
+ * Resolver: AnnouncementResolver.announcementAcknowledgments
+ * Returns: AnnouncementAcknowledgment[]
+ */
+export const ADMIN_GET_ANNOUNCEMENT_ACKS = `
+  query AdminAnnouncementAcknowledgments($id: ID!) {
+    announcementAcknowledgments(id: $id) {
+      id
+      announcementId
+      userId
+      userName
+      tenantId
+      tenantName
+      viewedAt
+      acknowledgedAt
+    }
+  }
+`;
+
 // ============================================================================
 // Announcements - Mutations
 // ============================================================================
@@ -347,6 +367,39 @@ export const ADMIN_CREATE_TENANT_ANNOUNCEMENT = `
       type
       status
       scope
+      publishAt
+      expiresAt
+      requiresAcknowledgment
+      createdBy
+      createdByName
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+/**
+ * Update a draft/scheduled announcement (SuperAdmin).
+ * Resolver: AnnouncementResolver.updateAnnouncement
+ * Returns: Announcement
+ */
+export const ADMIN_UPDATE_ANNOUNCEMENT = `
+  mutation AdminUpdateAnnouncement($id: ID!, $input: UpdateAnnouncementInput!) {
+    updateAnnouncement(id: $id, input: $input) {
+      id
+      title
+      content
+      type
+      status
+      scope
+      isGlobal
+      targetCriteria {
+        tenantIds
+        excludeTenantIds
+        plans
+        modules
+        regions
+      }
       publishAt
       expiresAt
       requiresAcknowledgment

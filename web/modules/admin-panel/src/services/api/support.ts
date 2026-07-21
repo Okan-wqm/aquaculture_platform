@@ -15,7 +15,6 @@ import type {
   TicketCategory,
   MessageThread,
   SupportMessage,
-  Announcement,
   OnboardingStep,
   TenantOnboarding,
 } from '../types';
@@ -90,25 +89,12 @@ export const supportApi = {
   getUnreadCount: () => apiFetch<{ unreadCount: number }>('/support/messages/unread-count'),
   getMessagingStats: () => apiFetch<Record<string, unknown>>('/support/messages/stats'),
 
-  // Announcements
-  getAnnouncements: (params?: { type?: string; isPublished?: boolean } & PaginationParams) =>
-    apiFetch<PaginatedResult<Announcement>>(`/support/announcements?${buildQueryString(params || {})}`),
-  getAnnouncement: (id: string) => apiFetch<Announcement>(`/support/announcements/${id}`),
-  createAnnouncement: (data: Omit<Announcement, 'id' | 'viewCount' | 'acknowledgedCount' | 'createdAt' | 'updatedAt'>) =>
-    apiFetch<Announcement>('/support/announcements', { method: 'POST', body: JSON.stringify(data) }),
-  updateAnnouncement: (id: string, data: Partial<Announcement>) =>
-    apiFetch<Announcement>(`/support/announcements/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  publishAnnouncement: (id: string) =>
-    apiFetch<Announcement>(`/support/announcements/${id}/publish`, { method: 'POST' }),
-  // Fix: H18 -- backend path uyumu (unpublish -> cancel)
-  unpublishAnnouncement: (id: string) =>
-    apiFetch<Announcement>(`/support/announcements/${id}/cancel`, { method: 'POST' }),
-  deleteAnnouncement: (id: string) =>
-    apiFetch<void>(`/support/announcements/${id}`, { method: 'DELETE' }),
-  getAnnouncementStats: () =>
-    apiFetch<{ total: number; published: number; scheduled: number; draft: number; expired: number; totalViews: number; totalAcknowledgments: number; byType: Record<string, number> }>('/support/announcements/stats'),
-  getAnnouncementAcknowledgments: (id: string) =>
-    apiFetch<{ acknowledgments: Array<{ userId: string; userName: string; tenantId: string; viewedAt: string; acknowledgedAt: string | null }> }>(`/support/announcements/${id}/acknowledgments`),
+  // Announcements — APA-201: consolidated onto the auth.announcements SSoT.
+  // The admin-panel now reads/writes announcements exclusively through the
+  // auth-service GraphQL hooks in ../../hooks/useAnnouncements. The legacy REST
+  // functions (getAnnouncements/createAnnouncement/publishAnnouncement/…) and
+  // their admin-api vertical have been removed; any lingering supportApi
+  // announcement import is now a compile error by design.
 
   // Onboarding - Backend: /support/onboarding
   getOnboardingSteps: () => apiFetch<OnboardingStep[]>('/support/onboarding/steps'),

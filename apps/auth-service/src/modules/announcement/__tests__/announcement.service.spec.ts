@@ -8,7 +8,8 @@
 import { Role } from '@aquaculture/backend-common/decorators';
 import { ForbiddenException, BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
+import { getRepositoryToken, getDataSourceToken } from '@nestjs/typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import { Repository } from 'typeorm';
 
 import { User } from '../../authentication/entities/user.entity';
@@ -150,6 +151,48 @@ const createMockRepository = () => {
 };
 
 // ============================================================================
+// Transactional outbox doubles (APA-201)
+// ============================================================================
+
+/**
+ * Build a DataSource + OutboxPublisher double whose transaction manager
+ * delegates back to the same mock repositories. This lets the existing
+ * repository-level primings drive the in-transaction publish path unchanged,
+ * while the mock OutboxPublisher captures the AnnouncementPublished enqueue.
+ */
+const createTxDoubles = (repos: {
+  announcement: ReturnType<typeof createMockRepository>;
+  ack: ReturnType<typeof createMockRepository>;
+  user: ReturnType<typeof createMockRepository>;
+  tenant: ReturnType<typeof createMockRepository>;
+}) => {
+  const manager = {
+    findOne: jest.fn((entity: unknown, options: unknown) => {
+      if (entity === Announcement) return repos.announcement.findOne(options);
+      if (entity === AnnouncementAcknowledgment) return repos.ack.findOne(options);
+      if (entity === User) return repos.user.findOne(options);
+      if (entity === Tenant) return repos.tenant.findOne(options);
+      return Promise.resolve(null);
+    }),
+    save: jest.fn((entity: unknown, obj: unknown) => {
+      if (entity === Announcement) return repos.announcement.save(obj);
+      if (entity === AnnouncementAcknowledgment) return repos.ack.save(obj);
+      return Promise.resolve(obj);
+    }),
+    find: jest.fn((entity: unknown, options: unknown) => {
+      if (entity === Tenant) return repos.tenant.find(options);
+      if (entity === AnnouncementAcknowledgment) return repos.ack.find(options);
+      return Promise.resolve([]);
+    }),
+  };
+  const dataSource = {
+    transaction: jest.fn((cb: (m: typeof manager) => unknown) => cb(manager)),
+  };
+  const outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
+  return { manager, dataSource, outboxPublisher };
+};
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -159,12 +202,19 @@ describe('AnnouncementService', () => {
   let acknowledgmentRepository: jest.Mocked<Repository<AnnouncementAcknowledgment>>;
   let userRepository: jest.Mocked<Repository<User>>;
   let tenantRepository: jest.Mocked<Repository<Tenant>>;
+  let outboxPublisher: { enqueue: jest.Mock };
 
   beforeEach(async () => {
     const mockAnnouncementRepo = createMockRepository();
     const mockAckRepo = createMockRepository();
     const mockUserRepo = createMockRepository();
     const mockTenantRepo = createMockRepository();
+    const tx = createTxDoubles({
+      announcement: mockAnnouncementRepo,
+      ack: mockAckRepo,
+      user: mockUserRepo,
+      tenant: mockTenantRepo,
+    });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -173,6 +223,8 @@ describe('AnnouncementService', () => {
         { provide: getRepositoryToken(AnnouncementAcknowledgment), useValue: mockAckRepo },
         { provide: getRepositoryToken(User), useValue: mockUserRepo },
         { provide: getRepositoryToken(Tenant), useValue: mockTenantRepo },
+        { provide: getDataSourceToken(), useValue: tx.dataSource },
+        { provide: OutboxPublisher, useValue: tx.outboxPublisher },
       ],
     }).compile();
 
@@ -181,6 +233,7 @@ describe('AnnouncementService', () => {
     acknowledgmentRepository = module.get(getRepositoryToken(AnnouncementAcknowledgment));
     userRepository = module.get(getRepositoryToken(User));
     tenantRepository = module.get(getRepositoryToken(Tenant));
+    outboxPublisher = module.get(OutboxPublisher);
   });
 
   afterEach(() => {
@@ -437,6 +490,60 @@ describe('AnnouncementService', () => {
       );
     });
 
+    it('writes an AnnouncementPublished event to the outbox atomically with the status flip, one per active target tenant', async () => {
+      const superAdmin = createMockUser({ role: Role.SUPER_ADMIN, tenantId: undefined });
+      const announcement = createMockAnnouncement({
+        id: 'ann-publish-1',
+        status: AnnouncementStatus.DRAFT,
+        scope: AnnouncementScope.PLATFORM,
+        type: AnnouncementType.CRITICAL,
+        isGlobal: true,
+        requiresAcknowledgment: true,
+      });
+      const activeTenant = createMockTenant({ id: '11111111-1111-4111-8111-111111111111' });
+
+      userRepository.findOne.mockResolvedValue(superAdmin);
+      announcementRepository.findOne.mockResolvedValue(announcement);
+      announcementRepository.save.mockImplementation((a) => Promise.resolve(a as Announcement));
+      tenantRepository.find.mockResolvedValue([activeTenant]);
+
+      await service.publishAnnouncement(superAdmin.id, announcement.id);
+
+      // The status flip is persisted via the transaction manager (delegating to
+      // the announcement repo) BEFORE/with the outbox enqueue — same transaction.
+      expect(announcementRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: AnnouncementStatus.PUBLISHED }),
+      );
+
+      // Exactly one AnnouncementPublished event per active target tenant, with the
+      // createBaseEvent shape the notification-service handler consumes.
+      expect(outboxPublisher.enqueue).toHaveBeenCalledTimes(1);
+      const [event, manager, options] = outboxPublisher.enqueue.mock.calls[0];
+      expect(event).toEqual(
+        expect.objectContaining({
+          eventType: 'AnnouncementPublished',
+          announcementId: 'ann-publish-1',
+          announcementType: AnnouncementType.CRITICAL,
+          scope: AnnouncementScope.PLATFORM,
+          isGlobal: true,
+          requiresAcknowledgment: true,
+          targetTenantIds: [activeTenant.id],
+          tenantId: activeTenant.id,
+        }),
+      );
+      // createBaseEvent-produced fields must be present (branded eventId, ISO ts).
+      expect(typeof event.eventId).toBe('string');
+      expect(typeof event.timestamp).toBe('string');
+      // Enqueued through the transaction manager (atomic with the write).
+      expect(manager).toBeDefined();
+      expect(options).toEqual(
+        expect.objectContaining({
+          aggregateId: 'ann-publish-1',
+          idempotencyKey: `ann-publish-1:AnnouncementPublished:${activeTenant.id}`,
+        }),
+      );
+    });
+
     it('should throw BadRequestException for already published announcement', async () => {
       const superAdmin = createMockUser({ role: Role.SUPER_ADMIN, tenantId: undefined });
       const announcement = createMockAnnouncement({
@@ -645,6 +752,12 @@ describe('SuperAdmin-TenantAdmin Announcement Integration', () => {
     const mockAckRepo = createMockRepository();
     const mockUserRepo = createMockRepository();
     const mockTenantRepo = createMockRepository();
+    const tx = createTxDoubles({
+      announcement: mockAnnouncementRepo,
+      ack: mockAckRepo,
+      user: mockUserRepo,
+      tenant: mockTenantRepo,
+    });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -653,6 +766,8 @@ describe('SuperAdmin-TenantAdmin Announcement Integration', () => {
         { provide: getRepositoryToken(AnnouncementAcknowledgment), useValue: mockAckRepo },
         { provide: getRepositoryToken(User), useValue: mockUserRepo },
         { provide: getRepositoryToken(Tenant), useValue: mockTenantRepo },
+        { provide: getDataSourceToken(), useValue: tx.dataSource },
+        { provide: OutboxPublisher, useValue: tx.outboxPublisher },
       ],
     }).compile();
 

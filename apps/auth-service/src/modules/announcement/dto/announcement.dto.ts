@@ -141,6 +141,58 @@ export class CreateTenantAnnouncementInput {
 }
 
 /**
+ * Input for updating an existing announcement (SuperAdmin, draft/scheduled only).
+ *
+ * APA-201: every field is optional — only supplied fields are applied. The
+ * service rejects updates on published/expired/cancelled announcements.
+ */
+@InputType()
+export class UpdateAnnouncementInput {
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500, { message: 'Title must be at most 500 characters' })
+  @Transform(({ value }) => (typeof value === 'string' ? escapeHtml(value.trim()) : value))
+  title?: string;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50000, { message: 'Content must be at most 50000 characters' })
+  @Transform(({ value }) => (typeof value === 'string' ? escapeHtml(value.trim()) : value))
+  content?: string;
+
+  @Field(() => AnnouncementType, { nullable: true })
+  @IsOptional()
+  @IsEnum(AnnouncementType)
+  type?: AnnouncementType;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsBoolean()
+  isGlobal?: boolean;
+
+  @Field(() => AnnouncementTargetInput, { nullable: true })
+  @IsOptional()
+  targetCriteria?: AnnouncementTargetInput;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsDateString()
+  publishAt?: string;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsDateString()
+  expiresAt?: string;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsBoolean()
+  requiresAcknowledgment?: boolean;
+}
+
+/**
  * Announcement list item for display
  */
 @ObjectType()

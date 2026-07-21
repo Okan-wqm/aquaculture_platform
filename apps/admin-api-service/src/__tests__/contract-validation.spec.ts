@@ -792,18 +792,9 @@ describe('Frontend-Backend Contract Validation', () => {
       expect(be).toBeDefined();
     });
 
-    it('announcement unpublish should use /cancel path', () => {
-      // H18 fix: frontend unpublish -> /support/announcements/:id/cancel
-      const fe = frontendEndpoints.find(
-        (e) => e.url === '/support/announcements/:param/cancel' && e.method === 'POST',
-      );
-      expect(fe).toBeDefined();
-
-      const be = backendEndpoints.find(
-        (e) => matchPath(e.path, '/support/announcements/:id/cancel') && e.method === 'POST',
-      );
-      expect(be).toBeDefined();
-    });
+    // APA-201: the announcement unpublish/cancel parity test was removed — the
+    // admin-api announcement REST vertical (and its FE supportApi functions) are
+    // deleted; announcements are served by auth-service GraphQL now.
 
     it('impersonation revoke should use /terminate path', () => {
       // H21 fix: frontend revokeSession -> /impersonation/sessions/:id/terminate
@@ -868,9 +859,11 @@ describe('Frontend-Backend Contract Validation', () => {
     // Backend endpoint sayisi belirli bir aralikte olmali.
     // Yeni endpoint eklendiginde veya kaldirildiginda bu test guncellenmeli.
     // Bu, beklenmedik endpoint degisikliklerini yakalar.
+    // APA-201: 603 -> 590 after removing the 13 AnnouncementController routes
+    // (announcements consolidated onto auth-service GraphQL).
     const count = backendEndpoints.length;
 
-    expect(count).toBe(603);
+    expect(count).toBe(590);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

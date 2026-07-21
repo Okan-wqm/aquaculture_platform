@@ -3,6 +3,7 @@ import { TenantAdminOrHigher, SuperAdminOnly, CurrentUser } from '@aquaculture/b
 import {
   CreatePlatformAnnouncementInput,
   CreateTenantAnnouncementInput,
+  UpdateAnnouncementInput,
   AnnouncementListItem,
   AnnouncementStats,
 } from '../dto/announcement.dto';
@@ -65,6 +66,22 @@ export class AnnouncementResolver {
     return this.announcementService.getStats(userId);
   }
 
+  /**
+   * List the view/acknowledgment records for an announcement (SuperAdmin).
+   *
+   * APA-201/APA-202: replaces the FE useAnnouncementAcks placeholder so the
+   * admin panel's stats modal reads real acknowledgment activity from
+   * auth.announcement_acknowledgments (the SSoT tenants write to).
+   */
+  @Query(() => [AnnouncementAcknowledgment])
+  @SuperAdminOnly()
+  async announcementAcknowledgments(
+    @CurrentUser('sub') userId: string,
+    @Args('id', { type: () => ID }) announcementId: string,
+  ): Promise<AnnouncementAcknowledgment[]> {
+    return this.announcementService.getAcknowledgments(userId, announcementId);
+  }
+
   // =========================================================
   // Mutations - Platform Announcements (SuperAdmin)
   // =========================================================
@@ -111,6 +128,22 @@ export class AnnouncementResolver {
     @Args('id', { type: () => ID }) announcementId: string,
   ): Promise<Announcement> {
     return this.announcementService.publishAnnouncement(userId, announcementId);
+  }
+
+  /**
+   * Update a draft/scheduled announcement (SuperAdmin, platform scope).
+   *
+   * APA-201: replaces the FE useUpdateAnnouncement placeholder. Editing is only
+   * allowed while the announcement is still DRAFT or SCHEDULED.
+   */
+  @Mutation(() => Announcement)
+  @SuperAdminOnly()
+  async updateAnnouncement(
+    @CurrentUser('sub') userId: string,
+    @Args('id', { type: () => ID }) announcementId: string,
+    @Args('input') input: UpdateAnnouncementInput,
+  ): Promise<Announcement> {
+    return this.announcementService.updateAnnouncement(userId, announcementId, input);
   }
 
   /**

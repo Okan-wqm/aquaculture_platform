@@ -610,6 +610,76 @@ describe('Schema Invariants (2026-04-14 public-schema teardown)', () => {
     },
   );
 
+  // ═════════════════════════════════════════════════════════════════════
+  // APA-201 — announcements live ONLY in the auth SSoT (no admin duplicate)
+  // ═════════════════════════════════════════════════════════════════════
+
+  // Source-level (no DB): after the admin-api announcement vertical was deleted,
+  // NO admin-api entity may declare the announcements / announcement_acknowledgments
+  // tables. The auth-service entities remain the sole declarers, in schema 'auth'.
+  // This half runs in any environment (pure TypeORM metadata) — the live-DB half
+  // below is CI/Docker-gated.
+  it('APA-201 (source) — announcements tables are declared only by auth-service (schema auth), never admin', () => {
+    const tables = loadAllEntityTableArgs();
+    const announcementTables = tables.filter(
+      (t) =>
+        t.tableName === 'announcements' ||
+        t.tableName === 'announcement_acknowledgments',
+    );
+
+    const adminDuplicates = announcementTables.filter(
+      (t) => t.schema === 'admin' || t.serviceName === 'admin-api-service',
+    );
+    if (adminDuplicates.length > 0) {
+      throw new Error(
+        `APA-201 regression — the announcements duplicate reappeared in admin-api:\n  ` +
+          adminDuplicates
+            .map((t) => `${t.serviceName}::${t.targetName} (schema=${t.schema}) at ${t.filePath}`)
+            .join('\n  ') +
+          `\nAnnouncements are owned by auth-service (auth.announcements). Do not ` +
+          `re-declare them in admin-api.`,
+      );
+    }
+
+    // Positive lock: the auth SSoT entities are present and pinned to schema 'auth'.
+    for (const tableName of ['announcements', 'announcement_acknowledgments']) {
+      const authDecl = announcementTables.find(
+        (t) => t.tableName === tableName && t.schema === 'auth',
+      );
+      expect(authDecl).toBeDefined();
+    }
+  });
+
+  // Live-DB (CI/Docker-gated): the physical tables exist ONLY in the auth schema.
+  it('APA-201 (live-DB) — announcements/announcement_acknowledgments exist only in auth (no admin, no public)', async () => {
+    for (const tableName of ['announcements', 'announcement_acknowledgments']) {
+      const result = await db.query<{ schemaname: string }>(
+        `SELECT schemaname FROM pg_tables
+         WHERE tablename = $1
+           AND schemaname NOT LIKE 'tenant\\_%' ESCAPE '\\'
+         ORDER BY schemaname`,
+        [tableName],
+      );
+      const locations = result.rows.map((r) => r.schemaname);
+      if (!locations.includes('auth')) {
+        throw new Error(
+          `APA-201 — "${tableName}" not found in the auth schema (found: ${locations.join(', ') || 'none'}). ` +
+            `The auth SSoT table must exist.`,
+        );
+      }
+      if (locations.includes('admin')) {
+        throw new Error(
+          `APA-201 regression — "${tableName}" still exists in the admin schema. ` +
+            `The 1801700000000-MigrateAnnouncementsToAuth drop migration did not run, ` +
+            `or the admin duplicate was recreated.`,
+        );
+      }
+      if (locations.includes('public')) {
+        throw new Error(`APA-201 — "${tableName}" leaked into public schema.`);
+      }
+    }
+  });
+
   // B.5b — PLATFORM_LEVEL schemas: each MUST have ZERO tenant_<uuid>
   // clones of its tables. A tenant clone of e.g. `auth.users` is a
   // tenant-isolation hole — auth is the cross-tenant trust anchor.

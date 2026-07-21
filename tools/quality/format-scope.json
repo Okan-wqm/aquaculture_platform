@@ -2165,6 +2165,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1801700000000-MigrateAnnouncementsToAuth.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -2537,12 +2543,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/support/controllers/announcement.controller.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/support/controllers/messaging.controller.ts",
       "prettier_managed": true
     },
@@ -2568,12 +2568,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/support/services/__tests__/ticket.service.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/support/services/announcement.service.ts",
       "prettier_managed": true
     },
     {
@@ -41514,6 +41508,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/event-publisher-subscriber-parity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/farm-batch-policy-transaction-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -55095,7 +55095,7 @@
   "file_count": 9031,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
   "managed_count": 8850,
-  "managed_file_list_sha256": "9ddd705718c28c6d137a4df8762f7a831afa4e9f0fd8a27b6c5da537c0e62af7",
+  "managed_file_list_sha256": "e7433af1213ef46b01b1cff99dd083ea1bbd968b417ea8093fbe2c16c93c730d",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

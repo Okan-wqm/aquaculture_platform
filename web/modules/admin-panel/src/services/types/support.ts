@@ -169,25 +169,11 @@ export interface AnnouncementTarget {
   regions?: string[];
 }
 
-export interface Announcement {
-  id: string;
-  title: string;
-  content: string;
-  type: AnnouncementType;
-  status: AnnouncementStatus;
-  isGlobal: boolean;
-  targetCriteria?: AnnouncementTarget;
-  createdBy?: string;
-  createdByName?: string;
-  publishAt?: string;
-  expiresAt?: string;
-  requiresAcknowledgment: boolean;
-  viewCount: number;
-  acknowledgmentCount: number;
-  metadata?: Record<string, unknown>;
-  createdAt: string;
-  updatedAt?: string;
-}
+// APA-201: the REST `Announcement` interface has been removed. Announcements
+// are served by the auth-service GraphQL lane; the admin-panel view types live
+// with the hooks (../../hooks/useAnnouncements → GqlAnnouncementListItem /
+// GqlAcknowledgment). AnnouncementType / AnnouncementStatus / AnnouncementTarget
+// remain here because those hooks re-export them.
 
 // ============================================================================
 // Onboarding Types

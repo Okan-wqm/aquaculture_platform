@@ -13,8 +13,10 @@ import {
   ADMIN_GET_ANNOUNCEMENTS,
   ADMIN_GET_ANNOUNCEMENT,
   ADMIN_GET_ANNOUNCEMENT_STATS,
+  ADMIN_GET_ANNOUNCEMENT_ACKS,
   ADMIN_CREATE_PLATFORM_ANNOUNCEMENT,
   ADMIN_CREATE_TENANT_ANNOUNCEMENT,
+  ADMIN_UPDATE_ANNOUNCEMENT,
   ADMIN_PUBLISH_ANNOUNCEMENT,
   ADMIN_CANCEL_ANNOUNCEMENT,
   ADMIN_DELETE_ANNOUNCEMENT,
@@ -32,7 +34,7 @@ import type {
 // ============================================================================
 
 /** Announcement list item from myAnnouncements query */
-interface GqlAnnouncementListItem {
+export interface GqlAnnouncementListItem {
   id: string;
   title: string;
   content: string;
@@ -51,6 +53,9 @@ interface GqlAnnouncementListItem {
   hasViewed?: boolean;
   hasAcknowledged?: boolean;
 }
+
+/** Public alias consumed by AnnouncementsPage. */
+export type AdminAnnouncement = GqlAnnouncementListItem;
 
 /** Full announcement from announcement query */
 interface GqlAnnouncement {
@@ -86,7 +91,7 @@ export interface AnnouncementStats {
 }
 
 /** Acknowledgment record */
-interface GqlAcknowledgment {
+export interface GqlAcknowledgment {
   id: string;
   announcementId: string;
   userId: string;
@@ -97,10 +102,25 @@ interface GqlAcknowledgment {
   acknowledgedAt: string | null;
 }
 
+/** Public alias consumed by AnnouncementsPage. */
+export type AdminAnnouncementAck = GqlAcknowledgment;
+
 /** Input for creating a platform-wide announcement */
-interface CreatePlatformAnnouncementInput {
+export interface CreatePlatformAnnouncementInput {
   title: string;
   content: string;
+  type?: AnnouncementType;
+  isGlobal?: boolean;
+  targetCriteria?: AnnouncementTarget;
+  publishAt?: string;
+  expiresAt?: string;
+  requiresAcknowledgment?: boolean;
+}
+
+/** Input for updating a draft/scheduled announcement */
+export interface UpdateAnnouncementInput {
+  title?: string;
+  content?: string;
   type?: AnnouncementType;
   isGlobal?: boolean;
   targetCriteria?: AnnouncementTarget;
@@ -188,20 +208,26 @@ export function useAnnouncementStats() {
 }
 
 /**
- * Fetch acknowledgments for a specific announcement.
+ * Fetch acknowledgment/view records for a specific announcement.
  *
- * NOTE: The auth-service resolver does not expose a dedicated
- * acknowledgments list query. This is kept as a placeholder.
- * The GraphQL schema provides viewAnnouncement and acknowledgeAnnouncement
- * mutations for individual user actions instead.
+ * Backed by the auth-service `announcementAcknowledgments(id)` query
+ * (SuperAdmin), reading the same auth.announcement_acknowledgments table
+ * tenants write to via view/acknowledge.
  */
 export function useAnnouncementAcks(announcementId: string | null) {
-  // Placeholder: return empty array until a dedicated query is available
+  const result = useGraphQLQuery<
+    { announcementAcknowledgments: GqlAcknowledgment[] },
+    { id: string }
+  >('AdminAnnouncementAcks', ADMIN_GET_ANNOUNCEMENT_ACKS, {
+    variables: { id: announcementId ?? '' },
+    enabled: !!announcementId,
+  });
+
   return {
-    data: announcementId ? ([] as GqlAcknowledgment[]) : null,
-    isLoading: false,
-    error: null,
-    refetch: async () => { /* noop */ },
+    data: result.data?.announcementAcknowledgments ?? null,
+    isLoading: result.isLoading,
+    error: result.error ? (result.error.message || 'Failed to load acknowledgments') : null,
+    refetch: result.refetch,
   };
 }
 
@@ -246,20 +272,22 @@ export function useCreateTenantAnnouncement() {
 }
 
 /**
- * Update an existing announcement.
+ * Update a draft/scheduled announcement (SuperAdmin).
  *
- * NOTE: The auth-service announcement resolver does not expose an
- * updateAnnouncement mutation. This is kept as a placeholder to
- * preserve the exported API. The backend currently only supports
- * create/publish/cancel/delete flows.
+ * Backed by the auth-service `updateAnnouncement(id, input)` mutation. The
+ * backend rejects edits once an announcement is published.
  */
 export function useUpdateAnnouncement() {
+  const { mutate, isLoading, error, data } = useGraphQLMutation<
+    { updateAnnouncement: GqlAnnouncement },
+    { id: string; input: UpdateAnnouncementInput }
+  >(ADMIN_UPDATE_ANNOUNCEMENT);
+
   return {
-    mutate: async (_params: { id: string; input: Partial<GqlAnnouncement> }) => {
-      // TODO: Replace with GraphQL mutation when auth-service exposes updateAnnouncement
-    },
-    isLoading: false,
-    error: null,
+    mutate: (params: { id: string; input: UpdateAnnouncementInput }) => mutate(params),
+    isLoading,
+    error: error ? (error.message || 'Failed to update announcement') : null,
+    data: data?.updateAnnouncement ?? null,
   };
 }
 

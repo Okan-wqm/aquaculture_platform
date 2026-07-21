@@ -141,6 +141,7 @@ export default {
         '<rootDir>/platform-topology-ssot.spec.ts',
         '<rootDir>/nats-boot-dependency.spec.ts',
         '<rootDir>/event-consumer-liveness.spec.ts',
+        '<rootDir>/event-publisher-subscriber-parity.spec.ts',
         '<rootDir>/admin-api-pagination-canonical.spec.ts',
         '<rootDir>/deploy-isolated-checkout-ssot.spec.ts',
         '<rootDir>/script-graphql-client-ssot.spec.ts',

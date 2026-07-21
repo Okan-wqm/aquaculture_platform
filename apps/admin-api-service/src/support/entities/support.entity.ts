@@ -21,8 +21,6 @@ import {
 // ============================================================================
 
 export type MessageStatus = 'sent' | 'delivered' | 'read' | 'failed';
-export type AnnouncementType = 'info' | 'warning' | 'critical' | 'maintenance';
-export type AnnouncementStatus = 'draft' | 'scheduled' | 'published' | 'expired' | 'cancelled';
 export type TicketPriority = 'low' | 'medium' | 'high' | 'critical';
 export type TicketStatus = 'open' | 'in_progress' | 'waiting_customer' | 'resolved' | 'closed';
 export type TicketCategory = 'technical' | 'billing' | 'feature_request' | 'bug_report' | 'general' | 'account';
@@ -130,107 +128,16 @@ export class Message {
 }
 
 // ============================================================================
-// Announcement Entity
+// Announcement entities (REMOVED — APA-201)
 // ============================================================================
-
-@Entity('announcements', { schema: 'admin' })
-@Index(['status'])
-@Index(['type'])
-@Index(['publishAt'])
-@Index(['expiresAt'])
-export class Announcement {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
-
-  @Column({ type: 'varchar', length: 200 })
-  title!: string;
-
-  @Column({ type: 'text' })
-  content!: string;
-
-  @Column({ type: 'varchar', length: 50, default: 'info' })
-  type!: AnnouncementType;
-
-  @Column({ type: 'varchar', length: 50, default: 'draft' })
-  status!: AnnouncementStatus;
-
-  @Column({ type: 'boolean', default: false })
-  isGlobal!: boolean;
-
-  @Column({ type: 'jsonb', nullable: true })
-  targetCriteria?: AnnouncementTarget;
-
-  @Column({ type: 'uuid', nullable: true })
-  createdBy?: string;
-
-  @Column({ type: 'varchar', length: 200, nullable: true })
-  createdByName?: string;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  publishAt?: Date;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  expiresAt?: Date;
-
-  @Column({ type: 'boolean', default: false })
-  requiresAcknowledgment!: boolean;
-
-  @Column({ type: 'int', default: 0 })
-  viewCount!: number;
-
-  @Column({ type: 'int', default: 0 })
-  acknowledgmentCount!: number;
-
-  @Column({ type: 'jsonb', nullable: true })
-  metadata?: Record<string, unknown>;
-
-  @OneToMany(() => AnnouncementAcknowledgment, ack => ack.announcement)
-  acknowledgments!: AnnouncementAcknowledgment[];
-
-  @CreateDateColumn()
-  createdAt!: Date;
-
-  @UpdateDateColumn()
-  updatedAt!: Date;
-}
-
-// ============================================================================
-// Announcement Acknowledgment Entity
-// ============================================================================
-
-@Entity('announcement_acknowledgments', { schema: 'admin' })
-@Index(['announcementId'])
-@Index(['tenantId'])
-@Index(['userId'])
-export class AnnouncementAcknowledgment {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
-
-  @Column({ type: 'uuid' })
-  announcementId!: string;
-
-  @Column({ type: 'uuid' })
-  tenantId!: string;
-
-  @Column({ type: 'uuid' })
-  userId!: string;
-
-  @Column({ type: 'varchar', length: 200, nullable: true })
-  userName?: string;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  viewedAt?: Date;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  acknowledgedAt?: Date;
-
-  @ManyToOne(() => Announcement, announcement => announcement.acknowledgments)
-  @JoinColumn({ name: 'announcementId' })
-  announcement!: Announcement;
-
-  @CreateDateColumn()
-  createdAt!: Date;
-}
+//
+// The admin.announcements / admin.announcement_acknowledgments tables were a
+// write-only duplicate of the auth.announcements SSoT tenants actually read.
+// The Announcement + AnnouncementAcknowledgment entities, their controller and
+// service, are deleted; the tables are dropped by
+// 1801700000000-MigrateAnnouncementsToAuth (rows copied into auth first).
+// The `AnnouncementTarget` interface below is retained — it is the jsonb shape
+// for messaging bulk targeting (BulkMessageRequest), a separate silo.
 
 // ============================================================================
 // Support Ticket Entity

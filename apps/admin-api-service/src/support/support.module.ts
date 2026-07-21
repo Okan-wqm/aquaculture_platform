@@ -11,15 +11,12 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 // Entities
 import { TenantReadOnly } from '../analytics/entities/external/tenant.entity';
 
-import { AnnouncementController } from './controllers/announcement.controller';
 import { MessagingController } from './controllers/messaging.controller';
 import { OnboardingController } from './controllers/onboarding.controller';
 import { TicketController } from './controllers/ticket.controller';
 import {
   MessageThread,
   Message,
-  Announcement,
-  AnnouncementAcknowledgment,
   SupportTicket,
   TicketComment,
   OnboardingProgress,
@@ -28,20 +25,22 @@ import {
 // External Entities (read-only)
 
 // Services
-import { AnnouncementService } from './services/announcement.service';
 import { MessagingService } from './services/messaging.service';
 import { OnboardingService } from './services/onboarding.service';
 import { TicketService } from './services/ticket.service';
 
 // Controllers
 
+// APA-201: the Announcement vertical (controller + service + entities) has been
+// removed from this module. Announcements are owned by auth-service
+// (auth.announcements) and served via GraphQL; the admin.announcements duplicate
+// store is dropped by 1801700000000-MigrateAnnouncementsToAuth.
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       MessageThread,
       Message,
-      Announcement,
-      AnnouncementAcknowledgment,
       SupportTicket,
       TicketComment,
       OnboardingProgress,
@@ -51,19 +50,16 @@ import { TicketService } from './services/ticket.service';
   ],
   controllers: [
     MessagingController,
-    AnnouncementController,
     TicketController,
     OnboardingController,
   ],
   providers: [
     MessagingService,
-    AnnouncementService,
     TicketService,
     OnboardingService,
   ],
   exports: [
     MessagingService,
-    AnnouncementService,
     TicketService,
     OnboardingService,
   ],

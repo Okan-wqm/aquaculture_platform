@@ -5,15 +5,28 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Role } from '@aquaculture/backend-common/decorators';
-import { Repository, In } from 'typeorm';
+import {
+  createBaseEvent,
+  type AnnouncementPublishedEvent,
+} from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import {
+  Repository,
+  In,
+  DataSource,
+  EntityManager,
+  LessThanOrEqual,
+} from 'typeorm';
 
 import { User } from '../../authentication/entities/user.entity';
-import { Tenant } from '../../tenant/entities/tenant.entity';
+import { Tenant, TenantStatus } from '../../tenant/entities/tenant.entity';
 import {
   CreatePlatformAnnouncementInput,
   CreateTenantAnnouncementInput,
+  UpdateAnnouncementInput,
   AnnouncementListItem,
   AnnouncementStats,
 } from '../dto/announcement.dto';
@@ -45,6 +58,15 @@ export class AnnouncementService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
+    // APA-201: the AnnouncementPublished delivery event is enqueued to
+    // auth_outbox inside the SAME transaction as the DRAFT/SCHEDULED -> PUBLISHED
+    // status flip, so notification-service's MessagingEventHandler (which
+    // subscribes to AnnouncementPublished) can only ever see an event whose
+    // status write has committed. OutboxPublisher is provided globally by
+    // AuthOutboxModule.
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   // =========================================================
@@ -292,12 +314,162 @@ export class AnnouncementService {
       throw new BadRequestException('Cannot publish this announcement');
     }
 
-    announcement.status = AnnouncementStatus.PUBLISHED;
-    announcement.publishAt = new Date();
-
-    const saved = await this.announcementRepository.save(announcement);
+    const saved = await this.publishAndEmit(announcement);
     this.logger.log(`Announcement published: ${saved.id}`);
     return saved;
+  }
+
+  /**
+   * Update a draft/scheduled announcement (SuperAdmin, platform scope).
+   *
+   * APA-201: closes the FE placeholder useUpdateAnnouncement hook with a real
+   * operation. Only DRAFT/SCHEDULED announcements are editable — once PUBLISHED
+   * an announcement is immutable (edit it by cancelling + recreating), matching
+   * the delivery guarantee (a published broadcast has already fanned out).
+   */
+  async updateAnnouncement(
+    userId: string,
+    announcementId: string,
+    input: UpdateAnnouncementInput,
+  ): Promise<Announcement> {
+    // getAnnouncement enforces existence + scope access control.
+    const announcement = await this.getAnnouncement(userId, announcementId);
+
+    if (
+      announcement.status !== AnnouncementStatus.DRAFT &&
+      announcement.status !== AnnouncementStatus.SCHEDULED
+    ) {
+      throw new BadRequestException(
+        'Only draft or scheduled announcements can be updated',
+      );
+    }
+
+    if (input.title !== undefined) announcement.title = input.title;
+    if (input.content !== undefined) announcement.content = input.content;
+    if (input.type !== undefined) announcement.type = input.type;
+    if (input.isGlobal !== undefined) announcement.isGlobal = input.isGlobal;
+    if (input.targetCriteria !== undefined) {
+      announcement.targetCriteria = input.targetCriteria ?? null;
+    }
+    if (input.expiresAt !== undefined) {
+      announcement.expiresAt = input.expiresAt ? new Date(input.expiresAt) : null;
+    }
+    if (input.requiresAcknowledgment !== undefined) {
+      announcement.requiresAcknowledgment = input.requiresAcknowledgment;
+    }
+    if (input.publishAt !== undefined) {
+      announcement.publishAt = input.publishAt ? new Date(input.publishAt) : null;
+      announcement.status = announcement.publishAt
+        ? AnnouncementStatus.SCHEDULED
+        : AnnouncementStatus.DRAFT;
+    }
+
+    const saved = await this.announcementRepository.save(announcement);
+    this.logger.log(`Announcement updated: ${saved.id}`);
+    return saved;
+  }
+
+  /**
+   * Flip an announcement to PUBLISHED and emit AnnouncementPublished in ONE
+   * transaction. Shared by the interactive publishAnnouncement path and the
+   * scheduled-publish cron so both go through the identical atomic status-flip +
+   * outbox-enqueue sequence.
+   */
+  private async publishAndEmit(announcement: Announcement): Promise<Announcement> {
+    return this.dataSource.transaction(async (manager) => {
+      announcement.status = AnnouncementStatus.PUBLISHED;
+      announcement.publishAt = new Date();
+      const saved = await manager.save(Announcement, announcement);
+      await this.emitAnnouncementPublished(manager, saved);
+      return saved;
+    });
+  }
+
+  /**
+   * Enqueue AnnouncementPublished for every target tenant via the transactional
+   * outbox. One event is emitted PER target tenant: the top-level event.tenantId
+   * is that tenant's UUID (so it routes to `events.<tenantId>.AnnouncementPublished`
+   * and passes both OutboxPublisher's UUID guard and notification-service's v4
+   * UUID isolation guard), and targetTenantIds carries the single routed tenant.
+   * A per-tenant idempotencyKey makes a concurrent manual-publish/scheduled-cron
+   * race deliver at most once per (announcement, tenant).
+   */
+  private async emitAnnouncementPublished(
+    manager: EntityManager,
+    announcement: Announcement,
+  ): Promise<void> {
+    const targetTenantIds = await this.resolveTargetTenantIds(manager, announcement);
+
+    for (const tenantId of targetTenantIds) {
+      await this.outboxPublisher.enqueue<AnnouncementPublishedEvent>(
+        {
+          ...createBaseEvent<AnnouncementPublishedEvent>(
+            'AnnouncementPublished',
+            tenantId,
+            {
+              aggregateId: announcement.id,
+              aggregateType: 'Announcement',
+              userId: announcement.createdBy,
+            },
+          ),
+          announcementId: announcement.id,
+          title: announcement.title,
+          announcementType: announcement.type,
+          scope: announcement.scope,
+          isGlobal: announcement.isGlobal,
+          targetTenantIds: [tenantId],
+          requiresAcknowledgment: announcement.requiresAcknowledgment,
+        },
+        manager,
+        {
+          aggregateId: announcement.id,
+          idempotencyKey: `${announcement.id}:AnnouncementPublished:${tenantId}`,
+        },
+      );
+    }
+
+    this.logger.log(
+      `AnnouncementPublished emitted for ${announcement.id} to ${targetTenantIds.length} tenant(s)`,
+    );
+  }
+
+  /**
+   * Resolve the set of tenants that must receive a published announcement.
+   * TENANT scope targets only the owning tenant; PLATFORM scope targets every
+   * ACTIVE tenant that matches the announcement's targeting rules (global => all
+   * active tenants; targeted => matchesTenant against targetCriteria).
+   */
+  private async resolveTargetTenantIds(
+    manager: EntityManager,
+    announcement: Announcement,
+  ): Promise<string[]> {
+    if (announcement.scope === AnnouncementScope.TENANT) {
+      return announcement.tenantId ? [announcement.tenantId] : [];
+    }
+
+    const activeTenants =
+      (await manager.find(Tenant, { where: { status: TenantStatus.ACTIVE } })) ?? [];
+
+    return activeTenants
+      .filter((tenant) => announcement.matchesTenant(tenant.id, tenant.plan))
+      .map((tenant) => tenant.id);
+  }
+
+  /**
+   * List acknowledgment/view records for an announcement (SuperAdmin surface).
+   *
+   * APA-201/APA-202: replaces the FE useAnnouncementAcks placeholder. Reuses
+   * getAnnouncement for existence + scope access control.
+   */
+  async getAcknowledgments(
+    userId: string,
+    announcementId: string,
+  ): Promise<AnnouncementAcknowledgment[]> {
+    await this.getAnnouncement(userId, announcementId);
+    return this.acknowledgmentRepository.find({
+      where: { announcementId },
+      order: { viewedAt: 'DESC' },
+    });
   }
 
   /**
@@ -479,5 +651,63 @@ export class AnnouncementService {
       totalViews: parseInt(result?.totalViews ?? '0') || 0,
       totalAcknowledgments: parseInt(result?.totalAcknowledgments ?? '0') || 0,
     };
+  }
+
+  // =========================================================
+  // Scheduled Jobs
+  // =========================================================
+
+  /**
+   * Auto-publish SCHEDULED announcements whose publishAt has arrived.
+   *
+   * APA-201: this transition is the SSoT replacement for the deleted admin-api
+   * publish cron. It routes each transition through publishAndEmit, so a
+   * scheduled announcement fires AnnouncementPublished exactly like an
+   * interactive publish (delivery is identical on both paths).
+   */
+  @Cron(CronExpression.EVERY_MINUTE)
+  async publishScheduledAnnouncements(): Promise<void> {
+    const now = new Date();
+    const due = await this.announcementRepository.find({
+      where: {
+        status: AnnouncementStatus.SCHEDULED,
+        publishAt: LessThanOrEqual(now),
+      },
+    });
+
+    for (const announcement of due) {
+      try {
+        await this.publishAndEmit(announcement);
+        this.logger.log(`Published scheduled announcement: ${announcement.id}`);
+      } catch (error) {
+        this.logger.error(
+          `Failed to publish scheduled announcement ${announcement.id}: ${(error as Error).message}`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Transition PUBLISHED announcements past their expiresAt to EXPIRED.
+   *
+   * APA-201: SSoT replacement for the deleted admin-api expire cron. Without it
+   * an expired platform announcement keeps status PUBLISHED and would keep
+   * surfacing to tenants via getAnnouncements (which filters status = published).
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async expireAnnouncements(): Promise<void> {
+    const now = new Date();
+    const due = await this.announcementRepository.find({
+      where: {
+        status: AnnouncementStatus.PUBLISHED,
+        expiresAt: LessThanOrEqual(now),
+      },
+    });
+
+    for (const announcement of due) {
+      announcement.status = AnnouncementStatus.EXPIRED;
+      await this.announcementRepository.save(announcement);
+      this.logger.log(`Expired announcement: ${announcement.id}`);
+    }
   }
 }

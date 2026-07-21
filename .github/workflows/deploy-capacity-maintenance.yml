@@ -176,6 +176,11 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
+          NODE_BIN="$(/usr/bin/readlink -f -- "$(command -v node)")"
+          case "${NODE_BIN}" in /*) ;; *) exit 1 ;; esac
+          test -f "${NODE_BIN}"
+          test ! -L "${NODE_BIN}"
+          test -x "${NODE_BIN}"
           exact_producer="$(mktemp -p "${RUNNER_TEMP}" exact-runtime-producer-XXXXXX)"
           cleanup() { rm -f -- "${exact_producer}"; }
           trap cleanup EXIT INT TERM HUP
@@ -192,6 +197,7 @@ jobs:
             SOURCE_SHA="${SOURCE_SHA}" \
             OUTPUT_PATH="${OUTPUT_PATH}" \
             PRODUCTION_HOST_REPO_ROOT="${GITHUB_WORKSPACE}" \
+            NODE_BIN="${NODE_BIN}" \
               /bin/bash --noprofile --norc "${exact_producer}")"
           [[ "${digest}" =~ ^[0-9a-f]{64}$ ]] || {
             echo '::error::runtime bundle producer returned an invalid digest.'

@@ -563,7 +563,7 @@ BEGIN
   );
   PERFORM pg_catalog.set_config(
     'aqua.pitr_source_floor_lsn',
-    pg_catalog.pg_current_wal_lsn()::text,
+    pg_catalog.pg_current_wal_insert_lsn()::text,
     true
   );
   PERFORM pg_catalog.set_config(

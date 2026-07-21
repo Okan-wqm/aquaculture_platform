@@ -1,5 +1,13 @@
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 
@@ -163,6 +171,8 @@ describe('bootstrap-free PITR source verification authority (INFRA-HIGH-051)', (
     expect(SOURCE_VERIFICATION_SQL).not.toContain('\\!');
     expect(SOURCE_VERIFICATION_SQL).not.toContain('SECURITY DEFINER');
     expect(SOURCE_VERIFICATION_SQL).not.toContain('aqua_pitr_verifier');
+    expect(SOURCE_VERIFICATION_SQL).toContain('pg_catalog.pg_current_wal_insert_lsn()');
+    expect(SOURCE_VERIFICATION_SQL).not.toContain('pg_catalog.pg_current_wal_lsn()');
   });
 
   it('emits exactly the four fail-closed psql protocol records', async () => {
@@ -381,6 +391,7 @@ describe('bootstrap-free PITR source verification authority (INFRA-HIGH-051)', (
 
   it('proves the WAL marker boundary through physical PostgreSQL 16 replica recovery', async () => {
     const scratchDir = mkdtempSync(resolve(tmpdir(), 'aqua-pitr-physical-'));
+    const scratchOwner = statSync(scratchDir);
     const archiveDir = resolve(scratchDir, 'archive');
     const baseBackupDir = resolve(scratchDir, 'base-backup');
     const database = 'pitr_contract';
@@ -394,6 +405,7 @@ describe('bootstrap-free PITR source verification authority (INFRA-HIGH-051)', (
     let source: StartedPostgreSqlContainer | undefined;
     let target: StartedTestContainer | undefined;
     let targetPostgresStarted = false;
+    let proofFailure: Error | undefined;
 
     mkdirSync(archiveDir, { mode: 0o777 });
     mkdirSync(baseBackupDir, { mode: 0o777 });
@@ -552,7 +564,7 @@ describe('bootstrap-free PITR source verification authority (INFRA-HIGH-051)', (
         await sourcePsql(
           `WITH captured AS MATERIALIZED (
            SELECT clock_timestamp() AS completed_at,
-                  pg_current_wal_lsn() AS floor_lsn
+                  pg_current_wal_insert_lsn() AS floor_lsn
          )
          SELECT concat_ws('|',
            to_char(completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
@@ -602,7 +614,11 @@ describe('bootstrap-free PITR source verification authority (INFRA-HIGH-051)', (
       const afterMarkerPosition = parsePostgresLsn(afterMarkerLsn ?? '');
       const afterFencePosition = parsePostgresLsn(afterFenceLsn ?? '');
       expect(beforeMarkerPosition < beforeFencePosition).toBe(true);
-      expect(beforeFencePosition <= sourceFloorPosition).toBe(true);
+      if (beforeFencePosition > sourceFloorPosition) {
+        throw new Error(
+          `source floor ${sourceFloorLsn ?? '<missing>'} precedes BEFORE fence ${beforeFenceLsn ?? '<missing>'}`,
+        );
+      }
       expect(sourceFloorPosition <= afterMarkerPosition).toBe(true);
       expect(afterMarkerPosition < afterFencePosition).toBe(true);
       expect(Date.parse(recoveryTargetTime ?? '') - Date.parse(sourceCompletedAt ?? '')).toBe(2000);
@@ -743,15 +759,87 @@ describe('bootstrap-free PITR source verification authority (INFRA-HIGH-051)', (
       expect(beforeFencePosition <= sourceFloorPosition).toBe(true);
       expect(sourceFloorPosition <= restoredReplayLsn).toBe(true);
       expect(restoredReplayLsn < afterFencePosition).toBe(true);
-    } finally {
-      if (target && targetPostgresStarted) {
-        await target.exec(['pg_ctl', '-D', '/base-backup', '-m', 'fast', '-w', 'stop'], {
-          user: 'postgres',
-        });
-      }
-      await target?.stop();
-      await source?.stop();
-      rmSync(scratchDir, { recursive: true, force: true });
+    } catch (error) {
+      proofFailure =
+        error instanceof Error
+          ? error
+          : new Error('PITR physical proof failed with a non-Error value');
     }
+
+    let cleanupFailure: Error | undefined;
+    const recordCleanupFailure = (message: string, detail?: unknown): void => {
+      if (cleanupFailure !== undefined) return;
+      const suffix =
+        detail instanceof Error
+          ? `: ${detail.message}`
+          : typeof detail === 'string'
+            ? `: ${detail}`
+            : detail === undefined
+              ? ''
+              : ': non-Error cleanup detail';
+      cleanupFailure = new Error(`${message}${suffix}`);
+    };
+
+    if (target && targetPostgresStarted) {
+      try {
+        const stopped = await target.exec(
+          ['pg_ctl', '-D', '/base-backup', '-m', 'fast', '-w', 'stop'],
+          { user: 'postgres' },
+        );
+        if (stopped.exitCode !== 0) {
+          recordCleanupFailure(
+            'PITR target PostgreSQL did not stop cleanly',
+            stopped.stderr || stopped.output,
+          );
+        }
+      } catch (error) {
+        recordCleanupFailure('PITR target PostgreSQL stop failed', error);
+      }
+    }
+
+    if (target !== undefined) {
+      try {
+        await target.stop();
+      } catch (error) {
+        recordCleanupFailure('PITR target container stop failed', error);
+      }
+    }
+
+    if (source !== undefined) {
+      const hostOwner = `${scratchOwner.uid}:${scratchOwner.gid}`;
+      try {
+        const restored = await source.exec(['chown', '-R', hostOwner, '/base-backup'], {
+          user: 'root',
+        });
+        if (restored.exitCode !== 0) {
+          recordCleanupFailure(
+            'could not restore PITR bind-mount ownership',
+            restored.stderr || restored.output,
+          );
+        }
+      } catch (error) {
+        recordCleanupFailure('could not restore PITR bind-mount ownership', error);
+      }
+      try {
+        await source.stop();
+      } catch (error) {
+        recordCleanupFailure('PITR source container stop failed', error);
+      }
+    }
+
+    try {
+      rmSync(scratchDir, { recursive: true, force: true });
+    } catch (error) {
+      recordCleanupFailure('PITR host scratch cleanup failed', error);
+    }
+    if (proofFailure !== undefined && cleanupFailure !== undefined) {
+      throw new AggregateError(
+        [proofFailure, cleanupFailure],
+        'PITR physical proof and teardown both failed',
+      );
+    }
+    if (proofFailure !== undefined) throw proofFailure;
+    if (cleanupFailure !== undefined) throw cleanupFailure;
+    expect(existsSync(scratchDir)).toBe(false);
   }, 180_000);
 });

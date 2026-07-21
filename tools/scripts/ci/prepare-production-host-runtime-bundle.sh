@@ -16,6 +16,7 @@ export TZ=UTC
 
 : "${OUTPUT_PATH:?OUTPUT_PATH required}"
 : "${SOURCE_SHA:?SOURCE_SHA required}"
+: "${NODE_BIN:?NODE_BIN required}"
 
 die() {
   printf 'FATAL: %s\n' "$*" >&2
@@ -37,9 +38,19 @@ OUTPUT_PARENT=${OUTPUT_PATH%/*}
 for command_path in \
   /usr/bin/awk /usr/bin/chmod /usr/bin/dirname /usr/bin/env /usr/bin/git \
   /usr/bin/find /usr/bin/gzip /usr/bin/ln /usr/bin/mkdir /usr/bin/mktemp /usr/bin/mv \
-  /usr/bin/python3 /usr/bin/rm /usr/bin/sha256sum /usr/bin/tar; do
+  /usr/bin/python3 /usr/bin/readlink /usr/bin/rm /usr/bin/sha256sum /usr/bin/tar; do
   [ -x "${command_path}" ] || die "Required system command is unavailable: ${command_path}"
 done
+
+case "${NODE_BIN}" in
+  /*) ;;
+  *) die 'NODE_BIN must be absolute.' ;;
+esac
+[ -f "${NODE_BIN}" ] && [ ! -L "${NODE_BIN}" ] && [ -x "${NODE_BIN}" ] || \
+  die 'NODE_BIN must be a non-symlink regular executable.'
+RESOLVED_NODE_BIN=$(/usr/bin/readlink -f -- "${NODE_BIN}") || \
+  die 'NODE_BIN canonical path resolution failed.'
+[ "${RESOLVED_NODE_BIN}" = "${NODE_BIN}" ] || die 'NODE_BIN must be canonical.'
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 if [ -n "${PRODUCTION_HOST_REPO_ROOT:-}" ]; then
@@ -279,11 +290,11 @@ PY
 /usr/bin/ln --symbolic -- "${REPO_ROOT}/node_modules" "${REPOSITORY_ROOT}/node_modules"
 (
   cd "${REPOSITORY_ROOT}"
-  "${ESBUILD_PATH}" scripts/deploy/check-service-health.ts \
+  "${NODE_BIN}" "${ESBUILD_PATH}" scripts/deploy/check-service-health.ts \
     --bundle --platform=node --format=esm --target=node22 --packages=bundle \
     --legal-comments=none --log-level=error --preserve-symlinks \
     --outfile="${RUNTIME_ROOT}/check-service-health.mjs"
-  "${ESBUILD_PATH}" scripts/deploy/assert-service-signals.ts \
+  "${NODE_BIN}" "${ESBUILD_PATH}" scripts/deploy/assert-service-signals.ts \
     --bundle --platform=node --format=esm --target=node22 --packages=bundle \
     --legal-comments=none --log-level=error --preserve-symlinks \
     --outfile="${RUNTIME_ROOT}/assert-service-signals.mjs"

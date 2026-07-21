@@ -89,6 +89,15 @@ describe('production exact-SHA runtime bundle SSOT', () => {
     expect(bundleProducer).toContain('nats_config_hash');
     expect(bundleProducer).toContain('runtime/check-service-health.mjs');
     expect(bundleProducer).toContain('runtime/assert-service-signals.mjs');
+    expect(bundleProducer).toContain(': "${NODE_BIN:?NODE_BIN required}"');
+    expect(bundleProducer).toContain('[ ! -L "${NODE_BIN}" ]');
+    expect(bundleProducer).toContain('[ "${RESOLVED_NODE_BIN}" = "${NODE_BIN}" ]');
+    expect(bundleProducer).toContain('"${NODE_BIN}" "${ESBUILD_PATH}"');
+
+    for (const workflow of [capacityWorkflow, deployWorkflow, verifyWorkflow]) {
+      expect(workflow).toContain('NODE_BIN="$(/usr/bin/readlink -f -- "$(command -v node)")"');
+      expect(workflow).toContain('NODE_BIN="${NODE_BIN}"');
+    }
   });
 
   it('verifies archive shape and content before an atomic immutable publish', () => {

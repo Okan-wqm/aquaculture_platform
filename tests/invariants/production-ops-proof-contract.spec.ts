@@ -1657,10 +1657,10 @@ describe('production operations proof contract', () => {
     const beforeCasNeedle = [
       '    if read_current() != current_before_cas:',
       '        raise SystemExit("release transaction journal authority changed before compare-and-swap")',
-      '    os.replace(temporary, path)',
+      '    os.replace(stage_path, path)',
     ].join('\n');
     const afterCasNeedle = [
-      '    os.replace(temporary, path)',
+      '    os.replace(stage_path, path)',
       '    fsync_directory(root)',
       '    if forward_start:',
     ].join('\n');
@@ -1669,8 +1669,8 @@ describe('production operations proof contract', () => {
     const cutBeforeCas = transactionRegion.replace(
       beforeCasNeedle,
       beforeCasNeedle.replace(
-        '    os.replace(temporary, path)',
-        '    os._exit(97)\n    os.replace(temporary, path)',
+        '    os.replace(stage_path, path)',
+        '    os._exit(97)\n    os.replace(stage_path, path)',
       ),
     );
     const cutAfterCas = transactionRegion.replace(

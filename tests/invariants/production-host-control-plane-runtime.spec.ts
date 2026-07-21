@@ -166,6 +166,7 @@ fi
       PATH: '/usr/bin:/bin',
       HOME: root,
       LC_ALL: 'C',
+      NODE_BIN: process.execPath,
       OUTPUT_PATH: bundle,
       SOURCE_SHA: mainSha,
     },
@@ -210,6 +211,7 @@ function createDescendantFixture(fixture: RuntimeFixture, identity: string): Run
       PATH: '/usr/bin:/bin',
       HOME: fixture.root,
       LC_ALL: 'C',
+      NODE_BIN: process.execPath,
       OUTPUT_PATH: bundle,
       SOURCE_SHA: mainSha,
     },
@@ -678,17 +680,35 @@ describe('production host publisher and common lock runtime', () => {
         releaseIds.push(releaseId);
         mkdirSync(join(releasesRoot, releaseId), { mode: 0o700 });
       }
+      const [
+        currentReleaseId,
+        candidateReleaseId,
+        priorReleaseId,
+        supersededReleaseId,
+        fifthId,
+        sixthId,
+      ] = releaseIds;
+      if (
+        currentReleaseId === undefined ||
+        candidateReleaseId === undefined ||
+        priorReleaseId === undefined ||
+        supersededReleaseId === undefined ||
+        fifthId === undefined ||
+        sixthId === undefined
+      ) {
+        throw new Error('release retention fixture did not create its required release inventory');
+      }
       const markerManifest = 'marker\n';
-      writeFileSync(join(releasesRoot, releaseIds[0], 'image-digests.tsv'), markerManifest, {
+      writeFileSync(join(releasesRoot, currentReleaseId, 'image-digests.tsv'), markerManifest, {
         mode: 0o600,
       });
       writeFileSync(
         join(retentionRoot, 'current-release.json'),
         `${JSON.stringify({
           image_digest_manifest_sha256: createHash('sha256').update(markerManifest).digest('hex'),
-          main_sha: releaseIds[0].slice(0, 40),
+          main_sha: currentReleaseId.slice(0, 40),
           promoted_at: '2026-07-19T00:00:00Z',
-          release_id: releaseIds[0],
+          release_id: currentReleaseId,
           schema_version: 1,
         })}\n`,
         { mode: 0o400 },
@@ -697,7 +717,7 @@ describe('production host publisher and common lock runtime', () => {
       writeFileSync(
         join(retentionRoot, 'active-release-transaction.json'),
         `${JSON.stringify({
-          candidate_sha: releaseIds[1].slice(0, 40),
+          candidate_sha: candidateReleaseId.slice(0, 40),
           deploy_services: ['db-migrate'],
           failure_phase: 'migration_boundary_crossed',
           full_deploy: false,
@@ -707,17 +727,17 @@ describe('production host publisher and common lock runtime', () => {
           phase: 'FORWARD_REQUIRED',
           prior_release: {
             image_digest_manifest_sha256: priorManifestHash,
-            main_sha: releaseIds[2].slice(0, 40),
+            main_sha: priorReleaseId.slice(0, 40),
             promoted_at: '2026-07-19T00:00:00Z',
-            release_id: releaseIds[2],
+            release_id: priorReleaseId,
             schema_version: 1,
           },
-          release_id: releaseIds[1],
+          release_id: candidateReleaseId,
           rollback_manifest_sha256: '6'.repeat(64),
           rollback_policy: 'FORWARD_ONLY',
           schema_version: 2,
-          supersedes_candidate_sha: releaseIds[3].slice(0, 40),
-          supersedes_release_id: releaseIds[3],
+          supersedes_candidate_sha: supersededReleaseId.slice(0, 40),
+          supersedes_release_id: supersededReleaseId,
           supersession_proof_sha256: '8'.repeat(64),
         })}\n`,
         { mode: 0o400 },
@@ -738,8 +758,8 @@ describe('production host publisher and common lock runtime', () => {
       for (const protectedId of releaseIds.slice(0, 4)) {
         expect(existsSync(join(releasesRoot, protectedId))).toBe(true);
       }
-      expect(existsSync(join(releasesRoot, releaseIds[4]))).toBe(false);
-      expect(existsSync(join(releasesRoot, releaseIds[5]))).toBe(false);
+      expect(existsSync(join(releasesRoot, fifthId))).toBe(false);
+      expect(existsSync(join(releasesRoot, sixthId))).toBe(false);
       expect(readdirSync(releasesRoot)).toHaveLength(68);
       expect(prune().status).toBe(0);
 
@@ -786,17 +806,21 @@ describe('production host publisher and common lock runtime', () => {
         releaseIds.push(releaseId);
         mkdirSync(join(releasesRoot, releaseId), { mode: 0o700 });
       }
+      const currentReleaseId = releaseIds[0];
+      if (currentReleaseId === undefined) {
+        throw new Error('bounded release fixture did not create its current release');
+      }
       const markerManifest = 'bounded-marker\n';
-      writeFileSync(join(releasesRoot, releaseIds[0], 'image-digests.tsv'), markerManifest, {
+      writeFileSync(join(releasesRoot, currentReleaseId, 'image-digests.tsv'), markerManifest, {
         mode: 0o600,
       });
       writeFileSync(
         join(retentionRoot, 'current-release.json'),
         `${JSON.stringify({
           image_digest_manifest_sha256: createHash('sha256').update(markerManifest).digest('hex'),
-          main_sha: releaseIds[0].slice(0, 40),
+          main_sha: currentReleaseId.slice(0, 40),
           promoted_at: '2026-07-19T00:00:00Z',
-          release_id: releaseIds[0],
+          release_id: currentReleaseId,
           schema_version: 1,
         })}\n`,
         { mode: 0o400 },

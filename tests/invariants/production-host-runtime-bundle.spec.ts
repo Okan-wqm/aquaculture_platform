@@ -115,17 +115,22 @@ function runProducer(
   sourceSha = fixture.sourceSha,
   output = fixture.output,
   producer = fixture.producer,
+  nodeBin: string | null = process.execPath,
 ): SpawnSyncReturns<string> {
+  const env: NodeJS.ProcessEnv = {
+    PATH: '/usr/bin:/bin',
+    HOME: fixture.root,
+    LC_ALL: 'C',
+    OUTPUT_PATH: output,
+    PRODUCTION_HOST_REPO_ROOT: fixture.root,
+    SOURCE_SHA: sourceSha,
+  };
+  if (nodeBin !== null) {
+    env['NODE_BIN'] = nodeBin;
+  }
   return spawnUtf8('/bin/bash', [producer], {
     cwd: fixture.root,
-    env: {
-      PATH: '/usr/bin:/bin',
-      HOME: fixture.root,
-      LC_ALL: 'C',
-      OUTPUT_PATH: output,
-      PRODUCTION_HOST_REPO_ROOT: fixture.root,
-      SOURCE_SHA: sourceSha,
-    },
+    env,
   });
 }
 
@@ -201,6 +206,36 @@ describe('production host exact-SHA runtime bundle', () => {
       expect(result.status).not.toBe(0);
       expect(`${result.stdout}${result.stderr}`).toContain('non-regular tracked entry rejected');
       expect(existsSync(fixture.output)).toBe(false);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it('requires one canonical non-symlink Node executable', () => {
+    const fixture = createFixture();
+    try {
+      const nodeSymlink = join(fixture.root, 'node-symlink');
+      const nonExecutable = join(fixture.root, 'node-not-executable');
+      symlinkSync(process.execPath, nodeSymlink);
+      writeFileSync(nonExecutable, '#!/bin/sh\nexit 0\n', { mode: 0o600 });
+
+      for (const [nodeBin, expected] of [
+        [null, 'NODE_BIN required'],
+        ['node', 'NODE_BIN must be absolute'],
+        [nodeSymlink, 'NODE_BIN must be a non-symlink regular executable'],
+        [nonExecutable, 'NODE_BIN must be a non-symlink regular executable'],
+      ] as const) {
+        const result = runProducer(
+          fixture,
+          fixture.sourceSha,
+          fixture.output,
+          fixture.producer,
+          nodeBin,
+        );
+        expect(result.status).not.toBe(0);
+        expect(`${result.stdout}${result.stderr}`).toContain(expected);
+        expect(existsSync(fixture.output)).toBe(false);
+      }
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
     }

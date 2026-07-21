@@ -337,6 +337,9 @@
   "overrides": {
     "@types/express": "4.17.25",
     "multer": "2.2.0",
+    "nx": {
+      "brace-expansion": "5.0.7"
+    },
     "@eslint/eslintrc": {
       "minimatch": "3.1.5"
     },

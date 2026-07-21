@@ -1388,15 +1388,14 @@ describe('production backup secret contract', () => {
       expect(JSON.stringify(proof)).not.toContain('EVIDENCE_PUBLISHER_SPACES_');
       expect(profile?.env?.GH_TOKEN).toBeUndefined();
       expect(JSON.stringify(profile)).not.toContain('${{ github.token }}');
-      expect(profile?.run).toBeDefined();
-      if (profile?.run === undefined) throw new Error('evidence profile run block is missing');
-      expect(profile.run).toContain('exec /usr/bin/env -i');
-      expect(profile.run).toContain(
-        'AQUA_EVIDENCE_PUBLISHER_PREFLIGHT_SANITIZED=aws-write-only-v1',
-      );
-      expect(profile.run).toContain('/bin/bash --noprofile --norc -e -u -o pipefail');
+      const profileRun = profile?.run;
+      expect(profileRun).toBeDefined();
+      if (profileRun === undefined) throw new Error('evidence profile run block is missing');
+      expect(profileRun).toContain('exec /usr/bin/env -i');
+      expect(profileRun).toContain('AQUA_EVIDENCE_PUBLISHER_PREFLIGHT_SANITIZED=aws-write-only-v1');
+      expect(profileRun).toContain('/bin/bash --noprofile --norc -e -u -o pipefail');
       for (const forbiddenAuthority of evidenceAuthorityChannels) {
-        expect(profile.run).toContain(forbiddenAuthority);
+        expect(profileRun).toContain(forbiddenAuthority);
       }
 
       const directory = mkdtempSync(join(tmpdir(), 'aqua-evidence-profile-authority-'));
@@ -1416,7 +1415,7 @@ describe('production backup secret contract', () => {
 
         const execute = (extraEnvironment: Record<string, string> = {}) => {
           writeFileSync(callLog, '');
-          return spawnSync('/bin/bash', ['--noprofile', '--norc', '-c', profile.run], {
+          return spawnSync('/bin/bash', ['--noprofile', '--norc', '-c', profileRun], {
             cwd: directory,
             encoding: 'utf8',
             env: {
@@ -1450,7 +1449,7 @@ describe('production backup secret contract', () => {
         }
 
         const outerScript = join(directory, 'publisher-preflight-step.sh');
-        writeExecutable(outerScript, profile.run);
+        writeExecutable(outerScript, profileRun);
         const sanitized = spawnSync('/bin/bash', ['--noprofile', '--norc', outerScript], {
           cwd: REPO_ROOT,
           encoding: 'utf8',
@@ -1486,20 +1485,21 @@ describe('production backup secret contract', () => {
       expect(mirror?.env?.GH_TOKEN).toBeUndefined();
       expect(JSON.stringify(mirror)).not.toContain('${{ github.token }}');
       expect(mirror?.run).not.toContain('gh api');
-      expect(mirror?.run).toBeDefined();
-      if (mirror?.run === undefined) throw new Error('evidence mirror run block is missing');
-      expect(mirror.run).toContain('exec /usr/bin/env -i');
-      expect(mirror.run).toContain('AQUA_EVIDENCE_PUBLISHER_SANITIZED=aws-write-only-v1');
-      expect(mirror.run).toContain('/bin/bash --noprofile --norc -e -u -o pipefail');
-      expect(mirror.run).toContain('--max-keys 2');
-      expect(mirror.run).toContain('--no-paginate');
-      expect(mirror.run).toContain('head -c 65537');
-      expect(mirror.run).toContain('"--version-id=${RECORD_VERSION_ID}"');
-      expect(mirror.run).not.toContain('--version-id "${RECORD_VERSION_ID}"');
-      expect(mirror.run).toContain('FINAL_VERSIONING_STATUS');
-      expect(mirror.run).toContain('versions-final.json');
+      const mirrorRun = mirror?.run;
+      expect(mirrorRun).toBeDefined();
+      if (mirrorRun === undefined) throw new Error('evidence mirror run block is missing');
+      expect(mirrorRun).toContain('exec /usr/bin/env -i');
+      expect(mirrorRun).toContain('AQUA_EVIDENCE_PUBLISHER_SANITIZED=aws-write-only-v1');
+      expect(mirrorRun).toContain('/bin/bash --noprofile --norc -e -u -o pipefail');
+      expect(mirrorRun).toContain('--max-keys 2');
+      expect(mirrorRun).toContain('--no-paginate');
+      expect(mirrorRun).toContain('head -c 65537');
+      expect(mirrorRun).toContain('"--version-id=${RECORD_VERSION_ID}"');
+      expect(mirrorRun).not.toContain('--version-id "${RECORD_VERSION_ID}"');
+      expect(mirrorRun).toContain('FINAL_VERSIONING_STATUS');
+      expect(mirrorRun).toContain('versions-final.json');
       for (const forbiddenAuthority of evidenceAuthorityChannels) {
-        expect(mirror.run).toContain(forbiddenAuthority);
+        expect(mirrorRun).toContain(forbiddenAuthority);
       }
 
       const directory = mkdtempSync(join(tmpdir(), 'aqua-evidence-mirror-authority-'));
@@ -1628,7 +1628,7 @@ describe('production backup secret contract', () => {
                 : mode === 'leading-hyphen-version'
                   ? '-opaque/version+id'
                   : documentedOpaqueVersionId;
-          return spawnSync('/bin/bash', ['--noprofile', '--norc', '-c', mirror.run], {
+          return spawnSync('/bin/bash', ['--noprofile', '--norc', '-c', mirrorRun], {
             cwd: directory,
             encoding: 'utf8',
             env: {

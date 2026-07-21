@@ -161,6 +161,11 @@ jobs:
           OUTPUT_PATH: ${{ runner.temp }}/production-host-runtime.tar.gz
         run: |
           set -euo pipefail
+          NODE_BIN="$(/usr/bin/readlink -f -- "$(command -v node)")"
+          case "${NODE_BIN}" in /*) ;; *) exit 1 ;; esac
+          test -f "${NODE_BIN}"
+          test ! -L "${NODE_BIN}"
+          test -x "${NODE_BIN}"
           PRODUCER_PATH="$(mktemp -p "${RUNNER_TEMP}" production-host-runtime-producer.XXXXXXXX)"
           cleanup_producer() {
             status=$?
@@ -183,6 +188,7 @@ jobs:
             SOURCE_SHA="${SOURCE_SHA}" \
             OUTPUT_PATH="${OUTPUT_PATH}" \
             PRODUCTION_HOST_REPO_ROOT="${GITHUB_WORKSPACE}" \
+            NODE_BIN="${NODE_BIN}" \
               /bin/bash --noprofile --norc "${PRODUCER_PATH}")"
           [[ "${digest}" =~ ^[0-9a-f]{64}$ ]] || {
             echo '::error::runtime bundle producer returned an invalid digest.'

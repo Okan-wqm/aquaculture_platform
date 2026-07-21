@@ -16,6 +16,7 @@ import { dirname, join, resolve } from 'node:path';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const PRODUCER = join(REPO_ROOT, 'tools/scripts/ci/prepare-production-host-runtime-bundle.sh');
 const PAYLOAD_PRODUCER = join(REPO_ROOT, 'tools/scripts/ci/prepare-production-host-ssh-payload.sh');
+
 function write(path: string, content: string): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, content);
@@ -133,6 +134,7 @@ describe('production host protected SSH payload', () => {
           PATH: '/usr/bin:/bin',
           HOME: root,
           LC_ALL: 'C',
+          NODE_BIN: process.execPath,
           OUTPUT_PATH: bundle,
           SOURCE_SHA: sourceSha,
         },

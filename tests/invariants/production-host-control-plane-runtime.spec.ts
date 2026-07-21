@@ -9,6 +9,7 @@ import {
   chmodSync,
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -31,6 +32,25 @@ function spawnUtf8(
   options: Omit<SpawnSyncOptionsWithStringEncoding, 'encoding'> = {},
 ): SpawnSyncReturns<string> {
   return spawnSync(command, args, { ...options, encoding: 'utf8' });
+}
+
+function removeFixtureRoot(root: string): void {
+  const fixturePrefix = join(tmpdir(), 'aqua-production-host-control-');
+  if (dirname(root) !== tmpdir() || !root.startsWith(fixturePrefix)) {
+    throw new Error(`refusing to remove non-canonical production-host fixture root: ${root}`);
+  }
+  if (!existsSync(root)) return;
+  const info = lstatSync(root);
+  if (info.isSymbolicLink() || !info.isDirectory()) {
+    throw new Error(`refusing to remove unsafe production-host fixture root: ${root}`);
+  }
+  const writable = spawnUtf8('/usr/bin/chmod', ['-R', 'u+rwX', '--', root], {
+    env: { PATH: '/usr/bin:/bin', LC_ALL: 'C' },
+  });
+  if (writable.status !== 0) {
+    throw new Error(`${writable.stdout}${writable.stderr}`);
+  }
+  rmSync(root, { recursive: true, force: true });
 }
 
 interface RuntimeFixture {
@@ -386,7 +406,7 @@ describe('production host publisher and common lock runtime', () => {
         controlPlane.slice(restoreIndex, execIndex).match(/\/usr\/bin\//gu) ?? [],
       ).toHaveLength(0);
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureRoot(fixture.root);
     }
   });
 
@@ -404,6 +424,15 @@ describe('production host publisher and common lock runtime', () => {
       const repeated = runControl(fixture, ['publish']);
       expect(repeated.status).toBe(0);
       expect(repeated.stdout.trim()).toBe(repository);
+
+      const sourceRoot = dirname(repository);
+      expect(statSync(sourceRoot).mode & 0o777).toBe(0o555);
+      chmodSync(sourceRoot, 0o755);
+      const recoveredHandoff = runControl(fixture, ['publish']);
+      expect(recoveredHandoff.status).toBe(0);
+      expect(recoveredHandoff.stderr).toBe('');
+      expect(recoveredHandoff.stdout.trim()).toBe(repository);
+      expect(statSync(sourceRoot).mode & 0o777).toBe(0o555);
 
       const exclusive = runControl(fixture, [
         'lock-exec',
@@ -455,7 +484,7 @@ describe('production host publisher and common lock runtime', () => {
       expect(nested.status).toBe(0);
       expect(nested.stdout).toBe('nested-lock-ok\n');
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureRoot(fixture.root);
     }
   });
 
@@ -492,7 +521,7 @@ describe('production host publisher and common lock runtime', () => {
       });
       expect(firstStatus).toBe(0);
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureRoot(fixture.root);
     }
   }, 20_000);
 
@@ -565,7 +594,7 @@ describe('production host publisher and common lock runtime', () => {
       expect(existsSync(firstSource)).toBe(true);
       expect(existsSync(secondSource)).toBe(true);
       expect(existsSync(thirdSource)).toBe(true);
-      rmSync(third.root, { recursive: true, force: true });
+      removeFixtureRoot(third.root);
 
       const corruptObsolete = join(firstSource, 'repository', 'entrypoint.sh');
       chmodSync(corruptObsolete, 0o644);
@@ -580,8 +609,8 @@ describe('production host publisher and common lock runtime', () => {
       expect(existsSync(firstSource)).toBe(true);
       expect(existsSync(secondSource)).toBe(true);
     } finally {
-      rmSync(first.root, { recursive: true, force: true });
-      rmSync(second.root, { recursive: true, force: true });
+      removeFixtureRoot(first.root);
+      removeFixtureRoot(second.root);
     }
   });
 
@@ -646,8 +675,8 @@ describe('production host publisher and common lock runtime', () => {
       expect(existsSync(firstSource)).toBe(true);
       expect(existsSync(secondSource)).toBe(true);
     } finally {
-      rmSync(first.root, { recursive: true, force: true });
-      rmSync(second.root, { recursive: true, force: true });
+      removeFixtureRoot(first.root);
+      removeFixtureRoot(second.root);
     }
   });
 
@@ -774,7 +803,7 @@ describe('production host publisher and common lock runtime', () => {
       expect(existsSync(join(releasesRoot, safeOldId))).toBe(true);
       expect(existsSync(join(releasesRoot, hostileOldId))).toBe(true);
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureRoot(fixture.root);
     }
   });
 
@@ -847,7 +876,7 @@ describe('production host publisher and common lock runtime', () => {
       expect(overflow.stderr).toContain('release retention inventory is unbounded');
       expect(readdirSync(releasesRoot).sort()).toEqual(beforeOverflow);
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureRoot(fixture.root);
     }
   });
 
@@ -905,6 +934,7 @@ describe('production host publisher and common lock runtime', () => {
         supersession_proof_sha256: null,
       });
 
+      chmodSync(journalPath, 0o600);
       writeFileSync(journalPath, journal('ROLLED_BACK'));
       chmodSync(journalPath, 0o400);
       const resumed = runControl(second, ['publish'], {
@@ -912,8 +942,8 @@ describe('production host publisher and common lock runtime', () => {
       });
       expect(resumed.status).toBe(0);
     } finally {
-      rmSync(first.root, { recursive: true, force: true });
-      rmSync(second.root, { recursive: true, force: true });
+      removeFixtureRoot(first.root);
+      removeFixtureRoot(second.root);
     }
   });
 
@@ -985,8 +1015,8 @@ describe('production host publisher and common lock runtime', () => {
       expect(existsSync(join(retentionRoot, 'sources', base.mainSha))).toBe(true);
       expect(existsSync(join(retentionRoot, 'sources', descendant.mainSha))).toBe(true);
     } finally {
-      rmSync(base.root, { recursive: true, force: true });
-      rmSync(unrelated.root, { recursive: true, force: true });
+      removeFixtureRoot(base.root);
+      removeFixtureRoot(unrelated.root);
     }
   });
 
@@ -1047,8 +1077,8 @@ describe('production host publisher and common lock runtime', () => {
       );
       expect(proofHash).toBe(createHash('sha256').update(ancestry).digest('hex'));
     } finally {
-      rmSync(base.root, { recursive: true, force: true });
-      rmSync(unrelated.root, { recursive: true, force: true });
+      removeFixtureRoot(base.root);
+      removeFixtureRoot(unrelated.root);
     }
   });
 
@@ -1085,8 +1115,8 @@ describe('production host publisher and common lock runtime', () => {
         expect(existsSync(secondSource)).toBe(true);
       }
     } finally {
-      rmSync(first.root, { recursive: true, force: true });
-      rmSync(second.root, { recursive: true, force: true });
+      removeFixtureRoot(first.root);
+      removeFixtureRoot(second.root);
     }
   });
 
@@ -1146,8 +1176,8 @@ describe('production host publisher and common lock runtime', () => {
         expect(existsSync(secondSource)).toBe(true);
       }
     } finally {
-      rmSync(first.root, { recursive: true, force: true });
-      rmSync(second.root, { recursive: true, force: true });
+      removeFixtureRoot(first.root);
+      removeFixtureRoot(second.root);
     }
   }, 30_000);
 
@@ -1160,7 +1190,7 @@ describe('production host publisher and common lock runtime', () => {
         expect(result.status).toBe(0);
         expect(result.stderr).toBe('');
       } finally {
-        rmSync(fixture.root, { recursive: true, force: true });
+        removeFixtureRoot(fixture.root);
       }
     }
   });
@@ -1188,6 +1218,7 @@ describe('production host publisher and common lock runtime', () => {
           `${fixture.mainSha}-1-1`,
           'result.json',
         );
+        chmodSync(resultPath, 0o600);
         writeFileSync(resultPath, '{"result":"success"}\n');
         chmodSync(resultPath, 0o400);
       },
@@ -1203,7 +1234,7 @@ describe('production host publisher and common lock runtime', () => {
         );
         expect(existsSync(join(fixture.controlRoot, 'sources', fixture.mainSha))).toBe(false);
       } finally {
-        rmSync(fixture.root, { recursive: true, force: true });
+        removeFixtureRoot(fixture.root);
       }
     }
   });
@@ -1219,7 +1250,7 @@ describe('production host publisher and common lock runtime', () => {
       const sourcesRoot = join(ordinaryFailure.controlRoot, 'sources');
       expect(readdirSync(sourcesRoot)).toEqual([]);
     } finally {
-      rmSync(ordinaryFailure.root, { recursive: true, force: true });
+      removeFixtureRoot(ordinaryFailure.root);
     }
 
     const interrupted = createRuntimeFixture();
@@ -1231,7 +1262,7 @@ describe('production host publisher and common lock runtime', () => {
       expect(signalled.status).not.toBe(0);
       expect(readdirSync(join(interrupted.controlRoot, 'sources'))).toEqual([]);
     } finally {
-      rmSync(interrupted.root, { recursive: true, force: true });
+      removeFixtureRoot(interrupted.root);
     }
 
     const reentry = createRuntimeFixture();
@@ -1249,7 +1280,7 @@ describe('production host publisher and common lock runtime', () => {
       expect(recovered.status).toBe(0);
       expect(existsSync(deterministicStage)).toBe(false);
     } finally {
-      rmSync(reentry.root, { recursive: true, force: true });
+      removeFixtureRoot(reentry.root);
     }
 
     const foreignResidue = createRuntimeFixture();
@@ -1265,7 +1296,7 @@ describe('production host publisher and common lock runtime', () => {
       expect(existsSync(foreign)).toBe(true);
       expect(existsSync(join(sourceRoot, foreignResidue.mainSha))).toBe(false);
     } finally {
-      rmSync(foreignResidue.root, { recursive: true, force: true });
+      removeFixtureRoot(foreignResidue.root);
     }
   });
 
@@ -1280,7 +1311,7 @@ describe('production host publisher and common lock runtime', () => {
       expect(tampered.status).not.toBe(0);
       expect(tampered.stderr).toContain('bundle digest mismatch');
     } finally {
-      rmSync(tamperedFixture.root, { recursive: true, force: true });
+      removeFixtureRoot(tamperedFixture.root);
     }
 
     const unsafeFixture = createRuntimeFixture();
@@ -1319,7 +1350,7 @@ describe('production host publisher and common lock runtime', () => {
       }
       expect(existsSync(join(unsafeFixture.controlRoot, 'escape'))).toBe(false);
     } finally {
-      rmSync(unsafeFixture.root, { recursive: true, force: true });
+      removeFixtureRoot(unsafeFixture.root);
     }
 
     const lockFixture = createRuntimeFixture();
@@ -1362,7 +1393,7 @@ describe('production host publisher and common lock runtime', () => {
       expect(symlink.status).not.toBe(0);
       expect(symlink.stderr).toContain('regular non-symlink');
     } finally {
-      rmSync(lockFixture.root, { recursive: true, force: true });
+      removeFixtureRoot(lockFixture.root);
     }
   });
 
@@ -1376,7 +1407,7 @@ describe('production host publisher and common lock runtime', () => {
       expect(migrated.stderr).toBe('');
       expect(statSync(legacyFixture.controlRoot).mode & 0o777).toBe(0o700);
     } finally {
-      rmSync(legacyFixture.root, { recursive: true, force: true });
+      removeFixtureRoot(legacyFixture.root);
     }
 
     const writableParentFixture = createRuntimeFixture();
@@ -1392,7 +1423,7 @@ describe('production host publisher and common lock runtime', () => {
       expect(rejected.stderr).toContain('control-plane parent directory is writable');
       expect(existsSync(unsafeRoot)).toBe(false);
     } finally {
-      rmSync(writableParentFixture.root, { recursive: true, force: true });
+      removeFixtureRoot(writableParentFixture.root);
     }
 
     const symlinkParentFixture = createRuntimeFixture();
@@ -1408,7 +1439,7 @@ describe('production host publisher and common lock runtime', () => {
       expect(rejected.stderr).toContain('path component is not a real directory');
       expect(existsSync(join(realParent, 'control-root'))).toBe(false);
     } finally {
-      rmSync(symlinkParentFixture.root, { recursive: true, force: true });
+      removeFixtureRoot(symlinkParentFixture.root);
     }
   });
 
@@ -1456,7 +1487,7 @@ describe('production host publisher and common lock runtime', () => {
         '(path_after.st_dev, path_after.st_ino) != (before.st_dev, before.st_ino)',
       );
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureRoot(fixture.root);
     }
   });
 
@@ -1466,10 +1497,13 @@ describe('production host publisher and common lock runtime', () => {
       const published = runControl(fixture, ['publish']);
       expect(published.status).toBe(0);
       const trackedPath = join(published.stdout.trim(), 'entrypoint.sh');
+      const sourceRoot = dirname(published.stdout.trim());
+      chmodSync(sourceRoot, 0o755);
       chmodSync(trackedPath, 0o444);
       const wrongMode = runControl(fixture, ['publish']);
       expect(wrongMode.status).not.toBe(0);
       expect(wrongMode.stderr).toContain('file mode map is not exact');
+      expect(statSync(sourceRoot).mode & 0o777).toBe(0o755);
 
       chmodSync(trackedPath, 0o644);
       writeFileSync(trackedPath, '#!/bin/false\n');
@@ -1480,7 +1514,7 @@ describe('production host publisher and common lock runtime', () => {
       expect(repeated.stderr).toContain('tracked file hash mismatch');
       expect(readFileSync(trackedPath, 'utf8')).toBe('#!/bin/false\n');
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureRoot(fixture.root);
     }
   });
 });

@@ -1588,6 +1588,95 @@ aqua_control_plane_verify_published_source() {
     "${source_sha}" /dev/null
 }
 
+aqua_control_plane_converge_interrupted_source_root() {
+  [ "$#" -eq 2 ] || return 64
+  local source_sha=$1
+  local source_root=$2
+  local source_mode
+
+  [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]] || \
+    aqua_control_plane_die 'Interrupted source SHA must be lowercase 40-hex.' || return
+  aqua_control_plane_lock_assert || return
+  [ "${AQUA_CONTROL_PLANE_LOCK_MODE}" = exclusive ] || \
+    aqua_control_plane_die \
+      'Interrupted source convergence requires the exclusive host lock.' || return
+  [ "${source_root}" = "${AQUA_CONTROL_PLANE_SOURCES_ROOT}/${source_sha}" ] || \
+    aqua_control_plane_die 'Interrupted source path/SHA mismatch.' || return
+  [ -d "${source_root}" ] && [ ! -L "${source_root}" ] || \
+    aqua_control_plane_die 'Interrupted source root is not a real directory.' || return
+  [ "$(/usr/bin/stat -Lc '%u' -- "${source_root}")" = \
+    "${AQUA_CONTROL_PLANE_EXPECTED_UID}" ] || \
+    aqua_control_plane_die 'Interrupted source root owner mismatch.' || return
+
+  source_mode=$(/usr/bin/stat -Lc '%a' -- "${source_root}") || return
+  if [ "${source_mode}" = 555 ]; then
+    return 0
+  fi
+  [ "${source_mode}" = 755 ] || \
+    aqua_control_plane_die \
+      'Interrupted source root mode is neither immutable 0555 nor exact publish-stage 0755.' || \
+      return
+
+  # Linux requires the moved directory itself to remain owner-writable when a
+  # non-root publisher renames it across parents because its `..` entry changes.
+  # The exclusive lock prevents any consumer from accepting or using this exact
+  # 0755 handoff form during normal publication; interrupted readers reject it.
+  # Verify every immutable child before blessing the root, then pin the inode
+  # through fchmod/fsync and verify the canonical tree again.
+  aqua_control_plane_verify_material directory "${source_root}" \
+    "${source_sha}" /dev/null || return
+  /usr/bin/python3 - \
+    "${source_root}" "${AQUA_CONTROL_PLANE_EXPECTED_UID}" <<'SOURCE_ROOT_CONVERGENCE_PY'
+import os
+import pathlib
+import stat
+import sys
+
+path = pathlib.Path(sys.argv[1])
+expected_uid = int(sys.argv[2])
+info = os.lstat(path)
+if (
+    stat.S_ISLNK(info.st_mode)
+    or not stat.S_ISDIR(info.st_mode)
+    or info.st_uid != expected_uid
+    or stat.S_IMODE(info.st_mode) != 0o755
+):
+    raise SystemExit("interrupted source root identity changed before convergence")
+
+descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+try:
+    before = os.fstat(descriptor)
+    if (
+        not stat.S_ISDIR(before.st_mode)
+        or before.st_uid != expected_uid
+        or stat.S_IMODE(before.st_mode) != 0o755
+        or (before.st_dev, before.st_ino) != (info.st_dev, info.st_ino)
+    ):
+        raise SystemExit("interrupted source root descriptor identity mismatch")
+    os.fchmod(descriptor, 0o555)
+    os.fsync(descriptor)
+    after = os.fstat(descriptor)
+    path_after = os.lstat(path)
+    if (
+        not stat.S_ISDIR(after.st_mode)
+        or after.st_uid != expected_uid
+        or stat.S_IMODE(after.st_mode) != 0o555
+        or (after.st_dev, after.st_ino) != (before.st_dev, before.st_ino)
+        or stat.S_ISLNK(path_after.st_mode)
+        or not stat.S_ISDIR(path_after.st_mode)
+        or path_after.st_uid != expected_uid
+        or stat.S_IMODE(path_after.st_mode) != 0o555
+        or (path_after.st_dev, path_after.st_ino) != (before.st_dev, before.st_ino)
+    ):
+        raise SystemExit("interrupted source root convergence failed")
+finally:
+    os.close(descriptor)
+SOURCE_ROOT_CONVERGENCE_PY
+  aqua_control_plane_verify_material directory "${source_root}" \
+    "${source_sha}" /dev/null || return
+  /usr/bin/sync -f "${AQUA_CONTROL_PLANE_SOURCES_ROOT}"
+}
+
 aqua_control_plane_verify_source() {
   : "${PRODUCTION_HOST_MAIN_SHA:?PRODUCTION_HOST_MAIN_SHA required}"
   [[ "${PRODUCTION_HOST_MAIN_SHA}" =~ ^[0-9a-f]{40}$ ]] || \
@@ -1672,7 +1761,7 @@ if document != {
 payload = children.get("payload")
 if payload is None:
     raise SystemExit(0)
-require_directory(payload, {0o555, 0o700})
+require_directory(payload, {0o555, 0o700, 0o755})
 for current_root, directory_names, file_names in os.walk(payload, topdown=True, followlinks=False):
     current = pathlib.Path(current_root)
     for name in directory_names:
@@ -1823,11 +1912,18 @@ PY
   /usr/bin/find "${payload_root}" -type f -exec /usr/bin/sync -f {} + || return
   /usr/bin/sync -f "${payload_root}" || return
 
+  # Keep only the payload root owner-writable for the cross-parent rename.
+  # All descendants are already immutable and the exclusive lock fences every
+  # reader until the inode-pinned 0555 convergence below completes.
+  /usr/bin/chmod 0755 -- "${payload_root}" || return
+  /usr/bin/sync -f "${payload_root}" || return
+
   aqua_control_plane_lock_assert || return
   [ ! -e "${final_root}" ] && [ ! -L "${final_root}" ] || \
     aqua_control_plane_die 'Production source appeared during locked publication.' || return
   /usr/bin/mv -T -- "${payload_root}" "${final_root}" || return
-  /usr/bin/sync -f "${AQUA_CONTROL_PLANE_SOURCES_ROOT}" || return
+  aqua_control_plane_converge_interrupted_source_root \
+    "${source_sha}" "${final_root}" || return
 )
 
 aqua_control_plane_capture_docker_output() {
@@ -2796,6 +2892,8 @@ aqua_control_plane_publish_bundle() {
   local final_root="${AQUA_CONTROL_PLANE_SOURCES_ROOT}/${PRODUCTION_HOST_MAIN_SHA}"
   aqua_control_plane_recover_source_stage "${PRODUCTION_HOST_MAIN_SHA}" || return
   if [ -e "${final_root}" ] || [ -L "${final_root}" ]; then
+    aqua_control_plane_converge_interrupted_source_root \
+      "${PRODUCTION_HOST_MAIN_SHA}" "${final_root}" || return
     aqua_control_plane_verify_source || return
     aqua_control_plane_prune_sources "${PRODUCTION_HOST_MAIN_SHA}"
     return

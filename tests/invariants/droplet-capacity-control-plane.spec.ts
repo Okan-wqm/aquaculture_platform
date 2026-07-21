@@ -4,6 +4,7 @@ import {
   chmodSync,
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -42,6 +43,26 @@ function executable(path: string, content: string): void {
 
 function sha256(content: string): string {
   return createHash('sha256').update(content).digest('hex');
+}
+
+function removeFixtureRoot(root: string): void {
+  const fixturePrefix = join(tmpdir(), 'aqua-capacity-control-');
+  if (dirname(root) !== tmpdir() || !root.startsWith(fixturePrefix)) {
+    throw new Error(`refusing to remove non-canonical capacity fixture root: ${root}`);
+  }
+  if (!existsSync(root)) return;
+  const info = lstatSync(root);
+  if (info.isSymbolicLink() || !info.isDirectory()) {
+    throw new Error(`refusing to remove unsafe capacity fixture root: ${root}`);
+  }
+  const writable = spawnSync('/usr/bin/chmod', ['-R', 'u+rwX', '--', root], {
+    encoding: 'utf8',
+    env: { PATH: '/usr/bin:/bin', LC_ALL: 'C' },
+  });
+  if (writable.status !== 0) {
+    throw new Error(`${writable.stdout}${writable.stderr}`);
+  }
+  rmSync(root, { recursive: true, force: true });
 }
 
 interface CapacityFixture {
@@ -618,7 +639,7 @@ exec "$@"
       expect(output.match(/^\s+bytes=/gm)).toHaveLength(4);
       expect(output).toContain('discovery_scope_limit');
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureRoot(fixture.root);
     }
   }, 30_000);
 
@@ -719,7 +740,7 @@ exec "$@"
       expect(combinedOutput(failedRemoval)).toContain('capacity_gc_remove_failed');
       expect(readFileSync(fixture.dockerLog, 'utf8')).toContain(`rmi ${failingRef}`);
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureRoot(fixture.root);
     }
   });
 
@@ -733,7 +754,7 @@ exec "$@"
       expect(combinedOutput(result)).toContain('capacity_image_prefix_override_rejected');
       expect(readFileSync(fixture.dockerLog, 'utf8')).toBe('');
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureRoot(fixture.root);
     }
   });
 
@@ -774,7 +795,7 @@ exec "$@"
       expect(existsSync(interruptedStage)).toBe(false);
       expect(statSync(join(state.release, 'image-digests.tsv')).mode & 0o777).toBe(0o600);
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureRoot(fixture.root);
     }
 
     const hostileFixture = createCapacityFixture();
@@ -792,7 +813,7 @@ exec "$@"
       expect(combinedOutput(rejected)).toContain('release retention file is unexpected or unsafe');
       expect(readFileSync(hostileFixture.dockerLog, 'utf8')).toBe('');
     } finally {
-      rmSync(hostileFixture.root, { recursive: true, force: true });
+      removeFixtureRoot(hostileFixture.root);
     }
   });
 
@@ -829,7 +850,7 @@ exec "$@"
       );
       expect(combinedOutput(repeated)).toContain('replay_mutation=false');
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureRoot(fixture.root);
     }
 
     const hostileFixture = createCapacityFixture();
@@ -854,7 +875,7 @@ exec "$@"
       expect(existsSync(hostileStage)).toBe(true);
       expect(existsSync(join(hostileFixture.controlRoot, 'bootstrap-image-gc.json'))).toBe(false);
     } finally {
-      rmSync(hostileFixture.root, { recursive: true, force: true });
+      removeFixtureRoot(hostileFixture.root);
     }
   });
 
@@ -917,7 +938,7 @@ exec "$@"
         expect(existsSync(join(release, 'rollback-images.sha256'))).toBe(false);
       }
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureRoot(fixture.root);
     }
 
     const scenarios: ReadonlyArray<{
@@ -976,7 +997,7 @@ exec "$@"
         expect(existsSync(join(release, 'rollback-state'))).toBe(false);
         expect(existsSync(join(hostile.controlRoot, 'bootstrap-image-gc.json'))).toBe(false);
       } finally {
-        rmSync(hostile.root, { recursive: true, force: true });
+        removeFixtureRoot(hostile.root);
       }
     }
     const capacity = readFileSync(CAPACITY, 'utf8');
@@ -1024,7 +1045,7 @@ exec "$@"
       expect(combinedOutput(retry)).toContain('capacity_gc_markerless_bootstrap_claim_incomplete');
       expect(readFileSync(fixture.dockerLog, 'utf8')).toBe(logAtCrash);
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureRoot(fixture.root);
     }
   });
 
@@ -1168,7 +1189,7 @@ exec "$@"
       );
       expect(readFileSync(fixture.dockerLog, 'utf8')).toBe(logAfterRollover);
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureRoot(fixture.root);
     }
   });
 
@@ -1205,7 +1226,7 @@ exec "$@"
       expect(dockerLog).not.toContain(`rmi ${IMAGE_PREFIX}/farm-service:${currentSha}`);
       expect(existsSync(join(fixture.controlRoot, 'bootstrap-image-gc.json'))).toBe(false);
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureRoot(fixture.root);
     }
   });
 
@@ -1240,7 +1261,7 @@ exec "$@"
       expect(combinedOutput(result)).toContain('capacity_control_plane_dr_state_blocked');
       expect(readFileSync(fixture.dockerLog, 'utf8')).not.toMatch(/^rmi /m);
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureRoot(fixture.root);
     }
   });
 
@@ -1471,7 +1492,7 @@ exec /usr/bin/unlink "$@"
       expect(existsSync(candidate)).toBe(false);
       expect(readFileSync(unlinkLog, 'utf8')).toContain(candidate);
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureRoot(fixture.root);
     }
   });
 });

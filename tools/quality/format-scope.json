@@ -2945,6 +2945,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/users/__tests__/users-role-dto.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/users/dto/reset-password.dto.ts",
       "prettier_managed": true
     },
@@ -37834,6 +37840,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/roles.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/rpc/messaging-admin-rpc.ts",
       "prettier_managed": true
     },
@@ -55110,10 +55122,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9034,
+  "file_count": 9036,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8853,
-  "managed_file_list_sha256": "1062e9ae1d88a16afd91376c34df082a7bd31ce4173069362a5440da78f530a3",
+  "managed_count": 8855,
+  "managed_file_list_sha256": "73aa990b2ed8134c94e13a93d86e9b4a6312964afa521bc237e2b3cf4b861069",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

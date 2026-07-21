@@ -1,4 +1,5 @@
 import { SetMetadata, applyDecorators } from '@nestjs/common';
+import type { PlatformRoleCode } from '@platform/event-contracts';
 
 /**
  * Roles metadata key
@@ -49,6 +50,25 @@ export enum Role {
    */
   MODULE_USER = 'MODULE_USER',
 }
+
+/**
+ * Compile-time parity guard (APA-050) — pins the canonical `Role` enum to the
+ * cross-service `PlatformRoleCode` union in `@platform/event-contracts/roles`.
+ *
+ * `${Role}` is the enum's string-VALUE union, so the check compares the wire
+ * strings (not the nominal enum types). Both directions must hold: if a role is
+ * added, removed, or renamed on EITHER side the corresponding `AssertTrue<...>`
+ * receives `false` and `tsc --noEmit` fails. This is the tier-1 make-it-
+ * impossible half of the role-vocabulary SSoT (the runtime/detectable halves
+ * live in the DTO validators and tests/invariants/rbac-vocabulary-ssot.spec.ts).
+ */
+type AssertTrue<T extends true> = T;
+export type RoleEnumSubsetOfContract = AssertTrue<
+  `${Role}` extends PlatformRoleCode ? true : false
+>;
+export type RoleContractSubsetOfEnum = AssertTrue<
+  PlatformRoleCode extends `${Role}` ? true : false
+>;
 
 /**
  * Role hierarchy for permission inheritance

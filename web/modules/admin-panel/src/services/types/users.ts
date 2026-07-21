@@ -2,12 +2,45 @@
  * User management domain types
  */
 
+/**
+ * Canonical platform role vocabulary — PINNED mirror of the backend SSoT
+ * (`PLATFORM_ROLE_CODES` in `@platform/event-contracts/roles`, itself pinned to
+ * the `Role` enum). Web modules cannot import backend libraries, so this literal
+ * is the single FE definition site for role codes and is held member-for-member
+ * equal to the backend set by `tests/invariants/rbac-vocabulary-ssot.spec.ts`
+ * (APA-050). Every FE role dropdown/option list derives from here — no inline
+ * role-string arrays elsewhere.
+ */
+export const PLATFORM_ROLES = [
+  'SUPER_ADMIN',
+  'TENANT_ADMIN',
+  'MODULE_MANAGER',
+  'MODULE_USER',
+] as const;
+
+/** Union of the canonical platform role codes. */
+export type PlatformRole = (typeof PLATFORM_ROLES)[number];
+
+/**
+ * Roles assignable through the tenant-scoped invite flow. `SUPER_ADMIN` is
+ * platform-level and never invitable via a tenant admin surface.
+ */
+export type InvitableRole = Exclude<PlatformRole, 'SUPER_ADMIN'>;
+
+/** Human-readable label for each platform role. */
+export const ROLE_LABELS: Record<PlatformRole, string> = {
+  SUPER_ADMIN: 'Super Admin',
+  TENANT_ADMIN: 'Tenant Admin',
+  MODULE_MANAGER: 'Module Manager',
+  MODULE_USER: 'Module User',
+};
+
 export interface User {
   id: string;
   email: string;
   firstName: string;
   lastName: string;
-  role: string;
+  role: PlatformRole;
   tenantId: string | null;
   tenantName: string | null;
   isActive: boolean;
@@ -40,7 +73,7 @@ export interface CreateUserDto {
   firstName: string;
   lastName: string;
   password: string;
-  role: string;
+  role: PlatformRole;
   tenantId?: string;
 }
 
@@ -49,7 +82,7 @@ export interface InviteUserDto {
   email: string;
   firstName?: string;
   lastName?: string;
-  role: string;
+  role: InvitableRole;
   moduleIds?: string[];
   primaryModuleId?: string;
   message?: string;
@@ -64,7 +97,7 @@ export interface Permission {
 }
 
 export interface RoleTemplate {
-  code: string;
+  code: PlatformRole;
   name: string;
   description: string;
   level: number;

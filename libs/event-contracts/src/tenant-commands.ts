@@ -11,6 +11,8 @@
  * Subject convention: request.auth.tenant.<CommandType>
  */
 
+import type { InvitableRoleCode, PlatformRoleCode } from './roles';
+
 // ==================== NATS Subject Constants ====================
 
 export const TENANT_COMMAND_SUBJECTS = {
@@ -349,8 +351,8 @@ export interface AdminCreateUserCommand {
    * pre-hash. Plaintext never touches a log line (SENSITIVE_FIELDS mask).
    */
   password: string;
-  /** Platform role (SUPER_ADMIN / TENANT_ADMIN / MODULE_MANAGER / MODULE_USER) */
-  role: string;
+  /** Platform role — pinned to the canonical vocabulary (see roles.ts). */
+  role: PlatformRoleCode;
   /** Tenant UUID — NULL for SUPER_ADMIN users */
   tenantId?: string | null;
   /** Correlation ID for distributed tracing */
@@ -369,7 +371,7 @@ export interface AdminCreateUserResult {
     email: string;
     firstName: string | null;
     lastName: string | null;
-    role: string;
+    role: PlatformRoleCode;
     tenantId: string | null;
     isActive: boolean;
     createdAt: string;
@@ -558,8 +560,8 @@ export interface AdminUpdateUserCommand {
   firstName?: string;
   /** Family name — set to patch, undefined to leave unchanged */
   lastName?: string;
-  /** Platform role (SUPER_ADMIN / TENANT_ADMIN / MODULE_MANAGER / MODULE_USER) */
-  role?: string;
+  /** Platform role — pinned to the canonical vocabulary (see roles.ts). */
+  role?: PlatformRoleCode;
   /**
    * Tenant UUID or null. `undefined` leaves the current value; `null`
    * is an explicit assignment (user becomes tenantless, typical for
@@ -586,7 +588,7 @@ export interface AdminUpdateUserResult {
     email: string;
     firstName: string | null;
     lastName: string | null;
-    role: string;
+    role: PlatformRoleCode;
     tenantId: string | null;
     isActive: boolean;
     lastLoginAt: string | null;
@@ -697,11 +699,11 @@ export interface AdminInviteUserCommand {
   lastName?: string;
   /**
    * Role to assign on invite-accept. Must be ≤ inviter's role.
-   * Allowed: TENANT_ADMIN, MODULE_MANAGER, MODULE_USER.
+   * Allowed: TENANT_ADMIN, MODULE_MANAGER, MODULE_USER — expressed by the type.
    * SUPER_ADMIN is NEVER invited — SUPER_ADMIN accounts are minted
    * via AdminCreateUserCommand by a platform operator.
    */
-  role: string;
+  role: InvitableRoleCode;
   /** Module UUIDs the invitee is granted access to. Ignored for TENANT_ADMIN. */
   moduleIds?: string[];
   /**

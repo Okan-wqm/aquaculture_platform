@@ -1,6 +1,12 @@
 // Base event contract and shared types
 export * from './base-event';
 
+// Canonical platform role-vocabulary SSoT (APA-050). The 4-role model shared by
+// backend-common's `Role` enum, admin-api DTOs, and the NATS admin-command
+// contracts. Web modules pin a mirror literal (they cannot import backend libs);
+// the two are held in lock-step by tests/invariants/rbac-vocabulary-ssot.spec.ts.
+export * from './roles';
+
 // Cross-service shared enums (DBR-HIGH-003 cure — single source of truth
 // for values that are persisted to the DB and round-tripped via events).
 export * from './enums/tenant-plan.enum';

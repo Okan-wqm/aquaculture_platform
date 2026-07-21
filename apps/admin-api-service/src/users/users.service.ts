@@ -1,3 +1,4 @@
+import { Role } from '@aquaculture/backend-common/decorators';
 import {
   BadRequestException,
   ConflictException,
@@ -37,7 +38,7 @@ const DEFAULT_AUTH_NATS_TIMEOUT_MS = 15_000;
 
 export interface UserFilter {
   tenantId?: string;
-  role?: string;
+  role?: Role;
   status?: 'active' | 'inactive' | 'all';
   search?: string;
 }
@@ -454,7 +455,7 @@ export class UsersService {
     firstName: string;
     lastName: string;
     password: string;
-    role: string;
+    role: Role;
     tenantId?: string;
   }): Promise<UserDto> {
     const command: AdminCreateUserCommand = {
@@ -518,7 +519,7 @@ export class UsersService {
     dto: {
       firstName?: string;
       lastName?: string;
-      role?: string;
+      role?: Role;
       tenantId?: string;
       isActive?: boolean;
     },

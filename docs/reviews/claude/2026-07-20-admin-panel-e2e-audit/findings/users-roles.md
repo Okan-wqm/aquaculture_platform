@@ -349,3 +349,9 @@
   - `apps/admin-api-service/src/__tests__/integration/csrf.spec.ts`
   - `tests/invariants/csrf-name-parity.spec.ts`
 - **Effort:** M
+
+## Finding registry anchors
+
+Registry IDs (`docs/reviews/_registry/findings.jsonl`) tracking findings in this document:
+
+- **ADMIN-CRITICAL-019** — APA-050: admin-api DTOs whitelisted a phantom MANAGER/OPERATOR/VIEWER role vocabulary, 400ing the canonical MODULE_MANAGER/MODULE_USER the FE sends. Fixed at the source: a role SSoT in `@platform/event-contracts` (`PLATFORM_ROLE_CODES`/`INVITABLE_ROLE_CODES`), all 4 user DTOs re-pointed to `@IsEnum(Role)` / `@IsIn(INVITABLE_ROLE_CODES)`, tenant-command contracts + services tightened, phantom role templates + a duplicate `UserRole` enum deleted, the FE pinned to a mirror literal, and a parity + phantom-literal-ban invariant added.

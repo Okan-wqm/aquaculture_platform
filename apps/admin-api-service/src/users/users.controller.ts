@@ -1,3 +1,4 @@
+import { Role } from '@aquaculture/backend-common/decorators';
 import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
   BadRequestException,
@@ -16,6 +17,10 @@ import {
   Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import {
+  INVITABLE_ROLE_CODES,
+  type InvitableRoleCode,
+} from '@platform/event-contracts';
 import { Type } from 'class-transformer';
 import {
   IsString,
@@ -24,6 +29,7 @@ import {
   IsUUID,
   IsBoolean,
   IsEnum,
+  IsIn,
   MinLength,
   MaxLength,
   IsArray,
@@ -73,11 +79,8 @@ export class CreateUserDto {
   })
   password!: string;
 
-  @IsString()
-  @IsEnum(['SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'], {
-    message: 'Invalid role',
-  })
-  role!: string;
+  @IsEnum(Role, { message: 'Invalid role' })
+  role!: Role;
 
   @IsOptional()
   @IsUUID('4', { message: 'Invalid tenant ID format' })
@@ -98,11 +101,8 @@ export class UpdateUserDto {
   lastName?: string;
 
   @IsOptional()
-  @IsString()
-  @IsEnum(['SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'], {
-    message: 'Invalid role',
-  })
-  role?: string;
+  @IsEnum(Role, { message: 'Invalid role' })
+  role?: Role;
 
   @IsOptional()
   @IsUUID('4', { message: 'Invalid tenant ID format' })
@@ -131,11 +131,8 @@ export class InviteUserRequestDto {
   @MaxLength(100)
   lastName?: string;
 
-  @IsString()
-  @IsEnum(['TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'], {
-    message: 'Invalid role for invitation',
-  })
-  role!: string;
+  @IsIn(INVITABLE_ROLE_CODES, { message: 'Invalid role for invitation' })
+  role!: InvitableRoleCode;
 
   @IsOptional()
   @IsArray()
@@ -159,9 +156,8 @@ export class ListUsersQueryDto {
   tenantId?: string;
 
   @IsOptional()
-  @IsString()
-  @IsEnum(['SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'])
-  role?: string;
+  @IsEnum(Role)
+  role?: Role;
 
   @IsOptional()
   @IsEnum(['active', 'inactive', 'all'])

@@ -22,13 +22,30 @@ import {
   tenantsApi,
   TenantTier,
   TenantStatus,
+  PLATFORM_ROLES,
+  ROLE_LABELS,
   type User,
   type UserStats,
   type PaginatedResult,
   type Tenant,
   type RoleTemplate,
   type UserLimitCheckResult,
+  type PlatformRole,
+  type InvitableRole,
 } from '../services/adminApi';
+
+// Role option lists derived from the single FE vocabulary SSoT (APA-050).
+// `PLATFORM_ROLES`/`ROLE_LABELS` are the only definition site; there are no
+// inline role-string arrays anywhere on this page.
+const ALL_ROLE_OPTIONS = PLATFORM_ROLES.map((role) => ({
+  value: role,
+  label: ROLE_LABELS[role],
+}));
+// Assignable/invitable set: every canonical role except the platform-level
+// SUPER_ADMIN (minted by a platform operator, never assigned via these forms).
+const ASSIGNABLE_ROLE_OPTIONS = PLATFORM_ROLES.filter(
+  (role): role is InvitableRole => role !== 'SUPER_ADMIN',
+).map((role) => ({ value: role, label: ROLE_LABELS[role] }));
 
 // ============================================================================
 // User Management Page
@@ -63,7 +80,15 @@ const UserManagementPage: React.FC = () => {
   const [userLimitCheck, setUserLimitCheck] = useState<UserLimitCheckResult | null>(null);
 
   // Form state
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    email: string;
+    firstName: string;
+    lastName: string;
+    password: string;
+    role: PlatformRole;
+    tenantId: string;
+    isActive: boolean;
+  }>({
     email: '',
     firstName: '',
     lastName: '',
@@ -76,7 +101,14 @@ const UserManagementPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
 
   // Invite form state
-  const [inviteFormData, setInviteFormData] = useState({
+  const [inviteFormData, setInviteFormData] = useState<{
+    email: string;
+    firstName: string;
+    lastName: string;
+    role: InvitableRole;
+    tenantId: string;
+    message: string;
+  }>({
     email: '',
     firstName: '',
     lastName: '',
@@ -349,16 +381,9 @@ const UserManagementPage: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  // Role labels
-  const getRoleLabel = (role: string) => {
-    const labels: Record<string, string> = {
-      SUPER_ADMIN: 'Super Admin',
-      TENANT_ADMIN: 'Tenant Admin',
-      MODULE_MANAGER: 'Module Manager',
-      MODULE_USER: 'User',
-    };
-    return labels[role] || role;
-  };
+  // Role labels — sourced from the single FE vocabulary SSoT (ROLE_LABELS).
+  const getRoleLabel = (role: string): string =>
+    role in ROLE_LABELS ? ROLE_LABELS[role as PlatformRole] : role;
 
   const getRoleVariant = (role: string) => {
     const variants: Record<string, 'error' | 'warning' | 'info' | 'success' | 'default'> = {
@@ -521,13 +546,7 @@ const UserManagementPage: React.FC = () => {
           <Select
             value={roleFilter}
             onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }}
-            options={[
-              { value: '', label: 'All Roles' },
-              { value: 'SUPER_ADMIN', label: 'Super Admin' },
-              { value: 'TENANT_ADMIN', label: 'Tenant Admin' },
-              { value: 'MODULE_MANAGER', label: 'Module Manager' },
-              { value: 'MODULE_USER', label: 'User' },
-            ]}
+            options={[{ value: '', label: 'All Roles' }, ...ALL_ROLE_OPTIONS]}
           />
           <Select
             value={statusFilter}
@@ -636,12 +655,10 @@ const UserManagementPage: React.FC = () => {
           <Select
             label="Role"
             value={formData.role}
-            onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-            options={[
-              { value: 'TENANT_ADMIN', label: 'Tenant Admin' },
-              { value: 'MODULE_MANAGER', label: 'Module Manager' },
-              { value: 'MODULE_USER', label: 'Module User' },
-            ]}
+            onChange={(e) =>
+              setFormData({ ...formData, role: e.target.value as PlatformRole })
+            }
+            options={ASSIGNABLE_ROLE_OPTIONS}
           />
 
           <Select
@@ -843,21 +860,20 @@ const UserManagementPage: React.FC = () => {
             label="Role *"
             value={inviteFormData.role}
             onChange={(e) =>
-              setInviteFormData({ ...inviteFormData, role: e.target.value })
+              setInviteFormData({
+                ...inviteFormData,
+                role: e.target.value as InvitableRole,
+              })
             }
             options={
               roleTemplates.length > 0
                 ? roleTemplates
-                    .filter((r) => r.code !== 'SUPER_ADMIN') // Don't allow SUPER_ADMIN invitation
+                    .filter((r) => r.code !== 'SUPER_ADMIN') // Don't offer SUPER_ADMIN
                     .map((r) => ({
                       value: r.code,
                       label: `${r.name} (Level ${r.level})`,
                     }))
-                : [
-                    { value: 'TENANT_ADMIN', label: 'Tenant Admin' },
-                    { value: 'MODULE_MANAGER', label: 'Module Manager' },
-                    { value: 'MODULE_USER', label: 'User' },
-                  ]
+                : ASSIGNABLE_ROLE_OPTIONS
             }
           />
 

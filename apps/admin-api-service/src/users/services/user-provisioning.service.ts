@@ -15,6 +15,7 @@ import {
   type AdminCheckUserLimitResult,
   type AdminInviteUserCommand,
   type AdminInviteUserResult,
+  type InvitableRoleCode,
 } from '@platform/event-contracts';
 import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
 
@@ -39,7 +40,7 @@ export interface InviteUserDto {
   email: string;
   firstName?: string;
   lastName?: string;
-  role: string;
+  role: InvitableRoleCode;
   moduleIds?: string[];
   primaryModuleId?: string;
   invitedBy: string;

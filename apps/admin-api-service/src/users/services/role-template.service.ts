@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { PlatformRoleCode } from '@platform/event-contracts';
 
 /**
  * Permission definition
@@ -14,7 +15,12 @@ export interface Permission {
  * Role template definition
  */
 export interface RoleTemplate {
-  code: string;
+  /**
+   * Canonical platform role code. Pinned to the SSoT union so a phantom
+   * catalogue role (e.g. SUPERVISOR/OPERATOR) cannot be re-introduced — it
+   * would be a compile error. NOT a permission code (those stay `string`).
+   */
+  code: PlatformRoleCode;
   name: string;
   description: string;
   level: number; // Higher = more permissions
@@ -199,52 +205,8 @@ export class RoleTemplateService {
       icon: 'briefcase',
     },
     {
-      code: 'SUPERVISOR',
-      name: 'Supervisor',
-      description: 'Supervisor with limited management capabilities',
-      level: 50,
-      permissions: [
-        'dashboard:view',
-        'users:view',
-        'farms:view',
-        'ponds:view',
-        'ponds:edit',
-        'sensors:view',
-        'sensors:calibrate',
-        'alerts:view',
-        'alerts:acknowledge',
-        'feed:view',
-        'feed:create',
-        'feed:edit',
-        'reports:view',
-        'reports:create',
-      ],
-      isSystem: false,
-      color: '#F59E0B',
-      icon: 'clipboard-check',
-    },
-    {
-      code: 'OPERATOR',
-      name: 'Operator',
-      description: 'Field operator with basic operational access',
-      level: 30,
-      permissions: [
-        'dashboard:view',
-        'farms:view',
-        'ponds:view',
-        'sensors:view',
-        'alerts:view',
-        'alerts:acknowledge',
-        'feed:view',
-        'feed:create',
-      ],
-      isSystem: false,
-      color: '#3B82F6',
-      icon: 'wrench',
-    },
-    {
       code: 'MODULE_USER',
-      name: 'Viewer',
+      name: 'Module User',
       description: 'Read-only access to assigned modules',
       level: 10,
       permissions: [

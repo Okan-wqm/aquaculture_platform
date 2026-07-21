@@ -135,6 +135,7 @@ export default {
         '<rootDir>/walg-evidence-attestation.spec.ts',
         '<rootDir>/walg-pitr-contract.spec.ts',
         '<rootDir>/deploy-ssot-contract.spec.ts',
+        '<rootDir>/edge-api-routing-contract.spec.ts',
         '<rootDir>/schema-role-drift-ssot.spec.ts',
         '<rootDir>/no-unguarded-drop-type-in-migration.spec.ts',
         '<rootDir>/platform-topology-ssot.spec.ts',

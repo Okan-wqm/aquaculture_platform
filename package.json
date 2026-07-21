@@ -18,7 +18,7 @@
   ],
   "scripts": {
     "dev": "node tools/toolchain/run.mjs nx run-many --target=serve --all",
-    "dev:backend": "node tools/toolchain/run.mjs nx run-many --target=serve --projects=gateway-api,farm-service,sensor-service,auth-service,alert-engine,billing-service,hr-service,hydroponics-service,notification-service",
+    "dev:backend": "node tools/toolchain/run.mjs nx run-many --target=serve --projects=gateway-api,farm-service,sensor-service,auth-service,alert-engine,billing-service,hr-service,hydroponics-service,notification-service,admin-api-service",
     "dev:backend:minimal": "node tools/toolchain/run.mjs nx run-many --target=serve --projects=gateway-api,auth-service,farm-service --parallel=3",
     "dev:backend:core": "node tools/toolchain/run.mjs nx run-many --target=serve --projects=gateway-api,auth-service,farm-service,sensor-service --parallel=4",
     "dev:web": "node tools/toolchain/run.mjs nx run-many --target=serve --projects=shell,dashboard,farm-module,admin-panel,tenant-admin,hr-module,sensor-module,hydroponics-module",

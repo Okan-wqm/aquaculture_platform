@@ -72,12 +72,10 @@ describe('INVARIANT (tenant-context SSoT): gateway resolves + signs ONE effectiv
     expect(/req\.effectiveTenantId\s*\?\?\s*req\.user\?\.tenantId/.test(src)).toBe(true);
   });
 
-  it('REST proxy SIGNS effectiveTenantId from req.effectiveTenantId (assertion + wire agree)', () => {
-    const src = readStripped('apps/gateway-api/src/proxy/service-proxy.service.ts');
-    expect(/effectiveTenantId\s*\?\?\s*user\.tenantId/.test(src)).toBe(true);
-    // wire tenantId must prefer the effective tenant so it matches the assertion.
-    expect(/effectiveTenantId\s*\?\?\s*\n?\s*resolveTenantIdFromRequest/.test(src)).toBe(true);
-  });
+  // NOTE (APA-252): the gateway REST proxy (ServiceProxyService) that signed
+  // effectiveTenantId onto outbound REST calls was deleted as dead code (no
+  // module provided it, zero consumers). The live tenant-signing path is the
+  // GraphQL federation data source, asserted directly above.
 
   it('RLS-GUC feeder reads the verified req.tenantId BEFORE any spoofable header', () => {
     const src = readStripped('libs/backend-common/src/logging/request-context.middleware.ts');

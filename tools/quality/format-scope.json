@@ -17330,42 +17330,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/gateway-api/src/proxy/__tests__/circuit-breaker.service.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/gateway-api/src/proxy/__tests__/load-balancer.service.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/gateway-api/src/proxy/__tests__/service-proxy.service.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/gateway-api/src/proxy/circuit-breaker.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/gateway-api/src/proxy/load-balancer.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/gateway-api/src/proxy/service-proxy.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/gateway-api/src/routes/__tests__/marine.routes.spec.ts",
       "prettier_managed": true
     },
@@ -41484,6 +41448,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/edge-api-routing-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/edge-device-dual-model-guard.spec.ts",
       "prettier_managed": true
     },
@@ -55122,10 +55092,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9036,
+  "file_count": 9031,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8855,
-  "managed_file_list_sha256": "73aa990b2ed8134c94e13a93d86e9b4a6312964afa521bc237e2b3cf4b861069",
+  "managed_count": 8850,
+  "managed_file_list_sha256": "9ddd705718c28c6d137a4df8762f7a831afa4e9f0fd8a27b6c5da537c0e62af7",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

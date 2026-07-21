@@ -55,6 +55,19 @@ export default defineConfig(({ command }) => {
         origin: ['http://localhost:3000', 'http://localhost:8080'],
         credentials: true,
       },
+      // APA-253: give `npm run dev:web` the SAME /api edge contract as the
+      // compose/nginx stacks. The FE http-client base is '/api'; admin-api
+      // serves under its globalPrefix '/api/v1'. Proxy /api -> admin-api's
+      // published port (3008, per docker-compose admin-api-service) and rewrite
+      // ^/api -> /api/v1 so '/api' stays the single FE-side constant in every
+      // run mode (no VITE_ADMIN_API_URL hand-wiring).
+      proxy: {
+        '/api': {
+          target: 'http://localhost:3008',
+          changeOrigin: true,
+          rewrite: (path: string): string => path.replace(/^\/api/, '/api/v1'),
+        },
+      },
     },
     preview: {
       port: 3000,

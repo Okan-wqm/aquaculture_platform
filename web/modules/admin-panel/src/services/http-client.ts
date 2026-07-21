@@ -338,6 +338,21 @@ export async function apiFetch<T>(
         return {} as T;
       }
 
+      // TRANSPORT CONTRACT (APA-253): a 2xx with a non-JSON body means the
+      // request never reached the API — it hit an edge fallback (SPA
+      // index.html, captive portal, maintenance page). Convert this broken-edge
+      // condition into a typed, actionable ApiError instead of letting
+      // JSON.parse throw an opaque SyntaxError on an HTML page.
+      const contentType = response.headers.get('content-type') ?? '';
+      if (!contentType.includes('application/json')) {
+        throw createApiError(
+          `Expected a JSON response but received "${contentType || 'unknown'}" — the /api edge is misrouted (request did not reach admin-api)`,
+          response.status,
+          'NON_JSON_RESPONSE',
+          { contentType },
+        );
+      }
+
       const json: unknown = JSON.parse(text);
       const envelope = parseApiEnvelope(json);
       if (envelope) {

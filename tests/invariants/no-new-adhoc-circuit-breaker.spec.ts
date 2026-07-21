@@ -1,10 +1,13 @@
 /**
  * Platform-wide invariant — CIRCUIT-MEDIUM-001:
  *
- * The 4 known ad-hoc circuit-breaker implementations (gateway
- * proxy, OPA, messaging-redis, email sender) are the GRANDFATHERED
- * set being migrated to the canonical CircuitBreakerService under
- * the W3 wave. NO NEW ad-hoc breaker class may be added until
+ * The known ad-hoc circuit-breaker implementations (OPA,
+ * messaging-redis, email sender, sensor retry-util) are the
+ * GRANDFATHERED set being migrated to the canonical
+ * CircuitBreakerService under the W3 wave. (The gateway-proxy
+ * ad-hoc breaker was removed outright with its dead
+ * ServiceProxyService, APA-252 — the progression signal this
+ * list's comment describes.) NO NEW ad-hoc breaker class may be added until
  * the W3 sweep completes — every new breaker usage MUST go
  * through `@aquaculture/backend-common/resilience`'s
  * `CircuitBreakerService.execute()`.
@@ -51,10 +54,6 @@ const KNOWN_ADHOC_BREAKERS: ReadonlyArray<{
   path: string;
   followOn: string;
 }> = [
-  {
-    path: 'apps/gateway-api/src/proxy/circuit-breaker.service.ts',
-    followOn: 'W3 wave — gateway proxy migration',
-  },
   {
     path: 'apps/gateway-api/src/opa/opa-client.service.ts',
     followOn: 'W3 wave — OPA client migration',
@@ -131,7 +130,6 @@ describe('CIRCUIT-MEDIUM-001 — no new ad-hoc CircuitBreaker outside the grandf
           // resilience/circuit-breaker/circuit-breaker.service.ts.
           ':!libs/backend-common/src/resilience/circuit-breaker/**',
           // Grandfathered ad-hoc breakers (W3 migration targets):
-          ':!apps/gateway-api/src/proxy/circuit-breaker.service.ts',
           ':!apps/gateway-api/src/opa/opa-client.service.ts',
           ':!apps/messaging-service/src/shared/redis.provider.ts',
           ':!apps/admin-api-service/src/settings/services/email-sender.service.ts',
@@ -163,29 +161,8 @@ describe('CIRCUIT-MEDIUM-001 — no new ad-hoc CircuitBreaker outside the grandf
     }
   });
 
-  /**
-   * CIRCUIT-MEDIUM-002 — service-proxy SSE path was missing the
-   * breaker wrap that sibling `proxy()` had. Cure landed inside
-   * the same proxySSE method. This invariant pins the wrap so a
-   * future "tidy" cannot strip it without tripping the gate.
-   */
-  it('CIRCUIT-MEDIUM-002 — proxySSE wraps connection-establishment fetch in circuitBreaker.execute', () => {
-    const src = read('apps/gateway-api/src/proxy/service-proxy.service.ts');
-    // Locate the proxySSE method body.
-    const methodMatch =
-      /async\s+proxySSE\s*\([\s\S]*?\)\s*:\s*Promise<void>\s*{([\s\S]*?)\n {2}}/.exec(
-        src,
-      );
-    expect(methodMatch).not.toBeNull();
-    const body = methodMatch![1] ?? '';
-    // Within proxySSE: an `await this.circuitBreaker.execute(`
-    // call MUST appear before the `response.body?.getReader()`
-    // line (the streaming entry point — once we're streaming the
-    // breaker doesn't apply).
-    const executeIdx = body.search(/this\.circuitBreaker\.execute\s*\(/);
-    const getReaderIdx = body.search(/response\.body\?\.getReader/);
-    expect(executeIdx).toBeGreaterThan(-1);
-    expect(getReaderIdx).toBeGreaterThan(-1);
-    expect(executeIdx).toBeLessThan(getReaderIdx);
-  });
+  // NOTE (APA-252): the former CIRCUIT-MEDIUM-002 test pinned the proxySSE
+  // breaker wrap inside apps/gateway-api/src/proxy/service-proxy.service.ts,
+  // which was deleted as dead code (ServiceProxyService was provided by no
+  // module and had zero consumers). With the file gone there is nothing to pin.
 });

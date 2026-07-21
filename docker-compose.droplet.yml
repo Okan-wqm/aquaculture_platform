@@ -1853,6 +1853,8 @@ services:
       - '8883:8883'
     volumes:
       - ./infrastructure/nginx/droplet.conf:/etc/nginx/nginx.conf:ro
+      # APA-252: shared /api edge-routing SSoT included by droplet.conf
+      - ./infrastructure/nginx/includes:/etc/nginx/includes:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - /var/www/certbot:/var/www/certbot:ro
     depends_on:

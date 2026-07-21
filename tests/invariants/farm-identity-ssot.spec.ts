@@ -9,7 +9,6 @@ function read(path: string): string {
 
 describe('INVARIANT: farm identity SSOT uses verified assertions', () => {
   const dataSource = read('apps/gateway-api/src/federation/authenticated-data-source.ts');
-  const proxy = read('apps/gateway-api/src/proxy/service-proxy.service.ts');
   const farmApp = read('apps/farm-service/src/app.module.ts');
   const assertionMiddleware = read('libs/backend-common/src/middleware/verified-user-assertion.middleware.ts');
   const serviceIdentity = read('libs/backend-common/src/utils/service-identity.util.ts');
@@ -22,15 +21,11 @@ describe('INVARIANT: farm identity SSOT uses verified assertions', () => {
     expect(dataSource).not.toMatch(/headers\.set\('x-user-payload'/);
   });
 
-  it('gateway REST proxy quarantines client-provided raw identity and service proof headers', () => {
-    expect(proxy).toMatch(/'x-user-payload'/);
-    expect(proxy).toMatch(/'x-user-id'/);
-    expect(proxy).toMatch(/'x-user-roles'/);
-    expect(proxy).toMatch(/'x-act-as-tenant'/);
-    expect(proxy).toMatch(/'x-verified-user-assertion'/);
-    expect(proxy).toMatch(/'x-service-signature'/);
-    expect(proxy).toMatch(/buildGatewayVerifiedUserAssertion/);
-  });
+  // NOTE (APA-252): the gateway REST proxy (ServiceProxyService) was deleted as
+  // dead code — it was provided by no module and had zero consumers, so its
+  // header-quarantine logic never ran. The LIVE identity path is the GraphQL
+  // federation data source (asserted above) plus VerifiedUserAssertionMiddleware
+  // and the service-identity HMAC (asserted below); no live boundary is lost.
 
   it('farm parses verified assertions before legacy user context and GraphQL context does not trust raw headers', () => {
     expect(farmApp).toMatch(/VerifiedUserAssertionMiddleware/);

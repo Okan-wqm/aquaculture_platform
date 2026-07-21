@@ -287,6 +287,20 @@ export async function apiFetchBlob(
       );
     }
 
+    // TRANSPORT CONTRACT (APA-253): a 2xx whose body is the SPA fallback page
+    // (text/html) means the /api edge is misrouted — the request never reached
+    // admin-api. A binary download must never be an HTML document, so surface a
+    // typed error instead of handing back a corrupt "file".
+    const responseContentType = response.headers.get('content-type') ?? '';
+    if (responseContentType.includes('text/html')) {
+      throw createApiError(
+        `Expected a file download but received "${responseContentType}" — the /api edge is misrouted (request did not reach admin-api)`,
+        response.status,
+        'NON_JSON_RESPONSE',
+        { contentType: responseContentType },
+      );
+    }
+
     const disposition = response.headers.get('content-disposition') || '';
     const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
 

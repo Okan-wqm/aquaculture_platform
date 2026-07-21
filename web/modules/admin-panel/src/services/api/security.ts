@@ -42,8 +42,6 @@ export const securityApi = {
   } & PaginationParams & DateRangeParams) =>
     apiFetch<PaginatedResult<BackendActivityLog>>(`/security/activities?${buildQueryString(params || {})}`, platformScope),
   getActivityLog: (id: string) => apiFetch<BackendActivityLog>(`/security/activities/${id}`, platformScope),
-  getUserActivities: (userId: string, params?: PaginationParams & DateRangeParams) =>
-    apiFetch<PaginatedResult<BackendActivityLog>>(`/security/activities/user/${userId}?${buildQueryString(params || {})}`, platformScope),
   getEntityActivities: (entityType: string, entityId: string, params?: PaginationParams) =>
     apiFetch<PaginatedResult<BackendActivityLog>>(`/security/activities/entity/${entityType}/${entityId}?${buildQueryString(params || {})}`, platformScope),
   // Audit Trail

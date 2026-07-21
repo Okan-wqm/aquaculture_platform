@@ -17,7 +17,6 @@ import type {
   TenantSchema,
   SchemaMigration,
   DatabaseBackup,
-  DatabaseStats,
   SlowQuery,
 } from '../types';
 
@@ -51,14 +50,6 @@ export const databaseApi = {
     apiFetch<{ total: number; active: number; idle: number; waiting: number; maxConnections: number }>('/database/schemas/connections/pool'),
   getConnectionsByTenant: () =>
     apiFetch<Array<{ tenantId: string; schemaName: string; connectionCount: number }>>('/database/schemas/connections/by-tenant'),
-
-  // Backend endpoint coverage: resetSchema, optimizeSchema, analyzeSchema
-  resetSchema: (tenantId: string) =>
-    apiFetch<TenantSchema>(`/database/schemas/${tenantId}/reset`, { method: 'POST' }),
-  optimizeSchema: (tenantId: string) =>
-    apiFetch<{ success: boolean; improvements: string[] }>(`/database/schemas/${tenantId}/optimize`, { method: 'POST' }),
-  analyzeSchema: (tenantId: string) =>
-    apiFetch<{ tables: Array<{ name: string; rows: number; size: string; indexes: number }> }>(`/database/schemas/${tenantId}/analyze`),
 
   // ==========================================================================
   // Migrations (migration.controller.ts)
@@ -102,17 +93,9 @@ export const databaseApi = {
   getMigrationHistory: (params?: { status?: string; version?: string } & PaginationParams) =>
     apiFetch<PaginatedResult<SchemaMigration>>(`/database/migrations/history?${buildQueryString(params || {})}`),
 
-  // Legacy wrappers for older page integrations.
+  // Legacy wrapper for older page integrations (maps to the real /history route).
   getMigrations: (params?: { status?: string } & PaginationParams) =>
     apiFetch<PaginatedResult<SchemaMigration>>(`/database/migrations/history?${buildQueryString(params || {})}`),
-  getMigration: (id: string) => apiFetch<SchemaMigration>(`/database/migrations/${id}`),
-  createMigration: (data: { name: string; description?: string; type: string; sql: string; rollbackSql?: string; createdBy: string }) =>
-    apiFetch<SchemaMigration>('/database/migrations', { method: 'POST', body: JSON.stringify(data) }),
-  runMigration: (id: string, schemaIds?: string[]) =>
-    apiFetch<SchemaMigration>(`/database/migrations/${id}/run`, { method: 'POST', body: JSON.stringify({ schemaIds }) }),
-  rollbackMigration: (id: string) =>
-    apiFetch<SchemaMigration>(`/database/migrations/${id}/rollback`, { method: 'POST' }),
-  getPendingMigrations: () => apiFetch<SchemaMigration[]>('/database/migrations/pending'),
 
   // ==========================================================================
   // Backups (backup.controller.ts)
@@ -147,14 +130,12 @@ export const databaseApi = {
   getRestore: (restoreId: string) =>
     apiFetch<{ id: string; backupId: string; status: string; startedAt: string; completedAt?: string }>(`/database/backups/restores/${restoreId}`),
 
-  // Legacy wrappers for older page integrations.
+  // Legacy wrapper for older page integrations (maps to the real /restore route).
   restoreBackup: (id: string, targetSchema?: string) =>
     apiFetch<{ success: boolean; message: string }>('/database/backups/restore', {
       method: 'POST',
       body: JSON.stringify({ backupId: id, targetSchemaName: targetSchema }),
     }),
-  scheduleBackup: (data: { type: string; schedule: string; retentionDays: number; createdBy: string }) =>
-    apiFetch<{ id: string; schedule: string }>('/database/backups/schedule', { method: 'POST', body: JSON.stringify(data) }),
 
   // ==========================================================================
   // Monitoring (monitoring.controller.ts)
@@ -193,15 +174,6 @@ export const databaseApi = {
   /** Backend: GET /database/monitoring/metrics */
   getMetricsHistory: (params?: { hours?: number; tenantId?: string; metricType?: string }) =>
     apiFetch<Array<{ timestamp: string; metricType: string; value: number }>>(`/database/monitoring/metrics?${buildQueryString(params || {})}`),
-
-  // Backend endpoint coverage: getDatabaseStats, getTableStats, runVacuum, runAnalyze
-  getDatabaseStats: () => apiFetch<DatabaseStats>('/database/monitoring/stats'),
-  getTableStats: (schemaName?: string) =>
-    apiFetch<Array<{ table: string; rows: number; size: string; deadTuples: number; lastVacuum?: string }>>(`/database/monitoring/tables${schemaName ? `?schema=${schemaName}` : ''}`),
-  runVacuum: (schemaName?: string, tableName?: string) =>
-    apiFetch<{ success: boolean }>('/database/monitoring/vacuum', { method: 'POST', body: JSON.stringify({ schemaName, tableName }) }),
-  runAnalyze: (schemaName?: string) =>
-    apiFetch<{ success: boolean }>('/database/monitoring/analyze', { method: 'POST', body: JSON.stringify({ schemaName }) }),
 
   // ==========================================================================
   // Explorer (SUPER_ADMIN debug tool)

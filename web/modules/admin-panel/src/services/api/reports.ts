@@ -64,6 +64,4 @@ export const reportsApi = {
   // Report Generation & Export (synchronous preview/ad-hoc compatibility only)
   generateCustomReport: (data: { type: string; format: string; startDate?: string; endDate?: string }) =>
     apiFetch<{ data: unknown[]; summary: Record<string, unknown>; metadata?: { generatedAt: string; reportType: string; format: string } }>('/reports/generate', { method: 'POST', body: JSON.stringify(data) }),
-  getQuickReport: (endpoint: string, format?: string) =>
-    apiFetch<{ data: unknown[]; summary: Record<string, unknown> }>(`${endpoint}${format ? `?format=${format}` : ''}`),
 };

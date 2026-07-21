@@ -436,106 +436,17 @@ const KNOWN_EXCEPTIONS: Array<{ url: string; method: string; reason: string }> =
     reason: 'Feature engagement data served by usage/features endpoint',
   },
 
-  // Frontend /database/monitoring/stats -> backend /database/monitoring/health
-  {
-    url: '/database/monitoring/stats',
-    method: 'GET',
-    reason: 'Frontend alias for /database/monitoring/health',
-  },
-
-  // Frontend /database/monitoring/tables -> backend /database/monitoring/storage/by-tenant
-  {
-    url: '/database/monitoring/tables',
-    method: 'GET',
-    reason: 'Frontend alias for /database/monitoring/storage tables',
-  },
-
-  // Frontend /database/monitoring/vacuum and /database/monitoring/analyze
-  {
-    url: '/database/monitoring/vacuum',
-    method: 'POST',
-    reason: 'DB maintenance operations not exposed as REST endpoints',
-  },
-  {
-    url: '/database/monitoring/analyze',
-    method: 'POST',
-    reason: 'DB maintenance operations not exposed as REST endpoints',
-  },
-
-  // Frontend /database/schemas/:param/optimize and /database/schemas/:param/analyze
-  {
-    url: '/database/schemas/:param/optimize',
-    method: 'POST',
-    reason: 'Schema optimization not yet implemented in controller',
-  },
-  {
-    url: '/database/schemas/:param/analyze',
-    method: 'GET',
-    reason: 'Schema analysis not yet implemented in controller',
-  },
-  {
-    url: '/database/schemas/:param/reset',
-    method: 'POST',
-    reason: 'Schema reset not yet implemented in controller',
-  },
-
-  // Database migration frontend vs backend path mismatch
-  {
-    url: '/database/migrations',
-    method: 'GET',
-    reason: 'Frontend expects flat list, backend uses /database/migrations/history',
-  },
-  {
-    url: '/database/migrations/:param',
-    method: 'GET',
-    reason:
-      'Frontend uses migration ID, backend uses /database/migrations/tenant/:tenantId/history',
-  },
-  {
-    url: '/database/migrations',
-    method: 'POST',
-    reason: 'Frontend creates migration, backend uses /database/migrations/tenant/:tenantId/run',
-  },
-  {
-    url: '/database/migrations/:param/run',
-    method: 'POST',
-    reason: 'Frontend runs by ID, backend runs by tenant+version',
-  },
-  {
-    url: '/database/migrations/:param/rollback',
-    method: 'POST',
-    reason: 'Frontend rollback by ID, backend by tenant+version',
-  },
-  {
-    url: '/database/migrations/pending',
-    method: 'GET',
-    reason: 'Frontend list pending, backend /database/migrations/tenant/:tenantId/pending',
-  },
-
-  // Database backup frontend expects different paths
-  {
-    url: '/database/backups/schedule',
-    method: 'POST',
-    reason: 'Backup scheduling not in controller (uses /database/backups/schedule GET)',
-  },
-  {
-    url: '/database/backups/:param/restore',
-    method: 'POST',
-    reason: 'Frontend uses /backups/:id/restore, backend uses /database/backups/restore POST',
-  },
+  // APA-254: the database schema (reset/optimize/analyze), migration
+  // (getMigration/create/run/rollback/pending), monitoring (stats/tables/
+  // vacuum/analyze) and backup-schedule phantom FE functions were deleted at
+  // the source (zero callers, no backend route). Re-adding any of them fails
+  // this gate. Do NOT re-add these entries.
 
   // Security activities export - frontend uses GET with query, backend uses POST
   {
     url: '/security/activities/export',
     method: 'GET',
     reason: 'Frontend uses GET, backend audit trail uses POST export',
-  },
-
-  // Security activities/user/:userId - frontend path
-  {
-    url: '/security/activities/user/:param',
-    method: 'GET',
-    reason: 'Not a controller endpoint; activity query with userId filter',
   },
 
   // Security audit entity path
@@ -684,11 +595,6 @@ const KNOWN_EXCEPTIONS: Array<{ url: string; method: string; reason: string }> =
     reason: 'Error occurrences not in global-settings controller',
   },
   {
-    url: '/system/errors/groups/:param/status',
-    method: 'PUT',
-    reason: 'Error status update not in global-settings controller',
-  },
-  {
     url: '/system/errors/groups/:param/resolve',
     method: 'POST',
     reason: 'Error resolve not in global-settings controller',
@@ -730,11 +636,6 @@ const KNOWN_EXCEPTIONS: Array<{ url: string; method: string; reason: string }> =
     method: 'POST',
     reason: 'Queue resume not in global-settings controller',
   },
-  {
-    url: '/system/jobs/queues/:param/drain',
-    method: 'POST',
-    reason: 'Queue drain not in global-settings controller',
-  },
   { url: '/system/jobs', method: 'GET', reason: 'Jobs list not in global-settings controller' },
   {
     url: '/system/jobs/:param',
@@ -762,12 +663,6 @@ const KNOWN_EXCEPTIONS: Array<{ url: string; method: string; reason: string }> =
     method: 'GET',
     reason: 'Failed jobs not in global-settings controller',
   },
-  {
-    url: '/system/jobs/cleanup',
-    method: 'POST',
-    reason: 'Jobs cleanup not in global-settings controller',
-  },
-
   // Email template preview uses POST in frontend, GET in backend
   {
     url: '/settings/email-templates/:param/preview',
@@ -778,13 +673,6 @@ const KNOWN_EXCEPTIONS: Array<{ url: string; method: string; reason: string }> =
     url: '/settings/email-templates/:param/test',
     method: 'POST',
     reason: 'Test email endpoint exists but with different body shape',
-  },
-
-  // Settings webhook test
-  {
-    url: '/settings/tenant/:param/webhooks/:param/test',
-    method: 'POST',
-    reason: 'Webhook test endpoint not in controller',
   },
 
   // Frontend /support/tickets PATCH vs backend PUT

@@ -231,3 +231,4 @@
 Registry IDs (`docs/reviews/_registry/findings.jsonl`) tracking findings in this document:
 
 - **ADMIN-CRITICAL-015** — APA-251: FeatureTogglesPage's primary action called a phantom `feature-toggles/:id/toggle` route (404 on every flip); FE repointed to the canonical `PUT feature-toggles/:id` (status enum), DTOs tightened to `@IsEnum`, and the two phantom `KNOWN_EXCEPTIONS` entries removed so the contract gate enforces the real contract.
+- **ADMIN-HIGH-018** — APA-254: 18 dead phantom FE api fns (database/security/settings/tenant-config/reports) deleted after grep-confirmed zero callers; the live Acknowledge-button 404 (`updateErrorStatus`) repointed to the real `PUT /system/errors/groups/:id`; the 18 corresponding drift-excuse `KNOWN_EXCEPTIONS` entries removed so the contract gate re-enforces those routes. Full gut of the remaining ~40 allowlist entries + `kind:'dynamic'` discriminator is tracked follow-up.

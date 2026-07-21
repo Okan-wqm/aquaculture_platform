@@ -15,6 +15,15 @@ import {
   JobRetryPolicy,
 } from '../entities/job-queue.entity';
 import { JobDashboardDto } from '../dto/job-dashboard.dto';
+import { olderThan } from '@aquaculture/backend-common/database';
+
+// ============================================================================
+// Configuration
+// ============================================================================
+
+// Cancelled jobs are purged once they have been in the terminal CANCELLED
+// state for longer than this retention window (staleness, not recency).
+const CANCELLED_JOB_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 // ============================================================================
 // Interfaces
@@ -736,10 +745,10 @@ export class JobQueueService {
 
     await this.logRepo.delete({ timestamp: LessThan(cutoff) });
 
-    // Clean up cancelled jobs older than 7 days
+    // Clean up cancelled jobs older than the retention window
     await this.jobRepo.delete({
       status: JobStatus.CANCELLED,
-      updatedAt: LessThan(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)),
+      updatedAt: olderThan(CANCELLED_JOB_RETENTION_MS),
     });
 
     this.logger.log('Completed job cleanup');

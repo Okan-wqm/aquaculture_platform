@@ -522,3 +522,11 @@
 - **Root cause:** Not a defect — a positive-posture note recorded for completeness, and spot-checking corroborates it: global APP_GUARD PlatformAdminGuard (SUPER_ADMIN + RS256) plus ThrottlerGuard cover the section (export throttle comment at explorer.controller.ts:542), no @Public escapes in the 5 controllers, the 7 entities declare schema:'admin' matching the Baseline migration, the explorer uses a read-only DataSource, tenant_* schemas are unreachable (allowlist + blocklist + tenant_ regex), identifiers are regex-validated (isValidIdentifier 1230-1233) and values parameterized (496-497), and read/export/raw-SQL are fail-closed on audit persistence (requireAuditLog awaited at 518).
 - **Fix design:** No code change required; nothing is broken. To keep the posture from silently regressing (tier 3 make-it-detectable), optionally add/confirm two invariant specs: a guard-coverage test asserting no @Public decorator exists on any database-management controller method, and an explorer-access test asserting tenant_* schemas and MODULE_SCHEMAS-blocklisted tables are rejected. These lock in the verified behavior but are enhancement, not remediation.
 - **Effort:** S
+
+---
+
+## Finding registry anchors
+
+Registry IDs (`docs/reviews/_registry/findings.jsonl`) tracking findings in this document:
+
+- **ADMIN-MEDIUM-028** — APA-319: the Database-Health "Slow Queries / last hour" check used an inverted time window (`LessThan(now-1h)` under a "last hour" comment, counting rows OLDER than an hour). Root-cause fix: added intent-named `withinLast()`/`olderThan()` FindOperator helpers to `@aquaculture/backend-common/database` (the name carries the predicate direction), repointed the slow-query window to `withinLast` and migrated the three sibling inline sites + `cleanupOldMetrics` to the helpers, and added a no-allowlist `time-window-operator-usage.spec.ts` gate banning inline `<Op>(new Date(Date.now()…))` in `apps/**`. Unit specs pin the helper operator types and the slow-query window direction/thresholds. Tracked separately: `logSlowQuery()` has no callers, so `admin.slow_query_logs` is never written (table-nobody-writes) — the check is non-functional until a real recorder is wired.

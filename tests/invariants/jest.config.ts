@@ -116,6 +116,7 @@ export default {
         '<rootDir>/ssrf-safe-fetch-ssot.spec.ts',
         '<rootDir>/eslint-disable-annotation-positional-binding.spec.ts',
         '<rootDir>/no-direct-getrepository-call.spec.ts',
+        '<rootDir>/time-window-operator-usage.spec.ts',
         '<rootDir>/no-root-barrel-import.spec.ts',
         '<rootDir>/no-shared-entity-decorators-via-main-barrel.spec.ts',
         '<rootDir>/graphql-enum-valuesmap-metadata.spec.ts',

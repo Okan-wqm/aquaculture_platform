@@ -448,3 +448,10 @@ export * from './pg-pool-from-data-source.util';
 // annotations of that shape have already shipped one silent security-signal
 // outage (ACCOUNT_LOCKED never fired).
 export * from './update-returning.util';
+
+// APA-319 cure: intent-named time-window FindOperator helpers. `withinLast`
+// (recency) and `olderThan` (retention/staleness) encode the predicate
+// direction in the name, so an inverted window is visibly wrong at the call
+// site. The inline `<Op>(new Date(Date.now() …))` form is banned in apps/**
+// by tests/invariants/time-window-operator-usage.spec.ts; this is its home.
+export * from './time-window.operators';

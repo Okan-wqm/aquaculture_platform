@@ -21,6 +21,15 @@ import {
   SecurityIncident,
 } from '../entities/security.entity';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import { withinLast } from '@aquaculture/backend-common/database';
+
+// ============================================================================
+// Configuration
+// ============================================================================
+
+// GDPR Art. 33 breach-notification window: unreported breaches are "recent"
+// (still within the reporting deadline) if created WITHIN the last 72 hours.
+const BREACH_NOTIFICATION_WINDOW_MS = 72 * 60 * 60 * 1000; // 72 hours
 
 // ============================================================================
 // Interfaces
@@ -715,7 +724,7 @@ export class ComplianceService {
           where: {
             dataBreached: true,
             reportedToAuthorities: false,
-            createdAt: MoreThan(new Date(Date.now() - 72 * 60 * 60 * 1000)), // Last 72 hours
+            createdAt: withinLast(BREACH_NOTIFICATION_WINDOW_MS),
           },
         });
         if (recentBreaches > 0) {

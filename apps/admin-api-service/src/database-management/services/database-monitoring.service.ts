@@ -8,7 +8,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, LessThan, QueryRunner, Repository } from 'typeorm';
+import { DataSource, QueryRunner, Repository } from 'typeorm';
+
+import { olderThan, withinLast } from '@aquaculture/backend-common/database';
 
 import {
   TenantSchema,
@@ -29,6 +31,13 @@ import {
 const SLOW_QUERY_THRESHOLD_MS = 1000; // 1 second
 const CONNECTION_WARNING_THRESHOLD = 0.7; // 70%
 const CONNECTION_CRITICAL_THRESHOLD = 0.9; // 90%
+
+// Recency window for the "Slow Queries" health check — count slow queries
+// recorded WITHIN this window (see getDatabaseHealthStatus). withinLast()
+// encodes the direction so this can never re-invert to a retention window.
+const SLOW_QUERY_HEALTH_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+// Retention window for the daily metric/slow-query cleanup cron.
+const METRIC_RETENTION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 type DbScalar = boolean | number | string | null | undefined;
 
@@ -985,10 +994,12 @@ export class DatabaseMonitoringService {
       });
     }
 
-    // Slow queries check
+    // Slow queries check — count queries recorded WITHIN the last hour
+    // (recency). withinLast() guarantees the predicate direction matches the
+    // "last hour" intent the surrounding thresholds/messages assume.
     const recentSlowQueries = await this.slowQueryRepository.count({
       where: {
-        recordedAt: LessThan(new Date(Date.now() - 3600000)), // Last hour
+        recordedAt: withinLast(SLOW_QUERY_HEALTH_WINDOW_MS),
       },
     });
 
@@ -1117,15 +1128,12 @@ export class DatabaseMonitoringService {
   async cleanupOldMetrics(): Promise<void> {
     this.logger.log('Cleaning up old metrics');
 
-    const retentionDays = 30;
-    const cutoffDate = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
-
     await this.metricRepository.delete({
-      recordedAt: LessThan(cutoffDate),
+      recordedAt: olderThan(METRIC_RETENTION_MS),
     });
 
     await this.slowQueryRepository.delete({
-      recordedAt: LessThan(cutoffDate),
+      recordedAt: olderThan(METRIC_RETENTION_MS),
     });
   }
 }

@@ -26,6 +26,15 @@ import {
   AnomalyDetails,
 } from '../entities/security.entity';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import { withinLast } from '@aquaculture/backend-common/database';
+
+// ============================================================================
+// Configuration
+// ============================================================================
+
+// Geo-anomaly baseline: a login's location is compared against the user's
+// successful logins WITHIN the last 30 days (recency window).
+const GEO_LOGIN_HISTORY_WINDOW_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 // ============================================================================
 // Interfaces
@@ -466,7 +475,7 @@ export class SecurityMonitoringService implements OnModuleInit {
       where: {
         userId,
         success: true,
-        createdAt: MoreThan(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)), // Last 30 days
+        createdAt: withinLast(GEO_LOGIN_HISTORY_WINDOW_MS),
       },
       order: { createdAt: 'DESC' },
       take: 10,

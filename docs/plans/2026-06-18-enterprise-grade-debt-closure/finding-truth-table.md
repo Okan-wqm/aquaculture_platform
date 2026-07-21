@@ -142,6 +142,7 @@ Allowed truth buckets:
 | `ADMIN-CRITICAL-013`    | IN-PROGRESS    | —            | admin-expert         | already-fixed-needs-close |
 | `ADMIN-CRITICAL-014`    | IN-PROGRESS    | —            | admin-expert         | real-open                 |
 | `ADMIN-CRITICAL-015`    | IN-PROGRESS    | —            | admin-expert         | already-fixed-needs-close |
+| `ADMIN-CRITICAL-016`    | IN-PROGRESS    | —            | admin-expert         | real-open                 |
 
 ## Mutation Rules
 

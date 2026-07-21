@@ -301,6 +301,15 @@ export interface BackendSecurityDashboardStats {
 
 export interface BackendSecurityHealthScore {
   score: number;
+  /**
+   * APA-240: telemetry liveness. The security tables the score aggregates over
+   * (security_events / login_attempts / api_usage_logs / user_sessions) can be
+   * empty, in which case the arithmetic still yields a high "healthy" number.
+   * When this is not 'live', the gauge MUST render "No telemetry" instead of a
+   * green score — a monitoring surface must not fabricate assurance over a void.
+   */
+  dataStatus: 'live' | 'stale' | 'no_data';
+  lastSeenAt: string | null;
   factors: Array<{
     name: string;
     score: number;

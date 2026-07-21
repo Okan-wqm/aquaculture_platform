@@ -762,6 +762,11 @@ export class SecurityMonitoringController {
   @Get('health-score')
   async getHealthScore(): Promise<{
     score: number;
+    // APA-240: telemetry liveness — the FE renders "No telemetry" instead of a
+    // green gauge when this is not 'live', so a score computed over empty
+    // security tables can never be presented as "healthy".
+    dataStatus: 'live' | 'stale' | 'no_data';
+    lastSeenAt: string | null;
     factors: Array<{
       name: string;
       score: number;
@@ -770,7 +775,10 @@ export class SecurityMonitoringController {
     }>;
     recommendations: string[];
   }> {
-    const dashboard = await this.securityMonitoringService.getSecurityDashboardStats();
+    const [dashboard, liveness] = await Promise.all([
+      this.securityMonitoringService.getSecurityDashboardStats(),
+      this.securityMonitoringService.getTelemetryLiveness(),
+    ]);
 
     const factors: Array<{
       name: string;
@@ -859,6 +867,8 @@ export class SecurityMonitoringController {
 
     return {
       score: Math.round(totalScore),
+      dataStatus: liveness.dataStatus,
+      lastSeenAt: liveness.lastSeenAt,
       factors,
       recommendations,
     };

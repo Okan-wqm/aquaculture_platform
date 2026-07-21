@@ -2321,6 +2321,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/security/services/__tests__/security-monitoring.telemetry-liveness.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/security/services/activity-logging.service.ts",
       "prettier_managed": true
     },
@@ -26870,6 +26876,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/adr/046-impersonation-session-operational-classification.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/adr/047-security-telemetry-ingestion-pipeline.md",
       "prettier_managed": true
     },
     {
@@ -55068,10 +55080,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9027,
+  "file_count": 9029,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8846,
-  "managed_file_list_sha256": "fcd225a4088b403c46efa72a7987c24cc8148ef6a34443f331344b1c2b5cd110",
+  "managed_count": 8848,
+  "managed_file_list_sha256": "fe3b821ff9ad70e51a15766d55ca348dab3de55b888ccd4c67552a4ef0e4862c",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

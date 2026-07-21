@@ -121,7 +121,10 @@ interface HealthMetric {
 
 interface DashboardData {
   healthScore: number;
-  healthStatus: 'healthy' | 'warning' | 'critical';
+  // APA-240: 'unmeasured' when the backend reports the security telemetry
+  // supply chain is not live — the gauge shows "No telemetry", never a green
+  // "healthy" computed over empty tables.
+  healthStatus: 'healthy' | 'warning' | 'critical' | 'unmeasured';
   metrics: HealthMetric[];
   stats: {
     totalEvents24h: number;
@@ -186,7 +189,10 @@ async function fetchThreatIndicators(): Promise<ThreatIndicator[]> {
   return result.data.map(mapThreatIndicator);
 }
 
-function mapHealthStatus(score: number): DashboardData['healthStatus'] {
+// Returns the narrow score-based status (never 'unmeasured' — that comes from
+// telemetry liveness in mapDashboardData, APA-240), so per-factor HealthMetric
+// statuses stay within their union.
+function mapHealthStatus(score: number): 'healthy' | 'warning' | 'critical' {
   if (score >= 85) return 'healthy';
   if (score >= 65) return 'warning';
   return 'critical';
@@ -198,7 +204,9 @@ function mapDashboardData(
 ): DashboardData {
   return {
     healthScore: health.score,
-    healthStatus: mapHealthStatus(health.score),
+    // APA-240: a score computed over empty security tables is meaningless —
+    // surface "unmeasured" so the gauge renders "No telemetry", not "healthy".
+    healthStatus: health.dataStatus === 'live' ? mapHealthStatus(health.score) : 'unmeasured',
     metrics: health.factors.map((factor) => ({
       name: factor.name,
       status: mapHealthStatus(factor.score),
@@ -398,16 +406,27 @@ const formatDateTime = (dateString: string): string => {
 };
 
 // Health Score Gauge Component
-const HealthGauge: React.FC<{ score: number; status: 'healthy' | 'warning' | 'critical' }> = ({ score, status }) => {
+const HealthGauge: React.FC<{
+  score: number;
+  status: 'healthy' | 'warning' | 'critical' | 'unmeasured';
+}> = ({ score, status }) => {
+  // APA-240: when telemetry is not live, the score is meaningless — render an
+  // explicit "No telemetry" gauge (grey, empty ring) rather than a coloured
+  // score that would read as a real health measurement.
+  const unmeasured = status === 'unmeasured';
+
   const getColor = (): string => {
     if (status === 'healthy') return '#22c55e';
     if (status === 'warning') return '#eab308';
-    return '#ef4444';
+    if (status === 'critical') return '#ef4444';
+    return '#9ca3af'; // unmeasured — grey
   };
 
   const circumference = 2 * Math.PI * 45;
   const safeScore = typeof score === 'number' && !isNaN(score) ? score : 0;
-  const strokeDashoffset = circumference - (safeScore / 100) * circumference;
+  const strokeDashoffset = unmeasured
+    ? circumference // empty ring — no progress drawn
+    : circumference - (safeScore / 100) * circumference;
 
   return (
     <div className="relative w-32 h-32">
@@ -433,8 +452,17 @@ const HealthGauge: React.FC<{ score: number; status: 'healthy' | 'warning' | 'cr
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-3xl font-bold text-gray-900">{safeScore}</span>
-        <span className="text-xs text-gray-500">{status}</span>
+        {unmeasured ? (
+          <>
+            <span className="text-3xl font-bold text-gray-400">—</span>
+            <span className="text-[10px] text-gray-500 text-center px-2">No telemetry</span>
+          </>
+        ) : (
+          <>
+            <span className="text-3xl font-bold text-gray-900">{safeScore}</span>
+            <span className="text-xs text-gray-500">{status}</span>
+          </>
+        )}
       </div>
     </div>
   );

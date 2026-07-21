@@ -52,15 +52,30 @@ export interface AnomalyDetectionConfig {
   offHoursEnd: number;
 }
 
-export interface ThreatIntelFeed {
-  id: string;
-  name: string;
-  url: string;
-  type: 'ip' | 'domain' | 'hash' | 'mixed';
-  updateFrequency: 'hourly' | 'daily' | 'weekly';
-  lastUpdated?: Date;
-  isActive: boolean;
+/**
+ * APA-240: telemetry-liveness contract. The security dashboard reads
+ * admin.security_events / login_attempts / api_usage_logs / user_sessions;
+ * when those tables are empty the health-score arithmetic still yields a high
+ * "healthy" number over zeros (false assurance). This distinguishes
+ * "quiet because safe" (live) from "quiet because deaf" (no_data / stale) so
+ * the gauge can render "No telemetry" instead of a fabricated green.
+ */
+export type SecurityTelemetryStatus = 'live' | 'stale' | 'no_data';
+
+export interface SecurityTelemetryLiveness {
+  /** live = fresh telemetry within the window; stale = only old rows; no_data = the source tables are empty. */
+  dataStatus: SecurityTelemetryStatus;
+  /** ISO timestamp of the newest telemetry row across all sources, or null when there is none. */
+  lastSeenAt: string | null;
 }
+
+/**
+ * A security-telemetry source seen more than this long ago is treated as
+ * stale rather than live — a real platform produces logins/sessions/api calls
+ * continuously, so silence beyond the window means the pipeline is deaf, not
+ * that the platform is idle.
+ */
+export const SECURITY_TELEMETRY_LIVENESS_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export interface SecurityDashboardStats {
   // Overview
@@ -116,7 +131,6 @@ export class SecurityMonitoringService implements OnModuleInit {
   private readonly logger = new Logger(SecurityMonitoringService.name);
   private config: AnomalyDetectionConfig = DEFAULT_ANOMALY_CONFIG;
   private knownGoodIPs: Set<string> = new Set();
-  private threatIntelFeeds: ThreatIntelFeed[] = [];
 
   constructor(
     @InjectRepository(SecurityEvent)
@@ -135,7 +149,6 @@ export class SecurityMonitoringService implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     await this.loadThreatIntelligence();
-    this.initializeFeeds();
   }
 
   // ============================================================================
@@ -643,20 +656,34 @@ export class SecurityMonitoringService implements OnModuleInit {
   }
 
   /**
-   * Initialize threat intel feeds
+   * APA-240: report whether the security-telemetry supply chain is alive.
+   * Reads the newest row across every source the dashboard aggregates over,
+   * so the health score can be rendered honestly ("No telemetry") instead of
+   * computing a green score over permanently-empty tables.
    */
-  private initializeFeeds(): void {
-    this.threatIntelFeeds = [
-      {
-        id: 'feed-1',
-        name: 'Internal Blocklist',
-        url: 'internal',
-        type: 'ip',
-        updateFrequency: 'hourly',
-        isActive: true,
-      },
-      // Additional feeds would be configured here
-    ];
+  async getTelemetryLiveness(): Promise<SecurityTelemetryLiveness> {
+    const newest = await Promise.all([
+      this.securityEventRepository.findOne({ where: {}, order: { createdAt: 'DESC' }, select: ['createdAt'] }),
+      this.loginAttemptRepository.findOne({ where: {}, order: { createdAt: 'DESC' }, select: ['createdAt'] }),
+      this.apiUsageRepository.findOne({ where: {}, order: { createdAt: 'DESC' }, select: ['createdAt'] }),
+      this.sessionRepository.findOne({ where: {}, order: { createdAt: 'DESC' }, select: ['createdAt'] }),
+    ]);
+
+    const timestamps = newest
+      .map((row) => row?.createdAt)
+      .filter((value): value is Date => value instanceof Date)
+      .map((date) => date.getTime());
+
+    if (timestamps.length === 0) {
+      return { dataStatus: 'no_data', lastSeenAt: null };
+    }
+
+    const lastSeenMs = Math.max(...timestamps);
+    const ageMs = Date.now() - lastSeenMs;
+    return {
+      dataStatus: ageMs <= SECURITY_TELEMETRY_LIVENESS_WINDOW_MS ? 'live' : 'stale',
+      lastSeenAt: new Date(lastSeenMs).toISOString(),
+    };
   }
 
   /**
@@ -1101,20 +1128,6 @@ export class SecurityMonitoringService implements OnModuleInit {
     }
   }
 
-  /**
-   * Update threat intel feeds
-   */
-  @Cron(CronExpression.EVERY_HOUR)
-  async updateThreatFeeds(): Promise<void> {
-    for (const feed of this.threatIntelFeeds) {
-      if (!feed.isActive) continue;
-      if (feed.updateFrequency !== 'hourly') continue;
-
-      // In production, fetch from actual feeds
-      this.logger.debug(`Would update threat feed: ${feed.name}`);
-      feed.lastUpdated = new Date();
-    }
-  }
 
   // ============================================================================
   // Utility Methods

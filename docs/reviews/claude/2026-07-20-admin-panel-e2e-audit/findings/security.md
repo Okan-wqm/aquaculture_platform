@@ -690,3 +690,9 @@ Tier-3 (detectable): add an architecture invariant asserting every security tele
   - `apps/admin-api-service/src/security/services/audit-trail.service.ts`
   - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts`
 - **Effort:** M
+
+## Finding registry anchors
+
+Registry IDs (`docs/reviews/_registry/findings.jsonl`) tracking findings in this document:
+
+- **ADMIN-CRITICAL-016** — APA-240: the security dashboard fabricated a green "healthy" score over empty telemetry tables. Partial fix landed (honest `dataStatus` liveness → FE renders "No telemetry"; threat-feed stub deleted); the ingestion supply-chain revival (LoginAttempted event → NATS → admin-api consumer) is tracked with an architecture-of-record in docs/adr/047.

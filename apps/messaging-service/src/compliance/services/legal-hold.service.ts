@@ -20,6 +20,7 @@ import {
   runInTenantTransaction,
   tenantManagerRepo,
 } from '@aquaculture/backend-common/database';
+import { LEGAL_HOLD_MIN_RELEASE_REASON_CHARS } from '@platform/event-contracts';
 import { LegalHold } from '../entities/legal-hold.entity';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
 
@@ -80,14 +81,13 @@ const LEGAL_HOLD_CHECK_DEADLINE_MS = 500;
  */
 const LEGAL_HOLD_CACHE_BREAKER_RESET_MS = 30_000;
 
-/**
- * Minimum length (chars) for activate / release reason fields.
- * Per the legal-hold-auditor agent spec § "Override protocol": "explicit
- * reason (≥ 50 chars)". Forces requesters to surface legal-matter scope +
- * originating party rather than a one-word justification (LEGAL-MEDIUM-002
- * cure).
- */
-const LEGAL_HOLD_MIN_REASON_CHARS = 50;
+// Minimum release-reason length is the shared SSoT
+// `LEGAL_HOLD_MIN_RELEASE_REASON_CHARS` from `@platform/event-contracts` — the
+// same constant admin-api's `ReleaseLegalHoldDto` uses at the REST boundary, so
+// a sub-threshold reason is rejected identically at the edge and here (defense
+// in depth, with the DB CHECK constraint as the schema-layer backstop). Per the
+// legal-hold-auditor agent spec § "Override protocol": "explicit reason (≥ 50
+// chars)" (LEGAL-MEDIUM-002 cure).
 
 /**
  * Manages legal holds on messaging data.
@@ -275,9 +275,9 @@ export class LegalHoldService {
     if (approverId === userId) {
       throw new BadRequestException('Legal hold release requires a distinct second approver');
     }
-    if (releaseReason.trim().length < LEGAL_HOLD_MIN_REASON_CHARS) {
+    if (releaseReason.trim().length < LEGAL_HOLD_MIN_RELEASE_REASON_CHARS) {
       throw new BadRequestException(
-        `Legal hold release reason must be at least ${LEGAL_HOLD_MIN_REASON_CHARS} characters`,
+        `Legal hold release reason must be at least ${LEGAL_HOLD_MIN_RELEASE_REASON_CHARS} characters`,
       );
     }
 

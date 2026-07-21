@@ -65,6 +65,12 @@ export * from './schema-migration-events';
 // + incremental `IngestBackendPolicyChanged` event.
 export * from './ingest-backend-policy';
 
+// Messaging admin RPC contract (APA-163). SSoT for the request payloads that
+// cross the admin-api ↔ messaging-service `request.messaging.admin.*` NATS
+// boundary, so a required field (e.g. the dual-approver release fields) cannot
+// be dropped on one side and required on the other.
+export * from './rpc/messaging-admin-rpc';
+
 // Event upcasters (v1 → v2 schema migration at deserialization time)
 export * from './upcasters';
 

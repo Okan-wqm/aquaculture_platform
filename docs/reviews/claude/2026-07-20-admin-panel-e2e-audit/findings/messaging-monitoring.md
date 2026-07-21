@@ -744,3 +744,10 @@ TIER 3 GATE (keeps the class fixed): invariant test asserting the import edges e
 - **Root cause:** None — this is a verified POSITIVE finding, re-confirmed against current code: PlatformAdminGuard is registered as APP_GUARD via useExisting (app.module.ts:277-290) with RS256 verify + SUPER_ADMIN-only role narrowing (platform-admin.guard.ts:148-177); nginx rewrites ^/api/(.*) -> /api/v1/$1 to admin-api-service:3000 (droplet.conf:377-383) matching the bootstrap globalPrefix; and the three compliance entities correctly OMIT schema: per the messaging inversion rule (legal-hold.entity.ts:22), created by Baseline and cloned per tenant.
 - **Fix design:** No fix required. Record as a positive control in the audit report: auth, transport routing, and schema discipline are sound for this section — remediation effort should concentrate on the contract-level findings (xc|i3, xc|i4).
 - **Effort:** S
+
+## Finding registry anchors
+
+Registry IDs allocated for findings in this section (store-3 traceability —
+`docs/reviews/_registry/findings.jsonl`):
+
+- `ADMIN-CRITICAL-017` — APA-163 (legal-hold release dual-approver fields dropped across the FE→admin-api→NATS chain).

@@ -12,11 +12,23 @@
 import { Controller, Logger } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import {
+  MESSAGING_ADMIN_PATTERNS,
+  type ComplianceStatsRequest,
+  type GetLegalHoldsRequest,
+  type CreateLegalHoldRequest,
+  type ReleaseLegalHoldRequest,
+  type GetRetentionPoliciesRequest,
+  type UpdateRetentionPolicyRequest,
+  type GetAuditLogRequest,
+  type TriggerExportRequest,
+  type GetPersonasRequest,
+} from '@platform/event-contracts';
 
 import { LegalHoldService } from '../compliance/services/legal-hold.service';
 import { RetentionPolicyService } from '../compliance/services/retention-policy.service';
 import { ComplianceAuditService } from '../compliance/services/compliance-audit.service';
-import { DataExportService, ExportFormat } from '../compliance/services/data-export.service';
+import { DataExportService } from '../compliance/services/data-export.service';
 import { AiPersonasRegistryService } from '../ai/services/ai-personas-registry.service';
 
 import { SetRetentionPolicyCommand } from '../compliance/commands/set-retention-policy.command';
@@ -27,65 +39,27 @@ import { RetentionPolicy } from '../compliance/entities/retention-policy.entity'
 import { LegalHold } from '../compliance/entities/legal-hold.entity';
 import { ComplianceAction } from '../compliance/entities/compliance-audit-log.entity';
 
-// ── Payload Interfaces ──────────────────────────────────────────────────
+/**
+ * Runtime value-set of {@link ComplianceAction} members. Built from the enum so
+ * it can never drift from the type. Typed as `readonly string[]` so membership
+ * checks accept an arbitrary wire string without a cast.
+ */
+const COMPLIANCE_ACTION_VALUES: readonly string[] = Object.values(ComplianceAction);
 
-interface TenantScopedPayload {
-  tenantId: string;
+/** Type guard: is a wire string a valid {@link ComplianceAction} member? */
+function isComplianceAction(value: string): value is ComplianceAction {
+  return COMPLIANCE_ACTION_VALUES.includes(value);
 }
 
-type ComplianceStatsPayload = TenantScopedPayload;
-
-type GetLegalHoldsPayload = TenantScopedPayload;
-
-interface CreateLegalHoldPayload extends TenantScopedPayload {
-  userId: string;
-  channelId: string | null;
-  reason: string;
-  legalMatterId: string;
-  legalMatterDescription?: string;
-  requestedBy?: string;
-  expiresAt?: string;
+/**
+ * Narrow a wire string to a {@link ComplianceAction}. The RPC contract carries
+ * `action` as a plain string (event-contracts must not import a service entity);
+ * an unrecognised value is dropped to `null` (never cast), so a bogus filter
+ * can never reach the query as a fake enum member.
+ */
+function toComplianceAction(value: string | undefined): ComplianceAction | null {
+  return value !== undefined && isComplianceAction(value) ? value : null;
 }
-
-interface ReleaseLegalHoldPayload extends TenantScopedPayload {
-  holdId: string;
-  userId: string;
-  /**
-   * Required (LEGAL-MEDIUM-002): the SECOND SUPER_ADMIN that countersigned
-   * the release request. MUST differ from `userId`. Pre-cure single-identity
-   * release was the audit gap.
-   */
-  approverId: string;
-  /**
-   * Required (LEGAL-MEDIUM-002): ≥ 50 chars justification recorded on the row.
-   */
-  releaseReason: string;
-}
-
-type GetRetentionPoliciesPayload = TenantScopedPayload;
-
-interface UpdateRetentionPolicyPayload extends TenantScopedPayload {
-  userId: string;
-  channelId: string | null;
-  retentionDays: number;
-}
-
-interface GetAuditLogPayload extends TenantScopedPayload {
-  limit: number;
-  cursor: string | null;
-  userId?: string;
-  action?: ComplianceAction;
-  resourceType?: string;
-  startDate?: string;
-  endDate?: string;
-}
-
-interface TriggerExportPayload extends TenantScopedPayload {
-  userId: string;
-  format: ExportFormat;
-}
-
-type GetPersonasPayload = TenantScopedPayload;
 
 // ── Handler ─────────────────────────────────────────────────────────────
 
@@ -108,9 +82,9 @@ export class MessagingAdminNatsHandler {
   /**
    * Return compliance statistics for a tenant.
    */
-  @MessagePattern('request.messaging.admin.complianceStats')
+  @MessagePattern(MESSAGING_ADMIN_PATTERNS.complianceStats)
   async getComplianceStats(
-    @Payload() data: ComplianceStatsPayload,
+    @Payload() data: ComplianceStatsRequest,
   ): Promise<{
     activeHoldsCount: number;
     retentionPoliciesCount: number;
@@ -142,9 +116,9 @@ export class MessagingAdminNatsHandler {
   /**
    * Return all legal holds for a tenant.
    */
-  @MessagePattern('request.messaging.admin.getLegalHolds')
+  @MessagePattern(MESSAGING_ADMIN_PATTERNS.getLegalHolds)
   async getLegalHolds(
-    @Payload() data: GetLegalHoldsPayload,
+    @Payload() data: GetLegalHoldsRequest,
   ): Promise<LegalHold[]> {
     this.logger.debug(`Admin request: getLegalHolds for tenant=${data.tenantId}`);
     return this.legalHoldService.getHolds(data.tenantId);
@@ -153,9 +127,9 @@ export class MessagingAdminNatsHandler {
   /**
    * Create (activate) a new legal hold.
    */
-  @MessagePattern('request.messaging.admin.createLegalHold')
+  @MessagePattern(MESSAGING_ADMIN_PATTERNS.createLegalHold)
   async createLegalHold(
-    @Payload() data: CreateLegalHoldPayload,
+    @Payload() data: CreateLegalHoldRequest,
   ): Promise<LegalHold> {
     this.logger.debug(`Admin request: createLegalHold for tenant=${data.tenantId}`);
 
@@ -178,9 +152,9 @@ export class MessagingAdminNatsHandler {
   /**
    * Release (deactivate) an existing legal hold.
    */
-  @MessagePattern('request.messaging.admin.releaseLegalHold')
+  @MessagePattern(MESSAGING_ADMIN_PATTERNS.releaseLegalHold)
   async releaseLegalHold(
-    @Payload() data: ReleaseLegalHoldPayload,
+    @Payload() data: ReleaseLegalHoldRequest,
   ): Promise<LegalHold> {
     this.logger.debug(`Admin request: releaseLegalHold holdId=${data.holdId}`);
 
@@ -207,9 +181,9 @@ export class MessagingAdminNatsHandler {
   /**
    * Return all retention policies for a tenant.
    */
-  @MessagePattern('request.messaging.admin.getRetentionPolicies')
+  @MessagePattern(MESSAGING_ADMIN_PATTERNS.getRetentionPolicies)
   async getRetentionPolicies(
-    @Payload() data: GetRetentionPoliciesPayload,
+    @Payload() data: GetRetentionPoliciesRequest,
   ): Promise<RetentionPolicy[]> {
     this.logger.debug(`Admin request: getRetentionPolicies for tenant=${data.tenantId}`);
     return this.queryBus.execute(
@@ -220,9 +194,9 @@ export class MessagingAdminNatsHandler {
   /**
    * Create or update a retention policy.
    */
-  @MessagePattern('request.messaging.admin.updateRetentionPolicy')
+  @MessagePattern(MESSAGING_ADMIN_PATTERNS.updateRetentionPolicy)
   async updateRetentionPolicy(
-    @Payload() data: UpdateRetentionPolicyPayload,
+    @Payload() data: UpdateRetentionPolicyRequest,
   ): Promise<RetentionPolicy> {
     this.logger.debug(
       `Admin request: updateRetentionPolicy tenant=${data.tenantId}, days=${data.retentionDays}`,
@@ -243,9 +217,9 @@ export class MessagingAdminNatsHandler {
   /**
    * Return paginated compliance audit log entries.
    */
-  @MessagePattern('request.messaging.admin.getAuditLog')
+  @MessagePattern(MESSAGING_ADMIN_PATTERNS.getAuditLog)
   async getAuditLog(
-    @Payload() data: GetAuditLogPayload,
+    @Payload() data: GetAuditLogRequest,
   ): Promise<{
     items: unknown[];
     hasMore: boolean;
@@ -260,7 +234,7 @@ export class MessagingAdminNatsHandler {
         Math.min(data.limit, 100),
         data.cursor ?? null,
         data.userId ?? null,
-        data.action ?? null,
+        toComplianceAction(data.action),
         data.resourceType ?? null,
         data.startDate ? new Date(data.startDate) : null,
         data.endDate ? new Date(data.endDate) : null,
@@ -273,9 +247,9 @@ export class MessagingAdminNatsHandler {
   /**
    * Trigger a tenant-wide data export.
    */
-  @MessagePattern('request.messaging.admin.triggerExport')
+  @MessagePattern(MESSAGING_ADMIN_PATTERNS.triggerExport)
   async triggerExport(
-    @Payload() data: TriggerExportPayload,
+    @Payload() data: TriggerExportRequest,
   ): Promise<{
     jobId: string;
     status: string;
@@ -312,9 +286,9 @@ export class MessagingAdminNatsHandler {
   /**
    * Return available AI personas for a tenant.
    */
-  @MessagePattern('request.messaging.admin.getPersonas')
+  @MessagePattern(MESSAGING_ADMIN_PATTERNS.getPersonas)
   async getPersonas(
-    @Payload() data: GetPersonasPayload,
+    @Payload() data: GetPersonasRequest,
   ): Promise<Array<{
     id: string | null;
     name: string;

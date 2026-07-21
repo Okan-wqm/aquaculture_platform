@@ -14,10 +14,13 @@
  * @see ADR-012 Phase 3 (Compliance)
  */
 
-import React, { useState, useCallback } from 'react';
-import { Card, Button, Badge } from '@aquaculture/shared-ui';
+import React, { useState, useCallback, useEffect } from 'react';
+import { Card, Button, Badge, useAuthContext } from '@aquaculture/shared-ui';
 import { useAsyncData } from '../../hooks/useAsyncData';
-import { messagingApi } from '../../services/api/messaging';
+import {
+  messagingApi,
+  LEGAL_HOLD_MIN_RELEASE_REASON_CHARS,
+} from '../../services/api/messaging';
 import type {
   ComplianceStats,
   LegalHold,
@@ -25,6 +28,8 @@ import type {
   RetentionBucket,
   DailyAuditData,
 } from '../../services/api/messaging';
+import { usersApi } from '../../services/api/users';
+import type { User } from '../../services/types';
 
 // ============================================================================
 // Empty-state defaults (used before first API response)
@@ -210,6 +215,15 @@ const MessagingCompliancePage: React.FC = () => {
   const [releaseLoading, setReleaseLoading] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
 
+  // ── Release dialog state (dual-approver, LEGAL-MEDIUM-002 / APA-163) ──
+  const { user: currentUser } = useAuthContext();
+  const [releaseTarget, setReleaseTarget] = useState<LegalHold | null>(null);
+  const [approverId, setApproverId] = useState<string>('');
+  const [releaseReason, setReleaseReason] = useState<string>('');
+  const [approvers, setApprovers] = useState<User[]>([]);
+  const [approversLoading, setApproversLoading] = useState<boolean>(false);
+  const [approversError, setApproversError] = useState<string | null>(null);
+
   // ── Compliance Stats ──
   const statsQuery = useAsyncData<ComplianceStats>(
     () => messagingApi.getComplianceStats(),
@@ -247,21 +261,95 @@ const MessagingCompliancePage: React.FC = () => {
     await Promise.all([statsQuery.refresh(), holdsQuery.refresh()]);
   }, [statsQuery, holdsQuery]);
 
-  /** Release an active legal hold via DELETE endpoint, then refresh. */
-  const handleReleaseLegalHold = useCallback(async (holdId: string, tenantId: string): Promise<void> => {
-    setReleaseLoading(holdId);
+  /** Open the dual-approver release dialog for a specific hold. */
+  const openReleaseDialog = useCallback((hold: LegalHold): void => {
+    setReleaseTarget(hold);
+    setApproverId('');
+    setReleaseReason('');
+    setMutationError(null);
+  }, []);
+
+  /** Close the release dialog and clear its inputs. */
+  const closeReleaseDialog = useCallback((): void => {
+    setReleaseTarget(null);
+    setApproverId('');
+    setReleaseReason('');
+  }, []);
+
+  // Load candidate approvers (active SUPER_ADMINs, excluding the current user
+  // — the dual-approver protocol forbids self-approval) when the dialog opens.
+  useEffect(() => {
+    if (!releaseTarget) {
+      return;
+    }
+    let cancelled = false;
+    setApproversLoading(true);
+    setApproversError(null);
+    usersApi
+      .list({ role: 'SUPER_ADMIN', limit: 100 })
+      .then((res) => {
+        if (cancelled) {
+          return;
+        }
+        setApprovers(
+          res.data.filter((u) => u.isActive && u.id !== currentUser?.id),
+        );
+      })
+      .catch((err: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        setApproversError(
+          err instanceof Error ? err.message : 'Failed to load approvers',
+        );
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setApproversLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [releaseTarget, currentUser?.id]);
+
+  const trimmedReason = releaseReason.trim();
+  const reasonValid =
+    trimmedReason.length >= LEGAL_HOLD_MIN_RELEASE_REASON_CHARS;
+  const releaseValid =
+    releaseTarget !== null && approverId !== '' && reasonValid;
+
+  /** Submit the dual-approver release, then refresh stats + holds. */
+  const submitRelease = useCallback(async (): Promise<void> => {
+    if (releaseTarget === null || approverId === '' || !reasonValid) {
+      return;
+    }
+    setReleaseLoading(releaseTarget.id);
     setMutationError(null);
     try {
-      await messagingApi.releaseLegalHold(holdId, tenantId);
-      // Refresh both stats and holds to reflect the release
+      await messagingApi.releaseLegalHold(
+        releaseTarget.id,
+        releaseTarget.tenantId,
+        { approverId, releaseReason: trimmedReason },
+      );
+      closeReleaseDialog();
       await Promise.all([statsQuery.refresh(), holdsQuery.refresh()]);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to release legal hold';
+      const message =
+        err instanceof Error ? err.message : 'Failed to release legal hold';
       setMutationError(message);
     } finally {
       setReleaseLoading(null);
     }
-  }, [statsQuery, holdsQuery]);
+  }, [
+    releaseTarget,
+    approverId,
+    reasonValid,
+    trimmedReason,
+    statsQuery,
+    holdsQuery,
+    closeReleaseDialog,
+  ]);
 
   const handleDownloadExport = useCallback((exportId: string) => {
     const exportRecord = exports.find((e) => e.id === exportId);
@@ -433,7 +521,7 @@ const MessagingCompliancePage: React.FC = () => {
                       <td className="px-4 py-3 text-right">
                         {hold.isActive && (
                           <button
-                            onClick={() => void handleReleaseLegalHold(hold.id, hold.tenantId)}
+                            onClick={() => openReleaseDialog(hold)}
                             disabled={releaseLoading === hold.id}
                             className="text-xs px-2 py-1 rounded font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
                           >
@@ -514,6 +602,122 @@ const MessagingCompliancePage: React.FC = () => {
           )}
         </div>
       </Card>
+
+      {/* Release Legal Hold dialog (dual-approver, LEGAL-MEDIUM-002 / APA-163) */}
+      {releaseTarget && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto p-4">
+          <Card className="w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Release Legal Hold</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Releasing a hold requires a second, distinct SUPER_ADMIN to
+                  countersign and a justification of at least{' '}
+                  {LEGAL_HOLD_MIN_RELEASE_REASON_CHARS} characters.
+                </p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={closeReleaseDialog}>
+                Close
+              </Button>
+            </div>
+
+            <div className="space-y-2 mb-4 text-sm">
+              <div className="flex justify-between gap-4">
+                <span className="text-gray-500 flex-shrink-0">Scope</span>
+                <span className="text-gray-800 text-right">
+                  {releaseTarget.channelName ?? 'Tenant-wide'}
+                </span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-gray-500 flex-shrink-0">Reason for hold</span>
+                <span className="text-gray-800 text-right truncate">
+                  {releaseTarget.reason}
+                </span>
+              </div>
+            </div>
+
+            {mutationError && (
+              <div className="mb-4">
+                <ErrorBanner message={mutationError} />
+              </div>
+            )}
+
+            {/* Countersigning approver */}
+            <div className="mb-4">
+              <label
+                htmlFor="release-approver"
+                className="block text-sm font-medium text-gray-700 mb-1"
+              >
+                Countersigning approver (second SUPER_ADMIN)
+              </label>
+              <select
+                id="release-approver"
+                value={approverId}
+                onChange={(e) => setApproverId(e.target.value)}
+                disabled={approversLoading}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+              >
+                <option value="">
+                  {approversLoading ? 'Loading approvers...' : 'Select an approver'}
+                </option>
+                {approvers.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.firstName} {a.lastName} ({a.email})
+                  </option>
+                ))}
+              </select>
+              {approversError && (
+                <p className="text-xs text-red-600 mt-1">{approversError}</p>
+              )}
+              {!approversLoading && !approversError && approvers.length === 0 && (
+                <p className="text-xs text-amber-600 mt-1">
+                  No other SUPER_ADMIN is available to countersign. A second
+                  SUPER_ADMIN account is required to release a hold.
+                </p>
+              )}
+            </div>
+
+            {/* Justification */}
+            <div className="mb-4">
+              <label
+                htmlFor="release-reason"
+                className="block text-sm font-medium text-gray-700 mb-1"
+              >
+                Justification
+              </label>
+              <textarea
+                id="release-reason"
+                value={releaseReason}
+                onChange={(e) => setReleaseReason(e.target.value)}
+                rows={4}
+                placeholder="Explain why this legal hold is being released (recorded on the audit trail)..."
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <p
+                className={`text-xs mt-1 ${
+                  reasonValid ? 'text-gray-400' : 'text-amber-600'
+                }`}
+              >
+                {trimmedReason.length}/{LEGAL_HOLD_MIN_RELEASE_REASON_CHARS} characters minimum
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" size="sm" onClick={closeReleaseDialog}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={() => void submitRelease()}
+                disabled={!releaseValid || releaseLoading === releaseTarget.id}
+              >
+                {releaseLoading === releaseTarget.id ? 'Releasing...' : 'Release hold'}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   );
 };

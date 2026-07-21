@@ -1755,6 +1755,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/messaging/__tests__/messaging-admin.controller.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/messaging/dto/release-legal-hold.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/messaging/messaging-admin.controller.ts",
       "prettier_managed": true
     },
@@ -37822,6 +37834,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/rpc/messaging-admin-rpc.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/schema-migration-events.ts",
       "prettier_managed": true
     },
@@ -41814,6 +41832,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/messaging-admin-rpc-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/messaging-e2e-tenant-context.spec.ts",
       "prettier_managed": true
     },
@@ -45383,6 +45407,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/pages/IpAccessRulesPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/messaging/__tests__/MessagingCompliancePage.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -55080,10 +55110,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9029,
+  "file_count": 9034,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8848,
-  "managed_file_list_sha256": "fe3b821ff9ad70e51a15766d55ca348dab3de55b888ccd4c67552a4ef0e4862c",
+  "managed_count": 8853,
+  "managed_file_list_sha256": "1062e9ae1d88a16afd91376c34df082a7bd31ce4173069362a5440da78f530a3",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

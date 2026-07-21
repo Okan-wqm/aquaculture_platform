@@ -16,7 +16,6 @@ import {
   Get,
   Post,
   Put,
-  Delete,
   Param,
   Body,
   Query,
@@ -30,9 +29,14 @@ import {
 import { ClientProxy } from '@nestjs/microservices';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { firstValueFrom, timeout, catchError, throwError } from 'rxjs';
+import {
+  MESSAGING_ADMIN_PATTERNS,
+  type MessagingAdminRpcRequest,
+} from '@platform/event-contracts';
 
 import { ConfigService } from '@nestjs/config';
 import { CurrentUser, CurrentUserData } from '../decorators/current-user.decorator';
+import { ReleaseLegalHoldDto } from './dto/release-legal-hold.dto';
 
 /** Default NATS request timeout when MESSAGING_NATS_TIMEOUT_MS is not configured. */
 const DEFAULT_NATS_TIMEOUT_MS = 15_000;
@@ -133,7 +137,7 @@ export class MessagingAdminController {
     @Query('tenantId') tenantId: string,
   ): Promise<ComplianceStatsResponse> {
     return this.sendNatsRequest<ComplianceStatsResponse>(
-      'request.messaging.admin.complianceStats',
+      MESSAGING_ADMIN_PATTERNS.complianceStats,
       { tenantId },
     );
   }
@@ -150,7 +154,7 @@ export class MessagingAdminController {
     @Query('tenantId') tenantId: string,
   ): Promise<LegalHoldResponse[]> {
     return this.sendNatsRequest<LegalHoldResponse[]>(
-      'request.messaging.admin.getLegalHolds',
+      MESSAGING_ADMIN_PATTERNS.getLegalHolds,
       { tenantId },
     );
   }
@@ -166,7 +170,7 @@ export class MessagingAdminController {
     @CurrentUser() user: CurrentUserData,
   ): Promise<LegalHoldResponse> {
     return this.sendNatsRequest<LegalHoldResponse>(
-      'request.messaging.admin.createLegalHold',
+      MESSAGING_ADMIN_PATTERNS.createLegalHold,
       {
         tenantId: dto.tenantId,
         userId: user.id,
@@ -182,21 +186,31 @@ export class MessagingAdminController {
 
   /**
    * Release (deactivate) an existing legal hold.
+   *
+   * POST (not DELETE) because release is a dual-approver command that carries a
+   * body: the countersigning `approverId` and the ≥50-char `releaseReason`
+   * required by the LEGAL-MEDIUM-002 protocol. A bodyless DELETE structurally
+   * could not carry them, so every release deterministically failed (APA-163).
+   * `ReleaseLegalHoldDto` + the global ValidationPipe reject a bad payload with
+   * a 400 at the edge; the forwarded NATS payload is contract-typed.
+   *
    * @param id - UUID of the legal hold to release
    */
-  @Delete('compliance/legal-holds/:id')
-  @ApiOperation({ summary: 'Release a legal hold' })
+  @Post('compliance/legal-holds/:id/release')
+  @ApiOperation({ summary: 'Release a legal hold (dual-approver)' })
   async releaseLegalHold(
     @Param('id', ParseUUIDPipe) id: string,
-    @Query('tenantId') tenantId: string,
+    @Body() dto: ReleaseLegalHoldDto,
     @CurrentUser() user: CurrentUserData,
   ): Promise<LegalHoldResponse> {
     return this.sendNatsRequest<LegalHoldResponse>(
-      'request.messaging.admin.releaseLegalHold',
+      MESSAGING_ADMIN_PATTERNS.releaseLegalHold,
       {
         holdId: id,
-        tenantId,
+        tenantId: dto.tenantId,
         userId: user.id,
+        approverId: dto.approverId,
+        releaseReason: dto.releaseReason,
       },
     );
   }
@@ -213,7 +227,7 @@ export class MessagingAdminController {
     @Query('tenantId') tenantId: string,
   ): Promise<RetentionPolicyResponse[]> {
     return this.sendNatsRequest<RetentionPolicyResponse[]>(
-      'request.messaging.admin.getRetentionPolicies',
+      MESSAGING_ADMIN_PATTERNS.getRetentionPolicies,
       { tenantId },
     );
   }
@@ -230,7 +244,7 @@ export class MessagingAdminController {
     @CurrentUser() user: CurrentUserData,
   ): Promise<RetentionPolicyResponse> {
     return this.sendNatsRequest<RetentionPolicyResponse>(
-      'request.messaging.admin.updateRetentionPolicy',
+      MESSAGING_ADMIN_PATTERNS.updateRetentionPolicy,
       {
         tenantId: id,
         userId: user.id,
@@ -277,7 +291,7 @@ export class MessagingAdminController {
     @Query('endDate') endDate?: string,
   ): Promise<AuditLogResponse> {
     return this.sendNatsRequest<AuditLogResponse>(
-      'request.messaging.admin.getAuditLog',
+      MESSAGING_ADMIN_PATTERNS.getAuditLog,
       {
         tenantId,
         limit: limit ? parseInt(limit, 10) : 25,
@@ -322,7 +336,7 @@ export class MessagingAdminController {
     @CurrentUser() user: CurrentUserData,
   ): Promise<ExportResponse> {
     return this.sendNatsRequest<ExportResponse>(
-      'request.messaging.admin.triggerExport',
+      MESSAGING_ADMIN_PATTERNS.triggerExport,
       {
         tenantId: id,
         userId: user.id,
@@ -343,7 +357,7 @@ export class MessagingAdminController {
     @Query('tenantId') tenantId: string,
   ): Promise<PersonaResponse[]> {
     return this.sendNatsRequest<PersonaResponse[]>(
-      'request.messaging.admin.getPersonas',
+      MESSAGING_ADMIN_PATTERNS.getPersonas,
       { tenantId },
     );
   }
@@ -370,14 +384,24 @@ export class MessagingAdminController {
   /**
    * Send a request to messaging-service via NATS and return the response.
    *
-   * @param pattern - NATS message pattern (e.g., 'request.messaging.admin.complianceStats')
-   * @param payload - Request payload
+   * The payload is constrained to the shared `MessagingAdminRpcRequest` contract
+   * keyed by `pattern`, so a callsite that omits a required field (e.g. the
+   * dual-approver `approverId` / `releaseReason` on `releaseLegalHold`) is a
+   * COMPILE error, not a click-time retried 502 (APA-163). `P` is inferred from
+   * the pattern argument; `T` (the response) is supplied explicitly per call
+   * until the response side of the contract lands (APA-165/166).
+   *
+   * @param pattern - A `request.messaging.admin.*` subject from `MESSAGING_ADMIN_PATTERNS`
+   * @param payload - Request payload, type-checked against the contract for `pattern`
    * @returns Response from messaging-service
    * @throws HttpException on timeout or NATS errors
    */
-  private async sendNatsRequest<T>(
-    pattern: string,
-    payload: Record<string, unknown>,
+  private async sendNatsRequest<
+    T,
+    P extends keyof MessagingAdminRpcRequest = keyof MessagingAdminRpcRequest,
+  >(
+    pattern: P,
+    payload: MessagingAdminRpcRequest[P],
   ): Promise<T> {
     try {
       const result = await firstValueFrom(

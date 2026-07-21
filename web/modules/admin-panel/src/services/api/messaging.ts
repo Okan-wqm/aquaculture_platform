@@ -58,6 +58,29 @@ export interface CreateLegalHoldInput {
   expiresAt?: string;
 }
 
+/**
+ * Payload for POST /messaging/compliance/legal-holds/:id/release.
+ *
+ * Mirrors admin-api's `ReleaseLegalHoldDto` (the backend-side SSoT). The
+ * dual-approver protocol (LEGAL-MEDIUM-002) requires a second, distinct
+ * SUPER_ADMIN (`approverId`) and a justification (`releaseReason`) ≥ the
+ * shared minimum. Web modules cannot import `@platform/event-contracts`, so
+ * this shape is pinned to the backend contract by the admin-api controller
+ * spec rather than a shared import.
+ */
+export interface ReleaseLegalHoldInput {
+  approverId: string;
+  releaseReason: string;
+}
+
+/**
+ * Minimum release-reason length. Mirrors
+ * `LEGAL_HOLD_MIN_RELEASE_REASON_CHARS` in `@platform/event-contracts`
+ * (backend SSoT); duplicated here only because the module-federation boundary
+ * forbids web modules from importing the contract lib.
+ */
+export const LEGAL_HOLD_MIN_RELEASE_REASON_CHARS = 50;
+
 // ============================================================================
 // Types -- Retention
 // ============================================================================
@@ -202,13 +225,27 @@ export const messagingApi = {
 
   /**
    * Release (deactivate) an existing legal hold.
+   *
+   * POST (not DELETE): release is a dual-approver command with a body — the
+   * countersigning `approverId` and the ≥50-char `releaseReason` required by
+   * the LEGAL-MEDIUM-002 protocol. The pre-fix bodyless DELETE dropped both,
+   * so every release failed at the backend command handler (APA-163).
+   *
    * @param holdId - UUID of the legal hold to release
    * @param tenantId - Tenant that owns the hold
+   * @param input - Dual-approver fields (second SUPER_ADMIN + justification)
    */
-  releaseLegalHold: (holdId: string, tenantId: string): Promise<void> =>
+  releaseLegalHold: (
+    holdId: string,
+    tenantId: string,
+    input: ReleaseLegalHoldInput,
+  ): Promise<void> =>
     apiFetch<void>(
-      `/messaging/compliance/legal-holds/${holdId}?${buildQueryString({ tenantId })}`,
-      { method: 'DELETE' },
+      `/messaging/compliance/legal-holds/${holdId}/release`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ tenantId, ...input }),
+      },
     ),
 
   // ── Retention ──

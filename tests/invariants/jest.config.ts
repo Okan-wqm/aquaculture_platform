@@ -119,6 +119,7 @@ export default {
         '<rootDir>/no-shared-entity-decorators-via-main-barrel.spec.ts',
         '<rootDir>/graphql-enum-valuesmap-metadata.spec.ts',
         '<rootDir>/messaging-schema-ssot.spec.ts',
+        '<rootDir>/messaging-admin-rpc-contract.spec.ts',
         '<rootDir>/messaging-e2e-tenant-context.spec.ts',
         '<rootDir>/web-shared-ui-singleton-imports.spec.ts',
         '<rootDir>/federation-shared-singleton.spec.ts',

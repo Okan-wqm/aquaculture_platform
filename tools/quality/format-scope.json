@@ -1101,6 +1101,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/__tests__/route-declaration-order.architecture.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/__tests__/security/sliding-window.spec.ts",
       "prettier_managed": true
     },
@@ -55176,10 +55182,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9045,
+  "file_count": 9046,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8864,
-  "managed_file_list_sha256": "1d744d8fd73fb2605c9bea92adf9edc2552ef2f0377aac289fb86cf234d6ab1a",
+  "managed_count": 8865,
+  "managed_file_list_sha256": "66b61ff0a287c3fa2fa40b72afefaa87bae5345a9fab03fe96cc1e5d01f5808e",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

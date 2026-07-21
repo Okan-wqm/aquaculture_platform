@@ -97,6 +97,18 @@ export class IpAccessController {
   }
 
   /**
+   * Get statistics
+   *
+   * Declared before the `:id` route — NestJS matches in declaration order, so a
+   * static segment must precede its parameterized sibling, or the id route
+   * swallows the `stats` request (RC-6 route-shadowing, APA-352).
+   */
+  @Get('stats')
+  async getStatistics(@Query('tenantId') tenantId?: string) {
+    return this.ipAccessService.getStatistics(tenantId);
+  }
+
+  /**
    * Get rule by ID
    */
   @Get(':id')
@@ -213,14 +225,6 @@ export class IpAccessController {
   // ============================================================================
   // Statistics & Maintenance
   // ============================================================================
-
-  /**
-   * Get statistics
-   */
-  @Get('stats')
-  async getStatistics(@Query('tenantId') tenantId?: string) {
-    return this.ipAccessService.getStatistics(tenantId);
-  }
 
   /**
    * Cleanup expired rules

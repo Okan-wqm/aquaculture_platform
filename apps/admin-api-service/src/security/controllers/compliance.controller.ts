@@ -235,6 +235,27 @@ export class ComplianceController {
   }
 
   /**
+   * Get data request statistics
+   *
+   * Declared before the `data-requests/:id` route — NestJS matches in
+   * declaration order, so this static segment must precede its parameterized
+   * sibling, or the id route swallows the `stats` request (RC-6
+   * route-shadowing, APA-235).
+   */
+  @Get('data-requests/stats')
+  async getDataRequestStats(
+    @Query('tenantId') tenantId?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return this.complianceService.getDataRequestStats({
+      tenantId,
+      startDate: startDate ? new Date(startDate) : undefined,
+      endDate: endDate ? new Date(endDate) : undefined,
+    });
+  }
+
+  /**
    * Get data request by ID
    */
   @Get('data-requests/:id')
@@ -342,22 +363,6 @@ export class ComplianceController {
   @Get('data-requests/status/overdue')
   async getOverdueRequests(): Promise<DataRequest[]> {
     return this.complianceService.getOverdueRequests();
-  }
-
-  /**
-   * Get data request statistics
-   */
-  @Get('data-requests/stats')
-  async getDataRequestStats(
-    @Query('tenantId') tenantId?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
-    return this.complianceService.getDataRequestStats({
-      tenantId,
-      startDate: startDate ? new Date(startDate) : undefined,
-      endDate: endDate ? new Date(endDate) : undefined,
-    });
   }
 
   // ============================================================================

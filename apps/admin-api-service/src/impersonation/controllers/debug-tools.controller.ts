@@ -659,11 +659,12 @@ export class DebugToolsController {
     return this.debugToolsService.getActiveOverridesForTenant(tenantId);
   }
 
-  @Get('feature-overrides/:id')
-  async getFeatureOverride(@Param('id') id: string) {
-    return this.debugToolsService.getFeatureOverride(id);
-  }
-
+  /**
+   * Declared before the `feature-overrides/:id` route — NestJS matches in
+   * declaration order, so this static segment must precede its parameterized
+   * sibling, or the id route swallows the `value` request (RC-6
+   * route-shadowing, APA-307/APA-313).
+   */
   @Get('feature-overrides/value')
   async getFeatureFlagValue(
     @Query('tenantId') tenantId: string,
@@ -689,6 +690,11 @@ export class DebugToolsController {
       parsed,
     );
     return { value };
+  }
+
+  @Get('feature-overrides/:id')
+  async getFeatureOverride(@Param('id') id: string) {
+    return this.debugToolsService.getFeatureOverride(id);
   }
 
   @Get('feature-overrides')

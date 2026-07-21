@@ -1473,6 +1473,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/database-management/__tests__/database-monitoring.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/database-management/__tests__/migration-management.service.spec.ts",
       "prettier_managed": true
     },
@@ -35764,6 +35770,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/database/__tests__/time-window.operators.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/database/__tests__/typeorm-config.factory.spec.ts",
       "prettier_managed": true
     },
@@ -36395,6 +36407,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/database/tenant-transaction.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/time-window.operators.ts",
       "prettier_managed": true
     },
     {
@@ -42373,6 +42391,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/tier-enum-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/time-window-operator-usage.spec.ts",
       "prettier_managed": true
     },
     {
@@ -55182,10 +55206,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9046,
+  "file_count": 9050,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8865,
-  "managed_file_list_sha256": "66b61ff0a287c3fa2fa40b72afefaa87bae5345a9fab03fe96cc1e5d01f5808e",
+  "managed_count": 8869,
+  "managed_file_list_sha256": "66e9151d6bd6e7f2bead6e369025413f447fe4c94a1ad1662764eaa88744384e",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

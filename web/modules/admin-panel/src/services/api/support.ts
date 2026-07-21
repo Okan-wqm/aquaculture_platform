@@ -6,43 +6,28 @@ import { apiFetch, buildQueryString } from '../http-client';
 import type {
   PaginatedResult,
   PaginationParams,
-  MessageThread,
-  SupportMessage,
   OnboardingStep,
   TenantOnboarding,
 } from '../types';
 
-// APA-213: the REST ticket functions (getTickets/getTicket/createTicket/
+// APA-213 (tickets): the REST ticket functions (getTickets/getTicket/createTicket/
 // updateTicket/assignTicket/getTicketStats/getTicketTeam/getTicketComments/
 // addTicketComment/updateTicketStatus/updateTicketPriority/…) have been removed.
 // Support tickets are owned by auth-service (auth.support_tickets /
 // auth.ticket_comments) and served via GraphQL; the admin-panel now reads/writes
 // tickets exclusively through the auth-service hooks in ../../hooks/useTickets.
 // Any lingering supportApi ticket import is now a compile error by design.
+//
+// APA-213 (messaging): the REST messaging functions (getMessageThreads/getThread/
+// getThreadMessages/createThread/sendSupportMessage/markAsRead/archiveThread/
+// closeThread/reopenThread/sendBulkMessage/getUnreadCount/getMessagingStats) have
+// likewise been removed. Support messaging is owned by auth-service
+// (auth.message_threads / auth.messages) and served via GraphQL; the admin-panel
+// now reads/writes support threads exclusively through the auth-service hooks in
+// ../../hooks/useMessaging. Any lingering supportApi messaging import is now a
+// compile error by design.
 
 export const supportApi = {
-  // Messaging - Backend: /support/messages
-  getMessageThreads: (params?: { tenantId?: string; status?: string } & PaginationParams) =>
-    apiFetch<PaginatedResult<MessageThread>>(`/support/messages/threads?${buildQueryString(params || {})}`),
-  getThread: (threadId: string) => apiFetch<MessageThread>(`/support/messages/threads/${threadId}`),
-  getThreadMessages: (threadId: string) => apiFetch<SupportMessage[]>(`/support/messages/threads/${threadId}/messages`),
-  createThread: (data: { tenantId: string; subject: string; content: string; senderName: string }) =>
-    apiFetch<MessageThread>('/support/messages/threads', { method: 'POST', body: JSON.stringify(data) }),
-  sendSupportMessage: (threadId: string, data: { content: string; senderName: string }) =>
-    apiFetch<SupportMessage>(`/support/messages/threads/${threadId}/messages`, { method: 'POST', body: JSON.stringify(data) }),
-  markAsRead: (threadId: string) =>
-    apiFetch<void>(`/support/messages/threads/${threadId}/read`, { method: 'POST' }),
-  archiveThread: (threadId: string) =>
-    apiFetch<void>(`/support/messages/threads/${threadId}/archive`, { method: 'POST' }),
-  closeThread: (threadId: string) =>
-    apiFetch<void>(`/support/messages/threads/${threadId}/close`, { method: 'POST' }),
-  reopenThread: (threadId: string) =>
-    apiFetch<void>(`/support/messages/threads/${threadId}/reopen`, { method: 'POST' }),
-  sendBulkMessage: (data: { subject: string; content: string; tenantIds?: string[]; sendEmail: boolean }) =>
-    apiFetch<void>('/support/messages/bulk', { method: 'POST', body: JSON.stringify(data) }),
-  getUnreadCount: () => apiFetch<{ unreadCount: number }>('/support/messages/unread-count'),
-  getMessagingStats: () => apiFetch<Record<string, unknown>>('/support/messages/stats'),
-
   // Announcements — APA-201: consolidated onto the auth.announcements SSoT.
   // The admin-panel now reads/writes announcements exclusively through the
   // auth-service GraphQL hooks in ../../hooks/useAnnouncements. The legacy REST

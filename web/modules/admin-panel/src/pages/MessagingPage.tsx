@@ -3,9 +3,14 @@
  *
  * Admin-tenant mesajlaşma sistemi - direct messaging, bulk messaging.
  * Thread management, attachment support, read receipts.
+ *
+ * APA-213 (messaging slice): reads/writes support messaging exclusively through
+ * the auth-service GraphQL lane (auth.message_threads / auth.messages SSoT) via
+ * the useMessaging hooks. The legacy REST supportApi messaging functions are
+ * removed.
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   MessageSquare,
   Send,
@@ -15,7 +20,6 @@ import {
   X,
   MoreVertical,
   Paperclip,
-  Clock,
   CheckCheck,
   AlertCircle,
   Plus,
@@ -23,46 +27,39 @@ import {
   Loader2,
   Inbox,
 } from 'lucide-react';
+
 import {
-  supportApi,
-  type MessageThread,
-  type SupportMessage,
-  type SupportMessageAttachment,
-} from '../services/adminApi';
-
-// ============================================================================
-// Types
-// ============================================================================
-
-// Adapting MessageThread to have computed properties used in UI
-interface ThreadSummary extends Omit<MessageThread, 'lastMessage' | 'lastMessageAt'> {
-  lastMessage: string;
-  lastMessageAt: string;
-  unreadCount: number;
-  isClosed: boolean;
-}
-
-interface MessagingStats {
-  totalThreads: number;
-  activeThreads: number;
-  closedThreads: number;
-  totalMessages: number;
-  unreadMessages: number;
-  avgResponseTimeMinutes: number;
-}
+  useAdminThreads,
+  useAdminThreadMessages,
+  useMessagingStats,
+  useCreateThread,
+  useSendMessage,
+  useCloseThread,
+  useReopenThread,
+  useArchiveThread,
+  useSendBulkMessage,
+} from '../hooks/useMessaging';
 
 // ============================================================================
 // Component
 // ============================================================================
 
 export const MessagingPage: React.FC = () => {
-  const [threads, setThreads] = useState<ThreadSummary[]>([]);
-  const [stats, setStats] = useState<MessagingStats | null>(null);
-  const [selectedThread, setSelectedThread] = useState<ThreadSummary | null>(null);
-  const [messages, setMessages] = useState<SupportMessage[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [messagesLoading, setMessagesLoading] = useState(false);
+  const {
+    data: threadsData,
+    isLoading: loading,
+    error,
+    refetch: refetchThreads,
+  } = useAdminThreads();
+  const { data: stats, refetch: refetchStats } = useMessagingStats();
+
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const {
+    data: messagesData,
+    isLoading: messagesLoading,
+    refetch: refetchMessages,
+  } = useAdminThreadMessages(selectedThreadId);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'closed'>('all');
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
@@ -72,85 +69,61 @@ export const MessagingPage: React.FC = () => {
   const [showNewThreadModal, setShowNewThreadModal] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Fetch threads from API
-  const fetchThreads = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  const createThread = useCreateThread();
+  const sendMessage = useSendMessage();
+  const closeThread = useCloseThread();
+  const reopenThread = useReopenThread();
+  const archiveThread = useArchiveThread();
+  const bulkMessage = useSendBulkMessage();
 
-      const params: Record<string, unknown> = { limit: 100 };
-      if (statusFilter !== 'all') params.status = statusFilter;
-      if (showUnreadOnly) params.hasUnread = 'true';
+  // useGraphQLQuery recreates its refetch callback on every render. Keep the
+  // latest refetchers in refs so the read-refresh effect depends on stable
+  // primitives instead of the churning callback identity (which would loop).
+  const refetchThreadsRef = useRef(refetchThreads);
+  refetchThreadsRef.current = refetchThreads;
+  const refetchStatsRef = useRef(refetchStats);
+  refetchStatsRef.current = refetchStats;
 
-      const result = await supportApi.getMessageThreads(params);
-      // Map MessageThread to ThreadSummary
-      const mappedThreads: ThreadSummary[] = (result.data || []).map((thread: MessageThread) => ({
-        ...thread,
-        lastMessage: thread.lastMessage || '',
-        lastMessageAt: thread.lastMessageAt || '',
-        unreadCount: thread.unreadCountAdmin || 0,
-        isClosed: thread.status === 'closed',
-      }));
-      setThreads(mappedThreads);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-      setThreads([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter, showUnreadOnly]);
+  const reload = () => {
+    void refetchThreadsRef.current();
+    void refetchStatsRef.current();
+  };
 
-  // Fetch stats from API
-  const fetchStats = useCallback(async () => {
-    try {
-      const data = await supportApi.getMessagingStats();
-      setStats(data as unknown as MessagingStats);
-    } catch (err) {
-      console.error('Failed to fetch stats:', err);
-    }
-  }, []);
+  const threads = threadsData ?? [];
+  const messages = messagesData ?? [];
 
-  // Fetch messages for a thread
-  const fetchMessages = useCallback(async (threadId: string) => {
-    try {
-      setMessagesLoading(true);
-      const data = await supportApi.getThreadMessages(threadId);
-      setMessages(data || []);
+  // Selection resolves from the raw thread list (survives client-side filtering
+  // and reflects status changes after a threads refetch).
+  const selectedThread = selectedThreadId
+    ? threads.find((t) => t.id === selectedThreadId) ?? null
+    : null;
+  const selectedIsClosed = selectedThread?.status === 'closed';
 
-      // Mark as read
-      await supportApi.markAsRead(threadId);
-
-      // Refresh threads to update unread count
-      fetchThreads();
-    } catch (err) {
-      console.error('Failed to fetch messages:', err);
-    } finally {
-      setMessagesLoading(false);
-    }
-  }, [fetchThreads]);
-
+  // A selected thread's incoming messages are marked read server-side by the
+  // supportThreadMessages query; refetch the list once they arrive so the
+  // unread badge clears.
   useEffect(() => {
-    fetchThreads();
-    fetchStats();
-  }, [fetchThreads, fetchStats]);
-
-  useEffect(() => {
-    if (selectedThread) {
-      fetchMessages(selectedThread.id);
+    if (selectedThreadId && messagesData) {
+      void refetchThreadsRef.current();
     }
-  }, [selectedThread, fetchMessages]);
+  }, [selectedThreadId, messagesData]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const filteredThreads = threads.filter(thread => {
+  const filteredThreads = threads.filter((thread) => {
+    // Archived threads are hidden from the panel (mirrors the archive action).
+    if (thread.status === 'archived') return false;
+    if (statusFilter === 'open' && thread.status !== 'open') return false;
+    if (statusFilter === 'closed' && thread.status !== 'closed') return false;
+    if (showUnreadOnly && thread.unreadCount <= 0) return false;
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       return (
         thread.subject.toLowerCase().includes(query) ||
         (thread.tenantName || '').toLowerCase().includes(query) ||
-        thread.lastMessage.toLowerCase().includes(query)
+        (thread.lastMessage ?? '').toLowerCase().includes(query)
       );
     }
     return true;
@@ -160,14 +133,17 @@ export const MessagingPage: React.FC = () => {
     if (!newMessage.trim() || !selectedThread) return;
 
     try {
-      await supportApi.sendSupportMessage(selectedThread.id, {
-        content: newMessage,
-        senderName: 'Admin', // TODO: Use actual admin name
+      await sendMessage.mutate({
+        input: {
+          threadId: selectedThread.id,
+          content: newMessage,
+          isInternal: isInternalNote,
+        },
       });
       setNewMessage('');
       setIsInternalNote(false);
-      fetchMessages(selectedThread.id);
-      fetchThreads();
+      void refetchMessages();
+      reload();
     } catch (err) {
       console.error('Failed to send message:', err);
     }
@@ -175,11 +151,8 @@ export const MessagingPage: React.FC = () => {
 
   const handleCloseThread = async (threadId: string) => {
     try {
-      await supportApi.closeThread(threadId);
-      fetchThreads();
-      if (selectedThread?.id === threadId) {
-        setSelectedThread({ ...selectedThread, isClosed: true });
-      }
+      await closeThread.mutate({ threadId });
+      reload();
     } catch (err) {
       console.error('Failed to close thread:', err);
     }
@@ -187,11 +160,8 @@ export const MessagingPage: React.FC = () => {
 
   const handleReopenThread = async (threadId: string) => {
     try {
-      await supportApi.reopenThread(threadId);
-      fetchThreads();
-      if (selectedThread?.id === threadId) {
-        setSelectedThread({ ...selectedThread, isClosed: false });
-      }
+      await reopenThread.mutate({ threadId });
+      reload();
     } catch (err) {
       console.error('Failed to reopen thread:', err);
     }
@@ -199,11 +169,11 @@ export const MessagingPage: React.FC = () => {
 
   const handleArchiveThread = async (threadId: string) => {
     try {
-      await supportApi.archiveThread(threadId);
-      fetchThreads();
-      if (selectedThread?.id === threadId) {
-        setSelectedThread(null);
+      await archiveThread.mutate({ threadId });
+      if (selectedThreadId === threadId) {
+        setSelectedThreadId(null);
       }
+      reload();
     } catch (err) {
       console.error('Failed to archive thread:', err);
     }
@@ -211,24 +181,31 @@ export const MessagingPage: React.FC = () => {
 
   const handleCreateThread = async (data: { tenantId: string; subject: string; content: string }) => {
     try {
-      await supportApi.createThread({
-        ...data,
-        senderName: 'Admin', // TODO: Use actual admin name
+      await createThread.mutate({
+        input: {
+          subject: data.subject,
+          initialMessage: data.content,
+          tenantId: data.tenantId,
+        },
       });
       setShowNewThreadModal(false);
-      fetchThreads();
-      fetchStats();
+      reload();
     } catch (err) {
       console.error('Failed to create thread:', err);
     }
   };
 
-  const handleBulkMessage = async (data: { subject: string; content: string; tenantIds?: string[]; sendEmail: boolean }) => {
+  const handleBulkMessage = async (data: { subject: string; content: string; sendEmail: boolean }) => {
     try {
-      await supportApi.sendBulkMessage(data);
+      await bulkMessage.mutate({
+        input: {
+          subject: data.subject,
+          content: data.content,
+          sendEmailNotification: data.sendEmail,
+        },
+      });
       setShowBulkModal(false);
-      fetchThreads();
-      fetchStats();
+      reload();
     } catch (err) {
       console.error('Failed to send bulk message:', err);
     }
@@ -263,7 +240,7 @@ export const MessagingPage: React.FC = () => {
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => { fetchThreads(); fetchStats(); }}
+              onClick={reload}
               className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
             >
               <RefreshCw size={18} />
@@ -370,7 +347,7 @@ export const MessagingPage: React.FC = () => {
                 <AlertCircle size={32} className="mb-2" />
                 <p className="text-center">{error}</p>
                 <button
-                  onClick={fetchThreads}
+                  onClick={() => refetchThreads()}
                   className="mt-2 text-sm text-blue-600 hover:text-blue-700"
                 >
                   Retry
@@ -385,9 +362,9 @@ export const MessagingPage: React.FC = () => {
               filteredThreads.map((thread) => (
                 <div
                   key={thread.id}
-                  onClick={() => setSelectedThread(thread)}
+                  onClick={() => setSelectedThreadId(thread.id)}
                   className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${
-                    selectedThread?.id === thread.id ? 'bg-blue-50' : ''
+                    selectedThreadId === thread.id ? 'bg-blue-50' : ''
                   }`}
                 >
                   <div className="flex items-start justify-between">
@@ -413,7 +390,7 @@ export const MessagingPage: React.FC = () => {
                       <span className="text-xs text-gray-500">
                         {thread.lastMessageAt ? formatTime(thread.lastMessageAt) : ''}
                       </span>
-                      {thread.isClosed && (
+                      {thread.status === 'closed' && (
                         <span className="text-xs text-gray-500 mt-1 px-1.5 py-0.5 bg-gray-100 rounded">
                           Closed
                         </span>
@@ -438,7 +415,7 @@ export const MessagingPage: React.FC = () => {
                       <h2 className="text-lg font-semibold text-gray-900">
                         {selectedThread.subject}
                       </h2>
-                      {selectedThread.isClosed && (
+                      {selectedIsClosed && (
                         <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
                           Closed
                         </span>
@@ -449,7 +426,7 @@ export const MessagingPage: React.FC = () => {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    {selectedThread.isClosed ? (
+                    {selectedIsClosed ? (
                       <button
                         onClick={() => handleReopenThread(selectedThread.id)}
                         className="px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-50 rounded-lg"
@@ -570,7 +547,7 @@ export const MessagingPage: React.FC = () => {
               </div>
 
               {/* Message Input */}
-              {!selectedThread.isClosed && (
+              {!selectedIsClosed && (
                 <div className="bg-white border-t border-gray-200 p-4">
                   <div className="flex items-center gap-2 mb-2">
                     <button
@@ -594,7 +571,7 @@ export const MessagingPage: React.FC = () => {
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                            handleSendMessage();
+                            void handleSendMessage();
                           }
                         }}
                       />
@@ -604,7 +581,7 @@ export const MessagingPage: React.FC = () => {
                         <Paperclip size={20} />
                       </button>
                       <button
-                        onClick={handleSendMessage}
+                        onClick={() => void handleSendMessage()}
                         disabled={!newMessage.trim()}
                         className="p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
@@ -655,7 +632,7 @@ export const MessagingPage: React.FC = () => {
 
 interface BulkMessageModalProps {
   onClose: () => void;
-  onSubmit: (data: { subject: string; content: string; tenantIds?: string[]; sendEmail: boolean }) => void;
+  onSubmit: (data: { subject: string; content: string; sendEmail: boolean }) => void;
 }
 
 const BulkMessageModal: React.FC<BulkMessageModalProps> = ({ onClose, onSubmit }) => {

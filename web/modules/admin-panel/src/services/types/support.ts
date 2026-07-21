@@ -14,64 +14,16 @@
 // REST ticket-type import is now a compile error by design.
 
 // ============================================================================
-// Messaging Types
+// Messaging Types — REMOVED (APA-213 messaging slice)
 // ============================================================================
-
-export type MessageSenderType = 'super_admin' | 'tenant_admin' | 'system';
-export type MessageStatus = 'sent' | 'delivered' | 'read';
-export type ThreadStatus = 'open' | 'closed' | 'archived';
-
-export interface SupportMessageAttachment {
-  id: string;
-  filename: string;
-  url: string;
-  size: number;
-  mimeType: string;
-}
-
-/**
- * @deprecated Use {@link SupportMessageAttachment} instead.
- * Kept temporarily for backward compatibility with REST-based code.
- */
-export type MessageAttachment = SupportMessageAttachment;
-
-export interface SupportMessage {
-  id: string;
-  threadId: string;
-  senderId: string;
-  senderType: MessageSenderType;
-  senderName: string;
-  content: string;
-  status: MessageStatus;
-  isInternal: boolean;
-  attachments: SupportMessageAttachment[] | null;
-  readAt: string | null;
-  createdAt: string;
-}
-
-/**
- * @deprecated Use {@link SupportMessage} instead.
- * Kept temporarily for backward compatibility with REST-based code.
- */
-export type Message = SupportMessage;
-
-export interface MessageThread {
-  id: string;
-  tenantId: string;
-  tenantName?: string;
-  subject: string;
-  lastMessage: string | null;
-  lastMessageAt: string | null;
-  lastMessageBy: string | null;
-  status: ThreadStatus;
-  messageCount: number;
-  unreadCountAdmin: number;
-  unreadCountTenant: number;
-  createdBy: string;
-  createdByAdmin: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
+//
+// The REST messaging types (MessageThread, SupportMessage, Message,
+// SupportMessageAttachment, MessageAttachment, MessageSenderType, MessageStatus,
+// ThreadStatus) have been removed. Support messaging is served by the
+// auth-service GraphQL lane; the admin-panel view types live with the hooks
+// (../../hooks/useMessaging → ThreadSummary / MessageItem / MessagingStats /
+// SupportMessageAttachment / ThreadStatus / MessageSenderType / MessageStatus).
+// Any lingering REST messaging-type import is now a compile error by design.
 
 // ============================================================================
 // Announcement Types

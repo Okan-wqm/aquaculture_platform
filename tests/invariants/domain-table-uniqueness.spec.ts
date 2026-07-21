@@ -1,28 +1,43 @@
 /**
  * Platform-wide invariant — domain-table single-owner discipline (APA-213 /
- * ADMIN-CRITICAL-022, the TICKETS silo consolidation).
+ * ADMIN-CRITICAL-022, the support-silo consolidation: TICKETS + MESSAGING).
  *
- * A durable domain table must be declared by exactly ONE `@Entity()` in exactly
- * ONE owning schema across the whole platform. Two services declaring the same
- * table in two different schemas is a WRITE-DUPLICATE silo: one side writes rows
- * the other side (and every reader) never sees. That is precisely the disease
- * APA-201 removed for announcements and APA-213 removes for support tickets —
- * admin-api wrote `admin.support_tickets` / `admin.ticket_comments` over REST
- * while tenants + the real SSoT read `auth.support_tickets` /
- * `auth.ticket_comments` over GraphQL.
+ * A durable PLATFORM-LEVEL domain table must be declared by exactly ONE
+ * `@Entity()` in exactly ONE owning schema across the whole platform. Two
+ * services declaring the same table in two different EXPLICIT schemas is a
+ * WRITE-DUPLICATE silo: one side writes rows the other side (and every reader)
+ * never sees. That is precisely the disease APA-201 removed for announcements
+ * and APA-213 removes for support tickets AND support messaging — admin-api
+ * wrote `admin.support_tickets` / `admin.ticket_comments` /
+ * `admin.message_threads` / `admin.messages` over REST while tenants + the real
+ * SSoT read/write `auth.*` over GraphQL.
  *
  * This spec makes the wrong state fail at CI time: it scans every service's
  * entity files (apps entity.ts sources), extracts each
  * `@Entity('<table>', { schema })` declaration, and asserts the CONSOLIDATED
- * support-domain tables below are each owned by a single schema (auth).
+ * support-domain tables below are each owned by a single EXPLICIT schema (auth).
  *
- * # SCOPE — support-domain tables consolidated by THIS slice ONLY
+ * # SCOPE — support-domain tables consolidated so far
  *
- * `support_tickets` + `ticket_comments`. The support-messaging tables
- * (`message_threads`, `messages`) are a SEPARATE, still-pending slice — they
- * remain duplicated between `admin` and `auth` until that consolidation lands,
- * so they are deliberately NOT asserted here (asserting them would false-fail).
- * When the messaging slice consolidates, add those tables to CONSOLIDATED_TABLES.
+ * `support_tickets` + `ticket_comments` (tickets slice) and `message_threads` +
+ * `messages` (messaging slice). All four are now owned solely by the auth-service
+ * support SSoT.
+ *
+ * # WHY EXPLICIT-SCHEMA ONLY (the `messages` name collision)
+ *
+ * `messages` is ALSO the table name of a completely different domain: the
+ * messaging-service tenant-to-tenant channel messaging entity
+ * (`apps/messaging-service/src/message/entities/message.entity.ts`), declared
+ * `@Entity('messages')` with the schema OMITTED. Per ADR-011 a schema-omitted
+ * entity in a tenant-scoped service is a PER-TENANT table routed into
+ * `tenant_<uuid>` by search_path at runtime — a categorically different kind of
+ * table from a platform-level support table, and one that can never form a
+ * cross-service write-duplicate of it. So the single-owner assertion counts only
+ * declarations that carry an EXPLICIT `schema:` (the platform-level ones); the
+ * tenant-scoped `messages` is correctly excluded. Asserting global name
+ * uniqueness instead would false-fail on that legitimate collision. (Support
+ * tables like `support_tickets` are platform-level and have no schema-omitted
+ * declaration, so the filter leaves their check unchanged.)
  */
 
 import { execSync } from 'node:child_process';
@@ -32,12 +47,14 @@ import { resolve } from 'node:path';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
 /**
- * Domain tables that MUST have exactly one owning schema platform-wide.
+ * Domain tables that MUST have exactly one EXPLICIT-schema owner platform-wide.
  * Their single legitimate owner is the auth-service `support` SSoT.
  */
 const CONSOLIDATED_TABLES: Readonly<Record<string, string>> = {
   support_tickets: 'auth',
   ticket_comments: 'auth',
+  message_threads: 'auth',
+  messages: 'auth',
 };
 
 interface EntityDeclaration {
@@ -144,7 +161,7 @@ function collectDeclarations(): EntityDeclaration[] {
   return declarations;
 }
 
-describe('INVARIANT — domain-table-uniqueness (APA-213 support silo)', () => {
+describe('INVARIANT — domain-table-uniqueness (APA-213 support silo: tickets + messaging)', () => {
   const declarations = collectDeclarations();
 
   it('finds the consolidated support tables in the entity graph', () => {
@@ -154,19 +171,26 @@ describe('INVARIANT — domain-table-uniqueness (APA-213 support silo)', () => {
     }
   });
 
-  it('each consolidated support table is declared in exactly ONE owning schema', () => {
+  it('each consolidated support table is declared in exactly ONE owning (explicit) schema', () => {
     const violations: string[] = [];
 
     for (const [table, expectedSchema] of Object.entries(CONSOLIDATED_TABLES)) {
-      const declsForTable = declarations.filter((d) => d.table === table);
-      const owningSchemas = new Set(declsForTable.map((d) => d.schema ?? '<omitted>'));
+      // Count only EXPLICIT-schema declarations. A schema-omitted declaration is
+      // an ADR-011 per-tenant table (routed into tenant_<uuid> by search_path) —
+      // a different kind of table that can never be a cross-service silo of a
+      // platform-level support table (see the `messages` collision in the header).
+      const declsForTable = declarations.filter(
+        (d): d is EntityDeclaration & { schema: string } =>
+          d.table === table && d.schema !== null,
+      );
+      const owningSchemas = new Set(declsForTable.map((d) => d.schema));
 
       if (owningSchemas.size !== 1) {
         violations.push(
-          `'${table}' is declared in ${owningSchemas.size} schemas ` +
+          `'${table}' is declared in ${owningSchemas.size} explicit schema(s) ` +
             `[${[...owningSchemas].join(', ')}] — a write-duplicate silo:\n` +
             declsForTable
-              .map((d) => `      ${d.file}:${d.line}  @Entity('${d.table}', { schema: '${d.schema ?? '?'}' })`)
+              .map((d) => `      ${d.file}:${d.line}  @Entity('${d.table}', { schema: '${d.schema}' })`)
               .join('\n'),
         );
         continue;

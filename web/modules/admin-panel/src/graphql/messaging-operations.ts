@@ -36,33 +36,6 @@ export const ADMIN_GET_THREADS = `
 `;
 
 /**
- * Fetch a single thread by ID.
- * Resolver: MessagingResolver.thread
- * Returns: MessageThread
- */
-export const ADMIN_GET_THREAD = `
-  query AdminThread($id: ID!) {
-    supportThread(id: $id) {
-      id
-      tenantId
-      tenantName
-      subject
-      lastMessage
-      lastMessageAt
-      lastMessageBy
-      status
-      messageCount
-      unreadCountAdmin
-      unreadCountTenant
-      createdBy
-      createdByAdmin
-      createdAt
-      updatedAt
-    }
-  }
-`;
-
-/**
  * Fetch messages for a thread.
  * Resolver: MessagingResolver.supportThreadMessages
  * Returns: MessageItem[]
@@ -204,6 +177,20 @@ export const ADMIN_ARCHIVE_THREAD = `
       id
       status
       updatedAt
+    }
+  }
+`;
+
+/**
+ * Open a support thread for every active tenant (SuperAdmin only).
+ * Resolver: MessagingResolver.sendBulkSupportMessage
+ * Returns: SupportBulkMessageResult { sent, failed }
+ */
+export const ADMIN_SEND_BULK_MESSAGE = `
+  mutation AdminSendBulkMessage($input: SupportBulkMessageInput!) {
+    sendBulkSupportMessage(input: $input) {
+      sent
+      failed
     }
   }
 `;

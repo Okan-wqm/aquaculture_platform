@@ -141,7 +141,6 @@ describe('admin-api canonical pagination envelope (RC-1 / RC-1b)', () => {
       'apps/admin-api-service/src/billing/services/discount-code.service.ts',
       'apps/admin-api-service/src/security/services/security-monitoring.service.ts',
       'apps/admin-api-service/src/security/services/audit-trail.service.ts',
-      'apps/admin-api-service/src/support/services/ticket.service.ts',
       'apps/admin-api-service/src/database-management/services/backup-restore.service.ts',
       'apps/admin-api-service/src/impersonation/services/debug-session.service.ts',
       'apps/admin-api-service/src/analytics/services/reports.service.ts',

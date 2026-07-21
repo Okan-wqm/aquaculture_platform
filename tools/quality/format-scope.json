@@ -2177,6 +2177,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1801900000000-MigrateSupportMessagingToAuth.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -2549,12 +2555,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/support/controllers/messaging.controller.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/support/controllers/onboarding.controller.ts",
       "prettier_managed": true
     },
@@ -2562,12 +2562,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/support/entities/support.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/support/services/messaging.service.ts",
       "prettier_managed": true
     },
     {
@@ -55098,10 +55092,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9032,
+  "file_count": 9031,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8851,
-  "managed_file_list_sha256": "333a9f6d412a024776da4ca6ee1fa9a4c1b8310ab103c33592df6a869e9fa412",
+  "managed_count": 8850,
+  "managed_file_list_sha256": "1e2a4beedaec4c0b78cc3922466a652dcafc4bc4d53336ce9f7068e950c9e392",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

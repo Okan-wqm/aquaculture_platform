@@ -1,5 +1,5 @@
 import { InputType, Field, ObjectType, ID } from '@nestjs/graphql';
-import { IsNotEmpty, IsString, IsUUID, IsOptional, IsBoolean, MaxLength, IsArray, ArrayMaxSize, IsIn } from 'class-validator';
+import { IsNotEmpty, IsString, IsUUID, IsOptional, IsBoolean, MaxLength } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 import { escapeHtml } from '../../../utils/sanitize';
@@ -59,6 +59,12 @@ export class SendMessageInput {
 /**
  * Input for bulk support message (SuperAdmin only).
  * Renamed to SupportBulkMessageInput to avoid potential Federation conflicts.
+ *
+ * The admin-panel bulk-message form addresses every ACTIVE tenant (its only
+ * mode — the UI never exposed plan/module/region targeting, so the admin
+ * store's target-criteria fields were never driven from the product). This
+ * input therefore carries only what the form collects: subject, content, and
+ * the email-notification flag.
  */
 @InputType('SupportBulkMessageInput')
 export class BulkMessageInput {
@@ -76,18 +82,11 @@ export class BulkMessageInput {
   @Transform(({ value }) => typeof value === 'string' ? escapeHtml(value.trim()) : value)
   content!: string;
 
-  @Field(() => String)
-  @IsIn(['all', 'plan', 'module', 'region', 'custom'], { message: 'Invalid target type' })
-  targetType!: 'all' | 'plan' | 'module' | 'region' | 'custom';
-
-  @Field(() => [String], { nullable: true })
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(100, { message: 'Maximum 100 target values allowed' })
-  @IsString({ each: true })
-  @MaxLength(100, { each: true })
-  targetValues?: string[]; // Plan names, module IDs, etc.
-
+  // Recorded to match the bulk-message form's checkbox. The admin store this
+  // consolidation replaces never dispatched email (its sendBulkMessage carried
+  // only a TODO and no producer), and per APA-213 the auth support-messaging
+  // lane introduces no notification producer — so the flag records intent
+  // without a side effect, exactly as before.
   @Field({ defaultValue: true })
   @IsBoolean()
   sendEmailNotification!: boolean;
@@ -196,4 +195,18 @@ export class MessagingStats {
 
   @Field()
   avgResponseTimeMinutes!: number;
+}
+
+/**
+ * Outcome of a bulk support-message send (SuperAdmin only): how many
+ * per-tenant threads were created and how many failed.
+ * Renamed to SupportBulkMessageResult to avoid potential Federation conflicts.
+ */
+@ObjectType('SupportBulkMessageResult')
+export class BulkMessageResult {
+  @Field()
+  sent!: number;
+
+  @Field()
+  failed!: number;
 }

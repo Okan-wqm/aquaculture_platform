@@ -10,13 +10,15 @@ import { Role } from '@aquaculture/backend-common/decorators';
 import { Repository } from 'typeorm';
 
 import { User } from '../../authentication/entities/user.entity';
-import { Tenant } from '../../tenant/entities/tenant.entity';
+import { Tenant, TenantStatus } from '../../tenant/entities/tenant.entity';
 import {
   CreateThreadInput,
   SendMessageInput,
   ThreadListItem,
   MessageItem,
   MessagingStats,
+  BulkMessageInput,
+  BulkMessageResult,
 } from '../dto/messaging.dto';
 import { MessageThread, ThreadStatus } from '../entities/message-thread.entity';
 import { Message, SenderType, MessageStatus } from '../entities/message.entity';
@@ -334,6 +336,77 @@ export class MessagingService {
     const thread = await this.getThread(userId, threadId);
     thread.status = ThreadStatus.ARCHIVED;
     return this.threadRepository.save(thread);
+  }
+
+  // =========================================================
+  // Bulk Messaging (SuperAdmin only)
+  // =========================================================
+
+  /**
+   * Open a support thread with the given subject/message for EVERY active
+   * tenant. Mirrors the admin-panel bulk-message action (one thread + initial
+   * message per tenant); the SuperAdmin is the sender on each. Returns the
+   * per-tenant send/failure tally.
+   */
+  async sendBulkSupportMessage(
+    userId: string,
+    input: BulkMessageInput,
+  ): Promise<BulkMessageResult> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    if (user.role !== Role.SUPER_ADMIN) {
+      throw new ForbiddenException('Only SuperAdmin can send bulk messages');
+    }
+
+    const activeTenants = await this.tenantRepository.find({
+      where: { status: TenantStatus.ACTIVE },
+    });
+
+    const senderName = user.getDisplayName();
+    let sent = 0;
+    let failed = 0;
+
+    for (const tenant of activeTenants) {
+      try {
+        const thread = this.threadRepository.create({
+          tenantId: tenant.id,
+          subject: input.subject,
+          lastMessage: input.content,
+          lastMessageAt: new Date(),
+          lastMessageBy: userId,
+          status: ThreadStatus.OPEN,
+          messageCount: 1,
+          unreadCountAdmin: 0,
+          unreadCountTenant: 1,
+          createdBy: userId,
+          createdByAdmin: true,
+        });
+        const savedThread = await this.threadRepository.save(thread);
+
+        const message = this.messageRepository.create({
+          threadId: savedThread.id,
+          senderId: userId,
+          senderType: SenderType.SUPER_ADMIN,
+          senderName,
+          content: input.content,
+          status: MessageStatus.SENT,
+          isInternal: false,
+        });
+        await this.messageRepository.save(message);
+        sent++;
+      } catch (err) {
+        const error = err as Error;
+        this.logger.error(
+          `Bulk support message failed for tenant ${tenant.id}: ${error.message}`,
+        );
+        failed++;
+      }
+    }
+
+    this.logger.log(
+      `Bulk support message opened ${sent} thread(s) (${failed} failed) by ${user.email}`,
+    );
+    return { sent, failed };
   }
 
   /**

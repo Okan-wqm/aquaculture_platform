@@ -6,6 +6,8 @@ import {
   ThreadListItem,
   MessageItem,
   MessagingStats,
+  BulkMessageInput,
+  BulkMessageResult,
 } from '../dto/messaging.dto';
 import { MessageThread, ThreadStatus } from '../entities/message-thread.entity';
 import { Message } from '../entities/message.entity';
@@ -137,5 +139,17 @@ export class MessagingResolver {
     @Args('threadId', { type: () => ID }) threadId: string,
   ): Promise<MessageThread> {
     return this.messagingService.archiveThread(userId, threadId);
+  }
+
+  /**
+   * Open a support thread for every active tenant (SuperAdmin only).
+   */
+  @Mutation(() => BulkMessageResult, { name: 'sendBulkSupportMessage' })
+  @SuperAdminOnly()
+  async sendBulkSupportMessage(
+    @CurrentUser('sub') userId: string,
+    @Args('input') input: BulkMessageInput,
+  ): Promise<BulkMessageResult> {
+    return this.messagingService.sendBulkSupportMessage(userId, input);
   }
 }

@@ -853,11 +853,14 @@ describe('Frontend-Backend Contract Validation', () => {
     // Bu, beklenmedik endpoint degisikliklerini yakalar.
     // APA-201: 603 -> 590 after removing the 13 AnnouncementController routes
     // (announcements consolidated onto auth-service GraphQL).
-    // APA-213: 590 -> 569 after removing the 21 TicketController routes
+    // APA-213 (tickets): 590 -> 569 after removing the 21 TicketController routes
     // (support tickets consolidated onto auth-service GraphQL).
+    // APA-213 (messaging): 569 -> 556 after removing the 13 MessagingController
+    // routes (support messaging consolidated onto auth-service GraphQL —
+    // auth.message_threads / auth.messages).
     const count = backendEndpoints.length;
 
-    expect(count).toBe(569);
+    expect(count).toBe(556);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

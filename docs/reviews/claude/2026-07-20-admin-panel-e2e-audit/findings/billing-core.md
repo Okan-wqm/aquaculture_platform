@@ -412,3 +412,11 @@
 - **Root cause:** Not a defect — positive assurance record. Spot-checked and accurate: APP_GUARD wiring via useExisting PlatformAdminGuard + ThrottlerGuard (app.module.ts:278-290), SUPER_ADMIN enforcement in the guard, nginx /api -> /api/v1 rewrite matching globalPrefix + VERSION_NEUTRAL, envelope unwrap in the FE http-client, and the billing-service single-writer NATS path with idempotent Stripe refunds all hold as described.
 - **Fix design:** No change required. Retain the entry in the audit log as the section's positive verification baseline; any future finding that contradicts it must cite which of these controls regressed.
 - **Effort:** S
+
+---
+
+## Finding registry anchors
+
+Registry IDs (`docs/reviews/_registry/findings.jsonl`) tracking findings in this document:
+
+- **ADMIN-MEDIUM-029** — APA-087: GET /billing/payments read filters as raw `@Query` strings and cast `invoiceId`/`tenantId` as `::uuid`, so a non-UUID free-text keystroke raised Postgres 22P02 → 500 and flipped the Payments page to its error state. Fixed by binding the request to a validated `ListPaymentsQueryDto` (`@IsUUID` ids, typed dates/limit) so malformed input is a 400 at the boundary, extending the service `search` to match `invoice_number` (join added to the count query), and repointing the FE free-text box to a debounced `search` via `useFilters` with `invoiceId` demoted to a read-only URL deep-link. Proven by a ValidationPipe DTO spec (`invoiceId=abc` → 400), a service search spec, and a `PaymentsPage` spec (typing a non-UUID never flips to the error state).

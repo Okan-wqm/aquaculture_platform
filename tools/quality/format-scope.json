@@ -1281,6 +1281,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/billing/__tests__/list-payments-query.dto.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/billing/__tests__/payment-management.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/billing/__tests__/pricing-calculator-free-tier.spec.ts",
       "prettier_managed": true
     },
@@ -45412,6 +45424,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/PaymentsPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/__tests__/TenantManagementPage.spec.tsx",
       "prettier_managed": true
     },
@@ -55206,10 +55224,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9050,
+  "file_count": 9053,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8869,
-  "managed_file_list_sha256": "66e9151d6bd6e7f2bead6e369025413f447fe4c94a1ad1662764eaa88744384e",
+  "managed_count": 8872,
+  "managed_file_list_sha256": "0e4cbdcbc883287838b7b076b75ec4f7e50baf05a551654f209cd635c51c01df",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

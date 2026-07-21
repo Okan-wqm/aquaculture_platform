@@ -36,6 +36,7 @@ import {
   CreatePlanDto,
   ExtendTrialDto,
   GenerateDiscountCodeDto,
+  ListPaymentsQueryDto,
   MarkInvoicePaidDto,
   PricingQuoteDto,
   QuickEstimateDto,
@@ -728,28 +729,19 @@ export class BillingController {
   // ============================================================================
 
   @Get('payments')
-  async getPayments(
-    @Query('status') status?: string,
-    @Query('invoiceId') invoiceId?: string,
-    @Query('tenantId') tenantId?: string,
-    @Query('search') search?: string,
-    @Query('dateFrom') dateFrom?: string,
-    @Query('dateTo') dateTo?: string,
-    @Query('limit') limit?: string,
-    @Query('offset') offset?: string,
-  ): Promise<unknown> {
+  async getPayments(@Query() query: ListPaymentsQueryDto): Promise<unknown> {
     const filters: PaymentFilters = {
-      invoiceId,
-      tenantId,
-      search,
-      limit: limit ? parseInt(limit, 10) : undefined,
-      offset: offset ? parseInt(offset, 10) : undefined,
-      dateFrom: dateFrom ? new Date(dateFrom) : undefined,
-      dateTo: dateTo ? new Date(dateTo) : undefined,
+      invoiceId: query.invoiceId,
+      tenantId: query.tenantId,
+      search: query.search,
+      limit: query.limit,
+      offset: query.offset,
+      dateFrom: query.dateFrom ? new Date(query.dateFrom) : undefined,
+      dateTo: query.dateTo ? new Date(query.dateTo) : undefined,
     };
 
-    if (status) {
-      filters.status = status.split(',');
+    if (query.status) {
+      filters.status = query.status.split(',');
     }
 
     return this.paymentService.getPayments(filters);

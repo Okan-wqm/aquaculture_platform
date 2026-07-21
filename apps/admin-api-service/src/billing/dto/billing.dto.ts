@@ -890,3 +890,57 @@ export class RefundPaymentDto {
   @MaxLength(500)
   reason!: string;
 }
+
+/**
+ * Query DTO for GET /billing/payments (APA-087).
+ *
+ * The handler previously read every filter as a raw `@Query('x')` string and
+ * the service interpolated `invoiceId`/`tenantId` as `$n::uuid`, so any
+ * non-UUID value (a partial keystroke, a pasted `INV-…` invoice NUMBER) made
+ * Postgres raise 22P02 and surfaced as a 500. Binding the request to a
+ * validated DTO turns a malformed id into a 400 at the boundary, never a
+ * database error. The operator-facing free-text filter is `search` (matched
+ * against invoice_number/transaction_id/notes in the service); `invoiceId` is
+ * an exact-UUID deep-link only.
+ */
+export class ListPaymentsQueryDto {
+  @IsOptional()
+  @IsUUID('4')
+  invoiceId?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  tenantId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  search?: string;
+
+  /** Comma-separated payment status list (split into a set in the handler). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  status?: string;
+
+  @IsOptional()
+  @IsISO8601()
+  dateFrom?: string;
+
+  @IsOptional()
+  @IsISO8601()
+  dateTo?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number;
+}

@@ -189,10 +189,11 @@ export const billingApi = {
     }),
 
   // Payments
-  getPayments: (params?: { status?: string; invoiceId?: string; limit?: number; offset?: number }) => {
+  getPayments: (params?: { status?: string; invoiceId?: string; search?: string; limit?: number; offset?: number }) => {
     const searchParams = new URLSearchParams();
     if (params?.status) searchParams.append('status', params.status);
     if (params?.invoiceId) searchParams.append('invoiceId', params.invoiceId);
+    if (params?.search) searchParams.append('search', params.search);
     if (params?.limit) searchParams.append('limit', String(params.limit));
     if (params?.offset) searchParams.append('offset', String(params.offset));
     return apiFetch<{ payments: PaymentOverview[]; total: number }>(

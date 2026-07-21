@@ -10,10 +10,29 @@ import {
   PaymentStatus,
   PaymentMethod,
 } from '../services/adminApi';
+import { useSearchParams } from 'react-router-dom';
+
+import { useFilters } from '../hooks';
 
 // ============================================================================
 // Helpers
 // ============================================================================
+
+/**
+ * Payment list filters. `search` is the operator-facing free-text term
+ * (matched against invoice number / transaction id / notes on the backend).
+ * `invoiceId` is intentionally NOT part of this UI state — it is an exact-UUID
+ * deep-link read from the URL only (APA-087), never typed into the search box.
+ */
+interface PaymentListFilters extends Record<string, unknown> {
+  search: string;
+  status: string;
+}
+
+const INITIAL_PAYMENT_FILTERS: PaymentListFilters = {
+  search: '',
+  status: 'all',
+};
 
 const formatCurrency = (amount: number, currency = 'USD'): string => {
   return new Intl.NumberFormat('en-US', {
@@ -84,9 +103,18 @@ const PaymentsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Filters
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [invoiceIdFilter, setInvoiceIdFilter] = useState('');
+  // Filters — search is debounced so a per-keystroke free-text term does not
+  // fire a request (and can never be interpolated as a raw ::uuid) each stroke.
+  const { filters, debouncedFilters, setFilter } = useFilters<PaymentListFilters>({
+    initialFilters: INITIAL_PAYMENT_FILTERS,
+    debounceKeys: ['search'],
+  });
+
+  // invoiceId is a read-only exact-UUID deep-link (e.g. arriving from an
+  // invoice page link); it is validated by the backend DTO and never sourced
+  // from the free-text box.
+  const [searchParams] = useSearchParams();
+  const deepLinkInvoiceId = searchParams.get('invoiceId') ?? undefined;
 
   // Toast
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -129,8 +157,9 @@ const PaymentsPage: React.FC = () => {
       setError(null);
 
       const data = await billingApi.getPayments({
-        status: statusFilter !== 'all' ? statusFilter : undefined,
-        invoiceId: invoiceIdFilter || undefined,
+        status: debouncedFilters.status !== 'all' ? debouncedFilters.status : undefined,
+        search: debouncedFilters.search || undefined,
+        invoiceId: deepLinkInvoiceId,
         limit: 50,
       });
 
@@ -148,7 +177,7 @@ const PaymentsPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, invoiceIdFilter]);
+  }, [debouncedFilters, deepLinkInvoiceId]);
 
   useEffect(() => {
     fetchPayments();
@@ -333,9 +362,9 @@ const PaymentsPage: React.FC = () => {
             <div className="relative">
               <input
                 type="text"
-                placeholder="Filter by invoice ID..."
-                value={invoiceIdFilter}
-                onChange={(e) => setInvoiceIdFilter(e.target.value)}
+                placeholder="Search by invoice #, transaction, or notes..."
+                value={filters.search}
+                onChange={(e) => setFilter('search', e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               />
               <svg
@@ -352,9 +381,9 @@ const PaymentsPage: React.FC = () => {
             {['all', 'succeeded', 'pending', 'failed', 'refunded'].map((status) => (
               <button
                 key={status}
-                onClick={() => setStatusFilter(status)}
+                onClick={() => setFilter('status', status)}
                 className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors capitalize ${
-                  statusFilter === status
+                  filters.status === status
                     ? 'bg-blue-100 text-blue-700'
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}

@@ -127,7 +127,12 @@ export class PaymentManagementService {
     }
 
     if (filters.search) {
-      conditions.push(`(p.transaction_id ILIKE $${paramIndex} OR p.notes ILIKE $${paramIndex})`);
+      // Operator-facing free-text: match the human-readable invoice NUMBER
+      // (via the invoices join) as well as transaction id / notes, so typing an
+      // `INV-…` value or a partial string returns rows instead of erroring.
+      conditions.push(
+        `(p.transaction_id ILIKE $${paramIndex} OR p.notes ILIKE $${paramIndex} OR i.invoice_number ILIKE $${paramIndex})`,
+      );
       params.push(`%${filters.search}%`);
       paramIndex++;
     }
@@ -148,7 +153,11 @@ export class PaymentManagementService {
     const limit = filters.limit || 50;
     const offset = filters.offset || 0;
 
-    const countQuery = `SELECT COUNT(*) as count FROM billing.payments p ${whereClause}`;
+    // The invoices join must be present on the count query too, so a
+    // search that matches i.invoice_number filters the total consistently
+    // with the page query below (each payment has 0-or-1 invoice, so the
+    // LEFT JOIN never changes the payment row count).
+    const countQuery = `SELECT COUNT(*) as count FROM billing.payments p LEFT JOIN billing.invoices i ON i.id = p.invoice_id ${whereClause}`;
     const countResult = await this.dataSource.query<CountRow[]>(countQuery, params);
     const total = dbNumber(countResult[0]?.count);
 

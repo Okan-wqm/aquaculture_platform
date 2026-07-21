@@ -25,6 +25,7 @@ import {
   ReleaseStatus,
   ChangelogEntry,
 } from '../entities/system-version.entity';
+import { ProvisioningConfigDto } from '../dto/provisioning-config.dto';
 
 // ============================================================================
 // Interfaces
@@ -899,7 +900,7 @@ export class GlobalSettingsService implements OnModuleInit {
    * Update provisioning configuration
    */
   updateProvisioningConfig(
-    updates: Record<string, string>,
+    updates: ProvisioningConfigDto,
     updatedBy: string,
   ): never {
     void updates;

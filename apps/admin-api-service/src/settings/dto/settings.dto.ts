@@ -133,3 +133,49 @@ export class ImportSettingsDto {
   @IsObject()
   data!: Record<string, unknown>;
 }
+
+// ============================================================================
+// System Setting Update
+// ============================================================================
+
+/**
+ * Body for `PUT /settings/key/:key`. A class (not a service interface) so the
+ * global ValidationPipe engages on this body (APA-364). `updatedBy` is sourced
+ * from the JWT in the controller; it is whitelisted here only so a stray client
+ * value is dropped rather than triggering forbidNonWhitelisted before the
+ * controller overrides it.
+ */
+export class UpdateSystemSettingDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(10000)
+  value?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  displayName?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isPublic?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  requiresRestart?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  sortOrder?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  updatedBy?: string;
+}

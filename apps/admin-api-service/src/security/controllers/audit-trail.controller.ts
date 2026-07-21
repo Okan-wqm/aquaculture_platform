@@ -26,7 +26,14 @@ import { Request, Response } from 'express';
 import { AuditLog, AuditSeverity as ImmutableAuditSeverity } from '../../audit/audit.entity';
 import { AuditLogFilter, AuditLogService, PaginatedAuditLogs } from '../../audit/audit.service';
 import { getAuthUser } from '../../shared/authenticated-request';
-import { ActivityCategory, ActivitySeverity, RetentionPolicyEntity, ComplianceType } from '../entities/security.entity';
+import {
+  ActivityCategory,
+  ActivitySeverity,
+  RetentionPolicyEntity,
+  ComplianceType,
+  ACTIVITY_LOG_SORTABLE_COLUMNS,
+  ActivityLogSortColumn,
+} from '../entities/security.entity';
 import {
   AuditTrailService,
   AuditExportOptions,
@@ -38,7 +45,7 @@ import {
 // DTOs
 // ============================================================================
 
-class QueryAuditTrailDto {
+export class QueryAuditTrailDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
@@ -126,9 +133,11 @@ class QueryAuditTrailDto {
   @IsBoolean()
   includeArchived?: boolean;
 
+  // SECURITY (APA-249): sortBy is interpolated raw into ORDER BY downstream, so
+  // it is constrained to the same column allowlist as the activity-log query.
   @IsOptional()
-  @IsString()
-  sortBy?: string;
+  @IsIn(ACTIVITY_LOG_SORTABLE_COLUMNS)
+  sortBy?: ActivityLogSortColumn;
 
   @IsOptional()
   @IsIn(['ASC', 'DESC'])

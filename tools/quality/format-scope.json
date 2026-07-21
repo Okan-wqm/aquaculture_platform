@@ -1077,6 +1077,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/__tests__/controller-dto-validation.architecture.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/__tests__/dto-validation-engages.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/__tests__/security/sliding-window.spec.ts",
       "prettier_managed": true
     },
@@ -1761,7 +1773,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/messaging/dto/create-legal-hold.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/messaging/dto/release-legal-hold.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/messaging/dto/trigger-export.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/messaging/dto/update-retention-policy.dto.ts",
       "prettier_managed": true
     },
     {
@@ -2195,6 +2225,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/modules/dto/module.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/modules.controller.ts",
       "prettier_managed": true
     },
@@ -2423,6 +2459,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/settings/dto/ip-access-rule.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/settings/dto/settings.dto.ts",
       "prettier_managed": true
     },
@@ -2616,6 +2658,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/system-management/controllers/performance.controller.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/dto/provisioning-config.dto.ts",
       "prettier_managed": true
     },
     {
@@ -55092,10 +55140,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9031,
+  "file_count": 9039,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8850,
-  "managed_file_list_sha256": "1e2a4beedaec4c0b78cc3922466a652dcafc4bc4d53336ce9f7068e950c9e392",
+  "managed_count": 8858,
+  "managed_file_list_sha256": "e0486c239b4ee433eb57e9c39764c7c7c0b1f4f610ca2a89c54ddf791a237c71",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

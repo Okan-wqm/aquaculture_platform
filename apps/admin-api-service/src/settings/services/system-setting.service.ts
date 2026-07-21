@@ -6,6 +6,10 @@ import {
   SettingValueType,
 } from '../entities/system-setting.entity';
 
+// UpdateSystemSettingDto is a class-validator class in ../dto/settings.dto so the
+// global ValidationPipe engages on PUT /settings/key/:key (APA-364).
+import { UpdateSystemSettingDto } from '../dto/settings.dto';
+
 export interface CreateSystemSettingDto {
   key: string;
   value: string;
@@ -19,16 +23,6 @@ export interface CreateSystemSettingDto {
   defaultValue?: string;
   validationRule?: string;
   sortOrder?: number;
-}
-
-export interface UpdateSystemSettingDto {
-  value?: string;
-  description?: string;
-  displayName?: string;
-  isPublic?: boolean;
-  requiresRestart?: boolean;
-  sortOrder?: number;
-  updatedBy?: string;
 }
 
 export interface SystemSettingResponse {

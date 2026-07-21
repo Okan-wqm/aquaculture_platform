@@ -10,25 +10,16 @@ import { Repository, LessThan, IsNull } from 'typeorm';
 
 import { IpAccessRule } from '../entities/system-setting.entity';
 
+// DTO classes (class-validator) live in ../dto/ip-access-rule.dto so the global
+// ValidationPipe engages on these request bodies (APA-355/364).
+import {
+  CreateIpAccessRuleDto,
+  UpdateIpAccessRuleDto,
+} from '../dto/ip-access-rule.dto';
+
 // ============================================================================
 // DTOs
 // ============================================================================
-
-export interface CreateIpAccessRuleDto {
-  tenantId?: string;
-  ipAddress: string;
-  ruleType: 'whitelist' | 'blacklist';
-  description?: string;
-  expiresAt?: Date;
-  createdBy?: string;
-}
-
-export interface UpdateIpAccessRuleDto {
-  ipAddress?: string;
-  description?: string;
-  isActive?: boolean;
-  expiresAt?: Date | null;
-}
 
 export interface IpAccessRuleResponse {
   id: string;

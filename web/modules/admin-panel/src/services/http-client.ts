@@ -172,13 +172,36 @@ const mergeHeadersWithReservedPolicy = (
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
 
+/**
+ * Normalize the backend error `message` into a single displayable string.
+ *
+ * The platform ValidationPipe (whitelist + forbidNonWhitelisted) throws a
+ * BadRequestException whose response `message` is a STRING ARRAY of field-level
+ * constraint violations, which GlobalExceptionFilter passes through verbatim.
+ * The previous parser only accepted a string, so every DTO-validation 400 was
+ * flattened to a generic "HTTP 400" and the operator never saw which field was
+ * rejected (APA-258). Joining the array surfaces those field messages.
+ */
+const normalizeErrorMessage = (raw: unknown): string | undefined => {
+  if (typeof raw === 'string') {
+    return raw;
+  }
+  if (Array.isArray(raw)) {
+    const parts = raw.filter((entry): entry is string => typeof entry === 'string');
+    if (parts.length > 0) {
+      return parts.join('; ');
+    }
+  }
+  return undefined;
+};
+
 const parseApiErrorBody = (value: unknown): ApiErrorBody => {
   if (!isRecord(value)) {
     return { message: 'API Error' };
   }
 
   return {
-    message: typeof value.message === 'string' ? value.message : undefined,
+    message: normalizeErrorMessage(value.message),
     code: typeof value.code === 'string' ? value.code : undefined,
     details: isRecord(value.details) ? value.details : undefined,
   };

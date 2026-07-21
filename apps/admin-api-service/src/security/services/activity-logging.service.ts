@@ -20,6 +20,9 @@ import {
   LoginAttempt,
   ApiUsageLog,
   UserSession,
+  ACTIVITY_LOG_SORTABLE_COLUMNS,
+  ActivityLogSortColumn,
+  DEFAULT_ACTIVITY_LOG_SORT_COLUMN,
 } from '../entities/security.entity';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
@@ -654,7 +657,15 @@ export class ActivityLoggingService implements OnModuleInit {
       qb.andWhere('activity.tags && ARRAY[:...tags]', { tags });
     }
 
-    qb.orderBy(`activity.${sortBy}`, sortOrder);
+    // Defense in depth (APA-220): the DTO already constrains sortBy to
+    // ACTIVITY_LOG_SORTABLE_COLUMNS, but this raw ORDER BY interpolation is a
+    // SQL surface, so re-clamp to the allowlist for any non-DTO caller.
+    const safeSortBy: ActivityLogSortColumn = (
+      ACTIVITY_LOG_SORTABLE_COLUMNS as readonly string[]
+    ).includes(sortBy)
+      ? (sortBy as ActivityLogSortColumn)
+      : DEFAULT_ACTIVITY_LOG_SORT_COLUMN;
+    qb.orderBy(`activity.${safeSortBy}`, sortOrder);
     qb.skip((page - 1) * limit);
     qb.take(limit);
 

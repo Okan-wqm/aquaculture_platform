@@ -34,6 +34,22 @@ export { emailTemplatesApi } from './email-templates';
 import { tenantConfigApi } from './tenant-config';
 import { emailTemplatesApi } from './email-templates';
 
+/**
+ * Edge-agent provisioning configuration. camelCase mirrors the admin-api
+ * ProvisioningConfigDto / GET response exactly (APA-045) — no dotted snake_case
+ * remap, no unsafe double-cast on the write path.
+ */
+export interface ProvisioningConfigResponse {
+  provisioningApiUrl: string;
+  mqttBrokerHost: string;
+  mqttBrokerPort: number;
+  githubReleaseUrl: string;
+  agentDefaultVersion: string;
+  githubRepo: string;
+}
+
+export type ProvisioningConfigPayload = Partial<ProvisioningConfigResponse>;
+
 export const settingsApi = {
   // System settings live in config-service now (ORPHAN-HIGH-373): the legacy
   // admin-api settings stores are retired — their write endpoints return 410
@@ -129,9 +145,9 @@ export const systemSettingsApi = {
 
   // Provisioning Settings
   getProvisioningConfig: () =>
-    apiFetch<Record<string, string>>('/system/settings/provisioning-config'),
-  updateProvisioningConfig: (config: Record<string, string>) =>
-    apiFetch<Record<string, string>>('/system/settings/provisioning-config', { method: 'PUT', body: JSON.stringify(config) }),
+    apiFetch<ProvisioningConfigResponse>('/system/settings/provisioning-config'),
+  updateProvisioningConfig: (config: ProvisioningConfigPayload) =>
+    apiFetch<ProvisioningConfigResponse>('/system/settings/provisioning-config', { method: 'PUT', body: JSON.stringify(config) }),
 
   // Performance Monitoring
   getPerformanceDashboard: (service?: string, timeRange?: { start: string; end: string }) =>

@@ -142,6 +142,33 @@ export interface RetentionPolicy {
 // Activity Log Entity
 // ============================================================================
 
+/**
+ * Allowlist of ActivityLog columns a client may sort by (APA-220 / APA-249).
+ *
+ * TypeORM interpolates the ORDER BY column expression raw (NOT parameterized),
+ * so an unvalidated `sortBy` reaching `qb.orderBy(`activity.${sortBy}`, …)` is a
+ * SQL-injection-shaped surface and 500s on an unknown column. This SSoT is
+ * enforced at the DTO boundary (`@IsIn`) on BOTH the activity-log and audit-trail
+ * query DTOs and re-clamped in both services, so an unvetted column can never
+ * reach the ORDER BY sink from any caller. Values are ActivityLog property names.
+ */
+export const ACTIVITY_LOG_SORTABLE_COLUMNS = [
+  'createdAt',
+  'severity',
+  'category',
+  'action',
+  'userName',
+  'ipAddress',
+  'tenantName',
+  'entityType',
+  'success',
+  'duration',
+] as const;
+
+export type ActivityLogSortColumn = (typeof ACTIVITY_LOG_SORTABLE_COLUMNS)[number];
+
+export const DEFAULT_ACTIVITY_LOG_SORT_COLUMN: ActivityLogSortColumn = 'createdAt';
+
 @Entity('activity_logs', { schema: 'admin' })
 @Index(['tenantId', 'createdAt'])
 @Index(['userId', 'createdAt'])

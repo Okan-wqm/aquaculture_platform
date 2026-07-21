@@ -36,31 +36,13 @@ import {
 
 import { ConfigService } from '@nestjs/config';
 import { CurrentUser, CurrentUserData } from '../decorators/current-user.decorator';
+import { CreateLegalHoldDto } from './dto/create-legal-hold.dto';
 import { ReleaseLegalHoldDto } from './dto/release-legal-hold.dto';
+import { TriggerExportDto } from './dto/trigger-export.dto';
+import { UpdateRetentionPolicyDto } from './dto/update-retention-policy.dto';
 
 /** Default NATS request timeout when MESSAGING_NATS_TIMEOUT_MS is not configured. */
 const DEFAULT_NATS_TIMEOUT_MS = 15_000;
-
-// ── DTO Interfaces ──────────────────────────────────────────────────────
-
-interface CreateLegalHoldDto {
-  tenantId: string;
-  channelId?: string | null;
-  reason: string;
-  legalMatterId: string;
-  legalMatterDescription?: string;
-  requestedBy?: string;
-  expiresAt?: string;
-}
-
-interface UpdateRetentionPolicyDto {
-  channelId?: string | null;
-  retentionDays: number;
-}
-
-interface TriggerExportDto {
-  format?: 'csv' | 'json';
-}
 
 // ── Response Interfaces ────────────────────────────────────────────────
 

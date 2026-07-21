@@ -1,11 +1,16 @@
+import { Type } from 'class-transformer';
 import {
   IsOptional,
   IsBoolean,
+  IsDate,
   IsNumber,
+  IsNotEmpty,
+  IsObject,
   IsString,
   IsArray,
   IsIP,
   IsIn,
+  IsUUID,
   Min,
   Max,
   MaxLength,
@@ -13,6 +18,18 @@ import {
   IsUrl,
   ArrayMaxSize,
 } from 'class-validator';
+
+import {
+  ApiConfig,
+  BrandingConfig,
+  DataRetentionConfig,
+  DomainConfig,
+  FeatureFlagsConfig,
+  StorageConfig,
+  TenantNotificationConfig,
+  TenantSecurityConfig,
+  UserLimitsConfig,
+} from '../entities/tenant-configuration.entity';
 
 // ============================================================================
 // User Limits
@@ -538,4 +555,235 @@ export class UpdateDataRetentionDto {
   @IsOptional()
   @IsBoolean()
   archiveBeforeDelete?: boolean;
+}
+
+// ============================================================================
+// Legacy tenant-configuration CRUD bodies (APA-039)
+//
+// These six were TS interfaces exported from tenant-configuration.service, so
+// the global ValidationPipe (whitelist/forbidNonWhitelisted/transform) skipped
+// them entirely. They are now class-validator classes. The nested per-section
+// configs are validated as objects (their deep shapes are Partial<*Config>);
+// the endpoints themselves are retired GoneException adapters, so this closes
+// the latent validation gap without resurrecting a dead write path.
+// ============================================================================
+
+export class CreateTenantConfigurationDto {
+  @IsUUID('4')
+  tenantId!: string;
+
+  @IsOptional()
+  @IsObject()
+  userLimits?: Partial<UserLimitsConfig>;
+
+  @IsOptional()
+  @IsObject()
+  storageConfig?: Partial<StorageConfig>;
+
+  @IsOptional()
+  @IsObject()
+  apiConfig?: Partial<ApiConfig>;
+
+  @IsOptional()
+  @IsObject()
+  dataRetention?: Partial<DataRetentionConfig>;
+
+  @IsOptional()
+  @IsObject()
+  domainConfig?: Partial<DomainConfig>;
+
+  @IsOptional()
+  @IsObject()
+  brandingConfig?: Partial<BrandingConfig>;
+
+  @IsOptional()
+  @IsObject()
+  securityConfig?: Partial<TenantSecurityConfig>;
+
+  @IsOptional()
+  @IsObject()
+  notificationConfig?: Partial<TenantNotificationConfig>;
+
+  @IsOptional()
+  @IsObject()
+  featureFlags?: Partial<FeatureFlagsConfig>;
+}
+
+export class UpdateTenantConfigurationDto {
+  @IsOptional()
+  @IsObject()
+  userLimits?: Partial<UserLimitsConfig>;
+
+  @IsOptional()
+  @IsObject()
+  storageConfig?: Partial<StorageConfig>;
+
+  @IsOptional()
+  @IsObject()
+  apiConfig?: Partial<ApiConfig>;
+
+  @IsOptional()
+  @IsObject()
+  dataRetention?: Partial<DataRetentionConfig>;
+
+  @IsOptional()
+  @IsObject()
+  domainConfig?: Partial<DomainConfig>;
+
+  @IsOptional()
+  @IsObject()
+  brandingConfig?: Partial<BrandingConfig>;
+
+  @IsOptional()
+  @IsObject()
+  securityConfig?: Partial<TenantSecurityConfig>;
+
+  @IsOptional()
+  @IsObject()
+  notificationConfig?: Partial<TenantNotificationConfig>;
+
+  @IsOptional()
+  @IsObject()
+  featureFlags?: Partial<FeatureFlagsConfig>;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  updatedBy?: string;
+}
+
+export class CreateApiKeyDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  name!: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(100)
+  permissions!: string[];
+
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  expiresAt?: Date;
+}
+
+export class CreateWebhookDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  name!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(2048)
+  url!: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(100)
+  events!: string[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  secret?: string;
+
+  @IsOptional()
+  @IsObject()
+  headers?: Record<string, string>;
+
+  @IsOptional()
+  @IsBoolean()
+  retryEnabled?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(10)
+  retryCount?: number;
+}
+
+export class VerifyDomainDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(253)
+  customDomain!: string;
+}
+
+export class UpdateBrandingDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  logoUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  faviconUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  primaryColor?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  secondaryColor?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  accentColor?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  headerColor?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  fontFamily?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  companyName?: string;
+
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(255)
+  supportEmail?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  supportPhone?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  privacyPolicyUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  termsOfServiceUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100000)
+  customCss?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  loginBackgroundUrl?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  showPoweredBy?: boolean;
 }

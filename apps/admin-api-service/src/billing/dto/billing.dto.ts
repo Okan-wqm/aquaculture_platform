@@ -1,7 +1,13 @@
+import { Type } from 'class-transformer';
 import {
   IsString,
   IsOptional,
   IsArray,
+  IsDate,
+  IsEnum,
+  IsInt,
+  IsISO8601,
+  IsNotEmpty,
   IsNumber,
   IsObject,
   IsUUID,
@@ -12,10 +18,29 @@ import {
   ArrayMaxSize,
 } from 'class-validator';
 
+import type {
+  BillingAdminAddress,
+  BillingAdminCreateInvoiceInput,
+  BillingAdminInvoiceLineItem,
+  BillingAdminTaxInfo,
+} from '@platform/event-contracts';
+
+import {
+  DiscountAppliesTo,
+  DiscountDuration,
+  DiscountType,
+} from '../entities/discount-code.entity';
 import { PricingMetric, TierMultipliers } from '../entities/module-pricing.entity';
-import { PlanTier } from '../entities/plan-definition.entity';
-import { CreateDiscountCodeDto } from '../services/discount-code.service';
+import {
+  BillingCycle,
+  PlanFeatures,
+  PlanLimits,
+  PlanPricing,
+  PlanTier,
+  PlanVisibility,
+} from '../entities/plan-definition.entity';
 import { QuoteRequest } from '../services/pricing-calculator.service';
+import type { ModuleQuantities } from '../services/subscription-types';
 
 // ============================================================================
 // Module Pricing
@@ -239,4 +264,629 @@ export class ResetPasswordByAdminDto {
   @IsString()
   @MaxLength(255)
   newPassword!: string;
+}
+
+// ============================================================================
+// Plan Definitions (APA-102 / APA-103 / APA-128)
+//
+// Client-supplied fields only. createdBy / updatedBy are sourced from the JWT
+// in the controller (spread in after validation), so they are NOT body fields —
+// with forbidNonWhitelisted live, a client-sent createdBy is now rejected 400.
+// ============================================================================
+
+export class CreatePlanDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  code!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  shortDescription?: string;
+
+  @IsEnum(PlanTier)
+  tier!: PlanTier;
+
+  @IsOptional()
+  @IsEnum(PlanVisibility)
+  visibility?: PlanVisibility;
+
+  @IsOptional()
+  @IsBoolean()
+  isRecommended?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  sortOrder?: number;
+
+  @IsObject()
+  limits!: PlanLimits;
+
+  @IsObject()
+  pricing!: PlanPricing;
+
+  @IsObject()
+  features!: PlanFeatures;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  trialDays?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  gracePeriodDays?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  upgradeMessage?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  downgradeWarning?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  icon?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  color?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  badge?: string;
+}
+
+export class UpdatePlanDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  shortDescription?: string;
+
+  @IsOptional()
+  @IsEnum(PlanVisibility)
+  visibility?: PlanVisibility;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isRecommended?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  sortOrder?: number;
+
+  @IsOptional()
+  @IsObject()
+  limits?: Partial<PlanLimits>;
+
+  @IsOptional()
+  @IsObject()
+  pricing?: Partial<PlanPricing>;
+
+  @IsOptional()
+  @IsObject()
+  features?: Partial<PlanFeatures>;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  trialDays?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  gracePeriodDays?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  upgradeMessage?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  downgradeWarning?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  icon?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  color?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  badge?: string;
+}
+
+// ============================================================================
+// Discount Codes (APA-128) — createdBy / updatedBy from JWT, not body
+// ============================================================================
+
+export class CreateDiscountCodeDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  code!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string;
+
+  @IsEnum(DiscountType)
+  discountType!: DiscountType;
+
+  @IsNumber()
+  @Min(0)
+  discountValue!: number;
+
+  @IsOptional()
+  @IsEnum(DiscountAppliesTo)
+  appliesTo?: DiscountAppliesTo;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(1000)
+  applicablePlanIds?: string[];
+
+  @IsOptional()
+  @IsEnum(DiscountDuration)
+  duration?: DiscountDuration;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  durationInMonths?: number;
+
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  validFrom?: Date;
+
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  validUntil?: Date;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  maxRedemptions?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  maxRedemptionsPerTenant?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  minimumOrderAmount?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  campaignId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  campaignName?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isReferralCode?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  referrerId?: string;
+
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
+}
+
+export class UpdateDiscountCodeDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  validFrom?: Date;
+
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  validUntil?: Date;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  maxRedemptions?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  maxRedemptionsPerTenant?: number;
+
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
+}
+
+// ============================================================================
+// Module Pricing (APA-128)
+// ============================================================================
+
+export class SetModulePricingDto {
+  @IsString()
+  @IsNotEmpty()
+  moduleId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  moduleCode!: string;
+
+  @IsArray()
+  pricingMetrics!: PricingMetric[];
+
+  @IsOptional()
+  @IsObject()
+  tierMultipliers?: TierMultipliers;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  currency?: string;
+
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  effectiveFrom?: Date;
+
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  effectiveTo?: Date | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  notes?: string;
+}
+
+// ============================================================================
+// Pricing Calculator (APA-118)
+// ============================================================================
+
+export class PricingQuoteDto {
+  @IsArray()
+  modules!: QuoteRequest['modules'];
+
+  @IsEnum(PlanTier)
+  tier!: PlanTier;
+
+  @IsEnum(BillingCycle)
+  billingCycle!: BillingCycle;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  discountCode?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  taxRate?: number;
+}
+
+// ============================================================================
+// Subscription plan change (APA-094) — changedBy comes from the JWT, not body
+// ============================================================================
+
+export class ChangePlanDto {
+  @IsUUID('4')
+  tenantId!: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  currentPlanId?: string;
+
+  @IsUUID('4')
+  newPlanId!: string;
+
+  @IsOptional()
+  @IsEnum(BillingCycle)
+  newBillingCycle?: BillingCycle;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  discountCode?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  effectiveImmediately?: boolean;
+}
+
+// ============================================================================
+// Custom Plans (APA-118) — createdBy / updatedBy from JWT, not body
+// ============================================================================
+
+export class CreateCustomPlanDto {
+  @IsUUID('4')
+  tenantId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  basePlanId?: string;
+
+  @IsOptional()
+  @IsEnum(PlanTier)
+  tier?: PlanTier;
+
+  @IsOptional()
+  @IsEnum(BillingCycle)
+  billingCycle?: BillingCycle;
+
+  @IsArray()
+  modules!: Array<{
+    moduleId: string;
+    moduleCode: string;
+    moduleName: string;
+    quantities: ModuleQuantities;
+  }>;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  discountPercent?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  discountAmount?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  discountReason?: string;
+
+  @Type(() => Date)
+  @IsDate()
+  validFrom!: Date;
+
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  validTo?: Date;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  notes?: string;
+}
+
+export class UpdateCustomPlanDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string;
+
+  @IsOptional()
+  @IsArray()
+  modules?: Array<{
+    moduleId: string;
+    moduleCode: string;
+    moduleName: string;
+    quantities: ModuleQuantities;
+  }>;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  discountPercent?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  discountAmount?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  discountReason?: string;
+
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  validFrom?: Date;
+
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  validTo?: Date;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  notes?: string;
+}
+
+// ============================================================================
+// Invoices (APA-094)
+// ============================================================================
+
+export class CreateInvoiceDto {
+  @IsUUID('4')
+  tenantId!: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  subscriptionId?: string;
+
+  @IsObject()
+  billingAddress!: BillingAdminAddress;
+
+  @IsArray()
+  lineItems!: BillingAdminInvoiceLineItem[];
+
+  @IsOptional()
+  @IsObject()
+  tax?: BillingAdminTaxInfo;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  discount?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  discountCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  currency?: string;
+
+  @IsISO8601()
+  dueDate!: string;
+
+  @IsISO8601()
+  periodStart!: string;
+
+  @IsISO8601()
+  periodEnd!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  notes?: string;
+}
+
+// ============================================================================
+// Payments (APA-094)
+// ============================================================================
+
+export class RecordPaymentDto {
+  @IsUUID('4')
+  invoiceId!: string;
+
+  @IsNumber()
+  @Min(0)
+  amount!: number;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(50)
+  paymentMethod!: string;
+
+  @IsOptional()
+  @IsISO8601()
+  paymentDate?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  currency?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  notes?: string;
+}
+
+export class RefundPaymentDto {
+  @IsUUID('4')
+  paymentId!: string;
+
+  @IsNumber()
+  @Min(0)
+  amount!: number;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  reason!: string;
 }

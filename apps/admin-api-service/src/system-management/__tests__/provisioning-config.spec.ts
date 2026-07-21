@@ -204,7 +204,7 @@ describe('GlobalSettingsService - Provisioning Config', () => {
     it('throws GoneException — direct global_configs writes are retired', () => {
       expect(() =>
         service.updateProvisioningConfig(
-          { 'provisioning.api_url': 'https://new-api.example.com' },
+          { provisioningApiUrl: 'https://new-api.example.com' },
           'admin-user-1',
         ),
       ).toThrow(GoneException);
@@ -212,7 +212,7 @@ describe('GlobalSettingsService - Provisioning Config', () => {
 
     it('never touches the repository when rejecting a write', () => {
       expect(() =>
-        service.updateProvisioningConfig({ 'provisioning.new_setting': 'new-value' }, 'admin-user-1'),
+        service.updateProvisioningConfig({ mqttBrokerHost: 'new-broker.example.com' }, 'admin-user-1'),
       ).toThrow(GoneException);
 
       // The retired write path must persist through NONE of the service's real

@@ -14,6 +14,11 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
+import {
+  AssignModuleDto,
+  CreateModuleDto,
+  UpdateModuleDto,
+} from './dto/module.dto';
 import { ModulesService, PaginatedModules } from './modules.service';
 
 /**
@@ -21,45 +26,9 @@ import { ModulesService, PaginatedModules } from './modules.service';
  * D14). Per-module prices are managed through the module-pricing catalog
  * (admin.module_pricing via ModulePricingService), never through the
  * auth.modules catalogue surface. The read-side ModuleDto.price is derived
- * from that catalog.
+ * from that catalog. The request DTOs live in ./dto/module.dto.ts as
+ * class-validator classes so the global ValidationPipe actually engages.
  */
-export interface CreateModuleDto {
-  code: string;
-  name: string;
-  description?: string;
-  defaultRoute: string;
-  icon?: string;
-  isCore?: boolean;
-}
-
-export interface UpdateModuleDto {
-  name?: string;
-  description?: string;
-  defaultRoute?: string;
-  icon?: string;
-  isActive?: boolean;
-}
-
-export interface ModuleQuantitiesDto {
-  users?: number;
-  farms?: number;
-  ponds?: number;
-  sensors?: number;
-  devices?: number;
-  storageGb?: number;
-  apiCalls?: number;
-  alerts?: number;
-  reports?: number;
-  integrations?: number;
-}
-
-export interface AssignModuleDto {
-  tenantId: string;
-  moduleId: string;
-  quantities?: ModuleQuantitiesDto;
-  configuration?: Record<string, unknown>;
-  expiresAt?: Date;
-}
 
 @ApiTags('Modules')
 @Controller('modules')

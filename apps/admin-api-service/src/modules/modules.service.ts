@@ -102,7 +102,8 @@ export interface AssignModuleDto {
   moduleId: string;
   quantities?: ModuleQuantities;
   configuration?: Record<string, unknown>;
-  expiresAt?: Date;
+  // ISO-8601 string on the wire; forwarded verbatim to the auth-service command.
+  expiresAt?: string;
   assignedBy?: string;
 }
 
@@ -591,7 +592,7 @@ export class ModulesService {
             moduleId: dto.moduleId,
             quantities: dto.quantities,
             configuration: dto.configuration,
-            expiresAt: dto.expiresAt?.toISOString(),
+            expiresAt: dto.expiresAt,
           },
         ),
         moduleIds: [dto.moduleId],
@@ -599,7 +600,7 @@ export class ModulesService {
           moduleId: dto.moduleId,
           ...(dto.quantities ? { quantities: { ...dto.quantities } } : {}),
           ...(dto.configuration ? { configuration: dto.configuration } : {}),
-          ...(dto.expiresAt ? { expiresAt: dto.expiresAt.toISOString() } : {}),
+          ...(dto.expiresAt ? { expiresAt: dto.expiresAt } : {}),
         }],
         assignedBy,
       });

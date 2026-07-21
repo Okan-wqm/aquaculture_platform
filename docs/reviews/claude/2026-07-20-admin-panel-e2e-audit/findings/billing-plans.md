@@ -674,3 +674,9 @@
   - `web/modules/admin-panel/src/services/api/billing.ts`
   - `e2e/tests/integration/response-envelope-contract.spec.ts`
 - **Effort:** L
+
+## Finding registry anchors
+
+Registry IDs (`docs/reviews/_registry/findings.jsonl`) tracking findings in this document:
+
+- **ADMIN-HIGH-024** — Phase-1 RC-2 systemic class: interface-typed `@Body`/`@Query` params across admin-api (billing, modules, messaging-admin, settings, tenant-config) silently disabled the global ValidationPipe, and an unvalidated `sortBy` was interpolated raw into SQL `ORDER BY`. Converted all 31 flagged whole-object request params to validated DTO classes, hardened `sortBy` against a column allowlist SSoT (`@IsIn` at both DTOs + sink re-clamp), and added the `controller-dto-validation.architecture` gate (no allowlist) that fails on any interface-typed body/query. Closes APA-067/076/094/103/118/128/179/220/249/348/364/355/045/039 (+ the APA-258 FE validation-error-detail fix).

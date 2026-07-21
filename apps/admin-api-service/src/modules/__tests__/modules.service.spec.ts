@@ -693,19 +693,20 @@ describe('ModulesService', () => {
     });
 
     it('should assign module with expiration date', async () => {
-      const expiresAt = new Date('2025-12-31');
+      // expiresAt is an ISO-8601 string on the wire, forwarded verbatim (APA-067).
+      const expiresAt = '2025-12-31T00:00:00.000Z';
       const dtoWithExpiry = { ...assignDto, expiresAt };
-      const mockAssignment = createMockAssignment({ expiresAt });
+      const mockAssignment = createMockAssignment({ expiresAt: new Date(expiresAt) });
       mockDataSource.query
         .mockResolvedValueOnce([]) // checkExtendedColumns
         .mockResolvedValueOnce([mockAssignment]);
 
       const result = await service.assignModuleToTenant(dtoWithExpiry);
 
-      expect(result.expiresAt).toEqual(expiresAt);
+      expect(result.expiresAt).toEqual(new Date(expiresAt));
       expect(mockAuthProvisioningClient.assignTenantModules).toHaveBeenCalledWith(
         expect.objectContaining({
-          modules: [expect.objectContaining({ expiresAt: expiresAt.toISOString() })],
+          modules: [expect.objectContaining({ expiresAt })],
         }),
       );
     });
@@ -860,11 +861,12 @@ describe('ModulesService', () => {
     it('should create assignment with future expiration', async () => {
       const futureDate = new Date();
       futureDate.setFullYear(futureDate.getFullYear() + 1);
+      const futureIso = futureDate.toISOString();
 
       const dto = {
         tenantId: 'tenant-id',
         moduleId: 'module-id',
-        expiresAt: futureDate,
+        expiresAt: futureIso,
       };
       const mockAssignment = createMockAssignment({ expiresAt: futureDate });
       mockDataSource.query

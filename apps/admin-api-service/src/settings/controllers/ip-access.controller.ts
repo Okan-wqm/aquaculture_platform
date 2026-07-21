@@ -20,11 +20,11 @@ import { createStandardPaginatedResult } from '@aquaculture/backend-common/pagin
 
 import { getAuthUserId } from '../../shared/authenticated-request';
 
+import { IpAccessService } from '../services/ip-access.service';
 import {
-  IpAccessService,
   CreateIpAccessRuleDto,
   UpdateIpAccessRuleDto,
-} from '../services/ip-access.service';
+} from '../dto/ip-access-rule.dto';
 
 class CheckIpAccessDto {
   @IsIP()

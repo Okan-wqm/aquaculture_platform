@@ -9,6 +9,10 @@ import React, { useState, useCallback } from 'react';
 import { Card, Button, Input, Alert } from '@aquaculture/shared-ui';
 import { useAsyncData } from '../hooks';
 import { systemSettingsApi } from '../services/adminApi';
+import type {
+  ProvisioningConfigPayload,
+  ProvisioningConfigResponse,
+} from '../services/api/settings';
 
 // ============================================================================
 // Types
@@ -32,8 +36,10 @@ const DEFAULT_CONFIG: ProvisioningConfig = {
   'provisioning.agent_default_version': 'latest',
 };
 
-// Map backend camelCase response to frontend dotted key format
-function mapResponseToConfig(data: any): Partial<ProvisioningConfig> {
+// Map the camelCase backend response into the page's dotted-key form state.
+function mapResponseToConfig(
+  data: ProvisioningConfigResponse,
+): Partial<ProvisioningConfig> {
   return {
     'provisioning.api_url': data.provisioningApiUrl || '',
     'provisioning.mqtt_broker_host': data.mqttBrokerHost || '',
@@ -41,6 +47,19 @@ function mapResponseToConfig(data: any): Partial<ProvisioningConfig> {
     'provisioning.github_release_url': data.githubReleaseUrl || '',
     'provisioning.github_repo': data.githubRepo || '',
     'provisioning.agent_default_version': data.agentDefaultVersion || '',
+  };
+}
+
+// Map the page's dotted-key form state back into the camelCase write contract
+// (ProvisioningConfigDto) — replaces the previous unsafe double cast.
+function mapConfigToPayload(config: ProvisioningConfig): ProvisioningConfigPayload {
+  return {
+    provisioningApiUrl: config['provisioning.api_url'],
+    mqttBrokerHost: config['provisioning.mqtt_broker_host'],
+    mqttBrokerPort: parseInt(config['provisioning.mqtt_broker_port'], 10),
+    githubReleaseUrl: config['provisioning.github_release_url'],
+    githubRepo: config['provisioning.github_repo'],
+    agentDefaultVersion: config['provisioning.agent_default_version'],
   };
 }
 
@@ -93,7 +112,7 @@ const ProvisioningSettingsPage: React.FC = () => {
     setSaving(true);
     setFeedback(null);
     try {
-      await systemSettingsApi.updateProvisioningConfig(config as unknown as Record<string, string>);
+      await systemSettingsApi.updateProvisioningConfig(mapConfigToPayload(config));
       setFeedback({ type: 'success', message: 'Provisioning ayarlari basariyla kaydedildi.' });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Ayarlar kaydedilirken bir hata olustu.';

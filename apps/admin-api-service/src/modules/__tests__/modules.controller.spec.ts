@@ -3,7 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
-import { ModulesController, CreateModuleDto, UpdateModuleDto, AssignModuleDto } from '../modules.controller';
+import { ModulesController } from '../modules.controller';
+import { CreateModuleDto, UpdateModuleDto, AssignModuleDto } from '../dto/module.dto';
 import { ModulesService, ModuleDto, PaginatedModules, ModuleStats, TenantModuleAssignment } from '../modules.service';
 
 // Mock ModulesService
@@ -396,14 +397,16 @@ describe('ModulesController', () => {
     });
 
     it('should assign with expiration date', async () => {
-      const expiresAt = new Date('2025-12-31');
-      const dtoWithExpiry = { ...assignDto, expiresAt };
-      const mockAssignment = createMockAssignment({ expiresAt });
+      // expiresAt is an ISO-8601 string on the wire (AssignModuleDto), forwarded
+      // verbatim to the service — no Date round-trip (APA-067).
+      const expiresAt = '2025-12-31T00:00:00.000Z';
+      const dtoWithExpiry: AssignModuleDto = { ...assignDto, expiresAt };
+      const mockAssignment = createMockAssignment({ expiresAt: new Date(expiresAt) });
       mockModulesService.assignModuleToTenant.mockResolvedValueOnce(mockAssignment);
 
       const result = await controller.assignModuleToTenant(dtoWithExpiry);
 
-      expect(result.expiresAt).toEqual(expiresAt);
+      expect(result).toEqual(mockAssignment);
       expect(service.assignModuleToTenant).toHaveBeenCalledWith(dtoWithExpiry);
     });
   });

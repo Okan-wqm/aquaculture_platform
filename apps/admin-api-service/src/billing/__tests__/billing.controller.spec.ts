@@ -276,22 +276,22 @@ describe('BillingController', () => {
     const validPlanDto = {
       code: 'STARTER',
       name: 'Starter Plan',
-      tier: 'STARTER',
+      tier: 'starter',
       limits: { maxUsers: 5 },
       pricing: { monthly: 29 },
       features: { dashboard: true },
     };
 
-    it('should override createdBy with JWT user.id', async () => {
-      await request(httpServer())
+    it('rejects a body-supplied createdBy (forbidNonWhitelisted) — never reaches the service', async () => {
+      // CreatePlanDto is now a validated class with no `createdBy` field, so a
+      // client-injected value is a 400 at the edge (APA-128), stronger than the
+      // previous silent override.
+      const res = await request(httpServer())
         .post('/billing/plans')
         .send({ ...validPlanDto, createdBy: 'attacker-id' });
 
-      expect(mockPlanService.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          createdBy: authenticatedUser.id,
-        }),
-      );
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockPlanService.create).not.toHaveBeenCalled();
     });
 
     it('should use JWT user.id even when createdBy is not in body', async () => {
@@ -325,17 +325,13 @@ describe('BillingController', () => {
   // ==========================================================================
 
   describe('PUT /billing/plans/:id (updatePlan)', () => {
-    it('should override updatedBy with JWT user.id', async () => {
-      await request(httpServer())
+    it('rejects a body-supplied updatedBy (forbidNonWhitelisted)', async () => {
+      const res = await request(httpServer())
         .put('/billing/plans/plan-1')
         .send({ name: 'Updated Plan', updatedBy: 'attacker-id' });
 
-      expect(mockPlanService.update).toHaveBeenCalledWith(
-        'plan-1',
-        expect.objectContaining({
-          updatedBy: authenticatedUser.id,
-        }),
-      );
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockPlanService.update).not.toHaveBeenCalled();
     });
 
     it('should use JWT user.id even when updatedBy is absent', async () => {
@@ -480,21 +476,27 @@ describe('BillingController', () => {
   // ==========================================================================
 
   describe('POST /billing/discounts (createDiscountCode)', () => {
-    it('should override createdBy with JWT user.id', async () => {
-      await request(httpServer())
+    const validDiscountDto = {
+      code: 'SPRING2026',
+      name: 'Spring Sale',
+      discountType: 'percentage',
+      discountValue: 15,
+    };
+
+    it('rejects a body-supplied createdBy (forbidNonWhitelisted)', async () => {
+      const res = await request(httpServer())
         .post('/billing/discounts')
-        .send({
-          code: 'SPRING2026',
-          name: 'Spring Sale',
-          discountType: 'percentage',
-          discountValue: 15,
-          createdBy: 'attacker-id',
-        });
+        .send({ ...validDiscountDto, createdBy: 'attacker-id' });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockDiscountService.create).not.toHaveBeenCalled();
+    });
+
+    it('sources createdBy from the JWT when absent from the body', async () => {
+      await request(httpServer()).post('/billing/discounts').send(validDiscountDto);
 
       expect(mockDiscountService.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          createdBy: authenticatedUser.id,
-        }),
+        expect.objectContaining({ createdBy: authenticatedUser.id }),
       );
     });
   });
@@ -504,19 +506,23 @@ describe('BillingController', () => {
   // ==========================================================================
 
   describe('PUT /billing/discounts/:id (updateDiscountCode)', () => {
-    it('should override updatedBy with JWT user.id', async () => {
+    it('rejects a body-supplied updatedBy (forbidNonWhitelisted)', async () => {
+      const res = await request(httpServer())
+        .put('/billing/discounts/disc-1')
+        .send({ name: 'Updated Discount', updatedBy: 'attacker-id' });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockDiscountService.update).not.toHaveBeenCalled();
+    });
+
+    it('sources updatedBy from the JWT when absent from the body', async () => {
       await request(httpServer())
         .put('/billing/discounts/disc-1')
-        .send({
-          name: 'Updated Discount',
-          updatedBy: 'attacker-id',
-        });
+        .send({ name: 'Updated Discount' });
 
       expect(mockDiscountService.update).toHaveBeenCalledWith(
         'disc-1',
-        expect.objectContaining({
-          updatedBy: authenticatedUser.id,
-        }),
+        expect.objectContaining({ updatedBy: authenticatedUser.id }),
       );
     });
   });
@@ -553,20 +559,25 @@ describe('BillingController', () => {
   // ==========================================================================
 
   describe('POST /billing/subscriptions/change-plan', () => {
-    it('should override changedBy with JWT user.id', async () => {
+    const tenantId = '11111111-1111-4111-8111-111111111111';
+    const newPlanId = '22222222-2222-4222-8222-222222222222';
+
+    it('rejects a body-supplied changedBy (forbidNonWhitelisted)', async () => {
+      const res = await request(httpServer())
+        .post('/billing/subscriptions/change-plan')
+        .send({ tenantId, newPlanId, changedBy: 'attacker-id' });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockBillingAdminCommands.changeSubscriptionPlan).not.toHaveBeenCalled();
+    });
+
+    it('sources the actor from the JWT and never carries changedBy on the wire', async () => {
       await request(httpServer())
         .post('/billing/subscriptions/change-plan')
-        .send({
-          tenantId: 'tenant-1',
-          newPlanId: 'plan-pro',
-          changedBy: 'attacker-id',
-        });
+        .send({ tenantId, newPlanId });
 
       expect(mockBillingAdminCommands.changeSubscriptionPlan).toHaveBeenCalledWith(
-        expect.objectContaining({
-          tenantId: 'tenant-1',
-          newPlanId: 'plan-pro',
-        }),
+        expect.objectContaining({ tenantId, newPlanId }),
         authenticatedUser.id,
       );
       expect(firstChangePlanRequest()).not.toHaveProperty('changedBy');
@@ -610,14 +621,24 @@ describe('BillingController', () => {
   // ==========================================================================
 
   describe('Custom plan JWT identity overrides', () => {
-    it('POST /billing/custom-plans should use JWT createdBy', async () => {
-      await request(httpServer())
+    const validCustomPlan = {
+      tenantId: '11111111-1111-4111-8111-111111111111',
+      name: 'Enterprise Custom',
+      modules: [],
+      validFrom: '2026-01-01T00:00:00.000Z',
+    };
+
+    it('POST /billing/custom-plans rejects a body-supplied createdBy', async () => {
+      const res = await request(httpServer())
         .post('/billing/custom-plans')
-        .send({
-          tenantId: 'tenant-1',
-          name: 'Enterprise Custom',
-          createdBy: 'attacker-id',
-        });
+        .send({ ...validCustomPlan, createdBy: 'attacker-id' });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockCustomPlanService.createCustomPlan).not.toHaveBeenCalled();
+    });
+
+    it('POST /billing/custom-plans should use JWT createdBy when absent from body', async () => {
+      await request(httpServer()).post('/billing/custom-plans').send(validCustomPlan);
 
       expect(mockCustomPlanService.createCustomPlan).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -626,10 +647,19 @@ describe('BillingController', () => {
       );
     });
 
-    it('PUT /billing/custom-plans/:planId should use JWT updatedBy', async () => {
-      await request(httpServer())
+    it('PUT /billing/custom-plans/:planId rejects a body-supplied updatedBy', async () => {
+      const res = await request(httpServer())
         .put('/billing/custom-plans/cp-1')
         .send({ name: 'Updated Custom', updatedBy: 'attacker' });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockCustomPlanService.updateCustomPlan).not.toHaveBeenCalled();
+    });
+
+    it('PUT /billing/custom-plans/:planId should use JWT updatedBy when absent from body', async () => {
+      await request(httpServer())
+        .put('/billing/custom-plans/cp-1')
+        .send({ name: 'Updated Custom' });
 
       expect(mockCustomPlanService.updateCustomPlan).toHaveBeenCalledWith(
         'cp-1',
@@ -778,7 +808,7 @@ describe('BillingController', () => {
 
       const res = await request(httpServer())
         .post('/billing/discounts')
-        .send({ code: 'DUP', name: 'Dup', discountType: 'fixed', discountValue: 5 });
+        .send({ code: 'DUP', name: 'Dup', discountType: 'fixed_amount', discountValue: 5 });
 
       expect(res.status).toBe(HttpStatus.CONFLICT);
     });

@@ -15,16 +15,14 @@ import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { getAuthUserId } from '../../shared/authenticated-request';
 
+import { TenantConfigurationService } from '../services/tenant-configuration.service';
 import {
-  TenantConfigurationService,
-  CreateTenantConfigurationDto,
-  UpdateTenantConfigurationDto,
   CreateApiKeyDto,
+  CreateTenantConfigurationDto,
   CreateWebhookDto,
-  VerifyDomainDto,
   UpdateBrandingDto,
-} from '../services/tenant-configuration.service';
-import {
+  UpdateTenantConfigurationDto,
+  VerifyDomainDto,
   UpdateUserLimitsDto,
   UpdateStorageConfigDto,
   CheckStorageLimitDto,

@@ -30,10 +30,11 @@ import {
   SetMaintenanceModeDto,
   UpdateBillingConfigDto,
   UpdateEmailConfigDto,
+  UpdateSystemSettingDto,
 } from './dto/settings.dto';
 import { SettingCategory } from './entities/system-setting.entity';
 import { EmailSenderService } from './services/email-sender.service';
-import { SystemSettingService, UpdateSystemSettingDto } from './services/system-setting.service';
+import { SystemSettingService } from './services/system-setting.service';
 
 // ============================================================================
 // DTOs with Validation (Fix: MEDIUM-001)

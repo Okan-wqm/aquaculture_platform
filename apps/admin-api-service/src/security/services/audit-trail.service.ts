@@ -16,6 +16,9 @@ import {
   ActivitySeverity,
   RetentionPolicyEntity,
   ComplianceType,
+  ACTIVITY_LOG_SORTABLE_COLUMNS,
+  ActivityLogSortColumn,
+  DEFAULT_ACTIVITY_LOG_SORT_COLUMN,
 } from '../entities/security.entity';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
@@ -275,8 +278,16 @@ export class AuditTrailService {
       qb.andWhere('log.isArchived = :isArchived', { isArchived: false });
     }
 
-    // Sorting and pagination
-    qb.orderBy(`log.${sortBy}`, sortOrder);
+    // Sorting and pagination.
+    // Defense in depth (APA-249): the DTO already constrains sortBy to
+    // ACTIVITY_LOG_SORTABLE_COLUMNS, but this raw ORDER BY interpolation is a
+    // SQL surface, so re-clamp to the allowlist for any non-DTO caller.
+    const safeSortBy: ActivityLogSortColumn = (
+      ACTIVITY_LOG_SORTABLE_COLUMNS as readonly string[]
+    ).includes(sortBy)
+      ? (sortBy as ActivityLogSortColumn)
+      : DEFAULT_ACTIVITY_LOG_SORT_COLUMN;
+    qb.orderBy(`log.${safeSortBy}`, sortOrder);
     qb.skip((page - 1) * limit);
     qb.take(limit);
 

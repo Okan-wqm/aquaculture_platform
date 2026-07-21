@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -30,6 +29,7 @@ import {
   MaintenanceType,
 } from '../entities/maintenance-mode.entity';
 import { ReleaseType, ReleaseStatus, ChangelogEntry } from '../entities/system-version.entity';
+import { ProvisioningConfigDto } from '../dto/provisioning-config.dto';
 import { GlobalSettingsService } from '../services/global-settings.service';
 
 // ============================================================================
@@ -684,12 +684,9 @@ export class GlobalSettingsController {
 
   @Put('provisioning-config')
   updateProvisioningConfig(
-    @Body() body: Record<string, string>,
+    @Body() body: ProvisioningConfigDto,
     @Req() req: Request,
   ): never {
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      throw new BadRequestException('Invalid configuration payload');
-    }
     const user = getAuthUser(req);
     const updatedBy = user?.email || user?.id || 'admin';
     return this.globalSettingsService.updateProvisioningConfig(body, updatedBy);

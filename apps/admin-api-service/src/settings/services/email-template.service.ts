@@ -13,40 +13,17 @@ import {
   EmailTemplateVariable,
 } from '../entities/system-setting.entity';
 
+// DTO classes (class-validator) live in ../dto/email-template.dto so the global
+// ValidationPipe engages on these request bodies (APA-348/364).
+import {
+  CreateEmailTemplateDto,
+  UpdateEmailTemplateDto,
+  RenderTemplateDto,
+} from '../dto/email-template.dto';
+
 // ============================================================================
 // DTOs
 // ============================================================================
-
-export interface CreateEmailTemplateDto {
-  code: string;
-  name: string;
-  description?: string;
-  category: string;
-  subject: string;
-  bodyHtml: string;
-  bodyText?: string;
-  variables?: EmailTemplateVariable[];
-  isActive?: boolean;
-  tenantId?: string;
-}
-
-export interface UpdateEmailTemplateDto {
-  name?: string;
-  description?: string;
-  category?: string;
-  subject?: string;
-  bodyHtml?: string;
-  bodyText?: string;
-  variables?: EmailTemplateVariable[];
-  isActive?: boolean;
-  updatedBy?: string;
-}
-
-export interface RenderTemplateDto {
-  templateCode: string;
-  variables: Record<string, string>;
-  tenantId?: string;
-}
 
 export interface EmailTemplateResponse {
   id: string;

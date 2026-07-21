@@ -12,16 +12,14 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
+import { EmailTemplateService } from '../services/email-template.service';
 import {
-  EmailTemplateService,
   CreateEmailTemplateDto,
-  UpdateEmailTemplateDto,
-  RenderTemplateDto,
-} from '../services/email-template.service';
-import {
   CreateTenantOverrideDto,
-  ValidateTemplateDto,
+  RenderTemplateDto,
   SendTestEmailDto,
+  UpdateEmailTemplateDto,
+  ValidateTemplateDto,
 } from '../dto/email-template.dto';
 
 @ApiTags('Settings')
@@ -164,8 +162,8 @@ export class EmailTemplateController {
     @Param('id') id: string,
     @Body() dto: SendTestEmailDto,
   ) {
-    // This would integrate with a notification/email service
-    // For now, just return the rendered template
+    // Renders the template for operator preview; wiring real dispatch through the
+    // notification/email service is tracked as APA-345 (Phase 3, RC-7).
     const template = await this.templateService.getTemplateById(id);
 
     const rendered = await this.templateService.renderTemplate({

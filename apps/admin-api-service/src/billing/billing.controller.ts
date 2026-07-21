@@ -26,16 +26,28 @@ import {
   ApplyDiscountCodeDto,
   BulkCreateDiscountCodesDto,
   CancelSubscriptionDto,
+  ChangePlanDto,
   CloneCustomPlanDto,
   ComparePricingDto,
   ComparePlansDto,
+  CreateCustomPlanDto,
+  CreateDiscountCodeDto,
+  CreateInvoiceDto,
+  CreatePlanDto,
   ExtendTrialDto,
   GenerateDiscountCodeDto,
   MarkInvoicePaidDto,
+  PricingQuoteDto,
   QuickEstimateDto,
+  RecordPaymentDto,
+  RefundPaymentDto,
   RejectCustomPlanDto,
   SeedModulePricingDto,
+  SetModulePricingDto,
+  UpdateCustomPlanDto,
+  UpdateDiscountCodeDto,
   UpdateModulePricingDto,
+  UpdatePlanDto,
   ValidateDiscountCodeDto,
   VoidInvoiceDto,
 } from './dto/billing.dto';
@@ -44,50 +56,27 @@ import { BillingCycle, PlanTier } from './entities/plan-definition.entity';
 import { AggregationPeriod, MeterType } from './entities/usage-aggregation-readonly.entity';
 import { BillingAdminCommandClientService } from './services/billing-admin-command-client.service';
 import {
-  CreateCustomPlanDto,
   CustomPlanFilter,
   CustomPlanService,
-  UpdateCustomPlanDto,
 } from './services/custom-plan.service';
-import {
-  CreateDiscountCodeDto,
-  DiscountCodeService,
-  UpdateDiscountCodeDto,
-} from './services/discount-code.service';
+import { DiscountCodeService } from './services/discount-code.service';
 import {
   InvoiceFilters,
   InvoiceManagementService,
 } from './services/invoice-management.service';
-import {
-  ModulePricingService,
-  SetModulePricingDto,
-} from './services/module-pricing.service';
+import { ModulePricingService } from './services/module-pricing.service';
 import {
   PaymentFilters,
   PaymentManagementService,
-  RecordPaymentDto,
-  RefundPaymentDto,
 } from './services/payment-management.service';
+import { PlanDefinitionService } from './services/plan-definition.service';
+import { PricingCalculatorService } from './services/pricing-calculator.service';
 import {
-  CreatePlanDto,
-  PlanDefinitionService,
-  UpdatePlanDto,
-} from './services/plan-definition.service';
-import {
-  PricingCalculatorService,
-  QuoteRequest,
-} from './services/pricing-calculator.service';
-import {
-  PlanChangeRequest,
   SubscriptionFilters,
   SubscriptionManagementService,
   SubscriptionStatus,
 } from './services/subscription-management.service';
 import { UsageMeteringManagementService } from './services/usage-metering-management.service';
-
-interface CreateInvoiceRequest extends BillingAdminCreateInvoiceInput {
-  tenantId: string;
-}
 
 /**
  * Billing Controller
@@ -373,11 +362,12 @@ export class BillingController {
   }
 
   @Post('subscriptions/change-plan')
-  async changePlan(@Body() request: PlanChangeRequest, @Req() req: Request): Promise<unknown> {
+  async changePlan(@Body() request: ChangePlanDto, @Req() req: Request): Promise<unknown> {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('Authentication required to change a subscription plan');
-    const { changedBy: _changedBy, ...safeRequest } = request as PlanChangeRequest & { changedBy?: unknown };
-    return this.billingAdminCommands.changeSubscriptionPlan(safeRequest, userId);
+    // No changedBy on the wire: ChangePlanDto omits it and forbidNonWhitelisted
+    // rejects a client-sent value; the actor is the authenticated JWT user.
+    return this.billingAdminCommands.changeSubscriptionPlan(request, userId);
   }
 
   // Fix: H8 -- per-route throttle: subscription cancel is sensitive (3 req / 5 min)
@@ -504,7 +494,7 @@ export class BillingController {
   // ============================================================================
 
   @Post('pricing/calculate')
-  async calculatePricing(@Body() request: QuoteRequest): Promise<unknown> {
+  async calculatePricing(@Body() request: PricingQuoteDto): Promise<unknown> {
     return this.pricingCalculator.calculatePricing(request);
   }
 
@@ -679,7 +669,7 @@ export class BillingController {
 
   @ThrottleSensitive()
   @Post('invoices')
-  async createInvoice(@Body() dto: CreateInvoiceRequest, @Req() req: Request): Promise<unknown> {
+  async createInvoice(@Body() dto: CreateInvoiceDto, @Req() req: Request): Promise<unknown> {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('Authentication required to create an invoice');
 

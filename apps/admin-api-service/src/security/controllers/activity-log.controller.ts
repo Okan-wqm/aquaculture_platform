@@ -19,7 +19,13 @@ import { Type, Transform } from 'class-transformer';
 
 import { IsOptional, IsNumber, IsString, IsIn, IsBoolean, Min, Max, MaxLength } from 'class-validator';
 
-import { ActivityLog, ActivityCategory, ActivitySeverity } from '../entities/security.entity';
+import {
+  ActivityLog,
+  ActivityCategory,
+  ActivitySeverity,
+  ACTIVITY_LOG_SORTABLE_COLUMNS,
+  ActivityLogSortColumn,
+} from '../entities/security.entity';
 import { ActivityLoggingService, ActivityQueryOptions, ActivityStats } from '../services/activity-logging.service';
 import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
@@ -27,7 +33,7 @@ import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination
 // DTOs
 // ============================================================================
 
-class QueryActivitiesDto {
+export class QueryActivitiesDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
@@ -94,9 +100,12 @@ class QueryActivitiesDto {
   @IsString()
   tags?: string;
 
+  // SECURITY (APA-220): sortBy is interpolated raw into ORDER BY downstream, so
+  // it is constrained to a column allowlist — an arbitrary string is a 400 here,
+  // never a raw-SQL ORDER BY column.
   @IsOptional()
-  @IsString()
-  sortBy?: string;
+  @IsIn(ACTIVITY_LOG_SORTABLE_COLUMNS)
+  sortBy?: ActivityLogSortColumn;
 
   @IsOptional()
   @IsIn(['ASC', 'DESC'])

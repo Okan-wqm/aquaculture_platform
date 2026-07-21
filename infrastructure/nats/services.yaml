@@ -51,6 +51,7 @@ services:
   - name: auth_service
     description: Authentication — tenant and user lifecycle, JWT issuance, invitations, password reset
     publish:
+      - "events.*.AnnouncementPublished"
       - "events.*.InvitationAccepted"
       - "events.*.PasswordResetCompleted"
       - "events.*.PasswordResetRequested"

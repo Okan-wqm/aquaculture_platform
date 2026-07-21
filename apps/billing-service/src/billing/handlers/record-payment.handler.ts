@@ -1,4 +1,10 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
@@ -21,6 +27,23 @@ export class RecordPaymentHandler implements ICommandHandler<RecordPaymentComman
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
   ) {}
+
+  private requirePersistedMoney(
+    amount: Decimal,
+    currency: string,
+    invoiceId: string,
+    field: 'amount due' | 'amount paid' | 'total',
+  ): Money {
+    if (!Decimal.isDecimal(amount) || !amount.isFinite()) {
+      throw new InternalServerErrorException(`Invoice ${invoiceId} has invalid ${field} value`);
+    }
+
+    try {
+      return Money.of(amount, currency);
+    } catch {
+      throw new InternalServerErrorException(`Invoice ${invoiceId} has invalid ${field} value`);
+    }
+  }
 
   async execute(command: RecordPaymentCommand): Promise<Payment> {
     const { tenantId, input, userId } = command;
@@ -73,7 +96,24 @@ export class RecordPaymentHandler implements ICommandHandler<RecordPaymentComman
       }
 
       // Validate payment amount against amount due using Money for precision
-      const amountDueMoney = Money.of(invoice.amountDue, invoice.currency);
+      const amountDueMoney = this.requirePersistedMoney(
+        invoice.amountDue,
+        invoice.currency,
+        invoice.id,
+        'amount due',
+      );
+      const currentPaidMoney = this.requirePersistedMoney(
+        invoice.amountPaid,
+        invoice.currency,
+        invoice.id,
+        'amount paid',
+      );
+      const totalMoney = this.requirePersistedMoney(
+        invoice.total,
+        invoice.currency,
+        invoice.id,
+        'total',
+      );
       const paymentMoney = Money.of(input.amount, paymentCurrency);
 
       if (paymentMoney.greaterThan(amountDueMoney)) {
@@ -107,9 +147,7 @@ export class RecordPaymentHandler implements ICommandHandler<RecordPaymentComman
       const savedPayment = await manager.save(Payment, payment);
 
       // Update invoice with Money-based precision arithmetic
-      const currentPaidMoney = Money.of(invoice.amountPaid, invoice.currency);
       const newAmountPaidMoney = currentPaidMoney.add(paymentMoney);
-      const totalMoney = Money.of(invoice.total, invoice.currency);
       const newAmountDueMoney = totalMoney.subtract(newAmountPaidMoney);
 
       invoice.amountPaid = newAmountPaidMoney.toDecimal();

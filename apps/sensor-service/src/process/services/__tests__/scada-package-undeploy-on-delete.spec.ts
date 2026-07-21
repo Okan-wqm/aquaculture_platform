@@ -1,7 +1,10 @@
-import { Test, TestingModule } from '@nestjs/testing';
+import type { TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
-import { validateCommandEnvelope, validateUndeployScadaPackageParams } from '@platform/sensor-contracts/validators';
+import {
+  validateCommandEnvelope,
+  validateUndeployScadaPackageParams,
+} from '@platform/sensor-contracts/validators';
 
 import { ScadaPackage, ScadaPackageStatus } from '../../entities/scada-package.entity';
 import { ScadaDeployStatus } from '../../entities/scada-deploy-log.entity';
@@ -10,6 +13,7 @@ import { ScadaPackageService } from '../scada-package.service';
 import { ScadaDeployLogService } from '../scada-deploy-log.service';
 import { MqttClientService } from '../../../shared-mqtt/mqtt-client.service';
 import { EdgeDeviceService } from '../../../edge-device/edge-device.service';
+import { createScadaPackageTestingModule } from './scada-package-service.testing';
 
 /**
  * WF-011 — undeploy-on-delete.
@@ -36,7 +40,11 @@ function pkgRow(status: ScadaPackageStatus = ScadaPackageStatus.PUBLISHED): Part
   };
 }
 
-function deployLog(deviceId: string, status: ScadaDeployStatus, sentAt: string): {
+function deployLog(
+  deviceId: string,
+  status: ScadaDeployStatus,
+  sentAt: string,
+): {
   deviceId: string;
   status: ScadaDeployStatus;
   sentAt: Date;
@@ -72,16 +80,13 @@ describe('deleteScadaPackage — undeploy on delete (WF-011)', () => {
       return Promise.resolve(device);
     });
 
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        ScadaPackageService,
-        { provide: getRepositoryToken(ScadaPackage), useValue: repo },
-        { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
-        { provide: MqttClientService, useValue: { isConnectedToBroker: () => true, publish } },
-        { provide: EdgeDeviceService, useValue: { findByIdOrFail } },
-        { provide: ScadaDeployLogService, useValue: { getByPackage, createLog } },
-      ],
-    }).compile();
+    const module: TestingModule = await createScadaPackageTestingModule([
+      { provide: getRepositoryToken(ScadaPackage), useValue: repo },
+      { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
+      { provide: MqttClientService, useValue: { isConnectedToBroker: () => true, publish } },
+      { provide: EdgeDeviceService, useValue: { findByIdOrFail } },
+      { provide: ScadaDeployLogService, useValue: { getByPackage, createLog } },
+    ]);
     service = module.get(ScadaPackageService);
   });
 
@@ -186,13 +191,10 @@ describe('deleteScadaPackage — undeploy on delete (WF-011)', () => {
   });
 
   it('degrades to archive-only when the optional deps are absent', async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        ScadaPackageService,
-        { provide: getRepositoryToken(ScadaPackage), useValue: repo },
-        { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
-      ],
-    }).compile();
+    const module: TestingModule = await createScadaPackageTestingModule([
+      { provide: getRepositoryToken(ScadaPackage), useValue: repo },
+      { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
+    ]);
     const bare = module.get(ScadaPackageService);
 
     const result = await bare.deleteScadaPackage(PKG_ID, TENANT);

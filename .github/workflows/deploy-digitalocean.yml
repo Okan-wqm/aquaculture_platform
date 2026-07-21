@@ -8,13 +8,13 @@
 #   - workflow_dispatch "all" falls back to full rebuild/deploy
 #
 # Previous fixes preserved:
-# - SEC-CI-001: GHCR login uses GITHUB_TOKEN + github.actor
+# - SEC-CI-001: runner builds use job-scoped GITHUB_TOKEN; the host receives a
+#   separate protected package-read principal only
 # - SEC-CI-002: All third-party actions pinned to full commit SHAs
 # - SEC-CI-005: DROPLET_HOST echo removed from verify step
 # - SEC-CI-007: npm tarball integrity verified against package-lock.json sha512
 # - SEC-CI-011/ARCH-CI-006: github.sha removed from NX cache key
 # - SEC-CI-012: git checkout pinned to github.sha instead of git pull
-# - ARCH-CI-002: buildcache tags namespaced with -main suffix
 # - ARCH-CI-007: Image digest capture + rollback on failed health check
 # - ARCH-CI-010: Split build into separate backend/frontend jobs
 # - ARCH-CI-011: NX binary verified after manual install
@@ -43,8 +43,8 @@ on:
     # actually mutated" contract.
     outputs:
       deployed:
-        description: 'true only when the production droplet deploy step ran and succeeded'
-        value: ${{ jobs.deploy.outputs.performed == 'true' }}
+        description: 'true only after host mutation, independent verification, and baseline CAS all succeed'
+        value: ${{ jobs.advance-production-baseline.outputs.advanced == 'true' }}
     inputs:
       services:
         description: 'Services to deploy (comma-separated, "all", or "auto")'
@@ -62,7 +62,7 @@ on:
         type: string
         default: ''
       no_cache:
-        description: 'Build images without the registry buildcache (clean rebuild for suspected stale/poisoned cache layers).'
+        description: 'Build images without any available BuildKit cache.'
         required: false
         type: string
         default: 'false'
@@ -95,27 +95,23 @@ on:
       # `type: string` — same single-bash-check contract as the workflow_call
       # inputs above (see the TRACK A note on bypass_staging_gate).
       no_cache:
-        description: 'Build images without the registry buildcache (clean rebuild for suspected stale/poisoned cache layers).'
+        description: 'Build images without any available BuildKit cache.'
         required: false
         default: 'false'
 
-# Permissions are declared explicitly here so workflow_call invocations
-# from ci-affected.yml (which restricts to `contents: read`) can still
-# push images and tags. The called workflow's permissions OVERRIDE the
-# caller's when declared at this top level.
-permissions:
-  contents: write # push deployed/production after successful full deploys
-  packages: write # push container images to GHCR
-  id-token: write # OIDC for GHCR auth where used
+# No job inherits repository authority. Each job declares only the capability
+# it consumes; the baseline CAS is the sole contents-write boundary.
+permissions: {}
 
 env:
   REGISTRY: ghcr.io
   TAG: ${{ github.sha }}
 
-# Production has exactly one writer. Manual and automated deploys share a
-# concurrency group so they cannot mutate the droplet concurrently.
+# Main has exactly one lossless release-state queue. Non-main dispatches receive
+# a run-scoped rejection group so they cannot replace a pending production run.
 concurrency:
-  group: deploy-production-${{ github.ref }}
+  group: ${{ github.ref == 'refs/heads/main' && 'production-release-authority' || format('rejected-production-release-{0}', github.run_id) }}
+  queue: max
   cancel-in-progress: false
 
 jobs:
@@ -126,6 +122,7 @@ jobs:
     name: Production deployment stop-line
     runs-on: ubuntu-latest
     timeout-minutes: 2
+    permissions: {}
     outputs:
       enabled: ${{ steps.lock.outputs.enabled }}
     steps:
@@ -141,6 +138,63 @@ jobs:
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "::notice::Production deployment is locked. Backup and isolated restore proof are required before enabling releases."
           fi
+
+  # Capture one exact, current protected-main authority and the prior release
+  # baseline before any build or production secret boundary. Every later
+  # protected job repeats this proof independently; this output only binds the
+  # expected old value used by the final atomic compare-and-swap.
+  release-authority:
+    needs: [production-deploy-lock]
+    if: needs.production-deploy-lock.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      prior_deployed_sha: ${{ steps.authority.outputs.prior_deployed_sha }}
+    steps:
+      - name: Prove exact current main before checkout
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          [[ "${GITHUB_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${GITHUB_REPOSITORY}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          REMOTE_MAIN_ROWS="$(git ls-remote --refs \
+            "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main)"
+          test "$(printf '%s\n' "${REMOTE_MAIN_ROWS}" | sed '/^$/d' | wc -l)" -eq 1
+          REMOTE_MAIN_SHA="${REMOTE_MAIN_ROWS%%$'\t'*}"
+          test "${REMOTE_MAIN_SHA}" = "${GITHUB_SHA}"
+
+      - name: Checkout exact workflow authority
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind prior baseline to exact current main
+        id: authority
+        run: |
+          set -euo pipefail
+          git fetch --force --prune origin \
+            '+refs/heads/main:refs/remotes/origin/main'
+          test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
+          test "${GITHUB_SHA}" = "$(git rev-parse refs/remotes/origin/main)"
+
+          PRIOR_ROWS="$(git ls-remote --refs origin refs/tags/deployed/production)"
+          PRIOR_COUNT="$(printf '%s\n' "${PRIOR_ROWS}" | sed '/^$/d' | wc -l)"
+          case "${PRIOR_COUNT}" in
+            0) PRIOR_DEPLOYED_SHA=0000000000000000000000000000000000000000 ;;
+            1) PRIOR_DEPLOYED_SHA="${PRIOR_ROWS%%$'\t'*}" ;;
+            *) echo '::error::deployed/production resolved to multiple refs.'; exit 1 ;;
+          esac
+          [[ "${PRIOR_DEPLOYED_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          if [ "${PRIOR_DEPLOYED_SHA}" != 0000000000000000000000000000000000000000 ]; then
+            git fetch --force origin \
+              "${PRIOR_DEPLOYED_SHA}:refs/aqua/prior-deployed"
+            git merge-base --is-ancestor refs/aqua/prior-deployed "${GITHUB_SHA}"
+          fi
+          echo "prior_deployed_sha=${PRIOR_DEPLOYED_SHA}" >> "${GITHUB_OUTPUT}"
 
   # ===========================================================================
   # Staging Gate (WS9 / ADR-016 Phase D)
@@ -161,7 +215,7 @@ jobs:
   #   when staging itself is down.
   # ===========================================================================
   staging-gate:
-    needs: [production-deploy-lock]
+    needs: [release-authority]
     # workflow_call is invoked from ci-affected.yml's `deploy` job which
     # depends on `[install, detect-changes]`. On push to main those are
     # the only jobs that run (lint/test/build/type-check are PR-gates by
@@ -170,12 +224,13 @@ jobs:
     # the actual quality assurance is the PR review gate that must have
     # passed before the commit reached main.
     if: >-
-      needs.production-deploy-lock.outputs.enabled == 'true' &&
       (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'push' ||
       github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 60 # staging deploy typically lands in ~30 min
+    permissions:
+      contents: read
     steps:
       # ────────────────────────────────────────────────────────────────────
       # WS9 / ADR-016 Phase D — topology-aware enablement gate.
@@ -224,21 +279,18 @@ jobs:
       - name: Check bypass / capture reason
         id: bypass
         if: steps.enablement.outputs.skip != 'true'
+        env:
+          BYPASS_INPUT: ${{ inputs.bypass_staging_gate }}
+          BYPASS_REASON_INPUT: ${{ inputs.bypass_reason }}
         run: |
           set -euo pipefail
-          # workflow_dispatch populates `github.event.inputs.X`;
-          # workflow_call populates `inputs.X`. Read both so the gate
-          # behaves identically regardless of how the workflow was
-          # invoked. Default 'false' / '' so an unset input never
-          # silently treated as bypass=true.
-          #
-          # NOTE: outer double-quotes here, inner single-quotes in the
-          # GitHub expression. Mixing the same quote style nests
-          # incorrectly and breaks GitHub's stricter workflow-file
-          # parser (Python yaml.safe_load is lenient about it; the
-          # GitHub schema is not).
-          BYPASS="${{ inputs.bypass_staging_gate || github.event.inputs.bypass_staging_gate || 'false' }}"
-          REASON="${{ inputs.bypass_reason || github.event.inputs.bypass_reason || '' }}"
+          BYPASS="${BYPASS_INPUT:-false}"
+          REASON="${BYPASS_REASON_INPUT:-}"
+
+          case "${BYPASS}" in
+            true | false) ;;
+            *) echo '::error::bypass_staging_gate must be true or false.'; exit 2 ;;
+          esac
 
           if [ "${BYPASS}" = "true" ]; then
             if [ -z "${REASON}" ]; then
@@ -246,6 +298,16 @@ jobs:
               echo "  Staging bypass is for emergencies only. Document the incident before skipping."
               exit 1
             fi
+            case "${REASON}" in
+              *$'\n'* | *$'\r'*)
+                echo '::error::bypass_reason must be a single line.'
+                exit 2
+                ;;
+            esac
+            [ "${#REASON}" -le 256 ] && [[ "${REASON}" =~ ^[[:print:]]+$ ]] || {
+              echo '::error::bypass_reason must be at most 256 printable characters.'
+              exit 2
+            }
             echo "::warning::STAGING GATE BYPASSED — reason: ${REASON}"
             echo "::warning::Logged bypass initiated by ${{ github.actor }} at $(date -u +%FT%TZ)"
             echo "bypass=true" >> "$GITHUB_OUTPUT"
@@ -255,11 +317,14 @@ jobs:
 
       - name: Assert deployed/staging-<sha> tag
         if: steps.enablement.outputs.skip != 'true' && steps.bypass.outputs.bypass != 'true'
+        env:
+          EXPECTED_MAIN_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
-          TAG_NAME="deployed/staging-${{ github.sha }}"
-          REPO="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          TAG_NAME="deployed/staging-${EXPECTED_MAIN_SHA}"
 
           # Poll for up to STAGING_GATE_TIMEOUT seconds, checking every
           # STAGING_GATE_POLL_INTERVAL. Staging workflow typically completes
@@ -276,7 +341,10 @@ jobs:
 
           while [ "$(date +%s)" -lt "${DEADLINE}" ]; do
             ATTEMPT=$((ATTEMPT + 1))
-            if git ls-remote --tags "${REPO}" "refs/tags/${TAG_NAME}" 2>/dev/null | grep -q "${TAG_NAME}"; then
+            TAG_SHA="$(gh api \
+              "repos/${REPOSITORY}/git/ref/tags/${TAG_NAME//\//%2F}" \
+              --jq '.object.sha' 2>/dev/null || true)"
+            if [ "${TAG_SHA}" = "${EXPECTED_MAIN_SHA}" ]; then
               echo "  attempt=${ATTEMPT}: TAG FOUND — staging deploy succeeded for this SHA."
               exit 0
             fi
@@ -306,7 +374,7 @@ jobs:
           elif [ "${{ steps.bypass.outputs.bypass }}" = "true" ]; then
             echo "Staging gate: BYPASSED (emergency — see earlier warning)."
           else
-            echo "Staging gate: PASSED — deployed/staging-${{ github.sha }} exists."
+            echo "Staging gate: PASSED — deployed/staging-${GITHUB_SHA} exists."
           fi
 
   # ===========================================================================
@@ -317,18 +385,33 @@ jobs:
   # manifest drift, and compose drift before SSH can mutate live containers.
   # ===========================================================================
   release-verification:
-    needs: [staging-gate]
+    needs: [release-authority, staging-gate]
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'push' ||
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    permissions:
+      contents: read
+    outputs:
+      runtime_bundle_sha256: ${{ steps.runtime_bundle.outputs.sha256 }}
     steps:
+      - name: Prove exact current main before checkout
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          REMOTE_MAIN_ROWS="$(git ls-remote --refs \
+            "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main)"
+          test "$(printf '%s\n' "${REMOTE_MAIN_ROWS}" | sed '/^$/d' | wc -l)" -eq 1
+          test "${REMOTE_MAIN_ROWS%%$'\t'*}" = "${GITHUB_SHA}"
+
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js
         # SEC-CI-002: pinned to SHA
@@ -371,11 +454,70 @@ jobs:
           docker compose --env-file "$ENV_FILE" -f docker-compose.droplet.yml config --quiet
           docker compose --env-file "$ENV_FILE" -f docker-compose.droplet.yml -f docker-compose.staging.yml config --quiet
 
+      - name: Build exact-SHA production host runtime
+        id: runtime_bundle
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          OUTPUT_PATH: ${{ runner.temp }}/production-host-runtime.tar.gz
+        run: |
+          set -euo pipefail
+          git fetch --force --prune origin \
+            '+refs/heads/main:refs/remotes/origin/main'
+          if [ "$(git rev-parse HEAD)" != "${SOURCE_SHA}" || \
+            "$(git rev-parse refs/remotes/origin/main)" != "${SOURCE_SHA}"; then
+            echo '::error::release runtime source is not the exact current protected-main SHA.'
+            exit 1
+          fi
+
+          NODE_BIN="$(/usr/bin/readlink -f -- "$(command -v node)")"
+          case "${NODE_BIN}" in /*) ;; *) exit 1 ;; esac
+          test -f "${NODE_BIN}"
+          test ! -L "${NODE_BIN}"
+          test -x "${NODE_BIN}"
+
+          PRODUCER_PATH="$(mktemp -p "${RUNNER_TEMP}" production-host-runtime-producer.XXXXXXXX)"
+          cleanup_producer() {
+            status=$?
+            trap - EXIT
+            rm -f -- "${PRODUCER_PATH}"
+            exit "${status}"
+          }
+          trap cleanup_producer EXIT
+          /usr/bin/env -i \
+            PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C \
+            GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+            /usr/bin/git --no-replace-objects \
+              -c core.hooksPath=/dev/null -c protocol.allow=never \
+              -C "${GITHUB_WORKSPACE}" show \
+              "${SOURCE_SHA}:tools/scripts/ci/prepare-production-host-runtime-bundle.sh" \
+              > "${PRODUCER_PATH}"
+          chmod 0500 "${PRODUCER_PATH}"
+          digest="$(/usr/bin/env -i \
+            PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C \
+            SOURCE_SHA="${SOURCE_SHA}" \
+            OUTPUT_PATH="${OUTPUT_PATH}" \
+            PRODUCTION_HOST_REPO_ROOT="${GITHUB_WORKSPACE}" \
+            NODE_BIN="${NODE_BIN}" \
+              /bin/bash --noprofile --norc "${PRODUCER_PATH}")"
+          [[ "${digest}" =~ ^[0-9a-f]{64}$ ]] || {
+            echo '::error::runtime bundle producer returned an invalid digest.'
+            exit 1
+          }
+          echo "sha256=${digest}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload exact-SHA production host runtime
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-host-runtime-${{ github.sha }}
+          path: ${{ runner.temp }}/production-host-runtime.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
   # ===========================================================================
   # Prepare - Detect affected services & build dynamic matrices
   # ===========================================================================
   prepare:
-    needs: [staging-gate, release-verification]
+    needs: [release-authority, staging-gate, release-verification]
     # CI-success precondition is now implicit: workflow_call is only
     # invoked from ci-affected.yml's final `deploy` job after all other
     # jobs are green. workflow_dispatch is operator-initiated.
@@ -384,6 +526,8 @@ jobs:
       github.event_name == 'push' ||
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       image_prefix: ${{ steps.vars.outputs.image_prefix }}
       has_backend_changes: ${{ steps.detect.outputs.has_backend }}
@@ -398,11 +542,14 @@ jobs:
       deploy_services: ${{ steps.detect.outputs.deploy_services }}
       full_deploy: ${{ steps.detect.outputs.full_deploy }}
       deploy_mode: ${{ steps.detect.outputs.deploy_mode }}
+      runtime_bundle_sha256: ${{ needs.release-verification.outputs.runtime_bundle_sha256 }}
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set variables
         id: vars
@@ -413,8 +560,16 @@ jobs:
 
       - name: Detect affected services
         id: detect
+        env:
+          REQUESTED_SERVICES_INPUT: ${{ inputs.services }}
+          PRIOR_DEPLOYED_SHA: ${{ needs.release-authority.outputs.prior_deployed_sha }}
         run: |
           set -euo pipefail
+
+          git fetch --force --prune origin \
+            '+refs/heads/main:refs/remotes/origin/main'
+          test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
+          test "${GITHUB_SHA}" = "$(git rev-parse refs/remotes/origin/main)"
 
           # ── Service definitions from generated platform service catalog ──
           CATALOG_DEPLOY_ENV="infrastructure/deploy/service-catalog.deploy.vars"
@@ -436,8 +591,12 @@ jobs:
           AFFECTED_INFRA_IMAGES=()
           FULL_DEPLOY=false
           DEPLOY_MODE="auto_selective"
-          REQUESTED_SERVICES="${{ inputs.services || github.event.inputs.services || 'all' }}"
+          REQUESTED_SERVICES="${REQUESTED_SERVICES_INPUT:-auto}"
           REQUESTED_SERVICES="$(echo "${REQUESTED_SERVICES}" | xargs)"
+          [[ "${REQUESTED_SERVICES}" =~ ^(all|auto|[A-Za-z0-9-]+([,][[:space:]]*[A-Za-z0-9-]+)*)$ ]] || {
+            echo '::error::services contains an invalid deployment selector.'
+            exit 2
+          }
 
           append_backend_once() {
             local svc="$1"
@@ -453,20 +612,25 @@ jobs:
             IFS=',' read -ra SPECIFIED <<< "${REQUESTED_SERVICES}"
             for svc in "${SPECIFIED[@]}"; do
               svc=$(echo "$svc" | xargs)
+              matched=false
               for b in "${ALL_BACKEND[@]}"; do
-                [ "$b" = "$svc" ] && append_backend_once "$svc" && break
+                [ "$b" = "$svc" ] && append_backend_once "$svc" && matched=true && break
               done
               for f in "${ALL_FRONTEND[@]}"; do
-                [ "$f" = "$svc" ] && AFFECTED_FRONTEND+=("$svc") && break
+                [ "$f" = "$svc" ] && AFFECTED_FRONTEND+=("$svc") && matched=true && break
               done
               for i in "${ALL_INFRA_IMAGES[@]}"; do
-                [ "$i" = "$svc" ] && AFFECTED_INFRA_IMAGES+=("$svc") && break
+                [ "$i" = "$svc" ] && AFFECTED_INFRA_IMAGES+=("$svc") && matched=true && break
               done
+              [ "${matched}" = true ] || {
+                echo "::error::Unknown production deploy service: ${svc}"
+                exit 2
+              }
             done
 
-            git fetch --force origin refs/tags/deployed/production:refs/tags/deployed/production 2>/dev/null || true
-            DEPLOY_BASE=$(git rev-parse deployed/production 2>/dev/null || echo "")
-            MIGRATION_OWNER_SERVICES="$(node scripts/deploy/resolve-migration-owner-services.mjs "${DEPLOY_BASE}" "${{ github.sha }}")"
+            DEPLOY_BASE="${PRIOR_DEPLOYED_SHA}"
+            [ "${DEPLOY_BASE}" != 0000000000000000000000000000000000000000 ] || DEPLOY_BASE=
+            MIGRATION_OWNER_SERVICES="$(node scripts/deploy/resolve-migration-owner-services.mjs "${DEPLOY_BASE}" "${GITHUB_SHA}")"
             if [ -n "${MIGRATION_OWNER_SERVICES}" ]; then
               echo "  Migration owner services since deployed/production: ${MIGRATION_OWNER_SERVICES}"
               for svc in ${MIGRATION_OWNER_SERVICES}; do
@@ -489,7 +653,8 @@ jobs:
           #   touched since then get rebuilt + redeployed.
           else
             echo "Mode: workflow_call/push — detecting changes since last deploy"
-            DEPLOY_BASE=$(git rev-parse deployed/production 2>/dev/null || echo "")
+            DEPLOY_BASE="${PRIOR_DEPLOYED_SHA}"
+            [ "${DEPLOY_BASE}" != 0000000000000000000000000000000000000000 ] || DEPLOY_BASE=
             if [ -z "$DEPLOY_BASE" ]; then
               echo "  No deployed/production tag found — full deploy"
               AFFECTED_BACKEND=("${ALL_BACKEND[@]}")
@@ -499,8 +664,8 @@ jobs:
               DEPLOY_MODE="full"
             else
               echo "  Baseline: ${DEPLOY_BASE} (deployed/production)"
-              echo "  Head:     ${{ github.sha }}"
-              CHANGED=$(git diff --name-only "$DEPLOY_BASE" "${{ github.sha }}" 2>/dev/null || echo "ALL")
+              echo "  Head:     ${GITHUB_SHA}"
+              CHANGED=$(git diff --name-only "$DEPLOY_BASE" "${GITHUB_SHA}" 2>/dev/null || echo "ALL")
 
               if [ "$CHANGED" = "ALL" ]; then
                 echo "  git diff failed — full deploy"
@@ -579,7 +744,7 @@ jobs:
           # db-migrate is the release's schema-writer image. Build and deploy
           # it for every deploy, including frontend-only selective deploys, so
           # the droplet never falls back to a mutable `latest` migration bundle.
-          if [ "$FULL_DEPLOY" != "true" ] && { [ ${#AFFECTED_BACKEND[@]} -gt 0 ] || [ ${#AFFECTED_FRONTEND[@]} -gt 0 ]; }; then
+          if [ "$FULL_DEPLOY" != "true" ] && { [ ${#AFFECTED_BACKEND[@]} -gt 0 ] || [ ${#AFFECTED_FRONTEND[@]} -gt 0 ] || [ ${#AFFECTED_INFRA_IMAGES[@]} -gt 0 ]; }; then
             case " ${AFFECTED_BACKEND[*]} " in
               *" db-migrate "*) ;;
               *) AFFECTED_BACKEND=("db-migrate" "${AFFECTED_BACKEND[@]}") ;;
@@ -666,11 +831,15 @@ jobs:
     if: needs.prepare.outputs.has_backend_changes == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js
         # SEC-CI-002: pinned to SHA
@@ -723,11 +892,15 @@ jobs:
     if: needs.prepare.outputs.has_frontend_changes == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js
         # SEC-CI-002: pinned to SHA
@@ -835,8 +1008,21 @@ jobs:
         # PERF-CI-001: Dynamic matrix — only affected backend services
         service: ${{ fromJson(needs.prepare.outputs.affected_backend) }}
     steps:
+      - name: Prove exact current main before checkout
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          REMOTE_MAIN_ROWS="$(git ls-remote --refs \
+            "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main)"
+          test "$(printf '%s\n' "${REMOTE_MAIN_ROWS}" | sed '/^$/d' | wc -l)" -eq 1
+          test "${REMOTE_MAIN_ROWS%%$'\t'*}" = "${GITHUB_SHA}"
+
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Download backend artifacts
         # SEC-CI-002: pinned to SHA
@@ -847,46 +1033,6 @@ jobs:
 
       # SEC-CI-002: pinned to SHA
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
-
-      # ORPHAN-HIGH-076 — GHCR login retry on transient network failure.
-      #
-      # The previous `docker/login-action@<SHA>` had no retries; a single
-      # net/http timeout between the GHA runner and ghcr.io aborted the
-      # matrix shard and dragged the whole deploy down (2026-05-18 deploy
-      # run 26081565625, tenant-admin shard). The native action has no
-      # retry knob and `fail-fast: false` on the matrix only avoids
-      # cancelling SIBLING shards — the failing shard itself still
-      # produces a missing image that breaks `docker compose pull` on
-      # the droplet.
-      #
-      # This shell loop replaces the third-party action with an explicit
-      # `docker login` retry: 3 attempts, exponential-ish backoff (5s, 10s,
-      # 15s). No third-party SHA-pin churn; the supply-chain surface
-      # narrows by one action. `--password-stdin` keeps the token off the
-      # process table even on retry. Final attempt failure exits non-zero
-      # so the shard fails loud — same observable contract as the action,
-      # plus transient-resilience.
-      - name: Login to GHCR (3-attempt retry — ORPHAN-HIGH-076)
-        env:
-          GHCR_USERNAME: ${{ github.actor }}
-          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set +e
-          for attempt in 1 2 3; do
-            echo "[ghcr-login] attempt ${attempt}/3"
-            echo "${GHCR_PASSWORD}" | docker login "${REGISTRY}" \
-              -u "${GHCR_USERNAME}" --password-stdin
-            rc=$?
-            if [ "$rc" -eq 0 ]; then
-              echo "[ghcr-login] success on attempt ${attempt}"
-              exit 0
-            fi
-            backoff=$((attempt * 5))
-            echo "[ghcr-login] attempt ${attempt} failed (rc=${rc}); sleeping ${backoff}s"
-            sleep "${backoff}"
-          done
-          echo "[ghcr-login] 3 attempts exhausted; aborting build."
-          exit 1
 
       # WS10: pick the right Dockerfile per service. db-migrate uses its
       # own Dockerfile (no HEALTHCHECK, one-shot CMD) while every other
@@ -900,33 +1046,84 @@ jobs:
             echo "file=infrastructure/docker/Dockerfile.backend.simple" >> $GITHUB_OUTPUT
           fi
 
-      - name: Build and push ${{ matrix.service }}
+      - name: Build ${{ matrix.service }} without registry authority
         # SEC-CI-002: pinned to SHA
         uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
         with:
           context: .
           file: ${{ steps.dockerfile.outputs.file }}
-          push: true
+          push: false
+          load: true
           tags: |
-            ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:${{ env.TAG }}
-            ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:latest
+            ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:${{ github.sha }}
           build-args: |
             SERVICE_NAME=${{ matrix.service }}
-          # ARCH-CI-002: Namespaced buildcache tag to avoid collision with cd-production.yml
-          # ORPHAN-HIGH-381 tooling: operator-triggered clean rebuild when a
-          # cached layer is suspected stale/poisoned.
           no-cache: ${{ inputs.no_cache == 'true' }}
-          cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache-main-v2
-          # ORPHAN-HIGH-079 — GHCR cache-write transient class.
-          # `cache-to: type=registry` writes a buildcache manifest to GHCR
-          # after every successful build. A transient GHCR 502/network blip
-          # on the manifest HEAD/PUT aborts the entire matrix shard AFTER
-          # the image itself built + pushed successfully — pure waste.
-          # `ignore-error=true` (docker/build-push-action v6 supported)
-          # downgrades cache-write failures to a warning: image is still
-          # pushed; next build runs with one less cached layer. The cache
-          # class is an optimization, not a correctness gate.
-          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache-main-v2,mode=max,ignore-error=true
+
+      - name: Publish exact-current-main ${{ matrix.service }} image
+        env:
+          GITHUB_TOKEN_MATERIAL: ${{ github.token }}
+          GHCR_USERNAME_INPUT: ${{ github.actor }}
+          IMAGE_NAME: ${{ matrix.service }}
+          IMAGE_REF: ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:${{ github.sha }}
+        run: |
+          set +x
+          set -euo pipefail
+          set +a
+          umask 077
+          github_token_material=${GITHUB_TOKEN_MATERIAL:?GITHUB_TOKEN_MATERIAL is required}
+          ghcr_username_material=${GHCR_USERNAME_INPUT:?GHCR_USERNAME_INPUT is required}
+          unset GITHUB_TOKEN_MATERIAL GHCR_USERNAME_INPUT
+          docker_config_directory=
+          cleanup_registry_authority() {
+            status=$?
+            trap - EXIT
+            cleanup_status=0
+            if [ -n "${docker_config_directory}" ]; then
+              if ! /usr/bin/rm -rf -- "${docker_config_directory}" || \
+                [ -e "${docker_config_directory}" ] || [ -L "${docker_config_directory}" ]; then
+                echo '::error::isolated GHCR credential cleanup failed.'
+                cleanup_status=1
+              fi
+            fi
+            if [ "${status}" -eq 0 ] && [ "${cleanup_status}" -ne 0 ]; then status=1; fi
+            exit "${status}"
+          }
+          trap cleanup_registry_authority EXIT
+
+          assert_exact_current_main() {
+            local remote_main_sha
+            remote_main_sha="$(GH_TOKEN="${github_token_material}" gh api \
+              "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
+              --jq '.object.sha')" || return
+            [[ "${remote_main_sha}" =~ ^[0-9a-f]{40}$ ]] || return
+            test "${remote_main_sha}" = "${GITHUB_SHA}"
+          }
+
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${GITHUB_REF_PROTECTED}" = 'true'
+          [[ "${GITHUB_REPOSITORY}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          [[ "${GITHUB_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${IMAGE_NAME}" =~ ^[a-z0-9][a-z0-9._-]{0,127}$ ]]
+          test "${IMAGE_REF}" = "${REGISTRY}/${GITHUB_REPOSITORY,,}/${IMAGE_NAME}:${GITHUB_SHA}"
+          assert_exact_current_main
+          docker image inspect "${IMAGE_REF}" >/dev/null
+          docker_config_directory=$(/usr/bin/mktemp -d -p "${RUNNER_TEMP}" ghcr-publish.XXXXXXXX)
+          login_succeeded=false
+          for attempt in 1 2 3; do
+            assert_exact_current_main
+            if printf '%s\n' "${github_token_material}" | \
+              DOCKER_CONFIG="${docker_config_directory}" docker login "${REGISTRY}" \
+                --username "${ghcr_username_material}" --password-stdin; then
+              login_succeeded=true
+              break
+            fi
+            /usr/bin/sleep "$((attempt * 5))"
+          done
+          test "${login_succeeded}" = 'true'
+          assert_exact_current_main
+          unset github_token_material ghcr_username_material
+          DOCKER_CONFIG="${docker_config_directory}" docker push "${IMAGE_REF}"
 
   # ===========================================================================
   # Build Frontend Docker Images (dynamic matrix — affected only)
@@ -947,8 +1144,21 @@ jobs:
         # PERF-CI-001: Dynamic matrix — only affected frontend modules
         include: ${{ fromJson(needs.prepare.outputs.affected_frontend_matrix) }}
     steps:
+      - name: Prove exact current main before checkout
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          REMOTE_MAIN_ROWS="$(git ls-remote --refs \
+            "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main)"
+          test "$(printf '%s\n' "${REMOTE_MAIN_ROWS}" | sed '/^$/d' | wc -l)" -eq 1
+          test "${REMOTE_MAIN_ROWS%%$'\t'*}" = "${GITHUB_SHA}"
+
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
 
       # Download frontend artifacts — upload strips common ancestor 'web/',
       # so we extract into 'web/' to restore original paths (web/shell/dist, web/modules/*/dist).
@@ -970,63 +1180,84 @@ jobs:
       # SEC-CI-002: pinned to SHA
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
-      # ORPHAN-HIGH-076 — GHCR login retry on transient network failure.
-      #
-      # The previous `docker/login-action@<SHA>` had no retries; a single
-      # net/http timeout between the GHA runner and ghcr.io aborted the
-      # matrix shard and dragged the whole deploy down (2026-05-18 deploy
-      # run 26081565625, tenant-admin shard). The native action has no
-      # retry knob and `fail-fast: false` on the matrix only avoids
-      # cancelling SIBLING shards — the failing shard itself still
-      # produces a missing image that breaks `docker compose pull` on
-      # the droplet.
-      #
-      # This shell loop replaces the third-party action with an explicit
-      # `docker login` retry: 3 attempts, exponential-ish backoff (5s, 10s,
-      # 15s). No third-party SHA-pin churn; the supply-chain surface
-      # narrows by one action. `--password-stdin` keeps the token off the
-      # process table even on retry. Final attempt failure exits non-zero
-      # so the shard fails loud — same observable contract as the action,
-      # plus transient-resilience.
-      - name: Login to GHCR (3-attempt retry — ORPHAN-HIGH-076)
-        env:
-          GHCR_USERNAME: ${{ github.actor }}
-          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set +e
-          for attempt in 1 2 3; do
-            echo "[ghcr-login] attempt ${attempt}/3"
-            echo "${GHCR_PASSWORD}" | docker login "${REGISTRY}" \
-              -u "${GHCR_USERNAME}" --password-stdin
-            rc=$?
-            if [ "$rc" -eq 0 ]; then
-              echo "[ghcr-login] success on attempt ${attempt}"
-              exit 0
-            fi
-            backoff=$((attempt * 5))
-            echo "[ghcr-login] attempt ${attempt} failed (rc=${rc}); sleeping ${backoff}s"
-            sleep "${backoff}"
-          done
-          echo "[ghcr-login] 3 attempts exhausted; aborting build."
-          exit 1
-
-      - name: Build and push ${{ matrix.module }}
+      - name: Build ${{ matrix.module }} without registry authority
         # SEC-CI-002: pinned to SHA
         uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
         with:
           context: .
           file: ${{ matrix.dockerfile }}
-          push: true
+          push: false
+          load: true
           tags: |
-            ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:${{ env.TAG }}
-            ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:latest
+            ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:${{ github.sha }}
           build-args: |
             MODULE_PATH=${{ matrix.module_path }}
-          # ARCH-CI-002: Namespaced buildcache tag to avoid collision with cd-production.yml
           no-cache: ${{ inputs.no_cache == 'true' }}
-          cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-main-v2
-          # ORPHAN-HIGH-079 — same cache-write transient class as backend matrix above.
-          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-main-v2,mode=max,ignore-error=true
+
+      - name: Publish exact-current-main ${{ matrix.module }} image
+        env:
+          GITHUB_TOKEN_MATERIAL: ${{ github.token }}
+          GHCR_USERNAME_INPUT: ${{ github.actor }}
+          IMAGE_NAME: ${{ matrix.module }}
+          IMAGE_REF: ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:${{ github.sha }}
+        run: |
+          set +x
+          set -euo pipefail
+          set +a
+          umask 077
+          github_token_material=${GITHUB_TOKEN_MATERIAL:?GITHUB_TOKEN_MATERIAL is required}
+          ghcr_username_material=${GHCR_USERNAME_INPUT:?GHCR_USERNAME_INPUT is required}
+          unset GITHUB_TOKEN_MATERIAL GHCR_USERNAME_INPUT
+          docker_config_directory=
+          cleanup_registry_authority() {
+            status=$?
+            trap - EXIT
+            cleanup_status=0
+            if [ -n "${docker_config_directory}" ]; then
+              if ! /usr/bin/rm -rf -- "${docker_config_directory}" || \
+                [ -e "${docker_config_directory}" ] || [ -L "${docker_config_directory}" ]; then
+                echo '::error::isolated GHCR credential cleanup failed.'
+                cleanup_status=1
+              fi
+            fi
+            if [ "${status}" -eq 0 ] && [ "${cleanup_status}" -ne 0 ]; then status=1; fi
+            exit "${status}"
+          }
+          trap cleanup_registry_authority EXIT
+
+          assert_exact_current_main() {
+            local remote_main_sha
+            remote_main_sha="$(GH_TOKEN="${github_token_material}" gh api \
+              "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
+              --jq '.object.sha')" || return
+            [[ "${remote_main_sha}" =~ ^[0-9a-f]{40}$ ]] || return
+            test "${remote_main_sha}" = "${GITHUB_SHA}"
+          }
+
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${GITHUB_REF_PROTECTED}" = 'true'
+          [[ "${GITHUB_REPOSITORY}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          [[ "${GITHUB_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${IMAGE_NAME}" =~ ^[a-z0-9][a-z0-9._-]{0,127}$ ]]
+          test "${IMAGE_REF}" = "${REGISTRY}/${GITHUB_REPOSITORY,,}/${IMAGE_NAME}:${GITHUB_SHA}"
+          assert_exact_current_main
+          docker image inspect "${IMAGE_REF}" >/dev/null
+          docker_config_directory=$(/usr/bin/mktemp -d -p "${RUNNER_TEMP}" ghcr-publish.XXXXXXXX)
+          login_succeeded=false
+          for attempt in 1 2 3; do
+            assert_exact_current_main
+            if printf '%s\n' "${github_token_material}" | \
+              DOCKER_CONFIG="${docker_config_directory}" docker login "${REGISTRY}" \
+                --username "${ghcr_username_material}" --password-stdin; then
+              login_succeeded=true
+              break
+            fi
+            /usr/bin/sleep "$((attempt * 5))"
+          done
+          test "${login_succeeded}" = 'true'
+          assert_exact_current_main
+          unset github_token_material ghcr_username_material
+          DOCKER_CONFIG="${docker_config_directory}" docker push "${IMAGE_REF}"
 
   # ===========================================================================
   # Build infrastructure-owned app images (registry-only; never built on droplet)
@@ -1044,7 +1275,20 @@ jobs:
       matrix:
         include: ${{ fromJson(needs.prepare.outputs.affected_infra_image_matrix) }}
     steps:
+      - name: Prove exact current main before checkout
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          REMOTE_MAIN_ROWS="$(git ls-remote --refs \
+            "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main)"
+          test "$(printf '%s\n' "${REMOTE_MAIN_ROWS}" | sed '/^$/d' | wc -l)" -eq 1
+          test "${REMOTE_MAIN_ROWS%%$'\t'*}" = "${GITHUB_SHA}"
+
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Resolve immutable Postgres DR contract digest
         id: postgres_dr_contract
@@ -1080,40 +1324,84 @@ jobs:
 
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
-      - name: Login to GHCR
-        env:
-          GHCR_USERNAME: ${{ github.actor }}
-          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set +x
-          set +e
-          for attempt in 1 2 3; do
-            echo "[ghcr-login] attempt ${attempt}/3"
-            echo "${GHCR_PASSWORD}" | docker login "${REGISTRY}" \
-              -u "${GHCR_USERNAME}" --password-stdin
-            rc=$?
-            if [ "$rc" -eq 0 ]; then
-              exit 0
-            fi
-            sleep $((attempt * 5))
-          done
-          exit 1
-
-      - name: Build and push ${{ matrix.image }}
+      - name: Build ${{ matrix.image }} without registry authority
         uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
-          push: true
+          push: false
+          load: true
           tags: |
-            ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:${{ env.TAG }}
-            ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:latest
+            ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:${{ github.sha }}
           build-args: |
             BUILD_MAIN_SHA=${{ github.sha }}
             POSTGRES_DR_CONTRACT_SHA256=${{ steps.postgres_dr_contract.outputs.sha256 }}
           no-cache: ${{ inputs.no_cache == 'true' }}
-          cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:buildcache-main-v2
-          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:buildcache-main-v2,mode=max,ignore-error=true
+
+      - name: Publish exact-current-main ${{ matrix.image }} image
+        env:
+          GITHUB_TOKEN_MATERIAL: ${{ github.token }}
+          GHCR_USERNAME_INPUT: ${{ github.actor }}
+          IMAGE_NAME: ${{ matrix.image }}
+          IMAGE_REF: ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:${{ github.sha }}
+        run: |
+          set +x
+          set -euo pipefail
+          set +a
+          umask 077
+          github_token_material=${GITHUB_TOKEN_MATERIAL:?GITHUB_TOKEN_MATERIAL is required}
+          ghcr_username_material=${GHCR_USERNAME_INPUT:?GHCR_USERNAME_INPUT is required}
+          unset GITHUB_TOKEN_MATERIAL GHCR_USERNAME_INPUT
+          docker_config_directory=
+          cleanup_registry_authority() {
+            status=$?
+            trap - EXIT
+            cleanup_status=0
+            if [ -n "${docker_config_directory}" ]; then
+              if ! /usr/bin/rm -rf -- "${docker_config_directory}" || \
+                [ -e "${docker_config_directory}" ] || [ -L "${docker_config_directory}" ]; then
+                echo '::error::isolated GHCR credential cleanup failed.'
+                cleanup_status=1
+              fi
+            fi
+            if [ "${status}" -eq 0 ] && [ "${cleanup_status}" -ne 0 ]; then status=1; fi
+            exit "${status}"
+          }
+          trap cleanup_registry_authority EXIT
+
+          assert_exact_current_main() {
+            local remote_main_sha
+            remote_main_sha="$(GH_TOKEN="${github_token_material}" gh api \
+              "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
+              --jq '.object.sha')" || return
+            [[ "${remote_main_sha}" =~ ^[0-9a-f]{40}$ ]] || return
+            test "${remote_main_sha}" = "${GITHUB_SHA}"
+          }
+
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${GITHUB_REF_PROTECTED}" = 'true'
+          [[ "${GITHUB_REPOSITORY}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          [[ "${GITHUB_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${IMAGE_NAME}" =~ ^[a-z0-9][a-z0-9._-]{0,127}$ ]]
+          test "${IMAGE_REF}" = "${REGISTRY}/${GITHUB_REPOSITORY,,}/${IMAGE_NAME}:${GITHUB_SHA}"
+          assert_exact_current_main
+          docker image inspect "${IMAGE_REF}" >/dev/null
+          docker_config_directory=$(/usr/bin/mktemp -d -p "${RUNNER_TEMP}" ghcr-publish.XXXXXXXX)
+          login_succeeded=false
+          for attempt in 1 2 3; do
+            assert_exact_current_main
+            if printf '%s\n' "${github_token_material}" | \
+              DOCKER_CONFIG="${docker_config_directory}" docker login "${REGISTRY}" \
+                --username "${ghcr_username_material}" --password-stdin; then
+              login_succeeded=true
+              break
+            fi
+            /usr/bin/sleep "$((attempt * 5))"
+          done
+          test "${login_succeeded}" = 'true'
+          assert_exact_current_main
+          unset github_token_material ghcr_username_material
+          DOCKER_CONFIG="${docker_config_directory}" docker push "${IMAGE_REF}"
 
   # ===========================================================================
   # Verify immutable SHA images and build the digest manifest consumed by droplet
@@ -1135,30 +1423,97 @@ jobs:
     outputs:
       digest_manifest_b64: ${{ steps.manifest.outputs.digest_manifest_b64 }}
     steps:
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
-
-      - name: Login to GHCR
-        env:
-          GHCR_USERNAME: ${{ github.actor }}
-          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
-        run: echo "${GHCR_PASSWORD}" | docker login "${REGISTRY}" -u "${GHCR_USERNAME}" --password-stdin
-
-      - name: Verify image manifests
-        id: manifest
+      - name: Prove exact current main before checkout
         run: |
           set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          REMOTE_MAIN_ROWS="$(git ls-remote --refs \
+            "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main)"
+          test "$(printf '%s\n' "${REMOTE_MAIN_ROWS}" | sed '/^$/d' | wc -l)" -eq 1
+          test "${REMOTE_MAIN_ROWS%%$'\t'*}" = "${GITHUB_SHA}"
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Verify exact-current-main image manifests
+        id: manifest
+        env:
+          GITHUB_TOKEN_MATERIAL: ${{ github.token }}
+          GHCR_USERNAME_INPUT: ${{ github.actor }}
+          DEPLOY_SERVICES_INPUT: ${{ needs.prepare.outputs.deploy_services }}
+          IMAGE_PREFIX_INPUT: ${{ needs.prepare.outputs.image_prefix }}
+        run: |
+          set +x
+          set -euo pipefail
+          set +a
+          umask 077
+          github_token_material=${GITHUB_TOKEN_MATERIAL:?GITHUB_TOKEN_MATERIAL is required}
+          ghcr_username_material=${GHCR_USERNAME_INPUT:?GHCR_USERNAME_INPUT is required}
+          unset GITHUB_TOKEN_MATERIAL GHCR_USERNAME_INPUT
+          docker_config_directory=
+          cleanup_registry_authority() {
+            status=$?
+            trap - EXIT
+            cleanup_status=0
+            if [ -n "${docker_config_directory}" ]; then
+              if ! /usr/bin/rm -rf -- "${docker_config_directory}" || \
+                [ -e "${docker_config_directory}" ] || [ -L "${docker_config_directory}" ]; then
+                echo '::error::isolated GHCR verification credential cleanup failed.'
+                cleanup_status=1
+              fi
+            fi
+            if [ "${status}" -eq 0 ] && [ "${cleanup_status}" -ne 0 ]; then status=1; fi
+            exit "${status}"
+          }
+          trap cleanup_registry_authority EXIT
+
+          assert_exact_current_main() {
+            local remote_main_sha
+            remote_main_sha="$(GH_TOKEN="${github_token_material}" gh api \
+              "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
+              --jq '.object.sha')" || return
+            [[ "${remote_main_sha}" =~ ^[0-9a-f]{40}$ ]] || return
+            test "${remote_main_sha}" = "${GITHUB_SHA}"
+          }
+
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${GITHUB_REF_PROTECTED}" = 'true'
+          [[ "${GITHUB_REPOSITORY}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          [[ "${GITHUB_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${IMAGE_PREFIX_INPUT}" = "${REGISTRY}/${GITHUB_REPOSITORY,,}"
+          read -r -a deploy_services <<< "${DEPLOY_SERVICES_INPUT}"
+          [ "${#deploy_services[@]}" -gt 0 ] && [ "${#deploy_services[@]}" -le 64 ]
+          for svc in "${deploy_services[@]}"; do
+            [[ "${svc}" =~ ^[a-z0-9][a-z0-9-]*$ ]]
+          done
+
+          assert_exact_current_main
+          docker_config_directory=$(/usr/bin/mktemp -d -p "${RUNNER_TEMP}" ghcr-verify.XXXXXXXX)
+          assert_exact_current_main
+          printf '%s\n' "${github_token_material}" | \
+            DOCKER_CONFIG="${docker_config_directory}" docker login "${REGISTRY}" \
+              --username "${ghcr_username_material}" --password-stdin
+
           : > image-digests.tsv
-          for svc in ${{ needs.prepare.outputs.deploy_services }}; do
-            ref="${{ needs.prepare.outputs.image_prefix }}/${svc}:${{ github.sha }}"
+          for svc in "${deploy_services[@]}"; do
+            ref="${IMAGE_PREFIX_INPUT}/${svc}:${GITHUB_SHA}"
             echo "Verifying ${ref}"
-            inspect="$(docker buildx imagetools inspect "${ref}")"
+            assert_exact_current_main
+            inspect="$(DOCKER_CONFIG="${docker_config_directory}" \
+              docker buildx imagetools inspect "${ref}")"
             digest="$(printf '%s\n' "${inspect}" | awk '/^Digest:/ {print $2; exit}')"
-            if [ -z "${digest}" ]; then
+            if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
               echo "::error::No digest found for ${ref}"
               exit 1
             fi
-            printf '%s\t%s\t%s\n' "${svc}" "${{ needs.prepare.outputs.image_prefix }}/${svc}" "${digest}" >> image-digests.tsv
+            printf '%s\t%s\t%s\n' "${svc}" "${IMAGE_PREFIX_INPUT}/${svc}" "${digest}" >> image-digests.tsv
           done
+          unset github_token_material ghcr_username_material
           echo "digest_manifest_b64=$(base64 -w0 image-digests.tsv)" >> "$GITHUB_OUTPUT"
           {
             echo "### Verified deploy images"
@@ -1172,7 +1527,7 @@ jobs:
   # Visible remote capacity preflight before the mutating SSH deploy
   # ===========================================================================
   capacity-preflight:
-    needs: [prepare, verify-images]
+    needs: [release-authority, prepare, verify-images]
     if: |
       always() &&
       needs.prepare.result == 'success' &&
@@ -1183,46 +1538,199 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Capacity preflight on production droplet
-        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.0.3
+      - name: Prove exact current main before checkout
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          REMOTE_MAIN_ROWS="$(git ls-remote --refs \
+            "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main)"
+          test "$(printf '%s\n' "${REMOTE_MAIN_ROWS}" | sed '/^$/d' | wc -l)" -eq 1
+          test "${REMOTE_MAIN_ROWS%%$'\t'*}" = "${GITHUB_SHA}"
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Require checked-out current main before protected artifacts
+        run: |
+          set -euo pipefail
+          git fetch --force --prune origin \
+            '+refs/heads/main:refs/remotes/origin/main'
+          test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
+          test "${GITHUB_SHA}" = "$(git rev-parse refs/remotes/origin/main)"
+
+      - name: Download exact-SHA production host runtime
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: production-host-runtime-${{ github.sha }}
+          path: ${{ runner.temp }}
+
+      - name: Assert protected SSH secret contract
         env:
+          DROPLET_HOST: ${{ secrets.PRODUCTION_DROPLET_HOST }}
+          DROPLET_USER: ${{ secrets.PRODUCTION_DROPLET_USER }}
+          DROPLET_SSH_KEY: ${{ secrets.PRODUCTION_DROPLET_SSH_KEY }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.PRODUCTION_DROPLET_SSH_FINGERPRINT }}
+        run: |
+          set +x
+          set -euo pipefail
+          missing=()
+          for name in DROPLET_HOST DROPLET_USER DROPLET_SSH_KEY DROPLET_SSH_FINGERPRINT; do
+            [ -n "${!name:-}" ] || missing+=("${name}")
+          done
+          if [ "${#missing[@]}" -ne 0 ]; then
+            echo "::error::Missing production environment secrets: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Capacity preflight on production droplet
+        env:
+          DROPLET_HOST: ${{ secrets.PRODUCTION_DROPLET_HOST }}
+          DROPLET_USER: ${{ secrets.PRODUCTION_DROPLET_USER }}
+          DROPLET_SSH_KEY: ${{ secrets.PRODUCTION_DROPLET_SSH_KEY }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.PRODUCTION_DROPLET_SSH_FINGERPRINT }}
           DEPLOY_SERVICES: ${{ needs.prepare.outputs.deploy_services }}
           FULL_DEPLOY: ${{ needs.prepare.outputs.full_deploy }}
           DEPLOY_MODE: ${{ needs.prepare.outputs.deploy_mode }}
           DEPLOY_SHA: ${{ github.sha }}
+          EXPECTED_PRIOR_DEPLOYED_SHA: ${{ needs.release-authority.outputs.prior_deployed_sha }}
           IMAGE_PREFIX: ${{ needs.prepare.outputs.image_prefix }}
-        with:
-          host: ${{ secrets.DROPLET_HOST }}
-          username: ${{ secrets.DROPLET_USER }}
-          key: ${{ secrets.DROPLET_SSH_KEY }}
-          command_timeout: 12m
-          envs: DEPLOY_SERVICES,FULL_DEPLOY,DEPLOY_MODE,DEPLOY_SHA,IMAGE_PREFIX,DEPLOY_CHECKOUT_DIR
-          script: |
-            set -e
-            # Run from the dedicated, deploy-owned SHA-pinned checkout — NOT the
-            # interactive /var/aqua-saas working tree (which engineering/agent
-            # sessions check feature branches into). deploy-paths.sh is the SSoT
-            # for DEPLOY_CHECKOUT_DIR and the idempotent worktree materializer;
-            # it is sourced from the persistent source repo because the checkout
-            # is what it creates. Keeping this inline tiny stays under GitHub
-            # Actions' 21,000-char per-expression limit.
-            # BOOTSTRAP FIX (ORPHAN-211): the deploy no longer `git checkout`s
-            # /var/aqua-saas (isolated-checkout decoupling, #686), so its working
-            # tree can be ANY stale branch — sourcing deploy-paths.sh from the
-            # working tree fails (file absent on an old checkout) → capacity-preflight
-            # + deploy died. Read deploy-paths.sh from the pinned DEPLOY_SHA via
-            # `git show` (working-tree-independent) after fetching the objects.
-            cd /var/aqua-saas && git fetch --force --prune origin
-            install -d /var/lib/aqua/deploy
-            git show "${DEPLOY_SHA}:scripts/deploy/deploy-paths.sh" > /var/lib/aqua/deploy/deploy-paths.sh
-            source /var/lib/aqua/deploy/deploy-paths.sh
-            materialize_deploy_checkout "${DEPLOY_SHA}"
-            cd "${DEPLOY_CHECKOUT_DIR}"
-            # GitHub Actions is the only deploy-remediation control plane.
-            # The gate may run one safe image-only GC pass through the
-            # canonical droplet-capacity script; it still never prunes
-            # volumes, containers, networks, or build cache.
-            CAPACITY_GC_MODE=auto bash scripts/deploy/droplet-capacity.sh gate
+          BUNDLE_SHA256: ${{ needs.prepare.outputs.runtime_bundle_sha256 }}
+          SSH_COMMAND_TIMEOUT_SECONDS: '720'
+        run: |
+          set +x
+          set -euo pipefail
+          umask 077
+
+          droplet_host_coordinate=${DROPLET_HOST}
+          droplet_user_coordinate=${DROPLET_USER}
+          ssh_private_key_material=${DROPLET_SSH_KEY}
+          ssh_fingerprint_material=${DROPLET_SSH_FINGERPRINT}
+          unset DROPLET_HOST DROPLET_USER DROPLET_SSH_KEY DROPLET_SSH_FINGERPRINT
+
+          SSH_STEP_DIR="$(mktemp -d -p "${RUNNER_TEMP}" deploy-capacity-ssh-XXXXXX)"
+          cleanup() {
+            status=$?
+            trap - EXIT
+            cleanup_status=0
+            if [ -n "${SSH_PRIVATE_KEY_FD:-}" ]; then
+              if [[ "${SSH_PRIVATE_KEY_FD}" =~ ^([3-9]|[1-9][0-9]{1,2})$ ]] && \
+                [ -e "/proc/self/fd/${SSH_PRIVATE_KEY_FD}" ]; then
+                exec {SSH_PRIVATE_KEY_FD}<&-
+              else
+                echo '::error::deploy capacity SSH private-key descriptor cleanup failed.'
+                cleanup_status=1
+              fi
+              SSH_PRIVATE_KEY_FD=
+            fi
+            if ! rm -rf -- "${SSH_STEP_DIR}" || [ -e "${SSH_STEP_DIR}" ]; then
+              echo '::error::deploy capacity SSH material cleanup failed.'
+              cleanup_status=1
+            fi
+            if [ "${status}" -eq 0 ] && [ "${cleanup_status}" -ne 0 ]; then status=1; fi
+            exit "${status}"
+          }
+          trap cleanup EXIT
+
+          REMOTE_ENV_PATH="${SSH_STEP_DIR}/remote-env.tsv"
+          REMOTE_ARGV_PATH="${SSH_STEP_DIR}/remote-argv.b64"
+          REMOTE_PAYLOAD="${SSH_STEP_DIR}/payload.sh"
+          REMOTE_STDOUT="${SSH_STEP_DIR}/stdout"
+          PAYLOAD_PRODUCER="${SSH_STEP_DIR}/prepare-production-host-ssh-payload.sh"
+          PROTECTED_SSH="${SSH_STEP_DIR}/run-protected-ssh.sh"
+
+          assert_exact_current_main() {
+            local deployed_rows
+            local remote_main_rows
+            [[ "${EXPECTED_PRIOR_DEPLOYED_SHA}" =~ ^[0-9a-f]{40}$ ]]
+            remote_main_rows="$(git ls-remote --refs \
+              "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main)"
+            test "$(printf '%s\n' "${remote_main_rows}" | sed '/^$/d' | wc -l)" -eq 1
+            test "${remote_main_rows%%$'\t'*}" = "${DEPLOY_SHA}"
+            deployed_rows="$(git ls-remote --refs \
+              "https://github.com/${GITHUB_REPOSITORY}.git" refs/tags/deployed/production)"
+            if [ "${EXPECTED_PRIOR_DEPLOYED_SHA}" = 0000000000000000000000000000000000000000 ]; then
+              test -z "${deployed_rows}"
+            else
+              test "$(printf '%s\n' "${deployed_rows}" | sed '/^$/d' | wc -l)" -eq 1
+              test "${deployed_rows%%$'\t'*}" = "${EXPECTED_PRIOR_DEPLOYED_SHA}"
+            fi
+          }
+          assert_exact_current_main
+
+          materialize_exact_script() {
+            local source_path="$1"
+            local output_path="$2"
+            /usr/bin/env -i \
+              PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C \
+              GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+              /usr/bin/git --no-replace-objects \
+                -c core.hooksPath=/dev/null -c protocol.allow=never \
+                -C "${GITHUB_WORKSPACE}" show \
+                "${DEPLOY_SHA}:${source_path}" > "${output_path}"
+            chmod 0500 "${output_path}"
+          }
+          materialize_exact_script \
+            tools/scripts/ci/prepare-production-host-ssh-payload.sh \
+            "${PAYLOAD_PRODUCER}"
+          materialize_exact_script \
+            tools/scripts/ci/run-protected-ssh.sh \
+            "${PROTECTED_SSH}"
+
+          : > "${REMOTE_ENV_PATH}"
+          append_env() { printf '%s\t%s\n' "$1" "$(printf '%s' "$2" | base64 -w0)" >> "${REMOTE_ENV_PATH}"; }
+          append_env DEPLOY_SERVICES "${DEPLOY_SERVICES}"
+          append_env FULL_DEPLOY "${FULL_DEPLOY}"
+          append_env DEPLOY_MODE "${DEPLOY_MODE}"
+          append_env DEPLOY_SHA "${DEPLOY_SHA}"
+          append_env IMAGE_PREFIX "${IMAGE_PREFIX}"
+          printf '%s\n' "$(printf '%s' gate | base64 -w0)" > "${REMOTE_ARGV_PATH}"
+
+          /usr/bin/env -i \
+            PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C \
+            PRODUCTION_HOST_BUNDLE_PATH="${RUNNER_TEMP}/production-host-runtime.tar.gz" \
+            PRODUCTION_HOST_BUNDLE_SHA256="${BUNDLE_SHA256}" \
+            PRODUCTION_HOST_MAIN_SHA="${DEPLOY_SHA}" \
+            PRODUCTION_HOST_REMOTE_MODE=lock-exec \
+            PRODUCTION_HOST_REMOTE_ENTRYPOINT=scripts/deploy/droplet-capacity.sh \
+            PRODUCTION_HOST_REMOTE_ENV_PATH="${REMOTE_ENV_PATH}" \
+            PRODUCTION_HOST_REMOTE_ARGV_PATH="${REMOTE_ARGV_PATH}" \
+            SSH_PAYLOAD_PATH="${REMOTE_PAYLOAD}" \
+            PRODUCTION_HOST_REPO_ROOT="${GITHUB_WORKSPACE}" \
+              /bin/bash --noprofile --norc "${PAYLOAD_PRODUCER}"
+
+          assert_exact_current_main
+          SSH_KEY_STAGE="${SSH_STEP_DIR}/private-key.input"
+          set -o noclobber
+          if ! builtin printf '%s\n' "${ssh_private_key_material}" > "${SSH_KEY_STAGE}"; then
+            set +o noclobber
+            exit 1
+          fi
+          set +o noclobber
+          /usr/bin/chmod 0600 "${SSH_KEY_STAGE}"
+          SSH_PRIVATE_KEY_FD=
+          exec {SSH_PRIVATE_KEY_FD}< "${SSH_KEY_STAGE}"
+          /usr/bin/rm -f -- "${SSH_KEY_STAGE}" {SSH_PRIVATE_KEY_FD}<&-
+          [ ! -e "${SSH_KEY_STAGE}" ] && [ ! -L "${SSH_KEY_STAGE}" ]
+          unset ssh_private_key_material
+          /usr/bin/env -i \
+            PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+            HOME="${HOME}" \
+            LC_ALL=C \
+            DROPLET_HOST="${droplet_host_coordinate}" \
+            DROPLET_USER="${droplet_user_coordinate}" \
+            SSH_PRIVATE_KEY_FD="${SSH_PRIVATE_KEY_FD}" \
+            DROPLET_SSH_FINGERPRINT="${ssh_fingerprint_material}" \
+            SSH_PAYLOAD_PATH="${REMOTE_PAYLOAD}" \
+            SSH_STDOUT_PATH="${REMOTE_STDOUT}" \
+            SSH_COMMAND_TIMEOUT_SECONDS="${SSH_COMMAND_TIMEOUT_SECONDS}" \
+              /bin/bash --noprofile --norc "${PROTECTED_SSH}"
+          exec {SSH_PRIVATE_KEY_FD}<&-
+          SSH_PRIVATE_KEY_FD=
+          assert_exact_current_main
+          cat "${REMOTE_STDOUT}"
 
   # ===========================================================================
   # Deploy to DigitalOcean Droplet (selective — affected services only)
@@ -1230,6 +1738,7 @@ jobs:
   deploy:
     needs:
       [
+        release-authority,
         prepare,
         build-backend-artifacts,
         build-frontend-artifacts,
@@ -1259,98 +1768,218 @@ jobs:
       # end of an actual droplet mutation reports performed=true.
       performed: ${{ steps.mark_performed.outputs.performed }}
     permissions:
-      contents: write
-      packages: read
+      contents: read
     steps:
-      # SEC-CI-002: pinned to SHA (needed for tag update step)
+      - name: Prove exact current main before checkout
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          REMOTE_MAIN_ROWS="$(git ls-remote --refs \
+            "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main)"
+          test "$(printf '%s\n' "${REMOTE_MAIN_ROWS}" | sed '/^$/d' | wc -l)" -eq 1
+          test "${REMOTE_MAIN_ROWS%%$'\t'*}" = "${GITHUB_SHA}"
+
+      # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          fetch-depth: 1
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require checked-out current main before protected artifacts
+        run: |
+          set -euo pipefail
+          git fetch --force --prune origin \
+            '+refs/heads/main:refs/remotes/origin/main'
+          test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
+          test "${GITHUB_SHA}" = "$(git rev-parse refs/remotes/origin/main)"
+
+      - name: Download exact-SHA production host runtime
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: production-host-runtime-${{ github.sha }}
+          path: ${{ runner.temp }}
+
+      - name: Assert protected SSH secret contract
+        env:
+          DROPLET_HOST: ${{ secrets.PRODUCTION_DROPLET_HOST }}
+          DROPLET_USER: ${{ secrets.PRODUCTION_DROPLET_USER }}
+          DROPLET_SSH_KEY: ${{ secrets.PRODUCTION_DROPLET_SSH_KEY }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.PRODUCTION_DROPLET_SSH_FINGERPRINT }}
+          PRODUCTION_GHCR_READ_USERNAME: ${{ secrets.PRODUCTION_GHCR_READ_USERNAME }}
+          PRODUCTION_GHCR_READ_TOKEN: ${{ secrets.PRODUCTION_GHCR_READ_TOKEN }}
+        run: |
+          set +x
+          set -euo pipefail
+          missing=()
+          for name in \
+            DROPLET_HOST DROPLET_USER DROPLET_SSH_KEY DROPLET_SSH_FINGERPRINT \
+            PRODUCTION_GHCR_READ_USERNAME PRODUCTION_GHCR_READ_TOKEN; do
+            [ -n "${!name:-}" ] || missing+=("${name}")
+          done
+          if [ "${#missing[@]}" -ne 0 ]; then
+            echo "::error::Missing production environment secrets: ${missing[*]}"
+            exit 1
+          fi
 
       - name: Deploy to DigitalOcean Droplet
-        # SEC-CI-002: pinned to SHA
-        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.0.3
         env:
-          # Expand GitHub expressions into runner env vars so the ssh-action
-          # can forward them via `envs:` into the remote bash. Keeping the
-          # expressions HERE (not in the remote script:) keeps the
-          # workflow-file expression payload tiny — a 500+ line bash block
-          # mixed with ${{ }} was crossing GitHub's 21,000-char limit
-          # (HTTP 422 "Exceeded max expression length 21000" at commit
-          # 2c055125 + ancestors). See scripts/deploy/droplet-up.sh header.
+          DROPLET_HOST: ${{ secrets.PRODUCTION_DROPLET_HOST }}
+          DROPLET_USER: ${{ secrets.PRODUCTION_DROPLET_USER }}
+          DROPLET_SSH_KEY: ${{ secrets.PRODUCTION_DROPLET_SSH_KEY }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.PRODUCTION_DROPLET_SSH_FINGERPRINT }}
           DEPLOY_SERVICES: ${{ needs.prepare.outputs.deploy_services }}
           FULL_DEPLOY: ${{ needs.prepare.outputs.full_deploy }}
           DEPLOY_MODE: ${{ needs.prepare.outputs.deploy_mode }}
           DEPLOY_SHA: ${{ github.sha }}
+          EXPECTED_PRIOR_DEPLOYED_SHA: ${{ needs.release-authority.outputs.prior_deployed_sha }}
           IMAGE_PREFIX: ${{ needs.prepare.outputs.image_prefix }}
           DEPLOY_IMAGE_DIGESTS_B64: ${{ needs.verify-images.outputs.digest_manifest_b64 }}
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # GITHUB_ACTOR is a reserved env var set by the runner; use a
-          # distinct name here and let the remote script read it.
-          GHCR_ACTOR: ${{ github.actor }}
-        with:
-          host: ${{ secrets.DROPLET_HOST }}
-          username: ${{ secrets.DROPLET_USER }}
-          key: ${{ secrets.DROPLET_SSH_KEY }}
-          command_timeout: 75m # Sequential pulls on slow disk + service bootstrap for 22+ Docker images
-          # envs: forwards these env vars from the GitHub runner into the
-          # remote bash session on the droplet.
-          envs: DEPLOY_SERVICES,FULL_DEPLOY,DEPLOY_MODE,DEPLOY_SHA,IMAGE_PREFIX,DEPLOY_IMAGE_DIGESTS_B64,GHCR_TOKEN,GHCR_ACTOR,DEPLOY_CHECKOUT_DIR
-          script: |
-            # Materialize the deploy's own SHA-pinned checkout, then run
-            # scripts/deploy/droplet-up.sh FROM it so the script is loaded from
-            # the deploy's immutable source. Everything else is delegated to that
-            # script to keep this YAML block under GitHub Actions' 21,000-char
-            # per-expression limit.
-            #
-            # ISOLATED CHECKOUT: the deploy no longer force-checkouts the shared
-            # interactive /var/aqua-saas working tree (which engineering/agent
-            # sessions check feature branches into). deploy-paths.sh — the SSoT
-            # for DEPLOY_CHECKOUT_DIR plus the idempotent worktree materializer —
-            # is sourced from the persistent source repo because the checkout it
-            # creates may not exist yet on the first deploy. droplet-up.sh
-            # re-asserts the same pin internally (idempotent), so a fresh run and
-            # a re-deploy converge on the same SHA-pinned tree. `git fetch` only
-            # updates the shared object store; the interactive tree's HEAD is
-            # never touched, so post-deploy-verify's HEAD check can't false-fail.
-            #
-            # ARCHITECTURAL HISTORY: commit c92539b9 originally moved the
-            # ~530-line bash block out to scripts/deploy/droplet-up.sh to
-            # stay under the 21K limit. A subsequent merge (d155d2a3 from
-            # worktree-ws10-phase-1) re-inlined the bash, regressing the
-            # fix and causing every prod deploy run to fail at workflow
-            # parse with HTTP 422 "Exceeded max expression length 21000".
-            # The thin-invoker form is preserved here. Tier-1 Make-Impossible:
-            # the inline-script regression is structurally prevented because the
-            # YAML simply cannot express the 530 lines (it would re-trigger the
-            # same parse error at PR-time). All deploy logic — cert generation,
-            # health checks, rollout, rollback — lives in droplet-up.sh.
-            set -e
-            # BOOTSTRAP FIX (ORPHAN-211): the deploy no longer `git checkout`s
-            # /var/aqua-saas (isolated-checkout decoupling, #686), so its working
-            # tree can be ANY stale branch — sourcing deploy-paths.sh from the
-            # working tree fails (file absent on an old checkout) → capacity-preflight
-            # + deploy died. Read deploy-paths.sh from the pinned DEPLOY_SHA via
-            # `git show` (working-tree-independent) after fetching the objects.
-            cd /var/aqua-saas && git fetch --force --prune origin
-            install -d /var/lib/aqua/deploy
-            git show "${DEPLOY_SHA}:scripts/deploy/deploy-paths.sh" > /var/lib/aqua/deploy/deploy-paths.sh
-            source /var/lib/aqua/deploy/deploy-paths.sh
-            materialize_deploy_checkout "${DEPLOY_SHA}"
-            cd "${DEPLOY_CHECKOUT_DIR}"
-            bash scripts/deploy/droplet-up.sh
-            echo "=== Deployment completed at $(date) ==="
-
-      - name: Update deploy baseline tag
+          PRODUCTION_GHCR_READ_USERNAME: ${{ secrets.PRODUCTION_GHCR_READ_USERNAME }}
+          PRODUCTION_GHCR_READ_TOKEN: ${{ secrets.PRODUCTION_GHCR_READ_TOKEN }}
+          BUNDLE_SHA256: ${{ needs.prepare.outputs.runtime_bundle_sha256 }}
+          SSH_COMMAND_TIMEOUT_SECONDS: '4500'
         run: |
-          git tag -f deployed/production ${{ github.sha }}
-          git push -f origin deployed/production
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          set +x
+          set -euo pipefail
+          umask 077
 
-      - name: Mark deployment performed
-        id: mark_performed
-        run: echo "performed=true" >> "$GITHUB_OUTPUT"
+          droplet_host_coordinate=${DROPLET_HOST}
+          droplet_user_coordinate=${DROPLET_USER}
+          ssh_private_key_material=${DROPLET_SSH_KEY}
+          ssh_fingerprint_material=${DROPLET_SSH_FINGERPRINT}
+          ghcr_read_username_material=${PRODUCTION_GHCR_READ_USERNAME}
+          ghcr_read_token_material=${PRODUCTION_GHCR_READ_TOKEN}
+          unset DROPLET_HOST DROPLET_USER DROPLET_SSH_KEY DROPLET_SSH_FINGERPRINT
+          unset PRODUCTION_GHCR_READ_USERNAME PRODUCTION_GHCR_READ_TOKEN
+
+          SSH_STEP_DIR="$(mktemp -d -p "${RUNNER_TEMP}" deploy-ssh-XXXXXX)"
+          cleanup() {
+            status=$?
+            trap - EXIT
+            cleanup_status=0
+            if [ -n "${SSH_PRIVATE_KEY_FD:-}" ]; then
+              if [[ "${SSH_PRIVATE_KEY_FD}" =~ ^([3-9]|[1-9][0-9]{1,2})$ ]] && \
+                [ -e "/proc/self/fd/${SSH_PRIVATE_KEY_FD}" ]; then
+                exec {SSH_PRIVATE_KEY_FD}<&-
+              else
+                echo '::error::deploy SSH private-key descriptor cleanup failed.'
+                cleanup_status=1
+              fi
+              SSH_PRIVATE_KEY_FD=
+            fi
+            if ! rm -rf -- "${SSH_STEP_DIR}" || [ -e "${SSH_STEP_DIR}" ]; then
+              echo '::error::deploy SSH material cleanup failed.'
+              cleanup_status=1
+            fi
+            if [ "${status}" -eq 0 ] && [ "${cleanup_status}" -ne 0 ]; then status=1; fi
+            exit "${status}"
+          }
+          trap cleanup EXIT
+
+          REMOTE_ENV_PATH="${SSH_STEP_DIR}/remote-env.tsv"
+          REMOTE_ARGV_PATH="${SSH_STEP_DIR}/remote-argv.b64"
+          REMOTE_PAYLOAD="${SSH_STEP_DIR}/payload.sh"
+          REMOTE_STDOUT="${SSH_STEP_DIR}/stdout"
+          PAYLOAD_PRODUCER="${SSH_STEP_DIR}/prepare-production-host-ssh-payload.sh"
+          PROTECTED_SSH="${SSH_STEP_DIR}/run-protected-ssh.sh"
+
+          assert_exact_current_main() {
+            local deployed_rows
+            local remote_main_rows
+            [[ "${EXPECTED_PRIOR_DEPLOYED_SHA}" =~ ^[0-9a-f]{40}$ ]]
+            remote_main_rows="$(git ls-remote --refs \
+              "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main)"
+            test "$(printf '%s\n' "${remote_main_rows}" | sed '/^$/d' | wc -l)" -eq 1
+            test "${remote_main_rows%%$'\t'*}" = "${DEPLOY_SHA}"
+            deployed_rows="$(git ls-remote --refs \
+              "https://github.com/${GITHUB_REPOSITORY}.git" refs/tags/deployed/production)"
+            if [ "${EXPECTED_PRIOR_DEPLOYED_SHA}" = 0000000000000000000000000000000000000000 ]; then
+              test -z "${deployed_rows}"
+            else
+              test "$(printf '%s\n' "${deployed_rows}" | sed '/^$/d' | wc -l)" -eq 1
+              test "${deployed_rows%%$'\t'*}" = "${EXPECTED_PRIOR_DEPLOYED_SHA}"
+            fi
+          }
+          assert_exact_current_main
+
+          materialize_exact_script() {
+            local source_path="$1"
+            local output_path="$2"
+            /usr/bin/env -i \
+              PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C \
+              GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+              /usr/bin/git --no-replace-objects \
+                -c core.hooksPath=/dev/null -c protocol.allow=never \
+                -C "${GITHUB_WORKSPACE}" show \
+                "${DEPLOY_SHA}:${source_path}" > "${output_path}"
+            chmod 0500 "${output_path}"
+          }
+          materialize_exact_script \
+            tools/scripts/ci/prepare-production-host-ssh-payload.sh \
+            "${PAYLOAD_PRODUCER}"
+          materialize_exact_script \
+            tools/scripts/ci/run-protected-ssh.sh \
+            "${PROTECTED_SSH}"
+
+          : > "${REMOTE_ENV_PATH}"
+          : > "${REMOTE_ARGV_PATH}"
+          append_env() { printf '%s\t%s\n' "$1" "$(printf '%s' "$2" | base64 -w0)" >> "${REMOTE_ENV_PATH}"; }
+          append_env DEPLOY_SERVICES "${DEPLOY_SERVICES}"
+          append_env FULL_DEPLOY "${FULL_DEPLOY}"
+          append_env DEPLOY_MODE "${DEPLOY_MODE}"
+          append_env DEPLOY_SHA "${DEPLOY_SHA}"
+          append_env IMAGE_PREFIX "${IMAGE_PREFIX}"
+          append_env DEPLOY_IMAGE_DIGESTS_B64 "${DEPLOY_IMAGE_DIGESTS_B64}"
+          # droplet-up's bounded runtime interface retains the GHCR_* names;
+          # their only authority is the dedicated package-read principal.
+          append_env GHCR_TOKEN "${ghcr_read_token_material}"
+          append_env GHCR_ACTOR "${ghcr_read_username_material}"
+          unset ghcr_read_token_material ghcr_read_username_material
+
+          /usr/bin/env -i \
+            PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C \
+            PRODUCTION_HOST_BUNDLE_PATH="${RUNNER_TEMP}/production-host-runtime.tar.gz" \
+            PRODUCTION_HOST_BUNDLE_SHA256="${BUNDLE_SHA256}" \
+            PRODUCTION_HOST_MAIN_SHA="${DEPLOY_SHA}" \
+            PRODUCTION_HOST_REMOTE_MODE=lock-exec \
+            PRODUCTION_HOST_REMOTE_ENTRYPOINT=scripts/deploy/droplet-up.sh \
+            PRODUCTION_HOST_REMOTE_ENV_PATH="${REMOTE_ENV_PATH}" \
+            PRODUCTION_HOST_REMOTE_ARGV_PATH="${REMOTE_ARGV_PATH}" \
+            SSH_PAYLOAD_PATH="${REMOTE_PAYLOAD}" \
+            PRODUCTION_HOST_REPO_ROOT="${GITHUB_WORKSPACE}" \
+              /bin/bash --noprofile --norc "${PAYLOAD_PRODUCER}"
+
+          assert_exact_current_main
+          SSH_KEY_STAGE="${SSH_STEP_DIR}/private-key.input"
+          set -o noclobber
+          if ! builtin printf '%s\n' "${ssh_private_key_material}" > "${SSH_KEY_STAGE}"; then
+            set +o noclobber
+            exit 1
+          fi
+          set +o noclobber
+          /usr/bin/chmod 0600 "${SSH_KEY_STAGE}"
+          SSH_PRIVATE_KEY_FD=
+          exec {SSH_PRIVATE_KEY_FD}< "${SSH_KEY_STAGE}"
+          /usr/bin/rm -f -- "${SSH_KEY_STAGE}" {SSH_PRIVATE_KEY_FD}<&-
+          [ ! -e "${SSH_KEY_STAGE}" ] && [ ! -L "${SSH_KEY_STAGE}" ]
+          unset ssh_private_key_material
+          /usr/bin/env -i \
+            PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+            HOME="${HOME}" \
+            LC_ALL=C \
+            DROPLET_HOST="${droplet_host_coordinate}" \
+            DROPLET_USER="${droplet_user_coordinate}" \
+            SSH_PRIVATE_KEY_FD="${SSH_PRIVATE_KEY_FD}" \
+            DROPLET_SSH_FINGERPRINT="${ssh_fingerprint_material}" \
+            SSH_PAYLOAD_PATH="${REMOTE_PAYLOAD}" \
+            SSH_STDOUT_PATH="${REMOTE_STDOUT}" \
+            SSH_COMMAND_TIMEOUT_SECONDS="${SSH_COMMAND_TIMEOUT_SECONDS}" \
+              /bin/bash --noprofile --norc "${PROTECTED_SSH}"
+          exec {SSH_PRIVATE_KEY_FD}<&-
+          SSH_PRIVATE_KEY_FD=
+          assert_exact_current_main
+          cat "${REMOTE_STDOUT}"
 
       # SEC-CI-005: Removed echo of DROPLET_HOST to prevent leaking server IP in logs
       - name: Verify deployment
@@ -1360,3 +1989,136 @@ jobs:
           echo "Services deployed: ${{ needs.prepare.outputs.deploy_services }}"
           echo "Full deploy: ${{ needs.prepare.outputs.full_deploy }}"
           echo "Deploy mode: ${{ needs.prepare.outputs.deploy_mode }}"
+
+      - name: Mark deployment performed
+        id: mark_performed
+        run: echo "performed=true" >> "$GITHUB_OUTPUT"
+
+  # Both workflow_call and workflow_dispatch paths cross this independent job
+  # boundary. It proves the exact host ledger/marker/image state while the
+  # deployed/production ref is still pinned to the captured prior value.
+  production-post-deploy-verify:
+    needs: [release-authority, deploy]
+    if: needs.deploy.outputs.performed == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/production-post-deploy-verify.yml
+    with:
+      target_sha: ${{ github.sha }}
+      expected_prior_deployed_sha: ${{ needs.release-authority.outputs.prior_deployed_sha }}
+      caller_holds_production_lock: true
+  # The sole repository-write edge. GitHub's atomic updateRefs mutation binds
+  # the update to the captured prior OID and rejects non-fast-forward changes;
+  # a concurrent move or stale main run therefore cannot overwrite evidence.
+  advance-production-baseline:
+    needs: [release-authority, deploy, production-post-deploy-verify]
+    if: >-
+      needs.deploy.outputs.performed == 'true' &&
+      needs.production-post-deploy-verify.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    permissions:
+      contents: write
+    outputs:
+      advanced: ${{ steps.baseline.outputs.advanced }}
+    steps:
+      - name: Prove exact current main before checkout
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          [[ "${GITHUB_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          REMOTE_MAIN_ROWS="$(git ls-remote --refs \
+            "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main)"
+          test "$(printf '%s\n' "${REMOTE_MAIN_ROWS}" | sed '/^$/d' | wc -l)" -eq 1
+          test "${REMOTE_MAIN_ROWS%%$'\t'*}" = "${GITHUB_SHA}"
+
+      - name: Checkout exact baseline authority
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require checked-out current main before repository write authority
+        run: |
+          set -euo pipefail
+          git fetch --force --prune origin \
+            '+refs/heads/main:refs/remotes/origin/main'
+          test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
+          test "${GITHUB_SHA}" = "$(git rev-parse refs/remotes/origin/main)"
+
+      - name: Advance deployed/production with atomic prior-OID CAS
+        id: baseline
+        env:
+          EXPECTED_PRIOR_SHA: ${{ needs.release-authority.outputs.prior_deployed_sha }}
+          TARGET_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +x
+          set -euo pipefail
+          [[ "${EXPECTED_PRIOR_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${TARGET_SHA}" =~ ^[0-9a-f]{40}$ ]]
+
+          REMOTE_MAIN_ROWS="$(git ls-remote --refs \
+            "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main)"
+          test "$(printf '%s\n' "${REMOTE_MAIN_ROWS}" | sed '/^$/d' | wc -l)" -eq 1
+          test "${REMOTE_MAIN_ROWS%%$'\t'*}" = "${TARGET_SHA}"
+
+          CURRENT_ROWS="$(git ls-remote --refs origin refs/tags/deployed/production)"
+          if [ "${EXPECTED_PRIOR_SHA}" = 0000000000000000000000000000000000000000 ]; then
+            test -z "${CURRENT_ROWS}"
+          else
+            test "$(printf '%s\n' "${CURRENT_ROWS}" | sed '/^$/d' | wc -l)" -eq 1
+            test "${CURRENT_ROWS%%$'\t'*}" = "${EXPECTED_PRIOR_SHA}"
+            git merge-base --is-ancestor "${EXPECTED_PRIOR_SHA}" "${TARGET_SHA}"
+          fi
+
+          REPOSITORY_ID="$(gh api "repos/${REPOSITORY}" --jq '.node_id')"
+          [[ "${REPOSITORY_ID}" =~ ^[A-Za-z0-9_=+-]+$ ]]
+          MUTATION='mutation($repositoryId: ID!, $refUpdates: [RefUpdate!]!) { updateRefs(input: {repositoryId: $repositoryId, refUpdates: $refUpdates}) { clientMutationId } }'
+          REQUEST_PATH="$(mktemp -p "${RUNNER_TEMP}" production-baseline-cas.XXXXXXXX.json)"
+          cleanup_request() {
+            status=$?
+            trap - EXIT
+            rm -f -- "${REQUEST_PATH}"
+            exit "${status}"
+          }
+          trap cleanup_request EXIT
+          jq -n \
+            --arg query "${MUTATION}" \
+            --arg repository_id "${REPOSITORY_ID}" \
+            --arg before_oid "${EXPECTED_PRIOR_SHA}" \
+            --arg after_oid "${TARGET_SHA}" \
+            '{
+              query: $query,
+              variables: {
+                repositoryId: $repository_id,
+                refUpdates: [
+                  {
+                    name: "refs/heads/main",
+                    beforeOid: $after_oid,
+                    afterOid: $after_oid,
+                    force: false
+                  },
+                  {
+                    name: "refs/tags/deployed/production",
+                    beforeOid: $before_oid,
+                    afterOid: $after_oid,
+                    force: false
+                  }
+                ]
+              }
+            }' > "${REQUEST_PATH}"
+          gh api graphql --input "${REQUEST_PATH}" >/dev/null
+
+          OBSERVED_MAIN_SHA="$(gh api \
+            "repos/${REPOSITORY}/git/ref/heads/main" \
+            --jq '.object.sha')"
+          OBSERVED_SHA="$(gh api \
+            "repos/${REPOSITORY}/git/ref/tags/deployed%2Fproduction" \
+            --jq '.object.sha')"
+          test "${OBSERVED_MAIN_SHA}" = "${TARGET_SHA}"
+          test "${OBSERVED_SHA}" = "${TARGET_SHA}"
+          echo 'advanced=true' >> "${GITHUB_OUTPUT}"

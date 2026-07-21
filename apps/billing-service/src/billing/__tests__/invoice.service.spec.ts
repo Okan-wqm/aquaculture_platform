@@ -9,8 +9,25 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import Decimal from 'decimal.js';
-import { Invoice, InvoiceStatus, InvoiceLineItem, TaxInfo, BillingAddress } from '../entities/invoice.entity';
-import { Subscription, SubscriptionStatus, BillingCycle, PlanTier } from '../entities/subscription.entity';
+import {
+  Invoice,
+  InvoiceStatus,
+  InvoiceLineItem,
+  TaxInfo,
+  BillingAddress,
+} from '../entities/invoice.entity';
+import {
+  Subscription,
+  SubscriptionStatus,
+  BillingCycle,
+  PlanTier,
+} from '../entities/subscription.entity';
+
+const TEST_NOW = new Date('2026-03-14T12:00:00Z');
+
+function dateAtOffset(days: number): Date {
+  return new Date(TEST_NOW.getTime() + days * 24 * 60 * 60 * 1000);
+}
 
 // Mock Invoice Service for testing
 interface InvoiceCreateDto {
@@ -30,7 +47,10 @@ interface InvoiceService {
   finalizeInvoice(id: string): Promise<Invoice>;
   voidInvoice(id: string, reason: string): Promise<Invoice>;
   generateInvoiceNumber(): string;
-  calculateTotals(lineItems: InvoiceLineItem[], taxInfo?: TaxInfo): { subtotal: number; tax: number; total: number };
+  calculateTotals(
+    lineItems: InvoiceLineItem[],
+    taxInfo?: TaxInfo,
+  ): { subtotal: number; tax: number; total: number };
   generatePdf(invoiceId: string): Promise<Buffer>;
   sendInvoiceEmail(invoiceId: string, recipients: string[]): Promise<void>;
 }
@@ -92,14 +112,14 @@ describe('Invoice Service', () => {
       {
         description: 'Professional Plan - Monthly',
         quantity: 1,
-        unitPrice: 99.00,
-        amount: 99.00,
+        unitPrice: 99.0,
+        amount: 99.0,
       },
       {
         description: 'API Calls (50,000 calls)',
         quantity: 50000,
         unitPrice: 0.001,
-        amount: 50.00,
+        amount: 50.0,
         productCode: 'api_calls',
       },
     ];
@@ -173,20 +193,20 @@ describe('Invoice Service', () => {
           {
             description: 'Base Plan',
             quantity: 1,
-            unitPrice: 99.00,
-            amount: 99.00,
+            unitPrice: 99.0,
+            amount: 99.0,
           },
           {
             description: 'Additional Users (5)',
             quantity: 5,
-            unitPrice: 10.00,
-            amount: 50.00,
+            unitPrice: 10.0,
+            amount: 50.0,
           },
         ];
 
         expect(lineItems.length).toBe(2);
-        expect(lineItems[0]?.amount).toBe(99.00);
-        expect(lineItems[1]?.amount).toBe(50.00);
+        expect(lineItems[0]?.amount).toBe(99.0);
+        expect(lineItems[1]?.amount).toBe(50.0);
       });
 
       it('should calculate subtotal, tax, and total correctly', () => {
@@ -227,22 +247,22 @@ describe('Invoice Service', () => {
           description: 'API Calls - 50,000 calls @ $0.001/call',
           quantity: 50000,
           unitPrice: 0.001,
-          amount: 50.00,
+          amount: 50.0,
           productCode: 'api_calls',
           usagePeriodStart: new Date('2024-06-01'),
           usagePeriodEnd: new Date('2024-06-30'),
         };
 
         expect(usageLineItem.productCode).toBe('api_calls');
-        expect(usageLineItem.amount).toBe(50.00);
+        expect(usageLineItem.amount).toBe(50.0);
       });
 
       it('should handle subscription line item', () => {
         const subscriptionLineItem: InvoiceLineItem = {
           description: 'Professional Plan - Monthly Subscription',
           quantity: 1,
-          unitPrice: 199.00,
-          amount: 199.00,
+          unitPrice: 199.0,
+          amount: 199.0,
           subscriptionPeriod: '2024-06-01 to 2024-06-30',
         };
 
@@ -253,8 +273,8 @@ describe('Invoice Service', () => {
         const oneTimeLineItem: InvoiceLineItem = {
           description: 'Setup Fee',
           quantity: 1,
-          unitPrice: 500.00,
-          amount: 500.00,
+          unitPrice: 500.0,
+          amount: 500.0,
           isOneTime: true,
         };
 
@@ -265,8 +285,8 @@ describe('Invoice Service', () => {
         const discountLineItem: InvoiceLineItem = {
           description: 'Promotional Discount - 20%',
           quantity: 1,
-          unitPrice: -50.00,
-          amount: -50.00,
+          unitPrice: -50.0,
+          amount: -50.0,
           isDiscount: true,
           discountCode: 'SAVE20',
         };
@@ -279,8 +299,8 @@ describe('Invoice Service', () => {
         const adjustmentLineItem: InvoiceLineItem = {
           description: 'Service Credit - June 2024',
           quantity: 1,
-          unitPrice: -25.00,
-          amount: -25.00,
+          unitPrice: -25.0,
+          amount: -25.0,
           isAdjustment: true,
           adjustmentReason: 'Service outage compensation',
         };
@@ -307,8 +327,8 @@ describe('Invoice Service', () => {
         const creditLineItem: InvoiceLineItem = {
           description: 'Account Credit Applied',
           quantity: 1,
-          unitPrice: -100.00,
-          amount: -100.00,
+          unitPrice: -100.0,
+          amount: -100.0,
           isCredit: true,
           creditReason: 'Referral bonus',
         };
@@ -319,18 +339,39 @@ describe('Invoice Service', () => {
 
       it('should group line items correctly', () => {
         const lineItems: InvoiceLineItem[] = [
-          { description: 'Base Plan', quantity: 1, unitPrice: 99, amount: 99, category: 'subscription' },
-          { description: 'API Calls', quantity: 1000, unitPrice: 0.01, amount: 10, category: 'usage' },
+          {
+            description: 'Base Plan',
+            quantity: 1,
+            unitPrice: 99,
+            amount: 99,
+            category: 'subscription',
+          },
+          {
+            description: 'API Calls',
+            quantity: 1000,
+            unitPrice: 0.01,
+            amount: 10,
+            category: 'usage',
+          },
           { description: 'Storage', quantity: 10, unitPrice: 1, amount: 10, category: 'usage' },
-          { description: 'Discount', quantity: 1, unitPrice: -10, amount: -10, category: 'discount' },
+          {
+            description: 'Discount',
+            quantity: 1,
+            unitPrice: -10,
+            amount: -10,
+            category: 'discount',
+          },
         ];
 
-        const grouped = lineItems.reduce((acc, item) => {
-          const category = item.category || 'other';
-          acc[category] = acc[category] || [];
-          acc[category].push(item);
-          return acc;
-        }, {} as Record<string, InvoiceLineItem[]>);
+        const grouped = lineItems.reduce(
+          (acc, item) => {
+            const category = item.category || 'other';
+            acc[category] = acc[category] || [];
+            acc[category].push(item);
+            return acc;
+          },
+          {} as Record<string, InvoiceLineItem[]>,
+        );
 
         expect(grouped['subscription']?.length).toBe(1);
         expect(grouped['usage']?.length).toBe(2);
@@ -501,7 +542,7 @@ describe('Invoice Service', () => {
       const creditMemo = createCreditMemo(originalInvoice, 100, 'Billing error');
 
       expect(creditMemo.isCreditMemo).toBe(true);
-      expect(creditMemo.total).toBe(-100);
+      expect(creditMemo.total?.toString()).toBe('-100');
       expect(creditMemo.relatedInvoiceId).toBe('inv-123');
     });
   });
@@ -680,10 +721,7 @@ describe('Invoice Service', () => {
         };
       };
 
-      const attachment = createEmailWithAttachment(
-        'INV-2024-0001',
-        Buffer.from('PDF content'),
-      );
+      const attachment = createEmailWithAttachment('INV-2024-0001', Buffer.from('PDF content'));
 
       expect(attachment.filename).toBe('INV-2024-0001.pdf');
       expect(attachment.contentType).toBe('application/pdf');
@@ -702,36 +740,29 @@ describe('Invoice Service', () => {
     });
 
     it('should send reminder before due date', async () => {
-      const shouldSendReminder = (dueDate: Date, daysBefore: number): boolean => {
-        const now = new Date();
+      const shouldSendReminder = (dueDate: Date, now: Date, daysBefore: number): boolean => {
         const reminderDate = new Date(dueDate);
         reminderDate.setDate(reminderDate.getDate() - daysBefore);
         return now >= reminderDate && now < dueDate;
       };
 
-      const dueDateIn5Days = new Date();
-      dueDateIn5Days.setDate(dueDateIn5Days.getDate() + 5);
+      const dueDateIn5Days = dateAtOffset(5);
+      const dueDateIn10Days = dateAtOffset(10);
 
-      const dueDateIn10Days = new Date();
-      dueDateIn10Days.setDate(dueDateIn10Days.getDate() + 10);
-
-      expect(shouldSendReminder(dueDateIn5Days, 7)).toBe(true);
-      expect(shouldSendReminder(dueDateIn10Days, 7)).toBe(false);
+      expect(shouldSendReminder(dueDateIn5Days, TEST_NOW, 7)).toBe(true);
+      expect(shouldSendReminder(dueDateIn10Days, TEST_NOW, 7)).toBe(false);
     });
 
     it('should send overdue reminder', async () => {
-      const isOverdue = (dueDate: Date): boolean => {
-        return new Date() > dueDate;
+      const isOverdue = (dueDate: Date, now: Date): boolean => {
+        return now > dueDate;
       };
 
-      const pastDueDate = new Date();
-      pastDueDate.setDate(pastDueDate.getDate() - 5);
+      const pastDueDate = dateAtOffset(-5);
+      const futureDueDate = dateAtOffset(5);
 
-      const futureDueDate = new Date();
-      futureDueDate.setDate(futureDueDate.getDate() + 5);
-
-      expect(isOverdue(pastDueDate)).toBe(true);
-      expect(isOverdue(futureDueDate)).toBe(false);
+      expect(isOverdue(pastDueDate, TEST_NOW)).toBe(true);
+      expect(isOverdue(futureDueDate, TEST_NOW)).toBe(false);
     });
 
     it('should track delivery status', () => {
@@ -785,12 +816,8 @@ describe('Invoice Service', () => {
     });
 
     it('should mark overdue after due date', () => {
-      const checkAndUpdateOverdue = (invoice: Partial<Invoice>): InvoiceStatus => {
-        if (
-          invoice.status === InvoiceStatus.SENT &&
-          invoice.dueDate &&
-          new Date() > invoice.dueDate
-        ) {
+      const checkAndUpdateOverdue = (invoice: Partial<Invoice>, now: Date): InvoiceStatus => {
+        if (invoice.status === InvoiceStatus.SENT && invoice.dueDate && now > invoice.dueDate) {
           return InvoiceStatus.OVERDUE;
         }
         return invoice.status || InvoiceStatus.DRAFT;
@@ -798,16 +825,16 @@ describe('Invoice Service', () => {
 
       const overdueInvoice: Partial<Invoice> = {
         status: InvoiceStatus.SENT,
-        dueDate: new Date('2023-01-01'),
+        dueDate: dateAtOffset(-1),
       };
 
       const currentInvoice: Partial<Invoice> = {
         status: InvoiceStatus.SENT,
-        dueDate: new Date('2025-12-31'),
+        dueDate: dateAtOffset(1),
       };
 
-      expect(checkAndUpdateOverdue(overdueInvoice)).toBe(InvoiceStatus.OVERDUE);
-      expect(checkAndUpdateOverdue(currentInvoice)).toBe(InvoiceStatus.SENT);
+      expect(checkAndUpdateOverdue(overdueInvoice, TEST_NOW)).toBe(InvoiceStatus.OVERDUE);
+      expect(checkAndUpdateOverdue(currentInvoice, TEST_NOW)).toBe(InvoiceStatus.SENT);
     });
   });
 
@@ -832,10 +859,7 @@ describe('Invoice Service', () => {
     });
 
     it('should search invoices by number', () => {
-      const searchByNumber = (
-        invoices: Partial<Invoice>[],
-        query: string,
-      ): Partial<Invoice>[] => {
+      const searchByNumber = (invoices: Partial<Invoice>[], query: string): Partial<Invoice>[] => {
         return invoices.filter((inv) =>
           inv.invoiceNumber?.toLowerCase().includes(query.toLowerCase()),
         );
@@ -888,11 +912,7 @@ describe('Invoice Service', () => {
         { issueDate: new Date('2024-03-15') },
       ];
 
-      const filtered = filterByDateRange(
-        invoices,
-        new Date('2024-01-01'),
-        new Date('2024-02-28'),
-      );
+      const filtered = filterByDateRange(invoices, new Date('2024-01-01'), new Date('2024-02-28'));
 
       expect(filtered.length).toBe(2);
     });

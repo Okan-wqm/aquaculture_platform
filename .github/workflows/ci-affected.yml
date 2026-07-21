@@ -946,22 +946,9 @@ jobs:
     permissions:
       contents: write
       packages: write
-      id-token: write
     uses: ./.github/workflows/deploy-digitalocean.yml
     with:
       services: auto
-    secrets: inherit
-
-  production-post-deploy-verify:
-    needs:
-      - deploy-production
-    if: needs.deploy-production.outputs.deployed == 'true'
-    permissions:
-      contents: read
-    uses: ./.github/workflows/production-post-deploy-verify.yml
-    with:
-      target_sha: ${{ github.sha }}
-    secrets: inherit
 
   # ---------------------------------------------------------------------------
   # PR-time infrastructure image build gate

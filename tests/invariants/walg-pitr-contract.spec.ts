@@ -1,19 +1,22 @@
-import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
+import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   chmodSync,
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
   symlinkSync,
+  statSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import yaml from 'js-yaml';
 
@@ -27,6 +30,7 @@ const WALG_REVISION = 'f81943e64bdf97aa66f6c52fec55114703f97af7';
 const WALG_ASSET = 'wal-g-pg-22.04-amd64';
 const WALG_SHA256 = 'f30544c5ce93cf83b87578e3c4a2e9c0e0ffc3d160ef89ecddaf75f397d98deb';
 const EVIDENCE_MAIN_SHA = 'a'.repeat(40);
+const EVIDENCE_DATABASE_RELEASE_SHA = '7'.repeat(40);
 const EVIDENCE_IMAGE_REVISION = '9'.repeat(40);
 const EVIDENCE_IMAGE_ID = `sha256:${'b'.repeat(64)}`;
 const EVIDENCE_SYSTEM_IDENTIFIER = '7500000000000000000';
@@ -76,6 +80,43 @@ const EVIDENCE_TENANT_SENTINELS = [
   'alert_rules',
   'agent_conversations',
 ] as const;
+const EVIDENCE_PITR_BASE_RELATIONS = [
+  'admin.migrations',
+  'admin.tenant_schemas',
+  'ai.migrations',
+  'alert.migrations',
+  'auth.migrations',
+  'auth.tenants',
+  'auth.users',
+  'billing.migrations',
+  'billing.subscriptions',
+  'config.migrations',
+  'event_store.migrations',
+  'farm.migrations',
+  'hr.migrations',
+  'hydroponics.migrations',
+  'messaging.migrations',
+  'notification.migrations',
+  'observability.migrations',
+  'platform.release_ledger',
+  'sensor.migrations',
+] as const;
+const EVIDENCE_PITR_TENANT_TABLES = [
+  'agent_conversations',
+  'alert_rules',
+  'channels',
+  'employees',
+  'farms',
+  'hydroponics_config',
+  'migrations_ai',
+  'migrations_alert',
+  'migrations_farm',
+  'migrations_hr',
+  'migrations_hydroponics',
+  'migrations_messaging',
+  'migrations_sensor',
+  'sensors',
+] as const;
 
 const COMPOSE_PATH = join(REPO_ROOT, 'docker-compose.droplet.yml');
 const POSTGRES_MANIFEST_PATH = join(REPO_ROOT, '.github/manifests/postgres-image.json');
@@ -117,6 +158,8 @@ const RESTORE_WRAPPER_PATH = join(
 );
 const BASE_BACKUP_PATH = join(REPO_ROOT, 'tools/scripts/database/walg-base-backup.sh');
 const PITR_RESTORE_PATH = join(REPO_ROOT, 'tools/scripts/database/walg-pitr-restore.sh');
+const PITR_CEREMONY_PATH = join(REPO_ROOT, 'tools/scripts/database/walg-pitr-ceremony.sh');
+const READ_BOUNDED_LINE_PATH = join(REPO_ROOT, 'tools/scripts/database/read-bounded-line.mjs');
 const EVIDENCE_EVALUATOR_PATH = join(
   REPO_ROOT,
   'tools/scripts/database/evaluate-walg-evidence.mjs',
@@ -124,13 +167,22 @@ const EVIDENCE_EVALUATOR_PATH = join(
 
 const TRUSTED_BACKUP_BUNDLE = [
   '.github/manifests/postgres-dr-contract.sha256',
+  'scripts/deploy/production-host-control-plane.sh',
   'tools/scripts/database/backup-databases.sh',
   'tools/scripts/database/database-verification.sql',
   'tools/scripts/database/evaluate-walg-evidence.mjs',
   'tools/scripts/database/materialize-walg-secrets.sh',
+  'tools/scripts/database/pitr-source-verification-locks.sql',
+  'tools/scripts/database/read-bounded-line.mjs',
   'tools/scripts/database/walg-base-backup.sh',
+  'tools/scripts/database/walg-pitr-ceremony.sh',
   'tools/scripts/database/walg-pitr-restore.sh',
 ] as const;
+
+interface WorkflowRunBlock {
+  location: string;
+  source: string;
+}
 
 interface ComposeService {
   command?: unknown;
@@ -161,6 +213,25 @@ function hashManifestEntries(manifest: string): Map<string, string> {
     if (match?.[1] && match[2]) entries.set(match[2], match[1]);
   }
   return entries;
+}
+
+function collectWorkflowRunBlocks(
+  value: unknown,
+  location: string,
+  blocks: WorkflowRunBlock[],
+): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => collectWorkflowRunBlocks(item, `${location}[${index}]`, blocks));
+    return;
+  }
+  if (!isRecord(value)) return;
+  for (const [key, item] of Object.entries(value)) {
+    const itemLocation = location.length > 0 ? `${location}.${key}` : key;
+    if (key === 'run' && typeof item === 'string') {
+      blocks.push({ location: itemLocation, source: item });
+    }
+    collectWorkflowRunBlocks(item, itemLocation, blocks);
+  }
 }
 
 function productionCompose(): Record<string, unknown> {
@@ -371,7 +442,9 @@ function backupEvidence(
   };
 }
 
-function databaseVerificationPayload(): Record<string, unknown> {
+function databaseVerificationPayload(
+  releaseSha = EVIDENCE_DATABASE_RELEASE_SHA,
+): Record<string, unknown> {
   const migrationHead = (identity: Record<string, string>): Record<string, string> => ({
     ...identity,
     timestamp: '1760000000000',
@@ -395,7 +468,7 @@ function databaseVerificationPayload(): Record<string, unknown> {
     tenant_schemas: [EVIDENCE_TENANT_SCHEMA],
     release: {
       release_id: 'release-20260716',
-      git_sha: EVIDENCE_MAIN_SHA,
+      git_sha: releaseSha,
     },
     migration_heads: {
       schemas: EVIDENCE_SOURCE_SCHEMAS.map((schema) => migrationHead({ schema })),
@@ -423,15 +496,46 @@ function databaseVerificationSha256(payload: Record<string, unknown>): string {
     .digest('hex');
 }
 
+function pitrSourceLockRelations(tenantSchemas: readonly string[]): string[] {
+  return [
+    ...EVIDENCE_PITR_BASE_RELATIONS,
+    ...tenantSchemas.flatMap((tenantSchema) =>
+      EVIDENCE_PITR_TENANT_TABLES.map((table) => `${tenantSchema}.${table}`),
+    ),
+  ].sort();
+}
+
+function walMarkerContent(
+  backupName: string,
+  mainSha: string,
+  phase: 'BEFORE' | 'AFTER',
+  runId: string,
+): string {
+  return JSON.stringify({ backup_name: backupName, main_sha: mainSha, phase, run_id: runId });
+}
+
 function pitrEvidence(
   backupName: string,
   overrides: Record<string, unknown> = {},
 ): Record<string, unknown> {
-  const verification = databaseVerificationPayload();
+  const evidenceMainSha =
+    typeof overrides.main_sha === 'string' ? overrides.main_sha : EVIDENCE_MAIN_SHA;
+  const sourceVerification = databaseVerificationPayload();
+  const restoredVerification = databaseVerificationPayload();
+  const snapshotId = '00000001-00000001-1';
+  const lockRelations = pitrSourceLockRelations([EVIDENCE_TENANT_SCHEMA]);
   const backupWalFileName = backupName.replace(/^base_/, '');
+  const evidenceRunId = typeof overrides.run_id === 'string' ? overrides.run_id : 'pitr-1';
+  const beforeMarkerContent = walMarkerContent(
+    backupName,
+    evidenceMainSha,
+    'BEFORE',
+    evidenceRunId,
+  );
+  const afterMarkerContent = walMarkerContent(backupName, evidenceMainSha, 'AFTER', evidenceRunId);
   return {
-    schema_version: 1,
-    run_id: 'pitr-1',
+    schema_version: 2,
+    run_id: evidenceRunId,
     main_sha: EVIDENCE_MAIN_SHA,
     evidence_type: 'timestamp_pitr',
     status: 'success',
@@ -439,14 +543,26 @@ function pitrEvidence(
     completed_at: '2026-07-16T00:50:00Z',
     backup_name: backupName,
     recovery_target_time: '2026-07-16T00:37:00Z',
+    restored_recovery_target_time: '2026-07-16T00:37:00Z',
+    restored_recovery_target_inclusive: false,
+    restored_recovery_target_timeline: 'latest',
+    restored_recovery_target_action: 'promote',
     failure_time: '2026-07-16T00:40:00Z',
     archive_observed_at: '2026-07-16T00:40:00Z',
-    source_before_sentinel_recorded_at: '2026-07-16T00:35:00.000000Z',
-    source_after_sentinel_recorded_at: '2026-07-16T00:38:00.000000Z',
-    restored_before_sentinel_recorded_at: '2026-07-16T00:35:00.000000Z',
-    source_before_sentinel_recorded_lsn: '0/1000000',
-    source_after_sentinel_recorded_lsn: '0/2000000',
-    restored_before_sentinel_recorded_lsn: '0/1000000',
+    wal_marker_prefix: 'aqua.pitr.boundary.v1',
+    wal_commit_fence_prefix: 'aqua.pitr.commit-fence.v1',
+    source_before_marker_content: beforeMarkerContent,
+    source_before_marker_content_sha256: createHash('sha256')
+      .update(beforeMarkerContent)
+      .digest('hex'),
+    source_before_marker_emitted_at: '2026-07-16T00:35:00.000000Z',
+    source_before_marker_lsn: '0/1000000',
+    source_after_marker_content: afterMarkerContent,
+    source_after_marker_content_sha256: createHash('sha256')
+      .update(afterMarkerContent)
+      .digest('hex'),
+    source_after_marker_emitted_at: '2026-07-16T00:38:00.000000Z',
+    source_after_marker_lsn: '0/2000000',
     source_before_commit_fence_at: '2026-07-16T00:36:00.000000Z',
     source_before_commit_fence_lsn: '0/1000100',
     source_after_commit_fence_at: '2026-07-16T00:38:01.000000Z',
@@ -454,14 +570,15 @@ function pitrEvidence(
     isolated_target_attested: true,
     timestamp_recovery: true,
     wal_verified: true,
-    before_sentinel_present: true,
-    after_sentinel_present: false,
+    before_wal_marker_replayed: true,
+    after_wal_marker_excluded: true,
     promoted: true,
     rpo_seconds: 300,
     rto_seconds: 960,
     archive_wait_seconds: 120,
     archive_required_wal: backupWalFileName,
     archived_through_wal: backupWalFileName,
+    source_timeline_id: 1,
     source_system_identifier: EVIDENCE_SYSTEM_IDENTIFIER,
     restored_system_identifier: EVIDENCE_SYSTEM_IDENTIFIER,
     source_image_id: EVIDENCE_IMAGE_ID,
@@ -473,8 +590,27 @@ function pitrEvidence(
     target_pgdata_volume: 'aqua-pitr-gha-1-1',
     target_network: 'aqua-pitr-gha-1-1',
     database_verified: true,
-    database_verification_sha256: databaseVerificationSha256(verification),
-    database_verification: verification,
+    source_database_release_sha: EVIDENCE_DATABASE_RELEASE_SHA,
+    source_database_verification_sha256: databaseVerificationSha256(sourceVerification),
+    source_database_verification: sourceVerification,
+    restored_database_release_sha: EVIDENCE_DATABASE_RELEASE_SHA,
+    restored_database_verification_sha256: databaseVerificationSha256(restoredVerification),
+    restored_database_verification: restoredVerification,
+    source_verification_snapshot_id: snapshotId,
+    source_verification_snapshot_sha256: createHash('sha256').update(snapshotId).digest('hex'),
+    source_verification_completed_at: '2026-07-16T00:36:58.000000Z',
+    source_verification_floor_lsn: '0/1000200',
+    source_verification_lock_set_sha256: createHash('sha256')
+      .update(lockRelations.join('\n'))
+      .digest('hex'),
+    source_verification_lock_count: lockRelations.length,
+    source_verification_lock_relations: lockRelations,
+    source_verification_lock_timeout_ms: 5000,
+    source_verification_statement_timeout_ms: 120000,
+    source_verification_idle_timeout_ms: 30000,
+    // Physical replay may pass the AFTER logical-message record. Exclusion is
+    // proven against its later, nontransactional post-COMMIT fence.
+    restored_replay_lsn: '0/2000050',
     target_read_only_rootfs: true,
     failure_stage: null,
     ...overrides,
@@ -820,7 +956,9 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
     expect(Object.values(environment).join('\n')).not.toMatch(
       /\$\{(?:AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|WALG_S3_ACCESS_KEY_ID|WALG_S3_SECRET_ACCESS_KEY|WALG_LIBSODIUM_KEY(?:_B64)?)(?::[^}]*)?\}/,
     );
-    expect(volumes).toContain('./certs/wal-g/postgres:/var/lib/postgresql/wal-g-secrets-source:ro');
+    expect(volumes).toContain(
+      '${DEPLOY_CERTS_DIR:-./certs}/wal-g/postgres:/var/lib/postgresql/wal-g-secrets-source:ro',
+    );
     const secretTmpfs = tmpfs.find((mount) => mount.startsWith('/run/aqua-walg-secrets:'));
     expect(secretTmpfs).toBeDefined();
     const tmpfsOptions = secretTmpfs?.split(':').slice(1).join(':').split(',') ?? [];
@@ -847,10 +985,10 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
     expect(entrypoint).toContain('must reside on tmpfs');
     expect(volumes).toEqual(
       expect.arrayContaining([
-        './certs/postgres/postgres-cert.pem:/var/lib/postgresql/ssl/server.crt:ro',
-        './certs/postgres/postgres-key.pem:/var/lib/postgresql/ssl/server.key:rw',
-        './certs/postgres/ca-cert.pem:/var/lib/postgresql/ssl/root.crt:ro',
-        './certs/wal-g/postgres:/var/lib/postgresql/wal-g-secrets-source:ro',
+        '${DEPLOY_CERTS_DIR:-./certs}/postgres/postgres-cert.pem:/var/lib/postgresql/ssl/server.crt:ro',
+        '${DEPLOY_CERTS_DIR:-./certs}/postgres/postgres-key.pem:/var/lib/postgresql/ssl/server.key:rw',
+        '${DEPLOY_CERTS_DIR:-./certs}/postgres/ca-cert.pem:/var/lib/postgresql/ssl/root.crt:ro',
+        '${DEPLOY_CERTS_DIR:-./certs}/wal-g/postgres:/var/lib/postgresql/wal-g-secrets-source:ro',
       ]),
     );
     expect(volumes).not.toContain('./certs/postgres:/var/lib/postgresql/ssl:ro');
@@ -1289,26 +1427,30 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
     );
     const backupIndex = workflow.indexOf('bash tools/scripts/database/walg-base-backup.sh');
     const logicalBackupIndex = workflow.indexOf('bash tools/scripts/database/backup-databases.sh');
-    const evidenceMarkerIndex = workflow.indexOf("printf 'AQUA_WALG_EVIDENCE_B64=%s\\n'");
-    const captureIndex = workflow.indexOf(
-      'Capture completed ceremony evidence from protected OpenSSH transport',
-    );
+    const evidenceMarkerIndex = workflow.indexOf("printf 'AQUA_WALG_EVIDENCE_GZIP_B64='");
+    const rawArtifactIndex = workflow.indexOf('Preserve immutable raw backup evidence artifact');
 
     expect(materializeIndex).toBeGreaterThanOrEqual(0);
     expect(backupIndex).toBeGreaterThan(materializeIndex);
     expect(logicalBackupIndex).toBeGreaterThan(backupIndex);
     expect(evidenceMarkerIndex).toBeGreaterThan(logicalBackupIndex);
-    expect(captureIndex).toBeGreaterThan(evidenceMarkerIndex);
+    expect(rawArtifactIndex).toBeGreaterThan(evidenceMarkerIndex);
     expect(workflow).toContain('WALG_LIBSODIUM_KEY_B64');
     expect(workflow).toContain('bash tools/scripts/ci/run-protected-ssh.sh');
     expect(workflow).toContain(
-      'REMOTE_EVIDENCE_B64: ${{ steps.remote_backup.outputs.evidence_b64 }}',
+      'raw_evidence_artifact_id: ${{ steps.preserve_raw_evidence.outputs.artifact-id }}',
     );
     expect(workflow).toContain(
       'DRY_RUN=true — skipping all WAL-G credential materialization and activation',
     );
-    expect(workflow).toContain("sed -n 's/^AQUA_WALG_EVIDENCE_B64=");
-    expect(workflow).toContain('evidence_b64: ${{ steps.capture_evidence.outputs.evidence_b64 }}');
+    expect(workflow).toContain("sed -n 's/^AQUA_WALG_EVIDENCE_GZIP_B64=");
+    expect(workflow).toContain('name: walg-raw-evidence-v1-backup-production.yml-');
+    expect(workflow).toContain('path: raw-evidence/base-backup.json');
+    expect(workflow).toContain('gzip -n -9 -c -- "${EVIDENCE_FILE}"');
+    expect(workflow).toContain('test "${EVIDENCE_BYTES}" -le 8388608');
+    expect(workflow).toContain('test "${EVIDENCE_GZIP_BYTES}" -le 9437184');
+    expect(workflow).toContain('SSH_STDOUT_MAX_BYTES=16777216');
+    expect(workflow).not.toContain('evidence_gzip_b64_0');
     expect(workflow).not.toContain('appleboy/ssh-action@');
     expect(workflow).not.toContain('capture_stdout:');
     expect(workflow).not.toContain('steps.remote_backup.outputs.stdout');
@@ -1320,21 +1462,61 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
 
   it('materializes a run-scoped read-only PITR bundle without rotating the live source bundle', () => {
     const workflow = read(PITR_WORKFLOW_PATH);
+    const ceremony = read(PITR_CEREMONY_PATH);
 
     expect(workflow).toContain('PITR_WALG_SPACES_ACCESS_KEY_ID');
     expect(workflow).toContain('PITR_WALG_SPACES_SECRET_ACCESS_KEY');
     expect(workflow).toContain('PITR_WALG_LIBSODIUM_KEY_B64');
-    expect(workflow).toContain('TARGET_SECRET_SOURCE="${RUNTIME_ROOT}/target-wal-g-secrets"');
-    expect(workflow).toContain('WALG_HOST_SECRET_DIR="${TARGET_SECRET_SOURCE}"');
-    expect(workflow).toContain('WALG_INSTALL_RUNNING_CONTAINER=false');
-    expect(workflow).toContain('--env "WALG_BACKUP_EPOCH=${PITR_WALG_BACKUP_EPOCH}"');
-    expect(workflow).toContain('--env "WALG_S3_PREFIX=${TARGET_WALG_S3_PREFIX}"');
-    expect(workflow).toContain('selected PITR epoch/prefix is not the active source archive chain');
-    expect(workflow).not.toContain('TARGET_SECRET_SOURCE=/var/aqua-saas/certs/postgres/wal-g');
-    expect(workflow).not.toContain('WALG_INSTALL_RUNNING_CONTAINER=true');
+    expect(workflow).toContain('bash tools/scripts/database/walg-pitr-ceremony.sh');
+    expect(ceremony).toContain('TARGET_SECRET_SOURCE="${RUNTIME_ROOT}/target-wal-g-secrets"');
+    expect(ceremony).toContain('WALG_HOST_SECRET_DIR="${TARGET_SECRET_SOURCE}"');
+    expect(ceremony).toContain('WALG_INSTALL_RUNNING_CONTAINER=false');
+    expect(ceremony).toContain('--env "WALG_BACKUP_EPOCH=${PITR_WALG_BACKUP_EPOCH}"');
+    expect(ceremony).toContain('--env "WALG_S3_PREFIX=${TARGET_WALG_S3_PREFIX}"');
+    expect(ceremony).toContain('selected PITR epoch/prefix is not the active source archive chain');
+    expect(ceremony).not.toContain('TARGET_SECRET_SOURCE=/var/aqua-saas/certs/postgres/wal-g');
+    expect(ceremony).not.toContain('WALG_INSTALL_RUNNING_CONTAINER=true');
   });
 
-  it('executes only seven hash-pinned inputs from the eight-file protected archive', () => {
+  it('keeps the hash-pinned PITR ceremony executable and fail-closed before Docker mutation', () => {
+    const syntax = spawnSync('bash', ['-n', PITR_CEREMONY_PATH], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+    });
+    expect(syntax.status).toBe(0);
+
+    const missingContract = spawnSync(PITR_CEREMONY_PATH, [], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      env: { PATH: process.env.PATH ?? '/usr/bin:/bin' },
+    });
+    expect(missingContract.status).not.toBe(0);
+    expect(missingContract.error).toBeUndefined();
+    expect(`${missingContract.stdout}${missingContract.stderr}`).toContain('RUNTIME_ROOT required');
+  });
+
+  it('keeps every GitHub Actions run script within the platform 21,000-byte limit', () => {
+    const workflowRoot = join(REPO_ROOT, '.github/workflows');
+    const violations: string[] = [];
+
+    for (const workflowName of readdirSync(workflowRoot)
+      .filter((name) => name.endsWith('.yml') || name.endsWith('.yaml'))
+      .sort()) {
+      const document: unknown = yaml.load(read(join(workflowRoot, workflowName)));
+      const blocks: WorkflowRunBlock[] = [];
+      collectWorkflowRunBlocks(document, workflowName, blocks);
+      for (const block of blocks) {
+        const bytes = Buffer.byteLength(block.source, 'utf8');
+        if (bytes > 21_000) {
+          violations.push(`${block.location}: ${bytes} bytes`);
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
+  it('executes only hash-pinned inputs from the protected control-plane archive', () => {
     const workflow = read(BACKUP_WORKFLOW_PATH);
     const manifestEntries = hashManifestEntries(read(BACKUP_HASH_MANIFEST_PATH));
     const hashWorkflow = read(BACKUP_HASH_WORKFLOW_PATH);
@@ -1365,67 +1547,67 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
   });
 
   it('re-attests random run-owned Docker resources immediately before PITR cleanup', () => {
-    const workflow = read(PITR_WORKFLOW_PATH);
-    const cleanupStart = workflow.indexOf('cleanup_runtime() {');
-    const cleanupEnd = workflow.indexOf('trap cleanup_runtime EXIT', cleanupStart);
-    const cleanup = workflow.slice(cleanupStart, cleanupEnd);
+    const ceremony = read(PITR_CEREMONY_PATH);
+    const cleanupStart = ceremony.indexOf('cleanup_runtime() {');
+    const cleanupEnd = ceremony.indexOf('trap cleanup_runtime EXIT', cleanupStart);
+    const cleanup = ceremony.slice(cleanupStart, cleanupEnd);
 
     expect(cleanupStart).toBeGreaterThanOrEqual(0);
     expect(cleanupEnd).toBeGreaterThan(cleanupStart);
-    expect(workflow).toContain(
+    expect(ceremony).toContain(
       "RESOURCE_NONCE=$(od -An -N16 -tx1 /dev/urandom | tr -d '[:space:]')",
     );
-    expect(workflow).toContain('[[ ! "${RESOURCE_NONCE}" =~ ^[0-9a-f]{32}$ ]]');
-    expect(workflow).toContain('TARGET_CONTAINER="aqua-pitr-${EVIDENCE_RUN_ID}-${RESOURCE_NONCE}"');
-    expect(workflow).toContain('TARGET_NETWORK="aqua-pitr-${EVIDENCE_RUN_ID}-${RESOURCE_NONCE}"');
-    expect(workflow).toContain(
+    expect(ceremony).toContain('[[ ! "${RESOURCE_NONCE}" =~ ^[0-9a-f]{32}$ ]]');
+    expect(ceremony).toContain('TARGET_CONTAINER="aqua-pitr-${EVIDENCE_RUN_ID}-${RESOURCE_NONCE}"');
+    expect(ceremony).toContain('TARGET_NETWORK="aqua-pitr-${EVIDENCE_RUN_ID}-${RESOURCE_NONCE}"');
+    expect(ceremony).toContain(
       'TARGET_VOLUME="aqua-pitr-${EVIDENCE_RUN_ID}-${RESOURCE_NONCE}-pgdata"',
     );
-    expect(workflow).toContain('TARGET_NETWORK_ID=$(docker network create');
-    expect(workflow).toContain('TARGET_CONTAINER_ID=$(docker create');
-    expect(workflow).toContain(
+    expect(ceremony).toContain('TARGET_NETWORK_ID=$(docker network create');
+    expect(ceremony).toContain('TARGET_CONTAINER_ID=$(docker create');
+    expect(ceremony).toContain(
       '--label "com.aqua-saas.restore.owner-network-id=${TARGET_NETWORK_ID}"',
     );
     expect(
-      workflow.match(/--label "com\.aqua-saas\.restore\.nonce=\$\{RESOURCE_NONCE\}"/g),
+      ceremony.match(/--label "com\.aqua-saas\.restore\.nonce=\$\{RESOURCE_NONCE\}"/g),
     ).toHaveLength(3);
-    expect(workflow).toContain('[ "${CREATED_VOLUME_ROLE}" != \'isolated-drill\' ]');
-    expect(workflow).toContain(
+    expect(ceremony).toContain('[ "${CREATED_VOLUME_ROLE}" != \'isolated-drill\' ]');
+    expect(ceremony).toContain(
       '[ "${CREATED_VOLUME_OWNER_NETWORK_ID}" != "${TARGET_NETWORK_ID}" ]',
     );
-    expect(workflow.indexOf('VOLUME_CREATED=true')).toBeGreaterThan(
-      workflow.indexOf('refusing to claim a PITR volume without exact fresh-run ownership'),
+    expect(ceremony.indexOf('VOLUME_CREATED=true')).toBeGreaterThan(
+      ceremony.indexOf('refusing to claim a PITR volume without exact fresh-run ownership'),
     );
 
     expect(cleanup).toContain(
       'if ! attest_target_container; then\n' +
-        "                  echo 'FATAL: refusing to remove a PITR container whose immutable identity or ownership labels changed.' >&2\n" +
-        '                  cleanup_status=1\n' +
-        '                elif ! docker rm --force "${TARGET_CONTAINER_ID}"',
+        "      echo 'FATAL: refusing to remove a PITR container whose immutable identity or ownership labels changed.' >&2\n" +
+        '      cleanup_status=1\n' +
+        '    elif ! docker rm --force "${TARGET_CONTAINER_ID}"',
     );
     expect(cleanup).toContain(
       'if ! attest_target_network; then\n' +
-        "                  echo 'FATAL: refusing to remove a PITR network whose immutable identity or ownership labels changed.' >&2\n" +
-        '                  cleanup_status=1\n' +
-        '                elif ! docker network rm "${TARGET_NETWORK_ID}"',
+        "      echo 'FATAL: refusing to remove a PITR network whose immutable identity or ownership labels changed.' >&2\n" +
+        '      cleanup_status=1\n' +
+        '    elif ! docker network rm "${TARGET_NETWORK_ID}"',
     );
     expect(cleanup).toContain(
       'if ! attest_target_volume; then\n' +
-        "                  echo 'FATAL: refusing to remove a PITR volume whose creation identity or ownership labels changed.' >&2\n" +
-        '                  cleanup_status=1\n' +
-        '                elif ! docker volume rm "${TARGET_VOLUME}"',
+        "      echo 'FATAL: refusing to remove a PITR volume whose creation identity or ownership labels changed.' >&2\n" +
+        '      cleanup_status=1\n' +
+        '    elif ! docker volume rm "${TARGET_VOLUME}"',
     );
     expect(cleanup).not.toContain('docker rm --force "${TARGET_CONTAINER}"');
     expect(cleanup).not.toContain('docker network rm "${TARGET_NETWORK}"');
   });
 
-  it('signs stdout evidence before preserving an immutable run-scoped artifact', () => {
+  it('separates unsigned creation, OIDC signing, artifact preservation, and mirror publication', () => {
     const workflow = read(BACKUP_WORKFLOW_PATH);
     const createRunIndex = workflow.indexOf('walg-evidence-attestation.mjs create-run');
     const createEvidenceIndex = workflow.indexOf('walg-evidence-attestation.mjs create-evidence');
     const verifyIndex = workflow.indexOf('cosign verify-blob');
     const mirrorIndex = workflow.indexOf('Mirror signed records by content digest');
-    const artifactIndex = workflow.indexOf('actions/upload-artifact@');
+    const artifactIndex = workflow.indexOf('- name: Preserve immutable signed evidence artifact');
     const propagateFailureIndex = workflow.indexOf(
       'Propagate backup job failure after preserving its signed run record',
     );
@@ -1433,22 +1615,21 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
     expect(createRunIndex).toBeGreaterThanOrEqual(0);
     expect(createEvidenceIndex).toBeGreaterThan(createRunIndex);
     expect(verifyIndex).toBeGreaterThan(createEvidenceIndex);
-    expect(mirrorIndex).toBeGreaterThan(verifyIndex);
-    expect(artifactIndex).toBeGreaterThan(mirrorIndex);
-    expect(propagateFailureIndex).toBeGreaterThan(artifactIndex);
+    expect(artifactIndex).toBeGreaterThan(verifyIndex);
+    expect(mirrorIndex).toBeGreaterThan(artifactIndex);
+    expect(propagateFailureIndex).toBeGreaterThan(mirrorIndex);
     expect(workflow).toContain('id-token: write');
-    expect(workflow.match(/cosign sign-blob --yes/g)).toHaveLength(2);
-    expect(workflow).toContain('--bundle evidence-artifact/run-record.sigstore.json');
-    expect(workflow).toContain('--bundle evidence-artifact/evidence-attestation.sigstore.json');
+    expect(workflow.match(/cosign sign-blob --yes/g)).toHaveLength(1);
+    expect(workflow).toContain('--bundle "${RECORD%.json}.sigstore.json"');
     expect(workflow).toContain(
       "--certificate-oidc-issuer 'https://token.actions.githubusercontent.com'",
     );
-    expect(workflow).toContain('VERSIONING_STATUS=$(aws s3api get-bucket-versioning');
+    expect(workflow).toContain('VERSIONING_STATUS=$(run_evidence_aws s3api get-bucket-versioning');
     expect(workflow).toContain(
-      'RECORD_KEY="wal-g-evidence/v2/sha256/${RECORD_SHA256}/$(basename "${RECORD}")"',
+      'RECORD_KEY="wal-g-evidence/v3/sha256/${RECORD_SHA256}/$(basename "${RECORD}")"',
     );
     expect(workflow).toContain(
-      'name: walg-evidence-v2-backup-production.yml-${{ github.run_id }}-${{ github.run_attempt }}',
+      'name: walg-evidence-v3-backup-production.yml-${{ github.run_id }}-${{ github.run_attempt }}',
     );
     expect(workflow).toContain('overwrite: false');
     expect(workflow).not.toContain('aws s3 cp "${EVIDENCE_FILE}"');
@@ -1563,32 +1744,93 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
     expect(pitr).toMatch(/promote/);
     expect(pitr).toMatch(/LATEST\|latest\)\s*die[^\n]*forbidden/);
     expect(pitr).toMatch(/(?:BACKUP_NAME|BASE_BACKUP)/);
-    expect(pitr).toMatch(/(?:SENTINEL|sentinel)/);
     expect(pitr).toMatch(/(?:MAX_RPO_SECONDS|RPO_LIMIT_SECONDS).*300/);
     expect(pitr).toMatch(/(?:MAX_RTO_SECONDS|RTO_LIMIT_SECONDS).*3600/);
     expect(pitr).toContain('PITR_RESET_TARGET=true is required');
-    expect(pitr).toContain('before=true and after=false');
 
-    // The evidence names distinguish immutable ledger insertion metadata from
-    // the separate transaction commit fences.
-    expect(pitr).toContain('source_before_sentinel_recorded_at');
-    expect(pitr).toContain('source_after_sentinel_recorded_at');
-    expect(pitr).toContain('restored_before_sentinel_recorded_at');
-    expect(pitr).not.toMatch(/(?:source|restored)_(?:before|after)_sentinel_committed_at/);
-    expect(pitr).toContain('SOURCE_BEFORE_RECORDED_AT');
-    expect(pitr).toContain('SOURCE_AFTER_RECORDED_AT');
-    expect(pitr).toContain('RESTORED_BEFORE_RECORDED_AT');
-    expect(pitr).toMatch(
-      /"\$\{RESTORED_BEFORE_RECORDED_AT\}"\s+(?:=|!=)\s+"\$\{SOURCE_BEFORE_RECORDED_AT\}"/,
-    );
-
-    expect(pitr).toContain('source_before_commit_fence_at');
-    expect(pitr).toContain('source_before_commit_fence_lsn');
-    expect(pitr).toContain('source_after_commit_fence_at');
-    expect(pitr).toContain('source_after_commit_fence_lsn');
-    expect(pitr).toContain('source_after_sentinel_recorded_lsn');
+    // PostgreSQL 16 does not accept the canonical evidence T/Z spelling as a
+    // recovery_target_time GUC. The producer derives a config-only spelling,
+    // then normalizes the observed GUC back to the byte-exact evidence value.
+    expect(pitr).toContain('RECOVERY_TARGET_POSTGRES="${BASH_REMATCH[1]} ${BASH_REMATCH[2]}+00"');
+    expect(pitr).toContain(`' bash "\${RECOVERY_TARGET_POSTGRES}"`);
+    expect(pitr).not.toContain(`' bash "\${RECOVERY_TARGET_TIME}"`);
+    expect(pitr).toContain('recovery_target_time: recoveryTargetTime || null');
     expect(pitr).toContain(
-      'values[0] <= values[1] && values[1] <= values[2] && values[2] <= values[3] && values[1] < values[3]',
+      "current_setting('recovery_target_time')::timestamptz AT TIME ZONE 'UTC'",
+    );
+    expect(pitr).toContain(`'YYYY-MM-DD\\"T\\"HH24:MI:SS.US\\"Z\\"'`);
+    expect(pitr).toContain('[ "${RESTORED_RECOVERY_TARGET_TIME}" != "${RECOVERY_TARGET_TIME}" ]');
+
+    const conversionStart = pitr.indexOf('if [[ "${RECOVERY_TARGET_TIME}" =~');
+    const conversionEnd = pitr.indexOf('TARGET_NS=$(date', conversionStart);
+    expect(conversionStart).toBeGreaterThanOrEqual(0);
+    expect(conversionEnd).toBeGreaterThan(conversionStart);
+    const conversionBlock = pitr.slice(conversionStart, conversionEnd);
+    const runConversion = (recoveryTargetTime: string) =>
+      spawnSync(
+        'bash',
+        [
+          '-ceu',
+          `die() { printf 'FATAL: %s\\n' "$*" >&2; exit 2; }
+${conversionBlock}
+printf '%s\\n%s\\n' "\${RECOVERY_TARGET_TIME}" "\${RECOVERY_TARGET_POSTGRES}"`,
+        ],
+        {
+          encoding: 'utf8',
+          env: { RECOVERY_TARGET_TIME: recoveryTargetTime },
+        },
+      );
+    const canonicalTarget = '2026-07-20T08:30:15.123456Z';
+    const convertedTarget = runConversion(canonicalTarget);
+    expect(convertedTarget.status).toBe(0);
+    expect(convertedTarget.stdout).toBe(`${canonicalTarget}\n2026-07-20 08:30:15.123456+00\n`);
+    expect(convertedTarget.stdout.split('\n')[1]).not.toMatch(/[TZ]/u);
+    expect(runConversion('2026-07-20T08:30:15Z').status).not.toBe(0);
+
+    // Transactional logical messages prove the recovery boundary without
+    // requiring a drill-only table in the production database. A separate
+    // nontransactional message after COMMIT is the physical replay fence.
+    expect(pitr).toContain("WAL_MARKER_PREFIX='aqua.pitr.boundary.v1'");
+    expect(pitr).toContain("WAL_COMMIT_FENCE_PREFIX='aqua.pitr.commit-fence.v1'");
+    expect(pitr).toContain(
+      'JSON.stringify({ backup_name: backupName, main_sha: mainSha, phase, run_id: runId })',
+    );
+    expect(pitr).toMatch(
+      /BEGIN;[\s\S]*pg_catalog\.pg_logical_emit_message\(\s*true,\s*:'marker_prefix',[\s\S]*COMMIT;[\s\S]*pg_catalog\.pg_logical_emit_message\(\s*false,\s*:'commit_fence_prefix',/,
+    );
+    expect(pitr).not.toContain('source_before_sentinel_recorded_at');
+    expect(pitr).not.toContain('source_after_sentinel_recorded_at');
+    expect(pitr).not.toContain('restored_before_sentinel_recorded_at');
+    for (const field of [
+      'wal_marker_prefix',
+      'wal_commit_fence_prefix',
+      'source_before_marker_content',
+      'source_before_marker_content_sha256',
+      'source_before_marker_emitted_at',
+      'source_before_marker_lsn',
+      'source_before_commit_fence_at',
+      'source_before_commit_fence_lsn',
+      'source_after_marker_content',
+      'source_after_marker_content_sha256',
+      'source_after_marker_emitted_at',
+      'source_after_marker_lsn',
+      'source_after_commit_fence_at',
+      'source_after_commit_fence_lsn',
+      'before_wal_marker_replayed',
+      'after_wal_marker_excluded',
+      'source_database_release_sha',
+      'restored_database_release_sha',
+    ]) {
+      expect(pitr).toContain(field);
+    }
+    expect(pitr).toContain("recovery_target_inclusive = '\\''false'\\''");
+    expect(pitr).toContain("recovery_target_timeline = '\\''latest'\\''");
+    expect(pitr).toContain("recovery_target_action = '\\''promote'\\''");
+    expect(pitr).toContain(
+      'values[0] < values[1] && values[1] <= values[2] && values[2] <= values[3] && values[3] < values[4]',
+    );
+    expect(pitr).toContain(
+      'restored replay LSN does not prove the exact transactional WAL marker boundary',
     );
 
     const archiveFenceIndex = pitr.indexOf("FAILURE_STAGE='wal-archive-fence'");
@@ -1665,7 +1907,11 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
   it('requires three consecutive backups and one bounded PITR proof', () => {
     const evaluator = read(EVIDENCE_EVALUATOR_PATH);
     expect(evaluator).toContain('export function evaluateWalgEvidence');
-    expect(evaluator).not.toContain('_sentinel_committed_at');
+    expect(evaluator).not.toContain('source_before_sentinel_recorded_at');
+    expect(evaluator).not.toContain('before_sentinel_present');
+    expect(evaluator).toContain("const WAL_MARKER_PREFIX = 'aqua.pitr.boundary.v1'");
+    expect(evaluator).toContain("const WAL_COMMIT_FENCE_PREFIX = 'aqua.pitr.commit-fence.v1'");
+    expect(evaluator).toContain('record.restored_recovery_target_inclusive !== false');
     expect(evaluator).toContain('CHAIN_AUTHORITY_FIELDS');
     expect(evaluator).toContain('hasSameChainAuthority(record, matchingBackup)');
 
@@ -1675,18 +1921,35 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
 
     const interrupted = evaluateEvidence([
       backupEvidence(1),
-      backupEvidence(2, { status: 'failure' }),
+      backupEvidence(2, {
+        status: 'failure',
+        full: false,
+        verified: false,
+        wal_verified: false,
+        failure_stage: 'backup',
+      }),
       backupEvidence(3),
       backupEvidence(4),
     ]);
     expect(interrupted.status).toBe(1);
     expect(interrupted.stdout).toMatch(/requires 3 consecutive/);
 
+    const duplicateWal = '000000010000000000000001';
+    const duplicateName = `base_${duplicateWal}`;
     const duplicateBackup = evaluateEvidence([
-      backupEvidence(1, { backup_name: 'base_duplicate' }),
-      backupEvidence(2, { backup_name: 'base_duplicate' }),
-      backupEvidence(3, { backup_name: 'base_duplicate' }),
-      pitrEvidence('base_duplicate'),
+      backupEvidence(1, {
+        backup_name: duplicateName,
+        backup_wal_file_name: duplicateWal,
+      }),
+      backupEvidence(2, {
+        backup_name: duplicateName,
+        backup_wal_file_name: duplicateWal,
+      }),
+      backupEvidence(3, {
+        backup_name: duplicateName,
+        backup_wal_file_name: duplicateWal,
+      }),
+      pitrEvidence(duplicateName),
     ]);
     expect(duplicateBackup.status).toBe(1);
     expect(duplicateBackup.stdout).toMatch(/requires 3 consecutive/);
@@ -1699,6 +1962,7 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
 
     const valid = evaluateEvidence([...backups, pitrEvidence(backupName)]);
     expect(valid.status).toBe(0);
+    expect(EVIDENCE_DATABASE_RELEASE_SHA).not.toBe(EVIDENCE_MAIN_SHA);
     expect(valid.stdout).toContain('"ok":true');
     expect(valid.stdout).toContain('"pitrRunId":"pitr-1"');
 
@@ -1790,7 +2054,8 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
         backupEvidence(3, unprovenBackupMetadata),
         pitrEvidence(backupName),
       ]);
-      expect(unboundBackup.status).toBe(1);
+      expect(unboundBackup.status).toBe(2);
+      expect(unboundBackup.stderr).toMatch(/base_backup .*invalid/u);
     }
 
     for (const foreignAuthority of [
@@ -1799,6 +2064,7 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
         restored_system_identifier: '7500000000000000001',
       },
       { source_image_id: `sha256:${'c'.repeat(64)}` },
+      { source_image_revision: 'd'.repeat(40) },
       { source_postgres_dr_contract_sha256: '3'.repeat(64) },
       { walg_config_sha256: '1'.repeat(64) },
       { walg_rotation_bundle_sha256: '2'.repeat(64) },
@@ -1821,8 +2087,12 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
       pitrEvidence(backupName, {
         main_sha: foreignMainSha,
         source_image_revision: foreignMainSha,
-        database_verification: foreignMainVerification,
-        database_verification_sha256: databaseVerificationSha256(foreignMainVerification),
+        source_database_release_sha: foreignMainSha,
+        source_database_verification: foreignMainVerification,
+        source_database_verification_sha256: databaseVerificationSha256(foreignMainVerification),
+        restored_database_release_sha: foreignMainSha,
+        restored_database_verification: foreignMainVerification,
+        restored_database_verification_sha256: databaseVerificationSha256(foreignMainVerification),
       }),
     ]);
     expect(foreignMainPitr.status).toBe(1);
@@ -1841,12 +2111,13 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
       started_at: '2026-07-16T00:11:30Z',
       completed_at: '2026-07-16T00:15:00Z',
       recovery_target_time: '2026-07-16T00:13:00Z',
+      restored_recovery_target_time: '2026-07-16T00:13:00Z',
       failure_time: '2026-07-16T00:14:00.000000Z',
       archive_observed_at: '2026-07-16T00:14:00.000000Z',
-      source_before_sentinel_recorded_at: '2026-07-16T00:12:00.000000Z',
-      restored_before_sentinel_recorded_at: '2026-07-16T00:12:00.000000Z',
+      source_before_marker_emitted_at: '2026-07-16T00:12:00.000000Z',
       source_before_commit_fence_at: '2026-07-16T00:12:30.000000Z',
-      source_after_sentinel_recorded_at: '2026-07-16T00:13:30.000000Z',
+      source_verification_completed_at: '2026-07-16T00:12:58.000000Z',
+      source_after_marker_emitted_at: '2026-07-16T00:13:30.000000Z',
       source_after_commit_fence_at: '2026-07-16T00:13:40.000000Z',
       rpo_seconds: 120,
       rto_seconds: 210,
@@ -1862,53 +2133,127 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
       started_at: '2026-07-16T00:29:00Z',
       completed_at: '2026-07-16T00:30:00Z',
       recovery_target_time: '2026-07-16T00:29:30Z',
+      restored_recovery_target_time: '2026-07-16T00:29:30Z',
       failure_time: '2026-07-16T00:29:50.000000Z',
       archive_observed_at: '2026-07-16T00:29:50.000000Z',
-      source_before_sentinel_recorded_at: '2026-07-16T00:29:10.000000Z',
-      restored_before_sentinel_recorded_at: '2026-07-16T00:29:10.000000Z',
+      source_before_marker_emitted_at: '2026-07-16T00:29:10.000000Z',
       source_before_commit_fence_at: '2026-07-16T00:29:20.000000Z',
-      source_after_sentinel_recorded_at: '2026-07-16T00:29:40.000000Z',
+      source_verification_completed_at: '2026-07-16T00:29:28.000000Z',
+      source_after_marker_emitted_at: '2026-07-16T00:29:40.000000Z',
       source_after_commit_fence_at: '2026-07-16T00:29:45.000000Z',
       rpo_seconds: 40,
       rto_seconds: 60,
     });
     expect(evaluateEvidence([...backups, pitrCompletedBeforeItsBackup]).status).toBe(1);
 
+    const pitrTargetsTimeBeforeItsNamedBackup = pitrEvidence(backupName, {
+      started_at: '2026-07-16T00:20:00Z',
+      completed_at: '2026-07-16T00:50:00Z',
+      recovery_target_time: '2026-07-16T00:22:00Z',
+      restored_recovery_target_time: '2026-07-16T00:22:00Z',
+      failure_time: '2026-07-16T00:24:00Z',
+      archive_observed_at: '2026-07-16T00:24:00Z',
+      source_before_marker_emitted_at: '2026-07-16T00:21:00.000000Z',
+      source_before_commit_fence_at: '2026-07-16T00:21:30.000000Z',
+      source_verification_completed_at: '2026-07-16T00:21:58.000000Z',
+      source_after_marker_emitted_at: '2026-07-16T00:23:00.000000Z',
+      source_after_commit_fence_at: '2026-07-16T00:23:30.000000Z',
+      rpo_seconds: 180,
+      rto_seconds: 1800,
+    });
+    const preBaseTarget = evaluateEvidence([...backups, pitrTargetsTimeBeforeItsNamedBackup]);
+    expect(preBaseTarget.status).toBe(1);
+    expect(preBaseTarget.stdout).toMatch(/requires one isolated timestamp PITR/u);
+
+    const timelineTwoWal2 = '000000020000000000000002';
+    const timelineTwoWal3 = '000000020000000000000003';
+    const mixedTimelineBackups = [
+      backupEvidence(1),
+      backupEvidence(2, {
+        backup_name: `base_${timelineTwoWal2}`,
+        backup_wal_file_name: timelineTwoWal2,
+      }),
+      backupEvidence(3, {
+        backup_name: `base_${timelineTwoWal3}`,
+        backup_wal_file_name: timelineTwoWal3,
+      }),
+    ];
+    const mixedTimeline = evaluateEvidence([
+      ...mixedTimelineBackups,
+      pitrEvidence(`base_${timelineTwoWal3}`, { source_timeline_id: 2 }),
+    ]);
+    expect(mixedTimeline.status).toBe(1);
+    expect(mixedTimeline.stdout).toMatch(/requires 3 consecutive/u);
+
     for (const unproven of [
-      { restored_before_sentinel_recorded_at: '2026-07-16T00:35:01.000000Z' },
+      { schema_version: 1 },
+      { restored_recovery_target_time: '2026-07-16T00:37:01Z' },
+      { restored_recovery_target_inclusive: true },
+      { restored_recovery_target_timeline: 'current' },
+      { restored_recovery_target_action: 'pause' },
+      { wal_marker_prefix: 'aqua.pitr.boundary.v2' },
+      { wal_commit_fence_prefix: 'aqua.pitr.commit-fence.v2' },
+      { source_before_marker_content_sha256: 'not-a-sha256' },
+      { source_after_marker_content_sha256: 'not-a-sha256' },
       {
-        source_before_sentinel_recorded_at: undefined,
-        source_before_sentinel_committed_at: '2026-07-16T00:35:00.000000Z',
+        wal_marker_prefix: undefined,
+        wal_commit_fence_prefix: undefined,
+        source_before_marker_content: undefined,
+        source_before_marker_content_sha256: undefined,
+        source_before_marker_emitted_at: undefined,
+        source_before_marker_lsn: undefined,
+        source_after_marker_content: undefined,
+        source_after_marker_content_sha256: undefined,
+        source_after_marker_emitted_at: undefined,
+        source_after_marker_lsn: undefined,
+        before_wal_marker_replayed: undefined,
+        after_wal_marker_excluded: undefined,
+        source_before_sentinel_recorded_at: '2026-07-16T00:35:00.000000Z',
+        source_after_sentinel_recorded_at: '2026-07-16T00:38:00.000000Z',
+        restored_before_sentinel_recorded_at: '2026-07-16T00:35:00.000000Z',
+        source_before_sentinel_recorded_lsn: '0/1000000',
+        source_after_sentinel_recorded_lsn: '0/2000000',
+        restored_before_sentinel_recorded_lsn: '0/1000000',
+        before_sentinel_present: true,
+        after_sentinel_present: false,
       },
-      {
-        source_after_sentinel_recorded_at: undefined,
-        source_after_sentinel_committed_at: '2026-07-16T00:38:00.000000Z',
-      },
-      {
-        restored_before_sentinel_recorded_at: undefined,
-        restored_before_sentinel_committed_at: '2026-07-16T00:35:00.000000Z',
-      },
-      { restored_before_sentinel_recorded_lsn: '0/1000001' },
       { failure_time: undefined },
       { archive_observed_at: undefined },
       { archive_observed_at: '2026-07-16T00:39:59.000000Z' },
       { rpo_seconds: 299 },
-      { before_sentinel_present: false },
-      { after_sentinel_present: true },
+      { before_wal_marker_replayed: false },
+      { after_wal_marker_excluded: false },
       { wal_verified: false },
       { database_verified: false },
-      { database_verification_sha256: 'd'.repeat(64) },
-      { source_image_revision: 'd'.repeat(40) },
+      { source_database_release_sha: 'not-a-git-sha' },
+      { source_database_release_sha: '6'.repeat(40) },
+      { restored_database_release_sha: '6'.repeat(40) },
+      { source_database_verification_sha256: 'd'.repeat(64) },
+      { restored_database_verification_sha256: 'd'.repeat(64) },
+      { source_verification_snapshot_sha256: 'not-a-sha256' },
+      { source_verification_snapshot_id: '00000001-00000002-1' },
+      { source_verification_lock_set_sha256: 'not-a-sha256' },
+      { source_verification_lock_count: 32 },
+      { source_verification_lock_relations: EVIDENCE_PITR_BASE_RELATIONS },
+      { source_verification_lock_timeout_ms: 4999 },
+      { source_verification_statement_timeout_ms: 119999 },
+      { source_verification_idle_timeout_ms: 29999 },
+      { source_verification_completed_at: '2026-07-16T00:36:59.000001Z' },
+      { source_verification_completed_at: '2026-07-16T00:36:57.999999Z' },
+      { source_verification_floor_lsn: '0/1000000' },
+      { restored_replay_lsn: '0/1000100' },
+      { restored_replay_lsn: '0/2000100' },
       { source_image_revision: '0'.repeat(40) },
-      { source_postgres_dr_contract_sha256: '3'.repeat(64) },
       { source_wal_g_revision: 'e'.repeat(40) },
       { walg_config_sha256: 'not-a-sha256' },
       { walg_rotation_bundle_sha256: 'not-a-sha256' },
       { source_system_identifier: 'not-a-system-id' },
       { restored_system_identifier: '7500000000000000001' },
+      { source_before_marker_lsn: '0/1000100' },
       { source_before_commit_fence_lsn: 'not-an-lsn' },
-      { source_after_sentinel_recorded_lsn: 'not-an-lsn' },
-      { source_after_sentinel_recorded_lsn: '0/1000000' },
+      { source_after_marker_lsn: 'not-an-lsn' },
+      { source_after_marker_lsn: '0/1000000' },
+      { source_after_marker_lsn: '0/2000100' },
       { source_after_commit_fence_lsn: '0/1000000' },
       { archive_required_wal: 'not-a-wal-segment' },
       { archive_required_wal: '000000010000000000000004' },
@@ -1916,10 +2261,14 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
       { archive_wait_seconds: 301 },
       { target_read_only_rootfs: false },
       { source_before_commit_fence_at: '2026-07-16T00:37:01.000000Z' },
+      { source_after_marker_emitted_at: '2026-07-16T00:37:00.000000Z' },
       { source_after_commit_fence_at: '2026-07-16T00:40:01.000000Z' },
     ]) {
       const invalid = evaluateEvidence([...backups, pitrEvidence(backupName, unproven)]);
-      expect(invalid.status).toBe(1);
+      expect(invalid.status).toBe(2);
+      expect(invalid.stderr).toMatch(
+        /timestamp_pitr .*invalid|unexpected key set|schema_version must be 2/u,
+      );
     }
 
     const malformedVerification = databaseVerificationPayload();
@@ -1927,20 +2276,306 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
     const invalidVerificationShape = evaluateEvidence([
       ...backups,
       pitrEvidence(backupName, {
-        database_verification: malformedVerification,
-        database_verification_sha256: databaseVerificationSha256(malformedVerification),
+        source_database_verification: malformedVerification,
+        source_database_verification_sha256: databaseVerificationSha256(malformedVerification),
       }),
     ]);
-    expect(invalidVerificationShape.status).toBe(1);
+    expect(invalidVerificationShape.status).toBe(2);
+    expect(invalidVerificationShape.stderr).toMatch(/timestamp_pitr .*canonical/u);
+
+    const divergentRestoredVerification = databaseVerificationPayload();
+    const divergentSentinels = divergentRestoredVerification.sentinels as Array<
+      Record<string, unknown>
+    >;
+    divergentSentinels[0] = { ...divergentSentinels[0], checksum: 'd'.repeat(32) };
+    const divergentParity = evaluateEvidence([
+      ...backups,
+      pitrEvidence(backupName, {
+        restored_database_verification: divergentRestoredVerification,
+        restored_database_verification_sha256: databaseVerificationSha256(
+          divergentRestoredVerification,
+        ),
+      }),
+    ]);
+    expect(divergentParity.status).toBe(2);
+    expect(divergentParity.stderr).toMatch(/timestamp_pitr success semantics are invalid/u);
+
+    const failedPitr = pitrEvidence(backupName, {
+      status: 'failure',
+      database_verified: false,
+      restored_recovery_target_time: null,
+      restored_recovery_target_inclusive: null,
+      restored_recovery_target_timeline: null,
+      restored_recovery_target_action: null,
+      source_before_marker_content: null,
+      source_before_marker_content_sha256: null,
+      source_before_marker_emitted_at: null,
+      source_before_marker_lsn: null,
+      source_before_commit_fence_at: null,
+      source_before_commit_fence_lsn: null,
+      source_after_marker_content: null,
+      source_after_marker_content_sha256: null,
+      source_after_marker_emitted_at: null,
+      source_after_marker_lsn: null,
+      source_after_commit_fence_at: null,
+      source_after_commit_fence_lsn: null,
+      before_wal_marker_replayed: false,
+      after_wal_marker_excluded: false,
+      source_database_release_sha: null,
+      source_database_verification_sha256: null,
+      source_database_verification: null,
+      restored_database_release_sha: null,
+      restored_database_verification_sha256: null,
+      restored_database_verification: null,
+      source_verification_snapshot_id: null,
+      source_verification_snapshot_sha256: null,
+      source_verification_completed_at: null,
+      source_verification_floor_lsn: null,
+      source_verification_lock_set_sha256: null,
+      source_verification_lock_count: null,
+      source_verification_lock_relations: null,
+      source_verification_lock_timeout_ms: null,
+      source_verification_statement_timeout_ms: null,
+      source_verification_idle_timeout_ms: null,
+      restored_replay_lsn: null,
+      failure_stage: 'source_verification',
+    });
+    const acceptedFailureShape = evaluateEvidence([...backups, failedPitr]);
+    expect(acceptedFailureShape.status).toBe(1);
+    expect(acceptedFailureShape.stderr).toBe('');
+    expect(acceptedFailureShape.stdout).toMatch(/requires one isolated timestamp PITR/u);
 
     for (const breach of [
       { failure_time: '2026-07-16T00:40:01Z', rpo_seconds: 301 },
       { rto_seconds: 3601 },
     ]) {
       const invalid = evaluateEvidence([...backups, pitrEvidence(backupName, breach)]);
-      expect(invalid.status).toBe(1);
-      expect(invalid.stdout).toMatch(/RPO <= 300s and RTO <= 3600s/);
-      expect(invalid.stderr).toBe('');
+      expect(invalid.status).toBe(2);
+      expect(invalid.stderr).toMatch(/timestamp_pitr success semantics are invalid/u);
     }
   });
+
+  it('streams one canonical evidence record beyond ARG_MAX without truncation', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'aqua-bounded-line-'));
+    const canonicalLine = (recordBytes: number): Buffer => {
+      const prefix = Buffer.from('{"payload":"', 'utf8');
+      const suffix = Buffer.from('"}', 'utf8');
+      if (recordBytes <= prefix.length + suffix.length) {
+        throw new Error('recordBytes must fit the canonical fixture envelope');
+      }
+      return Buffer.concat([
+        prefix,
+        Buffer.alloc(recordBytes - prefix.length - suffix.length, 0x61),
+        suffix,
+        Buffer.from('\n', 'utf8'),
+      ]);
+    };
+    const runReader = (output: string, maxBytes: number, input: Buffer) =>
+      spawnSync(
+        process.execPath,
+        [READ_BOUNDED_LINE_PATH, '--output', output, '--max-bytes', String(maxBytes)],
+        { cwd: REPO_ROOT, encoding: 'utf8', input },
+      );
+
+    try {
+      const maxBytes = 3 * 1024 * 1024;
+      const exactInput = canonicalLine(maxBytes);
+      const exactOutput = join(directory, 'exact.json');
+      const exact = runReader(exactOutput, maxBytes, exactInput);
+      expect(exact.status).toBe(0);
+      expect(exact.stdout).toBe('');
+      expect(readFileSync(exactOutput)).toEqual(exactInput.subarray(0, -1));
+      expect(statSync(exactOutput).mode & 0o777).toBe(0o600);
+
+      const oversizedOutput = join(directory, 'oversized.json');
+      const oversized = runReader(oversizedOutput, maxBytes, canonicalLine(maxBytes + 1));
+      expect(oversized.status).not.toBe(0);
+      expect(existsSync(oversizedOutput)).toBe(false);
+
+      const extraLineOutput = join(directory, 'extra-line.json');
+      const extraLine = runReader(
+        extraLineOutput,
+        1024,
+        Buffer.concat([canonicalLine(128), Buffer.from('{}\n', 'utf8')]),
+      );
+      expect(extraLine.status).not.toBe(0);
+      expect(existsSync(extraLineOutput)).toBe(false);
+
+      const missingLfOutput = join(directory, 'missing-lf.json');
+      const missingLf = runReader(missingLfOutput, 1024, canonicalLine(128).subarray(0, -1));
+      expect(missingLf.status).not.toBe(0);
+      expect(existsSync(missingLfOutput)).toBe(false);
+
+      const existingOutput = join(directory, 'existing.json');
+      writeFileSync(existingOutput, 'preserve', { encoding: 'utf8', mode: 0o600 });
+      const existing = runReader(existingOutput, 1024, canonicalLine(128));
+      expect(existing.status).not.toBe(0);
+      expect(readFileSync(existingOutput, 'utf8')).toBe('preserve');
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('frames bounded marker-mode input independently of pipe chunking', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'aqua-bounded-marker-'));
+    const expectedMarker = 'SOURCE_VERIFICATION_CAPTURED';
+    const markerLine = Buffer.from(`${expectedMarker}\n`, 'utf8');
+    const payload = Buffer.from('{"ok":true}', 'utf8');
+    const payloadLine = Buffer.concat([payload, Buffer.from('\n', 'utf8')]);
+    const frame = Buffer.concat([payloadLine, markerLine]);
+    const markerArgs = (output: string, maxBytes: number): string[] => [
+      READ_BOUNDED_LINE_PATH,
+      '--output',
+      output,
+      '--max-bytes',
+      String(maxBytes),
+      '--expected-marker',
+      expectedMarker,
+    ];
+    const runMarkerReader = (output: string, maxBytes: number, input: Buffer) =>
+      spawnSync(process.execPath, markerArgs(output, maxBytes), {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        input,
+      });
+    const runChunkedReader = async (
+      output: string,
+      maxBytes: number,
+      chunks: readonly Buffer[],
+      options: {
+        expectedMarker?: string;
+        interChunkDelayMs?: number;
+        beforeEofDelayMs?: number;
+      } = {},
+    ): Promise<{ status: number | null; stdout: string; stderr: string }> => {
+      const args = [READ_BOUNDED_LINE_PATH, '--output', output, '--max-bytes', String(maxBytes)];
+      if (options.expectedMarker !== undefined) {
+        args.push('--expected-marker', options.expectedMarker);
+      }
+      const child = spawn(process.execPath, args, { cwd: REPO_ROOT });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (chunk: string) => {
+        stdout += chunk;
+      });
+      child.stderr.on('data', (chunk: string) => {
+        stderr += chunk;
+      });
+      const completion = new Promise<{
+        status: number | null;
+        stdout: string;
+        stderr: string;
+      }>((resolveCompletion, rejectCompletion) => {
+        child.once('error', rejectCompletion);
+        child.once('close', (status) => resolveCompletion({ status, stdout, stderr }));
+      });
+
+      try {
+        for (let index = 0; index < chunks.length; index += 1) {
+          if (child.exitCode !== null) {
+            throw new Error(`bounded reader exited before chunk ${index + 1}`);
+          }
+          await new Promise<void>((resolveWrite, rejectWrite) => {
+            child.stdin.write(chunks[index], (error) => {
+              if (error) rejectWrite(error);
+              else resolveWrite();
+            });
+          });
+          if (index + 1 < chunks.length) {
+            await delay(options.interChunkDelayMs ?? 25);
+          }
+        }
+        if ((options.beforeEofDelayMs ?? 0) > 0) {
+          await delay(options.beforeEofDelayMs);
+          if (child.exitCode !== null) {
+            throw new Error('ordinary bounded reader exited before EOF');
+          }
+        }
+        child.stdin.end();
+        return await completion;
+      } catch (error) {
+        child.kill();
+        await completion.catch(() => undefined);
+        throw error;
+      }
+    };
+
+    try {
+      for (let split = 1; split < frame.length; split += 1) {
+        const output = join(directory, `split-${split}.json`);
+        const result = await runChunkedReader(
+          output,
+          payload.length,
+          [frame.subarray(0, split), frame.subarray(split)],
+          { expectedMarker },
+        );
+        expect(result.status).toBe(0);
+        expect(result.stdout).toBe('');
+        expect(readFileSync(output)).toEqual(payload);
+      }
+
+      const maxBytes = 3 * 1024 * 1024;
+      const prefix = Buffer.from('{"payload":"', 'utf8');
+      const suffix = Buffer.from('"}', 'utf8');
+      const largePayload = Buffer.concat([
+        prefix,
+        Buffer.alloc(maxBytes - prefix.length - suffix.length, 0x61),
+        suffix,
+      ]);
+      const coalescedOutput = join(directory, 'coalesced-large.json');
+      const coalesced = runMarkerReader(
+        coalescedOutput,
+        maxBytes,
+        Buffer.concat([largePayload, Buffer.from('\n', 'utf8'), markerLine]),
+      );
+      expect(coalesced.status).toBe(0);
+      expect(readFileSync(coalescedOutput)).toEqual(largePayload);
+      expect(statSync(coalescedOutput).mode & 0o777).toBe(0o600);
+
+      const invalidFrames: Array<{ name: string; maxBytes: number; input: Buffer }> = [
+        {
+          name: 'overflow',
+          maxBytes: 1024,
+          input: Buffer.concat([Buffer.alloc(1025, 0x61), Buffer.from('\n'), markerLine]),
+        },
+        {
+          name: 'wrong-marker',
+          maxBytes: payload.length,
+          input: Buffer.concat([payloadLine, Buffer.from('SOURCE_VERIFICATION_FAILED\n', 'utf8')]),
+        },
+        { name: 'missing-marker', maxBytes: payload.length, input: payloadLine },
+        {
+          name: 'extra-third-line',
+          maxBytes: payload.length,
+          input: Buffer.concat([frame, Buffer.from('EXTRA\n', 'utf8')]),
+        },
+      ];
+      for (const invalid of invalidFrames) {
+        const output = join(directory, `${invalid.name}.json`);
+        expect(runMarkerReader(output, invalid.maxBytes, invalid.input).status).not.toBe(0);
+        expect(existsSync(output)).toBe(false);
+      }
+
+      const ordinaryEofOutput = join(directory, 'ordinary-delayed-eof.json');
+      const ordinaryEof = await runChunkedReader(ordinaryEofOutput, payload.length, [payloadLine], {
+        beforeEofDelayMs: 150,
+      });
+      expect(ordinaryEof.status).toBe(0);
+      expect(readFileSync(ordinaryEofOutput)).toEqual(payload);
+
+      const ordinaryExtraOutput = join(directory, 'ordinary-delayed-extra.json');
+      const ordinaryExtra = await runChunkedReader(
+        ordinaryExtraOutput,
+        payload.length,
+        [payloadLine, Buffer.from('{}\n', 'utf8')],
+        { interChunkDelayMs: 150 },
+      );
+      expect(ordinaryExtra.status).not.toBe(0);
+      expect(existsSync(ordinaryExtraOutput)).toBe(false);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }, 60_000);
 });

@@ -76,17 +76,142 @@ const TENANT_SENTINELS = Object.freeze([
   'agent_conversations',
 ]);
 
+const PITR_SOURCE_BASE_RELATIONS = Object.freeze(
+  [
+    'admin.tenant_schemas',
+    'auth.tenants',
+    'platform.release_ledger',
+    ...SOURCE_SCHEMAS.map((schema) => `${schema}.migrations`),
+    ...GLOBAL_SENTINELS.map(({ schema, table }) => `${schema}.${table}`),
+  ]
+    .filter((relation, index, relations) => relations.indexOf(relation) === index)
+    .sort(),
+);
+
+const PITR_SOURCE_TENANT_TABLES = Object.freeze(
+  [...TENANT_AWARE_SCHEMAS.map((schema) => `migrations_${schema}`), ...TENANT_SENTINELS].sort(),
+);
+
 const EXPECTED_WALG_REVISION = 'f81943e64bdf97aa66f6c52fec55114703f97af7';
+const WAL_MARKER_PREFIX = 'aqua.pitr.boundary.v1';
+const WAL_COMMIT_FENCE_PREFIX = 'aqua.pitr.commit-fence.v1';
+const MAX_RAW_EVIDENCE_BYTES = 8 * 1024 * 1024;
+const BASE_EVIDENCE_KEYS = Object.freeze([
+  'schema_version',
+  'evidence_type',
+  'run_id',
+  'status',
+  'main_sha',
+  'started_at',
+  'completed_at',
+  'elapsed_seconds',
+  'backup_name',
+  'backup_type',
+  'backup_user_data',
+  'backup_wal_file_name',
+  'backup_storage_name',
+  'backup_start_time',
+  'backup_finish_time',
+  'backup_start_lsn',
+  'backup_finish_lsn',
+  'backup_pg_version',
+  'source_system_identifier',
+  'source_image_id',
+  'source_image_revision',
+  'source_postgres_dr_contract_sha256',
+  'source_wal_g_revision',
+  'walg_config_sha256',
+  'walg_rotation_bundle_sha256',
+  'full',
+  'verified',
+  'wal_verified',
+  'failure_stage',
+]);
+const PITR_EVIDENCE_KEYS = Object.freeze([
+  'schema_version',
+  'evidence_type',
+  'run_id',
+  'status',
+  'main_sha',
+  'started_at',
+  'completed_at',
+  'backup_name',
+  'recovery_target_time',
+  'restored_recovery_target_time',
+  'restored_recovery_target_inclusive',
+  'restored_recovery_target_timeline',
+  'restored_recovery_target_action',
+  'failure_time',
+  'wal_marker_prefix',
+  'wal_commit_fence_prefix',
+  'source_before_marker_content',
+  'source_before_marker_content_sha256',
+  'source_before_marker_emitted_at',
+  'source_before_marker_lsn',
+  'source_after_marker_content',
+  'source_after_marker_content_sha256',
+  'source_after_marker_emitted_at',
+  'source_after_marker_lsn',
+  'source_before_commit_fence_at',
+  'source_before_commit_fence_lsn',
+  'source_after_commit_fence_at',
+  'source_after_commit_fence_lsn',
+  'timestamp_recovery',
+  'rpo_seconds',
+  'rto_seconds',
+  'archive_wait_seconds',
+  'archive_observed_at',
+  'archive_required_wal',
+  'archived_through_wal',
+  'source_timeline_id',
+  'source_system_identifier',
+  'restored_system_identifier',
+  'source_image_id',
+  'source_image_revision',
+  'source_postgres_dr_contract_sha256',
+  'source_wal_g_revision',
+  'target_pgdata_volume',
+  'target_network',
+  'isolated_target_attested',
+  'wal_verified',
+  'before_wal_marker_replayed',
+  'after_wal_marker_excluded',
+  'promoted',
+  'database_verified',
+  'source_database_release_sha',
+  'source_database_verification_sha256',
+  'source_database_verification',
+  'restored_database_release_sha',
+  'restored_database_verification_sha256',
+  'restored_database_verification',
+  'source_verification_snapshot_id',
+  'source_verification_snapshot_sha256',
+  'source_verification_completed_at',
+  'source_verification_floor_lsn',
+  'source_verification_lock_set_sha256',
+  'source_verification_lock_count',
+  'source_verification_lock_relations',
+  'source_verification_lock_timeout_ms',
+  'source_verification_statement_timeout_ms',
+  'source_verification_idle_timeout_ms',
+  'restored_replay_lsn',
+  'target_read_only_rootfs',
+  'walg_config_sha256',
+  'walg_rotation_bundle_sha256',
+  'failure_stage',
+]);
 
 const isTimestamp = (value) =>
   typeof value === 'string' &&
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(value) &&
-  Number.isFinite(Date.parse(value));
+  Number.isFinite(Date.parse(value)) &&
+  new Date(Date.parse(value)).toISOString() === `${value.slice(0, -1)}.000Z`;
 
-const isEvidenceTimestamp = (value) =>
-  typeof value === 'string' &&
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$/.test(value) &&
-  Number.isFinite(Date.parse(value));
+const isEvidenceTimestamp = (value) => {
+  if (typeof value !== 'string') return false;
+  const match = value.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d{1,6})?Z$/);
+  return match !== null && isTimestamp(`${match[1]}Z`);
+};
 
 const evidenceTimestampNanoseconds = (value) => {
   if (!isEvidenceTimestamp(value)) return null;
@@ -147,7 +272,7 @@ const isSentinelProof = (value, expected) =>
   typeof value.checksum === 'string' &&
   /^[0-9a-f]{32}$/.test(value.checksum);
 
-const isCanonicalDatabaseVerification = (payload, mainSha) => {
+const isCanonicalDatabaseVerification = (payload) => {
   if (
     !hasExactKeys(payload, [
       'contract_version',
@@ -181,7 +306,7 @@ const isCanonicalDatabaseVerification = (payload, mainSha) => {
     typeof payload.release.release_id !== 'string' ||
     payload.release.release_id.length < 1 ||
     payload.release.release_id.length > 120 ||
-    payload.release.git_sha !== mainSha ||
+    !isMainSha(payload.release.git_sha) ||
     !hasExactKeys(payload.migration_heads, ['schemas', 'tenants']) ||
     !Array.isArray(payload.migration_heads.schemas) ||
     !Array.isArray(payload.migration_heads.tenants) ||
@@ -234,6 +359,14 @@ const isCanonicalDatabaseVerification = (payload, mainSha) => {
     payload.sentinels.every((proof, index) => isSentinelProof(proof, expectedSentinels[index]))
   );
 };
+
+const expectedPitrSourceLockRelations = (tenantSchemas) =>
+  [
+    ...PITR_SOURCE_BASE_RELATIONS,
+    ...tenantSchemas.flatMap((tenantSchema) =>
+      PITR_SOURCE_TENANT_TABLES.map((table) => `${tenantSchema}.${table}`),
+    ),
+  ].sort();
 
 const postgresLsn = (value) => {
   if (typeof value !== 'string' || !/^[0-9A-F]+\/[0-9A-F]{1,8}$/.test(value)) {
@@ -295,8 +428,7 @@ const isSuccessfulBackup = (record, options) => {
     record.source_image_revision === '0000000000000000000000000000000000000000' ||
     !isSha256(record.source_postgres_dr_contract_sha256) ||
     (options.expectedPostgresDrContractSha256 !== null &&
-      record.source_postgres_dr_contract_sha256 !==
-        options.expectedPostgresDrContractSha256) ||
+      record.source_postgres_dr_contract_sha256 !== options.expectedPostgresDrContractSha256) ||
     record.source_wal_g_revision !== EXPECTED_WALG_REVISION ||
     !isSha256(record.walg_config_sha256) ||
     !isSha256(record.walg_rotation_bundle_sha256) ||
@@ -316,6 +448,7 @@ const isEarlierBackupInSameWalChain = (earlier, later) => {
   const laterStart = unsigned64(later.backup_start_lsn);
   if (earlierStart === null || earlierFinish === null || laterStart === null) return false;
   return (
+    earlier.backup_wal_file_name.slice(0, 8) === later.backup_wal_file_name.slice(0, 8) &&
     earlierStart < laterStart &&
     earlierFinish <= laterStart &&
     earlier.backup_wal_file_name < later.backup_wal_file_name
@@ -323,26 +456,36 @@ const isEarlierBackupInSameWalChain = (earlier, later) => {
 };
 
 const isSuccessfulPitr = (record, options) => {
+  const sourceSystemIdentifier = unsigned64(record.source_system_identifier);
+  const sourceTimelineId = record.source_timeline_id;
   if (
     record.status !== 'success' ||
     record.isolated_target_attested !== true ||
     record.timestamp_recovery !== true ||
     record.wal_verified !== true ||
-    record.before_sentinel_present !== true ||
-    record.after_sentinel_present !== false ||
+    record.before_wal_marker_replayed !== true ||
+    record.after_wal_marker_excluded !== true ||
     record.promoted !== true ||
     record.database_verified !== true ||
     record.failure_stage !== null ||
     !isBackupName(record.backup_name) ||
     !isEvidenceTimestamp(record.recovery_target_time) ||
+    record.restored_recovery_target_time !== record.recovery_target_time ||
+    record.restored_recovery_target_inclusive !== false ||
+    record.restored_recovery_target_timeline !== 'latest' ||
+    record.restored_recovery_target_action !== 'promote' ||
     !isEvidenceTimestamp(record.failure_time) ||
     !isEvidenceTimestamp(record.archive_observed_at) ||
-    !isEvidenceTimestamp(record.source_before_sentinel_recorded_at) ||
-    !isEvidenceTimestamp(record.source_after_sentinel_recorded_at) ||
+    record.wal_marker_prefix !== WAL_MARKER_PREFIX ||
+    record.wal_commit_fence_prefix !== WAL_COMMIT_FENCE_PREFIX ||
+    typeof record.source_before_marker_content !== 'string' ||
+    !isSha256(record.source_before_marker_content_sha256) ||
+    !isEvidenceTimestamp(record.source_before_marker_emitted_at) ||
+    typeof record.source_after_marker_content !== 'string' ||
+    !isSha256(record.source_after_marker_content_sha256) ||
+    !isEvidenceTimestamp(record.source_after_marker_emitted_at) ||
     !isEvidenceTimestamp(record.source_before_commit_fence_at) ||
     !isEvidenceTimestamp(record.source_after_commit_fence_at) ||
-    record.restored_before_sentinel_recorded_at !== record.source_before_sentinel_recorded_at ||
-    record.restored_before_sentinel_recorded_lsn !== record.source_before_sentinel_recorded_lsn ||
     !Number.isSafeInteger(record.archive_wait_seconds) ||
     record.archive_wait_seconds < 0 ||
     record.archive_wait_seconds > options.maxRpoSeconds ||
@@ -351,9 +494,14 @@ const isSuccessfulPitr = (record, options) => {
     typeof record.archived_through_wal !== 'string' ||
     !isWalFileName(record.archived_through_wal) ||
     record.archive_required_wal > record.archived_through_wal ||
-    typeof record.source_system_identifier !== 'string' ||
-    !/^[0-9]{10,24}$/.test(record.source_system_identifier) ||
+    sourceSystemIdentifier === null ||
+    record.source_system_identifier.length < 10 ||
     record.restored_system_identifier !== record.source_system_identifier ||
+    !Number.isSafeInteger(sourceTimelineId) ||
+    sourceTimelineId < 1 ||
+    sourceTimelineId > 0xffffffff ||
+    Number.parseInt(record.archive_required_wal.slice(0, 8), 16) !== sourceTimelineId ||
+    Number.parseInt(record.archived_through_wal.slice(0, 8), 16) !== sourceTimelineId ||
     typeof record.source_image_id !== 'string' ||
     !/^sha256:[0-9a-f]{64}$/.test(record.source_image_id) ||
     typeof record.source_image_revision !== 'string' ||
@@ -361,16 +509,30 @@ const isSuccessfulPitr = (record, options) => {
     record.source_image_revision === '0000000000000000000000000000000000000000' ||
     !isSha256(record.source_postgres_dr_contract_sha256) ||
     (options.expectedPostgresDrContractSha256 !== null &&
-      record.source_postgres_dr_contract_sha256 !==
-        options.expectedPostgresDrContractSha256) ||
+      record.source_postgres_dr_contract_sha256 !== options.expectedPostgresDrContractSha256) ||
     record.source_wal_g_revision !== EXPECTED_WALG_REVISION ||
     !isSha256(record.walg_config_sha256) ||
     !isSha256(record.walg_rotation_bundle_sha256) ||
     !isSafeToken(record.target_pgdata_volume) ||
     !isSafeToken(record.target_network) ||
     record.target_read_only_rootfs !== true ||
-    !isSha256(record.database_verification_sha256) ||
-    !isCanonicalDatabaseVerification(record.database_verification, record.main_sha) ||
+    !isMainSha(record.source_database_release_sha) ||
+    !isSha256(record.source_database_verification_sha256) ||
+    !isCanonicalDatabaseVerification(record.source_database_verification) ||
+    !isMainSha(record.restored_database_release_sha) ||
+    !isSha256(record.restored_database_verification_sha256) ||
+    !isCanonicalDatabaseVerification(record.restored_database_verification) ||
+    typeof record.source_verification_snapshot_id !== 'string' ||
+    !/^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{8}-[1-9][0-9]*$/.test(record.source_verification_snapshot_id) ||
+    !isSha256(record.source_verification_snapshot_sha256) ||
+    !isEvidenceTimestamp(record.source_verification_completed_at) ||
+    !isSha256(record.source_verification_lock_set_sha256) ||
+    !Number.isSafeInteger(record.source_verification_lock_count) ||
+    record.source_verification_lock_count < 0 ||
+    !Array.isArray(record.source_verification_lock_relations) ||
+    record.source_verification_lock_timeout_ms !== 5000 ||
+    record.source_verification_statement_timeout_ms !== 120000 ||
+    record.source_verification_idle_timeout_ms !== 30000 ||
     !Number.isSafeInteger(record.rpo_seconds) ||
     record.rpo_seconds < 0 ||
     record.rpo_seconds > options.maxRpoSeconds ||
@@ -381,29 +543,90 @@ const isSuccessfulPitr = (record, options) => {
     return false;
   }
 
-  const expectedDatabaseVerificationSha256 = createHash('sha256')
-    .update(`${JSON.stringify(record.database_verification)}\n`)
+  const sourceDatabaseVerificationBytes = `${JSON.stringify(
+    record.source_database_verification,
+  )}\n`;
+  const restoredDatabaseVerificationBytes = `${JSON.stringify(
+    record.restored_database_verification,
+  )}\n`;
+  const expectedSourceDatabaseVerificationSha256 = createHash('sha256')
+    .update(sourceDatabaseVerificationBytes)
     .digest('hex');
-  if (record.database_verification_sha256 !== expectedDatabaseVerificationSha256) {
+  const expectedRestoredDatabaseVerificationSha256 = createHash('sha256')
+    .update(restoredDatabaseVerificationBytes)
+    .digest('hex');
+  const expectedSnapshotSha256 = createHash('sha256')
+    .update(record.source_verification_snapshot_id)
+    .digest('hex');
+  const expectedLockRelations = expectedPitrSourceLockRelations(
+    record.source_database_verification.tenant_schemas,
+  );
+  const expectedLockSetSha256 = createHash('sha256')
+    .update(expectedLockRelations.join('\n'))
+    .digest('hex');
+  const expectedLockCount = expectedLockRelations.length;
+  const expectedBeforeMarkerContent = JSON.stringify({
+    backup_name: record.backup_name,
+    main_sha: record.main_sha,
+    phase: 'BEFORE',
+    run_id: record.run_id,
+  });
+  const expectedAfterMarkerContent = JSON.stringify({
+    backup_name: record.backup_name,
+    main_sha: record.main_sha,
+    phase: 'AFTER',
+    run_id: record.run_id,
+  });
+  const expectedBeforeMarkerSha256 = createHash('sha256')
+    .update(expectedBeforeMarkerContent)
+    .digest('hex');
+  const expectedAfterMarkerSha256 = createHash('sha256')
+    .update(expectedAfterMarkerContent)
+    .digest('hex');
+  if (
+    sourceDatabaseVerificationBytes !== restoredDatabaseVerificationBytes ||
+    record.source_database_verification_sha256 !== expectedSourceDatabaseVerificationSha256 ||
+    record.restored_database_verification_sha256 !== expectedRestoredDatabaseVerificationSha256 ||
+    record.source_database_verification_sha256 !== record.restored_database_verification_sha256 ||
+    record.source_database_release_sha !== record.source_database_verification.release.git_sha ||
+    record.restored_database_release_sha !==
+      record.restored_database_verification.release.git_sha ||
+    record.source_database_release_sha !== record.restored_database_release_sha ||
+    record.source_verification_snapshot_sha256 !== expectedSnapshotSha256 ||
+    !hasExactStringArray(record.source_verification_lock_relations, expectedLockRelations) ||
+    record.source_verification_lock_count !== record.source_verification_lock_relations.length ||
+    record.source_verification_lock_count !== expectedLockCount ||
+    record.source_verification_lock_set_sha256 !== expectedLockSetSha256 ||
+    record.source_before_marker_content !== expectedBeforeMarkerContent ||
+    record.source_before_marker_content_sha256 !== expectedBeforeMarkerSha256 ||
+    record.source_after_marker_content !== expectedAfterMarkerContent ||
+    record.source_after_marker_content_sha256 !== expectedAfterMarkerSha256
+  ) {
     return false;
   }
 
   const started = BigInt(Date.parse(record.started_at)) * 1_000_000n;
   const completed = BigInt(Date.parse(record.completed_at)) * 1_000_000n;
-  const before = evidenceTimestampNanoseconds(record.source_before_sentinel_recorded_at);
+  const before = evidenceTimestampNanoseconds(record.source_before_marker_emitted_at);
   const beforeFence = evidenceTimestampNanoseconds(record.source_before_commit_fence_at);
+  const sourceVerificationCompleted = evidenceTimestampNanoseconds(
+    record.source_verification_completed_at,
+  );
   const target = evidenceTimestampNanoseconds(record.recovery_target_time);
-  const after = evidenceTimestampNanoseconds(record.source_after_sentinel_recorded_at);
+  const after = evidenceTimestampNanoseconds(record.source_after_marker_emitted_at);
   const afterFence = evidenceTimestampNanoseconds(record.source_after_commit_fence_at);
   const archiveObserved = evidenceTimestampNanoseconds(record.archive_observed_at);
   const failure = evidenceTimestampNanoseconds(record.failure_time);
-  const sourceBeforeLsn = postgresLsn(record.source_before_sentinel_recorded_lsn);
+  const sourceBeforeLsn = postgresLsn(record.source_before_marker_lsn);
   const beforeFenceLsn = postgresLsn(record.source_before_commit_fence_lsn);
-  const sourceAfterLsn = postgresLsn(record.source_after_sentinel_recorded_lsn);
+  const sourceVerificationFloorLsn = postgresLsn(record.source_verification_floor_lsn);
+  const restoredReplayLsn = postgresLsn(record.restored_replay_lsn);
+  const sourceAfterLsn = postgresLsn(record.source_after_marker_lsn);
   const afterFenceLsn = postgresLsn(record.source_after_commit_fence_lsn);
   if (
     before === null ||
     beforeFence === null ||
+    sourceVerificationCompleted === null ||
     target === null ||
     after === null ||
     afterFence === null ||
@@ -411,6 +634,8 @@ const isSuccessfulPitr = (record, options) => {
     failure === null ||
     sourceBeforeLsn === null ||
     beforeFenceLsn === null ||
+    sourceVerificationFloorLsn === null ||
+    restoredReplayLsn === null ||
     sourceAfterLsn === null ||
     afterFenceLsn === null
   ) {
@@ -418,22 +643,303 @@ const isSuccessfulPitr = (record, options) => {
   }
   const derivedRpoSeconds = Number((failure - before + 999_999_999n) / 1_000_000_000n);
   const elapsedSeconds = Number((completed - started) / 1_000_000_000n);
+  // The AFTER logical-message record may be physically replayed before PostgreSQL
+  // stops ahead of its COMMIT. The exclusive timestamp target plus the exact
+  // post-COMMIT fence proves transaction exclusion; it does not claim that the
+  // raw logical-message record was absent from physical replay.
   return (
     started <= before &&
     before <= beforeFence &&
-    beforeFence <= target &&
+    beforeFence <= sourceVerificationCompleted &&
+    sourceVerificationCompleted + 2_000_000_000n === target &&
     target < after &&
     after <= afterFence &&
     afterFence <= archiveObserved &&
     archiveObserved === failure &&
     failure <= completed &&
-    sourceBeforeLsn <= beforeFenceLsn &&
-    beforeFenceLsn < sourceAfterLsn &&
-    sourceAfterLsn <= afterFenceLsn &&
+    sourceBeforeLsn < beforeFenceLsn &&
+    beforeFenceLsn <= sourceVerificationFloorLsn &&
+    sourceVerificationFloorLsn <= sourceAfterLsn &&
+    sourceAfterLsn < afterFenceLsn &&
+    sourceVerificationFloorLsn <= restoredReplayLsn &&
+    restoredReplayLsn < afterFenceLsn &&
     record.rpo_seconds === derivedRpoSeconds &&
     Math.abs(record.rto_seconds - elapsedSeconds) <= 1
   );
 };
+
+const isNullableString = (value) => value === null || typeof value === 'string';
+
+function evidenceSchemaError(message) {
+  throw new Error(`closed raw evidence schema: ${message}`);
+}
+
+function requireEvidenceShape(condition, message) {
+  if (!condition) evidenceSchemaError(message);
+}
+
+function validateBaseEvidenceShape(record) {
+  requireEvidenceShape(
+    hasExactKeys(record, BASE_EVIDENCE_KEYS),
+    'base_backup has an unexpected key set',
+  );
+  requireEvidenceShape(
+    Number.isSafeInteger(record.elapsed_seconds) && record.elapsed_seconds >= 0,
+    'base_backup elapsed_seconds must be a nonnegative safe integer',
+  );
+  for (const key of [
+    'backup_name',
+    'backup_type',
+    'backup_wal_file_name',
+    'backup_storage_name',
+    'backup_start_time',
+    'backup_finish_time',
+    'backup_start_lsn',
+    'backup_finish_lsn',
+    'source_system_identifier',
+    'source_image_id',
+    'source_image_revision',
+    'source_postgres_dr_contract_sha256',
+    'source_wal_g_revision',
+    'walg_config_sha256',
+    'walg_rotation_bundle_sha256',
+  ]) {
+    requireEvidenceShape(isNullableString(record[key]), `base_backup ${key} has invalid type`);
+  }
+  requireEvidenceShape(
+    record.backup_pg_version === null || Number.isSafeInteger(record.backup_pg_version),
+    'base_backup backup_pg_version has invalid type',
+  );
+  requireEvidenceShape(
+    record.backup_user_data === null ||
+      (hasExactKeys(record.backup_user_data, ['aqua_run_id', 'backup_kind', 'main_sha']) &&
+        Object.values(record.backup_user_data).every((value) => typeof value === 'string')),
+    'base_backup backup_user_data is not a closed string record',
+  );
+  for (const key of ['full', 'verified', 'wal_verified']) {
+    requireEvidenceShape(typeof record[key] === 'boolean', `base_backup ${key} must be boolean`);
+  }
+}
+
+function validatePitrEvidenceShape(record) {
+  requireEvidenceShape(
+    hasExactKeys(record, PITR_EVIDENCE_KEYS),
+    'timestamp_pitr has an unexpected key set',
+  );
+  requireEvidenceShape(
+    typeof record.backup_name === 'string',
+    'timestamp_pitr backup_name invalid',
+  );
+  for (const key of [
+    'recovery_target_time',
+    'restored_recovery_target_time',
+    'restored_recovery_target_timeline',
+    'restored_recovery_target_action',
+    'failure_time',
+    'source_before_marker_content',
+    'source_before_marker_content_sha256',
+    'source_before_marker_emitted_at',
+    'source_before_marker_lsn',
+    'source_after_marker_content',
+    'source_after_marker_content_sha256',
+    'source_after_marker_emitted_at',
+    'source_after_marker_lsn',
+    'source_before_commit_fence_at',
+    'source_before_commit_fence_lsn',
+    'source_after_commit_fence_at',
+    'source_after_commit_fence_lsn',
+    'archive_observed_at',
+    'archive_required_wal',
+    'archived_through_wal',
+    'source_system_identifier',
+    'restored_system_identifier',
+    'source_image_id',
+    'source_image_revision',
+    'source_postgres_dr_contract_sha256',
+    'source_wal_g_revision',
+    'source_database_release_sha',
+    'source_database_verification_sha256',
+    'restored_database_release_sha',
+    'restored_database_verification_sha256',
+    'source_verification_snapshot_id',
+    'source_verification_snapshot_sha256',
+    'source_verification_completed_at',
+    'source_verification_floor_lsn',
+    'source_verification_lock_set_sha256',
+    'restored_replay_lsn',
+    'walg_config_sha256',
+    'walg_rotation_bundle_sha256',
+  ]) {
+    requireEvidenceShape(isNullableString(record[key]), `timestamp_pitr ${key} has invalid type`);
+  }
+  requireEvidenceShape(
+    record.wal_marker_prefix === WAL_MARKER_PREFIX,
+    'timestamp_pitr wal_marker_prefix is invalid',
+  );
+  requireEvidenceShape(
+    record.wal_commit_fence_prefix === WAL_COMMIT_FENCE_PREFIX,
+    'timestamp_pitr wal_commit_fence_prefix is invalid',
+  );
+  requireEvidenceShape(
+    record.restored_recovery_target_inclusive === null ||
+      typeof record.restored_recovery_target_inclusive === 'boolean',
+    'timestamp_pitr restored_recovery_target_inclusive has invalid type',
+  );
+  for (const key of ['target_pgdata_volume', 'target_network']) {
+    requireEvidenceShape(typeof record[key] === 'string', `timestamp_pitr ${key} must be string`);
+  }
+  for (const key of ['rpo_seconds', 'rto_seconds', 'archive_wait_seconds']) {
+    requireEvidenceShape(
+      Number.isSafeInteger(record[key]),
+      `timestamp_pitr ${key} must be integer`,
+    );
+  }
+  requireEvidenceShape(
+    record.source_timeline_id === null || Number.isSafeInteger(record.source_timeline_id),
+    'timestamp_pitr source_timeline_id has invalid type',
+  );
+  requireEvidenceShape(
+    record.source_verification_lock_relations === null ||
+      (Array.isArray(record.source_verification_lock_relations) &&
+        record.source_verification_lock_relations.every(
+          (relation) => typeof relation === 'string',
+        )),
+    'timestamp_pitr source_verification_lock_relations has invalid type',
+  );
+  requireEvidenceShape(
+    record.source_verification_lock_count === null ||
+      (Number.isSafeInteger(record.source_verification_lock_count) &&
+        record.source_verification_lock_count >= 0),
+    'timestamp_pitr source_verification_lock_count has invalid type',
+  );
+  for (const key of [
+    'source_verification_lock_timeout_ms',
+    'source_verification_statement_timeout_ms',
+    'source_verification_idle_timeout_ms',
+  ]) {
+    requireEvidenceShape(
+      record[key] === null || (Number.isSafeInteger(record[key]) && record[key] > 0),
+      `timestamp_pitr ${key} has invalid type`,
+    );
+  }
+  for (const key of [
+    'timestamp_recovery',
+    'isolated_target_attested',
+    'wal_verified',
+    'before_wal_marker_replayed',
+    'after_wal_marker_excluded',
+    'promoted',
+    'database_verified',
+    'target_read_only_rootfs',
+  ]) {
+    requireEvidenceShape(typeof record[key] === 'boolean', `timestamp_pitr ${key} must be boolean`);
+  }
+  requireEvidenceShape(
+    record.source_database_verification === null ||
+      isCanonicalDatabaseVerification(record.source_database_verification),
+    'timestamp_pitr source_database_verification is not canonical',
+  );
+  requireEvidenceShape(
+    record.restored_database_verification === null ||
+      isCanonicalDatabaseVerification(record.restored_database_verification),
+    'timestamp_pitr restored_database_verification is not canonical',
+  );
+  if (record.status === 'failure') {
+    requireEvidenceShape(
+      record.source_database_release_sha === null && record.restored_database_release_sha === null,
+      'failed timestamp_pitr database release SHAs must be null',
+    );
+  }
+}
+
+/**
+ * Validate one exact producer record, including all single-record success
+ * semantics. Cross-record backup-chain and PITR-selection rules remain in the
+ * closure evaluator below.
+ *
+ * @param {Record<string, unknown>} record
+ * @param {{maxRpoSeconds?: number, maxRtoSeconds?: number, expectedMainSha?: string | null, expectedPostgresDrContractSha256?: string | null}} [overrides]
+ * @returns {Record<string, unknown>}
+ */
+export function validateWalgEvidenceRecord(record, overrides = {}) {
+  const options = { ...DEFAULTS, ...overrides };
+  requireEvidenceShape(isRecord(record), 'record must be an object');
+  requireEvidenceShape(
+    record.evidence_type === 'base_backup' || record.evidence_type === 'timestamp_pitr',
+    'evidence_type is unsupported',
+  );
+  const expectedSchemaVersion = record.evidence_type === 'base_backup' ? 1 : 2;
+  requireEvidenceShape(
+    record.schema_version === expectedSchemaVersion,
+    `${record.evidence_type} schema_version must be ${expectedSchemaVersion}`,
+  );
+  requireEvidenceShape(isSafeToken(record.run_id), 'run_id is invalid');
+  requireEvidenceShape(isMainSha(record.main_sha), 'main_sha is invalid');
+  requireEvidenceShape(
+    record.status === 'success' || record.status === 'failure',
+    'status is invalid',
+  );
+  requireEvidenceShape(isTimestamp(record.started_at), 'started_at is not exact UTC');
+  requireEvidenceShape(isTimestamp(record.completed_at), 'completed_at is not exact UTC');
+  requireEvidenceShape(
+    Date.parse(record.started_at) <= Date.parse(record.completed_at),
+    'completed_at precedes started_at',
+  );
+  requireEvidenceShape(
+    record.failure_stage === null ||
+      (typeof record.failure_stage === 'string' &&
+        record.failure_stage.length > 0 &&
+        record.failure_stage.length <= 120),
+    'failure_stage has invalid type or length',
+  );
+
+  if (record.evidence_type === 'base_backup') validateBaseEvidenceShape(record);
+  else validatePitrEvidenceShape(record);
+
+  if (record.status === 'success') {
+    requireEvidenceShape(record.failure_stage === null, 'successful evidence has failure_stage');
+    const valid =
+      record.evidence_type === 'base_backup'
+        ? isSuccessfulBackup(record, options)
+        : isSuccessfulPitr(record, options);
+    requireEvidenceShape(valid, `${record.evidence_type} success semantics are invalid`);
+  } else {
+    requireEvidenceShape(
+      typeof record.failure_stage === 'string' && record.failure_stage.length > 0,
+      'failed evidence requires failure_stage',
+    );
+  }
+  return record;
+}
+
+/**
+ * Parse the byte-exact raw artifact form. Parse/serialize equality rejects
+ * duplicate keys at every nesting level as well as noncompact encodings.
+ *
+ * @param {Uint8Array} input
+ * @param {string} [field]
+ * @param {Parameters<typeof validateWalgEvidenceRecord>[1]} [overrides]
+ * @returns {Record<string, unknown>}
+ */
+export function parseCanonicalWalgEvidenceBytes(input, field = 'evidence', overrides = {}) {
+  const bytes = Buffer.from(input);
+  if (bytes.byteLength < 1 || bytes.byteLength > MAX_RAW_EVIDENCE_BYTES) {
+    throw new Error(`${field} must contain between 1 and ${MAX_RAW_EVIDENCE_BYTES} bytes`);
+  }
+  let record;
+  try {
+    record = JSON.parse(bytes.toString('utf8'));
+  } catch (error) {
+    throw new Error(
+      `${field} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  requireEvidenceShape(isRecord(record), `${field} must contain one object`);
+  if (!bytes.equals(Buffer.from(`${JSON.stringify(record)}\n`, 'utf8'))) {
+    throw new Error(`${field} must be canonical one-line JSON with one trailing newline`);
+  }
+  return validateWalgEvidenceRecord(record, overrides);
+}
 
 /**
  * Evaluate WAL-G closure evidence without network or filesystem access.
@@ -478,20 +984,14 @@ export function evaluateWalgEvidence(records, overrides = {}) {
   const seenRunIds = new Set();
   const structurallyValid = [];
   records.forEach((record, index) => {
-    if (!record || typeof record !== 'object' || Array.isArray(record)) {
-      errors.push(`record ${index} is not an object`);
-      return;
-    }
-    if (record.schema_version !== 1) {
-      errors.push(`record ${index} has unsupported schema_version`);
-      return;
-    }
-    if (!isSafeToken(record.run_id)) {
-      errors.push(`record ${index} has invalid run_id`);
-      return;
-    }
-    if (!isMainSha(record.main_sha)) {
-      errors.push(`record ${index} has invalid main_sha`);
+    try {
+      validateWalgEvidenceRecord(record, options);
+    } catch (error) {
+      errors.push(
+        `record ${index} violates the closed raw evidence schema: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
       return;
     }
     if (options.expectedMainSha !== null && record.main_sha !== options.expectedMainSha) {
@@ -509,14 +1009,6 @@ export function evaluateWalgEvidence(records, overrides = {}) {
     }
     if (Date.parse(record.completed_at) < Date.parse(record.started_at)) {
       errors.push(`record ${index} completes before it starts`);
-      return;
-    }
-    if (record.evidence_type !== 'base_backup' && record.evidence_type !== 'timestamp_pitr') {
-      errors.push(`record ${index} has unknown evidence_type`);
-      return;
-    }
-    if (record.status !== 'success' && record.status !== 'failure') {
-      errors.push(`record ${index} has invalid status`);
       return;
     }
     structurallyValid.push(record);
@@ -556,11 +1048,19 @@ export function evaluateWalgEvidence(records, overrides = {}) {
     .filter((record) => {
       if (record.evidence_type !== 'timestamp_pitr') return false;
       const matchingBackup = qualifyingByName.get(record.backup_name);
+      const recoveryTarget = evidenceTimestampNanoseconds(record.recovery_target_time);
+      const backupFinish = evidenceTimestampNanoseconds(matchingBackup?.backup_finish_time);
       return (
         matchingBackup !== undefined &&
+        recoveryTarget !== null &&
+        backupFinish !== null &&
+        Date.parse(record.started_at) >= Date.parse(matchingBackup.completed_at) &&
         Date.parse(record.completed_at) >= Date.parse(matchingBackup.completed_at) &&
+        recoveryTarget >= backupFinish &&
         isSuccessfulPitr(record, options) &&
         hasSameChainAuthority(record, matchingBackup) &&
+        Number.parseInt(matchingBackup.backup_wal_file_name.slice(0, 8), 16) ===
+          record.source_timeline_id &&
         record.archive_required_wal >= matchingBackup.backup_wal_file_name
       );
     })
@@ -591,8 +1091,8 @@ async function readEvidenceDirectory(evidenceDirectory) {
 
   return Promise.all(
     entries.map(async (entry) => {
-      const contents = await readFile(resolve(evidenceDirectory, entry), 'utf8');
-      return JSON.parse(contents);
+      const bytes = await readFile(resolve(evidenceDirectory, entry));
+      return parseCanonicalWalgEvidenceBytes(bytes, entry);
     }),
   );
 }

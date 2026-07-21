@@ -1,10 +1,11 @@
-import { Test, TestingModule } from '@nestjs/testing';
+import type { TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { ScadaPackage } from '../../entities/scada-package.entity';
 import { Process } from '../../entities/process.entity';
 import { EdgeDeviceService } from '../../../edge-device/edge-device.service';
 import { ScadaPackageService } from '../scada-package.service';
+import { createScadaPackageTestingModule } from './scada-package-service.testing';
 
 /**
  * 6d — V2 `packageData` backfill.
@@ -36,13 +37,27 @@ function legacyV1Doc(): Record<string, unknown> {
         name: 'Main',
         isDefault: true,
         widgets: [
-          { id: 'w1', widgetType: 'gauge', position: { col: 0, row: 0, w: 4, h: 3 }, config: { tagName: 'tank1.do' } },
-          { id: 'w2', widgetType: 'numeric', position: { col: 4, row: 0, w: 2, h: 2 }, config: { tagId: 'tank1.temp' } },
+          {
+            id: 'w1',
+            widgetType: 'gauge',
+            position: { col: 0, row: 0, w: 4, h: 3 },
+            config: { tagName: 'tank1.do' },
+          },
+          {
+            id: 'w2',
+            widgetType: 'numeric',
+            position: { col: 4, row: 0, w: 2, h: 2 },
+            config: { tagId: 'tank1.temp' },
+          },
         ],
       },
     ],
     alarmRules: [],
-    controlPermissions: { securityLevels: { none: [], confirm: [], pin: [] }, pinHash: null, emergencyStop: null },
+    controlPermissions: {
+      securityLevels: { none: [], confirm: [], pin: [] },
+      pinHash: null,
+      emergencyStop: null,
+    },
     trendConfig: { retentionDays: 7, sampleIntervalSec: 60, tags: [] },
   };
 }
@@ -85,21 +100,22 @@ describe('ScadaPackageService — 6d V2 packageData backfill', () => {
     repo = {
       find: jest.fn(),
       manager: {
-        transaction: jest.fn().mockImplementation((cb: (m: typeof manager) => unknown) => cb(manager)),
+        transaction: jest
+          .fn()
+          .mockImplementation((cb: (m: typeof manager) => unknown) => cb(manager)),
       },
     };
     edgeDeviceService = {
-      findByIdOrFail: jest.fn().mockResolvedValue({ id: 'device-uuid-1', deviceCode: 'EDGE-AABB1122' }),
+      findByIdOrFail: jest
+        .fn()
+        .mockResolvedValue({ id: 'device-uuid-1', deviceCode: 'EDGE-AABB1122' }),
     };
 
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        ScadaPackageService,
-        { provide: getRepositoryToken(ScadaPackage), useValue: repo },
-        { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
-        { provide: EdgeDeviceService, useValue: edgeDeviceService },
-      ],
-    }).compile();
+    const module: TestingModule = await createScadaPackageTestingModule([
+      { provide: getRepositoryToken(ScadaPackage), useValue: repo },
+      { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
+      { provide: EdgeDeviceService, useValue: edgeDeviceService },
+    ]);
 
     service = module.get(ScadaPackageService);
   });
@@ -138,7 +154,9 @@ describe('ScadaPackageService — 6d V2 packageData backfill', () => {
     await service.backfillPackageDocsToV2(TENANT);
 
     const saved = manager.save.mock.calls[0][0] as ScadaPackage;
-    const screens = saved.packageData.screens as Array<{ widgets: Array<{ config: Record<string, unknown> }> }>;
+    const screens = saved.packageData.screens as Array<{
+      widgets: Array<{ config: Record<string, unknown> }>;
+    }>;
     const widgets = screens[0]?.widgets ?? [];
     expect(widgets[0]?.config.tagRef).toBe('EDGE-AABB1122/tank1.do');
     expect(widgets[1]?.config.tagRef).toBe('EDGE-AABB1122/tank1.temp');

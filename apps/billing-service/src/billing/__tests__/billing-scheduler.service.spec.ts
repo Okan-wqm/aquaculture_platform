@@ -10,13 +10,10 @@
  */
 
 import { Repository, LessThanOrEqual, LessThan, In } from 'typeorm';
+import Decimal from 'decimal.js';
 import { Test } from '@nestjs/testing';
 import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
-import {
-  createMockDataSource,
-  createMockRepository,
-  createMockEventBus,
-} from '@platform/testing';
+import { createMockDataSource, createMockRepository, createMockEventBus } from '@platform/testing';
 import { StripeApiService } from '@aquaculture/backend-common/billing';
 import { Plan } from '../../billing/entities/plan.entity';
 import { BillingSchedulerService } from '../../billing/billing-scheduler.service';
@@ -81,17 +78,24 @@ function buildInvoice(overrides: Partial<Invoice> = {}): Invoice {
     invoiceNumber: 'INV-202603-T001',
     subscriptionId: 'sub-001',
     status: InvoiceStatus.SENT,
-    total: 199,
-    subtotal: 199,
-    amountPaid: 0,
-    amountDue: 199,
+    total: new Decimal('199'),
+    subtotal: new Decimal('199'),
+    amountPaid: new Decimal('0'),
+    amountDue: new Decimal('199'),
     currency: 'USD',
     issueDate: new Date('2026-02-01'),
     dueDate: new Date('2026-03-01'),
     periodStart: new Date('2026-02-01'),
     periodEnd: new Date('2026-03-01'),
     lineItems: [],
-    billingAddress: { companyName: 'Test', street: '', city: '', state: '', postalCode: '', country: '' },
+    billingAddress: {
+      companyName: 'Test',
+      street: '',
+      city: '',
+      state: '',
+      postalCode: '',
+      country: '',
+    },
     createdAt: new Date(),
     updatedAt: new Date(),
     version: 1,
@@ -116,7 +120,11 @@ function createMockInvoiceRepo(): jest.Mocked<Partial<Repository<Invoice>>> {
     find: jest.fn().mockResolvedValue([]),
     findOne: jest.fn().mockResolvedValue(null),
     create: jest.fn().mockImplementation((data: any) => ({ ...data, id: 'new-inv-001' })),
-    save: jest.fn().mockImplementation((entity: any) => Promise.resolve({ ...entity, id: entity.id || 'new-inv-001' })),
+    save: jest
+      .fn()
+      .mockImplementation((entity: any) =>
+        Promise.resolve({ ...entity, id: entity.id || 'new-inv-001' }),
+      ),
   };
 }
 
@@ -267,8 +275,17 @@ describe('BillingSchedulerService', () => {
     });
 
     it('should process multiple expired trials independently', async () => {
-      const trial1 = buildSubscription({ id: 'sub-001', trialEndDate: PAST, stripeCustomerId: 'cus_1' });
-      const trial2 = buildSubscription({ id: 'sub-002', tenantId: 'tenant-002', trialEndDate: PAST, stripeCustomerId: 'cus_2' });
+      const trial1 = buildSubscription({
+        id: 'sub-001',
+        trialEndDate: PAST,
+        stripeCustomerId: 'cus_1',
+      });
+      const trial2 = buildSubscription({
+        id: 'sub-002',
+        tenantId: 'tenant-002',
+        trialEndDate: PAST,
+        stripeCustomerId: 'cus_2',
+      });
       (subRepo.find as jest.Mock).mockResolvedValue([trial1, trial2]);
 
       await service.handleTrialExpiry();
@@ -279,8 +296,17 @@ describe('BillingSchedulerService', () => {
     });
 
     it('should continue processing remaining trials if one fails (fault tolerance)', async () => {
-      const trial1 = buildSubscription({ id: 'sub-001', trialEndDate: PAST, stripeCustomerId: 'cus_1' });
-      const trial2 = buildSubscription({ id: 'sub-002', tenantId: 'tenant-002', trialEndDate: PAST, stripeCustomerId: 'cus_2' });
+      const trial1 = buildSubscription({
+        id: 'sub-001',
+        trialEndDate: PAST,
+        stripeCustomerId: 'cus_1',
+      });
+      const trial2 = buildSubscription({
+        id: 'sub-002',
+        tenantId: 'tenant-002',
+        trialEndDate: PAST,
+        stripeCustomerId: 'cus_2',
+      });
       (subRepo.find as jest.Mock).mockResolvedValue([trial1, trial2]);
 
       // First save fails, second succeeds
@@ -332,8 +358,17 @@ describe('BillingSchedulerService', () => {
     });
 
     it('should process multiple expired subscriptions independently', async () => {
-      const sub1 = buildSubscription({ id: 'sub-001', status: SubscriptionStatus.ACTIVE, endDate: new Date('2026-03-01') });
-      const sub2 = buildSubscription({ id: 'sub-002', tenantId: 'tenant-002', status: SubscriptionStatus.ACTIVE, endDate: new Date('2026-03-05') });
+      const sub1 = buildSubscription({
+        id: 'sub-001',
+        status: SubscriptionStatus.ACTIVE,
+        endDate: new Date('2026-03-01'),
+      });
+      const sub2 = buildSubscription({
+        id: 'sub-002',
+        tenantId: 'tenant-002',
+        status: SubscriptionStatus.ACTIVE,
+        endDate: new Date('2026-03-05'),
+      });
       (subRepo.find as jest.Mock).mockResolvedValue([sub1, sub2]);
 
       await service.handleSubscriptionExpiry();
@@ -344,8 +379,17 @@ describe('BillingSchedulerService', () => {
     });
 
     it('should continue processing remaining subscriptions if one fails', async () => {
-      const sub1 = buildSubscription({ id: 'sub-001', status: SubscriptionStatus.ACTIVE, endDate: new Date('2026-03-01') });
-      const sub2 = buildSubscription({ id: 'sub-002', tenantId: 'tenant-002', status: SubscriptionStatus.ACTIVE, endDate: new Date('2026-03-01') });
+      const sub1 = buildSubscription({
+        id: 'sub-001',
+        status: SubscriptionStatus.ACTIVE,
+        endDate: new Date('2026-03-01'),
+      });
+      const sub2 = buildSubscription({
+        id: 'sub-002',
+        tenantId: 'tenant-002',
+        status: SubscriptionStatus.ACTIVE,
+        endDate: new Date('2026-03-01'),
+      });
       (subRepo.find as jest.Mock).mockResolvedValue([sub1, sub2]);
 
       (subRepo.save as jest.Mock)
@@ -421,7 +465,12 @@ describe('BillingSchedulerService', () => {
 
     it('should process multiple overdue invoices independently', async () => {
       const inv1 = buildInvoice({ id: 'inv-001', status: InvoiceStatus.SENT, dueDate: PAST });
-      const inv2 = buildInvoice({ id: 'inv-002', tenantId: 'tenant-002', status: InvoiceStatus.PENDING, dueDate: PAST });
+      const inv2 = buildInvoice({
+        id: 'inv-002',
+        tenantId: 'tenant-002',
+        status: InvoiceStatus.PENDING,
+        dueDate: PAST,
+      });
       (invRepo.find as jest.Mock).mockResolvedValue([inv1, inv2]);
 
       await service.handleOverdueInvoices();
@@ -433,7 +482,12 @@ describe('BillingSchedulerService', () => {
 
     it('should continue processing remaining invoices if one fails (fault tolerance)', async () => {
       const inv1 = buildInvoice({ id: 'inv-001', status: InvoiceStatus.SENT, dueDate: PAST });
-      const inv2 = buildInvoice({ id: 'inv-002', tenantId: 'tenant-002', status: InvoiceStatus.SENT, dueDate: PAST });
+      const inv2 = buildInvoice({
+        id: 'inv-002',
+        tenantId: 'tenant-002',
+        status: InvoiceStatus.SENT,
+        dueDate: PAST,
+      });
       (invRepo.find as jest.Mock).mockResolvedValue([inv1, inv2]);
 
       (invRepo.save as jest.Mock)
@@ -479,8 +533,8 @@ describe('BillingSchedulerService', () => {
       expect(createdInvoice.tenantId).toBe('tenant-001');
       expect(createdInvoice.subscriptionId).toBe('sub-001');
       expect(createdInvoice.status).toBe(InvoiceStatus.PENDING);
-      expect(createdInvoice.total).toBe(199);
-      expect(createdInvoice.amountDue).toBe(199);
+      expect(createdInvoice.total.toString()).toBe('199');
+      expect(createdInvoice.amountDue.toString()).toBe('199');
       expect(createdInvoice.currency).toBe('USD');
     });
 
@@ -530,7 +584,7 @@ describe('BillingSchedulerService', () => {
       await service.generateMonthlyInvoices();
 
       const createdInvoice = (invRepo.create as jest.Mock).mock.calls[0][0];
-      expect(createdInvoice.total).toBe(300); // 100 * 3
+      expect(createdInvoice.total.toString()).toBe('300'); // 100 * 3
     });
 
     it('should generate invoice number with INV- prefix', async () => {
@@ -591,9 +645,7 @@ describe('BillingSchedulerService', () => {
         const inv = (invRepo.create as jest.Mock).mock.calls[
           (invRepo.create as jest.Mock).mock.calls.length - 1
         ][0];
-        expect((inv.invoiceNumber as string).slice(-8)).toMatch(
-          /^[0-9A-F]{8}$/,
-        );
+        expect((inv.invoiceNumber as string).slice(-8)).toMatch(/^[0-9A-F]{8}$/);
       }
     });
 
@@ -728,9 +780,9 @@ describe('BillingSchedulerService', () => {
       await service.generateMonthlyInvoices();
 
       const createdInvoice = (invRepo.create as jest.Mock).mock.calls[0][0];
-      expect(createdInvoice.total).toBe(33.33);
-      expect(createdInvoice.subtotal).toBe(33.33);
-      expect(createdInvoice.amountDue).toBe(33.33);
+      expect(createdInvoice.total.toString()).toBe('33.33');
+      expect(createdInvoice.subtotal.toString()).toBe('33.33');
+      expect(createdInvoice.amountDue.toString()).toBe('33.33');
     });
   });
 
@@ -850,9 +902,7 @@ describe('BillingSchedulerService', () => {
       // First findOne loads the Subscription; the second (ORPHAN-174) loads the
       // target Plan for its stripePriceIds. Sequence the two when a plan is given.
       if (newPlan) {
-        mockManager.findOne
-          .mockResolvedValueOnce(foundSubscription)
-          .mockResolvedValueOnce(newPlan);
+        mockManager.findOne.mockResolvedValueOnce(foundSubscription).mockResolvedValueOnce(newPlan);
       } else {
         mockManager.findOne.mockResolvedValue(foundSubscription);
       }
@@ -864,7 +914,10 @@ describe('BillingSchedulerService', () => {
         providers: [
           BillingSchedulerService,
           { provide: getDataSourceToken(), useValue: mockDataSource },
-          { provide: getRepositoryToken(Subscription), useValue: createMockRepository<Subscription>() },
+          {
+            provide: getRepositoryToken(Subscription),
+            useValue: createMockRepository<Subscription>(),
+          },
           { provide: getRepositoryToken(Invoice), useValue: createMockRepository<Invoice>() },
           { provide: StripeApiService, useValue: stripeApi },
           { provide: 'EVENT_BUS', useValue: eventBus },

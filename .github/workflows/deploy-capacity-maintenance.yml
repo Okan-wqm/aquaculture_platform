@@ -2,15 +2,6 @@ name: Deploy Capacity Maintenance
 
 on:
   schedule:
-    # Periodic safe image GC. Each production deploy pulls a fresh image per
-    # service (~1.85GB x 13), leaving the prior generation untagged; without a
-    # regular sweep these accumulate until the deploy capacity-preflight gate
-    # blocks (root cause of the #695 / 28332208818 / 28330781676 capacity
-    # failures). safe_image_gc already targets exactly these untagged +
-    # superseded-rollback generations (pull-only runtime, ADR-033 — every
-    # removed image re-pulls from GHCR; volumes/containers/networks untouched);
-    # it just never ran on a schedule. Every 6h keeps the droplet under
-    # threshold between deploys.
     - cron: '0 */6 * * *'
   workflow_dispatch:
     inputs:
@@ -22,12 +13,9 @@ on:
         options:
           - report
           - safe-image-gc
+          - safe-host-artifact-gc-dry-run
+          - safe-host-artifact-gc
           - gate
-      deploy_sha:
-        description: 'Optional 40-character SHA to protect and evaluate. Blank uses origin/main.'
-        required: false
-        type: string
-        default: ''
       full_deploy:
         description: 'Use full deploy capacity thresholds and pull estimate.'
         required: true
@@ -41,84 +29,366 @@ on:
         required: false
         type: string
         default: 'all'
-      image_prefix:
-        description: 'Registry image prefix used by production deploy images.'
-        required: true
-        type: string
-        default: 'ghcr.io/okan-wqm/aquaculture_platform'
 
 permissions:
   contents: read
 
 concurrency:
-  group: deploy-capacity-maintenance-production
+  group: ${{ github.ref == 'refs/heads/main' && 'production-host-control-plane' || format('rejected-production-capacity-{0}', github.run_id) }}
+  queue: max
   cancel-in-progress: false
 
 jobs:
-  capacity-maintenance:
+  production-authority:
+    name: Exact protected-main authority
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 2
+    outputs:
+      source_sha: ${{ steps.authority.outputs.source_sha }}
+    steps:
+      - name: Prove current main before any checkout or production Environment
+        id: authority
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const https = require('node:https');
+
+          const expected = process.env.EXPECTED_SHA ?? '';
+          const repository = process.env.REPOSITORY ?? '';
+          const token = process.env.GH_TOKEN ?? '';
+          if (!/^[0-9a-f]{40}$/.test(expected) ||
+              !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) ||
+              token.length === 0) {
+            throw new Error('exact-main authority inputs are invalid');
+          }
+          const request = https.request({
+            hostname: 'api.github.com',
+            path: `/repos/${repository}/git/ref/heads/main`,
+            method: 'GET',
+            headers: {
+              Accept: 'application/vnd.github+json',
+              Authorization: `Bearer ${token}`,
+              'User-Agent': 'aqua-production-main-authority',
+              'X-GitHub-Api-Version': '2022-11-28',
+            },
+          }, (response) => {
+            const chunks = [];
+            response.on('data', (chunk) => chunks.push(chunk));
+            response.on('end', () => {
+              if (response.statusCode !== 200) {
+                throw new Error(`main authority query failed: HTTP ${response.statusCode}`);
+              }
+              const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+              const actual = body?.object?.sha;
+              if (actual !== expected) {
+                throw new Error(`stale production workflow SHA refused: expected=${expected} current=${actual ?? 'missing'}`);
+              }
+            });
+          });
+          request.on('error', (error) => { throw error; });
+          request.end();
+          NODE
+          echo "source_sha=${EXPECTED_SHA}" >> "${GITHUB_OUTPUT}"
+
+  capacity-maintenance:
+    needs: [production-authority]
+    if: >-
+      needs.production-authority.outputs.source_sha == github.sha &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
     environment: production
     steps:
-      - name: Run capacity operation through production deploy control plane
-        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.0.3
+      - name: Re-prove current main before production checkout
         env:
-          # schedule events carry no inputs → fall back to the periodic safe
-          # image GC with full-deploy thresholds (workflow_dispatch still uses
-          # its own input defaults, e.g. operation=report).
+          EXPECTED_SHA: ${{ needs.production-authority.outputs.source_sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const https = require('node:https');
+          const expected = process.env.EXPECTED_SHA ?? '';
+          const repository = process.env.REPOSITORY ?? '';
+          const token = process.env.GH_TOKEN ?? '';
+          if (!/^[0-9a-f]{40}$/.test(expected) || token.length === 0) process.exit(2);
+          const request = https.request({
+            hostname: 'api.github.com',
+            path: `/repos/${repository}/git/ref/heads/main`,
+            headers: {
+              Accept: 'application/vnd.github+json',
+              Authorization: `Bearer ${token}`,
+              'User-Agent': 'aqua-production-main-authority',
+              'X-GitHub-Api-Version': '2022-11-28',
+            },
+          }, (response) => {
+            const chunks = [];
+            response.on('data', (chunk) => chunks.push(chunk));
+            response.on('end', () => {
+              if (response.statusCode !== 200) process.exit(3);
+              const actual = JSON.parse(Buffer.concat(chunks).toString('utf8'))?.object?.sha;
+              if (actual !== expected) process.exit(4);
+            });
+          });
+          request.on('error', () => process.exit(5));
+          request.end();
+          NODE
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ needs.production-authority.outputs.source_sha }}
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install exact bundle toolchain
+        run: npm ci --ignore-scripts --no-audit
+
+      - name: Install Linux platform binaries
+        uses: ./.github/actions/install-platform-binaries
+
+      - name: Resolve protected source and capacity target
+        id: source
+        run: |
+          set -euo pipefail
+          SOURCE_SHA="$(git rev-parse HEAD)"
+          if [ "${SOURCE_SHA}" != "${{ needs.production-authority.outputs.source_sha }}" ]; then
+            echo '::error::runner checkout is not the workflow event SHA.'
+            exit 1
+          fi
+          echo "source_sha=${SOURCE_SHA}" >> "${GITHUB_OUTPUT}"
+          echo "target_sha=${SOURCE_SHA}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build exact-SHA production host runtime
+        id: bundle
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+          OUTPUT_PATH: ${{ runner.temp }}/production-host-runtime.tar.gz
+        run: |
+          set -euo pipefail
+          umask 077
+          NODE_BIN="$(/usr/bin/readlink -f -- "$(command -v node)")"
+          case "${NODE_BIN}" in /*) ;; *) exit 1 ;; esac
+          test -f "${NODE_BIN}"
+          test ! -L "${NODE_BIN}"
+          test -x "${NODE_BIN}"
+          exact_producer="$(mktemp -p "${RUNNER_TEMP}" exact-runtime-producer-XXXXXX)"
+          cleanup() { rm -f -- "${exact_producer}"; }
+          trap cleanup EXIT INT TERM HUP
+          /usr/bin/env -i \
+            PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C \
+            GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+            /usr/bin/git --no-replace-objects -C "${GITHUB_WORKSPACE}" \
+              -c core.hooksPath=/dev/null -c protocol.allow=never \
+              show "${SOURCE_SHA}:tools/scripts/ci/prepare-production-host-runtime-bundle.sh" \
+              > "${exact_producer}"
+          chmod 0500 "${exact_producer}"
+          digest="$(/usr/bin/env -i \
+            PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C \
+            SOURCE_SHA="${SOURCE_SHA}" \
+            OUTPUT_PATH="${OUTPUT_PATH}" \
+            PRODUCTION_HOST_REPO_ROOT="${GITHUB_WORKSPACE}" \
+            NODE_BIN="${NODE_BIN}" \
+              /bin/bash --noprofile --norc "${exact_producer}")"
+          [[ "${digest}" =~ ^[0-9a-f]{64}$ ]] || {
+            echo '::error::runtime bundle producer returned an invalid digest.'
+            exit 1
+          }
+          echo "sha256=${digest}" >> "${GITHUB_OUTPUT}"
+
+      - name: Assert protected SSH secret contract
+        env:
+          DROPLET_HOST: ${{ secrets.PRODUCTION_DROPLET_HOST }}
+          DROPLET_USER: ${{ secrets.PRODUCTION_DROPLET_USER }}
+          DROPLET_SSH_KEY: ${{ secrets.PRODUCTION_DROPLET_SSH_KEY }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.PRODUCTION_DROPLET_SSH_FINGERPRINT }}
+        run: |
+          set +x
+          set -euo pipefail
+          missing=()
+          for name in DROPLET_HOST DROPLET_USER DROPLET_SSH_KEY DROPLET_SSH_FINGERPRINT; do
+            [ -n "${!name:-}" ] || missing+=("${name}")
+          done
+          if [ "${#missing[@]}" -ne 0 ]; then
+            echo "::error::Missing production environment secrets: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Run capacity operation through protected host control plane
+        env:
+          DROPLET_HOST: ${{ secrets.PRODUCTION_DROPLET_HOST }}
+          DROPLET_USER: ${{ secrets.PRODUCTION_DROPLET_USER }}
+          DROPLET_SSH_KEY: ${{ secrets.PRODUCTION_DROPLET_SSH_KEY }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.PRODUCTION_DROPLET_SSH_FINGERPRINT }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+          TARGET_SHA: ${{ steps.source.outputs.target_sha }}
+          BUNDLE_SHA256: ${{ steps.bundle.outputs.sha256 }}
           OPERATION: ${{ inputs.operation || 'safe-image-gc' }}
-          REQUESTED_DEPLOY_SHA: ${{ inputs.deploy_sha || '' }}
           FULL_DEPLOY: ${{ inputs.full_deploy || 'true' }}
           DEPLOY_SERVICES: ${{ inputs.deploy_services || 'all' }}
-          IMAGE_PREFIX: ${{ inputs.image_prefix || 'ghcr.io/okan-wqm/aquaculture_platform' }}
-        with:
-          host: ${{ secrets.DROPLET_HOST }}
-          username: ${{ secrets.DROPLET_USER }}
-          key: ${{ secrets.DROPLET_SSH_KEY }}
-          command_timeout: 12m
-          envs: OPERATION,REQUESTED_DEPLOY_SHA,FULL_DEPLOY,DEPLOY_SERVICES,IMAGE_PREFIX
-          script: |
-            set -euo pipefail
+          SSH_COMMAND_TIMEOUT_SECONDS: '720'
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set +x
+          set -euo pipefail
+          umask 077
 
-            cd /var/aqua-saas
-            git fetch --force --prune origin main
+          droplet_host_coordinate=${DROPLET_HOST}
+          droplet_user_coordinate=${DROPLET_USER}
+          ssh_private_key_material=${DROPLET_SSH_KEY}
+          ssh_fingerprint_material=${DROPLET_SSH_FINGERPRINT}
+          MAIN_AUTHORITY_TOKEN=${GH_TOKEN}
+          unset DROPLET_HOST DROPLET_USER DROPLET_SSH_KEY DROPLET_SSH_FINGERPRINT GH_TOKEN
 
-            if [ -n "${REQUESTED_DEPLOY_SHA}" ]; then
-              case "${REQUESTED_DEPLOY_SHA}" in
-                *[!0-9a-f]*)
-                  echo "::error::deploy_sha must be lowercase hex."
-                  exit 2
-                  ;;
-              esac
-              if [ "${#REQUESTED_DEPLOY_SHA}" -ne 40 ]; then
-                echo "::error::deploy_sha must be exactly 40 characters."
-                exit 2
+          SSH_STEP_DIR="$(mktemp -d -p "${RUNNER_TEMP}" capacity-ssh-XXXXXX)"
+          cleanup() {
+            status=$?
+            trap - EXIT
+            cleanup_status=0
+            if [ -n "${SSH_PRIVATE_KEY_FD:-}" ]; then
+              if [[ "${SSH_PRIVATE_KEY_FD}" =~ ^([3-9]|[1-9][0-9]{1,2})$ ]] && \
+                [ -e "/proc/self/fd/${SSH_PRIVATE_KEY_FD}" ]; then
+                exec {SSH_PRIVATE_KEY_FD}<&-
+              else
+                echo '::error::capacity SSH private-key descriptor cleanup failed.'
+                cleanup_status=1
               fi
-              TARGET_SHA="${REQUESTED_DEPLOY_SHA}"
-            else
-              TARGET_SHA="$(git rev-parse origin/main)"
+              SSH_PRIVATE_KEY_FD=
             fi
+            if ! rm -rf -- "${SSH_STEP_DIR}" || [ -e "${SSH_STEP_DIR}" ]; then
+              echo '::error::capacity SSH material cleanup failed.'
+              cleanup_status=1
+            fi
+            if [ "${status}" -eq 0 ] && [ "${cleanup_status}" -ne 0 ]; then status=1; fi
+            exit "${status}"
+          }
+          trap cleanup EXIT
 
-            git checkout -f "${TARGET_SHA}"
-            export DEPLOY_SHA="${TARGET_SHA}"
+          case "${OPERATION}" in
+            report) REMOTE_MODE=hydrate-exec ;;
+            safe-image-gc|gate) REMOTE_MODE=lock-exec ;;
+            safe-host-artifact-gc-dry-run) REMOTE_MODE=lock-exec; OPERATION=host-artifact-gc-dry-run ;;
+            safe-host-artifact-gc) REMOTE_MODE=lock-exec; OPERATION=host-artifact-gc ;;
+            *) echo '::error::unsupported capacity operation.'; exit 2 ;;
+          esac
 
-            case "${OPERATION}" in
-              report)
-                CAPACITY_DISK_USAGE_MODE=deep bash scripts/deploy/droplet-capacity.sh report
-                ;;
-              safe-image-gc)
-                # Capture cheap, non-du pre-state evidence, then spend the
-                # single deep-scan budget only after GC when the final gate
-                # has established its capacity verdict.
-                CAPACITY_DISK_USAGE_MODE=off bash scripts/deploy/droplet-capacity.sh report
-                bash scripts/deploy/droplet-capacity.sh gc
-                CAPACITY_GC_MODE=off CAPACITY_DISK_USAGE_MODE=deep bash scripts/deploy/droplet-capacity.sh gate
-                ;;
-              gate)
-                CAPACITY_GC_MODE=auto CAPACITY_DISK_USAGE_MODE=deep bash scripts/deploy/droplet-capacity.sh gate
-                ;;
-              *)
-                echo "::error::Unsupported operation: ${OPERATION}"
-                exit 2
-                ;;
-            esac
+          REMOTE_ENV_PATH="${SSH_STEP_DIR}/remote-env.tsv"
+          REMOTE_ARGV_PATH="${SSH_STEP_DIR}/remote-argv.b64"
+          REMOTE_PAYLOAD="${SSH_STEP_DIR}/payload.sh"
+          REMOTE_STDOUT="${SSH_STEP_DIR}/stdout"
+          : > "${REMOTE_ENV_PATH}"
+          : > "${REMOTE_ARGV_PATH}"
+          append_env() { printf '%s\t%s\n' "$1" "$(printf '%s' "$2" | base64 -w0)" >> "${REMOTE_ENV_PATH}"; }
+          append_env DEPLOY_SHA "${TARGET_SHA}"
+          append_env FULL_DEPLOY "${FULL_DEPLOY}"
+          append_env DEPLOY_SERVICES "${DEPLOY_SERVICES}"
+          printf '%s\n' "$(printf '%s' "${OPERATION}" | base64 -w0)" > "${REMOTE_ARGV_PATH}"
+
+          materialize_exact_tool() {
+            local relative_path="$1"
+            local output_path="$2"
+            /usr/bin/env -i \
+              PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C \
+              GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+              /usr/bin/git --no-replace-objects -C "${GITHUB_WORKSPACE}" \
+                -c core.hooksPath=/dev/null -c protocol.allow=never \
+                show "${SOURCE_SHA}:${relative_path}" > "${output_path}"
+            chmod 0500 "${output_path}"
+          }
+          EXACT_PAYLOAD_PRODUCER="${SSH_STEP_DIR}/prepare-payload.sh"
+          EXACT_SSH_HELPER="${SSH_STEP_DIR}/run-protected-ssh.sh"
+          materialize_exact_tool \
+            tools/scripts/ci/prepare-production-host-ssh-payload.sh \
+            "${EXACT_PAYLOAD_PRODUCER}"
+          materialize_exact_tool \
+            tools/scripts/ci/run-protected-ssh.sh \
+            "${EXACT_SSH_HELPER}"
+
+          /usr/bin/env -i \
+            PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C \
+            PRODUCTION_HOST_REPO_ROOT="${GITHUB_WORKSPACE}" \
+            PRODUCTION_HOST_BUNDLE_PATH="${RUNNER_TEMP}/production-host-runtime.tar.gz" \
+            PRODUCTION_HOST_BUNDLE_SHA256="${BUNDLE_SHA256}" \
+            PRODUCTION_HOST_MAIN_SHA="${SOURCE_SHA}" \
+            PRODUCTION_HOST_REMOTE_MODE="${REMOTE_MODE}" \
+            PRODUCTION_HOST_REMOTE_ENTRYPOINT=scripts/deploy/droplet-capacity.sh \
+            PRODUCTION_HOST_REMOTE_ENV_PATH="${REMOTE_ENV_PATH}" \
+            PRODUCTION_HOST_REMOTE_ARGV_PATH="${REMOTE_ARGV_PATH}" \
+            SSH_PAYLOAD_PATH="${REMOTE_PAYLOAD}" \
+              /bin/bash --noprofile --norc "${EXACT_PAYLOAD_PRODUCER}"
+
+          # The destructive edge owns its own exact-main proof. Keeping this
+          # query in the same shell step, immediately before OpenSSH, closes
+          # the gap in which a newer main commit could otherwise make this
+          # exact but stale payload authoritative.
+          EXPECTED_SHA="${SOURCE_SHA}" GH_TOKEN="${MAIN_AUTHORITY_TOKEN}" node <<'NODE'
+          const https = require('node:https');
+          const expected = process.env.EXPECTED_SHA ?? '';
+          const repository = process.env.REPOSITORY ?? '';
+          const token = process.env.GH_TOKEN ?? '';
+          if (!/^[0-9a-f]{40}$/.test(expected) ||
+              !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) ||
+              token.length === 0) {
+            process.exit(2);
+          }
+          const request = https.request({
+            hostname: 'api.github.com',
+            path: `/repos/${repository}/git/ref/heads/main`,
+            headers: {
+              Accept: 'application/vnd.github+json',
+              Authorization: `Bearer ${token}`,
+              'User-Agent': 'aqua-production-main-authority',
+              'X-GitHub-Api-Version': '2022-11-28',
+            },
+          }, (response) => {
+            const chunks = [];
+            response.on('data', (chunk) => chunks.push(chunk));
+            response.on('end', () => {
+              if (response.statusCode !== 200) process.exit(3);
+              const actual = JSON.parse(Buffer.concat(chunks).toString('utf8'))?.object?.sha;
+              if (actual !== expected) process.exit(4);
+            });
+          });
+          request.on('error', () => process.exit(5));
+          request.end();
+          NODE
+          unset MAIN_AUTHORITY_TOKEN
+
+          SSH_KEY_STAGE="${SSH_STEP_DIR}/private-key.input"
+          set -o noclobber
+          if ! builtin printf '%s\n' "${ssh_private_key_material}" > "${SSH_KEY_STAGE}"; then
+            set +o noclobber
+            exit 1
+          fi
+          set +o noclobber
+          /usr/bin/chmod 0600 "${SSH_KEY_STAGE}"
+          SSH_PRIVATE_KEY_FD=
+          exec {SSH_PRIVATE_KEY_FD}< "${SSH_KEY_STAGE}"
+          /usr/bin/rm -f -- "${SSH_KEY_STAGE}" {SSH_PRIVATE_KEY_FD}<&-
+          [ ! -e "${SSH_KEY_STAGE}" ] && [ ! -L "${SSH_KEY_STAGE}" ]
+          unset ssh_private_key_material
+          /usr/bin/env -i \
+            PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+            HOME="${HOME}" \
+            LC_ALL=C \
+            DROPLET_HOST="${droplet_host_coordinate}" \
+            DROPLET_USER="${droplet_user_coordinate}" \
+            SSH_PRIVATE_KEY_FD="${SSH_PRIVATE_KEY_FD}" \
+            DROPLET_SSH_FINGERPRINT="${ssh_fingerprint_material}" \
+            SSH_PAYLOAD_PATH="${REMOTE_PAYLOAD}" \
+            SSH_STDOUT_PATH="${REMOTE_STDOUT}" \
+            SSH_COMMAND_TIMEOUT_SECONDS="${SSH_COMMAND_TIMEOUT_SECONDS}" \
+              /bin/bash --noprofile --norc "${EXACT_SSH_HELPER}"
+          exec {SSH_PRIVATE_KEY_FD}<&-
+          SSH_PRIVATE_KEY_FD=
+          cat "${REMOTE_STDOUT}"

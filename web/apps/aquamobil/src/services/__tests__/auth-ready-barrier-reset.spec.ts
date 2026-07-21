@@ -124,7 +124,7 @@ describe('auth-ready barrier reset (FE-HIGH-055)', () => {
 
     syncAuthStore(SESSION2_TOKEN, 'tenant-2', failingRefresh);
     await next;
-    const init = fetchMock.mock.calls.at(-1)?.[1] as RequestInit;
+    const init = fetchMock.mock.calls[fetchMock.mock.calls.length - 1]?.[1] as RequestInit;
     expect((init.headers as Record<string, string>)['Authorization']).toBe(
       `Bearer ${SESSION2_TOKEN}`,
     );

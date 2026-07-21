@@ -19,10 +19,10 @@ before seeding credentials:
 
 | Secret                                        | Profiles                                                                    | Purpose                                                                                         |
 | --------------------------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `DROPLET_HOST`                                | `backup-runtime`, `pitr-runtime`, `archive-freshness`                       | Production droplet host                                                                         |
-| `DROPLET_USER`                                | `backup-runtime`, `pitr-runtime`, `archive-freshness`                       | Restricted SSH operator                                                                         |
-| `DROPLET_SSH_KEY`                             | `backup-runtime`, `pitr-runtime`, `archive-freshness`                       | Private key for that operator                                                                   |
-| `DROPLET_SSH_FINGERPRINT`                     | `backup-runtime`, `pitr-runtime`, `archive-freshness`                       | Protected SHA256 fingerprint of the production SSH host key                                     |
+| `PRODUCTION_BACKUP_DROPLET_HOST`              | `backup-runtime`, `pitr-runtime`, `archive-freshness`                       | Production droplet host                                                                         |
+| `PRODUCTION_BACKUP_DROPLET_USER`              | `backup-runtime`, `pitr-runtime`, `archive-freshness`                       | Restricted SSH operator                                                                         |
+| `PRODUCTION_BACKUP_DROPLET_SSH_KEY`           | `backup-runtime`, `pitr-runtime`, `archive-freshness`                       | Private key for that operator                                                                   |
+| `PRODUCTION_BACKUP_DROPLET_SSH_FINGERPRINT`   | `backup-runtime`, `pitr-runtime`, `archive-freshness`                       | Protected SHA256 fingerprint of the production SSH host key                                     |
 | `SPACES_ENDPOINT`                             | `backup-runtime`, `pitr-runtime`, `evidence-publisher`, `evidence-verifier` | Regional S3-compatible endpoint; not a credential                                               |
 | `SPACES_REGION`                               | `backup-runtime`, `pitr-runtime`, `evidence-publisher`, `evidence-verifier` | Explicit signing region for every AWS CLI and WAL-G operation                                   |
 | `PITR_SOURCE_SYSTEM_IDENTIFIER`               | `pitr-runtime`                                                              | Protected expected `pg_control_system().system_identifier` value for source-cluster attestation |
@@ -154,7 +154,7 @@ file ownership.
 Do not point backup, PITR, or freshness at the broker in this substrate phase.
 The atomic cutover requires a later reviewed change with a strict bounded data
 protocol and fixed operation executors; it must contain no fallback to
-`DROPLET_SSH_KEY` and must restart the three-success evidence sequence. Do not
+`PRODUCTION_BACKUP_DROPLET_SSH_KEY` and must restart the three-success evidence sequence. Do not
 seed executable secret payloads into this attestation-only broker.
 
 `WALG_LIBSODIUM_KEY_B64` and its PITR counterpart must come from an approved
@@ -203,20 +203,32 @@ an independent object authority attests the selected backup/WAL objects and
 restore result. Adding another signature to host-authored JSON, or copying it
 to another bucket, does not satisfy this requirement.
 
-- Backup artifact:
-  `walg-evidence-v2-backup-production.yml-<run_id>-<run_attempt>`.
-- PITR artifact:
-  `walg-evidence-v2-pitr-restore-production.yml-<run_id>-<run_attempt>`.
-- Every artifact contains `run-record.json` and
+- The secret-bearing producer preserves its exact backup JSON as
+  `walg-raw-evidence-v1-backup-production.yml-<run_id>-<run_attempt>` and its
+  exact PITR JSON as
+  `walg-raw-evidence-v1-pitr-restore-production.yml-<run_id>-<run_attempt>`.
+  These immutable source artifacts contain `base-backup.json` and
+  `timestamp-pitr.json`, respectively.
+- Final signed artifacts are
+  `walg-evidence-v3-backup-production.yml-<run_id>-<run_attempt>` and
+  `walg-evidence-v3-pitr-restore-production.yml-<run_id>-<run_attempt>`.
+- Every final artifact contains the exact source JSON, `run-record.json`, and
   `run-record.sigstore.json`. A successful record-producing run also contains
-  `evidence-attestation.json` and `evidence-attestation.sigstore.json`.
+  `evidence-attestation.json` and `evidence-attestation.sigstore.json`. The
+  compact schema-v3 attestation binds the canonical source JSON SHA-256 and
+  byte count to the immutable source artifact id, deterministic name, archive
+  digest, workflow run/attempt, head SHA, and evaluated gate summary. The
+  signer, publisher, and closure verifier each download that original source
+  artifact independently and require byte-for-byte equality.
 - The signer identity is the exact workflow file at `refs/heads/main`, issued
   by `https://token.actions.githubusercontent.com`. Verification binds the
   repository, workflow name/ref/SHA, trigger, run id, and run attempt to the
   live GitHub API record.
 - Mirror keys are content addressed as
-  `wal-g-evidence/v2/sha256/<record-sha256>/<record-name>`. Bucket versioning
-  must be enabled. Mirror metadata or unsigned JSON is not evidence.
+  `wal-g-evidence/v3/sha256/<file-sha256>/<file-name>`. Every exact source JSON,
+  compact record, and Sigstore bundle in the final artifact is mirrored.
+  Bucket versioning must be enabled. Mirror metadata or unsigned JSON is not
+  evidence.
 
 Verify and preserve all qualifying GitHub Actions artifacts while they remain
 inside their configured retention window. Passing these checks is necessary
@@ -290,7 +302,7 @@ drill before that exception can be admitted.
    variables listed above. Set the PITR principal to read-only object access,
    and bind its bucket/epoch/key tuple to the active source chain before the
    current-timestamp drill. Verify
-   `DROPLET_SSH_FINGERPRINT` out of band before storing it; the workflows use
+   `PRODUCTION_BACKUP_DROPLET_SSH_FINGERPRINT` out of band before storing it; the workflows use
    the runner's native system OpenSSH client and accept only the advertised
    host key with that exact protected fingerprint. Give each storage principal
    access only to its named bucket and operation set. Enable versioning on
@@ -332,7 +344,7 @@ Run three non-dry `Backup - Production Postgres` executions from merged
 `main`, with `dry_run: false` and `bootstrap_walg_secrets_only: false`. For
 each run:
 
-1. Confirm both `backup` and `publish-evidence` jobs succeeded.
+1. Confirm `backup`, `prepare-evidence`, `sign-evidence`, and `publish-evidence` all succeeded.
 2. Record the run id, attempt, merged-main SHA, explicit `base_*` name, and
    exact artifact name.
 3. Confirm the artifact contains both signed records and that the

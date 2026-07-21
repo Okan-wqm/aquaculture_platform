@@ -1,4 +1,4 @@
-import { Test, TestingModule } from '@nestjs/testing';
+import type { TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { BadRequestException } from '@nestjs/common';
 
@@ -7,6 +7,7 @@ import { Process } from '../../entities/process.entity';
 import { ScadaPackageService } from '../scada-package.service';
 import { MqttClientService } from '../../../shared-mqtt/mqtt-client.service';
 import { EdgeDeviceService } from '../../../edge-device/edge-device.service';
+import { createScadaPackageTestingModule } from './scada-package-service.testing';
 
 /**
  * CONTRACT-H-002 — the publish-boundary widget transform.
@@ -60,27 +61,24 @@ describe('deploy edge-widget boundary (CONTRACT-H-002)', () => {
     };
     publish = jest.fn().mockResolvedValue(undefined);
 
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        ScadaPackageService,
-        { provide: getRepositoryToken(ScadaPackage), useValue: repo },
-        { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
-        {
-          provide: MqttClientService,
-          useValue: { isConnectedToBroker: () => true, publish },
+    const module: TestingModule = await createScadaPackageTestingModule([
+      { provide: getRepositoryToken(ScadaPackage), useValue: repo },
+      { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
+      {
+        provide: MqttClientService,
+        useValue: { isConnectedToBroker: () => true, publish },
+      },
+      {
+        provide: EdgeDeviceService,
+        useValue: {
+          findByIdOrFail: jest.fn().mockResolvedValue({
+            id: 'dev-1',
+            deviceCode: 'EDGE-01',
+            isOnline: true,
+          }),
         },
-        {
-          provide: EdgeDeviceService,
-          useValue: {
-            findByIdOrFail: jest.fn().mockResolvedValue({
-              id: 'dev-1',
-              deviceCode: 'EDGE-01',
-              isOnline: true,
-            }),
-          },
-        },
-      ],
-    }).compile();
+      },
+    ]);
     service = module.get(ScadaPackageService);
   });
 
@@ -114,7 +112,10 @@ describe('deploy edge-widget boundary (CONTRACT-H-002)', () => {
     expect(result.message).toContain('staticText');
 
     expect(publish).toHaveBeenCalledTimes(1);
-    const [, payload] = publish.mock.calls[0] as [string, { params: { screens: Array<{ widgets: Array<{ id: string }> }> } }];
+    const [, payload] = publish.mock.calls[0] as [
+      string,
+      { params: { screens: Array<{ widgets: Array<{ id: string }> }> } },
+    ];
     expect(payload.params.screens[0]!.widgets.map((w) => w.id)).toEqual(['w-gauge']);
 
     // The stored document is untouched — stripping is a PUBLISH concern.
@@ -131,7 +132,10 @@ describe('deploy edge-widget boundary (CONTRACT-H-002)', () => {
 
     expect(result.success).toBe(true);
     expect(result.message).toBe('SCADA package deployed successfully');
-    const [, payload] = publish.mock.calls[0] as [string, { params: { screens: Array<{ widgets: unknown[] }> } }];
+    const [, payload] = publish.mock.calls[0] as [
+      string,
+      { params: { screens: Array<{ widgets: unknown[] }> } },
+    ];
     expect(payload.params.screens[0]!.widgets).toHaveLength(2);
   });
 });

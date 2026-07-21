@@ -9,7 +9,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: database-wal-archive-freshness
+  # Keep only the newest pending monitor while a prior probe holds the short
+  # shared host lock. Release/backup/PITR runs use a lossless queue separately.
+  group: production-wal-archive-freshness
   cancel-in-progress: false
 
 jobs:
@@ -34,33 +36,75 @@ jobs:
           set -euo pipefail
           test "${GITHUB_REF}" = 'refs/heads/main'
           test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
+          REMOTE_MAIN_ROWS="$(git ls-remote --refs \
+            "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main)"
+          test "$(printf '%s\n' "${REMOTE_MAIN_ROWS}" | sed '/^$/d' | wc -l)" -eq 1
+          test "${REMOTE_MAIN_ROWS%%$'\t'*}" = "${GITHUB_SHA}"
 
       - name: Assert protected backup environment is complete
         env:
           BACKUP_SECRET_PROFILE: archive-freshness
-          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
-          DROPLET_USER: ${{ secrets.DROPLET_USER }}
-          DROPLET_SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
-          DROPLET_SSH_FINGERPRINT: ${{ secrets.DROPLET_SSH_FINGERPRINT }}
+          DROPLET_HOST: ${{ secrets.PRODUCTION_BACKUP_DROPLET_HOST }}
+          DROPLET_USER: ${{ secrets.PRODUCTION_BACKUP_DROPLET_USER }}
+          DROPLET_SSH_KEY: ${{ secrets.PRODUCTION_BACKUP_DROPLET_SSH_KEY }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.PRODUCTION_BACKUP_DROPLET_SSH_FINGERPRINT }}
         run: |
           set +x
+          set -euo pipefail
+          protected_names=(
+            BACKUP_SECRET_PROFILE DROPLET_HOST DROPLET_USER
+            DROPLET_SSH_KEY DROPLET_SSH_FINGERPRINT
+          )
+          for protected_name in "${protected_names[@]}"; do export -n "${protected_name}"; done
+          REMOTE_MAIN_ROWS="$(/usr/bin/env -i \
+            PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C \
+            /usr/bin/git ls-remote --refs \
+              "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main)"
+          test "$(printf '%s\n' "${REMOTE_MAIN_ROWS}" | sed '/^$/d' | wc -l)" -eq 1
+          test "${REMOTE_MAIN_ROWS%%$'\t'*}" = "${GITHUB_SHA}"
+          for protected_name in "${protected_names[@]}"; do export "${protected_name}"; done
           bash tools/scripts/database/assert-backup-secrets.sh
 
       - name: Verify production WAL archive RPO signal
         env:
-          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
-          DROPLET_USER: ${{ secrets.DROPLET_USER }}
-          DROPLET_SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
-          DROPLET_SSH_FINGERPRINT: ${{ secrets.DROPLET_SSH_FINGERPRINT }}
+          DROPLET_HOST: ${{ secrets.PRODUCTION_BACKUP_DROPLET_HOST }}
+          DROPLET_USER: ${{ secrets.PRODUCTION_BACKUP_DROPLET_USER }}
+          DROPLET_SSH_KEY: ${{ secrets.PRODUCTION_BACKUP_DROPLET_SSH_KEY }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.PRODUCTION_BACKUP_DROPLET_SSH_FINGERPRINT }}
         run: |
           set +x
           set -euo pipefail
           umask 077
+          droplet_host_coordinate=${DROPLET_HOST}
+          droplet_user_coordinate=${DROPLET_USER}
+          ssh_private_key_material=${DROPLET_SSH_KEY}
+          ssh_fingerprint_material=${DROPLET_SSH_FINGERPRINT}
+          unset DROPLET_HOST DROPLET_USER DROPLET_SSH_KEY DROPLET_SSH_FINGERPRINT
+          assert_exact_current_main() {
+            local remote_main_rows
+            remote_main_rows="$(/usr/bin/env -i \
+              PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C \
+              /usr/bin/git ls-remote --refs \
+                "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main)"
+            test "$(printf '%s\n' "${remote_main_rows}" | sed '/^$/d' | wc -l)" -eq 1
+            test "${remote_main_rows%%$'\t'*}" = "${GITHUB_SHA}"
+          }
+          assert_exact_current_main
           SSH_STEP_DIR=$(mktemp -d -t aqua-archive-freshness-XXXXXX)
           cleanup() {
             status=$?
             trap - EXIT
             cleanup_status=0
+            if [ -n "${SSH_PRIVATE_KEY_FD:-}" ]; then
+              if [[ "${SSH_PRIVATE_KEY_FD}" =~ ^([3-9]|[1-9][0-9]{1,2})$ ]] && \
+                [ -e "/proc/self/fd/${SSH_PRIVATE_KEY_FD}" ]; then
+                exec {SSH_PRIVATE_KEY_FD}<&-
+              else
+                echo 'FATAL: WAL freshness SSH private-key descriptor cleanup failed.' >&2
+                cleanup_status=1
+              fi
+              SSH_PRIVATE_KEY_FD=
+            fi
             if ! rm -rf -- "${SSH_STEP_DIR}" || [ -e "${SSH_STEP_DIR}" ]; then
               echo 'FATAL: WAL freshness runner SSH-step cleanup failed.' >&2
               cleanup_status=1
@@ -71,20 +115,83 @@ jobs:
             exit "${status}"
           }
           trap cleanup EXIT
-          cat > "${SSH_STEP_DIR}/payload.sh" <<'AQUA_REMOTE_SCRIPT'
+          CONTROL_PLANE_SHA256="$(sha256sum --binary \
+            scripts/deploy/production-host-control-plane.sh | awk '{print $1}')"
+          [[ "${CONTROL_PLANE_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          {
+            printf 'CONTROL_PLANE_SHA256=%q\n' "${CONTROL_PLANE_SHA256}"
+            printf 'CONTROL_PLANE_B64='
+            base64 -w0 scripts/deploy/production-host-control-plane.sh
+            printf '\n'
+            sed 's/^          //' <<'AQUA_REMOTE_SCRIPT'
           set +x
           set -euo pipefail
-          docker exec aqua-postgres /usr/local/bin/postgres-walg-healthcheck.sh
+          umask 077
+          RUNTIME_DIR=$(/usr/bin/mktemp -d /tmp/aqua-wal-freshness.XXXXXXXX)
+          cleanup_runtime() {
+            status=$?
+            trap - EXIT
+            cleanup_status=0
+            if [ -n "${AQUA_CONTROL_PLANE_LOCK_FD:-}" ] && \
+               [ -e "/proc/self/fd/${AQUA_CONTROL_PLANE_LOCK_FD}" ]; then
+              exec {AQUA_CONTROL_PLANE_LOCK_FD}>&-
+            fi
+            AQUA_CONTROL_PLANE_LOCK_FD=
+            if ! /usr/bin/rm -rf -- "${RUNTIME_DIR}" || [ -e "${RUNTIME_DIR}" ]; then
+              echo 'FATAL: WAL freshness remote runtime cleanup failed.' >&2
+              cleanup_status=1
+            fi
+            if [ "${status}" -eq 0 ] && [ "${cleanup_status}" -ne 0 ]; then
+              status=1
+            fi
+            exit "${status}"
+          }
+          trap cleanup_runtime EXIT
+          CONTROL_PLANE=${RUNTIME_DIR}/production-host-control-plane.sh
+          printf '%s' "${CONTROL_PLANE_B64:?}" | /usr/bin/base64 --decode > "${CONTROL_PLANE}"
+          unset CONTROL_PLANE_B64
+          /usr/bin/chmod 0400 "${CONTROL_PLANE}"
+          ACTUAL_CONTROL_PLANE_SHA256=$(
+            /usr/bin/sha256sum --binary "${CONTROL_PLANE}" | /usr/bin/awk '{print $1}'
+          )
+          [ "${ACTUAL_CONTROL_PLANE_SHA256}" = "${CONTROL_PLANE_SHA256}" ] || {
+            echo 'FATAL: WAL freshness control-plane helper digest mismatch.' >&2
+            exit 1
+          }
+          # shellcheck disable=SC1090 -- exact-SHA bytes are verified above.
+          source "${CONTROL_PLANE}"
+          aqua_control_plane_lock_acquire shared 100
+          aqua_control_plane_lock_assert
+          aqua_control_plane_guard_dr_state
+          /usr/bin/docker exec aqua-postgres /usr/local/bin/postgres-walg-healthcheck.sh
           AQUA_REMOTE_SCRIPT
+          } > "${SSH_STEP_DIR}/payload.sh"
+          assert_exact_current_main
+          SSH_KEY_STAGE="${SSH_STEP_DIR}/private-key.input"
+          set -o noclobber
+          if ! builtin printf '%s\n' "${ssh_private_key_material}" > "${SSH_KEY_STAGE}"; then
+            set +o noclobber
+            exit 1
+          fi
+          set +o noclobber
+          /usr/bin/chmod 0600 "${SSH_KEY_STAGE}"
+          SSH_PRIVATE_KEY_FD=
+          exec {SSH_PRIVATE_KEY_FD}< "${SSH_KEY_STAGE}"
+          /usr/bin/rm -f -- "${SSH_KEY_STAGE}" {SSH_PRIVATE_KEY_FD}<&-
+          [ ! -e "${SSH_KEY_STAGE}" ] && [ ! -L "${SSH_KEY_STAGE}" ]
+          unset ssh_private_key_material
           /usr/bin/env -i \
               PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
               HOME="${HOME}" \
               LC_ALL=C \
-              DROPLET_HOST="${DROPLET_HOST}" \
-              DROPLET_USER="${DROPLET_USER}" \
-              DROPLET_SSH_KEY="${DROPLET_SSH_KEY}" \
-              DROPLET_SSH_FINGERPRINT="${DROPLET_SSH_FINGERPRINT}" \
+              DROPLET_HOST="${droplet_host_coordinate}" \
+              DROPLET_USER="${droplet_user_coordinate}" \
+              SSH_PRIVATE_KEY_FD="${SSH_PRIVATE_KEY_FD}" \
+              DROPLET_SSH_FINGERPRINT="${ssh_fingerprint_material}" \
               SSH_PAYLOAD_PATH="${SSH_STEP_DIR}/payload.sh" \
               SSH_STDOUT_PATH="${SSH_STEP_DIR}/stdout" \
               SSH_COMMAND_TIMEOUT_SECONDS=120 \
-            bash tools/scripts/ci/run-protected-ssh.sh
+            /bin/bash tools/scripts/ci/run-protected-ssh.sh
+          exec {SSH_PRIVATE_KEY_FD}<&-
+          SSH_PRIVATE_KEY_FD=
+          assert_exact_current_main

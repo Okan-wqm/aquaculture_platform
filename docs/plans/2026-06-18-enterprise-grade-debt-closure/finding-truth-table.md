@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `986cd8f9bb2551ac2f604be79dd9d3d7dd2e32d34040611fe587a1f155104249`
+Registry tip: `c3016b2a0d138d97d50d2664d159d6f39fd9ca119ccf9ed2112f7151feac026d`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -135,6 +135,18 @@ Allowed truth buckets:
 | `FARM-CRITICAL-241`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
 | `INFRA-CRITICAL-077`    | IN-PROGRESS    | 1.1          | infra-expert         | real-open                 |
 | `INFRA-CRITICAL-078`    | IN-PROGRESS    | 1.1          | security-reviewer    | real-open                 |
+| `INFRA-CRITICAL-080`    | IN-PROGRESS    | 1.1          | security-reviewer    | real-open                 |
+| `INFRA-CRITICAL-081`    | IN-PROGRESS    | 1.1          | security-reviewer    | real-open                 |
+| `INFRA-CRITICAL-082`    | IN-PROGRESS    | 1.1          | security-reviewer    | real-open                 |
+| `INFRA-CRITICAL-083`    | IN-PROGRESS    | 1.1          | security-reviewer    | real-open                 |
+| `INFRA-CRITICAL-085`    | IN-PROGRESS    | 1.1          | security-reviewer    | real-open                 |
+| `INFRA-CRITICAL-090`    | IN-PROGRESS    | 1.1          | security-reviewer    | real-open                 |
+| `INFRA-CRITICAL-093`    | IN-PROGRESS    | 1.1          | security-reviewer    | real-open                 |
+| `INFRA-CRITICAL-095`    | IN-PROGRESS    | 1.1          | security-reviewer    | real-open                 |
+| `INFRA-CRITICAL-097`    | OPEN           | 1.1          | security-reviewer    | real-open                 |
+| `INFRA-CRITICAL-098`    | OPEN           | 1.1          | security-reviewer    | real-open                 |
+| `INFRA-CRITICAL-100`    | IN-PROGRESS    | 1.1          | security-reviewer    | real-open                 |
+| `INFRA-CRITICAL-101`    | IN-PROGRESS    | 1.1          | security-reviewer    | real-open                 |
 
 ## Mutation Rules
 

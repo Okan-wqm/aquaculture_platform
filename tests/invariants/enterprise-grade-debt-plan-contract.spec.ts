@@ -222,9 +222,12 @@ describe('enterprise-grade debt closure plan contract', () => {
 
   it('keeps the truth table aligned with active critical IDs', () => {
     const activeCriticalIds = stringArray(manifest.active_critical_ids);
+    const registryTip = stringValue(manifest.registry_tip_hash, 'registry_tip_hash');
     const rows = truthTableRows(truthTable);
+    const tipHeaders = truthTable.match(/^Registry tip: `[0-9a-f]{64}`$/gmu) ?? [];
 
     expect(truthTable).toContain('# Finding Truth Table');
+    expect(tipHeaders).toEqual([`Registry tip: \`${registryTip}\``]);
     expect(truthTable).toContain('Allowed truth buckets:');
     for (const bucket of TRUTH_BUCKETS) {
       expect(truthTable).toContain(`\`${bucket}\``);

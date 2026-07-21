@@ -280,7 +280,7 @@ describe('INVARIANT: Postgres images are manifest-governed and immutable', () =>
     expect(dockerfile).toContain("grep -Eq '^[0-9a-f]{40}$'");
     expect(dockerfile).toContain('org.opencontainers.image.revision="${BUILD_MAIN_SHA}"');
     expect(deployWorkflow).toMatch(
-      /build-infra-images:[\s\S]*?Build and push \$\{\{ matrix\.image \}\}[\s\S]*?build-args:\s*\|\s*BUILD_MAIN_SHA=\$\{\{ github\.sha \}\}/,
+      /build-infra-images:[\s\S]*?Build \$\{\{ matrix\.image \}\} without registry authority[\s\S]*?push:\s*false[\s\S]*?build-args:\s*\|\s*BUILD_MAIN_SHA=\$\{\{ github\.sha \}\}[\s\S]*?Publish exact-current-main \$\{\{ matrix\.image \}\} image/,
     );
     expect(dockerfile.trimEnd()).toMatch(/USER root$/);
   });

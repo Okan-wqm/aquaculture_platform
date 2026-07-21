@@ -22,9 +22,10 @@ on:
         default: false
 
 concurrency:
-  # Serializes every job that can rotate WAL-G runtime credentials or mutate
-  # the physical backup chain, including the protected PITR workflow.
-  group: production-postgres-backup-dr
+  # One GitHub-side queue covers deploy, verification, backup, and PITR; the
+  # remote root-owned control-plane lock is the final host serialization.
+  group: ${{ github.ref == 'refs/heads/main' && 'production-release-authority' || format('rejected-production-backup-{0}', github.run_id) }}
+  queue: max
   cancel-in-progress: false
 
 jobs:
@@ -37,7 +38,8 @@ jobs:
       name: production-backup
       deployment: false
     outputs:
-      evidence_b64: ${{ steps.capture_evidence.outputs.evidence_b64 }}
+      raw_evidence_artifact_id: ${{ steps.preserve_raw_evidence.outputs.artifact-id }}
+      raw_evidence_artifact_digest: ${{ steps.preserve_raw_evidence.outputs.artifact-digest }}
     permissions:
       contents: read
     steps:
@@ -54,15 +56,19 @@ jobs:
           set -euo pipefail
           test "${GITHUB_REF}" = 'refs/heads/main'
           test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
+          REMOTE_MAIN_ROWS="$(git ls-remote --refs \
+            "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main)"
+          test "$(printf '%s\n' "${REMOTE_MAIN_ROWS}" | sed '/^$/d' | wc -l)" -eq 1
+          test "${REMOTE_MAIN_ROWS%%$'\t'*}" = "${GITHUB_SHA}"
 
       - name: Preflight — assert backup secrets present
         id: backup_secret_preflight
         env:
           BACKUP_SECRET_PROFILE: backup-runtime
-          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
-          DROPLET_USER: ${{ secrets.DROPLET_USER }}
-          DROPLET_SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
-          DROPLET_SSH_FINGERPRINT: ${{ secrets.DROPLET_SSH_FINGERPRINT }}
+          DROPLET_HOST: ${{ secrets.PRODUCTION_BACKUP_DROPLET_HOST }}
+          DROPLET_USER: ${{ secrets.PRODUCTION_BACKUP_DROPLET_USER }}
+          DROPLET_SSH_KEY: ${{ secrets.PRODUCTION_BACKUP_DROPLET_SSH_KEY }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.PRODUCTION_BACKUP_DROPLET_SSH_FINGERPRINT }}
           SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
           SPACES_REGION: ${{ secrets.SPACES_REGION }}
           WALG_SPACES_ACCESS_KEY_ID: ${{ secrets.WALG_SPACES_ACCESS_KEY_ID }}
@@ -79,6 +85,24 @@ jobs:
           WALG_BACKUP_EPOCH: ${{ vars.WALG_BACKUP_EPOCH }}
         run: |
           set +x
+          set -euo pipefail
+          protected_names=(
+            BACKUP_SECRET_PROFILE DROPLET_HOST DROPLET_USER DROPLET_SSH_KEY
+            DROPLET_SSH_FINGERPRINT SPACES_ENDPOINT SPACES_REGION
+            WALG_SPACES_ACCESS_KEY_ID WALG_SPACES_SECRET_ACCESS_KEY
+            LOGICAL_BACKUP_SPACES_BUCKET LOGICAL_BACKUP_SPACES_ACCESS_KEY_ID
+            LOGICAL_BACKUP_SPACES_SECRET_ACCESS_KEY LOGICAL_BACKUP_GPG_RECIPIENT
+            BACKUP_POSTGRES_USER BACKUP_POSTGRES_DB BACKUP_POSTGRES_PASSWORD
+            WALG_LIBSODIUM_KEY_B64 WALG_SPACES_BUCKET WALG_BACKUP_EPOCH
+          )
+          for protected_name in "${protected_names[@]}"; do export -n "${protected_name}"; done
+          REMOTE_MAIN_ROWS="$(/usr/bin/env -i \
+            PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C \
+            /usr/bin/git ls-remote --refs \
+              "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main)"
+          test "$(printf '%s\n' "${REMOTE_MAIN_ROWS}" | sed '/^$/d' | wc -l)" -eq 1
+          test "${REMOTE_MAIN_ROWS%%$'\t'*}" = "${GITHUB_SHA}"
+          for protected_name in "${protected_names[@]}"; do export "${protected_name}"; done
           bash tools/scripts/database/assert-backup-secrets.sh
 
       # Native OpenSSH receives a mode-0600 stdin payload only after the
@@ -89,10 +113,10 @@ jobs:
         id: remote_backup
         env:
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
-          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
-          DROPLET_USER: ${{ secrets.DROPLET_USER }}
-          DROPLET_SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
-          DROPLET_SSH_FINGERPRINT: ${{ secrets.DROPLET_SSH_FINGERPRINT }}
+          DROPLET_HOST: ${{ secrets.PRODUCTION_BACKUP_DROPLET_HOST }}
+          DROPLET_USER: ${{ secrets.PRODUCTION_BACKUP_DROPLET_USER }}
+          DROPLET_SSH_KEY: ${{ secrets.PRODUCTION_BACKUP_DROPLET_SSH_KEY }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.PRODUCTION_BACKUP_DROPLET_SSH_FINGERPRINT }}
           POSTGRES_USER: ${{ secrets.BACKUP_POSTGRES_USER }}
           POSTGRES_DB: ${{ secrets.BACKUP_POSTGRES_DB }}
           SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
@@ -114,6 +138,27 @@ jobs:
           set +x
           set -euo pipefail
           umask 077
+          droplet_host_coordinate=${DROPLET_HOST}
+          droplet_user_coordinate=${DROPLET_USER}
+          ssh_private_key_material=${DROPLET_SSH_KEY}
+          ssh_fingerprint_material=${DROPLET_SSH_FINGERPRINT}
+          unset DROPLET_HOST DROPLET_USER DROPLET_SSH_KEY DROPLET_SSH_FINGERPRINT
+          for protected_name in \
+            WALG_SPACES_ACCESS_KEY_ID WALG_SPACES_SECRET_ACCESS_KEY \
+            LOGICAL_BACKUP_SPACES_ACCESS_KEY_ID LOGICAL_BACKUP_SPACES_SECRET_ACCESS_KEY \
+            LOGICAL_BACKUP_GPG_RECIPIENT PGPASSWORD WALG_LIBSODIUM_KEY_B64; do
+            export -n "${protected_name}"
+          done
+          assert_exact_current_main() {
+            local remote_main_rows
+            remote_main_rows="$(/usr/bin/env -i \
+              PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C \
+              /usr/bin/git ls-remote --refs \
+                "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main)"
+            test "$(printf '%s\n' "${remote_main_rows}" | sed '/^$/d' | wc -l)" -eq 1
+            test "${remote_main_rows%%$'\t'*}" = "${GITHUB_SHA}"
+          }
+          assert_exact_current_main
           [[ "${WALG_SPACES_BUCKET}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{1,62}$ ]]
           [[ "${WALG_BACKUP_EPOCH}" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]]
           WALG_S3_PREFIX="s3://${WALG_SPACES_BUCKET}/postgres/wal-g/${WALG_BACKUP_EPOCH}"
@@ -125,6 +170,16 @@ jobs:
             status=$?
             trap - EXIT
             cleanup_status=0
+            if [ -n "${SSH_PRIVATE_KEY_FD:-}" ]; then
+              if [[ "${SSH_PRIVATE_KEY_FD}" =~ ^([3-9]|[1-9][0-9]{1,2})$ ]] && \
+                [ -e "/proc/self/fd/${SSH_PRIVATE_KEY_FD}" ]; then
+                exec {SSH_PRIVATE_KEY_FD}<&-
+              else
+                echo 'FATAL: backup SSH private-key descriptor cleanup failed.' >&2
+                cleanup_status=1
+              fi
+              SSH_PRIVATE_KEY_FD=
+            fi
             if ! rm -rf -- "${SSH_STEP_DIR}" || [ -e "${SSH_STEP_DIR}" ]; then
               echo 'FATAL: backup runner SSH-step cleanup failed.' >&2
               cleanup_status=1
@@ -206,11 +261,15 @@ jobs:
             DR_CONTRACT_MANIFEST=.github/manifests/postgres-dr-contract.sha256
             EXPECTED_PATHS=$(printf '%s\n' \
               .github/manifests/postgres-dr-contract.sha256 \
+              scripts/deploy/production-host-control-plane.sh \
               tools/scripts/database/backup-databases.sh \
               tools/scripts/database/database-verification.sql \
               tools/scripts/database/evaluate-walg-evidence.mjs \
               tools/scripts/database/materialize-walg-secrets.sh \
+              tools/scripts/database/pitr-source-verification-locks.sql \
+              tools/scripts/database/read-bounded-line.mjs \
               tools/scripts/database/walg-base-backup.sh \
+              tools/scripts/database/walg-pitr-ceremony.sh \
               tools/scripts/database/walg-pitr-restore.sh)
             EXPECTED_ARCHIVE_PATHS=$(printf '%s\n%s\n' \
               "${MANIFEST}" "${EXPECTED_PATHS}")
@@ -251,6 +310,14 @@ jobs:
               "${DR_CONTRACT_MANIFEST}" | awk '{print $1}')
             [[ "${EXPECTED_POSTGRES_DR_CONTRACT_SHA256}" =~ ^[0-9a-f]{64}$ ]]
             echo "Backup runtime bundle integrity verified at commit ${BACKUP_MAIN_SHA}."
+
+            # Serialize the live database snapshot and WAL-G credential
+            # ceremony with deploy/capacity/DR mutations on the host itself.
+            # shellcheck source=scripts/deploy/production-host-control-plane.sh
+            source scripts/deploy/production-host-control-plane.sh
+            aqua_control_plane_lock_acquire exclusive 5400
+            aqua_control_plane_lock_assert
+            aqua_control_plane_guard_dr_state
 
             export POSTGRES_CONTAINER=aqua-postgres
             export BACKUP_PREFIX=pg-backups
@@ -320,60 +387,124 @@ jobs:
               bash tools/scripts/database/backup-databases.sh
 
             if [ "${DRY_RUN}" != 'true' ]; then
-              EVIDENCE_B64=$(base64 -w0 "${EVIDENCE_FILE}")
-              printf 'AQUA_WALG_EVIDENCE_B64=%s\n' "${EVIDENCE_B64}"
+              EVIDENCE_BYTES=$(stat -c '%s' "${EVIDENCE_FILE}")
+              [[ "${EVIDENCE_BYTES}" =~ ^[1-9][0-9]*$ ]]
+              test "${EVIDENCE_BYTES}" -le 8388608
+              EVIDENCE_GZIP_FILE="${RUNTIME_ROOT}/evidence-transport.json.gz"
+              gzip -n -9 -c -- "${EVIDENCE_FILE}" > "${EVIDENCE_GZIP_FILE}"
+              EVIDENCE_GZIP_BYTES=$(stat -c '%s' "${EVIDENCE_GZIP_FILE}")
+              [[ "${EVIDENCE_GZIP_BYTES}" =~ ^[1-9][0-9]*$ ]]
+              test "${EVIDENCE_GZIP_BYTES}" -le 9437184
+              printf 'AQUA_WALG_EVIDENCE_GZIP_B64='
+              base64 -w0 "${EVIDENCE_GZIP_FILE}"
+              printf '\n'
+              rm -f -- "${EVIDENCE_GZIP_FILE}"
             fi
           AQUA_REMOTE_SCRIPT
           } > "${REMOTE_PAYLOAD}"
 
+          assert_exact_current_main
+          SSH_KEY_STAGE="${SSH_STEP_DIR}/private-key.input"
+          set -o noclobber
+          if ! builtin printf '%s\n' "${ssh_private_key_material}" > "${SSH_KEY_STAGE}"; then
+            set +o noclobber
+            exit 1
+          fi
+          set +o noclobber
+          /usr/bin/chmod 0600 "${SSH_KEY_STAGE}"
+          SSH_PRIVATE_KEY_FD=
+          exec {SSH_PRIVATE_KEY_FD}< "${SSH_KEY_STAGE}"
+          /usr/bin/rm -f -- "${SSH_KEY_STAGE}" {SSH_PRIVATE_KEY_FD}<&-
+          [ ! -e "${SSH_KEY_STAGE}" ] && [ ! -L "${SSH_KEY_STAGE}" ]
+          unset ssh_private_key_material
           /usr/bin/env -i \
               PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
               HOME="${HOME}" \
               LC_ALL=C \
-              DROPLET_HOST="${DROPLET_HOST}" \
-              DROPLET_USER="${DROPLET_USER}" \
-              DROPLET_SSH_KEY="${DROPLET_SSH_KEY}" \
-              DROPLET_SSH_FINGERPRINT="${DROPLET_SSH_FINGERPRINT}" \
+              DROPLET_HOST="${droplet_host_coordinate}" \
+              DROPLET_USER="${droplet_user_coordinate}" \
+              SSH_PRIVATE_KEY_FD="${SSH_PRIVATE_KEY_FD}" \
+              DROPLET_SSH_FINGERPRINT="${ssh_fingerprint_material}" \
               SSH_PAYLOAD_PATH="${REMOTE_PAYLOAD}" \
               SSH_STDOUT_PATH="${REMOTE_STDOUT_PATH}" \
               SSH_COMMAND_TIMEOUT_SECONDS=4800 \
-            bash tools/scripts/ci/run-protected-ssh.sh
-          mapfile -t EVIDENCE_MARKERS < <(
-            sed -n 's/^AQUA_WALG_EVIDENCE_B64=\([A-Za-z0-9+\/=]*\)$/\1/p' "${REMOTE_STDOUT_PATH}"
-          )
+              SSH_STDOUT_MAX_BYTES=16777216 \
+            /bin/bash tools/scripts/ci/run-protected-ssh.sh
+          exec {SSH_PRIVATE_KEY_FD}<&-
+          SSH_PRIVATE_KEY_FD=
+          assert_exact_current_main
+          REMOTE_STDOUT_BYTES=$(stat -c '%s' "${REMOTE_STDOUT_PATH}")
+          [[ "${REMOTE_STDOUT_BYTES}" =~ ^[0-9]+$ ]]
+          test "${REMOTE_STDOUT_BYTES}" -le 16777216
+          EVIDENCE_MARKER_FILE="${SSH_STEP_DIR}/evidence-transport.b64"
+          sed -n 's/^AQUA_WALG_EVIDENCE_GZIP_B64=\([A-Za-z0-9+\/=]*\)$/\1/p' \
+            "${REMOTE_STDOUT_PATH}" > "${EVIDENCE_MARKER_FILE}"
+          EVIDENCE_MARKER_COUNT=$(wc -l < "${EVIDENCE_MARKER_FILE}")
           if [ "${DRY_RUN}" = 'true' ] || [ "${BOOTSTRAP_WALG_SECRETS_ONLY}" = 'true' ]; then
-            [ "${#EVIDENCE_MARKERS[@]}" -eq 0 ] || {
+            [ "${EVIDENCE_MARKER_COUNT}" -eq 0 ] && [ ! -s "${EVIDENCE_MARKER_FILE}" ] || {
               echo 'FATAL: non-evidence backup mode returned an unexpected evidence marker.'
               exit 1
             }
-          elif [ "${#EVIDENCE_MARKERS[@]}" -ne 1 ] || [ -z "${EVIDENCE_MARKERS[0]}" ]; then
+          elif [ "${EVIDENCE_MARKER_COUNT}" -ne 1 ]; then
             echo 'FATAL: protected OpenSSH transport did not return exactly one evidence record.'
             exit 1
           else
-            printf 'evidence_b64=%s\n' "${EVIDENCE_MARKERS[0]}" >> "${GITHUB_OUTPUT}"
+            EVIDENCE_MARKER_BYTES=$(stat -c '%s' "${EVIDENCE_MARKER_FILE}")
+            [[ "${EVIDENCE_MARKER_BYTES}" =~ ^[1-9][0-9]*$ ]]
+            test "${EVIDENCE_MARKER_BYTES}" -le 12582913
+            EVIDENCE_GZIP_FILE="${SSH_STEP_DIR}/evidence-transport.json.gz"
+            base64 --decode < "${EVIDENCE_MARKER_FILE}" > "${EVIDENCE_GZIP_FILE}"
+            EVIDENCE_GZIP_BYTES=$(stat -c '%s' "${EVIDENCE_GZIP_FILE}")
+            [[ "${EVIDENCE_GZIP_BYTES}" =~ ^[1-9][0-9]*$ ]]
+            test "${EVIDENCE_GZIP_BYTES}" -le 9437184
+            CANONICAL_MARKER_FILE="${SSH_STEP_DIR}/evidence-transport.canonical.b64"
+            base64 -w0 "${EVIDENCE_GZIP_FILE}" > "${CANONICAL_MARKER_FILE}"
+            printf '\n' >> "${CANONICAL_MARKER_FILE}"
+            cmp -s "${EVIDENCE_MARKER_FILE}" "${CANONICAL_MARKER_FILE}"
+            mkdir -m 0700 raw-evidence
+          python3 - "${EVIDENCE_GZIP_FILE}" raw-evidence/base-backup.json <<'PY'
+          import gzip
+          import json
+          import os
+          import sys
+
+          source_path, output_path = sys.argv[1:]
+          descriptor = os.open(
+              output_path,
+              os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+              0o400,
+          )
+          total = 0
+          chunks = []
+          with gzip.open(source_path, 'rb') as source, os.fdopen(descriptor, 'wb') as output:
+              while True:
+                  chunk = source.read(65536)
+                  if not chunk:
+                      break
+                  total += len(chunk)
+                  if total > 8388608:
+                      raise SystemExit('expanded backup evidence exceeds its bound')
+                  chunks.append(chunk)
+                  output.write(chunk)
+          value = json.loads(b''.join(chunks))
+          if not isinstance(value, dict) or value.get('evidence_type') != 'base_backup':
+              raise SystemExit('transport did not contain base-backup evidence')
+          PY
+            rm -f -- "${EVIDENCE_GZIP_FILE}" "${CANONICAL_MARKER_FILE}"
           fi
 
-      - name: Capture completed ceremony evidence from protected OpenSSH transport
-        id: capture_evidence
-        if: success()
-        env:
-          REMOTE_EVIDENCE_B64: ${{ steps.remote_backup.outputs.evidence_b64 }}
-          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
-          BOOTSTRAP_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap_walg_secrets_only || false }}
-        run: |
-          set +x
-          set -euo pipefail
-          if [ "${DRY_RUN}" = 'true' ] || [ "${BOOTSTRAP_ONLY}" = 'true' ]; then
-            test -z "${REMOTE_EVIDENCE_B64}"
-            exit 0
-          fi
-          if [[ ! "${REMOTE_EVIDENCE_B64}" =~ ^[A-Za-z0-9+/]+={0,2}$ ]]; then
-            echo 'FATAL: protected OpenSSH transport did not return canonical evidence bytes.'
-            exit 1
-          fi
-          printf '%s' "${REMOTE_EVIDENCE_B64}" | base64 --decode | \
-            node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync(0,"utf8")); if (!value || typeof value !== "object" || Array.isArray(value)) process.exit(2);'
-          printf 'evidence_b64=%s\n' "${REMOTE_EVIDENCE_B64}" >> "${GITHUB_OUTPUT}"
+      - name: Preserve immutable raw backup evidence artifact
+        id: preserve_raw_evidence
+        if: ${{ success() && !(github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.bootstrap_walg_secrets_only)) }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: walg-raw-evidence-v1-backup-production.yml-${{ github.run_id }}-${{ github.run_attempt }}
+          path: raw-evidence/base-backup.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90
+          compression-level: 0
+          archive: true
 
       - name: Notify on secret/config preflight failure
         if: failure() && steps.backup_secret_preflight.outcome == 'failure'
@@ -389,19 +520,18 @@ jobs:
           script: |
             core.setFailed('Production Postgres backup runtime failed — backup object was not proven uploaded/restorable. Check the job log. Runbook: docs/runbooks/database-restore-drill.md');
 
-  publish-evidence:
-    name: Sign completed backup run evidence
+  prepare-evidence:
+    name: Create unsigned backup run evidence
     needs: [backup]
     if: ${{ always() && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment:
-      name: production-backup
-      deployment: false
+    outputs:
+      artifact_id: ${{ steps.preserve_unsigned.outputs.artifact-id }}
+      artifact_digest: ${{ steps.preserve_unsigned.outputs.artifact-digest }}
     permissions:
       actions: read
       contents: read
-      id-token: write
     steps:
       - name: Checkout evidence authority
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -417,30 +547,34 @@ jobs:
           test "${GITHUB_REF}" = 'refs/heads/main'
           test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
 
-      - name: Assert evidence publisher secret profile
-        env:
-          BACKUP_SECRET_PROFILE: evidence-publisher
-          SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
-          SPACES_REGION: ${{ secrets.SPACES_REGION }}
-          EVIDENCE_SPACES_BUCKET: ${{ secrets.EVIDENCE_SPACES_BUCKET }}
-          EVIDENCE_PUBLISHER_SPACES_ACCESS_KEY_ID: ${{ secrets.EVIDENCE_PUBLISHER_SPACES_ACCESS_KEY_ID }}
-          EVIDENCE_PUBLISHER_SPACES_SECRET_ACCESS_KEY: ${{ secrets.EVIDENCE_PUBLISHER_SPACES_SECRET_ACCESS_KEY }}
-        run: |
-          set +x
-          bash tools/scripts/database/assert-backup-secrets.sh
-
-      - name: Install cosign
+      - name: Install pinned cosign binary for isolated signer
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.0.6
 
-      - name: Create, sign, and self-verify run-scoped records
+      - name: Create unsigned run-scoped records
         env:
+          GH_TOKEN: ${{ github.token }}
           BACKUP_JOB_RESULT: ${{ needs.backup.result }}
-          EVIDENCE_B64: ${{ needs.backup.outputs.evidence_b64 }}
+          RAW_EVIDENCE_ARTIFACT_ID: ${{ needs.backup.outputs.raw_evidence_artifact_id }}
+          RAW_EVIDENCE_ARTIFACT_DIGEST: ${{ needs.backup.outputs.raw_evidence_artifact_digest }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
           BOOTSTRAP_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap_walg_secrets_only || false }}
         run: |
           set +x
           set -euo pipefail
+          umask 077
+          github_token_material=${GH_TOKEN:?GH_TOKEN is required}
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN
+          assert_exact_current_main() {
+            local remote_main_sha
+            remote_main_sha="$(GH_TOKEN="${github_token_material}" gh api \
+              "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
+              --jq '.object.sha')" || return
+            [[ "${remote_main_sha}" =~ ^[0-9a-f]{40}$ ]] || return
+            test "${remote_main_sha}" = "${GITHUB_SHA}"
+          }
+          assert_exact_current_main
           if [ "${BOOTSTRAP_ONLY}" = 'true' ]; then
             RUN_MODE=bootstrap_only
           elif [ "${DRY_RUN}" = 'true' ]; then
@@ -463,31 +597,965 @@ jobs:
             --job-result "${BACKUP_JOB_RESULT}" \
             --mode "${RUN_MODE}" \
             --issued-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          cosign sign-blob --yes \
-            --bundle evidence-artifact/run-record.sigstore.json \
-            evidence-artifact/run-record.json
 
           if [ "${BACKUP_JOB_RESULT}" = 'success' ] && [ "${RUN_MODE}" = 'full_backup' ]; then
-            if [ -z "${EVIDENCE_B64}" ]; then
-              echo 'FATAL: successful full backup job omitted its protected-OpenSSH evidence.'
-              exit 1
-            fi
-            printf '%s' "${EVIDENCE_B64}" | base64 --decode > evidence-artifact/base-backup.json
+            [[ "${RAW_EVIDENCE_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
+            case "${RAW_EVIDENCE_ARTIFACT_DIGEST}" in
+              sha256:*) RAW_EVIDENCE_DIGEST=${RAW_EVIDENCE_ARTIFACT_DIGEST#sha256:} ;;
+              *) RAW_EVIDENCE_DIGEST=${RAW_EVIDENCE_ARTIFACT_DIGEST} ;;
+            esac
+            [[ "${RAW_EVIDENCE_DIGEST}" =~ ^[0-9a-f]{64}$ ]]
+            RAW_EVIDENCE_ARTIFACT_NAME="walg-raw-evidence-v1-backup-production.yml-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            assert_exact_current_main
+            ATTEMPT_INTERVAL="$(GH_TOKEN="${github_token_material}" gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}" \
+              --jq '[.run_started_at, .updated_at] | @tsv')" || exit
+            IFS=$'\t' read -r ATTEMPT_STARTED_AT ATTEMPT_UPDATED_AT <<< "${ATTEMPT_INTERVAL}"
+            ATTEMPT_STARTED_EPOCH="$(date -u -d "${ATTEMPT_STARTED_AT}" +%s)"
+            ATTEMPT_UPDATED_EPOCH="$(date -u -d "${ATTEMPT_UPDATED_AT}" +%s)"
+            test "${ATTEMPT_STARTED_EPOCH}" -le "${ATTEMPT_UPDATED_EPOCH}"
+            ARTIFACT_METADATA="$(GH_TOKEN="${github_token_material}" gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/artifacts/${RAW_EVIDENCE_ARTIFACT_ID}" \
+              --jq '[.id, .name, .expired, .digest, .size_in_bytes, .created_at, .workflow_run.id, .workflow_run.head_branch, .workflow_run.head_sha] | @tsv')" || exit
+            IFS=$'\t' read -r OBSERVED_ID OBSERVED_NAME OBSERVED_EXPIRED OBSERVED_DIGEST \
+              OBSERVED_BYTES OBSERVED_CREATED_AT OBSERVED_RUN_ID OBSERVED_BRANCH \
+              OBSERVED_HEAD_SHA <<< "${ARTIFACT_METADATA}"
+            test "${OBSERVED_ID}" = "${RAW_EVIDENCE_ARTIFACT_ID}"
+            test "${OBSERVED_NAME}" = "${RAW_EVIDENCE_ARTIFACT_NAME}"
+            test "${OBSERVED_EXPIRED}" = 'false'
+            test "${OBSERVED_DIGEST}" = "sha256:${RAW_EVIDENCE_DIGEST}"
+            [[ "${OBSERVED_BYTES}" =~ ^[1-9][0-9]*$ ]]
+            test "${OBSERVED_BYTES}" -le 9437184
+            OBSERVED_CREATED_EPOCH="$(date -u -d "${OBSERVED_CREATED_AT}" +%s)"
+            test "${OBSERVED_CREATED_EPOCH}" -ge "${ATTEMPT_STARTED_EPOCH}"
+            test "${OBSERVED_CREATED_EPOCH}" -le "${ATTEMPT_UPDATED_EPOCH}"
+            test "${OBSERVED_RUN_ID}" = "${GITHUB_RUN_ID}"
+            test "${OBSERVED_BRANCH}" = 'main'
+            test "${OBSERVED_HEAD_SHA}" = "${GITHUB_SHA}"
+            download_bounded_raw_artifact_zip() {
+              local artifact_id=$1
+              local output_path=$2
+              local pipeline_status
+              set +e
+              GH_TOKEN="${github_token_material}" gh api \
+                "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
+                | /usr/bin/head -c 9437185 > "${output_path}"
+              pipeline_status=("${PIPESTATUS[@]}")
+              set -e
+              [ "${#pipeline_status[@]}" -eq 2 ] && \
+                [ "${pipeline_status[0]}" -eq 0 ] && \
+                [ "${pipeline_status[1]}" -eq 0 ] && \
+                [ "$(stat -c '%s' "${output_path}")" -le 9437184 ]
+            }
+            assert_exact_current_main
+            download_bounded_raw_artifact_zip \
+              "${RAW_EVIDENCE_ARTIFACT_ID}" raw-evidence.zip
+            test "$(stat -c '%s' raw-evidence.zip)" = "${OBSERVED_BYTES}"
+            test "$(sha256sum raw-evidence.zip | awk '{print $1}')" = "${RAW_EVIDENCE_DIGEST}"
+          python3 - raw-evidence.zip evidence-artifact/base-backup.json <<'PY'
+          import os
+          import stat
+          import sys
+          import zipfile
+
+          archive_path, output_path = sys.argv[1:]
+          with zipfile.ZipFile(archive_path, 'r') as archive:
+              entries = archive.infolist()
+              if len(entries) != 1 or entries[0].filename != 'base-backup.json':
+                  raise SystemExit('raw backup artifact has an unexpected file set')
+              entry = entries[0]
+              unix_mode = entry.external_attr >> 16
+              if (
+                  entry.is_dir()
+                  or stat.S_ISLNK(unix_mode)
+                  or entry.file_size <= 0
+                  or entry.file_size > 8388608
+              ):
+                  raise SystemExit('raw backup artifact entry is unsafe')
+              descriptor = os.open(
+                  output_path,
+                  os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                  0o400,
+              )
+              total = 0
+              with archive.open(entry, 'r') as source, os.fdopen(descriptor, 'wb') as output:
+                  while True:
+                      chunk = source.read(65536)
+                      if not chunk:
+                          break
+                      total += len(chunk)
+                      if total > 8388608:
+                          raise SystemExit('expanded raw backup evidence exceeds its bound')
+                      output.write(chunk)
+              if total != entry.file_size:
+                  raise SystemExit('raw backup evidence size changed during extraction')
+          PY
+            rm -f raw-evidence.zip
             node tools/scripts/database/walg-evidence-attestation.mjs create-evidence \
               --output evidence-artifact/evidence-attestation.json \
               --run-record evidence-artifact/run-record.json \
-              --evidence evidence-artifact/base-backup.json
-            cosign sign-blob --yes \
-              --bundle evidence-artifact/evidence-attestation.sigstore.json \
-              evidence-artifact/evidence-attestation.json
-            rm -f evidence-artifact/base-backup.json
+              --evidence evidence-artifact/base-backup.json \
+              --artifact-id "${RAW_EVIDENCE_ARTIFACT_ID}" \
+              --artifact-name "${RAW_EVIDENCE_ARTIFACT_NAME}" \
+              --artifact-digest "sha256:${RAW_EVIDENCE_DIGEST}" \
+              --artifact-created-at "${OBSERVED_CREATED_AT}" \
+              --artifact-path base-backup.json
+          else
+            test -z "${RAW_EVIDENCE_ARTIFACT_ID}"
+            test -z "${RAW_EVIDENCE_ARTIFACT_DIGEST}"
           fi
 
-          IDENTITY="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/backup-production.yml@refs/heads/main"
-          for RECORD in evidence-artifact/run-record.json evidence-artifact/evidence-attestation.json; do
-            if [ ! -f "${RECORD}" ]; then
-              continue
+      - name: Pin exact signer binary
+        run: |
+          set +x
+          set -euo pipefail
+          umask 077
+          COSIGN_PATH="$(command -v cosign)"
+          test -n "${COSIGN_PATH}"
+          test -f "${COSIGN_PATH}"
+          test ! -L "${COSIGN_PATH}"
+          COSIGN_BYTES="$(stat -c '%s' "${COSIGN_PATH}")"
+          test "${COSIGN_BYTES}" -gt 0
+          test "${COSIGN_BYTES}" -le 268435456
+          install -m 0755 -- "${COSIGN_PATH}" evidence-artifact/cosign
+          (
+            cd evidence-artifact
+            sha256sum cosign > cosign.sha256
+          )
+
+      - name: Preserve unsigned records for the OIDC-only signer
+        id: preserve_unsigned
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: unsigned-walg-evidence-v3-backup-production.yml-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence-artifact/
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+          compression-level: 0
+          archive: true
+
+  sign-evidence:
+    name: Sign backup evidence with OIDC only
+    needs: [backup, prepare-evidence]
+    if: ${{ always() && needs.prepare-evidence.result == 'success' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      run_record_hex: ${{ steps.sign.outputs.run_record_hex }}
+      run_bundle_hex: ${{ steps.sign.outputs.run_bundle_hex }}
+      evidence_attestation_hex: ${{ steps.sign.outputs.evidence_attestation_hex }}
+      evidence_bundle_hex: ${{ steps.sign.outputs.evidence_bundle_hex }}
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - name: Sign and self-verify exact-current-main records in one isolated boundary
+        id: sign
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UNSIGNED_ARTIFACT_ID: ${{ needs.prepare-evidence.outputs.artifact_id }}
+          UNSIGNED_ARTIFACT_DIGEST: ${{ needs.prepare-evidence.outputs.artifact_digest }}
+          BACKUP_JOB_RESULT: ${{ needs.backup.result }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+          BOOTSTRAP_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap_walg_secrets_only || false }}
+        run: |
+          set +x
+          set -euo pipefail
+          set +a
+          if [ "${AQUA_SIGNER_SANITIZED:-}" != 'github-oidc-read-only-v1' ]; then
+            SIGNER_NODE_BIN="$(/usr/bin/readlink -f -- "$(command -v node)")"
+            SIGNER_GH_BIN="$(/usr/bin/readlink -f -- "$(command -v gh)")"
+            case "${SIGNER_NODE_BIN}" in /*) ;; *) exit 1 ;; esac
+            case "${SIGNER_GH_BIN}" in /*) ;; *) exit 1 ;; esac
+            test -f "${SIGNER_NODE_BIN}"
+            test -x "${SIGNER_NODE_BIN}"
+            test -f "${SIGNER_GH_BIN}"
+            test -x "${SIGNER_GH_BIN}"
+            SIGNER_SCRIPT="$(/usr/bin/readlink -f -- "${BASH_SOURCE[0]}")"
+            test -f "${SIGNER_SCRIPT}"
+            test ! -L "${SIGNER_SCRIPT}"
+            exec /usr/bin/env -i \
+              PATH=/usr/bin:/bin \
+              HOME=/nonexistent \
+              LC_ALL=C \
+              AQUA_SIGNER_SANITIZED=github-oidc-read-only-v1 \
+              NODE_BIN="${SIGNER_NODE_BIN}" \
+              GH_BIN="${SIGNER_GH_BIN}" \
+              GH_TOKEN="${GH_TOKEN:?GH_TOKEN is required}" \
+              ACTIONS_ID_TOKEN_REQUEST_TOKEN="${ACTIONS_ID_TOKEN_REQUEST_TOKEN:?OIDC request token is required}" \
+              ACTIONS_ID_TOKEN_REQUEST_URL="${ACTIONS_ID_TOKEN_REQUEST_URL:?OIDC request URL is required}" \
+              GITHUB_ACTIONS=true \
+              GITHUB_EVENT_NAME="${GITHUB_EVENT_NAME}" \
+              GITHUB_OUTPUT="${GITHUB_OUTPUT:?GITHUB_OUTPUT is required}" \
+              GITHUB_REF="${GITHUB_REF}" \
+              GITHUB_REF_PROTECTED="${GITHUB_REF_PROTECTED}" \
+              GITHUB_REPOSITORY="${GITHUB_REPOSITORY}" \
+              GITHUB_RUN_ATTEMPT="${GITHUB_RUN_ATTEMPT}" \
+              GITHUB_RUN_ID="${GITHUB_RUN_ID}" \
+              GITHUB_SHA="${GITHUB_SHA}" \
+              GITHUB_WORKFLOW="${GITHUB_WORKFLOW}" \
+              UNSIGNED_ARTIFACT_ID="${UNSIGNED_ARTIFACT_ID}" \
+              UNSIGNED_ARTIFACT_DIGEST="${UNSIGNED_ARTIFACT_DIGEST}" \
+              BACKUP_JOB_RESULT="${BACKUP_JOB_RESULT}" \
+              DRY_RUN="${DRY_RUN}" \
+              BOOTSTRAP_ONLY="${BOOTSTRAP_ONLY}" \
+              /bin/bash --noprofile --norc -e -u -o pipefail "${SIGNER_SCRIPT}"
+          fi
+          github_token_material=${GH_TOKEN:?GH_TOKEN is required}
+          oidc_request_token_material=${ACTIONS_ID_TOKEN_REQUEST_TOKEN:?OIDC request token is required}
+          oidc_request_url_material=${ACTIONS_ID_TOKEN_REQUEST_URL:?OIDC request URL is required}
+          github_output_path=${GITHUB_OUTPUT:?GITHUB_OUTPUT is required}
+          node_bin_material=${NODE_BIN:?NODE_BIN is required}
+          gh_bin_material=${GH_BIN:?GH_BIN is required}
+          case "${node_bin_material}" in /*) ;; *) exit 1 ;; esac
+          case "${gh_bin_material}" in /*) ;; *) exit 1 ;; esac
+          test -f "${node_bin_material}"
+          test -x "${node_bin_material}"
+          test -f "${gh_bin_material}"
+          test -x "${gh_bin_material}"
+          unset NODE_BIN GH_BIN
+          unset GH_TOKEN GITHUB_TOKEN GITHUB_OUTPUT
+          unset ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
+
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${GITHUB_REF_PROTECTED}" = 'true'
+          [[ "${UNSIGNED_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${UNSIGNED_ARTIFACT_DIGEST}" =~ ^[0-9a-f]{64}$ ]]
+          if [ "${BOOTSTRAP_ONLY}" = 'true' ]; then
+            EXPECTED_RUN_MODE=bootstrap_only
+          elif [ "${DRY_RUN}" = 'true' ]; then
+            EXPECTED_RUN_MODE=dry_run
+          else
+            EXPECTED_RUN_MODE=full_backup
+          fi
+          EXPECTED_ARTIFACT_NAME="unsigned-walg-evidence-v3-backup-production.yml-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+          assert_exact_current_main() {
+            local remote_main_sha
+            remote_main_sha="$(GH_TOKEN="${github_token_material}" gh api \
+              "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
+              --jq '.object.sha')" || return
+            [[ "${remote_main_sha}" =~ ^[0-9a-f]{40}$ ]] || return
+            test "${remote_main_sha}" = "${GITHUB_SHA}"
+          }
+
+          ATTEMPT_INTERVAL="$(GH_TOKEN="${github_token_material}" "${gh_bin_material}" api \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}" \
+            --jq '[.run_started_at, .updated_at] | @tsv')"
+          IFS=$'\t' read -r ATTEMPT_STARTED_AT ATTEMPT_UPDATED_AT <<< "${ATTEMPT_INTERVAL}"
+          ATTEMPT_STARTED_EPOCH="$(date -u -d "${ATTEMPT_STARTED_AT}" +%s)"
+          ATTEMPT_UPDATED_EPOCH="$(date -u -d "${ATTEMPT_UPDATED_AT}" +%s)"
+          test "${ATTEMPT_STARTED_EPOCH}" -le "${ATTEMPT_UPDATED_EPOCH}"
+          assert_current_attempt_artifact_time() {
+            local created_at=$1
+            local created_epoch
+            created_epoch="$(date -u -d "${created_at}" +%s)" || return
+            [ "${created_epoch}" -ge "${ATTEMPT_STARTED_EPOCH}" ] && \
+              [ "${created_epoch}" -le "${ATTEMPT_UPDATED_EPOCH}" ]
+          }
+          download_bounded_github_artifact_zip() {
+            local artifact_id=$1
+            local output_path=$2
+            local max_bytes=$3
+            local pipeline_status
+            [[ "${artifact_id}" =~ ^[1-9][0-9]*$ ]]
+            [[ "${max_bytes}" =~ ^[1-9][0-9]*$ ]]
+            set +e
+            GH_TOKEN="${github_token_material}" "${gh_bin_material}" api \
+              "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
+              | /usr/bin/head -c "$((max_bytes + 1))" > "${output_path}"
+            pipeline_status=("${PIPESTATUS[@]}")
+            set -e
+            if [ "${#pipeline_status[@]}" -ne 2 ] || \
+               [ "${pipeline_status[0]}" -ne 0 ] || \
+               [ "${pipeline_status[1]}" -ne 0 ] || \
+               [ ! -f "${output_path}" ] || [ -L "${output_path}" ] || \
+               [ "$(stat -c '%s' "${output_path}")" -lt 1 ] || \
+               [ "$(stat -c '%s' "${output_path}")" -gt "${max_bytes}" ]; then
+              rm -f -- "${output_path}"
+              return 1
             fi
+          }
+
+          assert_exact_current_main
+          ARTIFACT_METADATA="$(GH_TOKEN="${github_token_material}" gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/artifacts/${UNSIGNED_ARTIFACT_ID}" \
+            --jq '[.id, .name, .expired, .digest, .size_in_bytes, .created_at, .workflow_run.id, .workflow_run.head_branch, .workflow_run.head_sha] | @tsv')" || exit
+          IFS=$'\t' read -r OBSERVED_ID OBSERVED_NAME OBSERVED_EXPIRED OBSERVED_DIGEST \
+            OBSERVED_BYTES OBSERVED_CREATED_AT OBSERVED_RUN_ID OBSERVED_BRANCH \
+            OBSERVED_HEAD_SHA <<< "${ARTIFACT_METADATA}"
+          test "${OBSERVED_ID}" = "${UNSIGNED_ARTIFACT_ID}"
+          test "${OBSERVED_NAME}" = "${EXPECTED_ARTIFACT_NAME}"
+          test "${OBSERVED_EXPIRED}" = 'false'
+          test "${OBSERVED_DIGEST}" = "sha256:${UNSIGNED_ARTIFACT_DIGEST}"
+          [[ "${OBSERVED_BYTES}" =~ ^[1-9][0-9]*$ ]]
+          test "${OBSERVED_BYTES}" -le 268435456
+          assert_current_attempt_artifact_time "${OBSERVED_CREATED_AT}"
+          test "${OBSERVED_RUN_ID}" = "${GITHUB_RUN_ID}"
+          test "${OBSERVED_BRANCH}" = 'main'
+          test "${OBSERVED_HEAD_SHA}" = "${GITHUB_SHA}"
+
+          assert_exact_current_main
+          download_bounded_github_artifact_zip \
+            "${UNSIGNED_ARTIFACT_ID}" unsigned-evidence.zip 268435456
+          test -f unsigned-evidence.zip
+          test ! -L unsigned-evidence.zip
+          UNSIGNED_ARCHIVE_BYTES="$(stat -c '%s' unsigned-evidence.zip)"
+          test "${UNSIGNED_ARCHIVE_BYTES}" -gt 0
+          test "${UNSIGNED_ARCHIVE_BYTES}" -le 268435456
+          test "${UNSIGNED_ARCHIVE_BYTES}" = "${OBSERVED_BYTES}"
+          UNSIGNED_ARCHIVE_SHA256="$(sha256sum unsigned-evidence.zip | awk '{print $1}')"
+          test "${UNSIGNED_ARCHIVE_SHA256}" = "${UNSIGNED_ARTIFACT_DIGEST}"
+
+          mkdir -p evidence-artifact
+          python3 - unsigned-evidence.zip evidence-artifact <<'PY'
+          import os
+          import stat
+          import sys
+          import zipfile
+
+          archive_path, destination = sys.argv[1:]
+          minimal = {
+              'cosign',
+              'cosign.sha256',
+              'run-record.json',
+          }
+          full = minimal | {'base-backup.json', 'evidence-attestation.json'}
+          limits = {
+              'cosign': 268435456,
+              'cosign.sha256': 128,
+              'run-record.json': 16384,
+              'evidence-attestation.json': 16384,
+              'base-backup.json': 8388608,
+          }
+          with zipfile.ZipFile(archive_path, 'r') as archive:
+              entries = archive.infolist()
+              names = [entry.filename for entry in entries]
+              if len(names) != len(set(names)) or set(names) not in (minimal, full):
+                  raise SystemExit('unsigned artifact has an unexpected or duplicate file set')
+              for entry in entries:
+                  name = entry.filename
+                  unix_mode = entry.external_attr >> 16
+                  if (
+                      entry.is_dir()
+                      or name != os.path.basename(name)
+                      or '/' in name
+                      or '\\' in name
+                      or stat.S_ISLNK(unix_mode)
+                      or entry.file_size <= 0
+                      or entry.file_size > limits[name]
+                  ):
+                      raise SystemExit(f'unsafe unsigned artifact entry: {name!r}')
+              for entry in entries:
+                  target = os.path.join(destination, entry.filename)
+                  descriptor = os.open(
+                      target,
+                      os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                      0o400,
+                  )
+                  total = 0
+                  with archive.open(entry, 'r') as source, os.fdopen(descriptor, 'wb') as output:
+                      while True:
+                          chunk = source.read(1048576)
+                          if not chunk:
+                              break
+                          total += len(chunk)
+                          if total > limits[entry.filename]:
+                              raise SystemExit(f'expanded artifact entry exceeded bound: {entry.filename!r}')
+                          output.write(chunk)
+                  if total != entry.file_size:
+                      raise SystemExit(f'artifact entry size changed while reading: {entry.filename!r}')
+          PY
+          rm -f unsigned-evidence.zip
+          test -z "$(find evidence-artifact -mindepth 1 -maxdepth 1 ! -type f -print -quit)"
+          test -f evidence-artifact/cosign
+          test -f evidence-artifact/cosign.sha256
+          test ! -L evidence-artifact/cosign
+          test ! -L evidence-artifact/cosign.sha256
+          COSIGN_SHA_RECORD="$(cat evidence-artifact/cosign.sha256)"
+          [[ "${COSIGN_SHA_RECORD}" =~ ^[0-9a-f]{64}\ \ cosign$ ]]
+          EXPECTED_COSIGN_SHA256="${COSIGN_SHA_RECORD%% *}"
+          test "${EXPECTED_COSIGN_SHA256}" = \
+            'c956e5dfcac53d52bcf058360d579472f0c1d2d9b69f55209e256fe7783f4c74'
+          test "$(sha256sum evidence-artifact/cosign | awk '{print $1}')" = "${EXPECTED_COSIGN_SHA256}"
+          test -z "$(find evidence-artifact -maxdepth 1 -type f -name '*.mjs' -print -quit)"
+
+          fetch_exact_signer_tool() {
+            local repository_path=$1
+            local output_path=$2
+            local expected_sha256=$3
+            local max_bytes=$4
+            /usr/bin/env -i \
+              PATH=/usr/bin:/bin \
+              HOME=/nonexistent \
+              LC_ALL=C \
+              GH_TOKEN="${github_token_material}" \
+              GH_BIN="${gh_bin_material}" \
+              GITHUB_REPOSITORY="${GITHUB_REPOSITORY}" \
+              GITHUB_SHA="${GITHUB_SHA}" \
+              REPOSITORY_PATH="${repository_path}" \
+              OUTPUT_PATH="${output_path}" \
+              EXPECTED_SHA256="${expected_sha256}" \
+              MAX_BYTES="${max_bytes}" \
+              /bin/bash --noprofile --norc -e -u -o pipefail -c '
+                set +x
+                umask 077
+                [[ "${MAX_BYTES}" =~ ^[1-9][0-9]*$ ]]
+                [[ "${EXPECTED_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+                set +e
+                "${GH_BIN}" api \
+                  -H "Accept: application/vnd.github.raw+json" \
+                  "repos/${GITHUB_REPOSITORY}/contents/${REPOSITORY_PATH}?ref=${GITHUB_SHA}" \
+                  | /usr/bin/head -c "$((MAX_BYTES + 1))" > "${OUTPUT_PATH}"
+                pipeline_status=("${PIPESTATUS[@]}")
+                set -e
+                observed_sha256=
+                if [ -f "${OUTPUT_PATH}" ] && [ ! -L "${OUTPUT_PATH}" ]; then
+                  read -r observed_sha256 _ < <(sha256sum "${OUTPUT_PATH}")
+                fi
+                if [ "${#pipeline_status[@]}" -ne 2 ] || \
+                   [ "${pipeline_status[0]}" -ne 0 ] || \
+                   [ "${pipeline_status[1]}" -ne 0 ] || \
+                   [ ! -f "${OUTPUT_PATH}" ] || [ -L "${OUTPUT_PATH}" ] || \
+                   [ "$(stat -c "%s" "${OUTPUT_PATH}")" -lt 1 ] || \
+                   [ "$(stat -c "%s" "${OUTPUT_PATH}")" -gt "${MAX_BYTES}" ] || \
+                   [ "${observed_sha256}" != "${EXPECTED_SHA256}" ]; then
+                  rm -f -- "${OUTPUT_PATH}"
+                  exit 1
+                fi
+                chmod 0400 "${OUTPUT_PATH}"
+              '
+          }
+          run_trusted_node() {
+            /usr/bin/env -i \
+              PATH=/usr/bin:/bin \
+              HOME=/nonexistent \
+              LC_ALL=C \
+              "${node_bin_material}" "$@"
+          }
+          mkdir -m 0700 trusted-tools
+          fetch_exact_signer_tool \
+            tools/scripts/database/evaluate-walg-evidence.mjs \
+            trusted-tools/evaluate-walg-evidence.mjs \
+            4ffc7a7455b806ffe81975fce8bc877c2dacfdf3e522fb17f322077208a41650 \
+            1048576
+          fetch_exact_signer_tool \
+            tools/scripts/database/walg-evidence-attestation.mjs \
+            trusted-tools/walg-evidence-attestation.mjs \
+            13e901b60be9b306d225c0a45fab3337b84f0b73c7056b96c110e3f0a1362a46 \
+            1048576
+          test "$(find trusted-tools -maxdepth 1 -type f | wc -l)" -eq 2
+          run_trusted_node --check trusted-tools/evaluate-walg-evidence.mjs
+          run_trusted_node --check trusted-tools/walg-evidence-attestation.mjs
+          run_trusted_node trusted-tools/walg-evidence-attestation.mjs verify-local-run \
+            --run-record evidence-artifact/run-record.json \
+            --workflow backup-production.yml \
+            --workflow-name "${GITHUB_WORKFLOW}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --ref "${GITHUB_REF}" \
+            --sha "${GITHUB_SHA}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --event-name "${GITHUB_EVENT_NAME}" \
+            --job-result "${BACKUP_JOB_RESULT}" \
+            --mode "${EXPECTED_RUN_MODE}" >/dev/null
+          chmod 0555 evidence-artifact/cosign
+          COSIGN_BYTES="$(stat -c '%s' evidence-artifact/cosign)"
+          test "${COSIGN_BYTES}" -gt 0
+          test "${COSIGN_BYTES}" -le 268435456
+
+          test -f evidence-artifact/run-record.json
+          test ! -L evidence-artifact/run-record.json
+          if [ "${BACKUP_JOB_RESULT}" = 'success' ] && \
+             [ "${EXPECTED_RUN_MODE}" = 'full_backup' ]; then
+            test -f evidence-artifact/evidence-attestation.json
+            test -f evidence-artifact/base-backup.json
+          else
+            test ! -e evidence-artifact/evidence-attestation.json
+            test ! -e evidence-artifact/base-backup.json
+          fi
+          RECORDS=(evidence-artifact/run-record.json)
+          RAW_EVIDENCE_FILE=
+          if [ -f evidence-artifact/evidence-attestation.json ]; then
+            test ! -L evidence-artifact/evidence-attestation.json
+            test -f evidence-artifact/base-backup.json
+            test ! -L evidence-artifact/base-backup.json
+            RAW_EVIDENCE_FILE=evidence-artifact/base-backup.json
+            RECORDS+=(evidence-artifact/evidence-attestation.json)
+          fi
+          RAW_EVIDENCE_COUNT=0
+          if [ -n "${RAW_EVIDENCE_FILE}" ]; then RAW_EVIDENCE_COUNT=1; fi
+          test "$(find evidence-artifact -maxdepth 1 -type f | wc -l)" -eq \
+            "$((${#RECORDS[@]} + RAW_EVIDENCE_COUNT + 2))"
+          for RECORD in "${RECORDS[@]}"; do
+            RECORD_BYTES="$(stat -c '%s' "${RECORD}")"
+            test "${RECORD_BYTES}" -gt 0
+            test "${RECORD_BYTES}" -le 16384
+          done
+
+          if [ -n "${RAW_EVIDENCE_FILE}" ]; then
+            RAW_EVIDENCE_BYTES=$(stat -c '%s' "${RAW_EVIDENCE_FILE}")
+            [[ "${RAW_EVIDENCE_BYTES}" =~ ^[1-9][0-9]*$ ]]
+            test "${RAW_EVIDENCE_BYTES}" -le 8388608
+            RAW_BINDING=$(jq -er \
+              '[.source_transport.artifact.id, .source_transport.artifact.name, .source_transport.artifact.digest, .source_transport.artifact.artifact_created_at, .source_transport.artifact.path] | @tsv' \
+              evidence-artifact/evidence-attestation.json)
+            IFS=$'\t' read -r RAW_ARTIFACT_ID RAW_ARTIFACT_NAME RAW_ARTIFACT_DIGEST \
+              RAW_ARTIFACT_CREATED_AT RAW_ARTIFACT_PATH <<< "${RAW_BINDING}"
+            [[ "${RAW_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
+            test "${RAW_ARTIFACT_NAME}" = \
+              "walg-raw-evidence-v1-backup-production.yml-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            [[ "${RAW_ARTIFACT_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+            test "${RAW_ARTIFACT_PATH}" = 'base-backup.json'
+            assert_exact_current_main
+            RAW_ARTIFACT_METADATA="$(GH_TOKEN="${github_token_material}" gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/artifacts/${RAW_ARTIFACT_ID}" \
+              --jq '[.id, .name, .expired, .digest, .size_in_bytes, .created_at, .workflow_run.id, .workflow_run.head_branch, .workflow_run.head_sha] | @tsv')" || exit
+            IFS=$'\t' read -r OBSERVED_RAW_ID OBSERVED_RAW_NAME OBSERVED_RAW_EXPIRED \
+              OBSERVED_RAW_DIGEST OBSERVED_RAW_BYTES OBSERVED_RAW_CREATED_AT OBSERVED_RAW_RUN_ID \
+              OBSERVED_RAW_BRANCH OBSERVED_RAW_HEAD_SHA <<< "${RAW_ARTIFACT_METADATA}"
+            test "${OBSERVED_RAW_ID}" = "${RAW_ARTIFACT_ID}"
+            test "${OBSERVED_RAW_NAME}" = "${RAW_ARTIFACT_NAME}"
+            test "${OBSERVED_RAW_EXPIRED}" = 'false'
+            test "${OBSERVED_RAW_DIGEST}" = "${RAW_ARTIFACT_DIGEST}"
+            [[ "${OBSERVED_RAW_BYTES}" =~ ^[1-9][0-9]*$ ]]
+            test "${OBSERVED_RAW_BYTES}" -le 9437184
+            test "${OBSERVED_RAW_CREATED_AT}" = "${RAW_ARTIFACT_CREATED_AT}"
+            assert_current_attempt_artifact_time "${OBSERVED_RAW_CREATED_AT}"
+            test "${OBSERVED_RAW_RUN_ID}" = "${GITHUB_RUN_ID}"
+            test "${OBSERVED_RAW_BRANCH}" = 'main'
+            test "${OBSERVED_RAW_HEAD_SHA}" = "${GITHUB_SHA}"
+            assert_exact_current_main
+            download_bounded_github_artifact_zip \
+              "${RAW_ARTIFACT_ID}" raw-evidence.zip 9437184
+            test "$(stat -c '%s' raw-evidence.zip)" = "${OBSERVED_RAW_BYTES}"
+            test "sha256:$(sha256sum raw-evidence.zip | awk '{print $1}')" = \
+              "${RAW_ARTIFACT_DIGEST}"
+            mkdir -m 0700 raw-evidence-check
+          python3 - raw-evidence.zip raw-evidence-check/base-backup.json <<'PY'
+          import os
+          import stat
+          import sys
+          import zipfile
+
+          archive_path, output_path = sys.argv[1:]
+          with zipfile.ZipFile(archive_path, 'r') as archive:
+              entries = archive.infolist()
+              if len(entries) != 1 or entries[0].filename != 'base-backup.json':
+                  raise SystemExit('raw backup artifact has an unexpected file set')
+              entry = entries[0]
+              if (
+                  entry.is_dir()
+                  or stat.S_ISLNK(entry.external_attr >> 16)
+                  or entry.file_size <= 0
+                  or entry.file_size > 8388608
+              ):
+                  raise SystemExit('raw backup artifact entry is unsafe')
+              descriptor = os.open(
+                  output_path,
+                  os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                  0o400,
+              )
+              total = 0
+              with archive.open(entry, 'r') as source, os.fdopen(descriptor, 'wb') as output:
+                  while True:
+                      chunk = source.read(65536)
+                      if not chunk:
+                          break
+                      total += len(chunk)
+                      if total > 8388608:
+                          raise SystemExit('expanded raw backup evidence exceeds its bound')
+                      output.write(chunk)
+              if total != entry.file_size:
+                  raise SystemExit('raw backup evidence size changed during extraction')
+          PY
+            cmp -s raw-evidence-check/base-backup.json "${RAW_EVIDENCE_FILE}"
+            run_trusted_node trusted-tools/walg-evidence-attestation.mjs verify-binding \
+              --attestation evidence-artifact/evidence-attestation.json \
+              --run-record evidence-artifact/run-record.json \
+              --evidence "${RAW_EVIDENCE_FILE}" \
+              --artifact-id "${RAW_ARTIFACT_ID}" \
+              --artifact-name "${RAW_ARTIFACT_NAME}" \
+              --artifact-digest "${RAW_ARTIFACT_DIGEST}" \
+              --artifact-created-at "${RAW_ARTIFACT_CREATED_AT}" >/dev/null
+            rm -rf -- raw-evidence-check
+            rm -f raw-evidence.zip
+          fi
+
+          for RECORD in "${RECORDS[@]}"; do
+            assert_exact_current_main || exit
+            BUNDLE="${RECORD%.json}.sigstore.json"
+            ACTIONS_ID_TOKEN_REQUEST_TOKEN="${oidc_request_token_material}" \
+              ACTIONS_ID_TOKEN_REQUEST_URL="${oidc_request_url_material}" \
+              evidence-artifact/cosign sign-blob --yes \
+              --bundle "${BUNDLE}" \
+              "${RECORD}"
+            test -f "${BUNDLE}"
+            test ! -L "${BUNDLE}"
+            BUNDLE_BYTES="$(stat -c '%s' "${BUNDLE}")"
+            test "${BUNDLE_BYTES}" -gt 0
+            test "${BUNDLE_BYTES}" -le 49152
+          done
+          unset oidc_request_token_material oidc_request_url_material
+
+          IDENTITY="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/backup-production.yml@refs/heads/main"
+          for RECORD in "${RECORDS[@]}"; do
+            evidence-artifact/cosign verify-blob \
+              --bundle "${RECORD%.json}.sigstore.json" \
+              --certificate-identity "${IDENTITY}" \
+              --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+              --certificate-github-workflow-repository "${GITHUB_REPOSITORY}" \
+              --certificate-github-workflow-ref 'refs/heads/main' \
+              --certificate-github-workflow-sha "${GITHUB_SHA}" \
+              --certificate-github-workflow-trigger "${GITHUB_EVENT_NAME}" \
+              --certificate-github-workflow-name "${GITHUB_WORKFLOW}" \
+              "${RECORD}"
+          done
+
+          rm -rf -- trusted-tools
+          rm -f \
+            evidence-artifact/cosign \
+            evidence-artifact/cosign.sha256
+          test -z "$(find evidence-artifact -mindepth 1 -maxdepth 1 ! -type f -print -quit)"
+          test "$(find evidence-artifact -maxdepth 1 -type f | wc -l)" -eq \
+            "$((2 * ${#RECORDS[@]} + RAW_EVIDENCE_COUNT))"
+          assert_exact_current_main || exit
+          emit_hex_output() {
+            local output_name=$1
+            local source_path=$2
+            local max_bytes=$3
+            local source_bytes hex_value
+            test -f "${source_path}"
+            test ! -L "${source_path}"
+            source_bytes="$(stat -c '%s' "${source_path}")"
+            [[ "${source_bytes}" =~ ^[1-9][0-9]*$ ]]
+            test "${source_bytes}" -le "${max_bytes}"
+            hex_value="$(od -An -v -tx1 "${source_path}" | tr -d ' \n')"
+            [[ "${hex_value}" =~ ^[0-9a-f]+$ ]]
+            test "${#hex_value}" -eq "$((source_bytes * 2))"
+            printf '%s=%s\n' "${output_name}" "${hex_value}" >> "${github_output_path}"
+          }
+          emit_hex_output run_record_hex evidence-artifact/run-record.json 16384
+          emit_hex_output run_bundle_hex evidence-artifact/run-record.sigstore.json 49152
+          if [ -f evidence-artifact/evidence-attestation.json ]; then
+            emit_hex_output evidence_attestation_hex \
+              evidence-artifact/evidence-attestation.json 16384
+            emit_hex_output evidence_bundle_hex \
+              evidence-artifact/evidence-attestation.sigstore.json 49152
+          else
+            printf 'evidence_attestation_hex=\n' >> "${github_output_path}"
+            printf 'evidence_bundle_hex=\n' >> "${github_output_path}"
+          fi
+          assert_exact_current_main || exit
+
+  transfer-evidence:
+    name: Materialize signed backup evidence without OIDC
+    needs: [backup, sign-evidence]
+    if: ${{ always() && needs.sign-evidence.result == 'success' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      artifact_id: ${{ steps.preserve_signed.outputs.artifact-id }}
+      artifact_digest: ${{ steps.preserve_signed.outputs.artifact-digest }}
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout exact signed-transfer verifier
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Require protected main transfer authority
+        run: |
+          set +x
+          set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${GITHUB_REF_PROTECTED}" = 'true'
+          test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
+
+      - name: Install pinned cosign verifier
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.0.6
+
+      - name: Rebuild and verify signed transfer payload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVIDENCE_WORKFLOW_FILE: backup-production.yml
+          EVIDENCE_WORKFLOW_NAME: Backup - Production Postgres
+          EVIDENCE_JOB_RESULT: ${{ needs.backup.result }}
+          EVIDENCE_RUN_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap_walg_secrets_only && 'bootstrap_only' || github.event_name == 'workflow_dispatch' && inputs.dry_run && 'dry_run' || 'full_backup' }}
+          SIGNED_RUN_RECORD_HEX: ${{ needs.sign-evidence.outputs.run_record_hex }}
+          SIGNED_RUN_BUNDLE_HEX: ${{ needs.sign-evidence.outputs.run_bundle_hex }}
+          SIGNED_EVIDENCE_ATTESTATION_HEX: ${{ needs.sign-evidence.outputs.evidence_attestation_hex }}
+          SIGNED_EVIDENCE_BUNDLE_HEX: ${{ needs.sign-evidence.outputs.evidence_bundle_hex }}
+        run: |
+          set +x
+          bash tools/scripts/database/materialize-walg-signed-transfer.sh
+
+      - name: Preserve immutable signed evidence transfer artifact
+        id: preserve_signed
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signed-walg-evidence-transfer-v3-backup-production.yml-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence-artifact/
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+          compression-level: 0
+          archive: true
+
+      - name: Re-prove exact main after signed transfer publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +x
+          set -euo pipefail
+          REMOTE_MAIN_SHA="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
+            --jq '.object.sha')"
+          [[ "${REMOTE_MAIN_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${REMOTE_MAIN_SHA}" = "${GITHUB_SHA}"
+
+  publish-evidence:
+    name: Publish signed backup evidence mirror
+    needs: [backup, transfer-evidence]
+    if: ${{ always() && needs.transfer-evidence.result == 'success' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: production-backup
+      deployment: false
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout mirror authority
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Require protected main mirror authority
+        run: |
+          set +x
+          set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
+
+      - name: Download exact signed evidence transfer artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNED_TRANSFER_ARTIFACT_ID: ${{ needs.transfer-evidence.outputs.artifact_id }}
+          SIGNED_TRANSFER_ARTIFACT_DIGEST: ${{ needs.transfer-evidence.outputs.artifact_digest }}
+        run: |
+          set +x
+          set -euo pipefail
+          umask 077
+          github_token_material=${GH_TOKEN:?GH_TOKEN is required}
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN
+          [[ "${SIGNED_TRANSFER_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
+          case "${SIGNED_TRANSFER_ARTIFACT_DIGEST}" in
+            sha256:*) SIGNED_TRANSFER_DIGEST=${SIGNED_TRANSFER_ARTIFACT_DIGEST#sha256:} ;;
+            *) SIGNED_TRANSFER_DIGEST=${SIGNED_TRANSFER_ARTIFACT_DIGEST} ;;
+          esac
+          [[ "${SIGNED_TRANSFER_DIGEST}" =~ ^[0-9a-f]{64}$ ]]
+          EXPECTED_TRANSFER_NAME="signed-walg-evidence-transfer-v3-backup-production.yml-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          assert_exact_current_main() {
+            local remote_main_sha
+            remote_main_sha="$(GH_TOKEN="${github_token_material}" gh api \
+              "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
+              --jq '.object.sha')" || return
+            [[ "${remote_main_sha}" =~ ^[0-9a-f]{40}$ ]] || return
+            test "${remote_main_sha}" = "${GITHUB_SHA}"
+          }
+          ATTEMPT_STARTED_AT="$(GH_TOKEN="${github_token_material}" gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}" \
+            --jq '.run_started_at')"
+          ATTEMPT_STARTED_EPOCH="$(date -u -d "${ATTEMPT_STARTED_AT}" +%s)"
+          assert_current_attempt_artifact_time() {
+            local created_at=$1
+            local created_epoch now_epoch
+            created_epoch="$(date -u -d "${created_at}" +%s)" || return
+            now_epoch="$(date -u +%s)"
+            [ "${created_epoch}" -ge "${ATTEMPT_STARTED_EPOCH}" ] && \
+              [ "${created_epoch}" -le "$((now_epoch + 60))" ]
+          }
+          assert_exact_current_main
+          TRANSFER_METADATA="$(GH_TOKEN="${github_token_material}" gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/artifacts/${SIGNED_TRANSFER_ARTIFACT_ID}" \
+            --jq '[.id, .name, .expired, .digest, .size_in_bytes, .created_at, .workflow_run.id, .workflow_run.head_branch, .workflow_run.head_sha] | @tsv')" || exit
+          IFS=$'\t' read -r OBSERVED_ID OBSERVED_NAME OBSERVED_EXPIRED OBSERVED_DIGEST \
+            OBSERVED_BYTES OBSERVED_CREATED_AT OBSERVED_RUN_ID OBSERVED_BRANCH \
+            OBSERVED_HEAD_SHA <<< "${TRANSFER_METADATA}"
+          test "${OBSERVED_ID}" = "${SIGNED_TRANSFER_ARTIFACT_ID}"
+          test "${OBSERVED_NAME}" = "${EXPECTED_TRANSFER_NAME}"
+          test "${OBSERVED_EXPIRED}" = 'false'
+          test "${OBSERVED_DIGEST}" = "sha256:${SIGNED_TRANSFER_DIGEST}"
+          [[ "${OBSERVED_BYTES}" =~ ^[1-9][0-9]*$ ]]
+          test "${OBSERVED_BYTES}" -le 10485760
+          assert_current_attempt_artifact_time "${OBSERVED_CREATED_AT}"
+          test "${OBSERVED_RUN_ID}" = "${GITHUB_RUN_ID}"
+          test "${OBSERVED_BRANCH}" = 'main'
+          test "${OBSERVED_HEAD_SHA}" = "${GITHUB_SHA}"
+          assert_exact_current_main
+          GH_TOKEN="${github_token_material}" gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/artifacts/${SIGNED_TRANSFER_ARTIFACT_ID}/zip" \
+            | /usr/bin/head -c 10485761 > signed-evidence-transfer.zip
+          test "$(stat -c '%s' signed-evidence-transfer.zip)" = "${OBSERVED_BYTES}"
+          test "$(sha256sum signed-evidence-transfer.zip | awk '{print $1}')" = \
+            "${SIGNED_TRANSFER_DIGEST}"
+          python3 - signed-evidence-transfer.zip evidence-artifact <<'PY'
+          import os
+          import stat
+          import sys
+          import zipfile
+
+          archive_path, destination = sys.argv[1:]
+          minimal = {'run-record.json', 'run-record.sigstore.json'}
+          full = minimal | {
+              'base-backup.json',
+              'evidence-attestation.json',
+              'evidence-attestation.sigstore.json',
+          }
+          limits = {
+              'base-backup.json': 8388608,
+              'evidence-attestation.json': 262144,
+              'evidence-attestation.sigstore.json': 262144,
+              'run-record.json': 262144,
+              'run-record.sigstore.json': 262144,
+          }
+          with zipfile.ZipFile(archive_path, 'r') as archive:
+              entries = archive.infolist()
+              names = [entry.filename for entry in entries]
+              if len(names) != len(set(names)) or set(names) not in (minimal, full):
+                  raise SystemExit('signed transfer artifact has an unexpected or duplicate file set')
+              total_expanded = 0
+              for entry in entries:
+                  name = entry.filename
+                  if (
+                      entry.is_dir()
+                      or name != os.path.basename(name)
+                      or '/' in name
+                      or '\\' in name
+                      or stat.S_ISLNK(entry.external_attr >> 16)
+                      or entry.file_size <= 0
+                      or entry.file_size > limits[name]
+                  ):
+                      raise SystemExit(f'unsafe signed transfer entry: {name!r}')
+                  total_expanded += entry.file_size
+              if total_expanded > 9437184:
+                  raise SystemExit('expanded signed transfer artifact exceeds its bound')
+              os.mkdir(destination, 0o700)
+              for entry in entries:
+                  target = os.path.join(destination, entry.filename)
+                  descriptor = os.open(
+                      target,
+                      os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                      0o400,
+                  )
+                  written = 0
+                  with archive.open(entry, 'r') as source, os.fdopen(descriptor, 'wb') as output:
+                      while True:
+                          chunk = source.read(65536)
+                          if not chunk:
+                              break
+                          written += len(chunk)
+                          if written > limits[entry.filename]:
+                              raise SystemExit(f'signed transfer entry exceeded bound: {entry.filename!r}')
+                          output.write(chunk)
+                  if written != entry.file_size:
+                      raise SystemExit(f'signed transfer entry size changed: {entry.filename!r}')
+          PY
+          rm -f signed-evidence-transfer.zip
+          test -z "$(find evidence-artifact -mindepth 1 -maxdepth 1 ! -type f -print -quit)"
+          assert_exact_current_main
+
+      - name: Install cosign for read-only verification
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.0.6
+
+      - name: Verify signed records and raw artifact before protected mirror access
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +x
+          set -euo pipefail
+          umask 077
+          github_token_material=${GH_TOKEN:?GH_TOKEN is required}
+          gh_bin_material="$(/usr/bin/readlink -f -- "$(command -v gh)")"
+          case "${gh_bin_material}" in /*) ;; *) exit 1 ;; esac
+          test -f "${gh_bin_material}"
+          test -x "${gh_bin_material}"
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN
+          assert_exact_current_main() {
+            local remote_main_sha
+            remote_main_sha="$(GH_TOKEN="${github_token_material}" gh api \
+              "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
+              --jq '.object.sha')" || return
+            [[ "${remote_main_sha}" =~ ^[0-9a-f]{40}$ ]] || return
+            test "${remote_main_sha}" = "${GITHUB_SHA}"
+          }
+          ATTEMPT_INTERVAL="$(GH_TOKEN="${github_token_material}" "${gh_bin_material}" api \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}" \
+            --jq '[.run_started_at, .updated_at] | @tsv')"
+          IFS=$'\t' read -r ATTEMPT_STARTED_AT ATTEMPT_UPDATED_AT <<< "${ATTEMPT_INTERVAL}"
+          ATTEMPT_STARTED_EPOCH="$(date -u -d "${ATTEMPT_STARTED_AT}" +%s)"
+          ATTEMPT_UPDATED_EPOCH="$(date -u -d "${ATTEMPT_UPDATED_AT}" +%s)"
+          test "${ATTEMPT_STARTED_EPOCH}" -le "${ATTEMPT_UPDATED_EPOCH}"
+          assert_current_attempt_artifact_time() {
+            local created_at=$1
+            local created_epoch
+            created_epoch="$(date -u -d "${created_at}" +%s)" || return
+            [ "${created_epoch}" -ge "${ATTEMPT_STARTED_EPOCH}" ] && \
+              [ "${created_epoch}" -le "${ATTEMPT_UPDATED_EPOCH}" ]
+          }
+          download_bounded_github_artifact_zip() {
+            local artifact_id=$1
+            local output_path=$2
+            local max_bytes=$3
+            local pipeline_status
+            [[ "${artifact_id}" =~ ^[1-9][0-9]*$ ]]
+            [[ "${max_bytes}" =~ ^[1-9][0-9]*$ ]]
+            set +e
+            GH_TOKEN="${github_token_material}" "${gh_bin_material}" api \
+              "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
+              | /usr/bin/head -c "$((max_bytes + 1))" > "${output_path}"
+            pipeline_status=("${PIPESTATUS[@]}")
+            set -e
+            if [ "${#pipeline_status[@]}" -ne 2 ] || \
+               [ "${pipeline_status[0]}" -ne 0 ] || \
+               [ "${pipeline_status[1]}" -ne 0 ] || \
+               [ ! -f "${output_path}" ] || [ -L "${output_path}" ] || \
+               [ "$(stat -c '%s' "${output_path}")" -lt 1 ] || \
+               [ "$(stat -c '%s' "${output_path}")" -gt "${max_bytes}" ]; then
+              rm -f -- "${output_path}"
+              return 1
+            fi
+          }
+          assert_exact_current_main
+          test -f evidence-artifact/run-record.json
+          test -f evidence-artifact/run-record.sigstore.json
+          RECORDS=(evidence-artifact/run-record.json)
+          RAW_EVIDENCE_COUNT=0
+          if [ -f evidence-artifact/evidence-attestation.json ]; then
+            test -f evidence-artifact/evidence-attestation.sigstore.json
+            test -f evidence-artifact/base-backup.json
+            RAW_EVIDENCE_COUNT=1
+            RECORDS+=(evidence-artifact/evidence-attestation.json)
+          fi
+          test -z "$(find evidence-artifact -mindepth 1 -maxdepth 1 ! -type f -print -quit)"
+          test "$(find evidence-artifact -maxdepth 1 -type f | wc -l)" -eq \
+            "$((2 * ${#RECORDS[@]} + RAW_EVIDENCE_COUNT))"
+          IDENTITY="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/backup-production.yml@refs/heads/main"
+          for RECORD in "${RECORDS[@]}"; do
             cosign verify-blob \
               --bundle "${RECORD%.json}.sigstore.json" \
               --certificate-identity "${IDENTITY}" \
@@ -499,6 +1567,168 @@ jobs:
               --certificate-github-workflow-name "${GITHUB_WORKFLOW}" \
               "${RECORD}"
           done
+          if [ "${RAW_EVIDENCE_COUNT}" -eq 1 ]; then
+            RAW_BINDING=$(jq -er \
+              '[.source_transport.artifact.id, .source_transport.artifact.name, .source_transport.artifact.digest, .source_transport.artifact.artifact_created_at, .source_transport.artifact.path] | @tsv' \
+              evidence-artifact/evidence-attestation.json)
+            IFS=$'\t' read -r RAW_ARTIFACT_ID RAW_ARTIFACT_NAME RAW_ARTIFACT_DIGEST \
+              RAW_ARTIFACT_CREATED_AT RAW_ARTIFACT_PATH <<< "${RAW_BINDING}"
+            [[ "${RAW_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
+            test "${RAW_ARTIFACT_NAME}" = \
+              "walg-raw-evidence-v1-backup-production.yml-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            [[ "${RAW_ARTIFACT_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+            test "${RAW_ARTIFACT_PATH}" = 'base-backup.json'
+            assert_exact_current_main
+            RAW_METADATA="$(GH_TOKEN="${github_token_material}" gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/artifacts/${RAW_ARTIFACT_ID}" \
+              --jq '[.id, .name, .expired, .digest, .size_in_bytes, .created_at, .workflow_run.id, .workflow_run.head_branch, .workflow_run.head_sha] | @tsv')" || exit
+            IFS=$'\t' read -r OBSERVED_RAW_ID OBSERVED_RAW_NAME OBSERVED_RAW_EXPIRED \
+              OBSERVED_RAW_DIGEST OBSERVED_RAW_BYTES OBSERVED_RAW_CREATED_AT OBSERVED_RAW_RUN_ID \
+              OBSERVED_RAW_BRANCH OBSERVED_RAW_HEAD_SHA <<< "${RAW_METADATA}"
+            test "${OBSERVED_RAW_ID}" = "${RAW_ARTIFACT_ID}"
+            test "${OBSERVED_RAW_NAME}" = "${RAW_ARTIFACT_NAME}"
+            test "${OBSERVED_RAW_EXPIRED}" = 'false'
+            test "${OBSERVED_RAW_DIGEST}" = "${RAW_ARTIFACT_DIGEST}"
+            [[ "${OBSERVED_RAW_BYTES}" =~ ^[1-9][0-9]*$ ]]
+            test "${OBSERVED_RAW_BYTES}" -le 9437184
+            test "${OBSERVED_RAW_CREATED_AT}" = "${RAW_ARTIFACT_CREATED_AT}"
+            assert_current_attempt_artifact_time "${OBSERVED_RAW_CREATED_AT}"
+            test "${OBSERVED_RAW_RUN_ID}" = "${GITHUB_RUN_ID}"
+            test "${OBSERVED_RAW_BRANCH}" = 'main'
+            test "${OBSERVED_RAW_HEAD_SHA}" = "${GITHUB_SHA}"
+            assert_exact_current_main
+            download_bounded_github_artifact_zip \
+              "${RAW_ARTIFACT_ID}" raw-evidence.zip 9437184
+            test "$(stat -c '%s' raw-evidence.zip)" = "${OBSERVED_RAW_BYTES}"
+            test "sha256:$(sha256sum raw-evidence.zip | awk '{print $1}')" = \
+              "${RAW_ARTIFACT_DIGEST}"
+            mkdir -m 0700 raw-evidence-check
+          python3 - raw-evidence.zip raw-evidence-check/base-backup.json <<'PY'
+          import os
+          import stat
+          import sys
+          import zipfile
+
+          archive_path, output_path = sys.argv[1:]
+          with zipfile.ZipFile(archive_path, 'r') as archive:
+              entries = archive.infolist()
+              if len(entries) != 1 or entries[0].filename != 'base-backup.json':
+                  raise SystemExit('raw backup artifact has an unexpected file set')
+              entry = entries[0]
+              if (
+                  entry.is_dir()
+                  or stat.S_ISLNK(entry.external_attr >> 16)
+                  or entry.file_size <= 0
+                  or entry.file_size > 8388608
+              ):
+                  raise SystemExit('raw backup artifact entry is unsafe')
+              descriptor = os.open(
+                  output_path,
+                  os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                  0o400,
+              )
+              total = 0
+              with archive.open(entry, 'r') as source, os.fdopen(descriptor, 'wb') as output:
+                  while True:
+                      chunk = source.read(65536)
+                      if not chunk:
+                          break
+                      total += len(chunk)
+                      if total > 8388608:
+                          raise SystemExit('expanded raw backup evidence exceeds its bound')
+                      output.write(chunk)
+              if total != entry.file_size:
+                  raise SystemExit('raw backup evidence size changed during extraction')
+          PY
+            cmp -s raw-evidence-check/base-backup.json evidence-artifact/base-backup.json
+            node tools/scripts/database/walg-evidence-attestation.mjs verify-binding \
+              --attestation evidence-artifact/evidence-attestation.json \
+              --run-record evidence-artifact/run-record.json \
+              --evidence evidence-artifact/base-backup.json \
+              --artifact-id "${RAW_ARTIFACT_ID}" \
+              --artifact-name "${RAW_ARTIFACT_NAME}" \
+              --artifact-digest "${RAW_ARTIFACT_DIGEST}" \
+              --artifact-created-at "${RAW_ARTIFACT_CREATED_AT}" >/dev/null
+            rm -rf -- raw-evidence-check
+            rm -f raw-evidence.zip
+          fi
+          assert_exact_current_main
+
+      - name: Preserve immutable signed evidence artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: walg-evidence-v3-backup-production.yml-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence-artifact/
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90
+          compression-level: 0
+          archive: true
+
+      - name: Prove exact current main before protected evidence profile
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +x
+          set -euo pipefail
+          REMOTE_MAIN_SHA="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
+            --jq '.object.sha')"
+          [[ "${REMOTE_MAIN_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${REMOTE_MAIN_SHA}" = "${GITHUB_SHA}"
+
+      - name: Assert evidence publisher secret profile
+        env:
+          BACKUP_SECRET_PROFILE: evidence-publisher
+          SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
+          SPACES_REGION: ${{ secrets.SPACES_REGION }}
+          EVIDENCE_SPACES_BUCKET: ${{ secrets.EVIDENCE_SPACES_BUCKET }}
+          EVIDENCE_PUBLISHER_SPACES_ACCESS_KEY_ID: ${{ secrets.EVIDENCE_PUBLISHER_SPACES_ACCESS_KEY_ID }}
+          EVIDENCE_PUBLISHER_SPACES_SECRET_ACCESS_KEY: ${{ secrets.EVIDENCE_PUBLISHER_SPACES_SECRET_ACCESS_KEY }}
+        run: |
+          set +x
+          set -euo pipefail
+          set +a
+          if [ "${AQUA_EVIDENCE_PUBLISHER_PREFLIGHT_SANITIZED:-}" != 'aws-write-only-v1' ]; then
+            PREFLIGHT_SCRIPT="$(/usr/bin/readlink -f -- "${BASH_SOURCE[0]}")"
+            test -f "${PREFLIGHT_SCRIPT}"
+            test ! -L "${PREFLIGHT_SCRIPT}"
+            exec /usr/bin/env -i \
+              PATH=/usr/local/bin:/usr/bin:/bin \
+              HOME=/nonexistent \
+              LC_ALL=C \
+              AQUA_EVIDENCE_PUBLISHER_PREFLIGHT_SANITIZED=aws-write-only-v1 \
+              BACKUP_SECRET_PROFILE="${BACKUP_SECRET_PROFILE}" \
+              SPACES_ENDPOINT="${SPACES_ENDPOINT}" \
+              SPACES_REGION="${SPACES_REGION}" \
+              EVIDENCE_SPACES_BUCKET="${EVIDENCE_SPACES_BUCKET}" \
+              EVIDENCE_PUBLISHER_SPACES_ACCESS_KEY_ID="${EVIDENCE_PUBLISHER_SPACES_ACCESS_KEY_ID}" \
+              EVIDENCE_PUBLISHER_SPACES_SECRET_ACCESS_KEY="${EVIDENCE_PUBLISHER_SPACES_SECRET_ACCESS_KEY}" \
+              /bin/bash --noprofile --norc -e -u -o pipefail "${PREFLIGHT_SCRIPT}"
+          fi
+          for forbidden_authority in \
+            GH_TOKEN GITHUB_TOKEN AWS_SESSION_TOKEN \
+            ACTIONS_RUNTIME_TOKEN ACTIONS_RUNTIME_URL ACTIONS_RESULTS_URL ACTIONS_CACHE_URL \
+            ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL \
+            GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STATE GITHUB_STEP_SUMMARY; do
+            test "${!forbidden_authority+x}" != x || {
+              echo "FATAL: evidence publisher preflight refuses ${forbidden_authority}." >&2
+              exit 2
+            }
+          done
+          bash tools/scripts/database/assert-backup-secrets.sh
+
+      - name: Re-prove exact current main before evidence mirror write
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +x
+          set -euo pipefail
+          REMOTE_MAIN_SHA="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
+            --jq '.object.sha')"
+          [[ "${REMOTE_MAIN_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${REMOTE_MAIN_SHA}" = "${GITHUB_SHA}"
 
       - name: Mirror signed records by content digest
         env:
@@ -511,39 +1741,192 @@ jobs:
         run: |
           set +x
           set -euo pipefail
-          VERSIONING_STATUS=$(aws s3api get-bucket-versioning \
-            --bucket "${EVIDENCE_SPACES_BUCKET}" \
-            --endpoint-url "${SPACES_ENDPOINT}" \
+          set +a
+          if [ "${AQUA_EVIDENCE_PUBLISHER_SANITIZED:-}" != 'aws-write-only-v1' ]; then
+            PUBLISHER_SCRIPT="$(/usr/bin/readlink -f -- "${BASH_SOURCE[0]}")"
+            test -f "${PUBLISHER_SCRIPT}"
+            test ! -L "${PUBLISHER_SCRIPT}"
+            exec /usr/bin/env -i \
+              PATH=/usr/local/bin:/usr/bin:/bin \
+              HOME=/nonexistent \
+              LC_ALL=C \
+              AQUA_EVIDENCE_PUBLISHER_SANITIZED=aws-write-only-v1 \
+              SPACES_ENDPOINT="${SPACES_ENDPOINT}" \
+              EVIDENCE_SPACES_BUCKET="${EVIDENCE_SPACES_BUCKET}" \
+              AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}" \
+              AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}" \
+              AWS_REGION="${AWS_REGION}" \
+              AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION}" \
+              GITHUB_RUN_ID="${GITHUB_RUN_ID}" \
+              GITHUB_RUN_ATTEMPT="${GITHUB_RUN_ATTEMPT}" \
+              /bin/bash --noprofile --norc -e -u -o pipefail "${PUBLISHER_SCRIPT}"
+          fi
+          for forbidden_authority in \
+            GH_TOKEN GITHUB_TOKEN AWS_SESSION_TOKEN \
+            ACTIONS_RUNTIME_TOKEN ACTIONS_RUNTIME_URL ACTIONS_RESULTS_URL ACTIONS_CACHE_URL \
+            ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL \
+            GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STATE GITHUB_STEP_SUMMARY; do
+            test "${!forbidden_authority+x}" != x || {
+              echo "FATAL: evidence mirror publisher refuses ${forbidden_authority}." >&2
+              exit 2
+            }
+          done
+          spaces_endpoint_material=${SPACES_ENDPOINT:?SPACES_ENDPOINT is required}
+          evidence_bucket_material=${EVIDENCE_SPACES_BUCKET:?EVIDENCE_SPACES_BUCKET is required}
+          publisher_access_key_material=${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID is required}
+          publisher_secret_key_material=${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY is required}
+          spaces_region_material=${AWS_REGION:?AWS_REGION is required}
+          unset SPACES_ENDPOINT EVIDENCE_SPACES_BUCKET AWS_ACCESS_KEY_ID
+          unset AWS_SECRET_ACCESS_KEY AWS_REGION AWS_DEFAULT_REGION
+
+          run_evidence_aws() {
+            AWS_ACCESS_KEY_ID="${publisher_access_key_material}" \
+              AWS_SECRET_ACCESS_KEY="${publisher_secret_key_material}" \
+              AWS_REGION="${spaces_region_material}" \
+              AWS_DEFAULT_REGION="${spaces_region_material}" \
+              AWS_EC2_METADATA_DISABLED=true \
+              AWS_PAGER='' \
+              AWS_CLI_AUTO_PROMPT=off \
+              aws "$@"
+          }
+
+          VERSIONING_STATUS=$(run_evidence_aws s3api get-bucket-versioning \
+            --bucket "${evidence_bucket_material}" \
+            --endpoint-url "${spaces_endpoint_material}" \
             --query Status \
             --output text)
           if [ "${VERSIONING_STATUS}" != 'Enabled' ]; then
             echo 'FATAL: signed evidence mirror bucket versioning must be Enabled.'
             exit 1
           fi
+          MIRROR_VERIFY_DIR="$(mktemp -d -p "${RUNNER_TEMP:-${PWD}}" aqua-evidence-write-verify-XXXXXX)"
+          cleanup_mirror_verify() {
+            rm -rf -- "${MIRROR_VERIFY_DIR}"
+          }
+          trap cleanup_mirror_verify EXIT
+          decode_exact_version_id() {
+            local encoded_version_id=$1
+            local output_path=$2
+            python3 - "${encoded_version_id}" "${output_path}" <<'PY'
+          import base64
+          import binascii
+          import os
+          import sys
+
+          encoded, output_path = sys.argv[1:]
+          try:
+              value = base64.b64decode(encoded.encode('ascii'), validate=True)
+          except (UnicodeEncodeError, binascii.Error, ValueError) as error:
+              raise SystemExit('mirror VersionId is not canonical base64') from error
+          if not 1 <= len(value) <= 1024:
+              raise SystemExit('mirror VersionId is outside its S3 byte bound')
+          if any(byte <= 0x20 or byte == 0x7f for byte in value):
+              raise SystemExit('mirror VersionId contains a control or separator byte')
+          try:
+              value.decode('utf-8')
+          except UnicodeDecodeError as error:
+              raise SystemExit('mirror VersionId is not valid UTF-8') from error
+          descriptor = os.open(
+              output_path,
+              os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+              0o600,
+          )
+          with os.fdopen(descriptor, 'wb') as output:
+              output.write(value)
+          PY
+          }
+          load_exact_mirror_version() {
+            local record_key=$1
+            local snapshot_path=$2
+            local snapshot_bytes
+            local version_state
+            if ! run_evidence_aws s3api list-object-versions \
+                --bucket "${evidence_bucket_material}" \
+                --prefix "${record_key}" \
+                --max-keys 2 \
+                --no-paginate \
+                --endpoint-url "${spaces_endpoint_material}" \
+                --output json | head -c 65537 > "${snapshot_path}"; then
+              echo 'FATAL: bounded evidence mirror version discovery failed.' >&2
+              exit 1
+            fi
+            snapshot_bytes=$(stat -c '%s' "${snapshot_path}")
+            [[ "${snapshot_bytes}" =~ ^[1-9][0-9]*$ ]]
+            test "${snapshot_bytes}" -le 65536
+            version_state=$(jq -er --arg key "${record_key}" '
+              if ((.Versions // []) | type) != "array" or
+                 ((.DeleteMarkers // []) | type) != "array" or
+                 ((.IsTruncated // false) | type) != "boolean" or
+                 (.IsTruncated // false) != false or
+                 (.NextKeyMarker // "") != "" or
+                 (.NextVersionIdMarker // "") != ""
+              then error("version listing is truncated or malformed")
+              else .
+              end
+              | ([.Versions[]? | select(.Key == $key)]) as $versions
+              | ([.DeleteMarkers[]? | select(.Key == $key)]) as $deletes
+              | [
+                  ($versions | length),
+                  ($deletes | length),
+                  (if ($versions | length) == 1 and
+                      ($versions[0].VersionId | type) == "string"
+                   then ($versions[0].VersionId | @base64)
+                   else "-"
+                   end),
+                  ($versions[0].IsLatest // false)
+                ]
+              | @tsv
+            ' "${snapshot_path}")
+            IFS=$'\t' read -r EXACT_VERSION_COUNT EXACT_DELETE_COUNT \
+              EXACT_VERSION_ID_B64 EXACT_VERSION_IS_LATEST <<< "${version_state}"
+            [[ "${EXACT_VERSION_COUNT}" =~ ^[0-9]+$ ]]
+            [[ "${EXACT_DELETE_COUNT}" =~ ^[0-9]+$ ]]
+            test "${EXACT_DELETE_COUNT}" -eq 0
+            test "${EXACT_VERSION_COUNT}" -le 1
+            if [ "${EXACT_VERSION_COUNT}" -eq 1 ]; then
+              test "${EXACT_VERSION_ID_B64}" != '-'
+              decode_exact_version_id \
+                "${EXACT_VERSION_ID_B64}" "${snapshot_path}.version-id"
+              EXACT_VERSION_ID=$(<"${snapshot_path}.version-id")
+              test "${EXACT_VERSION_IS_LATEST}" = true
+            else
+              test "${EXACT_VERSION_ID_B64}" = '-'
+              EXACT_VERSION_ID=-
+              test "${EXACT_VERSION_IS_LATEST}" = false
+            fi
+          }
 
           while IFS= read -r -d '' RECORD; do
             RECORD_SHA256=$(sha256sum "${RECORD}" | awk '{print $1}')
             RECORD_BYTES=$(stat -c '%s' "${RECORD}")
-            RECORD_KEY="wal-g-evidence/v2/sha256/${RECORD_SHA256}/$(basename "${RECORD}")"
-            EXISTING_COUNT=$(aws s3api list-objects-v2 \
-              --bucket "${EVIDENCE_SPACES_BUCKET}" \
-              --prefix "${RECORD_KEY}" \
-              --endpoint-url "${SPACES_ENDPOINT}" \
-              --query 'length(Contents)' \
-              --output text)
-            if [ "${EXISTING_COUNT}" = '0' ]; then
-              aws s3api put-object \
-                --bucket "${EVIDENCE_SPACES_BUCKET}" \
+            RECORD_KEY="wal-g-evidence/v3/sha256/${RECORD_SHA256}/$(basename "${RECORD}")"
+            load_exact_mirror_version "${RECORD_KEY}" \
+              "${MIRROR_VERIFY_DIR}/${RECORD_SHA256}-$(basename "${RECORD}")-versions-before.json"
+            VERSION_COUNT_BEFORE=${EXACT_VERSION_COUNT}
+            VERSION_ID_BEFORE=${EXACT_VERSION_ID}
+            if [ "${VERSION_COUNT_BEFORE}" -eq 0 ]; then
+              run_evidence_aws s3api put-object \
+                --bucket "${evidence_bucket_material}" \
                 --key "${RECORD_KEY}" \
                 --body "${RECORD}" \
                 --metadata "sha256=${RECORD_SHA256},run_id=${GITHUB_RUN_ID},run_attempt=${GITHUB_RUN_ATTEMPT}" \
-                --endpoint-url "${SPACES_ENDPOINT}" >/dev/null
+                --endpoint-url "${spaces_endpoint_material}" >/dev/null
             fi
+            load_exact_mirror_version "${RECORD_KEY}" \
+              "${MIRROR_VERIFY_DIR}/${RECORD_SHA256}-$(basename "${RECORD}")-versions-after.json"
+            if [ "${EXACT_VERSION_COUNT}" -ne 1 ] || \
+               { [ "${VERSION_COUNT_BEFORE}" -eq 1 ] && \
+                 [ "${EXACT_VERSION_ID}" != "${VERSION_ID_BEFORE}" ]; }; then
+              echo "FATAL: evidence mirror key has a publication race or version conflict: ${RECORD_KEY}"
+              exit 1
+            fi
+            RECORD_VERSION_ID=${EXACT_VERSION_ID}
             read -r REMOTE_BYTES REMOTE_SHA256 < <(
-              aws s3api head-object \
-                --bucket "${EVIDENCE_SPACES_BUCKET}" \
+              run_evidence_aws s3api head-object \
+                --bucket "${evidence_bucket_material}" \
                 --key "${RECORD_KEY}" \
-                --endpoint-url "${SPACES_ENDPOINT}" \
+                "--version-id=${RECORD_VERSION_ID}" \
+                --endpoint-url "${spaces_endpoint_material}" \
                 --query '[ContentLength,Metadata.sha256]' \
                 --output text
             )
@@ -551,17 +1934,45 @@ jobs:
               echo "FATAL: content-addressed evidence mirror mismatch: ${RECORD_KEY}"
               exit 1
             fi
+            MIRROR_CHECK_FILE="${MIRROR_VERIFY_DIR}/${RECORD_SHA256}-$(basename "${RECORD}")"
+            run_evidence_aws s3api get-object \
+              --bucket "${evidence_bucket_material}" \
+              --key "${RECORD_KEY}" \
+              "--version-id=${RECORD_VERSION_ID}" \
+              --endpoint-url "${spaces_endpoint_material}" \
+              "${MIRROR_CHECK_FILE}" >/dev/null
+            if [ "$(stat -c '%s' "${MIRROR_CHECK_FILE}")" != "${RECORD_BYTES}" ] || \
+               ! cmp -s "${RECORD}" "${MIRROR_CHECK_FILE}"; then
+              echo "FATAL: mirrored evidence bytes differ from local digest authority: ${RECORD_KEY}"
+              exit 1
+            fi
+            rm -f -- "${MIRROR_CHECK_FILE}"
+            FINAL_VERSIONING_STATUS=$(run_evidence_aws s3api get-bucket-versioning \
+              --bucket "${evidence_bucket_material}" \
+              --endpoint-url "${spaces_endpoint_material}" \
+              --query Status \
+              --output text)
+            test "${FINAL_VERSIONING_STATUS}" = 'Enabled'
+            load_exact_mirror_version "${RECORD_KEY}" \
+              "${MIRROR_VERIFY_DIR}/${RECORD_SHA256}-$(basename "${RECORD}")-versions-final.json"
+            if [ "${EXACT_VERSION_COUNT}" -ne 1 ] || \
+               [ "${EXACT_VERSION_ID}" != "${RECORD_VERSION_ID}" ]; then
+              echo "FATAL: evidence mirror key changed after pinned verification: ${RECORD_KEY}" >&2
+              exit 1
+            fi
           done < <(find evidence-artifact -maxdepth 1 -type f -print0)
 
-      - name: Preserve immutable signed evidence artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: walg-evidence-v2-backup-production.yml-${{ github.run_id }}-${{ github.run_attempt }}
-          path: evidence-artifact/
-          if-no-files-found: error
-          overwrite: false
-          retention-days: 90
-          compression-level: 0
+      - name: Re-prove exact current main after evidence mirror write
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +x
+          set -euo pipefail
+          REMOTE_MAIN_SHA="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
+            --jq '.object.sha')"
+          [[ "${REMOTE_MAIN_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${REMOTE_MAIN_SHA}" = "${GITHUB_SHA}"
 
       - name: Propagate backup job failure after preserving its signed run record
         if: needs.backup.result != 'success'

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Restore one explicit WAL-G base backup into a positively attested disposable
-# container. The command creates its own immutable BEFORE/AFTER source
-# sentinels, derives the timestamp target from the source PostgreSQL clock,
-# waits for the AFTER WAL segment to archive, and proves the full canonical
-# database-verification contract on the promoted target.
+# container. The command creates immutable, transaction-bound BEFORE/AFTER WAL
+# markers without persistent database objects, derives the timestamp target
+# from the source PostgreSQL clock, waits for the AFTER commit-fence segment to
+# archive, and proves the full canonical database-verification contract on the
+# promoted target.
 
 set +x
 set -euo pipefail
@@ -35,11 +36,18 @@ MAIN_SHA="${MAIN_SHA:?MAIN_SHA required}"
 EXPECTED_POSTGRES_DR_CONTRACT_SHA256="${EXPECTED_POSTGRES_DR_CONTRACT_SHA256:?EXPECTED_POSTGRES_DR_CONTRACT_SHA256 required}"
 PITR_RESET_TARGET="${PITR_RESET_TARGET:-false}"
 DATABASE_VERIFICATION_SQL="${DATABASE_VERIFICATION_SQL:-tools/scripts/database/database-verification.sql}"
+PITR_SOURCE_VERIFICATION_LOCKS_SQL="${PITR_SOURCE_VERIFICATION_LOCKS_SQL:-tools/scripts/database/pitr-source-verification-locks.sql}"
+BOUNDED_LINE_READER="${BOUNDED_LINE_READER:-tools/scripts/database/read-bounded-line.mjs}"
 
 RESTORE_ROLE='isolated-drill'
 RESTORE_LABEL='com.aqua-saas.restore.role'
 RESTORE_RUN_LABEL='com.aqua-saas.restore.run-id'
 EXPECTED_WALG_REVISION='f81943e64bdf97aa66f6c52fec55114703f97af7'
+WAL_MARKER_PREFIX='aqua.pitr.boundary.v1'
+WAL_COMMIT_FENCE_PREFIX='aqua.pitr.commit-fence.v1'
+MAX_SOURCE_CAPTURE_BYTES=5242880
+MAX_DATABASE_VERIFICATION_BYTES=3670016
+MAX_LOCK_RELATIONS_BYTES=1048576
 STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 SECONDS=0
 EVIDENCE_PATH=''
@@ -48,8 +56,8 @@ FAILURE_STAGE='preflight'
 TARGET_POSTGRES_STARTED=false
 ISOLATED_TARGET_ATTESTED=false
 WAL_VERIFIED=false
-BEFORE_SENTINEL_PRESENT=false
-AFTER_SENTINEL_PRESENT=false
+BEFORE_WAL_MARKER_REPLAYED=false
+AFTER_WAL_MARKER_EXCLUDED=false
 PROMOTED=false
 DATABASE_VERIFIED=false
 RPO_SECONDS=0
@@ -57,18 +65,21 @@ RTO_SECONDS=0
 ARCHIVE_WAIT_SECONDS=0
 ARCHIVE_OBSERVED_AT=''
 RECOVERY_TARGET_TIME=''
+RECOVERY_TARGET_POSTGRES=''
 FAILURE_TIME=''
-SOURCE_BEFORE_RECORDED_AT=''
-SOURCE_BEFORE_RECORDED_LSN=''
+SOURCE_BEFORE_MARKER_CONTENT=''
+SOURCE_BEFORE_MARKER_CONTENT_SHA256=''
+SOURCE_BEFORE_MARKER_EMITTED_AT=''
+SOURCE_BEFORE_MARKER_LSN=''
 SOURCE_BEFORE_COMMIT_FENCE_AT=''
 SOURCE_BEFORE_COMMIT_FENCE_LSN=''
-SOURCE_AFTER_RECORDED_AT=''
-SOURCE_AFTER_RECORDED_LSN=''
+SOURCE_AFTER_MARKER_CONTENT=''
+SOURCE_AFTER_MARKER_CONTENT_SHA256=''
+SOURCE_AFTER_MARKER_EMITTED_AT=''
+SOURCE_AFTER_MARKER_LSN=''
 SOURCE_AFTER_COMMIT_FENCE_AT=''
 SOURCE_AFTER_COMMIT_FENCE_LSN=''
 SOURCE_TIMELINE_ID=''
-RESTORED_BEFORE_RECORDED_AT=''
-RESTORED_BEFORE_RECORDED_LSN=''
 ARCHIVED_THROUGH_WAL=''
 ARCHIVE_REQUIRED_WAL=''
 SOURCE_SYSTEM_IDENTIFIER=''
@@ -77,13 +88,34 @@ SOURCE_IMAGE_ID=''
 SOURCE_IMAGE_REVISION=''
 SOURCE_POSTGRES_DR_CONTRACT_SHA256=''
 SOURCE_WALG_REVISION=''
-DATABASE_VERIFICATION_SHA256=''
+SOURCE_DATABASE_RELEASE_SHA=''
+RESTORED_DATABASE_RELEASE_SHA=''
+SOURCE_DATABASE_VERIFICATION_SHA256=''
+RESTORED_DATABASE_VERIFICATION_SHA256=''
+RESTORED_RECOVERY_TARGET_TIME=''
+RESTORED_RECOVERY_TARGET_INCLUSIVE=''
+RESTORED_RECOVERY_TARGET_TIMELINE=''
+RESTORED_RECOVERY_TARGET_ACTION=''
+SOURCE_VERIFICATION_SNAPSHOT_ID=''
+SOURCE_VERIFICATION_SNAPSHOT_SHA256=''
+SOURCE_VERIFICATION_COMPLETED_AT=''
+SOURCE_VERIFICATION_FLOOR_LSN=''
+SOURCE_VERIFICATION_LOCK_SET_SHA256=''
+SOURCE_VERIFICATION_LOCK_COUNT=''
+SOURCE_VERIFICATION_LOCK_TIMEOUT_MS=''
+SOURCE_VERIFICATION_STATEMENT_TIMEOUT_MS=''
+SOURCE_VERIFICATION_IDLE_TIMEOUT_MS=''
+RESTORED_REPLAY_LSN=''
 TARGET_READ_ONLY_ROOTFS=false
 WALG_CONFIG_SHA256=''
 WALG_ROTATION_BUNDLE_SHA256=''
 SOURCE_INITIAL_WALG_ROTATION_BUNDLE_SHA256=''
 TARGET_SOCKET_DIR="/tmp/aqua-walg-pitr-${EVIDENCE_RUN_ID}"
 TMP_DIR=''
+SOURCE_LOCK_KEEPER_ACTIVE=false
+SOURCE_LOCK_KEEPER_PID=''
+SOURCE_LOCK_KEEPER_INPUT_FD=''
+SOURCE_LOCK_KEEPER_OUTPUT_FD=''
 
 die() {
   printf 'FATAL: %s\n' "$*" >&2
@@ -95,14 +127,36 @@ is_evidence_timestamp() {
     date -u -d "$1" +%s%N >/dev/null 2>&1
 }
 
-validate_sentinel_result() {
+canonical_wal_marker_content() {
+  local phase=$1
   node -e '
-    const value = process.argv[1];
-    const timestamp = "[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z";
-    const lsn = "[0-9A-F]+/[0-9A-F]{1,8}";
-    const wal = "[0-9A-F]{24}";
-    if (!(new RegExp(`^${timestamp}\\|${lsn}\\|${timestamp}\\|${lsn}\\|${wal}$`)).test(value)) process.exit(2);
-  ' "$1" || die 'sentinel protocol did not return exactly five canonical fields.'
+    const [backupName, mainSha, phase, runId] = process.argv.slice(1);
+    process.stdout.write(JSON.stringify({ backup_name: backupName, main_sha: mainSha, phase, run_id: runId }));
+  ' "${BACKUP_NAME}" "${MAIN_SHA}" "${phase}" "${EVIDENCE_RUN_ID}"
+}
+
+validate_wal_marker_result() {
+  local value=$1
+  local expected_content=$2
+  node -e '
+    const crypto = require("node:crypto");
+    const [value, expectedContent, expectedMarkerPrefix, expectedFencePrefix] = process.argv.slice(1);
+    const fields = value.split("|");
+    const timestamp = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$/;
+    const lsn = /^[0-9A-F]+\/[0-9A-F]{1,8}$/;
+    const wal = /^[0-9A-F]{24}$/;
+    const digest = /^[0-9a-f]{64}$/;
+    if (
+      fields.length !== 9 || fields[0] !== expectedMarkerPrefix ||
+      fields[1] !== expectedFencePrefix || fields[2] !== expectedContent ||
+      JSON.stringify(JSON.parse(fields[2])) !== fields[2] || !digest.test(fields[3]) ||
+      crypto.createHash("sha256").update(fields[2]).digest("hex") !== fields[3] ||
+      !timestamp.test(fields[4]) || !lsn.test(fields[5]) ||
+      !timestamp.test(fields[6]) || !lsn.test(fields[7]) || !wal.test(fields[8])
+    ) process.exit(2);
+  ' "${value}" "${expected_content}" "${WAL_MARKER_PREFIX}" \
+    "${WAL_COMMIT_FENCE_PREFIX}" || \
+    die 'WAL marker protocol did not return its exact canonical record.'
 }
 
 for container_name in "${SOURCE_CONTAINER}" "${TARGET_CONTAINER}"; do
@@ -161,7 +215,14 @@ fi
 if [ ! -f "${DATABASE_VERIFICATION_SQL}" ] || [ -L "${DATABASE_VERIFICATION_SQL}" ]; then
   die 'DATABASE_VERIFICATION_SQL must be a regular non-symlink file.'
 fi
-for required_command in awk base64 date docker find node readlink sed sha256sum timeout; do
+if [ ! -f "${PITR_SOURCE_VERIFICATION_LOCKS_SQL}" ] || \
+   [ -L "${PITR_SOURCE_VERIFICATION_LOCKS_SQL}" ]; then
+  die 'PITR_SOURCE_VERIFICATION_LOCKS_SQL must be a regular non-symlink file.'
+fi
+if [ ! -f "${BOUNDED_LINE_READER}" ] || [ -L "${BOUNDED_LINE_READER}" ]; then
+  die 'BOUNDED_LINE_READER must be a regular non-symlink file.'
+fi
+for required_command in awk date docker find node readlink sed sha256sum stat timeout; do
   command -v "${required_command}" >/dev/null 2>&1 || die "${required_command} is required."
 done
 
@@ -251,6 +312,80 @@ remaining_rto_seconds() {
   printf '%s' "${remaining}"
 }
 
+canonicalize_database_verification() {
+  local input_path=$1
+  local output_path=$2
+  node - "${input_path}" "${output_path}" <<'NODE'
+const fs = require('node:fs');
+const [input, output] = process.argv.slice(2);
+const lines = fs.readFileSync(input, 'utf8').trim().split(/\r?\n/).filter(Boolean);
+if (lines.length !== 1) throw new Error('database verification must produce exactly one JSON line');
+const value = JSON.parse(lines[0]);
+const canonicalSchemas = [
+  'auth', 'farm', 'sensor', 'hr', 'messaging', 'hydroponics', 'alert', 'ai',
+  'billing', 'notification', 'admin', 'config', 'observability', 'event_store',
+  'gateway', 'shared', 'compliance',
+];
+if (
+  !value || typeof value !== 'object' || Array.isArray(value) ||
+  value.contract_version !== 1 ||
+  JSON.stringify(value.canonical_schemas) !== JSON.stringify(canonicalSchemas) ||
+  !Array.isArray(value.tenant_schemas) ||
+  !value.release || typeof value.release !== 'object' || Array.isArray(value.release) ||
+  JSON.stringify(Object.keys(value.release).sort()) !== JSON.stringify(['git_sha', 'release_id']) ||
+  typeof value.release.release_id !== 'string' || value.release.release_id.length < 1 ||
+  value.release.release_id.length > 120 ||
+  typeof value.release.git_sha !== 'string' || !/^[0-9a-f]{40}$/.test(value.release.git_sha) ||
+  !value.migration_heads || !Array.isArray(value.migration_heads.schemas) ||
+  !Array.isArray(value.migration_heads.tenants) || !Array.isArray(value.sentinels)
+) {
+  throw new Error('database verification payload shape/release SHA is not canonical');
+}
+fs.writeFileSync(output, `${JSON.stringify(value)}\n`, { flag: 'wx', mode: 0o600 });
+process.stdout.write(value.release.git_sha);
+NODE
+}
+
+abort_source_lock_keeper() {
+  if [ "${SOURCE_LOCK_KEEPER_ACTIVE}" != 'true' ]; then
+    return 0
+  fi
+  if [[ "${SOURCE_LOCK_KEEPER_INPUT_FD}" =~ ^[0-9]+$ ]]; then
+    printf 'ROLLBACK;\n\\q\n' >&"${SOURCE_LOCK_KEEPER_INPUT_FD}" 2>/dev/null || true
+    exec {SOURCE_LOCK_KEEPER_INPUT_FD}>&-
+  fi
+  if [[ "${SOURCE_LOCK_KEEPER_OUTPUT_FD}" =~ ^[0-9]+$ ]]; then
+    exec {SOURCE_LOCK_KEEPER_OUTPUT_FD}<&-
+  fi
+  if [[ "${SOURCE_LOCK_KEEPER_PID}" =~ ^[1-9][0-9]*$ ]]; then
+    kill -TERM "${SOURCE_LOCK_KEEPER_PID}" 2>/dev/null || true
+    wait "${SOURCE_LOCK_KEEPER_PID}" 2>/dev/null || true
+  fi
+  SOURCE_LOCK_KEEPER_ACTIVE=false
+}
+
+commit_source_lock_keeper() {
+  local commit_marker
+  [ "${SOURCE_LOCK_KEEPER_ACTIVE}" = 'true' ] || \
+    die 'source verification lock keeper is not active at commit.'
+  printf 'COMMIT;\n\\echo SOURCE_VERIFICATION_COMMITTED\n\\q\n' \
+    >&"${SOURCE_LOCK_KEEPER_INPUT_FD}" || \
+    die 'could not commit the source verification lock keeper.'
+  if ! IFS= read -r -t "$(remaining_rto_seconds)" \
+    -u "${SOURCE_LOCK_KEEPER_OUTPUT_FD}" commit_marker || \
+    [ "${commit_marker}" != 'SOURCE_VERIFICATION_COMMITTED' ]; then
+    sed 's/^/  source-verification| /' "${TMP_DIR}/source-verification.stderr" >&2 || true
+    die 'source verification lock keeper did not confirm COMMIT.'
+  fi
+  exec {SOURCE_LOCK_KEEPER_INPUT_FD}>&-
+  exec {SOURCE_LOCK_KEEPER_OUTPUT_FD}<&-
+  if ! wait "${SOURCE_LOCK_KEEPER_PID}"; then
+    sed 's/^/  source-verification| /' "${TMP_DIR}/source-verification.stderr" >&2 || true
+    die 'source verification lock keeper exited unsuccessfully after COMMIT.'
+  fi
+  SOURCE_LOCK_KEEPER_ACTIVE=false
+}
+
 write_evidence() {
   local status=$1
   local completed_at
@@ -263,11 +398,15 @@ write_evidence() {
     "${temp_evidence}" "${status}" "${EVIDENCE_RUN_ID}" "${MAIN_SHA}" \
     "${STARTED_AT}" "${completed_at}" "${BACKUP_NAME}" \
     "${RECOVERY_TARGET_TIME}" "${FAILURE_TIME}" \
-    "${SOURCE_BEFORE_RECORDED_AT}" "${SOURCE_BEFORE_RECORDED_LSN}" \
+    "${WAL_MARKER_PREFIX}" "${WAL_COMMIT_FENCE_PREFIX}" \
+    "${SOURCE_BEFORE_MARKER_CONTENT}" "${SOURCE_BEFORE_MARKER_CONTENT_SHA256}" \
+    "${SOURCE_BEFORE_MARKER_EMITTED_AT}" "${SOURCE_BEFORE_MARKER_LSN}" \
     "${SOURCE_BEFORE_COMMIT_FENCE_AT}" "${SOURCE_BEFORE_COMMIT_FENCE_LSN}" \
-    "${SOURCE_AFTER_RECORDED_AT}" "${SOURCE_AFTER_RECORDED_LSN}" \
+    "${SOURCE_AFTER_MARKER_CONTENT}" "${SOURCE_AFTER_MARKER_CONTENT_SHA256}" \
+    "${SOURCE_AFTER_MARKER_EMITTED_AT}" "${SOURCE_AFTER_MARKER_LSN}" \
     "${SOURCE_AFTER_COMMIT_FENCE_AT}" "${SOURCE_AFTER_COMMIT_FENCE_LSN}" \
-    "${RESTORED_BEFORE_RECORDED_AT}" "${RESTORED_BEFORE_RECORDED_LSN}" \
+    "${RESTORED_RECOVERY_TARGET_TIME}" "${RESTORED_RECOVERY_TARGET_INCLUSIVE}" \
+    "${RESTORED_RECOVERY_TARGET_TIMELINE}" "${RESTORED_RECOVERY_TARGET_ACTION}" \
     "${RPO_SECONDS}" "${RTO_SECONDS}" "${ARCHIVE_WAIT_SECONDS}" \
     "${ARCHIVE_OBSERVED_AT}" \
     "${ARCHIVE_REQUIRED_WAL}" "${ARCHIVED_THROUGH_WAL}" "${SOURCE_TIMELINE_ID}" \
@@ -276,37 +415,82 @@ write_evidence() {
     "${SOURCE_WALG_REVISION}" \
     "${TARGET_PGDATA_VOLUME}" "${TARGET_NETWORK}" \
     "${ISOLATED_TARGET_ATTESTED}" "${WAL_VERIFIED}" \
-    "${BEFORE_SENTINEL_PRESENT}" "${AFTER_SENTINEL_PRESENT}" \
-    "${PROMOTED}" "${DATABASE_VERIFIED}" "${DATABASE_VERIFICATION_SHA256}" \
+    "${BEFORE_WAL_MARKER_REPLAYED}" "${AFTER_WAL_MARKER_EXCLUDED}" \
+    "${PROMOTED}" "${DATABASE_VERIFIED}" \
+    "${SOURCE_DATABASE_RELEASE_SHA}" "${RESTORED_DATABASE_RELEASE_SHA}" \
+    "${SOURCE_DATABASE_VERIFICATION_SHA256}" \
+    "${RESTORED_DATABASE_VERIFICATION_SHA256}" \
+    "${SOURCE_VERIFICATION_SNAPSHOT_ID}" "${SOURCE_VERIFICATION_SNAPSHOT_SHA256}" \
+    "${SOURCE_VERIFICATION_COMPLETED_AT}" "${SOURCE_VERIFICATION_FLOOR_LSN}" \
+    "${SOURCE_VERIFICATION_LOCK_SET_SHA256}" "${SOURCE_VERIFICATION_LOCK_COUNT}" \
+    "${SOURCE_VERIFICATION_LOCK_TIMEOUT_MS}" \
+    "${SOURCE_VERIFICATION_STATEMENT_TIMEOUT_MS}" \
+    "${SOURCE_VERIFICATION_IDLE_TIMEOUT_MS}" \
+    "${RESTORED_REPLAY_LSN}" \
     "${TARGET_READ_ONLY_ROOTFS}" \
     "${WALG_CONFIG_SHA256}" "${WALG_ROTATION_BUNDLE_SHA256}" \
-    "${FAILURE_STAGE}" "${TMP_DIR}/database-verification.canonical.json" <<'NODE'
+    "${FAILURE_STAGE}" \
+    "${TMP_DIR}/source-verification-lock-relations.json" \
+    "${TMP_DIR}/source-database-verification.canonical.json" \
+    "${TMP_DIR}/restored-database-verification.canonical.json" <<'NODE'
 const fs = require('node:fs');
 const [
   outputPath, status, runId, mainSha, startedAt, completedAt, backupName,
   recoveryTargetTime, failureTime,
-  sourceBeforeRecordedAt, sourceBeforeRecordedLsn,
+  walMarkerPrefix, walCommitFencePrefix,
+  sourceBeforeMarkerContent, sourceBeforeMarkerContentSha256,
+  sourceBeforeMarkerEmittedAt, sourceBeforeMarkerLsn,
   sourceBeforeCommitFenceAt, sourceBeforeCommitFenceLsn,
-  sourceAfterRecordedAt, sourceAfterRecordedLsn,
+  sourceAfterMarkerContent, sourceAfterMarkerContentSha256,
+  sourceAfterMarkerEmittedAt, sourceAfterMarkerLsn,
   sourceAfterCommitFenceAt, sourceAfterCommitFenceLsn,
-  restoredBeforeRecordedAt, restoredBeforeRecordedLsn,
+  restoredRecoveryTargetTime, restoredRecoveryTargetInclusive,
+  restoredRecoveryTargetTimeline, restoredRecoveryTargetAction,
   rpoSeconds, rtoSeconds, archiveWaitSeconds, archiveObservedAt,
   archiveRequiredWal, archivedThroughWal, sourceTimelineId,
   sourceSystemIdentifier, restoredSystemIdentifier,
   sourceImageId, sourceImageRevision, sourcePostgresDrContractSha256, sourceWalgRevision,
   targetPgdataVolume, targetNetwork,
-  isolatedTargetAttested, walVerified, beforeSentinelPresent,
-  afterSentinelPresent, promoted, databaseVerified, databaseVerificationSha256,
+  isolatedTargetAttested, walVerified, beforeWalMarkerReplayed,
+  afterWalMarkerExcluded, promoted, databaseVerified,
+  sourceDatabaseReleaseSha, restoredDatabaseReleaseSha,
+  sourceDatabaseVerificationSha256, restoredDatabaseVerificationSha256,
+  sourceVerificationSnapshotId, sourceVerificationSnapshotSha256,
+  sourceVerificationCompletedAt,
+  sourceVerificationFloorLsn, sourceVerificationLockSetSha256,
+  sourceVerificationLockCount, sourceVerificationLockTimeoutMs,
+  sourceVerificationStatementTimeoutMs, sourceVerificationIdleTimeoutMs,
+  restoredReplayLsn,
   targetReadOnlyRootfs, walgConfigSha256, walgRotationBundleSha256,
-  failureStage, databaseVerificationPath,
+  failureStage, sourceVerificationLockRelationsPath,
+  sourceDatabaseVerificationPath, restoredDatabaseVerificationPath,
 ] = process.argv.slice(2);
 const succeeded = status === 'success';
-let databaseVerification = null;
+let sourceDatabaseVerification = null;
+let restoredDatabaseVerification = null;
+let sourceVerificationLockRelations = null;
 if (succeeded) {
-  databaseVerification = JSON.parse(fs.readFileSync(databaseVerificationPath, 'utf8'));
+  sourceVerificationLockRelations = JSON.parse(
+    fs.readFileSync(sourceVerificationLockRelationsPath, 'utf8'),
+  );
+  sourceDatabaseVerification = JSON.parse(
+    fs.readFileSync(sourceDatabaseVerificationPath, 'utf8'),
+  );
+  restoredDatabaseVerification = JSON.parse(
+    fs.readFileSync(restoredDatabaseVerificationPath, 'utf8'),
+  );
+  if (
+    !/^[0-9a-f]{40}$/.test(sourceDatabaseReleaseSha) ||
+    !/^[0-9a-f]{40}$/.test(restoredDatabaseReleaseSha) ||
+    sourceDatabaseReleaseSha !== sourceDatabaseVerification?.release?.git_sha ||
+    restoredDatabaseReleaseSha !== restoredDatabaseVerification?.release?.git_sha ||
+    sourceDatabaseReleaseSha !== restoredDatabaseReleaseSha
+  ) {
+    throw new Error('database release SHA evidence is not bound to exact source/restore parity');
+  }
 }
 const record = {
-  schema_version: 1,
+  schema_version: 2,
   evidence_type: 'timestamp_pitr',
   run_id: runId,
   status,
@@ -316,16 +500,26 @@ const record = {
   backup_name: backupName,
   recovery_target_time: recoveryTargetTime || null,
   failure_time: failureTime || null,
-  source_before_sentinel_recorded_at: sourceBeforeRecordedAt || null,
-  source_after_sentinel_recorded_at: sourceAfterRecordedAt || null,
-  restored_before_sentinel_recorded_at: restoredBeforeRecordedAt || null,
-  source_before_sentinel_recorded_lsn: sourceBeforeRecordedLsn || null,
-  source_after_sentinel_recorded_lsn: sourceAfterRecordedLsn || null,
-  restored_before_sentinel_recorded_lsn: restoredBeforeRecordedLsn || null,
+  wal_marker_prefix: walMarkerPrefix,
+  wal_commit_fence_prefix: walCommitFencePrefix,
+  source_before_marker_content: sourceBeforeMarkerContent || null,
+  source_before_marker_content_sha256: sourceBeforeMarkerContentSha256 || null,
+  source_before_marker_emitted_at: sourceBeforeMarkerEmittedAt || null,
+  source_before_marker_lsn: sourceBeforeMarkerLsn || null,
   source_before_commit_fence_at: sourceBeforeCommitFenceAt || null,
   source_before_commit_fence_lsn: sourceBeforeCommitFenceLsn || null,
+  source_after_marker_content: sourceAfterMarkerContent || null,
+  source_after_marker_content_sha256: sourceAfterMarkerContentSha256 || null,
+  source_after_marker_emitted_at: sourceAfterMarkerEmittedAt || null,
+  source_after_marker_lsn: sourceAfterMarkerLsn || null,
   source_after_commit_fence_at: sourceAfterCommitFenceAt || null,
   source_after_commit_fence_lsn: sourceAfterCommitFenceLsn || null,
+  restored_recovery_target_time: restoredRecoveryTargetTime || null,
+  restored_recovery_target_inclusive: restoredRecoveryTargetInclusive === ''
+    ? null
+    : restoredRecoveryTargetInclusive === 'true',
+  restored_recovery_target_timeline: restoredRecoveryTargetTimeline || null,
+  restored_recovery_target_action: restoredRecoveryTargetAction || null,
   timestamp_recovery: succeeded,
   rpo_seconds: Number(rpoSeconds),
   rto_seconds: Number(rtoSeconds),
@@ -344,12 +538,35 @@ const record = {
   target_network: targetNetwork,
   isolated_target_attested: isolatedTargetAttested === 'true',
   wal_verified: walVerified === 'true',
-  before_sentinel_present: beforeSentinelPresent === 'true',
-  after_sentinel_present: afterSentinelPresent === 'true',
+  before_wal_marker_replayed: beforeWalMarkerReplayed === 'true',
+  after_wal_marker_excluded: afterWalMarkerExcluded === 'true',
   promoted: promoted === 'true',
   database_verified: databaseVerified === 'true',
-  database_verification_sha256: databaseVerificationSha256 || null,
-  database_verification: databaseVerification,
+  source_database_release_sha: sourceDatabaseReleaseSha || null,
+  restored_database_release_sha: restoredDatabaseReleaseSha || null,
+  source_database_verification_sha256: sourceDatabaseVerificationSha256 || null,
+  source_database_verification: sourceDatabaseVerification,
+  restored_database_verification_sha256: restoredDatabaseVerificationSha256 || null,
+  restored_database_verification: restoredDatabaseVerification,
+  source_verification_snapshot_id: sourceVerificationSnapshotId || null,
+  source_verification_snapshot_sha256: sourceVerificationSnapshotSha256 || null,
+  source_verification_completed_at: sourceVerificationCompletedAt || null,
+  source_verification_floor_lsn: sourceVerificationFloorLsn || null,
+  source_verification_lock_set_sha256: sourceVerificationLockSetSha256 || null,
+  source_verification_lock_count: sourceVerificationLockCount
+    ? Number(sourceVerificationLockCount)
+    : null,
+  source_verification_lock_timeout_ms: sourceVerificationLockTimeoutMs
+    ? Number(sourceVerificationLockTimeoutMs)
+    : null,
+  source_verification_statement_timeout_ms: sourceVerificationStatementTimeoutMs
+    ? Number(sourceVerificationStatementTimeoutMs)
+    : null,
+  source_verification_idle_timeout_ms: sourceVerificationIdleTimeoutMs
+    ? Number(sourceVerificationIdleTimeoutMs)
+    : null,
+  source_verification_lock_relations: sourceVerificationLockRelations,
+  restored_replay_lsn: restoredReplayLsn || null,
   target_read_only_rootfs: targetReadOnlyRootfs === 'true',
   walg_config_sha256: walgConfigSha256 || null,
   walg_rotation_bundle_sha256: walgRotationBundleSha256 || null,
@@ -374,6 +591,7 @@ cleanup() {
   local status=$?
   trap - EXIT
   stop_target_postgres || true
+  abort_source_lock_keeper || true
   if [ "${EVIDENCE_WRITTEN}" != 'true' ] && [ -n "${EVIDENCE_PATH}" ] && [ ! -e "${EVIDENCE_PATH}" ]; then
     write_evidence failure || true
   fi
@@ -591,9 +809,6 @@ SOURCE_SYSTEM_IDENTIFIER=$(source_psql -c 'SELECT system_identifier::text FROM p
 if [ "${SOURCE_SYSTEM_IDENTIFIER}" != "${EXPECTED_SOURCE_SYSTEM_IDENTIFIER}" ]; then
   die 'source PostgreSQL system identifier does not match the protected production value.'
 fi
-if [ "$(source_psql -c "SELECT to_regclass('platform.pitr_drill_sentinels') IS NOT NULL;")" != 't' ]; then
-  die 'canonical platform.pitr_drill_sentinels ledger is absent.'
-fi
 WALG_CONFIG_SHA256=$(container_walg_config_sha256 "${SOURCE_CONTAINER}")
 SOURCE_INITIAL_WALG_ROTATION_BUNDLE_SHA256=$(container_walg_rotation_bundle_sha256 "${SOURCE_CONTAINER}")
 if [[ ! "${WALG_CONFIG_SHA256}" =~ ^[0-9a-f]{64}$ ]] || \
@@ -601,41 +816,248 @@ if [[ ! "${WALG_CONFIG_SHA256}" =~ ^[0-9a-f]{64}$ ]] || \
   die 'source WAL-G configuration/rotation bundle fingerprint is invalid.'
 fi
 
-insert_source_sentinel() {
+emit_source_wal_marker() {
   local phase=$1
+  local marker_content=$2
   source_psql \
-    -v "drill_run_id=${EVIDENCE_RUN_ID}" \
-    -v "phase=${phase}" \
-    -v "main_sha=${MAIN_SHA}" \
-    -v "backup_name=${BACKUP_NAME}" <<'SQL'
+    -v "marker_phase=${phase}" \
+    -v "marker_content=${marker_content}" \
+    -v "marker_prefix=${WAL_MARKER_PREFIX}" \
+    -v "commit_fence_prefix=${WAL_COMMIT_FENCE_PREFIX}" <<'SQL'
 BEGIN;
-INSERT INTO platform.pitr_drill_sentinels
-  (drill_run_id, phase, main_sha, backup_name)
-VALUES
-  (:'drill_run_id', :'phase', :'main_sha', :'backup_name');
+SET LOCAL synchronous_commit = on;
+WITH marker AS MATERIALIZED (
+  SELECT
+    :'marker_content'::text AS content,
+    pg_catalog.clock_timestamp() AS emitted_clock
+), emitted AS MATERIALIZED (
+  SELECT
+    marker.content,
+    marker.emitted_clock,
+    pg_catalog.pg_logical_emit_message(
+      true,
+      :'marker_prefix',
+      marker.content
+    ) AS marker_lsn
+  FROM marker
+)
+SELECT
+  content,
+  encode(public.digest(convert_to(content, 'UTF8'), 'sha256'), 'hex') AS content_sha256,
+  to_char(
+    emitted_clock AT TIME ZONE 'UTC',
+    'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+  ) AS emitted_at,
+  marker_lsn::text AS marker_lsn
+FROM emitted
+\gset boundary_
 COMMIT;
+WITH fence AS MATERIALIZED (
+  SELECT
+    pg_catalog.clock_timestamp() AS emitted_clock,
+    pg_catalog.pg_logical_emit_message(
+      false,
+      :'commit_fence_prefix',
+      :'marker_content'
+    ) AS fence_lsn
+)
 SELECT concat_ws('|',
-  to_char(recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
-  recorded_lsn::text,
-  to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
-  pg_current_wal_lsn()::text,
-  pg_walfile_name(pg_current_wal_lsn()))
-FROM platform.pitr_drill_sentinels
-WHERE drill_run_id = :'drill_run_id' AND phase = :'phase';
+  :'marker_prefix',
+  :'commit_fence_prefix',
+  :'boundary_content',
+  :'boundary_content_sha256',
+  :'boundary_emitted_at',
+  :'boundary_marker_lsn',
+  to_char(
+    fence.emitted_clock AT TIME ZONE 'UTC',
+    'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+  ),
+  fence.fence_lsn::text,
+  pg_catalog.pg_walfile_name(fence.fence_lsn))
+FROM fence;
 SQL
 }
 
-FAILURE_STAGE='before-sentinel-commit'
-SOURCE_BEFORE_RESULT=$(insert_source_sentinel BEFORE)
-validate_sentinel_result "${SOURCE_BEFORE_RESULT}"
+FAILURE_STAGE='before-wal-marker-commit'
+SOURCE_BEFORE_MARKER_CONTENT=$(canonical_wal_marker_content BEFORE)
+SOURCE_BEFORE_RESULT=$(emit_source_wal_marker BEFORE "${SOURCE_BEFORE_MARKER_CONTENT}")
+validate_wal_marker_result "${SOURCE_BEFORE_RESULT}" "${SOURCE_BEFORE_MARKER_CONTENT}"
 IFS='|' read -r \
-  SOURCE_BEFORE_RECORDED_AT SOURCE_BEFORE_RECORDED_LSN \
+  SOURCE_BEFORE_MARKER_PREFIX SOURCE_BEFORE_COMMIT_FENCE_PREFIX \
+  SOURCE_BEFORE_MARKER_CONTENT SOURCE_BEFORE_MARKER_CONTENT_SHA256 \
+  SOURCE_BEFORE_MARKER_EMITTED_AT SOURCE_BEFORE_MARKER_LSN \
   SOURCE_BEFORE_COMMIT_FENCE_AT SOURCE_BEFORE_COMMIT_FENCE_LSN BEFORE_WAL_FILE \
   <<< "${SOURCE_BEFORE_RESULT}"
+if [ "${SOURCE_BEFORE_MARKER_PREFIX}" != "${WAL_MARKER_PREFIX}" ] || \
+   [ "${SOURCE_BEFORE_COMMIT_FENCE_PREFIX}" != "${WAL_COMMIT_FENCE_PREFIX}" ]; then
+  die 'BEFORE WAL marker prefixes changed after protocol validation.'
+fi
 
-RECOVERY_TARGET_TIME=$(source_psql -c \
-  "SELECT to_char((date_trunc('second', clock_timestamp()) + interval '2 seconds') AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"');")
-is_evidence_timestamp "${RECOVERY_TARGET_TIME}" || die 'source database returned an invalid recovery target timestamp.'
+FAILURE_STAGE='source-canonical-verification'
+SOURCE_LOCK_KEEPER_TIMEOUT_SECONDS=$(remaining_rto_seconds)
+coproc SOURCE_LOCK_KEEPER_PROCESS {
+  timeout --foreground --kill-after=30s "${SOURCE_LOCK_KEEPER_TIMEOUT_SECONDS}s" \
+    docker exec --user postgres -i "${SOURCE_CONTAINER}" \
+    /usr/bin/env -i \
+      PATH=/usr/local/bin:/usr/bin:/bin \
+      HOME=/nonexistent \
+      LC_ALL=C \
+      PGHOST=/var/run/postgresql \
+      PGUSER="${SOURCE_POSTGRES_USER}" \
+      PGDATABASE="${SOURCE_POSTGRES_DB}" \
+      PGCONNECT_TIMEOUT="${PSQL_TIMEOUT_SECONDS}" \
+      /usr/bin/stdbuf -oL -eL /usr/bin/psql \
+        -X -qAt -v ON_ERROR_STOP=1
+} 2> "${TMP_DIR}/source-verification.stderr"
+SOURCE_LOCK_KEEPER_PID=${SOURCE_LOCK_KEEPER_PROCESS_PID}
+SOURCE_LOCK_KEEPER_OUTPUT_FD=${SOURCE_LOCK_KEEPER_PROCESS[0]}
+SOURCE_LOCK_KEEPER_INPUT_FD=${SOURCE_LOCK_KEEPER_PROCESS[1]}
+SOURCE_LOCK_KEEPER_ACTIVE=true
+
+if ! {
+  printf 'BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY;\n'
+  sed -n '1,$p' "${PITR_SOURCE_VERIFICATION_LOCKS_SQL}"
+  printf '\n'
+} >&"${SOURCE_LOCK_KEEPER_INPUT_FD}"; then
+  die 'could not send the canonical source verification protocol.'
+fi
+if ! IFS= read -r -t "$(remaining_rto_seconds)" \
+  -u "${SOURCE_LOCK_KEEPER_OUTPUT_FD}" SOURCE_ROOT_LOCK_RESULT || \
+  [ "${SOURCE_ROOT_LOCK_RESULT}" != 'ROOTS_LOCKED' ]; then
+  sed 's/^/  source-verification| /' "${TMP_DIR}/source-verification.stderr" >&2 || true
+  die 'source verification did not attest the registry root locks.'
+fi
+if ! IFS= read -r -t "$(remaining_rto_seconds)" \
+  -u "${SOURCE_LOCK_KEEPER_OUTPUT_FD}" SOURCE_LOCK_RESULT; then
+  sed 's/^/  source-verification| /' "${TMP_DIR}/source-verification.stderr" >&2 || true
+  die 'source verification did not return its canonical relation lock set.'
+fi
+if ! node "${BOUNDED_LINE_READER}" \
+  --output "${TMP_DIR}/source-verification.capture" \
+  --max-bytes "${MAX_SOURCE_CAPTURE_BYTES}" \
+  --expected-marker SOURCE_VERIFICATION_CAPTURED \
+  <&"${SOURCE_LOCK_KEEPER_OUTPUT_FD}"; then
+  sed 's/^/  source-verification| /' "${TMP_DIR}/source-verification.stderr" >&2 || true
+  die 'source verification capture/terminal-marker frame protocol is not canonical.'
+fi
+SOURCE_CAPTURE_BYTES=$(stat -c '%s' "${TMP_DIR}/source-verification.capture")
+if [[ ! "${SOURCE_CAPTURE_BYTES}" =~ ^[1-9][0-9]*$ ]] || \
+   [ "${SOURCE_CAPTURE_BYTES}" -gt "${MAX_SOURCE_CAPTURE_BYTES}" ]; then
+  die 'source verification capture post-write bound is invalid.'
+fi
+
+if [[ ! "${SOURCE_LOCK_RESULT}" =~ ^[0-9a-f]{64}\|[1-9][0-9]*\|5000\|120000\|30000$ ]]; then
+  die 'source lock result is not canonical.'
+fi
+IFS='|' read -r \
+  SOURCE_VERIFICATION_LOCK_SET_SHA256 SOURCE_VERIFICATION_LOCK_COUNT \
+  SOURCE_VERIFICATION_LOCK_TIMEOUT_MS SOURCE_VERIFICATION_STATEMENT_TIMEOUT_MS \
+  SOURCE_VERIFICATION_IDLE_TIMEOUT_MS \
+  <<< "${SOURCE_LOCK_RESULT}"
+SOURCE_CAPTURE_METADATA=$(node - \
+  "${TMP_DIR}/source-verification.capture" \
+  "${TMP_DIR}/source-verification-lock-relations.raw" \
+  "${TMP_DIR}/source-database-verification.raw" \
+  "${MAX_LOCK_RELATIONS_BYTES}" "${MAX_DATABASE_VERIFICATION_BYTES}" <<'NODE'
+const fs = require('node:fs');
+const [capturePath, relationsPath, payloadPath, maxRelationsRaw, maxPayloadRaw] =
+  process.argv.slice(2);
+const fields = fs.readFileSync(capturePath, 'utf8').split('|');
+const digest = /^[0-9a-f]{64}$/;
+const snapshot = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{8}-[1-9][0-9]*$/;
+const timestamp = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{6}Z$/;
+const lsn = /^[0-9A-F]+\/[0-9A-F]{1,8}$/;
+const positive = /^[1-9][0-9]*$/;
+const canonicalBase64 = (encoded) => {
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) || encoded.length % 4 !== 0) {
+    throw new Error('capture contains non-canonical base64');
+  }
+  const decoded = Buffer.from(encoded, 'base64');
+  if (decoded.toString('base64') !== encoded) {
+    throw new Error('capture base64 round-trip changed');
+  }
+  return decoded;
+};
+if (
+  fields.length !== 9 || !snapshot.test(fields[0]) || !digest.test(fields[1]) ||
+  !digest.test(fields[2]) || !positive.test(fields[3]) ||
+  !timestamp.test(fields[5]) || !lsn.test(fields[6]) || !timestamp.test(fields[7])
+) {
+  throw new Error('source capture metadata is not canonical');
+}
+const relations = canonicalBase64(fields[4]);
+const payload = canonicalBase64(fields[8]);
+if (relations.length > Number(maxRelationsRaw) || payload.length > Number(maxPayloadRaw)) {
+  throw new Error('decoded source capture payload exceeds its evidence bound');
+}
+fs.writeFileSync(relationsPath, relations, { flag: 'wx', mode: 0o600 });
+fs.writeFileSync(payloadPath, payload, { flag: 'wx', mode: 0o600 });
+process.stdout.write([
+  fields[0], fields[1], fields[2], fields[3], fields[5], fields[6], fields[7],
+].join('|'));
+NODE
+)
+IFS='|' read -r \
+  SOURCE_VERIFICATION_SNAPSHOT_ID SOURCE_VERIFICATION_SNAPSHOT_SHA256 \
+  SOURCE_CAPTURE_LOCK_SET_SHA256 SOURCE_CAPTURE_LOCK_COUNT \
+  SOURCE_VERIFICATION_COMPLETED_AT SOURCE_VERIFICATION_FLOOR_LSN \
+  RECOVERY_TARGET_TIME \
+  <<< "${SOURCE_CAPTURE_METADATA}"
+if [ "${SOURCE_CAPTURE_LOCK_SET_SHA256}" != "${SOURCE_VERIFICATION_LOCK_SET_SHA256}" ] || \
+   [ "${SOURCE_CAPTURE_LOCK_COUNT}" != "${SOURCE_VERIFICATION_LOCK_COUNT}" ]; then
+  die 'source capture lock attestation changed between lock and collection phases.'
+fi
+COMPUTED_SNAPSHOT_SHA256=$(printf '%s' "${SOURCE_VERIFICATION_SNAPSHOT_ID}" | \
+  sha256sum | awk '{print $1}')
+if [ "${COMPUTED_SNAPSHOT_SHA256}" != "${SOURCE_VERIFICATION_SNAPSHOT_SHA256}" ]; then
+  die 'source verification snapshot digest does not match its captured identifier.'
+fi
+node - \
+  "${TMP_DIR}/source-verification-lock-relations.raw" \
+  "${TMP_DIR}/source-verification-lock-relations.json" \
+  "${SOURCE_VERIFICATION_LOCK_SET_SHA256}" \
+  "${SOURCE_VERIFICATION_LOCK_COUNT}" <<'NODE'
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const [input, output, expectedHash, expectedCount] = process.argv.slice(2);
+const value = JSON.parse(fs.readFileSync(input, 'utf8'));
+if (
+  !Array.isArray(value) || value.length !== Number(expectedCount) ||
+  value.some((item) => typeof item !== 'string') ||
+  JSON.stringify(value) !== JSON.stringify([...value].sort()) ||
+  new Set(value).size !== value.length
+) {
+  throw new Error('source verification relation preimage is not a canonical sorted set');
+}
+const actualHash = crypto.createHash('sha256').update(value.join('\n')).digest('hex');
+if (actualHash !== expectedHash) {
+  throw new Error('source verification relation preimage does not match its digest');
+}
+fs.writeFileSync(output, `${JSON.stringify(value)}\n`, { flag: 'wx', mode: 0o600 });
+NODE
+SOURCE_DATABASE_RELEASE_SHA=$(canonicalize_database_verification \
+  "${TMP_DIR}/source-database-verification.raw" \
+  "${TMP_DIR}/source-database-verification.canonical.json")
+EXPECTED_SOURCE_LOCK_COUNT=$(node -e '
+  const value = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+  process.stdout.write(String(19 + (14 * value.tenant_schemas.length)));
+' "${TMP_DIR}/source-database-verification.canonical.json")
+if [ "${SOURCE_VERIFICATION_LOCK_COUNT}" != "${EXPECTED_SOURCE_LOCK_COUNT}" ]; then
+  die 'source verification lock count does not cover every canonical tenant relation.'
+fi
+SOURCE_DATABASE_VERIFICATION_SHA256=$(sha256sum \
+  "${TMP_DIR}/source-database-verification.canonical.json" | awk '{print $1}')
+unset SOURCE_CAPTURE_METADATA
+
+is_evidence_timestamp "${SOURCE_VERIFICATION_COMPLETED_AT}" || \
+  die 'source verification completion timestamp is invalid.'
+is_evidence_timestamp "${RECOVERY_TARGET_TIME}" || \
+  die 'source verification returned an invalid recovery target timestamp.'
+if [[ "${RECOVERY_TARGET_TIME}" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2})T([0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{6})Z$ ]]; then
+  RECOVERY_TARGET_POSTGRES="${BASH_REMATCH[1]} ${BASH_REMATCH[2]}+00"
+else
+  die 'source verification recovery target cannot be represented by PostgreSQL exactly.'
+fi
 TARGET_NS=$(date -u -d "${RECOVERY_TARGET_TIME}" +%s%N)
 while true; do
   SOURCE_NOW_NS=$(source_psql -c "SELECT (extract(epoch FROM clock_timestamp()) * 1000000000)::bigint;")
@@ -648,41 +1070,53 @@ while true; do
   sleep 0.2
 done
 
-FAILURE_STAGE='after-sentinel-commit'
-SOURCE_AFTER_RESULT=$(insert_source_sentinel AFTER)
-validate_sentinel_result "${SOURCE_AFTER_RESULT}"
+FAILURE_STAGE='after-wal-marker-commit'
+SOURCE_AFTER_MARKER_CONTENT=$(canonical_wal_marker_content AFTER)
+SOURCE_AFTER_RESULT=$(emit_source_wal_marker AFTER "${SOURCE_AFTER_MARKER_CONTENT}")
+validate_wal_marker_result "${SOURCE_AFTER_RESULT}" "${SOURCE_AFTER_MARKER_CONTENT}"
 IFS='|' read -r \
-  SOURCE_AFTER_RECORDED_AT SOURCE_AFTER_RECORDED_LSN \
+  SOURCE_AFTER_MARKER_PREFIX SOURCE_AFTER_COMMIT_FENCE_PREFIX \
+  SOURCE_AFTER_MARKER_CONTENT SOURCE_AFTER_MARKER_CONTENT_SHA256 \
+  SOURCE_AFTER_MARKER_EMITTED_AT SOURCE_AFTER_MARKER_LSN \
   SOURCE_AFTER_COMMIT_FENCE_AT SOURCE_AFTER_COMMIT_FENCE_LSN AFTER_WAL_FILE \
   <<< "${SOURCE_AFTER_RESULT}"
+if [ "${SOURCE_AFTER_MARKER_PREFIX}" != "${WAL_MARKER_PREFIX}" ] || \
+   [ "${SOURCE_AFTER_COMMIT_FENCE_PREFIX}" != "${WAL_COMMIT_FENCE_PREFIX}" ]; then
+  die 'AFTER WAL marker prefixes changed after protocol validation.'
+fi
 for timestamp_value in \
-  "${SOURCE_BEFORE_RECORDED_AT}" "${SOURCE_BEFORE_COMMIT_FENCE_AT}" \
-  "${RECOVERY_TARGET_TIME}" "${SOURCE_AFTER_RECORDED_AT}" \
+  "${SOURCE_BEFORE_MARKER_EMITTED_AT}" "${SOURCE_BEFORE_COMMIT_FENCE_AT}" \
+  "${SOURCE_VERIFICATION_COMPLETED_AT}" \
+  "${RECOVERY_TARGET_TIME}" "${SOURCE_AFTER_MARKER_EMITTED_AT}" \
   "${SOURCE_AFTER_COMMIT_FENCE_AT}"; do
-  is_evidence_timestamp "${timestamp_value}" || die 'source sentinel protocol returned an invalid timestamp.'
+  is_evidence_timestamp "${timestamp_value}" || die 'source WAL marker protocol returned an invalid timestamp.'
 done
-BEFORE_NS=$(date -u -d "${SOURCE_BEFORE_RECORDED_AT}" +%s%N)
+BEFORE_NS=$(date -u -d "${SOURCE_BEFORE_MARKER_EMITTED_AT}" +%s%N)
 BEFORE_FENCE_NS=$(date -u -d "${SOURCE_BEFORE_COMMIT_FENCE_AT}" +%s%N)
-AFTER_NS=$(date -u -d "${SOURCE_AFTER_RECORDED_AT}" +%s%N)
+SOURCE_VERIFICATION_COMPLETED_NS=$(date -u -d "${SOURCE_VERIFICATION_COMPLETED_AT}" +%s%N)
+AFTER_NS=$(date -u -d "${SOURCE_AFTER_MARKER_EMITTED_AT}" +%s%N)
 AFTER_FENCE_NS=$(date -u -d "${SOURCE_AFTER_COMMIT_FENCE_AT}" +%s%N)
 if [ "${BEFORE_NS}" -gt "${BEFORE_FENCE_NS}" ] || \
-   [ "${BEFORE_FENCE_NS}" -gt "${TARGET_NS}" ] || \
+   [ "${BEFORE_FENCE_NS}" -gt "${SOURCE_VERIFICATION_COMPLETED_NS}" ] || \
+   [ $(( SOURCE_VERIFICATION_COMPLETED_NS + 2000000000 )) -ne "${TARGET_NS}" ] || \
    [ "${TARGET_NS}" -ge "${AFTER_NS}" ] || \
    [ "${AFTER_NS}" -gt "${AFTER_FENCE_NS}" ]; then
-  die 'source-proven chronology must be BEFORE commit fence <= target < AFTER commit fence.'
+  die 'source chronology must bracket the locked capture and target between WAL markers.'
 fi
 node - \
-  "${SOURCE_BEFORE_RECORDED_LSN}" "${SOURCE_BEFORE_COMMIT_FENCE_LSN}" \
-  "${SOURCE_AFTER_RECORDED_LSN}" "${SOURCE_AFTER_COMMIT_FENCE_LSN}" <<'NODE'
+  "${SOURCE_BEFORE_MARKER_LSN}" "${SOURCE_BEFORE_COMMIT_FENCE_LSN}" \
+  "${SOURCE_VERIFICATION_FLOOR_LSN}" \
+  "${SOURCE_AFTER_MARKER_LSN}" "${SOURCE_AFTER_COMMIT_FENCE_LSN}" <<'NODE'
 const values = process.argv.slice(2).map((value) => {
   const match = value.match(/^([0-9A-F]+)\/([0-9A-F]{1,8})$/);
   if (!match) throw new Error('invalid PostgreSQL LSN');
   return (BigInt(`0x${match[1]}`) << 32n) + BigInt(`0x${match[2]}`);
 });
-if (!(values[0] <= values[1] && values[1] <= values[2] && values[2] <= values[3] && values[1] < values[3])) {
-  throw new Error('sentinel LSNs must fall within strictly ordered commit fences');
+if (!(values[0] < values[1] && values[1] <= values[2] && values[2] <= values[3] && values[3] < values[4])) {
+  throw new Error('source capture and WAL marker LSNs must fall within exact commit fences');
 }
 NODE
+commit_source_lock_keeper
 FAILURE_STAGE='wal-archive-fence'
 ARCHIVE_WAIT_STARTED=${SECONDS}
 ARCHIVE_REQUIRED_WAL="${AFTER_WAL_FILE}"
@@ -702,14 +1136,14 @@ while true; do
   fi
   ARCHIVE_WAIT_SECONDS=$(( SECONDS - ARCHIVE_WAIT_STARTED ))
   if [ "${ARCHIVE_WAIT_SECONDS}" -ge "${MAX_RPO_SECONDS}" ]; then
-    die 'AFTER sentinel WAL segment was not archived within the RPO budget.'
+    die 'AFTER commit-fence WAL segment was not archived within the RPO budget.'
   fi
   sleep 1
 done
 ARCHIVE_WAIT_SECONDS=$(( SECONDS - ARCHIVE_WAIT_STARTED ))
 
 # The simulated source-loss boundary is established only after the segment
-# containing the AFTER sentinel is durably observable in the archive. From
+# containing the AFTER commit fence is durably observable in the archive. From
 # this point onward the drill performs no source-dependent operation.
 FAILURE_STAGE='source-loss-fence'
 WALG_ROTATION_BUNDLE_SHA256=$(container_walg_rotation_bundle_sha256 "${SOURCE_CONTAINER}")
@@ -820,11 +1254,11 @@ timeout --foreground --kill-after=10s "${CONTROL_TIMEOUT_SECONDS}s" \
     printf "\n# Aqua isolated timestamp PITR drill\n"
     printf "restore_command = '\''/usr/local/bin/walg-restore-command.sh %%f %%p'\''\n"
     printf "recovery_target_time = '\''%s'\''\n" "${target_time}"
-    printf "recovery_target_inclusive = '\''true'\''\n"
+    printf "recovery_target_inclusive = '\''false'\''\n"
     printf "recovery_target_timeline = '\''latest'\''\n"
     printf "recovery_target_action = '\''promote'\''\n"
   } >> "${PGDATA}/postgresql.auto.conf"
-' bash "${RECOVERY_TARGET_TIME}"
+' bash "${RECOVERY_TARGET_POSTGRES}"
 
 FAILURE_STAGE='postgres-start-and-recovery'
 REMAINING_RTO_SECONDS=$(remaining_rto_seconds)
@@ -854,70 +1288,68 @@ while true; do
   sleep 1
 done
 
-FAILURE_STAGE='sentinel-verification'
+FAILURE_STAGE='wal-marker-verification'
 RESTORED_SYSTEM_IDENTIFIER=$(target_psql -c 'SELECT system_identifier::text FROM pg_control_system();')
 if [ "${RESTORED_SYSTEM_IDENTIFIER}" != "${SOURCE_SYSTEM_IDENTIFIER}" ]; then
   die 'restored target system identifier differs from the attested source cluster.'
 fi
-RESTORED_BEFORE_RESULT=$(
-  target_psql -v "drill_run_id=${EVIDENCE_RUN_ID}" -c \
-    "SELECT concat_ws('|', to_char(recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'), recorded_lsn::text) FROM platform.pitr_drill_sentinels WHERE drill_run_id = :'drill_run_id' AND phase = 'BEFORE';"
-)
-node -e '
-  if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{6}Z\|[0-9A-F]+\/[0-9A-F]{1,8}$/.test(process.argv[1])) process.exit(2);
-' "${RESTORED_BEFORE_RESULT}" || die 'restored BEFORE sentinel proof is not canonical.'
-IFS='|' read -r RESTORED_BEFORE_RECORDED_AT RESTORED_BEFORE_RECORDED_LSN <<< "${RESTORED_BEFORE_RESULT}"
-RESTORED_AFTER_COUNT=$(target_psql -v "drill_run_id=${EVIDENCE_RUN_ID}" -c \
-  "SELECT count(*) FROM platform.pitr_drill_sentinels WHERE drill_run_id = :'drill_run_id' AND phase = 'AFTER';")
-[[ "${RESTORED_AFTER_COUNT}" =~ ^[0-9]+$ ]] || die 'restored AFTER sentinel count is invalid.'
-if [ "${RESTORED_BEFORE_RECORDED_AT}" = "${SOURCE_BEFORE_RECORDED_AT}" ] && \
-   [ "${RESTORED_BEFORE_RECORDED_LSN}" = "${SOURCE_BEFORE_RECORDED_LSN}" ]; then
-  BEFORE_SENTINEL_PRESENT=true
+RESTORED_RECOVERY_SETTINGS=$(target_psql -c \
+  "SELECT concat_ws('|', to_char(current_setting('recovery_target_time')::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'), current_setting('recovery_target_inclusive'), current_setting('recovery_target_timeline'), current_setting('recovery_target_action'));")
+IFS='|' read -r \
+  RESTORED_RECOVERY_TARGET_TIME RESTORED_RECOVERY_TARGET_INCLUSIVE_SETTING \
+  RESTORED_RECOVERY_TARGET_TIMELINE RESTORED_RECOVERY_TARGET_ACTION \
+  <<< "${RESTORED_RECOVERY_SETTINGS}"
+if [ "${RESTORED_RECOVERY_TARGET_TIME}" != "${RECOVERY_TARGET_TIME}" ] || \
+   [ "${RESTORED_RECOVERY_TARGET_INCLUSIVE_SETTING}" != 'off' ] || \
+   [ "${RESTORED_RECOVERY_TARGET_TIMELINE}" != 'latest' ] || \
+   [ "${RESTORED_RECOVERY_TARGET_ACTION}" != 'promote' ]; then
+  die 'restored PostgreSQL recovery settings differ from the protected timestamp target contract.'
 fi
-if [ "${RESTORED_AFTER_COUNT}" != '0' ]; then
-  AFTER_SENTINEL_PRESENT=true
-fi
-if [ "${BEFORE_SENTINEL_PRESENT}" != 'true' ] || [ "${AFTER_SENTINEL_PRESENT}" != 'false' ]; then
-  die 'PITR sentinel boundary failed: expected before=true and after=false.'
-fi
+RESTORED_RECOVERY_TARGET_INCLUSIVE=false
+RESTORED_REPLAY_LSN=$(target_psql -c 'SELECT pg_last_wal_replay_lsn()::text;')
+[[ "${RESTORED_REPLAY_LSN}" =~ ^[0-9A-F]+/[0-9A-F]{1,8}$ ]] || \
+  die 'restored target did not expose a canonical replay LSN.'
 
 FAILURE_STAGE='canonical-database-verification'
 if ! (
   printf 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;\n'
   sed -n '1,$p' "${DATABASE_VERIFICATION_SQL}"
   printf '\nCOMMIT;\n'
-) | target_psql_with_rto_budget > "${TMP_DIR}/database-verification.raw" 2> "${TMP_DIR}/database-verification.stderr"; then
-  sed 's/^/  verification| /' "${TMP_DIR}/database-verification.stderr" >&2 || true
+) | target_psql_with_rto_budget \
+  2> "${TMP_DIR}/restored-database-verification.stderr" | \
+  node "${BOUNDED_LINE_READER}" \
+    --output "${TMP_DIR}/restored-database-verification.raw" \
+    --max-bytes "${MAX_DATABASE_VERIFICATION_BYTES}"; then
+  sed 's/^/  verification| /' "${TMP_DIR}/restored-database-verification.stderr" >&2 || true
   die 'restored target failed canonical database verification.'
 fi
+RESTORED_DATABASE_RELEASE_SHA=$(canonicalize_database_verification \
+  "${TMP_DIR}/restored-database-verification.raw" \
+  "${TMP_DIR}/restored-database-verification.canonical.json")
+RESTORED_DATABASE_VERIFICATION_SHA256=$(sha256sum \
+  "${TMP_DIR}/restored-database-verification.canonical.json" | awk '{print $1}')
+if [ "${SOURCE_DATABASE_RELEASE_SHA}" != "${RESTORED_DATABASE_RELEASE_SHA}" ] || \
+   [ "${SOURCE_DATABASE_VERIFICATION_SHA256}" != \
+     "${RESTORED_DATABASE_VERIFICATION_SHA256}" ] || \
+   ! cmp -s "${TMP_DIR}/source-database-verification.canonical.json" \
+     "${TMP_DIR}/restored-database-verification.canonical.json"; then
+  die 'source and restored canonical database verification payloads differ.'
+fi
 node - \
-  "${TMP_DIR}/database-verification.raw" \
-  "${TMP_DIR}/database-verification.canonical.json" \
-  "${MAIN_SHA}" <<'NODE'
-const fs = require('node:fs');
-const [input, output, mainSha] = process.argv.slice(2);
-const lines = fs.readFileSync(input, 'utf8').trim().split(/\r?\n/).filter(Boolean);
-if (lines.length !== 1) throw new Error('database verification must produce exactly one JSON line');
-const value = JSON.parse(lines[0]);
-const canonicalSchemas = [
-  'auth', 'farm', 'sensor', 'hr', 'messaging', 'hydroponics', 'alert', 'ai',
-  'billing', 'notification', 'admin', 'config', 'observability', 'event_store',
-  'gateway', 'shared', 'compliance',
-];
-if (
-  !value || typeof value !== 'object' || Array.isArray(value) ||
-  value.contract_version !== 1 ||
-  JSON.stringify(value.canonical_schemas) !== JSON.stringify(canonicalSchemas) ||
-  !Array.isArray(value.tenant_schemas) ||
-  !value.release || value.release.git_sha !== mainSha ||
-  !value.migration_heads || !Array.isArray(value.migration_heads.schemas) ||
-  !Array.isArray(value.migration_heads.tenants) || !Array.isArray(value.sentinels)
-) {
-  throw new Error('database verification payload shape/release SHA is not canonical');
+  "${SOURCE_BEFORE_MARKER_LSN}" "${SOURCE_BEFORE_COMMIT_FENCE_LSN}" \
+  "${SOURCE_VERIFICATION_FLOOR_LSN}" "${RESTORED_REPLAY_LSN}" \
+  "${SOURCE_AFTER_COMMIT_FENCE_LSN}" <<'NODE'
+const values = process.argv.slice(2).map((value) => {
+  const match = value.match(/^([0-9A-F]+)\/([0-9A-F]{1,8})$/);
+  if (!match) throw new Error('invalid PostgreSQL LSN');
+  return (BigInt(`0x${match[1]}`) << 32n) + BigInt(`0x${match[2]}`);
+});
+if (!(values[0] < values[1] && values[1] <= values[2] && values[2] <= values[3] && values[3] < values[4])) {
+  throw new Error('restored replay LSN does not prove the exact transactional WAL marker boundary');
 }
-fs.writeFileSync(output, `${JSON.stringify(value)}\n`, { flag: 'wx', mode: 0o600 });
 NODE
-DATABASE_VERIFICATION_SHA256=$(sha256sum "${TMP_DIR}/database-verification.canonical.json" | awk '{print $1}')
+BEFORE_WAL_MARKER_REPLAYED=true
+AFTER_WAL_MARKER_EXCLUDED=true
 DATABASE_VERIFIED=true
 
 FAILURE_STAGE='target-shutdown'
@@ -959,5 +1391,7 @@ NODE
 
 FAILURE_STAGE='evidence-write'
 write_evidence success
-printf 'WALG_TIMESTAMP_PITR_VERIFIED backup_name=%s rpo_seconds=%s rto_seconds=%s database_verification_sha256=%s evidence=%s\n' \
-  "${BACKUP_NAME}" "${RPO_SECONDS}" "${RTO_SECONDS}" "${DATABASE_VERIFICATION_SHA256}" "${EVIDENCE_PATH}"
+printf 'WALG_TIMESTAMP_PITR_VERIFIED backup_name=%s rpo_seconds=%s rto_seconds=%s source_database_verification_sha256=%s restored_database_verification_sha256=%s evidence=%s\n' \
+  "${BACKUP_NAME}" "${RPO_SECONDS}" "${RTO_SECONDS}" \
+  "${SOURCE_DATABASE_VERIFICATION_SHA256}" \
+  "${RESTORED_DATABASE_VERIFICATION_SHA256}" "${EVIDENCE_PATH}"

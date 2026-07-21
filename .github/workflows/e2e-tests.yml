@@ -10,7 +10,7 @@ on:
   # the live deploy-digitalocean.yml + deploy-staging.yml pair. The
   # stale names are removed so workflow_run registration is clean.
   workflow_run:
-    workflows: ["Deploy to DigitalOcean"]
+    workflows: ['Deploy to DigitalOcean']
     types: [completed]
     branches: [main]
 
@@ -38,6 +38,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    environment:
+      name: production
+      deployment: false
 
     steps:
       - name: Run E2E tests on DigitalOcean server via SSH
@@ -53,9 +56,9 @@ jobs:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
         with:
-          host: ${{ secrets.DROPLET_HOST }}
-          username: ${{ secrets.DROPLET_USER }}
-          key: ${{ secrets.DROPLET_SSH_KEY }}
+          host: ${{ secrets.PRODUCTION_DROPLET_HOST }}
+          username: ${{ secrets.PRODUCTION_DROPLET_USER }}
+          key: ${{ secrets.PRODUCTION_DROPLET_SSH_KEY }}
           timeout: 600s
           envs: PROJECT,JWT_SECRET,DB_PASSWORD
           script: |
@@ -109,9 +112,9 @@ jobs:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
         with:
-          host: ${{ secrets.DROPLET_HOST }}
-          username: ${{ secrets.DROPLET_USER }}
-          key: ${{ secrets.DROPLET_SSH_KEY }}
+          host: ${{ secrets.PRODUCTION_DROPLET_HOST }}
+          username: ${{ secrets.PRODUCTION_DROPLET_USER }}
+          key: ${{ secrets.PRODUCTION_DROPLET_SSH_KEY }}
           timeout: 600s
           envs: JWT_SECRET,DB_PASSWORD
           script: |
@@ -154,11 +157,11 @@ jobs:
         # Pinned to commit SHA: mutable @v0.1.7 replaced.
         uses: appleboy/scp-action@f9e1f36bc4a2230f8c8e2bac88da0aaa5c32d3dc # v0.1.7
         with:
-          host: ${{ secrets.DROPLET_HOST }}
-          username: ${{ secrets.DROPLET_USER }}
-          key: ${{ secrets.DROPLET_SSH_KEY }}
-          source: "/var/aqua-saas/e2e/playwright-report/*,/var/aqua-saas/e2e/test-results/*"
-          target: "."
+          host: ${{ secrets.PRODUCTION_DROPLET_HOST }}
+          username: ${{ secrets.PRODUCTION_DROPLET_USER }}
+          key: ${{ secrets.PRODUCTION_DROPLET_SSH_KEY }}
+          source: '/var/aqua-saas/e2e/playwright-report/*,/var/aqua-saas/e2e/test-results/*'
+          target: '.'
           strip_components: 3
         # continue-on-error removed: if results can't be copied, that's a real failure.
         # BEFORE: a broken SCP step silently passed, hiding server-side test infrastructure issues.

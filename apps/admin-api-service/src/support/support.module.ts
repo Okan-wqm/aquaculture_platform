@@ -5,7 +5,6 @@
  */
 
 import { Module } from '@nestjs/common';
-import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 // Entities
@@ -13,12 +12,9 @@ import { TenantReadOnly } from '../analytics/entities/external/tenant.entity';
 
 import { MessagingController } from './controllers/messaging.controller';
 import { OnboardingController } from './controllers/onboarding.controller';
-import { TicketController } from './controllers/ticket.controller';
 import {
   MessageThread,
   Message,
-  SupportTicket,
-  TicketComment,
   OnboardingProgress,
 } from './entities/support.entity';
 
@@ -27,7 +23,6 @@ import {
 // Services
 import { MessagingService } from './services/messaging.service';
 import { OnboardingService } from './services/onboarding.service';
-import { TicketService } from './services/ticket.service';
 
 // Controllers
 
@@ -35,32 +30,32 @@ import { TicketService } from './services/ticket.service';
 // removed from this module. Announcements are owned by auth-service
 // (auth.announcements) and served via GraphQL; the admin.announcements duplicate
 // store is dropped by 1801700000000-MigrateAnnouncementsToAuth.
+//
+// APA-213: the Support Ticket vertical (TicketController + TicketService +
+// SupportTicket/TicketComment entities) has likewise been removed. Support
+// tickets are owned by auth-service (auth.support_tickets / auth.ticket_comments)
+// and served via GraphQL; the admin duplicate store is dropped by
+// 1801800000000-MigrateSupportTicketsToAuth.
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       MessageThread,
       Message,
-      SupportTicket,
-      TicketComment,
       OnboardingProgress,
       TenantReadOnly,
     ]),
-    ScheduleModule,
   ],
   controllers: [
     MessagingController,
-    TicketController,
     OnboardingController,
   ],
   providers: [
     MessagingService,
-    TicketService,
     OnboardingService,
   ],
   exports: [
     MessagingService,
-    TicketService,
     OnboardingService,
   ],
 })

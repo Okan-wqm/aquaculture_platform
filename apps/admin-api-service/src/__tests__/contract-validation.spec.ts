@@ -675,19 +675,11 @@ const KNOWN_EXCEPTIONS: Array<{ url: string; method: string; reason: string }> =
     reason: 'Test email endpoint exists but with different body shape',
   },
 
-  // Frontend /support/tickets PATCH vs backend PUT
-  {
-    url: '/support/tickets/:param',
-    method: 'PATCH',
-    reason: 'Frontend uses PATCH, backend uses PUT for ticket update',
-  },
-
-  // Support ticket close
-  {
-    url: '/support/tickets/:param/close',
-    method: 'POST',
-    reason: 'Backend uses status change via POST /status with status=closed',
-  },
+  // APA-213: the support-ticket REST exceptions (/support/tickets/:id PATCH and
+  // /support/tickets/:id/close POST) were removed — the admin-api TicketController
+  // and its FE supportApi ticket functions are deleted; support tickets are served
+  // by auth-service GraphQL now. Re-adding either exception (or any /support/tickets
+  // FE call) fails this gate by design.
 ];
 
 /**
@@ -861,9 +853,11 @@ describe('Frontend-Backend Contract Validation', () => {
     // Bu, beklenmedik endpoint degisikliklerini yakalar.
     // APA-201: 603 -> 590 after removing the 13 AnnouncementController routes
     // (announcements consolidated onto auth-service GraphQL).
+    // APA-213: 590 -> 569 after removing the 21 TicketController routes
+    // (support tickets consolidated onto auth-service GraphQL).
     const count = backendEndpoints.length;
 
-    expect(count).toBe(590);
+    expect(count).toBe(569);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

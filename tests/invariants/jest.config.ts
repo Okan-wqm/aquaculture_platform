@@ -111,6 +111,7 @@ export default {
         '<rootDir>/messaging-migration-runner.spec.ts',
         '<rootDir>/admin-api-schema-boundaries.spec.ts',
         '<rootDir>/admin-no-auth-tenants-writes.spec.ts',
+        '<rootDir>/domain-table-uniqueness.spec.ts',
         '<rootDir>/eslint-rule-presence.spec.ts',
         '<rootDir>/ssrf-safe-fetch-ssot.spec.ts',
         '<rootDir>/eslint-disable-annotation-positional-binding.spec.ts',

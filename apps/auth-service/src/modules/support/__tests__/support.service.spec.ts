@@ -122,6 +122,7 @@ const createMockRepository = () => {
     skip: jest.fn().mockReturnThis(),
     take: jest.fn().mockReturnThis(),
     groupBy: jest.fn().mockReturnThis(),
+    addGroupBy: jest.fn().mockReturnThis(),
     update: jest.fn().mockReturnThis(),
     set: jest.fn().mockReturnThis(),
     execute: jest.fn().mockResolvedValue({ affected: 1 }),
@@ -509,6 +510,104 @@ describe('SupportService', () => {
           assigneeId: 'assignee-1',
         }),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('updatePriority', () => {
+    it('should allow SuperAdmin to change priority and recompute SLA deadlines', async () => {
+      const superAdmin = createMockUser({ role: Role.SUPER_ADMIN, tenantId: undefined });
+      const ticket = createMockTicket({
+        priority: TicketPriority.LOW,
+        createdAt: new Date('2026-07-01T00:00:00.000Z'),
+        resolvedAt: undefined,
+      });
+
+      userRepository.findOne.mockResolvedValue(superAdmin);
+      ticketRepository.findOne.mockResolvedValue(ticket);
+      ticketRepository.save.mockImplementation((t) => Promise.resolve(t as SupportTicket));
+
+      await service.updatePriority(superAdmin.id, {
+        ticketId: ticket.id,
+        priority: TicketPriority.CRITICAL,
+      });
+
+      expect(ticketRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          priority: TicketPriority.CRITICAL,
+          // CRITICAL SLA: response 30m, resolution 240m from createdAt.
+          slaResponseDeadline: new Date('2026-07-01T00:30:00.000Z'),
+          slaResolutionDeadline: new Date('2026-07-01T04:00:00.000Z'),
+        }),
+      );
+    });
+
+    it('should not move the resolution deadline for an already-resolved ticket', async () => {
+      const superAdmin = createMockUser({ role: Role.SUPER_ADMIN, tenantId: undefined });
+      const originalResolutionDeadline = new Date('2026-07-01T02:00:00.000Z');
+      const ticket = createMockTicket({
+        priority: TicketPriority.MEDIUM,
+        createdAt: new Date('2026-07-01T00:00:00.000Z'),
+        resolvedAt: new Date('2026-07-01T01:00:00.000Z'),
+        slaResolutionDeadline: originalResolutionDeadline,
+      });
+
+      userRepository.findOne.mockResolvedValue(superAdmin);
+      ticketRepository.findOne.mockResolvedValue(ticket);
+      ticketRepository.save.mockImplementation((t) => Promise.resolve(t as SupportTicket));
+
+      await service.updatePriority(superAdmin.id, {
+        ticketId: ticket.id,
+        priority: TicketPriority.CRITICAL,
+      });
+
+      expect(ticketRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          priority: TicketPriority.CRITICAL,
+          slaResolutionDeadline: originalResolutionDeadline,
+        }),
+      );
+    });
+
+    it('should throw ForbiddenException for TenantAdmin', async () => {
+      const tenantAdmin = createMockUser({ tenantId: 'tenant-1' });
+
+      userRepository.findOne.mockResolvedValue(tenantAdmin);
+
+      await expect(
+        service.updatePriority(tenantAdmin.id, {
+          ticketId: 'ticket-1',
+          priority: TicketPriority.HIGH,
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('getTicketTeam', () => {
+    it('should return assignees with active-ticket counts for SuperAdmin', async () => {
+      const superAdmin = createMockUser({ role: Role.SUPER_ADMIN, tenantId: undefined });
+
+      userRepository.findOne.mockResolvedValue(superAdmin);
+      (ticketRepository.createQueryBuilder().getRawMany as jest.Mock).mockResolvedValue([
+        { id: 'agent-1', name: 'Support Agent', activeTickets: '3' },
+        { id: 'agent-2', name: null, activeTickets: '1' },
+      ]);
+
+      const team = await service.getTicketTeam(superAdmin.id);
+
+      expect(team).toEqual([
+        { id: 'agent-1', name: 'Support Agent', activeTickets: 3 },
+        { id: 'agent-2', name: 'Unknown', activeTickets: 1 },
+      ]);
+    });
+
+    it('should throw ForbiddenException for TenantAdmin', async () => {
+      const tenantAdmin = createMockUser({ tenantId: 'tenant-1' });
+
+      userRepository.findOne.mockResolvedValue(tenantAdmin);
+
+      await expect(service.getTicketTeam(tenantAdmin.id)).rejects.toThrow(
+        ForbiddenException,
+      );
     });
   });
 

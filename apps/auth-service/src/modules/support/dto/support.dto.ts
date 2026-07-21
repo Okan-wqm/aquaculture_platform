@@ -90,6 +90,21 @@ export class AssignTicketInput {
 }
 
 /**
+ * Input for changing ticket priority (SuperAdmin).
+ * Recomputes the SLA deadlines from the new priority's SLA config.
+ */
+@InputType()
+export class UpdateTicketPriorityInput {
+  @Field()
+  @IsUUID()
+  ticketId!: string;
+
+  @Field(() => TicketPriority)
+  @IsEnum(TicketPriority)
+  priority!: TicketPriority;
+}
+
+/**
  * Input for rating ticket satisfaction
  */
 @InputType()
@@ -139,6 +154,9 @@ export class TicketListItem {
   status!: TicketStatus;
 
   @Field(() => String, { nullable: true })
+  assignedTo!: string | null;
+
+  @Field(() => String, { nullable: true })
   assignedToName!: string | null;
 
   @Field()
@@ -146,6 +164,21 @@ export class TicketListItem {
 
   @Field()
   commentCount!: number;
+
+  @Field(() => Date, { nullable: true })
+  slaResponseDeadline!: Date | null;
+
+  @Field(() => Date, { nullable: true })
+  slaResolutionDeadline!: Date | null;
+
+  @Field(() => Date, { nullable: true })
+  firstResponseAt!: Date | null;
+
+  @Field(() => [String], { nullable: true })
+  tags!: string[] | null;
+
+  @Field(() => Int, { nullable: true })
+  satisfactionRating!: number | null;
 
   @Field()
   createdAt!: Date;
@@ -158,6 +191,22 @@ export class TicketListItem {
 
   @Field()
   isResolutionSLABreached!: boolean;
+}
+
+/**
+ * Support team member with active-ticket count (SuperAdmin view).
+ * Assignees with at least one open (non-closed/-resolved) ticket.
+ */
+@ObjectType()
+export class TicketTeamMember {
+  @Field(() => ID)
+  id!: string;
+
+  @Field()
+  name!: string;
+
+  @Field(() => Int)
+  activeTickets!: number;
 }
 
 /**

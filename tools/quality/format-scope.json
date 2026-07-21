@@ -2171,6 +2171,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1801800000000-MigrateSupportTicketsToAuth.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -2555,19 +2561,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/support/controllers/ticket.controller.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/support/entities/support.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/support/services/__tests__/ticket.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -2580,12 +2574,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/support/services/onboarding.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/support/services/ticket.service.ts",
       "prettier_managed": true
     },
     {
@@ -41436,6 +41424,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/domain-table-uniqueness.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/drift-repair-naming.spec.ts",
       "prettier_managed": true
     },
@@ -45196,6 +45190,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/graphql/support-operations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/hooks/__tests__/useAsyncData.spec.ts",
       "prettier_managed": true
     },
@@ -45275,6 +45275,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/hooks/useTenants.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/hooks/useTickets.ts",
       "prettier_managed": true
     },
     {
@@ -55092,10 +55098,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9031,
+  "file_count": 9032,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8850,
-  "managed_file_list_sha256": "e7433af1213ef46b01b1cff99dd083ea1bbd968b417ea8093fbe2c16c93c730d",
+  "managed_count": 8851,
+  "managed_file_list_sha256": "333a9f6d412a024776da4ca6ee1fa9a4c1b8310ab103c33592df6a869e9fa412",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

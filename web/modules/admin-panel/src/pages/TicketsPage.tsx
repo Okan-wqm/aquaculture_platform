@@ -1,13 +1,15 @@
 /**
  * Tickets Page
  *
- * Support ticket management sistemi.
+ * Support ticket management system.
  * Priority, SLA tracking, assignment, internal notes.
+ *
+ * APA-213: reads/writes support tickets exclusively through the auth-service
+ * GraphQL lane (auth.support_tickets / auth.ticket_comments SSoT) via the
+ * useTickets hooks. The legacy REST supportApi ticket functions are removed.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Ticket,
   Search,
   Clock,
   User,
@@ -25,198 +27,105 @@ import {
   Loader2,
   Inbox,
 } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+
 import {
-  supportApi,
-  type SupportTicket as ApiSupportTicket,
-  type TicketComment as ApiTicketComment,
-  type TicketStats as ApiTicketStats,
+  useTickets,
+  useTicketStats,
+  useTicketTeam,
+  useTicketComments,
+  useAssignTicket,
+  useUpdateTicketStatus,
+  useUpdateTicketPriority,
+  useAddTicketComment,
   type TicketPriority,
   type TicketStatus,
   type TicketCategory,
-} from '../services/adminApi';
-
-// ============================================================================
-// Types
-// ============================================================================
-
-// Extend API types with UI-specific computed fields
-interface SupportTicket extends Omit<ApiSupportTicket, 'tenantName' | 'tags'> {
-  tenantName: string;
-  tags: string[];
-  // Computed/aliased fields for UI backwards compatibility
-  reportedBy?: string;
-  reportedByName?: string;
-  commentCount?: number;
-  // SLA deadline fields computed from slaResponseMinutes/slaResolutionMinutes
-  slaResponseDeadline?: string;
-  slaResolutionDeadline?: string;
-}
-
-interface TicketComment extends Omit<ApiTicketComment, 'authorType' | 'attachments' | 'authorName'> {
-  authorType: string; // Allow any string for flexibility
-  authorName: string;
-  attachments: TicketAttachment[];
-}
-
-interface TicketAttachment {
-  id: string;
-  filename: string;
-  url: string;
-  size: number;
-}
-
-interface TicketStats extends Omit<ApiTicketStats, 'avgFirstResponseMinutes' | 'avgResolutionMinutes'> {
-  // Aliased fields for UI
-  avgResponseMinutes: number;
-  avgResolutionMinutes: number;
-  slaComplianceRate: number;
-  satisfactionAvg: number;
-}
-
-interface SupportTeamMember {
-  id: string;
-  name: string;
-  activeTickets: number;
-}
+} from '../hooks/useTickets';
 
 // ============================================================================
 // Component
 // ============================================================================
 
 export const TicketsPage: React.FC = () => {
-  const [tickets, setTickets] = useState<SupportTicket[]>([]);
-  const [stats, setStats] = useState<TicketStats | null>(null);
-  const [supportTeam, setSupportTeam] = useState<SupportTeamMember[]>([]);
-  const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
-  const [comments, setComments] = useState<TicketComment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [commentsLoading, setCommentsLoading] = useState(false);
+  const {
+    data: ticketsData,
+    isLoading: loading,
+    error,
+    refetch: refetchTickets,
+  } = useTickets();
+  const { data: stats, refetch: refetchStats } = useTicketStats();
+  const { data: supportTeam, refetch: refetchTeam } = useTicketTeam();
+
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+  const {
+    data: comments,
+    isLoading: commentsLoading,
+    refetch: refetchComments,
+  } = useTicketComments(selectedTicketId);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<TicketStatus | 'all'>('all');
   const [priorityFilter, setPriorityFilter] = useState<TicketPriority | 'all'>('all');
   const [categoryFilter, setCategoryFilter] = useState<TicketCategory | 'all'>('all');
   const [newComment, setNewComment] = useState('');
   const [isInternalNote, setIsInternalNote] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  // Fetch tickets from API
-  const fetchTickets = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  const assign = useAssignTicket();
+  const updateStatus = useUpdateTicketStatus();
+  const updatePriority = useUpdateTicketPriority();
+  const addComment = useAddTicketComment();
 
-      const params: Record<string, unknown> = { limit: 100 };
-      if (statusFilter !== 'all') params.status = [statusFilter];
-      if (priorityFilter !== 'all') params.priority = [priorityFilter];
-      if (categoryFilter !== 'all') params.category = [categoryFilter];
+  // useGraphQLQuery recreates its refetch callback on every render (its deps
+  // include the freshly-built variables object). Keep the latest refetchers in
+  // refs so the fetch effects can depend on stable primitives instead of the
+  // churning callback identity (which would loop).
+  const refetchTicketsRef = useRef(refetchTickets);
+  refetchTicketsRef.current = refetchTickets;
+  const refetchStatsRef = useRef(refetchStats);
+  refetchStatsRef.current = refetchStats;
+  const refetchTeamRef = useRef(refetchTeam);
+  refetchTeamRef.current = refetchTeam;
+  const refetchCommentsRef = useRef(refetchComments);
+  refetchCommentsRef.current = refetchComments;
 
-      const result = await supportApi.getTickets(params);
-      // Map API response to UI type
-      const mappedTickets: SupportTicket[] = (result.data || []).map((ticket: ApiSupportTicket) => {
-        // Compute SLA deadlines from createdAt + slaMinutes if available
-        const createdDate = new Date(ticket.createdAt);
-        const slaResponseDeadline = ticket.slaResponseMinutes
-          ? new Date(createdDate.getTime() + ticket.slaResponseMinutes * 60 * 1000).toISOString()
-          : undefined;
-        const slaResolutionDeadline = ticket.slaResolutionMinutes
-          ? new Date(createdDate.getTime() + ticket.slaResolutionMinutes * 60 * 1000).toISOString()
-          : ticket.dueAt;
-        return {
-          ...ticket,
-          tenantName: ticket.tenantName || '',
-          tags: ticket.tags || [],
-          reportedBy: ticket.createdBy,
-          reportedByName: ticket.createdByName || '',
-          commentCount: 0, // Not provided by API
-          slaResponseDeadline,
-          slaResolutionDeadline,
-        };
-      });
-      setTickets(mappedTickets);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-      setTickets([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter, priorityFilter, categoryFilter]);
-
-  // Fetch stats from API
-  const fetchStats = useCallback(async () => {
-    try {
-      const data = await supportApi.getTicketStats();
-      // Map API response to UI type
-      const mappedStats: TicketStats = {
-        ...data,
-        avgResponseMinutes: data.avgFirstResponseMinutes || data.avgResponseTime || 0,
-        avgResolutionMinutes: data.avgResolutionMinutes || data.avgResolutionTime || 0,
-        slaComplianceRate: data.slaBreachCount ? 100 - (data.slaBreachCount / Math.max(data.total, 1)) * 100 : 100,
-        satisfactionAvg: data.avgSatisfactionRating || data.satisfactionScore || 0,
-      };
-      setStats(mappedStats);
-    } catch (err) {
-      console.error('Failed to fetch stats:', err);
-    }
+  const reload = useCallback(() => {
+    void refetchTicketsRef.current();
+    void refetchStatsRef.current();
   }, []);
 
-  // Fetch support team
-  const fetchSupportTeam = useCallback(async () => {
-    try {
-      const data = await supportApi.getTicketTeam();
-      setSupportTeam(data || []);
-    } catch (err) {
-      console.error('Failed to fetch support team:', err);
-    }
-  }, []);
-
-  // Fetch comments for a ticket
-  const fetchComments = useCallback(async (ticketId: string) => {
-    try {
-      setCommentsLoading(true);
-      const data = await supportApi.getTicketComments(ticketId);
-      // Map API response to UI type - handle flexible response format
-      const mappedComments: TicketComment[] = (data || []).map((comment: Record<string, unknown>) => ({
-        id: comment.id as string,
-        ticketId: comment.ticketId as string,
-        authorId: comment.authorId as string,
-        authorName: (comment.authorName as string) || '',
-        authorType: comment.authorType as string,
-        content: comment.content as string,
-        isInternal: comment.isInternal as boolean,
-        createdAt: comment.createdAt as string,
-        attachments: ((comment.attachments as Array<Record<string, unknown>>) || []).map((att) => ({
-          id: att.id as string,
-          filename: (att.fileName || att.filename) as string,
-          url: att.url as string,
-          size: (att.fileSize || att.size || 0) as number,
-        })),
-      }));
-      setComments(mappedComments);
-    } catch (err) {
-      console.error('Failed to fetch comments:', err);
-    } finally {
-      setCommentsLoading(false);
-    }
-  }, []);
-
+  // Initial load (tickets, stats, team) on mount.
   useEffect(() => {
-    fetchTickets();
-    fetchStats();
-    fetchSupportTeam();
-  }, [fetchTickets, fetchStats, fetchSupportTeam]);
+    void refetchTicketsRef.current();
+    void refetchStatsRef.current();
+    void refetchTeamRef.current();
+  }, []);
 
+  // Load comments whenever a ticket is selected.
   useEffect(() => {
-    if (selectedTicket) {
-      fetchComments(selectedTicket.id);
+    if (selectedTicketId) {
+      void refetchCommentsRef.current();
     }
-  }, [selectedTicket, fetchComments]);
+  }, [selectedTicketId]);
 
-  const filteredTickets = tickets.filter(ticket => {
+  const tickets = ticketsData ?? [];
+  const selectedTicket = selectedTicketId
+    ? tickets.find((t) => t.id === selectedTicketId) ?? null
+    : null;
+
+  const filteredTickets = tickets.filter((ticket) => {
+    if (statusFilter !== 'all' && ticket.status !== statusFilter) return false;
+    if (priorityFilter !== 'all' && ticket.priority !== priorityFilter) return false;
+    if (categoryFilter !== 'all' && ticket.category !== categoryFilter) return false;
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      if (!ticket.subject.toLowerCase().includes(query) &&
-          !ticket.ticketNumber.toLowerCase().includes(query) &&
-          !ticket.tenantName.toLowerCase().includes(query)) {
+      const tenantName = ticket.tenantName ?? '';
+      if (
+        !ticket.subject.toLowerCase().includes(query) &&
+        !ticket.ticketNumber.toLowerCase().includes(query) &&
+        !tenantName.toLowerCase().includes(query)
+      ) {
         return false;
       }
     }
@@ -279,81 +188,51 @@ export const TicketsPage: React.FC = () => {
     return date.toLocaleDateString();
   };
 
-  const isSLABreached = (deadline?: string) => {
+  const isSLABreached = (deadline?: string | null) => {
     if (!deadline) return false;
     return new Date(deadline) < new Date();
   };
 
-  const handleAssign = async (ticketId: string, assigneeId: string, assigneeName: string) => {
+  const runAction = async (fn: () => Promise<unknown>) => {
+    setActionError(null);
     try {
-      const updated = await supportApi.assignTicket(ticketId, assigneeId, assigneeName);
-      fetchTickets();
-      if (selectedTicket?.id === ticketId) {
-        // Compute SLA deadlines
-        const createdDate = new Date(updated.createdAt);
-        const slaResponseDeadline = updated.slaResponseMinutes
-          ? new Date(createdDate.getTime() + updated.slaResponseMinutes * 60 * 1000).toISOString()
-          : selectedTicket.slaResponseDeadline;
-        const slaResolutionDeadline = updated.slaResolutionMinutes
-          ? new Date(createdDate.getTime() + updated.slaResolutionMinutes * 60 * 1000).toISOString()
-          : selectedTicket.slaResolutionDeadline;
-        // Map API response to UI type
-        const mappedTicket: SupportTicket = {
-          ...updated,
-          tenantName: updated.tenantName || '',
-          tags: updated.tags || [],
-          reportedBy: updated.createdBy,
-          reportedByName: updated.createdByName || '',
-          commentCount: selectedTicket.commentCount || 0,
-          slaResponseDeadline,
-          slaResolutionDeadline,
-        };
-        setSelectedTicket(mappedTicket);
-      }
+      await fn();
+      reload();
     } catch (err) {
-      console.error('Failed to assign ticket:', err);
+      setActionError(err instanceof Error ? err.message : 'Action failed');
     }
   };
 
-  const handleStatusChange = async (ticketId: string, newStatus: TicketStatus) => {
-    try {
-      await supportApi.updateTicketStatus(ticketId, newStatus);
-      fetchTickets();
-      fetchStats();
-      if (selectedTicket?.id === ticketId) {
-        setSelectedTicket({ ...selectedTicket, status: newStatus });
-      }
-    } catch (err) {
-      console.error('Failed to update status:', err);
-    }
+  const handleAssign = (ticketId: string, assigneeId: string) => {
+    void runAction(() => assign.mutate({ input: { ticketId, assigneeId } }));
   };
 
-  const handlePriorityChange = async (ticketId: string, newPriority: TicketPriority) => {
-    try {
-      await supportApi.updateTicketPriority(ticketId, newPriority);
-      fetchTickets();
-      if (selectedTicket?.id === ticketId) {
-        setSelectedTicket({ ...selectedTicket, priority: newPriority });
-      }
-    } catch (err) {
-      console.error('Failed to update priority:', err);
-    }
+  const handleStatusChange = (ticketId: string, newStatus: TicketStatus) => {
+    void runAction(() => updateStatus.mutate({ input: { ticketId, status: newStatus } }));
+  };
+
+  const handlePriorityChange = (ticketId: string, newPriority: TicketPriority) => {
+    void runAction(() => updatePriority.mutate({ input: { ticketId, priority: newPriority } }));
   };
 
   const handleAddComment = async () => {
     if (!newComment.trim() || !selectedTicket) return;
 
+    setActionError(null);
     try {
-      await supportApi.addTicketComment(selectedTicket.id, {
-        content: newComment,
-        isInternal: isInternalNote,
+      await addComment.mutate({
+        input: {
+          ticketId: selectedTicket.id,
+          content: newComment,
+          isInternal: isInternalNote,
+        },
       });
       setNewComment('');
       setIsInternalNote(false);
-      fetchComments(selectedTicket.id);
-      fetchTickets();
+      void refetchCommentsRef.current();
+      reload();
     } catch (err) {
-      console.error('Failed to add comment:', err);
+      setActionError(err instanceof Error ? err.message : 'Failed to add comment');
     }
   };
 
@@ -367,12 +246,19 @@ export const TicketsPage: React.FC = () => {
             <p className="text-gray-500 mt-1">Manage and resolve customer support requests</p>
           </div>
           <button
-            onClick={() => { fetchTickets(); fetchStats(); }}
+            onClick={reload}
             className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
           >
             <RefreshCw size={18} />
           </button>
         </div>
+
+        {actionError && (
+          <div className="mt-3 flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+            <AlertCircle size={14} />
+            <span>{actionError}</span>
+          </div>
+        )}
 
         {/* Stats */}
         {stats && (
@@ -482,7 +368,7 @@ export const TicketsPage: React.FC = () => {
                 <AlertCircle size={32} className="mb-2" />
                 <p className="text-center">{error}</p>
                 <button
-                  onClick={fetchTickets}
+                  onClick={() => void refetchTicketsRef.current()}
                   className="mt-2 text-sm text-blue-600 hover:text-blue-700"
                 >
                   Retry
@@ -497,9 +383,9 @@ export const TicketsPage: React.FC = () => {
               filteredTickets.map((ticket) => (
                 <div
                   key={ticket.id}
-                  onClick={() => setSelectedTicket(ticket)}
+                  onClick={() => setSelectedTicketId(ticket.id)}
                   className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${
-                    selectedTicket?.id === ticket.id ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
+                    selectedTicketId === ticket.id ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
                   }`}
                 >
                   <div className="flex items-start justify-between">
@@ -579,7 +465,7 @@ export const TicketsPage: React.FC = () => {
                   </div>
                 </div>
                 <button
-                  onClick={() => setSelectedTicket(null)}
+                  onClick={() => setSelectedTicketId(null)}
                   className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
                 >
                   <X size={20} />
@@ -617,15 +503,15 @@ export const TicketsPage: React.FC = () => {
                 <select
                   value={selectedTicket.assignedTo || ''}
                   onChange={(e) => {
-                    const member = supportTeam.find(m => m.id === e.target.value);
+                    const member = (supportTeam ?? []).find((m) => m.id === e.target.value);
                     if (member) {
-                      handleAssign(selectedTicket.id, member.id, member.name);
+                      handleAssign(selectedTicket.id, member.id);
                     }
                   }}
                   className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Assign to...</option>
-                  {supportTeam.map((member) => (
+                  {(supportTeam ?? []).map((member) => (
                     <option key={member.id} value={member.id}>
                       {member.name} ({member.activeTickets} active)
                     </option>
@@ -675,19 +561,19 @@ export const TicketsPage: React.FC = () => {
                 <div className="flex items-center justify-center h-full">
                   <Loader2 className="animate-spin text-blue-600" size={32} />
                 </div>
-              ) : comments.length === 0 ? (
+              ) : (comments ?? []).length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-gray-500">
                   <MessageSquare size={48} className="mb-2 text-gray-500" />
                   <p>No comments yet</p>
                 </div>
               ) : (
-                comments.map((comment) => (
+                (comments ?? []).map((comment) => (
                   <div
                     key={comment.id}
                     className={`rounded-lg p-4 ${
                       comment.isInternal
                         ? 'bg-yellow-50 border border-yellow-200'
-                        : comment.authorType === 'admin'
+                        : comment.authorType === 'super_admin'
                         ? 'bg-blue-50 border border-blue-100'
                         : 'bg-white border border-gray-200'
                     }`}
@@ -706,7 +592,7 @@ export const TicketsPage: React.FC = () => {
                         <div>
                           <div className="font-medium text-gray-900 text-sm">{comment.authorName}</div>
                           <div className="text-xs text-gray-500">
-                            {comment.authorType === 'admin' ? 'Support Team' : 'Customer'}
+                            {comment.authorType === 'super_admin' ? 'Support Team' : 'Customer'}
                           </div>
                         </div>
                       </div>
@@ -762,7 +648,7 @@ export const TicketsPage: React.FC = () => {
                       <Paperclip size={20} />
                     </button>
                     <button
-                      onClick={handleAddComment}
+                      onClick={() => void handleAddComment()}
                       disabled={!newComment.trim()}
                       className="p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >

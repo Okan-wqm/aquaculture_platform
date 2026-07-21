@@ -16,10 +16,12 @@ import {
   AddTicketCommentInput,
   UpdateTicketStatusInput,
   AssignTicketInput,
+  UpdateTicketPriorityInput,
   RateTicketInput,
   TicketListItem,
   CommentItem,
   SupportStats,
+  TicketTeamMember,
 } from '../dto/support.dto';
 import {
   SupportTicket,
@@ -117,9 +119,15 @@ export class SupportService {
       category: t.category,
       priority: t.priority,
       status: t.status,
+      assignedTo: t.assignedTo ?? null,
       assignedToName: t.assignedToName ?? null,
       reportedByName: t.reportedByName,
       commentCount: t.commentCount,
+      slaResponseDeadline: t.slaResponseDeadline ?? null,
+      slaResolutionDeadline: t.slaResolutionDeadline ?? null,
+      firstResponseAt: t.firstResponseAt ?? null,
+      tags: t.tags ?? null,
+      satisfactionRating: t.satisfactionRating ?? null,
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
       isResponseSLABreached: t.isResponseSLABreached(),
@@ -374,6 +382,46 @@ export class SupportService {
   }
 
   /**
+   * Change ticket priority (SuperAdmin only).
+   *
+   * Recomputes the SLA deadlines from the new priority's SLA config, anchored
+   * to the ticket's creation time (mirrors the admin-api changePriority the
+   * TICKETS silo used to own). The resolution deadline is only moved while the
+   * ticket is still open — a resolved ticket keeps its historical deadline.
+   */
+  async updatePriority(
+    userId: string,
+    input: UpdateTicketPriorityInput,
+  ): Promise<SupportTicket> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (user?.role !== Role.SUPER_ADMIN) {
+      throw new ForbiddenException('Only SuperAdmin can update ticket priority');
+    }
+
+    const ticket = await this.ticketRepository.findOne({
+      where: { id: input.ticketId },
+    });
+    if (!ticket) throw new NotFoundException('Ticket not found');
+
+    ticket.priority = input.priority;
+
+    const sla = SLA_CONFIG[input.priority];
+    const base = new Date(ticket.createdAt);
+    ticket.slaResponseDeadline = new Date(base.getTime() + sla.response * 60000);
+    if (!ticket.resolvedAt) {
+      ticket.slaResolutionDeadline = new Date(
+        base.getTime() + sla.resolution * 60000,
+      );
+    }
+
+    const saved = await this.ticketRepository.save(ticket);
+    this.logger.log(
+      `Ticket ${ticket.ticketNumber} priority updated to ${input.priority}`,
+    );
+    return saved;
+  }
+
+  /**
    * Rate ticket satisfaction (TenantAdmin only)
    */
   async rateTicket(userId: string, input: RateTicketInput): Promise<SupportTicket> {
@@ -397,6 +445,42 @@ export class SupportService {
     const saved = await this.ticketRepository.save(ticket);
     this.logger.log(`Ticket ${ticket.ticketNumber} rated ${input.rating}/5`);
     return saved;
+  }
+
+  // =========================================================
+  // Team
+  // =========================================================
+
+  /**
+   * Support team members with their active-ticket counts (SuperAdmin only).
+   * Mirrors the admin-api getTicketTeam the TICKETS silo used to own: each
+   * assignee that still holds a non-closed/-resolved ticket, ordered by load.
+   */
+  async getTicketTeam(userId: string): Promise<TicketTeamMember[]> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (user?.role !== Role.SUPER_ADMIN) {
+      throw new ForbiddenException('Only SuperAdmin can view the support team');
+    }
+
+    const rows = await this.ticketRepository
+      .createQueryBuilder('ticket')
+      .select('ticket.assignedTo', 'id')
+      .addSelect('ticket.assignedToName', 'name')
+      .addSelect('COUNT(*)', 'activeTickets')
+      .where('ticket.assignedTo IS NOT NULL')
+      .andWhere('ticket.status NOT IN (:...closedStatuses)', {
+        closedStatuses: [TicketStatus.CLOSED, TicketStatus.RESOLVED],
+      })
+      .groupBy('ticket.assignedTo')
+      .addGroupBy('ticket.assignedToName')
+      .orderBy('COUNT(*)', 'DESC')
+      .getRawMany<{ id: string; name: string | null; activeTickets: string }>();
+
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name ?? 'Unknown',
+      activeTickets: parseInt(r.activeTickets, 10) || 0,
+    }));
   }
 
   // =========================================================

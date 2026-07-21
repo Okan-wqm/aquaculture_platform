@@ -21,10 +21,15 @@ import {
 // ============================================================================
 
 export type MessageStatus = 'sent' | 'delivered' | 'read' | 'failed';
-export type TicketPriority = 'low' | 'medium' | 'high' | 'critical';
-export type TicketStatus = 'open' | 'in_progress' | 'waiting_customer' | 'resolved' | 'closed';
-export type TicketCategory = 'technical' | 'billing' | 'feature_request' | 'bug_report' | 'general' | 'account';
 export type OnboardingStatus = 'not_started' | 'in_progress' | 'completed' | 'skipped';
+
+// APA-213: TicketPriority / TicketStatus / TicketCategory (and the SupportTicket
+// + TicketComment entities, the TicketAttachment / SLAConfig / TicketStats types,
+// and the ticket controller/service) were REMOVED. Support tickets are owned by
+// auth-service (auth.support_tickets / auth.ticket_comments) and served via
+// GraphQL; the admin.support_tickets / admin.ticket_comments duplicate store is
+// dropped by 1801800000000-MigrateSupportTicketsToAuth (rows copied into auth
+// first). Message threads/messages and onboarding remain admin-owned.
 
 // ============================================================================
 // Message Thread Entity
@@ -140,145 +145,14 @@ export class Message {
 // for messaging bulk targeting (BulkMessageRequest), a separate silo.
 
 // ============================================================================
-// Support Ticket Entity
+// Support Ticket + Ticket Comment Entities (REMOVED — APA-213)
 // ============================================================================
-
-@Entity('support_tickets', { schema: 'admin' })
-@Index(['tenantId'])
-@Index(['status'])
-@Index(['priority'])
-@Index(['category'])
-@Index(['assignedTo'])
-@Index(['dueAt'])
-export class SupportTicket {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
-
-  @Column({ type: 'varchar', length: 20, unique: true })
-  ticketNumber!: string;
-
-  @Column({ type: 'uuid' })
-  tenantId!: string;
-
-  @Column({ type: 'varchar', length: 200, nullable: true })
-  tenantName?: string;
-
-  @Column({ type: 'uuid' })
-  createdBy!: string;
-
-  @Column({ type: 'varchar', length: 200, nullable: true })
-  createdByName?: string;
-
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  createdByEmail?: string;
-
-  @Column({ type: 'varchar', length: 200 })
-  subject!: string;
-
-  @Column({ type: 'text' })
-  description!: string;
-
-  @Column({ type: 'varchar', length: 50, default: 'general' })
-  category!: TicketCategory;
-
-  @Column({ type: 'varchar', length: 50, default: 'medium' })
-  priority!: TicketPriority;
-
-  @Column({ type: 'varchar', length: 50, default: 'open' })
-  status!: TicketStatus;
-
-  @Column({ type: 'uuid', nullable: true })
-  assignedTo?: string;
-
-  @Column({ type: 'varchar', length: 200, nullable: true })
-  assignedToName?: string;
-
-  @Column({ type: 'jsonb', nullable: true })
-  tags?: string[];
-
-  @Column({ type: 'timestamptz', nullable: true })
-  firstResponseAt?: Date;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  resolvedAt?: Date;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  closedAt?: Date;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  dueAt?: Date;
-
-  @Column({ type: 'int', nullable: true })
-  slaResponseMinutes?: number;
-
-  @Column({ type: 'int', nullable: true })
-  slaResolutionMinutes?: number;
-
-  @Column({ type: 'boolean', default: false })
-  slaBreached!: boolean;
-
-  @Column({ type: 'int', default: 0 })
-  satisfactionRating!: number;
-
-  @Column({ type: 'text', nullable: true })
-  satisfactionFeedback?: string | null;
-
-  @Column({ type: 'jsonb', nullable: true })
-  metadata?: Record<string, unknown>;
-
-  @OneToMany(() => TicketComment, comment => comment.ticket)
-  comments!: TicketComment[];
-
-  @CreateDateColumn()
-  createdAt!: Date;
-
-  @UpdateDateColumn()
-  updatedAt!: Date;
-}
-
-// ============================================================================
-// Ticket Comment Entity
-// ============================================================================
-
-@Entity('ticket_comments', { schema: 'admin' })
-@Index(['ticketId'])
-@Index(['authorId'])
-@Index(['createdAt'])
-export class TicketComment {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
-
-  @Column({ type: 'uuid' })
-  ticketId!: string;
-
-  @Column({ type: 'uuid' })
-  authorId!: string;
-
-  @Column({ type: 'varchar', length: 50 })
-  authorType!: 'admin' | 'tenant_user' | 'system';
-
-  @Column({ type: 'varchar', length: 200, nullable: true })
-  authorName?: string;
-
-  @Column({ type: 'text' })
-  content!: string;
-
-  @Column({ type: 'boolean', default: false })
-  isInternal!: boolean;
-
-  @Column({ type: 'jsonb', nullable: true })
-  attachments?: TicketAttachment[];
-
-  @Column({ type: 'boolean', default: false })
-  emailSent!: boolean;
-
-  @ManyToOne(() => SupportTicket, ticket => ticket.comments)
-  @JoinColumn({ name: 'ticketId' })
-  ticket!: SupportTicket;
-
-  @CreateDateColumn()
-  createdAt!: Date;
-}
+//
+// The admin.support_tickets / admin.ticket_comments tables were a write-only
+// duplicate of the auth.support_tickets / auth.ticket_comments SSoT tenants
+// actually read. The SupportTicket + TicketComment entities, their controller
+// and service, are deleted; the tables are dropped by
+// 1801800000000-MigrateSupportTicketsToAuth (rows copied into auth first).
 
 // ============================================================================
 // Onboarding Progress Entity
@@ -369,15 +243,6 @@ export interface AnnouncementTarget {
   includeInactive?: boolean;
 }
 
-export interface TicketAttachment {
-  id: string;
-  fileName: string;
-  fileSize: number;
-  mimeType: string;
-  url: string;
-  uploadedAt: string;
-}
-
 export interface TrainingSession {
   id: string;
   title: string;
@@ -388,25 +253,6 @@ export interface TrainingSession {
   status: 'scheduled' | 'completed' | 'cancelled';
   meetingUrl?: string;
   notes?: string;
-}
-
-export interface SLAConfig {
-  priority: TicketPriority;
-  firstResponseMinutes: number;
-  resolutionMinutes: number;
-}
-
-export interface TicketStats {
-  total: number;
-  open: number;
-  inProgress: number;
-  waitingCustomer: number;
-  resolved: number;
-  closed: number;
-  avgFirstResponseMinutes: number;
-  avgResolutionMinutes: number;
-  slaBreachCount: number;
-  avgSatisfactionRating: number;
 }
 
 export interface OnboardingStep {

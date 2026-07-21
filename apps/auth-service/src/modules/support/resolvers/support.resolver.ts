@@ -5,10 +5,12 @@ import {
   AddTicketCommentInput,
   UpdateTicketStatusInput,
   AssignTicketInput,
+  UpdateTicketPriorityInput,
   RateTicketInput,
   TicketListItem,
   CommentItem,
   SupportStats,
+  TicketTeamMember,
 } from '../dto/support.dto';
 import { SupportTicket, TicketStatus, TicketPriority } from '../entities/support-ticket.entity';
 import { TicketComment } from '../entities/ticket-comment.entity';
@@ -76,6 +78,17 @@ export class SupportResolver {
     return this.supportService.getStats(userId);
   }
 
+  /**
+   * Get the support team with active-ticket counts (SuperAdmin only)
+   */
+  @Query(() => [TicketTeamMember])
+  @SuperAdminOnly()
+  async ticketTeam(
+    @CurrentUser('sub') userId: string,
+  ): Promise<TicketTeamMember[]> {
+    return this.supportService.getTicketTeam(userId);
+  }
+
   // =========================================================
   // Mutations
   // =========================================================
@@ -126,6 +139,18 @@ export class SupportResolver {
     @Args('input') input: AssignTicketInput,
   ): Promise<SupportTicket> {
     return this.supportService.assignTicket(userId, input);
+  }
+
+  /**
+   * Change ticket priority (SuperAdmin only). Recomputes SLA deadlines.
+   */
+  @Mutation(() => SupportTicket)
+  @SuperAdminOnly()
+  async updateTicketPriority(
+    @CurrentUser('sub') userId: string,
+    @Args('input') input: UpdateTicketPriorityInput,
+  ): Promise<SupportTicket> {
+    return this.supportService.updatePriority(userId, input);
   }
 
   /**

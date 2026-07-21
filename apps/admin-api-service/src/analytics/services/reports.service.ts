@@ -42,6 +42,7 @@ import { TenantReadOnly, TenantStatus, TenantPlan } from '../entities/external/t
 import { UserReadOnly } from '../entities/external/user.entity';
 
 import { AnalyticsService } from './analytics.service';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 // ============================================================================
 // Report Data Types
@@ -1104,7 +1105,7 @@ export class ReportsService {
     type?: ReportType;
     page?: number;
     limit?: number;
-  }): Promise<{ data: ReportDefinition[]; total: number; page: number; limit: number }> {
+  }): Promise<IStandardPaginatedResult<ReportDefinition>> {
     const page = params?.page || 1;
     const limit = params?.limit || 20;
     const skip = (page - 1) * limit;
@@ -1124,7 +1125,7 @@ export class ReportsService {
 
     const [data, total] = await queryBuilder.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**
@@ -1212,7 +1213,7 @@ export class ReportsService {
     reportType?: ReportType;
     page?: number;
     limit?: number;
-  }): Promise<{ data: ReportExecution[]; total: number; page: number; limit: number }> {
+  }): Promise<IStandardPaginatedResult<ReportExecution>> {
     const page = params?.page || 1;
     const limit = params?.limit || 20;
     const skip = (page - 1) * limit;
@@ -1236,7 +1237,7 @@ export class ReportsService {
 
     const [data, total] = await queryBuilder.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**

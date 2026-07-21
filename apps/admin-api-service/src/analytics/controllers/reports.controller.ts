@@ -35,6 +35,7 @@ import {
   ReportExecutionStatus,
 } from '../entities/analytics-snapshot.entity';
 import { ReportsService } from '../services/reports.service';
+import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 // ============================================================================
 // DTOs
@@ -198,7 +199,7 @@ export class ReportsController {
     @Query('type') type?: ReportType,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ): Promise<{ data: ReportDefinition[]; total: number; page: number; limit: number }> {
+  ): Promise<IStandardPaginatedResult<ReportDefinition>> {
     return this.reportsService.getDefinitions({
       status,
       type,
@@ -243,7 +244,7 @@ export class ReportsController {
     @Query('reportType') reportType?: ReportType,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ): Promise<{ data: ReportExecution[]; total: number; page: number; limit: number }> {
+  ): Promise<IStandardPaginatedResult<ReportExecution>> {
     return this.reportsService.getExecutions({
       definitionId,
       status,

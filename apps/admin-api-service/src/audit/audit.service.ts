@@ -8,6 +8,8 @@ import {
   LessThanOrEqual,
 } from 'typeorm';
 
+import { createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+
 import { AuditLog, AuditSeverity } from './audit.entity';
 
 export interface AuditLogInput {
@@ -41,7 +43,7 @@ export interface AuditLogFilter {
 }
 
 export interface PaginatedAuditLogs {
-  data: AuditLog[];
+  items: AuditLog[];
   total: number;
   page: number;
   limit: number;
@@ -189,25 +191,13 @@ export class AuditLogService {
 
       const [data, total] = await queryBuilder.getManyAndCount();
 
-      return {
-        data,
-        total,
-        page,
-        limit: take,
-        totalPages: Math.ceil(total / take),
-      };
+      return createStandardPaginatedResult(data, total, page, take);
     } catch (error) {
       this.logger.error(
         `Failed to query audit logs: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      return {
-        data: [],
-        total: 0,
-        page,
-        limit: Math.min(limit, 100),
-        totalPages: 0,
-      };
+      return createStandardPaginatedResult<AuditLog>([], 0, page, Math.min(limit, 100));
     }
   }
 

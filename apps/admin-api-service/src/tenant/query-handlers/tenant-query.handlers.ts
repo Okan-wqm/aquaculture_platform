@@ -6,6 +6,7 @@ import {
   getTenantSchemaName,
   isValidUUID,
 } from '@aquaculture/backend-common/database';
+import { createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { Repository, ILike, MoreThan, Between, FindOptionsWhere, DataSource } from 'typeorm';
 
@@ -72,7 +73,7 @@ export class GetTenantBySlugHandler
 }
 
 export interface PaginatedResult<T> {
-  data: T[];
+  items: T[];
   total: number;
   page: number;
   limit: number;
@@ -158,15 +159,14 @@ export class ListTenantsHandler
     // pair for the whole page, never per-tenant queries.
     const counts = await this.countTenantResources(tenants.map((tenant) => tenant.id));
 
-    return {
-      data: tenants.map((tenant) =>
+    return createStandardPaginatedResult(
+      tenants.map((tenant) =>
         this.toTenantListItem(tenant, counts.get(tenant.id) ?? { farmCount: 0, sensorCount: 0 }),
       ),
       total,
       page,
       limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    );
   }
 
   private toTenantListItem(tenant: Tenant, resources: TenantResourceCounts): TenantListItemDto {

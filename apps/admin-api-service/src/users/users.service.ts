@@ -29,6 +29,8 @@ import {
 import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
 import { DataSource } from 'typeorm';
 
+import { createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+
 /**
  * Default NATS request timeout when AUTH_NATS_TIMEOUT_MS is not configured.
  * 15 s matches the messaging-admin NATS client and leaves headroom for
@@ -58,7 +60,7 @@ export interface UserDto {
 }
 
 export interface PaginatedUsers {
-  data: UserDto[];
+  items: UserDto[];
   total: number;
   page: number;
   limit: number;
@@ -215,13 +217,7 @@ export class UsersService {
 
       const total = parseInt(countResult[0]?.total || '0', 10);
 
-      return {
-        data: users,
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      };
+      return createStandardPaginatedResult(users, total, page, limit);
     } catch (error) {
       this.logger.error(`Failed to list users: ${(error as Error).message}`);
       throw error;

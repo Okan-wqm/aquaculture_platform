@@ -38,6 +38,7 @@ import {
 } from '../entities/database-management.entity';
 import { AuditLogInput, AuditLogService } from '../../audit/audit.service';
 import { AuditSeverity } from '../../audit/audit.entity';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 const execFileAsync = promisify(execFile);
 const ENCRYPTED_BACKUP_MAGIC = Buffer.from('AQBKP2');
@@ -344,12 +345,7 @@ export class BackupRestoreService {
     limit?: number;
     status?: BackupStatus;
     backupType?: BackupType;
-  }): Promise<{
-    data: SchemaBackup[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<IStandardPaginatedResult<SchemaBackup>> {
     const { page = 1, limit = 20, status, backupType } = options;
 
     const where: Record<string, unknown> = {};
@@ -363,7 +359,7 @@ export class BackupRestoreService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**

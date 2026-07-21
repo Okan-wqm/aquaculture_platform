@@ -19,6 +19,7 @@ import {
   TicketStats,
   SLAConfig,
 } from '../entities/support.entity';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 // ============================================================================
 // SLA Configuration
@@ -215,12 +216,7 @@ export class TicketService {
     assignedTo?: string;
     tenantId?: string;
     search?: string;
-  }): Promise<{
-    data: SupportTicket[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<IStandardPaginatedResult<SupportTicket>> {
     const { page = 1, limit = 20, status, priority, category, assignedTo, tenantId, search } = options;
 
     const qb = this.ticketRepository.createQueryBuilder('ticket');
@@ -243,7 +239,7 @@ export class TicketService {
 
     const [data, total] = await qb.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**
@@ -252,7 +248,7 @@ export class TicketService {
   async getTicketsForTenant(
     tenantId: string,
     options: { status?: TicketStatus; page?: number; limit?: number } = {},
-  ): Promise<{ data: SupportTicket[]; total: number; page: number; limit: number }> {
+  ): Promise<IStandardPaginatedResult<SupportTicket>> {
     const { page = 1, limit = 20, status } = options;
     const where: Record<string, unknown> = { tenantId };
     if (status) where.status = status;
@@ -264,7 +260,7 @@ export class TicketService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**
@@ -273,7 +269,7 @@ export class TicketService {
   async getAssignedTickets(
     assignedTo: string,
     options: { status?: TicketStatus; page?: number; limit?: number } = {},
-  ): Promise<{ data: SupportTicket[]; total: number; page: number; limit: number }> {
+  ): Promise<IStandardPaginatedResult<SupportTicket>> {
     const { page = 1, limit = 20, status } = options;
     const where: Record<string, unknown> = { assignedTo };
     if (status) where.status = status;
@@ -285,7 +281,7 @@ export class TicketService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**
@@ -293,7 +289,7 @@ export class TicketService {
    */
   async getUnassignedTickets(
     options: { page?: number; limit?: number } = {},
-  ): Promise<{ data: SupportTicket[]; total: number; page: number; limit: number }> {
+  ): Promise<IStandardPaginatedResult<SupportTicket>> {
     const { page = 1, limit = 20 } = options;
 
     const [data, total] = await this.ticketRepository.findAndCount({
@@ -306,7 +302,7 @@ export class TicketService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   // ============================================================================
@@ -487,7 +483,7 @@ export class TicketService {
   async getComments(
     ticketId: string,
     options: { includeInternal?: boolean; page?: number; limit?: number } = {},
-  ): Promise<{ data: TicketComment[]; total: number; page: number; limit: number }> {
+  ): Promise<IStandardPaginatedResult<TicketComment>> {
     const { includeInternal = true, page = 1, limit = 50 } = options;
 
     const where: Record<string, unknown> = { ticketId };
@@ -500,7 +496,7 @@ export class TicketService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   // ============================================================================

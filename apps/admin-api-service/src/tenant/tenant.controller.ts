@@ -1,3 +1,4 @@
+import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
   Body,
@@ -259,7 +260,7 @@ export class TenantAdminController {
     @Param('id', ParseUUIDPipe) id: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ): Promise<{ data: TenantActivity[]; total: number; totalPages: number }> {
+  ): Promise<IStandardPaginatedResult<TenantActivity>> {
     return this.detailService.getActivitiesTimeline(id, page || 1, limit || 20);
   }
 

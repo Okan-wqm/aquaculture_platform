@@ -65,7 +65,7 @@ export class TenantActivityService {
       startDate?: Date;
       endDate?: Date;
     },
-  ): Promise<{ data: TenantActivity[]; total: number }> {
+  ): Promise<{ items: TenantActivity[]; total: number }> {
     const query = this.activityRepository
       .createQueryBuilder('activity')
       .where('activity.tenantId = :tenantId', { tenantId })
@@ -95,8 +95,8 @@ export class TenantActivityService {
       query.take(options.limit);
     }
 
-    const [data, total] = await query.getManyAndCount();
-    return { data, total };
+    const [items, total] = await query.getManyAndCount();
+    return { items, total };
   }
 
   async getRecentActivities(

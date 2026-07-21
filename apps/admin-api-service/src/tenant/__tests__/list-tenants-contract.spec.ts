@@ -102,9 +102,9 @@ describe('ListTenantsHandler - DTO contract with batched resource counts', () =>
     const result = await handler.execute(new ListTenantsQuery());
 
     expect(result.total).toBe(2);
-    expect(result.data).toHaveLength(2);
+    expect(result.items).toHaveLength(2);
 
-    const [first, second] = result.data;
+    const [first, second] = result.items;
     // noUncheckedIndexedAccess: narrow explicitly — two rows are asserted above.
     if (!first || !second) {
       throw new Error('expected two mapped rows');
@@ -153,8 +153,8 @@ describe('ListTenantsHandler - DTO contract with batched resource counts', () =>
 
     const result = await handler.execute(new ListTenantsQuery());
 
-    expect(result.data).toHaveLength(1);
-    const item = result.data[0];
+    expect(result.items).toHaveLength(1);
+    const item = result.items[0];
     // noUncheckedIndexedAccess: narrow explicitly — one row is asserted above.
     if (!item) {
       throw new Error('expected one mapped row');
@@ -170,7 +170,7 @@ describe('ListTenantsHandler - DTO contract with batched resource counts', () =>
 
     const result = await handler.execute(new ListTenantsQuery());
 
-    expect(result.data).toEqual([]);
+    expect(result.items).toEqual([]);
     expect(dataSourceQuery).not.toHaveBeenCalled();
   });
 });

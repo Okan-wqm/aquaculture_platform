@@ -20,6 +20,7 @@ import {
   MigrationStatus,
   MigrationPlan,
 } from '../entities/database-management.entity';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 // ============================================================================
 // Migration Registry
@@ -245,12 +246,7 @@ export class MigrationManagementService {
     limit?: number;
     status?: MigrationStatus;
     version?: string;
-  }): Promise<{
-    data: SchemaMigration[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<IStandardPaginatedResult<SchemaMigration>> {
     const { page = 1, limit = 20, status, version } = options;
 
     const where: Record<string, unknown> = {};
@@ -264,7 +260,7 @@ export class MigrationManagementService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**

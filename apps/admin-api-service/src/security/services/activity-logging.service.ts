@@ -21,6 +21,7 @@ import {
   ApiUsageLog,
   UserSession,
 } from '../entities/security.entity';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 // ============================================================================
 // Interfaces
@@ -607,12 +608,7 @@ export class ActivityLoggingService implements OnModuleInit {
   /**
    * Query activities with filters
    */
-  async queryActivities(options: ActivityQueryOptions): Promise<{
-    data: ActivityLog[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  async queryActivities(options: ActivityQueryOptions): Promise<IStandardPaginatedResult<ActivityLog>> {
     const {
       page = 1,
       limit = 50,
@@ -664,7 +660,7 @@ export class ActivityLoggingService implements OnModuleInit {
 
     const [data, total] = await qb.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**

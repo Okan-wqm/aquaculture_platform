@@ -22,6 +22,8 @@ import {
 import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
 import { DataSource } from 'typeorm';
 
+import { createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+
 import { AuthTenantProvisioningClientService } from '../tenant/services/auth-tenant-provisioning-client.service';
 
 const DEFAULT_AUTH_NATS_TIMEOUT_MS = 15_000;
@@ -48,7 +50,7 @@ export interface ModuleDto {
 }
 
 export interface PaginatedModules {
-  data: ModuleDto[];
+  items: ModuleDto[];
   total: number;
   page: number;
   limit: number;
@@ -217,13 +219,7 @@ export class ModulesService {
 
       const total = parseInt(countResult[0]?.total || '0', 10);
 
-      return {
-        data: modules,
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      };
+      return createStandardPaginatedResult(modules, total, page, limit);
     } catch (error) {
       this.logger.error(`Failed to list modules: ${(error as Error).message}`);
       throw error;
@@ -506,13 +502,7 @@ export class ModulesService {
 
       const total = parseInt(countResult[0]?.total || '0', 10);
 
-      return {
-        data: tenants,
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      };
+      return createStandardPaginatedResult(tenants, total, page, limit);
     } catch (error) {
       this.logger.error(
         `Failed to get module tenants: ${(error as Error).message}`,
@@ -576,13 +566,7 @@ export class ModulesService {
 
       const total = parseInt(countResult[0]?.total || '0', 10);
 
-      return {
-        data: assignments,
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      };
+      return createStandardPaginatedResult(assignments, total, page, limit);
     } catch (error) {
       this.logger.error(
         `Failed to get assignments: ${(error as Error).message}`,

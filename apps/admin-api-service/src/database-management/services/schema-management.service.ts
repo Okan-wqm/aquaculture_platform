@@ -22,6 +22,7 @@ import {
   TableInfo,
   ConnectionPoolStatus,
 } from '../entities/database-management.entity';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 // ============================================================================
 // Interfaces
@@ -82,7 +83,7 @@ export class SchemaManagementService {
    */
   async getAllSchemas(
     options: { page?: number; limit?: number } = {},
-  ): Promise<{ data: TenantSchema[]; total: number; page: number; limit: number }> {
+  ): Promise<IStandardPaginatedResult<TenantSchema>> {
     const { page = 1, limit = 50 } = options;
 
     const [data, total] = await this.schemaRepository.findAndCount({
@@ -91,7 +92,7 @@ export class SchemaManagementService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**

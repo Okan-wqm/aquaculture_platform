@@ -15,6 +15,9 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import { IsArray, IsIP, IsOptional, IsString, ArrayMaxSize, MaxLength } from 'class-validator';
 import { Request } from 'express';
+
+import { createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+
 import { getAuthUserId } from '../../shared/authenticated-request';
 
 import {
@@ -67,18 +70,19 @@ export class IpAccessController {
   ) {
     const rules = await this.ipAccessService.getAllRules(tenantId);
     const pageNum = page ? parseInt(page, 10) : 1;
-    const limitNum = limit ? parseInt(limit, 10) : rules.length;
+    // A page size of 0 is nonsensical (only reachable with zero rules and no
+    // explicit limit) — floor at 1 so pagination math never divides by zero.
+    const limitNum = limit ? parseInt(limit, 10) : rules.length || 1;
     const startIndex = (pageNum - 1) * limitNum;
     const endIndex = startIndex + limitNum;
     const paginatedRules = rules.slice(startIndex, endIndex);
 
-    return {
-      data: paginatedRules,
-      total: rules.length,
-      page: pageNum,
-      limit: limitNum,
-      totalPages: Math.ceil(rules.length / limitNum) || 1,
-    };
+    return createStandardPaginatedResult(
+      paginatedRules,
+      rules.length,
+      pageNum,
+      limitNum,
+    );
   }
 
   /**

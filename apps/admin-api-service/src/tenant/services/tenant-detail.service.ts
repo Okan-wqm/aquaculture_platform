@@ -1,6 +1,7 @@
 import * as crypto from 'crypto';
 
 import { getTenantSchemaName } from '@aquaculture/backend-common/database';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -398,7 +399,7 @@ export class TenantDetailService {
     tenantId: string,
     page = 1,
     limit = 20,
-  ): Promise<{ data: TenantActivity[]; total: number; totalPages: number }> {
+  ): Promise<IStandardPaginatedResult<TenantActivity>> {
     // BUG-031 fix: guard against limit=0 to prevent Math.ceil producing Infinity
     const safeLimit = limit > 0 ? limit : 20;
 
@@ -407,11 +408,7 @@ export class TenantDetailService {
       offset: (page - 1) * safeLimit,
     });
 
-    return {
-      data: result.data,
-      total: result.total,
-      totalPages: Math.ceil(result.total / safeLimit),
-    };
+    return createStandardPaginatedResult(result.items, result.total, page, safeLimit);
   }
 
   /**

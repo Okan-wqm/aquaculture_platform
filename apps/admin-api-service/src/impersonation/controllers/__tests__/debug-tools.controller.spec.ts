@@ -31,7 +31,7 @@ import { DebugSessionType, QueryLogType } from '../../entities/debug-session.ent
 
 const mockDebugToolsService = {
   getDebugDashboard: jest.fn().mockResolvedValue({ sessions: 0 }),
-  querySessions: jest.fn().mockResolvedValue({ data: [], total: 0 }),
+  querySessions: jest.fn().mockResolvedValue({ items: [], total: 0, page: 1, limit: 20, totalPages: 1, hasNextPage: false, hasPreviousPage: false }),
   startDebugSession: jest.fn().mockResolvedValue({ id: 'debug-session-1', isActive: true }),
   endDebugSession: jest.fn().mockResolvedValue({ id: 'debug-session-1', isActive: false }),
   getDebugSession: jest.fn().mockResolvedValue({ id: 'debug-session-1' }),

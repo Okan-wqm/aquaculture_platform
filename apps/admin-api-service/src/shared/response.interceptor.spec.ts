@@ -69,8 +69,10 @@ describe('ResponseInterceptor — hybrid-app RPC passthrough (APA-030)', () => {
 /**
  * RC-1 canonical paginated-response envelope. The interceptor recognises the
  * ONE canonical shape (createStandardPaginatedResult) and lifts the items array
- * into `data` with pagination numerics in `meta`; binary downloads pass through;
- * the legacy {data,total} branch is retained (RC-1b removes it).
+ * into `data` with pagination numerics in `meta`; binary downloads pass through.
+ * RC-1b (ADMIN-CRITICAL-007) removed the legacy {data,total} duck-typed branch:
+ * every admin-api list producer now emits the canonical shape, so a hand-rolled
+ * {data,total} literal is NOT recognised and falls to the default object wrap.
  */
 describe('ResponseInterceptor — RC-1 canonical pagination envelope', () => {
   function httpContext(): ExecutionContext {
@@ -120,13 +122,20 @@ describe('ResponseInterceptor — RC-1 canonical pagination envelope', () => {
     expect(result).toBe(file);
   });
 
-  it('still lifts a legacy {data,total} producer (RC-1b retention, no regression)', async () => {
+  it('does NOT lift a legacy {data,total} literal (RC-1b removed the branch)', async () => {
+    // A hand-rolled {data,total} object is no longer duck-typed into the
+    // paginated envelope. It falls to the default wrap, so the whole object
+    // lands under `data` and `meta` carries only a timestamp. This is what
+    // makes a missed producer LOUD (the FE list breaks) instead of silently
+    // half-working — the admin-api-paginated-canonical invariant then fails
+    // the build on any such literal in source.
     const legacy = { data: [{ id: 'x' }], total: 1, page: 1, limit: 20, totalPages: 1 };
     const result = (await firstValueFrom(
       new ResponseInterceptor<unknown>().intercept(httpContext(), handler(legacy)),
     )) as { success: boolean; data: unknown; meta: Record<string, unknown> };
-    expect(result.data).toEqual([{ id: 'x' }]);
-    expect(result.meta.total).toBe(1);
+    expect(result.data).toEqual(legacy); // NOT lifted — wrapped whole
+    expect(result.meta.total).toBeUndefined();
+    expect(typeof result.meta.timestamp).toBe('string');
   });
 
   it('generic-wraps a plain non-paginated object', async () => {

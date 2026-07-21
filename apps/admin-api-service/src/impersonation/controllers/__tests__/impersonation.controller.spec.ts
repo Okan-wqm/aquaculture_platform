@@ -29,7 +29,7 @@ import {
 // ============================================================================
 
 const mockImpersonationService = {
-  queryPermissions: jest.fn().mockResolvedValue({ data: [], total: 0 }),
+  queryPermissions: jest.fn().mockResolvedValue({ items: [], total: 0, page: 1, limit: 20, totalPages: 1, hasNextPage: false, hasPreviousPage: false }),
   getImpersonationStats: jest.fn().mockResolvedValue({ totalSessions: 0 }),
   grantImpersonationPermission: jest.fn().mockResolvedValue({ id: 'perm-1' }),
   getImpersonationPermission: jest.fn().mockResolvedValue({ id: 'perm-1' }),
@@ -57,7 +57,7 @@ const mockImpersonationService = {
   getActiveSessions: jest.fn().mockResolvedValue([]),
   getActiveSessionCount: jest.fn().mockReturnValue(0),
   getSession: jest.fn().mockResolvedValue({ id: 'session-1' }),
-  querySessions: jest.fn().mockResolvedValue({ data: [], total: 0 }),
+  querySessions: jest.fn().mockResolvedValue({ items: [], total: 0, page: 1, limit: 20, totalPages: 1, hasNextPage: false, hasPreviousPage: false }),
   logAction: jest.fn().mockResolvedValue(undefined),
   logResourceAccess: jest.fn().mockResolvedValue(undefined),
   getAuditSummary: jest.fn().mockResolvedValue({ totalSessions: 0 }),
@@ -559,7 +559,7 @@ describe('ImpersonationController', () => {
   describe('DTO input validation', () => {
     describe('QueryPermissionsDto', () => {
       it('should accept valid query parameters', async () => {
-        mockImpersonationService.queryPermissions.mockResolvedValueOnce({ data: [], total: 0 });
+        mockImpersonationService.queryPermissions.mockResolvedValueOnce({ items: [], total: 0, page: 1, limit: 20, totalPages: 1, hasNextPage: false, hasPreviousPage: false });
 
         const res = await request(app.getHttpServer())
           .get('/impersonation/permissions')
@@ -576,7 +576,7 @@ describe('ImpersonationController', () => {
 
     describe('QuerySessionsDto', () => {
       it('should accept valid session query params', async () => {
-        mockImpersonationService.querySessions.mockResolvedValueOnce({ data: [], total: 0 });
+        mockImpersonationService.querySessions.mockResolvedValueOnce({ items: [], total: 0, page: 1, limit: 20, totalPages: 1, hasNextPage: false, hasPreviousPage: false });
 
         const res = await request(app.getHttpServer())
           .get('/impersonation/sessions')

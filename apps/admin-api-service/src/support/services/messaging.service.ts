@@ -18,6 +18,7 @@ import {
   BulkMessageRequest,
   AnnouncementTarget,
 } from '../entities/support.entity';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 // ============================================================================
 // Service
@@ -109,12 +110,7 @@ export class MessagingService {
     limit?: number;
     status?: 'open' | 'closed' | 'all';
     hasUnread?: boolean;
-  }): Promise<{
-    data: ThreadSummary[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<IStandardPaginatedResult<ThreadSummary>> {
     const { page = 1, limit = 20, status = 'all', hasUnread } = options;
 
     const where: Record<string, unknown> = {
@@ -168,7 +164,7 @@ export class MessagingService {
       };
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**

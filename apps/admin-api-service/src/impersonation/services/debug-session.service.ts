@@ -8,6 +8,7 @@ import {
   DebugSessionType,
   QueryLogType,
 } from '../entities/debug-session.entity';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 /**
  * Debug Session Service
@@ -114,7 +115,7 @@ export class DebugSessionService {
     isActive?: boolean;
     page?: number;
     limit?: number;
-  }): Promise<{ data: DebugSession[]; total: number; page: number; limit: number }> {
+  }): Promise<IStandardPaginatedResult<DebugSession>> {
     const page = params.page || 1;
     const limit = params.limit || 20;
     const skip = (page - 1) * limit;
@@ -136,7 +137,7 @@ export class DebugSessionService {
 
     const [data, total] = await query.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**

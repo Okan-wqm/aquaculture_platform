@@ -17,6 +17,7 @@ import {
   RetentionPolicyEntity,
   ComplianceType,
 } from '../entities/security.entity';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 // ============================================================================
 // Interfaces
@@ -202,12 +203,7 @@ export class AuditTrailService {
     includeArchived?: boolean;
     sortBy?: string;
     sortOrder?: 'ASC' | 'DESC';
-  }): Promise<{
-    data: ActivityLog[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<IStandardPaginatedResult<ActivityLog>> {
     const {
       page = 1,
       limit = 50,
@@ -286,7 +282,7 @@ export class AuditTrailService {
 
     const [data, total] = await qb.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**

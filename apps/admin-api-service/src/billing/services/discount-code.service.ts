@@ -17,6 +17,7 @@ import {
   DiscountAppliesTo,
   DiscountDuration,
 } from '../entities/discount-code.entity';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 export interface CreateDiscountCodeDto {
   code: string;
@@ -111,7 +112,7 @@ export class DiscountCodeService {
     includeExpired?: boolean;
     page?: number;
     limit?: number;
-  }): Promise<{ data: DiscountCode[]; total: number; page: number; limit: number }> {
+  }): Promise<IStandardPaginatedResult<DiscountCode>> {
     const page = options?.page || 1;
     const limit = options?.limit || 50;
     const query = this.discountCodeRepo.createQueryBuilder('dc');
@@ -138,7 +139,7 @@ export class DiscountCodeService {
 
     const [data, total] = await query.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**
@@ -407,7 +408,7 @@ export class DiscountCodeService {
   async getTenantRedemptions(
     tenantId: string,
     options: { page?: number; limit?: number } = {},
-  ): Promise<{ data: DiscountRedemption[]; total: number; page: number; limit: number }> {
+  ): Promise<IStandardPaginatedResult<DiscountRedemption>> {
     const { page = 1, limit = 20 } = options;
 
     const [data, total] = await this.redemptionRepo.findAndCount({
@@ -417,7 +418,7 @@ export class DiscountCodeService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**
@@ -536,8 +537,9 @@ export class DiscountCodeService {
         return Math.min(discountCode.discountValue, orderAmount);
 
       case DiscountType.FREE_MONTHS:
-        // This would need context about monthly price
-        // For now, return 0 - handled differently in subscription
+        // FREE_MONTHS grants free billing periods, not an order-amount
+        // reduction; it is applied at the subscription-billing layer and so
+        // contributes 0 to the per-order discount computed here.
         return 0;
 
       case DiscountType.FREE_TRIAL_EXTENSION:

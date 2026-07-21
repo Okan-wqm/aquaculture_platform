@@ -26,6 +26,7 @@ import {
 } from './debug-tools-types';
 import { FeatureFlagDebugService } from './feature-flag-debug.service';
 import { QueryInspectorService } from './query-inspector.service';
+import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 // Re-export types for backward compatibility — interfaces require
 // `export type` under isolatedModules.
@@ -106,7 +107,7 @@ export class DebugToolsService {
     isActive?: boolean;
     page?: number;
     limit?: number;
-  }): Promise<{ data: DebugSession[]; total: number; page: number; limit: number }> {
+  }): Promise<IStandardPaginatedResult<DebugSession>> {
     return this.sessionService.querySessions(params);
   }
 

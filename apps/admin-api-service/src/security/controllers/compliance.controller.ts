@@ -37,6 +37,7 @@ import {
   ComplianceCheckResult,
   DataInventory,
 } from '../services/compliance.service';
+import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 // ============================================================================
 // DTOs
@@ -247,12 +248,7 @@ export class ComplianceController {
   @Get('data-requests')
   async queryDataRequests(
     @Query() query: QueryDataRequestsDto,
-  ): Promise<{
-    data: DataRequest[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  ): Promise<IStandardPaginatedResult<DataRequest>> {
     return this.complianceService.getDataRequests({
       page: query.page ? parseInt(String(query.page), 10) : 1,
       limit: query.limit ? parseInt(String(query.limit), 10) : 20,
@@ -406,12 +402,7 @@ export class ComplianceController {
   @Get('reports')
   async queryReports(
     @Query() query: QueryReportsDto,
-  ): Promise<{
-    data: ComplianceReport[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  ): Promise<IStandardPaginatedResult<ComplianceReport>> {
     return this.complianceService.getComplianceReports({
       page: query.page ? parseInt(String(query.page), 10) : 1,
       limit: query.limit ? parseInt(String(query.limit), 10) : 20,

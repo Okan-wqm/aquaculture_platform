@@ -27,6 +27,7 @@ import {
   toSafeImpersonationSession,
   IMPERSONATION_MAX_SESSION_MINUTES,
 } from '../entities/impersonation-session.entity';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 /**
  * Start-impersonation response: the safe session view PLUS the raw
@@ -316,7 +317,7 @@ export class ImpersonationService implements OnModuleInit {
     isActive?: boolean;
     page?: number;
     limit?: number;
-  }): Promise<{ data: ImpersonationPermission[]; total: number; page: number; limit: number }> {
+  }): Promise<IStandardPaginatedResult<ImpersonationPermission>> {
     const query = this.permissionRepo.createQueryBuilder('p');
 
     if (params.tenantId) {
@@ -333,7 +334,7 @@ export class ImpersonationService implements OnModuleInit {
     query.skip((page - 1) * limit).take(limit);
 
     const [data, total] = await query.getManyAndCount();
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   async getImpersonationStats(): Promise<{

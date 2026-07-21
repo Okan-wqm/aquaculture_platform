@@ -41,7 +41,7 @@ const createMockModule = (overrides: Partial<ModuleDto> = {}): ModuleDto => ({
 
 // Helper to create paginated response
 const createPaginatedModules = (modules: ModuleDto[], total: number = modules.length): PaginatedModules => ({
-  data: modules,
+  items: modules,
   total,
   page: 1,
   limit: 50,
@@ -180,21 +180,23 @@ describe('ModulesController', () => {
     it('should return all assignments without filter', async () => {
       const mockAssignments = [createMockAssignment()];
       mockModulesService.getAssignments.mockResolvedValueOnce({
-        data: mockAssignments,
+        items: mockAssignments,
         total: 1,
         page: 1,
         limit: 50,
         totalPages: 1,
+        hasNextPage: false,
+        hasPreviousPage: false,
       });
 
       const result = await controller.getAllAssignments();
 
-      expect(result.data).toEqual(mockAssignments);
+      expect(result.items).toEqual(mockAssignments);
       expect(service.getAssignments).toHaveBeenCalledWith({}, 1, 50);
     });
 
     it('should filter by tenantId', async () => {
-      mockModulesService.getAssignments.mockResolvedValueOnce({ data: [], total: 0, page: 1, limit: 50, totalPages: 0 });
+      mockModulesService.getAssignments.mockResolvedValueOnce({ items: [], total: 0, page: 1, limit: 50, totalPages: 0 });
 
       await controller.getAllAssignments('tenant-123');
 
@@ -202,7 +204,7 @@ describe('ModulesController', () => {
     });
 
     it('should filter by moduleId', async () => {
-      mockModulesService.getAssignments.mockResolvedValueOnce({ data: [], total: 0, page: 1, limit: 50, totalPages: 0 });
+      mockModulesService.getAssignments.mockResolvedValueOnce({ items: [], total: 0, page: 1, limit: 50, totalPages: 0 });
 
       await controller.getAllAssignments(undefined, 'module-123');
 
@@ -210,7 +212,7 @@ describe('ModulesController', () => {
     });
 
     it('should handle pagination parameters', async () => {
-      mockModulesService.getAssignments.mockResolvedValueOnce({ data: [], total: 0, page: 2, limit: 10, totalPages: 0 });
+      mockModulesService.getAssignments.mockResolvedValueOnce({ items: [], total: 0, page: 2, limit: 10, totalPages: 0 });
 
       await controller.getAllAssignments(undefined, undefined, '2', '10');
 
@@ -258,21 +260,23 @@ describe('ModulesController', () => {
     it('should return tenants for a module', async () => {
       const mockTenants = [{ id: 'tenant-1', name: 'Tenant 1' }];
       mockModulesService.getModuleTenants.mockResolvedValueOnce({
-        data: mockTenants,
+        items: mockTenants,
         total: 1,
         page: 1,
         limit: 50,
         totalPages: 1,
+        hasNextPage: false,
+        hasPreviousPage: false,
       });
 
       const result = await controller.getModuleTenants('module-id');
 
-      expect(result.data).toEqual(mockTenants);
+      expect(result.items).toEqual(mockTenants);
       expect(service.getModuleTenants).toHaveBeenCalledWith('module-id', 1, 50);
     });
 
     it('should handle pagination', async () => {
-      mockModulesService.getModuleTenants.mockResolvedValueOnce({ data: [], total: 0, page: 2, limit: 10, totalPages: 0 });
+      mockModulesService.getModuleTenants.mockResolvedValueOnce({ items: [], total: 0, page: 2, limit: 10, totalPages: 0 });
 
       await controller.getModuleTenants('module-id', '2', '10');
 

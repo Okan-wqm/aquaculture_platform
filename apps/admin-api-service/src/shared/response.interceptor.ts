@@ -79,30 +79,13 @@ export class ResponseInterceptor<T>
           };
         }
 
-        // RC-1b (tracked ADMIN-CRITICAL-007): legacy {data,total} list
-        // producers not yet migrated to the canonical shape are still lifted
-        // here so they do not regress. This branch is deleted once every
-        // producer routes through createStandardPaginatedResult.
-        if (
-          data &&
-          typeof data === 'object' &&
-          'data' in data &&
-          'total' in data
-        ) {
-          return {
-            success: true,
-            data: (data as Record<string, unknown>).data as T,
-            meta: {
-              total: (data as Record<string, unknown>).total as number,
-              page: (data as Record<string, unknown>).page as number,
-              limit: (data as Record<string, unknown>).limit as number,
-              totalPages: (data as Record<string, unknown>)
-                .totalPages as number,
-              timestamp: new Date().toISOString(),
-            },
-          };
-        }
-
+        // RC-1b (ADMIN-CRITICAL-007) complete: every admin-api list producer
+        // now returns createStandardPaginatedResult, so the canonical branch
+        // above is the ONLY paginated-recognition path. The former legacy
+        // {data,total} duck-typed branch (and its `as` casts) is gone — a
+        // producer that regresses to a hand-rolled {data,total} literal now
+        // falls through to the default wrap (data nested under `data`), which
+        // the admin-api-paginated-canonical invariant fails the build on.
         return {
           success: true,
           data,

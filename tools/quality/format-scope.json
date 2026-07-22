@@ -1503,6 +1503,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/database-management/controllers/__tests__/explorer-export-streamable.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/database-management/controllers/__tests__/explorer-sql-security.spec.ts",
       "prettier_managed": true
     },
@@ -55254,10 +55260,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9058,
+  "file_count": 9059,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8877,
-  "managed_file_list_sha256": "c7d8a6b8e7ea7c86ce0db6ee7987294cc3df8220fb3086df3ee50e7e32693a32",
+  "managed_count": 8878,
+  "managed_file_list_sha256": "8fc1e71c2395bb85bb0988e95813b9c03433ab44a7848be4bb9f97e5d6d91158",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

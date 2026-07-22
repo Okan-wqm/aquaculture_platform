@@ -491,6 +491,119 @@ describe('DatabaseExplorerController Security', () => {
   });
 
   // ========================================================================
+  // 5b. Sensitive-column mask symmetry on writes (APA-328 / APA-330)
+  //
+  // The read path masks sensitive columns to '********'. The write path must
+  // (a) never persist that sentinel back over the real secret, and (b) never
+  // egress the real secret on the write/delete response.
+  // ========================================================================
+  describe('CRUD sensitive-column mask symmetry (APA-328/APA-330)', () => {
+    beforeEach(() => {
+      process.env['ENABLE_DB_EXPLORER_WRITES'] = 'true';
+    });
+
+    afterEach(() => {
+      delete process.env['ENABLE_DB_EXPLORER_WRITES'];
+    });
+
+    const sqlCalls = (): string[] =>
+      mockQueryRunner.query.mock.calls.map((c) => String(c[0]));
+
+    it('drops a sensitive column resubmitted as the mask from the UPDATE SET clause (APA-328)', async () => {
+      mockQueryRunner.query
+        .mockResolvedValueOnce([{ column_name: 'id' }]) // getPrimaryKeyColumn
+        .mockResolvedValueOnce([
+          { id: '123', name: 'newname', password_hash: 'real-hash' },
+        ]); // UPDATE ... RETURNING *
+
+      const res = await request(app.getHttpServer())
+        .put('/database/explorer/schemas/auth/tables/users/rows/123')
+        .send({ data: { name: 'newname', password_hash: '********' } });
+
+      expect(res.status).toBe(HttpStatus.OK);
+      const updateSql = sqlCalls().find((s) => s.includes('UPDATE'));
+      expect(updateSql).toBeDefined();
+      expect(updateSql).toContain('"name"');
+      expect(updateSql).not.toContain('password_hash');
+      const updateValues = mockQueryRunner.query.mock.calls.find((c) =>
+        String(c[0]).includes('UPDATE'),
+      )?.[1] as unknown[];
+      expect(updateValues).not.toContain('********');
+    });
+
+    it('rejects an UPDATE whose only column is the mask sentinel, issuing no SQL (APA-328)', async () => {
+      const res = await request(app.getHttpServer())
+        .put('/database/explorer/schemas/auth/tables/users/rows/123')
+        .send({ data: { password_hash: '********' } });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      // The 400 fires before any write runner is created, so NO SQL runs at all
+      // (not merely "no UPDATE") — the mask sentinel never reaches the database.
+      expect(mockQueryRunner.query).not.toHaveBeenCalled();
+    });
+
+    it('drops a sensitive column resubmitted as the mask from the INSERT column list (APA-328)', async () => {
+      mockQueryRunner.query.mockResolvedValueOnce([
+        { id: '1', name: 'x', password_hash: 'real-hash', api_key: 'real-key' },
+      ]); // INSERT ... RETURNING *
+
+      const res = await request(app.getHttpServer())
+        .post('/database/explorer/schemas/auth/tables/users/rows')
+        .send({ data: { name: 'x', password_hash: '********', api_key: 'new-key' } });
+
+      expect(res.status).toBe(HttpStatus.CREATED);
+      const insertSql = sqlCalls().find((s) => s.includes('INSERT'));
+      expect(insertSql).toBeDefined();
+      expect(insertSql).toContain('"name"');
+      expect(insertSql).toContain('"api_key"'); // a real new value is kept
+      expect(insertSql).not.toContain('password_hash'); // the mask is dropped
+    });
+
+    it('masks sensitive columns on the UPDATE response (APA-330)', async () => {
+      mockQueryRunner.query
+        .mockResolvedValueOnce([{ column_name: 'id' }])
+        .mockResolvedValueOnce([
+          { id: '123', name: 'newname', password_hash: 'real-hash' },
+        ]);
+
+      const res = await request(app.getHttpServer())
+        .put('/database/explorer/schemas/auth/tables/users/rows/123')
+        .send({ data: { name: 'newname' } });
+
+      expect(res.status).toBe(HttpStatus.OK);
+      expect(res.body.password_hash).toBe('********');
+      expect(res.body.name).toBe('newname');
+    });
+
+    it('masks sensitive columns on the INSERT response (APA-330)', async () => {
+      mockQueryRunner.query.mockResolvedValueOnce([
+        { id: '1', name: 'x', password_hash: 'real-hash', api_key: 'real-key' },
+      ]);
+
+      const res = await request(app.getHttpServer())
+        .post('/database/explorer/schemas/auth/tables/users/rows')
+        .send({ data: { name: 'x', api_key: 'new-key' } });
+
+      expect(res.status).toBe(HttpStatus.CREATED);
+      expect(res.body.password_hash).toBe('********');
+      expect(res.body.api_key).toBe('********');
+    });
+
+    it('masks sensitive columns on the DELETE response (APA-330)', async () => {
+      mockQueryRunner.query
+        .mockResolvedValueOnce([{ column_name: 'id' }])
+        .mockResolvedValueOnce([{ id: '123', password_hash: 'real-hash' }]);
+
+      const res = await request(app.getHttpServer())
+        .delete('/database/explorer/schemas/auth/tables/users/rows/123');
+
+      expect(res.status).toBe(HttpStatus.OK);
+      expect(res.body.deleted).toBe(true);
+      expect(res.body.row.password_hash).toBe('********');
+    });
+  });
+
+  // ========================================================================
   // 6. Query Runner Cleanup
   // ========================================================================
   describe('QueryRunner resource management', () => {

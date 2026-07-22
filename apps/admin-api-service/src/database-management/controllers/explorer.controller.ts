@@ -126,6 +126,37 @@ function maskSensitiveData(
   return maskedRow;
 }
 
+/**
+ * Mask a returned row by its own keys (from `RETURNING *`), so a write/delete
+ * response never egresses the very sensitive columns the read path always masks
+ * (APA-330). `isSensitiveColumn` is name-based, so no column-info round-trip is
+ * needed — the same classifier that masks reads masks write responses.
+ */
+function maskRow(row: Record<string, unknown>): Record<string, unknown> {
+  return maskSensitiveData(
+    row,
+    Object.keys(row).map((columnName) => ({ columnName })),
+  );
+}
+
+/**
+ * Exact inverse of the read-path mask (APA-328): drop every sensitive column
+ * whose submitted value is the very mask sentinel the server handed the client.
+ * Because the sentinel and the classifier are the same ones that produced the
+ * mask, a client that re-submits an untouched masked field can never overwrite
+ * the real secret — the write endpoints leave that column unchanged.
+ */
+function stripUnchangedMaskedSensitive(
+  data: Record<string, unknown>,
+): Record<string, unknown> {
+  const writable: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (isSensitiveColumn(key) && value === MASKED_VALUE) continue;
+    writable[key] = value;
+  }
+  return writable;
+}
+
 // ============================================================================
 // DTOs
 // ============================================================================
@@ -684,8 +715,18 @@ export class DatabaseExplorerController {
       throw new BadRequestException('Data is required');
     }
 
-    const columns = Object.keys(dto.data);
-    const values = Object.values(dto.data);
+    // APA-328: never persist the read-path mask sentinel. A sensitive column
+    // submitted as '********' is dropped so the DB default/NULL applies instead
+    // of writing the placeholder verbatim.
+    const data = stripUnchangedMaskedSensitive(dto.data);
+    if (Object.keys(data).length === 0) {
+      throw new BadRequestException(
+        'No writable columns: every provided value was the masked sensitive placeholder',
+      );
+    }
+
+    const columns = Object.keys(data);
+    const values = Object.values(data);
 
     // Sütun isimlerini doğrula
     for (const col of columns) {
@@ -711,7 +752,9 @@ export class DatabaseExplorerController {
       );
 
       this.logger.log(`Inserted row into ${schema}.${table}`);
-      return result[0];
+      // APA-330: mask the RETURNING row so the response never egresses the
+      // sensitive columns the read path always masks.
+      return maskRow(result[0]);
     } finally {
       await queryRunner.release();
     }
@@ -741,8 +784,17 @@ export class DatabaseExplorerController {
       throw new BadRequestException('Data is required');
     }
 
-    const columns = Object.keys(dto.data);
-    const values = Object.values(dto.data);
+    // APA-328: strip any sensitive column re-submitted as the read-path mask
+    // sentinel so the UPDATE never overwrites the real secret with '********'.
+    const data = stripUnchangedMaskedSensitive(dto.data);
+    if (Object.keys(data).length === 0) {
+      throw new BadRequestException(
+        'No writable changes: the only provided columns matched the masked sensitive placeholder',
+      );
+    }
+
+    const columns = Object.keys(data);
+    const values = Object.values(data);
 
     // Sütun isimlerini doğrula
     for (const col of columns) {
@@ -780,7 +832,8 @@ export class DatabaseExplorerController {
       }
 
       this.logger.log(`Updated row ${id} in ${schema}.${table}`);
-      return result[0];
+      // APA-330: mask the RETURNING row on the response.
+      return maskRow(result[0]);
     } finally {
       await queryRunner.release();
     }
@@ -830,7 +883,8 @@ export class DatabaseExplorerController {
       }
 
       this.logger.log(`Deleted row ${id} from ${schema}.${table}`);
-      return { deleted: true, row: result[0] };
+      // APA-330: mask the deleted row so the response never egresses secrets.
+      return { deleted: true, row: maskRow(result[0]) };
     } finally {
       await queryRunner.release();
     }

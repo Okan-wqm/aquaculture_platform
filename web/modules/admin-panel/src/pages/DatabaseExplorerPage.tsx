@@ -191,7 +191,12 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
     if (isOpen) {
       const initialData: Record<string, string> = {};
       columns.forEach((col) => {
-        if (row && row[col.columnName] !== undefined) {
+        const sensitive = col.isSensitive || isSensitiveColumnName(col.columnName);
+        if (sensitive) {
+          // APA-328: never seed a sensitive field with the mask the server sent.
+          // Blank means "keep the current value"; a typed value sets a new one.
+          initialData[col.columnName] = '';
+        } else if (row && row[col.columnName] !== undefined) {
           initialData[col.columnName] = formatValue(row[col.columnName]);
         } else {
           initialData[col.columnName] = '';
@@ -224,6 +229,13 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
       const parsedData: Record<string, unknown> = {};
       columns.forEach((col) => {
         const value = formData[col.columnName];
+        const sensitive = col.isSensitive || isSensitiveColumnName(col.columnName);
+        // APA-328: a blank (or still-masked) sensitive field means "keep current".
+        // Omit it entirely so the mask sentinel is never sent back and the real
+        // secret is preserved by the backend.
+        if (sensitive && (value === undefined || value === '' || isMaskedValue(value))) {
+          return;
+        }
         if (value === '' || value === 'NULL') {
           if (!col.isNullable && mode === 'create' && !col.columnDefault) {
             // Skip, will be handled by DB
@@ -305,9 +317,19 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
               )}
             </label>
             {isSensitive ? (
-              <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-500 italic">
-                [Sensitive field — not shown for security. Clear to unset.]
-              </div>
+              <Input
+                type="password"
+                autoComplete="new-password"
+                value={formData[col.columnName] || ''}
+                onChange={(e) =>
+                  setFormData({ ...formData, [col.columnName]: e.target.value })
+                }
+                placeholder={
+                  mode === 'edit'
+                    ? 'Leave blank to keep current value'
+                    : 'Enter a new value'
+                }
+              />
             ) : (
               <Input
                 value={formData[col.columnName] || ''}

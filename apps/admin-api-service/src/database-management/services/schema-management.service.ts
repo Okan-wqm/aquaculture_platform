@@ -35,6 +35,17 @@ export interface DestructiveActionContext {
   userAgent?: string;
 }
 
+/**
+ * Result of the per-tenant schema isolation check — the SSoT wire contract for
+ * GET /database/schemas/:tenantId/validate. Consumers MUST read `isIsolated`
+ * (the admin-panel previously hand-mirrored it as `valid` and always read
+ * undefined, so the UI reported "Issues found" for a correctly-isolated schema).
+ */
+export interface SchemaIsolationResult {
+  isIsolated: boolean;
+  issues: string[];
+}
+
 // ============================================================================
 // Service
 // ============================================================================
@@ -195,10 +206,7 @@ export class SchemaManagementService {
   /**
    * Validate schema isolation
    */
-  async validateSchemaIsolation(tenantId: string): Promise<{
-    isIsolated: boolean;
-    issues: string[];
-  }> {
+  async validateSchemaIsolation(tenantId: string): Promise<SchemaIsolationResult> {
     const schema = await this.getSchemaByTenantId(tenantId);
     const issues: string[] = [];
 

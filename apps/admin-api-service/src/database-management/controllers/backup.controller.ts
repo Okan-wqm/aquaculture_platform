@@ -37,7 +37,7 @@ import {
 } from 'class-validator';
 
 import { BackupType, BackupStatus } from '../entities/database-management.entity';
-import { BackupRestoreService } from '../services/backup-restore.service';
+import { BackupRestoreService, BackupScheduleStatus } from '../services/backup-restore.service';
 import { getAuthUser } from '../../shared/authenticated-request';
 
 // ============================================================================
@@ -145,7 +145,7 @@ export class BackupController {
   }
 
   @Get('schedule')
-  async getBackupScheduleStatus() {
+  async getBackupScheduleStatus(): Promise<BackupScheduleStatus> {
     return this.backupService.getBackupScheduleStatus();
   }
 

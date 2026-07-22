@@ -26,7 +26,7 @@ import { IsNotEmpty, IsString, IsUUID, IsEnum, IsOptional, IsArray } from 'class
 import { Roles } from '../../decorators/roles.decorator';
 import { getAuthUser } from '../../shared/authenticated-request';
 import { SchemaStatus } from '../entities/database-management.entity';
-import { SchemaManagementService } from '../services/schema-management.service';
+import { SchemaManagementService, SchemaIsolationResult } from '../services/schema-management.service';
 
 // ============================================================================
 // DTOs
@@ -163,7 +163,9 @@ export class SchemaController {
   // ============================================================================
 
   @Get(':tenantId/validate')
-  async validateSchemaIsolation(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
+  async validateSchemaIsolation(
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+  ): Promise<SchemaIsolationResult> {
     return this.schemaService.validateSchemaIsolation(tenantId);
   }
 

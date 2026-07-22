@@ -43,7 +43,7 @@ export const databaseApi = {
   syncSchemas: (data?: { tenantId?: string; modules?: string[] }) =>
     apiFetch<{ synced: number; errors: string[] }>('/database/schemas/sync', { method: 'POST', body: JSON.stringify(data || {}) }),
   validateSchemaIsolation: (tenantId: string) =>
-    apiFetch<{ valid: boolean; issues: string[] }>(`/database/schemas/${tenantId}/validate`),
+    apiFetch<{ isIsolated: boolean; issues: string[] }>(`/database/schemas/${tenantId}/validate`),
   refreshSchemaStats: (tenantId: string) =>
     apiFetch<TenantSchema>(`/database/schemas/${tenantId}/refresh-stats`, { method: 'POST' }),
   getConnectionPoolStatus: () =>
@@ -106,8 +106,19 @@ export const databaseApi = {
   getBackup: (id: string) => apiFetch<DatabaseBackup>(`/database/backups/${id}`),
   getBackupSummary: () =>
     apiFetch<{ total: number; completed: number; failed: number; totalSizeBytes: number }>('/database/backups/summary'),
+  /**
+   * Backend: GET /database/backups/schedule.
+   * Mirrors BackupRestoreService.BackupScheduleStatus; Date fields arrive as ISO strings.
+   */
   getBackupScheduleStatus: () =>
-    apiFetch<{ enabled: boolean; schedule: string; lastRun?: string; nextRun?: string }>('/database/backups/schedule'),
+    apiFetch<{
+      dailyBackupEnabled: boolean;
+      weeklyBackupEnabled: boolean;
+      nextDailyBackup: string;
+      nextWeeklyBackup: string;
+      lastDailyBackup: string | null;
+      lastWeeklyBackup: string | null;
+    }>('/database/backups/schedule'),
   getBackupsForTenant: (tenantId: string) =>
     apiFetch<DatabaseBackup[]>(`/database/backups/tenant/${tenantId}`),
   // APA-314: encryption is a mandatory server invariant (resolveBackupEncryption

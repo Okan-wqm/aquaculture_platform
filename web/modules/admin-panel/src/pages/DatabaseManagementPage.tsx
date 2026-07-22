@@ -394,7 +394,7 @@ const SchemasTab: React.FC = () => {
                   onClick={() => {
                     databaseApi.validateSchemaIsolation(selectedSchema.tenantId)
                       .then(result => {
-                        alert(result.valid ? 'Schema isolation is valid.' : `Issues found: ${result.issues.join(', ')}`);
+                        alert(result.isIsolated ? 'Schema isolation is valid.' : `Issues found: ${result.issues.join(', ')}`);
                       })
                       .catch(err => alert(`Validation failed: ${err.message}`));
                   }}
@@ -776,21 +776,34 @@ const BackupsTab: React.FC = () => {
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-4">Backup Schedule</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-              <div>
-                <div className="font-medium text-gray-900">Schedule</div>
-                <div className="text-sm text-gray-500">{scheduleState.data.schedule || 'Not configured'}</div>
+            <div className="p-4 bg-gray-50 rounded-lg space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="font-medium text-gray-900">Daily Backup</div>
+                <StatusBadge status={scheduleState.data.dailyBackupEnabled ? 'active' : 'suspended'} />
               </div>
-              <StatusBadge status={scheduleState.data.enabled ? 'active' : 'suspended'} />
+              <div className="flex justify-between text-sm text-gray-500">
+                <span>Next Run</span>
+                <span>{formatDate(scheduleState.data.nextDailyBackup)}</span>
+              </div>
+              <div className="flex justify-between text-sm text-gray-500">
+                <span>Last Run</span>
+                <span>{formatDate(scheduleState.data.lastDailyBackup)}</span>
+              </div>
             </div>
-            {scheduleState.data.nextRun && (
-              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                <div>
-                  <div className="font-medium text-gray-900">Next Run</div>
-                  <div className="text-sm text-gray-500">{formatDate(scheduleState.data.nextRun)}</div>
-                </div>
+            <div className="p-4 bg-gray-50 rounded-lg space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="font-medium text-gray-900">Weekly Backup</div>
+                <StatusBadge status={scheduleState.data.weeklyBackupEnabled ? 'active' : 'suspended'} />
               </div>
-            )}
+              <div className="flex justify-between text-sm text-gray-500">
+                <span>Next Run</span>
+                <span>{formatDate(scheduleState.data.nextWeeklyBackup)}</span>
+              </div>
+              <div className="flex justify-between text-sm text-gray-500">
+                <span>Last Run</span>
+                <span>{formatDate(scheduleState.data.lastWeeklyBackup)}</span>
+              </div>
+            </div>
           </div>
         </div>
       )}

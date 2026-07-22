@@ -54,6 +54,20 @@ function ignoreCleanupError(_error: unknown): void {
 // Service
 // ============================================================================
 
+/**
+ * SSoT wire shape for GET /database/backups/schedule. The admin-panel api layer
+ * (web/modules/admin-panel/src/services/api/database.ts) mirrors this exactly;
+ * Date fields serialize to ISO strings over the wire.
+ */
+export interface BackupScheduleStatus {
+  dailyBackupEnabled: boolean;
+  weeklyBackupEnabled: boolean;
+  nextDailyBackup: Date;
+  nextWeeklyBackup: Date;
+  lastDailyBackup: Date | null;
+  lastWeeklyBackup: Date | null;
+}
+
 @Injectable()
 export class BackupRestoreService {
   private readonly logger = new Logger(BackupRestoreService.name);
@@ -795,16 +809,9 @@ export class BackupRestoreService {
   }
 
   /**
-   * Get backup schedule status
+   * Get backup schedule status. Returns the BackupScheduleStatus SSoT wire shape.
    */
-  async getBackupScheduleStatus(): Promise<{
-    dailyBackupEnabled: boolean;
-    weeklyBackupEnabled: boolean;
-    nextDailyBackup: Date;
-    nextWeeklyBackup: Date;
-    lastDailyBackup: Date | null;
-    lastWeeklyBackup: Date | null;
-  }> {
+  async getBackupScheduleStatus(): Promise<BackupScheduleStatus> {
     const lastDaily = await this.backupRepository.findOne({
       where: { backupType: 'incremental' as BackupType },
       order: { createdAt: 'DESC' },

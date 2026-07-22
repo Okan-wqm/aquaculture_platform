@@ -1515,6 +1515,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/database-management/__tests__/schema-validate-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/database-management/__tests__/security/explorer-security.spec.ts",
       "prettier_managed": true
     },
@@ -1570,6 +1576,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/database-management/entities/database-management.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/database-management/services/__tests__/backup-schedule-contract.spec.ts",
       "prettier_managed": true
     },
     {
@@ -45532,6 +45544,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/DatabaseManagementPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/__tests__/PaymentsPage.spec.tsx",
       "prettier_managed": true
     },
@@ -55344,10 +55362,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9073,
+  "file_count": 9076,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8892,
-  "managed_file_list_sha256": "4defd222fbad62621286cd92a2f90f1772b3a648b924bd1bdd07ea6144195de2",
+  "managed_count": 8895,
+  "managed_file_list_sha256": "561ebd9bcec8b212d56363b2ce981474b212d45d7d3342f70e4304df76048f9b",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

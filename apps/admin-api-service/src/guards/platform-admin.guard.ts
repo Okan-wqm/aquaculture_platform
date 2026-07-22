@@ -5,8 +5,10 @@ import {
 } from '@aquaculture/backend-common/auth';
 import { requestContextStorage } from '@aquaculture/backend-common/logging';
 import {
+  IpRateLimiterService,
   ITokenBlacklist,
   IUserTokenRevocation,
+  SecurityEventService,
   TOKEN_BLACKLIST,
   USER_TOKEN_REVOCATION,
 } from '@aquaculture/backend-common/security';
@@ -14,6 +16,8 @@ import {
   CanActivate,
   ExecutionContext,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Inject,
   Injectable,
   Logger,
@@ -69,6 +73,23 @@ export interface JwtPayload {
 // represents that platform-level operator with the existing SUPER_ADMIN role.
 const DEFAULT_ADMIN_ROLES = ['SUPER_ADMIN', 'super_admin'];
 
+/** Extract a human-readable reason from an UnauthorizedException for logging + events. */
+function reasonOf(exception: UnauthorizedException): string {
+  const response = exception.getResponse();
+  if (typeof response === 'string') return response;
+  if (response && typeof response === 'object' && 'message' in response) {
+    const message = (response as { message?: unknown }).message;
+    if (typeof message === 'string') return message;
+    if (Array.isArray(message)) return message.join(', ');
+  }
+  return exception.message || 'Unauthorized';
+}
+
+/** Normalize a possibly-array header to a single string value. */
+function headerValue(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 @Injectable()
 export class PlatformAdminGuard implements CanActivate {
   private readonly logger = new Logger(PlatformAdminGuard.name);
@@ -88,6 +109,20 @@ export class PlatformAdminGuard implements CanActivate {
     @Inject(TOKEN_BLACKLIST) private readonly tokenBlacklist: ITokenBlacklist,
     @Inject(USER_TOKEN_REVOCATION)
     private readonly userTokenRevocation: IUserTokenRevocation,
+    // APA-369: this guard is the FIRST APP_GUARD, so a request with a
+    // missing/invalid/expired/forged/revoked Bearer is rejected here BEFORE the
+    // shared ThrottlerGuard (registered second) ever runs — token brute-force /
+    // credential-stuffing against the platform-admin API was never app-throttled
+    // and produced no security event. Reordering the guards is unsound (the
+    // ThrottlerGuard reads request.user.sub, which only THIS guard populates, so
+    // throttle-first would re-classify every authenticated SUPER_ADMIN as
+    // anonymous). Instead we account each auth FAILURE against a per-IP bucket
+    // (only failures increment it, so a valid operator's fan-out never counts)
+    // and emit a security event that reaches the incident pipeline.
+    @Inject(IpRateLimiterService)
+    private readonly failedAuthIpLimiter: IpRateLimiterService,
+    @Inject(SecurityEventService)
+    private readonly securityEvents: SecurityEventService,
   ) {
     // SECURITY (CRITICAL-001): JWT_SECRET length validation removed in WS2.B
     // (2026-04-14). The check was a hold-over from the HS256 era — verifyAsync
@@ -123,19 +158,21 @@ export class PlatformAdminGuard implements CanActivate {
     const authHeader = request.headers.authorization;
 
     if (!authHeader) {
-      this.logger.debug(
-        `401 Unauthorized: No authorization header provided for ${request.method} ${request.url}`,
+      return this.rejectAuth(
+        context,
+        request,
+        new UnauthorizedException('No authorization header provided'),
       );
-      throw new UnauthorizedException('No authorization header provided');
     }
 
     const [type, token] = authHeader.split(' ');
 
     if (type !== 'Bearer' || !token) {
-      this.logger.debug(
-        `401 Unauthorized: Invalid authorization header format for ${request.method} ${request.url}`,
+      return this.rejectAuth(
+        context,
+        request,
+        new UnauthorizedException('Invalid authorization header format'),
       );
-      throw new UnauthorizedException('Invalid authorization header format');
     }
 
     try {
@@ -228,29 +265,99 @@ export class PlatformAdminGuard implements CanActivate {
 
       return true;
     } catch (error) {
-      if (error instanceof ForbiddenException || error instanceof UnauthorizedException) {
+      // A valid token with an insufficient role is NOT an authentication failure
+      // (it is a real, authenticated principal) — rethrow as-is; it must not fill
+      // the failed-auth IP bucket and is already logged at warn above.
+      if (error instanceof ForbiddenException) {
         throw error;
       }
 
+      // Rejections from enforceAccessTokenType / enforceTokenNotRevoked (wrong
+      // token type, missing jti, revoked token) — preserve their code by routing
+      // the original exception through the failed-auth accounting.
+      if (error instanceof UnauthorizedException) {
+        return this.rejectAuth(context, request, error);
+      }
+
       if (error instanceof jwt.TokenExpiredError) {
-        this.logger.debug(
-          `401 Unauthorized: Token expired for ${request.method} ${request.url}`,
-        );
-        throw new UnauthorizedException('Token has expired');
+        return this.rejectAuth(context, request, new UnauthorizedException('Token has expired'));
       }
 
       if (error instanceof jwt.JsonWebTokenError) {
-        this.logger.debug(
-          `401 Unauthorized: Invalid JWT token for ${request.method} ${request.url} - ${(error as Error).message}`,
-        );
-        throw new UnauthorizedException('Invalid token');
+        return this.rejectAuth(context, request, new UnauthorizedException('Invalid token'));
       }
 
+      // Unexpected error — keep the stack trace at error level, then account the
+      // failure and reject.
       this.logger.error(
         `Authentication error for ${request.method} ${request.url}: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      throw new UnauthorizedException('Authentication failed');
+      return this.rejectAuth(context, request, new UnauthorizedException('Authentication failed'));
     }
+  }
+
+  /**
+   * Best-effort client IP: the left-most X-Forwarded-For hop (the original
+   * client through nginx), falling back to the request address. Keyed per-IP so
+   * a failed-auth flood from one source is bounded regardless of the (spoofable)
+   * identity a forged token might claim.
+   */
+  private getClientIp(request: AuthenticatedRequest): string {
+    const forwarded = headerValue(request.headers['x-forwarded-for']);
+    const firstHop = forwarded?.split(',')[0]?.trim();
+    return firstHop || request.ip || 'unknown';
+  }
+
+  /**
+   * APA-369: record a failed authentication against the per-IP bucket, emit the
+   * AUTH_TOKEN_REJECTED security event, and — once an IP crosses the failed-auth
+   * limit — emit RATE_LIMIT_EXCEEDED and reject with 429 (instead of 401) so
+   * token brute-force is APP-throttled (not merely nginx-throttled) and reaches
+   * the incident pipeline. Only auth FAILURES call this, so an authenticated
+   * operator's request fan-out from one IP never fills the bucket.
+   */
+  private async rejectAuth(
+    context: ExecutionContext,
+    request: AuthenticatedRequest,
+    unauthorized: UnauthorizedException,
+  ): Promise<never> {
+    const reason = reasonOf(unauthorized);
+    // WARN, not DEBUG: failed auth on the most privileged surface must be
+    // visible at production log levels.
+    this.logger.warn(
+      `401 Unauthorized: ${reason} for ${request.method} ${request.url}`,
+    );
+
+    const ip = this.getClientIp(request);
+    const userAgent = headerValue(request.headers['user-agent']);
+    const limit = this.failedAuthIpLimiter.checkLimit(ip);
+
+    await this.securityEvents.publishTokenRejected({ reason, ip, userAgent });
+
+    if (!limit.allowed) {
+      const windowMs = this.configService.get<number>('IP_RATE_WINDOW_MS', 60000);
+      const maxPerWindow = this.configService.get<number>('IP_RATE_LIMIT', 100);
+      await this.securityEvents.publishRateLimitExceeded({
+        key: `admin-auth:ip:${ip}`,
+        limit: maxPerWindow,
+        windowMs,
+        count: maxPerWindow + 1,
+        ip,
+        userAgent,
+      });
+      const response = context
+        .switchToHttp()
+        .getResponse<{ setHeader(name: string, value: string): void }>();
+      if (limit.retryAfter) {
+        response.setHeader('Retry-After', String(limit.retryAfter));
+      }
+      throw new HttpException(
+        { code: 'TOO_MANY_FAILED_AUTH', message: 'Too many failed authentication attempts' },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    throw unauthorized;
   }
 }

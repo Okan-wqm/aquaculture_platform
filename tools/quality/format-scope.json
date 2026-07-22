@@ -41304,6 +41304,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-failed-auth-accounting.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-messaging-action-vocab.spec.ts",
       "prettier_managed": true
     },
@@ -55302,10 +55308,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9066,
+  "file_count": 9067,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8885,
-  "managed_file_list_sha256": "aadb403626378037614b617656a6756fca724d0fe51aff5c7bce750804bf4496",
+  "managed_count": 8886,
+  "managed_file_list_sha256": "a6fc0c8f582516c82345fc576fb22b54527df595638164a1d053e4d8c86b98a9",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

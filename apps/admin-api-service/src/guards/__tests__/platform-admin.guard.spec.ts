@@ -9,8 +9,13 @@
  * - Malformed/tampered token rejection
  * - JWT secret configuration validation
  */
-import { TOKEN_BLACKLIST, USER_TOKEN_REVOCATION } from '@aquaculture/backend-common/security';
-import { ExecutionContext, UnauthorizedException, ForbiddenException } from '@nestjs/common';
+import {
+  IpRateLimiterService,
+  SecurityEventService,
+  TOKEN_BLACKLIST,
+  USER_TOKEN_REVOCATION,
+} from '@aquaculture/backend-common/security';
+import { ExecutionContext, HttpException, HttpStatus, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
@@ -56,6 +61,13 @@ describe('PlatformAdminGuard', () => {
   // revocation describe-block flips them per-case.
   let isValidToken: jest.Mock;
   let isTokenValid: jest.Mock;
+  // APA-369: per-IP failed-auth limiter + security-event publisher. Defaults:
+  // limiter allows (so existing 401 tests still throw 401, not 429); event
+  // publishers are no-ops. The APA-369 describe-block flips them per-case.
+  let checkLimit: jest.Mock;
+  let publishTokenRejected: jest.Mock;
+  let publishRateLimitExceeded: jest.Mock;
+  let setHeader: jest.Mock;
 
   function createMockExecutionContext(overrides: {
     authHeader?: string;
@@ -88,7 +100,7 @@ describe('PlatformAdminGuard', () => {
       getType: () => 'http',
       switchToHttp: () => ({
         getRequest: <T = MockRequest>() => request as T,
-        getResponse: () => ({}),
+        getResponse: () => ({ setHeader }),
       }),
       getHandler: () => ({}),
       getClass: () => ({}),
@@ -112,6 +124,10 @@ describe('PlatformAdminGuard', () => {
     nodeEnv = 'development';
     isValidToken = jest.fn().mockResolvedValue(true);
     isTokenValid = jest.fn().mockResolvedValue(true);
+    checkLimit = jest.fn().mockReturnValue({ allowed: true, remaining: 99 });
+    publishTokenRejected = jest.fn().mockResolvedValue(undefined);
+    publishRateLimitExceeded = jest.fn().mockResolvedValue(undefined);
+    setHeader = jest.fn();
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PlatformAdminGuard,
@@ -140,6 +156,12 @@ describe('PlatformAdminGuard', () => {
         // `user_blacklist:` epoch (force-logout / deletion / RBAC reduction).
         { provide: TOKEN_BLACKLIST, useValue: { isValidToken } },
         { provide: USER_TOKEN_REVOCATION, useValue: { isTokenValid } },
+        // APA-369: per-IP failed-auth limiter + incident-pipeline event publisher.
+        { provide: IpRateLimiterService, useValue: { checkLimit } },
+        {
+          provide: SecurityEventService,
+          useValue: { publishTokenRejected, publishRateLimitExceeded },
+        },
       ],
     }).compile();
 
@@ -345,6 +367,55 @@ describe('PlatformAdminGuard', () => {
       await expect(guard.canActivate(context)).resolves.toBe(true);
       expect(isValidToken).toHaveBeenCalledWith('live-jti', 'admin-3', expect.any(Date));
       expect(isTokenValid).toHaveBeenCalledWith('admin-3', expect.any(Date));
+    });
+  });
+
+  // ========================================================================
+  // 3c. Failed-auth throttling + security events (APA-369)
+  //
+  // This guard is the FIRST APP_GUARD, so failed-auth requests never reach the
+  // shared ThrottlerGuard. It must therefore account failed auth against a
+  // per-IP bucket itself, emit an incident-pipeline event, and log at warn.
+  // ========================================================================
+  describe('Failed-auth throttling + security events (APA-369)', () => {
+    it('accounts a failed auth against the per-IP bucket and emits AUTH_TOKEN_REJECTED (401 under the limit)', async () => {
+      const context = createMockExecutionContext({}); // no authorization header
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+      expect(checkLimit).toHaveBeenCalledTimes(1);
+      expect(publishTokenRejected).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: 'No authorization header provided' }),
+      );
+      expect(publishRateLimitExceeded).not.toHaveBeenCalled();
+    });
+
+    it('rejects with 429 + emits RATE_LIMIT_EXCEEDED once the IP crosses the failed-auth limit', async () => {
+      checkLimit.mockReturnValue({ allowed: false, remaining: 0, retryAfter: 30 });
+      const context = createMockExecutionContext({ authHeader: 'Bearer not.a.jwt' });
+      try {
+        await guard.canActivate(context);
+        fail('Should have thrown');
+      } catch (e) {
+        expect(e).toBeInstanceOf(HttpException);
+        expect((e as HttpException).getStatus()).toBe(HttpStatus.TOO_MANY_REQUESTS);
+      }
+      expect(publishRateLimitExceeded).toHaveBeenCalledTimes(1);
+      expect(setHeader).toHaveBeenCalledWith('Retry-After', '30');
+    });
+
+    it('does NOT count a valid SUPER_ADMIN request against the failed-auth limiter', async () => {
+      const token = signToken({ roles: ['SUPER_ADMIN'] });
+      const context = createMockExecutionContext({ authHeader: `Bearer ${token}` });
+      await expect(guard.canActivate(context)).resolves.toBe(true);
+      expect(checkLimit).not.toHaveBeenCalled();
+      expect(publishTokenRejected).not.toHaveBeenCalled();
+    });
+
+    it('does NOT count an insufficient-role (403) request as a failed auth', async () => {
+      const token = signToken({ roles: ['TENANT_ADMIN'] });
+      const context = createMockExecutionContext({ authHeader: `Bearer ${token}` });
+      await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
+      expect(checkLimit).not.toHaveBeenCalled();
+      expect(publishTokenRejected).not.toHaveBeenCalled();
     });
   });
 

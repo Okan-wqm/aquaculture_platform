@@ -12,6 +12,8 @@ import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
 import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 import {
+  IpRateLimiterService,
+  SecurityEventService,
   ThrottlerGuard,
   ThrottlerModule,
   TOKEN_BLACKLIST,
@@ -293,6 +295,11 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     // @UseGuards(PlatformAdminGuard) on controllers resolves the guard from the DI container
     // using the class token — NOT the APP_GUARD symbol. Without this explicit registration,
     // NestJS falls back to reflect-metadata class resolution which fails in Docker Alpine.
+    // APA-369: SecurityEventService publishes AUTH_TOKEN_REJECTED /
+    // RATE_LIMIT_EXCEEDED to the incident pipeline (graceful — @Optional EVENT_BUS,
+    // never throws). IpRateLimiterService (the per-IP failed-auth bucket) is
+    // already provided + exported by ThrottlerModule above.
+    SecurityEventService,
     {
       provide: PlatformAdminGuard,
       useFactory: (
@@ -301,6 +308,8 @@ const getAdminStoragePort = (configService: ConfigService): number => {
         jwtService: JwtService,
         tokenBlacklist: ITokenBlacklist,
         userTokenRevocation: IUserTokenRevocation,
+        failedAuthIpLimiter: IpRateLimiterService,
+        securityEvents: SecurityEventService,
       ): PlatformAdminGuard =>
         new PlatformAdminGuard(
           reflector,
@@ -308,11 +317,23 @@ const getAdminStoragePort = (configService: ConfigService): number => {
           jwtService,
           tokenBlacklist,
           userTokenRevocation,
+          failedAuthIpLimiter,
+          securityEvents,
         ),
       // APA-367: TOKEN_BLACKLIST + USER_TOKEN_REVOCATION are REQUIRED (not
       // optional) — a missing revocation store fails DI at boot instead of
       // silently shipping a guard that never checks revocation.
-      inject: [Reflector, ConfigService, JwtService, TOKEN_BLACKLIST, USER_TOKEN_REVOCATION],
+      // APA-369: IpRateLimiterService + SecurityEventService drive per-IP
+      // failed-auth throttling + incident-pipeline events.
+      inject: [
+        Reflector,
+        ConfigService,
+        JwtService,
+        TOKEN_BLACKLIST,
+        USER_TOKEN_REVOCATION,
+        IpRateLimiterService,
+        SecurityEventService,
+      ],
     },
     {
       provide: APP_GUARD,

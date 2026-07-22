@@ -212,28 +212,54 @@ function buildAuditChanges(
 // Components
 // ============================================================================
 
+// Colours the badge by the real backend AuditAction family (UPPERCASE_SNAKE).
+// The prior lowercase cases (create/update/login/…) never matched what the
+// backend stores, so every badge fell through to grey (APA-224).
 const getActionColor = (action: AuditAction): string => {
-  switch (action) {
-    case 'create':
-      return 'bg-green-100 text-green-800';
-    case 'update':
-      return 'bg-blue-100 text-blue-800';
-    case 'delete':
-      return 'bg-red-100 text-red-800';
-    case 'login':
-    case 'logout':
-      return 'bg-purple-100 text-purple-800';
-    case 'permission_change':
-      return 'bg-orange-100 text-orange-800';
-    case 'export':
-    case 'import':
-      return 'bg-yellow-100 text-yellow-800';
-    case 'config_change':
-      return 'bg-indigo-100 text-indigo-800';
-    default:
-      return 'bg-gray-100 text-gray-800';
+  if (action.startsWith('IMPERSONATION')) return 'bg-purple-100 text-purple-800';
+  if (action.startsWith('SCHEMA')) return 'bg-indigo-100 text-indigo-800';
+  if (action.startsWith('DATABASE_EXPLORER') || action === 'AUDIT_LOG_ACCESSED' || action.includes('EXPORT')) {
+    return 'bg-yellow-100 text-yellow-800';
   }
+  if (action.includes('ERASURE') || action.includes('DELETE') || action.includes('SUSPENDED') || action.includes('DEACTIVATED') || action.includes('ARCHIVED')) {
+    return 'bg-red-100 text-red-800';
+  }
+  if (action.includes('CREATE') || action.includes('PROVISIONED') || action.includes('ACTIVATED')) {
+    return 'bg-green-100 text-green-800';
+  }
+  if (action.includes('UPDATE') || action.includes('CHANGED') || action.includes('EXTENDED')) {
+    return 'bg-blue-100 text-blue-800';
+  }
+  return 'bg-gray-100 text-gray-800';
 };
+
+// Audit-action filter options — the values MUST be real backend AuditAction
+// members (admin-api-service audit.entity.ts); pinned by
+// tests/invariants/admin-audit-action-vocab.spec.ts. The prior dropdown offered
+// generic lowercase verbs (create/read/update/delete/login/logout) that never
+// matched the stored UPPERCASE_SNAKE actions, so every filter returned 0 rows
+// (APA-224). login/logout are omitted — auth events live in auth's own ledger.
+const AUDIT_ACTION_FILTER_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: 'TENANT_CREATE_REQUESTED', label: 'Tenant Create Requested' },
+  { value: 'TENANT_PROVISIONED', label: 'Tenant Provisioned' },
+  { value: 'TENANT_SUSPENDED', label: 'Tenant Suspended' },
+  { value: 'TENANT_ACTIVATED', label: 'Tenant Activated' },
+  { value: 'TENANT_DEACTIVATED', label: 'Tenant Deactivated' },
+  { value: 'TENANT_ARCHIVED', label: 'Tenant Archived' },
+  { value: 'TENANT_ERASURE_REQUESTED', label: 'Tenant Erasure Requested' },
+  { value: 'IMPERSONATION_STARTED', label: 'Impersonation Started' },
+  { value: 'IMPERSONATION_ENDED', label: 'Impersonation Ended' },
+  { value: 'IMPERSONATION_TERMINATED', label: 'Impersonation Terminated' },
+  { value: 'IMPERSONATION_EXTENDED', label: 'Impersonation Extended' },
+  { value: 'IMPERSONATION_EXPIRED', label: 'Impersonation Expired' },
+  { value: 'DATABASE_EXPLORER_READ', label: 'DB Explorer Read' },
+  { value: 'DATABASE_EXPLORER_EXPORT', label: 'DB Explorer Export' },
+  { value: 'DATABASE_EXPLORER_RAW_SQL', label: 'DB Explorer Raw SQL' },
+  { value: 'AUDIT_LOG_ACCESSED', label: 'Audit Log Accessed' },
+  { value: 'SCHEMA_BACKUP_CREATE_REQUESTED', label: 'Schema Backup Create Requested' },
+  { value: 'SCHEMA_BACKUP_DELETE_REQUESTED', label: 'Schema Backup Delete Requested' },
+  { value: 'SCHEMA_RESTORE_REQUESTED', label: 'Schema Restore Requested' },
+];
 
 const getSeverityColor = (severity: AuditSeverity): string => {
   switch (severity) {
@@ -693,12 +719,11 @@ export const AuditTrailPage: React.FC = () => {
                 className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">All Actions</option>
-                <option value="create">Create</option>
-                <option value="read">Read</option>
-                <option value="update">Update</option>
-                <option value="delete">Delete</option>
-                <option value="login">Login</option>
-                <option value="logout">Logout</option>
+                {AUDIT_ACTION_FILTER_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
               <select
                 value={severityFilter}

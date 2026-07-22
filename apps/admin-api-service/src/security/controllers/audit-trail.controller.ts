@@ -20,8 +20,10 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
-import { IsOptional, IsNumber, IsString, IsBoolean, IsIn, IsArray, IsObject, Min, Max } from 'class-validator';
+import { IsOptional, IsNumber, IsString, IsBoolean, IsIn, IsArray, IsObject, IsEnum, Min, Max } from 'class-validator';
 import { Request, Response } from 'express';
+
+import { AuditAction } from '../../audit/audit.entity';
 
 import { AuditLog, AuditSeverity as ImmutableAuditSeverity } from '../../audit/audit.entity';
 import { AuditLogFilter, AuditLogService, PaginatedAuditLogs } from '../../audit/audit.service';
@@ -83,9 +85,11 @@ export class QueryAuditTrailDto {
   @IsString()
   severity?: string; // Comma-separated
 
+  // Only real backend AuditAction values are accepted (APA-224) — an
+  // out-of-vocabulary action 400s at the boundary instead of matching 0 rows.
   @IsOptional()
-  @IsString()
-  action?: string;
+  @IsEnum(AuditAction)
+  action?: AuditAction;
 
   @IsOptional()
   @IsString()

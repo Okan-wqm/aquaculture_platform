@@ -1,7 +1,7 @@
 import { IsEnum, IsISO8601, IsOptional, IsString } from 'class-validator';
 
 import { PaginationQueryDto } from '../../shared/pagination-query.dto';
-import { AuditSeverity } from '../audit.entity';
+import { AuditAction, AuditSeverity } from '../audit.entity';
 
 /**
  * Single query DTO for GET /audit-logs (APA-013, RC-3).
@@ -14,9 +14,12 @@ import { AuditSeverity } from '../audit.entity';
  * gives the handler ONE validated query source; the filters now bind.
  */
 export class AuditLogQueryDto extends PaginationQueryDto {
+  // Only real backend AuditAction values are accepted — an out-of-vocabulary
+  // action (e.g. the FE's old lowercase 'create'/'delete') now 400s at the
+  // boundary instead of silently matching zero rows (APA-224).
   @IsOptional()
-  @IsString()
-  action?: string;
+  @IsEnum(AuditAction)
+  action?: AuditAction;
 
   @IsOptional()
   @IsString()

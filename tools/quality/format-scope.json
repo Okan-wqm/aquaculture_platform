@@ -41244,6 +41244,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-audit-action-vocab.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-audit-severity-vocab.spec.ts",
       "prettier_managed": true
     },
@@ -55236,10 +55242,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9055,
+  "file_count": 9056,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8874,
-  "managed_file_list_sha256": "6ffc37d16a758dc73c86bd9a3c946720ce150cf7e1b495de4d3cd06f54742617",
+  "managed_count": 8875,
+  "managed_file_list_sha256": "6af3890045dea2466f8fe66cf1b94ce33afb47d110bdf2cb85ce69231bd174a4",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

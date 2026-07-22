@@ -155,13 +155,16 @@ const DatabaseStatsCard: React.FC<{ database: SystemMetrics['database'] | undefi
 // ============================================================================
 
 const RecentActivityCard: React.FC<{ logs: AuditLog[] }> = ({ logs }) => {
+  // Maps the backend AuditSeverity enum (info | warning | critical) to a badge
+  // variant; pinned by tests/invariants/admin-audit-severity-vocab.spec.ts. The
+  // prior high/medium branches never matched a real row (APA-004).
   const getSeverityColor = (severity: string): 'error' | 'warning' | 'info' | 'default' => {
     switch (severity) {
       case 'critical':
         return 'error';
-      case 'high':
+      case 'warning':
         return 'warning';
-      case 'medium':
+      case 'info':
         return 'info';
       default:
         return 'default';

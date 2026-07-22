@@ -41244,6 +41244,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-audit-severity-vocab.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-backup-encryption-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -55224,10 +55230,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9053,
+  "file_count": 9054,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8872,
-  "managed_file_list_sha256": "dfb25e1879a7c844596b0ab6745459e8f1f59a66d095891847dc6f69fa13ae28",
+  "managed_count": 8873,
+  "managed_file_list_sha256": "3aec07832516344d9e2cbab754e5a799bff4c290f5ea41f1abd834fba8460fa2",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

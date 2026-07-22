@@ -10,7 +10,10 @@ export interface AuditLog {
   tenantId: string | null;
   performedBy: string;
   performedByEmail: string;
-  severity: 'low' | 'medium' | 'high' | 'critical';
+  // Mirrors the backend AuditSeverity enum (apps/admin-api-service/src/audit/
+  // audit.entity.ts) — the admin.audit_logs_severity_enum SSoT. Kept in lockstep
+  // by tests/invariants/admin-audit-severity-vocab.spec.ts (APA-004 / APA-358).
+  severity: 'info' | 'warning' | 'critical';
   metadata: Record<string, unknown>;
   ipAddress: string;
   userAgent: string;

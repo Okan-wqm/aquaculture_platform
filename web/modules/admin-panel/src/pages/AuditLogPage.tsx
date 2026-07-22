@@ -66,11 +66,13 @@ const ENTITY_TYPES = [
   { value: 'Setting', label: 'Setting' },
 ];
 
+// Mirrors the backend AuditSeverity enum (info | warning | critical); pinned by
+// tests/invariants/admin-audit-severity-vocab.spec.ts. Using the real values so
+// the filter can actually match rows (APA-358).
 const SEVERITY_LEVELS = [
   { value: '', label: 'All Severities' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
+  { value: 'info', label: 'Info' },
+  { value: 'warning', label: 'Warning' },
   { value: 'critical', label: 'Critical' },
 ];
 
@@ -119,9 +121,8 @@ const getActionBadgeVariant = (action: string): 'success' | 'info' | 'error' | '
 
 const getSeverityBadgeVariant = (severity: string): 'default' | 'info' | 'warning' | 'error' => {
   const variants: Record<string, 'default' | 'info' | 'warning' | 'error'> = {
-    low: 'default',
-    medium: 'info',
-    high: 'warning',
+    info: 'info',
+    warning: 'warning',
     critical: 'error',
   };
   return variants[severity] || 'default';

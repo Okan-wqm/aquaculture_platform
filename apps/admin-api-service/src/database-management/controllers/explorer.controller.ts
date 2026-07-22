@@ -358,6 +358,35 @@ export class DatabaseExplorerController {
     }
   }
 
+  /**
+   * The single audit sink for every explorer action — READ, EXPORT, RAW_SQL and
+   * the write INTENTs. Operator identity is derived EXCLUSIVELY from the request
+   * (never hand-supplied), so the required `Request` parameter makes it
+   * structurally impossible to record an explorer action without the real
+   * operator's id/email/IP/user-agent (APA-329). Routes through requireAuditLog
+   * so the audit stays fail-closed. `severity` is optional: when omitted the
+   * AuditLogService derives it from the action, preserving prior behaviour.
+   */
+  private async auditExplorerAction(
+    req: Request,
+    action: string,
+    entityType: string,
+    details: Record<string, unknown>,
+    severity?: AuditSeverity,
+  ): Promise<void> {
+    const user = getAuthUser(req);
+    await this.requireAuditLog({
+      action,
+      entityType,
+      performedBy: user?.id || 'SUPER_ADMIN',
+      performedByEmail: user?.email,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      severity,
+      details,
+    });
+  }
+
   private async auditExplorerWriteIntent(
     req: Request,
     operation: ExplorerWriteOperation,
@@ -365,22 +394,13 @@ export class DatabaseExplorerController {
     table: string,
     details: Record<string, unknown>,
   ): Promise<void> {
-    const user = getAuthUser(req);
-    await this.requireAuditLog({
-      action: `DATABASE_EXPLORER_${operation.toUpperCase()}_INTENT`,
-      entityType: 'DatabaseTable',
-      performedBy: user?.id || 'SUPER_ADMIN',
-      performedByEmail: user?.email,
-      ipAddress: req.ip,
-      userAgent: req.get('user-agent'),
-      severity: AuditSeverity.CRITICAL,
-      details: {
-        schema,
-        table,
-        operation,
-        ...details,
-      },
-    });
+    await this.auditExplorerAction(
+      req,
+      `DATABASE_EXPLORER_${operation.toUpperCase()}_INTENT`,
+      'DatabaseTable',
+      { schema, table, operation, ...details },
+      AuditSeverity.CRITICAL,
+    );
   }
 
   // ============================================================================
@@ -481,6 +501,7 @@ export class DatabaseExplorerController {
     @Param('schema') schema: string,
     @Param('table') table: string,
     @Query() query: TableQueryDto,
+    @Req() req: Request,
   ): Promise<TableData> {
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
       throw new BadRequestException('Invalid schema or table name');
@@ -545,11 +566,12 @@ export class DatabaseExplorerController {
       // pre-fix `.catch(() => warn log)` pattern dropped audit rows
       // under transient DB blips, leaving the access invisible in the
       // SOC 2 CC4 evidence chain.
-      await this.requireAuditLog({
-        action: 'DATABASE_EXPLORER_READ',
-        entityType: 'DatabaseTable',
-        performedBy: 'SUPER_ADMIN',
-        details: { schema, table, page, limit, rowsReturned: rows.length },
+      await this.auditExplorerAction(req, 'DATABASE_EXPLORER_READ', 'DatabaseTable', {
+        schema,
+        table,
+        page,
+        limit,
+        rowsReturned: rows.length,
       });
 
       return {
@@ -576,6 +598,7 @@ export class DatabaseExplorerController {
     @Param('schema') schema: string,
     @Param('table') table: string,
     @Query() query: ExportQueryDto,
+    @Req() req: Request,
   ): Promise<StreamableFile> {
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
       throw new BadRequestException('Invalid schema or table name');
@@ -623,13 +646,13 @@ export class DatabaseExplorerController {
       // AUDITTRAIL-HIGH-009 cure: data EXPORT is the highest-leak-risk
       // SUPER_ADMIN action. Awaiting the audit row propagates failure
       // as 500 — the export is BLOCKED until the audit row commits.
-      await this.requireAuditLog({
-        action: 'DATABASE_EXPLORER_EXPORT',
-        entityType: 'DatabaseTable',
-        performedBy: 'SUPER_ADMIN',
-        severity: AuditSeverity.WARNING,
-        details: { schema, table, format, rowsExported: rows.length },
-      });
+      await this.auditExplorerAction(
+        req,
+        'DATABASE_EXPLORER_EXPORT',
+        'DatabaseTable',
+        { schema, table, format, rowsExported: rows.length },
+        AuditSeverity.WARNING,
+      );
 
       if (format === 'json') {
         // Return a StreamableFile (not a bare array) so the global
@@ -683,9 +706,10 @@ export class DatabaseExplorerController {
   async getPublicTableData(
     @Param('table') table: string,
     @Query() query: TableQueryDto,
+    @Req() req: Request,
   ): Promise<TableData> {
     this.validateExplorerAccess('public', table);
-    return this.getTableData('public', table, query);
+    return this.getTableData('public', table, query, req);
   }
 
   // ============================================================================
@@ -970,7 +994,7 @@ export class DatabaseExplorerController {
   // Fix: H8 -- per-route throttle: raw SQL execution is sensitive (3 req / 5 min)
   @ThrottleSensitive()
   @Post('query')
-  async executeQuery(@Body() dto: ExecuteQueryDto) {
+  async executeQuery(@Body() dto: ExecuteQueryDto, @Req() req: Request) {
     const { sql, params = [] } = dto;
 
     // Fix: C4 -- fail-closed raw SQL koruması
@@ -1101,17 +1125,17 @@ export class DatabaseExplorerController {
       // Awaiting the audit row is mandatory; a failure to record blocks
       // the response, ensuring no raw SQL execution can complete
       // without an audit row landing.
-      await this.requireAuditLog({
-        action: 'DATABASE_EXPLORER_RAW_SQL',
-        entityType: 'DatabaseQuery',
-        performedBy: 'SUPER_ADMIN',
-        severity: AuditSeverity.WARNING,
-        details: {
+      await this.auditExplorerAction(
+        req,
+        'DATABASE_EXPLORER_RAW_SQL',
+        'DatabaseQuery',
+        {
           sql: sql.substring(0, 2000),
           paramCount: (params as unknown[]).length,
           rowCount: result.length,
         },
-      });
+        AuditSeverity.WARNING,
+      );
 
       return {
         rows: result,

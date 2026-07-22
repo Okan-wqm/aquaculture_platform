@@ -12,8 +12,9 @@
  * - Identifier validation
  * - Pagination limits
  */
-import { INestApplication, ValidationPipe, HttpStatus } from '@nestjs/common';
+import { INestApplication, ValidationPipe, HttpStatus, ExecutionContext } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { APP_GUARD } from '@nestjs/core';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import request from 'supertest';
 
@@ -38,8 +39,15 @@ describe('DatabaseExplorerController Security', () => {
     log: jest.fn().mockResolvedValue({ id: 'audit-log-id' }),
   };
 
-  // Mock the guard to always allow (we're testing controller logic, not auth)
-  const mockGuard = { canActivate: jest.fn().mockReturnValue(true) };
+  // The real PlatformAdminGuard attaches req.user on every request; model that so
+  // audit rows can attribute the actual operator (APA-329) instead of a literal.
+  const TEST_USER = { id: 'admin-123', sub: 'admin-123', email: 'admin@corp.io' };
+  const mockGuard = {
+    canActivate: jest.fn((context: ExecutionContext) => {
+      context.switchToHttp().getRequest<{ user?: unknown }>().user = TEST_USER;
+      return true;
+    }),
+  };
 
   beforeAll(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -48,6 +56,11 @@ describe('DatabaseExplorerController Security', () => {
         { provide: getDataSourceToken('explorer-readonly'), useValue: mockDataSource },
         { provide: getDataSourceToken(), useValue: mockDataSource },
         { provide: AuditLogService, useValue: mockAuditLogService },
+        // In production PlatformAdminGuard is a global APP_GUARD that attaches
+        // req.user; the controller has no @UseGuards, so overrideGuard alone
+        // never runs. Register the mock as an APP_GUARD so it actually executes
+        // and threads the operator onto the request (APA-329 attribution tests).
+        { provide: APP_GUARD, useValue: mockGuard },
       ],
     })
       .overrideGuard(PlatformAdminGuard)
@@ -600,6 +613,99 @@ describe('DatabaseExplorerController Security', () => {
       expect(res.status).toBe(HttpStatus.OK);
       expect(res.body.deleted).toBe(true);
       expect(res.body.row.password_hash).toBe('********');
+    });
+  });
+
+  // ========================================================================
+  // 5c. Audit actor attribution on the read/export/raw-SQL paths (APA-329)
+  //
+  // The highest-leak-risk explorer actions (READ/EXPORT/RAW_SQL) previously
+  // recorded performedBy:'SUPER_ADMIN' — a literal, not the operator. Every
+  // explorer audit now flows through auditExplorerAction, which derives the
+  // actor exclusively from the request, so multi-operator accountability holds.
+  // ========================================================================
+  describe('audit actor attribution (APA-329)', () => {
+    const READ_COLUMNS = [
+      {
+        column_name: 'id',
+        data_type: 'uuid',
+        is_nullable: false,
+        column_default: null,
+        is_primary_key: true,
+        is_foreign_key: false,
+      },
+    ];
+
+    const auditCallFor = (
+      action: string,
+    ): Record<string, unknown> | undefined =>
+      mockAuditLogService.log.mock.calls
+        .map((c) => c[0] as Record<string, unknown>)
+        .find((input) => input.action === action);
+
+    const expectAttributedToOperator = (
+      audit: Record<string, unknown> | undefined,
+    ): void => {
+      expect(audit).toBeDefined();
+      expect(audit?.performedBy).toBe('admin-123');
+      expect(audit?.performedByEmail).toBe('admin@corp.io');
+      expect(audit?.ipAddress).toBeTruthy();
+      expect(audit?.userAgent).toBe('jest-agent');
+    };
+
+    it('attributes a table READ to the real operator, not the SUPER_ADMIN literal', async () => {
+      mockQueryRunner.query
+        .mockResolvedValueOnce([]) // SET TRANSACTION READ ONLY
+        .mockResolvedValueOnce(READ_COLUMNS) // column info
+        .mockResolvedValueOnce([{ count: '0' }]) // COUNT
+        .mockResolvedValueOnce([]); // data
+
+      const res = await request(app.getHttpServer())
+        .get('/database/explorer/schemas/auth/tables/users/data')
+        .set('User-Agent', 'jest-agent');
+
+      expect(res.status).toBe(HttpStatus.OK);
+      expectAttributedToOperator(auditCallFor('DATABASE_EXPLORER_READ'));
+    });
+
+    it('attributes an EXPORT to the real operator', async () => {
+      mockQueryRunner.query
+        .mockResolvedValueOnce([]) // SET TRANSACTION READ ONLY
+        .mockResolvedValueOnce(READ_COLUMNS) // column info
+        .mockResolvedValueOnce([]); // data
+
+      const res = await request(app.getHttpServer())
+        .get('/database/explorer/schemas/public/tables/users/export?format=json')
+        .set('User-Agent', 'jest-agent');
+
+      expect(res.status).toBe(HttpStatus.OK);
+      expectAttributedToOperator(auditCallFor('DATABASE_EXPLORER_EXPORT'));
+    });
+
+    it('attributes a RAW_SQL execution to the real operator', async () => {
+      mockQueryRunner.query.mockResolvedValue([{ id: 1 }]);
+
+      const res = await request(app.getHttpServer())
+        .post('/database/explorer/query')
+        .set('User-Agent', 'jest-agent')
+        .send({ sql: 'SELECT 1' });
+
+      expect(res.status).toBe(HttpStatus.CREATED);
+      expectAttributedToOperator(auditCallFor('DATABASE_EXPLORER_RAW_SQL'));
+    });
+
+    it('records NO explorer audit with the SUPER_ADMIN literal while an operator is present', async () => {
+      mockQueryRunner.query.mockResolvedValue([{ id: 1 }]);
+
+      await request(app.getHttpServer())
+        .post('/database/explorer/query')
+        .send({ sql: 'SELECT 1' });
+
+      const literalCalls = mockAuditLogService.log.mock.calls
+        .map((c) => c[0] as Record<string, unknown>)
+        .filter((input) => String(input.action).startsWith('DATABASE_EXPLORER_'))
+        .filter((input) => input.performedBy === 'SUPER_ADMIN');
+      expect(literalCalls).toEqual([]);
     });
   });
 

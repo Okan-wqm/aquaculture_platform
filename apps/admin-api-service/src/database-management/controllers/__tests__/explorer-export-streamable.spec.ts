@@ -1,25 +1,26 @@
+import { INestApplication, ValidationPipe, HttpStatus, Logger } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
-import { Logger, StreamableFile } from '@nestjs/common';
+import request from 'supertest';
 
 import { DatabaseExplorerController } from '../explorer.controller';
 import { AuditLogService } from '../../../audit/audit.service';
+import { ResponseInterceptor } from '../../../shared/response.interceptor';
 
 /**
  * APA-327: the global ResponseInterceptor wraps every handler return in the
- * {success,data,meta} envelope, and a StreamableFile nested inside that object
- * is no longer streamed by Nest — so a JSON export that returned a bare rows
- * array delivered the envelope instead of the array. exportTableData now returns
- * a StreamableFile for BOTH formats, so the interceptor's binary passthrough
- * (response.interceptor.ts) streams the raw bytes: the JSON body is a bare array
- * and the CSV body is the raw CSV, never an envelope. Mocked query runner — no DB.
+ * {success,data,meta} envelope, and a StreamableFile nested inside that object is
+ * no longer streamed by Nest — so a JSON export that returned a bare rows array
+ * delivered the envelope instead of the array. exportTableData now returns a
+ * StreamableFile for BOTH formats, so the interceptor's binary passthrough
+ * streams the raw bytes.
+ *
+ * This spec registers the real ResponseInterceptor as an APP_INTERCEPTOR (as in
+ * production), so the assertions are end-to-end: had the JSON branch returned a
+ * bare array it would be enveloped (res.body an object, not an array) and the
+ * first test would fail. Mocked query runner — no DB.
  */
-type QueryRunnerMock = {
-  connect: jest.Mock;
-  release: jest.Mock;
-  query: jest.Mock;
-};
-
 const COLUMN_ROWS = [
   {
     column_name: 'id',
@@ -48,7 +49,11 @@ const DATA_ROWS = [
   { id: 2, name: 'beta' },
 ];
 
-function makeQueryRunner(): QueryRunnerMock {
+function makeQueryRunner(): {
+  connect: jest.Mock;
+  release: jest.Mock;
+  query: jest.Mock;
+} {
   return {
     connect: jest.fn().mockResolvedValue(undefined),
     release: jest.fn().mockResolvedValue(undefined),
@@ -60,61 +65,55 @@ function makeQueryRunner(): QueryRunnerMock {
   };
 }
 
-async function readStream(file: StreamableFile): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of file.getStream()) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-  return Buffer.concat(chunks).toString('utf-8');
-}
+describe('DatabaseExplorerController export StreamableFile contract (APA-327)', () => {
+  let app: INestApplication;
 
-describe('DatabaseExplorerController.exportTableData StreamableFile contract (APA-327)', () => {
-  let controller: DatabaseExplorerController;
-  let readOnlyRunner: QueryRunnerMock;
-
-  beforeEach(async () => {
+  beforeAll(async () => {
     jest.spyOn(Logger.prototype, 'warn').mockImplementation();
 
-    readOnlyRunner = makeQueryRunner();
-    const readOnlyDataSource = { createQueryRunner: jest.fn(() => readOnlyRunner) };
-    const writeDataSource = { createQueryRunner: jest.fn(() => makeQueryRunner()) };
+    const dataSource = { createQueryRunner: jest.fn(() => makeQueryRunner()) };
     const auditLogService = { log: jest.fn().mockResolvedValue({ id: 'audit-1' }) };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       controllers: [DatabaseExplorerController],
       providers: [
-        { provide: getDataSourceToken('explorer-readonly'), useValue: readOnlyDataSource },
-        { provide: getDataSourceToken(), useValue: writeDataSource },
+        { provide: getDataSourceToken('explorer-readonly'), useValue: dataSource },
+        { provide: getDataSourceToken(), useValue: dataSource },
         { provide: AuditLogService, useValue: auditLogService },
+        // The production envelope interceptor — its StreamableFile passthrough is
+        // what this spec exercises end-to-end.
+        { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
       ],
     }).compile();
 
-    controller = moduleRef.get(DatabaseExplorerController);
+    app = moduleRef.createNestApplication();
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+    );
+    await app.init();
   });
 
-  afterEach(() => jest.restoreAllMocks());
-
-  it('returns a StreamableFile whose JSON body is a bare array, not an envelope', async () => {
-    const result = await controller.exportTableData('public', 'export_probe', {
-      format: 'json',
-    });
-
-    expect(result).toBeInstanceOf(StreamableFile);
-    const body = await readStream(result);
-    const parsed: unknown = JSON.parse(body);
-    expect(Array.isArray(parsed)).toBe(true);
-    expect(parsed).toEqual(DATA_ROWS);
+  afterAll(async () => {
+    await app.close();
   });
 
-  it('returns a StreamableFile whose CSV body is raw CSV (header row first)', async () => {
-    const result = await controller.exportTableData('public', 'export_probe', {
-      format: 'csv',
-    });
+  it('streams the JSON export as a bare array, never the {success,data,meta} envelope', async () => {
+    const res = await request(app.getHttpServer()).get(
+      '/database/explorer/schemas/public/tables/export_probe/export?format=json',
+    );
 
-    expect(result).toBeInstanceOf(StreamableFile);
-    const body = await readStream(result);
-    const firstLine = body.split('\n')[0];
-    expect(firstLine).toBe('id,name');
-    expect(body).not.toContain('"success"');
+    expect(res.status).toBe(HttpStatus.OK);
+    expect(Array.isArray(res.body)).toBe(true); // not an envelope object
+    expect(res.body).toEqual(DATA_ROWS);
+  });
+
+  it('streams the CSV export as raw CSV with the header row first', async () => {
+    const res = await request(app.getHttpServer()).get(
+      '/database/explorer/schemas/public/tables/export_probe/export?format=csv',
+    );
+
+    expect(res.status).toBe(HttpStatus.OK);
+    expect(res.text.split('\n')[0]).toBe('id,name');
+    expect(res.text).not.toContain('"success"');
   });
 });

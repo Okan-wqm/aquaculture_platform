@@ -2435,6 +2435,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/security/services/__tests__/security-monitoring.dashboard-stats.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/security/services/__tests__/security-monitoring.telemetry-liveness.spec.ts",
       "prettier_managed": true
     },
@@ -55248,10 +55254,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9057,
+  "file_count": 9058,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8876,
-  "managed_file_list_sha256": "cb025915751e10a9002ffa01988cd839db9dcd678f09258ebe20e37383a9bc4a",
+  "managed_count": 8877,
+  "managed_file_list_sha256": "c7d8a6b8e7ea7c86ce0db6ee7987294cc3df8220fb3086df3ee50e7e32693a32",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

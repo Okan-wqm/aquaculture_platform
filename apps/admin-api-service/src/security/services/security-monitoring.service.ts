@@ -92,6 +92,7 @@ export interface SecurityDashboardStats {
   totalSecurityEvents: number;
   criticalEvents: number;
   activeIncidents: number;
+  resolvedIncidents: number;
   threatsBlocked: number;
 
   // Trends
@@ -967,6 +968,12 @@ export class SecurityMonitoringService implements OnModuleInit {
     const activeIncidents = await this.incidentRepository.count({
       where: { status: In(['open', 'investigating', 'contained']) },
     });
+    // Server-side aggregate over the whole incident table — not a page slice —
+    // so the dashboard "Resolved" tile reflects every resolved incident. The
+    // resolved set mirrors the FE's rendered "closed" status (recovered/closed).
+    const resolvedIncidents = await this.incidentRepository.count({
+      where: { status: In(['recovered', 'closed']) },
+    });
     const threatsBlocked = await this.securityEventRepository.count({
       where: { autoMitigated: true },
     });
@@ -1070,6 +1077,7 @@ export class SecurityMonitoringService implements OnModuleInit {
       totalSecurityEvents,
       criticalEvents,
       activeIncidents,
+      resolvedIncidents,
       threatsBlocked,
       eventsLast24h,
       eventsLast7d,

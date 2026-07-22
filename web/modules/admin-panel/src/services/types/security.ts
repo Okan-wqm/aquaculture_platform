@@ -295,6 +295,7 @@ export interface BackendSecurityDashboardStats {
   eventsTrend: 'increasing' | 'decreasing' | 'stable';
   criticalEvents: number;
   activeIncidents: number;
+  resolvedIncidents: number;
   threatsBlocked: number;
   eventsByType: Record<SecurityEventType, number>;
   eventsBySeverity: Record<SecurityEventSeverity, number>;

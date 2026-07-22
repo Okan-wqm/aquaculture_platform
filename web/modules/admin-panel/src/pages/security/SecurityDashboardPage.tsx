@@ -6,6 +6,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 
+import { SearchInput } from '@aquaculture/shared-ui';
 import { securityApi } from '../../services/adminApi';
 import type {
   BackendSecurityEvent,
@@ -57,7 +58,6 @@ interface SecurityEvent {
   description: string;
   details?: Record<string, unknown>;
   tenantId?: string;
-  tenantName?: string;
   userId?: string;
   userName?: string;
   geoLocation?: {
@@ -219,7 +219,9 @@ function mapDashboardData(
       totalEvents24h: dashboard.eventsLast24h,
       criticalEvents24h: dashboard.criticalEvents,
       openIncidents: dashboard.activeIncidents,
-      resolvedIncidents: 0,
+      // Server-side aggregate over the whole incident table (APA-244) — not a
+      // count of the first incidents page.
+      resolvedIncidents: dashboard.resolvedIncidents,
       activeThreatIndicators: 0,
       blockedAttacks24h: dashboard.threatsBlocked,
       uniqueSourceIps: dashboard.topSourceIPs.length,
@@ -554,8 +556,10 @@ const EventDetailModal: React.FC<{
                   <p className="text-sm text-gray-900">{event.userName}</p>
                 </div>
                 <div>
-                  <span className="text-xs text-gray-500">Tenant</span>
-                  <p className="text-sm text-gray-900">{event.tenantName || 'N/A'}</p>
+                  <span className="text-xs text-gray-500">Tenant ID</span>
+                  <p className="text-sm text-gray-900 font-mono">
+                    {event.tenantId || 'Platform-wide'}
+                  </p>
                 </div>
               </div>
             </div>
@@ -607,8 +611,8 @@ export const SecurityDashboardPage: React.FC = () => {
 
   // Filters
   const [severityFilter, setSeverityFilter] = useState('all');
-  const [statusFilter, _setStatusFilter] = useState('all');
-  const [searchTerm, _setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [searchTerm, setSearchTerm] = useState('');
 
   const loadData = useCallback(async () => {
     setError(null);
@@ -632,7 +636,8 @@ export const SecurityDashboardPage: React.FC = () => {
         ...dashboardResult.value,
         stats: {
           ...dashboardResult.value.stats,
-          resolvedIncidents: incidentsValue.filter((incident) => incident.status === 'closed').length,
+          // resolvedIncidents comes from the server-side dashboard aggregate
+          // (mapDashboardData), not a count of the first incidents page.
           activeThreatIndicators: threatsValue.filter((indicator) => indicator.isActive).length,
         },
       });
@@ -874,20 +879,41 @@ export const SecurityDashboardPage: React.FC = () => {
         {/* Security Events */}
         <div className="bg-white rounded-lg border border-gray-200">
           <div className="p-4 border-b border-gray-200">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-3">
               <h3 className="text-lg font-semibold text-gray-900">Recent Security Events</h3>
-              <select
-                value={severityFilter}
-                onChange={(e) => setSeverityFilter(e.target.value)}
-                className="text-sm border border-gray-300 rounded px-2 py-1"
-              >
-                <option value="all">All Severities</option>
-                <option value="critical">Critical</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
+              <div className="flex items-center gap-2">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="text-sm border border-gray-300 rounded px-2 py-1"
+                  aria-label="Filter events by status"
+                >
+                  <option value="all">All Statuses</option>
+                  <option value="new">New</option>
+                  <option value="investigating">Investigating</option>
+                  <option value="resolved">Resolved</option>
+                  <option value="dismissed">Dismissed</option>
+                </select>
+                <select
+                  value={severityFilter}
+                  onChange={(e) => setSeverityFilter(e.target.value)}
+                  className="text-sm border border-gray-300 rounded px-2 py-1"
+                  aria-label="Filter events by severity"
+                >
+                  <option value="all">All Severities</option>
+                  <option value="critical">Critical</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+              </div>
             </div>
+            <SearchInput
+              value={searchTerm}
+              onSearch={setSearchTerm}
+              placeholder="Search events by description, IP, or resource..."
+              size="sm"
+            />
           </div>
           <div className="divide-y divide-gray-200 max-h-96 overflow-y-auto">
             {events.length === 0 ? (

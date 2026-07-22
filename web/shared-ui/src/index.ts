@@ -197,3 +197,11 @@ export {
   type AdminBillingRoute,
   type AdminBillingRouteId,
 } from './authz/admin-billing-routes';
+
+export {
+  ADMIN_NAV_SECTIONS,
+  ADMIN_ROUTES,
+  buildSuperAdminNavigation,
+  type AdminNavSection,
+  type AdminRoute,
+} from './authz/admin-routes';

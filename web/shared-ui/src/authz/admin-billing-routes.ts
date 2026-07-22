@@ -3,9 +3,11 @@ import type { NavigationItem } from '../types';
 export type AdminBillingRouteId =
   | 'billing-overview'
   | 'billing-module-pricing'
+  | 'billing-plans'
   | 'billing-subscriptions'
   | 'billing-invoices'
   | 'billing-payments'
+  | 'billing-usage'
   | 'billing-discounts'
   | 'billing-custom-plans'
   | 'billing-invoice-create'
@@ -42,6 +44,17 @@ export const ADMIN_BILLING_ROUTES: readonly AdminBillingRoute[] = [
     activeNavId: 'billing-module-pricing',
   },
   {
+    // APA-255: mounted in admin-panel Module.tsx (billing/plans ->
+    // PlanManagementPage) but previously absent from this SSoT, so it never
+    // appeared in the sidebar and was reachable only by typing the URL.
+    id: 'billing-plans',
+    label: 'Plan Catalog',
+    path: '/admin/billing/plans',
+    remotePath: 'billing/plans',
+    visible: true,
+    activeNavId: 'billing-plans',
+  },
+  {
     id: 'billing-subscriptions',
     label: 'Subscriptions',
     path: '/admin/billing/subscriptions',
@@ -64,6 +77,17 @@ export const ADMIN_BILLING_ROUTES: readonly AdminBillingRoute[] = [
     remotePath: 'billing/payments',
     visible: true,
     activeNavId: 'billing-payments',
+  },
+  {
+    // APA-255: mounted in admin-panel Module.tsx (billing/usage ->
+    // UsageDashboardPage) but previously absent from this SSoT, so it never
+    // appeared in the sidebar and was reachable only by typing the URL.
+    id: 'billing-usage',
+    label: 'Usage Metering',
+    path: '/admin/billing/usage',
+    remotePath: 'billing/usage',
+    visible: true,
+    activeNavId: 'billing-usage',
   },
   {
     id: 'billing-discounts',

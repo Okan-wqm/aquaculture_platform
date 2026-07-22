@@ -41268,6 +41268,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-route-nav-reachability.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-security-runtime-contract.spec.ts",
       "prettier_managed": true
     },
@@ -45250,18 +45256,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/modules/admin-panel/src/components/admin-nav-items.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/modules/admin-panel/src/components/AdminLayout.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "web/modules/admin-panel/src/components/CreateInvoiceModal.tsx",
       "prettier_managed": true
     },
@@ -45275,12 +45269,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/components/database/QueryEditor.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/modules/admin-panel/src/components/index.ts",
       "prettier_managed": true
     },
     {
@@ -54147,6 +54135,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/authz/__tests__/admin-routes.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/authz/__tests__/permission-matrix.parity.spec.ts",
       "prettier_managed": true
     },
@@ -54154,6 +54148,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/authz/admin-billing-routes.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/authz/admin-routes.ts",
       "prettier_managed": true
     },
     {
@@ -55227,7 +55227,7 @@
   "file_count": 9053,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
   "managed_count": 8872,
-  "managed_file_list_sha256": "0e4cbdcbc883287838b7b076b75ec4f7e50baf05a551654f209cd635c51c01df",
+  "managed_file_list_sha256": "dfb25e1879a7c844596b0ab6745459e8f1f59a66d095891847dc6f69fa13ae28",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

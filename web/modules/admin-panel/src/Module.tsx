@@ -2,7 +2,10 @@
  * Admin Panel Module Root
  *
  * Super Admin Panel for managing tenants, users, billing, support, and system settings.
- * NOT: AdminLayout Shell'de kullanılıyor, burada sadece sayfa route'ları tanımlı.
+ * The chrome (sidebar/header) is the shell's MainLayout, whose SUPER_ADMIN nav
+ * is derived from the ADMIN_ROUTES manifest (@aquaculture/shared-ui). This file
+ * only mounts the page routes; every route here must have a matching manifest
+ * entry (enforced by tests/invariants/admin-route-nav-reachability.spec.ts).
  *
  * All page imports use React.lazy for code splitting — each page chunk is loaded
  * on demand so the initial bundle stays small.

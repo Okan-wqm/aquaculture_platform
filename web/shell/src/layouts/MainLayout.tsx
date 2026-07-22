@@ -7,9 +7,9 @@
  */
 
 import {
-  ADMIN_BILLING_NAV_ITEMS,
   Header,
   Sidebar,
+  buildSuperAdminNavigation,
   createTenantInvalidationKey,
   type NavigationItem,
   type SidebarTheme,
@@ -32,119 +32,15 @@ import { NotificationPanel } from '@/components/NotificationPanel';
 // ============================================================================
 
 /**
- * SUPER_ADMIN navigation - Full System Management
- * Synchronized with AdminSidebar
+ * SUPER_ADMIN navigation — derived from the ADMIN_ROUTES manifest SSoT
+ * (web/shared-ui/src/authz/admin-routes.ts) instead of a hand-written literal,
+ * so the sidebar cannot drift from the mounted route table. Adding a route to
+ * admin-panel Module.tsx without a manifest entry (or a manifest entry with no
+ * route) fails the reachability gate (APA-255 / APA-256). This is what makes
+ * the messaging section, settings/provisioning, and billing plans/usage
+ * reachable — they are manifest entries the derivation surfaces automatically.
  */
-const adminBillingNavItems: NavigationItem[] = ADMIN_BILLING_NAV_ITEMS.map((item) => ({ ...item }));
-
-const superAdminNavigation: NavigationItem[] = [
-  {
-    id: 'admin-dashboard',
-    label: 'Dashboard',
-    path: '/admin',
-    icon: 'dashboard',
-  },
-  {
-    id: 'admin-analytics',
-    label: 'Analytics',
-    icon: 'analytics',
-    children: [
-      { id: 'analytics-dashboard', label: 'Overview', path: '/admin/analytics' },
-      { id: 'analytics-reports', label: 'Reports', path: '/admin/analytics/reports' },
-    ],
-  },
-  {
-    id: 'admin-tenants',
-    label: 'Tenants',
-    icon: 'tenants',
-    children: [
-      { id: 'tenant-list', label: 'All Tenants', path: '/admin/tenants' },
-      { id: 'tenant-create', label: 'Create Tenant', path: '/admin/tenants/new' },
-    ],
-  },
-  {
-    id: 'admin-users',
-    label: 'Users',
-    icon: 'users',
-    children: [
-      { id: 'user-list', label: 'All Users', path: '/admin/users' },
-      { id: 'user-roles', label: 'Roles & Permissions', path: '/admin/users/roles' },
-    ],
-  },
-  {
-    id: 'admin-modules',
-    label: 'Modules',
-    path: '/admin/modules',
-    icon: 'modules',
-  },
-  {
-    id: 'admin-billing',
-    label: 'Billing',
-    icon: 'billing',
-    children: adminBillingNavItems,
-  },
-  {
-    id: 'admin-support',
-    label: 'Support',
-    icon: 'support',
-    children: [
-      { id: 'support-tickets', label: 'Tickets', path: '/admin/support/tickets' },
-      { id: 'support-messaging', label: 'Messaging', path: '/admin/support/messaging' },
-      { id: 'support-announcements', label: 'Announcements', path: '/admin/support/announcements' },
-      { id: 'support-onboarding', label: 'Onboarding', path: '/admin/support/onboarding' },
-    ],
-  },
-  {
-    id: 'admin-security',
-    label: 'Security',
-    icon: 'security',
-    children: [
-      { id: 'security-activity', label: 'Activity Logs', path: '/admin/security/activity' },
-      { id: 'security-audit', label: 'Audit Trail', path: '/admin/security/audit' },
-      { id: 'security-compliance', label: 'Compliance', path: '/admin/security/compliance' },
-      { id: 'security-threats', label: 'Threat Detection', path: '/admin/security/threats' },
-    ],
-  },
-  {
-    id: 'admin-system',
-    label: 'System',
-    icon: 'system',
-    children: [
-      { id: 'system-features', label: 'Feature Toggles', path: '/admin/system/features' },
-      { id: 'system-maintenance', label: 'Maintenance', path: '/admin/system/maintenance' },
-      { id: 'system-performance', label: 'Performance', path: '/admin/system/performance' },
-      { id: 'system-errors', label: 'Error Tracking', path: '/admin/system/errors' },
-      { id: 'system-jobs', label: 'Job Queue', path: '/admin/system/jobs' },
-      { id: 'system-impersonation', label: 'Impersonation', path: '/admin/system/impersonation' },
-      { id: 'system-debug', label: 'Debug Tools', path: '/admin/system/debug' },
-    ],
-  },
-  {
-    id: 'admin-database',
-    label: 'Database',
-    icon: 'database',
-    children: [
-      { id: 'database-management', label: 'Management', path: '/admin/database' },
-      { id: 'database-explorer', label: 'Explorer', path: '/admin/database/explorer' },
-    ],
-  },
-  {
-    id: 'admin-audit',
-    label: 'Audit Logs',
-    path: '/admin/audit',
-    icon: 'audit',
-  },
-  {
-    id: 'admin-settings',
-    label: 'Settings',
-    icon: 'settings',
-    children: [
-      { id: 'settings-general', label: 'General', path: '/admin/settings' },
-      { id: 'settings-email', label: 'Email Templates', path: '/admin/settings/email' },
-      { id: 'settings-integrations', label: 'Integrations', path: '/admin/settings/integrations' },
-    ],
-  },
-];
+const superAdminNavigation: NavigationItem[] = buildSuperAdminNavigation();
 
 /**
  * TENANT_ADMIN base navigation - Management items (English)

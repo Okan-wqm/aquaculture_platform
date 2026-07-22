@@ -340,15 +340,29 @@ export class DatabaseExplorerController {
     }
   }
 
+  /**
+   * The single predicate for whether explorer writes are permitted: the feature
+   * flag must be set AND the process must not be in production. Both the runtime
+   * guard (assertExplorerWritesEnabled) and the capability the FE renders from
+   * (getSchemas) derive from this, so the UI can never disagree with the server
+   * about whether write controls do anything (APA-331).
+   */
+  private explorerWritesEnabled(): boolean {
+    return (
+      process.env['ENABLE_DB_EXPLORER_WRITES'] === 'true' &&
+      process.env['NODE_ENV'] !== 'production'
+    );
+  }
+
   private assertExplorerWritesEnabled(): void {
-    if (process.env['ENABLE_DB_EXPLORER_WRITES'] !== 'true') {
-      throw new ForbiddenException(
-        'Database write operations are disabled. Set ENABLE_DB_EXPLORER_WRITES=true to enable.',
-      );
-    }
+    if (this.explorerWritesEnabled()) return;
+    // Not permitted — surface the specific reason for the operator.
     if (process.env['NODE_ENV'] === 'production') {
       throw new ForbiddenException('Database explorer writes are disabled in production');
     }
+    throw new ForbiddenException(
+      'Database write operations are disabled. Set ENABLE_DB_EXPLORER_WRITES=true to enable.',
+    );
   }
 
   private async requireAuditLog(input: AuditLogInput): Promise<void> {
@@ -411,7 +425,10 @@ export class DatabaseExplorerController {
    * Tüm şemaları listele
    */
   @Get('schemas')
-  async getSchemas() {
+  async getSchemas(): Promise<{
+    schemas: string[];
+    capabilities: { writesEnabled: boolean };
+  }> {
     const queryRunner = await this.createReadOnlyQueryRunner();
 
     try {
@@ -422,7 +439,13 @@ export class DatabaseExplorerController {
         ORDER BY schema_name
       `);
 
-      return schemas.map((s: { schema_name: string }) => s.schema_name);
+      // APA-331: return the write capability alongside the schemas so the FE
+      // renders New Row / Edit / Delete only when the server would actually
+      // permit them, instead of offering controls that 403 in production.
+      return {
+        schemas: schemas.map((s: { schema_name: string }) => s.schema_name),
+        capabilities: { writesEnabled: this.explorerWritesEnabled() },
+      };
     } finally {
       await queryRunner.release();
     }

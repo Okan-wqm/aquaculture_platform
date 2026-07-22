@@ -710,6 +710,43 @@ describe('DatabaseExplorerController Security', () => {
   });
 
   // ========================================================================
+  // 5d. Write-capability truth advertised with the schema list (APA-331)
+  //
+  // The FE renders New Row / Edit / Delete only when the server reports it can
+  // actually perform writes, so it never offers controls that 403. Capability
+  // and enforcement derive from the same predicate.
+  // ========================================================================
+  describe('write capability advertised with the schema list (APA-331)', () => {
+    afterEach(() => {
+      delete process.env['ENABLE_DB_EXPLORER_WRITES'];
+    });
+
+    const getCapability = async (): Promise<boolean> => {
+      const res = await request(app.getHttpServer()).get('/database/explorer/schemas');
+      expect(res.status).toBe(HttpStatus.OK);
+      return res.body.capabilities.writesEnabled as boolean;
+    };
+
+    it('reports writesEnabled=true only when the flag is set outside production', async () => {
+      process.env['ENABLE_DB_EXPLORER_WRITES'] = 'true';
+      process.env['NODE_ENV'] = 'development';
+      expect(await getCapability()).toBe(true);
+    });
+
+    it('reports writesEnabled=false in production even when the flag is set', async () => {
+      process.env['ENABLE_DB_EXPLORER_WRITES'] = 'true';
+      process.env['NODE_ENV'] = 'production';
+      expect(await getCapability()).toBe(false);
+    });
+
+    it('reports writesEnabled=false when the flag is unset', async () => {
+      delete process.env['ENABLE_DB_EXPLORER_WRITES'];
+      process.env['NODE_ENV'] = 'development';
+      expect(await getCapability()).toBe(false);
+    });
+  });
+
+  // ========================================================================
   // 6. Query Runner Cleanup
   // ========================================================================
   describe('QueryRunner resource management', () => {

@@ -183,7 +183,9 @@ export const databaseApi = {
   // ==========================================================================
 
   getExplorerSchemas: () =>
-    apiFetch<string[]>('/database/explorer/schemas'),
+    apiFetch<{ schemas: string[]; capabilities: { writesEnabled: boolean } }>(
+      '/database/explorer/schemas',
+    ),
   getExplorerTables: (schema: string) =>
     apiFetch<Array<{ tableName: string; schemaName: string; rowCount: number; sizeBytes: number; columns: Array<{ columnName: string; dataType: string; isNullable: boolean; columnDefault: string | null; isPrimaryKey: boolean; isForeignKey: boolean; foreignKeyTable?: string; foreignKeyColumn?: string; isSensitive?: boolean }> }>>(`/database/explorer/schemas/${schema}/tables`),
   getExplorerTableData: (schema: string, table: string, params?: { page?: number; limit?: number; orderBy?: string; orderDirection?: 'ASC' | 'DESC' }) =>

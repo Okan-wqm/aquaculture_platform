@@ -60,7 +60,10 @@ interface TableData {
 // API Functions (via centralized databaseApi)
 // ============================================================================
 
-const fetchSchemas = (): Promise<string[]> => databaseApi.getExplorerSchemas();
+const fetchSchemas = (): Promise<{
+  schemas: string[];
+  capabilities: { writesEnabled: boolean };
+}> => databaseApi.getExplorerSchemas();
 
 const fetchTables = (schema: string): Promise<TableInfo[]> => databaseApi.getExplorerTables(schema);
 
@@ -381,6 +384,9 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
 const DatabaseExplorerPage: React.FC = () => {
   // State
   const [schemas, setSchemas] = useState<string[]>([]);
+  // APA-331: write capability is the server's truth; the FE renders write
+  // controls only when it is true, so it never offers actions that 403.
+  const [writesEnabled, setWritesEnabled] = useState(false);
   const [selectedSchema, setSelectedSchema] = useState('public');
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
@@ -412,7 +418,10 @@ const DatabaseExplorerPage: React.FC = () => {
   // Load schemas
   useEffect(() => {
     fetchSchemas()
-      .then(setSchemas)
+      .then((result) => {
+        setSchemas(result.schemas);
+        setWritesEnabled(result.capabilities.writesEnabled);
+      })
       .catch((err) => setError(err.message));
   }, []);
 
@@ -614,12 +623,14 @@ const DatabaseExplorerPage: React.FC = () => {
                   </div>
                 )}
               </div>
-              <Button onClick={handleCreateRow}>
-                <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                New Row
-              </Button>
+              {writesEnabled && (
+                <Button onClick={handleCreateRow}>
+                  <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  New Row
+                </Button>
+              )}
             </>
           )}
         </div>
@@ -731,9 +742,11 @@ const DatabaseExplorerPage: React.FC = () => {
                           </th>
                         );
                       })}
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                        Actions
-                      </th>
+                      {writesEnabled && (
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                          Actions
+                        </th>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -776,26 +789,28 @@ const DatabaseExplorerPage: React.FC = () => {
                               </td>
                             );
                           })}
-                          <td className="px-4 py-2 text-right whitespace-nowrap">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleEditRow(row)}
-                            >
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                              </svg>
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => confirmDelete(row)}
-                            >
-                              <svg className="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            </Button>
-                          </td>
+                          {writesEnabled && (
+                            <td className="px-4 py-2 text-right whitespace-nowrap">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleEditRow(row)}
+                              >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                </svg>
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => confirmDelete(row)}
+                              >
+                                <svg className="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              </Button>
+                            </td>
+                          )}
                         </tr>
                       );
                     })}
@@ -837,8 +852,8 @@ const DatabaseExplorerPage: React.FC = () => {
         </Card>
       </div>
 
-      {/* Row Editor Modal */}
-      {tableData && (
+      {/* Row Editor Modal — only when writes are enabled (APA-331) */}
+      {writesEnabled && tableData && (
         <RowEditorModal
           isOpen={isEditorOpen}
           onClose={() => setIsEditorOpen(false)}
@@ -849,9 +864,9 @@ const DatabaseExplorerPage: React.FC = () => {
         />
       )}
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Confirmation Modal — only when writes are enabled (APA-331) */}
       <Modal
-        isOpen={deleteConfirm.show}
+        isOpen={writesEnabled && deleteConfirm.show}
         onClose={() => setDeleteConfirm({ show: false, id: '' })}
         title="Delete Row"
       >

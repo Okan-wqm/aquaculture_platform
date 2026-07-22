@@ -31,6 +31,8 @@ import { DataSource } from 'typeorm';
 
 import { createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
+import { UserActivity } from './dto/user-activity.dto';
+
 /**
  * Default NATS request timeout when AUTH_NATS_TIMEOUT_MS is not configured.
  * 15 s matches the messaging-admin NATS client and leaves headroom for
@@ -75,17 +77,6 @@ export interface UserStats {
   usersByTenant: { tenantId: string; tenantName: string; count: number }[];
   newUsersLast30Days: number;
   loginsLast24Hours: number;
-}
-
-export interface UserActivity {
-  id: string;
-  action: string;
-  entityType: string;
-  entityId: string;
-  metadata: Record<string, unknown>;
-  ipAddress: string;
-  userAgent: string;
-  createdAt: Date;
 }
 
 export interface UserSession {
@@ -382,7 +373,7 @@ export class UsersService {
           action,
           "entityType",
           "entityId",
-          metadata,
+          details AS metadata,
           "ipAddress",
           "userAgent",
           "createdAt"
@@ -397,7 +388,7 @@ export class UsersService {
       this.logger.error(
         `Failed to get user activity: ${(error as Error).message}`,
       );
-      return [];
+      throw error;
     }
   }
 
@@ -686,7 +677,7 @@ export class UsersService {
   async getTenantName(tenantId: string): Promise<string | null> {
     try {
       const result = await this.dataSource.query(
-        `SELECT name FROM tenants WHERE id = $1`,
+        `SELECT name FROM auth.tenants WHERE id = $1`,
         [tenantId],
       );
       return result?.[0]?.name || null;

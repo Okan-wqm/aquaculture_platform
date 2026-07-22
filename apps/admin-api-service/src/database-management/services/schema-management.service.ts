@@ -574,7 +574,7 @@ export class SchemaManagementService {
           // Resolve tenantId by matching the schema name pattern against the tenants table
           const tenantRows = queryRowsNormalized<{ id: string }>(await queryRunner.query(
             `
-            SELECT id FROM tenants
+            SELECT id FROM auth.tenants
             WHERE LEFT(REPLACE(id::text, '-', ''), 16) = $1
           `,
             [schemaName.replace('tenant_', '')],

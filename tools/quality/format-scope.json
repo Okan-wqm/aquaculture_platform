@@ -1089,6 +1089,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/__tests__/integration/admin-raw-sql-schema-qualification.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/__tests__/query-dto-single-source.architecture.spec.ts",
       "prettier_managed": true
     },
@@ -3053,13 +3059,31 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/users/__tests__/user-activity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/users/__tests__/users-role-dto.spec.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/users/__tests__/users.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/users/dto/reset-password.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/users/dto/user-activity.dto.ts",
       "prettier_managed": true
     },
     {
@@ -55314,10 +55338,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9068,
+  "file_count": 9072,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8887,
-  "managed_file_list_sha256": "5176e5e80b09571c0c3151f09344df59e3f8f5b2cd2acae2c1278f8612819005",
+  "managed_count": 8891,
+  "managed_file_list_sha256": "b4ca0e972e18a0e2db155c65ae5e0337d8a0c28643cba7f8f806ab9530369c66",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

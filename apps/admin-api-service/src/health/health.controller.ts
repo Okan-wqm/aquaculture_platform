@@ -9,7 +9,7 @@ import {
   Res,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { SkipThrottle } from '@aquaculture/backend-common/security';
+import { SkipThrottle, ThrottleSensitive } from '@aquaculture/backend-common/security';
 import { Response } from 'express';
 
 import { Public } from '../decorators/public.decorator';
@@ -42,9 +42,14 @@ function safeRequireVersion(packageJsonPath: string): string {
  *   GET  /health/circuit-breakers     - Circuit breaker states
  *   POST /health/circuit-breakers/:name/reset - Reset a circuit breaker
  */
+// APA-370: @SkipThrottle() is applied per-method on the PUBLIC GET probes only
+// (below), NOT class-wide. A class-level skip silently removed all app-level
+// throttling from the internal, auth-required endpoints too — including the
+// MUTATING POST /circuit-breakers/:name/reset — which is exactly the gap this
+// finding closes. Class-level @SkipThrottle is banned by the throttle-coverage
+// architecture gate so a future mutating handler can never inherit a skip.
 @ApiTags('Health')
 @Controller('health')
-@SkipThrottle()
 export class HealthController {
   constructor(private readonly healthService: HealthService) {}
 
@@ -54,6 +59,7 @@ export class HealthController {
    */
   @Get('live')
   @Public()
+  @SkipThrottle()
   @HttpCode(HttpStatus.OK)
   liveness(): { status: 'ok' } {
     return { status: 'ok' };
@@ -66,6 +72,7 @@ export class HealthController {
    */
   @Get('ready')
   @Public()
+  @SkipThrottle()
   async readiness(@Res() res: Response): Promise<void> {
     const draining = this.healthService.isDraining();
     const dbHealthy = draining ? false : await this.healthService.checkDatabase();
@@ -97,6 +104,7 @@ export class HealthController {
    */
   @Get()
   @Public()
+  @SkipThrottle()
   @HttpCode(HttpStatus.OK)
   health(): {
     status: 'ok';
@@ -126,6 +134,7 @@ export class HealthController {
    */
   @Get('startup')
   @Public()
+  @SkipThrottle()
   startup(@Res() res: Response): void {
     const ready = this.healthService.isStartupComplete();
     const status = ready ? 'ok' : 'not_ready';
@@ -156,6 +165,9 @@ export class HealthController {
   /**
    * Reset a circuit breaker (auth required).
    */
+  // APA-370: a mutating operational endpoint — previously fully un-throttled
+  // under the (removed) class-level @SkipThrottle. Now sensitive-bucketed.
+  @ThrottleSensitive()
   @Post('circuit-breakers/:name/reset')
   @HttpCode(HttpStatus.OK)
   resetCircuitBreaker(@Param('name') name: string) {

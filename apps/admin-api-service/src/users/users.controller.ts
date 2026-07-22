@@ -326,6 +326,10 @@ export class UsersController {
   /**
    * Reset user password
    */
+  // APA-370: a SUPER_ADMIN directly setting another user's password is a
+  // high-risk mutation; tighten it to the sensitive bucket like the adjacent
+  // /invite endpoint (was inheriting only the generous default throttle).
+  @ThrottleSensitive()
   @Patch(':id/reset-password')
   async resetUserPassword(
     @Param('id', ParseUUIDPipe) id: string,

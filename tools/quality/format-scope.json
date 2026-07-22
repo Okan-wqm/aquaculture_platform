@@ -1119,6 +1119,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/__tests__/throttle-coverage.architecture.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/analytics/__tests__/performance/reports-caching.spec.ts",
       "prettier_managed": true
     },
@@ -55284,10 +55290,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9063,
+  "file_count": 9064,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8882,
-  "managed_file_list_sha256": "0e464c135452e9e71aa0bae9c342df8c08814e9026c919cae3dfd468b8783a66",
+  "managed_count": 8883,
+  "managed_file_list_sha256": "a35abf1e0a7be461c7784b772426d6d9d406ee663439f0de23511be4aa19e97c",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

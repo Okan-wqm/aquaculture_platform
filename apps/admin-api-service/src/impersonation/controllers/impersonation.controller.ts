@@ -301,6 +301,9 @@ export class ImpersonationController {
     return this.impersonationService.getImpersonationStats();
   }
 
+  // APA-370: granting an impersonation permission is as sensitive as the
+  // session-lifecycle endpoints below (all @ThrottleSensitive) — tighten it too.
+  @ThrottleSensitive()
   @Post('permissions')
   async grantPermission(
     @Body() dto: GrantPermissionDto,
@@ -323,6 +326,9 @@ export class ImpersonationController {
     return this.impersonationService.getImpersonationPermission(superAdminId);
   }
 
+  // APA-370: revoking an impersonation permission is a sensitive security
+  // mutation; tighten it to the sensitive bucket like grant + session lifecycle.
+  @ThrottleSensitive()
   @Post('permissions/:superAdminId/revoke')
   @HttpCode(HttpStatus.NO_CONTENT)
   async revokePermission(@Param('superAdminId') superAdminId: string) {

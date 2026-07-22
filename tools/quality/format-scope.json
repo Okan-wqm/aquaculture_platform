@@ -1107,6 +1107,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/__tests__/security/sliding-window-redis.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/__tests__/security/sliding-window.spec.ts",
       "prettier_managed": true
     },
@@ -55308,10 +55314,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9067,
+  "file_count": 9068,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8886,
-  "managed_file_list_sha256": "a6fc0c8f582516c82345fc576fb22b54527df595638164a1d053e4d8c86b98a9",
+  "managed_count": 8887,
+  "managed_file_list_sha256": "5176e5e80b09571c0c3151f09344df59e3f8f5b2cd2acae2c1278f8612819005",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

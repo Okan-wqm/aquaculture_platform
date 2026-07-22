@@ -80,7 +80,9 @@ interface IndexRecommendation {
   indexType: string;
   reason: string;
   estimatedImpact: string;
-  createStatement: string;
+  recommendedAction: 'add_index' | 'review_unused_index';
+  indexName: string;
+  authority: 'db-migrate';
 }
 
 // ============================================================================
@@ -1350,9 +1352,20 @@ const MonitoringTab: React.FC = () => {
                       </span>
                     </div>
                     <p className="text-sm text-gray-500 mt-1">{rec.reason}</p>
-                    <code className="block text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded mt-2">
-                      {rec.createStatement}
-                    </code>
+                    <div className="flex flex-wrap items-center gap-2 mt-2">
+                      <span className="px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700">
+                        {rec.recommendedAction === 'add_index' ? 'Add index' : 'Review unused index'}
+                      </span>
+                      <code className="text-xs text-gray-700 bg-gray-100 px-2 py-1 rounded">
+                        {rec.indexName}
+                      </code>
+                      {rec.columns.length > 0 && (
+                        <span className="text-xs text-gray-500">({rec.columns.join(', ')})</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-400 mt-2">
+                      Apply via the audited db-migrate workflow ({rec.authority}).
+                    </p>
                   </div>
                 </div>
               </div>

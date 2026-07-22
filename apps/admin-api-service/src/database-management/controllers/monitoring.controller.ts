@@ -17,6 +17,7 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
 
+import { IndexRecommendation } from '../entities/database-management.entity';
 import { DatabaseMonitoringService } from '../services/database-monitoring.service';
 
 // ============================================================================
@@ -114,7 +115,9 @@ export class MonitoringController {
   // ============================================================================
 
   @Get('index-recommendations')
-  async getIndexRecommendations(@Query('schemaName') schemaName?: string) {
+  async getIndexRecommendations(
+    @Query('schemaName') schemaName?: string,
+  ): Promise<IndexRecommendation[]> {
     return this.monitoringService.getIndexRecommendations(schemaName);
   }
 

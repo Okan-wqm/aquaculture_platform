@@ -173,7 +173,7 @@ export const databaseApi = {
     apiFetch<Array<{ tenantId: string; schemaName: string; totalSizeBytes: number; dataSizeBytes: number; indexSizeBytes: number; tableCount: number }>>('/database/monitoring/storage/by-tenant'),
   /** Backend: GET /database/monitoring/index-recommendations */
   getIndexRecommendations: (schemaName?: string) =>
-    apiFetch<Array<{ tableName: string; columns: string[]; indexType: string; reason: string; estimatedImpact: string; createStatement: string }>>(`/database/monitoring/index-recommendations${schemaName ? `?schemaName=${schemaName}` : ''}`),
+    apiFetch<Array<{ tableName: string; columns: string[]; indexType: string; reason: string; estimatedImpact: 'high' | 'medium' | 'low'; recommendedAction: 'add_index' | 'review_unused_index'; indexName: string; authority: 'db-migrate' }>>(`/database/monitoring/index-recommendations${schemaName ? `?schemaName=${schemaName}` : ''}`),
   /** Backend: GET /database/monitoring/metrics */
   getMetricsHistory: (params?: { hours?: number; tenantId?: string; metricType?: string }) =>
     apiFetch<Array<{ timestamp: string; metricType: string; value: number }>>(`/database/monitoring/metrics?${buildQueryString(params || {})}`),

@@ -45526,6 +45526,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/DatabaseManagementPage.monitoring.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/__tests__/PaymentsPage.spec.tsx",
       "prettier_managed": true
     },
@@ -55338,10 +55344,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9072,
+  "file_count": 9073,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8891,
-  "managed_file_list_sha256": "b4ca0e972e18a0e2db155c65ae5e0337d8a0c28643cba7f8f806ab9530369c66",
+  "managed_count": 8892,
+  "managed_file_list_sha256": "4defd222fbad62621286cd92a2f90f1772b3a648b924bd1bdd07ea6144195de2",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -41538,6 +41538,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/cors-headers-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/critical-infra-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -55296,10 +55302,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9065,
+  "file_count": 9066,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8884,
-  "managed_file_list_sha256": "0b4b42748998d240cca495d743b62110dc89d44e2c31e7e51110f1813fc017c7",
+  "managed_count": 8885,
+  "managed_file_list_sha256": "aadb403626378037614b617656a6756fca724d0fe51aff5c7bce750804bf4496",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

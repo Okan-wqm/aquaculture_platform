@@ -127,6 +127,7 @@ export default {
         '<rootDir>/guard-revocation-check.spec.ts',
         '<rootDir>/public-decorator-ssot.spec.ts',
         '<rootDir>/csrf-cookie-name-ssot.spec.ts',
+        '<rootDir>/cors-headers-contract.spec.ts',
         '<rootDir>/no-root-barrel-import.spec.ts',
         '<rootDir>/no-shared-entity-decorators-via-main-barrel.spec.ts',
         '<rootDir>/graphql-enum-valuesmap-metadata.spec.ts',

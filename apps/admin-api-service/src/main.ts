@@ -39,9 +39,13 @@ bootstrapService(AppModule, {
 
   helmetOptions: { crossOriginEmbedderPolicy: false },
 
+  // APA-373: 'X-Impersonate-User' removed — a repo-wide grep proves nothing
+  // reads it (impersonation runs through /impersonation REST + JWT, not a
+  // header), so allow-listing it was misleading drift on a security surface.
+  // X-Tenant-ID / X-Request-ID are already in DEFAULT_CORS_HEADERS; kept
+  // explicit here for parity with the FE http-client's emitted headers.
   additionalCorsHeaders: [
     'X-Tenant-ID',
     'X-Request-ID',
-    'X-Impersonate-User',
   ],
 });

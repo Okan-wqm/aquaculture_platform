@@ -166,7 +166,12 @@ export class DiscountCodeService {
    * Create a new discount code
    */
   async create(dto: CreateDiscountCodeDto): Promise<DiscountCode> {
-    const normalizedCode = dto.code.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const normalizedCode = this.normalizeCode(dto.code);
+    if (normalizedCode !== dto.code.toUpperCase()) {
+      throw new BadRequestException(
+        'Discount code must contain only the characters A-Z and 0-9',
+      );
+    }
 
     // Check for duplicate
     const existing = await this.findByCode(normalizedCode);
@@ -486,11 +491,12 @@ export class DiscountCodeService {
    */
   async generateUniqueCode(prefix?: string, length = 8): Promise<string> {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    const normalizedPrefix = prefix ? this.normalizeCode(prefix) : '';
     let attempts = 0;
     const maxAttempts = 10;
 
     while (attempts < maxAttempts) {
-      let code = prefix ? `${prefix}_` : '';
+      let code = normalizedPrefix;
       for (let i = 0; i < length; i++) {
         code += chars.charAt(randomInt(0, chars.length));
       }
@@ -523,6 +529,15 @@ export class DiscountCodeService {
 
     this.logger.log(`Bulk created ${count} discount codes for campaign ${template.campaignId}`);
     return codes;
+  }
+
+  /**
+   * Canonical form for a discount code: a financial identifier is stored,
+   * displayed and looked up in exactly one shape. Any character outside
+   * [A-Z0-9] is not part of the identifier.
+   */
+  private normalizeCode(raw: string): string {
+    return raw.toUpperCase().replace(/[^A-Z0-9]/g, '');
   }
 
   /**

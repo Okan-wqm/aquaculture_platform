@@ -1299,6 +1299,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/billing/__tests__/discount-code.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/billing/__tests__/list-payments-query.dto.spec.ts",
       "prettier_managed": true
     },
@@ -55368,10 +55374,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9077,
+  "file_count": 9078,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8896,
-  "managed_file_list_sha256": "704af62bf30e8d35c8ddf1f3a63f78ffc72e4ba4a6d08539a5f1ac1df0dd6eb2",
+  "managed_count": 8897,
+  "managed_file_list_sha256": "0d84dbfccc66db67488a1e3e6dacb3a856e0ad974cbbd3a68e5575eebdb5d9a4",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

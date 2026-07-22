@@ -166,7 +166,13 @@ export class ListUsersQueryDto {
   @IsOptional()
   @IsString()
   @MaxLength(100)
-  @Matches(/^[a-zA-Z0-9@._\-\s]*$/, { message: 'Invalid search characters' })
+  // APA-054: the search term is bound as an ILIKE parameter in UsersService, so
+  // parameterization — not this allowlist — is the injection defense. An
+  // ASCII-only class therefore blocked nothing but legitimate names: a
+  // Turkish-facing SUPER_ADMIN searching Ö/ü/ş/ç/ğ/İ hit 400 'Invalid search
+  // characters' and an emptied table. Unicode-aware \p{L}\p{N} accepts letters
+  // and digits in any script while still rejecting SQL-meta/control characters.
+  @Matches(/^[\p{L}\p{N}@._\-\s]*$/u, { message: 'Invalid search characters' })
   search?: string;
 
   @IsOptional()

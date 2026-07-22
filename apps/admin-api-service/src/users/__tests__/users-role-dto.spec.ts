@@ -11,7 +11,13 @@
  * vocabulary (and the invite DTO to the invitable subset) by running the
  * exact class-validator decorators the global ValidationPipe applies.
  *
+ * Also covers APA-054: ListUsersQueryDto.search must accept Unicode names
+ * (the product is Turkish-facing) while still rejecting SQL-meta / control
+ * characters — the search term is a bound ILIKE parameter, so parameterization
+ * is the injection defense and the allowlist must not exclude legitimate names.
+ *
  * @see docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/users-roles.md#APA-050
+ * @see docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/users-roles.md#APA-054
  */
 import { PLATFORM_ROLE_CODES, INVITABLE_ROLE_CODES } from '@platform/event-contracts';
 import { plainToInstance } from 'class-transformer';
@@ -45,6 +51,12 @@ const PHANTOM_ROLES = ['MANAGER', 'OPERATOR', 'VIEWER'] as const;
 async function roleErrors(dto: object): Promise<boolean> {
   const errors = await validate(dto);
   return errors.some((e) => e.property === 'role');
+}
+
+async function searchErrors(search: string): Promise<boolean> {
+  const dto = plainToInstance(ListUsersQueryDto, { search });
+  const errors = await validate(dto);
+  return errors.some((e) => e.property === 'search');
 }
 
 describe('APA-050: user-role DTOs are pinned to the canonical vocabulary', () => {
@@ -100,5 +112,35 @@ describe('APA-050: user-role DTOs are pinned to the canonical vocabulary', () =>
       const dto = plainToInstance(InviteUserRequestDto, { ...inviteBase, role });
       expect(await roleErrors(dto)).toBe(true);
     });
+  });
+});
+
+describe('APA-054: ListUsersQueryDto.search is Unicode-aware but SQL-meta-safe', () => {
+  // The product is Turkish-facing; these names were unsearchable before the fix.
+  const TURKISH_NAMES = ['Öztürk', 'Çağla', 'Şule', 'İnanç', 'Gökhan', 'Ünalmış'] as const;
+  it.each(TURKISH_NAMES)('accepts the Turkish name %s', async (name) => {
+    expect(await searchErrors(name)).toBe(false);
+  });
+
+  it.each([
+    ['an email-style term', 'first.last@example.com'],
+    ['a hyphenated latin name', 'Anne-Marie'],
+    ['digits and spaces', 'user 42'],
+    ['an empty search (optional)', ''],
+    ['a CJK name', '田中太郎'],
+  ])('accepts %s', async (_label, value) => {
+    expect(await searchErrors(value)).toBe(false);
+  });
+
+  // Parameterization (bound ILIKE) is the real injection defense; the allowlist
+  // still rejects SQL-meta / control characters so nothing loosens accidentally.
+  it.each([
+    ['a quote+paren+semicolon injection probe', "Robert'); DROP TABLE users;--"],
+    ['an ILIKE wildcard', '50%'],
+    ['a bare semicolon', 'a;b'],
+    ['angle brackets', 'a<b>'],
+    ['a backtick', 'a`b'],
+  ])('rejects %s', async (_label, value) => {
+    expect(await searchErrors(value)).toBe(true);
   });
 });

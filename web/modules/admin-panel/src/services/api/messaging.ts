@@ -129,6 +129,49 @@ export interface MessagingAuditFilters {
   pageSize?: number;
 }
 
+/**
+ * FE mirror of the messaging-service `ComplianceAction` enum
+ * (`apps/messaging-service/src/compliance/entities/compliance-audit-log.entity.ts`)
+ * — the exact vocabulary stored in `compliance_audit_log.action` and the only
+ * values the audit query can match. admin-panel is a federated remote and cannot
+ * import the backend entity, so this is a checked-in mirror bound to the backend
+ * enum by the no-allowlist parity gate
+ * `tests/invariants/admin-messaging-action-vocab.spec.ts`: adding a value here
+ * that is not a real `ComplianceAction` member — or reintroducing the old
+ * invented lowercase verbs (`send`/`edit`/`delete`/`create_channel`/…) that
+ * matched zero rows — fails that gate.
+ */
+export const COMPLIANCE_ACTIONS = [
+  'message_send',
+  'message_edit',
+  'message_delete',
+  'channel_create',
+  'channel_archive',
+  'member_add',
+  'member_remove',
+  'message_export',
+  'data_anonymize',
+  'retention_set',
+  'legal_hold_toggle',
+] as const;
+
+export type ComplianceActionValue = (typeof COMPLIANCE_ACTIONS)[number];
+
+/** Human-readable labels for each {@link COMPLIANCE_ACTIONS} value. */
+export const COMPLIANCE_ACTION_LABELS: Record<ComplianceActionValue, string> = {
+  message_send: 'Message Sent',
+  message_edit: 'Message Edited',
+  message_delete: 'Message Deleted',
+  channel_create: 'Channel Created',
+  channel_archive: 'Channel Archived',
+  member_add: 'Member Added',
+  member_remove: 'Member Removed',
+  message_export: 'Message Exported',
+  data_anonymize: 'Data Anonymized',
+  retention_set: 'Retention Policy Set',
+  legal_hold_toggle: 'Legal Hold Toggled',
+};
+
 // ============================================================================
 // Types -- Shared (used across compliance page sections)
 // ============================================================================

@@ -11,6 +11,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button, Badge } from '@aquaculture/shared-ui';
 import { messagingApi, type MessagingAuditEntry } from '../../services/adminApi';
+import {
+  COMPLIANCE_ACTIONS,
+  COMPLIANCE_ACTION_LABELS,
+  type ComplianceActionValue,
+} from '../../services/api/messaging';
 import type { ApiError } from '../../services/http-client';
 
 // ============================================================================
@@ -29,26 +34,44 @@ interface AuditFilters {
 // Constants
 // ============================================================================
 
-const ACTION_OPTIONS = [
+// The filter dropdown is driven entirely by COMPLIANCE_ACTIONS — the FE mirror of
+// the backend ComplianceAction vocabulary (compliance_audit_log.action). Offering
+// any other value would match zero rows (the previous hand-typed lowercase verbs
+// send/edit/delete/create_channel/… shared no value with the stored enum).
+const ACTION_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
   { value: '', label: 'All Actions' },
-  { value: 'send', label: 'Send Message' },
-  { value: 'edit', label: 'Edit Message' },
-  { value: 'delete', label: 'Delete Message' },
-  { value: 'create_channel', label: 'Create Channel' },
-  { value: 'join_channel', label: 'Join Channel' },
-  { value: 'leave_channel', label: 'Leave Channel' },
-  { value: 'upload_file', label: 'Upload File' },
+  ...COMPLIANCE_ACTIONS.map((value) => ({
+    value,
+    label: COMPLIANCE_ACTION_LABELS[value],
+  })),
 ];
 
-const ACTION_COLORS: Record<string, string> = {
-  send: 'bg-blue-100 text-blue-800',
-  edit: 'bg-yellow-100 text-yellow-800',
-  delete: 'bg-red-100 text-red-800',
-  create_channel: 'bg-green-100 text-green-800',
-  join_channel: 'bg-purple-100 text-purple-800',
-  leave_channel: 'bg-gray-100 text-gray-800',
-  upload_file: 'bg-indigo-100 text-indigo-800',
+const ACTION_COLORS: Record<ComplianceActionValue, string> = {
+  message_send: 'bg-blue-100 text-blue-800',
+  message_edit: 'bg-yellow-100 text-yellow-800',
+  message_delete: 'bg-red-100 text-red-800',
+  channel_create: 'bg-green-100 text-green-800',
+  channel_archive: 'bg-gray-100 text-gray-800',
+  member_add: 'bg-purple-100 text-purple-800',
+  member_remove: 'bg-orange-100 text-orange-800',
+  message_export: 'bg-indigo-100 text-indigo-800',
+  data_anonymize: 'bg-pink-100 text-pink-800',
+  retention_set: 'bg-teal-100 text-teal-800',
+  legal_hold_toggle: 'bg-amber-100 text-amber-800',
 };
+
+const COMPLIANCE_ACTION_SET: ReadonlySet<string> = new Set(COMPLIANCE_ACTIONS);
+
+function isComplianceActionValue(action: string): action is ComplianceActionValue {
+  return COMPLIANCE_ACTION_SET.has(action);
+}
+
+/** Badge classes for a stored action value; unknown values fall back to neutral. */
+function actionBadgeClass(action: string): string {
+  return isComplianceActionValue(action)
+    ? ACTION_COLORS[action]
+    : 'bg-gray-100 text-gray-800';
+}
 
 const INITIAL_FILTERS: AuditFilters = {
   tenantId: '',
@@ -290,9 +313,9 @@ const MessagingAuditPage: React.FC = () => {
                     </td>
                     <td className="px-4 py-3">
                       <span
-                        className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
-                          ACTION_COLORS[entry.action] ?? 'bg-gray-100 text-gray-800'
-                        }`}
+                        className={`px-2 py-0.5 text-xs font-semibold rounded-full ${actionBadgeClass(
+                          entry.action,
+                        )}`}
                       >
                         {entry.action.replace(/_/g, ' ')}
                       </span>

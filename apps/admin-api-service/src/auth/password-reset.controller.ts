@@ -10,7 +10,6 @@ import {
   BadRequestException,
   Inject,
   Req,
-  SetMetadata,
 } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { ApiTags } from '@nestjs/swagger';
@@ -23,6 +22,11 @@ import {
 } from '@platform/event-contracts';
 import { IsEmail, IsString, MinLength, MaxLength } from 'class-validator';
 import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
+
+// APA-371: use the canonical @Public() (re-exported from the platform SSoT) so
+// the public password-reset routes and the guard agree on ONE bypass symbol,
+// instead of a private local re-implementation that only worked by string luck.
+import { Public } from '../decorators/public.decorator';
 
 const DEFAULT_AUTH_NATS_TIMEOUT_MS = 15_000;
 
@@ -41,10 +45,6 @@ export class ResetPasswordDto {
   @MaxLength(128)
   newPassword!: string;
 }
-
-// Mark endpoints as public (bypass auth guard)
-const IS_PUBLIC_KEY = 'isPublic';
-const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
 
 type MinimalRequest = {
   ip?: string;

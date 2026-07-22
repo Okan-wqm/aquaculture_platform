@@ -42240,6 +42240,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/public-decorator-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/rbac-vocabulary-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -55278,10 +55284,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9062,
+  "file_count": 9063,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8881,
-  "managed_file_list_sha256": "4a622c609c05d7794006c4c17c14947fb50287f50a2131dfe25de624fde158bd",
+  "managed_count": 8882,
+  "managed_file_list_sha256": "0e464c135452e9e71aa0bae9c342df8c08814e9026c919cae3dfd468b8783a66",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

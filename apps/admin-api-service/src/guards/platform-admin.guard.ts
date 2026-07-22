@@ -25,6 +25,9 @@ import { JwtService } from '@nestjs/jwt';
 import * as jwt from 'jsonwebtoken';
 
 import { ROLES_KEY } from '../decorators/roles.decorator';
+// APA-371: read the platform-SSoT bypass key (re-exported from backend-common)
+// instead of declaring a local 'isPublic' copy the guard must keep in sync.
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 // Bind the WRITER to the canonical request-user SSoT: AuthenticatedUser extends
 // JwtUser, so `request.user = { ... }` below fails type-check if it omits `sub`
 // (ORPHAN-146). The shared ThrottlerGuard reads that same `sub`.
@@ -61,8 +64,6 @@ export interface JwtPayload {
   iat: number;
   exp: number;
 }
-
-export const IS_PUBLIC_KEY = 'isPublic';
 
 // Product language calls this actor "platform admin"; the auth domain
 // represents that platform-level operator with the existing SUPER_ADMIN role.

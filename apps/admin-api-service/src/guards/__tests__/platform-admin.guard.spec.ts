@@ -17,8 +17,9 @@ import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import * as jwt from 'jsonwebtoken';
 
+import { IS_PUBLIC_KEY } from '../../decorators/public.decorator';
 import { ROLES_KEY } from '../../decorators/roles.decorator';
-import { PlatformAdminGuard, JwtPayload, IS_PUBLIC_KEY } from '../platform-admin.guard';
+import { PlatformAdminGuard, JwtPayload } from '../platform-admin.guard';
 
 jest.mock('@aquaculture/backend-common/auth', () => {
   const actual = jest.requireActual<typeof import('@aquaculture/backend-common/auth')>(

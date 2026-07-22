@@ -41286,6 +41286,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-database-types-parity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-messaging-action-vocab.spec.ts",
       "prettier_managed": true
     },
@@ -55260,10 +55266,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9059,
+  "file_count": 9060,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8878,
-  "managed_file_list_sha256": "8fc1e71c2395bb85bb0988e95813b9c03433ab44a7848be4bb9f97e5d6d91158",
+  "managed_count": 8879,
+  "managed_file_list_sha256": "336c3da4d50c2312edc51c7394669ffafad25fae5d97c2f72fdf7466f4a3e5a7",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

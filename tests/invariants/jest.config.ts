@@ -122,6 +122,7 @@ export default {
         '<rootDir>/admin-data-request-status-vocab.spec.ts',
         '<rootDir>/admin-audit-action-vocab.spec.ts',
         '<rootDir>/admin-messaging-action-vocab.spec.ts',
+        '<rootDir>/admin-database-types-parity.spec.ts',
         '<rootDir>/no-root-barrel-import.spec.ts',
         '<rootDir>/no-shared-entity-decorators-via-main-barrel.spec.ts',
         '<rootDir>/graphql-enum-valuesmap-metadata.spec.ts',

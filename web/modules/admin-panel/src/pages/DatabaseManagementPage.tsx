@@ -14,28 +14,17 @@
 import React, { useState, useCallback } from 'react';
 import { useAsyncData } from '../hooks';
 import { databaseApi } from '../services/api/database';
+import type {
+  TenantSchema,
+  SchemaMigration,
+  DatabaseBackup,
+} from '../services/types/database';
 
 // ============================================================================
 // Types
 // ============================================================================
 
 type TabType = 'schemas' | 'migrations' | 'backups' | 'monitoring';
-
-interface SchemaItem {
-  tenantId: string;
-  tenantName?: string;
-  schemaName: string;
-  status: string;
-  currentVersion: string;
-  sizeBytes: number;
-  tableCount: number;
-  rowCount?: number;
-  connectionCount?: number;
-  maxConnections?: number;
-  lastMigrationAt?: string | null;
-  lastBackupAt?: string | null;
-  createdAt: string;
-}
 
 interface MigrationPlan {
   version: string;
@@ -45,50 +34,6 @@ interface MigrationPlan {
   estimatedDuration: number;
   isDestructive: boolean;
   requiresDowntime: boolean;
-}
-
-interface MigrationHistoryItem {
-  id: string;
-  version: string;
-  name: string;
-  status: string;
-  appliedToSchemas?: string[];
-  failedSchemas?: string[];
-  startedAt?: string;
-  completedAt?: string;
-  error?: string;
-  createdBy: string;
-  createdAt: string;
-  // Fields from inline type fallback
-  tenantId?: string | null;
-  schemaName?: string;
-  migrationName?: string;
-  executionTimeMs?: number;
-  isDryRun?: boolean;
-  executedBy?: string | null;
-  errorMessage?: string | null;
-}
-
-interface BackupItem {
-  id: string;
-  type?: string;
-  backupType?: string;
-  status: string;
-  tenantId?: string | null;
-  schemaName?: string;
-  sizeBytes?: number;
-  location?: string;
-  fileName?: string;
-  compressionType?: string;
-  isCompressed?: boolean;
-  encryptionKey?: string;
-  isEncrypted?: boolean;
-  startedAt?: string;
-  createdAt?: string;
-  completedAt?: string | null;
-  expiresAt?: string | null;
-  error?: string;
-  createdBy?: string;
 }
 
 interface DatabaseHealth {
@@ -259,17 +204,10 @@ const EmptyState: React.FC<{ message: string }> = ({ message }) => (
 // ============================================================================
 
 const SchemasTab: React.FC = () => {
-  const [selectedSchema, setSelectedSchema] = useState<SchemaItem | null>(null);
+  const [selectedSchema, setSelectedSchema] = useState<TenantSchema | null>(null);
 
-  const schemasState = useAsyncData<SchemaItem[]>(
-    useCallback(() => databaseApi.getSchemas({ page: 1, limit: 100 }).then(res => {
-      // PaginatedResult -> data array, veya dogrudan array olabilir
-      if (res && 'data' in res && Array.isArray((res as { data: unknown }).data)) {
-        return (res as { data: SchemaItem[] }).data;
-      }
-      if (Array.isArray(res)) return res as unknown as SchemaItem[];
-      return [];
-    }), []),
+  const schemasState = useAsyncData<TenantSchema[]>(
+    useCallback(() => databaseApi.getSchemas({ page: 1, limit: 100 }).then((res) => res.data), []),
     { initialData: [] }
   );
 
@@ -499,14 +437,8 @@ const MigrationsTab: React.FC = () => {
     { initialData: [] }
   );
 
-  const historyState = useAsyncData<MigrationHistoryItem[]>(
-    useCallback(() => databaseApi.getMigrationHistory({ page: 1, limit: 50 }).then(res => {
-      if (res && 'data' in res && Array.isArray((res as { data: unknown }).data)) {
-        return (res as { data: MigrationHistoryItem[] }).data;
-      }
-      if (Array.isArray(res)) return res as unknown as MigrationHistoryItem[];
-      return [];
-    }), []),
+  const historyState = useAsyncData<SchemaMigration[]>(
+    useCallback(() => databaseApi.getMigrationHistory({ page: 1, limit: 50 }).then((res) => res.data), []),
     { initialData: [] }
   );
 
@@ -637,21 +569,16 @@ const MigrationsTab: React.FC = () => {
                   <tr key={migration.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
                       <div className="text-sm font-medium text-gray-900">{migration.version}</div>
-                      <div className="text-xs text-gray-500">{migration.name || migration.migrationName}</div>
+                      <div className="text-xs text-gray-500">{migration.migrationName}</div>
                     </td>
                     <td className="px-6 py-4">
                       <StatusBadge status={migration.status} />
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
-                      {migration.appliedToSchemas
-                        ? `${migration.appliedToSchemas.length} applied`
-                        : migration.schemaName || '-'}
-                      {migration.failedSchemas && migration.failedSchemas.length > 0 && (
-                        <span className="ml-1 text-red-500">({migration.failedSchemas.length} failed)</span>
-                      )}
+                      {migration.schemaName || '-'}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
-                      {migration.createdBy || migration.executedBy || '-'}
+                      {migration.executedBy || '-'}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
                       {formatDate(migration.createdAt)}
@@ -743,7 +670,7 @@ const MigrationsTab: React.FC = () => {
 const BackupsTab: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showRestoreModal, setShowRestoreModal] = useState(false);
-  const [selectedBackup, setSelectedBackup] = useState<BackupItem | null>(null);
+  const [selectedBackup, setSelectedBackup] = useState<DatabaseBackup | null>(null);
   const [createForm, setCreateForm] = useState({
     tenantId: '',
     backupType: 'full' as string,
@@ -752,14 +679,8 @@ const BackupsTab: React.FC = () => {
   });
   const [creating, setCreating] = useState(false);
 
-  const backupsState = useAsyncData<BackupItem[]>(
-    useCallback(() => databaseApi.getBackups({ page: 1, limit: 50 }).then(res => {
-      if (res && 'data' in res && Array.isArray((res as { data: unknown }).data)) {
-        return (res as { data: BackupItem[] }).data;
-      }
-      if (Array.isArray(res)) return res as unknown as BackupItem[];
-      return [];
-    }), []),
+  const backupsState = useAsyncData<DatabaseBackup[]>(
+    useCallback(() => databaseApi.getBackups({ page: 1, limit: 50 }).then((res) => res.data), []),
     { initialData: [] }
   );
 
@@ -817,8 +738,8 @@ const BackupsTab: React.FC = () => {
     }
   };
 
-  const getBackupType = (b: BackupItem) => b.backupType || b.type || 'unknown';
-  const getBackupCreatedAt = (b: BackupItem) => b.createdAt || b.startedAt || '';
+  const getBackupType = (b: DatabaseBackup) => b.backupType || 'unknown';
+  const getBackupCreatedAt = (b: DatabaseBackup) => b.createdAt || b.startedAt || '';
 
   return (
     <div className="space-y-6">
@@ -843,7 +764,7 @@ const BackupsTab: React.FC = () => {
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-sm text-gray-500">In Progress</div>
           <div className="text-2xl font-bold text-yellow-600">
-            {backups.filter(b => b.status === 'running' || b.status === 'in_progress').length}
+            {backups.filter(b => b.status === 'in_progress').length}
           </div>
         </div>
       </div>
@@ -918,7 +839,7 @@ const BackupsTab: React.FC = () => {
                 {backups.map((backup) => (
                   <tr key={backup.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
-                      <div className="text-sm font-medium text-gray-900">{backup.fileName || backup.location || backup.id}</div>
+                      <div className="text-sm font-medium text-gray-900">{backup.fileName || backup.filePath || backup.id}</div>
                       <div className="text-xs text-gray-500">{backup.schemaName || (backup.tenantId ? `Tenant: ${backup.tenantId}` : 'All')}</div>
                     </td>
                     <td className="px-6 py-4">
@@ -932,12 +853,12 @@ const BackupsTab: React.FC = () => {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex space-x-2">
-                        {(backup.isCompressed || backup.compressionType) && (
+                        {backup.isCompressed && (
                           <span className="px-2 py-0.5 text-xs bg-blue-100 text-blue-600 rounded">
                             Compressed
                           </span>
                         )}
-                        {(backup.isEncrypted || backup.encryptionKey) && (
+                        {backup.isEncrypted && (
                           <span className="px-2 py-0.5 text-xs bg-purple-100 text-purple-600 rounded">
                             Encrypted
                           </span>
@@ -1076,7 +997,7 @@ const BackupsTab: React.FC = () => {
               {selectedBackup ? (
                 <div className="bg-gray-50 rounded-lg p-4">
                   <div className="text-sm text-gray-500">Selected Backup</div>
-                  <div className="font-medium">{selectedBackup.fileName || selectedBackup.location || selectedBackup.id}</div>
+                  <div className="font-medium">{selectedBackup.fileName || selectedBackup.filePath || selectedBackup.id}</div>
                   <div className="text-xs text-gray-500">Created: {formatDate(selectedBackup.createdAt || selectedBackup.startedAt)}</div>
                 </div>
               ) : (

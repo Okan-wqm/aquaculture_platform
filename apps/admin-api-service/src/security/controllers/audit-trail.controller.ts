@@ -341,7 +341,7 @@ export class AuditTrailController {
       : userAgentHeader;
 
     void this.auditLogService.log({
-      action: 'AUDIT_LOG_ACCESSED',
+      action: AuditAction.AUDIT_LOG_ACCESSED,
       entityType: 'AuditLog',
       performedBy: user?.id ?? 'unknown',
       performedByEmail: user?.email,

@@ -37,7 +37,7 @@ import {
   RestoreOptions,
 } from '../entities/database-management.entity';
 import { AuditLogInput, AuditLogService } from '../../audit/audit.service';
-import { AuditSeverity } from '../../audit/audit.entity';
+import { AuditAction, AuditSeverity } from '../../audit/audit.entity';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 const execFileAsync = promisify(execFile);
@@ -112,7 +112,7 @@ export class BackupRestoreService {
     }
 
     await this.requireAuditLog({
-      action: 'SCHEMA_BACKUP_CREATE_REQUESTED',
+      action: AuditAction.SCHEMA_BACKUP_CREATE_REQUESTED,
       entityType: 'schema_backup',
       entityId: tenantId,
       tenantId,
@@ -369,7 +369,7 @@ export class BackupRestoreService {
     const backup = await this.getBackup(backupId);
 
     await this.requireAuditLog({
-      action: 'SCHEMA_BACKUP_DELETE_REQUESTED',
+      action: AuditAction.SCHEMA_BACKUP_DELETE_REQUESTED,
       entityType: 'schema_backup',
       entityId: backupId,
       tenantId: backup.tenantId ?? undefined,
@@ -416,7 +416,7 @@ export class BackupRestoreService {
     }
 
     await this.requireAuditLog({
-      action: 'SCHEMA_RESTORE_REQUESTED',
+      action: AuditAction.SCHEMA_RESTORE_REQUESTED,
       entityType: 'schema_restore',
       entityId: backupId,
       tenantId: backup.tenantId ?? undefined,

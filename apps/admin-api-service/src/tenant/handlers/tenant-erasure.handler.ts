@@ -34,6 +34,7 @@ import { createHash, randomUUID } from 'crypto';
 import { DataSource, EntityManager, QueryRunner } from 'typeorm';
 
 import { AuditLogService } from '../../audit/audit.service';
+import { AuditAction } from '../../audit/audit.entity';
 import { RequestTenantErasureCommand } from '../commands/tenant.commands';
 import {
   TenantErasureOperationAcceptedResponse,
@@ -189,7 +190,7 @@ export class RequestTenantErasureHandler
     }
 
     await this.auditLogService.log({
-      action: 'TENANT_ERASURE_REQUESTED',
+      action: AuditAction.TENANT_ERASURE_REQUESTED,
       entityType: 'tenant',
       entityId: command.tenantId,
       performedBy: command.requestedBy,

@@ -20,6 +20,7 @@ import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, EntityManager } from 'typeorm';
 
 import { AuditLogService } from '../../audit/audit.service';
+import { AuditAction } from '../../audit/audit.entity';
 import {
   BillingCycle as ModuleBillingCycle,
   PlanTier as ModulePlanTier,
@@ -421,7 +422,7 @@ export class TenantProvisioningWorkflowService {
 
       await this.runStep(run.id, leaseToken, 'audit_create_requested', async () => {
         await this.auditLogService.log({
-          action: 'TENANT_CREATE_REQUESTED',
+          action: AuditAction.TENANT_CREATE_REQUESTED,
           entityType: 'tenant',
           entityId: tenant.id,
           performedBy: run.actorUserId,
@@ -518,7 +519,7 @@ export class TenantProvisioningWorkflowService {
       await this.runStep(run.id, leaseToken, 'audit_provisioned', async () => {
         try {
           await this.auditLogService.log({
-            action: 'TENANT_PROVISIONED',
+            action: AuditAction.TENANT_PROVISIONED,
             entityType: 'tenant',
             entityId: tenant.id,
             performedBy: run.actorUserId,

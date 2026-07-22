@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { AuditLogService } from '../../audit/audit.service';
-import { AuditSeverity } from '../../audit/audit.entity';
+import { AuditAction, AuditSeverity } from '../../audit/audit.entity';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, In } from 'typeorm';
@@ -558,7 +558,7 @@ export class ImpersonationService implements OnModuleInit {
     // log lets a failure propagate; the operator gets a clear error
     // instead of a half-recorded SUPER_ADMIN session.
     await this.auditLogService.log({
-      action: 'IMPERSONATION_STARTED',
+      action: AuditAction.IMPERSONATION_STARTED,
       entityType: 'ImpersonationSession',
       entityId: saved.id,
       performedBy: request.superAdminId,
@@ -616,7 +616,7 @@ export class ImpersonationService implements OnModuleInit {
     // joining the impersonation_sessions table (which is operational,
     // not audit, and may be retention-bound differently).
     await this.auditLogService.log({
-      action: 'IMPERSONATION_ENDED',
+      action: AuditAction.IMPERSONATION_ENDED,
       entityType: 'ImpersonationSession',
       entityId: saved.id,
       performedBy: endedBy || session.superAdminId,
@@ -660,7 +660,7 @@ export class ImpersonationService implements OnModuleInit {
     // operator override of an active SUPER_ADMIN session). CRITICAL
     // severity so the audit dashboard surfaces it.
     await this.auditLogService.log({
-      action: 'IMPERSONATION_TERMINATED',
+      action: AuditAction.IMPERSONATION_TERMINATED,
       entityType: 'ImpersonationSession',
       entityId: saved.id,
       performedBy: terminatedBy,
@@ -754,7 +754,7 @@ export class ImpersonationService implements OnModuleInit {
     // from the session.actionsPerformed array (which is operational
     // metadata on the session itself, not a regulatory audit record).
     await this.auditLogService.log({
-      action: 'IMPERSONATION_EXTENDED',
+      action: AuditAction.IMPERSONATION_EXTENDED,
       entityType: 'ImpersonationSession',
       entityId: saved.id,
       performedBy: extendedBy,
@@ -1104,7 +1104,7 @@ export class ImpersonationService implements OnModuleInit {
     // the expiry; the original session.superAdminId carries the actor
     // identity in details for traceability.
     await this.auditLogService.log({
-      action: 'IMPERSONATION_EXPIRED',
+      action: AuditAction.IMPERSONATION_EXPIRED,
       entityType: 'ImpersonationSession',
       entityId: session.id,
       performedBy: 'system:cron',

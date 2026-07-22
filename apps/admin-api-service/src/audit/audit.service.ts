@@ -10,10 +10,10 @@ import {
 
 import { createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
-import { AuditLog, AuditSeverity } from './audit.entity';
+import { AuditAction, AuditLog, AuditSeverity } from './audit.entity';
 
 export interface AuditLogInput {
-  action: string;
+  action: AuditAction;
   entityType: string;
   entityId?: string;
   tenantId?: string;

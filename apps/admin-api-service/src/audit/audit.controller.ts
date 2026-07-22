@@ -11,7 +11,7 @@ import { Request } from 'express';
 
 import { getAuthUser } from '../shared/authenticated-request';
 
-import { AuditLog } from './audit.entity';
+import { AuditAction, AuditLog } from './audit.entity';
 import { AuditLogService, AuditLogFilter } from './audit.service';
 import { AuditLogQueryDto } from './dto/audit-log-query.dto';
 
@@ -28,7 +28,7 @@ export class AuditLogController {
   private writeMetaAudit(req: Request, action: string, details: Record<string, unknown>): void {
     const user = getAuthUser(req);
     this.auditLogService.log({
-      action: 'AUDIT_LOG_ACCESSED',
+      action: AuditAction.AUDIT_LOG_ACCESSED,
       entityType: 'AuditLog',
       performedBy: user?.id || 'unknown',
       ipAddress: (req.ip || req.socket?.remoteAddress) ?? undefined,

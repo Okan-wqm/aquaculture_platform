@@ -28,7 +28,7 @@ import { Request } from 'express';
 import { DataSource } from 'typeorm';
 import type { AuditLogInput } from '../../audit/audit.service';
 import { AuditLogService } from '../../audit/audit.service';
-import { AuditSeverity } from '../../audit/audit.entity';
+import { AuditAction, AuditSeverity } from '../../audit/audit.entity';
 import { getAuthUser } from '../../shared/authenticated-request';
 
 import { ThrottleSensitive, ThrottleExport } from '@aquaculture/backend-common/security';
@@ -383,7 +383,7 @@ export class DatabaseExplorerController {
    */
   private async auditExplorerAction(
     req: Request,
-    action: string,
+    action: AuditAction,
     entityType: string,
     details: Record<string, unknown>,
     severity?: AuditSeverity,
@@ -408,9 +408,17 @@ export class DatabaseExplorerController {
     table: string,
     details: Record<string, unknown>,
   ): Promise<void> {
+    // Static operation -> AuditAction map (APA-224 write-side): the audit action
+    // is a real enum member, not a runtime-built string, so AuditLogInput.action
+    // can be nominally typed and a bad action is a compile error, not a row.
+    const WRITE_INTENT_ACTION: Record<ExplorerWriteOperation, AuditAction> = {
+      insert: AuditAction.DATABASE_EXPLORER_INSERT_INTENT,
+      update: AuditAction.DATABASE_EXPLORER_UPDATE_INTENT,
+      delete: AuditAction.DATABASE_EXPLORER_DELETE_INTENT,
+    };
     await this.auditExplorerAction(
       req,
-      `DATABASE_EXPLORER_${operation.toUpperCase()}_INTENT`,
+      WRITE_INTENT_ACTION[operation],
       'DatabaseTable',
       { schema, table, operation, ...details },
       AuditSeverity.CRITICAL,
@@ -589,7 +597,7 @@ export class DatabaseExplorerController {
       // pre-fix `.catch(() => warn log)` pattern dropped audit rows
       // under transient DB blips, leaving the access invisible in the
       // SOC 2 CC4 evidence chain.
-      await this.auditExplorerAction(req, 'DATABASE_EXPLORER_READ', 'DatabaseTable', {
+      await this.auditExplorerAction(req, AuditAction.DATABASE_EXPLORER_READ, 'DatabaseTable', {
         schema,
         table,
         page,
@@ -671,7 +679,7 @@ export class DatabaseExplorerController {
       // as 500 — the export is BLOCKED until the audit row commits.
       await this.auditExplorerAction(
         req,
-        'DATABASE_EXPLORER_EXPORT',
+        AuditAction.DATABASE_EXPLORER_EXPORT,
         'DatabaseTable',
         { schema, table, format, rowsExported: rows.length },
         AuditSeverity.WARNING,
@@ -1150,7 +1158,7 @@ export class DatabaseExplorerController {
       // without an audit row landing.
       await this.auditExplorerAction(
         req,
-        'DATABASE_EXPLORER_RAW_SQL',
+        AuditAction.DATABASE_EXPLORER_RAW_SQL,
         'DatabaseQuery',
         {
           sql: sql.substring(0, 2000),

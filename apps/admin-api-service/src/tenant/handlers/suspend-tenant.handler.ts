@@ -20,6 +20,7 @@ import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, QueryRunner, Repository } from 'typeorm';
 
 import { AuditLogService } from '../../audit/audit.service';
+import { AuditAction } from '../../audit/audit.entity';
 import {
   SuspendTenantCommand,
   ActivateTenantCommand,
@@ -155,7 +156,7 @@ export class SuspendTenantHandler
       );
 
       await this.auditLogService.log({
-        action: 'TENANT_SUSPENDED',
+        action: AuditAction.TENANT_SUSPENDED,
         entityType: 'tenant',
         entityId: tenantId,
         performedBy: suspendedBy,
@@ -272,7 +273,7 @@ export class ActivateTenantHandler
       this.logger.log(`Tenant activated: ${tenantId} by ${activatedBy}`);
 
       await this.auditLogService.log({
-        action: 'TENANT_ACTIVATED',
+        action: AuditAction.TENANT_ACTIVATED,
         entityType: 'tenant',
         entityId: tenantId,
         performedBy: activatedBy,
@@ -363,7 +364,7 @@ export class DeactivateTenantHandler
       this.logger.warn(`Tenant deactivated: ${tenantId} by ${deactivatedBy}`);
 
       await this.auditLogService.log({
-        action: 'TENANT_DEACTIVATED',
+        action: AuditAction.TENANT_DEACTIVATED,
         entityType: 'tenant',
         entityId: tenantId,
         performedBy: deactivatedBy,
@@ -462,7 +463,7 @@ export class ArchiveTenantHandler
       this.logger.warn(`Tenant archived: ${tenantId} by ${archivedBy}`);
 
       await this.auditLogService.log({
-        action: 'TENANT_ARCHIVED',
+        action: AuditAction.TENANT_ARCHIVED,
         entityType: 'tenant',
         entityId: tenantId,
         performedBy: archivedBy,

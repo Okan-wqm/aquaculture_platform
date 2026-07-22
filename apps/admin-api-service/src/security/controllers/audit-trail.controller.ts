@@ -17,6 +17,7 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
@@ -490,10 +491,13 @@ export class AuditTrailController {
   @HttpCode(HttpStatus.CREATED)
   async createRetentionPolicy(
     @Body() dto: CreateRetentionPolicyDto,
+    @Req() req: Request,
   ): Promise<RetentionPolicyEntity> {
+    const userId = getAuthUser(req)?.id;
+    if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.auditService.createRetentionPolicy({
       ...dto,
-      createdBy: 'admin', // Would come from auth context
+      createdBy: userId,
     });
   }
 
@@ -504,8 +508,11 @@ export class AuditTrailController {
   async updateRetentionPolicy(
     @Param('id') id: string,
     @Body() dto: UpdateRetentionPolicyDto,
+    @Req() req: Request,
   ): Promise<RetentionPolicyEntity> {
-    return this.auditService.updateRetentionPolicy(id, dto, 'admin');
+    const userId = getAuthUser(req)?.id;
+    if (!userId) throw new UnauthorizedException('User not authenticated');
+    return this.auditService.updateRetentionPolicy(id, dto, userId);
   }
 
   /**

@@ -2411,6 +2411,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/security/controllers/__tests__/actor-attribution.invariant.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/security/controllers/__tests__/compliance-query-reports.dto.spec.ts",
       "prettier_managed": true
     },
@@ -55362,10 +55368,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9076,
+  "file_count": 9077,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8895,
-  "managed_file_list_sha256": "561ebd9bcec8b212d56363b2ce981474b212d45d7d3342f70e4304df76048f9b",
+  "managed_count": 8896,
+  "managed_file_list_sha256": "704af62bf30e8d35c8ddf1f3a63f78ffc72e4ba4a6d08539a5f1ac1df0dd6eb2",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -12,12 +12,17 @@ import {
   Query,
   Param,
   Body,
+  Req,
   HttpCode,
   HttpStatus,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Request } from 'express';
 import { Type, Transform } from 'class-transformer';
 import { IsOptional, IsNumber, IsString, IsBoolean, IsIn, IsArray, Min, Max } from 'class-validator';
+
+import { getAuthUser } from '../../shared/authenticated-request';
 
 import {
   SecurityEvent,
@@ -539,12 +544,15 @@ export class SecurityMonitoringController {
   async updateIncident(
     @Param('id') id: string,
     @Body() dto: UpdateIncidentDto,
+    @Req() req: Request,
   ): Promise<SecurityIncident> {
+    const user = getAuthUser(req);
+    if (!user?.id) throw new UnauthorizedException('User not authenticated');
     return this.securityMonitoringService.updateIncident(
       id,
       dto,
-      'admin', // Would come from auth context
-      'Admin User',
+      user.id,
+      user.name || user.email || user.id,
     );
   }
 

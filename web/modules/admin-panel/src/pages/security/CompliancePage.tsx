@@ -54,7 +54,6 @@ const DATA_REQUEST_STATUS_LABELS: Record<DataRequestStatus, string> = {
 
 type ComplianceType = 'gdpr' | 'ccpa' | 'hipaa' | 'pci_dss' | 'iso27001' | 'sox' | 'soc2';
 type DataRequestType = 'access' | 'rectification' | 'erasure' | 'portability' | 'restriction' | 'objection';
-type DataRequestStatus = 'pending' | 'in_progress' | 'identity_verification' | 'processing' | 'completed' | 'rejected';
 
 interface DataRequest {
   id: string;
@@ -350,10 +349,9 @@ const getStatusColor = (status: DataRequestStatus): string => {
     case 'pending':
       return 'bg-gray-100 text-gray-800';
     case 'in_progress':
-    case 'processing':
       return 'bg-blue-100 text-blue-800';
-    case 'identity_verification':
-      return 'bg-yellow-100 text-yellow-800';
+    case 'expired':
+      return 'bg-orange-100 text-orange-800';
     default:
       return 'bg-gray-100 text-gray-800';
   }

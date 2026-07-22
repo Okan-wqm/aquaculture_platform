@@ -697,4 +697,48 @@ describe('UserLifecycleService', () => {
       ).rejects.toThrow('audit DB down');
     });
   });
+
+  // ==========================================================================
+  // adminForceLogout / adminDeactivateUser (APA-367)
+  //
+  // These deleted ONLY refresh tokens, so their "invalidate all sessions"
+  // promise was a lie — the live access token kept working until TTL. They now
+  // also record the user_blacklist epoch (revokeUserTokens) so the guards reject
+  // the current access token on the next request.
+  // ==========================================================================
+  describe('adminForceLogout (APA-367)', () => {
+    it('revokes the live access token in addition to deleting refresh tokens', async () => {
+      userRepository.findOne.mockResolvedValue(createMockUser());
+      refreshTokenRepository.delete.mockResolvedValue({ affected: 2, raw: [] });
+
+      const result = await service.adminForceLogout(USER_ID);
+
+      expect(refreshTokenRepository.delete).toHaveBeenCalledWith({ userId: USER_ID });
+      expect(mockUserTokenRevocation.revokeUserTokens).toHaveBeenCalledWith(USER_ID);
+      expect(result.sessionsInvalidated).toBe(2);
+    });
+
+    it('throws NotFoundException and does not revoke when the user does not exist', async () => {
+      userRepository.findOne.mockResolvedValue(null);
+
+      await expect(service.adminForceLogout('nonexistent')).rejects.toThrow(NotFoundException);
+      expect(mockUserTokenRevocation.revokeUserTokens).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('adminDeactivateUser (APA-367)', () => {
+    it('deactivates the user, deletes refresh tokens, AND revokes the live access token', async () => {
+      userRepository.findOne.mockResolvedValue(createMockUser());
+      refreshTokenRepository.delete.mockResolvedValue({ affected: 1, raw: [] });
+
+      const result = await service.adminDeactivateUser(USER_ID);
+
+      expect(userRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ isActive: false }),
+      );
+      expect(refreshTokenRepository.delete).toHaveBeenCalledWith({ userId: USER_ID });
+      expect(mockUserTokenRevocation.revokeUserTokens).toHaveBeenCalledWith(USER_ID);
+      expect(result.refreshTokensRemoved).toBe(1);
+    });
+  });
 });

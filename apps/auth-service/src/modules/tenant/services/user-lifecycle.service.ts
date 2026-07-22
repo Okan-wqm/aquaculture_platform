@@ -622,8 +622,16 @@ export class UserLifecycleService {
     const deleteResult = await this.refreshTokenRepository.delete({ userId });
     const refreshTokensRemoved = deleteResult.affected ?? 0;
 
+    // APA-367: deleting refresh tokens only stops NEW access tokens being minted;
+    // the user's LIVE access token stays valid until its TTL. Revoke it too so a
+    // deactivated user is locked out on their next request fleet-wide — identical
+    // to deleteUser (line ~400). Without this the guards (which now read the
+    // user_blacklist epoch) have nothing to reject against, and "deactivate" would
+    // not cut a live session.
+    await this.userTokenRevocation.revokeUserTokens(userId);
+
     this.logger.log(
-      `Admin deactivated userId=${user.id}, refreshTokensRemoved=${refreshTokensRemoved}`,
+      `Admin deactivated userId=${user.id}, refreshTokensRemoved=${refreshTokensRemoved}, access tokens revoked`,
     );
     return { userId: user.id, refreshTokensRemoved };
   }
@@ -646,8 +654,16 @@ export class UserLifecycleService {
     const deleteResult = await this.refreshTokenRepository.delete({ userId });
     const sessionsInvalidated = deleteResult.affected ?? 0;
 
+    // APA-367: force-logout previously deleted ONLY refresh tokens, so its
+    // "invalidate all sessions" promise was a lie — the live access token kept
+    // working. Revoke the user's access tokens too (user_blacklist epoch) so the
+    // guards reject the current token on the next request. This closes the write
+    // side of the finding: the guard read-path (enforceTokenNotRevoked) is inert
+    // unless a writer actually records the revocation.
+    await this.userTokenRevocation.revokeUserTokens(userId);
+
     this.logger.log(
-      `Admin force-logout userId=${user.id}, sessionsInvalidated=${sessionsInvalidated}`,
+      `Admin force-logout userId=${user.id}, sessionsInvalidated=${sessionsInvalidated}, access tokens revoked`,
     );
     return { userId: user.id, sessionsInvalidated };
   }

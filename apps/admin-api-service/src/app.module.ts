@@ -11,7 +11,16 @@ import { LoggingModule } from '@aquaculture/backend-common/logging';
 import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
 import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
-import { ThrottlerGuard, ThrottlerModule } from '@aquaculture/backend-common/security';
+import {
+  ThrottlerGuard,
+  ThrottlerModule,
+  TOKEN_BLACKLIST,
+  TokenBlacklistModule,
+  USER_TOKEN_REVOCATION,
+  UserTokenRevocationModule,
+  type ITokenBlacklist,
+  type IUserTokenRevocation,
+} from '@aquaculture/backend-common/security';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
@@ -184,6 +193,16 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     }),
     LoggingModule,
     ThrottlerModule,
+    // APA-367: token-revocation primitives for PlatformAdminGuard. admin-api is a
+    // directly-reachable auth boundary (prod nginx routes /api/ straight here,
+    // bypassing gateway-api's blacklist-checking guard), so it MUST self-enforce
+    // revocation. Both modules are @Global and export their DI tokens; the
+    // TokenBlacklistService is cross-instance correct via the RedisModule below.
+    //   - TokenBlacklistModule       → per-jti + `token:blacklist:` bulk marker
+    //   - UserTokenRevocationModule  → `user_blacklist:{userId}` epoch (force-logout,
+    //                                  deletion, RBAC reduction)
+    TokenBlacklistModule,
+    UserTokenRevocationModule,
     // Redis for caching and distributed rate limiting
     RedisModule.forRootAsync({
       imports: [ConfigModule],
@@ -276,9 +295,24 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     // NestJS falls back to reflect-metadata class resolution which fails in Docker Alpine.
     {
       provide: PlatformAdminGuard,
-      useFactory: (reflector: Reflector, configService: ConfigService, jwtService: JwtService): PlatformAdminGuard =>
-        new PlatformAdminGuard(reflector, configService, jwtService),
-      inject: [Reflector, ConfigService, JwtService],
+      useFactory: (
+        reflector: Reflector,
+        configService: ConfigService,
+        jwtService: JwtService,
+        tokenBlacklist: ITokenBlacklist,
+        userTokenRevocation: IUserTokenRevocation,
+      ): PlatformAdminGuard =>
+        new PlatformAdminGuard(
+          reflector,
+          configService,
+          jwtService,
+          tokenBlacklist,
+          userTokenRevocation,
+        ),
+      // APA-367: TOKEN_BLACKLIST + USER_TOKEN_REVOCATION are REQUIRED (not
+      // optional) — a missing revocation store fails DI at boot instead of
+      // silently shipping a guard that never checks revocation.
+      inject: [Reflector, ConfigService, JwtService, TOKEN_BLACKLIST, USER_TOKEN_REVOCATION],
     },
     {
       provide: APP_GUARD,

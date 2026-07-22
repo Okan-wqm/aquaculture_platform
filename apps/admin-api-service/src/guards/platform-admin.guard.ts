@@ -1,5 +1,15 @@
-import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
+import {
+  enforceAccessTokenType,
+  enforceTokenNotRevoked,
+  getJwtVerifyOptions,
+} from '@aquaculture/backend-common/auth';
 import { requestContextStorage } from '@aquaculture/backend-common/logging';
+import {
+  ITokenBlacklist,
+  IUserTokenRevocation,
+  TOKEN_BLACKLIST,
+  USER_TOKEN_REVOCATION,
+} from '@aquaculture/backend-common/security';
 import {
   CanActivate,
   ExecutionContext,
@@ -66,6 +76,17 @@ export class PlatformAdminGuard implements CanActivate {
     @Inject(Reflector) private readonly reflector: Reflector,
     @Inject(ConfigService) private readonly configService: ConfigService,
     @Inject(JwtService) private readonly jwtService: JwtService,
+    // APA-367: admin-api is a directly-reachable auth boundary (prod nginx routes
+    // /api/ straight here, bypassing gateway-api's blacklist-checking guard), so
+    // it MUST self-enforce token revocation. Both stores are REQUIRED (not
+    // @Optional): the @Global TokenBlacklistModule + UserTokenRevocationModule are
+    // registered in app.module, so a missing wiring fails DI at boot rather than
+    // silently disabling revocation on the most privileged surface. In production
+    // TokenBlacklistService itself fails fast unless Redis is configured, so the
+    // check is cross-instance correct.
+    @Inject(TOKEN_BLACKLIST) private readonly tokenBlacklist: ITokenBlacklist,
+    @Inject(USER_TOKEN_REVOCATION)
+    private readonly userTokenRevocation: IUserTokenRevocation,
   ) {
     // SECURITY (CRITICAL-001): JWT_SECRET length validation removed in WS2.B
     // (2026-04-14). The check was a hold-over from the HS256 era — verifyAsync
@@ -128,6 +149,23 @@ export class PlatformAdminGuard implements CanActivate {
         payload,
         this.logger,
         this.configService.get<string>('NODE_ENV') === 'production',
+      );
+
+      // APA-367: mandatory post-verify revocation check. A signature-valid
+      // SUPER_ADMIN token whose session was force-logged-out, whose owner was
+      // deactivated/deleted, or whose password was reset must be rejected here —
+      // otherwise the token keeps working against admin-api until natural expiry,
+      // silently defeating the platform's emergency-cutoff controls. Consults
+      // both revocation namespaces (per-jti/user blacklist + user_blacklist epoch)
+      // via the shared primitive so admin-api cannot drift out of the contract
+      // that gateway-api and auth-service already enforce.
+      await enforceTokenNotRevoked(
+        payload,
+        {
+          tokenBlacklist: this.tokenBlacklist,
+          userTokenRevocation: this.userTokenRevocation,
+        },
+        this.logger,
       );
 
       // Normalize user roles - tekil role varsa array'e çevir

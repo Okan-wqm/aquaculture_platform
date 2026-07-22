@@ -41868,6 +41868,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/guard-revocation-check.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/helpers/farm-graphql-surface.ts",
       "prettier_managed": true
     },
@@ -55272,10 +55278,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9061,
+  "file_count": 9062,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8880,
-  "managed_file_list_sha256": "74193f170c847a936a0e9c5f6954f6c981b5e2e7237f547af82982f7f2c10917",
+  "managed_count": 8881,
+  "managed_file_list_sha256": "4a622c609c05d7794006c4c17c14947fb50287f50a2131dfe25de624fde158bd",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

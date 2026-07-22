@@ -29,10 +29,24 @@ import {
 import React, { useState, useEffect, useCallback } from 'react';
 
 import { securityApi } from '../../services/adminApi';
+import { DATA_REQUEST_STATUSES } from '../../services/types/security';
 import type {
   BackendComplianceReport,
   BackendDataSubjectRequest,
+  DataRequestStatus,
 } from '../../services/types/security';
+
+// Labels for the data-request status filter; the option VALUES come from the
+// DATA_REQUEST_STATUSES SSoT so the dropdown can only offer real backend states
+// (APA-236 — the prior hand-written list invented 'identity_verification' and
+// 'processing', which matched zero rows, and omitted 'expired').
+const DATA_REQUEST_STATUS_LABELS: Record<DataRequestStatus, string> = {
+  pending: 'Pending',
+  in_progress: 'In Progress',
+  completed: 'Completed',
+  rejected: 'Rejected',
+  expired: 'Expired',
+};
 
 // ============================================================================
 // Types
@@ -875,12 +889,11 @@ export const CompliancePage: React.FC = () => {
                 className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">All Statuses</option>
-                <option value="pending">Pending</option>
-                <option value="in_progress">In Progress</option>
-                <option value="identity_verification">Identity Verification</option>
-                <option value="processing">Processing</option>
-                <option value="completed">Completed</option>
-                <option value="rejected">Rejected</option>
+                {DATA_REQUEST_STATUSES.map((status) => (
+                  <option key={status} value={status}>
+                    {DATA_REQUEST_STATUS_LABELS[status]}
+                  </option>
+                ))}
               </select>
             </div>
           </div>

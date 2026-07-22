@@ -28,6 +28,7 @@ import {
   DataRequest,
   DataRequestType,
   DataRequestStatus,
+  DATA_REQUEST_STATUSES,
   ComplianceReport,
   ComplianceType,
 } from '../entities/security.entity';
@@ -141,7 +142,7 @@ class QueryDataRequestsDto {
   requestType?: DataRequestType;
 
   @IsOptional()
-  @IsString()
+  @IsIn(DATA_REQUEST_STATUSES)
   status?: DataRequestStatus;
 
   @IsOptional()

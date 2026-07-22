@@ -62,7 +62,18 @@ export type ComplianceType = 'gdpr' | 'ccpa' | 'hipaa' | 'pci_dss' | 'sox' | 'is
 
 export type DataRequestType = 'access' | 'deletion' | 'portability' | 'rectification' | 'restriction';
 
-export type DataRequestStatus = 'pending' | 'in_progress' | 'completed' | 'rejected' | 'expired';
+// Single source of truth for the data-subject-request status vocabulary,
+// backed by the admin.data_requests status CHECK constraint. The runtime array
+// lets the query DTO validate with @IsIn and the FE dropdown mirror it exactly
+// (bound by tests/invariants/admin-data-request-status-vocab.spec.ts) — APA-236.
+export const DATA_REQUEST_STATUSES = [
+  'pending',
+  'in_progress',
+  'completed',
+  'rejected',
+  'expired',
+] as const;
+export type DataRequestStatus = (typeof DATA_REQUEST_STATUSES)[number];
 
 export type IncidentStatus = 'open' | 'investigating' | 'contained' | 'eradicated' | 'recovered' | 'closed';
 

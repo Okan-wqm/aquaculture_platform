@@ -60,7 +60,18 @@ export type ThreatIndicatorType =
   | 'cidr';
 export type ComplianceType = 'gdpr' | 'ccpa' | 'hipaa' | 'pci_dss' | 'sox' | 'iso27001';
 export type DataRequestType = 'access' | 'deletion' | 'portability' | 'rectification' | 'restriction';
-export type DataRequestStatus = 'pending' | 'in_progress' | 'completed' | 'rejected' | 'expired';
+// Mirrors the backend DataRequestStatus vocabulary (security.entity.ts /
+// admin.data_requests CHECK); kept in lockstep by
+// tests/invariants/admin-data-request-status-vocab.spec.ts (APA-236). The
+// runtime array drives the CompliancePage status filter so it can't drift.
+export const DATA_REQUEST_STATUSES = [
+  'pending',
+  'in_progress',
+  'completed',
+  'rejected',
+  'expired',
+] as const;
+export type DataRequestStatus = (typeof DATA_REQUEST_STATUSES)[number];
 
 export interface BackendActivityLog {
   id: string;

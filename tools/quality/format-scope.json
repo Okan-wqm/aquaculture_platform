@@ -41550,6 +41550,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/csrf-cookie-name-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/db-migrate-entity-metadata-contract.spec.ts",
       "prettier_managed": true
     },
@@ -55290,10 +55296,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9064,
+  "file_count": 9065,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8883,
-  "managed_file_list_sha256": "a35abf1e0a7be461c7784b772426d6d9d406ee663439f0de23511be4aa19e97c",
+  "managed_count": 8884,
+  "managed_file_list_sha256": "0b4b42748998d240cca495d743b62110dc89d44e2c31e7e51110f1813fc017c7",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

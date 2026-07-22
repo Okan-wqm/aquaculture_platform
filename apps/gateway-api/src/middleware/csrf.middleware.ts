@@ -15,8 +15,20 @@ import { Request, Response, NextFunction } from 'express';
 import * as crypto from 'crypto';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
-const CSRF_COOKIE_NAME = 'csrf-token';
-const CSRF_HEADER_NAME = 'x-csrf-token';
+
+/**
+ * APA-366: the canonical CSRF cookie/header names. Exported as the single SSoT
+ * so that if a real double-submit control is ever wired end-to-end, every
+ * producer/consumer references ONE definition instead of the hardcoded literals
+ * that previously drifted (the FE readers used 'XSRF-TOKEN' while this
+ * middleware sets 'csrf-token', so the control never matched). The dead FE
+ * double-submit readers have been removed (admin-api is Bearer-authenticated and
+ * prod nginx routes /api/ past this gateway); the guard-revocation + Bearer +
+ * SameSite model is the platform's CSRF posture. `csrf-cookie-name-ssot.spec.ts`
+ * asserts no web/ source resurrects the dead 'XSRF-TOKEN'/'X-CSRF-Token' pattern.
+ */
+export const CSRF_COOKIE_NAME = 'csrf-token';
+export const CSRF_HEADER_NAME = 'x-csrf-token';
 
 /**
  * Paths exempt from CSRF double-submit validation.

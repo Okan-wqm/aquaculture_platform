@@ -8,7 +8,6 @@
  * - Authentication/Authorization bypass attempts
  * - Data access control
  * - Rate limiting
- * - CSRF protection
  */
 
 import { INestApplication, HttpStatus, NotFoundException, ValidationPipe } from '@nestjs/common';

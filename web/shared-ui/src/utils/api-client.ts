@@ -10,55 +10,6 @@ import { bumpSessionEpoch } from './session-epoch';
 import { tokenLifecycle } from './token-lifecycle';
 
 // ============================================================================
-// CSRF Protection
-// ============================================================================
-
-/**
- * SEC-M03: Read the CSRF token from a <meta> tag or a cookie.
- *
- * The backend is expected to set the token via one of these mechanisms:
- *   1. A `<meta name="csrf-token">` tag rendered in the HTML shell, OR
- *   2. A non-httpOnly cookie named `XSRF-TOKEN` (the Angular / Django convention).
- *
- * The token is sent back on every mutating request (POST, PUT, PATCH, DELETE)
- * in the `X-CSRF-Token` header so the server can verify it against the
- * session-bound value.  GET / HEAD / OPTIONS are safe methods and are excluded.
- */
-function getCsrfToken(): string | null {
-  if (typeof document === 'undefined') return null;
-
-  // Strategy 1: <meta name="csrf-token" content="...">
-  const metaTag = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]');
-  if (metaTag?.content) {
-    return metaTag.content;
-  }
-
-  // Strategy 2: cookie named XSRF-TOKEN (non-httpOnly, set by server)
-  const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/);
-  if (match?.[1]) {
-    return decodeURIComponent(match[1]);
-  }
-
-  return null;
-}
-
-/** HTTP methods that mutate state and therefore require CSRF protection. */
-const CSRF_PROTECTED_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-
-/**
- * Attach the X-CSRF-Token header to mutating requests.
- * Safe methods (GET, HEAD, OPTIONS) are excluded per OWASP guidelines.
- */
-function attachCsrfHeader(headers: Record<string, string>, method: string): void {
-  if (!CSRF_PROTECTED_METHODS.has(method.toUpperCase())) return;
-
-  const token = getCsrfToken();
-  if (token) {
-    headers['X-CSRF-Token'] = token;
-  }
-}
-
-// ============================================================================
 // Type Definitions
 // ============================================================================
 
@@ -572,9 +523,6 @@ class GraphQLClient {
     // Add request ID for distributed tracing
     headers['X-Request-Id'] = this.generateRequestId();
 
-    // SEC-M03: Attach CSRF token to all GraphQL requests (always POST, which is mutating)
-    attachCsrfHeader(headers, 'POST');
-
     // Timeout controller
     const controller = new AbortController();
     const timeoutId = setTimeout(
@@ -766,7 +714,7 @@ class RestClient {
    * Send an HTTP request
    */
   /**
-   * Shared transport: auth + tenant + CSRF header injection, lifecycle barrier,
+   * Shared transport: auth + tenant header injection, lifecycle barrier,
    * timeout, and single-shot 401 refresh-and-retry. Returns the raw (ok) Response
    * so the caller decides how to consume the body (JSON via request(), binary via
    * getBlob()) — FARM-MEDIUM-091 routes farm uploads/tiles through this instead of
@@ -829,10 +777,6 @@ class RestClient {
     if (currentTenantId) {
       headers['X-Tenant-Id'] = currentTenantId;
     }
-
-    // SEC-M03: Attach CSRF token to mutating REST requests (POST, PUT, PATCH, DELETE).
-    // GET requests are safe methods and are excluded automatically by attachCsrfHeader.
-    attachCsrfHeader(headers, method);
 
     let requestBody: BodyInit | undefined;
     if (typeof FormData !== 'undefined' && body instanceof FormData) {
@@ -915,7 +859,7 @@ class RestClient {
   /**
    * Like request(), but returns the raw Blob instead of parsing JSON — for binary
    * endpoints (marine map tiles via GET, AOI analysis images via POST) — through
-   * the same shared auth/tenant/CSRF + 401-refresh transport (FARM-MEDIUM-091,
+   * the same shared auth/tenant + 401-refresh transport (FARM-MEDIUM-091,
    * replaces marine-data's hand-rolled fetch).
    */
   async requestBlob(

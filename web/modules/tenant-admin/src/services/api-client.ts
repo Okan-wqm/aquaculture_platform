@@ -48,8 +48,8 @@ export class TenantApiClient {
    * SSoT: delegates to the shared `graphqlClient` from `@aquaculture/shared-ui`
    * so every tenant-admin GraphQL call inherits the full auth lifecycle —
    * `tokenLifecycle.waitForReady()` (fires only after the access token is
-   * restored), the `X-CSRF-Token` header, the in-memory `Authorization` +
-   * `X-Tenant-Id` headers, and 401 → silent-refresh → single-retry. The
+   * restored), the in-memory `Authorization` + `X-Tenant-Id` headers, and
+   * 401 → silent-refresh → single-retry. The
    * shared client also throws on GraphQL-level errors and uses
    * `credentials: 'include'`, so no local fetch/error handling is needed.
    *

@@ -10,7 +10,21 @@ aria-kernel/aria-tools/
 # (cycle ledgers, artifact-restored state, fresh-scan seed findings);
 # runtime writes must never dirty the discovery/burn-in worktree
 # (ORPHAN-LOW-306).
-aria-tools/
+#
+# ORPHAN-HIGH-349 — this MUST stay `aria-tools/*`, not `aria-tools/`.
+# git does not descend into an excluded DIRECTORY, so with the bare
+# `aria-tools/` form every negation further down this file was inert,
+# including `!aria-tools/reports/daily/**`. `git add` on a daily
+# chain-tip anchor exited 1 and no anchor was committed between
+# 2026-05-08 and 2026-07-26 — the governance chain-tips existed only
+# inside expiring CI artifacts while the workflow reported success.
+# The `/*` form excludes the children instead of the directory, so the
+# ancestor re-includes below can fire. Reverting this line to
+# `aria-tools/` re-breaks the audit trail silently; the invariant in
+# aria-kernel/tests/test_daily_report_anchor_invariant.py is what
+# catches it.
+aria-tools/*
+!aria-tools/reports/
 aria-findings/
 aria-tools/.archive/
 aria-tools/.backups/

@@ -155,10 +155,15 @@ The stage that makes ARIA a team at all: functions 1, 3, 4, 5, 6.
 * PR opening via `pr_manager.open_pr_for_action`, **draft only**, guarded by
   `gate=GATE_PRE_PR_OPEN`. `ORPHAN-HIGH-348` — bring `enterprise/acceptance-events.jsonl` and the
   other uncovered surfaces under the publication integrity gate before any rung is recorded.
-* **Entry prerequisite, operator:** one commit adding the `!aria-tools/reports/daily/` negation to
-  `.gitignore`. This was `ORPHAN-HIGH-349`, originally picked as the golden task; ARIA structurally
-  cannot do it (see corrections above), so it becomes a one-line operator commit that precedes S1
-  rather than the work that proves S1.
+* **Entry prerequisite, operator — done.** `ORPHAN-HIGH-349`, originally picked as the golden task;
+  ARIA structurally cannot do it (see corrections above), so it is an operator commit that precedes
+  S1 rather than the work that proves S1. The fix was *not* adding a negation: the negations already
+  existed and were inert. The bare `aria-tools/` pattern excludes the **directory**, and git does not
+  descend into an excluded directory, so nothing below could re-include anything. Changing it to
+  `aria-tools/*` plus `!aria-tools/reports/` lets the existing negations fire. Measured blast radius:
+  zero new untracked paths. The finding stays OPEN until an anchor is actually committed — making
+  staging possible is half of it; "an anchor that exists only in an expiring artifact is not an
+  anchor" is the other half, and that needs the daily workflow to run.
 * The **golden E2E task** is therefore a new WorkItem chosen to be executable: paths in `docs/**`
   (excluding `docs/adr/`) or root `tests/**` — verified L1 in `risk_policy.classify_change` and
   outside every `READONLY_PATHS` prefix. Beware the trap: `aria-kernel/tests/**` classifies L1 but is
@@ -325,12 +330,13 @@ reviewer can re-derive.
   review names a real accepted result. Pass = the `l1_autonomous_success` row's `pr_number` +
   `head_sha` resolve to that draft PR with green CI, and the `accepted_result_ref` resolves to a real
   adversarial review row.
-* **Operator entry prerequisite, verified separately (was `ORPHAN-HIGH-349`).** After the `.gitignore`
-  negation commit, `git check-ignore aria-tools/reports/daily/<date>.md` must exit **1** — the plain
-  form, no `-v`. The earlier assertion said `-v` must exit non-zero and that is wrong: with
-  `--verbose` git also reports paths matched by a negation pattern and returns 0, so the `-v` form
-  passes both before and after the fix and proves nothing. As of 2026-07-26 both forms exit 0 against
-  pattern `.gitignore:13:aria-tools/`.
+* **Operator entry prerequisite, verified (was `ORPHAN-HIGH-349`) — passing.**
+  `git check-ignore aria-tools/reports/daily/<date>.md` exits **1** — the plain form, no `-v`. The
+  earlier assertion said `-v` must exit non-zero and that is wrong: with `--verbose` git also reports
+  paths matched by a negation pattern and returns 0, so the `-v` form passes both before and after
+  the fix and proves nothing. Before: both forms exited 0 against pattern `.gitignore:13:aria-tools/`.
+  After: plain form rc=1, and `git add --dry-run` on an anchor path succeeds — the behaviour that
+  actually matters, asserted directly rather than inferred from the ignore rules.
 * **Fault injection (S1 → S3):** producer killed mid-cycle; executor killed mid-claim; lease expiry
   and takeover; state corruption; GitHub API timeout; stale approval replay; head SHA changed after
   review; CI red; kill between merge and ledger append. Pass = no lost work item, no duplicate side
@@ -382,7 +388,7 @@ Updated with the commit that causes the change. `~` = in progress.
 | `ORPHAN-HIGH-350` hermetic git env for the test suite | S0 | done | see log |
 | `ORPHAN-CRITICAL-343` phase A — 5 mechanical pre-PR-open checks | S0 | done | see log |
 | `ORPHAN-MEDIUM-351` no mutation/coverage gate exists to require | S1+ | open | — |
-| `ORPHAN-HIGH-349` `.gitignore` negation | S1 entry, operator | open | — |
+| `ORPHAN-HIGH-349` `.gitignore` descent fix | S1 entry, operator | staging fixed; anchor pending | see log |
 | `ORPHAN-CRITICAL-334` single job graph + contract + credential + token path | S1 | open | — |
 | `P0-03` real implementer + `task.py` entry point | S1 | open | — |
 | `ORPHAN-HIGH-348` integrity-gate coverage | S1 | open | — |
@@ -448,3 +454,19 @@ Updated with the commit that causes the change. `~` = in progress.
 * **Not done in S0, stated plainly:** `sandbox_backend()` is still None in this container (no
   `bwrap`, no `firejail`), so write-capable spawns are refused rather than confined. Installing a
   backend is an S1 runner prerequisite — a refused spawn cannot write code either.
+
+### 2026-07-26 — S1 entry prerequisite cleared (`ORPHAN-HIGH-349`, partial)
+
+* The diagnosis in the finding was right and the *prescribed* fix was wrong, which is why this is
+  worth a log entry. The negations `!aria-tools/reports/daily/` and `!aria-tools/reports/daily/**`
+  were already in the file; adding another would have changed nothing. `aria-tools/` excludes the
+  **directory**, and git never descends into an excluded directory, so every pattern beneath it was
+  unreachable. `aria-tools/*` + `!aria-tools/reports/` is the whole fix.
+* Verified by behaviour, not by reading the rules: `git check-ignore` on an anchor path now exits 1
+  (was 0), and `git add --dry-run` on one succeeds (was exit 1).
+* Blast radius measured before committing: `git status --untracked-files=all` shows zero new
+  untracked paths, and the `aria-tools` tracked-allowlist + daily-anchor invariants stay green.
+* The line carries a comment explaining why it must not be "simplified" back to `aria-tools/`, since
+  the failure mode is silent and the workflow reports success throughout.
+* **Still open:** an anchor has to actually be committed. Staging being possible is half the finding;
+  "an anchor that exists only in an expiring artifact is not an anchor" is the other half.

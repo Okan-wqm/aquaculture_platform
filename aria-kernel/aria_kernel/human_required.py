@@ -145,23 +145,52 @@ def list_human_required(
     return rows
 
 
+RESOLVED_BY_OPERATOR: str = "operator"
+RESOLVED_BY_AGENT_PANEL: str = "agent_panel"
+RESOLVED_BY_VALUES: frozenset[str] = frozenset({
+    RESOLVED_BY_OPERATOR, RESOLVED_BY_AGENT_PANEL,
+})
+
+
 def resolve_human_required(
     *,
     request_id: str,
     resolution_note: str,
     verdict: str | None = None,
+    resolved_by: str = RESOLVED_BY_OPERATOR,
     base_dir: str | Path | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Mark a HUMAN_REQUIRED entry resolved. Operator-only — kernel never auto-resolves.
+    """Mark a HUMAN_REQUIRED entry resolved.
 
     Plan 024 §B — when ``verdict`` (true_positive | false_positive) is supplied
     and the record is a consensus escalation, the operator's adjudication is
     fanned into the ground-truth feedback ledger via ``record_operator_feedback``
     so judge calibration (Plan 024 §A) can score the judges that disagreed.
+
+    ORPHAN-HIGH-426 — an independent agent panel may also resolve, via
+    ``human_required_adjudication.adjudicate_human_required``. Two
+    properties are enforced here rather than left to the caller:
+
+      * ``resolved_by`` is recorded, so an operator can always tell an
+        agent-adjudicated clearance from their own.
+      * a panel may NOT supply ``verdict``. That parameter writes into the
+        ground-truth feedback ledger with ``source_type="human"``, which
+        judge calibration scores against. Letting agents write their own
+        judgment in as human ground truth would have them grading
+        themselves and would silently corrupt calibration — so the
+        combination is refused, not merely discouraged.
     """
     if not isinstance(resolution_note, str) or not resolution_note.strip():
         raise GovernanceError("resolution_note is required")
+    if resolved_by not in RESOLVED_BY_VALUES:
+        raise GovernanceError(
+            f"resolved_by must be one of {sorted(RESOLVED_BY_VALUES)}"
+        )
+    if resolved_by != RESOLVED_BY_OPERATOR and verdict is not None:
+        raise GovernanceError(
+            "human_required_agent_panel_cannot_supply_ground_truth_verdict"
+        )
     root = ensure_tools_dir(base_dir)
     path = _human_required_path(root, request_id)
     if not path.exists():
@@ -173,6 +202,7 @@ def resolve_human_required(
     record["status"] = "resolved"
     record["resolved_at"] = ts.strftime("%Y-%m-%dT%H:%M:%SZ")
     record["resolution_note"] = resolution_note
+    record["resolved_by"] = resolved_by
 
     if verdict is not None:
         from .feedback_store import FEEDBACK_VERDICTS, record_operator_feedback
@@ -199,7 +229,11 @@ def resolve_human_required(
     append_tools_governance(
         root,
         "human_required_resolved",
-        {"request_id": request_id, "resolved_at": record["resolved_at"]},
+        {
+            "request_id": request_id,
+            "resolved_at": record["resolved_at"],
+            "resolved_by": resolved_by,
+        },
     )
     return record
 

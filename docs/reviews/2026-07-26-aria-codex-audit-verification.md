@@ -475,7 +475,64 @@ four zero-caller policy functions, a non-existent function the orchestrator call
 independence layers that cannot fire. The suite is large and it passes; it does not test whether the
 pieces are wired to each other.
 
-## 8. Limits of this verification
+## 8. Second-round defect hunt (independent, adversarially verified)
+
+A six-lens hunt was run over the kernel, executors and workflows looking for the *shape* of NEW-01
+— declared authority with no caller, and damaged evidence reading as success. Each finding was
+handed to an adversarial verifier instructed to refute it by default and to reproduce it or drop it.
+**Six were confirmed, none refuted.** Two further workflow findings were reproduced independently
+here. All are registered.
+
+| ID | Severity | Finding |
+|---|---|---|
+| `ORPHAN-CRITICAL-342` | CRITICAL | the bash sandbox perimeter has no kernel caller — `wrap_bash_in_sandbox` returns argv unchanged, so containment is prose addressed to the process being contained |
+| `ORPHAN-CRITICAL-343` | CRITICAL | `HARD_FAIL_CHECKS` is 17 names with no callable field and zero iterators; `expert_review_gate.py` has zero production callers; a count-pinning test passes green |
+| `ORPHAN-HIGH-344` | HIGH | Gate B oscillation guard has no caller while its streak only increments — fix/reopen loops unbounded, and a runbook points operators at a file that can never be written |
+| `ORPHAN-HIGH-345` | HIGH | ARIA-Watchdog goes silent after its first poll: its own governance writes advance the read cursor past the events it should see (zero findings in 15 iterations) |
+| `ORPHAN-HIGH-346` | HIGH | the banned-phrase hard-reject check reads keys the production envelope never has — 11 of 12 banned phrases present, `hits: []`, on 100% of submissions |
+| `ORPHAN-MEDIUM-347` | MEDIUM | Architecture Spine Gate drops unreadable files from the violation count; deleting `apps/`+`libs/` scores as improvement (latent) |
+| `ORPHAN-HIGH-348` | HIGH | **the publication integrity gate added in this session covers only a fraction of the declared state surfaces** |
+| `ORPHAN-HIGH-349` | HIGH | the daily report can never be staged — `.gitignore` excludes the parent directory, so no chain-tip anchor has been committed since 2026-05-08 |
+
+### `ORPHAN-HIGH-348` corrects a claim made in this same session
+
+The `ORPHAN-HIGH-339` commit message says publication is now fail-closed. That is true only for the
+surfaces `integrity verify` actually hashes. `STATE_SURFACES` declares **160** surfaces while
+`covered_tool_ledgers()` returns a small subset — 4 in a bare tree, ~28 once conditional files
+exist. Uncovered surfaces include `enterprise_acceptance_events`, `autonomy_state`,
+`cost_attribution`, `cost_budget`, `cost_telemetry` and `handoffs`. A cycle killed mid-append to any
+of those still yields `status: ok`, so `state_valid=true` and the damaged tree is published under the
+canonical name with `overwrite: true`, destroying the last good copy.
+
+So the gate is a real improvement over the unconditional `if: always()` upload it replaced, and it is
+**not** the full guarantee the commit implied. Closing 348 means extending coverage to every declared
+surface, which is the same work as P1-01.
+
+`ORPHAN-HIGH-349` also explains a data point visible from the start and not chased: the newest daily
+anchor tracked in git is `2026-05-08.md`.
+
+### What the hunt did not cover
+
+Recorded because an unexamined area is the finding most likely to be missed next: live-but-wrong
+arithmetic (threshold direction in `detect_drift`, tier mapping in `triage.py`, promotion arithmetic,
+`judge_calibration` scoring); concurrency and TOCTOU (`file_lock`, lease TTL versus in-flight
+subprocess, a manual `autonomy run` racing the cron); chain verification on the read paths that gate
+decisions; token scope and the `is_gh_api_path_forbidden` denylist, credited as a control and never
+bypass-tested; prompt injection through repo content, finding text and PR bodies into agent prompts;
+cost and resource exhaustion; crash recovery and idempotency; clock and artifact-expiry effects on
+cumulative counters. `auto_merge.py`, `merge_authority.py` and `pr_manager.py` were read only to
+prove a negative, so their own gating logic remains untested. One candidate — `runner_attestation.py`,
+a self-attested `sandbox_available` with no production caller, sitting directly on top of 342 — was
+found and not written up.
+
+The method gap worth fixing: the caller census was a one-level AST scan classifying test versus
+production by path. It did not resolve `python3 -m aria_kernel <subcommand>` strings inside workflow
+YAML, nor compute reachability from real entrypoints — a symbol with one production caller that is
+itself unreachable still counts as wired. The Tier-3 generalisation of 342/343/344 is a CI check that
+diffs the gates *declared* in the plan and policy documents against the set actually reachable from
+an entrypoint.
+
+## 9. Limits of this verification
 
 * The live GitHub Actions artifact was not re-downloaded. Every figure the report cited was instead
   explained from source (21/21 bridge `skipped` ⇒ P1-06; 0 tool runs ⇒ NoOp implementer; 13

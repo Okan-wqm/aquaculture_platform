@@ -155,6 +155,31 @@ test('ORPHAN_HEADING_REGEX rejects H1 / H3 headings (only H2)', () => {
   );
 });
 
+test('ORPHAN_HEADING_REGEX matches the forms the narrow pattern skipped', () => {
+  // These are all real headings in docs/reviews/orphan-findings.md. The
+  // previous ORPHAN-(CRITICAL|HIGH|MEDIUM|LOW)-\d{3} pattern matched
+  // none of them, so 16 occupied sequences looked free to the ID
+  // allocator — which is how nineteen IDs were minted onto findings
+  // that already existed.
+  for (const [line, expected] of [
+    ['## ORPHAN-001 — pre-severity era heading', 'ORPHAN-001'],
+    ['## ORPHAN-063 — pre-severity era heading', 'ORPHAN-063'],
+    ['## ORPHAN-INFO-363 — a severity the registry does not use', 'ORPHAN-INFO-363'],
+    ['## ORPHAN-LOW-337b — a suffixed re-open', 'ORPHAN-LOW-337b'],
+  ] as const) {
+    const m = ORPHAN_HEADING_REGEX.exec(line);
+    assert.notStrictEqual(m, null, `failed to match: ${line}`);
+    assert.strictEqual(m?.[1], expected);
+  }
+});
+
+test('ORPHAN_HEADING_REGEX captures the bare sequence for the allocator', () => {
+  // Group 2 is what makes a markdown-held sequence visible to
+  // nextFindingId; severity and suffix must be discarded.
+  assert.strictEqual(ORPHAN_HEADING_REGEX.exec('## ORPHAN-LOW-337b — x')?.[2], '337');
+  assert.strictEqual(ORPHAN_HEADING_REGEX.exec('## ORPHAN-416 — x')?.[2], '416');
+});
+
 // ---------------------------------------------------------
 // REQUIRE_CLOSES_TYPES
 // ---------------------------------------------------------
@@ -293,6 +318,31 @@ test('validateCommit: ORPHAN-* trailer routes to orphan-IDs (passes when present
   assert.match(
     violations[0]?.reason ?? '',
     /missing review file/,
+  );
+});
+
+test('validateCommit: ORPHAN-* trailer resolves against the REGISTRY too', () => {
+  // The lane is a union. An ORPHAN ID minted into the hash-chained
+  // registry used to resolve against neither store — not the registry,
+  // because the ORPHAN prefix routed away from it, and not the markdown,
+  // because it was never written there. Eleven ledger ORPHAN IDs were
+  // already unreferenceable this way.
+  const commit: Commit = {
+    sha: 'abc123',
+    shortSha: 'abc123',
+    subject: 'fix(gates): close a registry-held orphan finding',
+    body: 'body\n\nCloses: CLAUDE.md#ORPHAN-CRITICAL-333',
+  };
+  const violations = validateCommit(
+    commit,
+    new Set(['ORPHAN-CRITICAL-333']), // registryIds
+    new Set(), // orphanIds — markdown knows nothing about it
+    NEVER_PRE_GATE,
+  );
+  assert.strictEqual(
+    violations.length,
+    0,
+    `expected the registry to satisfy the ORPHAN lane, got: ${JSON.stringify(violations)}`,
   );
 });
 

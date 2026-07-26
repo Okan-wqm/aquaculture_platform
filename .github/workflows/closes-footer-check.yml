@@ -60,6 +60,15 @@ jobs:
         # workspace graph needs legacy peer fallback.
         run: npm ci --ignore-scripts --no-audit
 
+      # The gate's own unit tests. They existed but ran in no workflow and
+      # in no hook, so the resolver could disagree with the ID allocator
+      # about which finding IDs exist and nothing said so. A gate whose
+      # tests never execute is a gate whose behaviour is unpinned.
+      - name: "Gate self-tests (resolver + ID allocator)"
+        run: |
+          npm run gates:commit-msg:test
+          npm run gates:finding-registry:test
+
       - name: "Validate Closes trailers"
         run: npx ts-node --project tools/gates/tsconfig.json tools/gates/commit-msg-validator.ts --mode=range "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"
 

@@ -38,6 +38,11 @@ import { execFileSync, execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import {
+  ORPHAN_MD_HEADING_REGEX,
+  readOrphanMarkdownStore,
+} from './finding-registry-store';
+
 // Resolve repo root via `git rev-parse --show-toplevel`
 // (Batch #349) — switched away from
 // `dirname(fileURLToPath(import.meta.url))` because the
@@ -330,26 +335,29 @@ function loadRegistryIds(): Set<string> {
  * non-ORPHAN trailers continue to validate against the
  * registry as before.
  *
- * **Parser shape:** scans for `^## (ORPHAN-{SEV}-NNN)`
- * headings. The orphan-findings.md format is documented
- * at the file's top + has been stable since the doc was
- * established. A future restructure that breaks the
- * heading convention also fails the orphan-findings
- * structural tests (out-of-band).
+ * **Parser shape:** scans for `^## (ORPHAN-…-NNN)` headings via the
+ * shared `ORPHAN_MD_HEADING_REGEX`, which also owns the pattern the ID
+ * allocator uses. One pattern, two consumers, on purpose.
+ *
+ * **The lane is a UNION, not markdown-only.** The paragraph above is
+ * still true — orphan findings do live in markdown — but it was being
+ * read as "and nowhere else", which was wrong and this gate's own error
+ * message contradicted it by telling the author that "Finding IDs live
+ * in: docs/reviews/_registry/findings.jsonl". An ORPHAN ID minted into
+ * the hash-chained registry resolved against neither store: not the
+ * registry, because the ORPHAN prefix routed away from it, and not the
+ * markdown, because it was never written there. Eleven ledger ORPHAN IDs
+ * were already unreferenceable this way before the change that exposed
+ * it. An ORPHAN trailer now resolves if EITHER store knows the ID.
  */
 const ORPHAN_FINDINGS_PATH = resolve(REPO_ROOT, 'docs/reviews/orphan-findings.md');
 
-const ORPHAN_HEADING_REGEX = /^##\s+(ORPHAN-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d{3})\b/;
+/** Re-exported under the historical name; the pattern itself is shared
+ * with the allocator so the two cannot drift apart. */
+const ORPHAN_HEADING_REGEX = ORPHAN_MD_HEADING_REGEX;
 
 function loadOrphanIds(): Set<string> {
-  if (!existsSync(ORPHAN_FINDINGS_PATH)) return new Set();
-  const ids = new Set<string>();
-  const content = readFileSync(ORPHAN_FINDINGS_PATH, 'utf8');
-  for (const line of content.split('\n')) {
-    const m = ORPHAN_HEADING_REGEX.exec(line);
-    if (m && m[1]) ids.add(m[1]);
-  }
-  return ids;
+  return new Set(readOrphanMarkdownStore(ORPHAN_FINDINGS_PATH).ids);
 }
 
 function extractTrailers(body: string): Trailer[] {
@@ -512,11 +520,11 @@ function validateCommit(
         }
       }
     } else if (findingId.startsWith('ORPHAN-')) {
-      if (!orphanIds.has(findingId)) {
+      if (!orphanIds.has(findingId) && !registryIds.has(findingId)) {
         out.push({
           sha: commit.shortSha,
           subject: commit.subject,
-          reason: `Closes: trailer references unknown ORPHAN finding ID: ${findingId} (no matching "## ${findingId}" heading in docs/reviews/orphan-findings.md)`,
+          reason: `Closes: trailer references unknown ORPHAN finding ID: ${findingId} (no matching "## ${findingId}" heading in docs/reviews/orphan-findings.md, and no such id in docs/reviews/_registry/findings.jsonl)`,
         });
       }
     } else if (!registryIds.has(findingId)) {

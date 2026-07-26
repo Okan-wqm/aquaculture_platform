@@ -453,7 +453,43 @@ four zero-caller policy functions, a non-existent function the orchestrator call
 independence layers that cannot fire. The suite is large and it passes; it does not test whether the
 pieces are wired to each other.
 
-## 8. Limits of this verification
+## 8. The traceability machinery itself was broken (`ORPHAN-HIGH-417`)
+
+Found while trying to make this session's own fix commits pass the `Closes:` gate, which is the
+only reason it was found at all: the defect is invisible until you mint a finding and reference it.
+
+Two halves, both reproduced directly.
+
+**The allocator was blind to half its own identifier space.** `tools/gates/finding-registry.ts`
+built `existingIds` from the hash-chained registry plus the reservation ledger, and never from
+`docs/reviews/orphan-findings.md` — which allocates from the same ORPHAN sequence. The registry's
+ORPHAN maximum was **332** while the markdown store was already at **416**. So the allocator handed
+out 333, then 334, and so on: nineteen identifiers that already named live findings.
+
+```
+nextFindingId('ORPHAN','HIGH', registryIds)                    -> ORPHAN-HIGH-333   (pre-fix)
+nextFindingId('ORPHAN','HIGH', registryIds + markdownSequences) -> ORPHAN-HIGH-417   (post-fix)
+```
+
+Eight of the nineteen collided exactly — 337, 338, 340, 341, 344, 347, 349, 350 — so commit trailers
+citing them **resolved, to the wrong finding.** That is worse than failing: a green gate asserting a
+false link. Eleven differed only in severity, so they failed to resolve and turned the gate red,
+which is how the whole thing surfaced.
+
+**The resolver was blind to the other half.** `validateCommit` routed every `ORPHAN-`prefixed trailer
+to the markdown store and never consulted the registry — while the gate's own failure message told
+the author that "Finding IDs live in: `docs/reviews/_registry/findings.jsonl`". Eleven ledger ORPHAN
+IDs were already unreferenceable this way **before this session touched anything**.
+
+A third contributor: `ORPHAN_HEADING_REGEX` demanded a `CRITICAL|HIGH|MEDIUM|LOW` segment and exactly
+three digits, so it skipped 16 real headings (`ORPHAN-001..013`, `ORPHAN-063`, `ORPHAN-INFO-363`,
+`ORPHAN-LOW-337b`). Every heading it could not see was a sequence the allocator believed free.
+
+The fix puts the pattern and its reader in one place — `finding-registry-store.ts` — read by both the
+allocator and the resolver, so the two cannot drift again, and wires the gate's own unit tests into
+CI, where they had never run.
+
+## 9. Limits of this verification
 
 * The live GitHub Actions artifact was not re-downloaded. Every figure the report cited was instead
   explained from source (21/21 bridge `skipped` ⇒ P1-06; 0 tool runs ⇒ NoOp implementer; 13

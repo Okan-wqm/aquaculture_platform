@@ -374,6 +374,59 @@ export function atomicWriteRegistryFile(
   atomicWriteFileWithRegistryLease(resourcePath, content, lease);
 }
 
+/** H2 heading pattern for the markdown orphan-findings store.
+ *
+ * `docs/reviews/orphan-findings.md` is a finding store in its own right
+ * and it allocates from the SAME ORPHAN sequence space as the
+ * hash-chained registry. Both the commit-msg resolver and the ID
+ * allocator have to read it, so the pattern and its reader live here:
+ * two private copies drift, and a sequence one copy cannot see is a
+ * sequence the allocator hands out a second time.
+ *
+ * Deliberately broader than the registry's own severity-qualified ID
+ * form, because the file really contains `## ORPHAN-001` (pre-severity
+ * era), `## ORPHAN-INFO-363` (a severity the registry does not use) and
+ * `## ORPHAN-LOW-337b` (a suffixed re-open). The narrower
+ * `ORPHAN-(CRITICAL|HIGH|MEDIUM|LOW)-\d{3}` form skipped 16 real
+ * headings — every one of them a sequence the allocator believed free.
+ */
+export const ORPHAN_MD_HEADING_REGEX = /^##\s+(ORPHAN-(?:[A-Z]+-)?(\d{3})[a-z]?)\b/;
+
+export interface OrphanMarkdownStore {
+  /** Full IDs exactly as written in the headings. */
+  readonly ids: ReadonlySet<string>;
+  /** Numeric sequences, severity and suffix discarded. */
+  readonly sequences: ReadonlySet<number>;
+}
+
+/** Reads the markdown orphan store. Missing file is empty, not an error. */
+export function readOrphanMarkdownStore(path: string): OrphanMarkdownStore {
+  const ids = new Set<string>();
+  const sequences = new Set<number>();
+  if (!existsSync(path)) return { ids, sequences };
+  for (const line of readFileSync(path, 'utf8').split('\n')) {
+    const match = ORPHAN_MD_HEADING_REGEX.exec(line);
+    if (!match?.[1] || !match[2]) continue;
+    ids.add(match[1]);
+    sequences.add(Number.parseInt(match[2], 10));
+  }
+  return { ids, sequences };
+}
+
+/** Markdown-held sequences, rendered in a form `nextFindingId` can see.
+ *
+ * `nextFindingId` extracts a sequence with `^<DOMAIN>-[A-Z0-9]+-(\d{3})$`,
+ * so a bare `ORPHAN-001` or a suffixed `ORPHAN-LOW-337b` is invisible to
+ * it even when handed over. Re-using the `-RESERVED-` synthetic form that
+ * the reservation ledger already feeds it keeps one convention rather
+ * than teaching the allocator a second ID grammar.
+ */
+export function orphanMarkdownReservedIds(path: string): string[] {
+  return [...readOrphanMarkdownStore(path).sequences].map(
+    (sequence) => `ORPHAN-RESERVED-${String(sequence).padStart(3, '0')}`,
+  );
+}
+
 export function nextFindingId(
   domain: string,
   severity: FindingSeverity,

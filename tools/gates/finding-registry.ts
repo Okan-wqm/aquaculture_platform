@@ -75,6 +75,7 @@ import {
   atomicWriteFileWithRegistryLease,
   atomicWriteRegistryFile,
   nextFindingId,
+  orphanMarkdownReservedIds,
   RegistryLockError,
   type RegistryLockLease,
   withRegistryFileLock,
@@ -101,6 +102,7 @@ const SCHEMA_PATH = resolve(
   '_registry',
   'findings.jsonl.schema.json',
 );
+const ORPHAN_FINDINGS_MD_PATH = resolve(REPO_ROOT, 'docs', 'reviews', 'orphan-findings.md');
 const ZERO_HASH = '0'.repeat(64);
 
 export interface RegistryPaths {
@@ -540,6 +542,16 @@ export function appendAllocatedFinding(
   const reservationLedger = authority ? loadReservationLedger(authority.reservationPath) : null;
   const existingIds = entries.map((entry) => entry.id);
   if (authority) existingIds.push(...idsFromActiveRegistries(authority));
+  // The markdown orphan store allocates from the same ORPHAN sequence
+  // space as this registry, and the allocator could not see it. That is
+  // not cosmetic: at the time this was found the registry's ORPHAN
+  // maximum was 332 while orphan-findings.md was already at 416, so the
+  // next nineteen IDs handed out (333-351) all named findings that
+  // already existed. Eight collided exactly, and their commit trailers
+  // resolved — to the wrong finding.
+  if (domain === 'ORPHAN') {
+    existingIds.push(...orphanMarkdownReservedIds(ORPHAN_FINDINGS_MD_PATH));
+  }
   const reserved = reservationLedger?.domains[domain];
   if (reserved) {
     existingIds.push(`${domain}-RESERVED-${String(reserved.sequence).padStart(3, '0')}`);

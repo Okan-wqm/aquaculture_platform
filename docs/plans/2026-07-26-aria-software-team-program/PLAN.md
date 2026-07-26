@@ -111,11 +111,13 @@ Nothing may write code before the box exists.
   refused spawn cannot write code either.
 * **Done:** gate split `GATE_PRE_PR_OPEN` / `GATE_PRE_MERGE`, with `HardFailCheck.gate` defaulting
   to `pre_merge` so an unclassified check lands in the unsatisfiable gate.
-* **Remaining:** `ORPHAN-CRITICAL-343` phase A — 5 mechanical pre-PR-open checks
-  (`no_force_push` refspec pattern, `no_no_verify` flag denial,
-  `kernel_self_modification_blocked_at_envelope_mint` set intersection,
-  `test_gate_canonical_suite` list containment, `pr_body_templating` render).
-* **Remaining:** make the suite signal trustworthy — see Verification.
+* **Done:** `ORPHAN-CRITICAL-343` phase A — the 5 mechanical pre-PR-open checks are implemented and
+  bound (`no_force_push` refspec-aware, `no_no_verify` incl. the short `-n` form the argv denylist
+  misses, `kernel_self_modification_blocked_at_envelope_mint` lexical set intersection at mint time,
+  `test_gate_canonical_suite` containment, `pr_body_templating` sections + Trojan-Source + comment
+  ban). All 10 pre-PR-open checks now have real implementations; all 7 remaining
+  `_not_implemented` entries are `pre_merge`.
+* **Done:** the suite signal is trustworthy — `ORPHAN-HIGH-350`, see Verification.
 * **Exit evidence:** `run_hard_fail_checks(ctx, gate=GATE_PRE_PR_OPEN).passed` is True for a clean
   action and False for each of: kernel-path write, secret in diff, forbidden gh-api path, disallowed
   bash command, path escape. `sandbox_backend()` non-None on the runner.
@@ -358,8 +360,8 @@ Updated with the commit that causes the change. `~` = in progress.
 
 | Stage | Status | Exit evidence present? | Last updated |
 |---|---|---|---|
-| S0 Containment | `~` in progress | no — 343 phase A outstanding | 2026-07-26 |
-| S1 Draft-PR capable | not started | no | 2026-07-26 |
+| S0 Containment | **exited** | yes — see log 2026-07-26 (S0 exit) | 2026-07-26 |
+| S1 Draft-PR capable | `~` next | no | 2026-07-26 |
 | S2 Supervised merge | not started | no | 2026-07-26 |
 | S3 Autonomous merge | not started | no | 2026-07-26 |
 | S4 Deploy + canary + rollback | not started | no | 2026-07-26 |
@@ -377,8 +379,9 @@ Updated with the commit that causes the change. `~` = in progress.
 | `ORPHAN-CRITICAL-342` sandbox bound to spawn path | S0 | done | `873f038f8` |
 | `ORPHAN-CRITICAL-343` registry executable, fails closed on unbuilt checks | S0 | partial | `f46324323` |
 | Gate split `pre_pr_open` / `pre_merge` | S0 | done | `a4197533a` |
-| `ORPHAN-CRITICAL-343` phase A — 5 mechanical pre-PR-open checks | S0 | open | — |
 | `ORPHAN-HIGH-350` hermetic git env for the test suite | S0 | done | see log |
+| `ORPHAN-CRITICAL-343` phase A — 5 mechanical pre-PR-open checks | S0 | done | see log |
+| `ORPHAN-MEDIUM-351` no mutation/coverage gate exists to require | S1+ | open | — |
 | `ORPHAN-HIGH-349` `.gitignore` negation | S1 entry, operator | open | — |
 | `ORPHAN-CRITICAL-334` single job graph + contract + credential + token path | S1 | open | — |
 | `P0-03` real implementer + `task.py` entry point | S1 | open | — |
@@ -416,3 +419,32 @@ Updated with the commit that causes the change. `~` = in progress.
 * Before/after verified directly: without the env, a bare `git init` resolves `commit.gpgsign=true`
   and `gpg.ssh.program=/tmp/code-sign`; with it, `false` and unset.
 * Suite: 2763 tests, OK (34 skipped).
+
+### 2026-07-26 — S0 exit: the pre-PR-open perimeter is real (`ORPHAN-CRITICAL-343` phase A)
+
+* Five checks implemented and bound. Two are not the duplicates they look like:
+  `kernel_self_modification_blocked_at_envelope_mint` is a purely lexical set intersection over the
+  envelope's declared `affected_surfaces`, which is what makes it usable at mint time when no
+  workspace exists yet; `forbidden_scope_normalized` resolves real paths through a workspace and
+  fails for want of a root at that point. A test asserts exactly that difference, so a later reader
+  cannot "simplify" one away.
+* `no_no_verify` earns its place beside the argv denylist by catching `git commit -n` — the short
+  form of `--no-verify`, which the denylist's literal-flag regex does not match.
+* One grammar for an ARIA branch (`ARIA_IMPL_BRANCH_FRAGMENT`) now backs both the argv allowlist and
+  the refspec check, with a test asserting the two agree. Two encodings would have drifted and the
+  looser one would have been the real perimeter.
+* **Policy correction, not a narrowing:** the registry described the canonical suite as "nx affected,
+  type-check, mutation, coverage". This repo has no mutation-testing and no coverage target, so that
+  gate could never have passed — it was invisible only because the check bound `_not_implemented` and
+  failed for that reason instead. Implemented against the three commands that exist, description
+  corrected to say so, and the real gap registered as `ORPHAN-MEDIUM-351` (owner okan, deadline
+  2026-09-06) rather than dropped.
+* **S0 exit evidence, asserted rather than described:** `TestPhaseAGateExitCriterion` proves the
+  pre-PR-open gate passes for a clean action, refuses each of 8 named violations by the *expected
+  check name*, and that the pre-merge gate still cannot pass — every one of its failures being
+  `check_not_implemented`. Merge therefore stays closed by the perimeter itself, with no flag to
+  forget. When phase B lands, that last test must be rewritten deliberately.
+* Suite: 2789 tests, OK (34 skipped). `aria:compile` clean.
+* **Not done in S0, stated plainly:** `sandbox_backend()` is still None in this container (no
+  `bwrap`, no `firejail`), so write-capable spawns are refused rather than confined. Installing a
+  backend is an S1 runner prerequisite — a refused spawn cannot write code either.

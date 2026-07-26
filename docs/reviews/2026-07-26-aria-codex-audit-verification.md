@@ -554,6 +554,26 @@ corrected here rather than by rewriting history, since force-push is forbidden:
 implementations and the two call sites land. Autonomous merge stays closed until then. Read
 `f46324323` as "partial progress on 343", never as a closure of anything.
 
+**Phase A update.** The five mechanical pre-PR-open checks now have real implementations, so all ten
+`pre_pr_open` entries are executable and the seven still bound to `_not_implemented` are exactly the
+`pre_merge` set. Two things surfaced while building them, both worth recording because they change
+what the registry means:
+
+* `kernel_self_modification_blocked_at_envelope_mint` and `forbidden_scope_normalized` are **not**
+  duplicates, and a reader who assumes they are would delete the wrong one. The mint check is purely
+  lexical over the envelope's declared `affected_surfaces` — no filesystem — which is precisely why
+  it works at mint time; the scope check resolves real paths through a workspace and returns
+  `workspace_root_absent` at that point. A test asserts the difference directly.
+* The registry described the canonical validation suite as "nx affected, type-check, mutation,
+  coverage". This repository has **no** mutation-testing script and **no** coverage target, so that
+  gate could never have been satisfied. It was invisible because the check bound `_not_implemented`
+  and failed for that reason instead — an unsatisfiable requirement hiding behind an unbuilt one.
+  The check is implemented against the three commands that exist and the description corrected to
+  match; the genuine platform gap is registered as `ORPHAN-MEDIUM-351` rather than dropped.
+
+`343` remains OPEN: the seven pre-merge checks and the two call sites
+(`pr_manager.open_pr_for_action`, `auto_merge.merge_if_green`) are phase B, stage S2.
+
 ### What the hunt did not cover
 
 Recorded because an unexamined area is the finding most likely to be missed next: live-but-wrong

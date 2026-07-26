@@ -44,6 +44,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from .text_safety import contains_bidi_or_control
+
 
 # =============================================================================
 # Constants — closed sets pinned by I-V9-IMMUTABLE-01 + I-V9-BASH-01 + I-V9-GH-01
@@ -89,6 +91,13 @@ READONLY_PATHS: tuple[str, ...] = (
 # spaces and tests the resulting string against each pattern; the
 # first match wins. Order is irrelevant (set semantics) but each
 # pattern MUST anchor at ^ to prevent partial-match smuggling.
+
+# The one grammar for an ARIA implementation branch. Both the argv
+# allowlist below and the refspec-aware ``no_force_push`` check build on
+# this fragment, so "what counts as an ARIA branch" cannot drift between
+# the command ARIA is allowed to run and the ref it is allowed to write.
+ARIA_IMPL_BRANCH_FRAGMENT: str = r"aria-impl-[a-f0-9]{6,32}"
+
 ALLOWED_BASH_COMMANDS: frozenset[re.Pattern[str]] = frozenset({
     re.compile(r"^(?:/[\w./-]+/)?python3?(\.\d+)?\s+[\w./-]+\.py(\s+\S+)*\s*$"),
     re.compile(r"^(?:/[\w./-]+/)?python3?(\.\d+)?\s+-m\s+unittest(\s+\S+)*\s*$"),
@@ -99,7 +108,7 @@ ALLOWED_BASH_COMMANDS: frozenset[re.Pattern[str]] = frozenset({
     re.compile(r"^git\s+log(\s+\S+)*\s*$"),
     re.compile(r"^git\s+status(\s+\S+)*\s*$"),
     re.compile(r"^git\s+rev-parse(\s+\S+)*\s*$"),
-    re.compile(r"^git\s+push\s+origin\s+aria-impl-[a-f0-9]{6,32}(\s+\S+)*\s*$"),
+    re.compile(rf"^git\s+push\s+origin\s+{ARIA_IMPL_BRANCH_FRAGMENT}(\s+\S+)*\s*$"),
     re.compile(r"^gh\s+pr\s+create\s+--base\s+main(\s+\S+)*\s*$"),
     re.compile(r"^gh\s+pr\s+checks(\s+\S+)*\s*$"),
     re.compile(r"^gh\s+pr\s+view(\s+\S+)*\s*$"),
@@ -622,6 +631,7 @@ class HardFailContext:
     affected_paths: tuple[str, ...] = ()
     validation_commands: tuple[str, ...] = ()
     base_branch: str | None = None
+    pr_body: str | None = None
 
 
 @dataclass(frozen=True)
@@ -796,6 +806,186 @@ def _check_forbidden_scope_normalized(context: HardFailContext) -> HardFailResul
     return _passed(name)
 
 
+# ORPHAN-CRITICAL-343 phase A — the five mechanical pre-PR-open checks.
+#
+# Each one is deliberately narrow and total: it inspects declared fields
+# of the pending action and returns a verdict without touching the
+# network, the clock or a subprocess. That is what makes them the phase
+# that can land before the queue exists — nothing about them depends on
+# ARIA being able to run.
+#
+# Where a check overlaps DENIED_BASH_COMMANDS, the overlap is the point.
+# The denylist guards a command ARIA is about to execute; these guard the
+# action ARIA has declared. An action can declare a push refspec without
+# ever assembling an argv, and the perimeter must refuse it either way.
+
+_ARIA_IMPL_BRANCH_RE: re.Pattern[str] = re.compile(
+    rf"^{ARIA_IMPL_BRANCH_FRAGMENT}$"
+)
+_HOOK_BYPASS_FLAGS: frozenset[str] = frozenset({
+    "--no-verify",
+    "--no-gpg-sign",
+    "--no-post-rewrite",
+})
+_HOOKS_PATH_KEY = "core.hookspath"
+
+# The canonical validation suite an implementation MUST declare.
+#
+# CLAUDE.md mandates `nx affected --target=test` + `nx affected
+# --target=lint` before any commit, and `npm run type-check` is the
+# platform-wide type gate. The registry description for this check also
+# named "mutation" and "coverage"; this repository has no mutation-
+# testing and no coverage target (there is no such npm script and no nx
+# target), so requiring them would make the gate permanently
+# unsatisfiable and S0 unexitable. Requiring what does not exist is not
+# strictness, it is a gate that can only ever be bypassed.
+#
+# The absence is tracked as ORPHAN-MEDIUM-351 (owner okan, deadline
+# 2026-09-06) rather than silently dropped, and the registry description
+# is corrected to match what is enforced.
+CANONICAL_VALIDATION_COMMANDS: tuple[str, ...] = (
+    "nx affected --target=test",
+    "nx affected --target=lint",
+    "npm run type-check",
+)
+
+
+def _normalize_declared_path(raw: str) -> str:
+    """Collapse a declared surface to a comparable repo-relative form.
+
+    Purely lexical: this runs at envelope-mint time, where the paths are
+    a declaration of intent and may not exist on any filesystem yet.
+    """
+    text = str(raw).strip().replace("\\", "/")
+    while text.startswith("./"):
+        text = text[2:]
+    return text.strip("/")
+
+
+def _check_no_force_push(context: HardFailContext) -> HardFailResult:
+    name = "no_force_push"
+    if not context.push_refspecs:
+        return _passed(name, "no_push_refspec_in_action")
+    for raw in context.push_refspecs:
+        refspec = str(raw).strip()
+        if not refspec:
+            return _failed(name, "empty_refspec")
+        if refspec.startswith("+"):
+            return _failed(name, f"force_refspec:{refspec}")
+        lowered = refspec.lower()
+        for flag in ("--force-with-lease", "--force", "-f"):
+            if flag in lowered.split():
+                return _failed(name, f"force_flag_in_refspec:{refspec}")
+        source, _, destination = refspec.partition(":")
+        if not source:
+            # ``:refs/heads/x`` deletes the remote ref.
+            return _failed(name, f"ref_deletion:{refspec}")
+        target = destination or source
+        branch = target[len("refs/heads/"):] if target.startswith("refs/heads/") else target
+        if not _ARIA_IMPL_BRANCH_RE.match(branch):
+            return _failed(name, f"non_aria_impl_ref:{target}")
+    return _passed(name)
+
+
+def _check_no_no_verify(context: HardFailContext) -> HardFailResult:
+    name = "no_no_verify"
+    if not context.bash_argv:
+        return _passed(name, "no_bash_command_in_action")
+    argv = [str(token) for token in context.bash_argv]
+    is_commit = argv[:2] == ["git", "commit"]
+    for index, token in enumerate(argv):
+        lowered = token.lower()
+        if lowered in _HOOK_BYPASS_FLAGS:
+            return _failed(name, f"hook_bypass_flag:{token}")
+        # `git commit -n` is --no-verify; so is any bundled short form
+        # such as `-an`. Only meaningful for commit.
+        if (
+            is_commit
+            and lowered.startswith("-")
+            and not lowered.startswith("--")
+            and "n" in lowered[1:]
+        ):
+            return _failed(name, f"hook_bypass_flag:{token}")
+        if _HOOKS_PATH_KEY in lowered:
+            return _failed(name, f"hooks_path_override:{token}")
+        # `-c core.hooksPath=...` splits across two argv entries when the
+        # caller passes the key separately.
+        if lowered in {"-c", "--config"} and index + 1 < len(argv):
+            if _HOOKS_PATH_KEY in argv[index + 1].lower():
+                return _failed(name, f"hooks_path_override:{argv[index + 1]}")
+    return _passed(name)
+
+
+def _check_kernel_self_modification_at_mint(
+    context: HardFailContext,
+) -> HardFailResult:
+    name = "kernel_self_modification_blocked_at_envelope_mint"
+    envelope = context.envelope
+    if not isinstance(envelope, dict):
+        # Fail closed: the mint-time declaration is the thing being
+        # checked, so its absence is an unverified action, not a clean
+        # one. This is why the check sits at mint rather than reusing
+        # forbidden_scope_normalized, which resolves paths through a
+        # filesystem that does not exist yet.
+        return _failed(name, "envelope_absent")
+    declared = envelope.get("affected_surfaces")
+    if declared is None:
+        return _failed(name, "affected_surfaces_absent")
+    if not isinstance(declared, (list, tuple)):
+        return _failed(name, "affected_surfaces_not_a_sequence")
+    for raw in declared:
+        surface = _normalize_declared_path(raw)
+        if not surface:
+            return _failed(name, "empty_declared_surface")
+        if ".." in surface.split("/"):
+            return _failed(name, f"traversal_in_declared_surface:{raw}")
+        for readonly in READONLY_PATHS:
+            ro = readonly.rstrip("/")
+            if surface == ro or surface.startswith(ro + "/"):
+                return _failed(name, f"readonly_surface_declared:{surface}")
+    return _passed(name)
+
+
+def _check_test_gate_canonical_suite(context: HardFailContext) -> HardFailResult:
+    name = "test_gate_canonical_suite"
+    if not context.validation_commands:
+        return _failed(name, "validation_commands_absent")
+    declared = " \n".join(
+        " ".join(str(command).split()) for command in context.validation_commands
+    )
+    missing = [
+        required for required in CANONICAL_VALIDATION_COMMANDS
+        if required not in declared
+    ]
+    if missing:
+        return _failed(name, "missing_canonical_commands:" + ",".join(missing))
+    return _passed(name)
+
+
+def _check_pr_body_templating(context: HardFailContext) -> HardFailResult:
+    name = "pr_body_templating"
+    body = context.pr_body
+    if body is None:
+        return _failed(name, "pr_body_absent")
+    if not body.strip():
+        return _failed(name, "pr_body_empty")
+    if contains_bidi_or_control(body):
+        # Trojan Source (CVE-2021-42574): a bidi override makes the
+        # rendered PR body differ from what a reviewer's approval covers.
+        return _failed(name, "bidi_or_control_char_in_pr_body")
+    if "<!--" in body:
+        return _failed(name, "html_comment_in_pr_body")
+    from .pr_manager import REQUIRED_PR_SECTIONS
+
+    missing = [
+        section for section in REQUIRED_PR_SECTIONS
+        if f"## {section}" not in body
+    ]
+    if missing:
+        return _failed(name, "missing_sections:" + ",".join(missing))
+    return _passed(name)
+
+
 def run_hard_fail_checks(
     context: HardFailContext,
     *,
@@ -845,14 +1035,14 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         name="no_force_push",
         description="git push refspec-aware: only refs/heads/aria-impl-<hex16>",
         closes_findings=("sec-CRIT-002",),
-        check=_not_implemented("no_force_push"),
+        check=_check_no_force_push,
         gate=GATE_PRE_PR_OPEN,
     ),
     HardFailCheck(
         name="no_no_verify",
         description="--no-verify + core.hooksPath denial",
         closes_findings=("sec-CRIT-002",),
-        check=_not_implemented("no_no_verify"),
+        check=_check_no_no_verify,
         gate=GATE_PRE_PR_OPEN,
     ),
     HardFailCheck(
@@ -873,14 +1063,22 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         name="kernel_self_modification_blocked_at_envelope_mint",
         description="envelope-mint refuses when affected_surfaces ∩ READONLY_PATHS ≠ ∅",
         closes_findings=("ai-CRIT-005", "arb-CRIT-005"),
-        check=_not_implemented("kernel_self_modification_blocked_at_envelope_mint"),
+        check=_check_kernel_self_modification_at_mint,
         gate=GATE_PRE_PR_OPEN,
     ),
     HardFailCheck(
         name="test_gate_canonical_suite",
-        description="validation_commands[] MUST include canonical suite (nx affected, type-check, mutation, coverage)",
+        description=(
+            "validation_commands[] MUST include the canonical suite "
+            "(nx affected --target=test, nx affected --target=lint, "
+            "npm run type-check). Mutation + coverage were named in this "
+            "description before the check had an implementation; neither "
+            "target exists in this repository, so requiring them would "
+            "make the gate unsatisfiable rather than strict. Tracked as "
+            "ORPHAN-MEDIUM-351, not dropped."
+        ),
         closes_findings=("ai-HIGH-008",),
-        check=_not_implemented("test_gate_canonical_suite"),
+        check=_check_test_gate_canonical_suite,
         gate=GATE_PRE_PR_OPEN,
     ),
     HardFailCheck(
@@ -929,7 +1127,7 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         name="pr_body_templating",
         description="render_pr_body() with bidi-strip + comment-ban (Tier-2)",
         closes_findings=("ai-HIGH-012", "sec-HIGH-008"),
-        check=_not_implemented("pr_body_templating"),
+        check=_check_pr_body_templating,
         gate=GATE_PRE_PR_OPEN,
     ),
     HardFailCheck(
@@ -992,6 +1190,11 @@ __all__ = (
     "MAX_VALIDATION_RESULT_BYTES",
     "IMMUTABLE_AGENT_FILE_HASH_REGISTRY",
     "SECRET_SCAN_PATTERNS",
+    # ORPHAN-CRITICAL-343 phase A — one grammar for an ARIA branch, shared
+    # by the argv allowlist and the refspec check; and the canonical
+    # validation suite the test gate requires.
+    "ARIA_IMPL_BRANCH_FRAGMENT",
+    "CANONICAL_VALIDATION_COMMANDS",
     # exceptions
     "SecretLeakDetected",
     "PathEscape",

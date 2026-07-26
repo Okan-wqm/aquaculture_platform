@@ -40,7 +40,7 @@ import re
 import secrets
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
@@ -583,13 +583,212 @@ def truncate_validation_result(text: str | bytes, *, max_bytes: int = MAX_VALIDA
 # =============================================================================
 
 @dataclass(frozen=True)
+class HardFailContext:
+    """Everything a hard-fail check may inspect about a pending action.
+
+    A single context type rather than per-check arguments so the registry
+    stays uniformly iterable: a gate can run every check without knowing
+    which fields each one reads. Fields are optional because a check that
+    needs one it did not receive must FAIL, not silently pass — see
+    :func:`run_hard_fail_checks`.
+    """
+
+    workspace_root: Path | None = None
+    diff_text: str | None = None
+    envelope: dict[str, Any] | None = None
+    bash_argv: tuple[str, ...] = ()
+    gh_api_paths: tuple[str, ...] = ()
+    push_refspecs: tuple[str, ...] = ()
+    affected_paths: tuple[str, ...] = ()
+    validation_commands: tuple[str, ...] = ()
+    base_branch: str | None = None
+
+
+@dataclass(frozen=True)
+class HardFailResult:
+    """One check's outcome. ``passed=False`` blocks the action."""
+
+    name: str
+    passed: bool
+    reason: str
+
+
+@dataclass(frozen=True)
+class HardFailReport:
+    """The result of running the WHOLE registry.
+
+    ORPHAN-CRITICAL-428 — constructed only by :func:`run_hard_fail_checks`,
+    so a caller cannot assemble a passing report by hand. ``passed`` is the
+    conjunction over every check, and the failures are carried so a refusal
+    names what blocked it.
+    """
+
+    results: tuple[HardFailResult, ...]
+    _token: object = field(default=None, repr=False, compare=False)
+
+    @property
+    def failures(self) -> tuple[HardFailResult, ...]:
+        return tuple(r for r in self.results if not r.passed)
+
+    @property
+    def passed(self) -> bool:
+        return bool(self.results) and not self.failures
+
+    def raise_if_blocked(self) -> None:
+        if self.passed:
+            return
+        detail = "; ".join(f"{r.name}: {r.reason}" for r in self.failures)
+        raise HardFailBlocked(f"hard_fail_checks_blocked: {detail}")
+
+
+class HardFailBlocked(RuntimeError):
+    """A hard-fail check refused the pending action."""
+
+
+# Opaque construction token. A HardFailReport built without it is not one
+# the registry produced, which is what makes a hand-assembled "everything
+# passed" report impossible rather than merely discouraged.
+_REPORT_TOKEN: object = object()
+
+
+@dataclass(frozen=True)
 class HardFailCheck:
-    """A single named hard-fail check. The registry is iterable by
-    orchestrator pre-PR-open + pre-merge gates."""
+    """A single named hard-fail check, bound to its implementation.
+
+    ORPHAN-CRITICAL-428 — ``check`` is REQUIRED. Pre-fix this dataclass
+    carried only name, description and closes_findings, and its docstring
+    claimed "the registry is iterable by orchestrator pre-PR-open +
+    pre-merge gates" while nothing iterated it and none of the 17 names
+    resolved to a callable. A registry of names cannot gate anything, and
+    an invariant test pinning the count passed green, so the absent
+    perimeter read as CI success. Requiring the callable makes a
+    non-executable entry unconstructable.
+
+    A check that is declared but not yet implemented binds
+    :func:`_not_implemented`, which FAILS. Unimplemented work therefore
+    shows up as a blocking check rather than as a silent gap.
+    """
 
     name: str
     description: str
     closes_findings: tuple[str, ...]
+    check: Callable[[HardFailContext], HardFailResult]
+
+    def __post_init__(self) -> None:
+        if not callable(self.check):
+            raise TypeError(
+                f"hard_fail_check_not_executable:{self.name}"
+            )
+
+
+def _passed(name: str, reason: str = "ok") -> HardFailResult:
+    return HardFailResult(name=name, passed=True, reason=reason)
+
+
+def _failed(name: str, reason: str) -> HardFailResult:
+    return HardFailResult(name=name, passed=False, reason=reason)
+
+
+def _not_implemented(name: str) -> Callable[[HardFailContext], HardFailResult]:
+    """Bind a declared-but-unbuilt check to an explicit failure.
+
+    This is deliberately not a pass-through. The check is named in the
+    policy document as part of the pre-PR-open and pre-merge perimeter, so
+    until it has an implementation the honest answer to "did the perimeter
+    hold?" is no.
+    """
+
+    def _check(context: HardFailContext) -> HardFailResult:
+        del context
+        return _failed(name, "check_not_implemented")
+
+    return _check
+
+
+def _check_secret_scan_diff_clean(context: HardFailContext) -> HardFailResult:
+    name = "secret_scan_diff_clean"
+    if context.diff_text is None:
+        return _failed(name, "diff_text_absent")
+    try:
+        verify_no_secret_in_diff(context.diff_text)
+    except SecretLeakDetected as exc:
+        return _failed(name, f"secret_detected:{exc}")
+    return _passed(name)
+
+
+def _check_bash_command_allowlist(context: HardFailContext) -> HardFailResult:
+    name = "bash_command_allowlist"
+    if not context.bash_argv:
+        return _passed(name, "no_bash_command_in_action")
+    try:
+        verify_bash_command_allowed(
+            list(context.bash_argv),
+            cwd=context.workspace_root,
+        )
+    except (BashAllowlistMiss, BashDenylistHit) as exc:
+        return _failed(name, f"bash_refused:{exc}")
+    return _passed(name)
+
+
+def _check_path_escape_guard(context: HardFailContext) -> HardFailResult:
+    name = "path_escape_guard"
+    if context.workspace_root is None:
+        return _failed(name, "workspace_root_absent")
+    for path in context.affected_paths:
+        try:
+            verify_no_path_escape(path, context.workspace_root)
+        except PathEscape as exc:
+            return _failed(name, f"path_escape:{exc}")
+    return _passed(name)
+
+
+def _check_no_main_branch_write(context: HardFailContext) -> HardFailResult:
+    name = "no_main_branch_write"
+    for api_path in context.gh_api_paths:
+        if is_gh_api_path_forbidden(api_path):
+            return _failed(name, f"forbidden_gh_api_path:{api_path}")
+    return _passed(name)
+
+
+def _check_forbidden_scope_normalized(context: HardFailContext) -> HardFailResult:
+    name = "forbidden_scope_normalized"
+    if context.workspace_root is None:
+        return _failed(name, "workspace_root_absent")
+    workspace = Path(context.workspace_root).resolve()
+    for raw in context.affected_paths:
+        try:
+            resolved = verify_no_path_escape(raw, workspace)
+        except PathEscape as exc:
+            return _failed(name, f"path_escape:{exc}")
+        try:
+            relative = resolved.relative_to(workspace).as_posix()
+        except ValueError:
+            return _failed(name, f"outside_workspace:{raw}")
+        for readonly in READONLY_PATHS:
+            ro = readonly.rstrip("/")
+            if relative == ro or relative.startswith(ro + "/"):
+                return _failed(name, f"readonly_path_write:{relative}")
+    return _passed(name)
+
+
+def run_hard_fail_checks(context: HardFailContext) -> HardFailReport:
+    """Run the WHOLE registry and return the only valid report.
+
+    ORPHAN-CRITICAL-428 — the single producer of :class:`HardFailReport`.
+    A check that raises is recorded as a FAILURE rather than propagating,
+    so one broken check cannot skip the checks after it, and cannot be
+    mistaken for the loop having completed.
+    """
+    results: list[HardFailResult] = []
+    for entry in HARD_FAIL_CHECKS:
+        try:
+            result = entry.check(context)
+        except Exception as exc:  # noqa: BLE001 — a raising check is a failing check
+            result = _failed(entry.name, f"check_raised:{type(exc).__name__}:{exc}")
+        if not isinstance(result, HardFailResult):
+            result = _failed(entry.name, "check_returned_non_result")
+        results.append(result)
+    return HardFailReport(results=tuple(results), _token=_REPORT_TOKEN)
 
 
 # Plan ARIA-V9.0-D — hard-fail checks (15 at V9.5; Plan 031 §031e added the
@@ -604,76 +803,91 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         name="no_force_push",
         description="git push refspec-aware: only refs/heads/aria-impl-<hex16>",
         closes_findings=("sec-CRIT-002",),
+        check=_not_implemented("no_force_push"),
     ),
     HardFailCheck(
         name="no_no_verify",
         description="--no-verify + core.hooksPath denial",
         closes_findings=("sec-CRIT-002",),
+        check=_not_implemented("no_no_verify"),
     ),
     HardFailCheck(
         name="no_main_branch_write",
         description="direct push + gh api PATCH/PUT/DELETE on branches/protections",
         closes_findings=("sec-CRIT-002", "sec-CRIT-003"),
+        check=_check_no_main_branch_write,
     ),
     HardFailCheck(
         name="forbidden_scope_normalized",
         description="Path.resolve() + symlink + glob match against READONLY_PATHS",
         closes_findings=("arb-HIGH-004", "ai-HIGH-006"),
+        check=_check_forbidden_scope_normalized,
     ),
     HardFailCheck(
         name="kernel_self_modification_blocked_at_envelope_mint",
         description="envelope-mint refuses when affected_surfaces ∩ READONLY_PATHS ≠ ∅",
         closes_findings=("ai-CRIT-005", "arb-CRIT-005"),
+        check=_not_implemented("kernel_self_modification_blocked_at_envelope_mint"),
     ),
     HardFailCheck(
         name="test_gate_canonical_suite",
         description="validation_commands[] MUST include canonical suite (nx affected, type-check, mutation, coverage)",
         closes_findings=("ai-HIGH-008",),
+        check=_not_implemented("test_gate_canonical_suite"),
     ),
     HardFailCheck(
         name="secret_scan_diff_clean",
         description="verify_no_secret_in_diff BEFORE gh pr create",
         closes_findings=("ai-CRIT-004", "sec-HIGH-005"),
+        check=_check_secret_scan_diff_clean,
     ),
     HardFailCheck(
         name="bash_command_allowlist",
         description="verify_bash_command_allowed at runtime tool dispatch",
         closes_findings=("ai-CRIT-002", "sec-CRIT-002"),
+        check=_check_bash_command_allowlist,
     ),
     HardFailCheck(
         name="path_escape_guard",
         description="verify_no_path_escape on Edit/Write path arg resolution",
         closes_findings=("ai-HIGH-006",),
+        check=_check_path_escape_guard,
     ),
     HardFailCheck(
         name="branch_tip_lock_and_recheck",
         description="branch_tip_sha captured; auto-merge re-verifies headRefOid pre-merge",
         closes_findings=("ai-HIGH-007", "sec-HIGH-002"),
+        check=_not_implemented("branch_tip_lock_and_recheck"),
     ),
     HardFailCheck(
         name="per_file_mutual_exclusion",
         description="_validate_implementation_request rejects locked affected_surfaces",
         closes_findings=("ai-HIGH-009",),
+        check=_not_implemented("per_file_mutual_exclusion"),
     ),
     HardFailCheck(
         name="operator_feedback_signature",
         description="plan_synthesizer rejects unsigned operator-feedback rows",
         closes_findings=("ai-HIGH-010",),
+        check=_not_implemented("operator_feedback_signature"),
     ),
     HardFailCheck(
         name="pr_body_templating",
         description="render_pr_body() with bidi-strip + comment-ban (Tier-2)",
         closes_findings=("ai-HIGH-012", "sec-HIGH-008"),
+        check=_not_implemented("pr_body_templating"),
     ),
     HardFailCheck(
         name="cycle_and_turn_budget_cap",
         description="per-cycle budget cap (budget.DEFAULT_MAX_BUDGET_USD_PER_CYCLE) + per-implementer-turn N=10 caps with reservation-reconcile",
         closes_findings=("ai-HIGH-013", "perf-CRIT-001"),
+        check=_not_implemented("cycle_and_turn_budget_cap"),
     ),
     HardFailCheck(
         name="content_hash_recheck",
         description="implementer recomputes SHA256 of CONVERGED plan vs envelope.content_hash",
         closes_findings=("ai-MED-019",),
+        check=_not_implemented("content_hash_recheck"),
     ),
     # Plan 031 Faz 031e — the autonomous fix's reviewer is ≥2 independent
     # topic-experts, not the operator; the gate (expert_review_gate.
@@ -688,6 +902,7 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
             "repo-verified at base SHA (hallucinated approval blocks + escalates)"
         ),
         closes_findings=("aria-031e-expert-consensus",),
+        check=_not_implemented("expert_consensus_evidence_verified"),
     ),
     # Plan-coverage gate (ORPHAN-HIGH-310) — the 17th check. Enforcement
     # lives in plan_convergence._require_coverage_for_implementation
@@ -704,6 +919,7 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
             "before implementation_requested"
         ),
         closes_findings=("ORPHAN-HIGH-310",),
+        check=_not_implemented("plan_coverage_witness_verified"),
     ),
 )
 

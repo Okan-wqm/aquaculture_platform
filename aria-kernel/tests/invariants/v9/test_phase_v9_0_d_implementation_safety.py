@@ -17,6 +17,10 @@ from . import _helpers  # noqa: F401
 
 from aria_kernel import implementation_safety as _is
 
+# ORPHAN-CRITICAL-428 — resolved from this file so the workspace root is
+# deterministic regardless of the runner's cwd.
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+
 
 class TestV9HardFailRegistry(unittest.TestCase):
 
@@ -28,6 +32,94 @@ class TestV9HardFailRegistry(unittest.TestCase):
         self.assertEqual(
             len(_is.HARD_FAIL_CHECKS), 17,
             f"HARD_FAIL_CHECKS count drifted: {len(_is.HARD_FAIL_CHECKS)} (expected 17)",
+        )
+
+    # ORPHAN-CRITICAL-428 — the count above was the ONLY thing pinned, and
+    # it passed green while the registry was a name list nothing executed.
+    # These cases pin executability instead of arithmetic.
+    def test_i_v9_safety_every_check_is_executable(self):
+        """A registry entry without a callable must be unconstructable."""
+        for entry in _is.HARD_FAIL_CHECKS:
+            with self.subTest(check=entry.name):
+                self.assertTrue(callable(entry.check))
+        with self.assertRaises(TypeError):
+            _is.HardFailCheck(
+                name="not_executable", description="no callable",
+                closes_findings=(), check="a string is not a check",
+            )
+
+    def test_i_v9_safety_report_is_conjunction_over_the_whole_registry(self):
+        report = _is.run_hard_fail_checks(_is.HardFailContext())
+        self.assertEqual(len(report.results), len(_is.HARD_FAIL_CHECKS))
+        self.assertEqual(
+            {r.name for r in report.results},
+            {c.name for c in _is.HARD_FAIL_CHECKS},
+        )
+        # Unimplemented checks FAIL, so the perimeter reports itself as not
+        # holding rather than as absent.
+        self.assertFalse(report.passed)
+        self.assertIn(
+            "check_not_implemented", {r.reason for r in report.failures},
+        )
+
+    def test_i_v9_safety_a_failing_check_blocks_the_report(self):
+        """An injected failure must make the whole report block."""
+        from unittest.mock import patch
+
+        def _boom(context):
+            del context
+            raise RuntimeError("check exploded")
+
+        exploding = _is.HardFailCheck(
+            name="synthetic_explode", description="raises",
+            closes_findings=(), check=_boom,
+        )
+        with patch.object(_is, "HARD_FAIL_CHECKS", (exploding,)):
+            report = _is.run_hard_fail_checks(_is.HardFailContext())
+        self.assertFalse(report.passed)
+        # A raising check is recorded as failing, not allowed to abort the
+        # loop and be mistaken for the loop having completed.
+        self.assertEqual(len(report.results), 1)
+        self.assertIn("check_raised:RuntimeError", report.failures[0].reason)
+        with self.assertRaises(_is.HardFailBlocked):
+            report.raise_if_blocked()
+
+    def test_i_v9_safety_an_empty_registry_cannot_pass(self):
+        """A report over zero checks is not a pass."""
+        from unittest.mock import patch
+
+        with patch.object(_is, "HARD_FAIL_CHECKS", ()):
+            report = _is.run_hard_fail_checks(_is.HardFailContext())
+        self.assertFalse(report.passed)
+
+    def test_i_v9_safety_implemented_checks_actually_refuse(self):
+        """The bound implementations block real violations."""
+        workspace = _REPO_ROOT
+        # Kernel self-modification.
+        report = _is.run_hard_fail_checks(_is.HardFailContext(
+            workspace_root=workspace,
+            diff_text="+ harmless",
+            affected_paths=("aria-kernel/aria_kernel/cli.py",),
+        ))
+        self.assertIn(
+            "forbidden_scope_normalized", {r.name for r in report.failures},
+        )
+        # Secret in the diff.
+        report = _is.run_hard_fail_checks(_is.HardFailContext(
+            workspace_root=workspace,
+            diff_text="AKIA" + "1234567890ABCDEF",
+            affected_paths=("README.md",),
+        ))
+        self.assertIn(
+            "secret_scan_diff_clean", {r.name for r in report.failures},
+        )
+        # Forbidden gh api mutation path.
+        report = _is.run_hard_fail_checks(_is.HardFailContext(
+            workspace_root=workspace,
+            gh_api_paths=("/repos/o/r/branches/main/protection",),
+        ))
+        self.assertIn(
+            "no_main_branch_write", {r.name for r in report.failures},
         )
 
     def test_i_v9_safety_check_names_unique(self):

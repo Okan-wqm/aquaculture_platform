@@ -1,0 +1,57 @@
+# ARIA test-suite hermetic git configuration.
+#
+# Every fixture git repository in this suite is created by a `git`
+# subprocess spawned from the test process, and git resolves its global
+# configuration from the ambient environment. That coupling is a defect:
+# the suite's exit code starts depending on machine state that has
+# nothing to do with the code under test.
+#
+# The concrete instance that motivated this file: the CI agent container
+# sets, globally, `commit.gpgsign = true`, `gpg.format = ssh`, and
+# `gpg.ssh.program = /tmp/code-sign` — a symlink to the container's own
+# environment-manager binary. Every `git commit` in every temp-repo
+# fixture therefore invoked an external, harness-managed program with its
+# own availability and concurrency characteristics. Under concurrent
+# load it returned non-zero and three fixtures failed with `git commit`
+# exit 128, in tests whose subject matter is unrelated to signing.
+#
+# `tests/__init__.py` points GIT_CONFIG_GLOBAL at this file and
+# GIT_CONFIG_SYSTEM at /dev/null for the whole test process, so no
+# fixture — helper-built or inline — can see ambient configuration. This
+# is deliberately not a per-fixture `git config` call: those must be
+# remembered by every new test, and roughly thirty test files build
+# repos inline.
+#
+# Keep this file minimal. It exists to make fixture repos deterministic,
+# not to express preferences.
+
+[user]
+	name = ARIA Test Fixture
+	email = fixture@aria.invalid
+
+# No signing. A fixture commit must never depend on a key, an agent, or
+# an external signing helper being reachable.
+[commit]
+	gpgsign = false
+[tag]
+	gpgsign = false
+
+# Deterministic default branch, so an inline `git init` without an
+# explicit --initial-branch produces the same name everywhere.
+[init]
+	defaultBranch = main
+
+[advice]
+	defaultBranchName = false
+	detachedHead = false
+
+# ORPHAN-LOW-301, generalized. A detached `git gc --auto` kept writing
+# .git/objects/pack while TemporaryDirectory.cleanup() ran rmtree,
+# producing flaky "Directory not empty" teardown errors. The fixture
+# factory disabled this per repo; hoisting it here covers the inline
+# fixtures the factory never sees.
+[gc]
+	auto = 0
+	autoDetach = false
+[maintenance]
+	auto = false

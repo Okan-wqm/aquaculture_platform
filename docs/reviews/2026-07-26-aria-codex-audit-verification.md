@@ -697,27 +697,68 @@ exact error, after a first attempt at it passed against the unfixed code — dri
 never reached. An assertion that can pass for the wrong reason is the same defect class as the rest
 of this document.
 
-## 9c. Not ours, but it blocks the merge (`SUPPLY-HIGH-001`)
+## 9c. `security-audit` is blocked and cannot be fixed here (`SUPPLY-HIGH-001`)
 
-Recorded because "pre-existing" is a diagnosis, not a dismissal: `security-audit` is a required
-check, so a red one blocks this PR regardless of who caused it.
+**This section replaces an earlier version of itself that was wrong, and the commit
+`e4bcb6cf7` it described claimed a green audit that does not hold.** The correction is here
+rather than rewritten out, because a review document that edits away its own errors is not a
+review document.
 
-`package.json` and `package-lock.json` are byte-identical at base `bdaf00bf` and at the branch head
-that first went red, and an earlier run on the same lockfile passed this very step. The trigger is
-the live advisory database: `brace-expansion` ≤5.0.7, `fast-uri` 3.0.0–3.1.3 (whose new range
-swallowed the repo's own existing `^3.1.2` override), `postcss` ≤8.5.17, and `sharp` <0.35.0.
+`security-audit` is a required check and it is red for reasons that predate this branch:
+`package.json` and `package-lock.json` are byte-identical at base `bdaf00bf` and at the head
+that first went red, and an earlier run on the same lockfile passed the step. The advisory
+database moved.
 
-`--audit-level` was **not** lowered. `brace-expansion` and `postcss` are transitive only, so
-overrides are the mechanism. `sharp` is a direct dependency whose only fix is **0.35.3 — a
-semver-major bump of a native libvips binding**, so it was verified rather than assumed:
-`npm run type-check` green across all 40 projects, `media-finalization` 4/4,
-`file-upload-security` 10/10.
+### What was tried, and why it broke the build
 
-That bump did break something, which is the argument for verifying rather than trusting: sharp 0.35
-moved its types behind `declare namespace sharp` with `export = sharp`, so the default import is a
-value binding only and `keyof sharp.FormatEnum` stopped resolving in `thumbnail.service.ts`. Fixed
-with a named type import — no runtime change. Eight moderate advisories remain, below the gate's
-threshold.
+`npm audit` names `brace-expansion` `<=5.0.7` with `5.0.8` as the only fix, and suggests an
+override. Taking that suggestion **broke the Nx project graph** — `test`, `lint`, `build` and
+`type-check` all died with:
+
+```
+An error occurred while processing files for the @nx/eslint/plugin plugin.
+  - eslint.config.mjs:
+      expand is not a function
+```
+
+The mechanism, verified directly: `brace-expansion@5.0.8` no longer exports a callable. It
+exports an object.
+
+```
+node -e "console.log(typeof require('brace-expansion'))"   ->  object
+                       Object.keys(...)                    ->  [EXPANSION_MAX, EXPANSION_MAX_LENGTH, expand]
+```
+
+Every `minimatch` line in this tree expects the callable default export — `minimatch@3.1.5`
+wants `^1.1.7`, `9.0.9` wants `^2.0.2`, `10.0.1` wants `^2.0.1` — and this repository pins
+`minimatch` deliberately for eslint, glob and typeorm. So the override cannot work for any
+consumer here, which is not a packaging accident: the maintainer **renamed the package** at
+v5, and `minimatch@10.1.1` depends on `@isaacs/brace-expansion@^5.0.0`. Old-name 5.x is a
+different artifact with a different contract.
+
+### What the correct fix is, and why it is not this PR
+
+Clearing the advisory means moving the eslint, glob and typeorm consumers to
+`minimatch@10.1.1+`, which drops `brace-expansion` in favour of the renamed package.
+`minimatch@10` is ESM-only, so that is a coordinated upgrade across the lint toolchain — and
+`typeorm` carries **its own** root advisory (`migration:generate` template literal) against a
+**governed fork** in this repo (`npm run typeorm:verify-governed-fork`).
+
+That is a dependency PR with its own verification surface. It has no business riding along with
+an ARIA control-plane change, and it cannot be short-circuited: `--audit-level` must not be
+lowered, and an override that breaks the build is not a fix.
+
+All dependency edits are therefore reverted to base — including the `sharp` 0.34 → 0.35 bump,
+which was verified and correct in isolation (40 projects type-clean, `media-finalization` 4/4,
+`file-upload-security` 10/10, plus a real type break in `thumbnail.service.ts` that the
+verification caught). It is reverted anyway: a semver-major native dependency bump is risk, and
+carrying risk that cannot achieve the gate's green buys nothing. It belongs in the same
+dependency PR.
+
+`SUPPLY-HIGH-001` stays **OPEN**. Its registry row's notes were written when the override was
+believed to work and overstate what is achievable by that route; this section is the current
+account. Remaining after the revert: two root advisories — `brace-expansion` (with
+eslint/glob/minimatch/rimraf/gaxios/gcp-metadata transitive through it) and `typeorm`.
 
 ## 10. Limits of this verification
 

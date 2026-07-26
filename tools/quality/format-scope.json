@@ -39336,7 +39336,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "70ca722f61e982e5d13bd4163f444aa5b7c27515ab315b606ef906da6dc83068",
+      "content_sha256": "24cb0eee1b28f9abd1b00ea1dfaccca2614b10e15f73203ccdb094a2bb97a804",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",

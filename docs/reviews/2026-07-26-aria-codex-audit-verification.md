@@ -697,6 +697,28 @@ exact error, after a first attempt at it passed against the unfixed code — dri
 never reached. An assertion that can pass for the wrong reason is the same defect class as the rest
 of this document.
 
+## 9c. Not ours, but it blocks the merge (`SUPPLY-HIGH-001`)
+
+Recorded because "pre-existing" is a diagnosis, not a dismissal: `security-audit` is a required
+check, so a red one blocks this PR regardless of who caused it.
+
+`package.json` and `package-lock.json` are byte-identical at base `bdaf00bf` and at the branch head
+that first went red, and an earlier run on the same lockfile passed this very step. The trigger is
+the live advisory database: `brace-expansion` ≤5.0.7, `fast-uri` 3.0.0–3.1.3 (whose new range
+swallowed the repo's own existing `^3.1.2` override), `postcss` ≤8.5.17, and `sharp` <0.35.0.
+
+`--audit-level` was **not** lowered. `brace-expansion` and `postcss` are transitive only, so
+overrides are the mechanism. `sharp` is a direct dependency whose only fix is **0.35.3 — a
+semver-major bump of a native libvips binding**, so it was verified rather than assumed:
+`npm run type-check` green across all 40 projects, `media-finalization` 4/4,
+`file-upload-security` 10/10.
+
+That bump did break something, which is the argument for verifying rather than trusting: sharp 0.35
+moved its types behind `declare namespace sharp` with `export = sharp`, so the default import is a
+value binding only and `keyof sharp.FormatEnum` stopped resolving in `thumbnail.service.ts`. Fixed
+with a named type import — no runtime change. Eight moderate advisories remain, below the gate's
+threshold.
+
 ## 10. Limits of this verification
 
 * The live GitHub Actions artifact was not re-downloaded. Every figure the report cited was instead

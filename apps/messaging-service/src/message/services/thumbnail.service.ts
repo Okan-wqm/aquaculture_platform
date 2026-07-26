@@ -6,6 +6,11 @@ import {
   PutObjectCommand,
 } from '@aws-sdk/client-s3';
 import sharp from 'sharp';
+// sharp 0.35 declares its types inside `declare namespace sharp` with
+// `export = sharp`, so the default import is a VALUE binding only and
+// `sharp.FormatEnum` no longer resolves as a type. The named type import is
+// the supported way to reach it; nothing about the runtime call changes.
+import type { FormatEnum } from 'sharp';
 import { Readable } from 'stream';
 
 /** Thumbnail dimensions */
@@ -20,7 +25,7 @@ const THUMBNABLE_MIME_TYPES = new Set<string>([
 ]);
 
 /** Map input MIME to sharp output format */
-const OUTPUT_FORMAT_MAP: Record<string, keyof sharp.FormatEnum> = {
+const OUTPUT_FORMAT_MAP: Record<string, keyof FormatEnum> = {
   'image/jpeg': 'jpeg',
   'image/png': 'png',
   'image/webp': 'webp',

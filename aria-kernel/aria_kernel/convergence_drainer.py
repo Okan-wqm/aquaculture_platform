@@ -56,6 +56,14 @@ from .cross_review_bridge import (
     issue_cross_review_envelope,
     issue_primary_envelope,
 )
+from .independence_check import (
+    CHALLENGER_ROLE as IND_CHALLENGER_ROLE,
+    CROSS_REVIEW_ROLE as IND_CROSS_REVIEW_ROLE,
+    PRIMARY_ROLE as IND_PRIMARY_ROLE,
+    IndependenceInputError,
+    RoundDispatch,
+    verify_independence,
+)
 from .ledger import load_declared_jsonl
 from .plan_convergence import (
     TERMINAL_STATES,
@@ -545,6 +553,52 @@ def run_convergence_drainer(
     rounds_executed = 0
     poll_sleep = max(0.05, min(5.0, challenger_timeout_seconds / 60.0))
 
+    # ORPHAN-HIGH-336 — role→dispatch map per round, recorded where the
+    # real values live instead of reconstructed by indexing request_ids.
+    round_dispatches: dict[int, dict[str, RoundDispatch]] = {}
+    # The primary is only agent-dispatched on a REVISION (round 2+); on
+    # round 1 the plan is kernel-seeded, so there is no request to claim.
+    # A mutable holder rather than `nonlocal` because the write happens in
+    # the outer function and the read happens inside the phase closure.
+    primary_dispatch_state: dict[str, str | None] = {"request_id": None}
+
+    def _record_round_dispatch(
+        current_round: int,
+        *,
+        role: str,
+        request_id: str,
+        revision_id: str | None,
+        agent_text: str | None,
+    ) -> None:
+        """Store one role's dispatch for the round, or record why it could not be.
+
+        A record that cannot be built (blank revision id, malformed role)
+        is left absent, and the independence gate treats an absent record
+        as a violation. Refusing to store a half-built record is what stops
+        a placeholder from reaching the checker.
+        """
+        try:
+            dispatch = RoundDispatch(
+                role=role,
+                request_id=request_id or None,
+                revision_id=revision_id,
+                agent_text=agent_text,
+            )
+        except IndependenceInputError as exc:
+            append_tools_governance(
+                ensure_tools_dir(base_dir),
+                "round_dispatch_record_refused",
+                {
+                    "plan_id": plan_id,
+                    "cycle_id": cycle_id,
+                    "round_number": current_round,
+                    "role": role,
+                    "reason": str(exc),
+                },
+            )
+            return
+        round_dispatches.setdefault(current_round, {})[role] = dispatch
+
     def _aria_stop_return() -> ConvergenceResult:
         # Plan ARIA-V5 R-A10 — partial state persisted; verdict is
         # explicit so operator sees the interrupt in reflection.
@@ -727,6 +781,15 @@ def run_convergence_drainer(
                         primary_plan_text = primary_candidate
         except Exception:
             pass
+        # ORPHAN-HIGH-336 — capture whether each text is REAL before the
+        # error-envelope substitution below overwrites that fact. The
+        # substituted envelope is still handed to the cross-reviewer (it is
+        # the operator-visible mint-time signal), but independence must not
+        # treat two "unavailable" placeholders as two independent plans.
+        challenger_text_real = bool(challenger_plan_text)
+        primary_text_real = bool(primary_plan_text) and primary_plan_text.strip() not in {
+            "", "{}", "null",
+        }
         if not challenger_plan_text:
             # Fail-fast: if we can't load real challenger content the
             # cross-reviewer will refuse anyway; surface the operator-
@@ -783,6 +846,36 @@ def run_convergence_drainer(
         cross_review_request_id = cross_review_request.get("request_id")
         if cross_review_request_id:
             request_ids.append(cross_review_request_id)
+        # ORPHAN-HIGH-336 — record this round's REAL role→dispatch mapping
+        # while every value is still in scope. The independence check ~400
+        # lines below used to rebuild it by indexing request_ids
+        # positionally, which mismapped the roles because appends run
+        # challenger → cross_review → completeness_critic → primary.
+        _record_round_dispatch(
+            current_round,
+            role=IND_PRIMARY_ROLE,
+            request_id=str(primary_dispatch_state.get("request_id") or ""),
+            revision_id=primary_revision_id,
+            agent_text=primary_plan_text if primary_text_real else None,
+        )
+        _record_round_dispatch(
+            current_round,
+            role=IND_CHALLENGER_ROLE,
+            request_id=str(challenger_request_id or ""),
+            revision_id=challenger_revision_id,
+            agent_text=challenger_plan_text if challenger_text_real else None,
+        )
+        _record_round_dispatch(
+            current_round,
+            role=IND_CROSS_REVIEW_ROLE,
+            request_id=str(cross_review_request_id or ""),
+            # A cross-review has no revision of its own: it reviews the
+            # primary/challenger pair. None is the truthful value, and
+            # verify_revision_id_distinctness skips a None third id rather
+            # than inventing a comparison.
+            revision_id=None,
+            agent_text=None,
+        )
         cross_review_state = _poll_for_state(
             plan_id=plan_id,
             target_states={"CROSS_REVIEWED"},
@@ -1080,6 +1173,10 @@ def run_convergence_drainer(
             primary_revision_request_id = primary_revision_request.get("request_id")
             if primary_revision_request_id:
                 request_ids.append(primary_revision_request_id)
+                # ORPHAN-HIGH-336 — from the next round on, the primary IS
+                # agent-dispatched, so its claim becomes checkable against
+                # the challenger's and the reviewer's.
+                primary_dispatch_state["request_id"] = str(primary_revision_request_id)
             # Wait for primary to revise (state advances to REVISED).
             revised_state = _poll_for_state(
                 plan_id=plan_id,
@@ -1196,8 +1293,13 @@ def run_convergence_drainer(
             # revision_id + Jaccard). On violation the verdict
             # downgrades to cross_review_self_agreement so the operator
             # sees the fake-consensus signal in the reflection.
-            if arbiter_verdict == "converged" and len(request_ids) >= 3:
-                from .independence_check import verify_independence
+            if arbiter_verdict == "converged":
+                # ORPHAN-HIGH-336 — the gate no longer depends on
+                # `len(request_ids) >= 3`, which silently skipped the whole
+                # check on any round that minted fewer envelopes, and no
+                # longer rebuilds the role mapping by position. A missing
+                # dispatch record is now a violation, not a bypass.
+                #
                 # Plan ARIA-V10.4 Phase 1.1 hotfix — local
                 # `append_tools_governance` import REMOVED; module-level
                 # import at line 56 is the SSoT. The local re-import
@@ -1208,19 +1310,24 @@ def run_convergence_drainer(
                 # NameError when V10.4 Phase 1 instrumentation tried to
                 # call it from inside the closure before this code path
                 # executed.
-                independence_ok, violation_reasons = verify_independence(
-                    primary_request_id=request_ids[0],
-                    primary_revision_id=f"{plan_id}-r1",
-                    primary_text="(primary plan text — not loaded at convergence; "
-                                 "Jaccard check operates on agent_text via cross-reviewer envelope)",
-                    challenger_request_id=request_ids[1] if len(request_ids) > 1 else "",
-                    challenger_revision_id=f"{plan_id}-c1",
-                    challenger_text="(challenger plan text)",
-                    cross_review_request_id=request_ids[2] if len(request_ids) > 2 else "",
-                    cross_review_revision_id=None,
-                    cross_review_text="(cross_review text)",
-                    base_dir=base_dir,
-                )
+                _for_round = round_dispatches.get(rounds_executed) or {}
+                _missing = [
+                    role
+                    for role in (IND_PRIMARY_ROLE, IND_CHALLENGER_ROLE, IND_CROSS_REVIEW_ROLE)
+                    if role not in _for_round
+                ]
+                if _missing:
+                    independence_ok = False
+                    violation_reasons = [
+                        f"round_dispatch_missing:{role}" for role in _missing
+                    ]
+                else:
+                    independence_ok, violation_reasons = verify_independence(
+                        primary=_for_round[IND_PRIMARY_ROLE],
+                        challenger=_for_round[IND_CHALLENGER_ROLE],
+                        cross_review=_for_round[IND_CROSS_REVIEW_ROLE],
+                        base_dir=base_dir,
+                    )
                 if not independence_ok:
                     arbiter_verdict = "cross_review_self_agreement"
                     try:
@@ -1230,7 +1337,9 @@ def run_convergence_drainer(
                             {
                                 "plan_id": plan_id,
                                 "cycle_id": cycle_id,
+                                "round_number": rounds_executed,
                                 "violation_reasons": violation_reasons,
+                                "dispatched_roles": sorted(_for_round),
                                 "request_ids": request_ids,
                             },
                         )

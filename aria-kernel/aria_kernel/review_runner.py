@@ -34,6 +34,16 @@ the correct fail-closed behaviour — no review consensus, no
 auto-merge. Future V6+ work wires real judges to consume the
 envelopes.
 
+ORPHAN-HIGH-337 evidence invariant:
+  ``no_gaps`` is derived ONLY from an accepted result row bound to the
+  round's own request id AND role, carried back on
+  ``ReviewResult.accepted_result_ref``. Pre-fix the loop inferred success
+  from ``next_pending_request(...) is None`` — but a request leaves the
+  pending set on claim, rejection, cancellation, staleness and
+  HUMAN_REQUIRED escalation, so the one signal meaning "a human must look
+  at this" was the signal that cleared the gate. Absence of work waiting
+  is not evidence that work was done.
+
 Tests inject mock review runners via the ``review_runner`` kwarg on
 ``run_autonomy_orchestrator``; see
 ``aria-kernel/tests/invariants/v5/_helpers.py`` for the canonical
@@ -47,8 +57,9 @@ from pathlib import Path
 from typing import Any, Literal, Protocol, TypedDict
 
 from .agent_invocations import (
+    accepted_result_for_request,
     create_agent_invocation_request,
-    next_pending_request,
+    derive_request_state,
 )
 from .tool_registry import ensure_tools_dir
 
@@ -59,6 +70,21 @@ _ADVERSARIAL_JUDGE_AGENT = "aria-adversarial-judge"
 _EVIDENCE_JUDGE_AGENT = "aria-evidence-judge"
 _ADVERSARIAL_ROLE = "adversarial_judgment"
 _EVIDENCE_ROLE = "evidence_judgment"
+
+# ORPHAN-HIGH-337 — terminal derived states that will never produce an
+# accepted result. Reaching one of these ends the wait immediately: no
+# amount of further polling turns a rejection or an escalation into a
+# review. ``ACCEPTED`` is deliberately absent — that path is detected by
+# the presence of the accepted result row itself, not by the state string,
+# so a state that says ACCEPTED without a readable result row still fails
+# closed.
+_NON_DELIVERING_TERMINAL_STATES: frozenset[str] = frozenset({
+    "REJECTED",
+    "HUMAN_REQUIRED",
+    "CANCELLED",
+    "STALE",
+    "ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL",
+})
 
 
 class ReviewResult(TypedDict):
@@ -77,6 +103,11 @@ class ReviewResult(TypedDict):
     gaps_found: list[dict[str, Any]]
     request_ids: list[str]
     convergence_id: str
+    # ORPHAN-HIGH-337 — the accepted result a ``no_gaps`` verdict was
+    # derived from (request_id, role, agent_id, output_hash,
+    # transcript_hash). ``None`` on every non-``no_gaps`` verdict, so a
+    # consumer can tell an evidenced pass from an inferred one.
+    accepted_result_ref: dict[str, Any] | None
 
 
 class ReviewRunner(Protocol):
@@ -113,14 +144,23 @@ def _empty_review_result(
     rounds_count: int = 0,
     gaps_found: list[dict[str, Any]] | None = None,
     request_ids: list[str] | None = None,
+    accepted_result_ref: dict[str, Any] | None = None,
 ) -> ReviewResult:
-    """Plan ARIA-V5 §3d v2 — fabricate a ReviewResult dict.
+    """Plan ARIA-V5 §3d v2 — build a structurally-valid ReviewResult.
 
-    Used by every short-circuit path in ``run_review_runner`` to
-    return a structurally-valid result without leaking partial
-    state. TypedDict ensures all required keys are present at
-    construction time.
+    Used by every short-circuit path in ``run_review_runner`` so a
+    partial state never leaks. TypedDict ensures all required keys are
+    present at construction time.
+
+    ORPHAN-HIGH-337 — ``accepted_result_ref`` is refused on any verdict
+    other than ``no_gaps``: a blocking verdict has no accepted result by
+    definition, and allowing one to be attached would let a caller read
+    "evidence exists" off a result that blocked.
     """
+    if accepted_result_ref is not None and verdict != "no_gaps":
+        raise ValueError(
+            f"accepted_result_ref is only valid on a no_gaps verdict, got {verdict!r}"
+        )
     return ReviewResult(
         plan_id=plan_id,
         impl_artifacts_ref=impl_artifacts_ref,
@@ -129,6 +169,7 @@ def _empty_review_result(
         gaps_found=list(gaps_found or []),
         request_ids=list(request_ids or []),
         convergence_id=convergence_id,
+        accepted_result_ref=accepted_result_ref,
     )
 
 
@@ -238,23 +279,38 @@ def run_review_runner(
             base_dir=base_dir,
             plan_revision_hash=worker_artifact_hash or None,
         )
-        request_ids.append(adversarial_request["request_id"])
+        adversarial_request_id = str(adversarial_request["request_id"])
+        request_ids.append(adversarial_request_id)
 
-        # Plan ARIA-V5 §3d v2 — poll the agent-invocations queue for
-        # the adversarial submission. fail-closed on timeout.
+        # ORPHAN-HIGH-337 — wait for a POSITIVE result, not for the
+        # absence of a pending row. Pre-fix this loop treated
+        # ``next_pending_request(...) is None`` as "submitted", but a
+        # request leaves the pending set on claim, rejection, cancellation
+        # and — most dangerously — HUMAN_REQUIRED escalation. The one
+        # signal meaning "a human must look at this" was the signal that
+        # cleared the gate. Only an accepted result row bound to THIS
+        # request and role now counts as a submission.
         deadline = time.monotonic() + judge_timeout_seconds
         poll_sleep = max(0.05, min(5.0, judge_timeout_seconds / 60.0))
-        submission_observed = False
+        accepted_result: dict[str, Any] | None = None
+        blocking_state: str | None = None
         while time.monotonic() < deadline:
             if _check_aria_stop(root):
                 break
-            pending = next_pending_request(role=_ADVERSARIAL_ROLE, base_dir=base_dir)
-            if pending is None:
-                # No more pending → adversarial judge has either
-                # claimed + submitted OR there is no claimant. We
-                # cannot distinguish without reading results.jsonl;
-                # for V5.2 minimum, treat absence as "submitted".
-                submission_observed = True
+            accepted_result = accepted_result_for_request(
+                request_id=adversarial_request_id,
+                role=_ADVERSARIAL_ROLE,
+                base_dir=base_dir,
+            )
+            if accepted_result is not None:
+                break
+            state = derive_request_state(
+                request_id=adversarial_request_id, base_dir=base_dir,
+            )
+            if state in _NON_DELIVERING_TERMINAL_STATES:
+                # Terminal without an accepted result. Stop waiting: no
+                # further polling can turn this into a review.
+                blocking_state = state
                 break
             time.sleep(poll_sleep)
 
@@ -268,19 +324,38 @@ def run_review_runner(
                 request_ids=request_ids,
             )
 
-        if not submission_observed:
-            # Plan ARIA-V5 §3d v2 — defensive default: no real judge
-            # responded within ``judge_timeout_seconds``. Block
-            # auto-merge with ``gaps_open``.
-            continue
+        if accepted_result is None:
+            # No accepted result: either a non-delivering terminal state
+            # (rejected / human_required / stale / cancelled) or the
+            # timeout expired with the judge still pending. Both block
+            # auto-merge. A terminal state is reported rather than retried
+            # — another round would mint a fresh envelope for a judge that
+            # already refused or escalated.
+            if blocking_state is None:
+                continue
+            return _empty_review_result(
+                plan_id=plan_id,
+                convergence_id=convergence_id,
+                impl_artifacts_ref=impl_artifacts_ref,
+                verdict="gaps_open",
+                rounds_count=round_n,
+                request_ids=request_ids,
+                gaps_found=[{
+                    "id": f"adversarial_judge_{blocking_state.lower()}",
+                    "severity": "HIGH",
+                    "evidence_ref": f"cycle:{cycle_id}",
+                    "description": (
+                        f"adversarial_judgment request {adversarial_request_id} "
+                        f"reached terminal state {blocking_state} without an "
+                        f"accepted result; review cannot be satisfied"
+                    ),
+                }],
+            )
 
-        # Plan ARIA-V5 §3d v2 — V5.2 minimum implementation. A real
-        # evidence-judge cross-check + judge_split arbitration lands
-        # in a follow-up phase once judge response parsing is wired.
-        # For C2 the defensive default is to mark review as
-        # ``no_gaps`` ONLY when the queue genuinely drained (a real
-        # judge claimed AND completed the envelope). Otherwise
-        # ``gaps_open`` keeps auto-merge blocked.
+        # An accepted, role-bound result exists. ``no_gaps`` is now derived
+        # from evidence a judge actually produced, and the result's
+        # output/transcript hashes are carried so the verdict is
+        # attributable to that submission.
         return _empty_review_result(
             plan_id=plan_id,
             convergence_id=convergence_id,
@@ -288,6 +363,13 @@ def run_review_runner(
             verdict="no_gaps",
             rounds_count=round_n,
             request_ids=request_ids,
+            accepted_result_ref={
+                "request_id": adversarial_request_id,
+                "role": _ADVERSARIAL_ROLE,
+                "agent_id": accepted_result.get("agent_id"),
+                "output_hash": accepted_result.get("output_hash"),
+                "transcript_hash": accepted_result.get("transcript_hash"),
+            },
         )
 
     return _empty_review_result(

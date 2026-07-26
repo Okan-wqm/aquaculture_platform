@@ -1450,13 +1450,17 @@ def run_autonomy_orchestrator(
                 #    ıkı agent bırbırıne atarak valıde sekılde
                 #    sonlanrmalı"
                 #
-                # Profile gating (per Plan §2c step 3):
+                # Profile gating (ORPHAN-HIGH-338 revision):
                 #   * observe → never dispatch Tier-1; defensive
-                #   * standard → dispatch all; specialists_unavailable
-                #               proceeds (fail-open degraded)
-                #   * strict   → specialists_unavailable BLOCKS
-                #               (fail-closed; operator-requested gate)
-                #   * autonomous → fail-open (degraded acceptable)
+                #   * standard / strict / autonomous →
+                #       specialists_unavailable BLOCKS (fail-closed)
+                #
+                # Pre-fix only `strict` blocked, so `standard` and
+                # `autonomous` proceeded on an unreviewed domain. That put
+                # the WEAKEST specialist gate on the profile holding real
+                # merge authority — an inversion, not a trade-off. A
+                # selected specialist that did not deliver means its domain
+                # went unreviewed, which is not a degraded pass.
                 AutonomyStateReducer.transition(
                     root,
                     cycle_id=cycle_id,
@@ -1501,16 +1505,16 @@ def run_autonomy_orchestrator(
                     },
                 )
 
-                # Plan ARIA-V6 §2c v2 — profile-conditional verdict
-                # gating. Strict profile fails closed on unavailable;
-                # standard/autonomous fail open. Remediation_required
-                # ALWAYS blocks regardless of profile.
-                _is_strict = str(profile_snapshot) == "strict"
-                _blocks_cycle = specialist_verdict in {
-                    "consolidated_remediation_required",
-                    "consolidated_judge_split",
-                } or (
-                    _is_strict and specialist_verdict == "specialists_unavailable"
+                # ORPHAN-HIGH-338 — the policy lives in
+                # specialist_review_runner.specialist_verdict_blocks_cycle
+                # so it is testable without asserting on this function's
+                # source. Every write-capable profile now fails closed on
+                # an unsatisfiable gate.
+                from .specialist_review_runner import specialist_verdict_blocks_cycle
+
+                _blocks_cycle = specialist_verdict_blocks_cycle(
+                    verdict=str(specialist_verdict),
+                    profile=str(profile_snapshot),
                 )
                 if _blocks_cycle:
                     cycle_summary["dispatch_blocked_reason"] = (

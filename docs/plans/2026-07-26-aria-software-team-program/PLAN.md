@@ -8,7 +8,7 @@
 | **Findings source** | `docs/reviews/2026-07-26-aria-codex-audit-verification.md` |
 | **Registry** | `docs/reviews/_registry/findings.jsonl` (`ORPHAN-*-333..349`) |
 | **Branch** | `claude/aria-security-audit-findings-8l9it5` |
-| **Status** | S0 exited; branch retraced onto uncollided finding IDs |
+| **Status** | S0 **not** exited — no sandbox backend on any runner (`ORPHAN-CRITICAL-439`); branch retraced onto uncollided finding IDs |
 
 > This file is the plan of record. It is updated as stages land — see
 > [Stage status](#stage-status) and [Progress log](#progress-log) at the end. Every stage-status
@@ -366,8 +366,8 @@ Updated with the commit that causes the change. `~` = in progress.
 
 | Stage | Status | Exit evidence present? | Last updated |
 |---|---|---|---|
-| S0 Containment | **exited** | yes — see log 2026-07-26 (S0 exit) | 2026-07-26 |
-| S1 Draft-PR capable | `~` next | no | 2026-07-26 |
+| S0 Containment | `~` **blocked** | no — `sandbox_backend()` is None everywhere (`ORPHAN-CRITICAL-439`) | 2026-07-26 |
+| S1 Draft-PR capable | blocked on S0 | no | 2026-07-26 |
 | S2 Supervised merge | not started | no | 2026-07-26 |
 | S3 Autonomous merge | not started | no | 2026-07-26 |
 | S4 Deploy + canary + rollback | not started | no | 2026-07-26 |
@@ -391,6 +391,7 @@ Updated with the commit that causes the change. `~` = in progress.
 | `ORPHAN-HIGH-417` both finding stores read by allocator + resolver | S0 | done | `f2b251030` |
 | `ORPHAN-HIGH-437` perimeter split into two gates | S0 | done | `8d3925669` |
 | `ORPHAN-HIGH-438` five mechanical pre-PR-open checks | S0 | done | `f0eed0ea9` |
+| `ORPHAN-CRITICAL-439` install a sandbox backend on the runner | **S0 exit blocker** | open | — |
 | `ORPHAN-HIGH-434` `.gitignore` descent fix | S1 entry, operator | staging fixed; anchor pending | see log |
 | `ORPHAN-CRITICAL-419` single job graph + contract + credential + token path | S1 | open | — |
 | `P0-03` real implementer + `task.py` entry point | S1 | open | — |
@@ -471,9 +472,17 @@ was the only route that repaired the references instead of tracking them as perm
   `check_not_implemented`. Merge therefore stays closed by the perimeter itself, with no flag to
   forget. When phase B lands, that last test must be rewritten deliberately.
 * Suite: 2789 tests, OK (34 skipped). `aria:compile` clean.
-* **Not done in S0, stated plainly:** `sandbox_backend()` is still None in this container (no
-  `bwrap`, no `firejail`), so write-capable spawns are refused rather than confined. Installing a
-  backend is an S1 runner prerequisite — a refused spawn cannot write code either.
+* **S0 does NOT exit — correcting this document.** It was marked exited above; that was wrong, and the
+  error is the one this programme exists to eliminate. S0's own exit criterion includes
+  "`sandbox_backend()` non-None on the runner", and it is None **everywhere**: no `.github/workflows`
+  step installs `bubblewrap` or `firejail`, and neither binary is present in the development
+  container. So `claude_runtime._apply_write_containment` refuses every write-capable spawn.
+  That is not a weaker perimeter, it is no execution — the moment the real implementation runner
+  replaces the NoOp on the scheduled path, its spawn is refused and the cycle produces nothing.
+  Tracked as `ORPHAN-CRITICAL-439`, and closing it means asserting `sandbox_backend() is not None`
+  from a CI step so the absence fails a gate instead of silently disabling the implementer.
+  I recorded S0 as exited while writing down, two lines later, the fact that made it untrue — a
+  green summary next to its own contradicting evidence, which is precisely `ORPHAN-HIGH-424`.
 
 ### 2026-07-26 — S1 entry prerequisite cleared (`ORPHAN-HIGH-434`, partial)
 

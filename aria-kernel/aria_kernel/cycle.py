@@ -23,7 +23,10 @@ from .runtime_artifacts import read_runs_for_cycle, verify_artifacts
 from .pressure import run_pressure
 from .genesis_policy import load_policy
 from .reflection import run_reflection
-from .human_required import sweep_consensus_uncertainties_for_human_required
+from .human_required import (
+    sweep_consensus_uncertainties_for_human_required,
+    sweep_lease_lifecycle_for_human_required,
+)
 from .judge_calibration import compute_judge_calibration
 from .proactive_priority import compute_proactive_priorities
 from .tool_registry import GovernanceError, ensure_tools_binding, list_tools, utc_now, update_tools_index
@@ -430,6 +433,7 @@ def run_enterprise_cycle(
     pressure: dict[str, Any] = {}
     reflection = None if defer_reflection else {}
     consensus_escalation: dict[str, Any] = {}
+    lease_escalation: dict[str, Any] = {}
     judge_calibration: dict[str, Any] = {}
     proactive_priorities: dict[str, Any] = {}
     belief_decay: dict[str, Any] = {}
@@ -472,6 +476,19 @@ def run_enterprise_cycle(
             consensus_escalation = sweep_consensus_uncertainties_for_human_required(base_dir=root)
         except Exception as exc:
             post_tool_failure = {"phase": "consensus_escalation", "status": "failed", "error": str(exc)}
+    # P1-03 — claims-ledger escalations reach the operator-facing surface.
+    # `derive_request_state` can say HUMAN_REQUIRED while no
+    # `human-required/<id>.json` file exists, and the reconciling sweep had
+    # CLI-only callers — so an escalation was visible in one view and
+    # invisible in the one operators and the daily report read. Running it
+    # every cycle is what makes the two views agree. Idempotent.
+    if post_tool_failure is None and not shadow_only and not discovery_only:
+        try:
+            lease_escalation = sweep_lease_lifecycle_for_human_required(base_dir=root)
+        except Exception as exc:
+            post_tool_failure = {
+                "phase": "lease_lifecycle_escalation", "status": "failed", "error": str(exc),
+            }
     # Plan 024 §A — score each judge against accumulated ground truth so the
     # cheap-tier judgment is measured, not assumed. Read-only join over the
     # feedback ledger (no LLM); skipped under shadow/discovery no-write runs.
@@ -642,6 +659,7 @@ def run_enterprise_cycle(
         "belief_decay": belief_decay,
         "pressure": pressure,
         "consensus_escalation": consensus_escalation,
+        "lease_escalation": lease_escalation,
         "judge_calibration": judge_calibration,
         "proactive_priorities": proactive_priorities,
         "reflection": reflection,

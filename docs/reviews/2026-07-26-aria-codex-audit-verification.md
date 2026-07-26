@@ -47,6 +47,7 @@ report's `P0-*` / `NEW-*` labels are the analysis names and these are the tracke
 | `ORPHAN-HIGH-338` | P0-09 | HIGH | specialist gate fails open in `standard` and `autonomous` |
 | `ORPHAN-HIGH-339` | P0-01 | HIGH | summary counters pinned to zero; invalid state published |
 | `ORPHAN-HIGH-340` | P0-14 | HIGH | installation token full-scope; TTL is fiction |
+| `ORPHAN-HIGH-341` | P1-03 + operator direction | HIGH | HUMAN_REQUIRED waits on a human indefinitely, and the sweep that makes it visible has CLI-only callers |
 
 Remaining confirmed P0/P1 findings (P0-03, P0-04, P0-05, P0-06, P0-08, P0-11, P0-12, P0-13, NEW-03,
 NEW-04, and the P1 set) are registered in the wave that closes them, so an OPEN finding always has a

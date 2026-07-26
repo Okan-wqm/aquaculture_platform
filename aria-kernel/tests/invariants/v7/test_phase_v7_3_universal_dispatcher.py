@@ -2,7 +2,7 @@
 
 Five invariants pin the dispatcher factory contract:
 
-  * I-V7.3-01 — SUPPORTED_ROLES enumerates exactly 9 dispatchable
+  * I-V7.3-01 — SUPPORTED_ROLES enumerates exactly 11 dispatchable
                 roles (closed enum; typo'd roles fail at factory
                 selection time, NOT runtime polling)
   * I-V7.3-02 — kernel SUPPORTED_ROLES MATCHES ci_executor
@@ -29,8 +29,9 @@ if str(_KERNEL_ROOT) not in sys.path:
 
 
 class PhaseV7_3UniversalDispatcher(unittest.TestCase):
-    # I-V7.3-01 — SUPPORTED_ROLES closed enum (exactly 10; the
-    # plan-coverage gate PR-2 added completeness_critique).
+    # I-V7.3-01 — SUPPORTED_ROLES closed enum (exactly 11; the
+    # plan-coverage gate PR-2 added completeness_critique, and
+    # ORPHAN-HIGH-341 added human_required_adjudication).
     def test_i_v7_3_01_supported_roles_closed_enum(self) -> None:
         """Plan ARIA-V7 §2g v2 — closed role enum."""
         from aria_kernel.dispatcher_factory import SUPPORTED_ROLES
@@ -41,12 +42,13 @@ class PhaseV7_3UniversalDispatcher(unittest.TestCase):
             "primary_plan", "challenger_plan", "cross_review",
             "completeness_critique",
             "implementation",
+            "human_required_adjudication",
         }
         self.assertEqual(
             set(SUPPORTED_ROLES), expected,
             msg=(
                 "Plan ARIA-V7 §2g v2 — SUPPORTED_ROLES MUST match the "
-                "10-role closed enum exactly. Adding a role requires "
+                "11-role closed enum exactly. Adding a role requires "
                 "updating BOTH kernel + ci_executor in the same commit."
             ),
         )

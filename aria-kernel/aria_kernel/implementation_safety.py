@@ -582,6 +582,26 @@ def truncate_validation_result(text: str | bytes, *, max_bytes: int = MAX_VALIDA
 # 15 HARD_FAIL_CHECKS registry
 # =============================================================================
 
+# ORPHAN-CRITICAL-343 — the perimeter is two gates, not one list.
+#
+# PRE_PR_OPEN checks bound what the implementer may DO: they inspect the
+# diff, the paths it touched, the commands it ran, the branch it pushed.
+# They are answerable from the action itself.
+#
+# PRE_MERGE checks bind a DECISION to state that must still hold at merge
+# time: the branch tip has not moved, the plan hash still matches, the
+# expert consensus and coverage witness exist, the budget was not
+# exceeded. They are answerable only against live external state.
+#
+# Splitting them is what lets the pre-PR-open gate become satisfiable
+# without also opening merge: the pre-merge gate stays unsatisfiable while
+# its checks are unimplemented, so autonomous merge is closed by the
+# perimeter itself rather than by a separate switch someone could flip.
+GATE_PRE_PR_OPEN: str = "pre_pr_open"
+GATE_PRE_MERGE: str = "pre_merge"
+HARD_FAIL_GATES: frozenset[str] = frozenset({GATE_PRE_PR_OPEN, GATE_PRE_MERGE})
+
+
 @dataclass(frozen=True)
 class HardFailContext:
     """Everything a hard-fail check may inspect about a pending action.
@@ -673,11 +693,16 @@ class HardFailCheck:
     description: str
     closes_findings: tuple[str, ...]
     check: Callable[[HardFailContext], HardFailResult]
+    gate: str = GATE_PRE_MERGE
 
     def __post_init__(self) -> None:
         if not callable(self.check):
             raise TypeError(
                 f"hard_fail_check_not_executable:{self.name}"
+            )
+        if self.gate not in HARD_FAIL_GATES:
+            raise ValueError(
+                f"hard_fail_check_unknown_gate:{self.name}:{self.gate}"
             )
 
 
@@ -771,16 +796,33 @@ def _check_forbidden_scope_normalized(context: HardFailContext) -> HardFailResul
     return _passed(name)
 
 
-def run_hard_fail_checks(context: HardFailContext) -> HardFailReport:
-    """Run the WHOLE registry and return the only valid report.
+def run_hard_fail_checks(
+    context: HardFailContext,
+    *,
+    gate: str | None = None,
+) -> HardFailReport:
+    """Run the registry (optionally one gate) and return the only valid report.
 
     ORPHAN-CRITICAL-343 — the single producer of :class:`HardFailReport`.
     A check that raises is recorded as a FAILURE rather than propagating,
     so one broken check cannot skip the checks after it, and cannot be
     mistaken for the loop having completed.
+
+    ``gate=None`` runs everything, which is what an audit wants. A caller
+    guarding one stage passes that stage: ``GATE_PRE_PR_OPEN`` before
+    opening a PR, ``GATE_PRE_MERGE`` before merging. An unknown gate
+    raises rather than silently selecting nothing — a typo must not read
+    as "zero checks, all passed", and ``HardFailReport.passed`` is False
+    on an empty result set for the same reason.
     """
+    if gate is not None and gate not in HARD_FAIL_GATES:
+        raise ValueError(f"hard_fail_unknown_gate:{gate}")
+    selected = [
+        entry for entry in HARD_FAIL_CHECKS
+        if gate is None or entry.gate == gate
+    ]
     results: list[HardFailResult] = []
-    for entry in HARD_FAIL_CHECKS:
+    for entry in selected:
         try:
             result = entry.check(context)
         except Exception as exc:  # noqa: BLE001 — a raising check is a failing check
@@ -804,90 +846,105 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         description="git push refspec-aware: only refs/heads/aria-impl-<hex16>",
         closes_findings=("sec-CRIT-002",),
         check=_not_implemented("no_force_push"),
+        gate=GATE_PRE_PR_OPEN,
     ),
     HardFailCheck(
         name="no_no_verify",
         description="--no-verify + core.hooksPath denial",
         closes_findings=("sec-CRIT-002",),
         check=_not_implemented("no_no_verify"),
+        gate=GATE_PRE_PR_OPEN,
     ),
     HardFailCheck(
         name="no_main_branch_write",
         description="direct push + gh api PATCH/PUT/DELETE on branches/protections",
         closes_findings=("sec-CRIT-002", "sec-CRIT-003"),
         check=_check_no_main_branch_write,
+        gate=GATE_PRE_PR_OPEN,
     ),
     HardFailCheck(
         name="forbidden_scope_normalized",
         description="Path.resolve() + symlink + glob match against READONLY_PATHS",
         closes_findings=("arb-HIGH-004", "ai-HIGH-006"),
         check=_check_forbidden_scope_normalized,
+        gate=GATE_PRE_PR_OPEN,
     ),
     HardFailCheck(
         name="kernel_self_modification_blocked_at_envelope_mint",
         description="envelope-mint refuses when affected_surfaces ∩ READONLY_PATHS ≠ ∅",
         closes_findings=("ai-CRIT-005", "arb-CRIT-005"),
         check=_not_implemented("kernel_self_modification_blocked_at_envelope_mint"),
+        gate=GATE_PRE_PR_OPEN,
     ),
     HardFailCheck(
         name="test_gate_canonical_suite",
         description="validation_commands[] MUST include canonical suite (nx affected, type-check, mutation, coverage)",
         closes_findings=("ai-HIGH-008",),
         check=_not_implemented("test_gate_canonical_suite"),
+        gate=GATE_PRE_PR_OPEN,
     ),
     HardFailCheck(
         name="secret_scan_diff_clean",
         description="verify_no_secret_in_diff BEFORE gh pr create",
         closes_findings=("ai-CRIT-004", "sec-HIGH-005"),
         check=_check_secret_scan_diff_clean,
+        gate=GATE_PRE_PR_OPEN,
     ),
     HardFailCheck(
         name="bash_command_allowlist",
         description="verify_bash_command_allowed at runtime tool dispatch",
         closes_findings=("ai-CRIT-002", "sec-CRIT-002"),
         check=_check_bash_command_allowlist,
+        gate=GATE_PRE_PR_OPEN,
     ),
     HardFailCheck(
         name="path_escape_guard",
         description="verify_no_path_escape on Edit/Write path arg resolution",
         closes_findings=("ai-HIGH-006",),
         check=_check_path_escape_guard,
+        gate=GATE_PRE_PR_OPEN,
     ),
     HardFailCheck(
         name="branch_tip_lock_and_recheck",
         description="branch_tip_sha captured; auto-merge re-verifies headRefOid pre-merge",
         closes_findings=("ai-HIGH-007", "sec-HIGH-002"),
         check=_not_implemented("branch_tip_lock_and_recheck"),
+        gate=GATE_PRE_MERGE,
     ),
     HardFailCheck(
         name="per_file_mutual_exclusion",
         description="_validate_implementation_request rejects locked affected_surfaces",
         closes_findings=("ai-HIGH-009",),
         check=_not_implemented("per_file_mutual_exclusion"),
+        gate=GATE_PRE_MERGE,
     ),
     HardFailCheck(
         name="operator_feedback_signature",
         description="plan_synthesizer rejects unsigned operator-feedback rows",
         closes_findings=("ai-HIGH-010",),
         check=_not_implemented("operator_feedback_signature"),
+        gate=GATE_PRE_MERGE,
     ),
     HardFailCheck(
         name="pr_body_templating",
         description="render_pr_body() with bidi-strip + comment-ban (Tier-2)",
         closes_findings=("ai-HIGH-012", "sec-HIGH-008"),
         check=_not_implemented("pr_body_templating"),
+        gate=GATE_PRE_PR_OPEN,
     ),
     HardFailCheck(
         name="cycle_and_turn_budget_cap",
         description="per-cycle budget cap (budget.DEFAULT_MAX_BUDGET_USD_PER_CYCLE) + per-implementer-turn N=10 caps with reservation-reconcile",
         closes_findings=("ai-HIGH-013", "perf-CRIT-001"),
         check=_not_implemented("cycle_and_turn_budget_cap"),
+        gate=GATE_PRE_MERGE,
     ),
     HardFailCheck(
         name="content_hash_recheck",
         description="implementer recomputes SHA256 of CONVERGED plan vs envelope.content_hash",
         closes_findings=("ai-MED-019",),
         check=_not_implemented("content_hash_recheck"),
+        gate=GATE_PRE_MERGE,
     ),
     # Plan 031 Faz 031e — the autonomous fix's reviewer is ≥2 independent
     # topic-experts, not the operator; the gate (expert_review_gate.
@@ -903,6 +960,7 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         ),
         closes_findings=("aria-031e-expert-consensus",),
         check=_not_implemented("expert_consensus_evidence_verified"),
+        gate=GATE_PRE_MERGE,
     ),
     # Plan-coverage gate (ORPHAN-HIGH-310) — the 17th check. Enforcement
     # lives in plan_convergence._require_coverage_for_implementation
@@ -920,6 +978,7 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         ),
         closes_findings=("ORPHAN-HIGH-310",),
         check=_not_implemented("plan_coverage_witness_verified"),
+        gate=GATE_PRE_MERGE,
     ),
 )
 
@@ -955,4 +1014,10 @@ __all__ = (
     # registry
     "HardFailCheck",
     "HARD_FAIL_CHECKS",
+    # ORPHAN-CRITICAL-343 — the perimeter is two gates; the stage names and
+    # the set of valid gates are public contract because callers select a
+    # stage and an unknown gate must raise rather than select nothing.
+    "GATE_PRE_PR_OPEN",
+    "GATE_PRE_MERGE",
+    "HARD_FAIL_GATES",
 )

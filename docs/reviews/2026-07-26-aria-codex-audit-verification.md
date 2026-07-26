@@ -31,6 +31,50 @@ reported as green* — is verified in its strongest possible form:
 
 Autonomous write/merge must stay closed. That conclusion is unchanged.
 
+## Registered finding IDs
+
+This document is the SSoT for the finding IDs below; the hash-chained registry entries carry their
+state. IDs were allocated by `npm run findings:add` (which mints the sequence itself, so the audit
+report's `P0-*` / `NEW-*` labels are the analysis names and these are the tracked names).
+
+| Registry ID | Audit label | Severity | Finding |
+|---|---|---|---|
+| `ORPHAN-CRITICAL-418` | NEW-01 | CRITICAL | corrupting the failure ledger un-trips the breaker |
+| `ORPHAN-CRITICAL-419` | P0-02 | CRITICAL | producer and executor share no queue |
+| `ORPHAN-CRITICAL-420` | P0-07 | CRITICAL | budget + breaker have zero production callers |
+| `ORPHAN-HIGH-421` | P0-10 / NEW-02 | HIGH | all three independence layers non-functional |
+| `ORPHAN-HIGH-422` | P0-15 | HIGH | HUMAN_REQUIRED becomes `no_gaps` |
+| `ORPHAN-HIGH-423` | P0-09 | HIGH | specialist gate fails open in `standard` and `autonomous` |
+| `ORPHAN-HIGH-424` | P0-01 | HIGH | summary counters pinned to zero; invalid state published |
+| `ORPHAN-HIGH-425` | P0-14 | HIGH | installation token full-scope; TTL is fiction |
+| `ORPHAN-HIGH-426` | P1-03 + operator direction | HIGH | HUMAN_REQUIRED waits on a human indefinitely, and the sweep that makes it visible has CLI-only callers |
+| `ORPHAN-CRITICAL-427` | hunt | CRITICAL | The bash sandbox perimeter has no kernel caller |
+| `ORPHAN-CRITICAL-428` | hunt | CRITICAL | HARD_FAIL_CHECKS is a pure-data registry with no callable field and zero production i… |
+| `ORPHAN-HIGH-429` | hunt | HIGH | Gate B oscillation guard has no caller while the streak it reads only ever increments |
+| `ORPHAN-HIGH-430` | hunt | HIGH | ARIA-Watchdog goes permanently silent after its first poll because the daemon's own g… |
+| `ORPHAN-HIGH-431` | hunt | HIGH | The banned-phrase HARD-reject check scans envelope keys the production submission nev… |
+| `ORPHAN-MEDIUM-432` | hunt | MEDIUM | Architecture Spine Gate drops unreadable or undecodable files from the invariant viol… |
+| `ORPHAN-HIGH-433` | hunt | HIGH | The aria-tools publication integrity gate verifies only a small fraction of the decla… |
+| `ORPHAN-HIGH-434` | hunt | HIGH | The daily report PR can never be staged |
+| `ORPHAN-HIGH-435` | this session | HIGH | The kernel test suite inherits the agent container's global git config |
+| `ORPHAN-MEDIUM-436` | this session | MEDIUM | The test_gate_canonical_suite policy named mutation and coverage gates that do not ex… |
+| `ORPHAN-HIGH-437` | this session | HIGH | The hard-fail perimeter is one undifferentiated gate |
+| `ORPHAN-HIGH-438` | this session | HIGH | Five declared pre-PR-open hard-fail checks have no implementation |
+| `ORPHAN-HIGH-417` | this session | HIGH | the ID allocator and the trailer resolver each read only half the ORPHAN identifier space |
+
+Every ID above is listed here on purpose: this document is the `Closes:` target for all of them, and
+a trailer pointing at a file that does not name the finding is traceability theatre. Remaining
+confirmed P0/P1 findings (P0-03, P0-04, P0-05, P0-06, P0-08, P0-11, P0-12, P0-13, NEW-03, NEW-04 and
+the P1 set) are registered in the wave that closes them, so an OPEN finding always has a current
+owner rather than a placeholder.
+
+**On the numbering.** These IDs run from 417, not 333. The first allocation was made by an ID
+allocator that could not see `docs/reviews/orphan-findings.md` and therefore believed sequences
+333-351 were free; the markdown store was already at 416, so all nineteen landed on live findings and
+eight resolved to the wrong one. §9 has the mechanism. The branch that carried the first numbering was
+retraced onto uncollided IDs rather than patched, because a trailer already pushed cannot be amended
+and force-push is forbidden here.
+
 ---
 
 ## 1. P0 verification table
@@ -453,7 +497,127 @@ four zero-caller policy functions, a non-existent function the orchestrator call
 independence layers that cannot fire. The suite is large and it passes; it does not test whether the
 pieces are wired to each other.
 
-## 8. The traceability machinery itself was broken (`ORPHAN-HIGH-417`)
+## 8. Second-round defect hunt (independent, adversarially verified)
+
+A six-lens hunt was run over the kernel, executors and workflows looking for the *shape* of NEW-01
+— declared authority with no caller, and damaged evidence reading as success. Each finding was
+handed to an adversarial verifier instructed to refute it by default and to reproduce it or drop it.
+**Six were confirmed, none refuted.** Two further workflow findings were reproduced independently
+here. All are registered.
+
+| ID | Severity | Finding |
+|---|---|---|
+| `ORPHAN-CRITICAL-427` | CRITICAL | the bash sandbox perimeter has no kernel caller — `wrap_bash_in_sandbox` returns argv unchanged, so containment is prose addressed to the process being contained |
+| `ORPHAN-CRITICAL-428` | CRITICAL | `HARD_FAIL_CHECKS` is 17 names with no callable field and zero iterators; `expert_review_gate.py` has zero production callers; a count-pinning test passes green |
+| `ORPHAN-HIGH-429` | HIGH | Gate B oscillation guard has no caller while its streak only increments — fix/reopen loops unbounded, and a runbook points operators at a file that can never be written |
+| `ORPHAN-HIGH-430` | HIGH | ARIA-Watchdog goes silent after its first poll: its own governance writes advance the read cursor past the events it should see (zero findings in 15 iterations) |
+| `ORPHAN-HIGH-431` | HIGH | the banned-phrase hard-reject check reads keys the production envelope never has — 11 of 12 banned phrases present, `hits: []`, on 100% of submissions |
+| `ORPHAN-MEDIUM-432` | MEDIUM | Architecture Spine Gate drops unreadable files from the violation count; deleting `apps/`+`libs/` scores as improvement (latent) |
+| `ORPHAN-HIGH-433` | HIGH | **the publication integrity gate added in this session covers only a fraction of the declared state surfaces** |
+| `ORPHAN-HIGH-434` | HIGH | the daily report can never be staged — `.gitignore` excludes the parent directory, so no chain-tip anchor has been committed since 2026-05-08 |
+| `ORPHAN-HIGH-435` | HIGH | the kernel test suite inherits the agent container's global git config, so every fixture commit invokes an external signing binary and the suite can redden for reasons unrelated to the code under test |
+
+### `ORPHAN-HIGH-435` — the gate that every other gate depends on
+
+Found while verifying the programme plan rather than while hunting, which is why it arrives after
+the other eight. Under concurrent agent load three tests failed with `git commit` exit 128 inside
+their own temp-repo fixtures (`aria-kernel/tests/test_evidence_trust.py:50`,
+`aria-kernel/tests/test_executor_lane.py:34`); all 33 passed on an isolated re-run. The initial
+hypothesis — a globally-set `commit.gpgsign=true` — was only half right, and the half that was
+missing is the part that matters.
+
+Primary evidence: `git config --global` resolves `commit.gpgsign=true`, `gpg.format=ssh`,
+`gpg.ssh.program=/tmp/code-sign`, and `/tmp/code-sign` is a **symlink to
+`/opt/env-runner/environment-manager`** — the agent harness's own binary. A bare `git init` in a
+temp directory inherits all three. So every fixture commit, in roughly thirty test files that build
+repos inline, was invoking an external harness-managed program with its own availability and
+concurrency behaviour. The failure was not a flake in the tests; it was the harness answering slowly
+under load, reported as a test failure.
+
+This is registered HIGH rather than MEDIUM because of what depends on it. Every stage gate in
+`docs/plans/2026-07-26-aria-software-team-program/PLAN.md` exits on "suite green". A suite whose
+verdict is a function of machine state is the same defect class as the dashboard that reported 21
+blocked cycles as `ok` — a signal that can be wrong while looking authoritative. It is fixed at
+tier 1 rather than tier 2: `tests/__init__.py` redirects `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM`
+for the whole test process, so ambient leakage is structurally impossible for every fixture in the
+process rather than something each new test must remember to defend against. Repo-**local**
+configuration is deliberately left alone, so `gh_token_factory.mint_signing_key` setting
+`--local commit.gpgsign true` remains observable.
+
+### `ORPHAN-HIGH-433` corrects a claim made in this same session
+
+The `ORPHAN-HIGH-424` commit message says publication is now fail-closed. That is true only for the
+surfaces `integrity verify` actually hashes. `STATE_SURFACES` declares **160** surfaces while
+`covered_tool_ledgers()` returns a small subset — 4 in a bare tree, ~28 once conditional files
+exist. Uncovered surfaces include `enterprise_acceptance_events`, `autonomy_state`,
+`cost_attribution`, `cost_budget`, `cost_telemetry` and `handoffs`. A cycle killed mid-append to any
+of those still yields `status: ok`, so `state_valid=true` and the damaged tree is published under the
+canonical name with `overwrite: true`, destroying the last good copy.
+
+So the gate is a real improvement over the unconditional `if: always()` upload it replaced, and it is
+**not** the full guarantee the commit implied. Closing 348 means extending coverage to every declared
+surface, which is the same work as P1-01.
+
+`ORPHAN-HIGH-434` also explains a data point visible from the start and not chased: the newest daily
+anchor tracked in git is `2026-05-08.md`.
+
+### Traceability correction for `f46324323`
+
+That commit's footer reads `Closes: …#ORPHAN-CRITICAL-427`. That is wrong on both counts and is
+corrected here rather than by rewriting history, since force-push is forbidden:
+
+* the commit's subject is the **343** work (the executable hard-fail registry); 342 was closed by
+  `873f038f8`, the preceding commit;
+* **343 is NOT closed.** Five of its 17 checks are bound to real implementations; twelve bind an
+  explicit failing `_not_implemented`, and the report is not threaded into
+  `pr_manager.open_pr_for_action` or `auto_merge.merge_if_green` yet.
+
+`ORPHAN-CRITICAL-428` stays `OPEN` — owner okan, deadline 2026-08-02 — until the twelve
+implementations and the two call sites land. Autonomous merge stays closed until then. Read
+`f46324323` as "partial progress on 343", never as a closure of anything.
+
+**Phase A update.** The five mechanical pre-PR-open checks now have real implementations, so all ten
+`pre_pr_open` entries are executable and the seven still bound to `_not_implemented` are exactly the
+`pre_merge` set. Two things surfaced while building them, both worth recording because they change
+what the registry means:
+
+* `kernel_self_modification_blocked_at_envelope_mint` and `forbidden_scope_normalized` are **not**
+  duplicates, and a reader who assumes they are would delete the wrong one. The mint check is purely
+  lexical over the envelope's declared `affected_surfaces` — no filesystem — which is precisely why
+  it works at mint time; the scope check resolves real paths through a workspace and returns
+  `workspace_root_absent` at that point. A test asserts the difference directly.
+* The registry described the canonical validation suite as "nx affected, type-check, mutation,
+  coverage". This repository has **no** mutation-testing script and **no** coverage target, so that
+  gate could never have been satisfied. It was invisible because the check bound `_not_implemented`
+  and failed for that reason instead — an unsatisfiable requirement hiding behind an unbuilt one.
+  The check is implemented against the three commands that exist and the description corrected to
+  match; the genuine platform gap is registered as `ORPHAN-MEDIUM-436` rather than dropped.
+
+`343` remains OPEN: the seven pre-merge checks and the two call sites
+(`pr_manager.open_pr_for_action`, `auto_merge.merge_if_green`) are phase B, stage S2.
+
+### What the hunt did not cover
+
+Recorded because an unexamined area is the finding most likely to be missed next: live-but-wrong
+arithmetic (threshold direction in `detect_drift`, tier mapping in `triage.py`, promotion arithmetic,
+`judge_calibration` scoring); concurrency and TOCTOU (`file_lock`, lease TTL versus in-flight
+subprocess, a manual `autonomy run` racing the cron); chain verification on the read paths that gate
+decisions; token scope and the `is_gh_api_path_forbidden` denylist, credited as a control and never
+bypass-tested; prompt injection through repo content, finding text and PR bodies into agent prompts;
+cost and resource exhaustion; crash recovery and idempotency; clock and artifact-expiry effects on
+cumulative counters. `auto_merge.py`, `merge_authority.py` and `pr_manager.py` were read only to
+prove a negative, so their own gating logic remains untested. One candidate — `runner_attestation.py`,
+a self-attested `sandbox_available` with no production caller, sitting directly on top of 342 — was
+found and not written up.
+
+The method gap worth fixing: the caller census was a one-level AST scan classifying test versus
+production by path. It did not resolve `python3 -m aria_kernel <subcommand>` strings inside workflow
+YAML, nor compute reachability from real entrypoints — a symbol with one production caller that is
+itself unreachable still counts as wired. The Tier-3 generalisation of 342/343/344 is a CI check that
+diffs the gates *declared* in the plan and policy documents against the set actually reachable from
+an entrypoint.
+
+## 9. The traceability machinery itself was broken (`ORPHAN-HIGH-417`)
 
 Found while trying to make this session's own fix commits pass the `Closes:` gate, which is the
 only reason it was found at all: the defect is invisible until you mint a finding and reference it.
@@ -489,7 +653,7 @@ The fix puts the pattern and its reader in one place — `finding-registry-store
 allocator and the resolver, so the two cannot drift again, and wires the gate's own unit tests into
 CI, where they had never run.
 
-## 9. Limits of this verification
+## 10. Limits of this verification
 
 * The live GitHub Actions artifact was not re-downloaded. Every figure the report cited was instead
   explained from source (21/21 bridge `skipped` ⇒ P1-06; 0 tool runs ⇒ NoOp implementer; 13

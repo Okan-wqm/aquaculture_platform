@@ -42174,6 +42174,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/workflow-npm-script-references.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/performance/api-smoke.js",
       "prettier_managed": true
     },
@@ -54864,10 +54870,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8993,
+  "file_count": 8994,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8812,
-  "managed_file_list_sha256": "889a37eee54faf365a75984e37c7e56acaafa735ca16a167f9d28d36805733f2",
+  "managed_count": 8813,
+  "managed_file_list_sha256": "db723509e98f7c7b8f5736ed650b8e387d8bbfb81061c546d1a9619b46a182f5",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

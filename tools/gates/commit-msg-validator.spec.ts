@@ -77,7 +77,7 @@ const FIXTURE_DEBTS_DIR = resolve(REPO_ROOT, 'aria-debts/.test-fixtures');
 // CLOSES_TRAILER_REGEX
 // ---------------------------------------------------------
 
-test('CLOSES_TRAILER_REGEX matches ULTRA-HIGH-NNN trailer', () => {
+void test('CLOSES_TRAILER_REGEX matches ULTRA-HIGH-NNN trailer', () => {
   const m = CLOSES_TRAILER_REGEX.exec(
     'Closes: docs/reviews/orphan-findings.md#ULTRA-HIGH-091',
   );
@@ -86,7 +86,7 @@ test('CLOSES_TRAILER_REGEX matches ULTRA-HIGH-NNN trailer', () => {
   assert.strictEqual(m?.[2], 'ULTRA-HIGH-091');
 });
 
-test('CLOSES_TRAILER_REGEX matches ORPHAN-MEDIUM-NNN trailer', () => {
+void test('CLOSES_TRAILER_REGEX matches ORPHAN-MEDIUM-NNN trailer', () => {
   const m = CLOSES_TRAILER_REGEX.exec(
     'Closes: docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-031',
   );
@@ -94,7 +94,7 @@ test('CLOSES_TRAILER_REGEX matches ORPHAN-MEDIUM-NNN trailer', () => {
   assert.strictEqual(m?.[2], 'ORPHAN-MEDIUM-031');
 });
 
-test('CLOSES_TRAILER_REGEX rejects malformed ID (no severity)', () => {
+void test('CLOSES_TRAILER_REGEX rejects malformed ID (no severity)', () => {
   // Severity must be one of CRITICAL/HIGH/MEDIUM/LOW per
   // the regex contract.
   const m = CLOSES_TRAILER_REGEX.exec(
@@ -103,14 +103,14 @@ test('CLOSES_TRAILER_REGEX rejects malformed ID (no severity)', () => {
   assert.strictEqual(m, null);
 });
 
-test('CLOSES_TRAILER_REGEX rejects 2-digit ID (must be 3-digit)', () => {
+void test('CLOSES_TRAILER_REGEX rejects 2-digit ID (must be 3-digit)', () => {
   const m = CLOSES_TRAILER_REGEX.exec(
     'Closes: docs/reviews/orphan-findings.md#ULTRA-HIGH-91',
   );
   assert.strictEqual(m, null);
 });
 
-test('CLOSES_TRAILER_REGEX rejects line without Closes: prefix', () => {
+void test('CLOSES_TRAILER_REGEX rejects line without Closes: prefix', () => {
   const m = CLOSES_TRAILER_REGEX.exec(
     'See: docs/reviews/orphan-findings.md#ULTRA-HIGH-091',
   );
@@ -121,7 +121,7 @@ test('CLOSES_TRAILER_REGEX rejects line without Closes: prefix', () => {
 // ORPHAN_HEADING_REGEX
 // ---------------------------------------------------------
 
-test('ORPHAN_HEADING_REGEX extracts ID from canonical heading', () => {
+void test('ORPHAN_HEADING_REGEX extracts ID from canonical heading', () => {
   const m = ORPHAN_HEADING_REGEX.exec(
     '## ORPHAN-MEDIUM-031 — `KeyPurpose` enum projects 4 SqlCipher consumers',
   );
@@ -129,7 +129,7 @@ test('ORPHAN_HEADING_REGEX extracts ID from canonical heading', () => {
   assert.strictEqual(m?.[1], 'ORPHAN-MEDIUM-031');
 });
 
-test('ORPHAN_HEADING_REGEX matches all 4 severities', () => {
+void test('ORPHAN_HEADING_REGEX matches all 4 severities', () => {
   for (const sev of ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']) {
     const m = ORPHAN_HEADING_REGEX.exec(`## ORPHAN-${sev}-001 — title`);
     assert.notStrictEqual(m, null, `failed to match ORPHAN-${sev}-001`);
@@ -137,14 +137,14 @@ test('ORPHAN_HEADING_REGEX matches all 4 severities', () => {
   }
 });
 
-test('ORPHAN_HEADING_REGEX rejects non-orphan prefixes', () => {
+void test('ORPHAN_HEADING_REGEX rejects non-orphan prefixes', () => {
   // ULTRA-HIGH lives in the registry, not orphan-findings.
   // Only ORPHAN-* prefixed headings count.
   const m = ORPHAN_HEADING_REGEX.exec('## ULTRA-HIGH-091 — title');
   assert.strictEqual(m, null);
 });
 
-test('ORPHAN_HEADING_REGEX rejects H1 / H3 headings (only H2)', () => {
+void test('ORPHAN_HEADING_REGEX rejects H1 / H3 headings (only H2)', () => {
   assert.strictEqual(
     ORPHAN_HEADING_REGEX.exec('# ORPHAN-MEDIUM-031 — title'),
     null,
@@ -155,7 +155,7 @@ test('ORPHAN_HEADING_REGEX rejects H1 / H3 headings (only H2)', () => {
   );
 });
 
-test('ORPHAN_HEADING_REGEX matches the forms the narrow pattern skipped', () => {
+void test('ORPHAN_HEADING_REGEX matches the forms the narrow pattern skipped', () => {
   // These are all real headings in docs/reviews/orphan-findings.md. The
   // previous ORPHAN-(CRITICAL|HIGH|MEDIUM|LOW)-\d{3} pattern matched
   // none of them, so 16 occupied sequences looked free to the ID
@@ -173,7 +173,7 @@ test('ORPHAN_HEADING_REGEX matches the forms the narrow pattern skipped', () => 
   }
 });
 
-test('ORPHAN_HEADING_REGEX captures the bare sequence for the allocator', () => {
+void test('ORPHAN_HEADING_REGEX captures the bare sequence for the allocator', () => {
   // Group 2 is what makes a markdown-held sequence visible to
   // nextFindingId; severity and suffix must be discarded.
   assert.strictEqual(ORPHAN_HEADING_REGEX.exec('## ORPHAN-LOW-337b — x')?.[2], '337');
@@ -184,7 +184,7 @@ test('ORPHAN_HEADING_REGEX captures the bare sequence for the allocator', () => 
 // REQUIRE_CLOSES_TYPES
 // ---------------------------------------------------------
 
-test('REQUIRE_CLOSES_TYPES matches gated commit types', () => {
+void test('REQUIRE_CLOSES_TYPES matches gated commit types', () => {
   for (const subject of [
     'fix(edge): bug fix',
     'security(edge): hardening',
@@ -198,7 +198,7 @@ test('REQUIRE_CLOSES_TYPES matches gated commit types', () => {
   }
 });
 
-test('REQUIRE_CLOSES_TYPES does not match free types', () => {
+void test('REQUIRE_CLOSES_TYPES does not match free types', () => {
   for (const subject of [
     'chore(registry): close UH',
     'docs(reviews): update orphan finding',
@@ -216,11 +216,11 @@ test('REQUIRE_CLOSES_TYPES does not match free types', () => {
 // extractTrailers
 // ---------------------------------------------------------
 
-test('extractTrailers: empty body returns empty array', () => {
+void test('extractTrailers: empty body returns empty array', () => {
   assert.deepStrictEqual(extractTrailers(''), []);
 });
 
-test('extractTrailers: single Closes trailer', () => {
+void test('extractTrailers: single Closes trailer', () => {
   const trailers = extractTrailers(
     'body text\n\nCloses: docs/reviews/orphan-findings.md#ULTRA-HIGH-091',
   );
@@ -228,7 +228,7 @@ test('extractTrailers: single Closes trailer', () => {
   assert.strictEqual(trailers[0]?.findingId, 'ULTRA-HIGH-091');
 });
 
-test('extractTrailers: multi-Closes (UH + ORPHAN together)', () => {
+void test('extractTrailers: multi-Closes (UH + ORPHAN together)', () => {
   const trailers = extractTrailers(
     [
       'body',
@@ -242,7 +242,7 @@ test('extractTrailers: multi-Closes (UH + ORPHAN together)', () => {
   assert.strictEqual(trailers[1]?.findingId, 'ORPHAN-MEDIUM-033');
 });
 
-test('extractTrailers: ignores non-Closes lines that mention findings', () => {
+void test('extractTrailers: ignores non-Closes lines that mention findings', () => {
   // Free-text mention of a finding shouldn't count as a Closes trailer.
   const trailers = extractTrailers(
     'body\n\nSee #ULTRA-HIGH-091 for context\nCloses: docs/x.md#ORPHAN-LOW-030',
@@ -257,7 +257,7 @@ test('extractTrailers: ignores non-Closes lines that mention findings', () => {
 
 const NEVER_PRE_GATE = (_c: Commit): boolean => false;
 
-test('validateCommit: feat commit without Closes fails', () => {
+void test('validateCommit: feat commit without Closes fails', () => {
   const commit: Commit = {
     sha: 'abc123',
     shortSha: 'abc123',
@@ -274,7 +274,7 @@ test('validateCommit: feat commit without Closes fails', () => {
   assert.match(violations[0]?.reason ?? '', /missing Closes: trailer/);
 });
 
-test('validateCommit: chore commit without Closes passes', () => {
+void test('validateCommit: chore commit without Closes passes', () => {
   // chore is NOT in REQUIRE_CLOSES_TYPES, so it doesn't
   // need a trailer.
   const commit: Commit = {
@@ -292,7 +292,7 @@ test('validateCommit: chore commit without Closes passes', () => {
   assert.strictEqual(violations.length, 0);
 });
 
-test('validateCommit: ORPHAN-* trailer routes to orphan-IDs (passes when present)', () => {
+void test('validateCommit: ORPHAN-* trailer routes to orphan-IDs (passes when present)', () => {
   // The trailer points at a path that does NOT exist on
   // disk (we don't want the test to depend on the actual
   // filesystem state). This will trigger ONE violation
@@ -321,7 +321,7 @@ test('validateCommit: ORPHAN-* trailer routes to orphan-IDs (passes when present
   );
 });
 
-test('validateCommit: ORPHAN-* trailer resolves against the REGISTRY too', () => {
+void test('validateCommit: ORPHAN-* trailer resolves against the REGISTRY too', () => {
   // The lane is a union. An ORPHAN ID minted into the hash-chained
   // registry used to resolve against neither store — not the registry,
   // because the ORPHAN prefix routed away from it, and not the markdown,
@@ -346,7 +346,7 @@ test('validateCommit: ORPHAN-* trailer resolves against the REGISTRY too', () =>
   );
 });
 
-test('validateCommit: ORPHAN-* trailer with unknown ID fails with orphan-routed reason', () => {
+void test('validateCommit: ORPHAN-* trailer with unknown ID fails with orphan-routed reason', () => {
   const commit: Commit = {
     sha: 'abc123',
     shortSha: 'abc123',
@@ -372,7 +372,7 @@ test('validateCommit: ORPHAN-* trailer with unknown ID fails with orphan-routed 
   );
 });
 
-test('validateCommit: non-ORPHAN trailer routes to registry-IDs', () => {
+void test('validateCommit: non-ORPHAN trailer routes to registry-IDs', () => {
   // ULTRA-HIGH-091 in registryIds → passes (only file-
   // missing violation surfaces).
   const commit: Commit = {
@@ -391,7 +391,7 @@ test('validateCommit: non-ORPHAN trailer routes to registry-IDs', () => {
   assert.match(violations[0]?.reason ?? '', /missing review file/);
 });
 
-test('validateCommit: non-ORPHAN trailer with unknown ID fails with registry-routed reason', () => {
+void test('validateCommit: non-ORPHAN trailer with unknown ID fails with registry-routed reason', () => {
   const commit: Commit = {
     sha: 'abc123',
     shortSha: 'abc123',
@@ -411,7 +411,7 @@ test('validateCommit: non-ORPHAN trailer with unknown ID fails with registry-rou
   assert.match(registryReason?.reason ?? '', /unknown finding ID/);
 });
 
-test('validateCommit: multi-Closes (UH valid + ORPHAN valid) both route correctly', () => {
+void test('validateCommit: multi-Closes (UH valid + ORPHAN valid) both route correctly', () => {
   // The Batch #341 case: a commit closing both a registry-
   // tracked UH-NNN AND a markdown-tracked ORPHAN-NNN. Pre-
   // Batch-#342 this would fail because the ORPHAN side
@@ -447,7 +447,7 @@ test('validateCommit: multi-Closes (UH valid + ORPHAN valid) both route correctl
   assert.strictEqual(violations.length, 2);
 });
 
-test('validateCommit: pre-gate predicate skips validation', () => {
+void test('validateCommit: pre-gate predicate skips validation', () => {
   // Allowlist commits (pre-Phase-6 SHAs) skip the gate.
   const commit: Commit = {
     sha: 'abc123',
@@ -468,14 +468,14 @@ test('validateCommit: pre-gate predicate skips validation', () => {
 // Plan 017 Phase 1.1 — ARIA artifact trailer routing
 // ---------------------------------------------------------
 
-test('CLOSES_TRAILER_REGEX matches aria-findings F-NNN trailer', () => {
+void test('CLOSES_TRAILER_REGEX matches aria-findings F-NNN trailer', () => {
   const m = CLOSES_TRAILER_REGEX.exec('Closes: aria-findings/F-001.json#F-001');
   assert.notStrictEqual(m, null);
   assert.strictEqual(m?.[1], 'aria-findings/F-001.json');
   assert.strictEqual(m?.[2], 'F-001');
 });
 
-test('CLOSES_TRAILER_REGEX matches aria-debts DEBT-YYYY-MM-DD-NNN trailer', () => {
+void test('CLOSES_TRAILER_REGEX matches aria-debts DEBT-YYYY-MM-DD-NNN trailer', () => {
   const m = CLOSES_TRAILER_REGEX.exec(
     'Closes: aria-debts/DEBT-2026-05-08-001.json#DEBT-2026-05-08-001',
   );
@@ -484,7 +484,7 @@ test('CLOSES_TRAILER_REGEX matches aria-debts DEBT-YYYY-MM-DD-NNN trailer', () =
   assert.strictEqual(m?.[2], 'DEBT-2026-05-08-001');
 });
 
-test('isAriaArtifactPath / isAriaFindingId classify correctly', () => {
+void test('isAriaArtifactPath / isAriaFindingId classify correctly', () => {
   assert.strictEqual(isAriaArtifactPath('aria-findings/F-001.json'), true);
   assert.strictEqual(isAriaArtifactPath('aria-debts/DEBT-2026-05-08-001.json'), true);
   assert.strictEqual(isAriaArtifactPath('docs/reviews/x.md'), false);
@@ -494,7 +494,7 @@ test('isAriaArtifactPath / isAriaFindingId classify correctly', () => {
   assert.strictEqual(isAriaFindingId('ORPHAN-MEDIUM-031'), false);
 });
 
-test('validateCommit: ARIA finding trailer routes to filesystem (no registry lookup)', () => {
+void test('validateCommit: ARIA finding trailer routes to filesystem (no registry lookup)', () => {
   // Plan 018 Phase 6.1 (G6) — refactored to a self-contained tempfile
   // fixture so the test no longer depends on snowball's working-tree
   // state (the original implementation read aria-findings/F-001.json
@@ -533,7 +533,7 @@ test('validateCommit: ARIA finding trailer routes to filesystem (no registry loo
   }
 });
 
-test('validateCommit: ARIA path with non-ARIA ID is rejected', () => {
+void test('validateCommit: ARIA path with non-ARIA ID is rejected', () => {
   const commit: Commit = {
     sha: 'abc123',
     shortSha: 'abc123',
@@ -552,7 +552,7 @@ test('validateCommit: ARIA path with non-ARIA ID is rejected', () => {
   );
 });
 
-test('validateCommit: aria-findings path with DEBT-style ID is rejected', () => {
+void test('validateCommit: aria-findings path with DEBT-style ID is rejected', () => {
   const commit: Commit = {
     sha: 'abc123',
     shortSha: 'abc123',
@@ -566,7 +566,7 @@ test('validateCommit: aria-findings path with DEBT-style ID is rejected', () => 
   );
 });
 
-test('validateCommit: registry trailer still routes to registry (not ARIA)', () => {
+void test('validateCommit: registry trailer still routes to registry (not ARIA)', () => {
   const commit: Commit = {
     sha: 'abc123',
     shortSha: 'abc123',
@@ -598,7 +598,7 @@ test('validateCommit: registry trailer still routes to registry (not ARIA)', () 
 // the audit caught that no gate parsed the file content. These tests pin
 // the new ID-vs-content match, mismatch, and unreadable-file lanes.
 
-test('validateCommit: ARIA finding trailer with matching finding_id passes ID cross-check', () => {
+void test('validateCommit: ARIA finding trailer with matching finding_id passes ID cross-check', () => {
   // Setup: write a fixture file with finding_id=F-901 at a real on-disk
   // path under aria-findings/.test-fixtures/. The validator reads the
   // file, parses it, and compares the in-file finding_id to the trailer
@@ -629,7 +629,7 @@ test('validateCommit: ARIA finding trailer with matching finding_id passes ID cr
   }
 });
 
-test('validateCommit: ARIA finding trailer with mismatched finding_id fires ID cross-check violation', () => {
+void test('validateCommit: ARIA finding trailer with mismatched finding_id fires ID cross-check violation', () => {
   // Setup: write a fixture file with finding_id=F-901 but craft a trailer
   // claiming F-902. Earlier structural gates pass (file exists, path is
   // aria-findings/, ID is F-NNN); the new ID-content check fires.
@@ -660,7 +660,7 @@ test('validateCommit: ARIA finding trailer with mismatched finding_id fires ID c
   }
 });
 
-test('validateCommit: ARIA debt trailer with malformed JSON fires unreadable violation', () => {
+void test('validateCommit: ARIA debt trailer with malformed JSON fires unreadable violation', () => {
   // Setup: write a non-JSON file at a debt path. Earlier structural gates
   // pass (file exists, path is aria-debts/, ID is DEBT-shaped); the new
   // unreadable lane fires.
@@ -688,7 +688,7 @@ test('validateCommit: ARIA debt trailer with malformed JSON fires unreadable vio
   }
 });
 
-test('readAriaArtifactId returns finding_id for aria-findings/ path', () => {
+void test('readAriaArtifactId returns finding_id for aria-findings/ path', () => {
   // Direct unit-level coverage of the new helper.
   mkdirSync(FIXTURE_FINDINGS_DIR, { recursive: true });
   const fixturePath = resolve(FIXTURE_FINDINGS_DIR, 'F-902.json');

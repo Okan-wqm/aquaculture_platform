@@ -134,6 +134,7 @@
     "gates:clippy-affected": "ts-node --project tools/gates/tsconfig.json tools/gates/clippy-affected.ts",
     "gates:clippy-affected:test": "ts-node --project tools/gates/tsconfig.json tools/gates/clippy-affected.spec.ts",
     "gates:commit-msg:test": "ts-node --project tools/gates/tsconfig.json tools/gates/commit-msg-validator.spec.ts",
+    "gates:finding-registry:test": "ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry-store.spec.ts",
     "gates:plan-coverage:test": "ts-node --project tools/gates/tsconfig.json tools/gates/plan-coverage-witness.spec.ts",
     "gates:banned-phrase:test": "ts-node --project tools/gates/tsconfig.json tools/gates/banned-phrase.spec.ts",
     "gates:lint-baseline:test": "ts-node --project tools/gates/tsconfig.json tools/lint-gates/lint-gates.spec.ts && ts-node --project tools/gates/tsconfig.json tools/lint-gates/custom-rules.spec.ts && ts-node --project tools/gates/tsconfig.json tools/lint-gates/eslintrc-flat-parity.spec.ts",

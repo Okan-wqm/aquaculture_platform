@@ -122,6 +122,52 @@ class TestV9HardFailRegistry(unittest.TestCase):
             "no_main_branch_write", {r.name for r in report.failures},
         )
 
+    def test_i_v9_safety_gate_split_keeps_merge_unsatisfiable(self):
+        """ORPHAN-CRITICAL-428 — two gates, and merge is closed by the
+        perimeter rather than by a separate switch.
+
+        Splitting the registry is what lets pre-PR-open become satisfiable
+        without also opening merge. While any pre-merge check is
+        unimplemented the merge gate cannot pass, so there is no flag to
+        forget to set.
+        """
+        gates = {c.gate for c in _is.HARD_FAIL_CHECKS}
+        self.assertTrue(gates <= _is.HARD_FAIL_GATES, f"unknown gate in {gates}")
+        pre_merge = _is.run_hard_fail_checks(
+            _is.HardFailContext(), gate=_is.GATE_PRE_MERGE,
+        )
+        self.assertFalse(
+            pre_merge.passed,
+            msg="pre-merge gate must not pass while its checks are unbuilt",
+        )
+        # Every live implementation belongs to the pre-PR-open stage: those
+        # are the checks answerable from the action itself.
+        whole = _is.run_hard_fail_checks(_is.HardFailContext())
+        by_name = {c.name: c for c in _is.HARD_FAIL_CHECKS}
+        for result in whole.results:
+            if result.reason != "check_not_implemented":
+                with self.subTest(check=result.name):
+                    self.assertEqual(by_name[result.name].gate, _is.GATE_PRE_PR_OPEN)
+        # Filtering is a partition, not a sample.
+        self.assertEqual(
+            len(pre_merge.results)
+            + len(_is.run_hard_fail_checks(
+                _is.HardFailContext(), gate=_is.GATE_PRE_PR_OPEN,
+            ).results),
+            len(_is.HARD_FAIL_CHECKS),
+        )
+
+    def test_i_v9_safety_unknown_gate_raises_rather_than_selecting_nothing(self):
+        """A typo must not read as "zero checks, all passed"."""
+        with self.assertRaises(ValueError):
+            _is.run_hard_fail_checks(_is.HardFailContext(), gate="pre_merg")
+        with self.assertRaises(ValueError):
+            _is.HardFailCheck(
+                name="bad_gate", description="x", closes_findings=(),
+                check=lambda ctx: _is.HardFailResult("bad_gate", True, "ok"),
+                gate="whenever",
+            )
+
     def test_i_v9_safety_check_names_unique(self):
         """No duplicate check names."""
         names = [c.name for c in _is.HARD_FAIL_CHECKS]
@@ -431,6 +477,9 @@ class TestV9PublicApi(unittest.TestCase):
             # returning bare argv, and sandbox_backend lets a caller fail
             # closed before it builds a command.
             "SandboxUnavailable", "sandbox_backend",
+            # ORPHAN-CRITICAL-428 — the perimeter is two gates, so the
+            # stage names and the runner filter are public contract.
+            "GATE_PRE_PR_OPEN", "GATE_PRE_MERGE", "HARD_FAIL_GATES",
         }
         self.assertEqual(
             set(_is.__all__), canonical,

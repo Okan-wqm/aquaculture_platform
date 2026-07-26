@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `986cd8f9bb2551ac2f604be79dd9d3d7dd2e32d34040611fe587a1f155104249`
+Registry tip: `219eeab75e92c230f828c51099553a460ec82e250a8c1fc1d5239b29cc747485`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -116,25 +116,44 @@ Allowed truth buckets:
 - `stale`
 - `new-finding-required`
 
-| Finding                 | Registry state | First sprint | Owner                | Truth bucket              |
-| ----------------------- | -------------- | ------------ | -------------------- | ------------------------- |
-| `INFRA-CRITICAL-029`    | OPEN           | 1.1          | data-expert          | real-open                 |
-| `FARM-CRITICAL-061`     | OPEN           | 1.1          | farm-expert          | real-open                 |
-| `AISAFETY-CRITICAL-003` | OPEN           | —            | ai-safety-auditor    | already-fixed-needs-close |
-| `SENSOR-CRITICAL-003`   | OPEN           | —            | sensor-expert        | already-fixed-needs-close |
-| `DATA-CRITICAL-001`     | OPEN           | —            | data-expert          | real-open                 |
-| `INFRA-CRITICAL-039`    | OPEN           | —            | infra-expert         | already-fixed-needs-close |
-| `RBAC-CRITICAL-001`     | OPEN           | 1.2          | auth-security-expert | already-fixed-needs-close |
-| `RBAC-CRITICAL-002`     | OPEN           | 1.2          | auth-security-expert | already-fixed-needs-close |
-| `RBAC-CRITICAL-003`     | OPEN           | 1.2          | auth-security-expert | already-fixed-needs-close |
-| `INFRA-CRITICAL-040`    | IN-PROGRESS    | —            | infra-expert         | blocked                   |
-| `INFRA-CRITICAL-044`    | OPEN           | —            | infra-expert         | blocked                   |
-| `FARM-CRITICAL-237`     | IN-PROGRESS    | 4.1          | farm-expert          | real-open                 |
-| `FARM-CRITICAL-238`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
-| `FARM-CRITICAL-240`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
-| `FARM-CRITICAL-241`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
-| `INFRA-CRITICAL-077`    | IN-PROGRESS    | 1.1          | infra-expert         | real-open                 |
-| `INFRA-CRITICAL-078`    | IN-PROGRESS    | 1.1          | security-reviewer    | real-open                 |
+| Finding                 | Registry state | First sprint | Owner                      | Truth bucket              |
+| ----------------------- | -------------- | ------------ | -------------------------- | ------------------------- |
+| `INFRA-CRITICAL-029`    | OPEN           | 1.1          | data-expert                | real-open                 |
+| `FARM-CRITICAL-061`     | OPEN           | 1.1          | farm-expert                | real-open                 |
+| `AISAFETY-CRITICAL-003` | OPEN           | —            | ai-safety-auditor          | already-fixed-needs-close |
+| `SENSOR-CRITICAL-003`   | OPEN           | —            | sensor-expert              | already-fixed-needs-close |
+| `DATA-CRITICAL-001`     | OPEN           | —            | data-expert                | real-open                 |
+| `INFRA-CRITICAL-039`    | OPEN           | —            | infra-expert               | already-fixed-needs-close |
+| `RBAC-CRITICAL-001`     | OPEN           | 1.2          | auth-security-expert       | already-fixed-needs-close |
+| `RBAC-CRITICAL-002`     | OPEN           | 1.2          | auth-security-expert       | already-fixed-needs-close |
+| `RBAC-CRITICAL-003`     | OPEN           | 1.2          | auth-security-expert       | already-fixed-needs-close |
+| `INFRA-CRITICAL-040`    | IN-PROGRESS    | —            | infra-expert               | blocked                   |
+| `INFRA-CRITICAL-044`    | OPEN           | —            | infra-expert               | blocked                   |
+| `FARM-CRITICAL-237`     | IN-PROGRESS    | 4.1          | farm-expert                | real-open                 |
+| `FARM-CRITICAL-238`     | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
+| `FARM-CRITICAL-240`     | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
+| `FARM-CRITICAL-241`     | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
+| `INFRA-CRITICAL-077`    | IN-PROGRESS    | 1.1          | infra-expert               | real-open                 |
+| `INFRA-CRITICAL-078`    | IN-PROGRESS    | 1.1          | security-reviewer          | real-open                 |
+| `ORPHAN-CRITICAL-418`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-419`   | OPEN           | —            | aria-acceptance-gap-hunter | real-open                 |
+| `ORPHAN-CRITICAL-420`   | OPEN           | —            | aria-acceptance-gap-hunter | real-open                 |
+| `ORPHAN-CRITICAL-427`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-428`   | OPEN           | —            | aria-acceptance-gap-hunter | real-open                 |
+| `ORPHAN-CRITICAL-439`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-440`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+
+Updated 2026-07-26 (ARIA control-plane audit): seven ORPHAN CRITICALs joined the
+active set. Five come from the audit of ARIA's own control plane — a corrupted
+failure ledger silently un-tripping the breaker, a producer and executor that
+share no queue, budget and breaker enforcement with zero production callers, a
+bash sandbox perimeter with no caller, and a hard-fail registry that was pure
+data. Two were found by auditing that audit's own fixes: containment with no
+sandbox backend installed anywhere, and an observe burn-in that rejected the
+runtime writes it exists to produce. Four are marked
+`already-fixed-needs-close` with their closing commits below; the registry CLI
+close operations follow once this branch merges, because a `Closes:` trailer on
+an unmerged commit is a claim, not evidence.
 
 ## Mutation Rules
 
@@ -148,6 +167,11 @@ Allowed truth buckets:
   is not covered by the existing finding title/rule.
 
 ## Already-Fixed Evidence
+
+- `ORPHAN-CRITICAL-418` — fixed in `8c30bd69b` predecessor / `d1c3399ee` here; see the commit body for the mechanism and the regression test.
+- `ORPHAN-CRITICAL-427` — fixed in `873f038f8` predecessor / `05153e93d` here; see the commit body for the mechanism and the regression test.
+- `ORPHAN-CRITICAL-439` — fixed in `55cd94464`; see the commit body for the mechanism and the regression test.
+- `ORPHAN-CRITICAL-440` — fixed in `55cd94464`; see the commit body for the mechanism and the regression test.
 
 - `AISAFETY-CRITICAL-003` (single process-global `ANTHROPIC_API_KEY`, no per-tenant
   key — BYOK impossible): the Faz 1 BYOK work (encrypted per-tenant credentials +

@@ -30499,6 +30499,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-07-26-aria-software-team-program/PLAN.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/multi-agent-architecture.md",
       "prettier_managed": true
     },
@@ -31916,6 +31922,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/2026-07-13-branch-triage/ledger.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/2026-07-26-aria-codex-audit-verification.md",
       "prettier_managed": true
     },
     {
@@ -39324,7 +39336,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "24cb0eee1b28f9abd1b00ea1dfaccca2614b10e15f73203ccdb094a2bb97a804",
+      "content_sha256": "70ca722f61e982e5d13bd4163f444aa5b7c27515ab315b606ef906da6dc83068",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -54852,10 +54864,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8991,
+  "file_count": 8993,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8810,
-  "managed_file_list_sha256": "2bf935f30fa75f7bcab66d27cb473a13fd4dd9d4530b6bfe5707067d8817117c",
+  "managed_count": 8812,
+  "managed_file_list_sha256": "889a37eee54faf365a75984e37c7e56acaafa735ca16a167f9d28d36805733f2",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

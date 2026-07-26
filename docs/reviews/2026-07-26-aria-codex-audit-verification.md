@@ -511,6 +511,21 @@ surface, which is the same work as P1-01.
 `ORPHAN-HIGH-349` also explains a data point visible from the start and not chased: the newest daily
 anchor tracked in git is `2026-05-08.md`.
 
+### Traceability correction for `f46324323`
+
+That commit's footer reads `Closes: …#ORPHAN-CRITICAL-342`. That is wrong on both counts and is
+corrected here rather than by rewriting history, since force-push is forbidden:
+
+* the commit's subject is the **343** work (the executable hard-fail registry); 342 was closed by
+  `873f038f8`, the preceding commit;
+* **343 is NOT closed.** Five of its 17 checks are bound to real implementations; twelve bind an
+  explicit failing `_not_implemented`, and the report is not threaded into
+  `pr_manager.open_pr_for_action` or `auto_merge.merge_if_green` yet.
+
+`ORPHAN-CRITICAL-343` stays `OPEN` — owner okan, deadline 2026-08-02 — until the twelve
+implementations and the two call sites land. Autonomous merge stays closed until then. Read
+`f46324323` as "partial progress on 343", never as a closure of anything.
+
 ### What the hunt did not cover
 
 Recorded because an unexamined area is the finding most likely to be missed next: live-but-wrong

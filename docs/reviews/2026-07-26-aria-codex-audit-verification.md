@@ -61,6 +61,10 @@ report's `P0-*` / `NEW-*` labels are the analysis names and these are the tracke
 | `ORPHAN-HIGH-437` | this session | HIGH | The hard-fail perimeter is one undifferentiated gate |
 | `ORPHAN-HIGH-438` | this session | HIGH | Five declared pre-PR-open hard-fail checks have no implementation |
 | `ORPHAN-HIGH-417` | this session | HIGH | the ID allocator and the trailer resolver each read only half the ORPHAN identifier space |
+| `ORPHAN-CRITICAL-439` | this session | CRITICAL | no sandbox backend is installed anywhere, so write containment refuses every spawn |
+| `ORPHAN-CRITICAL-440` | this session | CRITICAL | the observe burn-in rejects the runtime writes it exists to produce |
+| `ORPHAN-HIGH-441` | this session | HIGH | the commit-msg traceability hook binds for nobody — `prepare` never runs under `--ignore-scripts` |
+| `SUPPLY-HIGH-001` | this session | HIGH | four high advisories block a required check; the suggested fix breaks the build |
 
 Every ID above is listed here on purpose: this document is the `Closes:` target for all of them, and
 a trailer pointing at a file that does not name the finding is traceability theatre. Remaining
@@ -759,6 +763,35 @@ dependency PR.
 believed to work and overstate what is achievable by that route; this section is the current
 account. Remaining after the revert: two root advisories — `brace-expansion` (with
 eslint/glob/minimatch/rimraf/gaxios/gcp-metadata transitive through it) and `typeorm`.
+
+## 9d. Why the same mistake happened three times (`ORPHAN-HIGH-441`)
+
+Three commits in this session were written with a `fix`/`security` type and no `Closes:` trailer.
+The third one is why this section exists: a mistake repeated three times is usually a missing
+control, not carelessness, and asking which control was missing found one more instance of the
+pattern this whole document is about.
+
+`.husky/commit-msg` enforces CLAUDE.md's Review Finding Traceability rule. Its **only** binding was
+`prepare: husky install`. This repository mandates `npm ci --ignore-scripts` for supply-chain hygiene
+(SEC-CI-007) — nineteen workflows use it, and it is the documented contributor install. So `prepare`
+never executes. Verified in this clone: `core.hooksPath` unset, `.git/hooks/commit-msg` absent, while
+`.husky/commit-msg` exists, is executable, and — run by hand against the offending message — exits 1
+with the exact violation CI reported later.
+
+A control whose only binding is a lifecycle script that the project's own install procedure disables
+is not a control. It is documentation that happens to be executable.
+
+The cost is specific rather than cosmetic. `closes-footer-check` validates the **whole PR range**, so
+a missing trailer on a pushed commit cannot be repaired by a follow-up commit — it needs history
+rewriting, which this repo forbids. The price of the local hook not running is a branch retrace, not
+an amend.
+
+Fixed at the honest tier ceiling. A repository cannot force a developer's local git config, so this
+is **tier 2** — `npm run hooks:install`, which sets `core.hooksPath` and needs no lifecycle script —
+plus **tier 3** — `tests/invariants/git-hook-binding.spec.ts`, which asserts the hooks exist and are
+executable, that an installer independent of `prepare` exists, and that the hook and the workflow
+still point at the same validator so a commit cannot pass locally and fail in CI. It is not tier 1
+and does not claim to be.
 
 ## 10. Limits of this verification
 

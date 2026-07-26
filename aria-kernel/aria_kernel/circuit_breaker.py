@@ -31,11 +31,30 @@ AUDITTRAIL-CRITICAL-005 atomic-with-event invariant:
 State survives kernel restart (I-V3-25b): the entire state is
 disk-only. ``current_state(base_dir)`` re-reads ``failures.jsonl``
 on every call.
+
+ORPHAN-CRITICAL-418 fail-closed invariant:
+  The breaker is a safety net, so it answers ``tripped`` whenever it
+  cannot prove it is safe. Evidence damage is evaluated BEFORE the
+  threshold comparison, which makes ``ok``-under-damage unreachable:
+
+    * ledger unreadable         → ``tripped`` (``evidence_unreadable``)
+    * rows lost to corruption   → ``tripped`` (``evidence_incomplete``)
+    * ``ts`` missing/unparseable → row counts as IN-window
+
+  Pre-fix all three drained the sliding-window count instead, so a
+  crash mid-append, a truncated artifact round-trip, or deliberate
+  tampering silently returned the kernel to a permissive state. With
+  a threshold of 3, three valid failure rows tripped the breaker but
+  corrupting two of them answered ``ok``.
+
+  :func:`evaluate_breaker` is the primitive; it returns the reason
+  alongside the state so that persisting one persists the other.
 """
 
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -112,34 +131,117 @@ def _load_threshold(base_dir: str | Path) -> int:
         return _DEFAULT_THRESHOLD_24H
 
 
-def _read_failures(base_dir: str | Path) -> list[dict[str, Any]]:
-    """Plan ARIA-V3 §B2 — read the failures ledger via the strict
-    JSONL reader (Plan 026R §A.3 invariant).
+@dataclass(frozen=True)
+class BreakerEvidence:
+    """The failure ledger as actually read, plus how much of it was lost.
 
-    Tolerant mode is correct here: a corrupt row in the breaker
-    ledger should NOT block the breaker's current-state read
-    (failing closed on a single bad row would defeat the breaker's
-    own purpose of being the kernel's safety net). The strict
-    reader still emits ``ledger_corruption_diagnostic`` so an
-    operator audit catches the corruption.
+    ``rows_present`` is the number of non-blank lines the ledger held;
+    ``rows`` is what survived decoding into objects. Any shortfall is
+    lost failure evidence, which is why the two are carried together
+    instead of returning a bare row list — a caller cannot compute a
+    trip decision without also seeing what it could not read.
+    """
+
+    rows: tuple[dict[str, Any], ...]
+    rows_present: int
+    unreadable: bool
+    read_error: str | None
+
+    @property
+    def dropped_rows(self) -> int:
+        return max(0, self.rows_present - len(self.rows))
+
+    @property
+    def intact(self) -> bool:
+        return not self.unreadable and self.dropped_rows == 0
+
+
+@dataclass(frozen=True)
+class BreakerVerdict:
+    """Why the breaker is in the state it is in.
+
+    ``state`` alone collapses "no failures" and "cannot tell" into the
+    same string, which is how damaged evidence used to read as ``ok``.
+    The reason is part of the return type so a caller that persists or
+    logs the state also persists why.
+    """
+
+    state: str
+    reason: str
+    sliding_count: int
+    threshold_24h: int
+    evidence: BreakerEvidence
+
+
+BREAKER_STATE_OK: str = "ok"
+BREAKER_STATE_TRIPPED: str = "tripped"
+
+BREAKER_REASON_WITHIN_THRESHOLD: str = "within_threshold"
+BREAKER_REASON_THRESHOLD_EXCEEDED: str = "threshold_exceeded"
+BREAKER_REASON_EVIDENCE_INCOMPLETE: str = "evidence_incomplete"
+BREAKER_REASON_EVIDENCE_UNREADABLE: str = "evidence_unreadable"
+
+
+def _read_failures_evidence(base_dir: str | Path) -> BreakerEvidence:
+    """Plan ARIA-V3 §B2 — read the failures ledger via the strict
+    JSONL reader (Plan 026R §A.3 invariant), reporting what was lost.
+
+    Tolerant mode stays because a corrupt row must not raise on the
+    read path — but the count of rows the reader had to skip is
+    returned rather than discarded. Pre-fix this function returned a
+    bare list, so a truncated or tampered ledger was indistinguishable
+    from a short one and the sliding-window count silently fell below
+    the trip threshold (ORPHAN-CRITICAL-418). A non-dict row that
+    happens to be valid JSON (``123``, ``"x"``, ``[]``) is lost
+    evidence for the same reason and is counted as dropped.
+
+    Line counting happens BEFORE the row read so that a concurrent
+    append (the appender holds the file lock, this reader does not)
+    can only ever make ``rows`` longer than ``rows_present`` — never
+    shorter. That ordering makes a false "incomplete" verdict
+    impossible while still catching real loss.
     """
     from .strict_jsonl_reader import read_strict_jsonl
 
     path = _failures_path(base_dir)
     if not path.exists():
-        return []
-    return list(
-        read_strict_jsonl(
-            path,
-            on_corruption="tolerant",
-            base_dir=Path(base_dir),
+        return BreakerEvidence(rows=(), rows_present=0, unreadable=False, read_error=None)
+    try:
+        rows_present = sum(
+            1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
         )
+    except OSError as exc:
+        return BreakerEvidence(
+            rows=(), rows_present=0, unreadable=True, read_error=str(exc),
+        )
+    try:
+        decoded = tuple(
+            row
+            for row in read_strict_jsonl(
+                path,
+                on_corruption="tolerant",
+                base_dir=Path(base_dir),
+            )
+            if isinstance(row, dict)
+        )
+    except (OSError, GovernanceError) as exc:
+        return BreakerEvidence(
+            rows=(), rows_present=rows_present, unreadable=True, read_error=str(exc),
+        )
+    return BreakerEvidence(
+        rows=decoded, rows_present=rows_present, unreadable=False, read_error=None,
     )
 
 
-def _count_failures_24h(rows: list[dict[str, Any]]) -> int:
+def _count_failures_24h(rows: tuple[dict[str, Any], ...] | list[dict[str, Any]]) -> int:
     """Plan ARIA-V3 §2j — sliding 24h window. A failure ages out when
     its ``ts`` is more than 24 hours behind ``utcnow``.
+
+    A missing or unparseable ``ts`` counts as IN-window. Pre-fix such a
+    row was skipped, so blanking the timestamps on a ledger dropped the
+    count below the threshold and un-tripped the breaker
+    (ORPHAN-CRITICAL-418). A failure whose age cannot be established
+    has not been shown to have aged out.
     """
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     counted = 0
@@ -148,21 +250,68 @@ def _count_failures_24h(rows: list[dict[str, Any]]) -> int:
         try:
             ts = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
         except (TypeError, ValueError):
+            counted += 1
             continue
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
         if ts >= cutoff:
             counted += 1
     return counted
 
 
-def current_state(base_dir: str | Path) -> str:
-    """Plan ARIA-V3 §B2 — return ``ok`` or ``tripped``. Re-derived
-    from disk every call so kill-9-mid-materialize cannot
+def evaluate_breaker(base_dir: str | Path) -> BreakerVerdict:
+    """Plan ARIA-V3 §B2 — derive the breaker verdict from disk.
+
+    Damaged evidence is decided BEFORE the threshold comparison, so
+    ``ok`` is unreachable whenever the ledger is unreadable or lost
+    rows. For a safety net, evidence that cannot be read means tripped:
+    the alternative — the pre-fix behaviour — let a crash mid-append, a
+    truncated artifact round-trip, or deliberate tampering return the
+    kernel to a permissive state (ORPHAN-CRITICAL-418).
+
+    Re-derived on every call so kill-9-mid-materialize cannot
     desynchronise the in-memory and on-disk views (I-V3-25b).
     """
-    rows = _read_failures(base_dir)
+    evidence = _read_failures_evidence(base_dir)
     threshold = _load_threshold(base_dir)
-    sliding = _count_failures_24h(rows)
-    return "tripped" if sliding >= threshold else "ok"
+    sliding = _count_failures_24h(evidence.rows)
+    if evidence.unreadable:
+        return BreakerVerdict(
+            state=BREAKER_STATE_TRIPPED,
+            reason=BREAKER_REASON_EVIDENCE_UNREADABLE,
+            sliding_count=sliding,
+            threshold_24h=threshold,
+            evidence=evidence,
+        )
+    if evidence.dropped_rows:
+        return BreakerVerdict(
+            state=BREAKER_STATE_TRIPPED,
+            reason=BREAKER_REASON_EVIDENCE_INCOMPLETE,
+            sliding_count=sliding,
+            threshold_24h=threshold,
+            evidence=evidence,
+        )
+    tripped = sliding >= threshold
+    return BreakerVerdict(
+        state=BREAKER_STATE_TRIPPED if tripped else BREAKER_STATE_OK,
+        reason=(
+            BREAKER_REASON_THRESHOLD_EXCEEDED
+            if tripped
+            else BREAKER_REASON_WITHIN_THRESHOLD
+        ),
+        sliding_count=sliding,
+        threshold_24h=threshold,
+        evidence=evidence,
+    )
+
+
+def current_state(base_dir: str | Path) -> str:
+    """Plan ARIA-V3 §B2 — return ``ok`` or ``tripped``.
+
+    Thin projection of :func:`evaluate_breaker`; callers that need to
+    record WHY should take the verdict instead of this string.
+    """
+    return evaluate_breaker(base_dir).state
 
 
 def record_failure(
@@ -213,27 +362,39 @@ def record_failure(
             "extra": extra or {},
         },
     )
-    # If this failure tipped the breaker over the threshold, persist
-    # the tripped state + emit the trip event. ``current_state``
-    # reads from disk so the just-appended row is included.
-    if current_state(root) == "tripped":
+    # If the breaker is now tripped, persist the tripped state + emit
+    # the trip event. ``evaluate_breaker`` reads from disk so the
+    # just-appended row is included. The verdict's reason is recorded
+    # because a trip caused by lost evidence is a different operator
+    # action than a trip caused by real failures crossing the
+    # threshold, and attributing the former to ``kind`` would be a
+    # false audit row.
+    verdict = evaluate_breaker(root)
+    if verdict.state == BREAKER_STATE_TRIPPED:
         _atomic_write_json(
             _state_path(root),
             {
-                "state": "tripped",
+                "state": BREAKER_STATE_TRIPPED,
                 "tripped_at": _utc_now_iso(),
+                "tripped_reason": verdict.reason,
                 "tripped_by_kind": kind,
                 "tripped_by_event_id": materialize_event_id,
-                "threshold_24h": _load_threshold(root),
+                "sliding_count": verdict.sliding_count,
+                "evidence_rows_present": verdict.evidence.rows_present,
+                "evidence_dropped_rows": verdict.evidence.dropped_rows,
+                "threshold_24h": verdict.threshold_24h,
             },
         )
         append_tools_governance(
             root,
             "circuit_breaker_tripped",
             {
+                "tripped_reason": verdict.reason,
                 "tripped_by_kind": kind,
                 "materialize_event_id": materialize_event_id,
-                "threshold_24h": _load_threshold(root),
+                "sliding_count": verdict.sliding_count,
+                "evidence_dropped_rows": verdict.evidence.dropped_rows,
+                "threshold_24h": verdict.threshold_24h,
             },
         )
     return row
@@ -294,20 +455,41 @@ def reset_breaker(
 def assert_within_breaker(base_dir: str | Path) -> dict[str, Any]:
     """Plan ARIA-V3 §B2 — call BEFORE entering the autonomous path.
     Raises ``GovernanceError`` when the breaker is tripped.
+
+    The refusal message carries the verdict reason so an operator can
+    tell "3 real failures in 24h" apart from "the failure ledger lost
+    rows" without re-deriving it by hand.
     """
-    state = current_state(base_dir)
-    if state == "tripped":
+    verdict = evaluate_breaker(base_dir)
+    if verdict.state == BREAKER_STATE_TRIPPED:
         raise GovernanceError(
-            f"circuit_breaker_tripped: threshold_24h="
-            f"{_load_threshold(base_dir)} exceeded"
+            f"circuit_breaker_tripped: reason={verdict.reason} "
+            f"sliding_count={verdict.sliding_count} "
+            f"threshold_24h={verdict.threshold_24h} "
+            f"evidence_dropped_rows={verdict.evidence.dropped_rows}"
         )
-    return {"status": "ok", "state": state}
+    return {
+        "status": "ok",
+        "state": verdict.state,
+        "reason": verdict.reason,
+        "sliding_count": verdict.sliding_count,
+        "threshold_24h": verdict.threshold_24h,
+    }
 
 
 __all__ = [
+    "BREAKER_REASON_EVIDENCE_INCOMPLETE",
+    "BREAKER_REASON_EVIDENCE_UNREADABLE",
+    "BREAKER_REASON_THRESHOLD_EXCEEDED",
+    "BREAKER_REASON_WITHIN_THRESHOLD",
+    "BREAKER_STATE_OK",
+    "BREAKER_STATE_TRIPPED",
+    "BreakerEvidence",
+    "BreakerVerdict",
     "FAILURE_KINDS",
     "assert_within_breaker",
     "current_state",
+    "evaluate_breaker",
     "record_attempt_started",
     "record_failure",
     "reset_breaker",

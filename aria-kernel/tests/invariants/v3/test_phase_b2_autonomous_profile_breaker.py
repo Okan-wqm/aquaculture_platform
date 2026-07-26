@@ -32,6 +32,21 @@ Locked invariants (13 cases, I-V3-24..29c):
     kernel-derived only)
   * I-V3-29c — cross-host lease lock blocks concurrent autonomous
     loops (INFRA-HIGH-004)
+
+ORPHAN-CRITICAL-418 fail-closed cases (I-V3-25d..25i) — each of these
+returned ``ok`` before the fix, i.e. damaging the breaker's own ledger
+un-tripped the kernel's safety net:
+
+  * I-V3-25d — corrupt rows cannot un-trip the breaker
+  * I-V3-25e — an unparseable ``ts`` counts as in-window
+  * I-V3-25f — valid-JSON non-object rows are lost evidence
+  * I-V3-25g — a clean under-threshold ledger still reads ``ok``
+    (the fail-closed rule must not make the breaker useless)
+  * I-V3-25h — damaged evidence refuses autonomous entry and names
+    ``evidence_incomplete``; the append path refuses to write onto
+    corruption at all
+  * I-V3-25i — ``auto_action_gate`` never reads an exception as ``ok``
+    and an unreadable signal forces an operator ack
 """
 
 from __future__ import annotations
@@ -40,6 +55,7 @@ import json
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 
@@ -413,6 +429,195 @@ class PhaseB2AutonomousProfileBreaker(unittest.TestCase):
                 base_dir=base, host_id="local:host-a", pid=1001,
             )
             self.assertEqual(lease_a_refreshed.host_id, "local:host-a")
+
+    # ------------------------------------------------------------------
+    # ORPHAN-CRITICAL-418 — the breaker must not un-trip when its own
+    # evidence is damaged. Each case below returned "ok" pre-fix.
+    # ------------------------------------------------------------------
+
+    def _tripped_failure_ledger(self, base: Path, threshold: int) -> Path:
+        """Record exactly ``threshold`` real failures and assert tripped."""
+        from aria_kernel.circuit_breaker import (
+            _failures_path,
+            current_state,
+            record_failure,
+        )
+
+        _write_threshold_policy(base, threshold=threshold)
+        for n in range(threshold):
+            record_failure(
+                base_dir=base, kind="ci_red",
+                materialize_event_id=f"evt-damage-{n}",
+            )
+        self.assertEqual(current_state(base), "tripped")
+        return _failures_path(base)
+
+    def test_i_v3_25d_corrupt_rows_cannot_untrip_breaker(self) -> None:
+        from aria_kernel.circuit_breaker import (
+            BREAKER_REASON_EVIDENCE_INCOMPLETE,
+            evaluate_breaker,
+        )
+
+        with tempfile.TemporaryDirectory(prefix="aria-i-v3-25d-") as tmp:
+            base = Path(tmp) / "aria-tools"
+            path = self._tripped_failure_ledger(base, threshold=3)
+            # Corrupt 2 of the 3 rows — pre-fix the tolerant reader
+            # dropped them and the sliding count fell to 1 < 3 → "ok".
+            rows = [
+                line for line in path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            path.write_text("\n".join([rows[0], "{not json", "{also not json"]) + "\n")
+            verdict = evaluate_breaker(base)
+            self.assertEqual(verdict.state, "tripped")
+            self.assertEqual(verdict.reason, BREAKER_REASON_EVIDENCE_INCOMPLETE)
+            self.assertEqual(verdict.evidence.dropped_rows, 2)
+
+    def test_i_v3_25e_unparseable_timestamp_counts_in_window(self) -> None:
+        from aria_kernel.circuit_breaker import evaluate_breaker
+
+        with tempfile.TemporaryDirectory(prefix="aria-i-v3-25e-") as tmp:
+            base = Path(tmp) / "aria-tools"
+            path = self._tripped_failure_ledger(base, threshold=3)
+            # Blank every timestamp. Pre-fix each row was skipped by the
+            # sliding-window counter → count 0 → "ok". A failure whose
+            # age cannot be established has not aged out.
+            blanked = [
+                json.dumps({**json.loads(line), "ts": "NOT-A-DATE"})
+                for line in path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            path.write_text("\n".join(blanked) + "\n")
+            verdict = evaluate_breaker(base)
+            self.assertEqual(verdict.state, "tripped")
+            self.assertEqual(verdict.sliding_count, 3)
+            self.assertEqual(verdict.evidence.dropped_rows, 0)
+
+    def test_i_v3_25f_valid_json_non_object_row_is_lost_evidence(self) -> None:
+        from aria_kernel.circuit_breaker import (
+            BREAKER_REASON_EVIDENCE_INCOMPLETE,
+            evaluate_breaker,
+        )
+
+        with tempfile.TemporaryDirectory(prefix="aria-i-v3-25f-") as tmp:
+            base = Path(tmp) / "aria-tools"
+            path = self._tripped_failure_ledger(base, threshold=3)
+            rows = [
+                line for line in path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            # `12345` decodes cleanly but carries no failure — the strict
+            # reader yields it, so only an isinstance check catches it.
+            path.write_text("\n".join([rows[0], rows[1], "12345"]) + "\n")
+            verdict = evaluate_breaker(base)
+            self.assertEqual(verdict.state, "tripped")
+            self.assertEqual(verdict.reason, BREAKER_REASON_EVIDENCE_INCOMPLETE)
+            self.assertEqual(verdict.evidence.dropped_rows, 1)
+
+    def test_i_v3_25g_clean_ledger_under_threshold_stays_ok(self) -> None:
+        """The fail-closed rule must not make the breaker useless."""
+        from aria_kernel.circuit_breaker import (
+            BREAKER_REASON_WITHIN_THRESHOLD,
+            evaluate_breaker,
+            record_failure,
+        )
+
+        with tempfile.TemporaryDirectory(prefix="aria-i-v3-25g-") as tmp:
+            base = Path(tmp) / "aria-tools"
+            _write_threshold_policy(base, threshold=3)
+            # Absent ledger.
+            self.assertEqual(evaluate_breaker(base).state, "ok")
+            for n in range(2):
+                record_failure(
+                    base_dir=base, kind="ci_red",
+                    materialize_event_id=f"evt-clean-{n}",
+                )
+            verdict = evaluate_breaker(base)
+            self.assertEqual(verdict.state, "ok")
+            self.assertEqual(verdict.reason, BREAKER_REASON_WITHIN_THRESHOLD)
+            self.assertTrue(verdict.evidence.intact)
+
+    def test_i_v3_25h_damaged_evidence_refuses_autonomous_entry(self) -> None:
+        """The autonomous entry gate must name evidence damage as the cause.
+
+        A damage-trip is only ever observable on the READ path: the
+        append path already fails closed, because ``append_jsonl``
+        re-reads the whole ledger and raises ``LedgerIntegrityError``
+        rather than appending onto corruption. Both halves are asserted
+        here so neither can regress into silence.
+        """
+        from aria_kernel.circuit_breaker import (
+            BREAKER_REASON_EVIDENCE_INCOMPLETE,
+            _failures_path,
+            assert_within_breaker,
+            record_failure,
+        )
+        from aria_kernel.ledger import LedgerIntegrityError
+        from aria_kernel.tool_registry import GovernanceError
+
+        with tempfile.TemporaryDirectory(prefix="aria-i-v3-25h-") as tmp:
+            base = Path(tmp) / "aria-tools"
+            _write_threshold_policy(base, threshold=5)
+            record_failure(
+                base_dir=base, kind="ci_red",
+                materialize_event_id="evt-damage-first",
+            )
+            # One real failure, threshold 5 → entry is allowed.
+            self.assertEqual(assert_within_breaker(base)["state"], "ok")
+            # Simulate a crash mid-append / truncated artifact restore.
+            path = _failures_path(base)
+            path.write_text(path.read_text(encoding="utf-8") + "{truncated\n")
+            # Write path: refuses to append onto corruption.
+            with self.assertRaises(LedgerIntegrityError):
+                record_failure(
+                    base_dir=base, kind="ci_red",
+                    materialize_event_id="evt-damage-second",
+                )
+            # Read path: refuses autonomous entry, naming the real cause
+            # rather than reporting one failure against a threshold of 5.
+            with self.assertRaises(GovernanceError) as ctx:
+                assert_within_breaker(base)
+            self.assertIn(BREAKER_REASON_EVIDENCE_INCOMPLETE, str(ctx.exception))
+
+    def test_i_v3_25i_unreadable_safety_signal_requires_operator_ack(self) -> None:
+        """auto_action_gate must not read an exception as ``ok``."""
+        from aria_kernel import auto_action_gate
+        from aria_kernel.auto_action_gate import (
+            SAFETY_STATE_UNREADABLE,
+            _load_breaker_state,
+            _load_cost_state,
+            gate_from_test_fixture,
+        )
+
+        with tempfile.TemporaryDirectory(prefix="aria-i-v3-25i-") as tmp:
+            base = Path(tmp) / "aria-tools"
+
+            def _boom(**_kwargs: object) -> str:
+                raise RuntimeError("ledger unreadable")
+
+            for module_name, loader in (
+                ("aria_kernel.circuit_breaker", _load_breaker_state),
+                ("aria_kernel.cost_budget", _load_cost_state),
+            ):
+                with unittest.mock.patch(
+                    f"{module_name}.current_state", side_effect=_boom,
+                ):
+                    self.assertEqual(loader(base), SAFETY_STATE_UNREADABLE)
+
+            self.assertNotEqual(SAFETY_STATE_UNREADABLE, "ok")
+            # An unreadable signal must force an operator ack.
+            for kwargs in (
+                {"breaker_state": SAFETY_STATE_UNREADABLE},
+                {"cost_state": SAFETY_STATE_UNREADABLE},
+            ):
+                gate = gate_from_test_fixture(
+                    profile="autonomous", lane="L3",
+                    classifier_passed=True,
+                    policy_requires_acknowledge=False,
+                    **kwargs,
+                )
+                self.assertTrue(gate.human_ack_required, msg=f"{kwargs!r}")
+            self.assertIn("SAFETY_STATE_UNREADABLE", auto_action_gate.__all__)
 
 
 if __name__ == "__main__":

@@ -334,6 +334,11 @@ class TestV9PublicApi(unittest.TestCase):
             "is_gh_api_path_forbidden", "wrap_bash_in_sandbox",
             "apply_resource_limits", "truncate_validation_result",
             "HardFailCheck", "HARD_FAIL_CHECKS",
+            # ORPHAN-CRITICAL-342 — the sandbox contract is now typed:
+            # wrap_bash_in_sandbox RAISES SandboxUnavailable rather than
+            # returning bare argv, and sandbox_backend lets a caller fail
+            # closed before it builds a command.
+            "SandboxUnavailable", "sandbox_backend",
         }
         self.assertEqual(
             set(_is.__all__), canonical,

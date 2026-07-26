@@ -1142,6 +1142,44 @@ def derive_request_state(
     return "PENDING"
 
 
+def accepted_result_for_request(
+    *,
+    request_id: str,
+    role: str | None = None,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any] | None:
+    """Return the accepted result row bound to ``request_id``, else ``None``.
+
+    ORPHAN-HIGH-422 / ORPHAN-HIGH-423 — the positive check the review and
+    specialist gates were missing. Both used to infer success from the
+    ABSENCE of a pending row, which is satisfied by a claim with no result,
+    a rejection, and — most dangerously — a HUMAN_REQUIRED escalation. The
+    only sound evidence that an agent did the work is its accepted result
+    row, so this returns that row or nothing.
+
+    ``role`` is checked when supplied so a result minted for a different
+    role on the same request cannot satisfy a caller waiting on this one.
+
+    The returned row carries ``output_hash`` / ``content_hash``,
+    ``agent_id``, ``transcript_hash`` and ``role``, which is what makes an
+    accepted result attributable rather than merely present.
+    """
+    root = ensure_tools_dir(base_dir)
+    results = load_declared_jsonl(
+        root / "agent-invocations" / "results.jsonl",
+        expected_surface="agent_invocation_results",
+    )
+    rows = _result_rows_for(results, request_id)
+    if not rows:
+        return None
+    last = rows[-1]
+    if str(last.get("status")) not in {"accepted", "completed"}:
+        return None
+    if role is not None and str(last.get("role") or "") != role:
+        return None
+    return last
+
+
 def next_pending_request(
     *,
     role: str | None = None,
@@ -1152,6 +1190,11 @@ def next_pending_request(
 
     Pending = derived state PENDING or REQUEUED (those are eligible for a
     fresh claim). HUMAN_REQUIRED, CANCELLED, and terminal states are skipped.
+
+    A ``None`` return means "nothing is waiting to be claimed" — it does
+    NOT mean the work succeeded. Callers deciding whether an agent
+    delivered must use :func:`accepted_result_for_request`
+    (ORPHAN-HIGH-422).
     """
     root = ensure_tools_dir(base_dir)
     requests = load_declared_jsonl(

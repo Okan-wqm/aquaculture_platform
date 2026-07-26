@@ -47,10 +47,60 @@ from pathlib import Path
 from typing import Any, Literal, Protocol, TypedDict
 
 from .agent_invocations import (
+    accepted_result_for_request,
     create_agent_invocation_request,
-    next_pending_request,
+    derive_request_state,
 )
 from .tool_registry import ensure_tools_dir
+
+_SPECIALIST_ROLE = "specialist_domain_review"
+
+# ORPHAN-HIGH-423 — derived states that will never yield an accepted
+# result. Reaching one ends the wait for that specialist immediately.
+_NON_DELIVERING_TERMINAL_STATES: frozenset[str] = frozenset({
+    "REJECTED",
+    "HUMAN_REQUIRED",
+    "CANCELLED",
+    "STALE",
+    "ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL",
+})
+
+# Severities that make a specialist's findings blocking.
+_BLOCKING_SEVERITIES: frozenset[str] = frozenset({"CRITICAL", "HIGH"})
+
+# Verdicts that block the cycle in EVERY profile.
+_ALWAYS_BLOCKING_VERDICTS: frozenset[str] = frozenset({
+    "consolidated_remediation_required",
+    "consolidated_judge_split",
+})
+
+# The one profile exempt from the unsatisfiable-gate block: `observe`
+# dispatches no Tier-1 specialist and performs no writes, so an
+# unavailable gate cannot let anything through.
+_NON_WRITING_PROFILE: str = "observe"
+
+
+def specialist_verdict_blocks_cycle(*, verdict: str, profile: str) -> bool:
+    """ORPHAN-HIGH-423 — does this specialist verdict stop the cycle?
+
+    Extracted from ``autonomy_orchestrator`` so the policy is testable on
+    its own. It previously lived inline inside a ~1900-line function,
+    which is why the only way to pin it was to assert on orchestrator
+    source text — a check that passes for the wrong reasons and breaks on
+    harmless edits.
+
+    The policy: remediation and judge-split always block. An
+    unsatisfiable gate (``specialists_unavailable``) blocks in every
+    write-capable profile. Pre-fix only ``strict`` blocked on it, so the
+    profile holding real merge authority ran the weakest domain-review
+    gate in the system — an inversion rather than a trade-off, because a
+    specialist that did not deliver means its domain went unreviewed.
+    """
+    if verdict in _ALWAYS_BLOCKING_VERDICTS:
+        return True
+    if verdict == "specialists_unavailable":
+        return str(profile) != _NON_WRITING_PROFILE
+    return False
 
 
 # Plan ARIA-V6 §2c v2 — domain touch-map for pressure-driven
@@ -390,11 +440,12 @@ def run_specialist_review_runner(
         )
 
     request_ids: list[str] = []
+    request_id_by_agent: dict[str, str] = {}
     for agent_name in selected:
         try:
             req = create_agent_invocation_request(
                 target_agent=agent_name,
-                role="specialist_domain_review",
+                role=_SPECIALIST_ROLE,
                 suggested_prompt=(
                     f"Specialist review for cycle {cycle_id}. "
                     f"Audit the converged plan + cycle_diff for your "
@@ -417,50 +468,122 @@ def run_specialist_review_runner(
                 base_dir=base_dir,
             )
             request_ids.append(req["request_id"])
+            request_id_by_agent[agent_name] = str(req["request_id"])
         except Exception:
             # Plan ARIA-V6 §2c v2 — envelope minting may fail
             # (target_agent unknown, evidence validation reject, etc.).
-            # Skip this specialist; continue with the others.
+            # Skip this specialist; continue with the others. A specialist
+            # whose envelope could not be minted has not reviewed
+            # anything, so it stays out of request_id_by_agent and is
+            # reported as non-delivering below.
             continue
 
-    # Plan ARIA-V6 §2c v2 — poll for submissions. Defensive default:
-    # no specialist claims → specialists_unavailable verdict.
-    # In production this requires an external dispatcher (ci_executor
-    # extension) that claims specialist envelopes + spawns Claude
-    # Code subprocesses + submits results. Without dispatcher, this
-    # poll loop returns specialists_unavailable after timeout.
+    # ORPHAN-HIGH-423 — poll each specialist's OWN request for an accepted
+    # result. Pre-fix this loop asked ``next_pending_request(role=...)``
+    # once for the whole role and treated ``None`` as "all settled", then
+    # returned ``specialists_unavailable`` with empty findings and every
+    # selected specialist marked timed out — unconditionally, even for a
+    # specialist that had submitted a signed result. The gate therefore
+    # could not be satisfied by any amount of real specialist work.
     deadline = time.monotonic() + specialist_timeout_seconds
     poll_sleep = max(1.0, specialist_timeout_seconds / 60.0)
-    while time.monotonic() < deadline:
-        # Check if any specialist_domain_review envelope has been
-        # claimed AND completed. The orchestrator surface for this
-        # is next_pending_request returning None for the role.
-        pending = next_pending_request(
-            role="specialist_domain_review",
-            base_dir=base_dir,
-        )
-        if pending is None:
-            # No more pending — either all claimed+completed OR
-            # none claimed at all. Without per-claim state inspection
-            # at this minimum-viable level, treat as "all settled".
-            break
-        time.sleep(poll_sleep)
+    awaiting: dict[str, str] = dict(request_id_by_agent)
+    findings_by_specialist: dict[str, list[dict[str, Any]]] = {}
+    did_not_deliver: list[str] = [
+        agent_name for agent_name in selected if agent_name not in request_id_by_agent
+    ]
+    while awaiting and time.monotonic() < deadline:
+        for agent_name, request_id in list(awaiting.items()):
+            accepted = accepted_result_for_request(
+                request_id=request_id,
+                role=_SPECIALIST_ROLE,
+                base_dir=base_dir,
+            )
+            if accepted is not None:
+                parsed = _findings_from_accepted_result(
+                    agent_name=agent_name,
+                    accepted=accepted,
+                    workspace_root=workspace_root,
+                )
+                if parsed is None:
+                    # Accepted row whose output cannot be read is not a
+                    # review — fail closed rather than record zero findings.
+                    did_not_deliver.append(agent_name)
+                else:
+                    findings_by_specialist[agent_name] = parsed
+                awaiting.pop(agent_name, None)
+                continue
+            state = derive_request_state(request_id=request_id, base_dir=base_dir)
+            if state in _NON_DELIVERING_TERMINAL_STATES:
+                did_not_deliver.append(agent_name)
+                awaiting.pop(agent_name, None)
+        if awaiting:
+            time.sleep(poll_sleep)
+    # Anything still awaiting at the deadline genuinely timed out.
+    did_not_deliver.extend(sorted(awaiting))
 
-    # Minimum-viable V6.1 default: returns specialists_unavailable
-    # in autonomous mode where no external dispatcher is running.
-    # Future C2+ work (ci_executor extension) populates this surface
-    # with real specialist submissions; the verdict transforms then
-    # surface remediation_required findings to gate worker_drainer.
+    blocking = any(
+        str(finding.get("severity", "")).upper() in _BLOCKING_SEVERITIES
+        for findings in findings_by_specialist.values()
+        for finding in findings
+    )
+    if blocking:
+        verdict: str = "consolidated_remediation_required"
+    elif did_not_deliver or not findings_by_specialist:
+        # A specialist that was selected but did not deliver leaves the
+        # gate unsatisfiable: its domain went unreviewed. `standard` and
+        # `autonomous` both block on this verdict (see
+        # autonomy_orchestrator), so an unreviewed domain cannot reach
+        # merge.
+        verdict = "specialists_unavailable"
+    else:
+        verdict = "consolidated_no_gaps"
+
     return SpecialistReviewResult(
         cycle_id=cycle_id,
         specialists_dispatched=selected,
-        specialists_timed_out=selected,
-        consolidated_verdict="specialists_unavailable",
-        findings_by_specialist={},
+        specialists_timed_out=sorted(set(did_not_deliver)),
+        consolidated_verdict=verdict,  # type: ignore[typeddict-item]
+        findings_by_specialist=findings_by_specialist,
         request_ids=request_ids,
         rounds_count=1,
         token_cost_estimate=0,
         profile=profile,
+    )
+
+
+def _findings_from_accepted_result(
+    *,
+    agent_name: str,
+    accepted: dict[str, Any],
+    workspace_root: str | Path | None,
+) -> list[dict[str, Any]] | None:
+    """ORPHAN-HIGH-423 — parse a specialist's accepted result into findings.
+
+    Returns ``None`` when the accepted row exists but its output cannot be
+    read, which the caller treats as non-delivery. An unreadable review is
+    not a clean review: returning an empty findings list here would read
+    as "this specialist found nothing".
+
+    Lane-A specialists emit markdown, so the payload goes through
+    :func:`transform_specialist_output`, which fact-checks every
+    ``evidence_ref`` against the real repository before it becomes a
+    kernel finding.
+    """
+    output_path = accepted.get("output_path")
+    if not isinstance(output_path, str) or not output_path:
+        return None
+    path = Path(output_path)
+    if not path.exists():
+        return None
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return transform_specialist_output(
+        agent_name=agent_name,
+        raw_markdown=raw,
+        workspace_root=Path(workspace_root) if workspace_root is not None else None,
     )
 
 

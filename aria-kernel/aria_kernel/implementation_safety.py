@@ -41,6 +41,7 @@ import secrets
 import shutil
 import subprocess
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable
 
@@ -441,12 +442,63 @@ def is_gh_api_path_forbidden(path: str) -> bool:
     return any(p.search(normalized) for p in FORBIDDEN_GH_API_PATHS)
 
 
+# ORPHAN-CRITICAL-439 — availability means "verifiably confines", not "is on
+# PATH". Presence and capability come apart in exactly the environment this
+# runs in: inside a container without unprivileged user namespaces, bubblewrap
+# installs cleanly and then fails on every invocation. A PATH-only check would
+# report a backend, `wrap_bash_in_sandbox` would build an argv, and the spawn
+# would die at runtime — or a caller that swallowed the error would proceed
+# unconfined. So each backend is probed once with the same namespace features
+# the real wrapper uses, and the result is cached for the process.
+#
+# The probe argv MUST mirror `wrap_bash_in_sandbox`: same ro-binds (the loader
+# lives under /lib64, so binding only /usr proves nothing), a tmpfs, and
+# --unshare-net. A probe that exercises less than the wrapper can pass while
+# the wrapper fails.
+_BWRAP_PROBE_ARGV: tuple[str, ...] = (
+    "bwrap",
+    "--ro-bind", "/usr", "/usr",
+    "--ro-bind", "/lib", "/lib",
+    "--ro-bind", "/lib64", "/lib64",
+    "--ro-bind", "/bin", "/bin",
+    "--proc", "/proc",
+    "--dev", "/dev",
+    "--tmpfs", "/tmp",
+    "--unshare-net",
+    "--", "/bin/true",
+)
+_FIREJAIL_PROBE_ARGV: tuple[str, ...] = (
+    "firejail", "--quiet", "--private-tmp", "--net=none", "/bin/true",
+)
+_SANDBOX_PROBE_TIMEOUT_SECONDS = 15
+
+
+def _sandbox_probe_succeeds(argv: tuple[str, ...]) -> bool:
+    """True when the backend can actually build the namespaces we rely on."""
+    try:
+        completed = subprocess.run(
+            list(argv),
+            capture_output=True,
+            timeout=_SANDBOX_PROBE_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return completed.returncode == 0
+
+
+@lru_cache(maxsize=1)
 def _bwrap_available() -> bool:
-    return shutil.which("bwrap") is not None
+    if shutil.which("bwrap") is None:
+        return False
+    return _sandbox_probe_succeeds(_BWRAP_PROBE_ARGV)
 
 
+@lru_cache(maxsize=1)
 def _firejail_available() -> bool:
-    return shutil.which("firejail") is not None
+    if shutil.which("firejail") is None:
+        return False
+    return _sandbox_probe_succeeds(_FIREJAIL_PROBE_ARGV)
 
 
 class SandboxUnavailable(RuntimeError):

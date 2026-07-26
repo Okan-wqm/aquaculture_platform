@@ -265,6 +265,40 @@ jobs:
         if: steps.pending.outputs.request_id == ''
         run: echo "no pending requests; exiting cleanly"
 
+      # ORPHAN-CRITICAL-439 — the containment layer needs a backend to exist.
+      # claude_runtime._apply_write_containment refuses every write-capable
+      # spawn when sandbox_backend() is None, so without this the executor
+      # does not run unconfined, it does not run at all — and the failure
+      # looks like an agent problem rather than a missing package.
+      - name: Install sandbox backend (bubblewrap)
+        if: steps.pending.outputs.request_id != ''
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bubblewrap
+
+      # Assert capability, not presence. bubblewrap installs cleanly on a host
+      # with unprivileged user namespaces disabled and then fails on every
+      # invocation, so sandbox_backend() probes the namespaces it will actually
+      # use. Failing here is the point: a missing or non-functional backend must
+      # stop the job rather than silently disable the implementer.
+      - name: Verify the sandbox actually confines
+        if: steps.pending.outputs.request_id != ''
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 - <<'PY'
+          import sys
+          from aria_kernel.implementation_safety import sandbox_backend
+          backend = sandbox_backend()
+          if backend is None:
+              sys.exit(
+                  "sandbox_backend_unavailable: bubblewrap is installed but could not "
+                  "build the namespaces wrap_bash_in_sandbox relies on, so "
+                  "READONLY_PATHS cannot be enforced at the syscall level"
+              )
+          print(f"sandbox backend verified: {backend}")
+          PY
+
       - name: Run CI executor
         if: steps.pending.outputs.request_id != ''
         env:

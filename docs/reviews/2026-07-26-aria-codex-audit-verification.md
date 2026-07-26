@@ -653,6 +653,50 @@ The fix puts the pattern and its reader in one place — `finding-registry-store
 allocator and the resolver, so the two cannot drift again, and wires the gate's own unit tests into
 CI, where they had never run.
 
+## 9b. Two S1 blockers found by auditing our own fix (`ORPHAN-CRITICAL-439`, `ORPHAN-CRITICAL-440`)
+
+Both were found by an adversarial contract-drift pass over this branch, not by the original hunt, and
+both would have made S1 produce nothing while looking healthy.
+
+### `ORPHAN-CRITICAL-439` — containment with no backend is a disable switch
+
+`sandbox_backend()` returns `bwrap`, `firejail` or `None`, and
+`claude_runtime._apply_write_containment` refuses a write-capable spawn when it is `None`. No
+`.github/workflows` step installed either binary, and neither is present in the development
+container, so `sandbox_backend()` was `None` **everywhere the kernel runs**. The consequence is not
+a weaker perimeter — it is no execution: replace the NoOp implementer and the spawn is refused, so
+the cycle produces nothing and the cause reads as an agent fault rather than a missing package.
+
+A second defect sat underneath it. `_bwrap_available()` was `shutil.which("bwrap") is not None` —
+**presence, not capability**. Inside a container without unprivileged user namespaces, bubblewrap
+installs cleanly and then fails on every invocation; a PATH-only check would report a backend, the
+wrapper would build an argv, and the spawn would die at runtime. Availability now means a probe
+exercising the same ro-binds, tmpfs and `--unshare-net` the real wrapper uses actually succeeded.
+
+Fixed at all three tiers: the workflow installs a backend; a CI step asserts
+`sandbox_backend() is not None` so the absence fails a gate rather than silently disabling the
+implementer; and `test_executor_workflow_sandbox_contract.py` fails the build if a workflow
+dispatches a write-capable executor without declaring both.
+
+### `ORPHAN-CRITICAL-440` — the burn-in rejected the evidence it exists to produce
+
+`burn_in._require_clean_worktree` raised on **any** porcelain output, while `worktree.preflight` over
+the same tree already excluded `aria-tools/`, `aria-findings/`, `aria-debts/` and friends. One tree,
+two contradictory definitions of "clean".
+
+That became live the moment the `.gitignore` descent fix made `aria-tools/reports/daily/*.md`
+trackable: `reflection` writes it every cycle, so the next `mode=burn-in-observe` dispatch would die
+with `observe_burn_in_pre_worktree_not_clean`. L1 requires 30 `observe_successes` and the burn-in is
+their only producer, so the fix that opened S1 would have closed the ladder at rung zero. CI cannot
+see it — CI points the kernel at `.aria-ci/tools`.
+
+Fixed by importing `worktree.is_runtime_path` rather than restating the prefix tuple, so the two
+guards cannot drift apart again. The regression test was verified to fail before the fix with the
+exact error, after a first attempt at it passed against the unfixed code — driving the guard through
+`run_observe_burn_in` meant `_validate_args` rejected the small cycle counts first, so the guard was
+never reached. An assertion that can pass for the wrong reason is the same defect class as the rest
+of this document.
+
 ## 10. Limits of this verification
 
 * The live GitHub Actions artifact was not re-downloaded. Every figure the report cited was instead

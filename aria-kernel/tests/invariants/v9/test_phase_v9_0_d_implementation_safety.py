@@ -13,6 +13,7 @@ import re
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from . import _helpers  # noqa: F401
 
@@ -664,6 +665,68 @@ class TestPhaseAPrePrOpenChecks(unittest.TestCase):
         result = _is._check_pr_body_templating(self._ctx())
         self.assertFalse(result.passed)
         self.assertEqual(result.reason, "pr_body_absent")
+
+
+class TestSandboxAvailabilityIsCapabilityNotPresence(unittest.TestCase):
+    """ORPHAN-CRITICAL-439 — a backend on PATH is not a backend that confines.
+
+    Presence and capability come apart in exactly the environment ARIA runs
+    in: inside a container without unprivileged user namespaces, bubblewrap
+    installs cleanly and then fails on every invocation. A PATH-only check
+    reports a backend, `wrap_bash_in_sandbox` builds an argv, and the spawn
+    dies at runtime — or a caller that swallows the error proceeds unconfined.
+    """
+
+    def setUp(self) -> None:
+        # These are process-cached; a stale entry would make the assertions
+        # below test the cache rather than the logic.
+        _is._bwrap_available.cache_clear()
+        _is._firejail_available.cache_clear()
+
+    def tearDown(self) -> None:
+        _is._bwrap_available.cache_clear()
+        _is._firejail_available.cache_clear()
+
+    def test_binary_present_but_probe_failing_reports_unavailable(self) -> None:
+        with mock.patch.object(_is.shutil, "which", return_value="/usr/bin/bwrap"), \
+             mock.patch.object(_is, "_sandbox_probe_succeeds", return_value=False):
+            self.assertFalse(
+                _is._bwrap_available(),
+                "a backend that cannot build its namespaces must not be reported",
+            )
+            self.assertFalse(_is._firejail_available())
+            self.assertIsNone(_is.sandbox_backend())
+
+    def test_binary_present_and_probe_passing_reports_available(self) -> None:
+        with mock.patch.object(_is.shutil, "which", return_value="/usr/bin/bwrap"), \
+             mock.patch.object(_is, "_sandbox_probe_succeeds", return_value=True):
+            self.assertTrue(_is._bwrap_available())
+            self.assertEqual(_is.sandbox_backend(), "bwrap")
+
+    def test_probe_exercises_every_feature_the_real_wrapper_relies_on(self) -> None:
+        """A probe weaker than the wrapper can pass while the wrapper fails."""
+        probe = set(_is._BWRAP_PROBE_ARGV)
+        for required in ("--unshare-net", "--tmpfs", "--proc", "--dev", "--ro-bind"):
+            self.assertIn(
+                required, probe,
+                f"probe omits {required}, which wrap_bash_in_sandbox depends on",
+            )
+        # The dynamic loader lives under /lib64; binding only /usr would let the
+        # probe pass on a host where the real wrapper cannot exec anything.
+        for mount in ("/usr", "/lib", "/lib64", "/bin"):
+            self.assertIn(mount, probe, f"probe omits the {mount} ro-bind")
+
+    def test_probe_treats_a_missing_binary_as_unavailable_without_raising(self) -> None:
+        self.assertFalse(
+            _is._sandbox_probe_succeeds(("definitely-not-a-real-binary-xyz", "true"))
+        )
+
+    def test_no_backend_means_wrap_raises_rather_than_returning_bare_argv(self) -> None:
+        with mock.patch.object(_is, "_bwrap_available", return_value=False), \
+             mock.patch.object(_is, "_firejail_available", return_value=False), \
+             tempfile.TemporaryDirectory() as workspace:
+            with self.assertRaises(_is.SandboxUnavailable):
+                _is.wrap_bash_in_sandbox(["true"], workspace_root=workspace)
 
 
 class TestPhaseAGateExitCriterion(unittest.TestCase):

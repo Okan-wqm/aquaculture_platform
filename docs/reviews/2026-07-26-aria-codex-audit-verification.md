@@ -31,6 +31,27 @@ reported as green* — is verified in its strongest possible form:
 
 Autonomous write/merge must stay closed. That conclusion is unchanged.
 
+## Registered finding IDs
+
+This document is the SSoT for the finding IDs below; the hash-chained registry entries carry their
+state. IDs were allocated by `npm run findings:add` (which mints the sequence itself, so the audit
+report's `P0-*` / `NEW-*` labels are the analysis names and these are the tracked names).
+
+| Registry ID | Audit label | Severity | Finding |
+|---|---|---|---|
+| `ORPHAN-CRITICAL-333` | NEW-01 | CRITICAL | corrupting the failure ledger un-trips the breaker |
+| `ORPHAN-CRITICAL-334` | P0-02 | CRITICAL | producer and executor share no queue |
+| `ORPHAN-CRITICAL-335` | P0-07 | CRITICAL | budget + breaker have zero production callers |
+| `ORPHAN-HIGH-336` | P0-10 / NEW-02 | HIGH | all three independence layers non-functional |
+| `ORPHAN-HIGH-337` | P0-15 | HIGH | HUMAN_REQUIRED becomes `no_gaps` |
+| `ORPHAN-HIGH-338` | P0-09 | HIGH | specialist gate fails open in `standard` and `autonomous` |
+| `ORPHAN-HIGH-339` | P0-01 | HIGH | summary counters pinned to zero; invalid state published |
+| `ORPHAN-HIGH-340` | P0-14 | HIGH | installation token full-scope; TTL is fiction |
+
+Remaining confirmed P0/P1 findings (P0-03, P0-04, P0-05, P0-06, P0-08, P0-11, P0-12, P0-13, NEW-03,
+NEW-04, and the P1 set) are registered in the wave that closes them, so an OPEN finding always has a
+current owner rather than a placeholder.
+
 ---
 
 ## 1. P0 verification table

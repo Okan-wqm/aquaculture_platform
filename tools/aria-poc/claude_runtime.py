@@ -285,6 +285,81 @@ def assert_write_runner_ok(*, skip_permissions: bool, permission_mode: str | Non
         )
 
 
+# ORPHAN-CRITICAL-427 — operator escape hatch for a host with no sandbox
+# backend. Named explicitly rather than inferred, and audited in the refusal
+# message, so running a write-capable agent unconfined is a recorded decision
+# and never a silent default.
+UNCONFINED_ACK_ENV_VAR = "ARIA_ALLOW_UNCONFINED_WRITE"
+
+
+def _is_write_capable(*, skip_permissions: bool, permission_mode: str | None) -> bool:
+    """True when this invocation can edit files without asking.
+
+    Read-only turns (``skip_permissions=False`` with no permission_mode, and
+    ``plan``) need no filesystem containment because they cannot write.
+    """
+    if permission_mode in {"bypassPermissions", "acceptEdits"}:
+        return True
+    if permission_mode in {"plan", "default"}:
+        return False
+    return skip_permissions
+
+
+def _apply_write_containment(
+    argv: list[str],
+    *,
+    skip_permissions: bool,
+    permission_mode: str | None,
+    workspace_root: str | Path | None,
+) -> list[str]:
+    """Wrap a write-capable spawn so READONLY_PATHS are enforced by the OS.
+
+    Fail-closed: with no sandbox backend the spawn is REFUSED unless the
+    operator has set ``ARIA_ALLOW_UNCONFINED_WRITE``. Pre-fix
+    ``wrap_bash_in_sandbox`` had no caller at all, so a write-capable agent
+    always ran unconfined and the containment existed only as text the
+    agent could ignore.
+
+    ``allow_network=True`` because the agent process must reach the Claude
+    API. Network egress from the agent's own bash commands is a separate
+    concern; the property bought here is that the kernel, workflows and
+    agent definitions cannot be mutated regardless of what the agent
+    decides to do.
+    """
+    if not _is_write_capable(
+        skip_permissions=skip_permissions, permission_mode=permission_mode,
+    ):
+        return argv
+    workspace = Path(workspace_root) if workspace_root is not None else Path.cwd()
+    try:
+        from aria_kernel.implementation_safety import (
+            SandboxUnavailable,
+            wrap_bash_in_sandbox,
+        )
+    except ImportError as exc:  # pragma: no cover - kernel always importable here
+        raise ClaudePolicyViolation(
+            f"claude_write_containment_unavailable: cannot import the sandbox "
+            f"helper ({exc}); refusing to spawn a write-capable agent unconfined"
+        ) from exc
+    try:
+        return wrap_bash_in_sandbox(
+            argv, workspace_root=workspace, allow_network=True,
+        )
+    except SandboxUnavailable as exc:
+        if _parse_bool(
+            os.environ.get(UNCONFINED_ACK_ENV_VAR, "0"),
+            env_name=UNCONFINED_ACK_ENV_VAR,
+        ):
+            return argv
+        raise ClaudePolicyViolation(
+            f"claude_write_containment_required: {exc}. Install bwrap or "
+            f"firejail on the runner, use a read-only shape "
+            f"(skip_permissions=False), or set "
+            f"{UNCONFINED_ACK_ENV_VAR}=1 to accept an unconfined "
+            f"write-capable agent on this host."
+        ) from exc
+
+
 def run_claude_exec(
     *,
     prompt_text: str,
@@ -303,6 +378,18 @@ def run_claude_exec(
         effort=effort,
         skip_permissions=skip_permissions,
         permission_mode=permission_mode,
+    )
+    # ORPHAN-CRITICAL-427 — containment is applied HERE, by the code that
+    # spawns the process, not by prose in the agent's own instruction file.
+    # A write-capable shape (full permission bypass or acceptEdits) gets
+    # wrapped so READONLY_PATHS are ro-bind: a write under aria-kernel/ or
+    # .github/ then fails with EROFS at the syscall level instead of
+    # depending on the agent choosing to obey.
+    argv = _apply_write_containment(
+        argv,
+        skip_permissions=skip_permissions,
+        permission_mode=permission_mode,
+        workspace_root=cwd,
     )
     # In an acknowledged sandbox, pass IS_SANDBOX=1 so the CLI permits the full
     # bypass even under root; the non-root runner path needs no env change.

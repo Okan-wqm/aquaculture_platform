@@ -297,3 +297,117 @@ class CreditExhaustionDetectionTests(unittest.TestCase):
         self.assertIn("credit balance", claude_runtime.CREDIT_EXHAUSTION_MARKERS)
         for forbidden in ("overloaded", "429", "timeout", "network"):
             self.assertNotIn(forbidden, blob)
+
+
+class WriteContainmentTests(unittest.TestCase):
+    """ORPHAN-CRITICAL-427 — containment is applied by the spawner.
+
+    Pre-fix ``wrap_bash_in_sandbox`` had no kernel caller and returned argv
+    unchanged when no backend existed, so a write-capable agent always ran
+    unconfined and READONLY_PATHS were protected only by prose in the
+    agent's own instruction file — text addressed to the process being
+    contained.
+    """
+
+    _ARGV = ["claude", "-p", "--model", "opus"]
+
+    def test_read_only_shapes_need_no_containment(self) -> None:
+        for permission_mode, skip in ((None, False), ("plan", True), ("default", True)):
+            with self.subTest(permission_mode=permission_mode, skip=skip):
+                self.assertFalse(
+                    claude_runtime._is_write_capable(
+                        skip_permissions=skip, permission_mode=permission_mode,
+                    ),
+                )
+                self.assertEqual(
+                    claude_runtime._apply_write_containment(
+                        list(self._ARGV),
+                        skip_permissions=skip,
+                        permission_mode=permission_mode,
+                        workspace_root=None,
+                    ),
+                    self._ARGV,
+                )
+
+    def test_write_capable_shapes_are_identified(self) -> None:
+        for permission_mode, skip in (
+            (None, True), ("bypassPermissions", False), ("acceptEdits", False),
+        ):
+            with self.subTest(permission_mode=permission_mode, skip=skip):
+                self.assertTrue(
+                    claude_runtime._is_write_capable(
+                        skip_permissions=skip, permission_mode=permission_mode,
+                    ),
+                )
+
+    def test_write_capable_spawn_refused_without_sandbox_backend(self) -> None:
+        from aria_kernel import implementation_safety
+
+        with patch.object(implementation_safety, "_bwrap_available", return_value=False), \
+             patch.object(implementation_safety, "_firejail_available", return_value=False), \
+             patch.dict(os.environ, {claude_runtime.UNCONFINED_ACK_ENV_VAR: "0"}):
+            with self.assertRaises(claude_runtime.ClaudePolicyViolation) as ctx:
+                claude_runtime._apply_write_containment(
+                    list(self._ARGV),
+                    skip_permissions=True,
+                    permission_mode=None,
+                    workspace_root=_REPO_ROOT,
+                )
+        self.assertIn("claude_write_containment_required", str(ctx.exception))
+
+    def test_write_capable_spawn_is_wrapped_when_backend_present(self) -> None:
+        from aria_kernel import implementation_safety
+
+        with patch.object(implementation_safety, "_bwrap_available", return_value=True):
+            wrapped = claude_runtime._apply_write_containment(
+                list(self._ARGV),
+                skip_permissions=True,
+                permission_mode=None,
+                workspace_root=_REPO_ROOT,
+            )
+        self.assertEqual(wrapped[0], "bwrap")
+        self.assertEqual(wrapped[-len(self._ARGV):], self._ARGV)
+        # The agent must reach the Claude API, so the network is NOT unshared —
+        # the property bought here is filesystem containment.
+        self.assertNotIn("--unshare-net", wrapped)
+        # READONLY_PATHS that exist are ro-bind, so a write under them EROFSes.
+        ro_targets = {
+            wrapped[i + 1] for i, tok in enumerate(wrapped) if tok == "--ro-bind"
+        }
+        self.assertTrue(
+            any("aria-kernel" in t for t in ro_targets),
+            msg=f"aria-kernel not ro-bind; ro targets={sorted(ro_targets)}",
+        )
+
+    def test_operator_ack_permits_unconfined_write(self) -> None:
+        """The escape hatch exists but must be named, never inferred."""
+        from aria_kernel import implementation_safety
+
+        with patch.object(implementation_safety, "_bwrap_available", return_value=False), \
+             patch.object(implementation_safety, "_firejail_available", return_value=False), \
+             patch.dict(os.environ, {claude_runtime.UNCONFINED_ACK_ENV_VAR: "1"}):
+            self.assertEqual(
+                claude_runtime._apply_write_containment(
+                    list(self._ARGV),
+                    skip_permissions=True,
+                    permission_mode=None,
+                    workspace_root=_REPO_ROOT,
+                ),
+                self._ARGV,
+            )
+
+    def test_sandbox_helper_raises_rather_than_returning_bare_argv(self) -> None:
+        from aria_kernel.implementation_safety import (
+            SandboxUnavailable,
+            sandbox_backend,
+            wrap_bash_in_sandbox,
+        )
+        from aria_kernel import implementation_safety
+
+        with patch.object(implementation_safety, "_bwrap_available", return_value=False), \
+             patch.object(implementation_safety, "_firejail_available", return_value=False):
+            self.assertIsNone(sandbox_backend())
+            with self.assertRaises(SandboxUnavailable):
+                wrap_bash_in_sandbox(
+                    ["echo", "hi"], workspace_root=_REPO_ROOT, allow_network=False,
+                )

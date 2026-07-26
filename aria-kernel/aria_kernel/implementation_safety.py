@@ -440,6 +440,30 @@ def _firejail_available() -> bool:
     return shutil.which("firejail") is not None
 
 
+class SandboxUnavailable(RuntimeError):
+    """No sandbox backend is present, so containment cannot be applied.
+
+    ORPHAN-CRITICAL-427 — raised instead of returning the argv unchanged.
+    The previous contract handed back a bare list on the no-backend path,
+    which is indistinguishable from a sandboxed one, so every caller was
+    one forgotten check away from spawning an unconfined process. Callers
+    that genuinely may proceed unconfined must catch this explicitly.
+    """
+
+
+def sandbox_backend() -> str | None:
+    """Name of the available sandbox backend, or ``None``.
+
+    Exposed so a caller can fail closed BEFORE building a command, rather
+    than discovering the absence at spawn time.
+    """
+    if _bwrap_available():
+        return "bwrap"
+    if _firejail_available():
+        return "firejail"
+    return None
+
+
 def wrap_bash_in_sandbox(
     argv: list[str],
     *,
@@ -455,9 +479,19 @@ def wrap_bash_in_sandbox(
       * ``/tmp`` mounted as tmpfs
       * No /root, /home, /etc/secrets bind
 
-    When neither bwrap nor firejail available, returns argv unchanged
-    but emits a warning (Tier-3 detect — caller should record a
-    governance event).
+    ORPHAN-CRITICAL-427 — raises :class:`SandboxUnavailable` when neither
+    bwrap nor firejail is present. It used to return ``argv`` unchanged
+    with a comment saying the caller "should record a governance event",
+    which made the unconfined path the quiet default: the function had no
+    kernel caller at all, so containment existed only as prose in the
+    implementer's agent file — instructions addressed to the very process
+    being contained.
+
+    ``allow_network=True`` is the correct setting when wrapping an agent
+    process that must reach an API. It does NOT weaken the property that
+    matters most here: READONLY_PATHS stay ro-bind, so a write under them
+    fails with EROFS at the syscall level rather than by the agent
+    choosing to obey.
     """
     workspace = Path(workspace_root).resolve()
     if _bwrap_available():
@@ -490,8 +524,10 @@ def wrap_bash_in_sandbox(
         if not allow_network:
             wrap.append("--net=none")
         return wrap + list(argv)
-    # No sandbox available — caller should record governance event.
-    return list(argv)
+    raise SandboxUnavailable(
+        "sandbox_backend_unavailable: neither bwrap nor firejail is on PATH, "
+        "so READONLY_PATHS cannot be enforced at the syscall level"
+    )
 
 
 def apply_resource_limits(argv: list[str], *, timeout_seconds: int = 120) -> list[str]:
@@ -695,6 +731,8 @@ __all__ = (
     "verify_no_path_escape",
     "verify_bash_command_allowed",
     "is_gh_api_path_forbidden",
+    "SandboxUnavailable",
+    "sandbox_backend",
     "wrap_bash_in_sandbox",
     "apply_resource_limits",
     "truncate_validation_result",

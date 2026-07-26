@@ -304,16 +304,20 @@ reviewer can re-derive.
 
 * **Standing:** `npm run aria:ci:all`; every fix commit carries `Closes:`; no stage exits with a red
   suite. Baseline 2026-07-26: 2735 tests, OK (34 skipped).
-* **S0 prerequisite — make the suite signal trustworthy.** Found while verifying this plan: with
-  concurrent agents running git commands, three tests errored with `git commit` exit 128 inside their
-  own temp-repo fixtures (`aria-kernel/tests/test_evidence_trust.py:50`,
-  `aria-kernel/tests/test_executor_lane.py:34`), and all 33 passed on an isolated re-run. The likely
-  cause is a globally-set `commit.gpgsign=true` inherited by temp repos. This matters more than a
-  flake: the whole program gates every stage on "suite green", so a suite that reddens for reasons
-  unrelated to the change is a signal that can be wrong — the same defect class as
-  `warning_count: 0`. Fixture repos must set their own committer identity and disable signing
-  explicitly, and this lands in S0 because every later exit criterion depends on the suite meaning
-  what it says.
+* **S0 prerequisite — make the suite signal trustworthy (`ORPHAN-HIGH-350`, done).** Found while
+  verifying this plan: under concurrent agent load three tests errored with `git commit` exit 128
+  inside their own temp-repo fixtures (`aria-kernel/tests/test_evidence_trust.py:50`,
+  `aria-kernel/tests/test_executor_lane.py:34`), and all 33 passed on an isolated re-run. The initial
+  hypothesis — an inherited `commit.gpgsign=true` — was half right; the missing half is what makes it
+  worth a finding. `gpg.ssh.program` resolves to `/tmp/code-sign`, a **symlink to the agent harness's
+  own `environment-manager` binary**, so every fixture commit invoked an external harness-managed
+  program. The failure was the harness under load, reported as a test failure. Fixed at tier 1:
+  `tests/__init__.py` redirects `GIT_CONFIG_GLOBAL` + `GIT_CONFIG_SYSTEM` for the whole test process
+  (`tests/_helpers/hermetic{.gitconfig,_git.py}`), so ambient leakage is impossible for every fixture
+  — factory-built or inline — rather than something each new test must remember. Repo-local config is
+  untouched, so production code that enables signing on its own repos stays observable.
+  Six invariants in `aria-kernel/tests/test_suite_git_hermeticity.py` pin it. Post-fix baseline:
+  2763 tests, OK.
 * **Golden E2E (S1 exit).** The task is an L1, non-`READONLY_PATHS` WorkItem with its file set named
   explicitly — ARIA reads the task, writes the change, runs the suite, opens a **draft** PR, and its
   review names a real accepted result. Pass = the `l1_autonomous_success` row's `pr_number` +
@@ -354,7 +358,7 @@ Updated with the commit that causes the change. `~` = in progress.
 
 | Stage | Status | Exit evidence present? | Last updated |
 |---|---|---|---|
-| S0 Containment | `~` in progress | no — 343 phase A + suite-signal fix outstanding | 2026-07-26 |
+| S0 Containment | `~` in progress | no — 343 phase A outstanding | 2026-07-26 |
 | S1 Draft-PR capable | not started | no | 2026-07-26 |
 | S2 Supervised merge | not started | no | 2026-07-26 |
 | S3 Autonomous merge | not started | no | 2026-07-26 |
@@ -374,7 +378,7 @@ Updated with the commit that causes the change. `~` = in progress.
 | `ORPHAN-CRITICAL-343` registry executable, fails closed on unbuilt checks | S0 | partial | `f46324323` |
 | Gate split `pre_pr_open` / `pre_merge` | S0 | done | `a4197533a` |
 | `ORPHAN-CRITICAL-343` phase A — 5 mechanical pre-PR-open checks | S0 | open | — |
-| Suite-signal fix (fixture git identity + signing) | S0 | open | — |
+| `ORPHAN-HIGH-350` hermetic git env for the test suite | S0 | done | see log |
 | `ORPHAN-HIGH-349` `.gitignore` negation | S1 entry, operator | open | — |
 | `ORPHAN-CRITICAL-334` single job graph + contract + credential + token path | S1 | open | — |
 | `P0-03` real implementer + `task.py` entry point | S1 | open | — |
@@ -399,4 +403,16 @@ Updated with the commit that causes the change. `~` = in progress.
 * Plan reviewed adversarially by an independent agent panel before approval: 3 confirmed gaps folded
   in (impossible golden task, workflow-contract + credential + tracked-token path, self-blocking L2
   rung), 3 refuted and excluded.
-* Suite baseline recorded: 2735 tests, OK.
+* Suite baseline recorded: 2735 tests, OK (2763 under the canonical `aria:test:unit` pattern).
+
+### 2026-07-26 — S0: suite signal made trustworthy (`ORPHAN-HIGH-350`)
+
+* Root cause established from primary evidence, correcting the plan's own initial hypothesis: the
+  ambient global git config sets `commit.gpgsign=true` **and** `gpg.ssh.program=/tmp/code-sign`,
+  which is a symlink to `/opt/env-runner/environment-manager` — the agent harness binary. Every
+  fixture commit in ~30 inline-fixture test files was calling it.
+* Fixed by making the whole test process hermetic with respect to git's global and system config
+  layers, rather than by adding a `git config` call each new test must remember.
+* Before/after verified directly: without the env, a bare `git init` resolves `commit.gpgsign=true`
+  and `gpg.ssh.program=/tmp/code-sign`; with it, `false` and unset.
+* Suite: 2763 tests, OK (34 skipped).

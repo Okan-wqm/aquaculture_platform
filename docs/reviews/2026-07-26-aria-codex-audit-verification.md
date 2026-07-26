@@ -493,6 +493,34 @@ here. All are registered.
 | `ORPHAN-MEDIUM-347` | MEDIUM | Architecture Spine Gate drops unreadable files from the violation count; deleting `apps/`+`libs/` scores as improvement (latent) |
 | `ORPHAN-HIGH-348` | HIGH | **the publication integrity gate added in this session covers only a fraction of the declared state surfaces** |
 | `ORPHAN-HIGH-349` | HIGH | the daily report can never be staged — `.gitignore` excludes the parent directory, so no chain-tip anchor has been committed since 2026-05-08 |
+| `ORPHAN-HIGH-350` | HIGH | the kernel test suite inherits the agent container's global git config, so every fixture commit invokes an external signing binary and the suite can redden for reasons unrelated to the code under test |
+
+### `ORPHAN-HIGH-350` — the gate that every other gate depends on
+
+Found while verifying the programme plan rather than while hunting, which is why it arrives after
+the other eight. Under concurrent agent load three tests failed with `git commit` exit 128 inside
+their own temp-repo fixtures (`aria-kernel/tests/test_evidence_trust.py:50`,
+`aria-kernel/tests/test_executor_lane.py:34`); all 33 passed on an isolated re-run. The initial
+hypothesis — a globally-set `commit.gpgsign=true` — was only half right, and the half that was
+missing is the part that matters.
+
+Primary evidence: `git config --global` resolves `commit.gpgsign=true`, `gpg.format=ssh`,
+`gpg.ssh.program=/tmp/code-sign`, and `/tmp/code-sign` is a **symlink to
+`/opt/env-runner/environment-manager`** — the agent harness's own binary. A bare `git init` in a
+temp directory inherits all three. So every fixture commit, in roughly thirty test files that build
+repos inline, was invoking an external harness-managed program with its own availability and
+concurrency behaviour. The failure was not a flake in the tests; it was the harness answering slowly
+under load, reported as a test failure.
+
+This is registered HIGH rather than MEDIUM because of what depends on it. Every stage gate in
+`docs/plans/2026-07-26-aria-software-team-program/PLAN.md` exits on "suite green". A suite whose
+verdict is a function of machine state is the same defect class as the dashboard that reported 21
+blocked cycles as `ok` — a signal that can be wrong while looking authoritative. It is fixed at
+tier 1 rather than tier 2: `tests/__init__.py` redirects `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM`
+for the whole test process, so ambient leakage is structurally impossible for every fixture in the
+process rather than something each new test must remember to defend against. Repo-**local**
+configuration is deliberately left alone, so `gh_token_factory.mint_signing_key` setting
+`--local commit.gpgsign true` remains observable.
 
 ### `ORPHAN-HIGH-348` corrects a claim made in this same session
 

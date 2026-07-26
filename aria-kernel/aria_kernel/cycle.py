@@ -618,6 +618,13 @@ def run_enterprise_cycle(
         state_status = "completed"
     emit_progress("cycle_completed", cycle_id=cycle_id, status=state_status,
                   runtime_status=runtime_status, failed_phases=[f.get("phase") for f in failed_phases])
+    # ORPHAN-HIGH-339 — read AFTER this cycle's terminal row is appended
+    # (both branches above write one), so the snapshot counts only cycles
+    # that were genuinely abandoned. Carried whole, not just as a count:
+    # when `cycles.jsonl` cannot be read at all the count is 0 but
+    # `valid` is False, and a consumer that sees only the number would
+    # report "no incomplete cycles" for an unreadable ledger.
+    cycle_lifecycle = _cycle_lifecycle_snapshot(root)
     state = {
         "schema_version": 2,
         "cycle_id": cycle_id,
@@ -643,7 +650,12 @@ def run_enterprise_cycle(
         "artifact_integrity": artifact_integrity,
         "artifact_refs": [run["artifact_ref"] for run in run_summary if isinstance(run.get("artifact_ref"), dict)],
         "non_ok_tools": non_ok_runs,
-        "incomplete_lifecycle_count": 0,
+        # ORPHAN-HIGH-339 — derived, not pinned. Pre-fix this was the
+        # literal 0 that runtime_artifacts then summed across cycles, so a
+        # cycle killed mid-run stayed invisible in every operator-facing
+        # summary while `integrity verify` could already see it.
+        "incomplete_lifecycle_count": int(cycle_lifecycle.get("incomplete_count") or 0),
+        "cycle_lifecycle": cycle_lifecycle,
         "tool_decisions": decisions,
         "tool_governance_decisions": decisions,
         "tool_run_summary": run_summary,
@@ -875,6 +887,32 @@ def _run_pr_lifecycle_phase(
         "ok": ok, "fail": total - ok,
         "proposals": per_proposal,
     }
+
+
+def _cycle_lifecycle_snapshot(root: Path) -> dict[str, Any]:
+    """ORPHAN-HIGH-339 — started-without-terminal snapshot for the summary.
+
+    Imported lazily because ``integrity`` pulls in the runtime-artifact
+    verifier, and a module-level import here would make the cycle module
+    depend on the whole verification surface just to count rows.
+
+    A read failure is reported as ``valid: False`` rather than raised: the
+    cycle has already completed and written its terminal row by this
+    point, so failing the cycle over a summary read would discard real
+    work. The falsity is what consumers gate on.
+    """
+    from .integrity import cycle_lifecycle_status
+
+    try:
+        snapshot = cycle_lifecycle_status(root)
+    except (OSError, GovernanceError) as exc:
+        return {
+            "valid": False,
+            "incomplete_count": 0,
+            "incomplete_cycles": [],
+            "lifecycle_read_error": str(exc),
+        }
+    return snapshot
 
 
 def _complete_event(

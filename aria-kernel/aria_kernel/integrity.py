@@ -46,6 +46,23 @@ def verify_integrity(
     }
 
 
+def cycle_lifecycle_status(base_dir: str | Path | None = None) -> dict[str, Any]:
+    """ORPHAN-HIGH-339 — public reader for the started-without-terminal set.
+
+    ``verify_integrity`` has always computed this, but the number was
+    reachable only by running the whole verifier. ``cycle.py`` therefore
+    reported a literal ``0`` for ``incomplete_lifecycle_count``, and
+    ``runtime_artifacts.autonomy_output_summary`` summed that zero across
+    cycles — so an abandoned cycle was invisible in every operator-facing
+    summary while the verifier could see it.
+
+    Returns ``{"valid", "incomplete_count", "incomplete_cycles"}``; a
+    ``ledger_integrity_error`` key is present when ``cycles.jsonl``
+    could not be read, in which case ``valid`` is False.
+    """
+    return _verify_cycle_lifecycle(_integrity_tools_root(base_dir))
+
+
 def _verify_cycle_lifecycle(root: Path) -> dict[str, Any]:
     # Plan 024 v3 followup §E — `aborted` is a fourth terminal event
     # emitted by run_enterprise_cycle when a pre_tool_phase returns

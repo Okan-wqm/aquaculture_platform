@@ -427,6 +427,8 @@ describe('CreateFeedingRecordHandler — D-7 plan-dışı yem bağlama', () => {
     id: 'dp-1',
     siteId: SITE,
     snapshot: mock<FeedingDayPlan['snapshot']>({ expectedFcr: 1.25 }),
+    // W3: büyüme CANLI çözümden okunur (donuk snapshot değil).
+    resolution: mock<FeedingDayPlan['resolution']>({ expectedFcr: 1.25 }),
   });
 
   it('aktif gün planına bağlar: kayıt dayPlanId taşır, unplannedActualKg artar, growth + recalc AYNI tx', async () => {
@@ -456,7 +458,7 @@ describe('CreateFeedingRecordHandler — D-7 plan-dışı yem bağlama', () => {
     expect(String(updateCall![0])).toContain('"tenantId" = $2');
     expect(updateCall![1]).toEqual([50, TENANT, 'dp-1']);
 
-    // (2) Büyüme snapshot FCR'ıyla uygulandı: 50kg / 1.25 = 40kg.
+    // (2) Büyüme CANLI çözümün FCR'ıyla uygulandı: 50kg / 1.25 = 40kg.
     expect(applyGrowth).toHaveBeenCalledTimes(1);
     expect(applyGrowth.mock.calls[0]![3]).toBe(40);
     expect(applyGrowth.mock.calls[0]![4]).toBe(1.25);

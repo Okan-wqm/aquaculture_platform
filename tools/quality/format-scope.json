@@ -9765,6 +9765,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1807100000000-AddDayPlanLiveResolution.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -10995,6 +11001,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/protocol-resolution.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/__tests__/protocol-validation.service.spec.ts",
       "prettier_managed": true
     },
@@ -11200,6 +11212,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/services/protocol-rate.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/services/protocol-resolution.service.ts",
       "prettier_managed": true
     },
     {
@@ -54912,10 +54930,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9001,
+  "file_count": 9004,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8820,
-  "managed_file_list_sha256": "890433701c4fbd63cbd455d17c5f6e7da647beca648aef409231a0402620ef55",
+  "managed_count": 8823,
+  "managed_file_list_sha256": "3515afb036ef9d018abd1b5d1c7f50fc919977be8d7ee6e48cf42561bd073729",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

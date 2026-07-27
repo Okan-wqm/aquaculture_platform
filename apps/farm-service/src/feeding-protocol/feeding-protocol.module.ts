@@ -23,6 +23,7 @@ import { ProtocolFeedForecastService } from './services/protocol-feed-forecast.s
 import { FeedForecastResolver } from './resolvers/feed-forecast.resolver';
 import { ForecastRefreshListener } from './listeners/forecast-refresh.listener';
 import { MealPlanGeneratorService } from './services/meal-plan-generator.service';
+import { ProtocolResolutionService } from './services/protocol-resolution.service';
 import { BiomassGrowthApplierService } from './services/biomass-growth-applier.service';
 import { DayPlanRecalcService } from './services/day-plan-recalc.service';
 import { MealExecutionService } from './services/meal-execution.service';
@@ -79,6 +80,7 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
     ProtocolValidationService,
     ProtocolRateService,
     MealPlanGeneratorService,
+    ProtocolResolutionService,
     BiomassGrowthApplierService,
     DayPlanRecalcService,
     MealExecutionService,
@@ -111,6 +113,7 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
     ProtocolValidationService,
     ProtocolRateService,
     MealPlanGeneratorService,
+    ProtocolResolutionService,
     BiomassGrowthApplierService,
     DayPlanRecalcService,
     MealExecutionService,

@@ -130,6 +130,20 @@ function makeHarness(opts: HarnessOpts = {}) {
       expectedFcr: 1.25,
       fcrResolvedSource: FcrResolvedSource.OVERRIDE,
     },
+    // W3: büyüme ve yem kimliği CANLI çözümden okunur (FARM-HIGH-247/252).
+    resolution: {
+      resolvedAt: '2026-07-20T06:00:00.000Z',
+      bandIndex: 0,
+      feed: { id: 'feed-1', code: 'FA', name: 'Feed A' },
+      baseRatePercent: 3,
+      tempMultiplier: 1,
+      effectiveRatePercent: 3,
+      expectedFcr: 1.25,
+      fcrResolvedSource: FcrResolvedSource.OVERRIDE,
+      bandBasisWeightG: 100,
+      waterTempC: null,
+      temperatureSource: 'none',
+    },
   });
   const protocol = mock<FeedingProtocolV2>({
     id: 'protocol-1',

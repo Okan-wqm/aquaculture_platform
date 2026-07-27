@@ -169,7 +169,7 @@ export class UpdateFeedingRecordHandler
         );
       }
       if (amountDiff !== 0 && locked) {
-        const expectedFcr = Number(dayPlan?.snapshot?.expectedFcr) || 0;
+        const expectedFcr = Number(dayPlan?.resolution?.expectedFcr) || 0;
         if (expectedFcr > 0) {
           await this.growthApplier.applyGrowth(
             manager,

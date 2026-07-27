@@ -608,7 +608,7 @@ export class FeedingCronV2Service {
 
       /**
        * per_meal modda bayat kısmi finalize BÜYÜME UYGULAR (FARM-MEDIUM-227):
-       * growthKg = actualKg / snapshot.expectedFcr — recordMealFeeding
+       * growthKg = actualKg / resolution.expectedFcr — recordMealFeeding
        * finalize'ıyla AYNI hesap ve provenans. daily mod rollup'a (c) kalır;
        * çift uygulama imkânsız (mod başına tek yol).
        */
@@ -620,7 +620,7 @@ export class FeedingCronV2Service {
         return (
           dayPlan.growthApplicationMode !== 'daily' &&
           Number(meal.actualKg) > 0 &&
-          dayPlan.snapshot.expectedFcr > 0
+          dayPlan.resolution.expectedFcr > 0
         );
       };
 
@@ -673,7 +673,7 @@ export class FeedingCronV2Service {
           await manager.save(meal);
 
           if (locked && needsPerMealGrowth(meal)) {
-            const expectedFcr = dayPlanById.get(meal.dayPlanId)!.snapshot.expectedFcr;
+            const expectedFcr = dayPlanById.get(meal.dayPlanId)!.resolution.expectedFcr;
             await this.growthApplier.applyGrowth(
               manager,
               tenantId,
@@ -756,7 +756,7 @@ export class FeedingCronV2Service {
       }> = await manager.query(
         `SELECT dp.id,
                 dp."unitId",
-                (dp.snapshot->>'expectedFcr')::numeric AS "expectedFcr",
+                (dp.resolution->>'expectedFcr')::numeric AS "expectedFcr",
                 dp."rollupAppliedKg"::numeric          AS "appliedKg",
                 t.total                                AS "totalActualKg"
            FROM "feeding_day_plans" dp

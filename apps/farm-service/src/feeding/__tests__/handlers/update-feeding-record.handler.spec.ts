@@ -208,7 +208,7 @@ describe('UpdateFeedingRecordHandler — transactional outbox', () => {
     const lockedUnit = { tankBatch: {}, batches: new Map(), details: [] };
     const { handler, managerQuery, applyGrowth, recalcForUnit } = makeHarness({
       feedingRecord: { tankId: 'tank-1', dayPlanId: 'dp-1' },
-      dayPlan: { id: 'dp-1', siteId: 'site-1', snapshot: { expectedFcr: 1.25 } as never },
+      dayPlan: { id: 'dp-1', siteId: 'site-1', resolution: { expectedFcr: 1.25 } as never },
       lockedUnit,
     });
 
@@ -234,7 +234,7 @@ describe('UpdateFeedingRecordHandler — transactional outbox', () => {
     const lockedUnit = { tankBatch: {}, batches: new Map(), details: [] };
     const { handler, applyGrowth, applyStockCorrection } = makeHarness({
       feedingRecord: { tankId: 'tank-1', dayPlanId: 'dp-1' },
-      dayPlan: { id: 'dp-1', siteId: 'site-1', snapshot: { expectedFcr: 1.25 } as never },
+      dayPlan: { id: 'dp-1', siteId: 'site-1', resolution: { expectedFcr: 1.25 } as never },
       lockedUnit,
     });
 

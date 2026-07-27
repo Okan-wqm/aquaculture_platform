@@ -182,7 +182,7 @@ export class CreateFeedingRecordHandler
         // uygulamıyordu → FCR şişiyordu). Mod ayrımı YOK: DAILY rollup yalnız
         // öğün actual'larını topladığı için plan-dışı yem burada uygulanmazsa
         // hiçbir yerde uygulanmaz.
-        const expectedFcr = Number(boundPlan.snapshot?.expectedFcr) || 0;
+        const expectedFcr = Number(boundPlan.resolution?.expectedFcr) || 0;
         if (expectedFcr > 0) {
           await this.growthApplier.applyGrowth(
             manager,

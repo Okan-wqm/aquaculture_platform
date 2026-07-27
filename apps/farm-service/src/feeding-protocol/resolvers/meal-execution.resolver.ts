@@ -133,7 +133,7 @@ export class MealExecutionResolver {
 
   @ResolveField(() => Float, { nullable: true })
   waterTempC(@Parent() plan: FeedingDayPlan): number | null {
-    return plan.snapshot.waterTempC;
+    return plan.resolution.waterTempC;
   }
 
   @ResolveField(() => String)
@@ -146,37 +146,40 @@ export class MealExecutionResolver {
     return plan.snapshot.usingDefaultTemperature;
   }
 
+  // Yem kimliği ve oran/FCR CANLI çözümden okunur (FARM-HIGH-247):
+  // snapshot üretim anında donar, gün içi band geçişi onu güncellemiyordu —
+  // operatör eski yemi görürken ledger yeni yemi düşüyordu.
   @ResolveField(() => ID)
   feedId(@Parent() plan: FeedingDayPlan): string {
-    return plan.snapshot.feed.id;
+    return plan.resolution.feed.id;
   }
 
   @ResolveField(() => String)
   feedCode(@Parent() plan: FeedingDayPlan): string {
-    return plan.snapshot.feed.code;
+    return plan.resolution.feed.code;
   }
 
   @ResolveField(() => String)
   feedName(@Parent() plan: FeedingDayPlan): string {
-    return plan.snapshot.feed.name;
+    return plan.resolution.feed.name;
   }
 
   @ResolveField(() => Float)
   effectiveRatePercent(@Parent() plan: FeedingDayPlan): number {
-    return plan.snapshot.effectiveRatePercent;
+    return plan.resolution.effectiveRatePercent;
   }
 
   @ResolveField(() => Float)
   expectedFcr(@Parent() plan: FeedingDayPlan): number {
-    return plan.snapshot.expectedFcr;
+    return plan.resolution.expectedFcr;
   }
 
   @ResolveField(() => FcrResolvedSource)
   fcrResolvedSource(@Parent() plan: FeedingDayPlan): FcrResolvedSource {
-    return plan.snapshot.fcrResolvedSource;
+    return plan.resolution.fcrResolvedSource;
   }
 
-  /** D-2 rozeti: band dominant-biomass'tan seçildi, tank karışık (B3 öncesi snapshot'ta false). */
+  /** D-2 rozeti: band TANK ORTALAMASINDAN seçildi, tank karışık (FARM-LOW-263). */
   @ResolveField(() => Boolean)
   mixedBatch(@Parent() plan: FeedingDayPlan): boolean {
     return plan.snapshot.mixedBatch ?? false;

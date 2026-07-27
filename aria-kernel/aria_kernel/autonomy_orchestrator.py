@@ -345,17 +345,43 @@ def _bounded_cycle_summary(cycle_result: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
-def _autonomous_preflight(
+def _cycle_preflight(
     *,
     base_dir: Path,
     profile_snapshot: str,
 ) -> tuple[str, str | None]:
     """Plan ARIA-V3 §B2 — cost + failure + lease preflight.
 
-    Returns ``("ok", None)`` when the cycle is permitted to enter the
-    autonomous path; ``("blocked", reason_code)`` when refused. Non-
-    autonomous profiles short-circuit OK (the preflight is autonomous-
-    only — strict/standard/observe/frozen have their own gates).
+    Returns ``("ok", None)`` when the cycle is permitted to proceed;
+    ``("blocked", reason_code)`` when refused.
+
+    ORPHAN-CRITICAL-420 S2 — renamed from ``_autonomous_preflight``. The old
+    name described the old behaviour: the whole body short-circuited OK unless
+    profile was ``autonomous``, on the stated rationale that "strict/standard/
+    observe/frozen have their own gates". They do not. `strict` holds pr_open
+    authority and `standard` holds change_committed authority, and neither
+    consulted the failure breaker anywhere — so a tripped breaker stopped
+    nothing on the profile the scheduled lane actually runs.
+
+    The checks now have three DIFFERENT scopes, which is why they can no
+    longer share one profile test:
+
+      * failure breaker — every profile in PROFILES_WITH_ACTION_AUTHORITY.
+        It exists to stop the system from acting after repeated rejections,
+        so it must cover everything that can act. observe/frozen are exempt
+        by construction (they hold no authority), which also preserves the
+        operator's ability to run a read-only diagnostic cycle while tripped.
+      * cost breaker — autonomous only, unchanged. Cost accrues through the
+        autonomous agent-invocation lane; extending it needs the B0 producer
+        and window analysis that ORPHAN-HIGH-466 tracks, and widening the
+        scope without that would gate profiles against a counter nothing
+        currently increments.
+      * host lease — autonomous only, unchanged, and correctly so: it is a
+        cross-host mutual exclusion for the autonomous daemon. A standard
+        operator-driven cycle has no daemon to race.
+
+    Autonomous evaluation ORDER is preserved exactly (cost, failure, lease)
+    so the reason code an autonomous run reports does not change.
 
     Reason codes (exit_reason values):
       * ``cost_breaker_tripped`` — B0 cost circuit breaker tripped
@@ -363,22 +389,32 @@ def _autonomous_preflight(
       * ``autonomous_host_lease_blocked`` — §2n cross-host lease held
         by a different host
     """
-    if profile_snapshot != "autonomous":
-        return ("ok", None)
+    is_autonomous = profile_snapshot == "autonomous"
     # Lazy imports — keep run_autonomy_orchestrator importable when
     # the new B2 modules are absent (e.g. cold downgrade scenarios).
-    try:
-        from .cost_budget import current_state as _cost_state
-        if _cost_state(base_dir) == "tripped":
-            return ("blocked", "cost_breaker_tripped")
-    except ImportError:
-        pass
-    try:
-        from .circuit_breaker import current_state as _failure_state
-        if _failure_state(base_dir) == "tripped":
-            return ("blocked", "failure_breaker_tripped")
-    except ImportError:
-        pass
+    if is_autonomous:
+        try:
+            from .cost_budget import current_state as _cost_state
+            if _cost_state(base_dir) == "tripped":
+                return ("blocked", "cost_breaker_tripped")
+        except ImportError:
+            pass
+    # current_state() is safe to gate on: evaluate_breaker returns
+    # BREAKER_STATE_TRIPPED for dropped/unreadable evidence as well as for a
+    # genuine threshold breach, so damaged evidence blocks rather than reading
+    # as "ok". Operators separate the two causes with `aria-kernel breaker
+    # status`, which prints the verdict reason.
+    from .runtime_profile import PROFILES_WITH_ACTION_AUTHORITY
+
+    if profile_snapshot in PROFILES_WITH_ACTION_AUTHORITY:
+        try:
+            from .circuit_breaker import current_state as _failure_state
+            if _failure_state(base_dir) == "tripped":
+                return ("blocked", "failure_breaker_tripped")
+        except ImportError:
+            pass
+    if not is_autonomous:
+        return ("ok", None)
     try:
         from .autonomous_host_lease import acquire_lease
         from .tool_registry import GovernanceError as _GE
@@ -771,16 +807,17 @@ def run_autonomy_orchestrator(
                     exit_reason = "profile_frozen"
                     break
 
-                # Plan ARIA-V3 §B2 — autonomous-profile preflight gate.
-                # ONLY fires when profile == "autonomous"; non-autonomous
-                # profiles short-circuit. The gate checks three breakers
-                # in priority order:
-                #   1. cost_budget (B0) — $cost overrun
-                #   2. circuit_breaker (B2) — failure-count overrun
-                #   3. autonomous_host_lease (§2n) — cross-host race
+                # Plan ARIA-V3 §B2 + ORPHAN-CRITICAL-420 S2 — cycle preflight
+                # gate. The FAILURE breaker fires for every profile holding
+                # governed action authority (standard/strict/autonomous), not
+                # just autonomous; cost + host-lease remain autonomous-scoped.
+                # Checks, in priority order:
+                #   1. cost_budget (B0) — $cost overrun          [autonomous]
+                #   2. circuit_breaker (B2) — failure overrun    [any actor]
+                #   3. autonomous_host_lease (§2n) — cross-host  [autonomous]
                 # On any breaker tripped, exit cleanly with the matching
                 # reason code (no error, no retry storm).
-                preflight_status, preflight_reason = _autonomous_preflight(
+                preflight_status, preflight_reason = _cycle_preflight(
                     base_dir=root,
                     profile_snapshot=profile_snapshot,
                 )

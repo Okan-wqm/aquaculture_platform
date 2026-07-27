@@ -134,6 +134,29 @@ ACTION_PERMISSIONS: dict[str, frozenset[str]] = {
     "pr_merge": frozenset({"autonomous"}),
 }
 
+# ORPHAN-CRITICAL-420 S2 — the set of profiles that hold ANY governed
+# action authority, derived from the table above rather than written out.
+#
+# Safety controls that exist to stop the system from acting (the B2 failure
+# circuit breaker today) must gate every profile that can act. Hardcoding
+# `profile == "autonomous"` at each such gate was the defect: `strict` holds
+# pr_open + pr_create authority and `standard` holds change_committed, so both
+# could keep taking actions with the breaker tripped.
+#
+# Derived, not enumerated, so the correct behaviour is the zero-effort default:
+# granting a profile a new cell in ACTION_PERMISSIONS automatically enrolls it
+# in breaker gating, and a profile that holds no authority is automatically
+# exempt. A literal frozenset here would silently rot the first time the table
+# changed — which is precisely how the original gate came to be wrong.
+#
+# observe/frozen appear in no cell and so are excluded BY CONSTRUCTION, which
+# is the behaviour we want for a different reason: they cannot mutate anything,
+# and blocking them would deny an operator the read-only cycle they need to
+# diagnose the very breaker that is tripped.
+PROFILES_WITH_ACTION_AUTHORITY: frozenset[str] = frozenset().union(
+    *ACTION_PERMISSIONS.values()
+)
+
 # ---------------------------------------------------------------------
 # Plan 020 protected write surfaces.
 #   frozen blocks EVERY surface in this set; standard|strict permit all.

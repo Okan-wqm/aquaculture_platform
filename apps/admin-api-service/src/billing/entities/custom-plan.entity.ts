@@ -8,7 +8,12 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import {
+  DateOnlyColumn,
+  DecimalTransformer,
+  toIsoDateString,
+  type IsoDateString,
+} from '@aquaculture/backend-common/database';
 
 import { PlanDefinition, PlanTier, BillingCycle } from './plan-definition.entity';
 
@@ -170,14 +175,14 @@ export class CustomPlan {
   /**
    * When this plan becomes valid
    */
-  @Column({ type: 'date' })
-  validFrom!: Date;
+  @DateOnlyColumn()
+  validFrom!: IsoDateString;
 
   /**
    * When this plan expires (null = no expiration)
    */
-  @Column({ type: 'date', nullable: true })
-  validTo!: Date | null;
+  @DateOnlyColumn({ nullable: true })
+  validTo!: IsoDateString | null;
 
   /**
    * Admin who approved this plan
@@ -252,9 +257,13 @@ export class CustomPlan {
    * Check if plan is currently valid
    */
   isValid(): boolean {
-    const now = new Date();
-    const isAfterStart = now >= this.validFrom;
-    const isBeforeEnd = !this.validTo || now <= this.validTo;
+    // Calendar-date comparison on the canonical 'YYYY-MM-DD' form: lexicographic
+    // order IS chronological order, and no timezone is involved. The previous
+    // `new Date() >= this.validFrom` compared a Date against the hydrated string,
+    // which yields NaN — making the whole predicate permanently false (APA-130).
+    const today = toIsoDateString(new Date());
+    const isAfterStart = today >= this.validFrom;
+    const isBeforeEnd = !this.validTo || today <= this.validTo;
     return (
       this.status === CustomPlanStatus.ACTIVE && isAfterStart && isBeforeEnd
     );

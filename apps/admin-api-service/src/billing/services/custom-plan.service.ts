@@ -7,6 +7,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { toIsoDateString, toIsoDateStringOrNull } from '@aquaculture/backend-common/database';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { Repository } from 'typeorm';
 
@@ -47,7 +48,7 @@ export interface CreateCustomPlanDto {
   discountAmount?: number;
   discountReason?: string;
   validFrom: Date;
-  validTo?: Date;
+  validTo?: Date | null;
   notes?: string;
   createdBy?: string;
 }
@@ -68,7 +69,7 @@ export interface UpdateCustomPlanDto {
   discountAmount?: number;
   discountReason?: string;
   validFrom?: Date;
-  validTo?: Date;
+  validTo?: Date | null;
   notes?: string;
   updatedBy?: string;
 }
@@ -144,8 +145,8 @@ export class CustomPlanService {
       monthlyTotal,
       currency: 'USD',
       status: CustomPlanStatus.DRAFT,
-      validFrom: dto.validFrom,
-      validTo: dto.validTo,
+      validFrom: toIsoDateString(dto.validFrom),
+      validTo: toIsoDateStringOrNull(dto.validTo),
       notes: dto.notes,
       createdBy: dto.createdBy,
     });
@@ -252,8 +253,10 @@ export class CustomPlanService {
     if (dto.discountPercent !== undefined) plan.discountPercent = dto.discountPercent;
     if (dto.discountAmount !== undefined) plan.discountAmount = dto.discountAmount;
     if (dto.discountReason !== undefined) plan.discountReason = dto.discountReason;
-    if (dto.validFrom !== undefined) plan.validFrom = dto.validFrom;
-    if (dto.validTo !== undefined) plan.validTo = dto.validTo;
+    if (dto.validFrom !== undefined) plan.validFrom = toIsoDateString(dto.validFrom);
+    // An explicit null clears the expiry; toIsoDateStringOrNull preserves that
+    // instead of throwing, which would turn "remove the end date" into a 500.
+    if (dto.validTo !== undefined) plan.validTo = toIsoDateStringOrNull(dto.validTo);
     if (dto.notes !== undefined) plan.notes = dto.notes;
     if (dto.updatedBy !== undefined) plan.updatedBy = dto.updatedBy;
 

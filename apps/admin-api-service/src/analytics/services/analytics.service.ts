@@ -7,6 +7,7 @@
  * NO MOCK DATA - All metrics are calculated from database queries.
  */
 
+import { toIsoDateString } from '@aquaculture/backend-common/database';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
@@ -825,7 +826,7 @@ export class AnalyticsService {
         this.snapshotRepository.findOne({
           where: {
             category,
-            snapshotDate: LessThanOrEqual(targetDate),
+            snapshotDate: LessThanOrEqual(toIsoDateString(targetDate)),
           },
           order: { snapshotDate: 'DESC' },
         }),
@@ -853,7 +854,7 @@ export class AnalyticsService {
     metrics: TenantMetrics | UserMetrics | FinancialMetrics | SystemMetrics | UsageMetrics,
     snapshotDate: Date = new Date(),
   ): Promise<AnalyticsSnapshot> {
-    const snapshotDateKey = snapshotDate.toISOString().slice(0, 10);
+    const snapshotDateKey = toIsoDateString(snapshotDate);
     const existing = await this.snapshotRepository
       .createQueryBuilder('snapshot')
       .where('snapshot.snapshotType = :snapshotType', { snapshotType })
@@ -873,7 +874,10 @@ export class AnalyticsService {
     const snapshot = this.snapshotRepository.create({
       snapshotType,
       category,
-      snapshotDate: new Date(`${snapshotDateKey}T00:00:00.000Z`),
+      // snapshotDateKey is already the canonical 'YYYY-MM-DD'; round-tripping it
+      // through a Date only reintroduced the timezone ambiguity the column type
+      // exists to avoid.
+      snapshotDate: snapshotDateKey,
       metrics,
     });
 
@@ -888,10 +892,19 @@ export class AnalyticsService {
     range: DateRangeDto,
     snapshotType?: SnapshotType,
   ): Promise<AnalyticsSnapshot[]> {
+    // A raw query-builder parameter bypasses the column transformer, so a `Date`
+    // would reach PostgreSQL as a full timestamp and be re-truncated server-side
+    // in the SERVER's timezone — a different calendar day than the caller meant
+    // near midnight. Narrow to the canonical 'YYYY-MM-DD' here so the comparison
+    // is date-vs-date with no timezone in the path (APA-130).
     const query = this.snapshotRepository.createQueryBuilder('snapshot')
       .where('snapshot.category = :category', { category })
-      .andWhere('snapshot.snapshotDate >= :startDate', { startDate: range.startDate })
-      .andWhere('snapshot.snapshotDate <= :endDate', { endDate: range.endDate });
+      .andWhere('snapshot.snapshotDate >= :startDate', {
+        startDate: toIsoDateString(range.startDate),
+      })
+      .andWhere('snapshot.snapshotDate <= :endDate', {
+        endDate: toIsoDateString(range.endDate),
+      });
 
     if (snapshotType) {
       query.andWhere('snapshot.snapshotType = :snapshotType', { snapshotType });
@@ -972,7 +985,7 @@ export class AnalyticsService {
     const snapshots = await this.getSnapshots(category, { startDate, endDate: now }, 'daily');
 
     return snapshots.map(s => ({
-      date: s.snapshotDate.toISOString().split('T')[0] || s.snapshotDate.toISOString(),
+      date: s.snapshotDate,
       value: this.getMetricValue(s.metrics, metricKey),
     }));
   }
@@ -991,7 +1004,7 @@ export class AnalyticsService {
     const previousSnapshot = await this.snapshotRepository.findOne({
       where: {
         category,
-        snapshotDate: LessThanOrEqual(oneMonthAgo),
+        snapshotDate: LessThanOrEqual(toIsoDateString(oneMonthAgo)),
       },
       order: { snapshotDate: 'DESC' },
     });
@@ -1272,7 +1285,8 @@ export class AnalyticsService {
     // Process snapshots into monthly data
     const monthlyData = new Map<string, number[]>();
     for (const snapshot of snapshots) {
-      const monthKey = `${snapshot.snapshotDate.getFullYear()}-${String(snapshot.snapshotDate.getMonth() + 1).padStart(2, '0')}`;
+      // 'YYYY-MM-DD' -> 'YYYY-MM'; no Date parsing, no timezone shift.
+      const monthKey = snapshot.snapshotDate.slice(0, 7);
       const mrr = (snapshot.metrics as FinancialMetrics)?.mrr || 0;
 
       if (!monthlyData.has(monthKey)) {

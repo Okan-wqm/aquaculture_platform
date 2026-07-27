@@ -732,7 +732,8 @@ export class CreateCustomPlanDto {
   @IsOptional()
   @Type(() => Date)
   @IsDate()
-  validTo?: Date;
+  /** An explicit `null` clears the expiry; `undefined` leaves it unchanged. */
+  validTo?: Date | null;
 
   @IsOptional()
   @IsString()
@@ -785,7 +786,8 @@ export class UpdateCustomPlanDto {
   @IsOptional()
   @Type(() => Date)
   @IsDate()
-  validTo?: Date;
+  /** An explicit `null` clears the expiry; `undefined` leaves it unchanged. */
+  validTo?: Date | null;
 
   @IsOptional()
   @IsString()

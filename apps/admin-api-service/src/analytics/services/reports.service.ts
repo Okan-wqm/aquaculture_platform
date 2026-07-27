@@ -9,6 +9,7 @@
 
 import * as crypto from 'crypto';
 
+import { IsoDateString, toIsoDateString } from '@aquaculture/backend-common/database';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import {
   BadRequestException,
@@ -733,7 +734,7 @@ export class ReportsService {
            AND "snapshotDate" >= $1
            AND "snapshotDate" <= $2
          ORDER BY "snapshotDate" ASC`,
-        [startDate.toISOString().substring(0, 10), endDate.toISOString().substring(0, 10)],
+        [toIsoDateString(startDate), toIsoDateString(endDate)],
       );
     } catch {
       // Table may not exist or have no data
@@ -741,11 +742,14 @@ export class ReportsService {
 
     if (snapshotRows.length > 0) {
       // Use real snapshot data grouped by date
-      const groupedByDate = new Map<string, SystemMetrics[]>();
+      const groupedByDate = new Map<IsoDateString, SystemMetrics[]>();
       for (const row of snapshotRows) {
-        const dateStr = typeof row.snapshotDate === 'string'
-          ? row.snapshotDate.substring(0, 10)
-          : new Date(row.snapshotDate).toISOString().substring(0, 10);
+        // `"snapshotDate"::text` already yields a calendar date. Validate it at
+        // this raw-SQL boundary rather than round-tripping through `Date`: the
+        // Date branch was unreachable (the driver never returns one for `::text`)
+        // and it silently re-introduced UTC shifting on a value that has no
+        // timezone (APA-130).
+        const dateStr = toIsoDateString(row.snapshotDate);
         const existing = groupedByDate.get(dateStr) || [];
         existing.push(row.metrics);
         groupedByDate.set(dateStr, existing);

@@ -7,7 +7,11 @@
  */
 
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import {
+  DateOnlyColumn,
+  DecimalTransformer,
+  type IsoDateString,
+} from '@aquaculture/backend-common/database';
 
 export enum InvoiceStatus {
   DRAFT = 'draft',
@@ -67,11 +71,11 @@ export class InvoiceReadOnly {
   @Column({ name: 'paid_at', type: 'timestamptz', nullable: true })
   paidAt!: Date | null;
 
-  @Column({ name: 'period_start', type: 'date' })
-  periodStart!: Date;
+  @DateOnlyColumn({ name: 'period_start' })
+  periodStart!: IsoDateString;
 
-  @Column({ name: 'period_end', type: 'date' })
-  periodEnd!: Date;
+  @DateOnlyColumn({ name: 'period_end' })
+  periodEnd!: IsoDateString;
 
   @CreateDateColumn()
   createdAt!: Date;

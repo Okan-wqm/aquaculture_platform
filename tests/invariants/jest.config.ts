@@ -117,6 +117,7 @@ export default {
         '<rootDir>/eslint-disable-annotation-positional-binding.spec.ts',
         '<rootDir>/no-direct-getrepository-call.spec.ts',
         '<rootDir>/time-window-operator-usage.spec.ts',
+        '<rootDir>/date-column-hydration-ssot.spec.ts',
         '<rootDir>/admin-route-nav-reachability.spec.ts',
         '<rootDir>/admin-audit-severity-vocab.spec.ts',
         '<rootDir>/admin-data-request-status-vocab.spec.ts',

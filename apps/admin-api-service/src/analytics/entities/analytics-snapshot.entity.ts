@@ -5,6 +5,7 @@
  * Bu sayede dashboard hızlı yüklenir ve geçmiş veriler karşılaştırılabilir.
  */
 
+import { DateOnlyColumn, type IsoDateString } from '@aquaculture/backend-common/database';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -122,8 +123,10 @@ export class AnalyticsSnapshot {
   @Column({ type: 'varchar', length: 20 })
   category!: MetricCategory;
 
-  @Column({ type: 'date' })
-  snapshotDate!: Date;
+  // PostgreSQL `date` hydrates as a 'YYYY-MM-DD' string; typing it as Date made
+  // every .toISOString()/.getFullYear() call a runtime crash (APA-130).
+  @DateOnlyColumn()
+  snapshotDate!: IsoDateString;
 
   @Column({ type: 'jsonb' })
   metrics!: TenantMetrics | UserMetrics | FinancialMetrics | SystemMetrics | UsageMetrics;

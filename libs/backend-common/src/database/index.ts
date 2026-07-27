@@ -455,3 +455,16 @@ export * from './update-returning.util';
 // site. The inline `<Op>(new Date(Date.now() …))` form is banned in apps/**
 // by tests/invariants/time-window-operator-usage.spec.ts; this is its home.
 export * from './time-window.operators';
+
+// APA-130 cure: PostgreSQL `date` hydrates as a 'YYYY-MM-DD' STRING (the driver
+// normalizes it before any transformer runs), so a `Date`-annotated property is
+// an unchecked lie that throws on .toISOString()/.getFullYear() the moment a row
+// exists. `DateOnlyColumn` + the branded `IsoDateString` model the column as the
+// driver actually returns it, turning Date-method calls into compile errors.
+// Exact analogue of MoneyColumn/DecimalValueTransformer for NUMERIC.
+export {
+  DateOnlyColumn,
+  toIsoDateString,
+  toIsoDateStringOrNull,
+} from './date-only-column.decorator';
+export type { IsoDateString, DateOnlyColumnOptions } from './date-only-column.decorator';

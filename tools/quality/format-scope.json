@@ -1137,6 +1137,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/analytics/__tests__/analytics-date-hydration.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/analytics/__tests__/analytics-metrics-grounding.spec.ts",
       "prettier_managed": true
     },
@@ -35956,6 +35962,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/database/date-only-column.decorator.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/database/db-migrate-authority.util.ts",
       "prettier_managed": true
     },
@@ -41653,6 +41665,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/csrf-cookie-name-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/date-column-hydration-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/date-column-legacy-baseline.json",
       "prettier_managed": true
     },
     {
@@ -55416,10 +55440,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9085,
+  "file_count": 9089,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8904,
-  "managed_file_list_sha256": "2eea3fd6dd4110793a85d283e771c9ccbaad252655da4ee98ae958b333d40ce4",
+  "managed_count": 8908,
+  "managed_file_list_sha256": "bee15a582ae01bdebc043313cfd64b4a4621bd0c3c2286a5bccb892cdfa579bf",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

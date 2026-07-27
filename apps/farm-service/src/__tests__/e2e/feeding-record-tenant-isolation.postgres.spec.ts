@@ -507,9 +507,41 @@ describe('Feeding record tenant isolation on real Postgres', () => {
     return { site, department, species, tank, batch, feed, storageLocation, storageLot };
   }
 
+  /**
+   * Tenant ayrıştırıcı kolonun GERÇEK adı, tablo başına.
+   *
+   * Bu helper'lar eskiden her tablo için `"tenantId"` varsayıyordu. Doğru
+   * değil: `feeding_records` camelCase (`@Column('uuid') tenantId`), ama
+   * `stock_movements` açık eşlemeyle snake_case yazar
+   * (`@Column({ name: 'tenant_id' })`) — yani `stock_movements` sayımı
+   * çalıştığı anda `42703 column "tenantId" does not exist` verirdi. Kusur
+   * görünmedi çünkü Docker gerektiren bu süiti koşan hedef CI'da hiçbir
+   * yerden çağrılmıyordu (FARM-MEDIUM-301) — FARM-CRITICAL-242 ile birebir
+   * aynı sınıf: entity'de açık `name:` taşıyan bir kolona property adıyla
+   * ham SQL yazmak.
+   *
+   * Bilinmeyen tablo fail-closed: sessizce yanlış bir predikat üretmektense
+   * patlar.
+   */
+  const TENANT_COLUMN: Readonly<Record<string, string>> = {
+    feeding_records: 'tenantId',
+    stock_movements: 'tenant_id',
+  };
+
+  function tenantColumnOf(table: string): string {
+    const column = TENANT_COLUMN[table];
+    if (!column) {
+      throw new Error(
+        `${table} için tenant kolonu bilinmiyor — entity'nin @Column adını okuyup TENANT_COLUMN'a ekleyin`,
+      );
+    }
+    return column;
+  }
+
   async function tenantRowCount(table: string, tenantId: string): Promise<number> {
     const rows: Array<{ count: string }> = await dataSource!.query(
-      `SELECT COUNT(*)::text AS count FROM "${getTenantSchemaName(tenantId)}"."${table}" WHERE "tenantId" = $1`,
+      `SELECT COUNT(*)::text AS count FROM "${getTenantSchemaName(tenantId)}"."${table}" ` +
+        `WHERE "${tenantColumnOf(table)}" = $1`,
       [tenantId],
     );
     return Number(rows[0]?.count ?? 0);
@@ -517,7 +549,7 @@ describe('Feeding record tenant isolation on real Postgres', () => {
 
   async function sourceTenantRowCount(table: string, tenantId: string): Promise<number> {
     const rows: Array<{ count: string }> = await dataSource!.query(
-      `SELECT COUNT(*)::text AS count FROM "farm"."${table}" WHERE "tenantId" = $1`,
+      `SELECT COUNT(*)::text AS count FROM "farm"."${table}" WHERE "${tenantColumnOf(table)}" = $1`,
       [tenantId],
     );
     return Number(rows[0]?.count ?? 0);

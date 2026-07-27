@@ -9807,6 +9807,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1807600000000-AlignFeedingMealMethodEnum.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1807700000000-CapDayPlanRecalcLog.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -11007,6 +11019,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/feeding-readiness-checker.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/__tests__/forecast-refresh.listener.spec.ts",
       "prettier_managed": true
     },
@@ -11284,6 +11302,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/services/feeding-job-run.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/services/feeding-readiness-checker.service.ts",
       "prettier_managed": true
     },
     {
@@ -16156,6 +16180,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/water-quality/__tests__/reorder-parameter-configs.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/water-quality/__tests__/unit-site-authorization.spec.ts",
       "prettier_managed": true
     },
     {
@@ -44470,6 +44500,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/useTodaysDayPlans.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/useTypingIndicator.ts",
       "prettier_managed": true
     },
@@ -55146,10 +55182,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9040,
+  "file_count": 9046,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8859,
-  "managed_file_list_sha256": "e0697e18a7e0431342a59c7b751bf8cb78121ee1e173276e943f2994e0284422",
+  "managed_count": 8865,
+  "managed_file_list_sha256": "cbd7db637b41d724792ba235062296babf69adaa2f2eddb96ae45aa3d1dd03c6",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

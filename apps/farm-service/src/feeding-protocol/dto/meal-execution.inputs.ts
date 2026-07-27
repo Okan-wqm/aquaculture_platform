@@ -9,9 +9,10 @@
  * @module FeedingProtocol/DTO
  */
 import { Field, Float, ID, InputType, Int } from '@nestjs/graphql';
-import { IsBoolean, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
 
+import { FeedingMethod } from '../../feeding/entities/feeding-record.entity';
 import { MAX_FEED_KG, MIN_FEED_KG } from '../constants';
 
 @InputType()
@@ -32,11 +33,16 @@ export class RecordMealFeedingInput extends MobileCommandEnvelopeInput {
   @IsBoolean()
   finalize!: boolean;
 
-  @Field({ nullable: true })
+  /**
+   * FARM-MEDIUM-257: kayıtlı GraphQL enum'ı. Serbest `string` iken değer
+   * `feeding_records."feedingMethod"` PG ENUM kolonuna cast ediliyordu ve
+   * enum üyesi olmayan her giriş `22P02` ile ÖĞÜN KAYDININ TAMAMINI rollback
+   * ettiriyordu. Artık şema kapıda reddediyor.
+   */
+  @Field(() => FeedingMethod, { nullable: true })
   @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  feedingMethod?: string;
+  @IsEnum(FeedingMethod)
+  feedingMethod?: FeedingMethod;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -61,6 +67,18 @@ export class CorrectMealPourInput {
   @Min(MIN_FEED_KG)
   @Max(MAX_FEED_KG)
   correctedKg!: number;
+}
+
+/**
+ * Kısmi beslenen öğünü DÖKÜM EKLEMEDEN kapatır (W8 — FARM-MEDIUM-269).
+ * `recordMealFeeding` zarfıyla aynı idempotency disiplinine tabidir: mobil
+ * çevrimdışı kuyruk aynı komutu iki kez drain edebilir.
+ */
+@InputType()
+export class FinalizeMealInput extends MobileCommandEnvelopeInput {
+  @Field(() => ID)
+  @IsUUID()
+  mealId!: string;
 }
 
 @InputType()

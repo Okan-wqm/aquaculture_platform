@@ -225,6 +225,7 @@ const FEEDING_DAY_PLAN_FIELDS = `
   status
   skipReason
   recalcLog
+  recalcCount
   createdAt
   updatedAt
 `;
@@ -243,6 +244,23 @@ export const FEEDING_DAY_PLANS_QUERY = `
 export const RECORD_MEAL_FEEDING_MUTATION = `
   mutation RecordMealFeeding($input: RecordMealFeedingInput!) {
     recordMealFeeding(input: $input) {
+      id
+      status
+      actualKg
+      varianceKg
+      variancePercent
+    }
+  }
+`;
+
+/**
+ * W8/FARM-MEDIUM-269 — kısmi öğünü döküm eklemeden kapatır. Zarf zorunlu
+ * (recordMealFeeding emsali): aynı komut iki kez gönderilse bile ikinci kez
+ * uygulanmaz.
+ */
+export const FINALIZE_MEAL_MUTATION = `
+  mutation FinalizeMeal($input: FinalizeMealInput!) {
+    finalizeMeal(input: $input) {
       id
       status
       actualKg

@@ -275,6 +275,8 @@ export const tr: Record<MessageKey, string> = {
   'feedingV2.mealBoard.highWeightCvTitle':
     "Batch'ler arası ağırlık farkı yüksek — ortak yem bandı her batch'e uymayabilir",
   // W7/FARM-MEDIUM-271 — öğün öncesi oksijen verdikti (sensor-service).
+  // W8/FARM-MEDIUM-269 — kısmi öğünü döküm eklemeden kapat.
+  'feedingV2.mealBoard.finalizeMeal': 'Öğünü bitir',
   'feedingV2.mealBoard.lowOxygen': 'Düşük O₂',
   'feedingV2.mealBoard.lowOxygenTitle':
     'Öğün öncesi çözünmüş oksijen {{observed}} mg/L — protokol tabanı {{min}} mg/L altında',

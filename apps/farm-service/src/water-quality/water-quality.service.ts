@@ -18,8 +18,9 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager } from 'typeorm';
-import { Role } from '@aquaculture/backend-common/decorators';
+import { Role, roleHasPermission } from '@aquaculture/backend-common/decorators';
 import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { OutboxPublisher } from '@platform/outbox';
 import {
@@ -33,7 +34,7 @@ import {
   MeasurementSource,
   ParameterStatus,
 } from './entities/water-quality-measurement.entity';
-import { resolveTankSiteId } from '../batch/utils/tank-lookup.util';
+import { resolveTankSiteId, resolveUnitSiteIds } from '../batch/utils/tank-lookup.util';
 import { Tank } from '../tank/entities/tank.entity';
 import { WaterQualityEvaluationService } from './services/water-quality-evaluation.service';
 import { WaterQualityValidationService } from './services/water-quality-validation.service';
@@ -190,6 +191,44 @@ export class WaterQualityService {
    * and the fail-closed deny restricts pond WQ to MODULE_MANAGER+ — the correct
    * conservative posture (NEVER an implicit allow on an unresolved site).
    */
+  /**
+   * Site yetkisi kapısı — ÜNİTE LİSTESİ okuyan sorgular için (W8 —
+   * FARM-MEDIUM-274).
+   *
+   * `effectiveUnitTemperatures` rol kapısında MODULE_USER'a açıktı ama nesne
+   * düzeyinde HİÇ kontrol yoktu: operatör atanmadığı bir sitenin ünite
+   * kimliklerini geçirip o ünitelerin sıcaklık + sensör kimliklerini
+   * okuyabiliyordu. Aynı SEC-HIGH-051 disiplini burada da uygulanır:
+   * MODULE_MANAGER+ bypass eder, MODULE_USER için her ünite kendi sitesine
+   * karşı doğrulanır ve ÇÖZÜLEMEYEN site örtük izin DEĞİL reddir.
+   *
+   * Yazma yolundaki `assertSiteAssignment` per-item deseniyle simetrik olarak
+   * FIRLATIR — yetkisiz kimlikleri sessizce süzmek operatöre "bu ünitenin
+   * sıcaklığı yok" diye yanlış bir cevap verirdi.
+   */
+  async assertUnitsSiteAuthorized(
+    tenantId: string,
+    unitIds: string[],
+    caller: WaterQualityCaller,
+  ): Promise<void> {
+    if (unitIds.length === 0) return;
+
+    // MODULE_MANAGER+ cross-site sahibi — tek sorgu bile atmadan geçer.
+    if (caller.roles.some((role) => roleHasPermission(role, Role.MODULE_MANAGER))) {
+      return;
+    }
+
+    const siteByUnit = await runInTenantRead(
+      this.dataSource,
+      'farm',
+      tenantId,
+      (queryRunner) => resolveUnitSiteIds(queryRunner.manager, unitIds, tenantId),
+    );
+    for (const unitId of unitIds) {
+      this.siteAuth.assertSiteAssignment({ caller, siteId: siteByUnit.get(unitId) ?? null });
+    }
+  }
+
   private async resolveMeasurementSiteId(
     manager: EntityManager,
     input: Pick<CreateWaterQualityData, 'siteId' | 'tankId'>,

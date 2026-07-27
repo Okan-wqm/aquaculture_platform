@@ -95,6 +95,7 @@ export type FrontendMutationName =
   | 'unassignProtocolFromUnit'
   // MealBoard gated actions (Faz 6)
   | 'recordMealFeeding'
+  | 'finalizeMeal'
   | 'skipMeal'
   | 'correctMealPour'
   | 'regenerateDayPlan'
@@ -163,6 +164,7 @@ export const FRONTEND_MUTATION_ROLES: Readonly<
   unassignProtocolFromUnit: ['MODULE_MANAGER', 'TENANT_ADMIN'],
   // Öğün motoru v2 (Faz 6) — BE aynası birebir.
   recordMealFeeding: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
+  finalizeMeal: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
   skipMeal: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
   correctMealPour: ['MODULE_MANAGER', 'TENANT_ADMIN'],
   regenerateDayPlan: ['MODULE_MANAGER', 'TENANT_ADMIN'],

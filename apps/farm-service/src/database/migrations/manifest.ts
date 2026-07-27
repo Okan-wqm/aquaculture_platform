@@ -88,6 +88,8 @@ import { CreateFeedingClockInfrastructure1807200000000 } from './1807200000000-C
 import { MakeSiteTimezoneInheritable1807300000000 } from './1807300000000-MakeSiteTimezoneInheritable';
 import { AddForecastPoolScope1807400000000 } from './1807400000000-AddForecastPoolScope';
 import { AddFeedingMealReadiness1807500000000 } from './1807500000000-AddFeedingMealReadiness';
+import { AlignFeedingMealMethodEnum1807600000000 } from './1807600000000-AlignFeedingMealMethodEnum';
+import { CapDayPlanRecalcLog1807700000000 } from './1807700000000-CapDayPlanRecalcLog';
 import { CreateIncidentMedia1806000000000 } from './1806000000000-CreateIncidentMedia';
 
 /**
@@ -175,4 +177,6 @@ export const FARM_MIGRATIONS = [
   MakeSiteTimezoneInheritable1807300000000,
   AddForecastPoolScope1807400000000,
   AddFeedingMealReadiness1807500000000,
+  AlignFeedingMealMethodEnum1807600000000,
+  CapDayPlanRecalcLog1807700000000,
 ] as const;

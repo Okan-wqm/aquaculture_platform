@@ -53,6 +53,8 @@ export const tr: Record<MessageKey, string> = {
   'feeding.notes.placeholder': 'Ek gözlemler...',
   'feeding.record': 'Yemleme Kaydet',
   'feeding.recordKg': '{kg} kg Kaydet',
+  // W8/FARM-MEDIUM-269 — kısmi öğünü döküm eklemeden kapat.
+  'feeding.finalizeOnly': 'Öğünü bitir (yem eklemeden)',
   'feeding.recording': 'Kaydediliyor...',
   'feeding.recorded': 'Kaydedildi!',
   'feeding.queuedForSync': 'Eşitleme kuyruğuna alındı',

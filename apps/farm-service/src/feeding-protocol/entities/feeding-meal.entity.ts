@@ -27,6 +27,8 @@ import {
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 
+import { FeedingMethod } from '../../feeding/entities/feeding-record.entity';
+
 // ============================================================================
 // ENUMS
 // ============================================================================
@@ -84,7 +86,7 @@ export interface MealPour {
   kg: number;
   at: string; // ISO timestamp
   by: string; // userId
-  feedingMethod?: string;
+  feedingMethod?: FeedingMethod;
   // ── correctMealPour denetim izi (C-11) — düzeltme geçmişi kaybolmaz ──
   /** İLK kayıttaki kg (yalnız düzeltilmiş dökümlerde set). */
   originalKg?: number;
@@ -181,10 +183,14 @@ export class FeedingMeal {
   @Column('uuid', { nullable: true })
   fedBy?: string;
 
-  /** P-24: kayıt yolundan düşürülmez — hem burada hem FeedingRecord'da persist. */
-  @Field({ nullable: true })
-  @Column({ length: 50, nullable: true })
-  feedingMethod?: string;
+  /**
+   * P-24: kayıt yolundan düşürülmez — hem burada hem FeedingRecord'da persist.
+   * FARM-MEDIUM-257: kolon PG ENUM'dur; geçersiz bir değer GraphQL kapısını
+   * baypas etse bile YAZILAMAZ.
+   */
+  @Field(() => FeedingMethod, { nullable: true })
+  @Column({ type: 'enum', enum: FeedingMethod, nullable: true })
+  feedingMethod?: FeedingMethod;
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })

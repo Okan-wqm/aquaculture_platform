@@ -8,13 +8,21 @@
  *   feeding-cron.service.ts   → 06:00 generateDailyPlans, 07:00 checkFeedTransitions
  *   feeding-scheduler.service → 05:00 generateDailyFeedingPlan, saatlik
  *                               sendFeedingReminders, 20:00 dailyFeedingSummary,
- *                               18:00 analyzeFCR, 10:00 checkFeedStock
+ *                               18:00 analyzeFCR, 10:00 checkFeedStock,
+ *                               haftalık weeklyFeedForecast
+ *
+ * `weeklyFeedForecast` W8'de (FARM-LOW-285) kapıya ALINDI: muafiyetin gerekçesi
+ * "Faz 7 forecast'ı gelene dek tek kapsama sinyali" idi ve o gerekçe doldu —
+ * v2'nin 07:00 kapsama süpürmesi artık durable `FeedStockoutForecast` /
+ * `FeedTransitionUpcoming` üretiyor ve alert-engine onu tüketiyor. Gated
+ * olmadan iş her Pazartesi TÜM tenant şemalarını tarayıp dinleyicisi olmayan
+ * bir in-process `feeding.weeklyForecast` emit'i yapıyordu: bedeli olan,
+ * karşılığı olmayan bir koşu.
  *
  * Kapıya TABİ OLMAYANLAR (drain penceresi ≥30 gün — pre-cutover execution'lar
  * yaşamaya devam eder): 05:00 applyDailyGrowthRollup (drain kayıtlarının
- * growth'u), aylık cleanupOldExecutions, `recordDailyFeeding` mutation'ı,
- * haftalık weeklyFeedForecast (Faz 7 forecast'ı gelene dek tek kapsama
- * sinyali). Faz 8'de kapı, gated işlerle birlikte silinir.
+ * growth'u), aylık cleanupOldExecutions, `recordDailyFeeding` mutation'ı.
+ * Faz 8'de kapı, gated işlerle birlikte silinir.
  *
  * Rollback: `FEEDING_LEGACY_ENGINE_ENABLED=true` + servis restart — migration
  * geri alınmadan legacy üretim anında geri açılır (çift planlama riski yalnız

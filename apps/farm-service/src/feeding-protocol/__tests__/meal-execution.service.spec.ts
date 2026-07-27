@@ -552,6 +552,103 @@ describe('MealExecutionService.correctMealPour', () => {
   });
 });
 
+/**
+ * W8 / FARM-MEDIUM-269 — kısmi beslenen öğünü DÖKÜM EKLEMEDEN kapatma yolu.
+ *
+ * Bu yol açılana kadar `recordMealFeeding` `pourKg > 0` istediği için, balık
+ * doyduğunda operatörün tek çıkışı uydurma bir 0.001 kg dökümdü: sahte bir
+ * `feeding_records` satırı, sahte bir stok düşümü ve batch'in toplam
+ * tüketimine giren sahte bir gram. Kayıt, dürüst davranmaya çalışan operatör
+ * yüzünden bozuluyordu.
+ */
+describe('MealExecutionService.finalizeMeal', () => {
+  it('closes a partially-fed meal WITHOUT writing to the feed ledger or stock', async () => {
+    const harness = makeHarness({
+      meal: { status: FeedingMealStatus.PARTIALLY_FED, actualKg: 6, plannedKg: 10 },
+      openMealsAfter: 0,
+    });
+
+    const result = await harness.service.finalizeMeal({
+      tenantId: TENANT,
+      userId: 'user-1',
+      caller: CALLER,
+      mealId: MEAL,
+      envelope: ENVELOPE,
+    });
+
+    expect(result.status).toBe(FeedingMealStatus.FED);
+    // Kaydedilen kg DEĞİŞMEZ — kapatmak yem eklemek değildir.
+    expect(result.actualKg).toBe(6);
+    expect(harness.feedingLedger.recordFeed).not.toHaveBeenCalled();
+    expect(harness.recordMovement).not.toHaveBeenCalled();
+    // Döküm eklenmediği için MealFed de yayılmaz; varyans yine hesaplanır.
+    expect(harness.enqueued.map((event) => event.eventType)).not.toContain('MealFed');
+    expect(harness.meal.varianceKg).toBeCloseTo(-4);
+  });
+
+  it('rejects a meal that has no pour yet — that is a SKIP, not a finalize', async () => {
+    const harness = makeHarness({ meal: { status: FeedingMealStatus.SCHEDULED } });
+    await expect(
+      harness.service.finalizeMeal({
+        tenantId: TENANT,
+        userId: 'user-1',
+        caller: CALLER,
+        mealId: MEAL,
+        envelope: ENVELOPE,
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('applies per_meal growth and reprices the remaining meals, like a finalize-on-pour', async () => {
+    const harness = makeHarness({
+      meal: { status: FeedingMealStatus.PARTIALLY_FED, actualKg: 6, plannedKg: 10 },
+      openMealsAfter: 1,
+    });
+
+    await harness.service.finalizeMeal({
+      tenantId: TENANT,
+      userId: 'user-1',
+      caller: CALLER,
+      mealId: MEAL,
+      envelope: ENVELOPE,
+    });
+
+    // Tek finalize gerçeği paylaşıldığı için büyüme ve recalc bu yolda da koşar.
+    expect(harness.growthApplier.applyGrowth).toHaveBeenCalled();
+    expect(harness.recalcService.recalcForUnit).toHaveBeenCalled();
+  });
+
+  it('rejects a legacy (envelope-less) command — SEC/C-17 posture is shared', async () => {
+    const harness = makeHarness({ receiptMode: { mode: 'legacy' } });
+    await expect(
+      harness.service.finalizeMeal({
+        tenantId: TENANT,
+        userId: 'user-1',
+        caller: CALLER,
+        mealId: MEAL,
+        envelope: ENVELOPE,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('denies a caller outside the unit’s site, inside the write transaction', async () => {
+    const harness = makeHarness({
+      meal: { status: FeedingMealStatus.PARTIALLY_FED, actualKg: 6 },
+      siteAuthRejects: true,
+    });
+    await expect(
+      harness.service.finalizeMeal({
+        tenantId: TENANT,
+        userId: 'user-1',
+        caller: CALLER,
+        mealId: MEAL,
+        envelope: ENVELOPE,
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(harness.feedingLedger.recordFeed).not.toHaveBeenCalled();
+  });
+});
+
 describe('MealExecutionService.skipMeal', () => {
   it('skips a scheduled meal with a durable MealSkipped event', async () => {
     const harness = makeHarness({ openMealsAfter: 0 });

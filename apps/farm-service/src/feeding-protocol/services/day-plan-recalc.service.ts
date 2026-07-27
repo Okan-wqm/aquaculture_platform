@@ -48,6 +48,7 @@ import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity'
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { ProtocolResolutionService } from './protocol-resolution.service';
 import { distributeCatchUp, repriceRemaining } from './meal-schedule.util';
+import { RECALC_LOG_MAX_ENTRIES } from '../constants';
 import { round3 } from './rounding.util';
 
 export type RecalcReason = RecalcLogEntry['reason'];
@@ -416,7 +417,9 @@ export class DayPlanRecalcService {
     biomassKg: number,
     note?: string,
   ): void {
-    dayPlan.recalcLog = [
+    // W8/FARM-MEDIUM-286: son N girdi tutulur, TOPLAM sayı ayrı kolonda
+    // korunur — kırpma "kaç kez hesaplandı" bilgisini kaybettirmez.
+    const appended: RecalcLogEntry[] = [
       ...(dayPlan.recalcLog ?? []),
       {
         at: new Date().toISOString(),
@@ -426,6 +429,8 @@ export class DayPlanRecalcService {
         note,
       },
     ];
+    dayPlan.recalcLog = appended.slice(-RECALC_LOG_MAX_ENTRIES);
+    dayPlan.recalcCount = Number(dayPlan.recalcCount ?? 0) + 1;
   }
 
   private async pauseAssignment(

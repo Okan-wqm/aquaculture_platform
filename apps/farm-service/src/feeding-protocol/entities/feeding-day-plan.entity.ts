@@ -25,7 +25,7 @@ import {
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 
-import { FcrResolvedSource } from './feeding-protocol-v2.entity';
+import { FcrResolvedSource, GrowthApplicationMode } from './feeding-protocol-v2.entity';
 import { FeedingUnitType } from './protocol-assignment.entity';
 import { FeedingMeal } from './feeding-meal.entity';
 
@@ -110,8 +110,11 @@ export interface RecalcLogEntry {
 @Entity('feeding_day_plans')
 @Index(['tenantId', 'unitId', 'planDate'], { unique: true })
 @Index(['tenantId', 'planDate'])
+// Rollup aday kümesi (FARM-MEDIUM-289): eski indeks `rollupAppliedAt IS NULL`
+// üzerineydi ve hiç damgalanmayan planned/skipped/cancelled planlar orada
+// sonsuza dek birikiyordu.
 @Index(['tenantId', 'planDate'], {
-  where: '"rollupAppliedAt" IS NULL',
+  where: `"growthApplicationMode" = 'daily' AND status IN ('in_progress', 'completed')`,
 })
 @Index(['assignmentId', 'planDate'])
 @Index(['tenantId', 'siteId', 'planDate'])
@@ -185,7 +188,39 @@ export class FeedingDayPlan {
   })
   status!: FeedingDayPlanStatus;
 
-  /** DAILY growth modunda rollup idempotency damgası. */
+  /**
+   * Büyüme uygulama modu — PLANIN kendi semantiği (FARM-CRITICAL-244).
+   * Protokolün o anki ayarından okumak, ayar değiştiğinde geçmiş planların
+   * büyümesini çift saydırıyor veya kalıcı kaybettiriyordu; plan üretildiği
+   * semantikle işlenir.
+   */
+  @Field()
+  @Column({ type: 'varchar', length: 16, default: 'per_meal' })
+  growthApplicationMode!: GrowthApplicationMode;
+
+  /**
+   * Bu plan için büyümeye ÇEVRİLMİŞ toplam yem (kg) — kümülatif mutabakat
+   * damgası. Rollup her koşuda yalnız `Σ actualKg − rollupAppliedKg` farkını
+   * uygular; "tek atımlık" damga geç finalize ve `correctMealPour`
+   * deltalarını sessizce kaybediyordu (FARM-CRITICAL-244).
+   */
+  @Field(() => Float)
+  @Column({ type: 'numeric', precision: 12, scale: 3, default: 0 })
+  rollupAppliedKg!: number;
+
+  /** Uygulanan kümülatif büyüme (kg) — mutabakat sorgusu için denetlenebilirlik. */
+  @Field(() => Float)
+  @Column({ type: 'numeric', precision: 12, scale: 3, default: 0 })
+  rollupGrowthKg!: number;
+
+  @Field({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
+  rollupLastRunAt?: Date;
+
+  /**
+   * @deprecated Kümülatif `rollupAppliedKg` ile değiştirildi (FARM-CRITICAL-244).
+   * Blue-green için kolon duruyor; okuma yolu artık kullanmıyor.
+   */
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
   rollupAppliedAt?: Date;

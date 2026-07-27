@@ -20,7 +20,10 @@ import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Role } from '@aquaculture/backend-common/decorators';
 
 import { MealExecutionService, type MealCaller } from '../services/meal-execution.service';
-import { BiomassGrowthApplierService, type LockedUnit } from '../services/biomass-growth-applier.service';
+import {
+  BiomassGrowthApplierService,
+  type LockedUnit,
+} from '../services/biomass-growth-applier.service';
 import { DayPlanRecalcService } from '../services/day-plan-recalc.service';
 import { FeedingLedgerService } from '../../feeding/services/feeding-ledger.service';
 import { BatchDomainService } from '../../batch/services/batch-domain.service';
@@ -108,6 +111,9 @@ function makeHarness(opts: HarnessOpts = {}) {
     unitId: UNIT,
     unitCode: 'T-01',
     status: FeedingDayPlanStatus.PLANNED,
+    // FARM-CRITICAL-244: mod PLANIN kolonudur; protokol ayarı sonradan
+    // değişse bile bu plan üretildiği semantikle işlenir.
+    growthApplicationMode: opts.growthMode ?? 'per_meal',
     snapshot: {
       avgWeightG: 100,
       fishCount: 1000,
@@ -175,6 +181,8 @@ function makeHarness(opts: HarnessOpts = {}) {
     if (entity === FeedingRecord) return feedingRecord;
     return null;
   });
+  /** settleDayPlanStatus'un hedeflenmiş update'leri (M-1). */
+  const updates: Array<{ criteria: unknown; patch: unknown }> = [];
   const save = jest.fn();
   save.mockImplementation(async (entity: unknown) => {
     saved.push(entity);
@@ -183,11 +191,15 @@ function makeHarness(opts: HarnessOpts = {}) {
   const count = jest.fn();
   count.mockImplementation(async () => opts.openMealsAfter ?? 1);
   const managerQuery = jest.fn();
-  managerQuery.mockImplementation(async () => [
-    { fromLocationId: 'loc-1', lotNumber: 'LOT-A' },
-  ]);
+  managerQuery.mockImplementation(async () => [{ fromLocationId: 'loc-1', lotNumber: 'LOT-A' }]);
 
-  const manager = mock<EntityManager>({ findOne, save, count, query: managerQuery });
+  const update = jest.fn();
+  update.mockImplementation(async (_entity: unknown, criteria: unknown, patch: unknown) => {
+    updates.push({ criteria, patch });
+    return { affected: 1 };
+  });
+
+  const manager = mock<EntityManager>({ findOne, save, count, query: managerQuery, update });
   globalThis.__mealExecManager = manager;
 
   // Servis üyeleri tipli — double'lar ANOTASYONSUZ jest.fn() (Mock<any>) ile
@@ -269,6 +281,8 @@ function makeHarness(opts: HarnessOpts = {}) {
     recordMovement,
     feedingRecord,
     lockedUnit,
+    updates,
+    saved,
   };
 }
 
@@ -309,14 +323,21 @@ describe('MealExecutionService.recordMealFeeding', () => {
   });
 
   it('appends a pour cumulatively and routes it through the ledger with meal linkage (D-8/P-05)', async () => {
-    const harness = makeHarness({ meal: { actualKg: 3, pours: [{ pourIndex: 0, kg: 3, at: 'x', by: 'u' }] } });
+    const harness = makeHarness({
+      meal: { actualKg: 3, pours: [{ pourIndex: 0, kg: 3, at: 'x', by: 'u' }] },
+    });
     const result = await harness.service.recordMealFeeding(baseParams());
 
     expect(result.status).toBe(FeedingMealStatus.PARTIALLY_FED);
     expect(result.actualKg).toBeCloseTo(7); // 3 + 4 kümülatif
     expect(harness.meal.pours).toHaveLength(2);
     const ledgerCall = (harness.feedingLedger.recordFeed as jest.Mock).mock.calls[0];
-    expect(ledgerCall[5]).toMatchObject({ mealId: MEAL, pourIndex: 1, dayPlanId: PLAN, siteId: 'site-1' });
+    expect(ledgerCall[5]).toMatchObject({
+      mealId: MEAL,
+      pourIndex: 1,
+      dayPlanId: PLAN,
+      siteId: 'site-1',
+    });
     expect(harness.enqueued.map((event) => event.eventType)).toContain('MealFed');
     expect(harness.siteAuth.assertSiteAssignment).toHaveBeenCalledWith(
       expect.objectContaining({ siteId: 'site-1' }),
@@ -492,7 +513,10 @@ describe('MealExecutionService.skipMeal', () => {
       reason: 'balık iştahsız',
     });
     const lockedEntities = harness.findOne.mock.calls
-      .filter(([, options]) => (options as { lock?: { mode?: string } })?.lock?.mode === 'pessimistic_write')
+      .filter(
+        ([, options]) =>
+          (options as { lock?: { mode?: string } })?.lock?.mode === 'pessimistic_write',
+      )
       .map(([entity]) => entity);
     expect(lockedEntities).toEqual([FeedingDayPlan, FeedingMeal]);
     // Ön-okuma kilitsizdir: ilk FeedingMeal findOne'ı lock seçeneği taşımaz.

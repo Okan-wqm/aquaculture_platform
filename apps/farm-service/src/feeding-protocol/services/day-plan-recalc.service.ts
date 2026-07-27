@@ -47,6 +47,7 @@ import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity'
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { ProtocolRateService, ResolvedBand } from './protocol-rate.service';
 import { repriceRemaining } from './meal-schedule.util';
+import { round3 } from './rounding.util';
 
 export type RecalcReason = RecalcLogEntry['reason'];
 
@@ -135,21 +136,26 @@ export class DayPlanRecalcService {
       this.logger.warn(
         `Recalc skipped: assignment/protocol missing for day plan ${dayPlan.id} (unit ${unitId}).`,
       );
-      return { dayPlanId: dayPlan.id, outcome: 'no_active_plan', transitioned: false, remainingPlannedKg: 0 };
+      return {
+        dayPlanId: dayPlan.id,
+        outcome: 'no_active_plan',
+        transitioned: false,
+        remainingPlannedKg: 0,
+      };
     }
 
     // Band çözümü + histerezisli geçiş kararı.
     const resolved = this.rateService.bandFor(protocol.bands, avgWeightG);
     if (!resolved) {
-      return { dayPlanId: dayPlan.id, outcome: 'no_active_plan', transitioned: false, remainingPlannedKg: 0 };
+      return {
+        dayPlanId: dayPlan.id,
+        outcome: 'no_active_plan',
+        transitioned: false,
+        remainingPlannedKg: 0,
+      };
     }
     const currentIndex = assignment.currentBandIndex ?? dayPlan.snapshot.bandIndex;
-    const effective = this.applyTransitionHysteresis(
-      resolved,
-      currentIndex,
-      avgWeightG,
-      protocol,
-    );
+    const effective = this.applyTransitionHysteresis(resolved, currentIndex, avgWeightG, protocol);
     let transitioned = false;
     if (
       protocol.settings.autoTransition &&
@@ -294,8 +300,4 @@ export class DayPlanRecalcService {
     };
     await this.outboxPublisher.enqueue(event, manager);
   }
-}
-
-function round3(value: number): number {
-  return Math.round((value + Number.EPSILON) * 1000) / 1000;
 }

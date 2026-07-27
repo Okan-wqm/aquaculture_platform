@@ -9759,6 +9759,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1807000000000-AddDayPlanGrowthReconciliation.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -10941,6 +10947,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/growth-reconciliation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/__tests__/legacy-protocol-conversion.spec.ts",
       "prettier_managed": true
     },
@@ -11194,6 +11206,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/services/protocol-validation.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/services/rounding.util.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/services/unit-lock-retry.util.ts",
       "prettier_managed": true
     },
     {
@@ -54876,10 +54900,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8995,
+  "file_count": 8999,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8814,
-  "managed_file_list_sha256": "09065af0d2087a0c0ee4d567aeb9ebd110e5e6a0b3b4be4e91c8ef44389da101",
+  "managed_count": 8818,
+  "managed_file_list_sha256": "57c7f585714de2cdee6053849ddccf67991b2a7f47b2760b3aa9990cf278f1bd",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

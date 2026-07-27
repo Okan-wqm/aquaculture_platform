@@ -28,6 +28,7 @@ import { Batch } from '../../batch/entities/batch.entity';
 import { TankBatch, BatchDetail } from '../../batch/entities/tank-batch.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
+import { round3 } from './rounding.util';
 
 export interface LockedUnit {
   tankBatch: TankBatch;
@@ -221,8 +222,4 @@ export class BiomassGrowthApplierService {
       },
     ];
   }
-}
-
-function round3(value: number): number {
-  return Math.round((value + Number.EPSILON) * 1000) / 1000;
 }

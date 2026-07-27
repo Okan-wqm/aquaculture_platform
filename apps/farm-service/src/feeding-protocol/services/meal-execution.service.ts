@@ -62,6 +62,8 @@ import { StockMovementService } from '../../storage/services/stock-movement.serv
 import { MovementType } from '../../storage/entities/stock-movement.entity';
 import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
 import type { FeedingRecordUpdatedEvent } from '@platform/event-contracts';
+import { round3 } from './rounding.util';
+import { withUnitLockRetry } from './unit-lock-retry.util';
 
 // ============================================================================
 // TYPES
@@ -118,7 +120,13 @@ export class MealExecutionService {
     if (!Number.isFinite(params.pourKg) || params.pourKg <= 0 || params.pourKg > 10000) {
       throw new BadRequestException('Döküm miktarı 0 < kg <= 10000 aralığında olmalıdır');
     }
+    // FARM-MEDIUM-288: ünite batch üyeliği kilit ediniminde değişirse
+    // (transfer/stoklama/tam hasat) TRANSACTION SINIRINDA sınırlı yeniden
+    // deneme — kendi kendine geçen bir yarış operatöre 409 olarak yansımaz.
+    return withUnitLockRetry(() => this.recordMealFeedingOnce(params));
+  }
 
+  private async recordMealFeedingOnce(params: RecordMealFeedingParams): Promise<MealFeedingResult> {
     return runInTenantTransaction(this.dataSource, 'farm', params.tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
 
@@ -259,6 +267,9 @@ export class MealExecutionService {
       await this.outboxPublisher.enqueue(fedEvent, manager);
 
       // 8) Finalize: varyans + growth (per_meal) + kalan öğünlerin recalc'ı.
+      // `mealPersisted`: per_meal dalında öğün recalc'tan ÖNCE yazılır (M-1);
+      // bayrak çift yazımı önler.
+      let mealPersisted = false;
       if (params.finalize) {
         meal.status = FeedingMealStatus.FED;
         meal.fedAt = now;
@@ -273,7 +284,12 @@ export class MealExecutionService {
           where: { id: dayPlan.protocolId, tenantId: params.tenantId },
         });
 
-        if (protocol?.settings.growthApplicationMode !== 'daily') {
+        // Mod PLANIN kolonundan okunur (FARM-CRITICAL-244): protokolün o anki
+        // ayarına bakmak, ayar değiştiğinde büyümeyi çift saydırıyor ya da
+        // kaybettiriyordu. Eski `protocol?.settings... !== 'daily'` kalıbı
+        // ayrıca FAIL-OPEN'dı: protokol bulunamazsa sessizce per_meal
+        // uyguluyordu.
+        if (dayPlan.growthApplicationMode !== 'daily') {
           // per_meal: growthKg = actualKg / beklenen FCR (snapshot provenanslı).
           const expectedFcr = dayPlan.snapshot.expectedFcr;
           const growthKg = expectedFcr > 0 ? meal.actualKg / expectedFcr : 0;
@@ -284,6 +300,14 @@ export class MealExecutionService {
             growthKg,
             expectedFcr,
           );
+          // M-1 (FARM-MEDIUM-250): öğün satırı recalc'tan ÖNCE yazılır.
+          // Aksi hâlde recalc `status='scheduled'` filtresiyle BU öğünü de
+          // "kalan" sayıp yeniden fiyatlıyor, ardından bayat entity ile
+          // yapılan save + settleDayPlanStatus recalc'ın `recalcLog` ve
+          // `plannedTotalKg` yazımını geri alıyordu (lost update).
+          // `correctMealPour` bu sırayı zaten doğru uyguluyor.
+          await manager.save(meal);
+          mealPersisted = true;
           // Kalan öğünler yeni biomass'tan — band geçişi histerezisle burada.
           await this.recalcService.recalcForUnit(
             manager,
@@ -316,7 +340,7 @@ export class MealExecutionService {
       } else {
         meal.status = FeedingMealStatus.PARTIALLY_FED;
       }
-      await manager.save(meal);
+      if (!mealPersisted) await manager.save(meal);
 
       // 9) Day plan durumu: ilk döküm → in_progress; açık öğün kalmadıysa completed.
       await this.settleDayPlanStatus(manager, params.tenantId, dayPlan);
@@ -363,7 +387,18 @@ export class MealExecutionService {
     ) {
       throw new BadRequestException('Düzeltilmiş miktar 0 < kg <= 10000 aralığında olmalıdır');
     }
+    // FARM-MEDIUM-288 — bkz. recordMealFeeding.
+    return withUnitLockRetry(() => this.correctMealPourOnce(params));
+  }
 
+  private async correctMealPourOnce(params: {
+    tenantId: string;
+    userId: string;
+    caller: MealCaller;
+    mealId: string;
+    pourIndex: number;
+    correctedKg: number;
+  }): Promise<MealFeedingResult> {
     return runInTenantTransaction(this.dataSource, 'farm', params.tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
 
@@ -448,7 +483,9 @@ export class MealExecutionService {
       const feed = await manager.findOne(Feed, {
         where: { id: record.feedId, tenantId: params.tenantId },
       });
-      const newCost = feed?.pricePerKg ? round3(Number(feed.pricePerKg) * params.correctedKg) : previousCost;
+      const newCost = feed?.pricePerKg
+        ? round3(Number(feed.pricePerKg) * params.correctedKg)
+        : previousCost;
       record.actualAmount = params.correctedKg;
       record.feedCost = newCost;
       record.calculateVariance();
@@ -468,12 +505,13 @@ export class MealExecutionService {
       // Storage düzeltmesi — fark kadar; Phase-A (storage izi olmayan feed) atlanır.
       await this.applyStorageCorrection(manager, params, meal, delta, siteId);
 
-      // Growth delta (finalize edilmiş + per_meal protokol) + kalan öğün recalc'ı.
+      // Growth delta (finalize edilmiş + per_meal plan) + kalan öğün recalc'ı.
+      // DAILY modda delta burada UYGULANMAZ; rollup kümülatif mutabakatla
+      // (`rollupAppliedKg <> Σ actualKg`) bir sonraki koşuda uygular —
+      // eski "tek atımlık damga" bu deltayı kalıcı olarak kaybediyordu
+      // (FARM-CRITICAL-244).
       if (meal.status === FeedingMealStatus.FED) {
-        const protocol = await manager.findOne(FeedingProtocolV2, {
-          where: { id: dayPlan.protocolId, tenantId: params.tenantId },
-        });
-        if (protocol?.settings.growthApplicationMode !== 'daily') {
+        if (dayPlan.growthApplicationMode !== 'daily') {
           const expectedFcr = dayPlan.snapshot.expectedFcr;
           const growthDelta = expectedFcr > 0 ? delta / expectedFcr : 0;
           await this.growthApplier.applyGrowth(
@@ -718,11 +756,12 @@ export class MealExecutionService {
       openCount === 0 ? FeedingDayPlanStatus.COMPLETED : FeedingDayPlanStatus.IN_PROGRESS;
     if (dayPlan.status !== nextStatus) {
       dayPlan.status = nextStatus;
-      await manager.save(dayPlan);
+      // HEDEFLENMİŞ update (M-1 / FARM-MEDIUM-250): tam-entity `save()` bu
+      // noktada elde tutulan BAYAT nesneyi yazar ve aynı transaction'da
+      // recalc'ın güncellediği `recalcLog` + `plannedTotalKg` alanlarını geri
+      // alırdı (TypeORM `save()` optimistic sürüm kontrolü yapmaz, hata da
+      // yükselmezdi). Yalnız durum kolonu yazılır.
+      await manager.update(FeedingDayPlan, { id: dayPlan.id, tenantId }, { status: nextStatus });
     }
   }
-}
-
-function round3(value: number): number {
-  return Math.round((value + Number.EPSILON) * 1000) / 1000;
 }

@@ -76,6 +76,8 @@ import { FCRCalculationService } from '../../growth/services/fcr-calculation.ser
 import { calendarDayIn } from './meal-schedule.util';
 import { collectFeedSourceFeedIds, buildFeedFcrMatrixMap } from './feed-fcr-source.util';
 import { ProtocolFeedForecastService } from './protocol-feed-forecast.service';
+import { DayPlanRecalcService } from './day-plan-recalc.service';
+import { round3 } from './rounding.util';
 
 const ADVISORY_LOCK_NAMESPACE = 0x46454544; // 'FEED'
 const ASSIGNMENT_PAGE_SIZE = 200;
@@ -88,6 +90,34 @@ const FCR_CRITICAL_VARIANCE_PERCENT = 20;
 /** Retention pencereleri (plan §2 tablosu + NFR "Receipt büyümesi", K-16). */
 const DAY_PLAN_RETENTION_MONTHS = 24;
 const RECEIPT_RETENTION_DAYS = 90;
+/**
+ * DAILY rollup taraması (FARM-CRITICAL-244): alt tarih sınırı + koşu başına
+ * tavan. Sınırsız tarama, mod değişimi senaryosunda 24 aylık planı tek koşuda
+ * işleyip biyokütleyi katlayan patlama yarıçapının kendisiydi. Geç finalize
+ * penceresi (öğün + düzeltme) günler mertebesinde; 35 gün fazlasıyla yeterli.
+ */
+const ROLLUP_LOOKBACK_DAYS = 35;
+const ROLLUP_BATCH_LIMIT = 500;
+
+/**
+ * DAILY rollup mutabakatı — SAF (spec pinli, FARM-CRITICAL-244).
+ *
+ * Damga "uygulandı mı" değil "NE KADARI uygulandı" sorusunu tutar; her koşu
+ * yalnız farkı büyümeye çevirir. Böylece geç finalize edilen öğün ve
+ * `correctMealPour` deltası bir sonraki koşuda yakalanır, mod değişimi de
+ * geçmişi yeniden işleyemez (mod planın kolonunda dondurulmuştur).
+ */
+export function computeRollupDelta(input: {
+  totalActualKg: number;
+  appliedKg: number;
+  expectedFcr: number;
+}): { deltaKg: number; growthKg: number; applicable: boolean } {
+  const deltaKg = round3(input.totalActualKg - input.appliedKg);
+  if (!Number.isFinite(input.expectedFcr) || input.expectedFcr <= 0) {
+    return { deltaKg, growthKg: 0, applicable: false };
+  }
+  return { deltaKg, growthKg: round3(deltaKg / input.expectedFcr), applicable: true };
+}
 
 /** Toplu pencere event'lerine bölme — SAF (spec pinli). */
 export function chunkWindowEntries<T>(entries: T[], cap: number): T[][] {
@@ -147,6 +177,8 @@ export class FeedingCronV2Service {
     private readonly outboxPublisher: OutboxPublisher,
     // 07:00 stok kapsama süpürmesi — snapshot yenileme (K-10, plan §5).
     private readonly forecastService: ProtocolFeedForecastService,
+    // 05:30 bayat finalize'ı kalan öğünleri yeniden fiyatlar (finalize simetrisi).
+    private readonly recalcService: DayPlanRecalcService,
   ) {}
 
   // ==========================================================================
@@ -204,6 +236,7 @@ export class FeedingCronV2Service {
               unitName: ctx.assignment.unitName,
               unitCode: ctx.assignment.unitCode,
               planDate: ctx.planDate,
+              growthApplicationMode: ctx.protocol.settings.growthApplicationMode,
             },
             computed,
           );
@@ -581,11 +614,13 @@ export class FeedingCronV2Service {
        */
       const needsPerMealGrowth = (meal: FeedingMeal): boolean => {
         const dayPlan = dayPlanById.get(meal.dayPlanId);
-        const protocol = dayPlan ? sweepProtocolById.get(dayPlan.protocolId) : undefined;
+        if (!dayPlan) return false;
+        // Mod PLANIN kolonundan (FARM-CRITICAL-244) — protokol ayarı sonradan
+        // değişse bile bayat finalize üretildiği semantikle işlenir.
         return (
-          protocol?.settings.growthApplicationMode !== 'daily' &&
+          dayPlan.growthApplicationMode !== 'daily' &&
           Number(meal.actualKg) > 0 &&
-          (dayPlan?.snapshot.expectedFcr ?? 0) > 0
+          dayPlan.snapshot.expectedFcr > 0
         );
       };
 
@@ -595,12 +630,14 @@ export class FeedingCronV2Service {
       for (const unitId of sweepUnitIds) {
         const unitMissed = overdueMissed.filter((meal) => meal.unitId === unitId);
         const unitPartials = overduePartials.filter((meal) => meal.unitId === unitId);
-        const growthMeals = unitPartials.filter(needsPerMealGrowth);
 
-        let locked: LockedUnit | null = null;
-        if (growthMeals.length > 0) {
-          locked = await this.growthApplier.lockUnitForGrowth(manager, tenantId, unitId);
-        }
+        // Kanonik kilit sırası (FARM-MEDIUM-276): ünite kilidi öğün
+        // yazımlarından ÖNCE, büyüme gerekip gerekmediğine BAKILMADAN alınır.
+        // Eski hâl `growthMeals.length > 0` iken kilit alıyordu; daily modda
+        // bu koşul her zaman false olduğundan öğün satırları KİLİTSİZ
+        // yazılıyor, ardından aynı transaction'ın rollup adımı aynı ünitenin
+        // Batch kilidini istiyordu — sıra ihlali yapısaldı.
+        const locked = await this.growthApplier.lockUnitForGrowth(manager, tenantId, unitId);
 
         // (a) Hiç döküm görmemiş, penceresi geçmiş öğünler → missed + event.
         for (const meal of unitMissed) {
@@ -644,48 +681,138 @@ export class FeedingCronV2Service {
               Number(meal.actualKg) / expectedFcr,
               expectedFcr,
             );
+            // Kalan öğünler yeni biomass'tan — `recordMealFeeding` finalize'ı
+            // ile SİMETRİ (bayat finalize sessizce farklı davranamaz).
+            await this.recalcService.recalcForUnit(manager, tenantId, meal.unitId, 'meal_growth');
           }
+
+          // Az-atım sinyali de simetrik olmalı: pencere kapanışında finalize
+          // edilen öğün, operatörün elle kapattığı öğünle aynı eşiği görür —
+          // aksi hâlde sistematik az-atım YALNIZ elle kapatılan öğünlerde
+          // görünürdü (FARM-MEDIUM-276 ailesi).
+          const sweepPlan = dayPlanById.get(meal.dayPlanId);
+          const sweepThreshold =
+            sweepProtocolById.get(sweepPlan?.protocolId ?? '')?.settings
+              .underfeedAlertThresholdPercent ?? 15;
+          if (meal.variancePercent !== null && meal.variancePercent < -sweepThreshold) {
+            const underfed: MealUnderfedEvent = {
+              ...createBaseEvent<MealUnderfedEvent>('MealUnderfed', tenantId, {
+                aggregateId: meal.id,
+                aggregateType: 'FeedingMeal',
+              }),
+              scope: 'meal',
+              unitId: meal.unitId,
+              unitCode: sweepPlan?.unitCode ?? '',
+              dayPlanId: meal.dayPlanId,
+              mealId: meal.id,
+              plannedKg: Number(meal.plannedKg),
+              actualKg: Number(meal.actualKg),
+              variancePercent: meal.variancePercent,
+              thresholdPercent: sweepThreshold,
+            };
+            await this.outboxPublisher.enqueue(underfed, manager);
+          }
+        }
+
+        // Plan durumu: süpürme sonrası açık öğün kalmadıysa plan kapanır —
+        // eski hâl planı `in_progress`'te asılı bırakıyordu.
+        const touchedPlanIds = [
+          ...new Set([...unitMissed, ...unitPartials].map((meal) => meal.dayPlanId)),
+        ];
+        for (const dayPlanId of touchedPlanIds) {
+          const openCount = await manager.count(FeedingMeal, {
+            where: [
+              { dayPlanId, tenantId, status: FeedingMealStatus.SCHEDULED },
+              { dayPlanId, tenantId, status: FeedingMealStatus.PARTIALLY_FED },
+            ],
+          });
+          await manager.update(
+            FeedingDayPlan,
+            { id: dayPlanId, tenantId },
+            {
+              status:
+                openCount === 0 ? FeedingDayPlanStatus.COMPLETED : FeedingDayPlanStatus.IN_PROGRESS,
+            },
+          );
         }
       }
 
-      // (c) DAILY-mod rollup: dünün (ve öncesinin) rollup görmemiş planları —
-      // gün toplam actual'ı tek seferde büyümeye çevrilir; damga idempotent.
-      const pendingRollups: Array<{ id: string; unitId: string; expectedFcr: number }> =
-        await manager.query(
-          `SELECT dp.id, dp."unitId", (dp.snapshot->>'expectedFcr')::numeric AS "expectedFcr"
+      // (c) DAILY-mod rollup — KÜMÜLATİF MUTABAKAT (FARM-CRITICAL-244).
+      //
+      // Mod planın KENDİ kolonundan okunur (protokolün o anki ayarından
+      // DEĞİL): ayar değişimi geçmiş planların büyümesini ne çift saydırabilir
+      // ne kaybettirebilir. Aday predikatı "damga boş mu" değil
+      // "uygulanan kg gün toplamından farklı mı" — geç finalize edilen öğün ve
+      // `correctMealPour` deltası bir sonraki koşuda YAPISAL olarak yakalanır.
+      //
+      // Alt tarih sınırı + LIMIT: tek koşuda 24 aylık tarama operasyonel risk
+      // (mod değişimi senaryosunun asıl patlama yarıçapı buydu).
+      const pendingRollups: Array<{
+        id: string;
+        unitId: string;
+        expectedFcr: number;
+        appliedKg: number;
+        totalActualKg: number;
+      }> = await manager.query(
+        `SELECT dp.id,
+                dp."unitId",
+                (dp.snapshot->>'expectedFcr')::numeric AS "expectedFcr",
+                dp."rollupAppliedKg"::numeric          AS "appliedKg",
+                t.total                                AS "totalActualKg"
            FROM "feeding_day_plans" dp
-           JOIN "feeding_protocols_v2" p ON p.id = dp."protocolId"
-           WHERE dp."tenantId" = $1 AND dp."rollupAppliedAt" IS NULL
-             AND dp."planDate" < CURRENT_DATE
-             AND dp.status IN ('in_progress', 'completed')
-             AND p.settings->>'growthApplicationMode' = 'daily'
-           ORDER BY dp."unitId" ASC`,
-          [tenantId],
-        );
+           CROSS JOIN LATERAL (
+             SELECT COALESCE(SUM(m."actualKg"), 0) AS total
+               FROM "feeding_meals" m
+              WHERE m."tenantId" = dp."tenantId" AND m."dayPlanId" = dp.id
+           ) t
+          WHERE dp."tenantId" = $1
+            AND dp."growthApplicationMode" = 'daily'
+            AND dp.status IN ('in_progress', 'completed')
+            AND dp."planDate" < CURRENT_DATE
+            AND dp."planDate" >= CURRENT_DATE - ($2 || ' days')::interval
+            AND dp."rollupAppliedKg"::numeric <> t.total
+          ORDER BY dp."unitId" ASC
+          LIMIT $3`,
+        [tenantId, String(ROLLUP_LOOKBACK_DAYS), ROLLUP_BATCH_LIMIT],
+      );
+
       for (const plan of pendingRollups) {
-        const totals: Array<{ actual: string | number | null }> = await manager.query(
-          `SELECT COALESCE(SUM("actualKg"), 0) AS actual FROM "feeding_meals"
-           WHERE "dayPlanId" = $1`,
-          [plan.id],
-        );
-        const actualKg = Number(totals[0]?.actual ?? 0);
+        const totalActualKg = Number(plan.totalActualKg) || 0;
         const expectedFcr = Number(plan.expectedFcr) || 0;
-        if (actualKg > 0 && expectedFcr > 0) {
+        const { deltaKg, growthKg, applicable } = computeRollupDelta({
+          totalActualKg,
+          appliedKg: Number(plan.appliedKg) || 0,
+          expectedFcr,
+        });
+
+        if (!applicable) {
+          // FCR çözülemeyen planın büyümesi hesaplanamaz; damga BASILMAZ ki
+          // düzeltildiğinde tekrar aday olsun (sessiz kayıp yok).
+          this.logger.warn(
+            `DAILY rollup skipped for day plan ${plan.id}: expectedFcr missing/zero (unit ${plan.unitId}).`,
+          );
+          continue;
+        }
+        if (deltaKg !== 0) {
           const locked = await this.growthApplier.lockUnitForGrowth(manager, tenantId, plan.unitId);
-          if (locked) {
-            await this.growthApplier.applyGrowth(
-              manager,
-              tenantId,
-              locked,
-              actualKg / expectedFcr,
-              expectedFcr,
+          if (!locked) {
+            // Ünite boşalmış/kilitlenemiyor: damga BASILMAZ (eski davranış
+            // basıyordu ve büyüme sessizce kayboluyordu — FARM-MEDIUM-289).
+            this.logger.warn(
+              `DAILY rollup deferred for day plan ${plan.id}: unit ${plan.unitId} not lockable.`,
             );
+            continue;
           }
+          await this.growthApplier.applyGrowth(manager, tenantId, locked, growthKg, expectedFcr);
         }
         await manager.query(
-          `UPDATE "feeding_day_plans" SET "rollupAppliedAt" = now()
+          `UPDATE "feeding_day_plans"
+              SET "rollupAppliedKg" = $3,
+                  "rollupGrowthKg" = "rollupGrowthKg"::numeric + $4,
+                  "rollupLastRunAt" = now(),
+                  "rollupAppliedAt" = COALESCE("rollupAppliedAt", now())
             WHERE "tenantId" = $1 AND id = $2`,
-          [tenantId, plan.id],
+          [tenantId, plan.id, totalActualKg, growthKg],
         );
       }
     });
@@ -1114,8 +1241,4 @@ export class FeedingCronV2Service {
       }
     }
   }
-}
-
-function round3(value: number): number {
-  return Math.round((value + Number.EPSILON) * 1000) / 1000;
 }

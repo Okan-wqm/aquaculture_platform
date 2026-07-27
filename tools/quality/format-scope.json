@@ -1215,6 +1215,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/analytics/services/__tests__/reports.service.execute.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/analytics/services/analytics-snapshot.scheduler.ts",
       "prettier_managed": true
     },
@@ -1318,6 +1324,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/billing/__tests__/pricing-calculator-free-tier.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/billing/__tests__/usage-metering-management.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -55374,10 +55386,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9078,
+  "file_count": 9080,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8897,
-  "managed_file_list_sha256": "0d84dbfccc66db67488a1e3e6dacb3a856e0ad974cbbd3a68e5575eebdb5d9a4",
+  "managed_count": 8899,
+  "managed_file_list_sha256": "495a1505b3aa099d4ef4a9c80d78580464d1eca937a273f4ba7a2249d2bae6ae",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

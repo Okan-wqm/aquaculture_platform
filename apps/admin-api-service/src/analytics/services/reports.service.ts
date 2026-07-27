@@ -458,197 +458,170 @@ export class ReportsService {
     data: RevenueReportRow[];
     summary: Record<string, unknown>;
   }> {
-    try {
-      const startDate = request.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const endDate = request.endDate || new Date();
+    const startDate = request.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const endDate = request.endDate || new Date();
 
-      const planPricing: Record<string, number> = {
-        [TenantPlan.TRIAL]: 0,
-        [TenantPlan.STARTER]: 99,
-        [TenantPlan.PROFESSIONAL]: 299,
-        [TenantPlan.ENTERPRISE]: 499,
-      };
+    const planPricing: Record<string, number> = {
+      [TenantPlan.TRIAL]: 0,
+      [TenantPlan.STARTER]: 99,
+      [TenantPlan.PROFESSIONAL]: 299,
+      [TenantPlan.ENTERPRISE]: 499,
+    };
 
-      // Fetch all tenants with their creation dates and plans
-      const tenants = await this.tenantRepository.find();
+    // Fetch all tenants with their creation dates and plans
+    const tenants = await this.tenantRepository.find();
 
-      // Build daily revenue data for the requested date range
-      const data: RevenueReportRow[] = [];
-      const current = new Date(startDate);
-      current.setHours(0, 0, 0, 0);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
+    // Build daily revenue data for the requested date range
+    const data: RevenueReportRow[] = [];
+    const current = new Date(startDate);
+    current.setHours(0, 0, 0, 0);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
 
-      while (current <= end) {
-        const dateStr = current.toISOString().substring(0, 10);
-        const currentTime = current.getTime();
+    while (current <= end) {
+      const dateStr = current.toISOString().substring(0, 10);
+      const currentTime = current.getTime();
 
-        // Count active tenants at this date and calculate daily revenue
-        let dailyRevenue = 0;
-        let newSubscriptions = 0;
+      // Count active tenants at this date and calculate daily revenue
+      let dailyRevenue = 0;
+      let newSubscriptions = 0;
 
-        for (const tenant of tenants) {
-          const createdAt = tenant.createdAt ? new Date(tenant.createdAt) : null;
-          if (!createdAt || createdAt.getTime() > currentTime) continue;
+      for (const tenant of tenants) {
+        const createdAt = tenant.createdAt ? new Date(tenant.createdAt) : null;
+        if (!createdAt || createdAt.getTime() > currentTime) continue;
 
-          // Only count active or pending tenants that existed by this date
-          if (tenant.status === TenantStatus.ACTIVE || tenant.status === TenantStatus.PENDING) {
-            const monthlyPrice = planPricing[tenant.plan] || 0;
-            // Prorate monthly price to a daily amount
-            dailyRevenue += monthlyPrice / 30;
+        // Only count active or pending tenants that existed by this date
+        if (tenant.status === TenantStatus.ACTIVE || tenant.status === TenantStatus.PENDING) {
+          const monthlyPrice = planPricing[tenant.plan] || 0;
+          // Prorate monthly price to a daily amount
+          dailyRevenue += monthlyPrice / 30;
 
-            // Check if tenant was created on this exact day
-            const createdDateStr = createdAt.toISOString().substring(0, 10);
-            if (createdDateStr === dateStr) {
-              newSubscriptions++;
-            }
+          // Check if tenant was created on this exact day
+          const createdDateStr = createdAt.toISOString().substring(0, 10);
+          if (createdDateStr === dateStr) {
+            newSubscriptions++;
           }
         }
-
-        dailyRevenue = Math.round(dailyRevenue * 100) / 100;
-
-        data.push({
-          date: dateStr,
-          revenue: dailyRevenue,
-          newSubscriptions,
-          renewals: 0, // Requires subscription renewal tracking
-          upgrades: 0, // Requires plan change history table
-          downgrades: 0, // Requires plan change history table
-          refunds: 0, // Requires refund tracking
-          netRevenue: dailyRevenue,
-        });
-
-        current.setDate(current.getDate() + 1);
       }
 
-      // Calculate summary totals
-      const totalRevenue = data.reduce((sum, d) => sum + d.revenue, 0);
-      const totalNewSubscriptions = data.reduce((sum, d) => sum + d.newSubscriptions, 0);
-      const totalNetRevenue = data.reduce((sum, d) => sum + d.netRevenue, 0);
-      const activePaidTenants = tenants.filter(
-        t => t.status === TenantStatus.ACTIVE && t.plan !== TenantPlan.TRIAL,
-      ).length;
+      dailyRevenue = Math.round(dailyRevenue * 100) / 100;
 
-      return {
-        data,
-        summary: {
-          totalRevenue: Math.round(totalRevenue * 100) / 100,
-          totalNewSubscriptions,
-          totalRenewals: 0,
-          totalUpgrades: 0,
-          totalDowngrades: 0,
-          totalRefunds: 0,
-          totalNetRevenue: Math.round(totalNetRevenue * 100) / 100,
-          activePaidTenants,
-          avgDailyRevenue: data.length > 0 ? Math.round((totalRevenue / data.length) * 100) / 100 : 0,
-        },
-      };
-    } catch (error) {
-      this.logger.error(`Failed to generate revenue report: ${(error as Error).message}`);
-      return {
-        data: [],
-        summary: {
-          totalRevenue: 0,
-          totalNewSubscriptions: 0,
-          totalNetRevenue: 0,
-          error: 'Failed to generate revenue report',
-        },
-      };
+      data.push({
+        date: dateStr,
+        revenue: dailyRevenue,
+        newSubscriptions,
+        renewals: 0, // Requires subscription renewal tracking
+        upgrades: 0, // Requires plan change history table
+        downgrades: 0, // Requires plan change history table
+        refunds: 0, // Requires refund tracking
+        netRevenue: dailyRevenue,
+      });
+
+      current.setDate(current.getDate() + 1);
     }
+
+    // Calculate summary totals
+    const totalRevenue = data.reduce((sum, d) => sum + d.revenue, 0);
+    const totalNewSubscriptions = data.reduce((sum, d) => sum + d.newSubscriptions, 0);
+    const totalNetRevenue = data.reduce((sum, d) => sum + d.netRevenue, 0);
+    const activePaidTenants = tenants.filter(
+      t => t.status === TenantStatus.ACTIVE && t.plan !== TenantPlan.TRIAL,
+    ).length;
+
+    return {
+      data,
+      summary: {
+        totalRevenue: Math.round(totalRevenue * 100) / 100,
+        totalNewSubscriptions,
+        totalRenewals: 0,
+        totalUpgrades: 0,
+        totalDowngrades: 0,
+        totalRefunds: 0,
+        totalNetRevenue: Math.round(totalNetRevenue * 100) / 100,
+        activePaidTenants,
+        avgDailyRevenue: data.length > 0 ? Math.round((totalRevenue / data.length) * 100) / 100 : 0,
+      },
+    };
   }
 
   private async generatePaymentsReport(_request: ReportRequest): Promise<{
     data: PaymentReportRow[];
     summary: Record<string, unknown>;
   }> {
-    try {
-      const planPricing: Record<string, number> = {
-        [TenantPlan.TRIAL]: 0,
-        [TenantPlan.STARTER]: 99,
-        [TenantPlan.PROFESSIONAL]: 299,
-        [TenantPlan.ENTERPRISE]: 499,
-      };
+    const planPricing: Record<string, number> = {
+      [TenantPlan.TRIAL]: 0,
+      [TenantPlan.STARTER]: 99,
+      [TenantPlan.PROFESSIONAL]: 299,
+      [TenantPlan.ENTERPRISE]: 499,
+    };
 
-      // Fetch active tenants to generate synthetic invoice records
-      const tenants = await this.tenantRepository.find({
-        where: { status: TenantStatus.ACTIVE },
-        order: { name: 'ASC' },
+    // Fetch active tenants to generate synthetic invoice records
+    const tenants = await this.tenantRepository.find({
+      where: { status: TenantStatus.ACTIVE },
+      order: { name: 'ASC' },
+    });
+
+    const now = new Date();
+    const data: PaymentReportRow[] = [];
+    let totalPaid = 0;
+    let totalPending = 0;
+    let totalOverdue = 0;
+    let paidCount = 0;
+    let pendingCount = 0;
+    let overdueCount = 0;
+
+    for (const tenant of tenants) {
+      const amount = planPricing[tenant.plan] || 0;
+
+      // Generate a deterministic invoice ID from tenant id and current month
+      const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const invoiceId = `INV-${monthKey}-${tenant.id.substring(0, 8).toUpperCase()}`;
+
+      // Due date is the 1st of the current month
+      const dueDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      const dueDateStr = dueDate.toISOString().substring(0, 10);
+
+      // Calculate days past due (if any)
+      const daysPastDue = Math.max(0, Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24)));
+
+      // Trial tenants always have paid $0 invoices; active paid tenants are considered paid
+      const status = amount === 0 ? 'paid' : 'paid';
+
+      data.push({
+        invoiceId,
+        tenantName: tenant.name,
+        amount,
+        currency: 'USD',
+        dueDate: dueDateStr,
+        status,
+        daysPastDue: status === 'paid' ? 0 : daysPastDue,
       });
 
-      const now = new Date();
-      const data: PaymentReportRow[] = [];
-      let totalPaid = 0;
-      let totalPending = 0;
-      let totalOverdue = 0;
-      let paidCount = 0;
-      let pendingCount = 0;
-      let overdueCount = 0;
-
-      for (const tenant of tenants) {
-        const amount = planPricing[tenant.plan] || 0;
-
-        // Generate a deterministic invoice ID from tenant id and current month
-        const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-        const invoiceId = `INV-${monthKey}-${tenant.id.substring(0, 8).toUpperCase()}`;
-
-        // Due date is the 1st of the current month
-        const dueDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        const dueDateStr = dueDate.toISOString().substring(0, 10);
-
-        // Calculate days past due (if any)
-        const daysPastDue = Math.max(0, Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24)));
-
-        // Trial tenants always have paid $0 invoices; active paid tenants are considered paid
-        const status = amount === 0 ? 'paid' : 'paid';
-
-        data.push({
-          invoiceId,
-          tenantName: tenant.name,
-          amount,
-          currency: 'USD',
-          dueDate: dueDateStr,
-          status,
-          daysPastDue: status === 'paid' ? 0 : daysPastDue,
-        });
-
-        if (status === 'paid') {
-          totalPaid += amount;
-          paidCount++;
-        } else if (status === 'pending') {
-          totalPending += amount;
-          pendingCount++;
-        } else if (status === 'overdue') {
-          totalOverdue += amount;
-          overdueCount++;
-        }
+      if (status === 'paid') {
+        totalPaid += amount;
+        paidCount++;
+      } else if (status === 'pending') {
+        totalPending += amount;
+        pendingCount++;
+      } else if (status === 'overdue') {
+        totalOverdue += amount;
+        overdueCount++;
       }
-
-      return {
-        data,
-        summary: {
-          totalInvoices: data.length,
-          totalPaid: Math.round(totalPaid * 100) / 100,
-          totalPending: Math.round(totalPending * 100) / 100,
-          totalOverdue: Math.round(totalOverdue * 100) / 100,
-          paidCount,
-          pendingCount,
-          overdueCount,
-          collectionRate: data.length > 0 ? Math.round((paidCount / data.length) * 100) : 0,
-        },
-      };
-    } catch (error) {
-      this.logger.error(`Failed to generate payments report: ${(error as Error).message}`);
-      return {
-        data: [],
-        summary: {
-          totalInvoices: 0,
-          totalPaid: 0,
-          totalPending: 0,
-          totalOverdue: 0,
-          error: 'Failed to generate payments report',
-        },
-      };
     }
+
+    return {
+      data,
+      summary: {
+        totalInvoices: data.length,
+        totalPaid: Math.round(totalPaid * 100) / 100,
+        totalPending: Math.round(totalPending * 100) / 100,
+        totalOverdue: Math.round(totalOverdue * 100) / 100,
+        paidCount,
+        pendingCount,
+        overdueCount,
+        collectionRate: data.length > 0 ? Math.round((paidCount / data.length) * 100) : 0,
+      },
+    };
   }
 
   // ============================================================================
@@ -722,144 +695,130 @@ export class ReportsService {
     data: PerformanceReportRow[];
     summary: Record<string, unknown>;
   }> {
+    const startDate = request.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const endDate = request.endDate || new Date();
+
+    const data: PerformanceReportRow[] = [];
+
+    // Try to get data from analytics_snapshots (system category)
+    let snapshotRows: Array<{ snapshotDate: string; metrics: SystemMetrics }> = [];
     try {
-      const startDate = request.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const endDate = request.endDate || new Date();
-
-      const data: PerformanceReportRow[] = [];
-
-      // Try to get data from analytics_snapshots (system category)
-      let snapshotRows: Array<{ snapshotDate: string; metrics: SystemMetrics }> = [];
-      try {
-        snapshotRows = await this.dataSource.query(
-          `SELECT "snapshotDate"::text, metrics
-           FROM admin.analytics_snapshots
-           WHERE category = 'system'
-             AND "snapshotDate" >= $1
-             AND "snapshotDate" <= $2
-           ORDER BY "snapshotDate" ASC`,
-          [startDate.toISOString().substring(0, 10), endDate.toISOString().substring(0, 10)],
-        );
-      } catch {
-        // Table may not exist or have no data
-      }
-
-      if (snapshotRows.length > 0) {
-        // Use real snapshot data grouped by date
-        const groupedByDate = new Map<string, SystemMetrics[]>();
-        for (const row of snapshotRows) {
-          const dateStr = typeof row.snapshotDate === 'string'
-            ? row.snapshotDate.substring(0, 10)
-            : new Date(row.snapshotDate).toISOString().substring(0, 10);
-          const existing = groupedByDate.get(dateStr) || [];
-          existing.push(row.metrics);
-          groupedByDate.set(dateStr, existing);
-        }
-
-        for (const [dateStr, metricsArr] of groupedByDate) {
-          const avgResponseTime = metricsArr.reduce((s, m) => s + (m.avgResponseTimeMs || 0), 0) / metricsArr.length;
-          const errorRate = metricsArr.reduce((s, m) => s + (m.errorRate || 0), 0) / metricsArr.length;
-          const uptime = metricsArr.reduce((s, m) => s + (m.uptimePercent || 99.9), 0) / metricsArr.length;
-          const apiCalls = metricsArr.reduce((s, m) => s + (m.apiCallsToday || 0), 0);
-          const activeConnections = metricsArr.reduce((s, m) => s + (m.activeConnections || 0), 0) / metricsArr.length;
-
-          data.push({
-            date: dateStr,
-            avgResponseTime: Math.round(avgResponseTime * 100) / 100,
-            errorRate: Math.round(errorRate * 100) / 100,
-            uptime: Math.round(uptime * 100) / 100,
-            apiCalls: Math.round(apiCalls),
-            activeConnections: Math.round(activeConnections),
-          });
-        }
-      } else {
-        // No snapshots available: build per-day rows using audit_logs count and current DB stats
-        let activeConnections = 0;
-        try {
-          const connResult: Array<{ count: string }> = await this.dataSource.query(
-            `SELECT COUNT(*) AS count FROM pg_stat_activity WHERE state = 'active'`,
-          );
-          activeConnections = parseInt(connResult[0]?.count || '0', 10);
-        } catch {
-          // ignore
-        }
-
-        // Get audit log counts per day for the date range as a proxy for API calls
-        let auditCountsByDate = new Map<string, number>();
-        try {
-          const auditRows: Array<{ day: string; cnt: string }> = await this.dataSource.query(
-            // Schema-qualified after P9 (2026-04-14): audit_logs lives in
-            // shared schema. Unqualified read would resolve via search_path
-            // (admin, public) — both empty after the move, returning zeros
-            // silently inside the surrounding try/catch. Qualifying is the
-            // architectural fix per docs/adr/011-schema-ownership-model.md.
-            `SELECT DATE("createdAt")::text AS day, COUNT(*) AS cnt
-             FROM shared.audit_logs
-             WHERE "createdAt" >= $1 AND "createdAt" <= $2
-             GROUP BY DATE("createdAt")
-             ORDER BY day ASC`,
-            [startDate.toISOString(), endDate.toISOString()],
-          );
-          auditCountsByDate = new Map(auditRows.map(r => [r.day.substring(0, 10), parseInt(r.cnt, 10)]));
-        } catch {
-          // audit_logs table may not exist
-        }
-
-        const current = new Date(startDate);
-        current.setHours(0, 0, 0, 0);
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-
-        while (current <= end) {
-          const dateStr = current.toISOString().substring(0, 10);
-          const apiCalls = auditCountsByDate.get(dateStr) || 0;
-
-          data.push({
-            date: dateStr,
-            avgResponseTime: 45, // Default estimate in ms
-            errorRate: 0.1, // Default low error rate
-            uptime: 99.9, // Default uptime since we don't track downtime
-            apiCalls,
-            activeConnections,
-          });
-
-          current.setDate(current.getDate() + 1);
-        }
-      }
-
-      // Calculate summary averages
-      const totalDays = data.length || 1;
-      const avgResponseTime = data.reduce((s, d) => s + d.avgResponseTime, 0) / totalDays;
-      const avgErrorRate = data.reduce((s, d) => s + d.errorRate, 0) / totalDays;
-      const avgUptime = data.reduce((s, d) => s + d.uptime, 0) / totalDays;
-      const totalApiCalls = data.reduce((s, d) => s + d.apiCalls, 0);
-      const avgActiveConnections = data.reduce((s, d) => s + d.activeConnections, 0) / totalDays;
-
-      return {
-        data,
-        summary: {
-          avgResponseTime: Math.round(avgResponseTime * 100) / 100,
-          avgErrorRate: Math.round(avgErrorRate * 100) / 100,
-          avgUptime: Math.round(avgUptime * 100) / 100,
-          totalApiCalls,
-          avgDailyApiCalls: Math.round(totalApiCalls / totalDays),
-          avgActiveConnections: Math.round(avgActiveConnections),
-          totalDays,
-        },
-      };
-    } catch (error) {
-      this.logger.error(`Failed to generate performance report: ${(error as Error).message}`);
-      return {
-        data: [],
-        summary: {
-          avgResponseTime: 0,
-          avgErrorRate: 0,
-          avgUptime: 0,
-          totalApiCalls: 0,
-          error: 'Failed to generate performance report',
-        },
-      };
+      snapshotRows = await this.dataSource.query(
+        `SELECT "snapshotDate"::text, metrics
+         FROM admin.analytics_snapshots
+         WHERE category = 'system'
+           AND "snapshotDate" >= $1
+           AND "snapshotDate" <= $2
+         ORDER BY "snapshotDate" ASC`,
+        [startDate.toISOString().substring(0, 10), endDate.toISOString().substring(0, 10)],
+      );
+    } catch {
+      // Table may not exist or have no data
     }
+
+    if (snapshotRows.length > 0) {
+      // Use real snapshot data grouped by date
+      const groupedByDate = new Map<string, SystemMetrics[]>();
+      for (const row of snapshotRows) {
+        const dateStr = typeof row.snapshotDate === 'string'
+          ? row.snapshotDate.substring(0, 10)
+          : new Date(row.snapshotDate).toISOString().substring(0, 10);
+        const existing = groupedByDate.get(dateStr) || [];
+        existing.push(row.metrics);
+        groupedByDate.set(dateStr, existing);
+      }
+
+      for (const [dateStr, metricsArr] of groupedByDate) {
+        const avgResponseTime = metricsArr.reduce((s, m) => s + (m.avgResponseTimeMs || 0), 0) / metricsArr.length;
+        const errorRate = metricsArr.reduce((s, m) => s + (m.errorRate || 0), 0) / metricsArr.length;
+        const uptime = metricsArr.reduce((s, m) => s + (m.uptimePercent || 99.9), 0) / metricsArr.length;
+        const apiCalls = metricsArr.reduce((s, m) => s + (m.apiCallsToday || 0), 0);
+        const activeConnections = metricsArr.reduce((s, m) => s + (m.activeConnections || 0), 0) / metricsArr.length;
+
+        data.push({
+          date: dateStr,
+          avgResponseTime: Math.round(avgResponseTime * 100) / 100,
+          errorRate: Math.round(errorRate * 100) / 100,
+          uptime: Math.round(uptime * 100) / 100,
+          apiCalls: Math.round(apiCalls),
+          activeConnections: Math.round(activeConnections),
+        });
+      }
+    } else {
+      // No snapshots available: build per-day rows using audit_logs count and current DB stats
+      let activeConnections = 0;
+      try {
+        const connResult: Array<{ count: string }> = await this.dataSource.query(
+          `SELECT COUNT(*) AS count FROM pg_stat_activity WHERE state = 'active'`,
+        );
+        activeConnections = parseInt(connResult[0]?.count || '0', 10);
+      } catch {
+        // ignore
+      }
+
+      // Get audit log counts per day for the date range as a proxy for API calls
+      let auditCountsByDate = new Map<string, number>();
+      try {
+        const auditRows: Array<{ day: string; cnt: string }> = await this.dataSource.query(
+          // Schema-qualified after P9 (2026-04-14): audit_logs lives in
+          // shared schema. Unqualified read would resolve via search_path
+          // (admin, public) — both empty after the move, returning zeros
+          // silently inside the surrounding try/catch. Qualifying is the
+          // architectural fix per docs/adr/011-schema-ownership-model.md.
+          `SELECT DATE("createdAt")::text AS day, COUNT(*) AS cnt
+           FROM shared.audit_logs
+           WHERE "createdAt" >= $1 AND "createdAt" <= $2
+           GROUP BY DATE("createdAt")
+           ORDER BY day ASC`,
+          [startDate.toISOString(), endDate.toISOString()],
+        );
+        auditCountsByDate = new Map(auditRows.map(r => [r.day.substring(0, 10), parseInt(r.cnt, 10)]));
+      } catch {
+        // audit_logs table may not exist
+      }
+
+      const current = new Date(startDate);
+      current.setHours(0, 0, 0, 0);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+
+      while (current <= end) {
+        const dateStr = current.toISOString().substring(0, 10);
+        const apiCalls = auditCountsByDate.get(dateStr) || 0;
+
+        data.push({
+          date: dateStr,
+          avgResponseTime: 45, // Default estimate in ms
+          errorRate: 0.1, // Default low error rate
+          uptime: 99.9, // Default uptime since we don't track downtime
+          apiCalls,
+          activeConnections,
+        });
+
+        current.setDate(current.getDate() + 1);
+      }
+    }
+
+    // Calculate summary averages
+    const totalDays = data.length || 1;
+    const avgResponseTime = data.reduce((s, d) => s + d.avgResponseTime, 0) / totalDays;
+    const avgErrorRate = data.reduce((s, d) => s + d.errorRate, 0) / totalDays;
+    const avgUptime = data.reduce((s, d) => s + d.uptime, 0) / totalDays;
+    const totalApiCalls = data.reduce((s, d) => s + d.apiCalls, 0);
+    const avgActiveConnections = data.reduce((s, d) => s + d.activeConnections, 0) / totalDays;
+
+    return {
+      data,
+      summary: {
+        avgResponseTime: Math.round(avgResponseTime * 100) / 100,
+        avgErrorRate: Math.round(avgErrorRate * 100) / 100,
+        avgUptime: Math.round(avgUptime * 100) / 100,
+        totalApiCalls,
+        avgDailyApiCalls: Math.round(totalApiCalls / totalDays),
+        avgActiveConnections: Math.round(avgActiveConnections),
+        totalDays,
+      },
+    };
   }
 
   // ============================================================================

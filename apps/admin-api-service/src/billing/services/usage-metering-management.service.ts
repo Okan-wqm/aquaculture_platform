@@ -7,7 +7,7 @@
  * parallel model and has been retired).
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, In, MoreThanOrEqual, LessThanOrEqual } from 'typeorm';
 import { DataSource } from 'typeorm';
@@ -92,8 +92,6 @@ export interface BillingPreviewRequest {
 
 @Injectable()
 export class UsageMeteringManagementService {
-  private readonly logger = new Logger(UsageMeteringManagementService.name);
-
   constructor(
     @InjectRepository(UsageAggregationReadOnly)
     private readonly aggregationRepo: Repository<UsageAggregationReadOnly>,
@@ -116,65 +114,55 @@ export class UsageMeteringManagementService {
     const effectiveDateFrom = dateFrom || new Date(now.getFullYear(), now.getMonth(), 1);
     const effectiveDateTo = dateTo || now;
 
-    try {
-      // Get aggregated stats per meter type
-      const queryBuilder = this.aggregationRepo
+    // Get aggregated stats per meter type
+    const queryBuilder = this.aggregationRepo
+      .createQueryBuilder('ua')
+      .select('ua.meterType', 'meterType')
+      .addSelect('ua.unit', 'unit')
+      .addSelect('SUM(CAST(ua.totalUsage AS double precision))', 'totalUsage')
+      .addSelect('AVG(CAST(ua.totalUsage AS double precision))', 'avgPerTenant')
+      .addSelect('MAX(CAST(ua.totalUsage AS double precision))', 'maxPerTenant')
+      .addSelect('SUM(ua.eventCount)', 'totalEvents')
+      .addSelect('COUNT(DISTINCT ua.tenantId)', 'tenantCount')
+      .where('ua.period = :period', { period })
+      .andWhere('ua.periodStart >= :dateFrom', { dateFrom: effectiveDateFrom })
+      .andWhere('ua.periodEnd <= :dateTo', { dateTo: effectiveDateTo })
+      .groupBy('ua.meterType')
+      .addGroupBy('ua.unit');
+
+    const results = await queryBuilder.getRawMany();
+
+    const totalTenants = new Set(
+      (await this.aggregationRepo
         .createQueryBuilder('ua')
-        .select('ua.meterType', 'meterType')
-        .addSelect('ua.unit', 'unit')
-        .addSelect('SUM(CAST(ua.totalUsage AS double precision))', 'totalUsage')
-        .addSelect('AVG(CAST(ua.totalUsage AS double precision))', 'avgPerTenant')
-        .addSelect('MAX(CAST(ua.totalUsage AS double precision))', 'maxPerTenant')
-        .addSelect('SUM(ua.eventCount)', 'totalEvents')
-        .addSelect('COUNT(DISTINCT ua.tenantId)', 'tenantCount')
+        .select('DISTINCT ua.tenantId')
         .where('ua.period = :period', { period })
         .andWhere('ua.periodStart >= :dateFrom', { dateFrom: effectiveDateFrom })
         .andWhere('ua.periodEnd <= :dateTo', { dateTo: effectiveDateTo })
-        .groupBy('ua.meterType')
-        .addGroupBy('ua.unit');
+        .getRawMany()).map((r: { tenantId: string }) => r.tenantId)
+    ).size;
 
-      const results = await queryBuilder.getRawMany();
+    const totalEvents = results.reduce(
+      (sum: number, r: Record<string, unknown>) => sum + Number(r['totalEvents'] || 0),
+      0,
+    );
 
-      const totalTenants = new Set(
-        (await this.aggregationRepo
-          .createQueryBuilder('ua')
-          .select('DISTINCT ua.tenantId')
-          .where('ua.period = :period', { period })
-          .andWhere('ua.periodStart >= :dateFrom', { dateFrom: effectiveDateFrom })
-          .andWhere('ua.periodEnd <= :dateTo', { dateTo: effectiveDateTo })
-          .getRawMany()).map((r: { tenantId: string }) => r.tenantId)
-      ).size;
-
-      const totalEvents = results.reduce(
-        (sum: number, r: Record<string, unknown>) => sum + Number(r['totalEvents'] || 0),
-        0,
-      );
-
-      return {
-        totalTenants,
-        totalEvents,
-        meterBreakdown: results.map((r: Record<string, unknown>) => ({
-          meterType: r['meterType'] as MeterType,
-          totalUsage: Number(r['totalUsage'] || 0),
-          avgPerTenant: Number(r['avgPerTenant'] || 0),
-          maxPerTenant: Number(r['maxPerTenant'] || 0),
-          unit: r['unit'] as string,
-          tenantCount: Number(r['tenantCount'] || 0),
-        })),
-        periodCovered: {
-          from: effectiveDateFrom,
-          to: effectiveDateTo,
-        },
-      };
-    } catch (error) {
-      this.logger.error(`Failed to get usage summary: ${(error as Error).message}`);
-      return {
-        totalTenants: 0,
-        totalEvents: 0,
-        meterBreakdown: [],
-        periodCovered: { from: effectiveDateFrom, to: effectiveDateTo },
-      };
-    }
+    return {
+      totalTenants,
+      totalEvents,
+      meterBreakdown: results.map((r: Record<string, unknown>) => ({
+        meterType: r['meterType'] as MeterType,
+        totalUsage: Number(r['totalUsage'] || 0),
+        avgPerTenant: Number(r['avgPerTenant'] || 0),
+        maxPerTenant: Number(r['maxPerTenant'] || 0),
+        unit: r['unit'] as string,
+        tenantCount: Number(r['tenantCount'] || 0),
+      })),
+      periodCovered: {
+        from: effectiveDateFrom,
+        to: effectiveDateTo,
+      },
+    };
   }
 
   // ============================================================================

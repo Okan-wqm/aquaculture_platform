@@ -19,8 +19,8 @@
  * its `it`/`describe` hooks onto node:test — RuleTester then drives the cases.
  */
 
-import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import { describe, it } from 'node:test';
 
 import { RuleTester } from 'eslint';
@@ -89,7 +89,7 @@ const testedRuleNames = [
   'no-unpinned-ssrf-fetch',
 ] as const;
 
-it('has a RuleTester suite for every exported rule', () => {
+void it('has a RuleTester suite for every exported rule', () => {
   assert.deepEqual(Object.keys(rules).sort(), [...testedRuleNames].sort());
 });
 

@@ -13,3 +13,16 @@ itself works; the quarantine hid it. Un-quarantining is a per-project program: b
 (farm-service full suite currently exceeds 10min on the droplet — needs sharding/perf work first), then
 remove the JSON entry. Interim mitigation: run the affected project's jest suite locally before merging
 (now recorded in operator memory + this finding). Owner: infra-expert. Deadline: 2026-07-31.
+
+## CI-HIGH-021 — eslint-plugin-aquaculture's Nx test target does not execute its RuleTester suite
+
+The workspace package advertises `"test": "jest"`, but its RuleTester suite lives under
+`tools/lint-gates/`, outside the package Jest discovery root. The Nx target therefore exits with
+`No tests found`, which led to the project being quarantined from strict affected tests. The target's
+default cache inputs also exclude the external suite, so merely pointing the script at that file would
+allow stale green results after a RuleTester change.
+
+Required remediation: make the package test script execute the RuleTester suite, declare that suite and
+its runner tsconfig as Nx cache inputs, assert every exported rule has a suite, cover the seventh
+`no-unpinned-ssrf-fetch` rule, and remove the project from both test and lint quarantine after its direct
+targets pass. Owner: infra-expert. Deadline: 2026-07-31. Status: IN-PROGRESS.

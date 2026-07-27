@@ -31,9 +31,9 @@ function buildInvoice(overrides: Partial<Invoice> = {}): Invoice {
     tenantId: 'tenant-001',
     invoiceNumber: 'INV-202603-T001-ABC',
     status: InvoiceStatus.SENT,
-    total: 200,
-    amountPaid: 0,
-    amountDue: 200,
+    total: new Decimal(200),
+    amountPaid: new Decimal(0),
+    amountDue: new Decimal(200),
     currency: 'USD',
     issueDate: new Date('2026-03-01'),
     dueDate: new Date('2026-03-31'),
@@ -41,7 +41,7 @@ function buildInvoice(overrides: Partial<Invoice> = {}): Invoice {
     periodEnd: new Date('2026-03-31'),
     lineItems: [],
     billingAddress: { companyName: 'Test', street: '', city: '', state: '', postalCode: '', country: '' },
-    subtotal: 200,
+    subtotal: new Decimal(200),
     createdAt: new Date(),
     updatedAt: new Date(),
     version: 1,
@@ -151,14 +151,14 @@ describe('RecordPaymentHandler', () => {
       const result = await handler.execute(buildCommand({ amount: 200 }));
 
       expect(result).toBeDefined();
-      expect(result.amount).toBe(200);
+      expect(result.amount.equals(200)).toBe(true);
       expect(result.status).toBe(PaymentStatus.SUCCEEDED);
       expect(result.tenantId).toBe('tenant-001');
 
       // Invoice should be marked as PAID
       expect(defaultInvoice.status).toBe(InvoiceStatus.PAID);
-      expect(defaultInvoice.amountPaid).toBe(200);
-      expect(defaultInvoice.amountDue).toBe(0);
+      expect(defaultInvoice.amountPaid.equals(200)).toBe(true);
+      expect(defaultInvoice.amountDue.equals(0)).toBe(true);
       expect(defaultInvoice.paidAt).toBeDefined();
     });
 
@@ -166,11 +166,11 @@ describe('RecordPaymentHandler', () => {
       const result = await handler.execute(buildCommand({ amount: 50 }));
 
       expect(result).toBeDefined();
-      expect(result.amount).toBe(50);
+      expect(result.amount.equals(50)).toBe(true);
 
       expect(defaultInvoice.status).toBe(InvoiceStatus.PARTIALLY_PAID);
-      expect(defaultInvoice.amountPaid).toBe(50);
-      expect(defaultInvoice.amountDue).toBe(150);
+      expect(defaultInvoice.amountPaid.equals(50)).toBe(true);
+      expect(defaultInvoice.amountDue.equals(150)).toBe(true);
     });
 
     it('should use invoice currency when payment currency is not specified', async () => {
@@ -210,7 +210,7 @@ describe('RecordPaymentHandler', () => {
 
       expect(result).toBeDefined();
       expect(defaultInvoice.status).toBe(InvoiceStatus.PAID);
-      expect(defaultInvoice.amountDue).toBe(0);
+      expect(defaultInvoice.amountDue.equals(0)).toBe(true);
     });
   });
 
@@ -246,7 +246,7 @@ describe('RecordPaymentHandler', () => {
       ).rejects.toThrow(BadRequestException);
       await expect(
         handler.execute(buildCommand({ amount: 250 })),
-      ).rejects.toThrow('Payment amount 250 exceeds amount due 200');
+      ).rejects.toThrow('Payment amount 250.00 USD exceeds amount due 200.00 USD');
     });
 
     it('should accept payment exactly equal to amount due', async () => {
@@ -257,7 +257,7 @@ describe('RecordPaymentHandler', () => {
     });
 
     it('should reject when amountDue is NaN (invalid invoice data)', async () => {
-      defaultInvoice.amountDue = undefined as any;
+      defaultInvoice.amountDue = new Decimal(Number.NaN);
 
       await expect(
         handler.execute(buildCommand({ amount: 100 })),
@@ -276,59 +276,59 @@ describe('RecordPaymentHandler', () => {
     it('should handle 0.1 + 0.2 correctly (classic floating point trap)', async () => {
       // Invoice: total=0.30, amountPaid=0.10, amountDue=0.20
       Object.assign(defaultInvoice, {
-        total: 0.3,
-        amountPaid: 0.1,
-        amountDue: 0.2,
+        total: new Decimal('0.3'),
+        amountPaid: new Decimal('0.1'),
+        amountDue: new Decimal('0.2'),
       });
 
       await handler.execute(buildCommand({ amount: 0.2 }));
 
       // With raw floating point: 0.1 + 0.2 = 0.30000000000000004
       // With safeAdd: should be exactly 0.3
-      expect(defaultInvoice.amountPaid).toBe(0.3);
-      expect(defaultInvoice.amountDue).toBe(0);
+      expect(defaultInvoice.amountPaid.equals('0.3')).toBe(true);
+      expect(defaultInvoice.amountDue.equals(0)).toBe(true);
       expect(defaultInvoice.status).toBe(InvoiceStatus.PAID);
     });
 
     it('should calculate partial payment math correctly with decimals', async () => {
       Object.assign(defaultInvoice, {
-        total: 99.99,
-        amountPaid: 0,
-        amountDue: 99.99,
+        total: new Decimal('99.99'),
+        amountPaid: new Decimal(0),
+        amountDue: new Decimal('99.99'),
       });
 
       await handler.execute(buildCommand({ amount: 33.33 }));
 
-      expect(defaultInvoice.amountPaid).toBe(33.33);
-      expect(defaultInvoice.amountDue).toBe(66.66);
+      expect(defaultInvoice.amountPaid.equals('33.33')).toBe(true);
+      expect(defaultInvoice.amountDue.equals('66.66')).toBe(true);
       expect(defaultInvoice.status).toBe(InvoiceStatus.PARTIALLY_PAID);
     });
 
     it('should handle tiny remainder as fully paid (epsilon check)', async () => {
       // Simulate scenario where accumulated payments leave a tiny sub-cent remainder
       Object.assign(defaultInvoice, {
-        total: 100,
-        amountPaid: 99.995,
-        amountDue: 0.005,
+        total: new Decimal(100),
+        amountPaid: new Decimal('99.995'),
+        amountDue: new Decimal('0.005'),
       });
 
       // Payment of 0.005 — after safeAdd the remainder should be <= 0.01 → PAID
       await handler.execute(buildCommand({ amount: 0.005 }));
 
       expect(defaultInvoice.status).toBe(InvoiceStatus.PAID);
-      expect(defaultInvoice.amountDue).toBe(0);
+      expect(defaultInvoice.amountDue.equals(0)).toBe(true);
     });
 
     it('should not produce negative amountDue', async () => {
       Object.assign(defaultInvoice, {
-        total: 100,
-        amountPaid: 0,
-        amountDue: 100,
+        total: new Decimal(100),
+        amountPaid: new Decimal(0),
+        amountDue: new Decimal(100),
       });
 
       await handler.execute(buildCommand({ amount: 100 }));
 
-      expect(defaultInvoice.amountDue).toBeGreaterThanOrEqual(0);
+      expect(defaultInvoice.amountDue.isNegative()).toBe(false);
     });
   });
 

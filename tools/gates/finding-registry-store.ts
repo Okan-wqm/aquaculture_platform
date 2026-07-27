@@ -427,6 +427,35 @@ export function orphanMarkdownReservedIds(path: string): string[] {
   );
 }
 
+/**
+ * The sequence numbers already claimed in `domain`.
+ *
+ * ORPHAN-HIGH-457 — the SEQUENCE is the identity, not the full string. The
+ * classifier segment varies with severity (`ORPHAN-MEDIUM-416` and
+ * `ORPHAN-HIGH-416` are the same slot) and `orphanMarkdownReservedIds`
+ * deliberately normalizes the markdown store to `ORPHAN-RESERVED-NNN`,
+ * because a markdown heading records no severity.
+ *
+ * That is why an exact-string collision check is wrong and silently so: it
+ * compares `ORPHAN-MEDIUM-416` against `ORPHAN-RESERVED-416`, finds no match,
+ * and admits an id that already names a live finding. Exported so the
+ * allocator and the explicit-append collision check extract sequences the
+ * same way rather than each writing their own comparison.
+ */
+export function claimedSequences(
+  domain: string,
+  existingIds: readonly string[],
+): Set<number> {
+  const domainPattern = new RegExp(`^${domain}-[A-Z0-9]+-([0-9]{3})$`);
+  const sequences = new Set<number>();
+  for (const id of existingIds) {
+    const match = domainPattern.exec(id);
+    if (!match?.[1]) continue;
+    sequences.add(Number.parseInt(match[1], 10));
+  }
+  return sequences;
+}
+
 export function nextFindingId(
   domain: string,
   severity: FindingSeverity,
@@ -439,13 +468,8 @@ export function nextFindingId(
     throw new TypeError(`Unsupported finding severity: ${severity}`);
   }
 
-  const domainPattern = new RegExp(`^${domain}-[A-Z0-9]+-([0-9]{3})$`);
-  let maximum = 0;
-  for (const id of existingIds) {
-    const match = domainPattern.exec(id);
-    if (!match?.[1]) continue;
-    maximum = Math.max(maximum, Number.parseInt(match[1], 10));
-  }
+  const sequences = claimedSequences(domain, existingIds);
+  const maximum = sequences.size > 0 ? Math.max(...sequences) : 0;
 
   const next = maximum + 1;
   if (next > 999) {

@@ -80,6 +80,9 @@ report's `P0-*` / `NEW-*` labels are the analysis names and these are the tracke
 | `ORPHAN-HIGH-454` | 13-agent audit | HIGH | `git push origin aria-impl-<sha> -f` passed the whole bash perimeter |
 | `ORPHAN-HIGH-455` | 13-agent audit | HIGH | three headline fixes had no callsite coverage, and the test claiming otherwise was a tautology |
 | `ORPHAN-HIGH-456` | 13-agent audit | HIGH | the bounded cycle summary deletes the two keys the publisher reads |
+| `ORPHAN-HIGH-457` | claim re-verification | HIGH | the explicit-append path was blind to the markdown store AND compared full id strings — the retrace's own collision, still reachable |
+| `ORPHAN-MEDIUM-458` | claim re-verification | MEDIUM | a YAML comment satisfied the sandbox-contract invariant, so the real verification step could be deleted unnoticed |
+| `ORPHAN-MEDIUM-459` | claim re-verification | MEDIUM | `apply_resource_limits` had zero production callers; a write-capable agent spawn was bounded by nothing |
 
 Every ID above is listed here on purpose: this document is the `Closes:` target for all of them, and
 a trailer pointing at a file that does not name the finding is traceability theatre. Remaining
@@ -1060,6 +1063,54 @@ backend is installed here; and branch protection or GitHub App scope. Its stated
 **more fixes are untested at the callsite than the three it proved** — it ran the revert experiment
 on five files out of roughly twenty fixes, and the pattern is structural rather than incidental.
 That is recorded as the honest limit of this work, not as a claim of completeness.
+
+## 9j. Re-verifying the 45 unchecked claims (`457`–`459`)
+
+§9f acted on a partial read of the adversarial pass and said plainly that the rest was unverified. It
+has now been checked: nine refute-by-default skeptics over 45 claims, judged against the **current**
+head rather than the one the claims described, with "was true then, fixed since" as its own verdict.
+
+**27 CONFIRMED, 6 ALREADY_FIXED, 6 PARTLY_TRUE, 1 REFUTED.** The original pass had high precision;
+recording that matters as much as the findings, because §9f could not say it at the time.
+
+Three were code defects still live and are fixed here.
+
+**`ORPHAN-HIGH-457` — the retrace's own collision, reachable through the other door.**
+`ORPHAN-HIGH-417` taught the *allocator* to read `orphan-findings.md` alongside the registry and left
+`appendExplicitFinding` reading the registry alone. A verifier drove the exported function directly
+and it **accepted `ORPHAN-MEDIUM-416`** — a live markdown heading — returning 0.
+
+My first fix silently did nothing, and the reason is worth recording: `orphanMarkdownReservedIds`
+normalizes to `ORPHAN-RESERVED-NNN` because a heading carries no severity, and the classifier segment
+varies with severity anyway, so comparing full id strings never matches. **The sequence is the
+identity.** I found this by running my own proof against the real registry instead of a copy, which
+appended a colliding row to the live hash chain; it was the last line, so it was removed and
+`findings:verify` confirms the chain valid at 1074 entries with the tip unchanged. Recorded rather
+than quietly reverted, because a fix attempt that mutates the SSoT is precisely the thing that should
+not be silent.
+
+The fix is structural: one `claimedIdsForDomain` both append paths read, and one `claimedSequences`
+shared by `nextFindingId` and the explicit check — so a third append path inherits every store by
+construction rather than by the author remembering all of them.
+
+**`ORPHAN-MEDIUM-458` — a comment satisfied the sandbox contract.** A verifier deleted the entire
+"Verify the sandbox actually confines" step from `aria-agent-executor.yml` and the contract still
+passed: `_ASSERT_PATTERN` matched raw file text, and a comment forty lines earlier mentions
+`sandbox_backend()`. Comments are now stripped before matching, with a self-check that a
+comment-only workflow fails both patterns and a real command with a trailing comment still counts.
+
+**`ORPHAN-MEDIUM-459` — a perimeter half with no caller.** `ORPHAN-CRITICAL-427`'s title names two
+symbols; only one was wired. `apply_resource_limits` appears in four places — its definition, its
+export, a name-pinning test, and `.claude/agents/aria-implementer.md`, which is prose addressed to
+the process being limited. Now applied at the spawn site, outside the sandbox wrapper so
+`timeout`/`systemd-run` own the whole tree, using the caller's `timeout_seconds` rather than the
+helper's 120-second default, which would kill every real agent run.
+
+**Also confirmed and NOT fixed here, deliberately:** the hard-fail perimeter still has no production
+caller (`ORPHAN-CRITICAL-428`, OPEN, S2); four trailer/body contradictions are `UNFIXABLE_IN_PLACE`
+under the force-push ban and are recorded rather than papered over; and a set of documentation
+inaccuracies in this document and PLAN.md remain open — including §9c naming the wrong advisory set,
+seven surviving bare old-ID references, and two frozen registry rows citing abandoned IDs.
 
 ## 10. Limits of this verification
 

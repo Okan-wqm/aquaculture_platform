@@ -40,6 +40,27 @@ _INSTALL_PATTERN = re.compile(r"apt-get\s+install[^\n]*\b(bubblewrap|firejail)\b
 _ASSERT_PATTERN = re.compile(r"sandbox_backend\s*\(")
 
 
+def executable_yaml(text: str) -> str:
+    """The workflow with comment-only lines removed.
+
+    ORPHAN-MEDIUM-458 — the patterns above were matched against the raw file,
+    so a YAML COMMENT satisfied them. An auditor deleted the entire "Verify
+    the sandbox actually confines" step from `aria-agent-executor.yml` and
+    this contract still passed, because a comment forty lines earlier
+    happened to contain the words `sandbox_backend()`. A gate satisfied by
+    prose about the gate is the failure mode this whole file exists to
+    prevent, one level up.
+
+    Line-level rather than a YAML parse on purpose: an inline `# ...` after a
+    real command is part of a line that IS executable, and dropping the whole
+    line would lose the command. Comment-only lines are the case that
+    produced the bug and the only one this needs to remove.
+    """
+    return "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("#")
+    )
+
+
 def _workflows_invoking(executor: str) -> list[Path]:
     return [
         path for path in sorted(_WORKFLOWS.glob("*.yml"))
@@ -71,12 +92,51 @@ class ExecutorWorkflowSandboxContract(unittest.TestCase):
             f"{sorted(spawners - set(WRITE_CAPABLE_EXECUTORS))}",
         )
 
+    def test_i_sbx_02_is_not_satisfiable_by_a_comment(self) -> None:
+        """ORPHAN-MEDIUM-458 — guards this gate against its own failure mode.
+
+        An auditor deleted the whole "Verify the sandbox actually confines"
+        step from `aria-agent-executor.yml` and this contract still passed:
+        the raw-text match was satisfied by a comment forty lines earlier
+        that happened to mention `sandbox_backend()`. A synthetic workflow
+        whose ONLY mention of each pattern is inside a comment must fail
+        both assertions.
+        """
+        commented_only = (
+            "name: fake\n"
+            "jobs:\n"
+            "  run:\n"
+            "    steps:\n"
+            "      # apt-get install -y bubblewrap\n"
+            "      # asserts sandbox_backend() is not None\n"
+            "      - run: python3 tools/aria-poc/ci_executor.py\n"
+        )
+        code = executable_yaml(commented_only)
+        self.assertIsNone(
+            _INSTALL_PATTERN.search(code),
+            "a commented-out apt-get install still satisfies I-SBX-01",
+        )
+        self.assertIsNone(
+            _ASSERT_PATTERN.search(code),
+            "a comment mentioning sandbox_backend() still satisfies I-SBX-02",
+        )
+        # And the inverse: a real command on the same line as a trailing
+        # comment must still count, or stripping would break the gate it
+        # is meant to strengthen.
+        real = executable_yaml(
+            "      - run: apt-get install -y bubblewrap  # needed for confinement\n"
+        )
+        self.assertIsNotNone(_INSTALL_PATTERN.search(real))
+
     def test_i_sbx_01_and_02_dispatching_workflows_declare_containment(self) -> None:
         checked = 0
         for executor in WRITE_CAPABLE_EXECUTORS:
             for workflow in _workflows_invoking(executor):
                 checked += 1
-                text = workflow.read_text(encoding="utf-8")
+                # ORPHAN-MEDIUM-458 — comments stripped before matching, so
+                # the assertions below read what the runner executes rather
+                # than what the file says about itself.
+                text = executable_yaml(workflow.read_text(encoding="utf-8"))
                 # Deliberately not assertRegex: it embeds the entire workflow in
                 # the failure message, which buries the one sentence a reader
                 # needs. A gate whose failure output is unreadable gets skipped.

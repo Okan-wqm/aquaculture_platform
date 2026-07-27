@@ -311,6 +311,67 @@ class WriteContainmentTests(unittest.TestCase):
 
     _ARGV = ["claude", "-p", "--model", "opus"]
 
+    def test_resource_limits_are_applied_by_the_spawner(self) -> None:
+        """ORPHAN-MEDIUM-459 — the perimeter half that had no caller.
+
+        `apply_resource_limits` shipped with the sandbox work, was exported,
+        was name-pinned by an invariant, and nothing in production called it.
+        The only instruction to run it lived in
+        `.claude/agents/aria-implementer.md` — prose addressed to the process
+        being limited, which is the exact mistake ORPHAN-CRITICAL-427 fixed
+        for containment. A fork bomb or runaway allocation in a
+        write-capable agent was bounded by nothing.
+        """
+        import claude_runtime as cr
+
+        limited = cr._apply_resource_limits(["bwrap", "--", "claude"], timeout_seconds=900)
+        self.assertNotEqual(limited, ["bwrap", "--", "claude"])
+        # Whichever mechanism the host offers, the ORIGINAL argv must survive
+        # intact as the tail — limits wrap, they never replace.
+        self.assertEqual(limited[-3:], ["bwrap", "--", "claude"])
+        self.assertIn(limited[0], {"systemd-run", "timeout"})
+
+    def test_resource_limits_honour_the_callers_timeout(self) -> None:
+        """A 120s default would kill every real agent run.
+
+        `apply_resource_limits` defaults to 120 seconds; an agent invocation
+        is minutes. The spawner must pass its own `timeout_seconds` through,
+        so the limit is the one the caller chose.
+        """
+        import claude_runtime as cr
+
+        limited = cr._apply_resource_limits(["claude"], timeout_seconds=900)
+        self.assertTrue(
+            any("900" in token for token in limited),
+            msg=f"the caller's timeout did not reach the limiter: {limited}",
+        )
+
+    def test_run_claude_exec_applies_limits_after_containment(self) -> None:
+        """Order is load-bearing: `timeout`/`systemd-run` must own the whole
+        tree including bwrap, so the limits go OUTSIDE the sandbox wrapper."""
+        import ast
+
+        source = (
+            _REPO_ROOT / "tools" / "aria-poc" / "claude_runtime.py"
+        ).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        fn = next(
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "run_claude_exec"
+        )
+        called = [
+            node.func.id
+            for node in ast.walk(fn)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        ]
+        self.assertIn("_apply_write_containment", called)
+        self.assertIn("_apply_resource_limits", called)
+        self.assertLess(
+            called.index("_apply_write_containment"),
+            called.index("_apply_resource_limits"),
+            msg="limits must wrap the sandboxed argv, not be wrapped by it",
+        )
+
     def test_read_only_shapes_need_no_containment(self) -> None:
         for permission_mode, skip in ((None, False), ("plan", True), ("default", True)):
             with self.subTest(permission_mode=permission_mode, skip=skip):

@@ -365,6 +365,30 @@ def _apply_write_containment(
         ) from exc
 
 
+def _apply_resource_limits(argv: list[str], *, timeout_seconds: int) -> list[str]:
+    """Bound the spawned agent's memory, CPU, task count and wall clock.
+
+    ORPHAN-MEDIUM-459 — the kernel half of this shipped with the sandbox
+    work and had no production caller; the only instruction to run it was a
+    line in `.claude/agents/aria-implementer.md`, which is prose addressed to
+    the process being limited. `ORPHAN-CRITICAL-427` fixed exactly that
+    mistake for containment and left it standing here.
+
+    Lazy import mirroring `_apply_write_containment`, and it fails the same
+    way: a kernel that cannot be imported means the perimeter cannot be
+    applied, and a write-capable agent must not be spawned unbounded on the
+    strength of an ImportError.
+    """
+    try:
+        from aria_kernel.implementation_safety import apply_resource_limits
+    except ImportError as exc:  # pragma: no cover - kernel always importable here
+        raise ClaudePolicyViolation(
+            f"claude_resource_limits_unavailable: cannot import the limit "
+            f"helper ({exc}); refusing to spawn an unbounded agent"
+        ) from exc
+    return apply_resource_limits(argv, timeout_seconds=timeout_seconds)
+
+
 def run_claude_exec(
     *,
     prompt_text: str,
@@ -396,6 +420,22 @@ def run_claude_exec(
         permission_mode=permission_mode,
         workspace_root=cwd,
     )
+    # ORPHAN-MEDIUM-459 — resource limits, applied by the spawner for the same
+    # reason containment is. `apply_resource_limits` shipped with the sandbox
+    # work, was exported, was name-pinned by a test, and had ZERO production
+    # callers: its only instruction to actually run it lived in
+    # `.claude/agents/aria-implementer.md`, addressed to the process being
+    # limited. A fork bomb or a runaway allocation in a write-capable agent
+    # was bounded by nothing.
+    #
+    # OUTSIDE the sandbox wrapper on purpose: `timeout` and `systemd-run`
+    # must own the whole process tree including bwrap, not run inside it.
+    #
+    # The caller's `timeout_seconds`, not the helper's 120s default — an
+    # agent run is minutes, and a 120s cap would kill every real invocation.
+    # The subprocess timeout below stays 30s looser so the cgroup/`timeout`
+    # limit fires first and its exit status is what the caller sees.
+    argv = _apply_resource_limits(argv, timeout_seconds=timeout_seconds)
     # In an acknowledged sandbox, pass IS_SANDBOX=1 so the CLI permits the full
     # bypass even under root; the non-root runner path needs no env change.
     run_env = os.environ.copy()

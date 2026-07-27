@@ -11367,6 +11367,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/feeding/__tests__/feeding-ledger-stock-correction.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/feeding/__tests__/feeding-summary-response-contract.spec.ts",
       "prettier_managed": true
     },
@@ -55170,10 +55176,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9044,
+  "file_count": 9045,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8863,
-  "managed_file_list_sha256": "594ff53f5fbd8e83c0ec61de9f98523f7213d99fd67dc13049b950eec1ce1313",
+  "managed_count": 8864,
+  "managed_file_list_sha256": "129870abd698e3a68270cb260a5f70c2e2c76a986af47c85232deb5aef8860db",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

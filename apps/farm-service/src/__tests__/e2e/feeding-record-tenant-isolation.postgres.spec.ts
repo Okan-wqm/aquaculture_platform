@@ -50,6 +50,7 @@ import {
 import { CreateFeedingRecordHandler } from '../../feeding/handlers/create-feeding-record.handler';
 import { FeedingLedgerService } from '../../feeding/services/feeding-ledger.service';
 import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
+import { FeedAllocationService } from '../../storage/services/feed-allocation.service';
 import { GetFeedingRecordsHandler } from '../../feeding/query-handlers/get-feeding-records.handler';
 import { GetFeedingSummaryHandler } from '../../feeding/query-handlers/get-feeding-summary.handler';
 import { GetFeedingRecordsQuery } from '../../feeding/queries/get-feeding-records.query';
@@ -194,6 +195,10 @@ describe('Feeding record tenant isolation on real Postgres', () => {
       stockMovementService,
       new FinanceSettingsService(dataSource),
       outboxPublisher,
+      // W2 / FARM-CRITICAL-245: çok-lotlu FEFO tahsis motoru. GERÇEK örnek —
+      // bu spec'in amacı yazımların doğru tenant şemasına düştüğünü kanıtlamak,
+      // ve tahsis motoru artık o yazım yolunun parçası.
+      new FeedAllocationService(),
     );
     createFeedingRecord = new CreateFeedingRecordHandler(
       feedingRecordRepository,

@@ -305,9 +305,16 @@ export class FeedingLedgerService {
          FROM "stock_movements"
         WHERE "tenant_id" = $1
           AND ("idempotency_key" = $2 OR "idempotency_key" LIKE $2 || '-%')
-          AND "movement_type" = 'OUT'
+          AND "movement_type" = $3
         ORDER BY "idempotency_key" ASC`,
-      [tenantId, params.deductionKeyBase],
+      // Hareket tipi PARAMETRE olarak bağlanır, string literal olarak DEĞİL.
+      // Literal hâli ('OUT') kolonun gerçek içeriğiyle ('out' — MovementType.OUT
+      // değeri, varchar(20) kolonuna TypeORM tarafından yazılır) hiç eşleşmiyordu;
+      // sorgu her zaman sıfır satır dönüyor, fonksiyon aşağıdaki erken çıkışa
+      // düşüyor ve düzeltmenin stok ayağı İKİ YÖNDE de sessizce atlanıyordu.
+      // Enum'ı bağlayarak SSoT TypeScript tarafına alınır: harf sapması artık
+      // derleme zamanı bir isim hatası olur, sessiz sıfır-satır değil.
+      [tenantId, params.deductionKeyBase, MovementType.OUT],
     );
 
     if (deductions.length === 0) {

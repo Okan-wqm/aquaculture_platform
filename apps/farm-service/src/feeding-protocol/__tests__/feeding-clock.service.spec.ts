@@ -1,5 +1,5 @@
 /**
- * W5 saat/takvim SSoT pinleri (FARM-LOW-259, ek-d, kullanıcı kararı 3).
+ * W5 saat/takvim SSoT pinleri (FARM-LOW-264, ek-d, kullanıcı kararı 3).
  *
  * Denetimin bulgusu: yemleme motoru üç ayrı "bugün" tanımı taşıyordu — altı
  * cron `Europe/Istanbul` sabitine bağlıydı, plan üretimi `sites.timezone`

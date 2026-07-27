@@ -1,7 +1,7 @@
 /**
  * FeedingCronV2Service — öğün motorunun zamanlanmış işleri (Faz 5 + W5).
  *
- * ## Zamanlama mimarisi (W5 — FARM-LOW-259, kullanıcı kararı 3)
+ * ## Zamanlama mimarisi (W5 — FARM-LOW-264, kullanıcı kararı 3)
  *
  * Gün semantiği taşıyan işler artık SABİT bir zon altında (`Europe/Istanbul`)
  * koşmaz. Tek bir **saatlik UTC tick'i** her tenant için yerel saati
@@ -113,7 +113,7 @@ const RECEIPT_RETENTION_DAYS = 90;
 const ROLLUP_LOOKBACK_DAYS = 35;
 const ROLLUP_BATCH_LIMIT = 500;
 /**
- * Sabah süpürmesinin koşu başına öğün tavanı (FARM-MEDIUM-285). Eski hâl
+ * Sabah süpürmesinin koşu başına öğün tavanı (FARM-MEDIUM-290). Eski hâl
  * tenant'ın TÜM açık öğünlerini belleğe alıp cutoff'u JS'te uyguluyordu;
  * 1000 üniteli bir tenant'ın birikmiş öğünleri tek koşuda heap'e çekiliyordu.
  * Tavan aşıldığında koşu `succeeded` DAMGALANMAZ — bir sonraki saatlik tick
@@ -123,7 +123,7 @@ const SWEEP_BATCH_LIMIT = 1000;
 
 /**
  * Sensör sıcaklığındaki gün-içi sapmanın plan yeniden fiyatlaması eşiği
- * (keşif-7 / FARM-MEDIUM-289 varsayılanı). Protokol `settings
+ * (keşif-7 / FARM-MEDIUM-294 varsayılanı). Protokol `settings
  * .temperatureRecalcThresholdC` ile ezilebilir.
  */
 const DEFAULT_TEMPERATURE_RECALC_THRESHOLD_C = 1.5;
@@ -648,7 +648,7 @@ export class FeedingCronV2Service {
             // İdempotency damgası AYNI tx'te — event yazıldıysa damga da yazıldı.
             await manager.query(
               // tenantId predikatı ZORUNLU: id listesi tenant sorgusundan
-              // gelse de yazım yalnız search_path'e güvenemez (FARM-MEDIUM-287).
+              // gelse de yazım yalnız search_path'e güvenemez (FARM-MEDIUM-292).
               `UPDATE "feeding_meals" SET "windowNotifiedAt" = now()
                 WHERE "tenantId" = $1 AND id = ANY($2)`,
               [tenantId, meals.map((meal) => meal.id)],
@@ -673,7 +673,7 @@ export class FeedingCronV2Service {
 
   /**
    * Sensör sıcaklığı → gün-içi yeniden fiyatlama (W5, keşif-7 /
-   * FARM-MEDIUM-289).
+   * FARM-MEDIUM-294).
    *
    * Sıcaklık zincirinin yalnız MANUEL ucu recalc'a bağlıydı: operatör su
    * kalitesi kaydı girince plan yeniden fiyatlanıyor, ama sensör okuması
@@ -748,7 +748,7 @@ export class FeedingCronV2Service {
       // Tick'in anı (D-B4): süpürme ve özet AYNI instant'ı paylaşır.
       const at = clock.at;
       // "Kaçırılmışlık" tanımı TEK yerde (`isMealOverdue`) — gün özeti de
-      // aynı pencereyi kullanır (FARM-MEDIUM-251).
+      // aynı pencereyi kullanır (FARM-MEDIUM-256).
       const cutoff = new Date(at.getTime() - MEAL_OVERDUE_GRACE_MINUTES * 60_000);
 
       // (a)+(b) adayları kilitsiz okunur; işlem ÜNİTE gruplu ve unitId-artan
@@ -756,7 +756,7 @@ export class FeedingCronV2Service {
       // Batch → TankBatch kilidi, o ünitenin HERHANGİ bir meal yazımından ÖNCE
       // alınır — meal-satırı-önce/kilit-sonra AB-BA penceresi yapısal kapalı.
       //
-      // Cutoff + sayfa tavanı DB TARAFINDA (FARM-MEDIUM-285): tenant'ın tüm
+      // Cutoff + sayfa tavanı DB TARAFINDA (FARM-MEDIUM-290): tenant'ın tüm
       // açık öğünleri belleğe alınmaz.
       const [overdueMissed, overduePartials] = await Promise.all([
         this.loadOverdueMeals(manager, tenantId, FeedingMealStatus.SCHEDULED, cutoff),
@@ -1032,7 +1032,7 @@ export class FeedingCronV2Service {
 
   /**
    * Penceresi geçmiş öğünler — cutoff ve sayfa tavanı DB tarafında
-   * (FARM-MEDIUM-285). Sıralama unitId-artan: süpürme ünite gruplu ve
+   * (FARM-MEDIUM-290). Sıralama unitId-artan: süpürme ünite gruplu ve
    * rollup ile AYNI yönde ilerler (K-1).
    */
   private async loadOverdueMeals(
@@ -1075,7 +1075,7 @@ export class FeedingCronV2Service {
         // (UTC) günüydü ve UTC'nin doğusundaki tenant akşam özetinde YARININ
         // (henüz boş) planlarını, batısındaki DÜNÜN planlarını raporluyordu.
         //
-        // `cancelled` planlar HARİÇ (FARM-MEDIUM-251): tam hasat edilen tankın
+        // `cancelled` planlar HARİÇ (FARM-MEDIUM-256): tam hasat edilen tankın
         // iptal edilmiş planı her akşam "%100 az beslendi" alarmı üretiyordu.
         `SELECT dp.id, dp."unitId", dp."unitCode", dp."planDate", dp.status,
                 dp."plannedTotalKg", dp."unplannedActualKg",
@@ -1092,7 +1092,7 @@ export class FeedingCronV2Service {
       );
       if (rows.length === 0) return;
 
-      // Kaçırılmışlık DAMGADAN değil ZAMANDAN türetilir (FARM-MEDIUM-251):
+      // Kaçırılmışlık DAMGADAN değil ZAMANDAN türetilir (FARM-MEDIUM-256):
       // `missed` damgasını ertesi sabahki süpürme bastığı için akşam özetinde
       // sayaç YAPISAL OLARAK her zaman 0 çıkıyor, operatör "bugün hiç öğün
       // kaçmadı" raporu alıyordu. Süpürme ve özet artık AYNI saf yardımcıyı
@@ -1205,7 +1205,7 @@ export class FeedingCronV2Service {
 
       if (rows.length === 0) return;
 
-      // TOPLU hedef + TOPLU trend (FARM-LOW-286): eskiden batch BAŞINA iki
+      // TOPLU hedef + TOPLU trend (FARM-LOW-291): eskiden batch BAŞINA iki
       // ek round-trip atılıyordu; 400 batch'lik bir tenant süpürmesi 800+
       // sorgu demekti. Okumalar withTenantContext ALS çerçevesi içinde koşar
       // (runInTenantTransaction sarmalar) — repo checkout'ları tenant
@@ -1374,7 +1374,7 @@ export class FeedingCronV2Service {
 
   /**
    * Yemleme işlerinin keşif kümesi — TEK sorgu, İŞİN GERÇEK GİRDİSİNE bağlı
-   * (W5, FARM-MEDIUM-250b).
+   * (W5, FARM-MEDIUM-255).
    *
    * Eski hâl iki ayrı keşfe bölünmüştü ve üretim/süpürme/özet tarafı yalnız
    * `status = 'active'` atamalara bakıyordu. Sonuç: ataması `paused`'a düşmüş

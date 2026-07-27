@@ -46,7 +46,7 @@ interface ProtocolFcrRow {
 
 /**
  * Hedef-FCR zincirinin okuduğu satırların toplu ön-yüklemesi (W5,
- * FARM-LOW-286). Zincirin KENDİSİ değişmez; yalnız satırların nereden
+ * FARM-LOW-291). Zincirin KENDİSİ değişmez; yalnız satırların nereden
  * geldiği değişir — bu yüzden tekil ve toplu yol sapamaz.
  */
 interface TargetFcrPrefetch {
@@ -406,7 +406,7 @@ export class FCRCalculationService {
   }
 
   /**
-   * FCR trend analizi — TOPLU (W5, FARM-LOW-286).
+   * FCR trend analizi — TOPLU (W5, FARM-LOW-291).
    *
    * 18:00 süpürmesi eşiği aşan HER batch için ayrı bir "son 10 ölçüm"
    * sorgusu atıyordu. Pencere fonksiyonu aynı satırları TEK sorguda getirir;
@@ -687,7 +687,7 @@ export class FCRCalculationService {
   }
 
   /**
-   * Hedef FCR — TOPLU (W5, FARM-LOW-286).
+   * Hedef FCR — TOPLU (W5, FARM-LOW-291).
    *
    * 18:00 süpürmesi bunu tenant'ın TÜM aktif batch'leri için tek çağrıda
    * kullanır. Zincir tek yerde kalır: bu metot yalnız zincirin okuduğu

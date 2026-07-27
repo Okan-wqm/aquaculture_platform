@@ -68,7 +68,7 @@ function makeHarness(fixture: SweepFixture) {
   });
 
   /**
-   * W5 (FARM-MEDIUM-285): aday öğünler artık `manager.find` ile TÜMÜ belleğe
+   * W5 (FARM-MEDIUM-290): aday öğünler artık `manager.find` ile TÜMÜ belleğe
    * alınıp JS'te süzülmüyor — cutoff ve sayfa tavanı DB tarafında. Harness bu
    * yüzden QueryBuilder zincirini taklit eder ve `status`/`cutoff`
    * parametrelerini gerçek sorgudan okur.

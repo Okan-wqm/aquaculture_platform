@@ -1,5 +1,5 @@
 /**
- * W5 saatlik tick pinleri (FARM-LOW-259, FARM-MEDIUM-250b).
+ * W5 saatlik tick pinleri (FARM-LOW-264, FARM-MEDIUM-255).
  *
  * Yemleme işleri artık sabit bir zon altında (`Europe/Istanbul`) değil,
  * saatlik bir UTC tick'i altında koşar; tick her tenant için yerel saati

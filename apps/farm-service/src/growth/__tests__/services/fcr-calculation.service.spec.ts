@@ -71,7 +71,7 @@ describe('FCRCalculationService', () => {
   // getTargetFCR v2 zinciri (P-14) ham SQL'i repository.manager.query üzerinden
   // atar — varsayılan boş sonuç: v2 ataması yok, zincir legacy dallara düşer.
   const mockManagerQuery = jest.fn();
-  // W5 (FARM-LOW-286): trend analizi de toplu ham sorguya döndü — pencere
+  // W5 (FARM-LOW-291): trend analizi de toplu ham sorguya döndü — pencere
   // fonksiyonu tek çağrıda son 10 ölçümü batch başına getirir.
   const mockGrowthMeasurementQuery = jest.fn();
   const mockGrowthMeasurementRepository = {

@@ -2,8 +2,8 @@ import { SourceOnlyMigration } from '@aquaculture/backend-common/database';
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
- * CreateFeedingClockInfrastructure (W5 — FARM-LOW-259, FARM-MEDIUM-250b,
- * FARM-MEDIUM-251, FARM-MEDIUM-285)
+ * CreateFeedingClockInfrastructure (W5 — FARM-LOW-264, FARM-MEDIUM-255,
+ * FARM-MEDIUM-256, FARM-MEDIUM-290)
  *
  * Yemleme motorunun zaman semantiği bugüne dek İKİ yerde ve İKİ farklı
  * gerçeklikte tanımlıydı: `@Cron(..., { timeZone: 'Europe/Istanbul' })`

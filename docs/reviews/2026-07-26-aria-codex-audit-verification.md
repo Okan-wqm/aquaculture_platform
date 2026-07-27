@@ -1272,6 +1272,11 @@ drives shell capacity-diagnostic code with a fake `du` binary and reads none of 
 is **causally unreachable from the diff**. Locally it passes 27/27 five times in isolation, and three
 consecutive full `invariants:fast` runs show only the two known `backup-production-secrets` failures.
 
+**Confirmed by the next run.** `invariants-fast` came back **green** on head `87093b042`, whose diff
+touches that spec not at all — so it failed and then passed on identical code. That closes the
+question of flake-versus-regression with evidence rather than with my assertion, which is the
+distinction this whole document is about.
+
 Registered rather than re-run and forgotten. An intermittently red required gate is a reliability
 defect on its own: it trains reviewers to re-run instead of read, which is how a real failure
 eventually gets waved through. Not fixed here — the root cause is a race in deploy capacity tooling,

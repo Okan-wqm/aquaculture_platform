@@ -78,10 +78,14 @@ describe('Invoice Service', () => {
     invoiceRepository = module.get(getRepositoryToken(Invoice));
     subscriptionRepository = module.get(getRepositoryToken(Subscription));
     eventEmitter = module.get(EventEmitter2);
+
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-06-01T12:00:00Z'));
   });
 
   afterEach(() => {
     jest.clearAllMocks();
+    jest.useRealTimers();
   });
 
   // ============================================================================
@@ -501,7 +505,7 @@ describe('Invoice Service', () => {
       const creditMemo = createCreditMemo(originalInvoice, 100, 'Billing error');
 
       expect(creditMemo.isCreditMemo).toBe(true);
-      expect(creditMemo.total).toBe(-100);
+      expect(creditMemo.total?.equals(-100)).toBe(true);
       expect(creditMemo.relatedInvoiceId).toBe('inv-123');
     });
   });

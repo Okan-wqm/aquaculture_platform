@@ -651,13 +651,29 @@ export class ReportsService {
     // invoice contributes its settled part to collected and its remainder to
     // outstanding, which the old paid/pending/overdue-by-full-amount split
     // could not express.
+    // VOID and REFUNDED are both "no longer receivable", but for opposite
+    // reasons, and neither is money the customer still owes. billing-service
+    // zeroes `amountPaid` and restores `amountDue = total` on a full refund
+    // (refund-payment.handler.ts:150-159), so a refunded invoice looks exactly
+    // like an unpaid one by amount alone — counting it as outstanding would
+    // invent a receivable that was deliberately given back.
+    const receivable = (row: PaymentReportRow): boolean =>
+      row.status !== InvoiceStatus.PAID &&
+      row.status !== InvoiceStatus.VOID &&
+      row.status !== InvoiceStatus.REFUNDED;
+
     const overdue = data.filter((row) => row.status === InvoiceStatus.OVERDUE);
-    const outstanding = data.filter(
-      (row) => row.status !== InvoiceStatus.PAID && row.status !== InvoiceStatus.VOID,
-    );
+    const outstanding = data.filter(receivable);
+    const refunded = data.filter((row) => row.status === InvoiceStatus.REFUNDED);
     const collected = data.reduce((sum, row) => sum + (row.amount - row.amountDue), 0);
+
+    // Denominator matches AnalyticsService.getFinancialMetrics, which counts
+    // only `status = 'paid'` as revenue and reports refunds as their own
+    // aggregate. Leaving refunded invoices in the denominator would depress the
+    // collection rate on the report while the dashboard KPI ignored them — the
+    // report-vs-dashboard divergence this whole class is about.
     const billed = data
-      .filter((row) => row.status !== InvoiceStatus.VOID)
+      .filter((row) => row.status !== InvoiceStatus.VOID && row.status !== InvoiceStatus.REFUNDED)
       .reduce((sum, row) => sum + row.amount, 0);
 
     return {
@@ -667,9 +683,11 @@ export class ReportsService {
         totalCollected: round2(collected),
         totalOutstanding: round2(outstanding.reduce((sum, row) => sum + row.amountDue, 0)),
         totalOverdue: round2(overdue.reduce((sum, row) => sum + row.amountDue, 0)),
+        totalRefunded: round2(refunded.reduce((sum, row) => sum + row.amount, 0)),
         paidCount: data.filter((row) => row.status === InvoiceStatus.PAID).length,
         outstandingCount: outstanding.length,
         overdueCount: overdue.length,
+        refundedCount: refunded.length,
         // No invoices in the period is not a 0% collection rate — it is an
         // undefined one. Reporting 0 would read as "we collected nothing".
         collectionRate: billed > 0 ? Math.round((collected / billed) * 100) : null,

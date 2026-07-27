@@ -66,8 +66,8 @@ function invoice(partial: Partial<InvoiceReadOnly> & { invoiceNumber: string }):
 }
 
 /**
- * One paid, one overdue, one partially paid, one void — the exact spread the
- * old tautology could not represent.
+ * One paid, one overdue, one partially paid, one void, one refunded — the exact
+ * spread the old tautology could not represent.
  */
 const INVOICES: InvoiceReadOnly[] = [
   invoice({ invoiceNumber: 'INV-1001', tenantId: TENANT_A, status: InvoiceStatus.PAID, total: 300, amountDue: 0 }),
@@ -88,6 +88,17 @@ const INVOICES: InvoiceReadOnly[] = [
     amountDue: 150,
   }),
   invoice({ invoiceNumber: 'INV-1004', tenantId: TENANT_A, status: InvoiceStatus.VOID, total: 999, amountDue: 999 }),
+  // billing-service zeroes amountPaid and restores amountDue = total on a full
+  // refund (refund-payment.handler.ts:150-159), so by amount alone a refunded
+  // invoice is indistinguishable from an unpaid one.
+  invoice({
+    invoiceNumber: 'INV-1005',
+    tenantId: TENANT_B,
+    status: InvoiceStatus.REFUNDED,
+    total: 400,
+    amountPaid: 0,
+    amountDue: 400,
+  }),
 ];
 
 const TENANTS = [
@@ -190,11 +201,19 @@ describe('payments report integrity (APA-138)', () => {
     const { rows, invoiceFind } = await run(INVOICES);
 
     expect(invoiceFind).toHaveBeenCalledTimes(1);
-    expect(rows.map((r) => r.invoiceId)).toEqual(['INV-1001', 'INV-1002', 'INV-1003', 'INV-1004']);
+    expect(rows.map((r) => r.invoiceId)).toEqual([
+      'INV-1001', 'INV-1002', 'INV-1003', 'INV-1004', 'INV-1005',
+    ]);
 
     // Not every row is 'paid' — the tautology could produce nothing else.
     expect(new Set(rows.map((r) => r.status))).toEqual(
-      new Set([InvoiceStatus.PAID, InvoiceStatus.OVERDUE, InvoiceStatus.PARTIALLY_PAID, InvoiceStatus.VOID]),
+      new Set([
+        InvoiceStatus.PAID,
+        InvoiceStatus.OVERDUE,
+        InvoiceStatus.PARTIALLY_PAID,
+        InvoiceStatus.VOID,
+        InvoiceStatus.REFUNDED,
+      ]),
     );
 
     // Invoice numbers come from billing, not from `INV-${month}-${tenantId8}`.
@@ -206,9 +225,9 @@ describe('payments report integrity (APA-138)', () => {
   it('surfaces outstanding and overdue money instead of a structural zero', async () => {
     const { summary } = await run(INVOICES);
 
-    // Collected = paid portion of every invoice: 300 + 0 + 50 + 0.
+    // Collected = paid portion of every invoice: 300 + 0 + 50 + 0 + 0.
     expect(summary['totalCollected']).toBe(350);
-    // Outstanding excludes PAID and VOID: 500 (overdue) + 150 (partial).
+    // Outstanding excludes PAID, VOID and REFUNDED: 500 (overdue) + 150 (partial).
     expect(summary['totalOutstanding']).toBe(650);
     // Overdue is its own bucket, and is no longer unreachable.
     expect(summary['totalOverdue']).toBe(500);
@@ -217,10 +236,24 @@ describe('payments report integrity (APA-138)', () => {
     expect(summary['paidCount']).toBe(1);
   });
 
+  it('never counts refunded money as an outstanding receivable', async () => {
+    const { summary } = await run(INVOICES);
+
+    // INV-1005 carries amountDue = 400 after its refund. It is money GIVEN
+    // BACK, not money owed; treating it as outstanding invents a receivable.
+    expect(summary['totalOutstanding']).toBe(650);
+    expect(summary['outstandingCount']).toBe(2);
+    // It is reported in its own bucket instead of vanishing.
+    expect(summary['totalRefunded']).toBe(400);
+    expect(summary['refundedCount']).toBe(1);
+  });
+
   it('reports a collection rate below 100% when money is outstanding', async () => {
     const { summary } = await run(INVOICES);
 
-    // Billed excludes VOID: 300 + 500 + 200 = 1000; collected 350 -> 35%.
+    // Billed excludes VOID and REFUNDED — matching getFinancialMetrics, which
+    // counts only status='paid' as revenue and reports refunds separately:
+    // 300 + 500 + 200 = 1000; collected 350 -> 35%.
     expect(summary['collectionRate']).toBe(35);
     expect(summary['collectionRate']).not.toBe(100);
   });

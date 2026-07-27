@@ -154,7 +154,18 @@ class PrNumberParseTests(unittest.TestCase):
         real_run = subprocess.run
         with patch("aria_kernel.pr_manager.subprocess.run") as mock_run:
             def fake_run(argv, **kw):
-                if argv[:2] == ["git", "rev-parse"]:
+                # Defer ALL git, not just rev-parse. This mock exists to stand
+                # in for `gh pr create`; every git call open_pr_for_action
+                # makes must reach the real repo. When only rev-parse was
+                # passed through, the perimeter's `git diff base..head` fell
+                # through to the gh stdout fixture, so
+                # secret_scan_diff_clean scanned a PR URL — or, for the
+                # empty-stdout case, "" — instead of a diff. An empty string
+                # is a VALID CLEAN diff, so the check passed vacuously: green
+                # for the wrong reason, which is the defect class
+                # ORPHAN-CRITICAL-428 exists to remove, reproduced inside the
+                # very tests that cover it.
+                if argv[:1] == ["git"]:
                     return real_run(argv, **kw)
                 return _GhResult(stdout=stdout, returncode=0)
             mock_run.side_effect = fake_run

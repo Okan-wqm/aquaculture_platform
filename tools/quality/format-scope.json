@@ -1137,6 +1137,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/analytics/__tests__/performance-report-integrity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/analytics/__tests__/performance/reports-caching.spec.ts",
       "prettier_managed": true
     },
@@ -55386,10 +55392,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9080,
+  "file_count": 9081,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8899,
-  "managed_file_list_sha256": "495a1505b3aa099d4ef4a9c80d78580464d1eca937a273f4ba7a2249d2bae6ae",
+  "managed_count": 8900,
+  "managed_file_list_sha256": "7882fb426f10b56f51a6063998fba50ad41243b0a41abf0e8074660e44c5caa9",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

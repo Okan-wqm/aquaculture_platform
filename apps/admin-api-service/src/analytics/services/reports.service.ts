@@ -109,13 +109,36 @@ interface FeatureUsageReportRow {
   trend: string;
 }
 
+/**
+ * A per-day system-performance row. Every metric is `number | null` because
+ * "not measured" must be representable: the platform has no APM/uptime feed for
+ * most days, and inventing a constant there is what made this report lie
+ * (APA-143). `null` renders as an empty/n-a cell, never as a plausible number.
+ */
 interface PerformanceReportRow {
   date: string;
-  avgResponseTime: number;
-  errorRate: number;
-  uptime: number;
-  apiCalls: number;
-  activeConnections: number;
+  avgResponseTime: number | null;
+  errorRate: number | null;
+  uptime: number | null;
+  apiCalls: number | null;
+  activeConnections: number | null;
+}
+
+/** Mean of the measured values only; null when nothing was measured. */
+function avgOrNull(values: Array<number | null | undefined>): number | null {
+  const present = values.filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+  return present.length === 0 ? null : present.reduce((s, v) => s + v, 0) / present.length;
+}
+
+/** Sum of the measured values only; null when nothing was measured. */
+function sumOrNull(values: Array<number | null | undefined>): number | null {
+  const present = values.filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+  return present.length === 0 ? null : present.reduce((s, v) => s + v, 0);
+}
+
+/** Round to 2dp, preserving the unmeasured (null) case. */
+function roundOrNull(value: number | null): number | null {
+  return value === null ? null : Math.round(value * 100) / 100;
 }
 
 // ============================================================================
@@ -729,94 +752,71 @@ export class ReportsService {
       }
 
       for (const [dateStr, metricsArr] of groupedByDate) {
-        const avgResponseTime = metricsArr.reduce((s, m) => s + (m.avgResponseTimeMs || 0), 0) / metricsArr.length;
-        const errorRate = metricsArr.reduce((s, m) => s + (m.errorRate || 0), 0) / metricsArr.length;
-        const uptime = metricsArr.reduce((s, m) => s + (m.uptimePercent || 99.9), 0) / metricsArr.length;
-        const apiCalls = metricsArr.reduce((s, m) => s + (m.apiCallsToday || 0), 0);
-        const activeConnections = metricsArr.reduce((s, m) => s + (m.activeConnections || 0), 0) / metricsArr.length;
-
+        // Null-preserving: a day whose snapshots carry no measured value stays
+        // null. The previous `|| 99.9` coalescing silently turned "no uptime
+        // recorded" into "99.9% uptime" (APA-143).
         data.push({
           date: dateStr,
-          avgResponseTime: Math.round(avgResponseTime * 100) / 100,
-          errorRate: Math.round(errorRate * 100) / 100,
-          uptime: Math.round(uptime * 100) / 100,
-          apiCalls: Math.round(apiCalls),
-          activeConnections: Math.round(activeConnections),
+          avgResponseTime: roundOrNull(avgOrNull(metricsArr.map((m) => m.avgResponseTimeMs))),
+          errorRate: roundOrNull(avgOrNull(metricsArr.map((m) => m.errorRate))),
+          uptime: roundOrNull(avgOrNull(metricsArr.map((m) => m.uptimePercent))),
+          apiCalls: sumOrNull(metricsArr.map((m) => m.apiCallsToday)),
+          activeConnections: roundOrNull(avgOrNull(metricsArr.map((m) => m.activeConnections))),
         });
       }
     } else {
-      // No snapshots available: build per-day rows using audit_logs count and current DB stats
-      let activeConnections = 0;
-      try {
-        const connResult: Array<{ count: string }> = await this.dataSource.query(
-          `SELECT COUNT(*) AS count FROM pg_stat_activity WHERE state = 'active'`,
-        );
-        activeConnections = parseInt(connResult[0]?.count || '0', 10);
-      } catch {
-        // ignore
-      }
-
-      // Get audit log counts per day for the date range as a proxy for API calls
-      let auditCountsByDate = new Map<string, number>();
-      try {
-        const auditRows: Array<{ day: string; cnt: string }> = await this.dataSource.query(
-          // Schema-qualified after P9 (2026-04-14): audit_logs lives in
-          // shared schema. Unqualified read would resolve via search_path
-          // (admin, public) — both empty after the move, returning zeros
-          // silently inside the surrounding try/catch. Qualifying is the
-          // architectural fix per docs/adr/011-schema-ownership-model.md.
-          `SELECT DATE("createdAt")::text AS day, COUNT(*) AS cnt
-           FROM shared.audit_logs
-           WHERE "createdAt" >= $1 AND "createdAt" <= $2
-           GROUP BY DATE("createdAt")
-           ORDER BY day ASC`,
-          [startDate.toISOString(), endDate.toISOString()],
-        );
-        auditCountsByDate = new Map(auditRows.map(r => [r.day.substring(0, 10), parseInt(r.cnt, 10)]));
-      } catch {
-        // audit_logs table may not exist
-      }
-
+      // No system snapshots for this range: emit an honest per-day row whose
+      // metrics are all null (APA-143). Absence is represented structurally so
+      // the reader can tell "we did not measure this" from a real measurement.
+      //
+      // Two former fabrications are deliberately gone, not replaced:
+      //  - the 45ms / 0.1% / 99.9% "default estimates", which were invented
+      //    numbers presented as measurements;
+      //  - shared.audit_logs row counts proxied as `apiCalls`. Admin audit rows
+      //    are not API calls; the proxy made an unrelated table's volume look
+      //    like traffic. pg_stat_activity's *current* connection count was
+      //    likewise stamped onto every historical day, which it never described.
       const current = new Date(startDate);
       current.setHours(0, 0, 0, 0);
       const end = new Date(endDate);
       end.setHours(23, 59, 59, 999);
 
       while (current <= end) {
-        const dateStr = current.toISOString().substring(0, 10);
-        const apiCalls = auditCountsByDate.get(dateStr) || 0;
-
         data.push({
-          date: dateStr,
-          avgResponseTime: 45, // Default estimate in ms
-          errorRate: 0.1, // Default low error rate
-          uptime: 99.9, // Default uptime since we don't track downtime
-          apiCalls,
-          activeConnections,
+          date: current.toISOString().substring(0, 10),
+          avgResponseTime: null,
+          errorRate: null,
+          uptime: null,
+          apiCalls: null,
+          activeConnections: null,
         });
 
         current.setDate(current.getDate() + 1);
       }
     }
 
-    // Calculate summary averages
-    const totalDays = data.length || 1;
-    const avgResponseTime = data.reduce((s, d) => s + d.avgResponseTime, 0) / totalDays;
-    const avgErrorRate = data.reduce((s, d) => s + d.errorRate, 0) / totalDays;
-    const avgUptime = data.reduce((s, d) => s + d.uptime, 0) / totalDays;
-    const totalApiCalls = data.reduce((s, d) => s + d.apiCalls, 0);
-    const avgActiveConnections = data.reduce((s, d) => s + d.activeConnections, 0) / totalDays;
+    // Summary aggregates over MEASURED days only. Averaging nulls as zero would
+    // reintroduce the same lie at the summary level (a month with no telemetry
+    // would report a flattering 0ms/0% rather than "unmeasured"). `coverage`
+    // makes the measured fraction explicit so a near-empty report cannot be
+    // read as a healthy one.
+    const totalDays = data.length;
+    const daysWithData = data.filter(
+      (d) => d.uptime !== null || d.avgResponseTime !== null || d.apiCalls !== null,
+    ).length;
 
     return {
       data,
       summary: {
-        avgResponseTime: Math.round(avgResponseTime * 100) / 100,
-        avgErrorRate: Math.round(avgErrorRate * 100) / 100,
-        avgUptime: Math.round(avgUptime * 100) / 100,
-        totalApiCalls,
-        avgDailyApiCalls: Math.round(totalApiCalls / totalDays),
-        avgActiveConnections: Math.round(avgActiveConnections),
+        avgResponseTime: roundOrNull(avgOrNull(data.map((d) => d.avgResponseTime))),
+        avgErrorRate: roundOrNull(avgOrNull(data.map((d) => d.errorRate))),
+        avgUptime: roundOrNull(avgOrNull(data.map((d) => d.uptime))),
+        totalApiCalls: sumOrNull(data.map((d) => d.apiCalls)),
+        avgDailyApiCalls: roundOrNull(avgOrNull(data.map((d) => d.apiCalls))),
+        avgActiveConnections: roundOrNull(avgOrNull(data.map((d) => d.activeConnections))),
         totalDays,
+        daysWithData,
+        coverage: totalDays > 0 ? Math.round((daysWithData / totalDays) * 100) / 100 : 0,
       },
     };
   }

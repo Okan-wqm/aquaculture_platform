@@ -94,7 +94,13 @@ export function scanDeadContracts(repoRoot: string): OperationConst[] {
   return dead;
 }
 
-/** Stable key for baseline set membership. */
-export function deadContractKey(o: OperationConst): string {
+/**
+ * Stable key for baseline set membership.
+ *
+ * Narrowed to the two fields it actually reads so the baseline file's entries
+ * (whose `kind` is a plain string off JSON.parse, not the `OperationKind`
+ * union) fit without a cast on the caller side.
+ */
+export function deadContractKey(o: Pick<OperationConst, 'id' | 'file'>): string {
   return `${o.id}\t${o.file}`;
 }

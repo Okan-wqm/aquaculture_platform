@@ -19,6 +19,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type {
   FeedTypeTransitionedEvent,
+  FeedingWindowReadinessEvent,
   MealMissedEvent,
   MealUnderfedEvent,
   UnfedUnitDetectedEvent,
@@ -194,6 +195,81 @@ export class FeedingExecutionAlertService {
         siteId: event.siteId,
         reason: event.reason,
         fishCount: event.fishCount,
+        triggeredAt,
+      },
+    });
+  }
+
+  /**
+   * Öğün öncesi oksijen doğrulaması (W7 — FARM-MEDIUM-271).
+   *
+   * sensor-service, öğün penceresi açılmadan önce ünitenin çözünmüş oksijenini
+   * protokolün tabanıyla karşılaştırır ve YALNIZ olumsuz verdikt yayar. İki
+   * durum da operatör aksiyonu gerektirir ama farklı ağırlıkta:
+   *   - `low_oxygen`: taze ölçüm tabanın ALTINDA → WARNING. Yemleme düşük
+   *     oksijende balığı strese sokar; protokol zaten bir azaltma yüzdesi
+   *     öneriyor, operatör onu uygulamalı.
+   *   - `no_reading`: ünitenin aktif DO sensörü VAR ama taze ölçümü yok →
+   *     WARNING. Operatörün kurduğu koruma fiilen çalışmıyor; sessiz kalmak
+   *     "koruma var" yanılsamasını sürdürür.
+   * Dedup ünite bazlı: 15 dk'lık tick her pencerede yeniden değerlendirir,
+   * tek açık incident beslenir.
+   */
+  async recordFeedingWindowReadiness(event: FeedingWindowReadinessEvent): Promise<void> {
+    const ruleId = `system:feeding-window-oxygen:${event.unitId}`;
+    const ruleName = 'Pre-Meal Oxygen Guard';
+    const triggeredAt = new Date(event.timestamp);
+    const message =
+      event.status === 'low_oxygen'
+        ? `${event.unitCode} ünitesinde öğün öncesi çözünmüş oksijen ` +
+          `${event.observedDissolvedOxygen ?? '?'} mg/L — protokol tabanı ` +
+          `${event.minDissolvedOxygen} mg/L'nin altında (öğün ${event.scheduledAt})` +
+          (event.lowOxygenReductionPercent !== undefined
+            ? `; protokol %${event.lowOxygenReductionPercent} azaltma öneriyor`
+            : '')
+        : `${event.unitCode} ünitesinin DO sensörü var ama taze ölçümü YOK — ` +
+          `protokolün ${event.minDissolvedOxygen} mg/L oksijen koruması ` +
+          `${event.scheduledAt} öğünü için doğrulanamadı`;
+
+    const history = await this.historyRepository.save(
+      this.historyRepository.create({
+        ruleId,
+        ruleName,
+        tenantId: event.tenantId,
+        severity: AlertSeverity.WARNING,
+        message,
+        triggeringData: {
+          source: 'sensor.feeding.window',
+          status: event.status,
+          unitId: event.unitId,
+          unitCode: event.unitCode,
+          mealId: event.mealId,
+          dayPlanId: event.dayPlanId,
+          scheduledAt: event.scheduledAt,
+          minDissolvedOxygen: event.minDissolvedOxygen,
+          observedDissolvedOxygen: event.observedDissolvedOxygen ?? null,
+          observedAt: event.observedAt ?? null,
+          correlationId: event.correlationId,
+        },
+        triggeredAt,
+      }),
+    );
+
+    await this.farmSignalIncident.ensureIncident({
+      tenantId: event.tenantId,
+      ruleId,
+      title: `${ruleName}: ${event.unitCode}`,
+      description: message,
+      severity: AlertSeverity.WARNING,
+      triggeredAt,
+      signalLabel: 'feeding-window-oxygen',
+      triggerData: {
+        historyId: history.id,
+        unitId: event.unitId,
+        mealId: event.mealId,
+        status: event.status,
+        minDissolvedOxygen: event.minDissolvedOxygen,
+        observedDissolvedOxygen: event.observedDissolvedOxygen ?? null,
         triggeredAt,
       },
     });

@@ -677,6 +677,10 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'migrations',
       'alert_audit_log',
       'alert_outbox',
+      // W7/FARM-MEDIUM-260 — inbound delivery shelf. Cross-tenant by design:
+      // the operator replaying dropped messages needs every tenant's failures
+      // in one query, so this is never cloned into a tenant schema.
+      'event_dlq',
       ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
     ],
     referenceDataTables: [],
@@ -914,6 +918,8 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     infrastructureTables: [
       'migrations',
       'notification_outbox',
+      // W7/FARM-MEDIUM-260 — see the alert module entry for the rationale.
+      'event_dlq',
       ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
     ],
     referenceDataTables: [],

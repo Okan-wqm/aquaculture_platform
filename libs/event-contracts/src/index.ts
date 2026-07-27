@@ -45,6 +45,10 @@ export * from './messaging-event-registry';
 export * from './websocket-envelopes';
 export * from './platform-event-registry';
 export * from './storage-events';
+// W7 / D-B5: "swallow vs rethrow" is a property of the EVENT, not a per-handler
+// comment. Must be exported after farm-events + storage-events (it types the
+// registry over their interfaces).
+export * from './event-delivery-semantics';
 
 // Automation domain events (sensor-service compiler / programming).
 // ORPHAN-EVENT-CONTRACT-015..018 cure.

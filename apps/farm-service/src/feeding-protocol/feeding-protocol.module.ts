@@ -33,6 +33,7 @@ import { DayPlanAdminService } from './services/day-plan-admin.service';
 import { FeedingCronV2Service } from './services/feeding-cron-v2.service';
 import { FeedingClockService } from './services/feeding-clock.service';
 import { FeedingJobRunService } from './services/feeding-job-run.service';
+import { FeedingWindowReadinessListener } from './listeners/feeding-window-readiness.listener';
 import { TenantLocalizationProjectionListener } from './listeners/tenant-localization-projection.listener';
 import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
@@ -97,6 +98,9 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
     FeedingClockService,
     FeedingJobRunService,
     TenantLocalizationProjectionListener,
+    // W7/FARM-MEDIUM-271 — sensor-service'in öğün öncesi oksijen verdiktini
+    // öğüne damgalar; MealBoard rozeti buradan beslenir.
+    FeedingWindowReadinessListener,
     ProtocolFeedForecastService,
     ForecastRefreshListener,
     // Sıcaklık SSoT — cron toplu okuması (stateless, @InjectDataSource).

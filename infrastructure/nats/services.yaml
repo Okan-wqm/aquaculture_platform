@@ -220,6 +220,9 @@ services:
       - 'events.*.EdgeDeviceHeartbeat'
       - 'events.*.EdgeDeviceIoData'
       - 'events.*.EdgeDeviceResponse'
+      # W7/FARM-MEDIUM-271 — pre-meal oxygen readiness verdict; the sensor-side
+      # answer to farm's MealWindowUpcoming (consumed by alert-engine + farm).
+      - 'events.*.FeedingWindowReadiness'
       - 'events.*.IoConfigPushResult'
       - 'events.*.LoRaDeviceEvent'
       - 'events.*.ParentReadingRouted'

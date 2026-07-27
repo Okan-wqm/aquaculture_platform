@@ -1,6 +1,10 @@
 import * as os from 'os';
 
 import { emitBootInvariantSignal } from '@aquaculture/backend-common/constants';
+import {
+  DEAD_LETTER_SINK,
+  type DeadLetterSink,
+} from '@aquaculture/backend-common/events';
 import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 // NATS v3 (@nats-io/* 3.x). v2 monolithic `nats` package split into
 // transport-node (Node connect), nats-core (connection + Msg primitives),
@@ -54,6 +58,7 @@ import {
 } from '../subjects/tenant-event-subject';
 
 import { DEFAULT_NATS_URL, DEFAULT_NATS_STREAM_NAME } from './event-bus-config.factory';
+import { settleFailedMessage } from './message-disposition';
 import type { EventBusModuleOptions } from './nats.module';
 
 export interface CoreNatsConnectionSnapshot {
@@ -140,6 +145,13 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
   private readonly abortControllers = new Map<string, AbortController>();
   private readonly handlers = new Map<string, IEventHandler[]>();
   private readonly subscriptionOptions = new Map<string, SubscriptionOptions | undefined>();
+  /**
+   * `max_deliver` actually configured per subject. Needed because the dead-letter
+   * decision ("this was the LAST attempt") cannot be read off the message —
+   * JetStream simply stops redelivering, silently. Recording the value at
+   * consumer-creation time is the only place it is known for certain.
+   */
+  private readonly maxDeliverBySubject = new Map<string, number>();
   /** Subscriptions requested before JetStream was connected, to be activated on connect. */
   private readonly pendingSubscriptions: Array<{
     subject: string;
@@ -172,6 +184,14 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
   private readonly upcasterRegistry?: EventUpcasterRegistry;
 
   /**
+   * Terminal shelf for messages this service can never process (W7,
+   * FARM-MEDIUM-260). Absent ⇒ the bus keeps NAK-ing until JetStream gives up
+   * and the message is lost — which is exactly why every consumer of a
+   * one-shot signal must register `DeadLetterModule`.
+   */
+  private readonly deadLetterSink?: DeadLetterSink;
+
+  /**
    * IMPORTANT: fail-closed — when true, broker unavailability always prevents
    * module startup regardless of environment.  Production ALWAYS fails closed.
    */
@@ -181,7 +201,13 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     private readonly configService: ConfigService,
     @Inject('EVENT_BUS_OPTIONS') @Optional() moduleOptions?: EventBusModuleOptions,
     @Inject('EVENT_UPCASTER_REGISTRY') @Optional() upcasterRegistry?: EventUpcasterRegistry,
+    // Optional: a service that has not registered DeadLetterModule keeps the
+    // pre-W7 behaviour (NAK until max_deliver, then the broker drops it). Made
+    // optional rather than required so adding the shelf is a per-service
+    // migration, not a platform-wide boot break.
+    @Inject(DEAD_LETTER_SINK) @Optional() deadLetterSink?: DeadLetterSink,
   ) {
+    this.deadLetterSink = deadLetterSink;
     this.upcasterRegistry = upcasterRegistry;
     this.requireBroker = moduleOptions?.required ?? false;
     this.natsUrl = this.configService.get<string>('NATS_URL', DEFAULT_NATS_URL);
@@ -1024,6 +1050,7 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     this.consumers.delete(subject);
     this.handlers.delete(subject);
     this.subscriptionOptions.delete(subject);
+    this.maxDeliverBySubject.delete(subject);
     const pendingIndex = this.pendingSubscriptions.findIndex((entry) => entry.subject === subject);
     if (pendingIndex >= 0) {
       this.pendingSubscriptions.splice(pendingIndex, 1);
@@ -1162,6 +1189,11 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     }
 
     const consumerName = this.generateConsumerName(subject, options?.consumerVersion);
+    const maxDeliver = options?.maxRetries ?? 3;
+    // Record BEFORE the consumer exists: processConsumerMessage must be able to
+    // recognise the final attempt for this subject, and the first message can
+    // arrive as soon as consume() starts.
+    this.maxDeliverBySubject.set(subject, maxDeliver);
 
     try {
       // Create or get a pull-based consumer
@@ -1170,7 +1202,7 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
         deliver_policy: options?.startFrom === 'beginning' ? DeliverPolicy.All : DeliverPolicy.New,
         ack_policy: AckPolicy.Explicit,
         ack_wait: (options?.ackWait ?? 30) * 1000000000, // Convert to nanoseconds
-        max_deliver: options?.maxRetries ?? 3,
+        max_deliver: maxDeliver,
         filter_subject: subject,
       };
 
@@ -1230,45 +1262,83 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
   }
 
   private async processConsumerMessage(subject: string, msg: JsMsg): Promise<void> {
+    // v3: deliveryCount = number of times delivered (v2's deprecated
+    // redeliveryCount alias, same value). It is 1 on the first delivery.
+    const deliveryCount = msg.info?.deliveryCount ?? 0;
+
+    let event: IEvent | undefined;
     try {
       // v3: msg.string() replaces StringCodec.decode(msg.data) — same UTF-8 bytes.
-      const event = this.deserializeEvent(msg.string());
-      const handlers = this.handlers.get(subject) ?? [];
-
-      // SECURITY: Handler failures must NOT be swallowed while the
-      // message is acked. A swallowed handler error permanently loses
-      // the event for that handler. Route failures to retry/DLQ instead.
-      let handlerFailed = false;
-      for (const handler of handlers) {
-        try {
-          await handler.handle(event);
-        } catch (handlerError) {
-          handlerFailed = true;
-          this.logger.error(
-            `Handler error for ${event.eventType} — message will be NAK'd for retry`,
-            handlerError,
-          );
-        }
-      }
-
-      if (handlerFailed) {
-        // v3: deliveryCount replaces v2's deprecated redeliveryCount alias
-        // (identical value) — exponential-backoff math unchanged.
-        const deliveryCount = msg.info?.deliveryCount ?? 0;
-        const backoffMs = Math.min(1000 * Math.pow(2, deliveryCount), 30000);
-        msg.nak(backoffMs);
-      } else {
-        msg.ack();
-      }
+      event = this.deserializeEvent(msg.string());
     } catch (error) {
+      // Undecodable payload: retrying cannot help (the bytes will not change),
+      // but the message is still evidence of a producer defect. Shelve it and
+      // terminate so it stops occupying redelivery slots.
       this.logger.error(`Message processing error on ${subject}`, error);
-      // Exponential backoff on NAK: redelivery delay doubles per attempt.
-      // v3 deliveryCount = number of times delivered (v2's deprecated
-      // redeliveryCount alias, same value) — backoff math unchanged.
-      const deliveryCount = msg.info?.deliveryCount ?? 0;
-      const backoffMs = Math.min(1000 * Math.pow(2, deliveryCount), 30000);
-      msg.nak(backoffMs);
+      await this.retireOrRetry(subject, msg, deliveryCount, errorMessage(error), {
+        eventType: 'unparseable',
+        payload: { raw: msg.string() },
+      });
+      return;
     }
+
+    const handlers = this.handlers.get(subject) ?? [];
+
+    // SECURITY: Handler failures must NOT be swallowed while the message is
+    // acked — a swallowed error permanently loses the event for that handler.
+    // Route failures to retry, and to the dead-letter shelf once retries are
+    // exhausted (W7 / FARM-MEDIUM-260).
+    const handlerErrors: string[] = [];
+    for (const handler of handlers) {
+      try {
+        await handler.handle(event);
+      } catch (handlerError) {
+        handlerErrors.push(`${handler.getEventType()}: ${errorMessage(handlerError)}`);
+        this.logger.error(
+          `Handler error for ${event.eventType} on ${subject}`,
+          handlerError,
+        );
+      }
+    }
+
+    if (handlerErrors.length === 0) {
+      msg.ack();
+      return;
+    }
+
+    await this.retireOrRetry(subject, msg, deliveryCount, handlerErrors.join(' | '), {
+      eventType: event.eventType,
+      eventId: typeof event.eventId === 'string' ? event.eventId : undefined,
+      tenantId: event.tenantId,
+      payload: { ...event },
+    });
+  }
+
+  /**
+   * Hand a failed message to the shared disposition rule (retry vs shelve).
+   * The rule itself lives in `message-disposition.ts` — see that module for
+   * why the shelf write must precede `term()`.
+   */
+  private async retireOrRetry(
+    subject: string,
+    msg: JsMsg,
+    deliveryCount: number,
+    error: string,
+    envelope: {
+      eventType: string;
+      eventId?: string;
+      tenantId?: string;
+      payload: Record<string, unknown>;
+    },
+  ): Promise<void> {
+    await settleFailedMessage({
+      msg,
+      error,
+      envelope: { subject, deliveryCount, error, ...envelope },
+      maxDeliver: this.maxDeliverBySubject.get(subject),
+      sink: this.deadLetterSink,
+      logger: this.logger,
+    });
   }
 
   /**

@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { requiresDurableDelivery } from '@platform/event-contracts';
 import type { MortalityAlertRaisedEvent } from '@platform/event-contracts';
 import { getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common/database';
 import { requestContextStorage, RequestContext } from '@aquaculture/backend-common/logging';
@@ -73,11 +74,17 @@ export class MortalityAlertEventHandler
         await this.mortalityAlertService.recordMortalityAlert(event);
       });
     } catch (error) {
-      // Swallow so NATS does not redeliver a poison message indefinitely.
       this.logger.error(
         `Error creating mortality incident: ${(error as Error).message}`,
         (error as Error).stack,
       );
+      // W7/D-B5: `MortalityAlertRaised` is `one_shot` — the mortality-recorded
+      // listener raises it once, at write time, and no sweep re-raises it.
+      // Swallowing here deletes a welfare event. Rethrow → NAK + backoff →
+      // `alert.event_dlq` once retries are exhausted.
+      if (requiresDurableDelivery(event.eventType)) {
+        throw error;
+      }
     }
   }
 }

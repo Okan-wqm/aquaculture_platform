@@ -51,6 +51,33 @@ registerEnumType(FeedingMealStatus, {
 // JSONB VALUE OBJECTS
 // ============================================================================
 
+/**
+ * Öğün öncesi oksijen doğrulaması (W7 — FARM-MEDIUM-271).
+ *
+ * sensor-service, 15 dk'lık pencere tick'inde ünitenin çözünmüş oksijenini
+ * protokolün `minDissolvedOxygen` tabanıyla karşılaştırır ve YALNIZ olumsuz
+ * verdikti `FeedingWindowReadiness` olarak yayar; farm bunu öğüne damgalar.
+ * Böylece protokoldeki oksijen koruması operatörün öğün kartında GÖRÜNÜR olur
+ * — daha önce alan tele yazılıp hiç okunmuyordu.
+ *
+ * `null` = "bu öğün için olumsuz verdikt gelmedi" (ya oksijen yeterli, ya
+ * ünitenin DO sensörü yok, ya da protokolde taban tanımlı değil). Rozet
+ * yalnız damga varken gösterilir; yokluğu "her şey yolunda" diye SUNULMAZ.
+ */
+export interface MealReadiness {
+  status: 'low_oxygen' | 'no_reading';
+  /** Protokol tabanı (mg/L). */
+  minDissolvedOxygen: number;
+  /** Ölçüm varsa gözlenen değer (mg/L). */
+  observedDissolvedOxygen?: number;
+  /** Ölçümün ISO zamanı. */
+  observedAt?: string;
+  /** Protokolün düşük-oksijende önerdiği azaltma yüzdesi. */
+  lowOxygenReductionPercent?: number;
+  /** Verdiktin üretildiği ISO an — bayat damgayı ayırt etmek için. */
+  evaluatedAt: string;
+}
+
 /** Tek döküm — kümülatif actualKg'nin denetlenebilir parçası. */
 export interface MealPour {
   pourIndex: number;
@@ -166,6 +193,14 @@ export class FeedingMeal {
   /** MealWindowUpcoming bildirimi idempotency damgası. */
   @Column({ type: 'timestamptz', nullable: true })
   windowNotifiedAt?: Date;
+
+  /**
+   * sensor-service'in öğün öncesi oksijen verdikti (W7 — FARM-MEDIUM-271).
+   * Yalnız OLUMSUZ verdiktte dolar; MealBoard rozeti bunu okur.
+   */
+  @Field(() => GraphQLJSON, { nullable: true })
+  @Column({ type: 'jsonb', nullable: true })
+  readiness?: MealReadiness;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })

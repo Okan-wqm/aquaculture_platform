@@ -1158,7 +1158,14 @@ export const mealFedSchema: JSONSchemaType<WireMealFed> = {
     pourKg: NON_NEGATIVE_NUMBER,
     actualKg: NON_NEGATIVE_NUMBER,
     fedAt: ISO_DATE_STRING,
-    feedingMethod: { ...SHORT_CODE, nullable: true },
+    // FARM-MEDIUM-257: üretici artık kayıtlı enum'la tiplenmiş durumda ve
+    // hedef kolon PG ENUM — wire de aynı kümeyle daraltıldı, böylece serbest
+    // metin dönemine ait bir değer sınırdan geçemez.
+    feedingMethod: {
+      type: 'string',
+      enum: ['manual', 'automatic', 'demand', 'broadcast', 'spot'],
+      nullable: true,
+    },
   },
   required: [
     ...BASE_EVENT_REQUIRED,

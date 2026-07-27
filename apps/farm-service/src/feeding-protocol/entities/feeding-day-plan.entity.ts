@@ -295,9 +295,29 @@ export class FeedingDayPlan {
   @Column({ type: 'text', nullable: true })
   skipReason?: string;
 
+  /**
+   * Son {@link RECALC_LOG_MAX_ENTRIES} yeniden hesap girdisi (W8 —
+   * FARM-MEDIUM-286).
+   *
+   * Dizi ÜST SINIRSIZ büyüyordu ve tamamı GraphQL'de açıktı: sıcaklık sapması,
+   * ölüm, hasat, transfer, protokol/atama değişimi ve manuel geçiş hepsi aynı
+   * gün aynı plana yazıyor. Yoğun bir ünitede satır her gün onlarca girdi
+   * biriktirip hem jsonb'yi hem tel yükünü şişiriyordu — ve sınırsız bir
+   * geçmiş operatöre de bir şey anlatmıyor.
+   *
+   * Kırpma budama DEĞİL bilgi kaybıdır, bu yüzden `recalcCount` sayacı TOPLAM
+   * yeniden hesap sayısını korur: UI "son 50'yi gösteriyorsun ama toplam 137
+   * kez hesaplandı" diyebilir. Denetim izinin tamamı zaten outbox/audit
+   * tarafında yaşar.
+   */
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb', default: () => "'[]'" })
   recalcLog!: RecalcLogEntry[];
+
+  /** Planın ömrü boyunca yapılan TOPLAM yeniden hesap (kırpmadan bağımsız). */
+  @Field(() => Int)
+  @Column({ type: 'int', default: 0 })
+  recalcCount!: number;
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })

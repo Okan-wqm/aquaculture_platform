@@ -72,6 +72,7 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   assignProtocolToBatchUnits: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   recordMealFeeding: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   correctMealPour: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  finalizeMeal: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   skipMeal: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   regenerateDayPlan: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   transitionUnitFeed: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],

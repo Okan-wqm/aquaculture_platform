@@ -26,6 +26,7 @@ import {
   EFFECTIVE_UNIT_TEMPERATURES_QUERY,
   FEEDING_DAY_PLANS_QUERY,
   RECORD_MEAL_FEEDING_MUTATION,
+  FINALIZE_MEAL_MUTATION,
   SKIP_MEAL_MUTATION,
   CORRECT_MEAL_POUR_MUTATION,
   PROTOCOL_FEED_FORECAST_QUERY,
@@ -521,7 +522,10 @@ export interface FeedingDayPlanView {
   mealsPlanned: number;
   status: FeedingDayPlanStatus;
   skipReason?: string;
+  /** Son 50 girdi (W8/FARM-MEDIUM-286 — dizi DB düzeyinde kırpılır). */
   recalcLog: RecalcLogEntry[];
+  /** Planın ömrü boyunca TOPLAM yeniden hesap — kırpmadan bağımsız. */
+  recalcCount: number;
   createdAt: string;
   updatedAt: string;
   meals?: FeedingMealView[];
@@ -592,6 +596,26 @@ export function useRecordMealFeeding() {
         { input: { ...params, ...envelope } },
       );
       return data.recordMealFeeding;
+    },
+    onSuccess: () => invalidate(),
+  });
+}
+
+/**
+ * Öğünü döküm eklemeden kapat (W8 — FARM-MEDIUM-269). Sunucu yalnız
+ * PARTIALLY_FED öğünü kabul eder; hiç dökümü olmayan öğünün doğru fiili
+ * `useSkipMeal`'dir.
+ */
+export function useFinalizeMeal() {
+  const invalidate = useDayPlanInvalidation();
+  return useMutation({
+    mutationFn: async (params: { mealId: string }) => {
+      const envelope = await buildCommandEnvelope('finalizeMeal', { mealId: params.mealId });
+      const data = await graphqlClient.request<{ finalizeMeal: MealFeedingResult }>(
+        FINALIZE_MEAL_MUTATION,
+        { input: { ...params, ...envelope } },
+      );
+      return data.finalizeMeal;
     },
     onSuccess: () => invalidate(),
   });

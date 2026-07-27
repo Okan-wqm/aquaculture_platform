@@ -26,6 +26,7 @@ import {
   FcrResolvedSource,
 } from '../entities/feeding-protocol-v2.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import { RECALC_LOG_MAX_ENTRIES } from '../constants';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const UNIT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -68,7 +69,8 @@ const PROTOCOL = mock<FeedingProtocolV2>({
 });
 
 interface HarnessOpts {
-  dayPlan?: FeedingDayPlan | null;
+  /** `null` = plan yok; kısmi nesne makeDayPlan üzerine bindirilir. */
+  dayPlan?: Partial<FeedingDayPlan> | null;
   meals?: FeedingMeal[];
   settledMeals?: FeedingMeal[];
   tankBatch?: Partial<TankBatch> | null;
@@ -134,7 +136,7 @@ function makeMeal(index: number, plannedKg: number, percent: number): FeedingMea
 }
 
 function makeHarness(opts: HarnessOpts = {}) {
-  const dayPlan = opts.dayPlan === undefined ? makeDayPlan() : opts.dayPlan;
+  const dayPlan = opts.dayPlan === null ? null : makeDayPlan(opts.dayPlan ?? {});
   const meals = opts.meals ?? [makeMeal(0, 0.9, 60), makeMeal(1, 0.6, 40)];
   const settled = opts.settledMeals ?? [];
   const tankBatch =
@@ -228,6 +230,33 @@ describe('DayPlanRecalcService.recalcForUnit', () => {
     expect(harness.meals[1]!.plannedKg).toBeCloseTo(0.48);
     expect(harness.dayPlan!.plannedTotalKg).toBeCloseTo(1.2);
     expect(harness.dayPlan!.recalcLog.at(-1)?.reason).toBe('mortality');
+  });
+
+  /**
+   * W8 / FARM-MEDIUM-286 — `recalcLog` ÜST SINIRSIZ büyüyordu ve tamamı
+   * GraphQL'de açıktı. Bir gün planı sıcaklık, ölüm, hasat, transfer, ayıklama,
+   * protokol/atama değişimi ve manuel geçişle yeniden hesaplanabilir; yoğun bir
+   * ünitede satır günde onlarca girdi biriktiriyordu.
+   */
+  it('caps recalcLog at the shared limit while keeping the TOTAL count', async () => {
+    const existing = Array.from({ length: RECALC_LOG_MAX_ENTRIES }, (_, i) => ({
+      at: `2026-07-20T0${i % 10}:00:00.000Z`,
+      reason: 'temperature' as const,
+      remainingPlannedKg: 1,
+      biomassKg: 50,
+    }));
+    const harness = makeHarness({
+      tankBatch: { totalBiomassKg: 40, avgWeightG: 50 },
+      dayPlan: { recalcLog: existing, recalcCount: RECALC_LOG_MAX_ENTRIES },
+    });
+
+    await harness.service.recalcForUnit(harness.manager, TENANT, UNIT, 'mortality');
+
+    expect(harness.dayPlan!.recalcLog).toHaveLength(RECALC_LOG_MAX_ENTRIES);
+    // En YENİ girdi korunur, en eski düşer — kırpma budama değil pencere.
+    expect(harness.dayPlan!.recalcLog.at(-1)?.reason).toBe('mortality');
+    // Kırpma bilgi kaybı yaratmaz: toplam sayaç ilerler.
+    expect(harness.dayPlan!.recalcCount).toBe(RECALC_LOG_MAX_ENTRIES + 1);
   });
 
   it('holds the current band inside the hysteresis buffer (no oscillation)', async () => {

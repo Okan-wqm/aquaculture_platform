@@ -17,6 +17,7 @@ import {
   useFeedingProtocolsV2,
   useProtocolAssignments,
   useRecordMealFeeding,
+  useFinalizeMeal,
   useSkipMeal,
   useCorrectMealPour,
   useRegenerateDayPlan,
@@ -110,6 +111,7 @@ export function MealBoardTab(): React.ReactElement {
   const { t } = useI18n();
   const canRecord = useCanMutate('recordMealFeeding');
   const canSkip = useCanMutate('skipMeal');
+  const canFinalize = useCanMutate('finalizeMeal');
   const canCorrect = useCanMutate('correctMealPour');
   const canRegenerate = useCanMutate('regenerateDayPlan');
 
@@ -123,6 +125,7 @@ export function MealBoardTab(): React.ReactElement {
 
   const recordMeal = useRecordMealFeeding();
   const skipMeal = useSkipMeal();
+  const finalizeMeal = useFinalizeMeal();
   const correctPour = useCorrectMealPour();
   const regenerate = useRegenerateDayPlan();
 
@@ -491,6 +494,25 @@ export function MealBoardTab(): React.ReactElement {
                             className="mr-2 rounded-md bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700"
                           >
                             {t('feedingV2.mealBoard.addPour')}
+                          </button>
+                        )}
+                        {/*
+                          W8/FARM-MEDIUM-269 — balık doyduğunda öğünü döküm
+                          EKLEMEDEN kapat. Öncesinde tek çıkış uydurma bir
+                          0.001 kg dökümdü (sahte yem kaydı + sahte stok
+                          düşümü). Yalnız PARTIALLY_FED'de görünür: hiç dökümü
+                          olmayan öğünün doğru fiili "atla"dır.
+                        */}
+                        {meal.status === 'PARTIALLY_FED' && canFinalize && (
+                          <button
+                            type="button"
+                            disabled={finalizeMeal.isPending}
+                            onClick={() => {
+                              void finalizeMeal.mutateAsync({ mealId: meal.id });
+                            }}
+                            className="mr-2 rounded-md border border-green-600 px-2 py-1 text-xs text-green-700 hover:bg-green-50 disabled:opacity-50"
+                          >
+                            {t('feedingV2.mealBoard.finalizeMeal')}
                           </button>
                         )}
                         {meal.status === 'SCHEDULED' && canSkip && (

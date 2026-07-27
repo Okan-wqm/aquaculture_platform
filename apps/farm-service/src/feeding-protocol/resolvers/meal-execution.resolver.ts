@@ -45,6 +45,7 @@ import { DayPlanAdminService } from '../services/day-plan-admin.service';
 import { DayPlanAdminResultView, MealFeedingResultView } from '../dto/meal-execution.results';
 import {
   CorrectMealPourInput,
+  FinalizeMealInput,
   RecordMealFeedingInput,
   SkipMealInput,
 } from '../dto/meal-execution.inputs';
@@ -208,6 +209,27 @@ export class MealExecutionResolver {
       finalize: input.finalize,
       feedingMethod: input.feedingMethod,
       notes: input.notes,
+      envelope: mobileCommandEnvelopeFromInput(input),
+    });
+  }
+
+  /**
+   * Öğünü döküm eklemeden kapat (W8 — FARM-MEDIUM-269). Operatör "balık doydu"
+   * dediğinde uydurma bir 0.001 kg döküm kaydetmesi gerekmez; kayıtta sahte bir
+   * `feeding_records` satırı ve sahte bir stok düşümü oluşmaz.
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @Mutation(() => MealFeedingResultView)
+  async finalizeMeal(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: CallerClaims,
+    @Args('input') input: FinalizeMealInput,
+  ): Promise<MealFeedingResultView> {
+    return this.mealExecutionService.finalizeMeal({
+      tenantId,
+      userId: user.sub,
+      caller: { sub: user.sub, roles: user.roles, assignedSiteIds: user.assignedSiteIds },
+      mealId: input.mealId,
       envelope: mobileCommandEnvelopeFromInput(input),
     });
   }

@@ -52,7 +52,7 @@ import {
 import { FeedingMeal, FeedingMealStatus, MealPour } from '../entities/feeding-meal.entity';
 import { FeedingDayPlan, FeedingDayPlanStatus } from '../entities/feeding-day-plan.entity';
 import { FeedingProtocolV2 } from '../entities/feeding-protocol-v2.entity';
-import { BiomassGrowthApplierService } from './biomass-growth-applier.service';
+import { BiomassGrowthApplierService, type LockedUnit } from './biomass-growth-applier.service';
 import { DayPlanRecalcService } from './day-plan-recalc.service';
 import { FeedingLedgerService } from '../../feeding/services/feeding-ledger.service';
 import { FeedingMethod, FeedingRecord } from '../../feeding/entities/feeding-record.entity';
@@ -85,7 +85,7 @@ export interface RecordMealFeedingParams {
   pourKg: number;
   /** Operatör "öğün bitti" onayı — varyans + growth + recalc bu adımda. */
   finalize: boolean;
-  feedingMethod?: string;
+  feedingMethod?: FeedingMethod;
   notes?: string;
   envelope?: MobileCommandEnvelope | null;
 }
@@ -245,7 +245,7 @@ export class MealExecutionService {
           actualAmountKg: params.pourKg,
           feedingDate: now,
           feedingTime: `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}`,
-          feedingMethod: (params.feedingMethod as FeedingMethod) ?? FeedingMethod.MANUAL,
+          feedingMethod: params.feedingMethod ?? FeedingMethod.MANUAL,
           fedBy: params.userId,
           mealId: meal.id,
           pourIndex,
@@ -273,76 +273,16 @@ export class MealExecutionService {
       await this.outboxPublisher.enqueue(fedEvent, manager);
 
       // 8) Finalize: varyans + growth (per_meal) + kalan öğünlerin recalc'ı.
-      // `mealPersisted`: per_meal dalında öğün recalc'tan ÖNCE yazılır (M-1);
-      // bayrak çift yazımı önler.
       let mealPersisted = false;
       if (params.finalize) {
-        meal.status = FeedingMealStatus.FED;
-        meal.fedAt = now;
-        meal.fedBy = params.userId;
-        meal.varianceKg = round3(meal.actualKg - Number(meal.plannedKg));
-        meal.variancePercent =
-          Number(meal.plannedKg) > 0
-            ? round3(((meal.actualKg - Number(meal.plannedKg)) / Number(meal.plannedKg)) * 100)
-            : 0;
-
-        const protocol = await manager.findOne(FeedingProtocolV2, {
-          where: { id: dayPlan.protocolId, tenantId: params.tenantId },
+        mealPersisted = await this.finalizeMealWithin(manager, {
+          tenantId: params.tenantId,
+          userId: params.userId,
+          finalizedAt: now,
+          locked,
+          dayPlan,
+          meal,
         });
-
-        // Mod PLANIN kolonundan okunur (FARM-CRITICAL-244): protokolün o anki
-        // ayarına bakmak, ayar değiştiğinde büyümeyi çift saydırıyor ya da
-        // kaybettiriyordu. Eski `protocol?.settings... !== 'daily'` kalıbı
-        // ayrıca FAIL-OPEN'dı: protokol bulunamazsa sessizce per_meal
-        // uyguluyordu.
-        if (dayPlan.growthApplicationMode !== 'daily') {
-          // per_meal: growthKg = actualKg / beklenen FCR (snapshot provenanslı).
-          const expectedFcr = dayPlan.resolution.expectedFcr;
-          const growthKg = expectedFcr > 0 ? meal.actualKg / expectedFcr : 0;
-          await this.growthApplier.applyGrowth(
-            manager,
-            params.tenantId,
-            locked,
-            growthKg,
-            expectedFcr,
-          );
-          // M-1 (FARM-MEDIUM-250): öğün satırı recalc'tan ÖNCE yazılır.
-          // Aksi hâlde recalc `status='scheduled'` filtresiyle BU öğünü de
-          // "kalan" sayıp yeniden fiyatlıyor, ardından bayat entity ile
-          // yapılan save + settleDayPlanStatus recalc'ın `recalcLog` ve
-          // `plannedTotalKg` yazımını geri alıyordu (lost update).
-          // `correctMealPour` bu sırayı zaten doğru uyguluyor.
-          await manager.save(meal);
-          mealPersisted = true;
-          // Kalan öğünler yeni biomass'tan — band geçişi histerezisle burada.
-          await this.recalcService.recalcForUnit(
-            manager,
-            params.tenantId,
-            meal.unitId,
-            'meal_growth',
-          );
-        }
-
-        // P-21: az-atım eşiği (negatif varyans) — finalize'da, öğün kapsamında.
-        const threshold = protocol?.settings.underfeedAlertThresholdPercent ?? 15;
-        if (meal.variancePercent !== null && meal.variancePercent < -threshold) {
-          const underfed: MealUnderfedEvent = {
-            ...createBaseEvent<MealUnderfedEvent>('MealUnderfed', params.tenantId, {
-              aggregateId: meal.id,
-              aggregateType: 'FeedingMeal',
-            }),
-            scope: 'meal',
-            unitId: meal.unitId,
-            unitCode: dayPlan.unitCode,
-            dayPlanId: dayPlan.id,
-            mealId: meal.id,
-            plannedKg: Number(meal.plannedKg),
-            actualKg: meal.actualKg,
-            variancePercent: meal.variancePercent,
-            thresholdPercent: threshold,
-          };
-          await this.outboxPublisher.enqueue(underfed, manager);
-        }
       } else {
         meal.status = FeedingMealStatus.PARTIALLY_FED;
       }
@@ -360,6 +300,214 @@ export class MealExecutionService {
       };
 
       // 10) Receipt complete — commit ile atomik.
+      await this.receiptService.complete(manager, {
+        tableName: RECEIPT_TABLE,
+        receipt,
+        responseType: 'FeedingMeal',
+        responseId: meal.id,
+        responsePayload: result,
+      });
+      return result;
+    });
+  }
+
+  /**
+   * Öğünü kapat — TEK finalize gerçeği (W8, FARM-MEDIUM-269).
+   *
+   * `recordMealFeeding(finalize: true)` ve `finalizeMeal` bu metodu paylaşır:
+   * varyans hesabı, per_meal büyüme, kalan öğün recalc'ı ve az-atım eşiği tek
+   * yerde yaşar. İki kopya olsaydı "kapatma" iki farklı şey yapabilirdi.
+   *
+   * Dönüş: öğün satırının burada YAZILIP yazılmadığı. per_meal dalında satır
+   * recalc'tan ÖNCE yazılmak ZORUNDA (M-1/FARM-MEDIUM-250): aksi hâlde recalc
+   * `status='scheduled'` filtresiyle bu öğünü de "kalan" sayıp yeniden
+   * fiyatlıyor, ardından bayat entity ile yapılan save recalc'ın `recalcLog` +
+   * `plannedTotalKg` yazımını geri alıyor (lost update).
+   */
+  private async finalizeMealWithin(
+    manager: EntityManager,
+    ctx: {
+      tenantId: string;
+      userId: string;
+      finalizedAt: Date;
+      locked: LockedUnit;
+      dayPlan: FeedingDayPlan;
+      meal: FeedingMeal;
+    },
+  ): Promise<boolean> {
+    const { tenantId, userId, finalizedAt, locked, dayPlan, meal } = ctx;
+
+    meal.status = FeedingMealStatus.FED;
+    meal.fedAt = finalizedAt;
+    meal.fedBy = userId;
+    meal.varianceKg = round3(meal.actualKg - Number(meal.plannedKg));
+    meal.variancePercent =
+      Number(meal.plannedKg) > 0
+        ? round3(((meal.actualKg - Number(meal.plannedKg)) / Number(meal.plannedKg)) * 100)
+        : 0;
+
+    const protocol = await manager.findOne(FeedingProtocolV2, {
+      where: { id: dayPlan.protocolId, tenantId },
+    });
+
+    let mealPersisted = false;
+    // Mod PLANIN kolonundan okunur (FARM-CRITICAL-244): protokolün o anki
+    // ayarına bakmak, ayar değiştiğinde büyümeyi çift saydırıyor ya da
+    // kaybettiriyordu. Eski `protocol?.settings... !== 'daily'` kalıbı ayrıca
+    // FAIL-OPEN'dı: protokol bulunamazsa sessizce per_meal uyguluyordu.
+    if (dayPlan.growthApplicationMode !== 'daily') {
+      // per_meal: growthKg = actualKg / beklenen FCR (snapshot provenanslı).
+      const expectedFcr = dayPlan.resolution.expectedFcr;
+      const growthKg = expectedFcr > 0 ? meal.actualKg / expectedFcr : 0;
+      await this.growthApplier.applyGrowth(manager, tenantId, locked, growthKg, expectedFcr);
+      await manager.save(meal);
+      mealPersisted = true;
+      // Kalan öğünler yeni biomass'tan — band geçişi histerezisle burada.
+      await this.recalcService.recalcForUnit(manager, tenantId, meal.unitId, 'meal_growth');
+    }
+
+    // P-21: az-atım eşiği (negatif varyans) — finalize'da, öğün kapsamında.
+    const threshold = protocol?.settings.underfeedAlertThresholdPercent ?? 15;
+    if (meal.variancePercent !== null && meal.variancePercent < -threshold) {
+      const underfed: MealUnderfedEvent = {
+        ...createBaseEvent<MealUnderfedEvent>('MealUnderfed', tenantId, {
+          aggregateId: meal.id,
+          aggregateType: 'FeedingMeal',
+        }),
+        scope: 'meal',
+        unitId: meal.unitId,
+        unitCode: dayPlan.unitCode,
+        dayPlanId: dayPlan.id,
+        mealId: meal.id,
+        plannedKg: Number(meal.plannedKg),
+        actualKg: meal.actualKg,
+        variancePercent: meal.variancePercent,
+        thresholdPercent: threshold,
+      };
+      await this.outboxPublisher.enqueue(underfed, manager);
+    }
+
+    return mealPersisted;
+  }
+
+  /**
+   * Kısmi beslenen öğünü DÖKÜM EKLEMEDEN kapat (W8 — FARM-MEDIUM-269).
+   *
+   * Balık doyduğunda operatörün yapması gereken şey "öğün bitti" demektir, kg
+   * eklemek değil. `recordMealFeeding` ise `pourKg >= MIN_FEED_KG` istiyor, bu
+   * yüzden PARTIALLY_FED bir öğünü kapatmanın TEK yolu uydurma bir 0.001 kg
+   * döküm kaydetmekti: sahte bir `feeding_records` satırı, sahte bir stok
+   * düşümü ve `Batch.totalFeedConsumed`'a giren sahte bir gram. Operatör
+   * dürüst davranmaya çalışırken kayıt bozuluyordu.
+   *
+   * Aynı kanonik kilit sırasını ve aynı site-yetki kapısını kullanır; farkı
+   * yalnızca döküm/ledger adımının OLMAMASI. Sadece PARTIALLY_FED kabul eder:
+   * hiç dökümü olmayan bir öğünü "beslendi" diye kapatmak 0 kg'lık bir yalan
+   * olurdu — o öğünün doğru fiili `skipMeal`'dir.
+   */
+  async finalizeMeal(params: {
+    tenantId: string;
+    userId: string;
+    caller: MealCaller;
+    mealId: string;
+    envelope: MobileCommandEnvelope;
+  }): Promise<MealFeedingResult> {
+    // FARM-MEDIUM-288 — bkz. recordMealFeeding.
+    return withUnitLockRetry(() => this.finalizeMealOnce(params));
+  }
+
+  private async finalizeMealOnce(params: {
+    tenantId: string;
+    userId: string;
+    caller: MealCaller;
+    mealId: string;
+    envelope: MobileCommandEnvelope;
+  }): Promise<MealFeedingResult> {
+    return runInTenantTransaction(this.dataSource, 'farm', params.tenantId, async (queryRunner) => {
+      const manager = queryRunner.manager;
+
+      const receipt = await this.receiptService.begin(manager, {
+        tableName: RECEIPT_TABLE,
+        tenantId: params.tenantId,
+        envelope: params.envelope,
+        operationType: 'finalizeMeal',
+        responseType: 'FeedingMeal',
+      });
+      if (receipt.mode === 'replay') {
+        return this.replayResult(receipt.responsePayload);
+      }
+      if (receipt.mode === 'legacy') {
+        throw new BadRequestException(
+          'finalizeMeal requires the mobile idempotency envelope (clientCommandId + payloadHash)',
+        );
+      }
+
+      const preview = await manager.findOne(FeedingMeal, {
+        where: { id: params.mealId, tenantId: params.tenantId },
+      });
+      if (!preview) throw new NotFoundException(`Öğün bulunamadı: ${params.mealId}`);
+
+      // Kanonik kilit sırası: Batch(asc) → TankBatch → DayPlan → Meal.
+      const locked = await this.growthApplier.lockUnitForGrowth(
+        manager,
+        params.tenantId,
+        preview.unitId,
+      );
+      if (!locked) {
+        throw new ConflictException(`Ünitede stok kaydı yok: ${preview.unitId}`);
+      }
+      for (const batch of locked.batches.values()) {
+        this.batchDomainService.assertFeedable(batch);
+      }
+
+      const dayPlan = await manager.findOne(FeedingDayPlan, {
+        where: { id: preview.dayPlanId, tenantId: params.tenantId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!dayPlan) throw new NotFoundException(`Gün planı bulunamadı: ${preview.dayPlanId}`);
+      const meal = await manager.findOne(FeedingMeal, {
+        where: { id: params.mealId, tenantId: params.tenantId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!meal) throw new NotFoundException(`Öğün bulunamadı: ${params.mealId}`);
+      if (meal.status !== FeedingMealStatus.PARTIALLY_FED) {
+        throw new ConflictException(
+          `Öğün '${meal.status}' durumunda — yalnız partially_fed öğün döküm eklemeden ` +
+            'kapatılabilir (hiç dökümü olmayan öğün için skipMeal kullanın)',
+        );
+      }
+
+      // SEC-HIGH-051: site yetkisi yazma tx'i İÇİNDE, fail-closed.
+      const siteId = await resolveTankSiteId(manager, meal.unitId, params.tenantId);
+      this.siteAuth.assertSiteAssignment({
+        caller: {
+          sub: params.caller.sub,
+          roles: params.caller.roles,
+          assignedSiteIds: params.caller.assignedSiteIds,
+        },
+        siteId,
+      });
+
+      const mealPersisted = await this.finalizeMealWithin(manager, {
+        tenantId: params.tenantId,
+        userId: params.userId,
+        finalizedAt: new Date(),
+        locked,
+        dayPlan,
+        meal,
+      });
+      if (!mealPersisted) await manager.save(meal);
+
+      await this.settleDayPlanStatus(manager, params.tenantId, dayPlan);
+
+      const result: MealFeedingResult = {
+        id: meal.id,
+        status: meal.status,
+        actualKg: meal.actualKg,
+        varianceKg: meal.varianceKg ?? null,
+        variancePercent: meal.variancePercent ?? null,
+      };
+
       await this.receiptService.complete(manager, {
         tableName: RECEIPT_TABLE,
         receipt,

@@ -274,6 +274,8 @@ export const en = {
   'feedingV2.mealBoard.highWeightCvTitle':
     'Weight variation between batches is high — the shared feed band may not fit every batch',
   // W7/FARM-MEDIUM-271 — pre-meal oxygen verdict (sensor-service).
+  // W8/FARM-MEDIUM-269 — close a partially-fed meal without a pour.
+  'feedingV2.mealBoard.finalizeMeal': 'Finish meal',
   'feedingV2.mealBoard.lowOxygen': 'Low O₂',
   'feedingV2.mealBoard.lowOxygenTitle':
     'Pre-meal dissolved oxygen {{observed}} mg/L — below the protocol floor of {{min}} mg/L',

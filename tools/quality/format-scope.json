@@ -7252,6 +7252,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/__tests__/e2e/feed-allocation.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/feeding-record-tenant-isolation.postgres.spec.ts",
       "prettier_managed": true
     },
@@ -55176,10 +55182,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9045,
+  "file_count": 9046,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8864,
-  "managed_file_list_sha256": "b947d5e9c6cd263779acc7c508813f4780faab8b328292aca30199eb27c744d7",
+  "managed_count": 8865,
+  "managed_file_list_sha256": "d1095fbb4f1b68136560695b60fafbdf69eeea3ce3b4532fe45c3f1409fde4ae",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

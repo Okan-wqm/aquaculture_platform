@@ -31,6 +31,7 @@ import {
   ScheduledPlanChange,
   ScheduledChangeStatus,
 } from '../../billing/entities/scheduled-plan-change.entity';
+import Decimal from 'decimal.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -81,10 +82,10 @@ function buildInvoice(overrides: Partial<Invoice> = {}): Invoice {
     invoiceNumber: 'INV-202603-T001',
     subscriptionId: 'sub-001',
     status: InvoiceStatus.SENT,
-    total: 199,
-    subtotal: 199,
-    amountPaid: 0,
-    amountDue: 199,
+    total: new Decimal(199),
+    subtotal: new Decimal(199),
+    amountPaid: new Decimal(0),
+    amountDue: new Decimal(199),
     currency: 'USD',
     issueDate: new Date('2026-02-01'),
     dueDate: new Date('2026-03-01'),
@@ -479,8 +480,8 @@ describe('BillingSchedulerService', () => {
       expect(createdInvoice.tenantId).toBe('tenant-001');
       expect(createdInvoice.subscriptionId).toBe('sub-001');
       expect(createdInvoice.status).toBe(InvoiceStatus.PENDING);
-      expect(createdInvoice.total).toBe(199);
-      expect(createdInvoice.amountDue).toBe(199);
+      expect(createdInvoice.total.equals(199)).toBe(true);
+      expect(createdInvoice.amountDue.equals(199)).toBe(true);
       expect(createdInvoice.currency).toBe('USD');
     });
 
@@ -530,7 +531,7 @@ describe('BillingSchedulerService', () => {
       await service.generateMonthlyInvoices();
 
       const createdInvoice = (invRepo.create as jest.Mock).mock.calls[0][0];
-      expect(createdInvoice.total).toBe(300); // 100 * 3
+      expect(createdInvoice.total.equals(300)).toBe(true); // 100 * 3
     });
 
     it('should generate invoice number with INV- prefix', async () => {
@@ -712,11 +713,11 @@ describe('BillingSchedulerService', () => {
   });
 
   // ==========================================================================
-  // CURRENCY ROUNDING
+  // DECIMAL PRECISION
   // ==========================================================================
 
-  describe('Currency rounding', () => {
-    it('should round invoice totals to 2 decimal places', async () => {
+  describe('Decimal precision', () => {
+    it('should preserve exact precision until a currency boundary requires rounding', async () => {
       const activeSub = buildSubscription({
         status: SubscriptionStatus.ACTIVE,
         currentPeriodEnd: PAST,
@@ -728,9 +729,9 @@ describe('BillingSchedulerService', () => {
       await service.generateMonthlyInvoices();
 
       const createdInvoice = (invRepo.create as jest.Mock).mock.calls[0][0];
-      expect(createdInvoice.total).toBe(33.33);
-      expect(createdInvoice.subtotal).toBe(33.33);
-      expect(createdInvoice.amountDue).toBe(33.33);
+      expect(createdInvoice.total.equals('33.333')).toBe(true);
+      expect(createdInvoice.subtotal.equals('33.333')).toBe(true);
+      expect(createdInvoice.amountDue.equals('33.333')).toBe(true);
     });
   });
 

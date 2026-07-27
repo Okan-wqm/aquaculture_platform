@@ -767,30 +767,91 @@ def wrap_bash_in_sandbox(
     )
 
 
+class ResourceLimitsUnavailable(RuntimeError):
+    """No usable limiter, so memory/CPU/task/wall-clock caps cannot apply.
+
+    ORPHAN-HIGH-470 — raised instead of returning the argv unchanged. The
+    bare-list return was indistinguishable from a limited one, which is the
+    same defect SandboxUnavailable was created to close for containment.
+    """
+
+
+def _systemd_run_probe_argv() -> list[str]:
+    # The probe carries the SAME property set the wrapper applies, because a
+    # host can accept `systemd-run` and reject an individual property; a probe
+    # that omitted them would prove less than it appears to.
+    return [
+        "systemd-run", "--user", "--scope", "--quiet",
+        "--property=MemoryMax=2G",
+        "--property=CPUQuota=200%",
+        "--property=TasksMax=50",
+        "--property=RuntimeMaxSec=15",
+        "/bin/true",
+    ]
+
+
+@lru_cache(maxsize=1)
+def _systemd_run_available() -> bool:
+    """ORPHAN-HIGH-470 — installed is not enough, exactly as for bwrap.
+
+    `shutil.which("systemd-run")` was the entire selection test. On any host
+    without a user session bus — every container this runs in — the binary is
+    present at /usr/bin/systemd-run and every invocation fails with
+    "Failed to connect to bus: No medium found". Because the check passed, the
+    working `timeout` branch below was unreachable, so the wrapper contributed
+    a guaranteed spawn failure where it was supposed to contribute limits.
+    """
+    if shutil.which("systemd-run") is None:
+        return False
+    return _sandbox_probe_succeeds(_systemd_run_probe_argv())
+
+
 def apply_resource_limits(argv: list[str], *, timeout_seconds: int = 120) -> list[str]:
     """Hard-fail check ancillary — per-command resource limits.
 
-    Wraps argv in ``systemd-run --user --scope`` with cgroup limits
-    when available; otherwise prefixes ``timeout <seconds>``.
+    Wraps argv in ``systemd-run --user --scope`` with cgroup limits when that
+    actually works on this host; otherwise prefixes ``timeout <seconds>``.
+    Raises :class:`ResourceLimitsUnavailable` when neither is usable.
 
     Limits:
       * MemoryMax=2G
       * CPUQuota=200% (2 cores worth)
       * TasksMax=50 (fork-bomb mitigation)
-      * Timeout per invocation
+      * RuntimeMaxSec=<timeout_seconds> — wall clock
+
+    ORPHAN-HIGH-470 fixed three defects here:
+
+    1. Selection was presence-based (see :func:`_systemd_run_available`).
+    2. The wall-clock cap was ``TimeoutStopSec``, which bounds how long
+       systemd waits for a unit to die AFTER it has been asked to stop. It
+       places no bound on how long the unit may run, so the one limit the
+       caller passes a value for was the one not being applied.
+       ``RuntimeMaxSec`` is the property that bounds runtime.
+    3. The no-limiter tail returned argv unchanged, spawning unbounded — while
+       the caller's own docstring says a write-capable agent must not be
+       spawned unbounded on the strength of a missing perimeter.
     """
-    if shutil.which("systemd-run") is not None:
+    if _systemd_run_available():
         return [
             "systemd-run",
             "--user", "--scope", "--quiet",
             "--property=MemoryMax=2G",
             "--property=CPUQuota=200%",
             "--property=TasksMax=50",
-            f"--property=TimeoutStopSec={timeout_seconds}",
+            f"--property=RuntimeMaxSec={timeout_seconds}",
         ] + list(argv)
     if shutil.which("timeout") is not None:
+        # Wall clock only — no memory/CPU/task ceiling. Weaker than the cgroup
+        # path and deliberately still accepted: an unbounded-runtime agent is
+        # the failure actually observed, and refusing every container host
+        # would take the whole lane down to gain limits it cannot provide.
         return ["timeout", str(timeout_seconds)] + list(argv)
-    return list(argv)
+    raise ResourceLimitsUnavailable(
+        "resource_limits_unavailable: neither systemd-run (working user "
+        "session bus) nor timeout is usable on this host, so memory, CPU, "
+        "task-count and wall-clock caps cannot be applied; refusing to spawn "
+        "an unbounded agent"
+    )
 
 
 def truncate_validation_result(text: str | bytes, *, max_bytes: int = MAX_VALIDATION_RESULT_BYTES) -> str:
@@ -1529,6 +1590,7 @@ __all__ = (
     "SandboxUnavailable",
     "sandbox_backend",
     "wrap_bash_in_sandbox",
+    "ResourceLimitsUnavailable",
     "apply_resource_limits",
     "truncate_validation_result",
     # registry

@@ -12,6 +12,7 @@ import dataclasses
 import re
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 from unittest import mock
 
@@ -872,6 +873,10 @@ class TestV9PublicApi(unittest.TestCase):
             # returning bare argv, and sandbox_backend lets a caller fail
             # closed before it builds a command.
             "SandboxUnavailable", "sandbox_backend",
+            # ORPHAN-HIGH-470 — the limiter contract is typed for the same
+            # reason: apply_resource_limits RAISES rather than handing back
+            # bare argv when no limiter is usable.
+            "ResourceLimitsUnavailable",
             # ORPHAN-CRITICAL-428 — the perimeter is two gates, so the
             # stage names and the runner filter are public contract.
             "GATE_PRE_PR_OPEN", "GATE_PRE_MERGE", "HARD_FAIL_GATES",
@@ -889,3 +894,76 @@ class TestV9PublicApi(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResourceLimitSelectionTests(unittest.TestCase):
+    """ORPHAN-HIGH-470 — limits are selected on capability, not presence.
+
+    `apply_resource_limits` chose systemd-run whenever `shutil.which` found
+    the binary. On any host without a user session bus — every container this
+    runs in — /usr/bin/systemd-run exists and every invocation fails with
+    "Failed to connect to bus: No medium found", so the wrapper contributed a
+    guaranteed spawn failure instead of limits, and the working `timeout`
+    branch below it was unreachable.
+    """
+
+    def test_a_present_but_broken_systemd_run_falls_through_to_timeout(self) -> None:
+        from aria_kernel import implementation_safety as impl
+
+        impl._systemd_run_available.cache_clear()
+        try:
+            with unittest.mock.patch.object(
+                impl.shutil, "which", side_effect=lambda name: f"/usr/bin/{name}"
+            ), unittest.mock.patch.object(
+                impl, "_sandbox_probe_succeeds", return_value=False
+            ):
+                argv = impl.apply_resource_limits(["claude"], timeout_seconds=1800)
+            self.assertEqual(argv[:2], ["timeout", "1800"])
+        finally:
+            impl._systemd_run_available.cache_clear()
+
+    def test_a_working_systemd_run_bounds_wall_clock_with_runtimemaxsec(self) -> None:
+        """TimeoutStopSec bounds how long systemd waits for a unit to die
+        AFTER asking it to stop; it places no bound on how long the unit may
+        run. The one limit the caller passes a value for was the one not
+        being applied."""
+        from aria_kernel import implementation_safety as impl
+
+        impl._systemd_run_available.cache_clear()
+        try:
+            with unittest.mock.patch.object(
+                impl.shutil, "which", side_effect=lambda name: f"/usr/bin/{name}"
+            ), unittest.mock.patch.object(
+                impl, "_sandbox_probe_succeeds", return_value=True
+            ):
+                argv = impl.apply_resource_limits(["claude"], timeout_seconds=1800)
+            self.assertEqual(argv[0], "systemd-run")
+            self.assertIn("--property=RuntimeMaxSec=1800", argv)
+            self.assertNotIn(
+                "--property=TimeoutStopSec=1800", argv,
+                "TimeoutStopSec does not bound runtime",
+            )
+        finally:
+            impl._systemd_run_available.cache_clear()
+
+    def test_the_probe_carries_the_properties_the_wrapper_applies(self) -> None:
+        """A host can accept systemd-run and reject an individual property, so
+        a probe that omitted them would prove less than it appears to."""
+        from aria_kernel import implementation_safety as impl
+
+        probe = impl._systemd_run_probe_argv()
+        for prop in ("MemoryMax=2G", "CPUQuota=200%", "TasksMax=50"):
+            self.assertIn(f"--property={prop}", probe)
+        self.assertTrue(any(p.startswith("--property=RuntimeMaxSec=") for p in probe))
+
+    def test_no_usable_limiter_refuses_instead_of_spawning_unbounded(self) -> None:
+        from aria_kernel import implementation_safety as impl
+
+        impl._systemd_run_available.cache_clear()
+        try:
+            with unittest.mock.patch.object(impl.shutil, "which", return_value=None):
+                with self.assertRaises(impl.ResourceLimitsUnavailable) as ctx:
+                    impl.apply_resource_limits(["claude"], timeout_seconds=1800)
+            self.assertIn("resource_limits_unavailable", str(ctx.exception))
+        finally:
+            impl._systemd_run_available.cache_clear()

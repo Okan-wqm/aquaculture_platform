@@ -264,6 +264,33 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   // concurrent development. The branch finding was renumbered to ORPHAN-HIGH-382
   // on merge; the pushed commit's trailer cannot be amended (force-push ban).
   '5334a47a', // feat(lora): sandboxed wasm custom payload decoders (Phase 3)
+  // ORPHAN-MEDIUM-464 — added by OPERATOR DECISION, not by the author's own
+  // judgement, and recorded that way on purpose.
+  //
+  // `9fb8efce` is a `fix(gates):` commit with no `Closes:` trailer. The
+  // finding it should have cited is real and registered — ORPHAN-HIGH-417,
+  // whose gate self-test wiring that commit restores — so this is a missing
+  // reference, not a missing finding.
+  //
+  // Why it cannot be repaired instead of allowlisted: `closes-footer-check`
+  // validates the whole PR range, so no follow-up commit can satisfy it, and
+  // amending a pushed commit needs a force-push, which CLAUDE.md forbids
+  // outright. That is the identical situation every annotated entry above
+  // describes.
+  //
+  // Why the author did not add this alone: the set is documented as frozen,
+  // and growing a governance allowlist to unblock one's own branch is
+  // self-authorisation — the exact defect class the branch this unblocks was
+  // written to close. It was put to the operator with both routes and their
+  // costs, and this is the route chosen.
+  //
+  // The ROOT CAUSE is separately fixed. ORPHAN-HIGH-441: the commit-msg hook
+  // that would have caught this bound for nobody, because its only install
+  // path was husky's `prepare`, which never runs under the `npm ci
+  // --ignore-scripts` this repo mandates. `npm run hooks:install` and
+  // `tests/invariants/git-hook-binding.spec.ts` close that, so the next
+  // missing trailer is refused at write time rather than discovered here.
+  '9fb8efce', // fix(gates): restore the orphaned npm script and make the seam checkable
 ]);
 
 interface Commit {

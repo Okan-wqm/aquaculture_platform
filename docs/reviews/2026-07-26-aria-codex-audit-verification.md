@@ -87,6 +87,7 @@ report's `P0-*` / `NEW-*` labels are the analysis names and these are the tracke
 | `ORPHAN-CRITICAL-461` | fresh coverage lens | CRITICAL | broader-scope claims, globs, empty surface lists, an echoed test suite, and every gh-api route that writes `main` all passed |
 | `ORPHAN-HIGH-462` | fresh coverage lens | HIGH | a specialist submitting garbage was recorded as a clean review, so hardening two sides of the gate made garbage better than silence |
 | `ORPHAN-MEDIUM-463` | observed in CI | MEDIUM | `deploy-ssot-contract`'s hostile-filename test is flaky under parallel workers, in a required check |
+| `ORPHAN-MEDIUM-464` | operator decision | MEDIUM | one pushed commit's missing trailer required an allowlist exception the author would not grant himself |
 
 Every ID above is listed here on purpose: this document is the `Closes:` target for all of them, and
 a trailer pointing at a file that does not name the finding is traceability theatre. Remaining
@@ -1282,6 +1283,30 @@ defect on its own: it trains reviewers to re-run instead of read, which is how a
 eventually gets waved through. Not fixed here — the root cause is a race in deploy capacity tooling,
 a different domain from this branch, and guessing at a timing fix without reproducing it is how the
 next finding gets created.
+
+### `ORPHAN-MEDIUM-464` — the exception, and who granted it
+
+`9fb8efce` is a `fix(gates):` commit with no `Closes:` trailer. The finding it should have cited is
+real and registered — `ORPHAN-HIGH-417`, whose gate self-test wiring that commit restores — so this
+is a missing *reference*, not a missing finding.
+
+It cannot be repaired: `closes-footer-check` validates the whole PR range, so no follow-up commit
+satisfies it, and amending a pushed commit needs a force-push that `CLAUDE.md` forbids outright. That
+is the identical situation every annotated entry already in `PRE_PHASE6_SHAS` describes.
+
+**I did not add the entry on my own, and that is the substantive part.** The set is documented as
+frozen, and growing a governance allowlist to unblock one's own branch is self-authorisation — the
+defect class this branch exists to close. Both routes were put to the operator with their costs (an
+allowlist entry that bends a stated rule, or a third retrace that costs the PR and its review
+history), and the allowlist was the route chosen. It is registered as a finding rather than left as
+a SHA in a list so the exception stays auditable, and it is layer 4 — a documented exception, not a
+structural fix.
+
+The structural fix is `ORPHAN-HIGH-441`, already closed: the `commit-msg` hook that would have
+refused this commit at write time bound for nobody, because its only install path was husky's
+`prepare` and this repo mandates `npm ci --ignore-scripts`. With `hooks:install` and
+`git-hook-binding.spec.ts` in place, the next missing trailer is refused before the commit exists
+rather than discovered in CI, where it is unrepairable.
 
 ## 10. Limits of this verification
 

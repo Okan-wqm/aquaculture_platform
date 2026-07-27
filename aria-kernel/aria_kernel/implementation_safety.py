@@ -43,6 +43,7 @@ import subprocess
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
+from collections.abc import Sequence
 from typing import Any, Callable
 
 from .text_safety import contains_bidi_or_control
@@ -163,6 +164,20 @@ DENIED_BASH_COMMANDS: frozenset[re.Pattern[str]] = frozenset({
     re.compile(r"--no-verify\b"),                       # hook bypass
     re.compile(r"--no-gpg-sign\b"),                     # signing bypass
     re.compile(r"--force-with-lease\b"),
+    # ORPHAN-HIGH-454 — the SHORT form of force-push, scoped to `git push`.
+    # Only the long spellings were denied, while the push allowlist entry
+    # ends in `(\s+\S+)*`, which happily admits a flag: `git push origin
+    # aria-impl-abc123 -f` matched the allowlist and hit no deny pattern.
+    #
+    # Scoped to `git push` rather than denied globally, because a bare `-f`
+    # is harmless — even meaningful — elsewhere, and a denylist that refuses
+    # safe commands gets worked around. Bundled clusters are covered
+    # (`-fu`, `-uf`), and the left lookbehind keeps `report-f.md` from
+    # matching. `-n` deliberately has NO global pattern: on `git commit` it
+    # is `--no-verify`, but on `git log` it is a count and on `git push` it
+    # is `--dry-run`, so it is handled argv-token-wise in
+    # `_check_no_no_verify` where the subcommand is known.
+    re.compile(r"^git\s+push\b.*(?<![\w-])-[a-zA-Z]*f[a-zA-Z]*(?:\s|$)"),
     re.compile(r"\bgit\s+push\s+(?:\+|.+:refs/heads/main\b|origin\s+\+)"),
     re.compile(r"core\.hooksPath"),                     # hooks bypass via config
 })
@@ -455,25 +470,57 @@ def is_gh_api_path_forbidden(path: str) -> bool:
 # lives under /lib64, so binding only /usr proves nothing), a tmpfs, and
 # --unshare-net. A probe that exercises less than the wrapper can pass while
 # the wrapper fails.
-_BWRAP_PROBE_ARGV: tuple[str, ...] = (
-    "bwrap",
-    "--ro-bind", "/usr", "/usr",
-    "--ro-bind", "/lib", "/lib",
-    "--ro-bind", "/lib64", "/lib64",
-    "--ro-bind", "/bin", "/bin",
-    "--proc", "/proc",
-    "--dev", "/dev",
-    "--tmpfs", "/tmp",
-    "--unshare-net",
-    "--", "/bin/true",
+#
+# ORPHAN-MEDIUM-452 — that requirement used to be a COMMENT, and the two argvs
+# had already drifted: the wrapper emitted `--ro-bind /etc/alternatives` and
+# `--ro-bind /etc/ssl` UNGUARDED while the probe bound neither, so on a runner
+# image lacking either directory the probe reported "available" and every
+# write-capable spawn then died at invocation — ORPHAN-CRITICAL-439's failure
+# mode moved one step later, where it is harder to diagnose. The system paths
+# are now a single tuple that both sides build from, and both sides apply the
+# same existence guard, so the divergence the comment warns about is no longer
+# expressible.
+_SANDBOX_SYSTEM_ROOTS: tuple[str, ...] = (
+    "/usr",
+    "/etc/alternatives",
+    "/etc/ssl",
+    "/lib",
+    "/lib64",
+    "/bin",
 )
-_FIREJAIL_PROBE_ARGV: tuple[str, ...] = (
-    "firejail", "--quiet", "--private-tmp", "--net=none", "/bin/true",
-)
+
+
+def _system_ro_binds() -> list[str]:
+    """`--ro-bind` flags for the system paths that exist on THIS host.
+
+    Guarded by existence for the same reason the READONLY_PATHS loop is:
+    bwrap aborts the whole invocation on a bind source it cannot find, so
+    an unconditional bind turns a missing `/etc/ssl` into a total failure
+    of containment rather than a smaller sandbox.
+    """
+    flags: list[str] = []
+    for root in _SANDBOX_SYSTEM_ROOTS:
+        if Path(root).exists():
+            flags.extend(["--ro-bind", root, root])
+    return flags
+
+
+def _bwrap_probe_argv() -> list[str]:
+    return [
+        "bwrap",
+        *_system_ro_binds(),
+        "--proc", "/proc",
+        "--dev", "/dev",
+        "--tmpfs", "/tmp",
+        "--unshare-net",
+        "--", "/bin/true",
+    ]
+
+
 _SANDBOX_PROBE_TIMEOUT_SECONDS = 15
 
 
-def _sandbox_probe_succeeds(argv: tuple[str, ...]) -> bool:
+def _sandbox_probe_succeeds(argv: Sequence[str]) -> bool:
     """True when the backend can actually build the namespaces we rely on."""
     try:
         completed = subprocess.run(
@@ -491,14 +538,7 @@ def _sandbox_probe_succeeds(argv: tuple[str, ...]) -> bool:
 def _bwrap_available() -> bool:
     if shutil.which("bwrap") is None:
         return False
-    return _sandbox_probe_succeeds(_BWRAP_PROBE_ARGV)
-
-
-@lru_cache(maxsize=1)
-def _firejail_available() -> bool:
-    if shutil.which("firejail") is None:
-        return False
-    return _sandbox_probe_succeeds(_FIREJAIL_PROBE_ARGV)
+    return _sandbox_probe_succeeds(_bwrap_probe_argv())
 
 
 class SandboxUnavailable(RuntimeError):
@@ -517,11 +557,27 @@ def sandbox_backend() -> str | None:
 
     Exposed so a caller can fail closed BEFORE building a command, rather
     than discovering the absence at spawn time.
+
+    ORPHAN-CRITICAL-451 — bwrap is the ONLY accepted backend. firejail was
+    accepted here until its branch was read: it emitted
+    ``firejail --quiet --private-tmp --whitelist=<workspace>`` and applied
+    **none** of the eighteen READONLY_PATHS, while this function's caller
+    treats a non-None return as proof that containment is in force and
+    PLAN.md makes exactly that the S0 exit criterion. Choosing firejail —
+    which the operator-facing refusal message actively suggested — therefore
+    satisfied the criterion with the kernel fully writable. A backend that
+    clears the gate without enforcing the property the gate exists for is
+    strictly worse than no backend, because "spawn refused" is honest and a
+    false green is not.
+
+    firejail could be made to work (it has ``--read-only``), and that is a
+    reasonable thing to add later — but only alongside a probe that
+    demonstrates the confinement, the way ``_bwrap_probe_argv`` does. It is
+    not added here because it cannot be verified in this environment, and
+    shipping an unverified security control is the defect being closed.
     """
     if _bwrap_available():
         return "bwrap"
-    if _firejail_available():
-        return "firejail"
     return None
 
 
@@ -533,15 +589,15 @@ def wrap_bash_in_sandbox(
 ) -> list[str]:
     """Hard-fail check 8c — Bash sandbox wrapper.
 
-    Returns the argv prefixed with bwrap / firejail flags pinning:
+    Returns the argv prefixed with bwrap flags pinning:
       * Workspace mounted writable
       * READONLY_PATHS mounted ro-bind
       * ``--unshare-net`` (no network egress) unless allow_network=True
       * ``/tmp`` mounted as tmpfs
       * No /root, /home, /etc/secrets bind
 
-    ORPHAN-CRITICAL-427 — raises :class:`SandboxUnavailable` when neither
-    bwrap nor firejail is present. It used to return ``argv`` unchanged
+    ORPHAN-CRITICAL-427 — raises :class:`SandboxUnavailable` when no
+    usable backend is present. It used to return ``argv`` unchanged
     with a comment saying the caller "should record a governance event",
     which made the unconfined path the quiet default: the function had no
     kernel caller at all, so containment existed only as prose in the
@@ -556,14 +612,11 @@ def wrap_bash_in_sandbox(
     """
     workspace = Path(workspace_root).resolve()
     if _bwrap_available():
+        # The system ro-binds come from the same helper the probe uses, so
+        # the two argvs cannot drift (ORPHAN-MEDIUM-452).
         wrap = [
             "bwrap",
-            "--ro-bind", "/usr", "/usr",
-            "--ro-bind", "/etc/alternatives", "/etc/alternatives",
-            "--ro-bind", "/etc/ssl", "/etc/ssl",
-            "--ro-bind", "/lib", "/lib",
-            "--ro-bind", "/lib64", "/lib64",
-            "--ro-bind", "/bin", "/bin",
+            *_system_ro_binds(),
             "--proc", "/proc",
             "--dev", "/dev",
             "--tmpfs", "/tmp",
@@ -580,14 +633,12 @@ def wrap_bash_in_sandbox(
             wrap.append("--unshare-net")
         wrap.append("--")
         return wrap + list(argv)
-    if _firejail_available():
-        wrap = ["firejail", "--quiet", "--private-tmp", f"--whitelist={workspace}"]
-        if not allow_network:
-            wrap.append("--net=none")
-        return wrap + list(argv)
     raise SandboxUnavailable(
-        "sandbox_backend_unavailable: neither bwrap nor firejail is on PATH, "
-        "so READONLY_PATHS cannot be enforced at the syscall level"
+        "sandbox_backend_unavailable: bwrap is not usable on this host, so "
+        "READONLY_PATHS cannot be enforced at the syscall level. Note that "
+        "'installed' is not enough — bwrap is probed for the namespaces the "
+        "wrapper actually builds, and a container without unprivileged user "
+        "namespaces will install it cleanly and fail every invocation."
     )
 
 
@@ -907,15 +958,67 @@ def _normalize_declared_path(raw: str) -> str:
 
     Purely lexical: this runs at envelope-mint time, where the paths are
     a declaration of intent and may not exist on any filesystem yet.
+
+    ORPHAN-HIGH-453 — it must collapse EVERY spelling of a path, not just
+    the leading one. The previous body stripped a leading ``./`` and outer
+    slashes and stopped there, so interior ``//`` and ``/./`` survived and
+    ``aria-kernel//aria_kernel/cli.py`` failed to match the
+    ``aria-kernel/aria_kernel/`` READONLY prefix — a one-character edit
+    walked straight through ``_check_kernel_self_modification_at_mint``.
+    Segment-wise reconstruction is what makes that class of bypass
+    unrepresentable rather than one more special case to remember: split on
+    ``/``, drop empty segments (that is ``//``) and ``.`` segments (that is
+    ``/./``), and rejoin. ``..`` is deliberately PRESERVED — the caller
+    rejects it explicitly, and silently resolving it here would turn a
+    traversal attempt into a clean-looking path.
     """
     text = str(raw).strip().replace("\\", "/")
-    while text.startswith("./"):
-        text = text[2:]
-    return text.strip("/")
+    segments = [seg for seg in text.split("/") if seg not in ("", ".")]
+    return "/".join(segments)
+
+
+_FORCE_PUSH_LONG_FLAGS: frozenset[str] = frozenset({"--force", "--force-with-lease"})
+
+
+def _argv_forces_a_push(argv: list[str]) -> str | None:
+    """The offending token when ``argv`` is a force-push, else ``None``.
+
+    ORPHAN-HIGH-454 — this half did not exist. ``_check_no_force_push``
+    inspected ``push_refspecs`` only, so an action that carried its push as
+    a bash command reached the gate with nothing looking at it, and the
+    allowlist entry for push ends in ``(\\s+\\S+)*`` — which admits a flag.
+    ``git push origin aria-impl-abc123 -f`` was therefore allowed by the
+    allowlist, unmatched by the long-form deny patterns, and unexamined
+    here. Force-push is absolutely forbidden by CLAUDE.md; enforcing it on
+    one of the two ways to express it is not enforcing it.
+
+    Token-wise rather than regex over the joined string, because that is
+    what makes short clusters (``-fu``) and a leading ``+`` refspec
+    decidable without also rejecting a filename that happens to contain
+    ``-f``.
+    """
+    if argv[:2] != ["git", "push"]:
+        return None
+    for token in argv[2:]:
+        lowered = token.lower()
+        if lowered in _FORCE_PUSH_LONG_FLAGS:
+            return token
+        # A short cluster containing `f`: -f, -fu, -uf. Not `--foo`, and
+        # not a bare positional such as a branch name.
+        if lowered.startswith("-") and not lowered.startswith("--") and "f" in lowered[1:]:
+            return token
+        # `+src:dst` is a force push with no flag at all.
+        if token.startswith("+"):
+            return token
+    return None
 
 
 def _check_no_force_push(context: HardFailContext) -> HardFailResult:
     name = "no_force_push"
+    if context.bash_argv:
+        offender = _argv_forces_a_push([str(t) for t in context.bash_argv])
+        if offender is not None:
+            return _failed(name, f"force_flag_in_bash_argv:{offender}")
     if not context.push_refspecs:
         return _passed(name, "no_push_refspec_in_action")
     for raw in context.push_refspecs:

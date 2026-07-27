@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `f990cb41ed5300202d9d077ba3605162c49c4c22dc0297d0b697bacb956ae5da`
+Registry tip: `dbbd692be06b1a652418fa359635a0a656ca410504bb5f8c05312f350abf788f`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -143,6 +143,7 @@ Allowed truth buckets:
 | `ORPHAN-CRITICAL-439`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-440`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-446`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-451`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 
 Updated 2026-07-26 (ARIA control-plane audit): seven ORPHAN CRITICALs joined the
 active set. Five come from the audit of ARIA's own control plane — a corrupted
@@ -185,6 +186,7 @@ close waits for merge, like the rows above it.
 - `ORPHAN-CRITICAL-439` — fixed in `55cd94464`; see the commit body for the mechanism and the regression test.
 - `ORPHAN-CRITICAL-440` — fixed in `55cd94464`; see the commit body for the mechanism and the regression test.
 - `ORPHAN-CRITICAL-446` — fixed in this branch; `aria-kernel/tests/test_cross_review_independence_text.py` pins both the pre-fix shape and the echo-chamber catch.
+- `ORPHAN-CRITICAL-451` — fixed in this branch; firejail removed as an accepted sandbox backend because its branch applied none of the READONLY_PATHS while satisfying the S0 exit criterion. `aria-kernel/tests/test_sandbox_and_perimeter_hardening.py` pins it.
 
 - `AISAFETY-CRITICAL-003` (single process-global `ANTHROPIC_API_KEY`, no per-tenant
   key — BYOK impossible): the Faz 1 BYOK work (encrypted per-tenant credentials +

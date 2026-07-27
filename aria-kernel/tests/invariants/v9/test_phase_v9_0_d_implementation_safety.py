@@ -681,11 +681,9 @@ class TestSandboxAvailabilityIsCapabilityNotPresence(unittest.TestCase):
         # These are process-cached; a stale entry would make the assertions
         # below test the cache rather than the logic.
         _is._bwrap_available.cache_clear()
-        _is._firejail_available.cache_clear()
 
     def tearDown(self) -> None:
         _is._bwrap_available.cache_clear()
-        _is._firejail_available.cache_clear()
 
     def test_binary_present_but_probe_failing_reports_unavailable(self) -> None:
         with mock.patch.object(_is.shutil, "which", return_value="/usr/bin/bwrap"), \
@@ -694,7 +692,6 @@ class TestSandboxAvailabilityIsCapabilityNotPresence(unittest.TestCase):
                 _is._bwrap_available(),
                 "a backend that cannot build its namespaces must not be reported",
             )
-            self.assertFalse(_is._firejail_available())
             self.assertIsNone(_is.sandbox_backend())
 
     def test_binary_present_and_probe_passing_reports_available(self) -> None:
@@ -705,7 +702,7 @@ class TestSandboxAvailabilityIsCapabilityNotPresence(unittest.TestCase):
 
     def test_probe_exercises_every_feature_the_real_wrapper_relies_on(self) -> None:
         """A probe weaker than the wrapper can pass while the wrapper fails."""
-        probe = set(_is._BWRAP_PROBE_ARGV)
+        probe = set(_is._bwrap_probe_argv())
         for required in ("--unshare-net", "--tmpfs", "--proc", "--dev", "--ro-bind"):
             self.assertIn(
                 required, probe,
@@ -716,6 +713,33 @@ class TestSandboxAvailabilityIsCapabilityNotPresence(unittest.TestCase):
         for mount in ("/usr", "/lib", "/lib64", "/bin"):
             self.assertIn(mount, probe, f"probe omits the {mount} ro-bind")
 
+    def test_firejail_is_not_an_accepted_backend(self) -> None:
+        """ORPHAN-CRITICAL-451 — it applied none of the READONLY_PATHS.
+
+        `sandbox_backend()` returning non-None is PLAN.md's S0 exit
+        criterion and is read by callers as proof containment is in force.
+        The firejail branch whitelisted the workspace — kernel included —
+        and ro-bound nothing, so selecting it cleared the gate with the
+        property the gate exists for entirely absent.
+        """
+        self.assertFalse(hasattr(_is, "_firejail_available"))
+        self.assertFalse(hasattr(_is, "_FIREJAIL_PROBE_ARGV"))
+        with mock.patch.object(_is, "_bwrap_available", return_value=False):
+            self.assertIsNone(_is.sandbox_backend())
+
+    def test_probe_and_wrapper_agree_on_the_system_binds(self) -> None:
+        """ORPHAN-MEDIUM-452 — the comment above the probe demands this."""
+        with mock.patch.object(_is, "_bwrap_available", return_value=True), \
+             tempfile.TemporaryDirectory() as workspace:
+            wrapper = _is.wrap_bash_in_sandbox(["true"], workspace_root=workspace)
+        probe = _is._bwrap_probe_argv()
+        for root in _is._SANDBOX_SYSTEM_ROOTS:
+            if root in wrapper:
+                self.assertIn(
+                    root, probe,
+                    f"the wrapper binds {root} and the probe does not",
+                )
+
     def test_probe_treats_a_missing_binary_as_unavailable_without_raising(self) -> None:
         self.assertFalse(
             _is._sandbox_probe_succeeds(("definitely-not-a-real-binary-xyz", "true"))
@@ -723,7 +747,6 @@ class TestSandboxAvailabilityIsCapabilityNotPresence(unittest.TestCase):
 
     def test_no_backend_means_wrap_raises_rather_than_returning_bare_argv(self) -> None:
         with mock.patch.object(_is, "_bwrap_available", return_value=False), \
-             mock.patch.object(_is, "_firejail_available", return_value=False), \
              tempfile.TemporaryDirectory() as workspace:
             with self.assertRaises(_is.SandboxUnavailable):
                 _is.wrap_bash_in_sandbox(["true"], workspace_root=workspace)

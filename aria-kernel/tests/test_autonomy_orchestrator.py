@@ -15,6 +15,7 @@
 """
 from __future__ import annotations
 
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -395,6 +396,199 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             state.worker_assignments_dispatched,
             result["worker_assignments_dispatched"],
         )
+
+
+    # ------------------------------------------------------------------
+    # ORPHAN-HIGH-455 — the specialist gate, at the CALLSITE.
+    #
+    # ORPHAN-HIGH-423 extracted `specialist_verdict_blocks_cycle` so the
+    # policy could be tested on its own, and the test that claimed to cover
+    # the orchestrator's use of it patched the function and then called the
+    # thing it had just patched, asserting the wrapper recorded the call.
+    # The orchestrator was never imported. So the policy was pinned, the
+    # delegation was not, and an adversarial audit demonstrated that
+    # reverting `autonomy_orchestrator.py` wholesale left all 2805 tests
+    # green.
+    #
+    # These drive the real orchestrator through the real callsite. Each was
+    # confirmed to fail against `git show bdaf00bf:...autonomy_orchestrator.py`.
+    # ------------------------------------------------------------------
+
+    def _specialist_runner_returning(self, verdict: str):
+        def _runner(**kwargs):
+            row = _fake_specialist_review_runner(**kwargs)
+            row["consolidated_verdict"] = verdict
+            return row
+        return _runner
+
+    def test_specialist_unavailable_blocks_the_cycle_in_standard(self) -> None:
+        """The ORPHAN-HIGH-423 fix, observed where it takes effect.
+
+        Pre-fix only `strict` blocked, so `standard` and `autonomous` — the
+        write-capable profiles — proceeded on an unreviewed domain.
+        """
+        result = self._run(
+            max_cycles=1,
+            profile="standard",
+            specialist_review_runner=self._specialist_runner_returning(
+                "specialists_unavailable",
+            ),
+        )
+        self.assertEqual(result["worker_assignments_dispatched"], 0)
+        self.assertEqual(result["auto_merges_completed"], 0)
+        phases = {row["phase"] for row in load_jsonl(autonomy_state_path(self.base))}
+        self.assertIn("specialist_review_blocked", phases)
+
+    def test_unrecognised_specialist_verdict_blocks_too(self) -> None:
+        """ORPHAN-HIGH-443's allowlist, also at the callsite.
+
+        A verdict this build has never heard of must not read as a clean
+        review. The seam is genuinely untyped: `specialist_review_runner` is
+        an injected kwarg and the orchestrator reads the verdict with
+        `dict.get()`, which is exactly what this injects.
+
+        Run under `standard`, not `autonomous`: the autonomous profile's
+        preflight demands a GitHub App installation, a signing-key directory
+        and a `gh` binary, none of which exist in a test environment, so it
+        raises before ever reaching the specialist gate. `standard` is
+        write-capable — the property under test — and
+        `specialist_verdict_blocks_cycle` applies the identical rule to both.
+        """
+        for verdict in ("", "consolidated_no_gap", "CONSOLIDATED_NO_GAPS"):
+            with self.subTest(verdict=verdict):
+                # A fresh base per verdict, so one iteration's ledger cannot
+                # satisfy the next one's assertion. Not `self.setUp()`:
+                # tearDown runs once, and re-entering setUp would leak every
+                # temp directory but the last.
+                tmp = Path(tempfile.mkdtemp(prefix="aria-f1-verdict-"))
+                self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+                self.tmp, self.base = tmp, tmp / "aria-tools"
+                set_profile(
+                    "standard", operator_approval_ref="f1-t", base_dir=self.base,
+                )
+                result = self._run(
+                    max_cycles=1,
+                    profile="standard",
+                    specialist_review_runner=self._specialist_runner_returning(verdict),
+                )
+                self.assertEqual(
+                    result["worker_assignments_dispatched"],
+                    0,
+                    msg=f"verdict {verdict!r} let the cycle reach worker_drainer",
+                )
+
+    def test_a_clean_specialist_verdict_still_lets_the_cycle_through(self) -> None:
+        """Guards the guard: if the block fired unconditionally, the two
+        tests above would pass for the wrong reason."""
+        result = self._run(max_cycles=1, profile="standard")
+        self.assertGreater(result["worker_assignments_dispatched"], 0)
+        phases = {row["phase"] for row in load_jsonl(autonomy_state_path(self.base))}
+        self.assertNotIn("specialist_review_blocked", phases)
+
+
+class BoundedCycleSummaryCarriesWhatThePublisherReads(unittest.TestCase):
+    """ORPHAN-HIGH-456 — the summary literal is closed, so it is a contract.
+
+    `_bounded_cycle_summary` names its keys explicitly and therefore DELETES
+    every key it does not name. Two consumers in `runtime_artifacts` read
+    keys that could not survive it, so both were unreachable in production
+    while their tests passed against the raw cycle dict — a shape production
+    never emits. That is the same defect as a control with no caller, one
+    layer down.
+    """
+
+    def test_the_lifecycle_snapshot_survives_the_summary(self) -> None:
+        from aria_kernel.autonomy_orchestrator import _bounded_cycle_summary
+
+        summary = _bounded_cycle_summary({
+            "cycle_id": "c1",
+            "status": "completed",
+            "incomplete_lifecycle_count": 0,
+            "cycle_lifecycle": {
+                "valid": False,
+                "incomplete_count": 0,
+                "incomplete_cycles": [],
+                "lifecycle_read_error": "cycles.jsonl unreadable",
+            },
+        })
+        lifecycle = summary.get("cycle_lifecycle")
+        self.assertIsInstance(lifecycle, dict)
+        assert isinstance(lifecycle, dict)  # narrowing
+        self.assertIs(lifecycle["valid"], False)
+        self.assertEqual(lifecycle["lifecycle_read_error"], "cycles.jsonl unreadable")
+
+    def test_the_unreadable_warning_can_actually_fire(self) -> None:
+        """End-to-end: the publisher's own condition, on a real summary.
+
+        This is the distinction ORPHAN-HIGH-424's commit message sold as the
+        feature — "zero incomplete cycles" versus "the ledger could not be
+        read" — and it was unreachable.
+        """
+        from aria_kernel.autonomy_orchestrator import _bounded_cycle_summary
+
+        summary = _bounded_cycle_summary({
+            "cycle_id": "c1",
+            "status": "completed",
+            "incomplete_lifecycle_count": 0,
+            "cycle_lifecycle": {"valid": False, "incomplete_count": 0},
+        })
+        lifecycle = summary.get("cycle_lifecycle")
+        self.assertTrue(
+            isinstance(lifecycle, dict)
+            and lifecycle.get("valid") is False
+            and not summary["incomplete_lifecycle_count"],
+            msg="cycle_lifecycle_unreadable still cannot fire on a real summary",
+        )
+
+    def test_cycle_level_markers_survive(self) -> None:
+        from aria_kernel.autonomy_orchestrator import _bounded_cycle_summary
+        from aria_kernel.runtime_artifacts import _marker_total, _SUPPRESSED_MARKER_KEYS
+
+        summary = _bounded_cycle_summary({
+            "cycle_id": "c1", "status": "completed", "findings_suppressed": 3,
+        })
+        self.assertEqual(_marker_total(summary, _SUPPRESSED_MARKER_KEYS), 3)
+
+    def test_the_mirrored_marker_key_list_has_not_drifted(self) -> None:
+        """The orchestrator keeps its own copy of the publisher's key names.
+
+        A copy is acceptable here — the modules are deliberately decoupled —
+        but only if drift is detectable, which is what this asserts.
+        """
+        from aria_kernel.autonomy_orchestrator import _CYCLE_MARKER_KEYS
+        from aria_kernel.runtime_artifacts import (
+            _SUPPRESSED_MARKER_KEYS,
+            _TRUNCATED_MARKER_KEYS,
+        )
+
+        self.assertEqual(
+            set(_CYCLE_MARKER_KEYS),
+            set(_SUPPRESSED_MARKER_KEYS) | set(_TRUNCATED_MARKER_KEYS),
+        )
+
+    def test_incomplete_cycles_is_capped(self) -> None:
+        """Operator evidence, not a data feed: an unbounded list from a
+        damaged ledger is how a summary becomes unpublishable."""
+        from aria_kernel.autonomy_orchestrator import (
+            _MAX_INCOMPLETE_CYCLES_IN_SUMMARY,
+            _bounded_cycle_summary,
+        )
+
+        summary = _bounded_cycle_summary({
+            "cycle_id": "c1",
+            "status": "completed",
+            "cycle_lifecycle": {
+                "valid": False,
+                "incomplete_count": 500,
+                "incomplete_cycles": [f"c{i}" for i in range(500)],
+            },
+        })
+        lifecycle = summary["cycle_lifecycle"]
+        self.assertEqual(
+            len(lifecycle["incomplete_cycles"]), _MAX_INCOMPLETE_CYCLES_IN_SUMMARY,
+        )
+        # The true count is still reported, so the cap cannot hide scale.
+        self.assertEqual(lifecycle["incomplete_count"], 500)
 
 
 if __name__ == "__main__":

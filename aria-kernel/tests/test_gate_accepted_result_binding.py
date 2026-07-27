@@ -31,6 +31,7 @@ Locked cases:
 
 from __future__ import annotations
 
+import ast
 import sys
 import tempfile
 import unittest
@@ -383,31 +384,41 @@ class SpecialistGateEvidenceBinding(unittest.TestCase):
                     )
 
     # I-GATE-09 — the orchestrator consumes the policy, not its own copy.
-    def test_i_gate_09_orchestrator_delegates_the_block_decision(self) -> None:
-        """A behavioural check that the orchestrator honours the policy.
+    def test_i_gate_09_the_orchestrator_callsite_is_covered_elsewhere(self) -> None:
+        """ORPHAN-HIGH-455 — this test used to be a tautology.
 
-        Asserting the call rather than the source keeps this test valid
-        under any refactor that preserves the delegation.
+        It saved `specialist_verdict_blocks_cycle`, patched the module
+        attribute with a recording wrapper, then called the thing it had
+        just patched and asserted the wrapper recorded the call. The
+        orchestrator was never imported. Its docstring said "A behavioural
+        check that the orchestrator honours the policy," and it checked no
+        such thing — an adversarial audit later demonstrated that reverting
+        `autonomy_orchestrator.py` wholesale left the entire 2805-test suite
+        green, and this was the one test that claimed to prevent exactly
+        that.
+
+        Real coverage now lives in `test_autonomy_orchestrator.py`, which
+        drives `run_autonomy_orchestrator` with an injected specialist
+        runner and asserts the cycle blocks. Those tests were confirmed to
+        fail against the base orchestrator. This one remains only to assert
+        the delegation still exists at all — a claim it CAN honestly make,
+        and which is cheap to keep here next to the policy it guards.
         """
-        import aria_kernel.specialist_review_runner as srr
+        import aria_kernel.autonomy_orchestrator as orchestrator
 
-        calls: list[dict] = []
-        real = srr.specialist_verdict_blocks_cycle
-
-        def _recording(*, verdict: str, profile: str) -> bool:
-            calls.append({"verdict": verdict, "profile": profile})
-            return real(verdict=verdict, profile=profile)
-
-        with unittest.mock.patch.object(
-            srr, "specialist_verdict_blocks_cycle", _recording,
-        ):
-            self.assertTrue(
-                srr.specialist_verdict_blocks_cycle(
-                    verdict="specialists_unavailable", profile="autonomous",
-                ),
-            )
-        self.assertEqual(
-            calls, [{"verdict": "specialists_unavailable", "profile": "autonomous"}],
+        source = Path(orchestrator.__file__ or "").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        imported_names = {
+            alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+            and (node.module or "").endswith("specialist_review_runner")
+            for alias in node.names
+        }
+        self.assertIn(
+            "specialist_verdict_blocks_cycle",
+            imported_names,
+            msg="the orchestrator no longer delegates to the extracted policy",
         )
 
 

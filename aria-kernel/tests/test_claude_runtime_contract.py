@@ -344,7 +344,6 @@ class WriteContainmentTests(unittest.TestCase):
         from aria_kernel import implementation_safety
 
         with patch.object(implementation_safety, "_bwrap_available", return_value=False), \
-             patch.object(implementation_safety, "_firejail_available", return_value=False), \
              patch.dict(os.environ, {claude_runtime.UNCONFINED_ACK_ENV_VAR: "0"}):
             with self.assertRaises(claude_runtime.ClaudePolicyViolation) as ctx:
                 claude_runtime._apply_write_containment(
@@ -384,7 +383,6 @@ class WriteContainmentTests(unittest.TestCase):
         from aria_kernel import implementation_safety
 
         with patch.object(implementation_safety, "_bwrap_available", return_value=False), \
-             patch.object(implementation_safety, "_firejail_available", return_value=False), \
              patch.dict(os.environ, {claude_runtime.UNCONFINED_ACK_ENV_VAR: "1"}):
             self.assertEqual(
                 claude_runtime._apply_write_containment(
@@ -404,8 +402,10 @@ class WriteContainmentTests(unittest.TestCase):
         )
         from aria_kernel import implementation_safety
 
-        with patch.object(implementation_safety, "_bwrap_available", return_value=False), \
-             patch.object(implementation_safety, "_firejail_available", return_value=False):
+        # ORPHAN-CRITICAL-451 — one patch, because bwrap is now the only
+        # backend. firejail used to be the second, and it applied none of
+        # the READONLY_PATHS while still making sandbox_backend() non-None.
+        with patch.object(implementation_safety, "_bwrap_available", return_value=False):
             self.assertIsNone(sandbox_backend())
             with self.assertRaises(SandboxUnavailable):
                 wrap_bash_in_sandbox(

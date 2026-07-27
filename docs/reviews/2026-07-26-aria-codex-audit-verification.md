@@ -74,6 +74,12 @@ report's `P0-*` / `NEW-*` labels are the analysis names and these are the tracke
 | `ORPHAN-MEDIUM-448` | adversarial re-audit | MEDIUM | the repin script silently no-ops on anchor drift and exits 0, and was the one gate script nothing type-checked |
 | `ORPHAN-MEDIUM-449` | caught by CI | MEDIUM | the authority-hash writer read the git index, so running it before staging wrote a value the commit could not match |
 | `ORPHAN-HIGH-450` | adversarial re-audit | HIGH | the HUMAN_REQUIRED adjudication panel that closed `426` had zero production callers |
+| `ORPHAN-CRITICAL-451` | 13-agent audit | CRITICAL | the firejail sandbox backend applied none of the READONLY_PATHS while satisfying the S0 containment exit criterion |
+| `ORPHAN-MEDIUM-452` | 13-agent audit | MEDIUM | the bwrap probe did not mirror the wrapper, so it could report available on a host where every spawn dies |
+| `ORPHAN-HIGH-453` | 13-agent audit | HIGH | a doubled slash walked a kernel path past the self-modification check |
+| `ORPHAN-HIGH-454` | 13-agent audit | HIGH | `git push origin aria-impl-<sha> -f` passed the whole bash perimeter |
+| `ORPHAN-HIGH-455` | 13-agent audit | HIGH | three headline fixes had no callsite coverage, and the test claiming otherwise was a tautology |
+| `ORPHAN-HIGH-456` | 13-agent audit | HIGH | the bounded cycle summary deletes the two keys the publisher reads |
 
 Every ID above is listed here on purpose: this document is the `Closes:` target for all of them, and
 a trailer pointing at a file that does not name the finding is traceability theatre. Remaining
@@ -1014,6 +1020,46 @@ Three properties make it safe to run every cycle, and each has a test:
   `credential_mint`, `merge_authority`, an unadmitted future kind, and a context-free record, none of
   which mint anything. Those escalations must keep waiting for a person, and now they do so without
   a panel being asked about them.
+
+## 9i. The 13-agent audit, and the six defects it found that I had not (`451`–`456`)
+
+The adversarial pass whose partial output §9f acted on ran to completion: six lenses, six skeptics,
+one synthesis. **28 confirmed defects, eight HIGH, one CRITICAL, four claims dropped as false
+alarms** — including two the skeptics overturned against their own lens, which is the stage §9f did
+not have. Everything below was re-verified by hand at the current head before being accepted.
+
+**Its load-bearing result is about evidence, not code.** The auditor extracted the branch to a
+scratch repo, replaced `autonomy_orchestrator.py`, `convergence_drainer.py` and `cycle.py` with their
+base versions, and ran the suite: **2805 tests, OK, zero failures.** Positive controls on the same
+harness confirm it detects real reverts — `circuit_breaker.py` reverted gives 5 errors, `burn_in.py`
+gives 1. So three of this branch's headline fixes could silently regress, and "2805 tests OK" was not
+evidence for them. That is `ORPHAN-HIGH-455`, and it is the finding that most changes how the rest of
+this document should be read.
+
+The pattern behind it is structural: extract a helper so it becomes testable, test the helper, leave
+the production callsite unpinned. It produced four independent instances in one branch — `455` (three
+files), the tautological `test_i_gate_09`, the untested allocator wire, and `456`'s fixtures asserting
+on a dict shape production never emits.
+
+| | |
+|---|---|
+| `ORPHAN-CRITICAL-451` | `wrap_bash_in_sandbox`'s firejail branch was `firejail --quiet --private-tmp --whitelist=<workspace>` — **zero** of the eighteen `READONLY_PATHS`, workspace writable, kernel included. `sandbox_backend()` returned non-None for it, which is PLAN.md's S0 exit criterion, and the refusal message told the operator to install it. Fixed by removing firejail entirely rather than adding `--read-only` flags: it cannot be verified here, and shipping an unverified security control is the defect being closed. |
+| `ORPHAN-MEDIUM-452` | The probe bound `/usr /lib /lib64 /bin`; the wrapper additionally bound `/etc/alternatives` and `/etc/ssl` **unguarded**, in violation of the comment directly above the probe demanding they match. On an image lacking either, the probe says "available" and every spawn then dies. Both now build from one existence-guarded list. |
+| `ORPHAN-HIGH-453` | `_normalize_declared_path` collapsed a leading `./` and outer slashes only, so `aria-kernel//aria_kernel/cli.py` did not match the READONLY prefix and walked past `_check_kernel_self_modification_at_mint`. Now reconstructed segment-wise; `..` deliberately preserved so the caller's traversal rejection still fires. |
+| `ORPHAN-HIGH-454` | `_check_no_force_push` read `push_refspecs` and never `bash_argv`, while the allowlist entry for push ends in `(\s+\S+)*` — which admits a flag. Three layers each missed `git push origin aria-impl-abc123 -f`. Fixed argv-token-wise, deliberately **not** by a blanket short-flag denial: `-n` is `--no-verify` on commit but a count on `git log`, and a gate that refuses safe commands gets routed around. |
+| `ORPHAN-HIGH-455` | Above. Real callsite tests now drive `run_autonomy_orchestrator`; reverting it to base produces 4 failures where it previously produced none. |
+| `ORPHAN-HIGH-456` | `_bounded_cycle_summary` is a closed literal that deletes `cycle_lifecycle`, so `cycle_lifecycle_unreadable` — the "zero incomplete" versus "ledger unreadable" distinction that `424`'s commit message sells as the feature — could never fire. Same for every cycle-level suppression marker. The exception path dropped the counter entirely, and a crashed cycle is the one most likely to have left an incomplete lifecycle. |
+
+Every fix above is pinned by a test demonstrated failing against the pre-fix code: 20/20 subtests for
+the perimeter set, 4 failures for the orchestrator revert, 3 failures and 1 error for the summary
+literal.
+
+**What the audit could not check, in its own words:** live CI (no Actions query was made by any
+agent); `nx affected` across the monorepo; whether bwrap works on a real runner, since neither
+backend is installed here; and branch protection or GitHub App scope. Its stated residual is that
+**more fixes are untested at the callsite than the three it proved** — it ran the revert experiment
+on five files out of roughly twenty fixes, and the pattern is structural rather than incidental.
+That is recorded as the honest limit of this work, not as a claim of completeness.
 
 ## 10. Limits of this verification
 

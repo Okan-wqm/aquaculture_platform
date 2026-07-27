@@ -351,10 +351,15 @@ def _apply_write_containment(
             env_name=UNCONFINED_ACK_ENV_VAR,
         ):
             return argv
+        # ORPHAN-CRITICAL-451 — this message used to say "install bwrap or
+        # firejail". Following the second option satisfied the S0 exit
+        # criterion with the kernel fully writable, because the firejail
+        # branch applied none of the READONLY_PATHS. bwrap is now the only
+        # accepted backend, so it is the only one suggested.
         raise ClaudePolicyViolation(
-            f"claude_write_containment_required: {exc}. Install bwrap or "
-            f"firejail on the runner, use a read-only shape "
-            f"(skip_permissions=False), or set "
+            f"claude_write_containment_required: {exc}. Install bwrap on the "
+            f"runner AND give it unprivileged user namespaces, use a "
+            f"read-only shape (skip_permissions=False), or set "
             f"{UNCONFINED_ACK_ENV_VAR}=1 to accept an unconfined "
             f"write-capable agent on this host."
         ) from exc

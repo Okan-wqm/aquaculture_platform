@@ -73,6 +73,7 @@ report's `P0-*` / `NEW-*` labels are the analysis names and these are the tracke
 | `ORPHAN-HIGH-447` | adversarial re-audit | HIGH | the two tests pinning the specialist gate can silently skip themselves instead of failing |
 | `ORPHAN-MEDIUM-448` | adversarial re-audit | MEDIUM | the repin script silently no-ops on anchor drift and exits 0, and was the one gate script nothing type-checked |
 | `ORPHAN-MEDIUM-449` | caught by CI | MEDIUM | the authority-hash writer read the git index, so running it before staging wrote a value the commit could not match |
+| `ORPHAN-HIGH-450` | adversarial re-audit | HIGH | the HUMAN_REQUIRED adjudication panel that closed `426` had zero production callers |
 
 Every ID above is listed here on purpose: this document is the `Closes:` target for all of them, and
 a trailer pointing at a file that does not name the finding is traceability theatre. Remaining
@@ -980,6 +981,39 @@ is the same class of defect as a mirror with no generator — the thing `445` wa
 arrived inside `445`'s own fix. The writer now refuses when `git ls-files --others --exclude-standard`
 reports anything under the authority roots, naming the files and saying to stage them first. That is
 the same expression `format-scope.json` uses to answer "what will the commit contain".
+
+## 9h. A 498-line control that never ran (`ORPHAN-HIGH-450`)
+
+The adversarial pass claimed `68957e8bd` carries `Closes: …#ORPHAN-HIGH-426` while the adjudication
+module it added has zero production callers. Checked, and true: grepping importers of
+`human_required_adjudication` across `aria-kernel/` and `tools/`, excluding `aria-kernel/tests/`,
+returns nothing. The only two importers are test files.
+
+The module itself is not the problem — it is 498 lines of careful work: an independent three-agent
+panel, principal-disjointness verified against the claims ledger, a closed irreducible class that
+keeps profile transitions and credential mints away from agents, and a fail-closed quorum in which
+one `insufficient_evidence` blocks resolution. All correct. None of it executed.
+
+`cycle.py` runs the two sweeps that **create** escalations on every cycle and ran nothing that acted
+on them, so the observable behaviour after the fix was identical to the behaviour `ORPHAN-HIGH-426`
+described: an escalation waits for a person. A control is the code that runs it. This is the audit's
+own subject — *declared authority with no production caller* — reproduced inside the fix for an
+instance of it, which is why it is registered separately rather than quietly folded into `426`.
+
+`sweep_human_required_adjudications()` is now the caller, running in `cycle.py` immediately after the
+two creating sweeps, under the same shadow/discovery guards, with its result in the cycle summary.
+Three properties make it safe to run every cycle, and each has a test:
+
+* **reachable from `run_cycle`** — asserted against the module object, not source text, so it
+  survives a refactor that keeps the call and fails one that drops it. This is the property whose
+  absence *was* the bug;
+* **idempotent** — asserted over five consecutive sweeps of an escalation whose panel never
+  delivers, which is the exact case that would otherwise mint three fresh envelopes and a new ledger
+  row every cycle forever, because `open_adjudication` is not idempotent;
+* **skips rather than attempts the irreducible class** — verified across `profile_transition`,
+  `credential_mint`, `merge_authority`, an unadmitted future kind, and a context-free record, none of
+  which mint anything. Those escalations must keep waiting for a person, and now they do so without
+  a panel being asked about them.
 
 ## 10. Limits of this verification
 

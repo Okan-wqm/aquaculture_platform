@@ -474,6 +474,87 @@ def adjudicate_human_required(
     return verdict
 
 
+def sweep_human_required_adjudications(
+    *, base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Open or fold an agent panel for every adjudicable open escalation.
+
+    ORPHAN-HIGH-450 — the production caller this module did not have.
+    ``ORPHAN-HIGH-426`` was closed with a 498-line panel and zero non-test
+    importers, which is the same defect the finding described: a control
+    that exists and never runs. `cycle.py` already runs the two sweeps that
+    CREATE escalations; this is the one that acts on them.
+
+    Idempotent, which is what makes it safe to run every cycle:
+
+      * an escalation with no adjudication row gets exactly one panel;
+      * an escalation that already has one is FOLDED, never re-opened —
+        ``open_adjudication`` mints ``panel_size`` fresh envelopes per call
+        and appends a new ledger row, so calling it unconditionally would
+        spawn a panel per cycle forever;
+      * a resolved escalation is not listed by ``list_human_required``, so
+        it is never revisited.
+
+    Irreducible escalations are skipped rather than refused loudly: those
+    are the ones that genuinely need a human, and turning each cycle into a
+    governance event for them would bury the signal. The refusal is still
+    recorded once, by ``open_adjudication``, if anything tries.
+
+    Never raises. A cycle phase that dies on one malformed escalation
+    record would take the whole cycle's remaining phases with it.
+    """
+    root = ensure_tools_dir(base_dir)
+    opened: list[str] = []
+    folded: list[str] = []
+    resolved: list[str] = []
+    skipped: list[dict[str, str]] = []
+
+    try:
+        from .human_required import list_human_required
+
+        escalations = list_human_required(base_dir=root)
+    except Exception as exc:  # pragma: no cover — defensive, see docstring
+        return {"status": "failed", "error": str(exc)[:300]}
+
+    existing = {
+        str(row.get("escalation_request_id"))
+        for row in load_declared_jsonl(
+            _adjudications_path(root), expected_surface="human_required_adjudications",
+        )
+    }
+
+    for record in escalations:
+        request_id = str(record.get("request_id") or "")
+        if not request_id:
+            continue
+        adjudicability = escalation_adjudicability(record)
+        if not adjudicability:
+            skipped.append({"request_id": request_id, "reason": adjudicability.reason})
+            continue
+        try:
+            if request_id in existing:
+                verdict = adjudicate_human_required(
+                    escalation_request_id=request_id, base_dir=root,
+                )
+                folded.append(request_id)
+                if verdict.clears_escalation:
+                    resolved.append(request_id)
+            else:
+                open_adjudication(escalation_request_id=request_id, record=record, base_dir=root)
+                opened.append(request_id)
+        except Exception as exc:
+            skipped.append({"request_id": request_id, "reason": str(exc)[:200]})
+
+    return {
+        "status": "ok",
+        "opened": opened,
+        "folded": folded,
+        "resolved": resolved,
+        "skipped": skipped,
+        "escalations_seen": len(escalations),
+    }
+
+
 __all__ = [
     "ADJUDICABLE_CONTEXT_KINDS",
     "ADJUDICATION_ROLE",
@@ -495,4 +576,5 @@ __all__ = [
     "escalation_adjudicability",
     "fold_adjudication",
     "open_adjudication",
+    "sweep_human_required_adjudications",
 ]

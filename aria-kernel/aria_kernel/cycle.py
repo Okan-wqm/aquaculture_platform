@@ -27,6 +27,7 @@ from .human_required import (
     sweep_consensus_uncertainties_for_human_required,
     sweep_lease_lifecycle_for_human_required,
 )
+from .human_required_adjudication import sweep_human_required_adjudications
 from .judge_calibration import compute_judge_calibration
 from .proactive_priority import compute_proactive_priorities
 from .tool_registry import GovernanceError, ensure_tools_binding, list_tools, utc_now, update_tools_index
@@ -434,6 +435,7 @@ def run_enterprise_cycle(
     reflection = None if defer_reflection else {}
     consensus_escalation: dict[str, Any] = {}
     lease_escalation: dict[str, Any] = {}
+    human_required_adjudication: dict[str, Any] = {}
     judge_calibration: dict[str, Any] = {}
     proactive_priorities: dict[str, Any] = {}
     belief_decay: dict[str, Any] = {}
@@ -488,6 +490,20 @@ def run_enterprise_cycle(
         except Exception as exc:
             post_tool_failure = {
                 "phase": "lease_lifecycle_escalation", "status": "failed", "error": str(exc),
+            }
+    # ORPHAN-HIGH-450 — act on the escalations the two sweeps above just
+    # created. ORPHAN-HIGH-426 was closed with a 498-line adjudication panel
+    # that had zero non-test importers, so escalations were still being
+    # raised every cycle and cleared by nobody: the finding's own defect,
+    # reproduced by its fix. This is the caller. Idempotent per escalation
+    # (open once, fold thereafter) and never raising, so one malformed
+    # record cannot take the cycle's remaining phases down with it.
+    if post_tool_failure is None and not shadow_only and not discovery_only:
+        try:
+            human_required_adjudication = sweep_human_required_adjudications(base_dir=root)
+        except Exception as exc:
+            post_tool_failure = {
+                "phase": "human_required_adjudication", "status": "failed", "error": str(exc),
             }
     # Plan 024 §A — score each judge against accumulated ground truth so the
     # cheap-tier judgment is measured, not assumed. Read-only join over the
@@ -660,6 +676,7 @@ def run_enterprise_cycle(
         "pressure": pressure,
         "consensus_escalation": consensus_escalation,
         "lease_escalation": lease_escalation,
+        "human_required_adjudication": human_required_adjudication,
         "judge_calibration": judge_calibration,
         "proactive_priorities": proactive_priorities,
         "reflection": reflection,

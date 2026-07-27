@@ -355,6 +355,10 @@ class AdjudicationPublicApiPin(unittest.TestCase):
         "escalation_adjudicability",
         "fold_adjudication",
         "open_adjudication",
+        # ORPHAN-HIGH-450 — the production caller. Pinned here because the
+        # panel having no caller is what made ORPHAN-HIGH-426's fix inert,
+        # so dropping this export is a regression, not a cleanup.
+        "sweep_human_required_adjudications",
     })
 
     def test_all_matches_the_canonical_set_exactly(self) -> None:

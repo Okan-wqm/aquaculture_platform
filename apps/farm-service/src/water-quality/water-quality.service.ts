@@ -546,7 +546,7 @@ export class WaterQualityService {
         }
       }
 
-      // ek-g / FARM-MEDIUM-268: TOPLU giriş de aynı yeniden-fiyatlama
+      // ek-g / FARM-MEDIUM-273: TOPLU giriş de aynı yeniden-fiyatlama
       // yazıcısına iner. Eskiden yalnız tekil `create` recalc tetikliyordu;
       // operatörün 40 tankı tek formda girdiği sabah turu — yani sıcaklığın
       // gerçekten toplu güncellendiği tek akış — planları hiç güncellemiyordu.

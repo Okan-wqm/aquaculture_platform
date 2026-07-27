@@ -42,7 +42,7 @@ function mock<T>(impl: Partial<T>): T {
 
 describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
   const enqueue = jest.fn().mockResolvedValue(undefined);
-  // W5 (FARM-LOW-286): süpürme artık batch başına değil TOPLU okur.
+  // W5 (FARM-LOW-291): süpürme artık batch başına değil TOPLU okur.
   const getTargetFCRForBatches = jest.fn();
   const analyzeFCRTrendMany = jest.fn();
 
@@ -96,7 +96,7 @@ describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
     expect(critical).toMatchObject({ alertLevel: 'critical', currentFCR: 2 });
 
     // Trend TEK toplu çağrıyla ve yalnız eşiği aşan iki batch için sorgulandı
-    // (FARM-LOW-286: batch başına round-trip yok).
+    // (FARM-LOW-291: batch başına round-trip yok).
     expect(analyzeFCRTrendMany).toHaveBeenCalledTimes(1);
     expect(analyzeFCRTrendMany).toHaveBeenCalledWith(TENANT, ['b-warning', 'b-critical']);
     expect(getTargetFCRForBatches).toHaveBeenCalledTimes(1);

@@ -1,5 +1,5 @@
 /**
- * W5 gün özeti doğruluk pinleri (FARM-MEDIUM-251 / M-7).
+ * W5 gün özeti doğruluk pinleri (FARM-MEDIUM-256 / M-7).
  *
  * Denetimin üç ayağı:
  *  (a) özet `CURRENT_DATE` (DB oturum zonu = UTC) ile sorguluyordu — UTC'nin

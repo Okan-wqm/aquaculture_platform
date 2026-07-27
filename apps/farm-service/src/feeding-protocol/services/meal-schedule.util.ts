@@ -133,7 +133,7 @@ export function localDayBoundsUtc(
 }
 
 /**
- * Öğünün penceresi geçti mi — SAF, TEK tanım (FARM-MEDIUM-251).
+ * Öğünün penceresi geçti mi — SAF, TEK tanım (FARM-MEDIUM-256).
  *
  * Sabah süpürmesi ve akşam özeti bu YARDIMCIYI paylaşır. Eskiden özet
  * `status = 'missed'` sayıyordu; damgayı ertesi sabahki süpürme bastığı için

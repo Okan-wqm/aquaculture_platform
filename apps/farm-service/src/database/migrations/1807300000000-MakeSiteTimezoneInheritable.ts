@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
- * MakeSiteTimezoneInheritable (W5 — FARM-LOW-259)
+ * MakeSiteTimezoneInheritable (W5 — FARM-LOW-264)
  *
  * `sites.timezone` `NOT NULL DEFAULT 'UTC'` idi: "saat dilimi belirtilmemiş"
  * ile "saat dilimi UTC" aynı satır değeriyle temsil ediliyor, dolayısıyla

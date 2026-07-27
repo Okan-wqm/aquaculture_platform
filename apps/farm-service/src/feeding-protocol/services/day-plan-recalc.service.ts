@@ -186,7 +186,7 @@ export class DayPlanRecalcService {
       }
       dayPlan.status = FeedingDayPlanStatus.CANCELLED;
       // `plannedTotalKg` iptal edilen öğünlerin kg'ını taşımaya DEVAM
-      // edemez (FARM-MEDIUM-251/M-7c): gün özeti planlanan-vs-gerçekleşen
+      // edemez (FARM-MEDIUM-256/M-7c): gün özeti planlanan-vs-gerçekleşen
       // varyansını bu alandan hesaplıyor ve tam hasat edilen tank her akşam
       // "%100 az beslendi" diye raporlanıyordu. Plan artık yalnız GERÇEKTEN
       // kapanmış öğünlerin planını taşır.

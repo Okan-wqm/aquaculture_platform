@@ -53,7 +53,12 @@ export type RecalcReason = RecalcLogEntry['reason'];
 
 export interface RecalcResult {
   dayPlanId: string;
-  outcome: 'repriced' | 'cancelled_empty_unit' | 'no_active_plan';
+  outcome:
+    | 'repriced'
+    | 'cancelled_empty_unit'
+    | 'no_active_plan'
+    /** Balık var ama biyokütle 0 — plan iptal EDİLMEZ (FARM-HIGH-246). */
+    | 'biomass_inconsistent';
   transitioned: boolean;
   remainingPlannedKg: number;
 }
@@ -67,6 +72,30 @@ export class DayPlanRecalcService {
     // Band/oran/FCR çözümünün TEK sahibi (W3).
     private readonly resolutionService: ProtocolResolutionService,
   ) {}
+
+  /**
+   * Birden çok üniteyi TEK çağrıda, unitId'ye göre SIRALI olarak yeniden
+   * hesaplar (FARM-MEDIUM-275).
+   *
+   * Transfer iki ünitenin gün planını da değiştirir ve eski hâl kilitleri
+   * PAYLOAD sırasıyla alıyordu: karşılıklı T1→T2 / T2→T1 transferleri yeni
+   * bir AB-BA penceresi açıyordu. Sıralamayı çağırana bırakmak yerine servis
+   * garanti eder — çağıran unutamaz (tier-2).
+   */
+  async recalcForUnits(
+    manager: EntityManager,
+    tenantId: string,
+    unitIds: string[],
+    reason: RecalcReason,
+    opts?: { newTemperatureC?: number | null },
+  ): Promise<Array<RecalcResult | null>> {
+    const ordered = [...new Set(unitIds)].sort();
+    const results: Array<RecalcResult | null> = [];
+    for (const unitId of ordered) {
+      results.push(await this.recalcForUnit(manager, tenantId, unitId, reason, opts));
+    }
+    return results;
+  }
 
   /**
    * Ünitenin AKTİF (planned/in_progress) en güncel planını yeniden hesaplar.
@@ -105,8 +134,35 @@ export class DayPlanRecalcService {
     const biomassKg = Number(tankBatch?.totalBiomassKg ?? 0);
     const avgWeightG = Number(tankBatch?.avgWeightG ?? 0);
 
+    // Biyokütle 0 ama balık VAR: bu bir veri tutarsızlığıdır, boş ünite
+    // DEĞİL (FARM-HIGH-246). Aşırı beyan edilen bir kg girişi biyokütleyi
+    // 0'a clamp'lediğinde, içinde 500 canlı balık olan tank "boşalmış"
+    // sayılıp planı iptal ediliyor, ataması PAUSED'a çekiliyor ve D-5
+    // süpürmesi yalnız aktif atamalara baktığı için ALARM DA üretmiyordu —
+    // tank biri elle fark edene kadar aç kalıyordu.
+    if (fishCount > 0 && biomassKg <= 0) {
+      this.logger.error(
+        `Data integrity: unit ${unitId} has ${fishCount} fish but ${biomassKg}kg biomass — ` +
+          'day plan left ACTIVE (an over-declared removal is the usual cause).',
+      );
+      this.appendRecalcLog(
+        dayPlan,
+        reason,
+        Number(dayPlan.plannedTotalKg),
+        biomassKg,
+        'biomass_inconsistent: fish present with zero biomass',
+      );
+      await manager.save(dayPlan);
+      return {
+        dayPlanId: dayPlan.id,
+        outcome: 'biomass_inconsistent',
+        transitioned: false,
+        remainingPlannedKg: Number(dayPlan.plannedTotalKg),
+      };
+    }
+
     // Boş ünite: kalan öğünler iptal, plan kapanır, atama otomatik pause.
-    if (fishCount <= 0 || biomassKg <= 0) {
+    if (fishCount <= 0) {
       for (const meal of remainingMeals) {
         meal.status = FeedingMealStatus.CANCELLED;
         await manager.save(meal);

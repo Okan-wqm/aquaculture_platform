@@ -63,7 +63,12 @@ describe('TransferBatchHandler', () => {
       createMockRepository() as any,
       mockOutboxPublisher as any,
       // P-31 recalc — mocked (day-plan-recalc.service.spec kapsıyor).
-      { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
+      // Çoklu ünite recalc'ı unitId-SIRALI olarak servis tarafından yürütülür
+      // (FARM-MEDIUM-275) — handler artık tek çağrı yapar.
+      {
+        recalcForUnit: jest.fn().mockResolvedValue(null),
+        recalcForUnits: jest.fn().mockResolvedValue([]),
+      } as never,
       // D-3 miktar çözümü — GERÇEK stateless politika (üretim davranışı).
       new RemovalQuantityPolicyService(),
       mockTankCapacityService as any,

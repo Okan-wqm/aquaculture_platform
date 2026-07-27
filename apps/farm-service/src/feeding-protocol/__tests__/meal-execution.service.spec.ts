@@ -9,7 +9,7 @@
  * yetkisi yazma içinde fail-closed doğrulanır (SEC-HIGH-051); skipMeal
  * scheduled dışını reddeder ve MealSkipped yazar.
  */
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 import {
@@ -84,6 +84,8 @@ const ENVELOPE = {
 
 interface HarnessOpts {
   receiptMode?: MobileCommandReceiptState;
+  /** T-1: site yetkisi REDDİ — mevcut spec bu yolu hiç çalıştırmıyordu. */
+  siteAuthRejects?: boolean;
   meal?: Partial<FeedingMeal>;
   openMealsAfter?: number;
   growthMode?: 'per_meal' | 'daily';
@@ -229,7 +231,13 @@ function makeHarness(opts: HarnessOpts = {}) {
     begin: receiptBegin,
     complete: receiptComplete,
   });
-  const siteAuth = mock<SiteAuthorizationService>({ assertSiteAssignment: jest.fn() });
+  const assertSiteAssignment = jest.fn();
+  if (opts.siteAuthRejects) {
+    assertSiteAssignment.mockImplementation(() => {
+      throw new ForbiddenException('Site kapsamı dışında');
+    });
+  }
+  const siteAuth = mock<SiteAuthorizationService>({ assertSiteAssignment });
   const lockUnitForGrowth = jest.fn();
   lockUnitForGrowth.mockImplementation(async () => lockedUnit);
   const applyGrowth = jest.fn();
@@ -413,6 +421,35 @@ describe('MealExecutionService.recordMealFeeding', () => {
     await harness.service.recordMealFeeding(baseParams({ finalize: true }));
     expect(harness.growthApplier.applyGrowth).not.toHaveBeenCalled();
     expect(harness.recalcService.recalcForUnit).not.toHaveBeenCalled();
+  });
+
+  it('SEC-HIGH-051: site yetkisi REDDEDERSE hiçbir yazım yapılmaz (T-1)', async () => {
+    // Mevcut spec yalnız "çağrıldı mı" iddiasını taşıyordu; assertion'ı stok
+    // düşümünün ALTINA taşısanız bile yeşil kalıyordu. Bu test reddi gerçekten
+    // çalıştırır ve ledger/growth/event'in HİÇBİRİNİN koşmadığını pinler.
+    const harness = makeHarness({ siteAuthRejects: true });
+
+    await expect(harness.service.recordMealFeeding(baseParams())).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+
+    expect(harness.feedingLedger.recordFeed).not.toHaveBeenCalled();
+    expect(harness.growthApplier.applyGrowth).not.toHaveBeenCalled();
+    expect(harness.enqueued).toHaveLength(0);
+  });
+
+  it('kanonik kilit sırasını korur: Batch/TankBatch → DayPlan → Meal (K-1, T-1)', async () => {
+    const harness = makeHarness();
+
+    await harness.service.recordMealFeeding(baseParams());
+
+    // Ünite kilidi (Batch asc → TankBatch) growth applier'da; ardından
+    // DayPlan → Meal. Ters sıra `skipMeal` ile AB-BA penceresi açardı.
+    expect(harness.growthApplier.lockUnitForGrowth).toHaveBeenCalledTimes(1);
+    const lockedEntities = harness.findOne.mock.calls
+      .filter((call) => (call[1] as { lock?: unknown }).lock !== undefined)
+      .map((call) => call[0]);
+    expect(lockedEntities).toEqual([FeedingDayPlan, FeedingMeal]);
   });
 
   it('rejects pours on a closed meal (only scheduled/partially_fed are feedable)', async () => {

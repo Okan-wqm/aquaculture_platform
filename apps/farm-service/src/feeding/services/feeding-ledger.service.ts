@@ -27,7 +27,7 @@
  *
  * @module Feeding/Services
  */
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 import { toEventIso, FeedingRecordedEvent, createBaseEvent } from '@platform/event-contracts';
@@ -36,6 +36,7 @@ import { FeedingRecord, FeedingMethod } from '../entities/feeding-record.entity'
 import { Batch } from '../../batch/entities/batch.entity';
 import { Feed } from '../../feed/entities/feed.entity';
 import { StockMovementService } from '../../storage/services/stock-movement.service';
+import { FeedAllocationService } from '../../storage/services/feed-allocation.service';
 import { MovementType } from '../../storage/entities/stock-movement.entity';
 import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
 import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
@@ -98,6 +99,8 @@ export class FeedingLedgerService {
     private readonly stockMovementService: StockMovementService,
     private readonly financeSettings: FinanceSettingsService,
     private readonly outboxPublisher: OutboxPublisher,
+    // Çok-lotlu FEFO tahsis motoru (FARM-CRITICAL-245).
+    private readonly feedAllocation: FeedAllocationService,
   ) {}
 
   /**
@@ -206,53 +209,161 @@ export class FeedingLedgerService {
     saved: FeedingRecord,
     params: RecordFeedParams,
   ): Promise<void> {
-    const location = await this.stockMovementService.resolveFeedDeductionLocation(
-      manager,
-      tenantId,
-      params.feedId,
-      params.feedingDate,
-      params.feedBatchNumber,
-      params.siteId,
-    );
-    if (!location) {
-      // Kanonik ledger'da kullanılabilir stok yok → 400 + tam rollback.
-      throw new BadRequestException(
-        params.feedBatchNumber
-          ? `Feed ${params.feedId} lot "${params.feedBatchNumber}" has no available storage stock ` +
-            `to deduct ${params.actualAmountKg}kg. Receive this lot into a storage location first.`
-          : `Feed ${params.feedId} has no available storage stock to deduct ${params.actualAmountKg}kg. ` +
-            `Receive feed into a storage location first.`,
-      );
-    }
-    if (location.usedSiteFallback) {
-      // D-9 belgeli fallback: sitede lot yok — tenant-geneli lot kullanıldı.
-      this.logger.warn(
-        `Feed deduction fell back to tenant-wide stock: no usable lot in site ` +
-          `${params.siteId} for feed ${params.feedId} (recordId=${saved.id}).`,
-      );
-    }
+    // ÇOK-LOTLU FEFO tahsisi (FARM-CRITICAL-245): yetersizlik kararı SATIRDAN
+    // değil HAVUZ TOPLAMINDAN verilir ve düşüm gerekirse birden çok lota
+    // kaskad eder. Eskiden tek satır seçiliyordu; 0.3 kg'lık artık lot,
+    // sitede 3000 kg varken 150 kg'lık öğünü komple reddediyordu.
+    const allocation = await this.feedAllocation.allocateForDeduction(manager, tenantId, {
+      feedId: params.feedId,
+      quantityKg: params.actualAmountKg,
+      asOf: params.feedingDate,
+      lotNumber: params.feedBatchNumber,
+      siteId: params.siteId,
+    });
 
-    const idempotencyKey =
+    const baseKey =
       params.mealId != null && params.pourIndex != null
         ? `meal-deduct-${params.mealId}-${params.pourIndex}`
         : `feeding-deduct-${saved.id}`;
 
-    await this.stockMovementService.recordMovement(
-      manager,
-      {
-        movementType: MovementType.OUT,
-        itemType: StorageItemType.FEED,
-        itemId: params.feedId,
-        quantity: params.actualAmountKg,
-        fromLocationId: location.storageLocationId,
-        lotNumber: location.lotNumber,
-        reference: `FEEDING: ${saved.id}`,
-        reason: 'Auto-deducted from feeding record (in-transaction).',
-        idempotencyKey,
-        movementDate: params.feedingDate,
-      },
-      { tenantId, userId, userName: 'Feeding' },
+    for (const [index, slice] of allocation.slices.entries()) {
+      // Tek dilimli tahsis ESKİ anahtarı birebir korur: cutover öncesi yazılmış
+      // düşümlerin replay'i hâlâ idempotent hit alır. Çok dilimli tahsis yeni
+      // bir durumdur, dolayısıyla ek indeks çakışma üretemez.
+      const idempotencyKey = index === 0 ? baseKey : `${baseKey}-${index}`;
+      await this.stockMovementService.recordMovement(
+        manager,
+        {
+          movementType: MovementType.OUT,
+          itemType: StorageItemType.FEED,
+          itemId: params.feedId,
+          quantity: slice.quantityKg,
+          fromLocationId: slice.storageLocationId,
+          lotNumber: slice.lotNumber,
+          reference: `FEEDING: ${saved.id}`,
+          reason: 'Auto-deducted from feeding record (in-transaction).',
+          idempotencyKey,
+          movementDate: params.feedingDate,
+        },
+        { tenantId, userId, userName: 'Feeding' },
+      );
+    }
+  }
+
+  /**
+   * Yem düzeltmesinin stok ayağı — TEK uygulama (FARM-MEDIUM-253/254,
+   * FARM-HIGH-248). Hem `correctMealPour` hem `updateFeedingRecord` buradan
+   * geçer; iki kopya idempotency, lot seçimi ve iade kurallarında sapardı.
+   *
+   *  - Ön koşul "feed'in ŞU AN storage satırı var mı" DEĞİL, "bu kayıt için OUT
+   *    hareketi yazıldı mı"dır: lot tükenip satır silindiğinde eski kontrol
+   *    iadeyi SESSİZCE atlıyordu.
+   *  - Yukarı düzeltme çok-lotlu FEFO tahsisinden geçer (havuz toplamı kararı).
+   *  - Aşağı düzeltme LIFO: en son çekilen lottan başlayarak iade edilir ve
+   *    lot dağılımı korunur (eski hâl her zaman "orijinal" tek harekete iade
+   *    edip expiry'siz hayalet lot satırı doğuruyordu).
+   */
+  async applyStockCorrection(
+    manager: EntityManager,
+    tenantId: string,
+    userId: string,
+    params: {
+      feedId: string;
+      deltaKg: number;
+      siteId?: string;
+      /** Orijinal düşümün idempotency anahtar KÖKÜ (dilimler `-1`, `-2` …). */
+      deductionKeyBase: string;
+      /** Bu düzeltmenin idempotency anahtarı (revizyon dahil). */
+      correctionKey: string;
+      reference: string;
+    },
+  ): Promise<void> {
+    if (params.deltaKg === 0) return;
+
+    const deductions: Array<{
+      fromLocationId: string | null;
+      lotNumber: string | null;
+      quantity: string | number;
+    }> = await manager.query(
+      `SELECT "from_location_id" AS "fromLocationId",
+              "lot_number"       AS "lotNumber",
+              quantity
+         FROM "stock_movements"
+        WHERE "tenant_id" = $1
+          AND ("idempotency_key" = $2 OR "idempotency_key" LIKE $2 || '-%')
+          AND "movement_type" = 'OUT'
+        ORDER BY "idempotency_key" ASC`,
+      [tenantId, params.deductionKeyBase],
     );
+
+    if (deductions.length === 0) {
+      this.logger.warn(
+        `No OUT movement recorded for ${params.deductionKeyBase} — storage correction skipped ` +
+          '(Phase-A feed, no ledger footprint).',
+      );
+      return;
+    }
+
+    if (params.deltaKg > 0) {
+      const allocation = await this.feedAllocation.allocateForDeduction(manager, tenantId, {
+        feedId: params.feedId,
+        quantityKg: params.deltaKg,
+        asOf: new Date(),
+        siteId: params.siteId,
+      });
+      for (const [index, slice] of allocation.slices.entries()) {
+        await this.stockMovementService.recordMovement(
+          manager,
+          {
+            movementType: MovementType.OUT,
+            itemType: StorageItemType.FEED,
+            itemId: params.feedId,
+            quantity: slice.quantityKg,
+            fromLocationId: slice.storageLocationId,
+            lotNumber: slice.lotNumber,
+            reference: params.reference,
+            reason: 'Feeding correction — upward (in-transaction).',
+            idempotencyKey: index === 0 ? params.correctionKey : `${params.correctionKey}-${index}`,
+            movementDate: new Date(),
+          },
+          { tenantId, userId, userName: 'Feeding' },
+        );
+      }
+      return;
+    }
+
+    let remaining = Math.abs(params.deltaKg);
+    const lifo = [...deductions].reverse();
+    for (const [index, movement] of lifo.entries()) {
+      if (remaining <= 0) break;
+      if (!movement.fromLocationId) continue;
+      const giveBack = Math.min(remaining, Number(movement.quantity));
+      if (giveBack <= 0) continue;
+      await this.stockMovementService.recordMovement(
+        manager,
+        {
+          movementType: MovementType.IN,
+          itemType: StorageItemType.FEED,
+          itemId: params.feedId,
+          quantity: giveBack,
+          toLocationId: movement.fromLocationId,
+          lotNumber: movement.lotNumber ?? undefined,
+          reference: params.reference,
+          reason: 'Feeding correction — LIFO return to the drawn lots.',
+          idempotencyKey: index === 0 ? params.correctionKey : `${params.correctionKey}-r${index}`,
+          movementDate: new Date(),
+        },
+        { tenantId, userId, userName: 'Feeding' },
+      );
+      remaining -= giveBack;
+    }
+
+    if (remaining > 0.001) {
+      // Düşülenden fazla iade istenemez — sessiz kısmi iade yerine fail-closed.
+      throw new ConflictException(
+        `İade miktarı bu kaydın düşümlerini aşıyor (${params.deductionKeyBase}, kalan ${remaining}kg)`,
+      );
+    }
   }
 
   /** C-16: maliyet TÜM çağıranlar için burada — finans eksik saymaz. */

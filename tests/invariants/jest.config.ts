@@ -112,6 +112,7 @@ export default {
         '<rootDir>/admin-api-schema-boundaries.spec.ts',
         '<rootDir>/admin-no-auth-tenants-writes.spec.ts',
         '<rootDir>/eslint-rule-presence.spec.ts',
+        '<rootDir>/production-graph-purity.spec.ts',
         '<rootDir>/ssrf-safe-fetch-ssot.spec.ts',
         '<rootDir>/eslint-disable-annotation-positional-binding.spec.ts',
         '<rootDir>/no-direct-getrepository-call.spec.ts',

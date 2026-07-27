@@ -39330,7 +39330,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "c5613a2495f6e62df76beeb3edccb720635135e7df20a8e0d2fb2abc08b6d9d0",
+      "content_sha256": "a7e564d2bc438666fdc32eb127568cc355b6b8065f1b988a34c61499ea136a07",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -41826,6 +41826,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/production-graph-purity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/production-ops-proof-contract.spec.ts",
       "prettier_managed": true
     },
@@ -42457,6 +42463,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/eslint-rules/package.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/eslint-rules/project.json",
       "prettier_managed": true
     },
     {
@@ -54858,10 +54870,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8992,
+  "file_count": 8994,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8811,
-  "managed_file_list_sha256": "21574fe74dbbc8b5c4c3716523a45bf7ee3705c9b829aaf373030c7c7620aa9b",
+  "managed_count": 8813,
+  "managed_file_list_sha256": "780affacb9000bc99b8c42d8fbc279460dc3844d3de40891a9b083125736af16",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -10,17 +10,23 @@
 
 ## Summary
 
-The `security-audit` job reported four advisory groups. Fixing the tree so it resolves
-honestly expanded that to **ten** high findings, of which **nine are closed here**. The tenth
-is blocked upstream and is registered separately as `INFRA-HIGH-081`.
+The `security-audit` job reported four advisory groups. Fixing the tree so it resolves honestly
+expanded that to **ten** high findings. **All ten are closed here** and the gate reaches
+`exit 0` — nine by dependency floors (`INFRA-HIGH-080`), the tenth by correcting a dependency
+_classification_ rather than a version (`INFRA-HIGH-081`).
 
-| Advisory                                                    | Vulnerable range                         | Reachable via           | Outcome                               |
-| ----------------------------------------------------------- | ---------------------------------------- | ----------------------- | ------------------------------------- |
-| `brace-expansion` DoS                                       | `<=5.0.7`                                | minimatch (all lines)   | closed for every line except eslint@9 |
-| `fast-uri` host confusion                                   | `3.0.0 - 3.1.3`                          | `ajv`                   | closed — floor `^3.1.4`               |
-| `postcss` sourceMappingURL path traversal                   | `<=8.5.17`                               | `sanitize-html`, `vite` | closed — floor `^8.5.23`              |
-| `sharp` inherited libvips CVEs                              | `<0.35.0`                                | direct dependency       | closed — `^0.35.3`                    |
-| `minimatch` / `glob` / `rimraf` / `gaxios` / `gcp-metadata` | (all transitively via `brace-expansion`) | see below               | closed                                |
+`INFRA-HIGH-081` was first recorded as blocked upstream until eslint 10. **That was wrong**, and the
+correction is documented in its section below rather than silently replaced, because the error was
+in the search and not in the arithmetic: one reclassification mechanism was tested, failed, and got
+generalised into "reclassification cannot work."
+
+| Advisory                                                    | Vulnerable range                         | Reachable via           | Outcome                                                                                         |
+| ----------------------------------------------------------- | ---------------------------------------- | ----------------------- | ----------------------------------------------------------------------------------------------- |
+| `brace-expansion` DoS                                       | `<=5.0.7`                                | minimatch (all lines)   | closed — floor `^5.0.8` for minimatch@^10; the eslint@9 line left the production graph entirely |
+| `fast-uri` host confusion                                   | `3.0.0 - 3.1.3`                          | `ajv`                   | closed — floor `^3.1.4`                                                                         |
+| `postcss` sourceMappingURL path traversal                   | `<=8.5.17`                               | `sanitize-html`, `vite` | closed — floor `^8.5.23`                                                                        |
+| `sharp` inherited libvips CVEs                              | `<0.35.0`                                | direct dependency       | closed — `^0.35.3`                                                                              |
+| `minimatch` / `glob` / `rimraf` / `gaxios` / `gcp-metadata` | (all transitively via `brace-expansion`) | see below               | closed                                                                                          |
 
 ---
 
@@ -128,9 +134,19 @@ reproduce at `bdaf00bf` with the diff stashed, so they are pre-existing and unre
 
 ---
 
-## INFRA-HIGH-081 — `brace-expansion` stays reachable through eslint@9; blocked on eslint 10
+## INFRA-HIGH-081 — `brace-expansion` reachable through eslint@9 — RESOLVED by reclassification
 
-`brace-expansion@1.1.15` remains under `eslint`, `@eslint/eslintrc` and `@eslint/config-array`.
+> **This section's original conclusion was WRONG and is corrected below.** It stated the advisory
+> was blocked upstream until eslint 10. The version analysis in it is accurate and still stands —
+> `brace-expansion` genuinely cannot be floored under eslint 9. What was wrong was the claim that
+> this left no remedy. The remedy is not a version bump at all: eslint had no business being in the
+> production graph in the first place. The wrong reasoning is kept visible rather than deleted,
+> because the error was in the _search_ — one reclassification mechanism was tested, failed, and
+> was generalised into "reclassification cannot work".
+
+### The version analysis (unchanged, still correct)
+
+`brace-expansion@1.1.15` sits under `eslint`, `@eslint/eslintrc` and `@eslint/config-array`.
 It cannot be floored there:
 
 - the only unaffected release is `5.0.8`, whose export is an object;
@@ -160,9 +176,70 @@ eslint-10-compatible release at all:
 Forcing eslint 10 past three unsatisfied peers is the "override that breaks the build" this work
 exists to avoid.
 
-**Unblock condition:** `eslint-plugin-import`, `eslint-plugin-jsx-a11y` and `eslint-plugin-react`
-ship releases declaring an eslint-10 peer. The migration must also re-baseline
-`tools/lint-gates/eslintrc-flat-parity.spec.ts`, which pins a golden ESLint-8 resolved rule map.
+So the eslint 10 route remains genuinely blocked, and is **not** the route taken. It stays recorded
+because it is the route a reader will otherwise try. (`eslint-plugin-react-hooks` has since shipped
+7.1.1 with an `^10.0.0` peer, so the blocker is now three plugins, not four.)
+
+### What actually resolved it: the graph was misclassified, not the version
+
+The advisory was only ever _in_ the production graph because of two manifest defects, neither of
+which is a version:
+
+1. **`tools/eslint-rules` and `tools/executors/cargo` were npm `workspaces`.** npm has no notion of
+   a dev workspace — every workspace edge is unconditionally production — so the entire eslint and
+   typescript-eslint toolchain was a production dependency of a repo that ships none of it.
+2. **`vite-plugin-svgr` sat in `dependencies`**, dragging `vite`, `rollup`, `esbuild` and `terser`
+   into the production graph. Its only consumer, `web/modules/sensor-module`, already declares it as
+   a devDependency.
+
+Removing the two workspace entries, declaring both packages as `file:` devDependencies, and moving
+`vite-plugin-svgr` to `devDependencies` takes the gate to **exit 0**. Also dropped
+`@anthropic-ai/claude-agent-sdk`, which has zero importers repo-wide (`@anthropic-ai/sdk` is a
+different package, imported at `apps/ai-service/src/agent/providers/anthropic.provider.ts:3`, and is
+kept).
+
+Measured on this checkout — the point being that **nothing was upgraded**:
+
+| Measure                                   | Before | After                                                            |
+| ----------------------------------------- | ------ | ---------------------------------------------------------------- |
+| `npm audit --audit-level=high --omit=dev` | exit 1 | **exit 0**                                                       |
+| production high/critical advisories       | 1      | **0**                                                            |
+| production dependency count               | 1627   | **1477**                                                         |
+| resolved version changes                  | —      | **0**                                                            |
+| lock nodes added                          | —      | **0**                                                            |
+| lock nodes removed                        | —      | 9 (all `@anthropic-ai/claude-agent-sdk` + its platform binaries) |
+| `dev` flag flips                          | —      | 210                                                              |
+
+This is strictly _more_ truthful, not less. eslint is build-time-only; the reclassified graph says
+so, and `--omit=dev` now answers the question it was written to answer.
+
+**Why the earlier rejection was not evidence.** The rejected experiment set
+`peerDependenciesMeta.eslint.optional` on `tools/eslint-rules`. That fails because
+`@typescript-eslint/utils` declares eslint as a required peer of its own, and npm links a present
+optional peer anyway. Removing the **workspace edge** is a different mechanism entirely, and it does
+not touch a single peer range. One failed mechanism was generalised into a whole rejected category —
+that is the actual defect in the earlier analysis.
+
+**Locked in, not just fixed** (tier 3): `tests/invariants/production-graph-purity.spec.ts` reads the
+`dev` flags in `package-lock.json` — the artifact `npm ci --omit=dev` actually obeys — and asserts
+no node resolving to eslint / typescript-eslint / vite / rollup / esbuild / terser / jest / nx / tsx
+/ prettier is production-flagged, that neither tooling path is a workspace, and that both remain
+installed as dev `file:` deps. It reads the lockfile rather than shelling out to `npm ls` so it is
+hermetic, deterministic and runnable before any install. Verified to fail against the pre-fix
+manifests (12 failures) and pass after (20/20).
+
+Note `npm ci --omit=dev --dry-run` is unusable as an exit criterion: on npm 10.9.7 it ignores
+`--omit=dev` in its reported diff.
+
+### Also closed here: `security-audit` could be dropped from the merge contract unnoticed
+
+`.github/manifests/main-required-status-checks.json` listed 9 `requires_jobs` for `merge-gate` and
+omitted `security-audit`, while `tools/gates/required-status-checks.ts` only verifies that _listed_
+jobs are present in the workflow's `needs:`. There is no reverse check, so the only PR-blocking
+dependency audit could be deleted from `merge-gate` and the contract gate would still pass. Adding
+the entry closes it. Verified both directions: the gate prints `static contract ok` on the committed
+tree, and `missing needs entry security-audit` (exit 1) when the `needs:` line is removed — which
+passed silently before.
 
 ### Options considered and rejected
 
@@ -172,11 +249,11 @@ ship releases declaring an eslint-10 peer. The migration must also re-baseline
   the cross-check exists, and the CI job runs raw `npm audit` rather than that gate. Building an
   allowlist mechanism and re-pointing a security gate at it, inside a dependency PR, is a change
   to a control's authority and is not made here.
-- **Reclassify the lint plugin's dependencies** so eslint leaves the `--omit=dev` graph.
-  `tools/eslint-rules` is genuinely build-time tooling — its only import is
-  `@typescript-eslint/utils` and its only consumer is the repo's own `eslint.config.mjs` — so the
-  classification argument is real. It was tested: marking the eslint peer optional is not
-  sufficient (`@typescript-eslint/utils` declares eslint as a required peer of its own), and npm
-  links an optional peer that is present anyway. Making it work needs the plugin's runtime
-  dependency moved to an optional peer too, at which point the change is shaping a manifest to
-  move an advisory out of a report rather than to describe the software. Not done.
+- **`peerDependenciesMeta.optional` on the eslint peer.** Rejected on evidence and still rejected:
+  `@typescript-eslint/utils` declares eslint as a required peer of its own, and npm links a present
+  optional peer regardless. Superseded by removing the workspace edge, which is a different
+  mechanism — see above. Recorded so it is not retried.
+- **Migrating eslint 9 → 10.** Not done, and no longer needed for this advisory. Three of the six
+  lint plugins in use still have no eslint-10-compatible release, and the migration would additionally
+  have to re-baseline `tools/lint-gates/eslintrc-flat-parity.spec.ts`, which pins a golden ESLint-8
+  resolved rule map. Worth doing on its own merits, on its own schedule.

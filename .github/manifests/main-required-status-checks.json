@@ -61,6 +61,7 @@
             "type-check",
             "test",
             "build",
+            "security-audit",
             "sensor-service-gates",
             "sens-api-gateway-rust",
             "sens-enterprise-validation"

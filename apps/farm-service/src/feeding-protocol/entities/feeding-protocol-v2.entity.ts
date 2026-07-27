@@ -164,6 +164,23 @@ export interface ProtocolSettings {
   };
   minFeedingRatePercent?: number;
   maxFeedingRatePercent?: number;
+  /**
+   * Kaçırılan/atlanan öğünün kg'ının yüzde kaçı kalan öğünlere dağıtılsın
+   * (W5, kullanıcı kararı 3). **Varsayılan 0 = dağıtım YOK**: bir öğün
+   * kaçtığında kalan öğünlerin `plannedKg`'ı DEĞİŞMEZ. Balığın sindirim
+   * kapasitesi sabittir; kaçan öğünü sonrakilere yüklemek aşırı besleme,
+   * yem israfı ve su kalitesi bozulması demektir — telafi bilinçli bir
+   * operasyonel karardır, sessiz bir varsayılan değil.
+   * 0–100 arası clamp'lenir.
+   */
+  missedMealCatchUpPercent?: number;
+  /**
+   * Sensör sıcaklığındaki bu eşiği (°C) aşan sapma, gün-içi planı yeniden
+   * fiyatlar (W5, keşif-7). Varsayılan 1.5 °C; daha küçük sapmalar için
+   * yeniden hesap yapılmaz (her okuma recalc tetikleseydi 15 dk'lık süpürme
+   * tenant başına yüzlerce kilit alırdı).
+   */
+  temperatureRecalcThresholdC?: number;
 }
 
 // ============================================================================

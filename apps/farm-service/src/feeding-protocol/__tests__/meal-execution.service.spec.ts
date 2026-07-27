@@ -245,7 +245,10 @@ function makeHarness(opts: HarnessOpts = {}) {
   const growthApplier = mock<BiomassGrowthApplierService>({ lockUnitForGrowth, applyGrowth });
   const recalcForUnit = jest.fn();
   recalcForUnit.mockResolvedValue(null);
-  const recalcService = mock<DayPlanRecalcService>({ recalcForUnit });
+  // W5: `skipMeal` telafi dağıtımını çağırır; varsayılan yüzde 0 olduğu için
+  // kalan öğünlere hiçbir kg eklenmez (davranış spec ile pinli).
+  const applyMissedCatchUp = jest.fn().mockResolvedValue(0);
+  const recalcService = mock<DayPlanRecalcService>({ recalcForUnit, applyMissedCatchUp });
   const recordFeed = jest.fn();
   recordFeed.mockImplementation(async () => mock({ id: 'rec-1' }));
   // Düzeltmenin stok ayağı ledger'da TEK uygulama (FARM-MEDIUM-253/254):

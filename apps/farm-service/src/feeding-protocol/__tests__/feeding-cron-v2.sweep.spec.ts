@@ -8,7 +8,7 @@
  *  - Penceresi geçmemiş öğünlere dokunulmaz; missed işaretleme MealMissed
  *    event'ini toplu yüklenen day-plan'ın unitCode'uyla yazar.
  */
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource, EntityManager, SelectQueryBuilder } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 
 import { FeedingCronV2Service } from '../services/feeding-cron-v2.service';
@@ -16,6 +16,8 @@ import { MealPlanGeneratorService } from '../services/meal-plan-generator.servic
 import { BiomassGrowthApplierService } from '../services/biomass-growth-applier.service';
 import { ProtocolFeedForecastService } from '../services/protocol-feed-forecast.service';
 import { DayPlanRecalcService } from '../services/day-plan-recalc.service';
+import { FeedingClockService } from '../services/feeding-clock.service';
+import { FeedingJobRunService } from '../services/feeding-job-run.service';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
@@ -39,6 +41,8 @@ declare global {
 }
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
+/** W5: süpürme artık tenant'ın YEREL gün bağlamını alır (D-B4). */
+const CLOCK = FeedingClockService.clockIn('UTC', new Date());
 const OVERDUE = new Date(Date.now() - 7 * 60 * 60 * 1000);
 const FRESH = new Date();
 
@@ -57,13 +61,40 @@ function makeHarness(fixture: SweepFixture) {
   const enqueued: Array<{ eventType: string; unitCode?: string }> = [];
 
   const find = jest.fn();
-  find.mockImplementation(async (entity: unknown, options: { where?: { status?: string } }) => {
-    if (entity === FeedingMeal) {
-      return fixture.meals.filter((meal) => meal.status === options?.where?.status);
-    }
+  find.mockImplementation(async (entity: unknown) => {
     if (entity === FeedingDayPlan) return fixture.dayPlans;
     if (entity === FeedingProtocolV2) return fixture.protocols;
     return [];
+  });
+
+  /**
+   * W5 (FARM-MEDIUM-285): aday öğünler artık `manager.find` ile TÜMÜ belleğe
+   * alınıp JS'te süzülmüyor — cutoff ve sayfa tavanı DB tarafında. Harness bu
+   * yüzden QueryBuilder zincirini taklit eder ve `status`/`cutoff`
+   * parametrelerini gerçek sorgudan okur.
+   */
+  const createQueryBuilder = jest.fn((entity: unknown): SelectQueryBuilder<FeedingMeal> => {
+    const state: { status?: string; cutoff?: Date } = {};
+    const builder: SelectQueryBuilder<FeedingMeal> = mock<SelectQueryBuilder<FeedingMeal>>({
+      where: () => builder,
+      andWhere: (_condition: string, params?: Record<string, unknown>) => {
+        if (typeof params?.status === 'string') state.status = params.status;
+        if (params?.cutoff instanceof Date) state.cutoff = params.cutoff;
+        return builder;
+      },
+      orderBy: () => builder,
+      addOrderBy: () => builder,
+      take: () => builder,
+      getMany: async () =>
+        entity === FeedingMeal
+          ? (fixture.meals.filter(
+              (meal) =>
+                meal.status === state.status &&
+                (!state.cutoff || (meal.scheduledAt as Date) < state.cutoff),
+            ) as FeedingMeal[])
+          : [],
+    });
+    return builder;
   });
   const save = jest.fn();
   save.mockImplementation(async (entity: { id?: string }) => {
@@ -75,7 +106,14 @@ function makeHarness(fixture: SweepFixture) {
   // sayımı üzerinden) — plan `in_progress`'te asılı kalmaz.
   const count = jest.fn().mockResolvedValue(0);
   const update = jest.fn().mockResolvedValue({ affected: 1 });
-  const manager = mock<EntityManager>({ find, save, query, count, update });
+  const manager = mock<EntityManager>({
+    find,
+    save,
+    query,
+    count,
+    update,
+    createQueryBuilder: createQueryBuilder as EntityManager['createQueryBuilder'],
+  });
   globalThis.__sweepManager = manager;
 
   const lockUnitForGrowth = jest.fn();
@@ -84,6 +122,7 @@ function makeHarness(fixture: SweepFixture) {
     return { tankBatch: { tankId: unitId }, batches: new Map(), details: [] };
   });
   const applyGrowth = jest.fn().mockResolvedValue(undefined);
+  const applyMissedCatchUp = jest.fn().mockResolvedValue(0);
   const growthApplier = mock<BiomassGrowthApplierService>({ lockUnitForGrowth, applyGrowth });
 
   const service = new FeedingCronV2Service(
@@ -99,10 +138,25 @@ function makeHarness(fixture: SweepFixture) {
       }),
     }),
     mock<ProtocolFeedForecastService>({}),
-    mock<DayPlanRecalcService>({ recalcForUnit: jest.fn() }),
+    mock<DayPlanRecalcService>({
+      recalcForUnit: jest.fn(),
+      // W5: telafi varsayılan olarak KAPALI (yüzde 0) — çağrı yapılır ama
+      // kalan öğünlerin plannedKg'ı değişmez.
+      applyMissedCatchUp: applyMissedCatchUp as DayPlanRecalcService['applyMissedCatchUp'],
+    }),
+    mock<FeedingClockService>({}),
+    mock<FeedingJobRunService>({}),
   );
 
-  return { service, callOrder, enqueued, lockUnitForGrowth, applyGrowth, save };
+  return {
+    service,
+    callOrder,
+    enqueued,
+    lockUnitForGrowth,
+    applyGrowth,
+    save,
+    applyMissedCatchUp,
+  };
 }
 
 describe('FeedingCronV2Service.sweepTenant (05:30)', () => {
@@ -132,7 +186,7 @@ describe('FeedingCronV2Service.sweepTenant (05:30)', () => {
       protocols: [{ id: 'p-1', settings: { growthApplicationMode: 'per_meal' } } as never],
     });
 
-    await harness.service.sweepTenant(TENANT);
+    await harness.service.sweepTenant(TENANT, CLOCK);
 
     expect(meal.status).toBe(FeedingMealStatus.FED);
     expect(meal.varianceKg).toBeCloseTo(-4);
@@ -173,7 +227,7 @@ describe('FeedingCronV2Service.sweepTenant (05:30)', () => {
       protocols: [{ id: 'p-2', settings: { growthApplicationMode: 'daily' } } as never],
     });
 
-    await harness.service.sweepTenant(TENANT);
+    await harness.service.sweepTenant(TENANT, CLOCK);
 
     expect(meal.status).toBe(FeedingMealStatus.FED);
     // FARM-MEDIUM-276: ünite kilidi öğün yazımından ÖNCE, KOŞULSUZ alınır.
@@ -216,7 +270,7 @@ describe('FeedingCronV2Service.sweepTenant (05:30)', () => {
       protocols: [{ id: 'p-1', settings: { growthApplicationMode: 'per_meal' } } as never],
     });
 
-    await harness.service.sweepTenant(TENANT);
+    await harness.service.sweepTenant(TENANT, CLOCK);
 
     expect(freshMeal.status).toBe(FeedingMealStatus.SCHEDULED);
     expect(missedMeal.status).toBe(FeedingMealStatus.MISSED);

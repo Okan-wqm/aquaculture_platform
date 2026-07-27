@@ -144,7 +144,14 @@ export interface RecalcLogEntry {
     /** correctMealPour düzeltmesi sonrası growth-delta recalc'ı (C-11). */
     | 'pour_correction'
     /** Operatörün `transitionUnitFeed` ile yaptığı manuel yem geçişi. */
-    | 'manual_transition';
+    | 'manual_transition'
+    /**
+     * Kaçırılan/atlanan öğünün kg'ının bir KISMININ kalan öğünlere
+     * dağıtılması (W5, kullanıcı kararı 3). Varsayılan yüzde 0'dır: kaçan
+     * öğün kg'ı OTOMATİK dağıtılmaz — bu gerekçe yalnız tenant açıkça telafi
+     * yüzdesi tanımladığında görülür.
+     */
+    | 'missed_catchup';
   /** Yeniden hesap sonrası kalan öğünlerin toplam planlanan kg'ı. */
   remainingPlannedKg: number;
   biomassKg?: number;

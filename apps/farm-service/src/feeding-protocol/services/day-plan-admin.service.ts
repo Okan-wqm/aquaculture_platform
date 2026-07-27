@@ -39,7 +39,7 @@ import { Feed } from '../../feed/entities/feed.entity';
 import { MealPlanGeneratorService, mixedTankStats } from './meal-plan-generator.service';
 import { DayPlanRecalcService } from './day-plan-recalc.service';
 import { ProtocolResolutionService } from './protocol-resolution.service';
-import { calendarDayIn } from './meal-schedule.util';
+import { FeedingClockService } from './feeding-clock.service';
 import { collectFeedSourceFeedIds, buildFeedFcrMatrixMap } from './feed-fcr-source.util';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 
@@ -70,6 +70,9 @@ export class DayPlanAdminService {
     private readonly outboxPublisher: OutboxPublisher,
     // Band çözümü ağırlıktan — manuel geçiş de aynı SSoT'yi kullanır (W3).
     private readonly resolutionService: ProtocolResolutionService,
+    // Takvim/saat çözümünün TEK sahibi (W5, D-B4) — servisin kendi
+    // `timezoneFor` kopyası (site kolonu → 'UTC', tenant zonu YOK) silindi.
+    private readonly clock: FeedingClockService,
   ) {}
 
   async regenerateDayPlan(
@@ -146,7 +149,7 @@ export class DayPlanAdminService {
         },
         temperature,
         planDate,
-        timezone: await this.timezoneFor(manager, tenantId, assignment.siteId),
+        timezone: (await this.clock.siteZones(manager, tenantId)).zoneOf(assignment.siteId),
         feedFcrMatrixByFeedId: buildFeedFcrMatrixMap(feeds),
       });
       if (!computed) {
@@ -181,7 +184,6 @@ export class DayPlanAdminService {
   ): Promise<DayPlanAdminResult> {
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
-      const planDate = calendarDayInDefault();
 
       // Kanonik sıra: DayPlan → Meals → Assignment (recalc ile birebir).
       const dayPlan = await manager
@@ -279,7 +281,7 @@ export class DayPlanAdminService {
       this.logger.log(
         `Manual feed transition on unit ${unitId}: ${fromFeedId ?? 'none'} → ${toFeedId} ` +
           `(band ${bandIndex}) by ${userId}; ${remainingMeals.length} remaining meals updated` +
-          (dayPlan ? ` (plan ${dayPlan.id}, ${planDate})` : ''),
+          (dayPlan ? ` (plan ${dayPlan.id}, ${dayPlan.planDate})` : ''),
       );
       return { outcome: DayPlanAdminOutcome.TRANSITIONED, dayPlanId: dayPlan?.id };
     });
@@ -304,28 +306,11 @@ export class DayPlanAdminService {
     return assignment;
   }
 
-  private async timezoneFor(
-    manager: EntityManager,
-    tenantId: string,
-    siteId: string,
-  ): Promise<string> {
-    const rows: Array<{ timezone: string | null }> = await manager.query(
-      `SELECT timezone FROM "sites" WHERE "tenantId" = $1 AND id = $2`,
-      [tenantId, siteId],
-    );
-    return rows[0]?.timezone || 'UTC';
-  }
-
   private async planDateFor(
     manager: EntityManager,
     tenantId: string,
     siteId: string,
   ): Promise<string> {
-    return calendarDayIn(await this.timezoneFor(manager, tenantId, siteId));
+    return (await this.clock.resolve(manager, tenantId, siteId)).localDate;
   }
-}
-
-/** Geçiş loglaması için gün etiketi — UTC günü yeterli (bilgi amaçlı). */
-function calendarDayInDefault(): string {
-  return calendarDayIn('UTC');
 }

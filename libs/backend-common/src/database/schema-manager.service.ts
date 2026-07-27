@@ -391,6 +391,12 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'event_dlq',
       'tenant_erasure_audit',
       'farm_audit_logs',
+      // W5 saat/takvim altyapısı — ikisi de tenantId-ayrışımlı CROSS-TENANT
+      // ledger'dır, tenant şemalarına klonlanmaz:
+      //   tenant_localization — auth'tan projekte edilen saat dilimi/dil,
+      //   feeding_job_runs    — "tenant'ın yerel gününde tam bir kez" claim'i.
+      'tenant_localization',
+      'feeding_job_runs',
       ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
     ],
     // Reference tables are excluded from the source-schema write guard (the

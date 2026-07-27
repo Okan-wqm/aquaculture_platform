@@ -947,7 +947,17 @@ export interface UnfedUnitDetectedEvent extends BaseEvent {
   unitId: string;
   unitCode: string;
   siteId: string;
-  reason: 'no_assignment' | 'assignment_paused' | 'draft_protocol' | 'missing_protocol';
+  /**
+   * `biomass_inconsistent`: balık VAR ama biyokütle 0 — aşırı beyan edilmiş
+   * bir kg girişinin tipik izi (FARM-HIGH-246). Plan artık iptal edilmediği
+   * için ünite D-5 süpürmesinde de görünmezdi; bu gerekçe onu alarma taşır.
+   */
+  reason:
+    | 'no_assignment'
+    | 'assignment_paused'
+    | 'draft_protocol'
+    | 'missing_protocol'
+    | 'biomass_inconsistent';
   fishCount: number;
   biomassKg: number;
 }

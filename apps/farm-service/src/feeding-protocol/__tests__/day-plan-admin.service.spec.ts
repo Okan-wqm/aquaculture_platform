@@ -29,6 +29,7 @@ import { DayPlanAdminService } from '../services/day-plan-admin.service';
 import { MealPlanGeneratorService } from '../services/meal-plan-generator.service';
 import { DayPlanRecalcService } from '../services/day-plan-recalc.service';
 import { ProtocolResolutionService } from '../services/protocol-resolution.service';
+import { FeedingClockService } from '../services/feeding-clock.service';
 import { ProtocolRateService } from '../services/protocol-rate.service';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import {
@@ -198,6 +199,12 @@ function buildHarness(fixture: Fixture): {
     mock<OutboxPublisher>({ enqueue }),
     // Band çözümü ağırlıktan — manuel geçiş de tek SSoT'yi kullanır (W3).
     new ProtocolResolutionService(new ProtocolRateService()),
+    // W5: takvim/saat çözümü tek serviste (D-B4) — servisin kendi
+    // `timezoneFor` kopyası silindi.
+    mock<FeedingClockService>({
+      siteZones: jest.fn().mockResolvedValue({ tenantZone: 'UTC', zoneOf: () => 'UTC' }),
+      resolve: jest.fn().mockResolvedValue(FeedingClockService.clockIn('UTC')),
+    }),
   );
   return { service, computeDayPlan, persistDayPlan, recalcForUnit, enqueue, managerSave };
 }

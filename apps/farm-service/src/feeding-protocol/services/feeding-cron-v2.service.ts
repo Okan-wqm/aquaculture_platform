@@ -1,21 +1,32 @@
 /**
- * FeedingCronV2Service — öğün motorunun zamanlanmış işleri (Faz 5, plan §2 tablosu).
+ * FeedingCronV2Service — öğün motorunun zamanlanmış işleri (Faz 5 + W5).
  *
- * | 05:30 | DAILY growth rollup + dünkü beslenmemiş öğünler `missed` (+event) +
- * |       | bayat partially_fed öğünlerin otomatik finalize'ı (D-8) — per_meal |
- * |       | modda büyüme finalize'da uygulanır (FARM-MEDIUM-227), daily mod    |
- * |       | rollup'ta; ünite gruplu, kanonik kilit sırası (K-1)                |
- * | 06:00 | Tüm aktif atamalar için day plan + öğün üretimi (idempotent) +    |
- * |       | plansız-ünite tespiti — UnfedUnitDetected (D-5, sessiz aç kalma   |
- * |       | imkânsız)                                                         |
- * | 15dk  | MealWindowUpcoming — (tenant, tick) başına TOPLU (K-2, 500 cap +  |
- * |       | devam event'leri); `windowNotifiedAt` idempotent                  |
- * | 18:00 | FCR alert süpürmesi — İLK durable FCRAlert emisyonu (C-1); hedef  |
- * |       | P-14 zincirinden, eşikler legacy analyzeFCR ile birebir           |
- * | 20:00 | FeedingDailySummary (durable) + gün-seviyesi kronik az-atım       |
- * |       | süpürmesi — MealUnderfed(scope=day) (D-16)                        |
- * | Aylık | Retention: day plan + öğün 24 ay (K-16), mobil komut makbuzları  |
- * |       | 90 gün (NFR "Receipt büyümesi")                                   |
+ * ## Zamanlama mimarisi (W5 — FARM-LOW-259, kullanıcı kararı 3)
+ *
+ * Gün semantiği taşıyan işler artık SABİT bir zon altında (`Europe/Istanbul`)
+ * koşmaz. Tek bir **saatlik UTC tick'i** her tenant için yerel saati
+ * `FeedingClockService` ile çözer ve iş saati geldiğinde
+ * `feeding_job_runs`'a bir claim yazar; claim `(tenantId, jobName, localDate)`
+ * UNIQUE kısıtına çarptığı için "tenant'ın yerel gününde tam bir kez"
+ * garantisi DB tarafındadır (DST'de saatin tekrarlandığı gece de dahil).
+ * Başarısız veya sayfalama yüzünden yarım kalan koşu `succeeded` olmaz ve
+ * bir sonraki tick devam eder — sessiz gün kaybı yok.
+ *
+ * | Yerel saat | İş                                                          |
+ * |------------|-------------------------------------------------------------|
+ * | 05:00 | Sabah süpürmesi: dünün beslenmemiş öğünleri `missed` (+event),  |
+ * |       | bayat partially_fed finalize (D-8), DAILY growth rollup —       |
+ * |       | ünite gruplu, kanonik kilit sırası (K-1)                        |
+ * | 06:00 | Day plan + öğün üretimi (idempotent) + plansız-ünite tespiti    |
+ * |       | (UnfedUnitDetected, D-5)                                        |
+ * | 07:00 | Stok kapsama süpürmesi — forecast snapshot yenileme (K-10)      |
+ * | 18:00 | FCR alert süpürmesi — durable FCRAlert (C-1)                    |
+ * | 20:00 | FeedingDailySummary + gün-seviyesi az-atım (D-16)               |
+ *
+ * Gün semantiği OLMAYAN iki iş zon çözümüne ihtiyaç duymaz ve sabit kalır:
+ * 15 dk'lık öğün penceresi süpürmesi (timestamptz karşılaştırır; ayrıca
+ * sensör sıcaklık sapmasında gün-içi yeniden fiyatlama yapar) ve aylık
+ * retention temizliği (UTC).
  *
  * Ölçek disiplini (NFR): tenant'lar sıralı; tenant içinde 200'lük atama
  * sayfaları; sayfa başına SABİT sayıda toplu okuma (protokoller IN, TankBatch
@@ -73,7 +84,10 @@ import {
   type EffectiveTemperature,
 } from '../../water-quality/services/water-temperature.service';
 import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
-import { calendarDayIn } from './meal-schedule.util';
+import { calendarDayIn, isMealOverdue, MEAL_OVERDUE_GRACE_MINUTES } from './meal-schedule.util';
+import { FeedingClock, FeedingClockService } from './feeding-clock.service';
+import { DEFAULT_TENANT_TIMEZONE } from '../entities/tenant-localization.entity';
+import { FeedingJobRunService } from './feeding-job-run.service';
 import { collectFeedSourceFeedIds, buildFeedFcrMatrixMap } from './feed-fcr-source.util';
 import { ProtocolFeedForecastService } from './protocol-feed-forecast.service';
 import { DayPlanRecalcService } from './day-plan-recalc.service';
@@ -98,6 +112,41 @@ const RECEIPT_RETENTION_DAYS = 90;
  */
 const ROLLUP_LOOKBACK_DAYS = 35;
 const ROLLUP_BATCH_LIMIT = 500;
+/**
+ * Sabah süpürmesinin koşu başına öğün tavanı (FARM-MEDIUM-285). Eski hâl
+ * tenant'ın TÜM açık öğünlerini belleğe alıp cutoff'u JS'te uyguluyordu;
+ * 1000 üniteli bir tenant'ın birikmiş öğünleri tek koşuda heap'e çekiliyordu.
+ * Tavan aşıldığında koşu `succeeded` DAMGALANMAZ — bir sonraki saatlik tick
+ * kalanı boşaltır (sessiz kırpma yok).
+ */
+const SWEEP_BATCH_LIMIT = 1000;
+
+/**
+ * Sensör sıcaklığındaki gün-içi sapmanın plan yeniden fiyatlaması eşiği
+ * (keşif-7 / FARM-MEDIUM-289 varsayılanı). Protokol `settings
+ * .temperatureRecalcThresholdC` ile ezilebilir.
+ */
+const DEFAULT_TEMPERATURE_RECALC_THRESHOLD_C = 1.5;
+/** Aynı ünite için gün-içi sıcaklık recalc'ının asgari aralığı. */
+const TEMPERATURE_RECALC_COOLDOWN_MINUTES = 60;
+
+/**
+ * Yerel saat tablosu — gün semantiği taşıyan işlerin TEK zamanlama SSoT'si
+ * (W5). Saatlik tick bu tabloyu tenant'ın yerel saatiyle karşılaştırır.
+ *
+ * Yarım/çeyrek saatlik offsetli zonlarda (ör. Asia/Kolkata +05:30) tick
+ * yerel :30'da düşer; `localHour` yine 5'tir, yani iş yerel 05:30'da koşar —
+ * kabul edilmiş ve belgelenmiş davranış.
+ */
+export const FEEDING_JOB_SCHEDULE = [
+  { name: 'morning-sweep', localHour: 5 },
+  { name: 'generate-day-plans', localHour: 6 },
+  { name: 'stock-coverage', localHour: 7 },
+  { name: 'fcr-alerts', localHour: 18 },
+  { name: 'daily-summary', localHour: 20 },
+] as const;
+
+export type FeedingJobName = (typeof FEEDING_JOB_SCHEDULE)[number]['name'];
 
 /**
  * DAILY rollup mutabakatı — SAF (spec pinli, FARM-CRITICAL-244).
@@ -177,35 +226,102 @@ export class FeedingCronV2Service {
     private readonly outboxPublisher: OutboxPublisher,
     // 07:00 stok kapsama süpürmesi — snapshot yenileme (K-10, plan §5).
     private readonly forecastService: ProtocolFeedForecastService,
-    // 05:30 bayat finalize'ı kalan öğünleri yeniden fiyatlar (finalize simetrisi).
+    // Bayat finalize kalan öğünleri yeniden fiyatlar (finalize simetrisi);
+    // sıcaklık sapmasında ve telafi dağıtımında da aynı servis çalışır.
     private readonly recalcService: DayPlanRecalcService,
+    // Takvim/saat çözümünün TEK sahibi (W5, D-B4).
+    private readonly clock: FeedingClockService,
+    // "Yerel günde tam bir kez" claim'i (W5).
+    private readonly jobRuns: FeedingJobRunService,
   ) {}
 
   // ==========================================================================
-  // 06:00 — GÜN PLANI ÜRETİMİ + D-5 TESPİTİ
+  // SAATLİK TICK — TENANT-YEREL ZAMANLAMA (W5)
   // ==========================================================================
 
-  @Cron('0 6 * * *', { name: 'feeding-v2-generate-day-plans', timeZone: 'Europe/Istanbul' })
-  async generateDayPlans(): Promise<void> {
-    await this.runExclusive('feeding-v2-generate-day-plans', async () => {
-      const tenants = await this.activeTenants();
+  /**
+   * Tek zamanlayıcı. Her saat başı TÜM tenant'lar için yerel saati çözer ve
+   * o saate düşen işleri claim'leyerek koşar. Tenant başına sıralı; advisory
+   * lock çok-instance'lı eşzamanlılığı, `feeding_job_runs` ise "bugün zaten
+   * koştu"yu ayrı ayrı garanti eder.
+   */
+  @Cron('0 * * * *', { name: 'feeding-v2-hourly-tick' })
+  async hourlyTick(): Promise<void> {
+    await this.runExclusive('feeding-v2-hourly-tick', async () => {
+      const at = new Date();
+      const tenants = await this.feedingTenants();
+      const zones = await this.clock.tenantZones(tenants);
       for (const tenantId of tenants) {
-        try {
-          const started = Date.now();
-          await this.generateForTenant(tenantId);
-          const elapsed = Date.now() - started;
-          if (elapsed > 60_000) {
-            // NFR kapasite sinyali: tenant >60sn — ölçek uyarısı, hata değil.
-            this.logger.warn(`Day-plan generation slow for tenant ${tenantId}: ${elapsed}ms`);
-          }
-        } catch (error) {
-          this.logger.error(
-            `Day-plan generation failed for tenant ${tenantId}: ${(error as Error).message}`,
-          );
+        const clock = FeedingClockService.clockIn(
+          zones.get(tenantId) ?? DEFAULT_TENANT_TIMEZONE,
+          at,
+        );
+        for (const job of FEEDING_JOB_SCHEDULE) {
+          if (job.localHour !== clock.localHour) continue;
+          await this.runTenantJob(tenantId, job.name, clock);
         }
       }
     });
   }
+
+  /** Claim → iş → settle. Hata koşuyu KAPATMAZ; bir sonraki tick yeniden dener. */
+  private async runTenantJob(
+    tenantId: string,
+    jobName: FeedingJobName,
+    clock: FeedingClock,
+  ): Promise<void> {
+    const runId = await this.jobRuns.claim(tenantId, jobName, clock.localDate, clock.zone);
+    if (!runId) return; // bu yerel gün zaten başarıyla koştu
+
+    const started = Date.now();
+    try {
+      const complete = await this.runJob(jobName, tenantId, clock);
+      await this.jobRuns.settle(runId, complete, complete ? undefined : 'incomplete: page cap hit');
+      if (!complete) {
+        this.logger.warn(
+          `Feeding job ${jobName} incomplete for tenant ${tenantId} (${clock.localDate}); ` +
+            'the local-day run stays open and the next hourly tick continues.',
+        );
+      }
+      const elapsed = Date.now() - started;
+      if (elapsed > 60_000) {
+        // NFR kapasite sinyali: tenant >60sn — ölçek uyarısı, hata değil.
+        this.logger.warn(`Feeding job ${jobName} slow for tenant ${tenantId}: ${elapsed}ms`);
+      }
+    } catch (error) {
+      const message = (error as Error).message;
+      await this.jobRuns.settle(runId, false, message);
+      this.logger.error(`Feeding job ${jobName} failed for tenant ${tenantId}: ${message}`);
+    }
+  }
+
+  /** İş adı → yürütme. `false` = yarım kaldı (yeniden denenecek). */
+  private async runJob(
+    jobName: FeedingJobName,
+    tenantId: string,
+    clock: FeedingClock,
+  ): Promise<boolean> {
+    switch (jobName) {
+      case 'morning-sweep':
+        return this.sweepTenant(tenantId, clock);
+      case 'generate-day-plans':
+        await this.generateForTenant(tenantId);
+        return true;
+      case 'stock-coverage':
+        await this.forecastService.refreshTenant(tenantId, { emitCoverageEvents: true });
+        return true;
+      case 'fcr-alerts':
+        await this.sweepFcrForTenant(tenantId);
+        return true;
+      case 'daily-summary':
+        await this.summarizeTenant(tenantId, clock);
+        return true;
+    }
+  }
+
+  // ==========================================================================
+  // 06:00 — GÜN PLANI ÜRETİMİ + D-5 TESPİTİ
+  // ==========================================================================
 
   /** Tek tenant üretimi — sayfa başına SABİT toplu okuma, ünite başına sorgu yok. */
   async generateForTenant(tenantId: string): Promise<void> {
@@ -312,7 +428,7 @@ export class FeedingCronV2Service {
     status: ProtocolAssignmentStatus,
     visit: (ctx: AssignmentPlanContext) => Promise<void>,
   ): Promise<void> {
-    const timezoneBySite = await this.siteTimezones(manager, tenantId);
+    const zones = await this.clock.siteZones(manager, tenantId);
 
     for (let page = 0; ; page++) {
       const assignments = await manager.find(ProtocolAssignment, {
@@ -337,7 +453,8 @@ export class FeedingCronV2Service {
       const feedFcrMatrixByFeedId = await this.loadFeedFcrMatrices(manager, tenantId, protocols);
 
       for (const assignment of assignments) {
-        const timezone = timezoneBySite.get(assignment.siteId) ?? 'UTC';
+        // Zon hiyerarşisi: site kolonu (NULL = devral) → tenant → UTC (D-B4).
+        const timezone = zones.zoneOf(assignment.siteId);
         await visit({
           assignment,
           protocol: protocolById.get(assignment.protocolId),
@@ -466,7 +583,7 @@ export class FeedingCronV2Service {
   @Cron('*/15 * * * *', { name: 'feeding-v2-meal-window' })
   async mealWindowSweep(): Promise<void> {
     await this.runExclusive('feeding-v2-meal-window', async () => {
-      const tenants = await this.activeTenants();
+      const tenants = await this.feedingTenants();
       const windowStart = new Date();
       const windowEnd = new Date(windowStart.getTime() + MEAL_WINDOW_LEAD_MINUTES * 60_000);
       for (const tenantId of tenants) {
@@ -542,6 +659,80 @@ export class FeedingCronV2Service {
             `Meal window sweep failed for tenant ${tenantId}: ${(error as Error).message}`,
           );
         }
+
+        try {
+          await this.temperatureDriftSweep(tenantId);
+        } catch (error) {
+          this.logger.error(
+            `Temperature drift sweep failed for tenant ${tenantId}: ${(error as Error).message}`,
+          );
+        }
+      }
+    });
+  }
+
+  /**
+   * Sensör sıcaklığı → gün-içi yeniden fiyatlama (W5, keşif-7 /
+   * FARM-MEDIUM-289).
+   *
+   * Sıcaklık zincirinin yalnız MANUEL ucu recalc'a bağlıydı: operatör su
+   * kalitesi kaydı girince plan yeniden fiyatlanıyor, ama sensör okuması
+   * projeksiyona düşerken hiçbir şey olmuyordu. Sensörlü tesiste — yani
+   * sıcaklığın gün içinde gerçekten değiştiği tesiste — plan sabahki
+   * çarpanla donuyordu.
+   *
+   * Recalc sıcak yolda (projeksiyon listener'ında) TETİKLENMEZ: her okuma
+   * ünite kilidi almak ingest hattını kilitlerdi. Bunun yerine 15 dk'lık
+   * süpürme, eşiği aşan sapması olan planları yeniden fiyatlar; `resolution
+   * .resolvedAt` damgası cooldown ile idempotency sağlar.
+   */
+  private async temperatureDriftSweep(tenantId: string): Promise<void> {
+    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const manager = queryRunner.manager;
+      const rows: Array<{
+        unitId: string;
+        planTempC: string | number | null;
+        resolvedAt: string | null;
+        thresholdC: string | number | null;
+      }> = await manager.query(
+        `SELECT dp."unitId",
+                (dp.resolution->>'waterTempC')::numeric        AS "planTempC",
+                dp.resolution->>'resolvedAt'                   AS "resolvedAt",
+                (p.settings->>'temperatureRecalcThresholdC')::numeric AS "thresholdC"
+           FROM "feeding_day_plans" dp
+           LEFT JOIN "feeding_protocols_v2" p
+             ON p.id = dp."protocolId" AND p."tenantId" = dp."tenantId"
+          WHERE dp."tenantId" = $1
+            AND dp.status IN ('planned', 'in_progress')`,
+        [tenantId],
+      );
+      if (rows.length === 0) return;
+
+      const temperatures = await this.temperatureService.getEffectiveTemperaturesForUnits(
+        tenantId,
+        rows.map((row) => row.unitId),
+      );
+      const now = Date.now();
+      for (const row of rows) {
+        const effective = temperatures.get(row.unitId);
+        // Yalnız SENSÖR kaynağı: manuel giriş kendi yazma yolunda zaten
+        // recalc tetikler (ikinci bir tetikleyici çift hesap olurdu).
+        if (!effective || effective.source !== 'sensor' || effective.celsius === null) continue;
+
+        const resolvedAt = row.resolvedAt ? Date.parse(row.resolvedAt) : NaN;
+        if (
+          Number.isFinite(resolvedAt) &&
+          now - resolvedAt < TEMPERATURE_RECALC_COOLDOWN_MINUTES * 60_000
+        ) {
+          continue;
+        }
+        const planTempC = row.planTempC === null ? null : Number(row.planTempC);
+        const threshold = Number(row.thresholdC ?? DEFAULT_TEMPERATURE_RECALC_THRESHOLD_C);
+        if (planTempC !== null && Math.abs(effective.celsius - planTempC) < threshold) continue;
+
+        await this.recalcService.recalcForUnit(manager, tenantId, row.unitId, 'temperature', {
+          newTemperatureC: effective.celsius,
+        });
       }
     });
   }
@@ -550,43 +741,37 @@ export class FeedingCronV2Service {
   // 05:30 — SABAH SÜPÜRMESİ (missed + bayat partial finalize + DAILY rollup)
   // ==========================================================================
 
-  @Cron('30 5 * * *', { name: 'feeding-v2-morning-sweep', timeZone: 'Europe/Istanbul' })
-  async morningSweep(): Promise<void> {
-    await this.runExclusive('feeding-v2-morning-sweep', async () => {
-      const tenants = await this.activeTenants();
-      for (const tenantId of tenants) {
-        try {
-          await this.sweepTenant(tenantId);
-        } catch (error) {
-          this.logger.error(
-            `Morning sweep failed for tenant ${tenantId}: ${(error as Error).message}`,
-          );
-        }
-      }
-    });
-  }
-
-  async sweepTenant(tenantId: string): Promise<void> {
+  async sweepTenant(tenantId: string, clock: FeedingClock): Promise<boolean> {
+    let complete = true;
     await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
-      const cutoff = new Date(Date.now() - 6 * 60 * 60 * 1000); // pencere: 6 saat
+      // Tick'in anı (D-B4): süpürme ve özet AYNI instant'ı paylaşır.
+      const at = clock.at;
+      // "Kaçırılmışlık" tanımı TEK yerde (`isMealOverdue`) — gün özeti de
+      // aynı pencereyi kullanır (FARM-MEDIUM-251).
+      const cutoff = new Date(at.getTime() - MEAL_OVERDUE_GRACE_MINUTES * 60_000);
 
       // (a)+(b) adayları kilitsiz okunur; işlem ÜNİTE gruplu ve unitId-artan
       // sırada koşar (K-1: rollup ile aynı yön). Growth kilidi gereken ünitede
       // Batch → TankBatch kilidi, o ünitenin HERHANGİ bir meal yazımından ÖNCE
       // alınır — meal-satırı-önce/kilit-sonra AB-BA penceresi yapısal kapalı.
-      const [missedCandidates, partialCandidates] = await Promise.all([
-        manager.find(FeedingMeal, {
-          where: { tenantId, status: FeedingMealStatus.SCHEDULED },
-          order: { unitId: 'ASC', scheduledAt: 'ASC' },
-        }),
-        manager.find(FeedingMeal, {
-          where: { tenantId, status: FeedingMealStatus.PARTIALLY_FED },
-          order: { unitId: 'ASC', scheduledAt: 'ASC' },
-        }),
+      //
+      // Cutoff + sayfa tavanı DB TARAFINDA (FARM-MEDIUM-285): tenant'ın tüm
+      // açık öğünleri belleğe alınmaz.
+      const [overdueMissed, overduePartials] = await Promise.all([
+        this.loadOverdueMeals(manager, tenantId, FeedingMealStatus.SCHEDULED, cutoff),
+        this.loadOverdueMeals(manager, tenantId, FeedingMealStatus.PARTIALLY_FED, cutoff),
       ]);
-      const overdueMissed = missedCandidates.filter((meal) => meal.scheduledAt < cutoff);
-      const overduePartials = partialCandidates.filter((meal) => meal.scheduledAt < cutoff);
+      if (
+        overdueMissed.length >= SWEEP_BATCH_LIMIT ||
+        overduePartials.length >= SWEEP_BATCH_LIMIT
+      ) {
+        complete = false;
+        this.logger.warn(
+          `Morning sweep hit the ${SWEEP_BATCH_LIMIT}-meal page cap for tenant ${tenantId} ` +
+            `(${clock.localDate}); the remainder drains on the next hourly tick.`,
+        );
+      }
 
       // Gün planları + protokoller TOPLU yüklenir (öğün başına sorgu yok).
       const sweepDayPlanIds = [
@@ -640,9 +825,14 @@ export class FeedingCronV2Service {
         const locked = await this.growthApplier.lockUnitForGrowth(manager, tenantId, unitId);
 
         // (a) Hiç döküm görmemiş, penceresi geçmiş öğünler → missed + event.
+        const missedKgByPlan = new Map<string, number>();
         for (const meal of unitMissed) {
           meal.status = FeedingMealStatus.MISSED;
           await manager.save(meal);
+          missedKgByPlan.set(
+            meal.dayPlanId,
+            (missedKgByPlan.get(meal.dayPlanId) ?? 0) + Number(meal.plannedKg),
+          );
           const event: MealMissedEvent = {
             ...createBaseEvent<MealMissedEvent>('MealMissed', tenantId, {
               aggregateId: meal.id,
@@ -655,6 +845,16 @@ export class FeedingCronV2Service {
             scheduledAt: toEventIso(meal.scheduledAt),
           };
           await this.outboxPublisher.enqueue(event, manager);
+        }
+
+        // W5 (kullanıcı kararı 3): kaçan öğünün kg'ı kalan öğünlere OTOMATİK
+        // dağıtılmaz. Tenant açıkça telafi yüzdesi tanımladıysa yalnız o kadarı
+        // dağıtılır — varsayılan 0'da bu çağrı hiçbir şeyi değiştirmez.
+        for (const [dayPlanId, missedKg] of missedKgByPlan) {
+          const plan = dayPlanById.get(dayPlanId);
+          if (plan) {
+            await this.recalcService.applyMissedCatchUp(manager, tenantId, plan, missedKg);
+          }
         }
 
         // (b) Bayat partially_fed → otomatik finalize (D-8 pencere kapanışı):
@@ -768,13 +968,24 @@ export class FeedingCronV2Service {
           WHERE dp."tenantId" = $1
             AND dp."growthApplicationMode" = 'daily'
             AND dp.status IN ('in_progress', 'completed')
-            AND dp."planDate" < CURRENT_DATE
-            AND dp."planDate" >= CURRENT_DATE - ($2 || ' days')::interval
+            AND dp."planDate" < $2::date
+            AND dp."planDate" >= ($2::date - ($3 || ' days')::interval)
             AND dp."rollupAppliedKg"::numeric <> t.total
           ORDER BY dp."unitId" ASC
-          LIMIT $3`,
-        [tenantId, String(ROLLUP_LOOKBACK_DAYS), ROLLUP_BATCH_LIMIT],
+          LIMIT $4`,
+        // Gün sınırı TENANT'IN YEREL günüdür (D-B4). `CURRENT_DATE` DB
+        // oturumunun (UTC) günüydü: UTC'nin doğusundaki tenant'ta dünün planı
+        // sabah süpürmesinde henüz "geçmiş gün" sayılmıyor, batıdakinde ise
+        // bugünün planı erken rollup'lanıyordu.
+        [tenantId, clock.localDate, String(ROLLUP_LOOKBACK_DAYS), ROLLUP_BATCH_LIMIT],
       );
+      if (pendingRollups.length >= ROLLUP_BATCH_LIMIT) {
+        complete = false;
+        this.logger.warn(
+          `DAILY rollup hit the ${ROLLUP_BATCH_LIMIT}-plan page cap for tenant ${tenantId}; ` +
+            'the remainder drains on the next hourly tick.',
+        );
+      }
 
       for (const plan of pendingRollups) {
         const totalActualKg = Number(plan.totalActualKg) || 0;
@@ -816,31 +1027,39 @@ export class FeedingCronV2Service {
         );
       }
     });
+    return complete;
+  }
+
+  /**
+   * Penceresi geçmiş öğünler — cutoff ve sayfa tavanı DB tarafında
+   * (FARM-MEDIUM-285). Sıralama unitId-artan: süpürme ünite gruplu ve
+   * rollup ile AYNI yönde ilerler (K-1).
+   */
+  private async loadOverdueMeals(
+    manager: EntityManager,
+    tenantId: string,
+    status: FeedingMealStatus,
+    cutoff: Date,
+  ): Promise<FeedingMeal[]> {
+    return manager
+      .createQueryBuilder(FeedingMeal, 'meal')
+      .where('meal.tenantId = :tenantId', { tenantId })
+      .andWhere('meal.status = :status', { status })
+      .andWhere('meal.scheduledAt < :cutoff', { cutoff })
+      .orderBy('meal.unitId', 'ASC')
+      .addOrderBy('meal.scheduledAt', 'ASC')
+      .take(SWEEP_BATCH_LIMIT)
+      .getMany();
   }
 
   // ==========================================================================
   // 20:00 — GÜNLÜK ÖZET + GÜN-SEVİYESİ AZ-ATIM (D-16)
   // ==========================================================================
 
-  @Cron('0 20 * * *', { name: 'feeding-v2-daily-summary', timeZone: 'Europe/Istanbul' })
-  async dailySummary(): Promise<void> {
-    await this.runExclusive('feeding-v2-daily-summary', async () => {
-      const tenants = await this.activeTenants();
-      for (const tenantId of tenants) {
-        try {
-          await this.summarizeTenant(tenantId);
-        } catch (error) {
-          this.logger.error(
-            `Daily summary failed for tenant ${tenantId}: ${(error as Error).message}`,
-          );
-        }
-      }
-    });
-  }
-
-  async summarizeTenant(tenantId: string): Promise<void> {
+  async summarizeTenant(tenantId: string, clock: FeedingClock): Promise<void> {
     await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
+      const at = clock.at;
       const rows: Array<{
         id: string;
         unitId: string;
@@ -850,26 +1069,56 @@ export class FeedingCronV2Service {
         plannedTotalKg: string | number;
         unplannedActualKg: string | number;
         actualKg: string | number | null;
-        missedCount: string | number | null;
         thresholdPercent: number | null;
       }> = await manager.query(
+        // `planDate` TENANT'IN YEREL günü (D-B4); `CURRENT_DATE` DB oturumunun
+        // (UTC) günüydü ve UTC'nin doğusundaki tenant akşam özetinde YARININ
+        // (henüz boş) planlarını, batısındaki DÜNÜN planlarını raporluyordu.
+        //
+        // `cancelled` planlar HARİÇ (FARM-MEDIUM-251): tam hasat edilen tankın
+        // iptal edilmiş planı her akşam "%100 az beslendi" alarmı üretiyordu.
         `SELECT dp.id, dp."unitId", dp."unitCode", dp."planDate", dp.status,
                 dp."plannedTotalKg", dp."unplannedActualKg",
-                (SELECT COALESCE(SUM(m."actualKg"), 0) FROM "feeding_meals" m WHERE m."dayPlanId" = dp.id) AS "actualKg",
-                (SELECT COUNT(*) FROM "feeding_meals" m WHERE m."dayPlanId" = dp.id AND m.status = 'missed') AS "missedCount",
+                (SELECT COALESCE(SUM(m."actualKg"), 0) FROM "feeding_meals" m
+                  WHERE m."tenantId" = dp."tenantId" AND m."dayPlanId" = dp.id) AS "actualKg",
                 (p.settings->>'underfeedAlertThresholdPercent')::numeric AS "thresholdPercent"
          FROM "feeding_day_plans" dp
-         LEFT JOIN "feeding_protocols_v2" p ON p.id = dp."protocolId"
-         WHERE dp."tenantId" = $1 AND dp."planDate" = CURRENT_DATE`,
-        [tenantId],
+         LEFT JOIN "feeding_protocols_v2" p
+           ON p.id = dp."protocolId" AND p."tenantId" = dp."tenantId"
+         WHERE dp."tenantId" = $1
+           AND dp."planDate" = $2::date
+           AND dp.status <> 'cancelled'`,
+        [tenantId, clock.localDate],
       );
       if (rows.length === 0) return;
+
+      // Kaçırılmışlık DAMGADAN değil ZAMANDAN türetilir (FARM-MEDIUM-251):
+      // `missed` damgasını ertesi sabahki süpürme bastığı için akşam özetinde
+      // sayaç YAPISAL OLARAK her zaman 0 çıkıyor, operatör "bugün hiç öğün
+      // kaçmadı" raporu alıyordu. Süpürme ve özet artık AYNI saf yardımcıyı
+      // (`isMealOverdue`) kullanır.
+      const openMeals: Array<{ scheduledAt: Date; status: FeedingMealStatus }> =
+        await manager.query(
+          `SELECT m."scheduledAt", m.status
+             FROM "feeding_meals" m
+             JOIN "feeding_day_plans" dp
+               ON dp.id = m."dayPlanId" AND dp."tenantId" = m."tenantId"
+            WHERE m."tenantId" = $1
+              AND dp."planDate" = $2::date
+              AND dp.status <> 'cancelled'
+              AND m.status IN ('scheduled', 'missed')`,
+          [tenantId, clock.localDate],
+        );
+      const missedMeals = openMeals.filter(
+        (meal) =>
+          meal.status === FeedingMealStatus.MISSED ||
+          isMealOverdue({ scheduledAt: meal.scheduledAt }, at),
+      ).length;
 
       let plannedTotal = 0;
       let actualTotal = 0;
       let completed = 0;
       let skipped = 0;
-      let missedMeals = 0;
       let underfedUnits = 0;
 
       for (const row of rows) {
@@ -877,7 +1126,6 @@ export class FeedingCronV2Service {
         const actual = Number(row.actualKg ?? 0) + Number(row.unplannedActualKg ?? 0);
         plannedTotal += planned;
         actualTotal += actual;
-        missedMeals += Number(row.missedCount ?? 0);
         if (row.status === FeedingDayPlanStatus.COMPLETED) completed += 1;
         if (row.status === FeedingDayPlanStatus.SKIPPED) skipped += 1;
 
@@ -909,7 +1157,7 @@ export class FeedingCronV2Service {
 
       const summary: FeedingDailySummaryEvent = {
         ...createBaseEvent<FeedingDailySummaryEvent>('FeedingDailySummary', tenantId),
-        planDate: rows[0]!.planDate,
+        planDate: clock.localDate,
         unitsPlanned: rows.length,
         unitsCompleted: completed,
         unitsSkipped: skipped,
@@ -942,41 +1190,6 @@ export class FeedingCronV2Service {
    * kapsama event'leri (FeedStockoutForecast/FeedTransitionUpcoming) GraphQL
    * + alert-engine dilimiyle birlikte bağlanır (görev #8 takipte).
    */
-  @Cron('0 7 * * *', { name: 'feeding-v2-stock-coverage', timeZone: 'Europe/Istanbul' })
-  async stockCoverageSweep(): Promise<void> {
-    await this.runExclusive('feeding-v2-stock-coverage', async () => {
-      const tenants = await this.tenantsWithActiveBatches();
-      for (const tenantId of tenants) {
-        try {
-          await this.forecastService.refreshTenant(tenantId, { emitCoverageEvents: true });
-        } catch (error) {
-          this.logger.error(
-            `Stock coverage sweep failed for tenant ${tenantId}: ${(error as Error).message}`,
-          );
-        }
-      }
-    });
-  }
-
-  @Cron('0 18 * * *', { name: 'feeding-v2-fcr-alerts', timeZone: 'Europe/Istanbul' })
-  async fcrAlertSweep(): Promise<void> {
-    await this.runExclusive('feeding-v2-fcr-alerts', async () => {
-      // Batch-scoped sinyal: keşif aktif ATAMALARA değil aktif BATCH'lere
-      // bakar — v2 ataması olmayan batch tenant'ları legacy job Faz 6'da
-      // kapandığında sessizce alertsiz kalamaz.
-      const tenants = await this.tenantsWithActiveBatches();
-      for (const tenantId of tenants) {
-        try {
-          await this.sweepFcrForTenant(tenantId);
-        } catch (error) {
-          this.logger.error(
-            `FCR alert sweep failed for tenant ${tenantId}: ${(error as Error).message}`,
-          );
-        }
-      }
-    });
-  }
-
   async sweepFcrForTenant(tenantId: string): Promise<void> {
     await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
@@ -990,31 +1203,49 @@ export class FeedingCronV2Service {
         [tenantId],
       );
 
-      for (const row of rows) {
-        const currentFCR = Number(row.actual);
-        // Hedef + trend okumaları withTenantContext ALS çerçevesi içinde koşar
-        // (runInTenantTransaction sarmalar) — repo checkout'ları tenant
-        // şemasına yönlenir. Trend yalnız eşiği aşan batch'ler için sorgulanır.
-        const targetFCR = await this.fcrCalculation.getTargetFCRForBatch(row.id);
-        if (!targetFCR || targetFCR <= 0) continue;
+      if (rows.length === 0) return;
 
-        const variancePercent = ((currentFCR - targetFCR) / targetFCR) * 100;
-        if (variancePercent <= FCR_WARNING_VARIANCE_PERCENT) continue;
+      // TOPLU hedef + TOPLU trend (FARM-LOW-286): eskiden batch BAŞINA iki
+      // ek round-trip atılıyordu; 400 batch'lik bir tenant süpürmesi 800+
+      // sorgu demekti. Okumalar withTenantContext ALS çerçevesi içinde koşar
+      // (runInTenantTransaction sarmalar) — repo checkout'ları tenant
+      // şemasına yönlenir.
+      const targets = await this.fcrCalculation.getTargetFCRForBatches(
+        tenantId,
+        rows.map((row) => row.id),
+      );
 
+      const alerting = rows
+        .map((row) => {
+          const currentFCR = Number(row.actual);
+          const targetFCR = targets.get(row.id) ?? 0;
+          if (!targetFCR || targetFCR <= 0) return null;
+          const variancePercent = ((currentFCR - targetFCR) / targetFCR) * 100;
+          if (variancePercent <= FCR_WARNING_VARIANCE_PERCENT) return null;
+          return { batchId: row.id, currentFCR, targetFCR, variancePercent };
+        })
+        .filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null);
+      if (alerting.length === 0) return;
+
+      // Trend yalnız eşiği aşan batch'ler için — tek sorgu.
+      const trends = await this.fcrCalculation.analyzeFCRTrendMany(
+        tenantId,
+        alerting.map((candidate) => candidate.batchId),
+      );
+
+      for (const candidate of alerting) {
         const alertLevel: FCRAlertEvent['alertLevel'] =
-          variancePercent > FCR_CRITICAL_VARIANCE_PERCENT ? 'critical' : 'warning';
-        const { trend } = await this.fcrCalculation.analyzeFCRTrend(row.id, tenantId);
-
+          candidate.variancePercent > FCR_CRITICAL_VARIANCE_PERCENT ? 'critical' : 'warning';
         const event: FCRAlertEvent = {
           ...createBaseEvent<FCRAlertEvent>('FCRAlert', tenantId, {
-            aggregateId: row.id,
+            aggregateId: candidate.batchId,
             aggregateType: 'Batch',
           }),
-          batchId: row.id,
-          currentFCR: round3(currentFCR),
-          targetFCR: round3(targetFCR),
-          variancePercent: round3(variancePercent),
-          trend,
+          batchId: candidate.batchId,
+          currentFCR: round3(candidate.currentFCR),
+          targetFCR: round3(candidate.targetFCR),
+          variancePercent: round3(candidate.variancePercent),
+          trend: trends.get(candidate.batchId)?.trend ?? 'stable',
           alertLevel,
         };
         await this.outboxPublisher.enqueue(event, manager);
@@ -1032,9 +1263,13 @@ export class FeedingCronV2Service {
    * Mobil komut makbuzları 90 GÜN saklanır (~4000 makbuz/gün/tenant ölçeği);
    * purge sonrası eski clientCommandId replay'i bile çift uygulayamaz —
    * meal status guard'ı + stock-movement idempotency anahtarı iki bağımsız
-   * katmandır (NFR). Ayın 1'i 04:00 Istanbul; advisory-lock tek instance.
+   * katmandır (NFR).
+   *
+   * Zon çözümü YOK: retention'ın gün semantiği yoktur (24 ay / 90 gün süreli
+   * pencereler), bu yüzden saatlik tenant-yerel tick'e girmez ve UTC'de ayın
+   * 1'i 04:00'te koşar. Advisory-lock tek instance garantisi verir.
    */
-  @Cron('0 4 1 * *', { name: 'feeding-v2-retention', timeZone: 'Europe/Istanbul' })
+  @Cron('0 4 1 * *', { name: 'feeding-v2-retention' })
   async retentionCleanup(): Promise<void> {
     await this.runExclusive('feeding-v2-retention', async () => {
       const tenants = await this.tenantsForRetention();
@@ -1047,6 +1282,8 @@ export class FeedingCronV2Service {
           );
         }
       }
+      // Cross-tenant koşu kaydı (W5) — tenant döngüsünün dışında, tek seferde.
+      await this.jobRuns.purgeOlderThanRetention();
     });
   }
 
@@ -1136,11 +1373,21 @@ export class FeedingCronV2Service {
   }
 
   /**
-   * Aktif batch'i olan tenant'lar — 18:00 FCR süpürmesinin keşif kümesi
-   * (batch-scoped; `activeTenants`'ın atama filtresinden bilinçli olarak
-   * geniş). Legacy analyzeFCR'ın keşif sorgusuyla birebir.
+   * Yemleme işlerinin keşif kümesi — TEK sorgu, İŞİN GERÇEK GİRDİSİNE bağlı
+   * (W5, FARM-MEDIUM-250b).
+   *
+   * Eski hâl iki ayrı keşfe bölünmüştü ve üretim/süpürme/özet tarafı yalnız
+   * `status = 'active'` atamalara bakıyordu. Sonuç: ataması `paused`'a düşmüş
+   * (tam hasat, veri tutarsızlığı, operatör duraklatması) bir tenant'ın
+   * kaçırılan öğünleri hiç damgalanmıyor, gün özeti hiç çıkmıyor, rollup
+   * bekleyen planları sonsuza dek `rollupAppliedKg <> Σ actual` durumunda
+   * kalıyordu — üstelik D-5 tespiti tam da o tenant'ta çalışmalıydı.
+   *
+   * Birleşim dört girdiyi kapsar: canlı atama (active VEYA paused), yakın
+   * tarihli gün planı (rollup/özet adayı), balıklı ünite (D-5 tespiti) ve
+   * aktif batch (FCR alarmı).
    */
-  private async tenantsWithActiveBatches(): Promise<string[]> {
+  private async feedingTenants(): Promise<string[]> {
     const tenantSchemas = await listTenantSchemas(this.dataSource);
     const tenantIds = new Set<string>();
     for (const schema of tenantSchemas) {
@@ -1149,7 +1396,15 @@ export class FeedingCronV2Service {
       try {
         await runner.query(`SET search_path TO "${schema}", farm, public`);
         const rows: Array<{ tenantId: string }> = await runner.query(
-          `SELECT DISTINCT "tenantId" FROM "batches_v2" WHERE "isActive" = true`,
+          `SELECT DISTINCT "tenantId" FROM "feeding_protocol_assignments"
+             WHERE status IN ('active', 'paused')
+           UNION
+           SELECT DISTINCT "tenantId" FROM "feeding_day_plans"
+             WHERE "planDate" >= (CURRENT_DATE - INTERVAL '${ROLLUP_LOOKBACK_DAYS} days')
+           UNION
+           SELECT DISTINCT "tenantId" FROM "tank_batches" WHERE "totalQuantity" > 0
+           UNION
+           SELECT DISTINCT "tenantId" FROM "batches_v2" WHERE "isActive" = true`,
         );
         for (const row of rows) tenantIds.add(row.tenantId);
       } catch (error) {
@@ -1161,45 +1416,6 @@ export class FeedingCronV2Service {
       }
     }
     return [...tenantIds];
-  }
-
-  /**
-   * Aktif v2 ataması olan tenant'lar — v1 cron'un keşif deseni:
-   * `listTenantSchemas` + şema başına kısa ömürlü discovery runner'ı
-   * (search_path pinli). Asıl iş `runInTenantTransaction` içinde koşar.
-   */
-  private async activeTenants(): Promise<string[]> {
-    const tenantSchemas = await listTenantSchemas(this.dataSource);
-    const tenantIds = new Set<string>();
-    for (const schema of tenantSchemas) {
-      const runner = this.dataSource.createQueryRunner();
-      await runner.connect();
-      try {
-        await runner.query(`SET search_path TO "${schema}", farm, public`);
-        const rows: Array<{ tenantId: string }> = await runner.query(
-          `SELECT DISTINCT "tenantId" FROM feeding_protocol_assignments WHERE status = 'active'`,
-        );
-        for (const row of rows) tenantIds.add(row.tenantId);
-      } catch (error) {
-        this.logger.warn(
-          `Tenant discovery failed for schema ${schema}: ${(error as Error).message}`,
-        );
-      } finally {
-        await runner.release();
-      }
-    }
-    return [...tenantIds];
-  }
-
-  private async siteTimezones(
-    manager: EntityManager,
-    tenantId: string,
-  ): Promise<Map<string, string>> {
-    const rows: Array<{ id: string; timezone: string | null }> = await manager.query(
-      `SELECT id, timezone FROM "sites" WHERE "tenantId" = $1`,
-      [tenantId],
-    );
-    return new Map(rows.map((row) => [row.id, row.timezone || 'UTC']));
   }
 
   private getAdvisoryLockKey(jobName: string): number {

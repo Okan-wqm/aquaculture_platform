@@ -31927,6 +31927,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/2026-07-27-ci-full-triggers.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/2026-07-27-production-dependency-floor.md",
       "prettier_managed": true
     },
@@ -41167,6 +41173,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/cache-key-tenant-scope.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/ci-full-trigger-contract.spec.ts",
       "prettier_managed": true
     },
     {
@@ -54870,10 +54882,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8994,
+  "file_count": 8996,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8813,
-  "managed_file_list_sha256": "92b818fc6d824b8012ba217dc886e207b53d1aff76234ece94d675f062a4a06d",
+  "managed_count": 8815,
+  "managed_file_list_sha256": "49b3b8b96dccb9a1f62a3844defc7dd308c990836fc84a0989152e5b066c90fe",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

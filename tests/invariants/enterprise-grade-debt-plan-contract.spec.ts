@@ -298,6 +298,7 @@ describe('enterprise-grade debt closure plan contract', () => {
       'sens-enterprise-summary',
       'merge-gate',
       'aria-merge-authority',
+      'build-status',
     ]);
   });
 

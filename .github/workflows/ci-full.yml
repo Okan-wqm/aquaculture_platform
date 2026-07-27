@@ -12,9 +12,12 @@ on:
     - cron: '0 2 * * 0' # Sunday at 2 AM
   workflow_dispatch:
   push:
+    branches: [main]
     tags:
       - 'v*'
       - 'release-*'
+  pull_request:
+    branches: [main]
 
 # SEC-CI-021: Minimum token permissions — prevents compromised actions from
 # pushing commits, creating releases, or modifying repository settings.
@@ -24,10 +27,11 @@ permissions:
 env:
   NODE_VERSION: '22'
 
-# Cancel in-progress runs for the same workflow
+# PR updates supersede an older run for the same PR. Every non-PR run uses
+# its immutable SHA as the group, so protected-main evidence is never cancelled.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint-and-typecheck:
@@ -387,16 +391,15 @@ jobs:
         run: npm run gates:production-licenses
 
   build-status:
+    name: build-status
     needs:
-      [
-        lint-and-typecheck,
-        test,
-        build,
-        generate-sri-hashes,
-        deploy-ssot-gates,
-        security-scan,
-        license-check,
-      ]
+      - lint-and-typecheck
+      - test
+      - build
+      - generate-sri-hashes
+      - deploy-ssot-gates
+      - security-scan
+      - license-check
     runs-on: ubuntu-latest
     if: always()
     steps:

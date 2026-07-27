@@ -121,8 +121,8 @@ function listServicesWithMigrations(): string[] {
   );
   const services = new Set<string>();
   for (const line of ls.split('\n')) {
-    const m = line.match(/^apps\/([^/]+)\//);
-    if (m) services.add(m[1]);
+    const service = line.match(/^apps\/([^/]+)\//)?.[1];
+    if (service) services.add(service);
   }
   return Array.from(services).sort();
 }
@@ -159,7 +159,8 @@ function migrationFileToClassNames(rel: string): string[] {
   const out: string[] = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(src)) !== null) {
-    out.push(m[1]);
+    const className = m[1];
+    if (className) out.push(className);
   }
   return out;
 }

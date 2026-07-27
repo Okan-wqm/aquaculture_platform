@@ -92,6 +92,26 @@ bulgu bu programın kapsamındadır ve ayrı ID almaz — ilgili dalgada kapanı
 | FARM-LOW-298      | LOW      | v1 `feedConsumptionForecast` yolu tüketicisiz yaşıyordu; K-6'nın erteleme gerekçesi ("scheduler hâlâ derliyor") dolmuştu — scheduler kendi özel `generateFeedForecast`'ini çağırıyor                                                                                                                                       | Faz 8 ölü-kod         |
 | FARM-MEDIUM-299   | MEDIUM   | `apps/farm-service/schema.graphql` bayat SDL snapshot'ı: PR #942'den beri yenilenmiyor, v2 feeding yüzeyinin TAMAMINI kaçırıyor, hiçbir drift kapısı karşılaştırmıyor ama CI pagination validator'ı onu okuyor — **bu commit'te bilerek düzeltilmedi** (aşağıya bkz.)                                                       | AÇIK                  |
 
+### Ölü test lane'i ve tip-kontrol zinciri (FARM-HIGH-300 … FARM-MEDIUM-304)
+
+Faz 8 süpürmesinin devamında, "kapı olduğu sanılan ama hiç koşmayan" sınıfı
+kovalarken bulundu. Hepsi sessizce YEŞİL olan kusurlar — bu yüzden hiçbiri
+mevcut hiçbir kapıya takılmıyordu.
+
+| ID | Özet |
+| --- | --- |
+| **FARM-HIGH-300** | `applyStockCorrection` ham SQL'i hareket tipini `'OUT'` literaliyle arıyor; kolon `varchar(20)` ve içinde `'out'` duruyor → sorgu her zaman sıfır satır, fonksiyon erken çıkıyor, öğün düzeltmesinin stok ayağı **iki yönde de** sessizce atlanıyor. W2'nin FARM-HIGH-248 için gönderdiği yol doğuşta ölüymüş. Enum parametre olarak bağlandı; regresyon testi hatalı kodda 4/5 kırmızı. |
+| **FARM-MEDIUM-301** | `farm-service:test:integration` hiçbir workflow/script tarafından çağrılmıyor → 13 süit hiç koşmamış ve çürümüş (derlenmeyen spec, `42703` taşıyan tenant predikatı, W4'te kaldırılan davranışı doğrulayan assert, ulaşılamaz `manager.save` beklentisi). Onarıldı + CI'ya bağlandı. |
+| **FARM-MEDIUM-302** | Tip-kontrol zinciri bayat dosyayı göremiyor: `nx affected -t type-check` **hiçbir projeyle eşleşmiyor** (sessiz no-op), `type-check-changed-files` yalnız değişen dosyaları derliyor, doğru kapı `gates:type-check-spec` ise haftalık `ci-full`'da. PR'a taşındı (29 proje / 165 sn) ve `tests/` kökü eklendi. |
+| **FARM-MEDIUM-303** | `e2e/tests/integration/schema-invariants.spec.ts` hiçbir `run:` adımında yok — yalnız `paths:` tetik filtresinde. Kök CLAUDE.md onu "her PR'da koşar" diye ilan ediyordu; belge gerçeğe çekildi, spec'in koşturulması ayrı iş. |
+| **FARM-MEDIUM-304** | AquaMobil'in ~380 vitest testi CI'da hiç koşmuyor. Bu turda yalnız SW build-artifact invariantı (FE-CRITICAL-050-SW) gerçek bir `test:invariant` hedefi hâline getirildi — o adım daha önce hiçbir projenin tanımlamadığı bir hedefi sürdüğü için kalıcı sessiz-yeşildi. |
+
+Yapısal kapanış: `tests/invariants/test-target-ci-reachability.spec.ts` her iki
+yönü birden zorlar — tanımlı her `test*` hedefinin CI koşucusu olmalı, ve CI'ın
+sürdüğü her test hedefi bir projede var olmalı. İki yön de aksi hâlde sessizce
+yeşildir; `test:integration` (birinci yön) ve `test:invariant` (ikinci yön)
+tam olarak bu iki delikten kaçmıştı.
+
 ### Faz 8 ölü-kod süpürmesi — silinen iki dosyanın kanıtı
 
 Silme kuralı ("yüzde yüz kullanılmadığına emin ol") iki bağımsız kanıt ayağıyla

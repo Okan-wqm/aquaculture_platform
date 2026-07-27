@@ -48,7 +48,12 @@
       }
     },
     "test:contract": {
-      "knownUnstableProjects": {}
+      "knownUnstableProjects": {},
+      "notes": "No quarantine. Admin route contract is a hard gate."
+    },
+    "test:integration": {
+      "knownUnstableProjects": {},
+      "notes": "STRICT, AND IT MUST STAY THAT WAY. farm-service:test is already quarantined below, so this is the ONLY strict farm-service gate in ci-affected. Seeding farm-service here would leave the service with no blocking test gate at all and would re-create the dead-lane condition (FARM-MEDIUM-301) this target was wired up to end. If an integration suite is failing, fix the suite or the code it caught — do not quarantine the target."
     },
     "test": {
       "knownUnstableProjects": {

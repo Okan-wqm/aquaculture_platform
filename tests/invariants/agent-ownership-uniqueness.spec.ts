@@ -246,8 +246,8 @@ function extractRoutingRows(label: string, content: string): RoutingRow[] {
     const globTokens = [...globCell.matchAll(/`([^`]+)`/g)].map((m) => m[1]).filter(Boolean);
     // Primary cell: strip trailing "(note)" prose — take first alphanumeric agent token
     const primaryMatch = primaryCell.match(/^([a-z][a-z0-9-]+)/i);
-    if (!primaryMatch) continue;
-    const primary = primaryMatch[1];
+    const primary = primaryMatch?.[1];
+    if (!primary) continue;
     for (const g of globTokens) {
       if (!g) continue;
       rows.push({ source: label, glob: g, primary, rawLine: line });

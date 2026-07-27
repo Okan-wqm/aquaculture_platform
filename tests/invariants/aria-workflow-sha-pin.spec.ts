@@ -89,11 +89,13 @@ function scanWorkflow(path: string): Violation[] {
     const m = line.match(USES_RE);
     if (!m) return;
     const target = m[1];
+    if (!target) return;
     // Path-based and docker references are exempt.
     if (target.startsWith('./') || target.startsWith('docker://')) return;
     // Local repo composite-action references are exempt (no @ref).
     if (!target.includes('@')) return;
     const [name, ref] = target.split('@', 2);
+    if (!name || !ref) return;
     if (SHA_RE.test(ref)) return; // Properly SHA-pinned.
     if (SHA_PIN_ALLOWLIST.includes(`${name}@${ref}`)) return;
     violations.push({

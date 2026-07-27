@@ -114,8 +114,8 @@ function listDecoratorUsageServices(): Set<string> {
     }
     if (!src.includes('@AuditedOperation(')) continue;
     // Path shape: apps/<service>/src/...
-    const match = rel.match(/^apps\/([^/]+)\//);
-    if (match) services.add(match[1]);
+    const service = rel.match(/^apps\/([^/]+)\//)?.[1];
+    if (service) services.add(service);
   }
   return services;
 }

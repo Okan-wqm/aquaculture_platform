@@ -70,7 +70,12 @@ function discoverProjects(): string[] {
   // was added in PR-39 when @platform/outbox got its first test suite —
   // before then no platform lib had a spec config, so the gate never had
   // to look there.
-  const roots: readonly string[] = ['apps', 'libs', 'platform/libs'];
+  // `tests` joined in 2026-07-27: tests/invariants owns ~170 structural gates
+  // and carried 16 strict-tsc errors that nothing saw — it was outside these
+  // roots, and ts-jest transpiles without type-checking, so the drift was
+  // invisible from both directions (FARM-MEDIUM-302). Driven to 0 in the same
+  // commit, which locks it at 0 here.
+  const roots: readonly string[] = ['apps', 'libs', 'platform/libs', 'tests'];
   const projects: string[] = [];
   for (const root of roots) {
     const rootDir = join(REPO_ROOT, root);

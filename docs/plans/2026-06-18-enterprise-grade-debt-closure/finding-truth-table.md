@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `b531e3f76ddd6cae8d561ae1c7654bc2a5f27ccb88840d39c33654bed3591112`
+Registry tip: `6f691b7585af7dcf849e58bc1f4f08b7adb4db3dd629737e86d38f4894e27d01`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -142,6 +142,7 @@ Allowed truth buckets:
 | `ORPHAN-CRITICAL-428`   | OPEN           | —            | aria-acceptance-gap-hunter | real-open                 |
 | `ORPHAN-CRITICAL-439`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-440`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-446`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 
 Updated 2026-07-26 (ARIA control-plane audit): seven ORPHAN CRITICALs joined the
 active set. Five come from the audit of ARIA's own control plane — a corrupted
@@ -154,6 +155,17 @@ runtime writes it exists to produce. Four are marked
 `already-fixed-needs-close` with their closing commits below; the registry CLI
 close operations follow once this branch merges, because a `Closes:` trailer on
 an unmerged commit is a claim, not evidence.
+
+Updated 2026-07-27 (self-audit of the audit branch): `ORPHAN-CRITICAL-446`
+joined the active set. The commit titled "make all three convergence
+independence layers functional" left the cross-reviewer's text hardcoded to
+`None` at the point the round's dispatch map is recorded, so the diversity
+layer short-circuited on `cross_review_text_unavailable` and computed neither
+of the two comparisons it exists for. Worse than a no-op: every `converged`
+verdict was unconditionally downgraded to `cross_review_self_agreement`, making
+convergence structurally unreachable. Bucketed `already-fixed-needs-close`
+because the fix and its eight regression tests are in this branch; the registry
+close waits for merge, like the rows above it.
 
 ## Mutation Rules
 
@@ -172,6 +184,7 @@ an unmerged commit is a claim, not evidence.
 - `ORPHAN-CRITICAL-427` — fixed in `873f038f8` predecessor / `05153e93d` here; see the commit body for the mechanism and the regression test.
 - `ORPHAN-CRITICAL-439` — fixed in `55cd94464`; see the commit body for the mechanism and the regression test.
 - `ORPHAN-CRITICAL-440` — fixed in `55cd94464`; see the commit body for the mechanism and the regression test.
+- `ORPHAN-CRITICAL-446` — fixed in this branch; `aria-kernel/tests/test_cross_review_independence_text.py` pins both the pre-fix shape and the echo-chamber catch.
 
 - `AISAFETY-CRITICAL-003` (single process-global `ANTHROPIC_API_KEY`, no per-tenant
   key — BYOK impossible): the Faz 1 BYOK work (encrypted per-tenant credentials +

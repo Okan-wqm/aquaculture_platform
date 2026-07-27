@@ -138,7 +138,7 @@
     "gates:commit-msg:test": "ts-node --project tools/gates/tsconfig.json tools/gates/commit-msg-validator.spec.ts",
     "gates:finding-registry:test": "ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry-store.spec.ts",
     "hooks:install": "git config core.hooksPath .husky && echo \"git hooks active: $(git config --get core.hooksPath)\"",
-    "gates:debt-plan:repin": "node tools/gates/repin-debt-plan.mjs",
+    "gates:debt-plan:repin": "ts-node --project tools/gates/tsconfig.json tools/gates/repin-debt-plan.ts",
     "gates:plan-coverage:test": "ts-node --project tools/gates/tsconfig.json tools/gates/plan-coverage-witness.spec.ts",
     "gates:banned-phrase:test": "ts-node --project tools/gates/tsconfig.json tools/gates/banned-phrase.spec.ts",
     "gates:lint-baseline:test": "ts-node --project tools/gates/tsconfig.json tools/lint-gates/lint-gates.spec.ts && ts-node --project tools/gates/tsconfig.json tools/lint-gates/custom-rules.spec.ts && ts-node --project tools/gates/tsconfig.json tools/lint-gates/eslintrc-flat-parity.spec.ts",

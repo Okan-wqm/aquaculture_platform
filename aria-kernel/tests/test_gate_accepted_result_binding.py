@@ -51,7 +51,12 @@ from aria_kernel.agent_invocations import (  # noqa: E402
 )
 from aria_kernel.review_runner import (  # noqa: E402
     _NON_DELIVERING_TERMINAL_STATES,
+    ReviewResult,
     run_review_runner,
+)
+from aria_kernel.specialist_review_runner import (  # noqa: E402
+    SpecialistReviewResult,
+    run_specialist_review_runner,
 )
 from aria_kernel.tool_registry import ensure_tools_dir  # noqa: E402
 
@@ -92,7 +97,7 @@ def _escalate_to_human_required(tools: Path, request_id: str) -> None:
         )
 
 
-def _run_review(tools: Path, **overrides: object) -> dict:
+def _run_review(tools: Path, **overrides: object) -> ReviewResult:
     kwargs: dict = {
         "cycle_id": "cyc-gate-001",
         "base_dir": tools,
@@ -106,7 +111,7 @@ def _run_review(tools: Path, **overrides: object) -> dict:
         "judge_timeout_seconds": 0.4,
     }
     kwargs.update(overrides)
-    return run_review_runner(**kwargs)  # type: ignore[arg-type]
+    return run_review_runner(**kwargs)
 
 
 class ReviewGateEvidenceBinding(unittest.TestCase):
@@ -169,7 +174,10 @@ class ReviewGateEvidenceBinding(unittest.TestCase):
             result = _run_review(self.tools)
         self.assertEqual(result["review_verdict"], "no_gaps")
         ref = result["accepted_result_ref"]
-        self.assertIsNotNone(ref)
+        # A bare assert rather than assertIsNotNone: the latter is not a
+        # TypeGuard, so every dereference below stays `dict | None` to the
+        # checker. Same assertion, and the narrowing is real.
+        assert ref is not None, "a passing review must carry its accepted_result_ref"
         self.assertEqual(ref["role"], _ADVERSARIAL_ROLE)
         self.assertEqual(ref["agent_id"], "aria-adversarial-judge")
         self.assertEqual(ref["output_hash"], accepted["output_hash"])
@@ -214,9 +222,7 @@ class SpecialistGateEvidenceBinding(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def _run(self, **overrides: object) -> dict:
-        from aria_kernel.specialist_review_runner import run_specialist_review_runner
-
+    def _run(self, **overrides: object) -> SpecialistReviewResult:
         kwargs: dict = {
             "cycle_id": "cyc-spec-001",
             "base_dir": self.tools,
@@ -230,7 +236,7 @@ class SpecialistGateEvidenceBinding(unittest.TestCase):
             "specialist_timeout_seconds": 0.4,
         }
         kwargs.update(overrides)
-        return run_specialist_review_runner(**kwargs)  # type: ignore[arg-type]
+        return run_specialist_review_runner(**kwargs)
 
     # I-GATE-06 — a submitting specialist is not reported as timed out.
     def test_i_gate_06_submitted_specialist_is_not_timed_out(self) -> None:
@@ -252,8 +258,15 @@ class SpecialistGateEvidenceBinding(unittest.TestCase):
             return_value=accepted,
         ):
             result = self._run()
-        if not result["specialists_dispatched"]:
-            self.skipTest("selection produced no specialists for this touch-map input")
+        # NOT a skipTest. These two cases are the ones that pin ORPHAN-HIGH-423,
+        # and the fixture pins the input: touched_services is
+        # ["apps/auth-service/"], which _DOMAIN_TOUCH_MAP maps to two
+        # specialists. If selection ever returns nothing, the gate under test
+        # was never exercised — that has to be red, not green-with-an-asterisk.
+        self.assertTrue(
+            result["specialists_dispatched"],
+            msg="selection produced no specialists, so this gate test asserted nothing",
+        )
         self.assertEqual(result["specialists_timed_out"], [])
         self.assertTrue(
             result["findings_by_specialist"],
@@ -274,8 +287,15 @@ class SpecialistGateEvidenceBinding(unittest.TestCase):
             return_value=accepted,
         ):
             result = self._run()
-        if not result["specialists_dispatched"]:
-            self.skipTest("selection produced no specialists for this touch-map input")
+        # NOT a skipTest. These two cases are the ones that pin ORPHAN-HIGH-423,
+        # and the fixture pins the input: touched_services is
+        # ["apps/auth-service/"], which _DOMAIN_TOUCH_MAP maps to two
+        # specialists. If selection ever returns nothing, the gate under test
+        # was never exercised — that has to be red, not green-with-an-asterisk.
+        self.assertTrue(
+            result["specialists_dispatched"],
+            msg="selection produced no specialists, so this gate test asserted nothing",
+        )
         self.assertEqual(result["consolidated_verdict"], "specialists_unavailable")
         self.assertEqual(
             result["findings_by_specialist"], {},

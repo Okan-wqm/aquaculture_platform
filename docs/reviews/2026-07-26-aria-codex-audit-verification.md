@@ -69,6 +69,9 @@ report's `P0-*` / `NEW-*` labels are the analysis names and these are the tracke
 | `ORPHAN-HIGH-443` | self-audit of this branch | HIGH | the Gate C block policy is a denylist, so an unrecognised verdict passes as a clean review |
 | `ORPHAN-MEDIUM-444` | self-audit of this branch | MEDIUM | the debt-plan repin script wrote all three mirror files before refusing, contradicting its own docstring |
 | `ORPHAN-MEDIUM-445` | self-audit of this branch | MEDIUM | the ARIA authority hash had a checker and no writer, so refreshing it meant copying a value out of a Jest failure |
+| `ORPHAN-CRITICAL-446` | adversarial re-audit | CRITICAL | the independence gate never receives the cross-reviewer's text, so the diversity layer computes neither comparison and every `converged` verdict is downgraded |
+| `ORPHAN-HIGH-447` | adversarial re-audit | HIGH | the two tests pinning the specialist gate can silently skip themselves instead of failing |
+| `ORPHAN-MEDIUM-448` | adversarial re-audit | MEDIUM | the repin script silently no-ops on anchor drift and exits 0, and was the one gate script nothing type-checked |
 
 Every ID above is listed here on purpose: this document is the `Closes:` target for all of them, and
 a trailer pointing at a file that does not name the finding is traceability theatre. Remaining
@@ -882,6 +885,82 @@ reproduces identically with every change in this session stashed, and the cause 
 absent here, so the helper exits `FATAL: ssh is required` before any assertion is reachable. CI
 runners ship `openssh-client` and the spec passes there. Recorded rather than silently ignored,
 because "two tests were already red" is exactly the sentence under which a real regression hides.
+
+## 9f. The re-audit that found what §9e missed (`ORPHAN-CRITICAL-446`, `-HIGH-447`, `-MEDIUM-448`)
+
+§9e was my own reading of my own diff. An independent adversarial pass over the same branch — seven
+lenses, no shared context with the work — found three more, and the first one is the worst defect
+this branch produced. Its skeptic stage never ran, so every claim below was re-verified by hand
+before being accepted; the ones that did not survive are recorded at the end.
+
+**`ORPHAN-CRITICAL-446` — the commit titled "make all three convergence independence layers
+functional" left one of them non-functional, and made things worse than before.** `convergence_drainer`
+records the round's role→dispatch map immediately after minting the cross-review envelope — before
+the reviewer has run — and passed `agent_text=None` as a literal. Nothing refreshed that record once
+the review landed. `_diversity_reasons` short-circuits on `{role}_text_unavailable` whenever either
+side lacks text, so both comparisons the layer exists for — primary↔cross_review and
+challenger↔cross_review — were never computed in any production round.
+
+Verified empirically rather than by reading. Constructing the exact dispatches the drainer builds:
+
+```
+cross_review.has_text: False
+diversity(primary, cross_review):    ['cross_review_text_unavailable']
+diversity(challenger, cross_review): ['cross_review_text_unavailable']
+verify_independence -> passed: False
+```
+
+The consequence goes past "the check is a no-op". `convergence_drainer` downgrades the verdict on
+`not independence_ok`, so **no plan could hold a `converged` verdict** — the convergence stage
+terminated in `cross_review_self_agreement` forever. Before the change the layer was a vacuous pass;
+after it, a vacuous fail plus a capability regression hidden behind a "now functional" claim. That
+inversion is precisely the failure mode this whole document is about, and I shipped it while
+documenting it.
+
+The fix re-records the cross-review dispatch with the reviewer's real output once the plan reaches
+`CROSS_REVIEWED`, reading it through `accepted_result_for_request` so an undelivered review stays a
+violation rather than an assumption. The reader returns `None` and never `""`: `RoundDispatch` fails
+closed on `None`, whereas an empty string scores as maximally diverse against anything and passes.
+Eight regression tests, including one that asserts the pre-fix shape so the file cannot pass
+vacuously, and one that confirms a reviewer parroting the primary is still caught by the Jaccard
+ceiling.
+
+Worth stating plainly: nothing in the suite could have caught this, because nothing covered the
+drainer's wiring at all — `grep -rn round_dispatch aria-kernel/tests/` returned zero hits. The layers
+were tested in isolation and the caller that feeds them was not.
+
+**`ORPHAN-HIGH-447` — the tests pinning the specialist gate could stop asserting without going red.**
+I-GATE-06 and I-GATE-07 both ended with `if not result["specialists_dispatched"]: self.skipTest(...)`
+— the only skip markers this branch added, on the two cases that pin `ORPHAN-HIGH-423`. The fixture
+pins the input (`touched_services=["apps/auth-service/"]`, which the touch-map resolves to two
+specialists), so the guarded condition is not environmental variance; it is the case where the gate
+under test was never exercised. Both are now assertions.
+
+Found in the same file: two `# type: ignore[arg-type]` comments suppressing an error code mypy does
+not raise here. The real error is `return-value` — both helpers were annotated `-> dict` while
+returning a TypedDict — and it went unreported only because nothing runs mypy over `aria-kernel/tests`.
+Giving the helpers their true return types removed both suppressions and immediately surfaced five
+further latent errors from indexing a `dict | None` after `assertIsNotNone`, which is not a
+`TypeGuard`. The annotation started doing work the moment it stopped being `dict`.
+
+**`ORPHAN-MEDIUM-448` — the repin script, on a second pass.** `repinManifest` threw on a missing
+anchor while `repinTruthTable` and `repinReadme` returned a boolean the caller discarded, so a renamed
+README bullet made the script print success and exit 0 having refreshed nothing. Making those throw
+is only half a fix: throwing on the third file after writing the first two reproduces `444`'s
+write-before-refuse bug in a new order. The three functions are now pure planners that validate every
+anchor and return the bytes they would write, with nothing touching the filesystem until all three
+succeed — verified by renaming a README bullet and confirming exit 1 with all three files
+byte-unchanged. It is also now TypeScript: `tools/gates/tsconfig.json` includes `**/*.ts`, so as
+`.mjs` it was the one executable gate script in that directory nothing type-checked.
+
+**Claims from the same pass that were checked and are recorded rather than fixed here.** Several are
+real but belong to work already tracked: the hard-fail perimeter having no non-test caller is
+`ORPHAN-CRITICAL-428`, still OPEN and scheduled for S2; `PLAN.md` citing abandoned-branch SHAs and
+surviving bare numeric old-ID references are documentation defects in the plan of record, not in
+code. Two lens claims did not survive checking and are not registered. The rest of the pass remains
+unverified: it ran seven of nine lenses before the session broke, and its skeptic stage — the stage
+that exists to kill plausible-but-wrong findings — never ran at all. Nothing from it is treated as
+confirmed unless it appears above with a command behind it.
 
 ## 10. Limits of this verification
 

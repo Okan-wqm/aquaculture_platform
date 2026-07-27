@@ -42882,7 +42882,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "tools/gates/repin-debt-plan.mjs",
+      "path": "tools/gates/repin-debt-plan.ts",
       "prettier_managed": true
     },
     {
@@ -54891,7 +54891,7 @@
   "file_count": 8997,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
   "managed_count": 8816,
-  "managed_file_list_sha256": "2b19369f1addcfc3bf62ca4466ba509c34205ec2c966e80c946d67340774281a",
+  "managed_file_list_sha256": "4504f5f7f7d3c0484e6a45e9b62cca760b99fae0a1ba72f7fd994903cc0ebb6d",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

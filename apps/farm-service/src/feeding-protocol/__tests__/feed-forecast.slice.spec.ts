@@ -12,6 +12,7 @@ function snapshotFixture(): FeedingForecastSnapshot {
     id: 's1',
     tenantId: 't1',
     siteScopeKey: 'site-1',
+    poolScope: 'SITE',
     horizonDays: 120,
     computedAt: new Date('2026-01-01T07:00:00Z'),
     perFeed: [
@@ -32,7 +33,8 @@ function snapshotFixture(): FeedingForecastSnapshot {
     ],
     perUnit: [
       {
-        unitId: 'u1', unitName: 'Tank 1', unitCode: 'T1', currentFeedId: 'near',
+        unitId: 'u1', unitName: 'Tank 1', unitCode: 'T1',
+        currentFeedId: 'near', terminalFeedId: 'x',
         transitions: [
           { fromFeedId: 'near', toFeedId: 'far', estimatedDate: '2026-01-13', daysFromNow: 12 },
           { fromFeedId: 'far', toFeedId: 'x', estimatedDate: '2026-04-11', daysFromNow: 100 },
@@ -40,8 +42,12 @@ function snapshotFixture(): FeedingForecastSnapshot {
       },
     ],
     alerts: [
-      { type: 'STOCKOUT_FORECAST', feedId: 'near', days: 5 },
-      { type: 'STOCKOUT_FORECAST', feedId: 'far', days: 100 },
+      { type: 'STOCKOUT_FORECAST', feedId: 'near', days: 5, atDay: 5 },
+      { type: 'STOCKOUT_FORECAST', feedId: 'far', days: 100, atDay: 100 },
+      // FARM-LOW-266 pini: `days` EKSİK GÜN büyüklüğüdür (1), `atDay` ise
+      // geçişin günü (100). Eski dilimleme `days`'e baktığı için bu alarm
+      // 30 günlük pencerede yanlışlıkla görünüyordu.
+      { type: 'TRANSITION_COVERAGE_GAP', feedId: 'far', unitId: 'u1', days: 1, atDay: 100 },
     ],
     mortalityAssumption: { applied: false, source: 'none' },
     createdAt: new Date(), updatedAt: new Date(), version: 1,
@@ -72,8 +78,27 @@ describe('sliceSnapshotToHorizon (K-10)', () => {
     expect(far?.reorderQuantityKg).toBeNull();
   });
 
-  it('dilim dışı geçişler ve alertler elenir, içindekiler kalır', () => {
+  it('dilim dışı geçişler ve alertler GÜN İNDEKSİNE göre elenir (FARM-LOW-266)', () => {
     expect(view.perUnit[0]?.transitions.map((t) => t.daysFromNow)).toEqual([12]);
-    expect(view.alerts).toEqual([{ type: 'STOCKOUT_FORECAST', feedId: 'near', days: 5 }]);
+    // `days: 1` taşıyan kapsama-açığı alarmı da elenir: penceresi gün 100'dür.
+    expect(view.alerts).toEqual([
+      { type: 'STOCKOUT_FORECAST', feedId: 'near', days: 5, atDay: 5 },
+    ]);
+  });
+
+  it('bugünkü ve ufuk-sonu yem AYRI alanlardır (FARM-LOW-265)', () => {
+    expect(view.perUnit[0]?.currentFeedId).toBe('near');
+    expect(view.perUnit[0]?.terminalFeedId).toBe('x');
+  });
+
+  it('26 saatten eski snapshot BAYAT işaretlenir — gizlenmez, silinmez', () => {
+    const fresh = sliceSnapshotToHorizon(
+      { ...snapshotFixture(), computedAt: new Date() },
+      30,
+    );
+    expect(fresh.stale).toBe(false);
+    // Fixture computedAt'i 2026-01-01; testin koştuğu an her hâlde daha geç.
+    expect(view.stale).toBe(true);
+    expect(view.poolScope).toBe('SITE');
   });
 });

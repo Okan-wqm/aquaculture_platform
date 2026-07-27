@@ -9789,6 +9789,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1807400000000-AddForecastPoolScope.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -55038,10 +55044,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9022,
+  "file_count": 9023,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8841,
-  "managed_file_list_sha256": "62ac56abe4cbdb3e13220f5a29c79c18d0722ad8d1bd9176cfe103158d4f13a1",
+  "managed_count": 8842,
+  "managed_file_list_sha256": "3a689b5129a799f177bf56d5d3c59709b41baf6900d87c2497fcff8a1cf1d356",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

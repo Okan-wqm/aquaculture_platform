@@ -105,6 +105,15 @@ const FCR_CRITICAL_VARIANCE_PERCENT = 20;
 const DAY_PLAN_RETENTION_MONTHS = 24;
 const RECEIPT_RETENTION_DAYS = 90;
 /**
+ * Forecast snapshot ölü-satır penceresi (W6, FARM-LOW-266/296).
+ *
+ * Canlı kapsam budaması her yenilemede `pruneScopes` ile yapılır; bu pencere
+ * yalnız ARTIK YENİLENMEYEN satırlar içindir — son ataması kalkmış, sitesi
+ * silinmiş ya da tenant'ı emekli olmuş kapsamlar. 30 gün, günlük hesaplanan
+ * bir satır için "bir daha koşmadı" demeye fazlasıyla yeter.
+ */
+const FORECAST_SNAPSHOT_RETENTION_DAYS = 30;
+/**
  * DAILY rollup taraması (FARM-CRITICAL-244): alt tarih sınırı + koşu başına
  * tavan. Sınırsız tarama, mod değişimi senaryosunda 24 aylık planı tek koşuda
  * işleyip biyokütleyi katlayan patlama yarıçapının kendisiydi. Geç finalize
@@ -1314,6 +1323,18 @@ export class FeedingCronV2Service {
          ) SELECT COUNT(*)::int AS count FROM deleted`,
         [tenantId],
       );
+      // Yenilenmeyen forecast kapsamları (FARM-LOW-296): canlı budama
+      // `ProtocolFeedForecastService.pruneScopes`'ta, bu yalnız ARTIK
+      // hiç koşmayan tenant/site satırlarının süpürmesidir.
+      const forecasts: Array<{ count: number }> = await manager.query(
+        `WITH deleted AS (
+           DELETE FROM "feeding_forecast_snapshots"
+            WHERE "tenantId" = $1
+              AND "computedAt" < (now() - INTERVAL '${FORECAST_SNAPSHOT_RETENTION_DAYS} days')
+           RETURNING 1
+         ) SELECT COUNT(*)::int AS count FROM deleted`,
+        [tenantId],
+      );
       const receipts: Array<{ count: number }> = await manager.query(
         `WITH deleted AS (
            DELETE FROM "farm_mobile_command_receipts"
@@ -1328,11 +1349,13 @@ export class FeedingCronV2Service {
         meals: Number(meals[0]?.count ?? 0),
         dayPlans: Number(plans[0]?.count ?? 0),
         receipts: Number(receipts[0]?.count ?? 0),
+        forecasts: Number(forecasts[0]?.count ?? 0),
       };
-      if (purged.meals + purged.dayPlans + purged.receipts > 0) {
+      if (purged.meals + purged.dayPlans + purged.receipts + purged.forecasts > 0) {
         this.logger.log(
           `Retention purge: ${purged.meals} meals, ${purged.dayPlans} day plans, ` +
-            `${purged.receipts} receipts removed (tenant ${tenantId.substring(0, 8)}...)`,
+            `${purged.receipts} receipts, ${purged.forecasts} forecast scopes removed ` +
+            `(tenant ${tenantId.substring(0, 8)}...)`,
         );
       }
     });
@@ -1358,7 +1381,9 @@ export class FeedingCronV2Service {
         const rows: Array<{ tenantId: string }> = await runner.query(
           `SELECT DISTINCT "tenantId" FROM "feeding_day_plans"
            UNION
-           SELECT DISTINCT "tenantId" FROM "farm_mobile_command_receipts"`,
+           SELECT DISTINCT "tenantId" FROM "farm_mobile_command_receipts"
+           UNION
+           SELECT DISTINCT "tenantId" FROM "feeding_forecast_snapshots"`,
         );
         for (const row of rows) tenantIds.add(row.tenantId);
       } catch (error) {

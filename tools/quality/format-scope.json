@@ -32071,6 +32071,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/2026-07-27-ci-full-contract.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/2026-07-27-production-dependency-floor.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/admin-expert/2026-04-05-s2-high-findings.md",
       "prettier_managed": true
     },
@@ -39486,7 +39498,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "24cb0eee1b28f9abd1b00ea1dfaccca2614b10e15f73203ccdb094a2bb97a804",
+      "content_sha256": "41eea8e699b8e23379092865cc8002ef39282718e6ac57e92038cb6976fdc6ee",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -39913,6 +39925,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "scripts/ci/check-messaging-tenant-entity-routing.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/ci/check-production-licenses.mjs",
       "prettier_managed": true
     },
     {
@@ -55020,10 +55038,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9019,
+  "file_count": 9022,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8838,
-  "managed_file_list_sha256": "51a24902c4bd6d805c5a266b8013ab582b66a0eeb8f3b21e99a97bcd289e11fd",
+  "managed_count": 8841,
+  "managed_file_list_sha256": "62ac56abe4cbdb3e13220f5a29c79c18d0722ad8d1bd9176cfe103158d4f13a1",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

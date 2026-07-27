@@ -7,7 +7,19 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "jest"
+    "test": "ts-node --project ../gates/tsconfig.json ../lint-gates/custom-rules.spec.ts"
+  },
+  "nx": {
+    "targets": {
+      "test": {
+        "inputs": [
+          "default",
+          "^production",
+          "{workspaceRoot}/tools/lint-gates/custom-rules.spec.ts",
+          "{workspaceRoot}/tools/gates/tsconfig.json"
+        ]
+      }
+    }
   },
   "dependencies": {
     "@typescript-eslint/utils": "^8.59.1"

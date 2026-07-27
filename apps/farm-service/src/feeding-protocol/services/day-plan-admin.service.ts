@@ -27,10 +27,7 @@ import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent, FeedTypeTransitionedEvent } from '@platform/event-contracts';
 
-import {
-  FeedingProtocolV2,
-  FeedingProtocolStatus,
-} from '../entities/feeding-protocol-v2.entity';
+import { FeedingProtocolV2, FeedingProtocolStatus } from '../entities/feeding-protocol-v2.entity';
 import {
   ProtocolAssignment,
   ProtocolAssignmentStatus,
@@ -103,7 +100,10 @@ export class DayPlanAdminService {
         this.logger.log(
           `Day plan ${existing.id} manually recalculated for unit ${unitId} by ${userId}`,
         );
-        return { outcome: DayPlanAdminOutcome.RECALCULATED, dayPlanId: result?.dayPlanId ?? existing.id };
+        return {
+          outcome: DayPlanAdminOutcome.RECALCULATED,
+          dayPlanId: result?.dayPlanId ?? existing.id,
+        };
       }
 
       // Bugün planı yok → şimdi üret (06:00 üreticisiyle AYNI hesap yolu).
@@ -161,6 +161,7 @@ export class DayPlanAdminService {
           unitName: assignment.unitName,
           unitCode: assignment.unitCode,
           planDate,
+          growthApplicationMode: protocol.settings.growthApplicationMode,
         },
         computed,
       );

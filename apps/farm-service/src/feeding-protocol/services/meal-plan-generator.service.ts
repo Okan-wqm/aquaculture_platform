@@ -20,6 +20,7 @@ import { EntityManager } from 'typeorm';
 import {
   FcrMatrix,
   FeedingProtocolV2,
+  GrowthApplicationMode,
 } from '../entities/feeding-protocol-v2.entity';
 import { ProtocolAssignment } from '../entities/protocol-assignment.entity';
 import {
@@ -29,11 +30,7 @@ import {
 } from '../entities/feeding-day-plan.entity';
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
 import { ProtocolRateService } from './protocol-rate.service';
-import {
-  effectiveMealSchedule,
-  materializeMeals,
-  suspensionFor,
-} from './meal-schedule.util';
+import { effectiveMealSchedule, materializeMeals, suspensionFor } from './meal-schedule.util';
 import type { EffectiveTemperature } from '../../water-quality/services/water-temperature.service';
 import type { BatchDetail } from '../../batch/entities/tank-batch.entity';
 
@@ -124,6 +121,12 @@ export interface PersistDayPlanContext {
   unitName: string;
   unitCode: string;
   planDate: string;
+  /**
+   * Üretim anındaki büyüme modu — plana DONDURULUR (FARM-CRITICAL-244).
+   * Protokol ayarı sonradan değişse bile bu plan üretildiği semantikle
+   * rollup'lanır.
+   */
+  growthApplicationMode: GrowthApplicationMode;
 }
 
 // ============================================================================
@@ -233,13 +236,18 @@ export class MealPlanGeneratorService {
     computed: ComputedDayPlan,
   ): Promise<string | null> {
     const inserted: Array<{ id: string }> = await manager.query(
+      // `growthApplicationMode` ÜRETİM ANINDA dondurulur (FARM-CRITICAL-244):
+      // rollup planın kendi semantiğini okur, protokolün sonradan değişen
+      // ayarını değil — geçmiş büyüme ne çift sayılabilir ne kaybolabilir.
       `INSERT INTO "feeding_day_plans"
          (id, "tenantId", "assignmentId", "protocolId", "unitId", "siteId", "unitType",
           "unitName", "unitCode", "planDate", snapshot, "plannedTotalKg",
-          "unplannedActualKg", "mealsPlanned", status, "skipReason", "recalcLog", version)
+          "unplannedActualKg", "mealsPlanned", status, "skipReason", "recalcLog",
+          "growthApplicationMode", "rollupAppliedKg", "rollupGrowthKg", version)
        VALUES (uuid_generate_v4(), $1, $2, $3, $4, $5,
                $6::feeding_protocol_assignments_unittype_enum, $7, $8, $9, $10::jsonb,
-               $11, 0, $12, $13::feeding_day_plans_status_enum, $14, '[]'::jsonb, 1)
+               $11, 0, $12, $13::feeding_day_plans_status_enum, $14, '[]'::jsonb,
+               $15, 0, 0, 1)
        ON CONFLICT ("tenantId", "unitId", "planDate") DO NOTHING
        RETURNING id`,
       [
@@ -257,6 +265,7 @@ export class MealPlanGeneratorService {
         computed.meals.length,
         computed.status,
         computed.skipReason ?? null,
+        context.growthApplicationMode,
       ],
     );
     const dayPlanId = inserted[0]?.id;

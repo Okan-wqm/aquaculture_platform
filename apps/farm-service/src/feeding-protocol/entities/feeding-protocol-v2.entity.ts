@@ -136,6 +136,13 @@ export interface FcrMatrix {
   fcrValues: number[][];
 }
 
+/**
+ * Büyümenin ne zaman uygulandığı. Gün planı bu değeri ÜRETİM ANINDA kendi
+ * kolonuna kopyalar (FARM-CRITICAL-244): protokol ayarı sonradan değişse bile
+ * geçmiş planlar üretildikleri semantikle işlenir.
+ */
+export type GrowthApplicationMode = 'per_meal' | 'daily';
+
 /** Protokol davranış ayarları. */
 export interface ProtocolSettings {
   /** Ağırlık banda girince yem geçişi otomatik yürütülsün mü. */
@@ -143,7 +150,7 @@ export interface ProtocolSettings {
   /** Geçiş histerezisi (gram) — band sınırında ileri-geri salınımı önler. */
   transitionBufferG: number;
   /** FCR büyümesi öğün başına mı gün-sonu rollup'ta mı uygulanır. */
-  growthApplicationMode: 'per_meal' | 'daily';
+  growthApplicationMode: GrowthApplicationMode;
   /** Öğün varyansı bu eşiğin altına düşünce MealUnderfed alarmı (negatif yüzde eşiği). */
   underfeedAlertThresholdPercent: number;
   /** Beklenen FCR çözüm kaynağı (override her zaman öncelikli — §3). */

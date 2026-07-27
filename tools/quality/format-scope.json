@@ -10899,6 +10899,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/biomass-integrity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/__tests__/day-plan-admin.service.spec.ts",
       "prettier_managed": true
     },
@@ -54930,10 +54936,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9004,
+  "file_count": 9005,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8823,
-  "managed_file_list_sha256": "3515afb036ef9d018abd1b5d1c7f50fc919977be8d7ee6e48cf42561bd073729",
+  "managed_count": 8824,
+  "managed_file_list_sha256": "eb8a30b17eef7361cae8a25ca1a01d7f411f0949237a66841fdba910b6fa70c2",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -5,7 +5,7 @@ import {
   GetObjectCommand,
   PutObjectCommand,
 } from '@aws-sdk/client-s3';
-import sharp from 'sharp';
+import sharp, { type FormatEnum } from 'sharp';
 import { Readable } from 'stream';
 
 /** Thumbnail dimensions */
@@ -20,7 +20,7 @@ const THUMBNABLE_MIME_TYPES = new Set<string>([
 ]);
 
 /** Map input MIME to sharp output format */
-const OUTPUT_FORMAT_MAP: Record<string, keyof sharp.FormatEnum> = {
+const OUTPUT_FORMAT_MAP: Record<string, keyof FormatEnum> = {
   'image/jpeg': 'jpeg',
   'image/png': 'png',
   'image/webp': 'webp',

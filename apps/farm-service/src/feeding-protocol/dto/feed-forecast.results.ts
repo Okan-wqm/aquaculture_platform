@@ -6,9 +6,11 @@
  * `computedAt` tazelik göstergesi, `mortalityAssumption` açık varsayım
  * işareti (K-17). Seriler grafik-hazırdır (P-16 — cap yok).
  *
- * GraphQL adları 'ProtocolFeedForecast*' önekiyle ayrışır: legacy forecast
- * yığını (feeding.resolver.ts, Faz 8'de emekli) 'FeedForecastAlert' adını
- * hâlâ taşıyor — süpergraf tip adları benzersiz olmak zorunda.
+ * GraphQL adları 'ProtocolFeedForecast*' önekini taşır: bu önek, v1 forecast
+ * yığını süpergrafta önek'siz adları işgal ettiği için gerekliydi (tip adları
+ * benzersiz olmak zorunda). v1 yığını Faz 8'de silindi; önek KORUNUYOR çünkü
+ * artık FE operasyonlarının ve generated istemci tiplerinin sözleşmesidir —
+ * onu kaldırmak kırıcı bir şema değişikliği olurdu, kazanç ise kozmetik.
  *
  * @module FeedingProtocol/DTO
  */

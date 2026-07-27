@@ -26,18 +26,23 @@ import { join } from 'path';
 
 const ROOT = join(__dirname, '..', '..');
 
-const CRON_FILE = join(
-  ROOT,
-  'apps/farm-service/src/feeding/services/feeding-cron.service.ts',
-);
 const SCHEDULER_FILE = join(
   ROOT,
   'apps/farm-service/src/scheduler/feeding-scheduler.service.ts',
 );
 
-/** K-5 listesi — legacy üretim + bildirim işleri (plan §11 Faz 6 + W8). */
+/**
+ * K-5 listesi — legacy üretim + bildirim işleri (plan §11 Faz 6 + W8).
+ *
+ * Bu liste eskiden İKİ dosya kapsıyordu. v1 yemleme cron sınıfı Faz 8'de
+ * silindi: hiçbir modülde provider olarak kayıtlı DEĞİLDİ
+ * (`SchedulerModule.providers` = [CronJobsService, FeedingSchedulerService];
+ * `FeedingModule` de onu sağlamıyordu), dolayısıyla `@Cron`'ları ateşlenemezdi
+ * ve kapı orada hiçbir şeyi kapatmıyordu. Silinen simgeler
+ * `tests/invariants/feeding-v1-retired-symbols.spec.ts`'te grep-zero olarak
+ * pinlidir — adları burada tekrarlanmaz, o kapı yorumları da tarar.
+ */
 const GATED_JOBS: Record<string, string[]> = {
-  [CRON_FILE]: ['generateDailyPlans', 'checkFeedTransitions'],
   [SCHEDULER_FILE]: [
     'generateDailyFeedingPlan',
     'sendFeedingReminders',
@@ -52,7 +57,6 @@ const GATED_JOBS: Record<string, string[]> = {
 
 /** Drain penceresi işleri — kapı bunlara TAŞAMAZ. */
 const UNGATED_JOBS: Record<string, string[]> = {
-  [CRON_FILE]: ['applyDailyGrowthRollup', 'cleanupOldExecutions'],
   [SCHEDULER_FILE]: [],
 };
 

@@ -35,7 +35,9 @@ describe('FeedingResolver.feedingSummary — response contract completeness', ()
 
   function resolverReturning(value: FeedingSummaryResult): FeedingResolver {
     const queryBus = { execute: jest.fn().mockResolvedValue(value) };
-    return new FeedingResolver({} as never, queryBus as never, {} as never, {} as never, {} as never);
+    // Ctor: (commandBus, queryBus, growthSimulator, dataSource). Only the query
+    // bus is exercised on this path; the rest stay inert doubles.
+    return new FeedingResolver({} as never, queryBus as never, {} as never, {} as never);
   }
 
   it('maps the handler Result onto a fully-populated FeedingSummaryResponse', async () => {

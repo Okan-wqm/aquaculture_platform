@@ -24,7 +24,7 @@
  *      swallows anyway.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, resolve, sep } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 
 import {
   FARM_SIGNAL_DELIVERY_SEMANTICS,
@@ -58,12 +58,26 @@ const UNCONSUMED_FEEDING_EVENTS = new Set<string>([
   'FeedInventoryLow',
 ]);
 
+/**
+ * First capture group of a match. Every regex in this spec carries exactly one
+ * group, so a missing group means the pattern was edited into something the
+ * caller no longer expects — throw instead of letting `undefined` slip into the
+ * classified set and silently shrink the gate.
+ */
+function firstGroup(match: RegExpMatchArray): string {
+  const value = match[1];
+  if (value === undefined) {
+    throw new Error(`Pattern matched "${match[0]}" but produced no capture group`);
+  }
+  return value;
+}
+
 function feedingEventTypesInContract(): string[] {
   const source = readFileSync(FARM_EVENTS, 'utf-8');
   const matches = source.matchAll(
     /eventType:\s*'((?:Meal|Feed|Feeding|FCR)[A-Za-z]*)';/g,
   );
-  return [...new Set([...matches].map((m) => m[1]))];
+  return [...new Set([...matches].map(firstGroup))];
 }
 
 /** Every `.ts` under a directory, skipping tests and node_modules. */
@@ -92,15 +106,15 @@ function subscribedEventTypes(): Map<string, string[]> {
   const byEventType = new Map<string, string[]>();
   for (const file of tsFiles(ALERT_HANDLER_DIR)) {
     const source = readFileSync(file, 'utf-8');
-    const name = file.split(sep).slice(-1)[0];
+    const name = basename(file);
     // Direct `subscribeWildcard('Foo', …)` plus the array-driven form used by
     // feeding-execution.handler.ts (`const SUBSCRIBED_TYPES = [...]`).
-    const direct = [...source.matchAll(/subscribeWildcard(?:<[^>]*>)?\(\s*'([A-Za-z]+)'/g)].map(
-      (m) => m[1],
-    );
+    const direct = [
+      ...source.matchAll(/subscribeWildcard(?:<[^>]*>)?\(\s*'([A-Za-z]+)'/g),
+    ].map(firstGroup);
     const listBlock = /SUBSCRIBED_TYPES[^=]*=\s*\[([^\]]*)\]/s.exec(source);
     const listed = listBlock
-      ? [...listBlock[1].matchAll(/'([A-Za-z]+)'/g)].map((m) => m[1])
+      ? [...firstGroup(listBlock).matchAll(/'([A-Za-z]+)'/g)].map(firstGroup)
       : [];
     for (const eventType of [...direct, ...listed]) {
       byEventType.set(eventType, [...(byEventType.get(eventType) ?? []), name]);
@@ -174,7 +188,7 @@ describe('INVARIANT: feeding event delivery semantics', () => {
           /}\s*catch\s*\(/.test(source) && !/requiresDurableDelivery\s*\(/.test(source)
         );
       })
-      .map((file) => file.split(sep).slice(-1)[0]);
+      .map((file) => basename(file));
 
     expect(violations).toEqual([]);
   });
@@ -186,7 +200,7 @@ describe('INVARIANT: feeding event delivery semantics', () => {
           readFileSync(file, 'utf-8'),
         ),
       )
-      .map((file) => file.split(sep).slice(-1)[0]);
+      .map((file) => basename(file));
 
     expect(offenders).toEqual([]);
   });

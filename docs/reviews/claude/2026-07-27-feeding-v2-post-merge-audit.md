@@ -88,3 +88,49 @@ bulgu bu programın kapsamındadır ve ayrı ID almaz — ilgili dalgada kapanı
 | FARM-MEDIUM-294   | MEDIUM   | Sensör sıcaklığı gün-içi recalc zincirine hiç bağlı değil — plan 06:00 değerinde çakılı kalıyor                                                                                                                                                                                                                           | W5                   |
 | FARM-LOW-295      | LOW      | `round3` dört dosyada kopya (paylaşılan util yok)                                                                                                                                                                                                                                                                         | W1                   |
 | FARM-LOW-296      | LOW      | `feeding_forecast_snapshots` retention purge'ünde yok — tenant/site silinince satır öksüz kalıyor                                                                                                                                                                                                                         | W6                   |
+| FARM-MEDIUM-297   | MEDIUM   | v1 yemleme cron sınıfı hiçbir modülde provider DEĞİLDİ — `@Cron`'ları asla ateşlenemezdi; belgelenen `FEEDING_LEGACY_ENGINE_ENABLED=true` rollback'i onu geri getiremezdi ve drain-window rollup/cleanup işleri fiilen sahipsizdi                                                                                          | Faz 8 ölü-kod         |
+| FARM-LOW-298      | LOW      | v1 `feedConsumptionForecast` yolu tüketicisiz yaşıyordu; K-6'nın erteleme gerekçesi ("scheduler hâlâ derliyor") dolmuştu — scheduler kendi özel `generateFeedForecast`'ini çağırıyor                                                                                                                                       | Faz 8 ölü-kod         |
+| FARM-MEDIUM-299   | MEDIUM   | `apps/farm-service/schema.graphql` bayat SDL snapshot'ı: PR #942'den beri yenilenmiyor, v2 feeding yüzeyinin TAMAMINI kaçırıyor, hiçbir drift kapısı karşılaştırmıyor ama CI pagination validator'ı onu okuyor — **bu commit'te bilerek düzeltilmedi** (aşağıya bkz.)                                                       | AÇIK                  |
+
+### Faz 8 ölü-kod süpürmesi — silinen iki dosyanın kanıtı
+
+Silme kuralı ("yüzde yüz kullanılmadığına emin ol") iki bağımsız kanıt ayağıyla
+karşılandı; her ikisinin de yerine geçen CANLI yol var.
+
+**1. v1 yemleme cron servisi (FARM-MEDIUM-297).** `SchedulerModule.providers`
+= `[CronJobsService, FeedingSchedulerService]`; `FeedingModule` de onu hiç
+sağlamıyordu; farm-service'in hiçbir modülünde adı geçmiyordu. Nest bir sınıfı
+provider olarak görmezse `@Cron` dekoratörlerini hiç kaydetmez — yani dört iş de
+(gated `generateDailyPlans`/`checkFeedTransitions`, ungated
+`applyDailyGrowthRollup`/`cleanupOldExecutions`) ölü doğmuştu. Bu, K-5 rollback
+anlatısını da düzeltir: kapı orada hiçbir şeyi kapatmıyordu, dolayısıyla rollback
+yolu YALNIZ `feeding-scheduler.service.ts` üzerinden yaşar. Yerine geçen:
+`FeedingCronV2Service` (canlı, `FeedingProtocolModule` provider'ı).
+
+**2. v1 forecast servisi + `feedConsumptionForecast` op'u (FARM-LOW-298).** FE,
+mobil ve e2e'de sıfır çağıran; FE hook'ları (`useFeedConsumptionForecast`,
+`FEED_CONSUMPTION_FORECAST_QUERY`) zaten `feeding-v1-retired-symbols` kapısında
+sıfıra pinliydi. K-6 bu servisin silinmesini "scheduler hâlâ derliyor" diye Faz 8'e
+ertelemişti; `weeklyFeedForecast` gerçekte scheduler'ın KENDİ özel
+`generateFeedForecast`'ini çağırıyor — bağımlılık yok. Yerine geçen:
+`protocolFeedForecast` (Faz 7, snapshot destekli). **BREAKING CHANGE:** public bir
+GraphQL sorgusu kalkıyor.
+
+Silinemeyen ve NEDEN silinemediği: `FeedSelectorService`
+(`equipment.resolver.ts` dataloader fallback'i + `GrowthSimulatorService`),
+`FeedingProtocolRateService` (`feed-selection.dataloader` v1 fallback'i),
+`BilinearInterpolationService`, `FeedingProgramService`,
+`DailyFeedingExecutionService`, `feeding-scheduler.service.ts`,
+`FeedingProtocolSeederService` — hepsinin ya canlı çağıranı var ya da G0–G4
+kapılarıyla korunan R1 rollback yolunun parçası. **Plan metni düzeltmesi:**
+§9.5'teki "`feed-selector.service.ts` silinir" satırı YANLIŞ — o servis
+`growthSimulation` op'unun (Faz 8'den açıkça MUAF, C-15) zincirinde canlı.
+
+**FARM-MEDIUM-299 neden bu commit'te kapatılmadı.** `apps/farm-service/schema.graphql`
+elle düzenlenemez: build onu üretmiyor (build `dist/graphql/subgraphs/farm.graphql`
+emit ediyor, o da app bootstrap'ında DB bağlantısıyla yazılıyor). Dosya zaten
+Faz 3–8 ve W0–W8'in eklediği hiçbir op'u taşımıyor. Silinen op'u elle çıkarmak,
+onlarca başka noktada yanlış olan bir dosyaya sahte doğruluk katardı. Kalıcı çözüm
+iki seçenekten biri: dosyayı gerçek üretim yoluna bağlamak ya da silip
+`scripts/validate-pagination-schema.js`'i composed supergraph'a yöneltmek —
+sahibi + tarihi registry'de.

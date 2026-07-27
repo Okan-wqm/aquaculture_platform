@@ -349,7 +349,6 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   farmDashboardInsights: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   farms: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feed: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
-  feedConsumptionForecast: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedSuppliers: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedTypes: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feederCalibrations: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -557,13 +556,16 @@ export const UNGATED_OPERATIONS: ReadonlySet<string> = Object.freeze(
     // storageOverview / supplier / suppliers / suppliersByType /
     // supplierTypes / feedSuppliers / chemicalSuppliers /
     // lowStockAlerts / stockSummary.
-    // Phase 6.1.1 (feeding-growth-WQ queries) moved 37:
+    // Phase 6.1.1 (feeding-growth-WQ queries) moved 36 that still exist
+    // (a 37th, the v1 feed-consumption forecast read, was retired with the
+    // v1 feeding stack in Faz 8 and is pinned in
+    // tests/invariants/feeding-v1-retired-symbols.spec.ts):
     // feed / feeds / feedsByType / feedsByPelletSize / feedsForSpecies /
     // feedTypes / feedingProtocol / feedingProtocols /
     // feedingProtocolsBySpecies / defaultFeedingProtocol /
     // feedingRecord / feedingRecords / dailyFeedingPlan /
     // feedingSummary / growthSimulation /
-    // feedConsumptionForecast / estimateSGR / feederCalibrations /
+    // estimateSGR / feederCalibrations /
     // feedingAdvice / growthMeasurement / growthMeasurements /
     // growthAnalysis / latestGrowthMeasurement / waterQuality /
     // waterQualityMeasurements / latestWaterQuality /

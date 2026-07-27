@@ -23,7 +23,7 @@ import {
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { MinioClientService } from '@platform/storage';
 import PDFDocument from 'pdfkit';
-import { DataSource, Repository } from 'typeorm';
+import { Between, DataSource, In, Repository } from 'typeorm';
 
 import { AuditLogService } from '../../audit/audit.service';
 import {
@@ -40,6 +40,7 @@ import {
   SystemMetrics,
   measuredEntries,
 } from '../entities/analytics-snapshot.entity';
+import { InvoiceReadOnly, InvoiceStatus } from '../entities/external/invoice.entity';
 import { TenantReadOnly, TenantStatus, TenantPlan } from '../entities/external/tenant.entity';
 import { UserReadOnly } from '../entities/external/user.entity';
 
@@ -84,13 +85,22 @@ interface RevenueReportRow {
   netRevenue: number;
 }
 
+/**
+ * A row of the payments report, sourced from `billing.invoices`.
+ *
+ * `status` is the billing `InvoiceStatus` enum, not a bare `string`. The loose
+ * type is what let `const status = amount === 0 ? 'paid' : 'paid'` — a literal
+ * tautology — type-check for as long as it did, which made every non-paid
+ * branch dead code and pinned the collection rate at 100% (APA-138).
+ */
 interface PaymentReportRow {
   invoiceId: string;
   tenantName: string;
   amount: number;
+  amountDue: number;
   currency: string;
   dueDate: string;
-  status: string;
+  status: InvoiceStatus;
   daysPastDue: number;
 }
 
@@ -143,6 +153,11 @@ function roundOrNull(value: number | null): number | null {
   return value === null ? null : Math.round(value * 100) / 100;
 }
 
+/** Currency rounding to 2dp. */
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
 // ============================================================================
 // Service
 // ============================================================================
@@ -159,6 +174,10 @@ export class ReportsService {
     private readonly tenantRepository: Repository<TenantReadOnly>,
     @InjectRepository(UserReadOnly)
     private readonly userRepository: Repository<UserReadOnly>,
+    // billing.invoices is the SSoT for monetary state (CLAUDE.md D14); the
+    // payments report reads it instead of synthesising invoices (APA-138).
+    @InjectRepository(InvoiceReadOnly)
+    private readonly invoiceRepository: Repository<InvoiceReadOnly>,
     @InjectRepository(ReportDefinition)
     private readonly definitionRepository: Repository<ReportDefinition>,
     @InjectRepository(ReportExecution)
@@ -569,84 +588,109 @@ export class ReportsService {
     };
   }
 
-  private async generatePaymentsReport(_request: ReportRequest): Promise<{
+  /**
+   * Payments report, read from the billing SSoT.
+   *
+   * It used to SYNTHESISE its rows: one invented invoice per ACTIVE tenant,
+   * priced from an in-code plan table, numbered `INV-${month}-${tenantId8}`,
+   * dated the 1st of the current month, and stamped
+   * `const status = amount === 0 ? 'paid' : 'paid'` — a tautology that made the
+   * pending and overdue branches unreachable, `totalPending`/`totalOverdue`
+   * structurally 0, and `collectionRate` exactly 100% whenever any active
+   * tenant existed. Real unpaid invoices were invisible on the one report a
+   * SUPER_ADMIN uses to find them (APA-138).
+   *
+   * `billing.invoices` is the SSoT for monetary state (CLAUDE.md D14) and the
+   * read-only projection already existed in this module. Rows are now real
+   * invoices in the requested period; a missing tenant name degrades to the
+   * tenant id rather than dropping the invoice, because an unnamed invoice is
+   * still money owed.
+   *
+   * The period is anchored on `due_date`: this is a collections view, so the
+   * question it answers is "what fell due in this window, and was it paid" —
+   * the same date `daysPastDue` accrues from.
+   */
+  private async generatePaymentsReport(request: ReportRequest): Promise<{
     data: PaymentReportRow[];
     summary: Record<string, unknown>;
   }> {
-    const planPricing: Record<string, number> = {
-      [TenantPlan.TRIAL]: 0,
-      [TenantPlan.STARTER]: 99,
-      [TenantPlan.PROFESSIONAL]: 299,
-      [TenantPlan.ENTERPRISE]: 499,
-    };
-
-    // Fetch active tenants to generate synthetic invoice records
-    const tenants = await this.tenantRepository.find({
-      where: { status: TenantStatus.ACTIVE },
-      order: { name: 'ASC' },
+    const invoices = await this.invoiceRepository.find({
+      where: { dueDate: Between(request.startDate, request.endDate) },
+      order: { dueDate: 'ASC' },
     });
 
-    const now = new Date();
-    const data: PaymentReportRow[] = [];
-    let totalPaid = 0;
-    let totalPending = 0;
-    let totalOverdue = 0;
-    let paidCount = 0;
-    let pendingCount = 0;
-    let overdueCount = 0;
+    const tenantNames = await this.resolveTenantNames(invoices.map((i) => i.tenantId));
+    const now = Date.now();
+    const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
-    for (const tenant of tenants) {
-      const amount = planPricing[tenant.plan] || 0;
+    const data: PaymentReportRow[] = invoices.map((invoice) => {
+      // Settled invoices are not "past due" however old they are; an open one
+      // accrues from its own due date, so the age is per-invoice, never a
+      // single report-wide constant.
+      const settled =
+        invoice.status === InvoiceStatus.PAID ||
+        invoice.status === InvoiceStatus.VOID ||
+        invoice.status === InvoiceStatus.REFUNDED;
+      const daysPastDue = settled
+        ? 0
+        : Math.max(0, Math.floor((now - invoice.dueDate.getTime()) / MS_PER_DAY));
 
-      // Generate a deterministic invoice ID from tenant id and current month
-      const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-      const invoiceId = `INV-${monthKey}-${tenant.id.substring(0, 8).toUpperCase()}`;
+      return {
+        invoiceId: invoice.invoiceNumber,
+        tenantName: tenantNames.get(invoice.tenantId) ?? invoice.tenantId,
+        amount: invoice.total,
+        amountDue: invoice.amountDue,
+        currency: invoice.currency,
+        dueDate: toIsoDateString(invoice.dueDate),
+        status: invoice.status,
+        daysPastDue,
+      };
+    });
 
-      // Due date is the 1st of the current month
-      const dueDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      const dueDateStr = dueDate.toISOString().substring(0, 10);
-
-      // Calculate days past due (if any)
-      const daysPastDue = Math.max(0, Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24)));
-
-      // Trial tenants always have paid $0 invoices; active paid tenants are considered paid
-      const status = amount === 0 ? 'paid' : 'paid';
-
-      data.push({
-        invoiceId,
-        tenantName: tenant.name,
-        amount,
-        currency: 'USD',
-        dueDate: dueDateStr,
-        status,
-        daysPastDue: status === 'paid' ? 0 : daysPastDue,
-      });
-
-      if (status === 'paid') {
-        totalPaid += amount;
-        paidCount++;
-      } else if (status === 'pending') {
-        totalPending += amount;
-        pendingCount++;
-      } else if (status === 'overdue') {
-        totalOverdue += amount;
-        overdueCount++;
-      }
-    }
+    // Money is bucketed by what the invoice actually owes: a PARTIALLY_PAID
+    // invoice contributes its settled part to collected and its remainder to
+    // outstanding, which the old paid/pending/overdue-by-full-amount split
+    // could not express.
+    const overdue = data.filter((row) => row.status === InvoiceStatus.OVERDUE);
+    const outstanding = data.filter(
+      (row) => row.status !== InvoiceStatus.PAID && row.status !== InvoiceStatus.VOID,
+    );
+    const collected = data.reduce((sum, row) => sum + (row.amount - row.amountDue), 0);
+    const billed = data
+      .filter((row) => row.status !== InvoiceStatus.VOID)
+      .reduce((sum, row) => sum + row.amount, 0);
 
     return {
       data,
       summary: {
         totalInvoices: data.length,
-        totalPaid: Math.round(totalPaid * 100) / 100,
-        totalPending: Math.round(totalPending * 100) / 100,
-        totalOverdue: Math.round(totalOverdue * 100) / 100,
-        paidCount,
-        pendingCount,
-        overdueCount,
-        collectionRate: data.length > 0 ? Math.round((paidCount / data.length) * 100) : 0,
+        totalCollected: round2(collected),
+        totalOutstanding: round2(outstanding.reduce((sum, row) => sum + row.amountDue, 0)),
+        totalOverdue: round2(overdue.reduce((sum, row) => sum + row.amountDue, 0)),
+        paidCount: data.filter((row) => row.status === InvoiceStatus.PAID).length,
+        outstandingCount: outstanding.length,
+        overdueCount: overdue.length,
+        // No invoices in the period is not a 0% collection rate — it is an
+        // undefined one. Reporting 0 would read as "we collected nothing".
+        collectionRate: billed > 0 ? Math.round((collected / billed) * 100) : null,
       },
     };
+  }
+
+  /**
+   * `tenantId -> name` for the given ids, deduplicated and batched in one query.
+   * Ids with no tenant row are simply absent; the caller decides how to degrade.
+   */
+  private async resolveTenantNames(tenantIds: readonly string[]): Promise<Map<string, string>> {
+    const unique = [...new Set(tenantIds)];
+    if (unique.length === 0) {
+      return new Map();
+    }
+    const tenants = await this.tenantRepository.find({
+      where: { id: In(unique) },
+      select: ['id', 'name'],
+    });
+    return new Map(tenants.map((tenant) => [tenant.id, tenant.name]));
   }
 
   // ============================================================================

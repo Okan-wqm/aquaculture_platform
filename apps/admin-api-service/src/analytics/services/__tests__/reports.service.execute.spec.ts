@@ -25,7 +25,9 @@ import {
   AnalyticsSnapshot,
   ReportDefinition,
   ReportExecution,
+  ReportType,
 } from '../../entities/analytics-snapshot.entity';
+import { InvoiceReadOnly } from '../../entities/external/invoice.entity';
 import { TenantReadOnly } from '../../entities/external/tenant.entity';
 import { UserReadOnly } from '../../entities/external/user.entity';
 import { AnalyticsService } from '../../services/analytics.service';
@@ -59,6 +61,9 @@ describe('ReportsService generator failures propagate (APA-145)', () => {
         { provide: getRepositoryToken(AnalyticsSnapshot), useValue: emptyRepo },
         { provide: getRepositoryToken(TenantReadOnly), useValue: emptyRepo },
         { provide: getRepositoryToken(UserReadOnly), useValue: emptyRepo },
+        // billing.invoices is the payments report's SSoT (APA-138) and must
+        // fail like every other store, or the propagation assertion is vacuous.
+        { provide: getRepositoryToken(InvoiceReadOnly), useValue: emptyRepo },
         { provide: getRepositoryToken(ReportDefinition), useValue: emptyRepo },
         { provide: getRepositoryToken(ReportExecution), useValue: emptyRepo },
         { provide: AnalyticsService, useValue: {} },
@@ -77,13 +82,16 @@ describe('ReportsService generator failures propagate (APA-145)', () => {
     service = module.get(ReportsService);
   });
 
-  it.each([['financial_revenue'], ['financial_payments']])(
+  it.each<ReportType>(['financial_revenue', 'financial_payments'])(
     '%s rejects on a DB failure instead of resolving as an empty success',
     async (type) => {
       await expect(
-        service.generateReport({ type, format: 'json' } as Parameters<
-          ReportsService['generateReport']
-        >[0]),
+        service.generateReport({
+          type,
+          format: 'json',
+          startDate: new Date('2026-06-01T00:00:00.000Z'),
+          endDate: new Date('2026-06-30T00:00:00.000Z'),
+        }),
       ).rejects.toThrow(DB_FAILURE);
     },
   );

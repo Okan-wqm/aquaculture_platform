@@ -1161,6 +1161,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/analytics/__tests__/payments-report-integrity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/analytics/__tests__/performance-report-integrity.spec.ts",
       "prettier_managed": true
     },
@@ -55458,10 +55464,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9092,
+  "file_count": 9093,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8911,
-  "managed_file_list_sha256": "0554748ae6e4e2761e2de6c054979455cf219d31a20190f9f420355f375a231b",
+  "managed_count": 8912,
+  "managed_file_list_sha256": "2abfd6c079477aa3080e800fa5e1de07c6da3876b6896710c02a0aab523fd2c4",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

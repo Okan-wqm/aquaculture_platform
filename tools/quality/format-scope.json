@@ -7252,12 +7252,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/farm-service/src/__tests__/e2e/code-sequences-schema-alignment.postgres.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/feeding-record-tenant-isolation.postgres.spec.ts",
       "prettier_managed": true
     },
@@ -55176,10 +55170,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9045,
+  "file_count": 9044,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8864,
-  "managed_file_list_sha256": "129870abd698e3a68270cb260a5f70c2e2c76a986af47c85232deb5aef8860db",
+  "managed_count": 8863,
+  "managed_file_list_sha256": "78adb85094c66923b9ae4646af7c6c642574caef26fda76bdfbcdf89317f318c",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

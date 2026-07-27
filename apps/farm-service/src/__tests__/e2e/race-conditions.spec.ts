@@ -29,7 +29,7 @@ const RACE_ENVELOPE = { clientCommandId: 'cmd-race', payloadHash: 'hash-race' };
 import { RecordMortalityCommand, MortalityReason } from '../../batch/commands/record-mortality.command';
 
 // Entities
-import { Batch } from '../../batch/entities/batch.entity';
+import { Batch, BatchStatus } from '../../batch/entities/batch.entity';
 import { MortalityRecord } from '../../batch/entities/mortality-record.entity';
 import { TankOperation } from '../../batch/entities/tank-operation.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
@@ -59,6 +59,13 @@ function createMockQueryRunner(mockManager: MockManagerType) {
     commitTransaction: jest.fn().mockResolvedValue(undefined),
     rollbackTransaction: jest.fn().mockResolvedValue(undefined),
     release: jest.fn().mockResolvedValue(undefined),
+    // `runInTenantTransaction` pins the transaction's search_path through the
+    // RUNNER (not the manager) before handing control to the callback —
+    // `pinTenantSchemaTransactionSearchPath` issues `set_config('search_path',…)`.
+    // Omitting it here made every tenant-scoped handler blow up with
+    // "queryRunner.query is not a function"; the double must carry the same
+    // surface the production transaction helper drives.
+    query: jest.fn().mockResolvedValue(undefined),
     manager: mockManager as unknown as EntityManager,
   };
 }
@@ -102,6 +109,18 @@ function createDefaultMockManager(): MockManagerType {
   };
 }
 
+/**
+ * Tenant kimlikleri UUID v4 OLMAK ZORUNDA: `withTenantContext` (ve üzerinden
+ * `runInTenantTransaction`) UUID olmayan bir kimliği fail-closed reddeder —
+ * şema adı `tenant_<uuid>` türetildiği için serbest metin bir kimlik yanlış
+ * şemaya yazma riskidir. Bu spec eskiden `'tenant-race-test'` gibi düz
+ * etiketler kullanıyordu; doğrulama eklendiğinde 7 testin 6'sı kırmızıya
+ * döndü ve kimse görmedi, çünkü bu dosyayı koşan `test:integration` hedefi
+ * CI'da hiçbir yerden çağrılmıyordu (FARM-MEDIUM-301).
+ */
+const TENANT_RACE = '11111111-1111-4111-8111-111111111111';
+const TENANT_EXACT = '22222222-2222-4222-8222-222222222222';
+
 // ============================================================================
 // RECORD MORTALITY - RACE CONDITION TESTS
 // ============================================================================
@@ -111,16 +130,32 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
   let mockManager: MockManagerType;
   let mockQueryRunner: ReturnType<typeof createMockQueryRunner>;
   let mockDataSource: DataSource;
+  /** TankBatch SSoT yazıcısının aldığı delta — testler bunu denetler. */
+  let applyBatchDelta: jest.Mock;
 
-  const tenantId = 'tenant-race-test';
+  const tenantId = TENANT_RACE;
   const batchId = 'batch-001';
   const tankId = 'tank-001';
 
-  function createMockBatch(overrides: Partial<Batch> = {}): Partial<Batch> {
-    return {
+  /**
+   * GERÇEK `Batch` örneği — düz nesne literali DEĞİL.
+   *
+   * Fixture eskiden entity metotlarını tek tek `jest.fn()` ile taklit ediyordu
+   * (`isOperational`, `getMortalityRate`, …). Domain sonradan
+   * `isStockMutable()` çağırmaya başlayınca fixture o metodu taşımadığı için
+   * "is not a function" ile patladı: taklit edilen her metot, entity büyüdükçe
+   * ayrı bir sapma noktası. Prototipi olan gerçek bir örnek kullanmak bu sınıfı
+   * yapısal olarak kapatır — yeni bir domain metodu fixture'ı bozamaz ve
+   * testler gerçek karar mantığını koşar. Hiçbir assert eski stub değerlerine
+   * bakmıyordu, dolayısıyla davranış kaybı yok.
+   */
+  function createMockBatch(overrides: Partial<Batch> = {}): Batch {
+    return Object.assign(new Batch(), {
       id: batchId,
       tenantId,
       batchNumber: 'B-RACE',
+      // `isStockMutable()` gerçek `status` alanından türer.
+      status: BatchStatus.ACTIVE,
       isActive: true,
       initialQuantity: 100000,
       currentQuantity: 10000,
@@ -132,12 +167,8 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
         lastMortalityAt: undefined as unknown as Date,
         mainCause: undefined as unknown as string,
       },
-      isOperational: jest.fn().mockReturnValue(true),
-      getMortalityRate: jest.fn().mockReturnValue(0.5),
-      getRetentionRate: jest.fn().mockReturnValue(99.5),
-      getCurrentAvgWeight: jest.fn().mockReturnValue(200),
       ...overrides,
-    };
+    });
   }
 
   function createMockEquipment(overrides: Partial<Equipment> = {}): Partial<Equipment> {
@@ -155,6 +186,7 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
 
   beforeEach(() => {
     mockManager = createDefaultMockManager();
+    applyBatchDelta = jest.fn().mockResolvedValue({});
 
     mockQueryRunner = createMockQueryRunner(mockManager);
     mockDataSource = createMockDataSource(mockQueryRunner);
@@ -200,7 +232,12 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
       // commands below default to MODULE_MANAGER, so the hierarchy bypass keeps
       // these lock/TOCTOU race tests focused on concurrency, not site authz).
       new SiteAuthorizationService(),
-      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
+      // TankBatch'in TEK SSoT yazıcısı. Mock'lu, çünkü bu dosya kilit/TOCTOU
+      // davranışını denetler; deltanın aritmetiği TankBatchService'in kendi
+      // birim testlerinin işi. Handler'ın ona GEÇTİĞİ delta burada assert
+      // edilir — `manager.save(TankBatch, …)` aramak yapısal olarak boşunaydı,
+      // çünkü o çağrı mock'un içinde kalıyor (eski testin sessiz kusuru).
+      { applyBatchDelta } as never,
       new MortalityCullPolicyService(),
       { refreshContainers: jest.fn().mockResolvedValue(undefined) } as never,
       new MobileCommandReceiptService(),
@@ -299,44 +336,105 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
     expect(mockQueryRunner.release).toHaveBeenCalledTimes(1);
   });
 
-  it('should prevent negative tankBatch biomass with Math.max(0, ...)', async () => {
-    const mockTankBatch = {
+  /**
+   * Bu test eskiden `Math.max(0, …)` clamp'ini doğruluyordu. O clamp W4'te
+   * (FARM-HIGH-246) BİLEREK kaldırıldı: aşırı beyan edilen kg'ı sessizce 0'a
+   * yuvarlamak, içinde canlı balık olan tankı "boşalmış" gösterip yemleme
+   * planını iptal ettiriyor ve alarm da üretmiyordu. Bugünkü sözleşme
+   * clamp DEĞİL, fail-closed reddir — testin premisi ölmüştü, kimse görmedi
+   * çünkü bu dosyayı koşan hedef CI'da çağrılmıyordu (FARM-MEDIUM-301).
+   *
+   * `batchDetails[]` fixture'a KONUR: W4/D-2 onu tank-içi durumun SSoT'si
+   * yaptı ve aggregate'ler ondan türetilir. Onsuz gerçek yol hiç koşmuyordu.
+   */
+  const AVG_WEIGHT_G = 100;
+
+  /** Kendi içinde tutarlı tank: quantity × AVG_WEIGHT_G / 1000 === biomassKg. */
+  function tankBatchHolding(quantity: number) {
+    const biomassKg = (quantity * AVG_WEIGHT_G) / 1000;
+    return {
       tenantId,
       tankId,
       primaryBatchId: batchId,
-      totalQuantity: 20,
-      totalBiomassKg: 2,
+      totalQuantity: quantity,
+      totalBiomassKg: biomassKg,
       densityKgM3: 0.002,
-      currentQuantity: 20,
-      currentBiomassKg: 2,
+      batchDetails: [
+        {
+          batchId,
+          batchNumber: 'B-RACE',
+          quantity,
+          avgWeightG: AVG_WEIGHT_G,
+          biomassKg,
+          percentageOfTank: 100,
+        },
+      ],
     };
+  }
 
+  function arrangeTank(tankBatch: ReturnType<typeof tankBatchHolding>): void {
     mockManager.findOne.mockImplementation((entity: any) => {
       if (entity === Batch) return Promise.resolve(createMockBatch({ currentQuantity: 100 }));
-      if (entity === Equipment) return Promise.resolve(createMockEquipment({ currentBiomass: 2, currentCount: 20 }));
-      if (entity === TankBatch) return Promise.resolve(mockTankBatch);
+      if (entity === Equipment)
+        return Promise.resolve(
+          createMockEquipment({
+            currentBiomass: tankBatch.totalBiomassKg,
+            currentCount: tankBatch.totalQuantity,
+          }),
+        );
+      if (entity === TankBatch) return Promise.resolve(tankBatch);
       if (entity === Tank) return Promise.resolve(null);
       return Promise.resolve(null);
     });
+  }
 
-    const command = new RecordMortalityCommand(tenantId, batchId, {
-      tankId,
-      quantity: 20,
-      avgWeightG: 200,
-      reason: MortalityReason.DISEASE,
-      observedAt: new Date(),
-    }, 'user-001', [Role.MODULE_MANAGER], [], RACE_ENVELOPE);
-
-    await handler.execute(command);
-
-    // Verify TankBatch save was called with non-negative values
-    const tankBatchSaveCall = mockManager.save.mock.calls.find(
-      (call: any[]) => call[0] === TankBatch
+  function mortalityOf(quantity: number): RecordMortalityCommand {
+    return new RecordMortalityCommand(
+      tenantId,
+      batchId,
+      {
+        tankId,
+        quantity,
+        avgWeightG: AVG_WEIGHT_G,
+        reason: MortalityReason.DISEASE,
+        observedAt: new Date(),
+      },
+      'user-001',
+      [Role.MODULE_MANAGER],
+      [],
+      RACE_ENVELOPE,
     );
-    expect(tankBatchSaveCall).toBeDefined();
-    const savedTankBatch = tankBatchSaveCall![1];
-    expect(savedTankBatch.totalQuantity).toBeGreaterThanOrEqual(0);
-    expect(savedTankBatch.totalBiomassKg).toBeGreaterThanOrEqual(0);
+  }
+
+  it('drains a tank to exactly zero by handing the SSoT writer an exact negative delta', async () => {
+    arrangeTank(tankBatchHolding(20));
+
+    await handler.execute(mortalityOf(20));
+
+    expect(applyBatchDelta).toHaveBeenCalledTimes(1);
+    const [, , , delta] = applyBatchDelta.mock.calls[0] ?? [];
+    expect(delta).toMatchObject({
+      batchId,
+      // Tankın TAMAMI: 20 balık, 2 kg. Taşma yok, yuvarlama yok.
+      quantityDelta: -20,
+      biomassDelta: -2,
+    });
+  });
+
+  it('REJECTS an overdraft instead of silently clamping it to zero (FARM-HIGH-246)', async () => {
+    arrangeTank(tankBatchHolding(20));
+
+    // Tankta 20 balık var, 50 ölüm beyan ediliyor. Eski `Math.max(0, …)` bunu
+    // 0'a yuvarlayıp canlı tankı "boşalmış" gösteriyordu; W4 tavanı TANK
+    // kapsamında doğruluyor ve taşmayı domain hatası sayıyor.
+    await expect(handler.execute(mortalityOf(50))).rejects.toThrow(
+      /Düşüm tanesi \(50\) mevcut sayıdan \(20\) fazla olamaz/,
+    );
+
+    // Reddedilen taşma SSoT yazıcısına HİÇ ulaşmaz.
+    expect(applyBatchDelta).not.toHaveBeenCalled();
+    expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
+    expect(mockQueryRunner.commitTransaction).not.toHaveBeenCalled();
   });
 });
 
@@ -350,11 +448,12 @@ describe('Race Condition Protection: Cross-handler concurrent safety', () => {
     const mockQueryRunner = createMockQueryRunner(mockManager);
     const mockDataSource = createMockDataSource(mockQueryRunner);
 
-    // Batch with exactly the amount being removed
-    const exactBatch: Partial<Batch> = {
+    // Batch with exactly the amount being removed — gerçek entity örneği.
+    const exactBatch: Batch = Object.assign(new Batch(), {
       id: 'batch-exact',
-      tenantId: 'tenant-exact',
+      tenantId: TENANT_EXACT,
       batchNumber: 'B-EXACT',
+      status: BatchStatus.ACTIVE,
       isActive: true,
       initialQuantity: 100,
       currentQuantity: 100,
@@ -366,15 +465,11 @@ describe('Race Condition Protection: Cross-handler concurrent safety', () => {
         lastMortalityAt: undefined as unknown as Date,
         mainCause: undefined as unknown as string,
       },
-      isOperational: jest.fn().mockReturnValue(true),
-      getMortalityRate: jest.fn().mockReturnValue(10),
-      getRetentionRate: jest.fn().mockReturnValue(90),
-      getCurrentAvgWeight: jest.fn().mockReturnValue(200),
-    };
+    });
 
     const exactEquipment: Partial<Equipment> = {
       id: 'tank-exact',
-      tenantId: 'tenant-exact',
+      tenantId: TENANT_EXACT,
       isActive: true,
       isDeleted: false,
       volume: 1000,
@@ -383,7 +478,7 @@ describe('Race Condition Protection: Cross-handler concurrent safety', () => {
     };
 
     const exactTankBatch = {
-      tenantId: 'tenant-exact',
+      tenantId: TENANT_EXACT,
       tankId: 'tank-exact',
       primaryBatchId: 'batch-exact',
       totalQuantity: 100,
@@ -427,7 +522,7 @@ describe('Race Condition Protection: Cross-handler concurrent safety', () => {
       new MobileCommandReceiptService(),
     );
 
-    const command = new RecordMortalityCommand('tenant-exact', 'batch-exact', {
+    const command = new RecordMortalityCommand(TENANT_EXACT, 'batch-exact', {
       tankId: 'tank-exact',
       quantity: 100, // Exactly all remaining fish
       avgWeightG: 200,

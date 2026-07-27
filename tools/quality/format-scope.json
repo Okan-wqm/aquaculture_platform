@@ -14463,6 +14463,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/storage/__tests__/feed-allocation.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/storage/__tests__/get-inventory-count.handler.spec.ts",
       "prettier_managed": true
     },
@@ -15082,6 +15088,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/storage/resolvers/storage-decimal.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/services/feed-allocation.service.ts",
       "prettier_managed": true
     },
     {
@@ -54900,10 +54912,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8999,
+  "file_count": 9001,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8818,
-  "managed_file_list_sha256": "57c7f585714de2cdee6053849ddccf67991b2a7f47b2760b3aa9990cf278f1bd",
+  "managed_count": 8820,
+  "managed_file_list_sha256": "890433701c4fbd63cbd455d17c5f6e7da647beca648aef409231a0402620ef55",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

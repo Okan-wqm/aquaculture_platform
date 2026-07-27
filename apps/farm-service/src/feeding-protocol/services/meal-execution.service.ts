@@ -28,6 +28,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -59,6 +60,7 @@ import { Feed } from '../../feed/entities/feed.entity';
 import { BatchDomainService } from '../../batch/services/batch-domain.service';
 import { resolveTankSiteId } from '../../batch/utils/tank-lookup.util';
 import { StockMovementService } from '../../storage/services/stock-movement.service';
+import { FeedAllocationService } from '../../storage/services/feed-allocation.service';
 import { MovementType } from '../../storage/entities/stock-movement.entity';
 import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
 import type { FeedingRecordUpdatedEvent } from '@platform/event-contracts';
@@ -104,6 +106,8 @@ const RECEIPT_TABLE = 'farm_mobile_command_receipts' as const;
 
 @Injectable()
 export class MealExecutionService {
+  private readonly logger = new Logger(MealExecutionService.name);
+
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly receiptService: MobileCommandReceiptService,
@@ -113,6 +117,8 @@ export class MealExecutionService {
     private readonly feedingLedger: FeedingLedgerService,
     private readonly batchDomainService: BatchDomainService,
     private readonly stockMovementService: StockMovementService,
+    // Çok-lotlu FEFO tahsisi — düşüm ve yukarı düzeltme aynı motordan geçer.
+    private readonly feedAllocation: FeedAllocationService,
     private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
@@ -563,6 +569,11 @@ export class MealExecutionService {
    * delta orijinal düşümün lokasyonuna İADE (IN). Storage izi olmayan feed'de
    * (Phase-A) düşüm hiç yapılmamıştı — düzeltme de atlanır (gözlemlenebilir).
    */
+  /**
+   * Düzeltme stok hareketi — TEK uygulama `FeedingLedgerService`'te
+   * (FARM-HIGH-248 ile aynı motoru `updateFeedingRecord` de kullanır; iki
+   * kopya idempotency/lot/iade kurallarında sapardı).
+   */
   private async applyStorageCorrection(
     manager: EntityManager,
     params: { tenantId: string; userId: string; mealId: string; pourIndex: number },
@@ -570,79 +581,15 @@ export class MealExecutionService {
     delta: number,
     siteId: string | null,
   ): Promise<void> {
-    const hasPresence = await this.stockMovementService.feedHasStoragePresence(
-      manager,
-      params.tenantId,
-      meal.feedId,
-    );
-    if (!hasPresence) return;
-
     const pour = (meal.pours ?? []).find((entry) => entry.pourIndex === params.pourIndex);
-    const idempotencyKey = `meal-correct-${params.mealId}-${params.pourIndex}-${pour?.corrections ?? 1}`;
-
-    if (delta > 0) {
-      const location = await this.stockMovementService.resolveFeedDeductionLocation(
-        manager,
-        params.tenantId,
-        meal.feedId,
-        new Date(),
-        undefined,
-        siteId ?? undefined,
-      );
-      if (!location) {
-        throw new BadRequestException(
-          `Düzeltme için yeterli stok yok: feed ${meal.feedId}, ek ${delta}kg`,
-        );
-      }
-      await this.stockMovementService.recordMovement(
-        manager,
-        {
-          movementType: MovementType.OUT,
-          itemType: StorageItemType.FEED,
-          itemId: meal.feedId,
-          quantity: delta,
-          fromLocationId: location.storageLocationId,
-          lotNumber: location.lotNumber,
-          reference: `MEAL-CORRECTION: ${params.mealId}#${params.pourIndex}`,
-          reason: 'correctMealPour upward correction (in-transaction).',
-          idempotencyKey,
-          movementDate: new Date(),
-        },
-        { tenantId: params.tenantId, userId: params.userId, userName: 'Feeding' },
-      );
-      return;
-    }
-
-    // İade: orijinal düşümün lokasyonu/lotu stock_movements'tan çözülür.
-    const original: Array<{ fromLocationId: string | null; lotNumber: string | null }> =
-      await manager.query(
-        `SELECT "from_location_id" AS "fromLocationId", "lot_number" AS "lotNumber"
-         FROM "stock_movements"
-         WHERE "idempotency_key" = $1 AND "tenant_id" = $2 LIMIT 1`,
-        [`meal-deduct-${params.mealId}-${params.pourIndex}`, params.tenantId],
-      );
-    const target = original[0];
-    if (!target?.fromLocationId) {
-      throw new ConflictException(
-        `Orijinal düşüm hareketi bulunamadı (meal ${params.mealId}#${params.pourIndex}) — iade lokasyonu çözülemedi`,
-      );
-    }
-    await this.stockMovementService.recordMovement(
-      manager,
-      {
-        movementType: MovementType.IN,
-        itemType: StorageItemType.FEED,
-        itemId: meal.feedId,
-        quantity: Math.abs(delta),
-        toLocationId: target.fromLocationId,
-        lotNumber: target.lotNumber ?? undefined,
-        reference: `MEAL-CORRECTION: ${params.mealId}#${params.pourIndex}`,
-        reason: 'correctMealPour downward correction — return to original lot (in-transaction).',
-        idempotencyKey,
-        movementDate: new Date(),
-      },
-      { tenantId: params.tenantId, userId: params.userId, userName: 'Feeding' },
-    );
+    await this.feedingLedger.applyStockCorrection(manager, params.tenantId, params.userId, {
+      feedId: meal.feedId,
+      deltaKg: delta,
+      siteId: siteId ?? undefined,
+      deductionKeyBase: `meal-deduct-${params.mealId}-${params.pourIndex}`,
+      correctionKey: `meal-correct-${params.mealId}-${params.pourIndex}-${pour?.corrections ?? 1}`,
+      reference: `MEAL-CORRECTION: ${params.mealId}#${params.pourIndex}`,
+    });
   }
 
   /**

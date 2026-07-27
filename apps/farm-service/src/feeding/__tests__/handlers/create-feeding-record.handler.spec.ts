@@ -35,6 +35,10 @@ import { StockMovement } from '../../../storage/entities/stock-movement.entity';
 import { RecordMovementResult } from '../../../storage/services/stock-movement.service';
 import { BackdatePolicyService } from '../../../common/services/backdate-policy.service';
 import { FinanceSettingsService } from '../../../finance/services/finance-settings.service';
+import {
+  FeedAllocationService,
+  InsufficientFeedStockError,
+} from '../../../storage/services/feed-allocation.service';
 import { FeedingLedgerService } from '../../services/feeding-ledger.service';
 import {
   BiomassGrowthApplierService,
@@ -94,6 +98,7 @@ interface Harness {
   handler: CreateFeedingRecordHandler;
   feedHasStoragePresence: jest.Mock;
   resolveFeedDeductionLocation: jest.Mock;
+  allocateForDeduction: jest.Mock;
   recordMovement: jest.Mock;
   commit: jest.Mock;
   rollback: jest.Mock;
@@ -216,10 +221,35 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
 
   // GERÇEK ledger (P-05 tek yol) — pinlenen davranışlar (fail-closed no-lot,
   // rollback, storage-skip) artık ledger kodunda yaşar ve buradan uçtan uca koşar.
+  // FARM-CRITICAL-245: düşüm çok-lotlu FEFO tahsis motorundan geçer; harness
+  // tek dilimlik tahsis döner (eski tek-satır davranışıyla aynı gözlem).
+  const allocateForDeduction = jest.fn();
+  allocateForDeduction.mockImplementation(
+    async (_m: unknown, _t: unknown, args: { feedId: string; quantityKg: number }) => {
+      // Havuz toplamı yetersizse tahsis motoru fail-closed atar — karar artık
+      // TEK SATIRIN değil HAVUZUN işidir (FARM-CRITICAL-245).
+      if (opts.resolveLocation === null) {
+        throw new InsufficientFeedStockError(args.feedId, args.quantityKg, 0);
+      }
+      return {
+        slices: [
+          {
+            storageLocationId: opts.resolveLocation?.storageLocationId ?? LOCATION,
+            lotNumber: opts.resolveLocation?.lotNumber ?? 'LOT-A',
+            quantityKg: args.quantityKg,
+          },
+        ],
+        usedSiteFallback: false,
+        poolTotalKg: args.quantityKg,
+      };
+    },
+  );
+  const feedAllocation = mock<FeedAllocationService>({ allocateForDeduction });
   const feedingLedger = new FeedingLedgerService(
     stockMovementService,
     financeSettings,
     outboxPublisher,
+    feedAllocation,
   );
 
   // D-7 motor yardımcıları — kilit/growth/recalc çağrıları pinlenir.
@@ -253,6 +283,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     handler,
     feedHasStoragePresence,
     resolveFeedDeductionLocation,
+    allocateForDeduction,
     recordMovement,
     commit,
     rollback,
@@ -354,12 +385,21 @@ describe('CreateFeedingRecordHandler — feed dual-SSoT write path', () => {
   });
 
   it('happy path: deducts storage IN-TX (OUT) and commits', async () => {
-    const { handler, recordMovement, resolveFeedDeductionLocation, commit, rollback } =
-      makeHarness();
+    const {
+      handler,
+      recordMovement,
+      resolveFeedDeductionLocation,
+      allocateForDeduction,
+      commit,
+      rollback,
+    } = makeHarness();
 
     const result = await handler.execute(makeCommand(50));
 
-    expect(resolveFeedDeductionLocation).toHaveBeenCalledTimes(1);
+    // Lot çözümü artık çok-lotlu tahsis motorunun işi (FARM-CRITICAL-245):
+    // tek satır seçen eski yol tamamen kalktı.
+    expect(allocateForDeduction).toHaveBeenCalledTimes(1);
+    expect(resolveFeedDeductionLocation).not.toHaveBeenCalled();
     expect(recordMovement).toHaveBeenCalledTimes(1);
     // The deduction is issued on the SAME manager as the feeding write
     // (in-tx) with an OUT movement keyed by the feeding record id.

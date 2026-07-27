@@ -38,6 +38,7 @@ import {
 import { Feed } from '../../feed/entities/feed.entity';
 import { FeedingRecord } from '../../feeding/entities/feeding-record.entity';
 import { StockMovementService } from '../../storage/services/stock-movement.service';
+import { FeedAllocationService } from '../../storage/services/feed-allocation.service';
 import { Batch, BatchStatus } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 
@@ -225,7 +226,12 @@ function makeHarness(opts: HarnessOpts = {}) {
   const recalcService = mock<DayPlanRecalcService>({ recalcForUnit });
   const recordFeed = jest.fn();
   recordFeed.mockImplementation(async () => mock({ id: 'rec-1' }));
-  const feedingLedger = mock<FeedingLedgerService>({ recordFeed });
+  // Düzeltmenin stok ayağı ledger'da TEK uygulama (FARM-MEDIUM-253/254):
+  // hareket-tabanlı ön koşul + LIFO iade orada pinlenir; burada çağrı
+  // sözleşmesi doğrulanır.
+  const applyStockCorrection = jest.fn();
+  applyStockCorrection.mockResolvedValue(undefined);
+  const feedingLedger = mock<FeedingLedgerService>({ recordFeed, applyStockCorrection });
   const feedHasStoragePresence = jest.fn();
   feedHasStoragePresence.mockResolvedValue(true);
   const resolveFeedDeductionLocation = jest.fn();
@@ -255,6 +261,17 @@ function makeHarness(opts: HarnessOpts = {}) {
     }),
   });
 
+  // FARM-CRITICAL-245 tahsis motoru — harness tek dilim döner.
+  const allocateForDeduction = jest.fn();
+  allocateForDeduction.mockImplementation(
+    async (_m: unknown, _t: unknown, args: { quantityKg: number }) => ({
+      slices: [{ storageLocationId: 'loc-1', lotNumber: 'LOT-A', quantityKg: args.quantityKg }],
+      usedSiteFallback: false,
+      poolTotalKg: args.quantityKg,
+    }),
+  );
+  const feedAllocation = mock<FeedAllocationService>({ allocateForDeduction });
+
   const service = new MealExecutionService(
     mock<DataSource>({}),
     receiptService,
@@ -264,6 +281,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     feedingLedger,
     batchDomainService,
     stockMovementService,
+    feedAllocation,
     outbox,
   );
 
@@ -279,6 +297,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     receiptComplete,
     enqueued,
     recordMovement,
+    applyStockCorrection,
     feedingRecord,
     lockedUnit,
     updates,
@@ -429,11 +448,13 @@ describe('MealExecutionService.correctMealPour', () => {
     // Ledger kaydı + batch delta'ları
     expect(harness.feedingRecord!.actualAmount).toBe(6);
     expect(harness.feedingRecord!.feedCost).toBeCloseTo(12); // 2/kg × 6
-    // Ek OUT: fark kadar, meal-correct idempotency anahtarıyla
-    const movement = harness.recordMovement.mock.calls[0]![1] as Record<string, unknown>;
-    expect(movement['movementType']).toBe('out');
-    expect(movement['quantity']).toBeCloseTo(2);
-    expect(movement['idempotencyKey']).toBe(`meal-correct-${MEAL}-0-1`);
+    // Stok ayağı ledger'ın TEK düzeltme motoruna delege edilir: pozitif delta
+    // (çok-lotlu tahsis) + bu revizyonun idempotency anahtarı.
+    expect(harness.applyStockCorrection).toHaveBeenCalledTimes(1);
+    const correction = harness.applyStockCorrection.mock.calls[0]![3] as Record<string, unknown>;
+    expect(correction['deltaKg']).toBeCloseTo(2);
+    expect(correction['deductionKeyBase']).toBe(`meal-deduct-${MEAL}-0`);
+    expect(correction['correctionKey']).toBe(`meal-correct-${MEAL}-0-1`);
     // Growth delta = +2 / 1.25 = 1.6 ve recalc pour_correction gerekçesiyle
     const growthCall = (harness.growthApplier.applyGrowth as jest.Mock).mock.calls[0]!;
     expect(growthCall[3]).toBeCloseTo(1.6);
@@ -446,16 +467,17 @@ describe('MealExecutionService.correctMealPour', () => {
     expect(harness.enqueued.map((event) => event.eventType)).toContain('FeedingRecordUpdated');
   });
 
-  it('downward correction: RETURN to the original lot/location resolved from the deduction movement', async () => {
+  it("downward correction: negatif delta ledger'ın LIFO iade motoruna gider", async () => {
     const harness = makeHarness({ meal: fedMeal() });
     const result = await harness.service.correctMealPour(correctionParams(3));
 
     expect(result.actualKg).toBeCloseTo(3);
-    const movement = harness.recordMovement.mock.calls[0]![1] as Record<string, unknown>;
-    expect(movement['movementType']).toBe('in');
-    expect(movement['quantity']).toBeCloseTo(1);
-    expect(movement['toLocationId']).toBe('loc-1'); // orijinal düşümün lokasyonu
-    expect(movement['lotNumber']).toBe('LOT-A');
+    // Negatif delta ledger'a iletilir; iade hedefi (LIFO, çekilen lotlar) orada
+    // çözülür — FARM-MEDIUM-254 pinleri ledger spec'indedir.
+    expect(harness.applyStockCorrection).toHaveBeenCalledTimes(1);
+    const correction = harness.applyStockCorrection.mock.calls[0]![3] as Record<string, unknown>;
+    expect(correction['deltaKg']).toBeCloseTo(-1);
+    expect(correction['deductionKeyBase']).toBe(`meal-deduct-${MEAL}-0`);
     // Growth delta NEGATİF: -1 / 1.25 = -0.8 (büyüme geri alınır)
     const growthCall = (harness.growthApplier.applyGrowth as jest.Mock).mock.calls[0]!;
     expect(growthCall[3]).toBeCloseTo(-0.8);

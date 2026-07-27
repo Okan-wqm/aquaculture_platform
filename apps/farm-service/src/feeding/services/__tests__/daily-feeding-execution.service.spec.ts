@@ -61,6 +61,10 @@ import { WaterTemperatureService } from '../../../water-quality/services/water-t
 import { StockMovementService } from '../../../storage/services/stock-movement.service';
 import { StockMovement } from '../../../storage/entities/stock-movement.entity';
 import { RecordMovementResult } from '../../../storage/services/stock-movement.service';
+import {
+  FeedAllocationService,
+  InsufficientFeedStockError,
+} from '../../../storage/services/feed-allocation.service';
 import { FeedingLedgerService } from '../feeding-ledger.service';
 import { FeedingRecord } from '../../entities/feeding-record.entity';
 import { Feed } from '../../../feed/entities/feed.entity';
@@ -163,6 +167,7 @@ interface Harness {
   service: DailyFeedingExecutionService;
   feedHasStoragePresence: jest.Mock;
   resolveFeedDeductionLocation: jest.Mock;
+  allocateForDeduction: jest.Mock;
   recordMovement: jest.Mock;
   enqueue: jest.Mock;
   commit: jest.Mock;
@@ -274,10 +279,35 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     getDefaultCurrencyInTx: jest.fn().mockResolvedValue('TRY'),
   });
   const outboxPublisher = mock<OutboxPublisher>({ enqueue });
+  // FARM-CRITICAL-245: düşüm çok-lotlu FEFO tahsis motorundan geçer; harness
+  // tek dilimlik tahsis döner (eski tek-satır davranışıyla aynı gözlem).
+  const allocateForDeduction = jest.fn();
+  allocateForDeduction.mockImplementation(
+    async (_m: unknown, _t: unknown, args: { feedId: string; quantityKg: number }) => {
+      // Havuz toplamı yetersizse tahsis motoru fail-closed atar — karar artık
+      // TEK SATIRIN değil HAVUZUN işidir (FARM-CRITICAL-245).
+      if (opts.resolveLocation === null) {
+        throw new InsufficientFeedStockError(args.feedId, args.quantityKg, 0);
+      }
+      return {
+        slices: [
+          {
+            storageLocationId: opts.resolveLocation?.storageLocationId ?? LOCATION,
+            lotNumber: opts.resolveLocation?.lotNumber ?? 'LOT-A',
+            quantityKg: args.quantityKg,
+          },
+        ],
+        usedSiteFallback: false,
+        poolTotalKg: args.quantityKg,
+      };
+    },
+  );
+  const feedAllocation = mock<FeedAllocationService>({ allocateForDeduction });
   const feedingLedger = new FeedingLedgerService(
     stockMovementService,
     financeSettings,
     outboxPublisher,
+    feedAllocation,
   );
 
   const bilinearService = mock<BilinearInterpolationService>({});
@@ -314,6 +344,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     service,
     feedHasStoragePresence,
     resolveFeedDeductionLocation,
+    allocateForDeduction,
     recordMovement,
     enqueue,
     commit,
@@ -422,13 +453,17 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
       rollback,
       createdRecords,
       lockedBatch,
+      allocateForDeduction,
     } = makeHarness({
       hasStoragePresence: true,
     });
 
     const result = await service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER);
 
-    expect(resolveFeedDeductionLocation).toHaveBeenCalledTimes(1);
+    // Lot çözümü artık çok-lotlu tahsis motorunun işi (FARM-CRITICAL-245):
+    // tek satır seçen eski yol tamamen kalktı.
+    expect(allocateForDeduction).toHaveBeenCalledTimes(1);
+    expect(resolveFeedDeductionLocation).not.toHaveBeenCalled();
     expect(recordMovement).toHaveBeenCalledTimes(1);
     const movementInput = recordMovement.mock.calls[0]![1] as {
       movementType: string;

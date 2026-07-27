@@ -392,10 +392,23 @@ export class StockMovementService {
     tenantId: string,
     feedId: string,
   ): Promise<boolean> {
-    const presence = await tenantManagerRepo(manager, StorageInventory, tenantId).count({
+    const projectionRows = await tenantManagerRepo(manager, StorageInventory, tenantId).count({
       where: { itemType: StorageItemType.FEED, itemId: feedId },
     });
-    return presence > 0;
+    if (projectionRows > 0) return true;
+
+    // FARM-CRITICAL-237: projeksiyon satırı MUTABİL bir durumdur —
+    // `decreaseInventory` bakiye sıfırlanınca satırı SİLER. Yalnız satır
+    // varlığına bakmak "tükenme" ile "hiç izlenmiyor" durumlarını
+    // birbirine karıştırıyordu: son lotu biten storage-yönetimli bir yem,
+    // bir sonraki yemlemede sessizce "izlenmiyor" sayılıp HAREKET YAZILMADAN
+    // commit ediliyordu (fail-open). Immutable hareket defteri ise silinmez:
+    // yem bir kez ledger'a girdiyse storage-yönetimlidir ve eksik stok
+    // GERÇEK bir eksikliktir → fail-closed.
+    const movementRows = await tenantManagerRepo(manager, StockMovement, tenantId).count({
+      where: { itemType: StorageItemType.FEED, itemId: feedId },
+    });
+    return movementRows > 0;
   }
 
   /**

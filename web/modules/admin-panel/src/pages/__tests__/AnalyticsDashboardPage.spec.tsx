@@ -19,6 +19,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 import AnalyticsDashboardPage from '../AnalyticsDashboardPage';
 import { analyticsApi } from '../../services/adminApi';
+import { dashboardSummaryFixture } from './fixtures/dashboardSummary';
 
 vi.mock('../../services/adminApi', async () => {
   const actual =
@@ -40,20 +41,9 @@ const api = vi.mocked(analyticsApi);
 describe('AnalyticsDashboardPage unmeasured system metrics (APA-131)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    api.getDashboardSummary.mockResolvedValue({
-      system: {
-        totalStorageBytes: null,
-        usedStorageBytes: null,
-        storageUtilization: null,
-        apiCallsToday: null,
-        apiCallsThisMonth: null,
-        avgResponseTimeMs: null,
-        errorRate: null,
-        uptimePercent: null,
-        activeConnections: null,
-        queuedJobs: null,
-      },
-    });
+    // The page no longer merges a partial response over an all-zero default
+    // (APA-136), so a spec must supply the complete contract.
+    api.getDashboardSummary.mockResolvedValue(dashboardSummaryFixture());
     api.getTenantGrowthTrend.mockResolvedValue({ data: [] });
     api.getRevenueTrend.mockResolvedValue({ data: [] });
     api.getUserActivity.mockResolvedValue({ data: [] });
@@ -77,22 +67,9 @@ describe('AnalyticsDashboardPage unmeasured system metrics (APA-131)', () => {
   });
 
   it('renders unmeasured churn as a placeholder and shows no trend arrow (APA-135)', async () => {
-    api.getDashboardSummary.mockResolvedValue({
-      // Real counts alongside unmeasured churn — the card must not infer one
-      // from the other, and must not fall back to the retired -0.5 delta.
-      tenants: {
-        total: 42,
-        active: 30,
-        inactive: 6,
-        trial: 4,
-        suspended: 6,
-        newThisMonth: 5,
-        churnedThisMonth: null,
-        churnRate: null,
-        growthRate: null,
-        byPlan: {},
-      },
-    });
+    // Real counts alongside unmeasured churn — the card must not infer one
+    // from the other, and must not fall back to the retired -0.5 delta.
+    api.getDashboardSummary.mockResolvedValue(dashboardSummaryFixture());
 
     render(
       <BrowserRouter>

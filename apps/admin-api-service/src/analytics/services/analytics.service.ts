@@ -1015,11 +1015,20 @@ export class AnalyticsService {
   /**
    * Calculate growth rate compared to last month's snapshot
    */
+  /**
+   * Percentage change of `metricKey` versus the newest snapshot at least a month
+   * old — or `null` when no such comparison exists.
+   *
+   * Null, not 0: a `0` here rendered as a confident "0.0% vs last month" on a
+   * KPI card for a platform that had simply never taken a baseline snapshot, or
+   * whose previous value was itself unmeasured (APA-134). "No baseline" and "no
+   * change" are different facts and the caller must be able to tell them apart.
+   */
   private async calculateGrowthRate(
     category: MetricCategory,
     metricKey: string,
     currentValue: number,
-  ): Promise<number> {
+  ): Promise<number | null> {
     const oneMonthAgo = new Date();
     oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
 
@@ -1031,12 +1040,12 @@ export class AnalyticsService {
       order: { snapshotDate: 'DESC' },
     });
 
-    if (!previousSnapshot) return 0;
+    if (!previousSnapshot) return null;
 
     const previousValue = this.getMetricValue(previousSnapshot.metrics, metricKey);
-    // No prior measurement, or a prior zero, leaves growth undefined; 0 is the
-    // established contract for "no comparison available" on this helper.
-    if (previousValue === null || previousValue === 0) return 0;
+    // An unmeasured or zero baseline yields no defensible percentage: division
+    // by zero is undefined, and a null baseline was never a measurement.
+    if (previousValue === null || previousValue === 0) return null;
 
     return Number((((currentValue - previousValue) / previousValue) * 100).toFixed(2));
   }

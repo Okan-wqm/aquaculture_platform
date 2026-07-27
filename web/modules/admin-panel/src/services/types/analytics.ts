@@ -37,7 +37,8 @@ export interface DashboardSummary {
     ltv: number;
     totalRevenue: number;
     revenueThisMonth: number;
-    revenueGrowthRate: number;
+    // null when no baseline snapshot exists to compare against (APA-134).
+    revenueGrowthRate: number | null;
     pendingPayments: number;
     overduePayments: number;
     refunds: number;

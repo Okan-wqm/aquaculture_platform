@@ -4,10 +4,10 @@
   "base_commit": "2de67e4a5a6ffdcf675be0fcd4322854fcecd62f",
   "truth_table_path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/finding-truth-table.md",
   "required_status_checks_manifest": ".github/manifests/main-required-status-checks.json",
-  "registry_tip_hash": "00d6c8dc1e50adc4e43dbdf7eed9c6fc0f85e9ee0df3e50fdd4701b694e7c8af",
-  "registry_entries": 1099,
+  "registry_tip_hash": "804f9b2c37d5f0c923cb5756f04195b8fee636395edae44c86c24df09dcd523a",
+  "registry_entries": 1100,
   "open_findings_count": 279,
-  "in_progress_findings_count": 102,
+  "in_progress_findings_count": 103,
   "active_critical_count": 29,
   "worktree_dirty_at_creation": true,
   "active_critical_ids": [

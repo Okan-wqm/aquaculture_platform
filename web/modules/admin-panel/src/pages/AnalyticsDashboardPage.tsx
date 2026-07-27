@@ -54,7 +54,8 @@ interface FinancialMetrics {
   ltv: number;
   totalRevenue: number;
   revenueThisMonth: number;
-  revenueGrowthRate: number;
+  // null when no baseline snapshot exists to compare against (APA-134).
+  revenueGrowthRate: number | null;
   pendingPayments: number;
   overduePayments: number;
   refunds: number;
@@ -113,82 +114,58 @@ type AnalyticsRange = '7d' | '30d' | '90d' | '1y';
 type AnalyticsGranularity = 'day' | 'week' | 'month';
 
 // ============================================================================
-// Default Data Structure
+// Page State
 // ============================================================================
 
-// Default empty data structure
-const getDefaultData = (): DashboardSummary => ({
-  tenants: {
-    total: 0,
-    active: 0,
-    inactive: 0,
-    trial: 0,
-    suspended: 0,
-    newThisMonth: 0,
-    churnedThisMonth: null,
-    churnRate: null,
-    growthRate: null,
-    byPlan: {},
-  },
-  users: {
-    total: 0,
-    active: 0,
-    inactive: 0,
-    newThisMonth: 0,
-    activeLastDay: 0,
-    activeLastWeek: 0,
-    activeLastMonth: 0,
-    growthRate: 0,
-    avgUsersPerTenant: 0,
-    byRole: {},
-  },
-  financial: {
-    mrr: 0,
-    arr: 0,
-    arpu: 0,
-    arppu: 0,
-    ltv: 0,
-    totalRevenue: 0,
-    revenueThisMonth: 0,
-    revenueGrowthRate: 0,
-    pendingPayments: 0,
-    overduePayments: 0,
-    refunds: 0,
-    byPlan: {},
-    byCurrency: {},
-  },
-  system: {
-    totalStorageBytes: null,
-    usedStorageBytes: null,
-    storageUtilization: null,
-    apiCallsToday: null,
-    apiCallsThisMonth: null,
-    avgResponseTimeMs: null,
-    errorRate: null,
-    uptimePercent: null,
-    activeConnections: null,
-    queuedJobs: null,
-  },
-  usage: {
-    moduleUsage: {},
-    featureAdoption: {},
-    topFeatures: [],
-    peakHours: [],
-    avgDailyActiveUsers: 0,
-  },
-  generatedAt: new Date().toISOString(),
-});
+/**
+ * A closed union, so "the request failed" is representable.
+ *
+ * The page used to hold `data: DashboardSummary | null` plus `loading: boolean`
+ * and substitute an all-zero literal on every failure path (APA-136). Because
+ * the requests go through `Promise.allSettled`, a rejected summary was not an
+ * exception but a settled value the code simply ignored — so an outage rendered
+ * a confident dashboard of zeros. With no `getDefaultData()` left to fall back
+ * to, fabricating that state is no longer possible.
+ */
+type DashboardState =
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'ready'; summary: DashboardSummary };
+
+/** Best-effort message from an unknown rejection value. */
+const errorMessageOf = (error: unknown): string =>
+  error instanceof Error && error.message
+    ? error.message
+    : 'The analytics service could not be reached.';
 
 // ============================================================================
 // KPI Card Component
 // ============================================================================
 
+/**
+ * A month-over-month delta.
+ *
+ * `percent` is nullable because the backend reports null when no baseline
+ * snapshot exists — "no baseline" and "no change" are different facts (APA-134).
+ * `risingIsGood` carries the metric's POLARITY, because a rise is good for
+ * revenue and bad for churn; without it every card would inherit "up = green".
+ */
+interface KpiDelta {
+  percent: number | null;
+  risingIsGood: boolean;
+}
+
 interface KpiCardProps {
   title: string;
   value: string | number;
   subtitle?: string;
-  change?: number;
-  trend?: 'up' | 'down' | 'stable';
+  /**
+   * A single input. The previous shape took `change` and `trend` as two
+   * INDEPENDENT props, so a card could render a green up-arrow over a negative
+   * number — and three of them hardcoded `trend="up"` regardless of sign
+   * (APA-134). Direction is now a function of the value, so that is impossible.
+   */
+  delta?: KpiDelta;
   icon: React.ReactNode;
   color?: string;
 }
@@ -197,8 +174,7 @@ const KpiCard: React.FC<KpiCardProps> = ({
   title,
   value,
   subtitle,
-  change,
-  trend,
+  delta,
   icon,
   color = 'blue',
 }) => {
@@ -211,16 +187,19 @@ const KpiCard: React.FC<KpiCardProps> = ({
     indigo: 'bg-indigo-50 text-indigo-600',
   };
 
-  const getTrendColor = (): string => {
-    if (trend === 'up') return 'text-green-600';
-    if (trend === 'down') return 'text-red-600';
-    return 'text-gray-500';
-  };
+  // Both derived from the delta's own sign, so the arrow and the number can
+  // never disagree. Polarity decides which sign is green, not the call site.
+  const deltaDirection = (percent: number): 'up' | 'down' | 'flat' =>
+    percent > 0 ? 'up' : percent < 0 ? 'down' : 'flat';
 
-  const getTrendIcon = (): string => {
-    if (trend === 'up') return '↑';
-    if (trend === 'down') return '↓';
-    return '→';
+  const deltaGlyph = (percent: number): string =>
+    ({ up: '↑', down: '↓', flat: '→' })[deltaDirection(percent)];
+
+  const deltaColor = (percent: number, risingIsGood: boolean): string => {
+    const direction = deltaDirection(percent);
+    if (direction === 'flat') return 'text-gray-500';
+    const isGood = direction === 'up' ? risingIsGood : !risingIsGood;
+    return isGood ? 'text-green-600' : 'text-red-600';
   };
 
   return (
@@ -230,11 +209,11 @@ const KpiCard: React.FC<KpiCardProps> = ({
           <p className="text-sm font-medium text-gray-500">{title}</p>
           <p className="mt-2 text-3xl font-bold text-gray-900">{value}</p>
           {subtitle && <p className="mt-1 text-sm text-gray-500">{subtitle}</p>}
-          {change !== undefined && (
-            <p className={`mt-2 text-sm font-medium ${getTrendColor()}`}>
-              <span className="mr-1">{getTrendIcon()}</span>
-              {Math.abs(change).toFixed(1)}%
-              <span className="ml-1 text-gray-500">vs last month</span>
+          {delta?.percent != null && (
+            <p className={`mt-2 text-sm font-medium ${deltaColor(delta.percent, delta.risingIsGood)}`}>
+              <span className="mr-1">{deltaGlyph(delta.percent)}</span>
+              {Math.abs(delta.percent).toFixed(1)}%
+              <span className="ml-1 text-gray-500">vs previous snapshot</span>
             </p>
           )}
         </div>
@@ -389,15 +368,14 @@ const DonutChart: React.FC<DonutChartProps> = ({
 // ============================================================================
 
 const AnalyticsDashboardPage: React.FC = () => {
-  const [data, setData] = useState<DashboardSummary | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [state, setState] = useState<DashboardState>({ status: 'loading' });
   const [selectedPeriod, setSelectedPeriod] = useState<AnalyticsRange>('30d');
   const [tenantTrend, setTenantTrend] = useState<TimeSeriesPoint[]>([]);
   const [revenueTrend, setRevenueTrend] = useState<TimeSeriesPoint[]>([]);
   const [userTrend, setUserTrend] = useState<TimeSeriesPoint[]>([]);
 
   const loadData = useCallback(async () => {
-    setLoading(true);
+    setState({ status: 'loading' });
     try {
       const granularity: AnalyticsGranularity = selectedPeriod === '1y' ? 'month' : selectedPeriod === '90d' ? 'week' : 'day';
 
@@ -414,19 +392,25 @@ const AnalyticsDashboardPage: React.FC = () => {
         analyticsApi.getUserActivity(selectedPeriod, granularity),
       ]);
 
-      // Process dashboard data
-      let dashboardData = getDefaultData();
-      if (dashboardResponse.status === 'fulfilled' && dashboardResponse.value) {
-        // Map API response to our DashboardSummary type
-        const apiData = dashboardResponse.value as Partial<DashboardSummary>;
-        dashboardData = {
-          ...dashboardData,
-          ...apiData,
-          generatedAt: new Date().toISOString(),
-        };
+      // The summary IS the page. A rejection here used to be swapped for an
+      // all-zero literal, so an auth failure, a 500 or a network outage rendered
+      // a complete, confident dashboard reading 0 tenants / $0 MRR — which a
+      // SUPER_ADMIN cannot tell apart from a healthy platform with no customers
+      // (APA-136). It is now an error state with a Retry.
+      if (dashboardResponse.status !== 'fulfilled' || !dashboardResponse.value) {
+        setState({
+          status: 'error',
+          message: errorMessageOf(
+            dashboardResponse.status === 'rejected' ? dashboardResponse.reason : undefined,
+          ),
+        });
+        return;
       }
 
-      setData(dashboardData);
+      setState({
+        status: 'ready',
+        summary: { ...dashboardResponse.value, generatedAt: new Date().toISOString() },
+      });
 
       // Process tenant growth trend
       if (tenantTrendResponse.status === 'fulfilled' && tenantTrendResponse.value) {
@@ -449,14 +433,13 @@ const AnalyticsDashboardPage: React.FC = () => {
       } else {
         setUserTrend([]);
       }
-    } catch {
-      // Set default empty data on error
-      setData(getDefaultData());
-      setTenantTrend([]);
-      setRevenueTrend([]);
-      setUserTrend([]);
-    } finally {
-      setLoading(false);
+    } catch (error) {
+      // Promise.allSettled never rejects, so this covers only a SYNCHRONOUS
+      // throw while the requests are being constructed. Without it that escapes
+      // as an unhandled rejection and the page sits on the spinner forever.
+      // Routing it into the error state is not the swallow APA-145 removed —
+      // it produces no numbers.
+      setState({ status: 'error', message: errorMessageOf(error) });
     }
   }, [selectedPeriod]);
 
@@ -487,12 +470,23 @@ const AnalyticsDashboardPage: React.FC = () => {
     value === null ? NOT_MEASURED : `${formatNumber(value)}${unit}`;
 
   /**
-   * Derives the arrow direction FROM the value. A hardcoded `trend="up"` beside
-   * a real `change` renders negative growth as a green up-arrow — the sign of
-   * the number and the direction of the arrow must come from the same source.
+   * A signed, colour-matched growth figure. Both footers used to hardcode the
+   * '+' AND the green class, so a -3.2% growth rate rendered as a green
+   * "+-3.2%" (APA-134).
    */
-  const trendOf = (value: number): 'up' | 'down' | 'stable' =>
-    value > 0 ? 'up' : value < 0 ? 'down' : 'stable';
+  const GrowthFigure: React.FC<{ percent: number | null }> = ({ percent }) => {
+    if (percent === null) {
+      return <span className="text-gray-500 font-medium">{NOT_MEASURED}</span>;
+    }
+    const tone =
+      percent > 0 ? 'text-green-600' : percent < 0 ? 'text-red-600' : 'text-gray-500';
+    return (
+      <span className={`${tone} font-medium`}>
+        {percent > 0 ? '+' : ''}
+        {percent}%
+      </span>
+    );
+  };
 
   const formatBytes = (bytes: number | null): string => {
     if (bytes === null) return NOT_MEASURED;
@@ -506,13 +500,31 @@ const AnalyticsDashboardPage: React.FC = () => {
     return `${value.toFixed(1)} ${units[unitIndex]}`;
   };
 
-  if (loading || !data) {
+  if (state.status === 'loading') {
     return (
-      <div className="flex items-center justify-center h-96">
+      <div className="flex items-center justify-center h-96" role="status" aria-label="Loading analytics">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     );
   }
+
+  if (state.status === 'error') {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 gap-4" role="alert">
+        <p className="text-lg font-medium text-gray-900">Analytics could not be loaded</p>
+        <p className="text-sm text-gray-500 max-w-md text-center">{state.message}</p>
+        <button
+          type="button"
+          onClick={() => void loadData()}
+          className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  const { summary: data } = state;
 
   return (
     <div className="space-y-6">
@@ -561,9 +573,7 @@ const AnalyticsDashboardPage: React.FC = () => {
           title="Total Tenants"
           value={formatNumber(data.tenants.total)}
           subtitle={`${data.tenants.active} aktif`}
-          {...(data.tenants.growthRate === null
-            ? {}
-            : { change: data.tenants.growthRate, trend: trendOf(data.tenants.growthRate) })}
+          delta={{ percent: data.tenants.growthRate, risingIsGood: true }}
           color="blue"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -575,8 +585,7 @@ const AnalyticsDashboardPage: React.FC = () => {
           title="Total Users"
           value={formatNumber(data.users.total)}
           subtitle={`${formatNumber(data.users.activeLastDay)} DAU`}
-          change={data.users.growthRate}
-          trend="up"
+          delta={{ percent: data.users.growthRate, risingIsGood: true }}
           color="green"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -588,8 +597,7 @@ const AnalyticsDashboardPage: React.FC = () => {
           title="MRR"
           value={formatCurrency(data.financial.mrr)}
           subtitle={`ARR: ${formatCurrency(data.financial.arr)}`}
-          change={data.financial.revenueGrowthRate}
-          trend="up"
+          delta={{ percent: data.financial.revenueGrowthRate, risingIsGood: true }}
           color="purple"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -601,7 +609,6 @@ const AnalyticsDashboardPage: React.FC = () => {
           title="Uptime"
           value={formatMetric(data.system.uptimePercent, '%')}
           subtitle={`Error rate: ${formatMetric(data.system.errorRate, '%')}`}
-          trend="stable"
           color="orange"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -677,11 +684,7 @@ const AnalyticsDashboardPage: React.FC = () => {
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-gray-500">Bu ay: +{data.tenants.newThisMonth}</span>
-            <span className="text-green-600 font-medium">
-              {data.tenants.growthRate === null
-                ? NOT_MEASURED
-                : `${data.tenants.growthRate > 0 ? '+' : ''}${data.tenants.growthRate}%`}
-            </span>
+            <GrowthFigure percent={data.tenants.growthRate} />
           </div>
         </Card>
 
@@ -697,7 +700,7 @@ const AnalyticsDashboardPage: React.FC = () => {
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-gray-500">MRR: {formatCurrency(data.financial.mrr)}</span>
-            <span className="text-green-600 font-medium">+{data.financial.revenueGrowthRate}%</span>
+            <GrowthFigure percent={data.financial.revenueGrowthRate} />
           </div>
         </Card>
 

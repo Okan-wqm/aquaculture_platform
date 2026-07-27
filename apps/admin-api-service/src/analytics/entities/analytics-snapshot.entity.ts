@@ -82,7 +82,12 @@ export interface FinancialMetrics {
   ltv: number;
   totalRevenue: number;
   revenueThisMonth: number;
-  revenueGrowthRate: number;
+  /**
+   * Month-over-month MRR change, or null when there is no baseline snapshot to
+   * compare against. A 0 here claimed "no change, measured" for a platform that
+   * had simply never taken a baseline (APA-134).
+   */
+  revenueGrowthRate: number | null;
   pendingPayments: number;
   overduePayments: number;
   refunds: number;

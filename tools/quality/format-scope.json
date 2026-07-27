@@ -45658,6 +45658,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/AnalyticsDashboardPage.kpi.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/__tests__/AnalyticsDashboardPage.spec.tsx",
       "prettier_managed": true
     },
@@ -45677,6 +45683,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/pages/__tests__/DatabaseManagementPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/fixtures/dashboardSummary.ts",
       "prettier_managed": true
     },
     {
@@ -55494,10 +55506,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9098,
+  "file_count": 9100,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8917,
-  "managed_file_list_sha256": "406b60faf3f62c5fdc248583c201280868a940245ec0107dd0f9b1d59ff0e79f",
+  "managed_count": 8919,
+  "managed_file_list_sha256": "52629728597caf5ec0d93b507aef2b8f7dd7bba4b3853afbc66db277d5868c24",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

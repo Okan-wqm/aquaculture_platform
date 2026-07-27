@@ -75,6 +75,77 @@ def genesis_lifecycle_policy(repo_root: str | Path | None = None) -> dict[str, A
     return block
 
 
+# ORPHAN-MEDIUM-468 — circuit_breaker was the ONLY nested policy block without
+# a typed accessor + defaults dict, and that absence is what made a rename here
+# dangerous. merge_with_override is a SHALLOW top-level merge: an operator file
+# containing {"circuit_breaker": {...}} REPLACES the default block wholesale, so
+# any key the operator omits silently reverts to a hardcoded fallback deep in
+# the reading module, with no warning and no validation. Renaming a key under
+# that regime would have discarded a deployed override in silence.
+#
+# The window is now a policy value rather than a constant baked into a name.
+# 72h, not 24h: the nightly fires on cron '0 1 * * *', so a 24h window equalled
+# the producer cadence exactly and a prior night's failure sat on the boundary —
+# whether it still counted depended on where inside each run the failure landed,
+# i.e. on scheduler jitter rather than on how many failures there were. A window
+# strictly longer than the cadence makes cross-cycle accumulation deterministic:
+# three consecutive bad nights trip, and that is a property of the failures, not
+# of the clock.
+CIRCUIT_BREAKER_DEFAULTS: dict[str, Any] = {
+    "failure_threshold": 3,
+    "failure_window_hours": 72,
+    "auto_downgrade_to": "strict",
+}
+
+# Keys that were renamed, mapped to their replacement. Presence of one of these
+# in an operator override is an ERROR, not a silent no-op: the whole reason the
+# rename is safe is that a stale key is reported instead of ignored.
+CIRCUIT_BREAKER_LEGACY_KEYS: dict[str, str] = {
+    "threshold_24h": "failure_threshold",
+}
+
+
+def circuit_breaker_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """ORPHAN-MEDIUM-468 — typed accessor for the circuit_breaker block.
+
+    Mirrors genesis_lifecycle_policy / auto_promote_policy /
+    skill_genesis_drainer_policy so circuit_breaker stops being the one block
+    read by hand.
+
+    Raises GovernanceError when an override still carries a renamed key.
+    Failing loudly is the point: under the shallow merge an operator who wrote
+    ``threshold_24h: 10`` and upgraded would otherwise run on the default 3 and
+    be told nothing. A deployed aria-config/genesis_policy.json is untracked, so
+    the repo cannot migrate it — the only place the operator can learn is here.
+    """
+    if repo_root is not None:
+        merged = load_policy(repo_root)
+    else:
+        raw = json.loads(
+            (Path(__file__).resolve().parent / "data" / DEFAULT_FILENAME).read_text(encoding="utf-8")
+        )
+        merged = raw if isinstance(raw, dict) else {}
+    block = dict(CIRCUIT_BREAKER_DEFAULTS)
+    raw_block = merged.get("circuit_breaker")
+    if isinstance(raw_block, dict):
+        from .tool_registry import GovernanceError
+
+        stale = sorted(k for k in CIRCUIT_BREAKER_LEGACY_KEYS if k in raw_block)
+        if stale:
+            renames = ", ".join(f"{k} -> {CIRCUIT_BREAKER_LEGACY_KEYS[k]}" for k in stale)
+            raise GovernanceError(
+                "genesis_policy_renamed_circuit_breaker_key: "
+                f"{renames}. The value under the old name is NOT applied — the "
+                "policy merge replaces the whole circuit_breaker block, so the "
+                "breaker would silently run on defaults. Rename the key in your "
+                "genesis_policy.json override."
+            )
+        for key, _default in CIRCUIT_BREAKER_DEFAULTS.items():
+            if key in raw_block:
+                block[key] = raw_block[key]
+    return block
+
+
 SKILL_GENESIS_DRAINER_DEFAULTS: dict[str, Any] = {
     "enabled": True,
     "max_authorings_per_cycle": 3,

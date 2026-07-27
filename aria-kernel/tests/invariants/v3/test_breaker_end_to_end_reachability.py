@@ -20,10 +20,10 @@ window count, the verdict and the preflight are all genuine.
 
 Why the threshold is read rather than hardcoded
 -----------------------------------------------
-An earlier analysis concluded the breaker could never trip: `threshold_24h` is
-3, the nightly fires once per 24h, so "at most one row per window, 1 < 3,
-forever". That held for the once-per-cycle subprocess_timeout producer it was
-derived from. It does NOT hold for the producer actually wired: the
+An earlier analysis concluded the breaker could never trip: the threshold is 3,
+the nightly fires once per 24h, so "at most one row per window, 1 < 3, forever".
+That held for the once-per-cycle subprocess_timeout producer it was derived
+from. It does NOT hold for the producer actually wired: the
 pr_lifecycle phase iterates every approved_for_apply proposal and records one
 failure per perimeter-refused proposal, so a single cycle can write N rows.
 
@@ -53,7 +53,7 @@ class BreakerEndToEndReachabilityTests(unittest.TestCase):
             ensure_tools_dir(base)
 
             # The shipped threshold, whatever it currently is.
-            threshold = evaluate_breaker(base).threshold_24h
+            threshold = evaluate_breaker(base).threshold
             self.assertGreater(threshold, 0)
 
             # Baseline: nothing has failed, so a standard cycle may proceed.
@@ -107,7 +107,7 @@ class BreakerEndToEndReachabilityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="aria-420-e2e-under-") as tmp:
             base = Path(tmp) / "aria-tools"
             ensure_tools_dir(base)
-            threshold = evaluate_breaker(base).threshold_24h
+            threshold = evaluate_breaker(base).threshold
             proposals = [
                 {"proposal_id": f"PROP-{i}", "status": "approved_for_apply"}
                 for i in range(threshold - 1)

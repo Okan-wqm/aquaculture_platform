@@ -76,7 +76,7 @@ def _write_threshold_policy(base_dir: Path, threshold: int) -> None:
                 "materialization_requires_acknowledge": True,
                 "fitness_staleness_threshold_days": 14,
                 "circuit_breaker": {
-                    "threshold_24h": threshold,
+                    "failure_threshold": threshold,
                     "auto_downgrade_to": "strict",
                 },
             },

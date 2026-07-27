@@ -15,9 +15,10 @@ $cost overruns; this one trips on a sum-of-all failures across the
   * ``operator_rollback`` — the operator ran ``aria-kernel rollback
     materialize <id>`` within 24h of the autonomous materialize.
 
-Each kind counts toward the same 24h sliding window; sum > N trips the
+Each kind counts toward the same sliding window; sum > N trips the
 breaker. ``N`` is configurable in ``genesis_policy_default.json``
-under ``circuit_breaker.threshold_24h`` (default 3).
+under ``circuit_breaker.failure_threshold`` (default 3), counted over
+``circuit_breaker.failure_window_hours`` (default 72).
 
 AUDITTRAIL-CRITICAL-005 atomic-with-event invariant:
   ``record_failure`` MUST write the failure row AND emit the
@@ -83,7 +84,12 @@ FAILURE_KINDS: frozenset[str] = frozenset(
     }
 )
 
-_DEFAULT_THRESHOLD_24H: int = 3
+# ORPHAN-MEDIUM-468 — these are fallbacks for a policy read that failed, not
+# the policy itself. The authoritative values live in
+# genesis_policy.CIRCUIT_BREAKER_DEFAULTS; they are duplicated here only so a
+# broken policy file cannot leave the breaker with no threshold at all.
+_DEFAULT_FAILURE_THRESHOLD: int = 3
+_DEFAULT_FAILURE_WINDOW_HOURS: int = 72
 
 
 def _breaker_dir(base_dir: str | Path) -> Path:
@@ -112,23 +118,35 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     tmp.replace(path)
 
 
-def _load_threshold(base_dir: str | Path) -> int:
-    """Plan ARIA-V3 §2j — read ``circuit_breaker.threshold_24h`` from
-    genesis policy (defaults to 3). Same load-path semantics as B0
-    ``cost_budget._load_caps`` — repo_root is the parent of tools_dir.
+def _load_breaker_policy(base_dir: str | Path) -> tuple[int, int]:
+    """ORPHAN-MEDIUM-468 — (failure_threshold, failure_window_hours) from policy.
+
+    Reads through genesis_policy.circuit_breaker_policy() rather than reaching
+    into the raw dict, so the block gets the same typed-accessor treatment every
+    other nested policy block already had — and so an operator override still
+    carrying the pre-468 ``threshold_24h`` key raises instead of being silently
+    replaced by defaults.
+
+    A malformed VALUE still falls back per-field rather than raising: a policy
+    file with a non-integer threshold should not make the breaker unreadable,
+    because an unreadable breaker is itself a fail-open path. A renamed KEY is
+    different — it is a migration error the operator must see.
     """
-    from .genesis_policy import load_policy
+    from .genesis_policy import circuit_breaker_policy
 
     repo_root = Path(base_dir).parent
-    policy = load_policy(repo_root)
-    cb = policy.get("circuit_breaker") or {}
-    if not isinstance(cb, dict):
-        return _DEFAULT_THRESHOLD_24H
-    raw = cb.get("threshold_24h", _DEFAULT_THRESHOLD_24H)
+    block = circuit_breaker_policy(repo_root)
     try:
-        return int(raw)
+        threshold = int(block.get("failure_threshold", _DEFAULT_FAILURE_THRESHOLD))
     except (TypeError, ValueError):
-        return _DEFAULT_THRESHOLD_24H
+        threshold = _DEFAULT_FAILURE_THRESHOLD
+    try:
+        window_hours = int(block.get("failure_window_hours", _DEFAULT_FAILURE_WINDOW_HOURS))
+    except (TypeError, ValueError):
+        window_hours = _DEFAULT_FAILURE_WINDOW_HOURS
+    if window_hours <= 0:
+        window_hours = _DEFAULT_FAILURE_WINDOW_HOURS
+    return threshold, window_hours
 
 
 @dataclass(frozen=True)
@@ -169,7 +187,12 @@ class BreakerVerdict:
     state: str
     reason: str
     sliding_count: int
-    threshold_24h: int
+    # ORPHAN-MEDIUM-468 — `threshold` and `window_hours` replace the single
+    # `threshold_24h` field. The old name conflated a COUNT with the window it
+    # was counted over, and hardcoded the window into an identifier, so the
+    # name would have started lying the moment the window moved off 24h.
+    threshold: int
+    window_hours: int
     evidence: BreakerEvidence
 
 
@@ -233,9 +256,20 @@ def _read_failures_evidence(base_dir: str | Path) -> BreakerEvidence:
     )
 
 
-def _count_failures_24h(rows: tuple[dict[str, Any], ...] | list[dict[str, Any]]) -> int:
-    """Plan ARIA-V3 §2j — sliding 24h window. A failure ages out when
-    its ``ts`` is more than 24 hours behind ``utcnow``.
+def _count_failures_in_window(
+    rows: tuple[dict[str, Any], ...] | list[dict[str, Any]],
+    *,
+    window_hours: int,
+) -> int:
+    """Plan ARIA-V3 §2j — sliding window. A failure ages out when its ``ts``
+    is more than ``window_hours`` behind ``utcnow``.
+
+    ORPHAN-MEDIUM-468 — the window was a hardcoded 24h, which equalled the
+    nightly cron cadence. A prior night's row therefore sat exactly on the
+    boundary and whether it still counted depended on where inside each run the
+    failure landed. The window is now policy-driven and defaults to 72h, so
+    accumulation across nights is decided by the number of failures rather than
+    by scheduler jitter.
 
     A missing or unparseable ``ts`` counts as IN-window. Pre-fix such a
     row was skipped, so blanking the timestamps on a ledger dropped the
@@ -243,7 +277,7 @@ def _count_failures_24h(rows: tuple[dict[str, Any], ...] | list[dict[str, Any]])
     (ORPHAN-CRITICAL-418). A failure whose age cannot be established
     has not been shown to have aged out.
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=window_hours)
     counted = 0
     for row in rows:
         ts_raw = row.get("ts", "")
@@ -273,14 +307,15 @@ def evaluate_breaker(base_dir: str | Path) -> BreakerVerdict:
     desynchronise the in-memory and on-disk views (I-V3-25b).
     """
     evidence = _read_failures_evidence(base_dir)
-    threshold = _load_threshold(base_dir)
-    sliding = _count_failures_24h(evidence.rows)
+    threshold, window_hours = _load_breaker_policy(base_dir)
+    sliding = _count_failures_in_window(evidence.rows, window_hours=window_hours)
     if evidence.unreadable:
         return BreakerVerdict(
             state=BREAKER_STATE_TRIPPED,
             reason=BREAKER_REASON_EVIDENCE_UNREADABLE,
             sliding_count=sliding,
-            threshold_24h=threshold,
+            threshold=threshold,
+            window_hours=window_hours,
             evidence=evidence,
         )
     if evidence.dropped_rows:
@@ -288,7 +323,8 @@ def evaluate_breaker(base_dir: str | Path) -> BreakerVerdict:
             state=BREAKER_STATE_TRIPPED,
             reason=BREAKER_REASON_EVIDENCE_INCOMPLETE,
             sliding_count=sliding,
-            threshold_24h=threshold,
+            threshold=threshold,
+            window_hours=window_hours,
             evidence=evidence,
         )
     tripped = sliding >= threshold
@@ -300,7 +336,8 @@ def evaluate_breaker(base_dir: str | Path) -> BreakerVerdict:
             else BREAKER_REASON_WITHIN_THRESHOLD
         ),
         sliding_count=sliding,
-        threshold_24h=threshold,
+        threshold=threshold,
+        window_hours=window_hours,
         evidence=evidence,
     )
 
@@ -382,7 +419,8 @@ def record_failure(
                 "sliding_count": verdict.sliding_count,
                 "evidence_rows_present": verdict.evidence.rows_present,
                 "evidence_dropped_rows": verdict.evidence.dropped_rows,
-                "threshold_24h": verdict.threshold_24h,
+                "threshold": verdict.threshold,
+                "window_hours": verdict.window_hours,
             },
         )
         append_tools_governance(
@@ -394,7 +432,8 @@ def record_failure(
                 "materialize_event_id": materialize_event_id,
                 "sliding_count": verdict.sliding_count,
                 "evidence_dropped_rows": verdict.evidence.dropped_rows,
-                "threshold_24h": verdict.threshold_24h,
+                "threshold": verdict.threshold,
+                "window_hours": verdict.window_hours,
             },
         )
     return row
@@ -465,7 +504,8 @@ def assert_within_breaker(base_dir: str | Path) -> dict[str, Any]:
         raise GovernanceError(
             f"circuit_breaker_tripped: reason={verdict.reason} "
             f"sliding_count={verdict.sliding_count} "
-            f"threshold_24h={verdict.threshold_24h} "
+            f"threshold={verdict.threshold} "
+            f"window_hours={verdict.window_hours} "
             f"evidence_dropped_rows={verdict.evidence.dropped_rows}"
         )
     return {
@@ -473,7 +513,8 @@ def assert_within_breaker(base_dir: str | Path) -> dict[str, Any]:
         "state": verdict.state,
         "reason": verdict.reason,
         "sliding_count": verdict.sliding_count,
-        "threshold_24h": verdict.threshold_24h,
+        "threshold": verdict.threshold,
+                "window_hours": verdict.window_hours,
     }
 
 

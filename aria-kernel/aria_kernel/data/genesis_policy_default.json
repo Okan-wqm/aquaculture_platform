@@ -11,7 +11,8 @@
     "per_run": 0.5
   },
   "circuit_breaker": {
-    "threshold_24h": 3,
+    "failure_threshold": 3,
+    "failure_window_hours": 72,
     "auto_downgrade_to": "strict"
   },
   "convergent_authoring": {

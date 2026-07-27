@@ -1,11 +1,11 @@
 #!/usr/bin/env ts-node
 /**
- * RuleTester units for the 6 custom eslint-plugin-aquaculture rules.
+ * RuleTester units for the 7 custom eslint-plugin-aquaculture rules.
  *
- * WHY this exists: before this file, the 6 architectural-invariant rules
+ * WHY this exists: before this file, the architectural-invariant rules
  * (require-entity-schema, no-bare-tenant-query-key, no-direct-event-publish,
  * no-high-cardinality-metric-label, no-claude-sdk-raw-call,
- * no-bare-graphql-query-string) had ZERO tests. The ESLint 8 -> 9 flat
+ * no-bare-graphql-query-string, no-unpinned-ssrf-fetch) had ZERO tests. The ESLint 8 -> 9 flat
  * config migration (A2) keeps the SAME rule sources but re-wires how the
  * plugin is loaded; these units pin each rule's firing behaviour by
  * `messageId` so a load/registration regression in PR-2 is caught.
@@ -20,15 +20,18 @@
  */
 
 import { createRequire } from 'node:module';
+import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { RuleTester } from 'eslint';
 
+import { rules } from '../eslint-rules';
 import noBareGraphqlQueryString from '../eslint-rules/rules/no-bare-graphql-query-string';
 import noBareTenantQueryKey from '../eslint-rules/rules/no-bare-tenant-query-key';
 import noClaudeSdkRawCall from '../eslint-rules/rules/no-claude-sdk-raw-call';
 import noDirectEventPublish from '../eslint-rules/rules/no-direct-event-publish';
 import noHighCardinalityMetricLabel from '../eslint-rules/rules/no-high-cardinality-metric-label';
+import noUnpinnedSsrfFetch from '../eslint-rules/rules/no-unpinned-ssrf-fetch';
 import requireEntitySchema from '../eslint-rules/rules/require-entity-schema';
 
 // Bind RuleTester's static hooks to node:test so the cases run under the
@@ -75,6 +78,20 @@ const ruleTester = new RuleTester(ruleTesterConfig);
 // object); the `as never` casts bridge the @typescript-eslint Rule type to
 // ESLint core's RuleModule type that RuleTester.run expects.
 const asRule = (r: unknown): never => r as never;
+
+const testedRuleNames = [
+  'require-entity-schema',
+  'no-bare-tenant-query-key',
+  'no-direct-event-publish',
+  'no-high-cardinality-metric-label',
+  'no-claude-sdk-raw-call',
+  'no-bare-graphql-query-string',
+  'no-unpinned-ssrf-fetch',
+] as const;
+
+it('has a RuleTester suite for every exported rule', () => {
+  assert.deepEqual(Object.keys(rules).sort(), [...testedRuleNames].sort());
+});
 
 ruleTester.run('require-entity-schema', asRule(requireEntitySchema), {
   valid: [
@@ -136,5 +153,33 @@ ruleTester.run('no-bare-graphql-query-string', asRule(noBareGraphqlQueryString),
   valid: [{ code: 'const q = useGqlOperation();' }],
   invalid: [
     { code: 'const q = gql`query { me { id } }`;', errors: [{ messageId: 'bareGqlTag' }] },
+  ],
+});
+
+ruleTester.run('no-unpinned-ssrf-fetch', asRule(noUnpinnedSsrfFetch), {
+  valid: [
+    {
+      code: 'await ssrfValidator.safeFetch(url);',
+      filename: 'apps/notification-service/src/notification/notification-dispatcher.service.ts',
+    },
+    {
+      code: "await fetch('https://internal.example.test/health');",
+      filename: 'apps/notification-service/src/notification/webhook-sender.service.ts',
+    },
+    {
+      code: 'await fetch(url);',
+      filename: 'apps/notification-service/src/notification/webhook-sender.service.spec.ts',
+    },
+  ],
+  invalid: [
+    {
+      code: 'await fetch(url);',
+      filename: 'apps/notification-service/src/notification/webhook-sender.service.ts',
+      errors: [{ messageId: 'bareFetchInSensitiveZone' }],
+    },
+    {
+      code: 'const options = ssrfValidator.getSafeFetchOptions();',
+      errors: [{ messageId: 'removedGetSafeFetchOptions' }],
+    },
   ],
 });

@@ -68,14 +68,17 @@ describe('FCRCalculationService', () => {
     createQueryBuilder: jest.fn(),
   };
 
-  const mockGrowthMeasurementRepository = {
-    find: jest.fn(),
-    createQueryBuilder: jest.fn(),
-  };
-
   // getTargetFCR v2 zinciri (P-14) ham SQL'i repository.manager.query üzerinden
   // atar — varsayılan boş sonuç: v2 ataması yok, zincir legacy dallara düşer.
   const mockManagerQuery = jest.fn();
+  // W5 (FARM-LOW-286): trend analizi de toplu ham sorguya döndü — pencere
+  // fonksiyonu tek çağrıda son 10 ölçümü batch başına getirir.
+  const mockGrowthMeasurementQuery = jest.fn();
+  const mockGrowthMeasurementRepository = {
+    find: jest.fn(),
+    createQueryBuilder: jest.fn(),
+    manager: { query: mockGrowthMeasurementQuery },
+  };
   const mockBatchRepository = {
     findOne: jest.fn(),
     manager: { query: mockManagerQuery },
@@ -177,6 +180,7 @@ describe('FCRCalculationService', () => {
     mockTankOperationRepository.createQueryBuilder.mockReturnValue(mockLedgerQueryBuilder);
     mockLedgerQueryBuilder.getRawOne.mockResolvedValue({ netRemovedKg: 0 });
     mockManagerQuery.mockResolvedValue([]);
+    mockGrowthMeasurementQuery.mockResolvedValue([]);
   });
 
   describe('calculatePeriodFCR', () => {
@@ -433,9 +437,9 @@ describe('FCRCalculationService', () => {
     const batchId = 'batch-456';
 
     it('should return stable trend when insufficient data', async () => {
-      mockGrowthMeasurementRepository.find.mockResolvedValue([
-        { id: '1', fcrAnalysis: { periodFCR: 1.5 } },
-        { id: '2', fcrAnalysis: { periodFCR: 1.4 } },
+      mockGrowthMeasurementQuery.mockResolvedValue([
+        { batchId, fcrAnalysis: { periodFCR: 1.5 } },
+        { batchId, fcrAnalysis: { periodFCR: 1.4 } },
       ]);
 
       const result = await service.analyzeFCRTrend(batchId, tenantId);
@@ -445,27 +449,11 @@ describe('FCRCalculationService', () => {
     });
 
     it('should detect improving trend (decreasing FCR)', async () => {
-      mockGrowthMeasurementRepository.find.mockResolvedValue([
-        {
-          id: '1',
-          fcrAnalysis: { periodFCR: 1.8, cumulativeFCR: 1.8 },
-          measurementDate: new Date('2024-01-01'),
-        },
-        {
-          id: '2',
-          fcrAnalysis: { periodFCR: 1.6, cumulativeFCR: 1.7 },
-          measurementDate: new Date('2024-01-08'),
-        },
-        {
-          id: '3',
-          fcrAnalysis: { periodFCR: 1.4, cumulativeFCR: 1.6 },
-          measurementDate: new Date('2024-01-15'),
-        },
-        {
-          id: '4',
-          fcrAnalysis: { periodFCR: 1.2, cumulativeFCR: 1.5 },
-          measurementDate: new Date('2024-01-22'),
-        },
+      mockGrowthMeasurementQuery.mockResolvedValue([
+        { batchId, fcrAnalysis: { periodFCR: 1.8, cumulativeFCR: 1.8 } },
+        { batchId, fcrAnalysis: { periodFCR: 1.6, cumulativeFCR: 1.7 } },
+        { batchId, fcrAnalysis: { periodFCR: 1.4, cumulativeFCR: 1.6 } },
+        { batchId, fcrAnalysis: { periodFCR: 1.2, cumulativeFCR: 1.5 } },
       ]);
 
       const result = await service.analyzeFCRTrend(batchId, tenantId);
@@ -475,27 +463,11 @@ describe('FCRCalculationService', () => {
     });
 
     it('should detect declining trend (increasing FCR)', async () => {
-      mockGrowthMeasurementRepository.find.mockResolvedValue([
-        {
-          id: '1',
-          fcrAnalysis: { periodFCR: 1.2, cumulativeFCR: 1.2 },
-          measurementDate: new Date('2024-01-01'),
-        },
-        {
-          id: '2',
-          fcrAnalysis: { periodFCR: 1.4, cumulativeFCR: 1.3 },
-          measurementDate: new Date('2024-01-08'),
-        },
-        {
-          id: '3',
-          fcrAnalysis: { periodFCR: 1.6, cumulativeFCR: 1.4 },
-          measurementDate: new Date('2024-01-15'),
-        },
-        {
-          id: '4',
-          fcrAnalysis: { periodFCR: 1.8, cumulativeFCR: 1.5 },
-          measurementDate: new Date('2024-01-22'),
-        },
+      mockGrowthMeasurementQuery.mockResolvedValue([
+        { batchId, fcrAnalysis: { periodFCR: 1.2, cumulativeFCR: 1.2 } },
+        { batchId, fcrAnalysis: { periodFCR: 1.4, cumulativeFCR: 1.3 } },
+        { batchId, fcrAnalysis: { periodFCR: 1.6, cumulativeFCR: 1.4 } },
+        { batchId, fcrAnalysis: { periodFCR: 1.8, cumulativeFCR: 1.5 } },
       ]);
 
       const result = await service.analyzeFCRTrend(batchId, tenantId);
@@ -505,11 +477,11 @@ describe('FCRCalculationService', () => {
     });
 
     it('should include recommendations for declining trend', async () => {
-      mockGrowthMeasurementRepository.find.mockResolvedValue([
-        { id: '1', fcrAnalysis: { periodFCR: 1.2 }, measurementDate: new Date('2024-01-01') },
-        { id: '2', fcrAnalysis: { periodFCR: 1.5 }, measurementDate: new Date('2024-01-08') },
-        { id: '3', fcrAnalysis: { periodFCR: 1.8 }, measurementDate: new Date('2024-01-15') },
-        { id: '4', fcrAnalysis: { periodFCR: 2.1 }, measurementDate: new Date('2024-01-22') },
+      mockGrowthMeasurementQuery.mockResolvedValue([
+        { batchId, fcrAnalysis: { periodFCR: 1.2 } },
+        { batchId, fcrAnalysis: { periodFCR: 1.5 } },
+        { batchId, fcrAnalysis: { periodFCR: 1.8 } },
+        { batchId, fcrAnalysis: { periodFCR: 2.1 } },
       ]);
 
       const result = await service.analyzeFCRTrend(batchId, tenantId);

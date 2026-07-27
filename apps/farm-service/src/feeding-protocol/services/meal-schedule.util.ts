@@ -83,15 +83,74 @@ export function effectiveMealSchedule(
  * DST ileri atlamasında (duvar saati yok) kaydırılmış gerçek an döner; geri
  * alınmada (duvar saati iki kez var) İLK oluş seçilir.
  */
-/** Verilen IANA saat dilimindeki bugünkü takvim günü (YYYY-MM-DD, D-4) — SAF. */
-export function calendarDayIn(timeZone: string): string {
-  const formatter = new Intl.DateTimeFormat('en-CA', {
+/**
+ * Verilen anın IANA zonundaki takvim günü + duvar saati — SAF (W5, D-B4).
+ *
+ * Yemleme tarafındaki TÜM "yerel gün / yerel saat" kararlarının tek matematiği
+ * budur; `CURRENT_DATE`/`now()` gün semantiği için kullanılmaz (DB oturumunun
+ * zonu tenant'ın zonu değildir).
+ */
+export function zonedPartsIn(
+  timeZone: string,
+  at: Date,
+): { date: string; hour: number; minute: number } {
+  const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone,
+    hourCycle: 'h23',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  });
-  return formatter.format(new Date());
+    hour: '2-digit',
+    minute: '2-digit',
+  }).formatToParts(at);
+  const get = (type: string): string => parts.find((part) => part.type === type)?.value ?? '';
+  return {
+    date: `${get('year')}-${get('month')}-${get('day')}`,
+    hour: Number(get('hour')),
+    minute: Number(get('minute')),
+  };
+}
+
+/** Verilen IANA saat dilimindeki takvim günü (YYYY-MM-DD, D-4) — SAF. */
+export function calendarDayIn(timeZone: string, at: Date = new Date()): string {
+  return zonedPartsIn(timeZone, at).date;
+}
+
+/**
+ * Yerel takvim gününün mutlak [başlangıç, bitiş) sınırları — SAF.
+ * Sorgular `planDate`'i string olarak bağlar; bu yardımcı `scheduledAt` gibi
+ * timestamptz alanlarını yerel güne süzmek için kullanılır.
+ */
+export function localDayBoundsUtc(
+  planDate: string,
+  timeZone: string,
+): { startUtc: Date; endUtc: Date } {
+  const startUtc = zonedWallTimeToUtc(planDate, '00:00', timeZone);
+  const next = new Date(`${planDate}T00:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  const endUtc = zonedWallTimeToUtc(next.toISOString().slice(0, 10), '00:00', timeZone);
+  return { startUtc, endUtc };
+}
+
+/**
+ * Öğünün penceresi geçti mi — SAF, TEK tanım (FARM-MEDIUM-251).
+ *
+ * Sabah süpürmesi ve akşam özeti bu YARDIMCIYI paylaşır. Eskiden özet
+ * `status = 'missed'` sayıyordu; damgayı ertesi sabahki süpürme bastığı için
+ * `missedMealCount` gün özetinde YAPISAL OLARAK her zaman 0 çıkıyor, operatör
+ * "bugün hiç öğün kaçmadı" raporu alıyordu. Damga bir SONUÇ; kaçırılmışlığın
+ * tanımı zamandır.
+ */
+export const MEAL_OVERDUE_GRACE_MINUTES = 6 * 60;
+
+export function isMealOverdue(
+  meal: { scheduledAt: Date | string },
+  at: Date,
+  graceMinutes: number = MEAL_OVERDUE_GRACE_MINUTES,
+): boolean {
+  const scheduled =
+    meal.scheduledAt instanceof Date ? meal.scheduledAt : new Date(meal.scheduledAt);
+  return scheduled.getTime() + graceMinutes * 60_000 < at.getTime();
 }
 
 export function zonedWallTimeToUtc(planDate: string, time: string, timeZone: string): Date {
@@ -168,14 +227,30 @@ export function materializeMeals(
   });
 }
 
+/**
+ * Oruç/ilaç penceresi sınırını ÜNİTENİN YEREL takvim gününe çevirir (W5, ek-d).
+ *
+ * Sınırlar ISO datetime olarak kaydedilebiliyor (`2026-03-01T00:00:00+03:00`);
+ * eski `slice(0, 10)` bunu UTC gününe değil, string'in ilk 10 karakterine
+ * kesiyordu — zon farkı gün sınırını aştığında veteriner direktifinin ilk veya
+ * son günü sessizce düşüyor, oruç günü olması gereken tanka plan üretiliyordu.
+ * Salt tarih (`YYYY-MM-DD`) zaten zonsuzdur ve aynen kullanılır.
+ */
+function boundaryLocalDate(value: string, timeZone: string): string {
+  if (!value.includes('T')) return value.slice(0, 10);
+  const at = new Date(value);
+  return Number.isNaN(at.getTime()) ? value.slice(0, 10) : calendarDayIn(timeZone, at);
+}
+
 /** planDate (YYYY-MM-DD) verilen pencereye düşüyor mu (D-12; sınırlar dahil). */
 export function suspensionFor(
   suspensions: AssignmentSuspension[] | undefined,
   planDate: string,
+  timeZone: string,
 ): AssignmentSuspension | undefined {
   return (suspensions ?? []).find((suspension) => {
-    const from = suspension.from.slice(0, 10);
-    const to = suspension.to.slice(0, 10);
+    const from = boundaryLocalDate(suspension.from, timeZone);
+    const to = boundaryLocalDate(suspension.to, timeZone);
     return planDate >= from && planDate <= to;
   });
 }
@@ -194,5 +269,50 @@ export function repriceRemaining(
     (meal) =>
       Math.round(((Number(meal.percentOfDaily) / 100) * newDailyTotalKg + Number.EPSILON) * 1000) /
       1000,
+  );
+}
+
+/** Telafi yüzdesi sınırları — protokol ayarı ve atama override'ı için ortak. */
+export const MISSED_CATCH_UP_MIN_PERCENT = 0;
+export const MISSED_CATCH_UP_MAX_PERCENT = 100;
+
+/**
+ * Kaçırılan öğünün kg'ının kalan öğünlere dağıtımı — SAF (W5, kullanıcı
+ * kararı 3).
+ *
+ * **Varsayılan davranış dağıtım YAPMAMAKTIR** (`percent = 0` → sıfır dizi).
+ * Balığın günlük sindirim kapasitesi sabittir; kaçan öğünü sonrakilere
+ * eklemek aşırı besleme, yem israfı ve amonyak yüküdür. Telafi tenant'ın
+ * bilinçli kararıdır ve yüzde olarak ifade edilir: `percent = 50` ise kaçan
+ * kg'ın yarısı kalan öğünlere KENDİ yüzdeleri oranında paylaştırılır
+ * (öğünlerin göreli ağırlığı korunur — sabah öğünü akşamınkinden büyükse
+ * telafi de o oranda gelir).
+ *
+ * Dönen dizi kalan öğünlerle aynı sıradadır ve EKLENECEK kg'ı taşır.
+ */
+export function distributeCatchUp(
+  missedKg: number,
+  percent: number,
+  remainingMeals: Array<{ percentOfDaily: number }>,
+): number[] {
+  const clamped = Math.min(
+    MISSED_CATCH_UP_MAX_PERCENT,
+    Math.max(MISSED_CATCH_UP_MIN_PERCENT, Number(percent) || 0),
+  );
+  const zeros = remainingMeals.map(() => 0);
+  if (clamped === 0 || !(missedKg > 0) || remainingMeals.length === 0) return zeros;
+
+  const catchUpKg = (missedKg * clamped) / 100;
+  const weightTotal = remainingMeals.reduce((acc, meal) => acc + Number(meal.percentOfDaily), 0);
+  if (!(weightTotal > 0)) {
+    // Yüzdeler bilinmiyorsa eşit dağıtım — sessizce sıfırlamaktan iyidir.
+    const share = Math.round((catchUpKg / remainingMeals.length + Number.EPSILON) * 1000) / 1000;
+    return remainingMeals.map(() => share);
+  }
+  return remainingMeals.map(
+    (meal) =>
+      Math.round(
+        ((Number(meal.percentOfDaily) / weightTotal) * catchUpKg + Number.EPSILON) * 1000,
+      ) / 1000,
   );
 }

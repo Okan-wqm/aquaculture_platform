@@ -94,6 +94,24 @@ const CROSS_TENANT_FILENAME_PATTERNS: readonly RegExp[] = [
   /edge-device-directory\.entity\.ts$/i,
 ];
 
+/**
+ * ADR-011's ACTUAL cross-tenant signal: the `@Entity` decorator pins the
+ * source schema (`schema: 'farm'`). Per-tenant tables OMIT it so search_path
+ * routes them into `tenant_<uuid>`.
+ *
+ * The filename patterns above are a historical heuristic and cannot see a new
+ * cross-tenant ledger whose name does not end in `-audit`/`-outbox` (W5's
+ * `tenant_localization` and `feeding_job_runs` are exactly that). Reading the
+ * decorator makes the classification structural instead of nominal — and it is
+ * safe to trust here because the inverse direction (a per-tenant table wrongly
+ * pinning `schema:`) is already gated by
+ * `apps/farm-service/src/__tests__/e2e/tenant-schema-routing.architecture.spec.ts`
+ * and `e2e/tests/integration/schema-invariants.spec.ts` B.1/B.2.
+ */
+function declaresSourceSchema(src: string, schemaName: string): boolean {
+  return new RegExp(`@Entity\\s*\\([^)]*schema\\s*:\\s*['"]${schemaName}['"]`, 'm').test(src);
+}
+
 const TENANT_OWNED_FILENAME_OVERRIDES = new Set<string>([
   'apps/messaging-service/src/compliance/entities/compliance-audit-log.entity.ts',
   'apps/messaging-service/src/compliance/entities/legal-hold.entity.ts',
@@ -181,7 +199,8 @@ describe('INVARIANT — tenant-fanout entity ↔ MODULE_SCHEMAS parity (TENANT-F
 
         const isCrossTenant =
           !TENANT_OWNED_FILENAME_OVERRIDES.has(relPath) &&
-          CROSS_TENANT_FILENAME_PATTERNS.some((re) => re.test(basename(relPath)));
+          (CROSS_TENANT_FILENAME_PATTERNS.some((re) => re.test(basename(relPath))) ||
+            declaresSourceSchema(src, schemaName));
 
         if (isCrossTenant) {
           // Cross-tenant entities should NOT be in `tables` (would

@@ -55,6 +55,9 @@ services:
       - "events.*.PasswordResetCompleted"
       - "events.*.PasswordResetRequested"
       - "events.*.TenantStatusChanged"
+      # W5: tenant lokalizasyonu (saat dilimi/dil) değişimi — farm-service
+      # yemleme cron'larının gün sınırını bu event'ten projekte eder.
+      - "events.*.TenantUpdated"
       - "events.*.UserAccountLocked"
       - "events.*.UserDeleted"
       - "events.*.UserInvited"

@@ -17,7 +17,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Repository, Between, In } from 'typeorm';
 import { TenantContextError } from '@aquaculture/backend-common/database';
 import { FeedingRecord } from '../../feeding/entities/feeding-record.entity';
 import { FeedingProgram, FeedingProgramStatus } from '../../feeding/entities/feeding-program.entity';
@@ -35,6 +35,47 @@ import {
   ProtocolSettings,
 } from '../../feeding-protocol/entities/feeding-protocol-v2.entity';
 import { AssignmentOverrides } from '../../feeding-protocol/entities/protocol-assignment.entity';
+
+/** Ünitenin aktif v2 protokol satırı — hedef-FCR zincirinin 2. adımının girdisi. */
+interface ProtocolFcrRow {
+  overrides: AssignmentOverrides | null;
+  bands: ProtocolBand[] | null;
+  settings: ProtocolSettings | null;
+  fcrMatrix: FcrMatrix | null;
+}
+
+/**
+ * Hedef-FCR zincirinin okuduğu satırların toplu ön-yüklemesi (W5,
+ * FARM-LOW-286). Zincirin KENDİSİ değişmez; yalnız satırların nereden
+ * geldiği değişir — bu yüzden tekil ve toplu yol sapamaz.
+ */
+interface TargetFcrPrefetch {
+  batchById: Map<string, Batch>;
+  /** null = "bu batch için aktif v2 protokol YOK" (eksik anahtar ≠ null). */
+  protocolRowByBatch: Map<string, ProtocolFcrRow | null>;
+  feedMatrixByFeedId: Map<string, FcrMatrix | undefined>;
+}
+
+/** Regresyon için yetersiz veri — tekil ve toplu yolun ORTAK dönüşü. */
+const INSUFFICIENT_TREND: FCRTrendAnalysis = {
+  trend: 'stable',
+  slope: 0,
+  correlation: 0,
+  forecast7Days: 0,
+  recommendations: ['Yeterli veri yok - daha fazla ölçüm gerekli'],
+};
+
+/** `Feed.feedingMatrix2D` → `FcrMatrix` — SAF (tekil ve toplu yol paylaşır). */
+function toFcrMatrix(
+  matrix: { temperatures: number[]; weights: number[]; fcrMatrix?: number[][] } | null,
+): FcrMatrix | undefined {
+  if (!matrix?.fcrMatrix?.length) return undefined;
+  return {
+    temperatures: matrix.temperatures,
+    weights: matrix.weights,
+    fcrValues: matrix.fcrMatrix,
+  };
+}
 
 // ============================================================================
 // INTERFACES
@@ -360,21 +401,63 @@ export class FCRCalculationService {
    * FCR trend analizi yapar
    */
   async analyzeFCRTrend(batchId: string, tenantId: string): Promise<FCRTrendAnalysis> {
-    // Son 10 ölçümü al
-    const measurements = await this.growthMeasurementRepository.find({
-      where: { tenantId, batchId },
-      order: { measurementDate: 'DESC' },
-      take: 10,
-    });
+    const trends = await this.analyzeFCRTrendMany(tenantId, [batchId]);
+    return trends.get(batchId) ?? INSUFFICIENT_TREND;
+  }
 
+  /**
+   * FCR trend analizi — TOPLU (W5, FARM-LOW-286).
+   *
+   * 18:00 süpürmesi eşiği aşan HER batch için ayrı bir "son 10 ölçüm"
+   * sorgusu atıyordu. Pencere fonksiyonu aynı satırları TEK sorguda getirir;
+   * regresyon zaten saf hesap olduğu için bellekte koşar. Tekil yol bu
+   * metoda delege eder — iki trend implementasyonu yok.
+   */
+  async analyzeFCRTrendMany(
+    tenantId: string,
+    batchIds: string[],
+  ): Promise<Map<string, FCRTrendAnalysis>> {
+    const trends = new Map<string, FCRTrendAnalysis>();
+    if (batchIds.length === 0) return trends;
+
+    const rows: Array<{ batchId: string; fcrAnalysis: FCRAnalysis | null }> =
+      await this.growthMeasurementRepository.manager.query(
+        `SELECT ranked."batchId", ranked."fcrAnalysis"
+           FROM (
+             SELECT gm."batchId",
+                    gm."fcrAnalysis",
+                    ROW_NUMBER() OVER (
+                      PARTITION BY gm."batchId" ORDER BY gm."measurementDate" DESC
+                    ) AS rn
+               FROM "growth_measurements" gm
+              WHERE gm."tenantId" = $1 AND gm."batchId" = ANY($2::uuid[])
+           ) ranked
+          WHERE ranked.rn <= 10
+          ORDER BY ranked."batchId", ranked.rn ASC`,
+        [tenantId, batchIds],
+      );
+
+    const byBatch = new Map<string, Array<{ fcrAnalysis: FCRAnalysis | null }>>();
+    for (const row of rows) {
+      const list = byBatch.get(row.batchId) ?? [];
+      list.push({ fcrAnalysis: row.fcrAnalysis });
+      byBatch.set(row.batchId, list);
+    }
+    for (const batchId of batchIds) {
+      trends.set(batchId, this.computeFcrTrend(byBatch.get(batchId) ?? []));
+    }
+    return trends;
+  }
+
+  /**
+   * Trend hesabı — ölçümler YENİDEN ESKİYE sıralı gelir (tekil sorgunun
+   * eski davranışıyla birebir).
+   */
+  private computeFcrTrend(
+    measurements: Array<{ fcrAnalysis?: FCRAnalysis | null }>,
+  ): FCRTrendAnalysis {
     if (measurements.length < 3) {
-      return {
-        trend: 'stable',
-        slope: 0,
-        correlation: 0,
-        forecast7Days: 0,
-        recommendations: ['Yeterli veri yok - daha fazla ölçüm gerekli'],
-      };
+      return INSUFFICIENT_TREND;
     }
 
     // FCR değerlerini çıkar
@@ -604,6 +687,117 @@ export class FCRCalculationService {
   }
 
   /**
+   * Hedef FCR — TOPLU (W5, FARM-LOW-286).
+   *
+   * 18:00 süpürmesi bunu tenant'ın TÜM aktif batch'leri için tek çağrıda
+   * kullanır. Zincir tek yerde kalır: bu metot yalnız zincirin okuduğu
+   * satırları ÖN-YÜKLER ve aynı `getTargetFCR` fonksiyonunu besler — ikinci
+   * bir "toplu hesap" implementasyonu YOKTUR, dolayısıyla tekil ve toplu yol
+   * birbirinden sapamaz (tier-2: doğru davranış zero-effort varsayılan).
+   *
+   * Ön-yükleme üç toplu sorgudur (batch+species, ünitenin aktif v2 protokol
+   * satırı, fcrSource=feed yem matrisleri); eskiden bunlar batch BAŞINA
+   * atılıyordu ve 400 batch'lik bir tenant süpürmesi 1200+ round-trip
+   * demekti.
+   */
+  async getTargetFCRForBatches(
+    tenantId: string,
+    batchIds: string[],
+  ): Promise<Map<string, number>> {
+    const targets = new Map<string, number>();
+    if (batchIds.length === 0) return targets;
+
+    const prefetch = await this.prefetchTargetFcrContext(tenantId, batchIds);
+    for (const batchId of batchIds) {
+      targets.set(batchId, await this.getTargetFCR(batchId, prefetch));
+    }
+    return targets;
+  }
+
+  /** Zincirin okuduğu satırların toplu ön-yüklemesi (yukarıdaki docblock). */
+  private async prefetchTargetFcrContext(
+    tenantId: string,
+    batchIds: string[],
+  ): Promise<TargetFcrPrefetch> {
+    const batches = await this.batchRepository.find({
+      where: { tenantId, id: In(batchIds) },
+      relations: ['species'],
+    });
+    const batchById = new Map(batches.map((batch) => [batch.id, batch]));
+
+    // Ünite → aktif v2 atama → ACTIVE protokol; çok-üniteli batch'te dominant
+    // (en yüksek biyokütle) ünite kazanır — tekil sorguyla BİREBİR kural.
+    const protocolRows: Array<ProtocolFcrRow & { batchId: string }> =
+      await this.batchRepository.manager.query(
+        `SELECT b.id::text AS "batchId",
+                x."overrides" AS overrides,
+                x."bands" AS bands,
+                x."settings" AS settings,
+                x."fcrMatrix" AS "fcrMatrix"
+           FROM unnest($2::uuid[]) AS b(id)
+           JOIN LATERAL (
+             SELECT pa."overrides", p."bands", p."settings", p."fcrMatrix"
+               FROM "tank_batches" tb
+               JOIN "feeding_protocol_assignments" pa
+                 ON pa."tenantId" = tb."tenantId"
+                AND pa."unitId" = tb."tankId"
+                AND pa."status" = 'active'
+               JOIN "feeding_protocols_v2" p
+                 ON p."id" = pa."protocolId"
+                AND p."tenantId" = pa."tenantId"
+                AND p."status" = 'active'
+                AND p."isDeleted" = false
+              WHERE tb."tenantId" = $1
+                AND (
+                  tb."primaryBatchId" = b.id
+                  OR EXISTS (
+                    SELECT 1
+                      FROM jsonb_array_elements(COALESCE(tb."batchDetails", '[]'::jsonb)) AS detail(value)
+                     WHERE detail.value->>'batchId' = b.id::text
+                  )
+                )
+              ORDER BY tb."totalBiomassKg" DESC
+              LIMIT 1
+           ) x ON true`,
+        [tenantId, batchIds],
+      );
+    // Eksik anahtar "ön-yüklenmedi" demek olurdu; yokluk AÇIK null ile
+    // temsil edilir ki zincir gereksiz tekil sorguya düşmesin.
+    const protocolRowByBatch = new Map<string, ProtocolFcrRow | null>(
+      batchIds.map((batchId) => [batchId, null]),
+    );
+    for (const row of protocolRows) {
+      protocolRowByBatch.set(row.batchId, row);
+    }
+
+    const feedIds = [
+      ...new Set(
+        protocolRows
+          .filter((row) => row.settings?.fcrSource === ProtocolFcrSource.FEED)
+          .flatMap((row) => (row.bands ?? []).map((band) => band.feedId))
+          .filter((feedId): feedId is string => typeof feedId === 'string' && feedId.length > 0),
+      ),
+    ];
+    const feedMatrixByFeedId = new Map<string, FcrMatrix | undefined>();
+    if (feedIds.length > 0) {
+      const feedRows: Array<{
+        id: string;
+        matrix: { temperatures: number[]; weights: number[]; fcrMatrix?: number[][] } | null;
+      }> = await this.batchRepository.manager.query(
+        `SELECT "id", "feedingMatrix2D" AS matrix
+           FROM "feeds" WHERE "tenantId" = $1 AND "id" = ANY($2::uuid[])`,
+        [tenantId, feedIds],
+      );
+      for (const feedId of feedIds) feedMatrixByFeedId.set(feedId, undefined);
+      for (const row of feedRows) {
+        feedMatrixByFeedId.set(row.id, toFcrMatrix(row.matrix));
+      }
+    }
+
+    return { batchById, protocolRowByBatch, feedMatrixByFeedId };
+  }
+
+  /**
    * Target FCR'ı getirir
    *
    * Öncelik sırası (P-14 zinciri — plan §3):
@@ -614,13 +808,15 @@ export class FCRCalculationService {
    * 5. Species commonName bazlı endüstri ortalaması
    * 6. Varsayılan 1.5
    */
-  private async getTargetFCR(batchId: string): Promise<number> {
+  private async getTargetFCR(batchId: string, prefetch?: TargetFcrPrefetch): Promise<number> {
     try {
-      // Batch'i species ilişkisiyle birlikte yükle
-      const batch = await this.batchRepository.findOne({
-        where: { id: batchId },
-        relations: ['species'],
-      });
+      // Batch'i species ilişkisiyle birlikte yükle (ön-yükleme varsa oradan).
+      const batch =
+        prefetch?.batchById.get(batchId) ??
+        (await this.batchRepository.findOne({
+          where: { id: batchId },
+          relations: ['species'],
+        }));
 
       if (!batch) {
         return 1.5;
@@ -633,7 +829,7 @@ export class FCRCalculationService {
 
       // 2. Ünitenin aktif v2 protokol ataması — motorun plan/snapshot hesabıyla
       // aynı SSoT (ProtocolRateService); legacy programdan ÖNCE gelir (P-14).
-      const fcrFromProtocolV2 = await this.getTargetFCRFromProtocolV2(batch);
+      const fcrFromProtocolV2 = await this.getTargetFCRFromProtocolV2(batch, prefetch);
       if (fcrFromProtocolV2 !== null) {
         return fcrFromProtocolV2;
       }
@@ -694,13 +890,18 @@ export class FCRCalculationService {
    * kaynaklarında interpolasyon ağırlık eksenine iner (ProtocolRateService
    * kuralı — uydurma default sıcaklık üretilmez, P-20).
    */
-  private async getTargetFCRFromProtocolV2(batch: Batch): Promise<number | null> {
-    const rows: Array<{
-      overrides: AssignmentOverrides | null;
-      bands: ProtocolBand[] | null;
-      settings: ProtocolSettings | null;
-      fcrMatrix: FcrMatrix | null;
-    }> = await this.batchRepository.manager.query(
+  private async getTargetFCRFromProtocolV2(
+    batch: Batch,
+    prefetch?: TargetFcrPrefetch,
+  ): Promise<number | null> {
+    if (prefetch?.protocolRowByBatch.has(batch.id)) {
+      return this.resolveProtocolFcrRow(
+        batch,
+        prefetch.protocolRowByBatch.get(batch.id) ?? null,
+        prefetch,
+      );
+    }
+    const rows: Array<ProtocolFcrRow> = await this.batchRepository.manager.query(
       `SELECT pa."overrides" AS overrides,
               p."bands" AS bands,
               p."settings" AS settings,
@@ -729,7 +930,15 @@ export class FCRCalculationService {
       [batch.tenantId, batch.id],
     );
 
-    const row = rows[0];
+    return this.resolveProtocolFcrRow(batch, rows[0] ?? null, prefetch);
+  }
+
+  /** Protokol satırı → beklenen FCR — tekil ve toplu yolun ORTAK adımı. */
+  private async resolveProtocolFcrRow(
+    batch: Batch,
+    row: ProtocolFcrRow | null,
+    prefetch?: TargetFcrPrefetch,
+  ): Promise<number | null> {
     if (!row?.bands?.length || !row.settings) {
       return null;
     }
@@ -746,7 +955,7 @@ export class FCRCalculationService {
 
     const feedFcrMatrix =
       row.settings.fcrSource === ProtocolFcrSource.FEED
-        ? await this.loadFeedFcrMatrix(batch.tenantId, resolved.band.feedId)
+        ? await this.loadFeedFcrMatrix(batch.tenantId, resolved.band.feedId, prefetch)
         : undefined;
 
     const { value } = this.protocolRateService.resolveExpectedFcr({
@@ -769,22 +978,18 @@ export class FCRCalculationService {
   private async loadFeedFcrMatrix(
     tenantId: string,
     feedId: string,
+    prefetch?: TargetFcrPrefetch,
   ): Promise<FcrMatrix | undefined> {
+    if (prefetch?.feedMatrixByFeedId.has(feedId)) {
+      return prefetch.feedMatrixByFeedId.get(feedId);
+    }
     const rows: Array<{
       matrix: { temperatures: number[]; weights: number[]; fcrMatrix?: number[][] } | null;
     }> = await this.batchRepository.manager.query(
       `SELECT "feedingMatrix2D" AS matrix FROM "feeds" WHERE "tenantId" = $1 AND "id" = $2`,
       [tenantId, feedId],
     );
-    const matrix = rows[0]?.matrix;
-    if (!matrix?.fcrMatrix?.length) {
-      return undefined;
-    }
-    return {
-      temperatures: matrix.temperatures,
-      weights: matrix.weights,
-      fcrValues: matrix.fcrMatrix,
-    };
+    return toFcrMatrix(rows[0]?.matrix ?? null);
   }
 
   /**

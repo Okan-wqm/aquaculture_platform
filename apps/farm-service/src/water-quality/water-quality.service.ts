@@ -375,15 +375,7 @@ export class WaterQualityService {
 
       // P-31: ölçüm sıcaklık taşıyorsa ünitenin bugünkü beslenmemiş öğünleri
       // aynı transaction'da yeni çarpanla yeniden fiyatlanır.
-      if (saved.tankId && typeof saved.temperature === 'number') {
-        await this.dayPlanRecalc.recalcForUnit(
-          queryRunner.manager,
-          tenantId,
-          saved.tankId,
-          'temperature',
-          { newTemperatureC: Number(saved.temperature) },
-        );
-      }
+      await this.recalcFromTemperature(queryRunner.manager, tenantId, [saved]);
 
       await queryRunner.commitTransaction();
     } catch (error) {
@@ -554,6 +546,12 @@ export class WaterQualityService {
         }
       }
 
+      // ek-g / FARM-MEDIUM-268: TOPLU giriş de aynı yeniden-fiyatlama
+      // yazıcısına iner. Eskiden yalnız tekil `create` recalc tetikliyordu;
+      // operatörün 40 tankı tek formda girdiği sabah turu — yani sıcaklığın
+      // gerçekten toplu güncellendiği tek akış — planları hiç güncellemiyordu.
+      await this.recalcFromTemperature(queryRunner.manager, tenantId, saved);
+
       await queryRunner.commitTransaction();
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -564,6 +562,35 @@ export class WaterQualityService {
 
     this.logger.log(`Created batch of ${saved.length} WQ measurements for tenant ${tenantId}`);
     return saved;
+  }
+
+  /**
+   * Sıcaklık taşıyan ölçümler → gün-içi plan yeniden fiyatlaması (P-31).
+   *
+   * Ünite kimliği `tankId ?? equipmentId`: toplu giriş yalnız `equipmentId`
+   * yazar, tekil giriş `tankId` — ikisi de AYNI fiziksel üniteyi gösterir
+   * (Equipment.id kanonik ünite kimliği).
+   *
+   * Üniteler unitId'ye göre SIRALI işlenir: recalc kilit alır ve kanonik
+   * kilit sırası (K-1) aynı yönde ilerlemeyi şart koşar — iki eşzamanlı
+   * toplu giriş AB-BA kilitlenmesi üretemez.
+   */
+  private async recalcFromTemperature(
+    manager: EntityManager,
+    tenantId: string,
+    measurements: WaterQualityMeasurement[],
+  ): Promise<void> {
+    const byUnit = new Map<string, number>();
+    for (const measurement of measurements) {
+      const unitId = measurement.tankId ?? measurement.equipmentId;
+      if (!unitId || typeof measurement.temperature !== 'number') continue;
+      byUnit.set(unitId, Number(measurement.temperature));
+    }
+    for (const unitId of [...byUnit.keys()].sort()) {
+      await this.dayPlanRecalc.recalcForUnit(manager, tenantId, unitId, 'temperature', {
+        newTemperatureC: byUnit.get(unitId)!,
+      });
+    }
   }
 
   // -------------------------------------------------------------------------

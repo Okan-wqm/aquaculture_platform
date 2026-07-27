@@ -199,9 +199,16 @@ export class Site {
   @Column({ length: 100, nullable: true })
   country?: string;
 
-  @Field({ nullable: true })
-  @Column({ length: 50, default: 'UTC' })
-  timezone!: string;
+  /**
+   * Sitenin IANA saat dilimi. **NULL = tenant lokalizasyonundan DEVRAL**
+   * (W5): yemleme motorunun zon hiyerarşisi site → tenant → UTC'dir ve
+   * kalıtım ancak "belirtilmemiş" durumu temsil edilebildiğinde mümkündür.
+   * Eski `NOT NULL DEFAULT 'UTC'` şeması "UTC seçildi" ile "hiç seçilmedi"yi
+   * ayırt edemiyordu; tenant zonunu ayarladığında siteler UTC'de kalıyordu.
+   */
+  @Field(() => String, { nullable: true })
+  @Column({ length: 50, nullable: true })
+  timezone!: string | null;
 
   // -------------------------------------------------------------------------
   // KAPASİTE

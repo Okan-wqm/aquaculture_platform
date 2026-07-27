@@ -72,7 +72,9 @@ export class CreateSiteHandler implements ICommandHandler<CreateSiteCommand, Sit
         location: input.location as SiteLocation | undefined,
         address: input.address as SiteAddress | undefined,
         country: input.country,
-        timezone: input.timezone || 'UTC',
+        // Boş bırakılan zon 'UTC' ile DOLDURULMAZ: NULL "tenant'tan devral"
+        // demektir (W5). Sitesine özel zon veren tesisler kolonu açıkça yazar.
+        timezone: input.timezone || null,
         status: input.status || SiteStatus.ACTIVE,
         settings: input.settings as SiteSettings | undefined,
         areaM2: input.totalArea,

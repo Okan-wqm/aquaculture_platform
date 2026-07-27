@@ -22,6 +22,8 @@ jest.mock('@aquaculture/backend-common/database', () => ({
 
 import { ProtocolFeedForecastService } from '../services/protocol-feed-forecast.service';
 import { DayPlanRecalcService } from '../services/day-plan-recalc.service';
+import { FeedingClockService } from '../services/feeding-clock.service';
+import { FeedingJobRunService } from '../services/feeding-job-run.service';
 import { FeedingCronV2Service } from '../services/feeding-cron-v2.service';
 import { MealPlanGeneratorService } from '../services/meal-plan-generator.service';
 import { BiomassGrowthApplierService } from '../services/biomass-growth-applier.service';
@@ -46,6 +48,8 @@ describe('FeedingCronV2Service.purgeTenantRetention', () => {
     mock<OutboxPublisher>({ enqueue: jest.fn() }),
     mock<ProtocolFeedForecastService>({}),
     mock<DayPlanRecalcService>({ recalcForUnit: jest.fn() }),
+    mock<FeedingClockService>({}),
+    mock<FeedingJobRunService>({ purgeOlderThanRetention: jest.fn().mockResolvedValue(0) }),
   );
 
   beforeEach(() => {

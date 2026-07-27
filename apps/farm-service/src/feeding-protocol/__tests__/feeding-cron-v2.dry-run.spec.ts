@@ -28,6 +28,8 @@ import { OutboxPublisher } from '@platform/outbox';
 
 import { ProtocolFeedForecastService } from '../services/protocol-feed-forecast.service';
 import { DayPlanRecalcService } from '../services/day-plan-recalc.service';
+import { FeedingClockService } from '../services/feeding-clock.service';
+import { FeedingJobRunService } from '../services/feeding-job-run.service';
 import { FeedingCronV2Service } from '../services/feeding-cron-v2.service';
 import { MealPlanGeneratorService } from '../services/meal-plan-generator.service';
 import { ProtocolRateService } from '../services/protocol-rate.service';
@@ -158,6 +160,10 @@ function makeService(fixture: DryRunFixture): {
     mock<OutboxPublisher>({ enqueue }),
     mock<ProtocolFeedForecastService>({}),
     mock<DayPlanRecalcService>({ recalcForUnit: jest.fn() }),
+    mock<FeedingClockService>({
+      siteZones: jest.fn().mockResolvedValue({ tenantZone: 'UTC', zoneOf: () => 'UTC' }),
+    }),
+    mock<FeedingJobRunService>({}),
   );
   return { service, persistDayPlan, enqueue };
 }

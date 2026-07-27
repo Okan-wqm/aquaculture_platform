@@ -208,7 +208,7 @@ export class MealPlanGeneratorService {
 
     // D-12: oruç penceresi günü atlar (otomatik devam); ilaç penceresi öğün
     // yemini medicatedFeedId ile değiştirir.
-    const suspension = suspensionFor(assignment.suspensions, input.planDate);
+    const suspension = suspensionFor(assignment.suspensions, input.planDate, input.timezone);
     if (suspension?.type === 'fasting') {
       return {
         snapshot,

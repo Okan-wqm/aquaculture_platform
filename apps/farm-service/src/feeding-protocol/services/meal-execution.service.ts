@@ -653,6 +653,16 @@ export class MealExecutionService {
       };
       await this.outboxPublisher.enqueue(event, manager);
 
+      // W5 (kullanıcı kararı 3): atlanan öğünün kg'ı kalan öğünlere OTOMATİK
+      // dağıtılmaz. Tenant açıkça telafi yüzdesi tanımladıysa yalnız o kadarı
+      // dağıtılır; tanımlamadıysa bu çağrı hiçbir şey yapmaz.
+      await this.recalcService.applyMissedCatchUp(
+        manager,
+        params.tenantId,
+        dayPlan,
+        Number(meal.plannedKg) - Number(meal.actualKg || 0),
+      );
+
       await this.settleDayPlanStatus(manager, params.tenantId, dayPlan);
 
       return {

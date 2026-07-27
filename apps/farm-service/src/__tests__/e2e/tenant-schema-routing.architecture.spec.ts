@@ -15,6 +15,11 @@ const SOURCE_SCHEMA_ENTITY_ALLOWLIST = new Set([
   // Shared infrastructure queue. It is intentionally source-schema scoped
   // and excluded from tenant schema provisioning.
   path.normalize('outbox/farm-outbox.entity.ts'),
+  // W5 saat/takvim altyapısı: ikisi de CROSS-TENANT ledger'dır (tenantId ile
+  // ayrışır, tenant şemalarına klonlanmaz — MODULE_SCHEMAS['farm']
+  // .infrastructureTables), bu yüzden `schema: 'farm'` bildirmeleri DOĞRUdur.
+  path.normalize('feeding-protocol/entities/tenant-localization.entity.ts'),
+  path.normalize('feeding-protocol/entities/feeding-job-run.entity.ts'),
 ]);
 
 function findEntityFiles(dir: string): string[] {

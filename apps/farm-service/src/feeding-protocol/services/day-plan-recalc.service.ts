@@ -31,6 +31,7 @@ import {
   createBaseEvent,
   FeedingProtocolAssignmentPausedEvent,
   FeedTypeTransitionedEvent,
+  UnfedUnitDetectedEvent,
 } from '@platform/event-contracts';
 
 import { FeedingProtocolV2 } from '../entities/feeding-protocol-v2.entity';
@@ -46,7 +47,7 @@ import {
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { ProtocolResolutionService } from './protocol-resolution.service';
-import { repriceRemaining } from './meal-schedule.util';
+import { distributeCatchUp, repriceRemaining } from './meal-schedule.util';
 import { round3 } from './rounding.util';
 
 export type RecalcReason = RecalcLogEntry['reason'];
@@ -153,6 +154,22 @@ export class DayPlanRecalcService {
         'biomass_inconsistent: fish present with zero biomass',
       );
       await manager.save(dayPlan);
+      // Planı ayakta bırakmak yetmez: oran biyokütleden hesaplandığı için
+      // öğünler 0 kg'a fiyatlanır ve tank yine aç kalır. Tutarsızlık ALARMA
+      // taşınır — operatör düzeltene kadar görünür (D-5 ailesi).
+      const inconsistent: UnfedUnitDetectedEvent = {
+        ...createBaseEvent<UnfedUnitDetectedEvent>('UnfedUnitDetected', tenantId, {
+          aggregateId: unitId,
+          aggregateType: 'FeedingUnit',
+        }),
+        unitId,
+        unitCode: dayPlan.unitCode,
+        siteId: dayPlan.siteId,
+        reason: 'biomass_inconsistent',
+        fishCount,
+        biomassKg: 0,
+      };
+      await this.outboxPublisher.enqueue(inconsistent, manager);
       return {
         dayPlanId: dayPlan.id,
         outcome: 'biomass_inconsistent',
@@ -168,6 +185,12 @@ export class DayPlanRecalcService {
         await manager.save(meal);
       }
       dayPlan.status = FeedingDayPlanStatus.CANCELLED;
+      // `plannedTotalKg` iptal edilen öğünlerin kg'ını taşımaya DEVAM
+      // edemez (FARM-MEDIUM-251/M-7c): gün özeti planlanan-vs-gerçekleşen
+      // varyansını bu alandan hesaplıyor ve tam hasat edilen tank her akşam
+      // "%100 az beslendi" diye raporlanıyordu. Plan artık yalnız GERÇEKTEN
+      // kapanmış öğünlerin planını taşır.
+      dayPlan.plannedTotalKg = round3(await this.settledPlannedKg(manager, dayPlan.id));
       this.appendRecalcLog(dayPlan, reason, 0, biomassKg, 'unit emptied');
       await manager.save(dayPlan);
       await this.pauseAssignment(manager, tenantId, dayPlan.assignmentId, unitId);
@@ -281,12 +304,7 @@ export class DayPlanRecalcService {
     }
 
     // Gün toplamı: kapanmış öğünlerin planı + kalanların yeni planı.
-    const settledMeals = await manager
-      .createQueryBuilder(FeedingMeal, 'meal')
-      .where('meal.dayPlanId = :dayPlanId', { dayPlanId: dayPlan.id })
-      .andWhere('meal.status != :status', { status: FeedingMealStatus.SCHEDULED })
-      .getMany();
-    const settledPlannedKg = settledMeals.reduce((acc, meal) => acc + Number(meal.plannedKg), 0);
+    const settledPlannedKg = await this.settledPlannedKg(manager, dayPlan.id);
     dayPlan.plannedTotalKg = round3(settledPlannedKg + remainingPlannedKg);
     // Çözüm ATOMİK güncellenir — plan, öğünler ve ledger aynı yemi/FCR'ı görür.
     dayPlan.resolution = {
@@ -306,6 +324,89 @@ export class DayPlanRecalcService {
     await manager.save(dayPlan);
 
     return { dayPlanId: dayPlan.id, outcome: 'repriced', transitioned, remainingPlannedKg };
+  }
+
+  /**
+   * Kapanmış öğünlerin planlanan kg toplamı. `cancelled` öğünler HARİÇ:
+   * iptal edilen öğün için plan yapılmış sayılmaz, aksi hâlde gün varyansı
+   * hiç servis edilmeyecek kg'ı "eksik atıldı" diye raporlar.
+   */
+  private async settledPlannedKg(manager: EntityManager, dayPlanId: string): Promise<number> {
+    const settled = await manager
+      .createQueryBuilder(FeedingMeal, 'meal')
+      .where('meal.dayPlanId = :dayPlanId', { dayPlanId })
+      .andWhere('meal.status NOT IN (:...open)', {
+        open: [FeedingMealStatus.SCHEDULED, FeedingMealStatus.CANCELLED],
+      })
+      .getMany();
+    return settled.reduce((acc, meal) => acc + Number(meal.plannedKg), 0);
+  }
+
+  /**
+   * Kaçırılan/atlanan öğünün telafisi (W5, kullanıcı kararı 3).
+   *
+   * **Varsayılan davranış: HİÇBİR ŞEY YAPMAMAK.** Telafi yüzdesi tanımlı
+   * değilse (protokol ayarı ve atama override'ı boşsa) kalan öğünlerin
+   * `plannedKg`'ı değişmez — kaçan öğünün kg'ı gün toplamından düşer ve
+   * varyans olarak görünür. Tenant açıkça yüzde tanımladıysa kaçan kg'ın o
+   * kadarı kalan öğünlere KENDİ yüzdeleri oranında eklenir.
+   *
+   * Çağıran, öğünü `missed`/`skipped` damgaladıktan SONRA ve aynı
+   * transaction'da çağırır (kilitler zaten elde: DayPlan → Meals).
+   */
+  async applyMissedCatchUp(
+    manager: EntityManager,
+    tenantId: string,
+    dayPlan: FeedingDayPlan,
+    missedKg: number,
+  ): Promise<number> {
+    if (!(missedKg > 0)) return 0;
+
+    const assignment = await manager.findOne(ProtocolAssignment, {
+      where: { id: dayPlan.assignmentId, tenantId },
+    });
+    const protocol = await manager.findOne(FeedingProtocolV2, {
+      where: { id: dayPlan.protocolId, tenantId },
+    });
+    const percent =
+      assignment?.overrides?.missedMealCatchUpPercent ??
+      protocol?.settings.missedMealCatchUpPercent ??
+      0;
+    if (!(percent > 0)) return 0;
+
+    const remaining = await manager
+      .createQueryBuilder(FeedingMeal, 'meal')
+      .setLock('pessimistic_write')
+      .where('meal.dayPlanId = :dayPlanId', { dayPlanId: dayPlan.id })
+      .andWhere('meal.tenantId = :tenantId', { tenantId })
+      .andWhere('meal.status = :status', { status: FeedingMealStatus.SCHEDULED })
+      .orderBy('meal.mealIndex', 'ASC')
+      .getMany();
+    if (remaining.length === 0) return 0;
+
+    const additions = distributeCatchUp(missedKg, percent, remaining);
+    let addedKg = 0;
+    const now = new Date();
+    for (const [index, meal] of remaining.entries()) {
+      const add = additions[index] ?? 0;
+      if (add <= 0) continue;
+      meal.plannedKg = round3(Number(meal.plannedKg) + add);
+      meal.recalculatedAt = now;
+      addedKg += add;
+      await manager.save(meal);
+    }
+    if (addedKg <= 0) return 0;
+
+    dayPlan.plannedTotalKg = round3(Number(dayPlan.plannedTotalKg) + addedKg);
+    this.appendRecalcLog(
+      dayPlan,
+      'missed_catchup',
+      remaining.reduce((acc, meal) => acc + Number(meal.plannedKg), 0),
+      Number(dayPlan.snapshot.biomassKg ?? 0),
+      `catch-up ${percent}% of ${round3(missedKg)}kg redistributed`,
+    );
+    await manager.save(dayPlan);
+    return round3(addedKg);
   }
 
   private appendRecalcLog(

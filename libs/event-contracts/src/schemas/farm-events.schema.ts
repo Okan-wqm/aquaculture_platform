@@ -374,7 +374,12 @@ interface WireUnfedUnitDetected extends WireBaseEvent {
   unitId: string;
   unitCode: string;
   siteId: string;
-  reason: 'no_assignment' | 'assignment_paused' | 'draft_protocol' | 'missing_protocol';
+  reason:
+    | 'no_assignment'
+    | 'assignment_paused'
+    | 'draft_protocol'
+    | 'missing_protocol'
+    | 'biomass_inconsistent';
   fishCount: number;
   biomassKg: number;
 }
@@ -1312,7 +1317,13 @@ export const unfedUnitDetectedSchema: JSONSchemaType<WireUnfedUnitDetected> = {
     siteId: UUID_SCHEMA,
     reason: {
       type: 'string',
-      enum: ['no_assignment', 'assignment_paused', 'draft_protocol', 'missing_protocol'],
+      enum: [
+        'no_assignment',
+        'assignment_paused',
+        'draft_protocol',
+        'missing_protocol',
+        'biomass_inconsistent',
+      ],
     },
     fishCount: NON_NEGATIVE_INT,
     biomassKg: NON_NEGATIVE_NUMBER,

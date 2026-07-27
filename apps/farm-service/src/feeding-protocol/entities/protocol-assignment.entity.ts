@@ -76,6 +76,11 @@ export interface AssignmentOverrides {
   rateAdjustmentPercent?: number;
   /** Ünite-bazlı beklenen-FCR override'ları — çözüm sırasında her kaynaktan önce gelir (§3). */
   fcrOverrides?: FcrOverride[];
+  /**
+   * Kaçırılan öğün telafi yüzdesi — protokol ayarını bu ÜNİTE için ezer
+   * (W5). Tanımsız = protokol ayarı; protokolde de tanımsız = 0 (dağıtım yok).
+   */
+  missedMealCatchUpPercent?: number;
 }
 
 /** Oruç / ilaçlı-yem penceresi (D-12) — generator pencere içinde skipped plan üretir. */

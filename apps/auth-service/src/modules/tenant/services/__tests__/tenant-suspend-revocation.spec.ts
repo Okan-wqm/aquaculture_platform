@@ -33,7 +33,10 @@ function createManager(options: {
 }): MockManager {
   const manager: MockManager = {
     query: jest.fn((sql: string) => {
-      if (sql.includes('FROM auth.tenant_command_receipts') && sql.trimStart().startsWith('SELECT')) {
+      if (
+        sql.includes('FROM auth.tenant_command_receipts') &&
+        sql.trimStart().startsWith('SELECT')
+      ) {
         return Promise.resolve([]); // no prior receipt — live execution
       }
       if (sql.includes('SELECT id FROM "auth"."users"')) {
@@ -58,8 +61,8 @@ function createService(manager: MockManager): {
     isTokenValid: jest.fn().mockResolvedValue(true),
   };
   const dataSource = {
-    transaction: jest.fn(
-      (_isolation: string, cb: (m: MockManager) => Promise<unknown>) => cb(manager),
+    transaction: jest.fn((_isolation: string, cb: (m: MockManager) => Promise<unknown>) =>
+      cb(manager),
     ),
   };
   const service = new TenantProvisioningCommandService(
@@ -69,6 +72,9 @@ function createService(manager: MockManager): {
     dataSource as never,
     outbox as never,
     revocation as never,
+    // W5: lokalizasyon yazımının fail-CLOSED denetim izi (lifecycle yolunda
+    // kullanılmaz).
+    { log: jest.fn() } as never,
   );
   return { service, outbox, revocation };
 }
@@ -150,7 +156,9 @@ describe('TenantProvisioningCommandService — suspend session termination (RBAC
 
     expect(result.status).toBe(TenantStatus.SUSPENDED);
     expect(
-      manager.query.mock.calls.some(([sql]) => String(sql).includes('UPDATE "auth"."refresh_tokens"')),
+      manager.query.mock.calls.some(([sql]) =>
+        String(sql).includes('UPDATE "auth"."refresh_tokens"'),
+      ),
     ).toBe(false);
     expect(revocation.revokeUserTokens).not.toHaveBeenCalled();
   });
@@ -166,7 +174,9 @@ describe('TenantProvisioningCommandService — suspend session termination (RBAC
 
     expect(result.status).toBe(TenantStatus.SUSPENDED);
     expect(
-      manager.query.mock.calls.some(([sql]) => String(sql).includes('SELECT id FROM "auth"."users"')),
+      manager.query.mock.calls.some(([sql]) =>
+        String(sql).includes('SELECT id FROM "auth"."users"'),
+      ),
     ).toBe(false);
     expect(revocation.revokeUserTokens).not.toHaveBeenCalled();
   });
@@ -186,7 +196,9 @@ describe('TenantProvisioningCommandService — suspend session termination (RBAC
 
     expect(result.status).toBe(TenantStatus.ACTIVE);
     expect(
-      manager.query.mock.calls.some(([sql]) => String(sql).includes('UPDATE "auth"."refresh_tokens"')),
+      manager.query.mock.calls.some(([sql]) =>
+        String(sql).includes('UPDATE "auth"."refresh_tokens"'),
+      ),
     ).toBe(false);
     expect(revocation.revokeUserTokens).not.toHaveBeenCalled();
   });

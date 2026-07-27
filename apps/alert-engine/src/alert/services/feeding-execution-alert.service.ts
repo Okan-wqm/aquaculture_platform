@@ -148,6 +148,12 @@ export class FeedingExecutionAlertService {
       assignment_paused: 'ataması duraklatılmış',
       draft_protocol: 'protokolü DRAFT (onaysız)',
       missing_protocol: 'atamasının protokolü bulunamıyor (silinmiş/erişilemez)',
+      // W5/FARM-HIGH-246: balık var ama biyokütle 0 — aşırı beyan edilmiş bir
+      // kg girişinin izi. Plan iptal EDİLMEZ (canlı tank sistemden düşmez) ama
+      // oran biyokütleden hesaplandığı için öğünler 0 kg'a fiyatlanır; tank
+      // operatör düzeltene kadar fiilen aç kalır.
+      biomass_inconsistent:
+        'veri tutarsızlığı: balık sayısı > 0 ama biyokütle 0 (aşırı beyan edilmiş bir çıkış girişi)',
     };
     const message =
       `${event.unitCode} ünitesinde ${event.fishCount} balık (${event.biomassKg} kg) var ` +

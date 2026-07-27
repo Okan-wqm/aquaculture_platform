@@ -11,7 +11,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { adminRoutes } from '../routes/adminRoutes';
-import { analyticsApi, systemApi } from '../services/adminApi';
+import { analyticsApi } from '../services/adminApi';
 
 // ============================================================================
 // Types
@@ -60,17 +60,24 @@ interface FinancialMetrics {
   byCurrency: Record<string, number>;
 }
 
+/**
+ * Mirrors the backend SystemMetrics contract: every field is `number | null`
+ * because admin-api measures none of them today. `null` = not measured and is
+ * rendered via `formatMetric`/`formatBytes` as an explicit placeholder, never
+ * as a number (APA-131). Deduplicating this interface against
+ * services/types/analytics.ts is the separate FE-type-drift finding APA-132.
+ */
 interface SystemMetrics {
-  totalStorageBytes: number;
-  usedStorageBytes: number;
-  storageUtilization: number;
-  apiCallsToday: number;
-  apiCallsThisMonth: number;
-  avgResponseTimeMs: number;
-  errorRate: number;
-  uptimePercent: number;
-  activeConnections: number;
-  queuedJobs: number;
+  totalStorageBytes: number | null;
+  usedStorageBytes: number | null;
+  storageUtilization: number | null;
+  apiCallsToday: number | null;
+  apiCallsThisMonth: number | null;
+  avgResponseTimeMs: number | null;
+  errorRate: number | null;
+  uptimePercent: number | null;
+  activeConnections: number | null;
+  queuedJobs: number | null;
 }
 
 interface UsageMetrics {
@@ -150,16 +157,16 @@ const getDefaultData = (): DashboardSummary => ({
     byCurrency: {},
   },
   system: {
-    totalStorageBytes: 0,
-    usedStorageBytes: 0,
-    storageUtilization: 0,
-    apiCallsToday: 0,
-    apiCallsThisMonth: 0,
-    avgResponseTimeMs: 0,
-    errorRate: 0,
-    uptimePercent: 0,
-    activeConnections: 0,
-    queuedJobs: 0,
+    totalStorageBytes: null,
+    usedStorageBytes: null,
+    storageUtilization: null,
+    apiCallsToday: null,
+    apiCallsThisMonth: null,
+    avgResponseTimeMs: null,
+    errorRate: null,
+    uptimePercent: null,
+    activeConnections: null,
+    queuedJobs: null,
   },
   usage: {
     moduleUsage: {},
@@ -394,9 +401,13 @@ const AnalyticsDashboardPage: React.FC = () => {
       const granularity: AnalyticsGranularity = selectedPeriod === '1y' ? 'month' : selectedPeriod === '90d' ? 'week' : 'day';
 
       // Try to fetch from real API endpoints
-      const [dashboardResponse, systemHealthResponse, tenantTrendResponse, revenueTrendResponse, userActivityResponse] = await Promise.allSettled([
+      // getServicesHealth() is no longer fetched here: its only consumer was the
+      // client-side uptimePercent overwrite, which derived "uptime" from the
+      // share of healthy services — a different quantity entirely, invented on
+      // the client (APA-131). Uptime now comes from the backend contract or is
+      // reported unmeasured; the Services Health surface has its own page.
+      const [dashboardResponse, tenantTrendResponse, revenueTrendResponse, userActivityResponse] = await Promise.allSettled([
         analyticsApi.getDashboardSummary(),
-        systemApi.getServicesHealth(),
         analyticsApi.getTenantGrowthTrend(selectedPeriod, granularity),
         analyticsApi.getRevenueTrend(selectedPeriod, granularity),
         analyticsApi.getUserActivity(selectedPeriod, granularity),
@@ -412,16 +423,6 @@ const AnalyticsDashboardPage: React.FC = () => {
           ...apiData,
           generatedAt: new Date().toISOString(),
         };
-      }
-
-      // Enhance with system health data if available
-      if (systemHealthResponse.status === 'fulfilled' && systemHealthResponse.value) {
-        const services = systemHealthResponse.value as Array<{ name: string; status: string }>;
-        const healthyServices = services.filter(s => s.status === 'healthy').length;
-        const totalServices = services.length;
-        if (totalServices > 0) {
-          dashboardData.system.uptimePercent = Math.round((healthyServices / totalServices) * 100);
-        }
       }
 
       setData(dashboardData);
@@ -475,7 +476,17 @@ const AnalyticsDashboardPage: React.FC = () => {
     return new Intl.NumberFormat('en-US').format(value);
   };
 
-  const formatBytes = (bytes: number): string => {
+  /**
+   * Renders an unmeasured metric as an explicit placeholder. A `null` metric
+   * must never reach a template literal directly — `${null}` prints "null" and
+   * `null` in arithmetic coerces to 0, both of which read as data (APA-131).
+   */
+  const NOT_MEASURED = 'Not measured';
+  const formatMetric = (value: number | null, unit = ''): string =>
+    value === null ? NOT_MEASURED : `${formatNumber(value)}${unit}`;
+
+  const formatBytes = (bytes: number | null): string => {
+    if (bytes === null) return NOT_MEASURED;
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
     let unitIndex = 0;
     let value = bytes;
@@ -578,8 +589,8 @@ const AnalyticsDashboardPage: React.FC = () => {
         />
         <KpiCard
           title="Uptime"
-          value={`${data.system.uptimePercent}%`}
-          subtitle={`Error rate: ${data.system.errorRate}%`}
+          value={formatMetric(data.system.uptimePercent, '%')}
+          subtitle={`Error rate: ${formatMetric(data.system.errorRate, '%')}`}
           trend="stable"
           color="orange"
           icon={
@@ -629,8 +640,8 @@ const AnalyticsDashboardPage: React.FC = () => {
         />
         <KpiCard
           title="API Calls (Today)"
-          value={formatNumber(data.system.apiCallsToday)}
-          subtitle={`Avg: ${data.system.avgResponseTimeMs}ms`}
+          value={formatMetric(data.system.apiCallsToday)}
+          subtitle={`Avg: ${formatMetric(data.system.avgResponseTimeMs, 'ms')}`}
           color="blue"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -828,15 +839,15 @@ const AnalyticsDashboardPage: React.FC = () => {
       <Card title="System Metrics">
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4">
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{data.system.uptimePercent}%</p>
+            <p className="text-2xl font-bold text-gray-900">{formatMetric(data.system.uptimePercent, '%')}</p>
             <p className="text-xs text-gray-500 mt-1">Uptime</p>
           </div>
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{data.system.avgResponseTimeMs}ms</p>
+            <p className="text-2xl font-bold text-gray-900">{formatMetric(data.system.avgResponseTimeMs, 'ms')}</p>
             <p className="text-xs text-gray-500 mt-1">Avg Response</p>
           </div>
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{data.system.errorRate}%</p>
+            <p className="text-2xl font-bold text-gray-900">{formatMetric(data.system.errorRate, '%')}</p>
             <p className="text-xs text-gray-500 mt-1">Error Rate</p>
           </div>
           <div className="text-center p-4 bg-gray-50 rounded-lg">
@@ -844,11 +855,11 @@ const AnalyticsDashboardPage: React.FC = () => {
             <p className="text-xs text-gray-500 mt-1">Storage Used</p>
           </div>
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{data.system.activeConnections}</p>
+            <p className="text-2xl font-bold text-gray-900">{formatMetric(data.system.activeConnections)}</p>
             <p className="text-xs text-gray-500 mt-1">Active Connections</p>
           </div>
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{data.system.queuedJobs}</p>
+            <p className="text-2xl font-bold text-gray-900">{formatMetric(data.system.queuedJobs)}</p>
             <p className="text-xs text-gray-500 mt-1">Queued Jobs</p>
           </div>
         </div>

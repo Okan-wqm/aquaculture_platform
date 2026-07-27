@@ -43,17 +43,22 @@ export interface DashboardSummary {
     byPlan: Record<string, number>;
     byCurrency: Record<string, number>;
   };
+  /**
+   * Mirrors the backend SystemMetrics contract. Every field is `number | null`
+   * because admin-api measures none of them today; `null` means "not measured"
+   * and must render as a placeholder, never as a number (APA-131).
+   */
   system: {
-    totalStorageBytes: number;
-    usedStorageBytes: number;
-    storageUtilization: number;
-    apiCallsToday: number;
-    apiCallsThisMonth: number;
-    avgResponseTimeMs: number;
-    errorRate: number;
-    uptimePercent: number;
-    activeConnections: number;
-    queuedJobs: number;
+    totalStorageBytes: number | null;
+    usedStorageBytes: number | null;
+    storageUtilization: number | null;
+    apiCallsToday: number | null;
+    apiCallsThisMonth: number | null;
+    avgResponseTimeMs: number | null;
+    errorRate: number | null;
+    uptimePercent: number | null;
+    activeConnections: number | null;
+    queuedJobs: number | null;
   };
   usage: {
     moduleUsage: Record<string, {

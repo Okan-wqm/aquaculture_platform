@@ -67,17 +67,30 @@ export interface FinancialMetrics {
   byCurrency: Record<string, number>;
 }
 
+/**
+ * Infrastructure metrics for the System Metrics card.
+ *
+ * Every field is `number | null` because admin-api measures NONE of them today:
+ * there is no APM, uptime monitor, API-gateway meter or job-queue probe wired to
+ * this service. `null` means "not measured" and must render as an explicit
+ * placeholder, never as a number (APA-131). A bare `number` was what forced
+ * fabrication in the first place — the only way to satisfy the type was to
+ * invent a constant (1 TB "default" storage, 100% uptime, 10 connections).
+ *
+ * Wiring a real source (Prometheus / observability-service) fills these in
+ * WITHOUT a contract change; reintroducing a literal here is the regression.
+ */
 export interface SystemMetrics {
-  totalStorageBytes: number;
-  usedStorageBytes: number;
-  storageUtilization: number;
-  apiCallsToday: number;
-  apiCallsThisMonth: number;
-  avgResponseTimeMs: number;
-  errorRate: number;
-  uptimePercent: number;
-  activeConnections: number;
-  queuedJobs: number;
+  totalStorageBytes: number | null;
+  usedStorageBytes: number | null;
+  storageUtilization: number | null;
+  apiCallsToday: number | null;
+  apiCallsThisMonth: number | null;
+  avgResponseTimeMs: number | null;
+  errorRate: number | null;
+  uptimePercent: number | null;
+  activeConnections: number | null;
+  queuedJobs: number | null;
 }
 
 export interface UsageMetrics {

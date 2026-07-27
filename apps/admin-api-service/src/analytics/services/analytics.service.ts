@@ -616,47 +616,35 @@ export class AnalyticsService {
   // ============================================================================
 
   /**
-   * Calculate system metrics
-   * Note: Some metrics require infrastructure monitoring integration
+   * Infrastructure metrics for the System Metrics card.
+   *
+   * admin-api measures none of these today: there is no APM, uptime monitor,
+   * API-gateway meter or job-queue probe wired to this service. Every field is
+   * therefore `null` — "not measured" — instead of a plausible constant
+   * (APA-131). The previous implementation returned 1 TB "default" storage,
+   * 100% uptime, 10 connections and a rows x 1KB storage *estimate* presented as
+   * measured bytes; a SUPER_ADMIN could not tell any of it from real telemetry,
+   * and the daily snapshot cron persisted the fabrication into
+   * admin.analytics_snapshots.
+   *
+   * Wiring a real source (Prometheus / observability-service) fills these in
+   * without a contract change. Reintroducing a literal is the regression, and
+   * analytics-system-metrics.spec.ts fails the build on it.
    */
   async getSystemMetrics(): Promise<SystemMetrics> {
-    this.logger.debug('Calculating system metrics...');
-
-    // These would ideally come from Prometheus/CloudWatch/etc.
-    // Until observability-service wires those sources, we calculate what we can from the database.
-
-    // Count database connections (approximate from pool)
-    const activeConnections = 10; // Would need DB pool stats
-
-    // Storage - count rows as proxy for data size
-    const tenantCount = await this.tenantRepository.count();
-    const userCount = await this.userRepository.count();
-    const subscriptionCount = await this.subscriptionRepository.count();
-    const invoiceCount = await this.invoiceRepository.count();
-    const snapshotCount = await this.snapshotRepository.count();
-
-    // Rough estimate: 1KB per row average
-    const estimatedRows = tenantCount + userCount + subscriptionCount + invoiceCount + snapshotCount;
-    const usedStorageBytes = estimatedRows * 1024;
-    const totalStorageBytes = 1099511627776; // 1 TB default
-    const storageUtilization = Number(((usedStorageBytes / totalStorageBytes) * 100).toFixed(2));
-
-    this.logger.debug(`System metrics: rows=${estimatedRows}, storage=${usedStorageBytes} bytes`);
-
-    // These metrics need infrastructure monitoring - return zeros with warning
-    this.logger.warn('System metrics (apiCalls, responseTime, errorRate, uptime) require infrastructure monitoring integration');
+    this.logger.debug('System metrics are not instrumented; reporting unmeasured.');
 
     return {
-      totalStorageBytes,
-      usedStorageBytes,
-      storageUtilization,
-      apiCallsToday: 0, // Requires API gateway metrics
-      apiCallsThisMonth: 0, // Requires API gateway metrics
-      avgResponseTimeMs: 0, // Requires APM
-      errorRate: 0, // Requires error tracking
-      uptimePercent: 100, // Requires uptime monitoring
-      activeConnections,
-      queuedJobs: 0, // Requires job queue integration
+      totalStorageBytes: null,
+      usedStorageBytes: null,
+      storageUtilization: null,
+      apiCallsToday: null,
+      apiCallsThisMonth: null,
+      avgResponseTimeMs: null,
+      errorRate: null,
+      uptimePercent: null,
+      activeConnections: null,
+      queuedJobs: null,
     };
   }
 
@@ -1107,10 +1095,12 @@ export class AnalyticsService {
   }
 
   private getDefaultSystemMetrics(): SystemMetrics {
+    // Degraded path: unmeasured, not zero. A zero here would claim a measured
+    // 0ms / 0% / 0 bytes, which is a different lie from "we have no data".
     return {
-      totalStorageBytes: 0, usedStorageBytes: 0, storageUtilization: 0,
-      apiCallsToday: 0, apiCallsThisMonth: 0, avgResponseTimeMs: 0,
-      errorRate: 0, uptimePercent: 0, activeConnections: 0, queuedJobs: 0,
+      totalStorageBytes: null, usedStorageBytes: null, storageUtilization: null,
+      apiCallsToday: null, apiCallsThisMonth: null, avgResponseTimeMs: null,
+      errorRate: null, uptimePercent: null, activeConnections: null, queuedJobs: null,
     };
   }
 

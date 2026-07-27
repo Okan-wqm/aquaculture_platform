@@ -24,9 +24,12 @@ interface TenantMetrics {
   trial: number;
   suspended: number;
   newThisMonth: number;
-  churnedThisMonth: number;
-  churnRate: number;
-  growthRate: number;
+  // Churn has no source on this platform, so "not measured" must be
+  // representable rather than fabricated as 0 (APA-135). growthRate is derived
+  // from churn, so it is null for the same reason.
+  churnedThisMonth: number | null;
+  churnRate: number | null;
+  growthRate: number | null;
   byPlan: Record<string, number>;
 }
 
@@ -122,9 +125,9 @@ const getDefaultData = (): DashboardSummary => ({
     trial: 0,
     suspended: 0,
     newThisMonth: 0,
-    churnedThisMonth: 0,
-    churnRate: 0,
-    growthRate: 0,
+    churnedThisMonth: null,
+    churnRate: null,
+    growthRate: null,
     byPlan: {},
   },
   users: {
@@ -483,6 +486,14 @@ const AnalyticsDashboardPage: React.FC = () => {
   const formatMetric = (value: number | null, unit = ''): string =>
     value === null ? NOT_MEASURED : `${formatNumber(value)}${unit}`;
 
+  /**
+   * Derives the arrow direction FROM the value. A hardcoded `trend="up"` beside
+   * a real `change` renders negative growth as a green up-arrow — the sign of
+   * the number and the direction of the arrow must come from the same source.
+   */
+  const trendOf = (value: number): 'up' | 'down' | 'stable' =>
+    value > 0 ? 'up' : value < 0 ? 'down' : 'stable';
+
   const formatBytes = (bytes: number | null): string => {
     if (bytes === null) return NOT_MEASURED;
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -550,8 +561,9 @@ const AnalyticsDashboardPage: React.FC = () => {
           title="Total Tenants"
           value={formatNumber(data.tenants.total)}
           subtitle={`${data.tenants.active} aktif`}
-          change={data.tenants.growthRate}
-          trend="up"
+          {...(data.tenants.growthRate === null
+            ? {}
+            : { change: data.tenants.growthRate, trend: trendOf(data.tenants.growthRate) })}
           color="blue"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -614,10 +626,12 @@ const AnalyticsDashboardPage: React.FC = () => {
         />
         <KpiCard
           title="Churn Rate"
-          value={`${data.tenants.churnRate}%`}
-          subtitle={`${data.tenants.churnedThisMonth} churned this month`}
-          change={-0.5}
-          trend="down"
+          value={formatMetric(data.tenants.churnRate, '%')}
+          subtitle={
+            data.tenants.churnedThisMonth === null
+              ? 'No tenant-lifecycle ledger to count churn from'
+              : `${data.tenants.churnedThisMonth} churned this month`
+          }
           color="red"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -663,7 +677,11 @@ const AnalyticsDashboardPage: React.FC = () => {
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-gray-500">Bu ay: +{data.tenants.newThisMonth}</span>
-            <span className="text-green-600 font-medium">+{data.tenants.growthRate}%</span>
+            <span className="text-green-600 font-medium">
+              {data.tenants.growthRate === null
+                ? NOT_MEASURED
+                : `${data.tenants.growthRate > 0 ? '+' : ''}${data.tenants.growthRate}%`}
+            </span>
           </div>
         </Card>
 

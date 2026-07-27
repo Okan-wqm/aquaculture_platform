@@ -10,9 +10,11 @@ export interface DashboardSummary {
     trial: number;
     suspended: number;
     newThisMonth: number;
-    churnedThisMonth: number;
-    churnRate: number;
-    growthRate: number;
+    // Churn has no source on this platform; "not measured" must be
+    // representable rather than fabricated as 0 (APA-135).
+    churnedThisMonth: number | null;
+    churnRate: number | null;
+    growthRate: number | null;
     byPlan: Record<string, number>;
   };
   users: {

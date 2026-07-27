@@ -25,6 +25,29 @@ export type MetricCategory = 'tenant' | 'user' | 'financial' | 'system' | 'usage
 // Metric Interfaces
 // ============================================================================
 
+/**
+ * Tenant counts and rates.
+ *
+ * `churnedThisMonth`, `churnRate` and `growthRate` are `number | null` because
+ * tenant churn is NOT MEASURABLE on this platform today (APA-135), and a bare
+ * `number` is what forced the previous proxy into existence.
+ *
+ * The retired proxy counted `status IN ('CANCELLED','SUSPENDED') AND
+ * "updatedAt" >= date_trunc('month', NOW())`. `updatedAt` is an
+ * `@UpdateDateColumn`, so it means "last touched", not "churned" — any
+ * unrelated write re-dated a long-suspended tenant into the current month. And
+ * 'CANCELLED' is unreachable on `auth.tenants`, so the filter collapsed to the
+ * REVERSIBLE suspended state. No dated, durable record of the terminal
+ * transitions exists: the outbox is pruned after 7 days, the audit log is
+ * best-effort and skipped by the bulk paths, and `tenant_activities` has no
+ * archived/cancelled member.
+ *
+ * `growthRate` is null for the same reason — it is `(new - churned) / total`,
+ * so computing it with churned = 0 would report gross growth as net.
+ *
+ * Landing a durable tenant-lifecycle ledger fills these in with NO contract
+ * change; reintroducing a timestamp proxy is the regression.
+ */
 export interface TenantMetrics {
   total: number;
   active: number;
@@ -32,9 +55,9 @@ export interface TenantMetrics {
   trial: number;
   suspended: number;
   newThisMonth: number;
-  churnedThisMonth: number;
-  churnRate: number;
-  growthRate: number;
+  churnedThisMonth: number | null;
+  churnRate: number | null;
+  growthRate: number | null;
   byPlan: Record<string, number>;
 }
 
@@ -210,9 +233,14 @@ export interface DashboardSummary {
 // Time Series Data
 // ============================================================================
 
+/**
+ * A point on a trend series. `value` is nullable because a snapshot may record
+ * a metric as unmeasured (APA-131, APA-135) and a chart must render that as a
+ * gap, not as a confident zero (APA-135).
+ */
 export interface TimeSeriesPoint {
   date: string;
-  value: number;
+  value: number | null;
 }
 
 export interface TimeSeriesData {

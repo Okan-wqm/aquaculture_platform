@@ -72,7 +72,6 @@ interface TenantAggregateRow {
   professional: DbNumeric;
   enterprise: DbNumeric;
   new_this_month: DbNumeric;
-  churned_this_month: DbNumeric;
 }
 
 interface UserAggregateRow {
@@ -149,23 +148,28 @@ export class AnalyticsService {
   ) {}
 
   /**
-   * Type-safe helper to extract numeric metric value from snapshot metrics
-   * Handles the union type (TenantMetrics | UserMetrics | FinancialMetrics | SystemMetrics | UsageMetrics)
+   * Read one metric out of a snapshot's JSONB payload.
+   *
+   * Returns `null` when the metric was not measured — NOT `0`. Several metrics
+   * are now legitimately `number | null` (APA-131 system metrics, APA-135
+   * churn), and the daily cron persists those nulls into
+   * `admin.analytics_snapshots` permanently. Coercing them to `0` here would
+   * turn every historical unmeasured row into a confident flat-zero point on a
+   * trend chart — reintroducing, at the read side, exactly the fabrication the
+   * producers stopped committing.
    */
   private getMetricValue(
     metrics: TenantMetrics | UserMetrics | FinancialMetrics | SystemMetrics | UsageMetrics,
     key: string,
-  ): number {
-    // Since metrics is a JSONB object, we need to access it dynamically
-    // but we ensure type safety by checking if the key exists and is a number
-    // Metrics is a JSONB object — dynamic key access requires indexable type
+  ): number | null {
+    // Metrics is a JSONB object — dynamic key access requires an indexable type.
     const metricsObj: Record<string, unknown> = { ...metrics };
     const value = metricsObj[key];
 
-    if (typeof value === 'number' && !isNaN(value)) {
+    if (typeof value === 'number' && !Number.isNaN(value)) {
       return value;
     }
-    return 0;
+    return null;
   }
 
   // ============================================================================
@@ -272,6 +276,29 @@ export class AnalyticsService {
   async getTenantMetrics(): Promise<TenantMetrics> {
     this.logger.debug('Calculating tenant metrics from database...');
 
+    // Churn is deliberately NOT aggregated here (APA-135). The deleted filter was
+    // `status IN ('CANCELLED','SUSPENDED') AND "updatedAt" >= date_trunc('month', NOW())`,
+    // and both halves were wrong:
+    //
+    //   * `updatedAt` is an @UpdateDateColumn on auth.tenants
+    //     (apps/auth-service/src/modules/tenant/entities/tenant.entity.ts:260) — it means
+    //     "last touched", not "churned". Any unrelated write re-dated a long-suspended
+    //     tenant into the current month, and the billing plan projection does exactly
+    //     that on every plan/trial change
+    //     (tenant-subscription-projection.handler.ts:109).
+    //   * 'CANCELLED' is unreachable on auth.tenants: LIFECYCLE_COMMANDS
+    //     (tenant-provisioning-command.service.ts:105-135) never targets it, only accepts
+    //     it as a SOURCE. So the filter collapsed to SUSPENDED — a REVERSIBLE dunning
+    //     state, which is not churn.
+    //
+    // No dated, durable record of the terminal transitions exists anywhere: the
+    // TenantStatusChanged outbox rows are deleted 7 days after publish, admin.audit_logs
+    // is best-effort (logged after commit, failures swallowed) and the bulk paths skip it,
+    // and admin.tenant_activities has no archived/cancelled member. Churn is therefore
+    // reported as unmeasured rather than proxied.
+    //
+    // The SQL below must stay free of any last-write timestamp —
+    // analytics-churn-grounding.spec.ts asserts that against the emitted query.
     const rows = await this.dataSource.query<TenantAggregateRow[]>(`
       SELECT
         COUNT(*)                                                                          AS total,
@@ -283,11 +310,7 @@ export class AnalyticsService {
         COUNT(*) FILTER (WHERE LOWER(plan) = 'starter')                                  AS starter,
         COUNT(*) FILTER (WHERE LOWER(plan) = 'professional')                             AS professional,
         COUNT(*) FILTER (WHERE LOWER(plan) = 'enterprise')                               AS enterprise,
-        COUNT(*) FILTER (WHERE "createdAt" >= date_trunc('month', NOW()))                AS new_this_month,
-        COUNT(*) FILTER (
-          WHERE status IN ('CANCELLED','SUSPENDED')
-          AND   "updatedAt" >= date_trunc('month', NOW())
-        )                                                                                 AS churned_this_month
+        COUNT(*) FILTER (WHERE "createdAt" >= date_trunc('month', NOW()))                AS new_this_month
       FROM auth.tenants
     `);
 
@@ -301,10 +324,13 @@ export class AnalyticsService {
     const professional = parseDbInt(r?.professional);
     const enterprise = parseDbInt(r?.enterprise);
     const newThisMonth = parseDbInt(r?.new_this_month);
-    const churnedThisMonth = parseDbInt(r?.churned_this_month);
 
-    const churnRate  = total > 0 ? Number(((churnedThisMonth / total) * 100).toFixed(2)) : 0;
-    const growthRate = total > 0 ? Number((((newThisMonth - churnedThisMonth) / total) * 100).toFixed(2)) : 0;
+    // Both are null because both are derived from churn, which has no source.
+    // growthRate is (new - churned) / total: computing it with churned = 0 would
+    // silently report gross growth as net.
+    const churnedThisMonth = null;
+    const churnRate = null;
+    const growthRate = null;
 
     this.logger.debug(`Tenant metrics: total=${total}, active=${active}, trial=${trial}, new=${newThisMonth}`);
 
@@ -797,9 +823,16 @@ export class AnalyticsService {
       mrr: this.calculateComparison(financialMetrics.mrr, prevFinancial?.mrr || 0),
       arr: this.calculateComparison(financialMetrics.arr, prevFinancial?.arr || 0),
       arpu: this.calculateComparison(financialMetrics.arpu, prevFinancial?.arpu || 0),
-      churnRate: this.calculateComparison(tenantMetrics.churnRate, prevTenant?.churnRate || 0),
-      errorRate: this.calculateComparison(0, 0), // Requires error tracking
-      uptime: this.calculateComparison(100, 100), // Requires uptime monitoring
+      // churnRate, errorRate and uptime are deliberately ABSENT, not zeroed.
+      // A comparison is a claim about two measurements, and none of the three
+      // has any: churn has no source at all (APA-135), while error rate and
+      // uptime were `calculateComparison(0, 0)` and `calculateComparison(100, 100)`
+      // — literals that survived even after APA-131 established that
+      // getSystemMetrics measures neither, so `/analytics/kpi-comparisons` was
+      // serving a confident "100% uptime, 0% errors, 0% change" to a SUPER_ADMIN.
+      // A `Record<string, ComparisonDto>` cannot express "no comparison", so
+      // omitting the key IS the honest encoding; wiring a real source adds it
+      // back with no contract change.
     };
   }
 
@@ -952,7 +985,7 @@ export class AnalyticsService {
     category: MetricCategory,
     params: TrendDataDto,
     metricKey: string,
-  ): Promise<Array<{ date: string; value: number }>> {
+  ): Promise<Array<{ date: string; value: number | null }>> {
     const now = new Date();
     const startDate = new Date(now);
 
@@ -1001,7 +1034,9 @@ export class AnalyticsService {
     if (!previousSnapshot) return 0;
 
     const previousValue = this.getMetricValue(previousSnapshot.metrics, metricKey);
-    if (previousValue === 0) return 0;
+    // No prior measurement, or a prior zero, leaves growth undefined; 0 is the
+    // established contract for "no comparison available" on this helper.
+    if (previousValue === null || previousValue === 0) return 0;
 
     return Number((((currentValue - previousValue) / previousValue) * 100).toFixed(2));
   }
@@ -1071,7 +1106,10 @@ export class AnalyticsService {
   private getDefaultTenantMetrics(): TenantMetrics {
     return {
       total: 0, active: 0, inactive: 0, trial: 0, suspended: 0,
-      newThisMonth: 0, churnedThisMonth: 0, churnRate: 0, growthRate: 0,
+      // Nulls, not zeros: this is the DEGRADED path, where the source failed.
+      // A zero here would claim "0% churn, 0% growth, measured" on a dashboard
+      // that could not reach the database at all.
+      newThisMonth: 0, churnedThisMonth: null, churnRate: null, growthRate: null,
       byPlan: {},
     };
   }

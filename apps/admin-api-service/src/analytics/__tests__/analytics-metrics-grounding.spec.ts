@@ -87,9 +87,17 @@ describe('AnalyticsService.getTenantMetrics grounding (APA-132)', () => {
     // invariant to the query result for the zeroed keys; real aggregates move.
     expect(a.total).not.toBe(b.total);
     expect(a.active).not.toBe(b.active);
-    expect(a.churnRate).not.toBe(b.churnRate);
-    expect(a.growthRate).not.toBe(b.growthRate);
     expect(a.byPlan).not.toEqual(b.byPlan);
+
+    // churnRate and growthRate are deliberately EXEMPT from the variance rule:
+    // churn has no source on this platform, so both are permanently null
+    // (APA-135) and a null cannot vary. Asserting the null explicitly keeps this
+    // spec's teeth — a re-invented churn proxy would make them numbers again and
+    // fail here, exactly as a re-added byRegion fails the key-set check above.
+    expect(a.churnRate).toBeNull();
+    expect(b.churnRate).toBeNull();
+    expect(a.growthRate).toBeNull();
+    expect(b.growthRate).toBeNull();
 
     async function service_a(): ReturnType<AnalyticsService['getTenantMetrics']> {
       return (await buildService(ROW_A)).getTenantMetrics();

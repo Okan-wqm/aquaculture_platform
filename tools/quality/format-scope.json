@@ -1137,6 +1137,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/analytics/__tests__/analytics-churn-grounding.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/analytics/__tests__/analytics-date-hydration.spec.ts",
       "prettier_managed": true
     },
@@ -2376,6 +2382,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/migrations/1802100000000-PurgeFabricatedUsageMapsFromAnalyticsSnapshots.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1802200000000-PurgeChurnProxyFromAnalyticsSnapshots.ts",
       "prettier_managed": true
     },
     {
@@ -55482,10 +55494,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9096,
+  "file_count": 9098,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8915,
-  "managed_file_list_sha256": "4a5ef3ddd097bddc2612923e3729d2bba4e9424d742fbfaadcd19734aa29794d",
+  "managed_count": 8917,
+  "managed_file_list_sha256": "406b60faf3f62c5fdc248583c201280868a940245ec0107dd0f9b1d59ff0e79f",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

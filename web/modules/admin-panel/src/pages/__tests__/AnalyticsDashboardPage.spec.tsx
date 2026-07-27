@@ -75,4 +75,39 @@ describe('AnalyticsDashboardPage unmeasured system metrics (APA-131)', () => {
     expect(document.body.textContent).not.toMatch(/\bnull\b/);
     expect(screen.queryByText(/^100%$/)).not.toBeInTheDocument();
   });
+
+  it('renders unmeasured churn as a placeholder and shows no trend arrow (APA-135)', async () => {
+    api.getDashboardSummary.mockResolvedValue({
+      // Real counts alongside unmeasured churn — the card must not infer one
+      // from the other, and must not fall back to the retired -0.5 delta.
+      tenants: {
+        total: 42,
+        active: 30,
+        inactive: 6,
+        trial: 4,
+        suspended: 6,
+        newThisMonth: 5,
+        churnedThisMonth: null,
+        churnRate: null,
+        growthRate: null,
+        byPlan: {},
+      },
+    });
+
+    render(
+      <BrowserRouter>
+        <AnalyticsDashboardPage />
+      </BrowserRouter>,
+    );
+
+    await waitFor(() => expect(api.getDashboardSummary).toHaveBeenCalled());
+
+    // No "null%", no "0%" masquerading as a measured churn rate.
+    expect(document.body.textContent).not.toMatch(/\bnull\b/);
+    expect(document.body.textContent).not.toMatch(/-0\.5/);
+    expect(await screen.findByText(/No tenant-lifecycle ledger/i)).toBeInTheDocument();
+
+    // The measured counts still render (the total appears on more than one card).
+    expect(screen.getAllByText('42').length).toBeGreaterThan(0);
+  });
 });

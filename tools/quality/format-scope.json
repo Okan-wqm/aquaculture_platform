@@ -1179,6 +1179,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/analytics/__tests__/reports-pricing-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/analytics/__tests__/usage-report-integrity.spec.ts",
       "prettier_managed": true
     },
@@ -1222,6 +1228,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/analytics/entities/external/invoice.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/analytics/entities/external/subscription-pricing.util.ts",
       "prettier_managed": true
     },
     {
@@ -42276,6 +42288,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/no-hardcoded-plan-pricing.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/no-new-adhoc-circuit-breaker.spec.ts",
       "prettier_managed": true
     },
@@ -55464,10 +55482,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9093,
+  "file_count": 9096,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8912,
-  "managed_file_list_sha256": "2abfd6c079477aa3080e800fa5e1de07c6da3876b6896710c02a0aab523fd2c4",
+  "managed_count": 8915,
+  "managed_file_list_sha256": "4a5ef3ddd097bddc2612923e3729d2bba4e9424d742fbfaadcd19734aa29794d",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

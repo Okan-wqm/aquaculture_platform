@@ -33,6 +33,7 @@ import {
   ReportRequest,
 } from '../entities/analytics-snapshot.entity';
 import { InvoiceReadOnly, InvoiceStatus } from '../entities/external/invoice.entity';
+import { SubscriptionReadOnly } from '../entities/external/subscription.entity';
 import { TenantReadOnly } from '../entities/external/tenant.entity';
 import { UserReadOnly } from '../entities/external/user.entity';
 import { AnalyticsService } from '../services/analytics.service';
@@ -156,6 +157,8 @@ async function buildService(invoices: InvoiceReadOnly[]): Promise<{
       { provide: getRepositoryToken(TenantReadOnly), useValue: { ...repo, find: jest.fn().mockResolvedValue(TENANTS) } },
       { provide: getRepositoryToken(UserReadOnly), useValue: repo },
       { provide: getRepositoryToken(InvoiceReadOnly), useValue: { ...repo, find: invoiceFind } },
+      // billing.subscriptions is the pricing SSoT (APA-147).
+      { provide: getRepositoryToken(SubscriptionReadOnly), useValue: repo },
       { provide: getRepositoryToken(ReportDefinition), useValue: repo },
       { provide: getRepositoryToken(ReportExecution), useValue: repo },
       { provide: AnalyticsService, useValue: {} },

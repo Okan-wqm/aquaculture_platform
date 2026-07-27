@@ -11,6 +11,7 @@ import {
   ReportExecution,
 } from '../../entities/analytics-snapshot.entity';
 import { InvoiceReadOnly } from '../../entities/external/invoice.entity';
+import { SubscriptionReadOnly } from '../../entities/external/subscription.entity';
 import { TenantReadOnly, TenantStatus, TenantPlan } from '../../entities/external/tenant.entity';
 import { UserReadOnly } from '../../entities/external/user.entity';
 import { AnalyticsService } from '../../services/analytics.service';
@@ -134,6 +135,8 @@ describe('ReportsService - Caching', () => {
         { provide: getRepositoryToken(UserReadOnly), useValue: mockUserRepo },
         // billing.invoices is the payments report's SSoT (APA-138).
         { provide: getRepositoryToken(InvoiceReadOnly), useValue: { find: jest.fn().mockResolvedValue([]) } },
+        // billing.subscriptions is the pricing SSoT (APA-147).
+        { provide: getRepositoryToken(SubscriptionReadOnly), useValue: { find: jest.fn().mockResolvedValue([]) } },
         { provide: getRepositoryToken(ReportDefinition), useValue: { createQueryBuilder: jest.fn(), create: jest.fn(), save: jest.fn(), findOne: jest.fn(), remove: jest.fn() } },
         { provide: getRepositoryToken(ReportExecution), useValue: { createQueryBuilder: jest.fn(), create: jest.fn(), save: jest.fn(), findOne: jest.fn() } },
         { provide: AnalyticsService, useValue: mockAnalyticsService },
@@ -318,6 +321,8 @@ describe('ReportsService - Caching', () => {
           { provide: getRepositoryToken(TenantReadOnly), useValue: mockTenantRepo },
           { provide: getRepositoryToken(UserReadOnly), useValue: mockUserRepo },
           { provide: getRepositoryToken(InvoiceReadOnly), useValue: { find: jest.fn().mockResolvedValue([]) } },
+          // billing.subscriptions is the pricing SSoT (APA-147).
+          { provide: getRepositoryToken(SubscriptionReadOnly), useValue: { find: jest.fn().mockResolvedValue([]) } },
           { provide: getRepositoryToken(ReportDefinition), useValue: { createQueryBuilder: jest.fn(), create: jest.fn(), save: jest.fn(), findOne: jest.fn(), remove: jest.fn() } },
           { provide: getRepositoryToken(ReportExecution), useValue: { createQueryBuilder: jest.fn(), create: jest.fn(), save: jest.fn(), findOne: jest.fn() } },
           { provide: AnalyticsService, useValue: mockAnalyticsService },
@@ -430,6 +435,8 @@ describe('ReportsService - Caching', () => {
           { provide: getRepositoryToken(TenantReadOnly), useValue: mockTenantRepo },
           { provide: getRepositoryToken(UserReadOnly), useValue: mockUserRepo },
           { provide: getRepositoryToken(InvoiceReadOnly), useValue: { find: jest.fn().mockResolvedValue([]) } },
+          // billing.subscriptions is the pricing SSoT (APA-147).
+          { provide: getRepositoryToken(SubscriptionReadOnly), useValue: { find: jest.fn().mockResolvedValue([]) } },
           { provide: getRepositoryToken(ReportDefinition), useValue: mockDefRepo },
           { provide: getRepositoryToken(ReportExecution), useValue: { createQueryBuilder: jest.fn(), create: jest.fn(), save: jest.fn(), findOne: jest.fn() } },
           { provide: AnalyticsService, useValue: mockAnalyticsService },

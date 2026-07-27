@@ -28,6 +28,7 @@ import {
   ReportType,
 } from '../../entities/analytics-snapshot.entity';
 import { InvoiceReadOnly } from '../../entities/external/invoice.entity';
+import { SubscriptionReadOnly } from '../../entities/external/subscription.entity';
 import { TenantReadOnly } from '../../entities/external/tenant.entity';
 import { UserReadOnly } from '../../entities/external/user.entity';
 import { AnalyticsService } from '../../services/analytics.service';
@@ -64,6 +65,8 @@ describe('ReportsService generator failures propagate (APA-145)', () => {
         // billing.invoices is the payments report's SSoT (APA-138) and must
         // fail like every other store, or the propagation assertion is vacuous.
         { provide: getRepositoryToken(InvoiceReadOnly), useValue: emptyRepo },
+        // billing.subscriptions is the pricing SSoT (APA-147).
+        { provide: getRepositoryToken(SubscriptionReadOnly), useValue: emptyRepo },
         { provide: getRepositoryToken(ReportDefinition), useValue: emptyRepo },
         { provide: getRepositoryToken(ReportExecution), useValue: emptyRepo },
         { provide: AnalyticsService, useValue: {} },

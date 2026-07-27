@@ -29,7 +29,8 @@ import {
   measuredEntries,
 } from '../entities/analytics-snapshot.entity';
 import { InvoiceReadOnly } from '../entities/external/invoice.entity';
-import { BillingCycle, SubscriptionReadOnly, SubscriptionStatus } from '../entities/external/subscription.entity';
+import { monthlyPriceOf } from '../entities/external/subscription-pricing.util';
+import { SubscriptionReadOnly, SubscriptionStatus } from '../entities/external/subscription.entity';
 import { TenantReadOnly } from '../entities/external/tenant.entity';
 import { UserReadOnly } from '../entities/external/user.entity';
 
@@ -506,7 +507,7 @@ export class AnalyticsService {
     for (const sub of activeSubscriptions) {
       if (sub.status === SubscriptionStatus.TRIAL) continue; // Don't count trial revenue
 
-      const monthlyPrice = this.calculateMonthlyPrice(sub);
+      const monthlyPrice = monthlyPriceOf(sub);
       mrr += monthlyPrice;
 
       // Group by plan
@@ -574,22 +575,6 @@ export class AnalyticsService {
   /**
    * Calculate monthly price from subscription based on billing cycle
    */
-  private calculateMonthlyPrice(subscription: SubscriptionReadOnly): number {
-    const basePrice = subscription.pricing?.basePrice || 0;
-
-    switch (subscription.billingCycle) {
-      case BillingCycle.MONTHLY:
-        return basePrice;
-      case BillingCycle.QUARTERLY:
-        return basePrice / 3;
-      case BillingCycle.SEMI_ANNUAL:
-        return basePrice / 6;
-      case BillingCycle.ANNUAL:
-        return basePrice / 12;
-      default:
-        return basePrice;
-    }
-  }
 
   /**
    * Get revenue trend from snapshots

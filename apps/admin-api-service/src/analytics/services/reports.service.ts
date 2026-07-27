@@ -41,6 +41,8 @@ import {
   measuredEntries,
 } from '../entities/analytics-snapshot.entity';
 import { InvoiceReadOnly, InvoiceStatus } from '../entities/external/invoice.entity';
+import { monthlyPriceOf } from '../entities/external/subscription-pricing.util';
+import { SubscriptionReadOnly, SubscriptionStatus } from '../entities/external/subscription.entity';
 import { TenantReadOnly, TenantStatus, TenantPlan } from '../entities/external/tenant.entity';
 import { UserReadOnly } from '../entities/external/user.entity';
 
@@ -178,6 +180,9 @@ export class ReportsService {
     // payments report reads it instead of synthesising invoices (APA-138).
     @InjectRepository(InvoiceReadOnly)
     private readonly invoiceRepository: Repository<InvoiceReadOnly>,
+    // billing.subscriptions is the SSoT for what a tenant pays (APA-147).
+    @InjectRepository(SubscriptionReadOnly)
+    private readonly subscriptionRepository: Repository<SubscriptionReadOnly>,
     @InjectRepository(ReportDefinition)
     private readonly definitionRepository: Repository<ReportDefinition>,
     @InjectRepository(ReportExecution)
@@ -390,13 +395,8 @@ export class ReportsService {
       // Non-critical — storage column will show '0 KB'
     }
 
-    // MRR pricing by plan
-    const planPricing: Record<string, number> = {
-      [TenantPlan.TRIAL]: 0,
-      [TenantPlan.STARTER]: 99,
-      [TenantPlan.PROFESSIONAL]: 299,
-      [TenantPlan.ENTERPRISE]: 499,
-    };
+    // MRR from the billing SSoT, never an in-code tier table (APA-147).
+    const monthlyPriceByTenant = await this.resolveMonthlyPrices(tenants.map((t) => t.id));
 
     // Transform to report format
     const data: TenantReportRow[] = tenants.map(tenant => ({
@@ -407,7 +407,7 @@ export class ReportsService {
               tenant.status === TenantStatus.PENDING ? 'Trial' : tenant.status,
       users: userCountMap.get(tenant.id) || 0,
       createdAt: tenant.createdAt?.toISOString().substring(0, 10) ?? '',
-      mrr: tenant.status === TenantStatus.ACTIVE ? planPricing[tenant.plan] || 0 : 0,
+      mrr: tenant.status === TenantStatus.ACTIVE ? round2(monthlyPriceByTenant.get(tenant.id) ?? 0) : 0,
       storageUsed: storageMap.get(tenant.id) || '0 KB',
       lastActivity: tenant.updatedAt?.toISOString().substring(0, 10) ?? '',
     }));
@@ -446,20 +446,17 @@ export class ReportsService {
       order: { updatedAt: 'DESC' },
     });
 
-    // MRR pricing by plan
-    const planPricing: Record<string, number> = {
-      [TenantPlan.TRIAL]: 0,
-      [TenantPlan.STARTER]: 99,
-      [TenantPlan.PROFESSIONAL]: 299,
-      [TenantPlan.ENTERPRISE]: 499,
-    };
+    // MRR from the billing SSoT, never an in-code tier table (APA-147).
+    const monthlyPriceByTenant = await this.resolveMonthlyPrices(
+      cancelledTenants.map((t) => t.id),
+    );
 
     // Transform to report format
     const data: ChurnReportRow[] = cancelledTenants.map(tenant => {
       const createdDate = tenant.createdAt ? new Date(tenant.createdAt) : new Date();
       const cancelDate = tenant.updatedAt ? new Date(tenant.updatedAt) : new Date();
       const usageDays = Math.floor((cancelDate.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
-      const monthlyPrice = planPricing[tenant.plan] || 0;
+      const monthlyPrice = monthlyPriceByTenant.get(tenant.id) ?? 0;
       const lifetimeMonths = Math.max(1, Math.ceil(usageDays / 30));
 
       return {
@@ -468,8 +465,8 @@ export class ReportsService {
         plan: tenant.plan,
         cancelDate: cancelDate.toISOString().substring(0, 10),
         reason: 'Unknown', // Would need a separate field to track cancellation reasons
-        mrr: monthlyPrice,
-        lifetimeValue: monthlyPrice * lifetimeMonths,
+        mrr: round2(monthlyPrice),
+        lifetimeValue: round2(monthlyPrice * lifetimeMonths),
         usageDays,
       };
     });
@@ -505,15 +502,15 @@ export class ReportsService {
     const startDate = request.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const endDate = request.endDate || new Date();
 
-    const planPricing: Record<string, number> = {
-      [TenantPlan.TRIAL]: 0,
-      [TenantPlan.STARTER]: 99,
-      [TenantPlan.PROFESSIONAL]: 299,
-      [TenantPlan.ENTERPRISE]: 499,
-    };
-
     // Fetch all tenants with their creation dates and plans
     const tenants = await this.tenantRepository.find();
+
+    // MRR from the billing SSoT, never an in-code tier table (APA-147).
+    // NOTE: this report still projects TODAY's subscription price backwards onto
+    // every historical day, so it rewrites history on a repricing or a plan
+    // change. That is the separate, larger APA-139 — this change only removes
+    // the second pricing source, it does not yet make the series temporal.
+    const monthlyPriceByTenant = await this.resolveMonthlyPrices(tenants.map((t) => t.id));
 
     // Build daily revenue data for the requested date range
     const data: RevenueReportRow[] = [];
@@ -536,7 +533,7 @@ export class ReportsService {
 
         // Only count active or pending tenants that existed by this date
         if (tenant.status === TenantStatus.ACTIVE || tenant.status === TenantStatus.PENDING) {
-          const monthlyPrice = planPricing[tenant.plan] || 0;
+          const monthlyPrice = monthlyPriceByTenant.get(tenant.id) ?? 0;
           // Prorate monthly price to a daily amount
           dailyRevenue += monthlyPrice / 30;
 
@@ -693,6 +690,55 @@ export class ReportsService {
         collectionRate: billed > 0 ? Math.round((collected / billed) * 100) : null,
       },
     };
+  }
+
+  /**
+   * `tenantId -> monthly price`, read from the billing SSoT.
+   *
+   * The ONE place any report turns a tenant into a monthly figure (APA-147).
+   * Three byte-identical in-code tier tables used to do this, so a repricing, a
+   * negotiated plan, a $0 tier or a non-monthly cycle made every report
+   * contradict the dashboard's MRR on the same screen.
+   *
+   * A tenant absent from the map has no live subscription; the caller decides
+   * what that means (usually 0). Only ACTIVE and TRIAL subscriptions are read:
+   * `billing.subscriptions` keeps churned history as soft-deleted rows, and the
+   * read-model projects no `is_deleted` column, so an unfiltered `find()` can
+   * return a cancelled subscription's price. Filtering on the live statuses
+   * expresses the intent — "what is this tenant paying now" — without depending
+   * on a column this projection does not carry.
+   *
+   * Ties are broken by the LATER `startDate`, then by the lexically greater id,
+   * so the result is deterministic even if two rows share a start date.
+   */
+  private async resolveMonthlyPrices(tenantIds: readonly string[]): Promise<Map<string, number>> {
+    const unique = [...new Set(tenantIds)];
+    if (unique.length === 0) {
+      return new Map();
+    }
+    const subscriptions = await this.subscriptionRepository.find({
+      where: {
+        tenantId: In(unique),
+        status: In([SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL]),
+      },
+    });
+
+    const latest = new Map<string, SubscriptionReadOnly>();
+    for (const subscription of subscriptions) {
+      const incumbent = latest.get(subscription.tenantId);
+      if (
+        !incumbent ||
+        subscription.startDate.getTime() > incumbent.startDate.getTime() ||
+        (subscription.startDate.getTime() === incumbent.startDate.getTime() &&
+          subscription.id > incumbent.id)
+      ) {
+        latest.set(subscription.tenantId, subscription);
+      }
+    }
+
+    return new Map(
+      [...latest].map(([tenantId, subscription]) => [tenantId, monthlyPriceOf(subscription)]),
+    );
   }
 
   /**

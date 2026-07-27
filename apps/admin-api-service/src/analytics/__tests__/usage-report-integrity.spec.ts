@@ -29,6 +29,7 @@ import {
   UserMetrics,
 } from '../entities/analytics-snapshot.entity';
 import { InvoiceReadOnly } from '../entities/external/invoice.entity';
+import { SubscriptionReadOnly } from '../entities/external/subscription.entity';
 import { TenantReadOnly } from '../entities/external/tenant.entity';
 import { UserReadOnly } from '../entities/external/user.entity';
 import { AnalyticsService } from '../services/analytics.service';
@@ -82,6 +83,8 @@ async function buildService(usage: UsageMetrics): Promise<ReportsService> {
       { provide: getRepositoryToken(UserReadOnly), useValue: repo },
       // billing.invoices is the payments report's SSoT (APA-138).
       { provide: getRepositoryToken(InvoiceReadOnly), useValue: { find: jest.fn().mockResolvedValue([]) } },
+      // billing.subscriptions is the pricing SSoT (APA-147).
+      { provide: getRepositoryToken(SubscriptionReadOnly), useValue: { find: jest.fn().mockResolvedValue([]) } },
       { provide: getRepositoryToken(ReportDefinition), useValue: repo },
       { provide: getRepositoryToken(ReportExecution), useValue: repo },
       {

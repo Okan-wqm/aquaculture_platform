@@ -465,6 +465,23 @@ export interface MealPour {
   corrections?: number;
 }
 
+/**
+ * Öğün öncesi oksijen verdikti (W7 — FARM-MEDIUM-271).
+ *
+ * sensor-service YALNIZ olumsuz verdikt yayar, bu yüzden alanın YOKLUĞU
+ * "oksijen yeterli" DEĞİL, "olumsuz sinyal gelmedi"dir (ünitenin DO sensörü
+ * olmayabilir, protokolde taban tanımlı olmayabilir). UI bu ayrımı korur:
+ * rozet yalnız damga varken çıkar, yeşil bir "onay" rozeti gösterilmez.
+ */
+export interface MealReadinessView {
+  status: 'low_oxygen' | 'no_reading';
+  minDissolvedOxygen: number;
+  observedDissolvedOxygen?: number;
+  observedAt?: string;
+  lowOxygenReductionPercent?: number;
+  evaluatedAt: string;
+}
+
 export interface FeedingMealView {
   id: string;
   dayPlanId: string;
@@ -485,6 +502,7 @@ export interface FeedingMealView {
   feedingMethod?: string;
   recalculatedAt?: string;
   notes?: string;
+  readiness?: MealReadinessView | null;
 }
 
 export interface FeedingDayPlanView {

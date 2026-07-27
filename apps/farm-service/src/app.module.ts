@@ -54,6 +54,7 @@ import {
   isSchemaDdlOwnedByDbMigrate,
   TenantSchemaCacheModule,
 } from '@aquaculture/backend-common/database';
+import { DeadLetterModule } from '@aquaculture/backend-common/events';
 import { createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('farm');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
@@ -326,6 +327,12 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
       inject: [ConfigService],
       useFactory: buildEventBusConfig,
     }),
+
+    // W7/FARM-MEDIUM-260 — inbound delivery shelf. `farm.event_dlq` has existed
+    // as DDL since the canonical outbox/inbox migration but had NO writer; the
+    // tenant-localization + sensor-temperature projection listeners rethrow, so
+    // an exhausted message now lands here instead of evaporating.
+    DeadLetterModule.forRoot({ schema: 'farm', source: 'farm-service' }),
 
     // Database module (audit, code generation, migration runner)
     DatabaseModule,

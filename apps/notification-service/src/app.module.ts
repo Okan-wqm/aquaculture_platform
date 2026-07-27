@@ -22,6 +22,7 @@ import {
   getRlsExcludeTablesForService,
   SchemaDriftModule,
 } from '@aquaculture/backend-common/database';
+import { DeadLetterModule } from '@aquaculture/backend-common/events';
 import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
@@ -187,6 +188,10 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       inject: [ConfigService],
       useFactory: buildEventBusConfig,
     }),
+    // W7/FARM-MEDIUM-260 — inbound delivery shelf. `FeedingDailySummary` is
+    // one-shot (farm's feeding_job_runs claim prevents a second emission), so a
+    // lost delivery loses the digest itself.
+    DeadLetterModule.forRoot({ schema: 'notification', source: 'notification-service' }),
     NotificationOutboxModule,
     TenantErasureTargetModule.forService('notification-service'),
 

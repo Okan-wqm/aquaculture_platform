@@ -66,6 +66,7 @@ import {
 } from './edge-device/entities/v2';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { HealthModule } from './health/health.module';
+import { FeedingWindowModule } from './feeding-window/feeding-window.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { SensorMetricsModule } from './metrics/metrics.module';
 import { ScadaRuntimeModule } from './scada-runtime/scada-runtime.module';
@@ -411,6 +412,9 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
 
     // Data ingestion module (MQTT listener, data processing)
     IngestionModule,
+    // W7/FARM-MEDIUM-271 — pre-meal oxygen readiness: the real consumer of
+    // farm's MealWindowUpcoming (previously a dead-end event).
+    FeedingWindowModule,
 
     // SCADA operator runtime: the /scada WebSocket gateway (tag subscribe /
     // write / alarm ack), tag manager, alarm engine, DAQ storage. Without

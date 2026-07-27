@@ -167,6 +167,7 @@ export default {
         '<rootDir>/stabilization-manifest.spec.ts',
         '<rootDir>/runtime-lifecycle-timer-ssot.spec.ts',
         '<rootDir>/mobile-csp-headers.spec.ts',
+        '<rootDir>/feeding-event-delivery-semantics.spec.ts',
       ],
     },
     {

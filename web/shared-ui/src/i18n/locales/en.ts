@@ -272,6 +272,13 @@ export const en = {
   'feedingV2.mealBoard.highWeightCv': 'High weight spread',
   'feedingV2.mealBoard.highWeightCvTitle':
     'Weight variation between batches is high — the shared feed band may not fit every batch',
+  // W7/FARM-MEDIUM-271 — pre-meal oxygen verdict (sensor-service).
+  'feedingV2.mealBoard.lowOxygen': 'Low O₂',
+  'feedingV2.mealBoard.lowOxygenTitle':
+    'Pre-meal dissolved oxygen {{observed}} mg/L — below the protocol floor of {{min}} mg/L',
+  'feedingV2.mealBoard.noOxygenReading': 'No O₂ reading',
+  'feedingV2.mealBoard.noOxygenReadingTitle':
+    'The unit has a DO sensor but no fresh reading — the protocol’s {{min}} mg/L oxygen guard could not be verified',
   'feedingV2.mealBoard.biomass': 'Biomass',
   'feedingV2.mealBoard.fishCount': 'Fish',
   'feedingV2.mealBoard.avgWeight': 'Avg weight',

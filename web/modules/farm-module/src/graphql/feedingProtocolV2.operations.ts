@@ -202,6 +202,10 @@ const FEEDING_MEAL_FIELDS = `
   feedingMethod
   recalculatedAt
   notes
+  # W7/FARM-MEDIUM-271 — sensor-service'in öğün öncesi oksijen verdikti.
+  # NULL = "olumsuz sinyal gelmedi" (olumlu onay DEĞİL) — rozet yalnız
+  # dolu geldiğinde gösterilir.
+  readiness
 `;
 
 const FEEDING_DAY_PLAN_FIELDS = `

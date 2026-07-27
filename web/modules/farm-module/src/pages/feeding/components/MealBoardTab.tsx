@@ -437,6 +437,32 @@ export function MealBoardTab(): React.ReactElement {
                         >
                           {t(MEAL_STATUS_KEY[meal.status])}
                         </span>
+                        {/*
+                          W7/FARM-MEDIUM-271 — öğün öncesi oksijen verdikti.
+                          Damganın YOKLUĞU bir onay değildir (ünitenin DO
+                          sensörü olmayabilir), bu yüzden olumlu rozet YOK.
+                        */}
+                        {meal.readiness && (
+                          <span
+                            className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800"
+                            title={
+                              meal.readiness.status === 'low_oxygen'
+                                ? t('feedingV2.mealBoard.lowOxygenTitle', {
+                                    observed: (meal.readiness.observedDissolvedOxygen ?? 0).toFixed(
+                                      1,
+                                    ),
+                                    min: meal.readiness.minDissolvedOxygen.toFixed(1),
+                                  })
+                                : t('feedingV2.mealBoard.noOxygenReadingTitle', {
+                                    min: meal.readiness.minDissolvedOxygen.toFixed(1),
+                                  })
+                            }
+                          >
+                            {meal.readiness.status === 'low_oxygen'
+                              ? t('feedingV2.mealBoard.lowOxygen')
+                              : t('feedingV2.mealBoard.noOxygenReading')}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-2 text-xs text-gray-600">
                         {(meal.pours ?? []).map((pour) => (

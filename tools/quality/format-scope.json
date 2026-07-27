@@ -4050,6 +4050,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/alert-engine/src/database/migrations/1801100000000-CreateAlertEventDlq.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/alert-engine/src/escalation/__tests__/acknowledgment-tracker.service.spec.ts",
       "prettier_managed": true
     },
@@ -9795,6 +9801,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1807500000000-AddFeedingMealReadiness.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -11170,6 +11182,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/handlers/protocol-crud.handlers.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/listeners/feeding-window-readiness.listener.ts",
       "prettier_managed": true
     },
     {
@@ -22549,6 +22567,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/notification-service/src/database/migrations/1801100000000-CreateNotificationEventDlqAndSummaryReceipt.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/notification-service/src/filters/global-exception.filter.ts",
       "prettier_managed": true
     },
@@ -24228,6 +24252,30 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/edge-device/tenant-key.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/feeding-window/__tests__/feeding-window-readiness.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/feeding-window/feeding-window-readiness.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/feeding-window/feeding-window.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/feeding-window/feeding-window.module.ts",
       "prettier_managed": true
     },
     {
@@ -33511,6 +33559,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/runbooks/feeding-event-stream-scale.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/feeding-v1-retirement.md",
       "prettier_managed": true
     },
@@ -36442,6 +36496,30 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/events/dead-letter.contract.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/events/dead-letter.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/events/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/events/typeorm-dead-letter.sink.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/filters/http-exception.filter.ts",
       "prettier_managed": true
     },
@@ -37733,6 +37811,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/enums/tenant-status.machine.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/event-delivery-semantics.ts",
       "prettier_managed": true
     },
     {
@@ -39606,6 +39690,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "platform/libs/event-bus/src/nats/__tests__/message-disposition.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "platform/libs/event-bus/src/nats/__tests__/nats-event-bus.signals.spec.ts",
       "prettier_managed": true
     },
@@ -39619,6 +39709,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "platform/libs/event-bus/src/nats/event-bus-config.factory.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/event-bus/src/nats/message-disposition.ts",
       "prettier_managed": true
     },
     {
@@ -41611,6 +41707,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/federation-shared-singleton.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/feeding-event-delivery-semantics.spec.ts",
       "prettier_managed": true
     },
     {
@@ -55044,10 +55146,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9023,
+  "file_count": 9040,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8842,
-  "managed_file_list_sha256": "3a689b5129a799f177bf56d5d3c59709b41baf6900d87c2497fcff8a1cf1d356",
+  "managed_count": 8859,
+  "managed_file_list_sha256": "e0697e18a7e0431342a59c7b751bf8cb78121ee1e173276e943f2994e0284422",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

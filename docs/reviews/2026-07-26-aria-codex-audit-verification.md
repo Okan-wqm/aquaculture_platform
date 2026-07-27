@@ -85,6 +85,8 @@ report's `P0-*` / `NEW-*` labels are the analysis names and these are the tracke
 | `ORPHAN-MEDIUM-459` | claim re-verification | MEDIUM | `apply_resource_limits` had zero production callers; a write-capable agent spawn was bounded by nothing |
 | `ORPHAN-CRITICAL-460` | fresh coverage lens | CRITICAL | a shell operator after an allowed prefix bypassed the allowlist, the denylist and the force-push check at once |
 | `ORPHAN-CRITICAL-461` | fresh coverage lens | CRITICAL | broader-scope claims, globs, empty surface lists, an echoed test suite, and every gh-api route that writes `main` all passed |
+| `ORPHAN-HIGH-462` | fresh coverage lens | HIGH | a specialist submitting garbage was recorded as a clean review, so hardening two sides of the gate made garbage better than silence |
+| `ORPHAN-MEDIUM-463` | observed in CI | MEDIUM | `deploy-ssot-contract`'s hostile-filename test is flaky under parallel workers, in a required check |
 
 Every ID above is listed here on purpose: this document is the `Closes:` target for all of them, and
 a trailer pointing at a file that does not name the finding is traceability theatre. Remaining
@@ -1236,6 +1238,45 @@ ARIA's real surface is tiny: the only two production call sites are `commits/{sh
 pre-PR-open exit-criterion test caught it, not me.** Worth recording as the counter-example to
 everything else in this document: a gate that was already there, doing its job, on the first change
 that broke it.
+
+### `ORPHAN-HIGH-462` — hardening two sides of a gate created a perverse incentive on the third
+
+`transform_specialist_output` returns `[]` both for "reviewed, found nothing" and for any content it
+cannot parse. `_findings_from_accepted_result` passed that straight back, so a specialist whose
+entire output was *"I ran out of context and could not complete this review"* produced
+`consolidated_no_gaps` and did not block. The function's own docstring said *"returning an empty
+findings list here would read as this specialist found nothing"* — while the code did exactly that.
+
+What makes it worse than a plain fail-open is what this branch did around it. `ORPHAN-HIGH-423` made
+non-delivery block; `ORPHAN-HIGH-443` made an unrecognised verdict block. Between them they left a
+degraded or hostile agent exactly one path that still cleared the gate: **submit garbage.** Closing
+two sides of a gate without looking at the third turned "do nothing" into the worse option and
+"submit noise" into the better one.
+
+The fix does not invent a marker. `.claude/shared/output-format.md` — the contract every Lane-A
+specialist already writes to — mandates a `## Verdict` section, and the transformer already
+recognises inline `VERDICT:` / `RULING:` forms. A zero-finding report must now carry one; a report
+with findings needs no separate assertion, because findings are themselves evidence a review
+happened. This needed no agent-prompt change, which matters: `.claude/agents/` is operator-only under
+`READONLY_PATHS`, so a fix requiring prompt edits would have been unlandable here.
+
+Both halves are pinned. Four not-a-review forms block; three sanctioned clean-review forms pass. The
+second half is not decoration — **a gate a clean review cannot pass is not fail-closed, it is broken,
+and it gets disabled.**
+
+### `ORPHAN-MEDIUM-463` — the required gate that fails for reasons unrelated to the diff
+
+`invariants-fast` went red on `deploy-ssot-contract.spec.ts:807` on head `00e0e8149`. The three
+commits before it touched `implementation_safety.py`, its test, and docs/registry files; that spec
+drives shell capacity-diagnostic code with a fake `du` binary and reads none of them, so the failure
+is **causally unreachable from the diff**. Locally it passes 27/27 five times in isolation, and three
+consecutive full `invariants:fast` runs show only the two known `backup-production-secrets` failures.
+
+Registered rather than re-run and forgotten. An intermittently red required gate is a reliability
+defect on its own: it trains reviewers to re-run instead of read, which is how a real failure
+eventually gets waved through. Not fixed here — the root cause is a race in deploy capacity tooling,
+a different domain from this branch, and guessing at a timing fix without reproducing it is how the
+next finding gets created.
 
 ## 10. Limits of this verification
 

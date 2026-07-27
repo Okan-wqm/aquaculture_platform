@@ -23,6 +23,8 @@ Locked cases:
     and its findings reach the consolidated verdict
   * I-GATE-07 — a specialist whose accepted output is unreadable counts as
     non-delivery, not as a clean review
+  * I-GATE-07b/c — a zero-finding review must ASSERT itself; unparseable
+    output is non-delivery, and an asserted clean review still passes
   * I-GATE-08 — an unsatisfiable specialist gate blocks in every
     write-capable profile, not only strict
   * I-GATE-09 — the orchestrator delegates that decision to the extracted
@@ -303,6 +305,75 @@ class SpecialistGateEvidenceBinding(unittest.TestCase):
             msg="an unreadable output must not register as zero findings",
         )
         self.assertTrue(result["specialists_timed_out"])
+
+    # I-GATE-07b — a zero-finding review must be asserted, not inferred.
+    def test_i_gate_07b_unparseable_output_is_not_a_clean_review(self) -> None:
+        """ORPHAN-HIGH-462 — the perverse incentive this branch created.
+
+        `transform_specialist_output` returns `[]` for anything it cannot
+        parse, and `[]` was passed back as "reviewed, found nothing". So a
+        specialist whose whole output was an apology was recorded as a clean
+        domain review and the consolidated verdict came back
+        `consolidated_no_gaps`.
+
+        What makes it worse than a plain fail-open is the surrounding work:
+        I-GATE-07 made non-delivery block and I-GATE-08b made an unrecognised
+        verdict block, so submitting GARBAGE became strictly better for a
+        degraded or hostile agent than submitting nothing. It was the last
+        path that still cleared the gate.
+        """
+        from aria_kernel.specialist_review_runner import (
+            _findings_from_accepted_result,
+        )
+
+        not_a_review = {
+            "an apology": "I ran out of context and could not complete this review.\n",
+            "empty": "",
+            "unrelated prose": "Some notes.\n\nIt looks fine to me.\n",
+            "the word verdict mid-sentence": "My verdict is that things are fine.\n",
+        }
+        for label, body in not_a_review.items():
+            with self.subTest(case=label):
+                output = Path(self._tmp.name) / "specialist-output.md"
+                output.write_text(body, encoding="utf-8")
+                self.assertIsNone(
+                    _findings_from_accepted_result(
+                        agent_name="auth-security-expert",
+                        accepted={"output_path": output.as_posix()},
+                        workspace_root=None,
+                    ),
+                    msg=f"{label!r} was accepted as a review",
+                )
+
+    def test_i_gate_07c_an_asserted_clean_review_is_accepted(self) -> None:
+        """The other half: the gate must stay satisfiable.
+
+        A gate a clean review cannot pass is not fail-closed, it is broken,
+        and it gets disabled. These are the three forms
+        `.claude/shared/output-format.md` sanctions.
+        """
+        from aria_kernel.specialist_review_runner import (
+            _findings_from_accepted_result,
+        )
+
+        asserted = {
+            "## Verdict heading": "## Findings\nNone.\n\n## Verdict\nPASS\n",
+            "VERDICT: inline": "No issues found.\n\nVERDICT: PASS\n",
+            "RULING: inline": "RULING: no architectural conflict\n",
+        }
+        for label, body in asserted.items():
+            with self.subTest(case=label):
+                output = Path(self._tmp.name) / "specialist-output.md"
+                output.write_text(body, encoding="utf-8")
+                self.assertEqual(
+                    _findings_from_accepted_result(
+                        agent_name="auth-security-expert",
+                        accepted={"output_path": output.as_posix()},
+                        workspace_root=None,
+                    ),
+                    [],
+                    msg=f"{label!r} was rejected as non-delivery",
+                )
 
     # I-GATE-08 — the gate blocks in every write-capable profile.
     def test_i_gate_08_unavailable_blocks_outside_observe(self) -> None:

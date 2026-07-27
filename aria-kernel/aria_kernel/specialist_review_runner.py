@@ -42,6 +42,7 @@ kwarg directly; production CLI uses
 
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypedDict
@@ -589,10 +590,30 @@ def _findings_from_accepted_result(
 ) -> list[dict[str, Any]] | None:
     """ORPHAN-HIGH-423 — parse a specialist's accepted result into findings.
 
-    Returns ``None`` when the accepted row exists but its output cannot be
-    read, which the caller treats as non-delivery. An unreadable review is
-    not a clean review: returning an empty findings list here would read
-    as "this specialist found nothing".
+    Returns ``None`` when the accepted row exists but its output is not a
+    review, which the caller treats as non-delivery. An unreadable review is
+    not a clean review: returning an empty findings list here would read as
+    "this specialist found nothing".
+
+    ORPHAN-HIGH-462 — that sentence was in this docstring while the code did
+    exactly what it warns against. ``transform_specialist_output`` returns
+    ``[]`` for any content it cannot parse, and ``[]`` was passed straight
+    back, so a specialist whose entire output was *"I ran out of context and
+    could not complete this review"* was recorded as a clean domain review
+    and the consolidated verdict came back ``consolidated_no_gaps``.
+
+    That is worse than a plain fail-open, because of what this branch changed
+    around it: ORPHAN-HIGH-423 made non-delivery block, and ORPHAN-HIGH-443
+    made an unrecognised verdict block. So a degraded or hostile agent got a
+    **strictly better outcome by submitting garbage than by not submitting at
+    all** — the one path left that still cleared the gate.
+
+    A zero-finding review must therefore be ASSERTED, never inferred. The
+    assertion already exists in the contract every Lane-A specialist writes
+    to: `.claude/shared/output-format.md` mandates a ``## Verdict`` section.
+    Requiring it needs no change to any agent prompt — which matters, because
+    `.claude/agents/` is operator-only under READONLY_PATHS — and it makes a
+    documented contract enforced rather than assumed.
 
     Lane-A specialists emit markdown, so the payload goes through
     :func:`transform_specialist_output`, which fact-checks every
@@ -609,11 +630,28 @@ def _findings_from_accepted_result(
         raw = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return None
-    return transform_specialist_output(
+    findings = transform_specialist_output(
         agent_name=agent_name,
         raw_markdown=raw,
         workspace_root=Path(workspace_root) if workspace_root is not None else None,
     )
+    if findings:
+        # Findings ARE the evidence a review happened.
+        return findings
+    if _CLEAN_REVIEW_ASSERTION.search(raw):
+        return []
+    return None
+
+
+# `## Verdict` (the section `.claude/shared/output-format.md` mandates), or the
+# inline `VERDICT:` / `RULING:` forms `transform_specialist_output` already
+# recognises. Deliberately narrow: the point is that a clean review says so in
+# the shape the contract specifies, and prose that merely contains the word
+# "verdict" mid-sentence does not clear a gate.
+_CLEAN_REVIEW_ASSERTION = re.compile(
+    r"^\s*(?:#{1,6}\s*)?(?:VERDICT|RULING)\s*:?\s*$|^\s*(?:VERDICT|RULING)\s*:\s*\S",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 def select_specialist_review_runner(profile: str = "standard") -> SpecialistReviewRunner:

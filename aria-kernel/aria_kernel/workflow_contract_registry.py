@@ -140,14 +140,18 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
             WorkflowJobContract(
                 job_id="executor",
                 preflight_step="Persist enterprise workflow preflight",
-                first_governed_mutation_step="Handoff snapshot — session_start",
+                first_governed_mutation_step="Restore aria-tools state from previous run",
+                # ORPHAN-CRITICAL-420 S1 — the executor restores and
+                # republishes the whole aria-tools tree to bridge the
+                # agent-invocation queue across the 01:00/02:00 lane
+                # boundary, so its write root is the tree, as the producer
+                # cycle's already is. The pre-S1 six-file list could not
+                # survive the move: the preflight must run BEFORE the
+                # restore (workflow_contracts rejects a preflight after the
+                # first governed mutation), and before the restore there is
+                # no request_id with which to name request-scoped paths.
                 allowed_write_path_patterns=(
-                    r"^aria-tools/governance\.jsonl$",
-                    r"^aria-tools/handoffs\.jsonl$",
-                    r"^aria-tools/agent-invocations/claims\.jsonl$",
-                    r"^aria-tools/agent-invocations/results\.jsonl$",
-                    r"^aria-tools/agent-invocations/outputs/[A-Za-z0-9_.-]{1,80}$",
-                    r"^aria-tools/agent-invocations/prompts/[A-Za-z0-9_.-]{1,80}$",
+                    r"^aria-tools(/.*)?$",
                 ),
                 preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-agent-executor-preflight\.json$",
                 upload_artifact_name_pattern=rf"^aria-response-{_REQUEST_ID}$",
@@ -156,7 +160,9 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     rf"^aria-tools/agent-invocations/outputs/{_REQUEST_ID}\.transcript\.jsonl$",
                 ),
                 retention_days=7,
-                required_permissions=(("contents", "read"),),
+                # actions:read — locate + download the prior aria-tools-state
+                # artifact (ORPHAN-CRITICAL-420 S1 queue bridge).
+                required_permissions=(("contents", "read"), ("actions", "read")),
                 token_source="github_actions_artifact_token",
                 network_policy=("github_artifact",),
                 dlp_artifact="aria-agent-executor-preflight.json",

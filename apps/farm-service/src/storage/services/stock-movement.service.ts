@@ -177,7 +177,13 @@ export class StockMovementService {
       });
       if (existing) {
         this.logger.log(`Idempotent hit: movement ${existing.id} for key ${input.idempotencyKey}`);
-        return { saved: existing, currentTotal: 0, idempotentHit: true, warnings: [], lowStock: null };
+        return {
+          saved: existing,
+          currentTotal: 0,
+          idempotentHit: true,
+          warnings: [],
+          lowStock: null,
+        };
       }
     }
 
@@ -196,10 +202,16 @@ export class StockMovementService {
     // they authorize at their own sink on the feeding site.
     if (ctx.siteAuthorization) {
       if (fromLocation) {
-        this.siteAuth.assertSiteAssignment({ caller: ctx.siteAuthorization, siteId: fromLocation.siteId });
+        this.siteAuth.assertSiteAssignment({
+          caller: ctx.siteAuthorization,
+          siteId: fromLocation.siteId,
+        });
       }
       if (toLocation) {
-        this.siteAuth.assertSiteAssignment({ caller: ctx.siteAuthorization, siteId: toLocation.siteId });
+        this.siteAuth.assertSiteAssignment({
+          caller: ctx.siteAuthorization,
+          siteId: toLocation.siteId,
+        });
       }
     }
 
@@ -224,9 +236,16 @@ export class StockMovementService {
 
     if (fromLocation) {
       await this.decreaseInventory(
-        inventoryRepo, tenantId, fromLocation.id,
-        itemType, itemId, quantity, itemDetails.unit,
-        input.lotNumber, userId, asOfDate,
+        inventoryRepo,
+        tenantId,
+        fromLocation.id,
+        itemType,
+        itemId,
+        quantity,
+        itemDetails.unit,
+        input.lotNumber,
+        userId,
+        asOfDate,
       );
     }
 
@@ -252,9 +271,16 @@ export class StockMovementService {
 
     if (toLocation) {
       await this.increaseInventory(
-        inventoryRepo, tenantId, toLocation.id,
-        itemType, itemId, quantity, itemDetails.unit,
-        input.lotNumber, input.expiryDate, userId,
+        inventoryRepo,
+        tenantId,
+        toLocation.id,
+        itemType,
+        itemId,
+        quantity,
+        itemDetails.unit,
+        input.lotNumber,
+        input.expiryDate,
+        userId,
       );
     }
 
@@ -289,7 +315,10 @@ export class StockMovementService {
     // low-stock detection on stock-reducing movements only.
     let currentTotal = 0;
     let lowStock: RecordMovementResult['lowStock'] = null;
-    if (fromLocation && (movementType === MovementType.OUT || movementType === MovementType.WASTE)) {
+    if (
+      fromLocation &&
+      (movementType === MovementType.OUT || movementType === MovementType.WASTE)
+    ) {
       const stockResult = await tenantManagerRepo(manager, StorageInventory, tenantId)
         .createQueryBuilder('inv')
         .select('COALESCE(SUM(inv.quantity), 0)', 'total')
@@ -306,7 +335,10 @@ export class StockMovementService {
       // FARM-HIGH-217 leg of the dead alert chain).
       const minStock = Number(itemDetails.minStock ?? 0);
       if (currentTotal <= 0) {
-        lowStock = { severity: 'out_of_stock', minimumThreshold: minStock > 0 ? minStock : undefined };
+        lowStock = {
+          severity: 'out_of_stock',
+          minimumThreshold: minStock > 0 ? minStock : undefined,
+        };
       } else if (minStock > 0 && currentTotal <= minStock) {
         lowStock = { severity: 'low_stock', minimumThreshold: minStock };
       }
@@ -390,10 +422,17 @@ export class StockMovementService {
         .andWhere('(inv.expiryDate IS NULL OR inv.expiryDate > :today)', { today: new Date() })
         .andWhere('(inv.receivedDate IS NULL OR inv.receivedDate <= :asOf)', { asOf });
       if (scopeSiteId) {
+        // Join şartı TypeORM PROPERTY sözdiziminde yazılır (`inv.storageLocationId`),
+        // tırnaklı kolon adıyla DEĞİL: `StorageInventory.storageLocationId` →
+        // `storage_location_id`, `StorageLocation.siteId` → `site_id` (entity'de
+        // açık `name:`). Tırnaklı `inv."storageLocationId"` ifadesini TypeORM
+        // property-eşlemesine sokmaz, SQL'e birebir geçirir ve her site-kapsamlı
+        // düşüm `42703 column inv.storageLocationId does not exist` ile patlardı
+        // (FARM-CRITICAL-237). Eşleme sorumluluğu ORM'de kalır.
         query.innerJoin(
           StorageLocation,
           'loc',
-          'loc.id = inv."storageLocationId" AND loc."siteId" = :scopeSiteId',
+          'loc.id = inv.storageLocationId AND loc.siteId = :scopeSiteId',
           { scopeSiteId },
         );
       }
@@ -466,13 +505,17 @@ export class StockMovementService {
 
     if (movementType === MovementType.ADJUSTMENT) {
       if (!input.toLocationId && !input.fromLocationId) {
-        throw new BadRequestException('Either fromLocationId or toLocationId is required for adjustments');
+        throw new BadRequestException(
+          'Either fromLocationId or toLocationId is required for adjustments',
+        );
       }
       if (input.toLocationId) {
         toLocation = await locationRepo.findOne({ where: { id: input.toLocationId, tenantId } });
       }
       if (input.fromLocationId) {
-        fromLocation = await locationRepo.findOne({ where: { id: input.fromLocationId, tenantId } });
+        fromLocation = await locationRepo.findOne({
+          where: { id: input.fromLocationId, tenantId },
+        });
       }
     }
 
@@ -481,17 +524,41 @@ export class StockMovementService {
 
   private async getItemDetails(
     manager: EntityManager,
-    itemType: StorageItemType, itemId: string, tenantId: string,
-  ): Promise<{ name: string; unit: string; minStock?: number; manufacturer?: string; storageTempMin?: number; storageTempMax?: number; storageHumidityMin?: number; storageHumidityMax?: number } | null> {
+    itemType: StorageItemType,
+    itemId: string,
+    tenantId: string,
+  ): Promise<{
+    name: string;
+    unit: string;
+    minStock?: number;
+    manufacturer?: string;
+    storageTempMin?: number;
+    storageTempMax?: number;
+    storageHumidityMin?: number;
+    storageHumidityMax?: number;
+  } | null> {
     switch (itemType) {
       case StorageItemType.FEED: {
-        const feed = await tenantManagerRepo(manager, Feed, tenantId).findOne({ where: { id: itemId, tenantId } });
+        const feed = await tenantManagerRepo(manager, Feed, tenantId).findOne({
+          where: { id: itemId, tenantId },
+        });
         return feed
-          ? { name: feed.name, unit: feed.unit, minStock: feed.minStock, manufacturer: feed.manufacturer, storageTempMin: feed.storageTempMin, storageTempMax: feed.storageTempMax, storageHumidityMin: feed.storageHumidityMin, storageHumidityMax: feed.storageHumidityMax }
+          ? {
+              name: feed.name,
+              unit: feed.unit,
+              minStock: feed.minStock,
+              manufacturer: feed.manufacturer,
+              storageTempMin: feed.storageTempMin,
+              storageTempMax: feed.storageTempMax,
+              storageHumidityMin: feed.storageHumidityMin,
+              storageHumidityMax: feed.storageHumidityMax,
+            }
           : null;
       }
       case StorageItemType.CHEMICAL: {
-        const chem = await tenantManagerRepo(manager, Chemical, tenantId).findOne({ where: { id: itemId, tenantId } });
+        const chem = await tenantManagerRepo(manager, Chemical, tenantId).findOne({
+          where: { id: itemId, tenantId },
+        });
         return chem
           ? {
               name: chem.name,
@@ -508,7 +575,9 @@ export class StockMovementService {
       case StorageItemType.HEALTHCARE: {
         // Healthcare products (medications, vaccines) share the consumable
         // table — a unified entity with healthcare-specific categories.
-        const cons = await tenantManagerRepo(manager, Consumable, tenantId).findOne({ where: { id: itemId, tenantId } });
+        const cons = await tenantManagerRepo(manager, Consumable, tenantId).findOne({
+          where: { id: itemId, tenantId },
+        });
         return cons
           ? {
               name: cons.name,
@@ -527,7 +596,12 @@ export class StockMovementService {
   }
 
   private checkConditionWarnings(
-    item: { storageTempMin?: number; storageTempMax?: number; storageHumidityMin?: number; storageHumidityMax?: number },
+    item: {
+      storageTempMin?: number;
+      storageTempMax?: number;
+      storageHumidityMin?: number;
+      storageHumidityMax?: number;
+    },
     location: StorageLocation,
     warnings: ConditionWarning[],
   ): void {
@@ -586,10 +660,14 @@ export class StockMovementService {
    */
   private async decreaseInventory(
     repo: TenantScopedRepository<StorageInventory>,
-    tenantId: string, locationId: string,
-    itemType: StorageItemType, itemId: string,
-    quantity: number, unit: string,
-    lotNumber: string | undefined, userId: string,
+    tenantId: string,
+    locationId: string,
+    itemType: StorageItemType,
+    itemId: string,
+    quantity: number,
+    unit: string,
+    lotNumber: string | undefined,
+    userId: string,
     asOfDate?: Date,
   ): Promise<void> {
     let inventory: StorageInventory | null;
@@ -608,7 +686,9 @@ export class StockMovementService {
         .andWhere('inv.itemId = :itemId', { itemId })
         .andWhere('inv.quantity > 0')
         .andWhere('(inv.expiryDate IS NULL OR inv.expiryDate > :today)', { today: new Date() })
-        .andWhere('(inv.receivedDate IS NULL OR inv.receivedDate <= :asOf)', { asOf: effectiveAsOf })
+        .andWhere('(inv.receivedDate IS NULL OR inv.receivedDate <= :asOf)', {
+          asOf: effectiveAsOf,
+        })
         .orderBy('inv.expiryDate', 'ASC', 'NULLS LAST')
         .addOrderBy('inv.receivedDate', 'ASC', 'NULLS LAST')
         .addOrderBy('inv.lotNumber', 'ASC')
@@ -638,10 +718,14 @@ export class StockMovementService {
 
   private async increaseInventory(
     repo: TenantScopedRepository<StorageInventory>,
-    tenantId: string, locationId: string,
-    itemType: StorageItemType, itemId: string,
-    quantity: number, unit: string,
-    lotNumber: string | undefined, expiryDate: Date | undefined,
+    tenantId: string,
+    locationId: string,
+    itemType: StorageItemType,
+    itemId: string,
+    quantity: number,
+    unit: string,
+    lotNumber: string | undefined,
+    expiryDate: Date | undefined,
     userId: string,
   ): Promise<void> {
     let inventory = await repo.findOne({
@@ -691,7 +775,9 @@ export class StockMovementService {
    */
   private async updateItemTotalQuantity(
     manager: EntityManager,
-    itemType: StorageItemType, itemId: string, tenantId: string,
+    itemType: StorageItemType,
+    itemId: string,
+    tenantId: string,
   ): Promise<void> {
     const result = await tenantManagerRepo(manager, StorageInventory, tenantId)
       .createQueryBuilder('inv')

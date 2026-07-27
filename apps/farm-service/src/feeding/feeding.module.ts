@@ -24,6 +24,7 @@ import { FarmMobileCommandReceipt } from '../mobile-command/entities/farm-mobile
 // Entities
 import { FeedingTable } from './entities/feeding-table.entity';
 import { FeedingRecord } from './entities/feeding-record.entity';
+import { FeedingRecordAttributionQuarantine } from './entities/feeding-record-attribution-quarantine.entity';
 import { GetFeedingOverviewResponder } from './responders/get-feeding-overview.responder';
 import { FeedInventory } from './entities/feed-inventory.entity';
 import { FeedingProgram } from './entities/feeding-program.entity';
@@ -86,6 +87,7 @@ import { FinanceModule } from '../finance/finance.module';
     TypeOrmModule.forFeature([
       FeedingTable,
       FeedingRecord,
+      FeedingRecordAttributionQuarantine,
       FeedInventory,
       FeedingProgram,
       FeedingProgramTank,

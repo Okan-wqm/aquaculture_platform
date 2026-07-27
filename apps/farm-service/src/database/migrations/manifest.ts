@@ -80,6 +80,8 @@ import { CreateFeedingDayPlanAndMeals1806400000000 } from './1806400000000-Creat
 import { FeedingCutoverActivateAssignments1806500000000 } from './1806500000000-FeedingCutoverActivateAssignments';
 import { BackfillExecutionsToFeedingRecords1806600000000 } from './1806600000000-BackfillExecutionsToFeedingRecords';
 import { FeedingForecastFoundation1806700000000 } from './1806700000000-FeedingForecastFoundation';
+import { BackfillFeedingRecordBatchLocationAttribution1806800000000 } from './1806800000000-BackfillFeedingRecordBatchLocationAttribution';
+import { EnforceSingleLiveAssignmentPerUnit1806900000000 } from './1806900000000-EnforceSingleLiveAssignmentPerUnit';
 import { CreateIncidentMedia1806000000000 } from './1806000000000-CreateIncidentMedia';
 import { WidenRelatedSensorReadingIdToFederationId1806800000000 } from './1806800000000-WidenRelatedSensorReadingIdToFederationId';
 import { AddSiteMonitoringContract1806900000000 } from './1806900000000-AddSiteMonitoringContract';
@@ -177,4 +179,6 @@ export const FARM_MIGRATIONS = [
   AddSatelliteCoverageProvenance1808000000000,
   RestoreAuditImmutabilityContract1808500000000,
   ProtectFeedingRecordBackfillProvenance1808600000000,
+  BackfillFeedingRecordBatchLocationAttribution1806800000000,
+  EnforceSingleLiveAssignmentPerUnit1806900000000,
 ] as const;

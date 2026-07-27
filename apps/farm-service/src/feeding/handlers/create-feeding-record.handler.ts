@@ -56,7 +56,9 @@ import {
 
 @Injectable()
 @CommandHandler(CreateFeedingRecordCommand)
-export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeedingRecordCommand, FeedingRecord> {
+export class CreateFeedingRecordHandler
+  implements ICommandHandler<CreateFeedingRecordCommand, FeedingRecord>
+{
   private readonly logger = new Logger(CreateFeedingRecordHandler.name);
 
   constructor(
@@ -84,9 +86,7 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
     // docs/illustrator/ Girdi 8 — unbounded backdating corrupts
     // downstream FCR / SGR derivations that assume time-ordered events.
     const proposedDate: Date =
-      payload.feedingDate instanceof Date
-        ? payload.feedingDate
-        : new Date(payload.feedingDate);
+      payload.feedingDate instanceof Date ? payload.feedingDate : new Date(payload.feedingDate);
     this.backdatePolicy.validate({
       context: 'feeding',
       proposedDate,
@@ -165,8 +165,9 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
         // (1) Plan-dışı toplam atomik artar — gün-sonu varyansı
         // Σ(planlı + plansız actual) vs plannedTotalKg üzerinden okunur (D-16).
         await manager.query(
-          `UPDATE "feeding_day_plans" SET "unplannedActualKg" = "unplannedActualKg" + $1 WHERE id = $2`,
-          [payload.actualAmount, boundPlan.id],
+          `UPDATE "feeding_day_plans" SET "unplannedActualKg" = "unplannedActualKg" + $1
+            WHERE "tenantId" = $2 AND id = $3`,
+          [payload.actualAmount, tenantId, boundPlan.id],
         );
 
         // (2) Büyüme AYNI tx'te (D-7 kök neden: eski manuel yol büyüme
@@ -192,44 +193,37 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
       // TEK yem yazma yolu (P-05): kayıt + batch aggregate + storage düşümü
       // (site kapsamlı, D-9) + FeedingRecordedEvent outbox — hepsi ledger'da.
       // Storage düşümü akışın SON yazımıdır (K-1) — plan bağlama yukarıda bitti.
-      const saved = await this.feedingLedger.recordFeed(
-        manager,
-        tenantId,
-        userId,
-        batch,
-        feed,
-        {
-          batchId: payload.batchId,
-          tankId: payload.tankId,
-          pondId: payload.pondId,
-          batchLocationId: payload.batchLocationId,
-          feedId: payload.feedId,
-          plannedAmountKg: payload.plannedAmount,
-          actualAmountKg: payload.actualAmount,
-          wasteAmountKg: payload.wasteAmount,
-          feedingDate: proposedDate,
-          feedingTime: payload.feedingTime,
-          feedingMethod: payload.feedingMethod || FeedingMethod.MANUAL,
-          equipmentId: payload.equipmentId,
-          feedBatchNumber: payload.feedBatchNumber,
-          fedBy: payload.fedBy || userId,
-          notes: payload.notes,
-          feedCost: payload.feedCost,
-          currency: payload.currency,
-          // D-7: plan-dışı kayıt plana bağlanır (mealId NULL kalır); site
-          // kapsamı plan denormundan gelir (D-9).
-          dayPlanId: boundPlan?.id,
-          siteId: boundPlan?.siteId,
-          extras: {
-            environment: payload.environment,
-            fishBehavior: payload.fishBehavior,
-            feedingDurationMinutes: payload.feedingDurationMinutes,
-            feedingSequence: payload.feedingSequence || 1,
-            totalMealsToday: payload.totalMealsToday || 1,
-            skipReason: payload.skipReason,
-          },
+      const saved = await this.feedingLedger.recordFeed(manager, tenantId, userId, batch, feed, {
+        batchId: payload.batchId,
+        tankId: payload.tankId,
+        pondId: payload.pondId,
+        batchLocationId: payload.batchLocationId,
+        feedId: payload.feedId,
+        plannedAmountKg: payload.plannedAmount,
+        actualAmountKg: payload.actualAmount,
+        wasteAmountKg: payload.wasteAmount,
+        feedingDate: proposedDate,
+        feedingTime: payload.feedingTime,
+        feedingMethod: payload.feedingMethod || FeedingMethod.MANUAL,
+        equipmentId: payload.equipmentId,
+        feedBatchNumber: payload.feedBatchNumber,
+        fedBy: payload.fedBy || userId,
+        notes: payload.notes,
+        feedCost: payload.feedCost,
+        currency: payload.currency,
+        // D-7: plan-dışı kayıt plana bağlanır (mealId NULL kalır); site
+        // kapsamı plan denormundan gelir (D-9).
+        dayPlanId: boundPlan?.id,
+        siteId: boundPlan?.siteId,
+        extras: {
+          environment: payload.environment,
+          fishBehavior: payload.fishBehavior,
+          feedingDurationMinutes: payload.feedingDurationMinutes,
+          feedingSequence: payload.feedingSequence || 1,
+          totalMealsToday: payload.totalMealsToday || 1,
+          skipReason: payload.skipReason,
         },
-      );
+      });
 
       return saved;
     });

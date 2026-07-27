@@ -473,6 +473,8 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'feeding_day_plans',
       'feeding_meals',
       'feeding_forecast_snapshots',
+      // Attribute edilemeyen tarihsel yem kayıtları (W0, FARM-HIGH-240)
+      'feeding_record_attribution_quarantine',
 
       // Chemical management
       'chemical_types',

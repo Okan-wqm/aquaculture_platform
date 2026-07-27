@@ -118,8 +118,7 @@ export class FeedingLedgerService {
     // bu kolonları okumaya devam eder, C-12).
     const feedCost = params.feedCost ?? this.calculateFeedCost(feed, params.actualAmountKg);
     const currency =
-      params.currency ??
-      (await this.financeSettings.getDefaultCurrencyInTx(manager, tenantId));
+      params.currency ?? (await this.financeSettings.getDefaultCurrencyInTx(manager, tenantId));
 
     const record = manager.create(FeedingRecord, {
       tenantId,
@@ -150,6 +149,11 @@ export class FeedingLedgerService {
       pourIndex: params.pourIndex,
       dayPlanId: params.dayPlanId,
       sourceExecutionId: params.sourceExecutionId,
+      // FARM-CRITICAL-241: drain penceresinde yazılan canlı satır, tarihsel
+      // backfill satırıyla AYNI şekle sahip (`sourceExecutionId` dolu,
+      // `mealId` boş). Provenans damgası olmadan ne rollback ne attribution
+      // onarımı kendi satırını tanıyabiliyordu.
+      backfillSource: params.sourceExecutionId ? 'live-drain' : undefined,
     });
     record.calculateVariance();
     const saved = await manager.save(record);

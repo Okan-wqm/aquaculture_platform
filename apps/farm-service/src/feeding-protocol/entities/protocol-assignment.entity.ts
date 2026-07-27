@@ -96,7 +96,11 @@ export interface AssignmentSuspension {
 
 @ObjectType('ProtocolAssignment')
 @Entity('feeding_protocol_assignments')
-@Index(['tenantId', 'unitId'], { unique: true, where: `"status" = 'active'` })
+// Ünite başına tek CANLI atama (active + paused). Yalnız 'active'i kapsayan
+// eski kısıt paused birikimine izin veriyordu: sahte UnfedUnitDetected akışı,
+// resume'da ham duplicate-key 500'ü ve aktivasyon migration'ında index ihlali
+// (FARM-MEDIUM-256/250a). Migration: 1806900000000.
+@Index(['tenantId', 'unitId'], { unique: true, where: `"status" <> 'ended'` })
 @Index(['tenantId', 'protocolId'])
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'unitId', 'effectiveFrom'])

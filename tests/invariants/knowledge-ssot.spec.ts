@@ -134,16 +134,15 @@ describe('knowledge SSoT invariant', () => {
     });
   });
 
-  describe('layer-1-ai.md Claude Agent SDK version matches package.json', () => {
+  describe('layer-1-ai.md Anthropic SDK version matches package.json', () => {
     it('SDK version anchor matches root package.json dependency', () => {
       const knowledge = readFile('.claude/knowledge/layer-1-ai.md');
       const pkg = JSON.parse(readFile('package.json'));
       const pkgVersion: string | undefined =
-        pkg.dependencies?.['@anthropic-ai/claude-agent-sdk'] ??
-        pkg.devDependencies?.['@anthropic-ai/claude-agent-sdk'];
+        pkg.dependencies?.['@anthropic-ai/sdk'] ?? pkg.devDependencies?.['@anthropic-ai/sdk'];
       if (!pkgVersion) {
         throw new Error(
-          'package.json does not declare @anthropic-ai/claude-agent-sdk. ' +
+          'package.json does not declare @anthropic-ai/sdk. ' +
             'Either remove the SDK anchor from layer-1-ai.md or add the dependency.',
         );
       }
@@ -151,7 +150,7 @@ describe('knowledge SSoT invariant', () => {
       // semver (e.g., "0.2.37") not the range form (e.g., "^0.2.37").
       const bare = pkgVersion.replace(/^[\^~]/, '');
       const escaped = bare.replace(/[.]/g, '\\.');
-      const pattern = new RegExp(`Claude Agent SDK\\s+${escaped}|claude-agent-sdk@\\^?${escaped}`);
+      const pattern = new RegExp(`Anthropic SDK\\s+${escaped}|@anthropic-ai/sdk@\\^?${escaped}`);
       if (!pattern.test(knowledge)) {
         throw new Error(
           `layer-1-ai.md does not cite the real SDK version ${bare} (from package.json). ` +

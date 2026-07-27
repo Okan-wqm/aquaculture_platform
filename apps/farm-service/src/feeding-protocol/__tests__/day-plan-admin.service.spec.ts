@@ -28,6 +28,8 @@ import { OutboxPublisher } from '@platform/outbox';
 import { DayPlanAdminService } from '../services/day-plan-admin.service';
 import { MealPlanGeneratorService } from '../services/meal-plan-generator.service';
 import { DayPlanRecalcService } from '../services/day-plan-recalc.service';
+import { ProtocolResolutionService } from '../services/protocol-resolution.service';
+import { ProtocolRateService } from '../services/protocol-rate.service';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import {
   FeedingProtocolV2,
@@ -194,6 +196,8 @@ function buildHarness(fixture: Fixture): {
     mock<DayPlanRecalcService>({ recalcForUnit }),
     mock<WaterTemperatureService>({ getEffectiveTemperature }),
     mock<OutboxPublisher>({ enqueue }),
+    // Band çözümü ağırlıktan — manuel geçiş de tek SSoT'yi kullanır (W3).
+    new ProtocolResolutionService(new ProtocolRateService()),
   );
   return { service, computeDayPlan, persistDayPlan, recalcForUnit, enqueue, managerSave };
 }

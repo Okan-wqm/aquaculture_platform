@@ -13,6 +13,7 @@ import { OutboxPublisher } from '@platform/outbox';
 
 import { DayPlanRecalcService } from '../services/day-plan-recalc.service';
 import { ProtocolRateService } from '../services/protocol-rate.service';
+import { ProtocolResolutionService } from '../services/protocol-resolution.service';
 import { FeedingDayPlan, FeedingDayPlanStatus } from '../entities/feeding-day-plan.entity';
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
 import {
@@ -101,6 +102,21 @@ function makeDayPlan(over: Partial<FeedingDayPlan> = {}): FeedingDayPlan {
       expectedFcr: 1.2,
       fcrResolvedSource: FcrResolvedSource.BAND,
     },
+    // W3: band/oran/FCR'ın CANLI değerleri ayrı kolonda; snapshot üretim anı
+    // provenansı olarak donuk kalır (FARM-HIGH-247/FARM-MEDIUM-252).
+    resolution: {
+      resolvedAt: '2026-07-20T06:00:00.000Z',
+      bandIndex: 0,
+      feed: { id: 'feed-a', code: 'FA', name: 'Feed A' },
+      baseRatePercent: 3,
+      tempMultiplier: 1,
+      effectiveRatePercent: 3,
+      expectedFcr: 1.2,
+      fcrResolvedSource: FcrResolvedSource.BAND,
+      bandBasisWeightG: 50,
+      waterTempC: null,
+      temperatureSource: 'none',
+    },
     ...over,
   });
 }
@@ -183,7 +199,8 @@ function makeHarness(opts: HarnessOpts = {}) {
       return undefined as never;
     }),
   });
-  const service = new DayPlanRecalcService(new ProtocolRateService(), outbox);
+  const rateService = new ProtocolRateService();
+  const service = new DayPlanRecalcService(outbox, new ProtocolResolutionService(rateService));
   return { service, manager, dayPlan, meals, assignment, saved, enqueued };
 }
 
@@ -239,9 +256,15 @@ describe('DayPlanRecalcService.recalcForUnit', () => {
 
   it('uses the fresh reading for temperature-triggered recalcs', async () => {
     const harness = makeHarness({});
-    const result = await harness.service.recalcForUnit(harness.manager, TENANT, UNIT, 'temperature', {
-      newTemperatureC: 8, // 5–12°C bandı → ×0.5
-    });
+    const result = await harness.service.recalcForUnit(
+      harness.manager,
+      TENANT,
+      UNIT,
+      'temperature',
+      {
+        newTemperatureC: 8, // 5–12°C bandı → ×0.5
+      },
+    );
     expect(result?.outcome).toBe('repriced');
     // 50kg × 3% × 0.5 = 0.75 → 0.45 / 0.30
     expect(harness.meals[0]!.plannedKg).toBeCloseTo(0.45);

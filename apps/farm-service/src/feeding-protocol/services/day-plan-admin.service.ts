@@ -38,6 +38,7 @@ import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Feed } from '../../feed/entities/feed.entity';
 import { MealPlanGeneratorService, mixedTankStats } from './meal-plan-generator.service';
 import { DayPlanRecalcService } from './day-plan-recalc.service';
+import { ProtocolResolutionService } from './protocol-resolution.service';
 import { calendarDayIn } from './meal-schedule.util';
 import { collectFeedSourceFeedIds, buildFeedFcrMatrixMap } from './feed-fcr-source.util';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
@@ -67,6 +68,8 @@ export class DayPlanAdminService {
     private readonly recalcService: DayPlanRecalcService,
     private readonly temperatureService: WaterTemperatureService,
     private readonly outboxPublisher: OutboxPublisher,
+    // Band çözümü ağırlıktan — manuel geçiş de aynı SSoT'yi kullanır (W3).
+    private readonly resolutionService: ProtocolResolutionService,
   ) {}
 
   async regenerateDayPlan(
@@ -212,11 +215,26 @@ export class DayPlanAdminService {
         throw new NotFoundException(`Protokol bulunamadı: ${assignment.protocolId}`);
       }
 
-      // Fail-closed: hedef yem protokol bandlarından birinin yemi olmalı.
-      const bandIndex = protocol.bands.findIndex((band) => band.feedId === toFeedId);
-      if (bandIndex < 0) {
+      // Band AĞIRLIKTAN çözülür, feedId'den DEĞİL (FARM-MEDIUM-251).
+      // `bands.findIndex(feedId)` aynı pelletin iki bandda kullanıldığı
+      // protokollerde — yaygın ve protokol doğrulamasında yasak değil —
+      // YANLIŞ bandı kilitliyordu: 60 g balık band0'a (0–50 g, %4) düşüyor,
+      // histerezis onu koruyor ve her recalc'ta %33 fazla besleniyordu.
+      const transitionTankBatch = await manager.findOne(TankBatch, {
+        where: { tenantId, tankId: unitId },
+      });
+      const bandBasisWeightG = this.resolutionService.resolveBandBasisWeight({
+        avgWeightG: Number(transitionTankBatch?.avgWeightG ?? 0),
+      });
+      const bandIndex = this.resolutionService.resolveManualTransitionBand(
+        protocol.bands,
+        bandBasisWeightG,
+        toFeedId,
+      );
+      if (bandIndex === null) {
         throw new BadRequestException(
-          'Hedef yem bu protokolün band yemlerinden biri değil — manuel geçiş protokol dışına çıkamaz',
+          'Hedef yem, ünitenin güncel ağırlığına karşılık gelen bandın (veya komşu bandın) ' +
+            'yemi değil — manuel geçiş protokolün ağırlık mantığı dışına çıkamaz',
         );
       }
       const band = protocol.bands[bandIndex]!;
@@ -235,9 +253,12 @@ export class DayPlanAdminService {
         await manager.save(meal);
       }
 
-      const tankBatch = await manager.findOne(TankBatch, {
-        where: { tenantId, tankId: unitId },
-      });
+      // Kalan öğünler YENİ bandın oranıyla yeniden fiyatlanır ve plan çözümü
+      // (resolution) atomik güncellenir — eski hâl yalnız `feedId` yazıyordu,
+      // öğünler eski bandın kg'ıyla dökülüyordu (FARM-MEDIUM-251 senaryo B).
+      await this.recalcService.recalcForUnit(manager, tenantId, unitId, 'manual_transition');
+
+      const tankBatch = transitionTankBatch;
       const event: FeedTypeTransitionedEvent = {
         ...createBaseEvent<FeedTypeTransitionedEvent>('FeedTypeTransitioned', tenantId, {
           aggregateId: unitId,

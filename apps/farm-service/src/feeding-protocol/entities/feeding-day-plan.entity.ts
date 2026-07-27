@@ -52,7 +52,22 @@ registerEnumType(FeedingDayPlanStatus, {
 // JSONB VALUE OBJECTS
 // ============================================================================
 
-/** Üretim anındaki hesap girdilerinin tamamı — plan nasıl hesaplandı sorusunun cevabı. */
+/**
+ * ÜRETİM ANI PROVENANSI — DONUK (FARM-HIGH-247/FARM-MEDIUM-252).
+ *
+ * Snapshot "plan nasıl hesaplandı" sorusunun ÜRETİM ANINDAKİ cevabıdır ve
+ * asla güncellenmez. Band/yem/oran/FCR alanları burada TARİHSEL kayıttır;
+ * gün içi geçerli değerler `FeedingDayPlan.resolution`'dadır.
+ *
+ * Ayrımın nedeni: gün içi band geçişi `assignment.currentFeedId`'yi ve
+ * öğünlerin `feedId`'sini güncelliyor ama snapshot'a dokunmuyordu
+ * (`grep '\.snapshot\s*='` → sıfır). Sonuç: operatör ESKİ yemi görürken
+ * ledger YENİ yemi düşüyor (yanlış pellet + iki yönlü stok bozulması), ve
+ * büyüme ESKİ `expectedFcr` ile hesaplanıyordu (band0 0.9 → band1 1.4
+ * geçişinde ~%55 sapma).
+ *
+ * @deprecated band/feed/rate/FCR alanları — canlı değer için `resolution`.
+ */
 export interface DayPlanSnapshot {
   avgWeightG: number;
   fishCount: number;
@@ -70,12 +85,44 @@ export interface DayPlanSnapshot {
   expectedFcr: number;
   fcrResolvedSource: FcrResolvedSource;
   /**
-   * D-2 karışık-tank görünürlüğü (FARM-MEDIUM-231): band dominant-biomass
-   * batch'ten seçilir; tank karışıksa rozet + yüksek ağırlık-CV'sinde uyarı.
+   * D-2 karışık-tank görünürlüğü (FARM-MEDIUM-231): band TANK
+   * ORTALAMASINDAN seçilir; tank karışıksa rozet + yüksek ağırlık-CV'sinde
+   * uyarı (yüksek CV = tek ortalama iki popülasyonu temsil etmiyor).
    * B3 öncesi üretilen snapshot'larda alanlar yoktur (opsiyonel bundan).
    */
   mixedBatch?: boolean;
   weightCvPercent?: number | null;
+}
+
+/**
+ * CANLI PROTOKOL ÇÖZÜMÜ — her yeniden hesapta atomik yazılır.
+ *
+ * Band, yem, oran ve beklenen FCR'ın GÜN İÇİNDE geçerli değerleri. Tek
+ * çözücüden (`ProtocolResolutionService`) gelir; 06:00 üretimi, gün-içi
+ * recalc ve manuel geçiş aynı fonksiyonu paylaşır — "üretim başka, recalc
+ * başka hesaplıyor" sapması yapısal olarak imkânsızdır.
+ */
+export interface DayPlanResolution {
+  /** Bu çözümün yazıldığı an (ISO) — UI tazelik göstergesi. */
+  resolvedAt: string;
+  bandIndex: number;
+  feed: { id: string; code: string; name: string };
+  baseRatePercent: number;
+  tempMultiplier: number;
+  effectiveRatePercent: number;
+  expectedFcr: number;
+  fcrResolvedSource: FcrResolvedSource;
+  /**
+   * Band seçiminin tabanı — TANK ORTALAMASI (`tankBatch.avgWeightG`).
+   * Karar (kullanıcı onaylı): rasyon zaten tüm tank biyokütlesine
+   * uygulandığı için band da tank ortalamasından seçilir. Eskiden üç yerde
+   * "dominant-biomass batch" yazıyordu ve o kuralı uygulayan hiçbir kod
+   * yoktu — operatöre yanlış provenans beyan ediliyordu (FARM-LOW-263).
+   */
+  bandBasisWeightG: number;
+  /** Çözümde kullanılan su sıcaklığı (gün içi güncellenir). */
+  waterTempC: number | null;
+  temperatureSource: 'sensor' | 'manual' | 'none';
 }
 
 /** Gün içi yeniden hesap gerekçe kaydı — sessiz recalc yok. */
@@ -95,7 +142,9 @@ export interface RecalcLogEntry {
     /** Öğün finalize'ındaki per_meal büyümesi sonrası kalan öğün recalc'ı. */
     | 'meal_growth'
     /** correctMealPour düzeltmesi sonrası growth-delta recalc'ı (C-11). */
-    | 'pour_correction';
+    | 'pour_correction'
+    /** Operatörün `transitionUnitFeed` ile yaptığı manuel yem geçişi. */
+    | 'manual_transition';
   /** Yeniden hesap sonrası kalan öğünlerin toplam planlanan kg'ı. */
   remainingPlannedKg: number;
   biomassKg?: number;
@@ -166,6 +215,16 @@ export class FeedingDayPlan {
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
   snapshot!: DayPlanSnapshot;
+
+  /**
+   * Canlı protokol çözümü (FARM-HIGH-247/251/252, FARM-LOW-262).
+   * Band/yem/oran/FCR'ın GÜN İÇİNDE geçerli değerleri; her recalc ve manuel
+   * geçiş bunu atomik günceller. Okuyucular (GraphQL alanları, büyüme
+   * hesabı, rollup) BURAYI okur — snapshot yalnız üretim anı provenansıdır.
+   */
+  @Field(() => GraphQLJSON)
+  @Column({ type: 'jsonb', default: () => "'{}'" })
+  resolution!: DayPlanResolution;
 
   @Field(() => Float)
   @Column({ type: 'numeric', precision: 12, scale: 3 })

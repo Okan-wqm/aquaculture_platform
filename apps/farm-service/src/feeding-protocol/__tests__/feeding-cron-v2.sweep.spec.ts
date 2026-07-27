@@ -126,6 +126,7 @@ describe('FeedingCronV2Service.sweepTenant (05:30)', () => {
           // FARM-CRITICAL-244: mod PLANIN kolonunda dondurulur.
           growthApplicationMode: 'per_meal',
           snapshot: { expectedFcr: 1.5 },
+          resolution: { expectedFcr: 1.5 },
         } as never,
       ],
       protocols: [{ id: 'p-1', settings: { growthApplicationMode: 'per_meal' } } as never],
@@ -166,6 +167,7 @@ describe('FeedingCronV2Service.sweepTenant (05:30)', () => {
           unitCode: 'T2',
           growthApplicationMode: 'daily',
           snapshot: { expectedFcr: 1.5 },
+          resolution: { expectedFcr: 1.5 },
         } as never,
       ],
       protocols: [{ id: 'p-2', settings: { growthApplicationMode: 'daily' } } as never],
@@ -208,6 +210,7 @@ describe('FeedingCronV2Service.sweepTenant (05:30)', () => {
           // FARM-CRITICAL-244: mod PLANIN kolonunda dondurulur.
           growthApplicationMode: 'per_meal',
           snapshot: { expectedFcr: 1.5 },
+          resolution: { expectedFcr: 1.5 },
         } as never,
       ],
       protocols: [{ id: 'p-1', settings: { growthApplicationMode: 'per_meal' } } as never],

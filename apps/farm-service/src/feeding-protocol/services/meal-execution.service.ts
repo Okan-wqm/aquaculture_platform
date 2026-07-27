@@ -297,7 +297,7 @@ export class MealExecutionService {
         // uyguluyordu.
         if (dayPlan.growthApplicationMode !== 'daily') {
           // per_meal: growthKg = actualKg / beklenen FCR (snapshot provenanslı).
-          const expectedFcr = dayPlan.snapshot.expectedFcr;
+          const expectedFcr = dayPlan.resolution.expectedFcr;
           const growthKg = expectedFcr > 0 ? meal.actualKg / expectedFcr : 0;
           await this.growthApplier.applyGrowth(
             manager,
@@ -518,7 +518,7 @@ export class MealExecutionService {
       // (FARM-CRITICAL-244).
       if (meal.status === FeedingMealStatus.FED) {
         if (dayPlan.growthApplicationMode !== 'daily') {
-          const expectedFcr = dayPlan.snapshot.expectedFcr;
+          const expectedFcr = dayPlan.resolution.expectedFcr;
           const growthDelta = expectedFcr > 0 ? delta / expectedFcr : 0;
           await this.growthApplier.applyGrowth(
             manager,

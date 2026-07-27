@@ -31,6 +31,7 @@ import { DayPlanRecalcService } from '../services/day-plan-recalc.service';
 import { FeedingCronV2Service } from '../services/feeding-cron-v2.service';
 import { MealPlanGeneratorService } from '../services/meal-plan-generator.service';
 import { ProtocolRateService } from '../services/protocol-rate.service';
+import { ProtocolResolutionService } from '../services/protocol-resolution.service';
 import { BiomassGrowthApplierService } from '../services/biomass-growth-applier.service';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
@@ -136,7 +137,11 @@ function makeService(fixture: DryRunFixture): {
     },
   );
 
-  const generator = new MealPlanGeneratorService(new ProtocolRateService());
+  const dryRunRateService = new ProtocolRateService();
+  const generator = new MealPlanGeneratorService(
+    dryRunRateService,
+    new ProtocolResolutionService(dryRunRateService),
+  );
   const persistDayPlan = jest.spyOn(generator, 'persistDayPlan');
   const enqueue = jest.fn().mockResolvedValue(undefined);
   const getEffectiveTemperaturesForUnits = jest.fn();

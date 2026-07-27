@@ -45,7 +45,7 @@ import {
 } from '../entities/feeding-day-plan.entity';
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
-import { ProtocolRateService, ResolvedBand } from './protocol-rate.service';
+import { ProtocolResolutionService } from './protocol-resolution.service';
 import { repriceRemaining } from './meal-schedule.util';
 import { round3 } from './rounding.util';
 
@@ -63,8 +63,9 @@ export class DayPlanRecalcService {
   private readonly logger = new Logger(DayPlanRecalcService.name);
 
   constructor(
-    private readonly rateService: ProtocolRateService,
     private readonly outboxPublisher: OutboxPublisher,
+    // Band/oran/FCR çözümünün TEK sahibi (W3).
+    private readonly resolutionService: ProtocolResolutionService,
   ) {}
 
   /**
@@ -145,8 +146,28 @@ export class DayPlanRecalcService {
     }
 
     // Band çözümü + histerezisli geçiş kararı.
-    const resolved = this.rateService.bandFor(protocol.bands, avgWeightG);
-    if (!resolved) {
+    // Band/oran/FCR çözümü TEK yerden (W3) — `autoTransition=false` burada da
+    // korunur ve çözüm plana ATOMİK yazılır (eski hâl snapshot'a hiç
+    // dokunmuyordu: operatör eski yemi görüyor, ledger yeni yemi düşüyordu).
+    const currentIndex = assignment.currentBandIndex ?? dayPlan.resolution.bandIndex;
+    const resolution = this.resolutionService.resolve({
+      protocol,
+      assignment: {
+        overrides: assignment.overrides,
+        currentBandIndex: currentIndex,
+        currentFeedId: assignment.currentFeedId,
+      },
+      bandBasisWeightG: this.resolutionService.resolveBandBasisWeight({ avgWeightG }),
+      temperature: {
+        celsius:
+          reason === 'temperature' && opts?.newTemperatureC !== undefined
+            ? (opts.newTemperatureC ?? null)
+            : dayPlan.resolution.waterTempC,
+        source: dayPlan.resolution.temperatureSource,
+      },
+      applyHysteresis: true,
+    });
+    if (!resolution) {
       return {
         dayPlanId: dayPlan.id,
         outcome: 'no_active_plan',
@@ -154,16 +175,15 @@ export class DayPlanRecalcService {
         remainingPlannedKg: 0,
       };
     }
-    const currentIndex = assignment.currentBandIndex ?? dayPlan.snapshot.bandIndex;
-    const effective = this.applyTransitionHysteresis(resolved, currentIndex, avgWeightG, protocol);
+    const effective = { band: resolution.band, index: resolution.bandIndex };
     let transitioned = false;
     if (
       protocol.settings.autoTransition &&
       effective.index !== currentIndex &&
-      effective.band.feedId !== (assignment.currentFeedId ?? dayPlan.snapshot.feed.id)
+      effective.band.feedId !== (assignment.currentFeedId ?? dayPlan.resolution.feed.id)
     ) {
       transitioned = true;
-      const fromFeedId = assignment.currentFeedId ?? dayPlan.snapshot.feed.id;
+      const fromFeedId = assignment.currentFeedId ?? dayPlan.resolution.feed.id;
       assignment.currentFeedId = effective.band.feedId;
       assignment.currentBandIndex = effective.index;
       assignment.lastTransitionAt = new Date();
@@ -188,23 +208,10 @@ export class DayPlanRecalcService {
     }
 
     // Yeni günlük toplam (K-18 zinciri) → kalan öğünler KENDİ yüzdeleriyle
-    // yeniden fiyatlanır; sıcaklık gerekçesinde yeni okuma kullanılır.
-    const temperatureC =
-      reason === 'temperature' && opts?.newTemperatureC !== undefined
-        ? opts.newTemperatureC
-        : dayPlan.snapshot.waterTempC;
-    const tempMultiplier = this.rateService.temperatureMultiplier(
-      protocol.temperatureAdjustments,
-      temperatureC,
-    );
-    const effectiveRate = this.rateService.effectiveRatePercent({
-      baseRatePercent: effective.band.feedingRatePercent,
-      temperatureMultiplier: tempMultiplier,
-      rateAdjustmentPercent: assignment.overrides?.rateAdjustmentPercent,
-      minRatePercent: protocol.settings.minFeedingRatePercent,
-      maxRatePercent: protocol.settings.maxFeedingRatePercent,
-    });
-    const newDailyTotalKg = round3((biomassKg * effectiveRate) / 100);
+    // yeniden fiyatlanır. Oran VE beklenen FCR aynı çözümden gelir: gün içi
+    // band geçişinde eski bandın FCR'ıyla büyüme hesaplamak biyokütleyi
+    // ~%55 şişiriyordu (FARM-MEDIUM-252).
+    const newDailyTotalKg = round3((biomassKg * resolution.effectiveRatePercent) / 100);
     const newPlanned = repriceRemaining(remainingMeals, newDailyTotalKg);
 
     let remainingPlannedKg = 0;
@@ -225,33 +232,24 @@ export class DayPlanRecalcService {
       .getMany();
     const settledPlannedKg = settledMeals.reduce((acc, meal) => acc + Number(meal.plannedKg), 0);
     dayPlan.plannedTotalKg = round3(settledPlannedKg + remainingPlannedKg);
+    // Çözüm ATOMİK güncellenir — plan, öğünler ve ledger aynı yemi/FCR'ı görür.
+    dayPlan.resolution = {
+      resolvedAt: resolution.resolvedAt,
+      bandIndex: resolution.bandIndex,
+      feed: resolution.feed,
+      baseRatePercent: resolution.baseRatePercent,
+      tempMultiplier: resolution.tempMultiplier,
+      effectiveRatePercent: resolution.effectiveRatePercent,
+      expectedFcr: resolution.expectedFcr,
+      fcrResolvedSource: resolution.fcrResolvedSource,
+      bandBasisWeightG: resolution.bandBasisWeightG,
+      waterTempC: resolution.waterTempC,
+      temperatureSource: resolution.temperatureSource,
+    };
     this.appendRecalcLog(dayPlan, reason, remainingPlannedKg, biomassKg);
     await manager.save(dayPlan);
 
     return { dayPlanId: dayPlan.id, outcome: 'repriced', transitioned, remainingPlannedKg };
-  }
-
-  /**
-   * Histerezis (transitionBufferG): yukarı geçiş yeni bandın minWeight'ini
-   * buffer kadar aşmayı, aşağı geçiş yeni bandın maxWeight'inin buffer kadar
-   * altını şart koşar; şart sağlanmazsa MEVCUT band korunur.
-   */
-  private applyTransitionHysteresis(
-    resolved: ResolvedBand,
-    currentIndex: number,
-    avgWeightG: number,
-    protocol: Pick<FeedingProtocolV2, 'bands' | 'settings'>,
-  ): ResolvedBand {
-    if (resolved.index === currentIndex) return resolved;
-    const buffer = protocol.settings.transitionBufferG ?? 0;
-    const currentBand = protocol.bands[currentIndex];
-    if (!currentBand) return resolved;
-    if (resolved.index > currentIndex) {
-      if (avgWeightG >= resolved.band.minWeightG + buffer) return resolved;
-    } else if (avgWeightG <= resolved.band.maxWeightG - buffer) {
-      return resolved;
-    }
-    return { band: currentBand, index: currentIndex };
   }
 
   private appendRecalcLog(

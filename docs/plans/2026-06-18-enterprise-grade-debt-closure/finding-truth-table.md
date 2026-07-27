@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `df2756d4aa6a32daf2fbdb3d0cb2eccbc6d5a1f630b73409b2cdb934f8ecdd2d`
+Registry tip: `633360077c3a749b8fffd232aa39f786616468f0052f425cc7f70d53ff3a0af4`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -145,6 +145,7 @@ Allowed truth buckets:
 | `ORPHAN-CRITICAL-446`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-451`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-460`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-461`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 
 Updated 2026-07-26 (ARIA control-plane audit): seven ORPHAN CRITICALs joined the
 active set. Five come from the audit of ARIA's own control plane — a corrupted
@@ -189,6 +190,7 @@ close waits for merge, like the rows above it.
 - `ORPHAN-CRITICAL-446` — fixed in this branch; `aria-kernel/tests/test_cross_review_independence_text.py` pins both the pre-fix shape and the echo-chamber catch.
 - `ORPHAN-CRITICAL-451` — fixed in this branch; firejail removed as an accepted sandbox backend because its branch applied none of the READONLY_PATHS while satisfying the S0 exit criterion. `aria-kernel/tests/test_sandbox_and_perimeter_hardening.py` pins it.
 - `ORPHAN-CRITICAL-460` — fixed in this branch; a shell control operator after an allowed prefix bypassed the allowlist, the denylist and the force-push check at once. Same test file pins eleven bypass spellings and nine non-regressions.
+- `ORPHAN-CRITICAL-461` — fixed in this branch; broader-scope claims, globs, empty surface lists, an echo of the canonical suite, and every gh-api route that writes main all passed. Same test file pins them.
 
 - `AISAFETY-CRITICAL-003` (single process-global `ANTHROPIC_API_KEY`, no per-tenant
   key — BYOK impossible): the Faz 1 BYOK work (encrypted per-tenant credentials +

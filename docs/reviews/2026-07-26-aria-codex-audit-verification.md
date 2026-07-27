@@ -84,6 +84,7 @@ report's `P0-*` / `NEW-*` labels are the analysis names and these are the tracke
 | `ORPHAN-MEDIUM-458` | claim re-verification | MEDIUM | a YAML comment satisfied the sandbox-contract invariant, so the real verification step could be deleted unnoticed |
 | `ORPHAN-MEDIUM-459` | claim re-verification | MEDIUM | `apply_resource_limits` had zero production callers; a write-capable agent spawn was bounded by nothing |
 | `ORPHAN-CRITICAL-460` | fresh coverage lens | CRITICAL | a shell operator after an allowed prefix bypassed the allowlist, the denylist and the force-push check at once |
+| `ORPHAN-CRITICAL-461` | fresh coverage lens | CRITICAL | broader-scope claims, globs, empty surface lists, an echoed test suite, and every gh-api route that writes `main` all passed |
 
 Every ID above is listed here on purpose: this document is the `Closes:` target for all of them, and
 a trailer pointing at a file that does not name the finding is traceability theatre. Remaining
@@ -1206,6 +1207,35 @@ because `record_failure` has no producer (that is `ORPHAN-CRITICAL-420`, already
 main all pass; and the hard-fail perimeter still has zero production callers
 (`ORPHAN-CRITICAL-428`). Those are recorded rather than rushed, because each is a real design change
 and this document's own lesson is that a fix written in a hurry is where the next finding comes from.
+
+### `ORPHAN-CRITICAL-461` — three checks that passed on inputs asserting nothing
+
+Same lens, same shape three times: the check asks a narrower question than the property it is named
+for, so an input *vaguer* than the one it rejects sails through.
+
+| | measured before the fix |
+|---|---|
+| `_check_kernel_self_modification_at_mint` | `["aria-kernel/aria_kernel/cli.py"]` **blocked**, but `["aria-kernel"]` — which contains it — **PASSED**. So did `["tools"]`, `["*"]`, `["**"]`, `["aria-kernel/**/*.py"]`, and `[]`. |
+| `_check_test_gate_canonical_suite` | `("echo 'nx affected --target=test nx affected --target=lint npm run type-check'",)` **PASSED**. An echo of a comment cleared the test gate. |
+| `is_gh_api_path_forbidden` | `PUT /contents/{path}` (commits straight to main), `PATCH /git/refs/heads/main` (moves the tip), `merges`, `rulesets`, `hooks`, `collaborators`, `keys` — all **allowed**. Only `branches/main/protection` was caught. |
+
+The first one is the one worth sitting with: **it is in the function `ORPHAN-HIGH-453` fixed hours
+earlier.** I corrected how the path is normalized and never asked which direction the comparison ran.
+A scope claim that *contains* a protected path is not safer than one that names it — it is the same
+write with a vaguer envelope. The check now matches both directions, rejects globs as unclassifiable
+(a glob cannot be prefix-compared without a filesystem that does not exist at mint time), and fails
+an empty list the way an absent key already did.
+
+The gh-api guard is now an allowlist rather than a denylist, which is tractable precisely because
+ARIA's real surface is tiny: the only two production call sites are `commits/{sha}/check-runs` and
+`commits/{sha}/status`. Deny still wins over allow, so `pulls/{n}/merge` stays refused even though
+`pulls/{n}` is permitted. It is also the third denylist this session has had to invert, after
+`ORPHAN-HIGH-443` and `ORPHAN-CRITICAL-460`.
+
+**My first allowlist omitted the bare `/pulls` collection — `gh pr create` — and the existing
+pre-PR-open exit-criterion test caught it, not me.** Worth recording as the counter-example to
+everything else in this document: a gate that was already there, doing its job, on the first change
+that broke it.
 
 ## 10. Limits of this verification
 

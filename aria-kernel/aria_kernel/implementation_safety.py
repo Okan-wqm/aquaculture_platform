@@ -195,6 +195,48 @@ FORBIDDEN_GH_API_PATHS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^/orgs/"),
 )
 
+# ORPHAN-CRITICAL-461 — the gh-api guard is an ALLOWLIST now.
+#
+# The five denies above were the whole control, and they missed every route
+# that actually writes main. Measured before this change:
+#
+#     PUT  /repos/o/r/contents/CLAUDE.md    -> allowed   (commits to main)
+#     PATCH /repos/o/r/git/refs/heads/main  -> allowed   (moves the tip)
+#     POST /repos/o/r/merges                -> allowed
+#     POST /repos/o/r/rulesets/1            -> allowed
+#     POST /repos/o/r/hooks                 -> allowed
+#     .../collaborators, .../keys           -> allowed
+#
+# Only `branches/main/protection` was caught. This one is not purely
+# theoretical either: `auto_merge._gh_api_json` consults it on every call.
+#
+# The GitHub REST surface grows, and a denylist over a surface someone else
+# extends is a control that decays without anyone editing it — the same
+# lesson as ORPHAN-HIGH-443 and ORPHAN-CRITICAL-460. Enumerating what ARIA
+# NEEDS is tractable because the answer is small: the only two production
+# call sites are `commits/{sha}/check-runs` and `commits/{sha}/status`, both
+# read-only. The PR/issue read paths below are included because they are the
+# natural next reads for a merge lane and are inert; anything that is not
+# here is refused, and widening it is a deliberate edit with this comment in
+# view.
+#
+# Deny still wins over allow, so `pulls/{n}/merge` stays refused even though
+# `pulls/{n}` is permitted.
+ALLOWED_GH_API_PATHS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^/repos/[^/]+/[^/]+/commits/[^/]+/check-runs(?:[/?#].*)?$"),
+    re.compile(r"^/repos/[^/]+/[^/]+/commits/[^/]+/status(?:[/?#].*)?$"),
+    # The bare collection: `POST /repos/{o}/{r}/pulls` is `gh pr create`,
+    # which is the whole point of the lane, and `GET` lists. Anchored with no
+    # trailing path segment so it cannot stand in for a sub-resource.
+    re.compile(r"^/repos/[^/]+/[^/]+/pulls(?:[?#].*)?$"),
+    re.compile(r"^/repos/[^/]+/[^/]+/pulls/[0-9]+(?:[/?#].*)?$"),
+    re.compile(
+        r"^/repos/[^/]+/[^/]+/pulls/[0-9]+/"
+        r"(?:files|commits|reviews|comments)(?:[/?#].*)?$"
+    ),
+    re.compile(r"^/repos/[^/]+/[^/]+/issues/[0-9]+/comments(?:[/?#].*)?$"),
+)
+
 # Plan ARIA-V9.0-D — MAX_VALIDATION_RESULT_BYTES — per-result stdout
 # / stderr persisted into state.implementation.validation_results
 # capped to prevent the 30-cycle cache from bloating O(N²)
@@ -518,9 +560,15 @@ def _normalize_policy_path(path: str) -> str:
 
 
 def is_gh_api_path_forbidden(path: str) -> bool:
-    """Hard-fail check 8b — gh api path forbidden? Used by callers
-    that do a finer-grained inspection of ``gh api <PATH>`` argv
-    structure rather than relying on the regex allowlist alone."""
+    """Hard-fail check 8b — may ARIA call ``gh api <PATH>``?
+
+    ORPHAN-CRITICAL-461 — an ALLOWLIST as of this change. The five deny
+    patterns are kept and still win, because an explicit refusal carries a
+    clearer signal than "not on the list", but a path that matches no
+    ``ALLOWED_GH_API_PATHS`` entry is now refused rather than permitted.
+    See the comment above that tuple for what the denylist was missing:
+    every route that actually writes ``main``.
+    """
     if not isinstance(path, str):
         return True  # fail closed
     stripped = path.strip()
@@ -529,7 +577,9 @@ def is_gh_api_path_forbidden(path: str) -> bool:
     if any(token in stripped for token in ("{", "}", "$(", "`", ";", "&&", "||")):
         return True
     normalized = stripped if stripped.startswith("/") else "/" + stripped
-    return any(p.search(normalized) for p in FORBIDDEN_GH_API_PATHS)
+    if any(p.search(normalized) for p in FORBIDDEN_GH_API_PATHS):
+        return True
+    return not any(p.match(normalized) for p in ALLOWED_GH_API_PATHS)
 
 
 # ORPHAN-CRITICAL-439 — availability means "verifiably confines", not "is on
@@ -1163,16 +1213,36 @@ def _check_kernel_self_modification_at_mint(
         return _failed(name, "affected_surfaces_absent")
     if not isinstance(declared, (list, tuple)):
         return _failed(name, "affected_surfaces_not_a_sequence")
+    # ORPHAN-CRITICAL-461 — an EMPTY list is not "touches nothing", it is a
+    # declaration that establishes nothing, and it used to pass while an
+    # absent key correctly failed. Same treatment for both.
+    if len(declared) == 0:
+        return _failed(name, "affected_surfaces_empty")
     for raw in declared:
         surface = _normalize_declared_path(raw)
         if not surface:
             return _failed(name, "empty_declared_surface")
         if ".." in surface.split("/"):
             return _failed(name, f"traversal_in_declared_surface:{raw}")
+        # A glob cannot be compared against a prefix without expanding it
+        # against a filesystem that does not exist at mint time, so it is
+        # unclassifiable rather than safe. `aria-kernel/**/*.py` passed.
+        if any(ch in surface for ch in "*?["):
+            return _failed(name, f"glob_in_declared_surface:{raw}")
         for readonly in READONLY_PATHS:
             ro = readonly.rstrip("/")
+            # ORPHAN-CRITICAL-461 — BOTH directions. The check used to ask
+            # only "is the declared surface inside a readonly path", so a
+            # strictly BROADER claim walked straight through: declaring one
+            # file under aria-kernel/aria_kernel/ failed, while declaring
+            # `aria-kernel` — which contains it — passed, and so did
+            # `tools`. A scope claim that CONTAINS a protected path is not
+            # safer than one that names it; it is the same write with a
+            # vaguer envelope.
             if surface == ro or surface.startswith(ro + "/"):
                 return _failed(name, f"readonly_surface_declared:{surface}")
+            if ro.startswith(surface + "/"):
+                return _failed(name, f"declared_surface_contains_readonly:{surface}->{ro}")
     return _passed(name)
 
 
@@ -1180,13 +1250,30 @@ def _check_test_gate_canonical_suite(context: HardFailContext) -> HardFailResult
     name = "test_gate_canonical_suite"
     if not context.validation_commands:
         return _failed(name, "validation_commands_absent")
-    declared = " \n".join(
-        " ".join(str(command).split()) for command in context.validation_commands
-    )
-    missing = [
-        required for required in CANONICAL_VALIDATION_COMMANDS
-        if required not in declared
-    ]
+    # ORPHAN-CRITICAL-461 — WHOLE-ENTRY membership, not substring over the
+    # concatenation. The previous body joined every declared command into one
+    # string and asked whether each canonical command appeared ANYWHERE in
+    # it, so a single entry that merely mentions them cleared the gate:
+    #
+    #   validation_commands=("echo 'nx affected --target=test nx affected
+    #                         --target=lint npm run type-check'",)   -> PASSED
+    #
+    # An echo of a comment is not a test run. Each canonical command must be
+    # a declared entry in its own right; leading `npx`/`npm exec` wrappers are
+    # tolerated because they are the same invocation, and a trailing argument
+    # is allowed because narrowing a suite is legitimate while replacing it
+    # with prose is not.
+    entries = [" ".join(str(command).split()) for command in context.validation_commands]
+    missing: list[str] = []
+    for required in CANONICAL_VALIDATION_COMMANDS:
+        if not any(
+            entry == required
+            or entry.startswith(required + " ")
+            or entry.endswith(" " + required)
+            and entry.split(required)[0].strip() in {"npx", "npm exec"}
+            for entry in entries
+        ):
+            missing.append(required)
     if missing:
         return _failed(name, "missing_canonical_commands:" + ",".join(missing))
     return _passed(name)

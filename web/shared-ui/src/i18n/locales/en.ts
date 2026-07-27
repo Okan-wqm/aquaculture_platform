@@ -240,6 +240,8 @@ export const en = {
   'feedingV2.forecast.timelineTitle': 'Unit feed transitions (next {days} days)',
   'feedingV2.forecast.computedAt': 'As of {at}',
   'feedingV2.forecast.mortalityApplied': 'Mortality projection: species survival rate',
+  'feedingV2.forecast.poolScopeSite': 'Informational site view — coverage is decided on the tenant pool',
+  'feedingV2.forecast.stale': 'Stale: computed more than 26 hours ago',
   'feedingV2.forecast.mortalityNone': 'Mortality projection: none (conservative)',
   'feedingV2.forecast.empty': 'No feed consumption projected in this scope.',
   'feedingV2.forecast.noUnits': 'No units with an active protocol in this scope.',

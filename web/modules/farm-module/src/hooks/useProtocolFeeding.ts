@@ -667,19 +667,37 @@ export interface ForecastPerUnitView {
   unitId: string;
   unitName: string;
   unitCode: string;
+  /** Ünitenin BUGÜNKÜ yemi (gün-0 bandı) — FARM-LOW-265. */
   currentFeedId: string | null;
+  /** Ufuk sonunda ulaşılan yem (simülasyonun son bandı). */
+  terminalFeedId: string | null;
   transitions: ForecastTransitionView[];
 }
 
 export interface ForecastAlertView {
-  type: 'STOCKOUT_FORECAST' | 'TRANSITION_COVERAGE_GAP' | 'REORDER_NOW';
+  type:
+    | 'STOCKOUT_FORECAST'
+    | 'TRANSITION_COVERAGE_GAP'
+    | 'REORDER_NOW'
+    /** Havuz iyi ama sitenin yerel stoğu yetmiyor → satın alma değil TAŞIMA. */
+    | 'SITE_TRANSFER_NEEDED';
   feedId: string;
   unitId?: string | null;
+  /** Tipe özgü büyüklük (kapsama günü / eksik gün). */
   days: number;
+  /** Alarmın işaret ettiği gün indeksi — dilimleme birimi. */
+  atDay: number;
 }
 
 export interface ProtocolFeedForecastView {
   siteScopeKey: string;
+  /**
+   * 'TENANT' = kapsama/alarm otoritesi (havuz kararı); 'SITE' =
+   * bilgilendirici kapsam, yalnız SITE_TRANSFER_NEEDED üretir.
+   */
+  poolScope: 'TENANT' | 'SITE';
+  /** Snapshot 26 saatten eskiyse true — bayatlık gizlenmez. */
+  stale: boolean;
   horizonDays: number;
   /** Snapshot tazeliği — "şu an itibarıyla" damgası (D-6). */
   computedAt: string;

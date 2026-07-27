@@ -298,6 +298,8 @@ export const PROTOCOL_FEED_FORECAST_QUERY = `
   query ProtocolFeedForecast($siteId: ID, $horizonDays: Int, $refresh: Boolean) {
     protocolFeedForecast(siteId: $siteId, horizonDays: $horizonDays, refresh: $refresh) {
       siteScopeKey
+      poolScope
+      stale
       horizonDays
       computedAt
       perFeed {
@@ -321,6 +323,7 @@ export const PROTOCOL_FEED_FORECAST_QUERY = `
         unitName
         unitCode
         currentFeedId
+        terminalFeedId
         transitions {
           fromFeedId
           toFeedId
@@ -333,6 +336,7 @@ export const PROTOCOL_FEED_FORECAST_QUERY = `
         feedId
         unitId
         days
+        atDay
       }
       mortalityAssumption {
         applied

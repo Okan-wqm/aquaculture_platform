@@ -242,6 +242,8 @@ export const tr: Record<MessageKey, string> = {
   'feedingV2.forecast.timelineTitle': 'Ünite yem geçişleri (önümüzdeki {days} gün)',
   'feedingV2.forecast.computedAt': '{at} itibarıyla',
   'feedingV2.forecast.mortalityApplied': 'Ölüm projeksiyonu: tür hayatta kalma oranı',
+  'feedingV2.forecast.poolScopeSite': 'Bilgilendirici site görünümü — kapsama kararı tenant havuzundan',
+  'feedingV2.forecast.stale': 'Bayat: 26 saatten eski hesap',
   'feedingV2.forecast.mortalityNone': 'Ölüm projeksiyonu: yok (muhafazakâr)',
   'feedingV2.forecast.empty': 'Bu kapsamda öngörülen yem tüketimi yok.',
   'feedingV2.forecast.noUnits': 'Bu kapsamda aktif protokollü ünite yok.',

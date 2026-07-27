@@ -86,6 +86,7 @@ import { AddDayPlanGrowthReconciliation1807000000000 } from './1807000000000-Add
 import { AddDayPlanLiveResolution1807100000000 } from './1807100000000-AddDayPlanLiveResolution';
 import { CreateFeedingClockInfrastructure1807200000000 } from './1807200000000-CreateFeedingClockInfrastructure';
 import { MakeSiteTimezoneInheritable1807300000000 } from './1807300000000-MakeSiteTimezoneInheritable';
+import { AddForecastPoolScope1807400000000 } from './1807400000000-AddForecastPoolScope';
 import { CreateIncidentMedia1806000000000 } from './1806000000000-CreateIncidentMedia';
 import { WidenRelatedSensorReadingIdToFederationId1806800000000 } from './1806800000000-WidenRelatedSensorReadingIdToFederationId';
 import { AddSiteMonitoringContract1806900000000 } from './1806900000000-AddSiteMonitoringContract';
@@ -189,4 +190,5 @@ export const FARM_MIGRATIONS = [
   AddDayPlanLiveResolution1807100000000,
   CreateFeedingClockInfrastructure1807200000000,
   MakeSiteTimezoneInheritable1807300000000,
+  AddForecastPoolScope1807400000000,
 ] as const;

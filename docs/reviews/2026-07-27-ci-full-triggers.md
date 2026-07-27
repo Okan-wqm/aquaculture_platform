@@ -23,3 +23,15 @@ The repair:
   relationships.
 
 No existing release-tag, schedule or manual trigger is removed.
+
+## INFRA-HIGH-085 — concurrent capacity fixture writes split one logical record
+
+The deploy capacity invariant launches four `du` workers concurrently. Its fake `du` executable
+appended each base64 scope and its newline with two separate writes to one shared log. Under CI
+load, another worker could append between those writes, so a real hostile scope invocation was
+present but no longer occupied one complete line. The assertion then reported zero invocations
+even though the production script behaved correctly.
+
+The fixture now builds the encoded record first and appends the complete line with one `printf`.
+This preserves the concurrency exercised by the test while making its observation boundary
+atomic for records well below `PIPE_BUF`.

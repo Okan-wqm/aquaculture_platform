@@ -13,7 +13,6 @@
     "web/shell",
     "web/modules/*",
     "mcp/*",
-    "tools/eslint-rules",
     "tools/executors/cargo"
   ],
   "scripts": {
@@ -129,6 +128,7 @@
     "gates:aquamobil-messaging-cache-keys": "node scripts/ci/check-aquamobil-messaging-cache-keys.mjs",
     "gates:aquamobil-messaging-contracts": "node scripts/ci/check-aquamobil-messaging-contracts.mjs",
     "gates:graphql-contracts": "node scripts/ci/check-graphql-contract-drift.mjs",
+    "gates:production-licenses": "node scripts/ci/check-production-licenses.mjs",
     "gates:auth-db-ownership": "node scripts/ci/check-auth-db-ownership.mjs",
     "gates:migration-sql": "ts-node --project tools/gates/tsconfig.json tools/gates/migration-sql-lint.ts",
     "gates:clippy-affected": "ts-node --project tools/gates/tsconfig.json tools/gates/clippy-affected.ts",
@@ -177,7 +177,6 @@
     "quality:format-scope:check": "node tools/quality/quality.mjs format-scope check"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.37",
     "@anthropic-ai/sdk": "^0.93.0",
     "@apollo/gateway": "2.13.3",
     "@apollo/server": "^5.5.1",
@@ -310,6 +309,7 @@
     "eslint-plugin-jsx-a11y": "6.10.1",
     "eslint-plugin-react": "^7.33.2",
     "eslint-plugin-react-hooks": "5.0.0",
+    "eslint-plugin-aquaculture": "file:tools/eslint-rules",
     "globals": "^17.6.0",
     "husky": "^8.0.3",
     "jest": "30.0.5",

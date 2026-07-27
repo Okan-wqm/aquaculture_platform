@@ -31921,6 +31921,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/2026-07-27-ci-full-contract.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/2026-07-27-production-dependency-floor.md",
       "prettier_managed": true
     },
@@ -39330,7 +39336,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "c5613a2495f6e62df76beeb3edccb720635135e7df20a8e0d2fb2abc08b6d9d0",
+      "content_sha256": "41eea8e699b8e23379092865cc8002ef39282718e6ac57e92038cb6976fdc6ee",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -39757,6 +39763,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "scripts/ci/check-messaging-tenant-entity-routing.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/ci/check-production-licenses.mjs",
       "prettier_managed": true
     },
     {
@@ -54858,10 +54870,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8992,
+  "file_count": 8994,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8811,
-  "managed_file_list_sha256": "21574fe74dbbc8b5c4c3716523a45bf7ee3705c9b829aaf373030c7c7620aa9b",
+  "managed_count": 8813,
+  "managed_file_list_sha256": "92b818fc6d824b8012ba217dc886e207b53d1aff76234ece94d675f062a4a06d",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

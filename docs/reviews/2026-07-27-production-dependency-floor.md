@@ -11,8 +11,10 @@
 ## Summary
 
 The `security-audit` job reported four advisory groups. Fixing the tree so it resolves
-honestly expanded that to **ten** high findings, of which **nine are closed here**. The tenth
-is blocked upstream and is registered separately as `INFRA-HIGH-081`.
+honestly expanded that to **ten** high findings. Nine require dependency floors. The tenth
+belongs to the private ESLint build tool, which npm had classified as production solely because
+the package was an unreferenced workspace. `INFRA-HIGH-081` is closed by correcting that package
+boundary rather than forcing an incompatible ESLint major.
 
 | Advisory                                                    | Vulnerable range                         | Reachable via           | Outcome                               |
 | ----------------------------------------------------------- | ---------------------------------------- | ----------------------- | ------------------------------------- |
@@ -128,7 +130,7 @@ reproduce at `bdaf00bf` with the diff stashed, so they are pre-existing and unre
 
 ---
 
-## INFRA-HIGH-081 — `brace-expansion` stays reachable through eslint@9; blocked on eslint 10
+## INFRA-HIGH-081 — `brace-expansion` stays reachable through eslint@9
 
 `brace-expansion@1.1.15` remains under `eslint`, `@eslint/eslintrc` and `@eslint/config-array`.
 It cannot be floored there:
@@ -172,11 +174,21 @@ ship releases declaring an eslint-10 peer. The migration must also re-baseline
   the cross-check exists, and the CI job runs raw `npm audit` rather than that gate. Building an
   allowlist mechanism and re-pointing a security gate at it, inside a dependency PR, is a change
   to a control's authority and is not made here.
-- **Reclassify the lint plugin's dependencies** so eslint leaves the `--omit=dev` graph.
-  `tools/eslint-rules` is genuinely build-time tooling — its only import is
-  `@typescript-eslint/utils` and its only consumer is the repo's own `eslint.config.mjs` — so the
-  classification argument is real. It was tested: marking the eslint peer optional is not
-  sufficient (`@typescript-eslint/utils` declares eslint as a required peer of its own), and npm
-  links an optional peer that is present anyway. Making it work needs the plugin's runtime
-  dependency moved to an optional peer too, at which point the change is shaping a manifest to
-  move an advisory out of a report rather than to describe the software. Not done.
+- **Make peers optional while leaving the package as a production workspace.** Rejected.
+  `@typescript-eslint/utils` still requires ESLint, and the package would continue to be present
+  in production even though no application loads it.
+
+### Resolution
+
+`tools/eslint-rules` is private build tooling. Its only consumer is root `eslint.config.mjs`,
+and production images never invoke ESLint. The root manifest now describes that relationship
+directly:
+
+- remove `tools/eslint-rules` from `workspaces`, where an otherwise unreferenced package is
+  installed as production by npm;
+- add `eslint-plugin-aquaculture` as the root `file:tools/eslint-rules` dev dependency.
+
+The plugin keeps its real runtime dependency and peer contract; neither is relabelled. The
+package-lock marks the plugin, `@typescript-eslint/utils`, ESLint, minimatch and brace-expansion
+as `dev: true`. `npm audit --audit-level=high --omit=dev` therefore reports **zero high
+findings**, matching the graph installed by the production Dockerfiles.

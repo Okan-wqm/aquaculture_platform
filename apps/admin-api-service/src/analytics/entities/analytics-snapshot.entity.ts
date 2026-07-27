@@ -35,7 +35,6 @@ export interface TenantMetrics {
   churnRate: number;
   growthRate: number;
   byPlan: Record<string, number>;
-  byRegion: Record<string, number>;
 }
 
 export interface UserMetrics {

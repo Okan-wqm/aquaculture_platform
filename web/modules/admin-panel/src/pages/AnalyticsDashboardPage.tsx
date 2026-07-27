@@ -28,7 +28,6 @@ interface TenantMetrics {
   churnRate: number;
   growthRate: number;
   byPlan: Record<string, number>;
-  byRegion: Record<string, number>;
 }
 
 interface UserMetrics {
@@ -127,7 +126,6 @@ const getDefaultData = (): DashboardSummary => ({
     churnRate: 0,
     growthRate: 0,
     byPlan: {},
-    byRegion: {},
   },
   users: {
     total: 0,
@@ -862,19 +860,6 @@ const AnalyticsDashboardPage: React.FC = () => {
             <p className="text-2xl font-bold text-gray-900">{formatMetric(data.system.queuedJobs)}</p>
             <p className="text-xs text-gray-500 mt-1">Queued Jobs</p>
           </div>
-        </div>
-      </Card>
-
-      {/* Regional Distribution */}
-      <Card title="Bolgesel Dagilim">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          {Object.entries(data.tenants.byRegion).map(([region, count]) => (
-            <div key={region} className="text-center p-4 bg-gray-50 rounded-lg">
-              <p className="text-3xl font-bold text-gray-900">{count}</p>
-              <p className="text-sm text-gray-500 mt-1">{region}</p>
-              <p className="text-xs text-gray-500">{data.tenants.total > 0 ? ((count / data.tenants.total) * 100).toFixed(1) : '0.0'}%</p>
-            </div>
-          ))}
         </div>
       </Card>
 

@@ -290,8 +290,6 @@ export class AnalyticsService {
     const churnRate  = total > 0 ? Number(((churnedThisMonth / total) * 100).toFixed(2)) : 0;
     const growthRate = total > 0 ? Number((((newThisMonth - churnedThisMonth) / total) * 100).toFixed(2)) : 0;
 
-    const byRegion: Record<string, number> = { TR: total, EU: 0, US: 0, APAC: 0 };
-
     this.logger.debug(`Tenant metrics: total=${total}, active=${active}, trial=${trial}, new=${newThisMonth}`);
 
     return {
@@ -305,7 +303,6 @@ export class AnalyticsService {
       churnRate,
       growthRate,
       byPlan: { starter, professional, enterprise, trial },
-      byRegion,
     };
   }
 
@@ -1073,7 +1070,7 @@ export class AnalyticsService {
     return {
       total: 0, active: 0, inactive: 0, trial: 0, suspended: 0,
       newThisMonth: 0, churnedThisMonth: 0, churnRate: 0, growthRate: 0,
-      byPlan: {}, byRegion: {},
+      byPlan: {},
     };
   }
 

@@ -1137,6 +1137,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/analytics/__tests__/analytics-metrics-grounding.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/analytics/__tests__/analytics-system-metrics.spec.ts",
       "prettier_managed": true
     },
@@ -2322,6 +2328,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/migrations/1801900000000-MigrateSupportMessagingToAuth.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1802000000000-PurgeFabricatedByRegionFromAnalyticsSnapshots.ts",
       "prettier_managed": true
     },
     {
@@ -55404,10 +55416,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9083,
+  "file_count": 9085,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8902,
-  "managed_file_list_sha256": "cb9c1746ff8b496f618bfbea662b988695015153868ef1e3371424b6adb78625",
+  "managed_count": 8904,
+  "managed_file_list_sha256": "2eea3fd6dd4110793a85d283e771c9ccbaad252655da4ee98ae958b333d40ce4",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

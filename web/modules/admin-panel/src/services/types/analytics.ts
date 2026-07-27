@@ -14,7 +14,6 @@ export interface DashboardSummary {
     churnRate: number;
     growthRate: number;
     byPlan: Record<string, number>;
-    byRegion: Record<string, number>;
   };
   users: {
     total: number;

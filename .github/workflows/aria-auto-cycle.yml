@@ -350,6 +350,47 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # ORPHAN-HIGH-471 — the nightly lane spawns agents through the same
+      # run_claude_exec path the executor lane does, but shipped without a
+      # sandbox backend. bwrap is not present on a bare runner, so
+      # wrap_bash_in_sandbox raises SandboxUnavailable: the lane fails closed
+      # rather than running unconfined, which is correct but means it could
+      # not do real agent work at all. These two steps are copied from
+      # aria-agent-executor.yml so the two lanes cannot drift.
+      #
+      # Gated on effective_mock == 'false', not run unconditionally: a mock
+      # cycle spawns no agent and needs no backend, and a hard verify on a
+      # host without unprivileged user namespaces would turn a working mock
+      # nightly red for a capability it never uses.
+      - name: Install sandbox backend (bubblewrap)
+        if: steps.lease_check.outputs.blocked != 'true' && steps.preflight.outputs.effective_mock == 'false'
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bubblewrap
+
+      # Assert capability, not presence. bubblewrap installs cleanly on a host
+      # with unprivileged user namespaces disabled and then fails on every
+      # invocation, so sandbox_backend() probes the namespaces it will actually
+      # use. Failing here is the point: a missing or non-functional backend must
+      # stop the job rather than silently disable containment.
+      - name: Verify the sandbox actually confines
+        if: steps.lease_check.outputs.blocked != 'true' && steps.preflight.outputs.effective_mock == 'false'
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 - <<'PY'
+          import sys
+          from aria_kernel.implementation_safety import sandbox_backend
+          backend = sandbox_backend()
+          if backend is None:
+              sys.exit(
+                  "sandbox_backend_unavailable: bubblewrap is installed but could not "
+                  "build the namespaces wrap_bash_in_sandbox relies on, so "
+                  "READONLY_PATHS cannot be enforced at the syscall level"
+              )
+          print(f"sandbox backend verified: {backend}")
+          PY
+
       - name: Run nightly standard-profile cycle
         if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
         env:

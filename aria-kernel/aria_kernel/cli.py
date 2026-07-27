@@ -502,6 +502,33 @@ def _main(argv: list[str] | None = None) -> int:
     rollback_tools_v3.add_argument("--acknowledge", action="store_true")
     rollback_tools_v3.add_argument("--reason", required=True, type=_validate_reason)
 
+    # ORPHAN-CRITICAL-420 S4 — the failure circuit breaker's operator surface.
+    #
+    # circuit_breaker.py has defined evaluate_breaker/current_state/reset_breaker
+    # since Plan ARIA-V3 §B2, and `grep -n breaker cli.py` returned NOTHING: no
+    # status, no reset, no command group at all. The breaker's own ledger lives
+    # under aria-tools/, which .gitignore excludes, so a tripped breaker could
+    # only be cleared by hand-deleting an untracked artifact on whichever runner
+    # happened to write it.
+    #
+    # That is why this lands WITH the producer and not after it. Wiring a
+    # producer first would convert a transient failure into an unrecoverable
+    # halt — trading a fail-open breaker for a fail-closed one nobody can reopen,
+    # which is not an improvement.
+    #
+    # `reset` deliberately mirrors the migration commands' operator contract
+    # (--acknowledge + --reason, validated by _validate_reason) because it is the
+    # same class of action: a human overriding a governance stop. The underlying
+    # reset_breaker() truncates the 24h window, so the reason string is the only
+    # durable record of why the window was discarded.
+    breaker_parser = add_subparser(sub, "breaker")
+    breaker_sub = breaker_parser.add_subparsers(dest="breaker_command", required=True)
+    add_subparser(breaker_sub, "status")
+    breaker_reset = add_subparser(breaker_sub, "reset")
+    breaker_reset.add_argument("--acknowledge", action="store_true")
+    breaker_reset.add_argument("--reason", required=True, type=_validate_reason)
+    breaker_reset.add_argument("--operator-approval-ref", required=True)
+
     tool_parser = add_subparser(sub, "tool")
     tool_sub = tool_parser.add_subparsers(dest="tool_command", required=True)
     tool_register = add_subparser(tool_sub, "register")
@@ -2032,6 +2059,47 @@ def _main(argv: list[str] | None = None) -> int:
                 sort_keys=True,
             ),
         )
+        return 0
+
+    if args.command == "breaker" and args.breaker_command == "status":
+        # ORPHAN-CRITICAL-420 S4 — evaluate_breaker returns the verdict rather
+        # than current_state's bare string, because an operator deciding whether
+        # to reset needs the failure rows and the threshold that produced the
+        # verdict, not just "tripped".
+        from aria_kernel.circuit_breaker import evaluate_breaker
+
+        verdict = evaluate_breaker(args.tools_dir)
+        print(
+            json.dumps(
+                {
+                    "state": verdict.state,
+                    "reason": verdict.reason,
+                    "sliding_count": verdict.sliding_count,
+                    "threshold_24h": verdict.threshold_24h,
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+        )
+        # Exit 1 on tripped so a shell caller can gate on it without parsing
+        # JSON; a tripped breaker is a non-zero condition by construction.
+        return 0 if verdict.state == "ok" else 1
+
+    if args.command == "breaker" and args.breaker_command == "reset":
+        from aria_kernel.circuit_breaker import reset_breaker
+
+        if not args.acknowledge:
+            print(
+                "breaker reset requires --acknowledge: it truncates the 24h "
+                "failure window, discarding the evidence that tripped it",
+            )
+            return 2
+        result = reset_breaker(
+            base_dir=args.tools_dir,
+            operator_approval_ref=args.operator_approval_ref,
+            reason=args.reason,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
     if args.command == "integrity" and args.integrity_command == "verify":

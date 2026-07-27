@@ -880,7 +880,9 @@ def _run_pr_lifecycle_phase(
     caught per proposal so the phase iterates the full eligible
     list and aggregates outcomes.
     """
-    from .pr_manager import open_pr_for_action
+    from .circuit_breaker import record_failure
+    from .implementation_safety import GATE_PRE_PR_OPEN
+    from .pr_manager import PERIMETER_REFUSED_PREFIX, open_pr_for_action
     from .proposal import list_proposals
 
     eligible = [
@@ -910,6 +912,53 @@ def _run_pr_lifecycle_phase(
                 "passed": False,
                 "error": str(exc),
             })
+            # ORPHAN-CRITICAL-420 S5 — the failure circuit breaker's first
+            # production producer. record_failure() has existed since Plan
+            # ARIA-V3 §B2 and `grep -rn 'record_failure('` returned exactly
+            # ONE line: its own definition. A breaker with no producer cannot
+            # trip, so the autonomous-halt control was decorative.
+            #
+            # WHY HERE. This is an observation point, not a raise site: the
+            # perimeter refusal is raised inside pr_manager, which has no
+            # business knowing the breaker exists. cycle.py already catches
+            # per proposal and aggregates, so the failure is *observed* here
+            # exactly once, on a path proven reachable from a schedule
+            # (aria-auto-cycle.yml -> autonomy run -> run_enterprise_cycle ->
+            # _run_extended_phases -> this function).
+            #
+            # WHY ONLY A PERIMETER REFUSAL. FAILURE_KINDS is a closed
+            # taxonomy and validator_rejection means "a validating gate
+            # rejected the implementation". A missing change_id or an
+            # unresolvable branch is a malformed REQUEST, not a rejected
+            # implementation; counting those would inflate the window with
+            # operator errors and trip the breaker for the wrong reason.
+            # Matching PERIMETER_REFUSED_PREFIX keeps the discrimination
+            # structural rather than a guess about message text.
+            #
+            # WHY IT CANNOT MASK THE ORIGINAL FAILURE. record_failure writes
+            # a ledger row and emits a governance event; if that write itself
+            # fails we must not lose the proposal outcome already recorded
+            # above, nor abort the remaining proposals. The breaker-write
+            # error is therefore captured onto the proposal row and the loop
+            # continues — the refusal is still reported as `passed: False`
+            # either way, so a broken breaker degrades to "not counted",
+            # never to "refusal swallowed".
+            if str(exc).startswith(PERIMETER_REFUSED_PREFIX):
+                try:
+                    record_failure(
+                        base_dir=base_dir,
+                        kind="validator_rejection",
+                        materialize_event_id=str(pid),
+                        extra={
+                            "phase": "pr_lifecycle",
+                            "gate": GATE_PRE_PR_OPEN,
+                            "detail": str(exc),
+                        },
+                    )
+                except Exception as breaker_exc:  # noqa: BLE001
+                    per_proposal[-1]["breaker_record_error"] = (
+                        f"{type(breaker_exc).__name__}:{breaker_exc}"
+                    )
     total = len(eligible)
     if total == 0:
         status = "no_op"

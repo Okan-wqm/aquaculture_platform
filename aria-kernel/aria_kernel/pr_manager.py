@@ -20,6 +20,14 @@ from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 from .validation import list_validation_plans
 
 
+# ORPHAN-CRITICAL-420 — the marker cycle.py matches to tell a perimeter refusal
+# apart from the other GovernanceErrors open_pr_for_action raises (missing
+# change_id, wrong base, unresolvable branch). Exported as a constant rather than
+# left as an inline literal so the observer and the raiser cannot drift: a
+# renamed message would otherwise silently stop counting toward the breaker,
+# which is the failure shape this whole wave exists to remove.
+PERIMETER_REFUSED_PREFIX = "open_pr_hard_fail_perimeter_refused"
+
 REQUIRED_PR_SECTIONS = (
     "Problem",
     "Evidence",
@@ -254,7 +262,8 @@ def open_pr_for_action(
     )
     if not hard_fail_report.passed:
         raise GovernanceError(
-            "open_pr_hard_fail_perimeter_refused: "
+            PERIMETER_REFUSED_PREFIX
+            + ": "
             + "; ".join(
                 f"{failure.name}:{failure.reason}"
                 for failure in hard_fail_report.failures

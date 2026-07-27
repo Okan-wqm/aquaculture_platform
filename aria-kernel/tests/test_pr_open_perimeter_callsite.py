@@ -184,3 +184,94 @@ class PrOpenPerimeterCallsiteTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BreakerProducerCallsiteTests(unittest.TestCase):
+    """ORPHAN-CRITICAL-420 — the failure breaker has a PRODUCTION producer.
+
+    Same reasoning as the perimeter tests above, one layer out.
+    ``circuit_breaker.record_failure`` had complete unit tests and, until this
+    change, exactly one occurrence repo-wide: its own ``def``. A breaker with
+    no producer cannot trip, so the autonomous-halt control was decorative
+    while every test covering it was green.
+
+    These tests therefore assert the WIRING, not the breaker's arithmetic:
+    that a perimeter refusal observed in the cycle's pr_lifecycle phase records
+    a ``validator_rejection``, that a malformed-request GovernanceError does
+    NOT (it is not a rejected implementation), and that a breaker-write failure
+    cannot swallow the refusal it was trying to count.
+    """
+
+    def test_perimeter_refusal_records_a_validator_rejection(self) -> None:
+        from aria_kernel import cycle as cycle_mod
+        from aria_kernel.pr_manager import PERIMETER_REFUSED_PREFIX
+
+        calls: list[dict] = []
+        refusal = GovernanceError(f"{PERIMETER_REFUSED_PREFIX}: secret_scan_diff_clean:x")
+        # cycle.py imports these INSIDE the function, so they are not module
+        # attributes of cycle_mod; patch them where they are looked up.
+        with patch("aria_kernel.proposal.list_proposals", return_value=[
+            {"proposal_id": "PROP-1", "status": "approved_for_apply"},
+        ]), patch(
+            "aria_kernel.pr_manager.open_pr_for_action", side_effect=refusal
+        ), patch(
+            "aria_kernel.circuit_breaker.record_failure",
+            side_effect=lambda **kw: calls.append(kw),
+        ):
+            out = cycle_mod._run_pr_lifecycle_phase(
+                workspace_root=Path("/tmp"), base_dir=Path("/tmp"),
+            )
+
+        self.assertEqual(len(calls), 1, "a perimeter refusal must reach the breaker")
+        self.assertEqual(calls[0]["kind"], "validator_rejection")
+        self.assertEqual(calls[0]["materialize_event_id"], "PROP-1")
+        self.assertEqual(out["proposals"][0]["passed"], False)
+
+    def test_malformed_request_error_does_not_count_toward_the_breaker(self) -> None:
+        """A missing change_id is a bad REQUEST, not a rejected implementation.
+
+        Counting it would let operator mistakes trip the autonomous halt, so
+        the discrimination is part of the contract rather than an accident of
+        which errors happen to reach this handler.
+        """
+        from aria_kernel import cycle as cycle_mod
+
+        calls: list[dict] = []
+        with patch("aria_kernel.proposal.list_proposals", return_value=[
+            {"proposal_id": "PROP-2", "status": "approved_for_apply"},
+        ]), patch(
+            "aria_kernel.pr_manager.open_pr_for_action",
+            side_effect=GovernanceError("open_pr_change_id_required: nope"),
+        ), patch(
+            "aria_kernel.circuit_breaker.record_failure",
+            side_effect=lambda **kw: calls.append(kw),
+        ):
+            out = cycle_mod._run_pr_lifecycle_phase(
+                workspace_root=Path("/tmp"), base_dir=Path("/tmp"),
+            )
+
+        self.assertEqual(calls, [], "a malformed request must not count as a rejection")
+        self.assertEqual(out["proposals"][0]["passed"], False)
+
+    def test_a_broken_breaker_cannot_swallow_the_refusal(self) -> None:
+        """Degrade to 'not counted', never to 'refusal disappeared'."""
+        from aria_kernel import cycle as cycle_mod
+        from aria_kernel.pr_manager import PERIMETER_REFUSED_PREFIX
+
+        with patch("aria_kernel.proposal.list_proposals", return_value=[
+            {"proposal_id": "PROP-3", "status": "approved_for_apply"},
+        ]), patch(
+            "aria_kernel.pr_manager.open_pr_for_action",
+            side_effect=GovernanceError(f"{PERIMETER_REFUSED_PREFIX}: x:y"),
+        ), patch(
+            "aria_kernel.circuit_breaker.record_failure",
+            side_effect=OSError("ledger unwritable"),
+        ):
+            out = cycle_mod._run_pr_lifecycle_phase(
+                workspace_root=Path("/tmp"), base_dir=Path("/tmp"),
+            )
+
+        row = out["proposals"][0]
+        self.assertEqual(row["passed"], False, "the refusal must still be reported")
+        self.assertIn("breaker_record_error", row)
+        self.assertIn("OSError", row["breaker_record_error"])

@@ -947,7 +947,7 @@ export interface UnfedUnitDetectedEvent extends BaseEvent {
   unitId: string;
   unitCode: string;
   siteId: string;
-  reason: 'no_assignment' | 'assignment_paused' | 'draft_protocol';
+  reason: 'no_assignment' | 'assignment_paused' | 'draft_protocol' | 'missing_protocol';
   fishCount: number;
   biomassKg: number;
 }

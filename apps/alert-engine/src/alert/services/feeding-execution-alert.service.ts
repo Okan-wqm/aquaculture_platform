@@ -147,6 +147,7 @@ export class FeedingExecutionAlertService {
       no_assignment: 'protokol ataması yok',
       assignment_paused: 'ataması duraklatılmış',
       draft_protocol: 'protokolü DRAFT (onaysız)',
+      missing_protocol: 'atamasının protokolü bulunamıyor (silinmiş/erişilemez)',
     };
     const message =
       `${event.unitCode} ünitesinde ${event.fishCount} balık (${event.biomassKg} kg) var ` +

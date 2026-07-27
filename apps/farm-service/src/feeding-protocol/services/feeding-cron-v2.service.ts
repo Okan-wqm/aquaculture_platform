@@ -67,10 +67,7 @@ import {
   ComputedDayPlan,
   mixedTankStats,
 } from './meal-plan-generator.service';
-import {
-  BiomassGrowthApplierService,
-  type LockedUnit,
-} from './biomass-growth-applier.service';
+import { BiomassGrowthApplierService, type LockedUnit } from './biomass-growth-applier.service';
 import {
   WaterTemperatureService,
   type EffectiveTemperature,
@@ -369,8 +366,17 @@ export class FeedingCronV2Service {
       siteId: string | null;
       fishCount: string | number;
       biomassKg: string | number | null;
-      reason: 'no_assignment' | 'assignment_paused' | 'draft_protocol';
+      reason: 'no_assignment' | 'assignment_paused' | 'draft_protocol' | 'missing_protocol';
     }> = await manager.query(
+      // Ünite başına TEK atama satırı (LATERAL + LIMIT 1): düz LEFT JOIN, aynı
+      // ünitede birden çok canlı atama varsa çift satır döndürüp düzgün
+      // beslenen üniteye her sabah sahte UnfedUnitDetected üretiyordu
+      // (FARM-MEDIUM-250a). Kalıcı tekillik DB kısıtında
+      // (IDX_fpa_tenant_unit_live); sorgu yine de savunmacı seçim yapar.
+      //
+      // `missing_protocol`: aktif atamanın protokol satırı yoksa `p.status`
+      // NULL olur, `p.status <> 'active'` NULL döner ve satır sessizce
+      // DÜŞERDİ — plan üretilmediği hâlde hiç raporlanmayan kör nokta.
       `SELECT tb."tankId" AS "unitId",
               COALESCE(a."unitCode", tb."tankCode") AS "unitCode",
               COALESCE(a."siteId", d."siteId") AS "siteId",
@@ -379,17 +385,27 @@ export class FeedingCronV2Service {
               CASE
                 WHEN a.id IS NULL THEN 'no_assignment'
                 WHEN a.status = 'paused' THEN 'assignment_paused'
+                WHEN p.id IS NULL THEN 'missing_protocol'
+                WHEN p.status = 'draft' THEN 'draft_protocol'
                 ELSE 'draft_protocol'
               END AS reason
        FROM "tank_batches" tb
-       LEFT JOIN "feeding_protocol_assignments" a
-         ON a."tenantId" = tb."tenantId" AND a."unitId" = tb."tankId"
-        AND a.status IN ('active', 'paused')
-       LEFT JOIN "feeding_protocols_v2" p ON p.id = a."protocolId"
-       LEFT JOIN "equipment" e ON e.id = tb."tankId"
-       LEFT JOIN "departments" d ON d.id = e."departmentId"
+       LEFT JOIN LATERAL (
+         SELECT a.*
+           FROM "feeding_protocol_assignments" a
+          WHERE a."tenantId" = tb."tenantId"
+            AND a."unitId" = tb."tankId"
+            AND a.status IN ('active', 'paused')
+          ORDER BY CASE WHEN a.status = 'active' THEN 0 ELSE 1 END,
+                   a."effectiveFrom" DESC NULLS LAST
+          LIMIT 1
+       ) a ON true
+       LEFT JOIN "feeding_protocols_v2" p
+         ON p.id = a."protocolId" AND p."tenantId" = tb."tenantId"
+       LEFT JOIN "equipment" e ON e.id = tb."tankId" AND e."tenantId" = tb."tenantId"
+       LEFT JOIN "departments" d ON d.id = e."departmentId" AND d."tenantId" = tb."tenantId"
        WHERE tb."tenantId" = $1 AND tb."totalQuantity" > 0
-         AND (a.id IS NULL OR a.status = 'paused' OR p.status <> 'active')`,
+         AND (a.id IS NULL OR a.status = 'paused' OR p.id IS NULL OR p.status <> 'active')`,
       [tenantId],
     );
     for (const row of rows) {
@@ -481,8 +497,11 @@ export class FeedingCronV2Service {
             }
             // İdempotency damgası AYNI tx'te — event yazıldıysa damga da yazıldı.
             await manager.query(
-              `UPDATE "feeding_meals" SET "windowNotifiedAt" = now() WHERE id = ANY($1)`,
-              [meals.map((meal) => meal.id)],
+              // tenantId predikatı ZORUNLU: id listesi tenant sorgusundan
+              // gelse de yazım yalnız search_path'e güvenemez (FARM-MEDIUM-287).
+              `UPDATE "feeding_meals" SET "windowNotifiedAt" = now()
+                WHERE "tenantId" = $1 AND id = ANY($2)`,
+              [tenantId, meals.map((meal) => meal.id)],
             );
           });
         } catch (error) {
@@ -611,8 +630,7 @@ export class FeedingCronV2Service {
           meal.variancePercent =
             Number(meal.plannedKg) > 0
               ? round3(
-                  ((Number(meal.actualKg) - Number(meal.plannedKg)) / Number(meal.plannedKg)) *
-                    100,
+                  ((Number(meal.actualKg) - Number(meal.plannedKg)) / Number(meal.plannedKg)) * 100,
                 )
               : 0;
           await manager.save(meal);
@@ -665,8 +683,9 @@ export class FeedingCronV2Service {
           }
         }
         await manager.query(
-          `UPDATE "feeding_day_plans" SET "rollupAppliedAt" = now() WHERE id = $1`,
-          [plan.id],
+          `UPDATE "feeding_day_plans" SET "rollupAppliedAt" = now()
+            WHERE "tenantId" = $1 AND id = $2`,
+          [tenantId, plan.id],
         );
       }
     });

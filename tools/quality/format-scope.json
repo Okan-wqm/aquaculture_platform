@@ -9747,6 +9747,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1806800000000-BackfillFeedingRecordBatchLocationAttribution.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1806900000000-EnforceSingleLiveAssignmentPerUnit.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -11356,6 +11368,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feeding/entities/feeding-program.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding/entities/feeding-record-attribution-quarantine.entity.ts",
       "prettier_managed": true
     },
     {
@@ -32066,6 +32084,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/claude/2026-07-17-droplet-capacity-gate.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md",
       "prettier_managed": true
     },
     {
@@ -54852,10 +54876,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8991,
+  "file_count": 8995,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8810,
-  "managed_file_list_sha256": "2bf935f30fa75f7bcab66d27cb473a13fd4dd9d4530b6bfe5707067d8817117c",
+  "managed_count": 8814,
+  "managed_file_list_sha256": "09065af0d2087a0c0ee4d567aeb9ebd110e5e6a0b3b4be4e91c8ef44389da101",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -118,6 +118,8 @@
     "aria:docs:ssot": "jest --config tests/invariants/jest.config.ts --selectProjects layer-3 --runTestsByPath tests/invariants/aria-doc-runtime-ssot.spec.ts",
     "aria:acceptance": "PYTHONDONTWRITEBYTECODE=1 python3 tools/aria-acceptance/harness.py",
     "aria:burnin:observe": "PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy burn-in observe",
+    "aria:authority-hash": "ts-node --project tools/gates/tsconfig.json tools/gates/aria-authority-hash.ts",
+    "aria:authority-hash:write": "ts-node --project tools/gates/tsconfig.json tools/gates/aria-authority-hash.ts --write",
     "aria:ci:all": "npm run aria:compile && npm run aria:test:unit && npm run invariants:fast",
     "test:bootstrap": "jest --config apps/db-migrate/jest.config.cts --runInBand --testPathPatterns bootstrap-from-scratch",
     "test:tenant-clone": "jest --config e2e/jest.config.ts --runInBand --testPathPatterns tenant-clone-parity",

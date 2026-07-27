@@ -65,6 +65,10 @@ report's `P0-*` / `NEW-*` labels are the analysis names and these are the tracke
 | `ORPHAN-CRITICAL-440` | this session | CRITICAL | the observe burn-in rejects the runtime writes it exists to produce |
 | `ORPHAN-HIGH-441` | this session | HIGH | the commit-msg traceability hook binds for nobody — `prepare` never runs under `--ignore-scripts` |
 | `SUPPLY-HIGH-001` | this session | HIGH | four high advisories block a required check; the suggested fix breaks the build |
+| `ORPHAN-MEDIUM-442` | self-audit of this branch | MEDIUM | a `# type: ignore` was added on the Gate C verdict — the value that decides whether the specialist gate blocks |
+| `ORPHAN-HIGH-443` | self-audit of this branch | HIGH | the Gate C block policy is a denylist, so an unrecognised verdict passes as a clean review |
+| `ORPHAN-MEDIUM-444` | self-audit of this branch | MEDIUM | the debt-plan repin script wrote all three mirror files before refusing, contradicting its own docstring |
+| `ORPHAN-MEDIUM-445` | self-audit of this branch | MEDIUM | the ARIA authority hash had a checker and no writer, so refreshing it meant copying a value out of a Jest failure |
 
 Every ID above is listed here on purpose: this document is the `Closes:` target for all of them, and
 a trailer pointing at a file that does not name the finding is traceability theatre. Remaining
@@ -792,6 +796,92 @@ plus **tier 3** — `tests/invariants/git-hook-binding.spec.ts`, which asserts t
 executable, that an installer independent of `prepare` exists, and that the hook and the workflow
 still point at the same validator so a commit cannot pass locally and fail in CI. It is not tier 1
 and does not claim to be.
+
+## 9e. Auditing this branch's own diff (`ORPHAN-MEDIUM-442`, `ORPHAN-HIGH-443`, `ORPHAN-MEDIUM-444`)
+
+The operator's instruction was to be sure everything here was done correctly, so the branch was
+audited the way the original code was. Three defects, all introduced by this branch, all confirmed
+mechanically before being written down.
+
+**`ORPHAN-MEDIUM-442` — a `# type: ignore` on the value that decides a gate.** The kernel carries 19
+`# type: ignore` comments at base `bdaf00bf` and 20 at branch head; the added one was
+`specialist_review_runner.py:546`, `consolidated_verdict=verdict,  # type: ignore[typeddict-item]`.
+`SpecialistReviewResult` declared `consolidated_verdict` as an inline four-value `Literal` while
+`verdict` came out of an `if`/`elif`/`else` and inferred as `str`, so the construction did not
+type-check and the suppression made it quiet. CLAUDE.md bans `as any` and `@ts-ignore`; the Python
+analogue is the same defect in another language. The fix was available and cheap — `Literal` was
+already imported. Naming the union as `ConsolidatedVerdict`, using it in the TypedDict, annotating
+`verdict` at its assignment site, and deleting the suppression leaves mypy 1.19.1 reporting zero
+errors for the module.
+
+**`ORPHAN-HIGH-443` — the Gate C block policy was a denylist.** Removing the suppression forced the
+question of what the boundary actually admits, and the answer was: anything.
+`specialist_verdict_blocks_cycle` returned `True` for `consolidated_remediation_required` and
+`consolidated_judge_split`, `True` for `specialists_unavailable` outside `observe`, and `False` for
+**everything else** — so a verdict the module had never heard of was indistinguishable from
+`consolidated_no_gaps`, and the cycle proceeded to `worker_drainer` on a domain nobody reviewed.
+
+The boundary is genuinely untyped in production, which is what makes this reachable rather than
+theoretical: `specialist_review_runner` is an injected kwarg behind a `Protocol`, and
+`autonomy_orchestrator:1489` reads the verdict with `dict.get()`. A typo, a renamed verdict, or a row
+written by a newer build all arrive as an arbitrary string.
+
+This is the same inversion `ORPHAN-HIGH-423` fixed one instance of. 423 stopped `standard` and
+`autonomous` failing open on `specialists_unavailable` but left the surrounding default alone — the
+fix was scoped to the case that had been noticed. Inverting the shape closes the class:
+`consolidated_no_gaps` is now the only value that returns `False`; the always-blocking pair still
+blocks in every profile including `observe`; and everything else, known-unsatisfiable or
+unrecognised alike, blocks wherever a write can follow. Regression test `I-GATE-08b` covers five
+unknown values across three write-capable profiles and **fails 15/15 subtests** against the pre-fix
+body, so it is not vacuous.
+
+**`ORPHAN-MEDIUM-444` — a refusal that ran after its own side effects.** `repin-debt-plan.mjs`
+shipped in `cfec3241c` with a docstring promising that a changed `active_critical_ids` list makes it
+"say so and stop, rather than silently producing a manifest whose id list no longer matches its own
+table", and the commit message repeated the claim. The code did the opposite: `writeFileSync` ran for
+`manifest.json`, `finding-truth-table.md` and `README.md`, and only then did the comparison reach
+`process.exit(1)`. A refused run left three modified files with the counts repinned and the id list
+stale — exactly the inconsistent mirror the docstring said it prevented. A docstring asserting the
+opposite of the code is worse than no docstring, because it answers the question a reader would
+otherwise go and check.
+
+Fixed by hoisting the comparison into a top-level precondition ahead of every write, and verified
+behaviourally rather than by re-reading: with the manifest perturbed to drop one id **and** to carry
+a deliberately wrong `registry_entries`, the script exits 1 and `md5sum -c` confirms all three files
+byte-unchanged — including the wrong count the old ordering would have silently corrected on its way
+to refusing. On a clean tree it still reports `already current` and exits 0.
+
+**`ORPHAN-MEDIUM-445` — a derived value with a checker and no writer.** Fixing 442 and 443 reddened
+`aria-doc-runtime-ssot.spec.ts`, which digests every tracked file under `docs/aria/`, `aria-kernel/`,
+`tools/aria-poc/` and the `aria-*` workflows into a `Last verified ARIA authority hash` line in
+`docs/aria/CURRENT_STATE.md`. That hash is what makes CURRENT_STATE falsifiable instead of
+aspirational — but nothing produced it. The refresh procedure was to read the expected value out of a
+failing Jest assertion and paste it in, which is why it was already stale and sitting on the task
+list. Structurally the same shape as the debt-plan manifest before 444's script, and it failed the
+same way: an unrelated spec goes red with a message that reads like a broken test rather than a
+document that has fallen behind its runtime.
+
+The fix is tier 2 with a tier-1 guarantee attached. `tools/gates/aria-authority-hash.ts` owns the
+digest and gains a `--write` mode (`npm run aria:authority-hash:write`), and the spec **imports** it
+rather than keeping a private copy — so a writer that disagrees with the checker is not expressible.
+A script that reimplemented the digest would confidently write a value the spec then rejects, which
+is worse than having no script. Verified: the writer moved `65f80ec4` → `6a3b4251`, a second run
+reports `already current`, and the spec passes 16/16. The digest is a fixed point because the hash
+line is normalised to a sentinel before hashing, so writing the value back cannot invalidate it.
+
+None of the four was found by the suite. 442 needed a base-vs-head count of suppressions, 443 needed
+someone to ask what an untyped seam admits, 444 needed the script to be run against a perturbed input
+rather than read, and 445 only surfaced because fixing the first two moved a hash nobody had a
+command to regenerate. That is the same gap this document describes in ARIA, observed in the work
+that was closing it.
+
+**One failure in `invariants:fast` is neither mine nor the repo's.**
+`backup-production-secrets.spec.ts` fails two assertions in this container with exit status 2. It
+reproduces identically with every change in this session stashed, and the cause is mechanical:
+`tools/scripts/ci/run-protected-ssh.sh` begins with a presence check for the `ssh` binary, which is
+absent here, so the helper exits `FATAL: ssh is required` before any assertion is reachable. CI
+runners ship `openssh-client` and the spec passes there. Recorded rather than silently ignored,
+because "two tests were already red" is exactly the sentence under which a real regression hides.
 
 ## 10. Limits of this verification
 

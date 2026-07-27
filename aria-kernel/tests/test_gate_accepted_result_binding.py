@@ -324,6 +324,44 @@ class SpecialistGateEvidenceBinding(unittest.TestCase):
                     ),
                 )
 
+    # I-GATE-08b — an unrecognised verdict is not a pass.
+    def test_i_gate_08b_unknown_verdict_blocks_outside_observe(self) -> None:
+        """ORPHAN-HIGH-443 — the policy is an allowlist, not a denylist.
+
+        The pre-fix body named the blocking verdicts and returned False
+        for everything else, so any string the module did not recognise
+        was indistinguishable from ``consolidated_no_gaps`` and the cycle
+        proceeded to worker_drainer on a domain nobody reviewed.
+
+        This is reachable, not theoretical: ``specialist_review_runner``
+        is an injected kwarg with a Protocol contract, and the
+        orchestrator reads the verdict via ``dict.get()``, so nothing
+        between a runner and this policy constrains the value to the four
+        declared verdicts. A typo, a renamed verdict, or a row written by
+        a newer build all arrive here as an arbitrary string.
+        """
+        from aria_kernel.specialist_review_runner import specialist_verdict_blocks_cycle
+
+        unknown = (
+            "",  # a missing field defaulted to empty
+            "consolidated_no_gap",  # one character off the passing verdict
+            "CONSOLIDATED_NO_GAPS",  # right value, wrong case
+            "consolidated_pass",  # a verdict from some other schema
+            "specialists_partially_available",  # a plausible future value
+        )
+        for verdict in unknown:
+            for profile in ("standard", "strict", "autonomous"):
+                with self.subTest(profile=profile, verdict=verdict):
+                    self.assertTrue(
+                        specialist_verdict_blocks_cycle(
+                            verdict=verdict, profile=profile,
+                        ),
+                        msg=(
+                            f"{profile} treats unrecognised verdict {verdict!r} "
+                            "as a clean specialist review"
+                        ),
+                    )
+
     # I-GATE-09 — the orchestrator consumes the policy, not its own copy.
     def test_i_gate_09_orchestrator_delegates_the_block_decision(self) -> None:
         """A behavioural check that the orchestrator honours the policy.

@@ -79,6 +79,11 @@ _ALWAYS_BLOCKING_VERDICTS: frozenset[str] = frozenset({
 # unavailable gate cannot let anything through.
 _NON_WRITING_PROFILE: str = "observe"
 
+# The ONLY verdict that means "this domain was reviewed and is clean".
+# Everything else — including a value this module has never heard of —
+# is a gate that was not satisfied.
+_PASSING_VERDICT: str = "consolidated_no_gaps"
+
 
 def specialist_verdict_blocks_cycle(*, verdict: str, profile: str) -> bool:
     """ORPHAN-HIGH-423 — does this specialist verdict stop the cycle?
@@ -95,12 +100,26 @@ def specialist_verdict_blocks_cycle(*, verdict: str, profile: str) -> bool:
     profile holding real merge authority ran the weakest domain-review
     gate in the system — an inversion rather than a trade-off, because a
     specialist that did not deliver means its domain went unreviewed.
+
+    ALLOWLIST, NOT DENYLIST (ORPHAN-HIGH-443). The earlier shape named
+    the blocking verdicts and returned False for anything left over, so
+    an unrecognised verdict was treated as a clean review. ``verdict``
+    is annotated ``str`` on purpose: ``specialist_review_runner`` is an
+    injected seam (see the ``SpecialistReviewRunner`` Protocol) and the
+    orchestrator pulls the value out of a plain dict with ``.get()``, so
+    a runner returning a typo, an older schema, or a future verdict this
+    build predates reaches here as an arbitrary string. Under the old
+    denylist every one of those proceeded to worker_drainer. Now only
+    the single value that asserts a clean review passes.
     """
+    if verdict == _PASSING_VERDICT:
+        return False
     if verdict in _ALWAYS_BLOCKING_VERDICTS:
         return True
-    if verdict == "specialists_unavailable":
-        return str(profile) != _NON_WRITING_PROFILE
-    return False
+    # `specialists_unavailable` and every unrecognised verdict are the
+    # same thing from here: a gate whose satisfaction was never
+    # established. Block wherever a write can follow.
+    return str(profile) != _NON_WRITING_PROFILE
 
 
 # Plan ARIA-V6 §2c v2 — domain touch-map for pressure-driven
@@ -170,18 +189,28 @@ _TIER_1_SPECIALISTS: frozenset[str] = frozenset({
 })
 
 
+ConsolidatedVerdict = Literal[
+    "consolidated_no_gaps",
+    "consolidated_remediation_required",
+    "consolidated_judge_split",
+    "specialists_unavailable",
+]
+"""The four verdicts Gate C may return.
+
+Named rather than inlined into the TypedDict so the value can be
+annotated at its assignment site. An inline Literal is only checkable
+at the construction call, which forces the caller to either suppress
+the resulting ``str`` widening or restructure the branch.
+"""
+
+
 class SpecialistReviewResult(TypedDict):
     """Plan ARIA-V6 §2c v2 — Gate C return contract."""
 
     cycle_id: str
     specialists_dispatched: list[str]
     specialists_timed_out: list[str]
-    consolidated_verdict: Literal[
-        "consolidated_no_gaps",
-        "consolidated_remediation_required",
-        "consolidated_judge_split",
-        "specialists_unavailable",
-    ]
+    consolidated_verdict: ConsolidatedVerdict
     findings_by_specialist: dict[str, list[dict[str, Any]]]
     request_ids: list[str]
     rounds_count: int
@@ -528,7 +557,7 @@ def run_specialist_review_runner(
         for finding in findings
     )
     if blocking:
-        verdict: str = "consolidated_remediation_required"
+        verdict: ConsolidatedVerdict = "consolidated_remediation_required"
     elif did_not_deliver or not findings_by_specialist:
         # A specialist that was selected but did not deliver leaves the
         # gate unsatisfiable: its domain went unreviewed. `standard` and
@@ -543,7 +572,7 @@ def run_specialist_review_runner(
         cycle_id=cycle_id,
         specialists_dispatched=selected,
         specialists_timed_out=sorted(set(did_not_deliver)),
-        consolidated_verdict=verdict,  # type: ignore[typeddict-item]
+        consolidated_verdict=verdict,
         findings_by_specialist=findings_by_specialist,
         request_ids=request_ids,
         rounds_count=1,

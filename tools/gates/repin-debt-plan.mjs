@@ -22,6 +22,14 @@
  * truth-table row with an owner and a bucket — judgement, not arithmetic. When a
  * CRITICAL count changes this script says so and stops, rather than silently
  * producing a manifest whose id list no longer matches its own table.
+ *
+ * That refusal is a PRECONDITION, checked before the first byte is written. The
+ * first version of this file compared the id lists and then wrote all three
+ * files anyway, exiting non-zero only afterwards — so the docstring above was
+ * false and a refused run still left three modified files behind, with counts
+ * moved and the id list stale: exactly the inconsistent mirror it claims to
+ * prevent. The ordering below is the fix, and it is the only thing keeping that
+ * sentence true, so do not move a write above the guard.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -76,10 +84,8 @@ function repinManifest(state) {
     changed.push(`${key}: ${from} -> ${to}`);
   }
 
-  const idsMatch =
-    JSON.stringify(current.active_critical_ids) === JSON.stringify(state.active_critical_ids);
   writeFileSync(path, raw, 'utf8');
-  return { changed, idsMatch };
+  return changed;
 }
 
 function repinTruthTable(state, previousTip) {
@@ -115,7 +121,24 @@ function repinReadme(state, previous) {
 
 const previous = JSON.parse(readFileSync(resolve(PLAN_DIR, 'manifest.json'), 'utf8'));
 const state = registryState();
-const { changed, idsMatch } = repinManifest(state);
+
+// PRECONDITION — nothing below this point may run if the id list moved. Written
+// as a guard clause rather than a post-write check so a refused run leaves the
+// working tree exactly as it found it.
+if (
+  JSON.stringify(previous.active_critical_ids) !== JSON.stringify(state.active_critical_ids)
+) {
+  console.error(
+    'debt-plan repin: active_critical_ids CHANGED — refusing, nothing was written.\n' +
+      '  A new active CRITICAL needs a truth-table row with an owner and a bucket,\n' +
+      '  and the spec compares the id list with toEqual so order is load-bearing.\n' +
+      `  registry: ${JSON.stringify(state.active_critical_ids)}\n` +
+      `  manifest: ${JSON.stringify(previous.active_critical_ids)}`,
+  );
+  process.exit(1);
+}
+
+const changed = repinManifest(state);
 repinTruthTable(state, previous.registry_tip_hash);
 repinReadme(state, previous);
 
@@ -123,15 +146,4 @@ if (changed.length === 0) {
   console.log('debt-plan repin: already current');
 } else {
   for (const line of changed) console.log(`debt-plan repin: ${line}`);
-}
-
-if (!idsMatch) {
-  console.error(
-    '\ndebt-plan repin: active_critical_ids CHANGED and was NOT rewritten.\n' +
-      '  A new active CRITICAL needs a truth-table row with an owner and a bucket,\n' +
-      '  and the spec compares the id list with toEqual so order is load-bearing.\n' +
-      `  expected: ${JSON.stringify(state.active_critical_ids)}\n` +
-      `  manifest:  ${JSON.stringify(previous.active_critical_ids)}`,
-  );
-  process.exit(1);
 }

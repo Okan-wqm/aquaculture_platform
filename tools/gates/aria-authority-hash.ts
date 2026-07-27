@@ -64,19 +64,41 @@ export function ariaRepoRoot(): string {
  * not part of the authority chain, and letting one move the digest would make
  * the spec fail for a file no reviewer can see.
  */
+const AUTHORITY_ROOTS = ['docs/aria', 'aria-kernel', 'tools/aria-poc'] as const;
+
+function gitIn(repoRoot: string, args: string[]): string {
+  return execFileSync('git', ['-C', repoRoot, ...args], {
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  });
+}
+
 export function ariaAuthorityFiles(repoRoot: string = ariaRepoRoot()): string[] {
-  const git = (args: string[]): string =>
-    execFileSync('git', ['-C', repoRoot, ...args], {
-      encoding: 'utf8',
-      maxBuffer: 64 * 1024 * 1024,
-    });
-  const tracked = git(['ls-files', 'docs/aria', 'aria-kernel', 'tools/aria-poc'])
+  const tracked = gitIn(repoRoot, ['ls-files', ...AUTHORITY_ROOTS])
     .split(/\r?\n/)
     .filter(Boolean);
-  const workflowFiles = git(['ls-files', '.github/workflows'])
+  const workflowFiles = gitIn(repoRoot, ['ls-files', '.github/workflows'])
     .split(/\r?\n/)
     .filter((rel) => /^\.github\/workflows\/aria-[^/]+\.ya?ml$/.test(rel));
   return [...new Set([...tracked, ...workflowFiles])].sort();
+}
+
+/**
+ * Authority-root files that exist on disk but are not in the index.
+ *
+ * The digest is defined over `git ls-files`, so an untracked file is invisible
+ * to it — and then becomes visible the instant it is staged. That gap is a
+ * trap with teeth: write the hash, `git add` a new kernel test, commit, and CI
+ * computes a different digest from the same commit you just validated locally.
+ * It cost one red build before this guard existed. `--others
+ * --exclude-standard` is the same expression `tools/quality/format-scope.json`
+ * uses to answer "what will the commit contain".
+ */
+export function unstagedAuthorityFiles(repoRoot: string = ariaRepoRoot()): string[] {
+  return gitIn(repoRoot, ['ls-files', '--others', '--exclude-standard', ...AUTHORITY_ROOTS])
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .sort();
 }
 
 export function normalizedAriaAuthorityContent(
@@ -134,6 +156,19 @@ function main(argv: string[]): number {
   if (!argv.includes('--write')) {
     process.stdout.write(`${ariaAuthorityHash(repoRoot)}\n`);
     return 0;
+  }
+  // PRECONDITION — refuse rather than write a digest the commit will not have.
+  const untracked = unstagedAuthorityFiles(repoRoot);
+  if (untracked.length > 0) {
+    process.stderr.write(
+      'aria authority hash: refusing — untracked files under the authority roots.\n' +
+        '  The digest is computed from `git ls-files`, so these are invisible to it now\n' +
+        '  and visible the moment they are staged. Writing the hash first produces a\n' +
+        '  value the committed tree does not match, and CI is where you find out.\n' +
+        '  `git add` them (or ignore them), then re-run.\n' +
+        untracked.map((rel) => `    ${rel}\n`).join(''),
+    );
+    return 1;
   }
   const { from, to, changed } = writeAriaAuthorityHash(repoRoot);
   process.stdout.write(

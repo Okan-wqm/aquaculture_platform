@@ -72,6 +72,7 @@ report's `P0-*` / `NEW-*` labels are the analysis names and these are the tracke
 | `ORPHAN-CRITICAL-446` | adversarial re-audit | CRITICAL | the independence gate never receives the cross-reviewer's text, so the diversity layer computes neither comparison and every `converged` verdict is downgraded |
 | `ORPHAN-HIGH-447` | adversarial re-audit | HIGH | the two tests pinning the specialist gate can silently skip themselves instead of failing |
 | `ORPHAN-MEDIUM-448` | adversarial re-audit | MEDIUM | the repin script silently no-ops on anchor drift and exits 0, and was the one gate script nothing type-checked |
+| `ORPHAN-MEDIUM-449` | caught by CI | MEDIUM | the authority-hash writer read the git index, so running it before staging wrote a value the commit could not match |
 
 Every ID above is listed here on purpose: this document is the `Closes:` target for all of them, and
 a trailer pointing at a file that does not name the finding is traceability theatre. Remaining
@@ -961,6 +962,24 @@ code. Two lens claims did not survive checking and are not registered. The rest 
 unverified: it ran seven of nine lenses before the session broke, and its skeptic stage — the stage
 that exists to kill plausible-but-wrong findings — never ran at all. Nothing from it is treated as
 confirmed unless it appears above with a command behind it.
+
+## 9g. The fix that shipped its own defect (`ORPHAN-MEDIUM-449`)
+
+`ORPHAN-MEDIUM-445` gave the authority hash a writer because it had a checker and no producer. One
+commit later CI went red on `aria-merge-authority` and `invariants-fast` — both green on the previous
+head — with `expected 13fb3632`, `recorded 6dcc7a99`.
+
+The digest is defined over `git ls-files`, which reads the **index**. I ran the writer while the new
+kernel test file was still untracked, so it hashed a file set that excluded it; `git add -A` then
+brought the file in and the committed tree hashed differently. Local validation could not have caught
+this: every local run read the same dirty index that produced the wrong value, so the spec passed
+locally and failed on a fresh checkout of the identical commit.
+
+Worth naming precisely, because it is not a typo. A generator whose output depends on staging order
+is the same class of defect as a mirror with no generator — the thing `445` was closing — and it
+arrived inside `445`'s own fix. The writer now refuses when `git ls-files --others --exclude-standard`
+reports anything under the authority roots, naming the files and saying to stage them first. That is
+the same expression `format-scope.json` uses to answer "what will the commit contain".
 
 ## 10. Limits of this verification
 

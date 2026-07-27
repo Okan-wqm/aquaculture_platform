@@ -6,8 +6,8 @@
 | **Owner** | okan |
 | **Audit baseline** | commit `bdaf00bf633151927740304985551a012e5e2e5c` |
 | **Findings source** | `docs/reviews/2026-07-26-aria-codex-audit-verification.md` |
-| **Registry** | `docs/reviews/_registry/findings.jsonl` (`ORPHAN-*-333..349`) |
-| **Branch** | `claude/aria-security-audit-findings-8l9it5` |
+| **Registry** | `docs/reviews/_registry/findings.jsonl` (`ORPHAN-*-417..448`) |
+| **Branch** | `claude/aria-wave0-s0-retraced` (PR #1024) — the retrace; the original `claude/aria-security-audit-findings-8l9it5` carried the collided IDs |
 | **Status** | S0 **not** exited — no sandbox backend on any runner (`ORPHAN-CRITICAL-439`); branch retraced onto uncollided finding IDs |
 
 > This file is the plan of record. It is updated as stages land — see
@@ -21,7 +21,7 @@
 The goal is for ARIA to work like a software team: take a task, write the code, open a PR, watch
 CI, pass independent review, merge, ship, and remember why. An external audit called it a control
 plane rather than a team. That was verified at commit `bdaf00b`: all 15 of its P0 findings confirmed,
-and a second adversarial hunt added 8 more. Seventeen are registered (`ORPHAN-*-333..349`).
+and a second adversarial hunt added 8 more. Seventeen are registered (`ORPHAN-*-333..434`).
 
 Measured against the ten things a team does, ARIA does **two** — it plans, and (as of the
 2026-07-26 session) it reviews for real. It cannot write code (`NoOpV9ImplementationRunner` is the
@@ -64,7 +64,7 @@ one of them found a defect in the plan's own acceptance assertion:
    **`blocked`**, reason `risk_unknown_path`, so it could never traverse S2 either. The mechanical
    check was also **inverted**: `git check-ignore -v` reports negation matches and exits **0**; only
    the plain form exits 1. Both fixed below.
-2. **Item 334 rewrites a pinned contract, and the lane has no push credential.** Confirmed by
+2. **Item 419 rewrites a pinned contract, and the lane has no push credential.** Confirmed by
    reading both sides. Also confirmed: minted installation tokens land in a **tracked, non-ignored**
    path, which moves that work from S3 into S1.
 3. **The first rung is self-blocking.** `merge_authority.py:70` asserts the ladder unconditionally
@@ -86,9 +86,9 @@ credential fix is an operator ceremony; and two lesser sequencing objections.
 | 4 | Local test | ✗ not on delivery path | S1 |
 | 5 | Open PR | ✗ unreachable from scheduled lane | S1 |
 | 6 | Watch CI | ✗ queue never reaches executor | S1 |
-| 7 | Independent review | ✓ real (336/337/338) | done |
+| 7 | Independent review | ✓ real (421/422/423) | done |
 | 8 | Merge with authority | ~ head-bound gate sound; perimeter 5/17 | S2 |
-| 9 | Not harm itself | ~ containment done (342); perimeter partial | S0/S2 |
+| 9 | Not harm itself | ~ containment done (427); perimeter partial | S0/S2 |
 | 10 | Remember why | ✗ repetition counted as confidence | S5 |
 
 ---
@@ -142,7 +142,7 @@ The stage that makes ARIA a team at all: functions 1, 3, 4, 5, 6.
   * **the lane has no push credential.** The workflow sets `persist-credentials: false` and
     `GH_TOKEN` on exactly one step, under `permissions: contents: read`. So `pr_manager`'s
     `git push` / `gh pr create` have nothing to authenticate with, and `mint_installation_token`
-    Mode B raises. Fix the credential path as part of 334, not after it.
+    Mode B raises. Fix the credential path as part of 419, not after it.
   * **minted secrets currently land in a stageable path.** `gh_token_factory._keys_dir` writes
     `<workspace>/aria-debts/keys/<cycle>.token`; `aria-debts/` is tracked and
     `git check-ignore aria-debts/keys/abc.token` exits 1 — not ignored. The moment ARIA can run
@@ -264,7 +264,7 @@ The smallest change that makes the whole program measurable. It belongs in S1.
   it, so `pr_number`/`head_sha` stop being optional at the rung boundary.
 * `autonomy_unlock.verdict_from_rows` is unchanged: it already counts the right event types with the
   right thresholds. The defect is production, not policy.
-* `enterprise/acceptance-events.jsonl` moves under the integrity gate (348) **before** the first rung
+* `enterprise/acceptance-events.jsonl` moves under the integrity gate (433) **before** the first rung
   is recorded, so promotion evidence cannot be corrupted undetected.
 
 ---
@@ -292,7 +292,7 @@ for the second:
 | `ORPHAN-HIGH-433` gate coverage | S1, before first rung |
 | `ORPHAN-HIGH-431` compliance blindness | S1 |
 | `ORPHAN-HIGH-434` daily anchor | S1 **entry prerequisite, operator commit** (not the golden task) |
-| aria-auto-cycle workflow contract + push credential | S1, same commit as 334 |
+| aria-auto-cycle workflow contract + push credential | S1, same commit as 419 |
 | minted token in tracked `aria-debts/keys/` | S1 (moved out of S3) |
 | self-blocking L2 ladder assertion (`merge_authority.py:70`) | S2 **entry**, before any rung |
 | `ORPHAN-CRITICAL-420` budget/breaker | S2 |
@@ -300,7 +300,7 @@ for the second:
 | `ORPHAN-HIGH-430` watchdog | S3 |
 | `ORPHAN-MEDIUM-432` spine gate | S4 |
 | `ORPHAN-HIGH-426` panel | done |
-| `ORPHAN-HIGH-421/422/423/424`, `333` | done |
+| `ORPHAN-HIGH-421/422/423/424`, `418` | done |
 
 ---
 
@@ -377,14 +377,14 @@ Updated with the commit that causes the change. `~` = in progress.
 
 | Item | Stage | Status | Commit |
 |---|---|---|---|
-| `ORPHAN-CRITICAL-418` breaker fails closed under ledger damage | pre-S0 | done | `8c30bd69b` |
-| `ORPHAN-HIGH-424` derived counters + gated publication | pre-S0 | done | `1a80bf5e9` |
-| `ORPHAN-HIGH-421/422` review + specialist fail-open | pre-S0 | done | `b5fbcebbf` |
-| `ORPHAN-HIGH-423` three independence layers functional | pre-S0 | done | `50956150b` |
-| `ORPHAN-HIGH-426` HUMAN_REQUIRED agent panel | pre-S0 | done | `0c1f9a117` |
-| `ORPHAN-CRITICAL-427` sandbox bound to spawn path | S0 | done | `873f038f8` |
-| `ORPHAN-CRITICAL-428` registry executable, fails closed on unbuilt checks | S0 | partial | `f46324323` |
-| Gate split `pre_pr_open` / `pre_merge` | S0 | done | `a4197533a` |
+| `ORPHAN-CRITICAL-418` breaker fails closed under ledger damage | pre-S0 | done | `d1c3399ee` |
+| `ORPHAN-HIGH-424` derived counters + gated publication | pre-S0 | done | `17241aaa3` |
+| `ORPHAN-HIGH-422/423` review + specialist fail-open | pre-S0 | done | `ad43334fb` |
+| `ORPHAN-HIGH-421` three independence layers functional | pre-S0 | done | `ece1d1023`, completed by `63e4563ed` (`ORPHAN-CRITICAL-446`) |
+| `ORPHAN-HIGH-426` HUMAN_REQUIRED agent panel | pre-S0 | done | `68957e8bd` |
+| `ORPHAN-CRITICAL-427` sandbox bound to spawn path | S0 | done | `05153e93d` |
+| `ORPHAN-CRITICAL-428` registry executable, fails closed on unbuilt checks | S0 | partial | `2da9bf1f9` |
+| Gate split `pre_pr_open` / `pre_merge` | S0 | done | `8d3925669` |
 | `ORPHAN-HIGH-435` hermetic git env for the test suite | S0 | done | see log |
 | `ORPHAN-CRITICAL-428` phase A — 5 mechanical pre-PR-open checks | S0 | done | see log |
 | `ORPHAN-MEDIUM-436` no mutation/coverage gate exists to require | S1+ | open | — |
@@ -403,6 +403,47 @@ Updated with the commit that causes the change. `~` = in progress.
 | `P0-13` required-check rename | S2 | open, operator-blocked | — |
 
 ## Progress log
+
+### 2026-07-27 — the branch was audited the way the code was
+
+An independent adversarial pass over this branch's own diff — seven lenses, no shared context with
+the work — plus a self-audit found eight defects, all introduced by this branch. They are registered
+`ORPHAN-MEDIUM-442` … `ORPHAN-MEDIUM-449` and written up in §9e/§9f of the verification document.
+The one that matters:
+
+* **`ORPHAN-CRITICAL-446`** — the commit titled *"make all three convergence independence layers
+  functional"* left layer 3 non-functional and made things worse than the bug it replaced. The
+  drainer recorded the cross-review dispatch with `agent_text=None` before the reviewer had run and
+  never refreshed it, so the diversity layer short-circuited on `cross_review_text_unavailable` and
+  computed neither comparison it exists for. Because the drainer downgrades on a failed
+  independence check, **no plan could hold a `converged` verdict at all**. Fixed in `63e4563ed`
+  with eight regression tests, one of which asserts the pre-fix shape so the file cannot pass
+  vacuously. Nothing in the suite could have caught it: `grep -rn round_dispatch aria-kernel/tests/`
+  returned zero hits, so the layers were tested and the caller that feeds them was not.
+
+The rest: a `# type: ignore` on the value that decides the specialist gate (`442`); that gate's
+block policy being a denylist, so an unrecognised verdict read as a clean review (`443`); the repin
+script writing all three mirror files before refusing, contradicting its own docstring (`444`), then
+silently no-opping on anchor drift and exiting 0 (`448`); the authority hash having a checker and no
+writer (`445`); the two tests pinning the specialist gate able to skip themselves silently (`447`);
+and the new hash writer computing from the git index, so running it before staging wrote a value the
+commit could not match (`449`) — caught by CI one commit after the writer landed, which is the same
+defect class arriving inside its own fix.
+
+Three of the eight were found only because fixing an earlier one forced the question: removing the
+suppression exposed the denylist, and the denylist fix moved a hash nobody had a command to
+regenerate. That chain is the argument for auditing a diff rather than reviewing it.
+
+**Correction to this document.** The ledger cited eight commit SHAs that exist only on the abandoned
+pre-retrace branch, and ten bare finding numbers the ID remap missed because its pattern matched
+only full `ORPHAN-SEV-NNN` identifiers. Both are now repaired against the commit trailers, which are
+the ground truth — and that check found a third error the remap had preserved rather than caused:
+`ad43334fb` closes `422/423` and `ece1d1023` closes `421`, the reverse of what the ledger claimed.
+
+**Stage status unchanged.** S0 is still not exited: `ORPHAN-CRITICAL-439` (no sandbox backend on any
+runner) is untouched by this work. Nothing here moves a stage; it repairs the record and the code
+behind it.
+
 
 ### 2026-07-26 — the branch was retraced onto uncollided finding IDs
 
@@ -426,8 +467,8 @@ was the only route that repaired the references instead of tracking them as perm
 * Verification of the external audit completed: 15/15 P0 confirmed, 8 more severe than reported,
   3 framings corrected in ARIA's favour, 8 new findings registered
   (`docs/reviews/2026-07-26-aria-codex-audit-verification.md`).
-* Wave 0 containment and fail-closed work landed: `333`, `336`, `337`, `338`, `339`, `341`, `342`.
-* Gate split landed (`a4197533a`): `GATE_PRE_PR_OPEN` carries 10 checks including all 5 implemented
+* Wave 0 containment and fail-closed work landed: `418`, `421`, `422`, `423`, `424`, `426`, `427`.
+* Gate split landed (`8d3925669`): `GATE_PRE_PR_OPEN` carries 10 checks including all 5 implemented
   ones; `GATE_PRE_MERGE` carries 7, none implemented, so merge is closed by construction rather than
   by a flag. `HardFailCheck.gate` defaults to `pre_merge`.
 * Plan reviewed adversarially by an independent agent panel before approval: 3 confirmed gaps folded

@@ -125,7 +125,10 @@ export class ProtocolAssignment {
   unitId!: string;
 
   @Field(() => FeedingUnitType)
-  @Column({ type: 'enum', enum: FeedingUnitType })
+  // Bu tablo tipin SAHİBİ; TypeORM aynı adı zaten türetirdi, ama adı açık
+  // yazmak paylaşımı görünür kılar — `feeding_day_plans.unitType` de bu tipi
+  // kullanıyor ve orada türetme YANLIŞ ada gidiyordu.
+  @Column({ type: 'enum', enum: FeedingUnitType, enumName: 'feeding_protocol_assignments_unittype_enum' })
   unitType!: FeedingUnitType;
 
   /** Denormalize görünüm alanları (liste/timeline UI'ları — repo deseni). */

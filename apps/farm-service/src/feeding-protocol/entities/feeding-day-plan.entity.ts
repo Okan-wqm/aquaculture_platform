@@ -203,7 +203,16 @@ export class FeedingDayPlan {
   siteId!: string;
 
   @Field(() => FeedingUnitType)
-  @Column({ type: 'enum', enum: FeedingUnitType })
+  // `enumName` AÇIK: kolon, assignments tablosunun PG enum TİPİNİ paylaşır
+  // (1806400000000 → `"unitType" feeding_protocol_assignments_unittype_enum`),
+  // çünkü FeedingUnitType tek bir domain enum'u ve her tablo için ayrı bir tip
+  // üretmenin kazancı yok. Adı yazmazsak TypeORM tablo+kolondan
+  // `feeding_day_plans_unittype_enum` TÜRETİR ve entity metadata'sı DB ile
+  // ayrışır: `synchronize` ile kurulan herhangi bir şema (test fixture'ları
+  // dahil) üretimde olmayan bir tip yaratır, üstelik generator'ın ham INSERT'ü
+  // `$6::feeding_protocol_assignments_unittype_enum` diye cast ettiği için
+  // orada 42804 ile patlar.
+  @Column({ type: 'enum', enum: FeedingUnitType, enumName: 'feeding_protocol_assignments_unittype_enum' })
   unitType!: FeedingUnitType;
 
   @Field()

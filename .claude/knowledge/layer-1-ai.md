@@ -1,7 +1,7 @@
 # Layer-1 AI — Claude Agent SDK + Anthropic API patterns
 
 **Audience:** ai-expert, ai-safety-expert, ai-service domain reviewers, cost-attribution reviewers, any agent reviewing `apps/ai-service/**`, `.claude/skills/**`, or orchestrator-dispatch code.
-**Anchor:** `@anthropic-ai/claude-agent-sdk@^0.2.37` (root `package.json`), Claude Sonnet 4.6 + Haiku 4.5 + Opus 4.7 (default model routing per workload), as of 2026-04-17.
+**Anchor:** `@anthropic-ai/sdk@^0.93.0` (root `package.json`), Claude Sonnet 4.6 + Haiku 4.5 + Opus 4.7 (default model routing per workload), as of 2026-04-17.
 
 Depends on: `layer-1-nestjs.md` (guards, interceptors, CQRS), `layer-2-patterns.md` (outbox, tenant isolation). Applies to: `apps/ai-service/src/agent/`, `apps/ai-service/src/chat/`, `apps/ai-service/src/cost/`, `apps/ai-service/src/safety/`, `apps/ai-service/src/tools/`.
 
@@ -28,7 +28,7 @@ Depends on: `layer-1-nestjs.md` (guards, interceptors, CQRS), `layer-2-patterns.
 ## Streaming + backpressure
 
 - **`messages.stream(...)`** — returns an async iterator of SSE events. Use for user-facing chat where first-byte latency matters (<200ms to first token).
-- **Backpressure** — if the downstream (WebSocket to client) slows, the SDK iterator will buffer. For multi-minute streams this is an OOM vector. Pattern: wrap the iterator in a bounded async queue (default 64 events); when full, drop *interim* events (usage updates), never the `text_delta` blocks.
+- **Backpressure** — if the downstream (WebSocket to client) slows, the SDK iterator will buffer. For multi-minute streams this is an OOM vector. Pattern: wrap the iterator in a bounded async queue (default 64 events); when full, drop _interim_ events (usage updates), never the `text_delta` blocks.
 - **Abort handling** — `AbortSignal` is the correct cancellation primitive (do NOT rely on socket close alone). Downstream disconnect must abort the SDK call so Anthropic stops billing tokens. `apps/ai-service/src/chat/` must pass the request-scoped AbortController into every `stream()` call.
 - **Fan-out** — one user request → one Anthropic stream. Do NOT fan out a single stream to multiple consumers; each consumer needs its own call. Sharing a stream corrupts the tool-use loop state.
 
@@ -42,7 +42,7 @@ Depends on: `layer-1-nestjs.md` (guards, interceptors, CQRS), `layer-2-patterns.
 ## Rate limits + backpressure (client side)
 
 - **`429` response** — parse `anthropic-ratelimit-*-reset` + `retry-after` headers, sleep until reset, retry with jitter. The SDK's built-in retry handles simple 429s; deep tool-use loops must bubble the rate limit up to the orchestrator for global fairness (W12 — K8s agent-pool backpressure).
-- **Per-tenant quotas** — enforced at the wrapper layer via Redis token bucket keyed `ai:quota:<tenantId>:<model>`. Fail *closed* on Redis outage — never silently ignore quota (MT-CRITICAL-002 regression pattern). Tenant upgrade path: quota bump is a billing-service event, not an ai-service config change.
+- **Per-tenant quotas** — enforced at the wrapper layer via Redis token bucket keyed `ai:quota:<tenantId>:<model>`. Fail _closed_ on Redis outage — never silently ignore quota (MT-CRITICAL-002 regression pattern). Tenant upgrade path: quota bump is a billing-service event, not an ai-service config change.
 - **Cost caps** — `profile.persona.dailyBudgetUSD` evaluated pre-call. When breached, return a soft-fail message ("daily AI budget reached"), NOT an exception. Exceptions propagate to the UI as "error"; cost cap is a business-level refusal and must render as such.
 
 ## Safety + content filtering
@@ -53,7 +53,8 @@ Depends on: `layer-1-nestjs.md` (guards, interceptors, CQRS), `layer-2-patterns.
 
 ## Claude Agent SDK (sub-agent orchestration)
 
-- **`@anthropic-ai/claude-agent-sdk`** — runtime dependency for `apps/ai-service` only (user-facing chat via `Anthropic.messages.create(...)`). It is NOT the review-loop dispatcher.
+- **`@anthropic-ai/sdk`** — the runtime dependency for `apps/ai-service` only (user-facing chat via `Anthropic.messages.create(...)`), imported at `apps/ai-service/src/agent/providers/anthropic.provider.ts`. It is NOT the review-loop dispatcher.
+- **`@anthropic-ai/claude-agent-sdk` is NOT a dependency of this repo.** It was declared in root `dependencies` with **zero importers** repo-wide and was removed on 2026-07-27. Do not re-add it without a real import; it is a different package from `@anthropic-ai/sdk`, and the two were conflated in this shard for months.
 - **Review-loop dispatch is Claude Code's built-in `Agent()` tool** (auto-discovery of `.claude/agents/**/*.md`). No external CLI binary, no `npx claude-agent`, no `tools/scripts/orchestrator-runner.ts` — all of that was retired on 2026-04-18 (commit `e8f06e98`). Sub-agent invocation format: `Agent(subagent_type="<name>", description="...", prompt="...")`.
 - **Sub-agent isolation** — sub-agents run in their own context. Parent must pass findings in + pull results back via explicit message-passing, not shared state. The finding-registry (`docs/reviews/_registry/findings.jsonl`) is the SSoT for cross-agent state; never mutate another agent's in-flight context.
 - **System prompt assembly** — sub-agent system prompts compose from the agent file header + `@`-referenced shared fragments (`.claude/shared/**`) + knowledge layers (this folder). The assembly is done by the SDK; agent files never inline SSoT content (W3 invariant).
@@ -63,7 +64,7 @@ Depends on: `layer-1-nestjs.md` (guards, interceptors, CQRS), `layer-2-patterns.
 - **Model deprecation** — Anthropic deprecates models; always pin the exact ID (`claude-sonnet-4-6`) in tenant persona config, never just `"sonnet"`. Mass migration paths live in `apps/ai-service/src/tenant-config/` + a runbook in `docs/runbooks/` (not yet written — Phase 14 item).
 - **Token drift between models** — a prompt that fits 190k on Sonnet can fail on Haiku (slightly different tokenizer). Always count tokens AGAINST the target model, not a default.
 - **`anthropic-beta` header** — reserved for opt-in features (prompt caching was beta-gated until GA). Current GA features do NOT need this header; adding it unnecessarily pins you to a beta contract that can disappear.
-- **SDK version anchor** — `@anthropic-ai/claude-agent-sdk` is the ai-service runtime SDK (powers chat in `apps/ai-service`). The review-loop uses Claude Code's built-in `Agent()` tool, not this package — Claude Code itself owns its client binding. The `knowledge-ssot.spec.ts` anchor on `^0.2.37` reflects the ai-service runtime version only.
+- **SDK version anchor** — `@anthropic-ai/sdk` is the ai-service runtime SDK (powers chat in `apps/ai-service`). The review-loop uses Claude Code's built-in `Agent()` tool, not an npm package — Claude Code itself owns its client binding. The `knowledge-ssot.spec.ts` anchor on `^0.93.0` reflects the ai-service runtime version only. Until 2026-07-27 this anchor named `@anthropic-ai/claude-agent-sdk@^0.2.37`, which was never imported anywhere; the invariant was faithfully enforcing a version for a package the platform did not use.
 
 ## References
 

@@ -53,10 +53,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import {
-  SCHEMA_OWNING_SERVICES,
-  PER_TENANT_SCHEMA_SERVICES,
-} from './_constants';
+import { SCHEMA_OWNING_SERVICES, PER_TENANT_SCHEMA_SERVICES } from './_constants';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
@@ -115,9 +112,7 @@ describe('knowledge SSoT invariant', () => {
 
     it('claim matches actual count of misfiled ADR files', () => {
       const archDir = path.join(REPO_ROOT, 'docs', 'architecture');
-      const misfiledAdrs = fs
-        .readdirSync(archDir)
-        .filter((f) => /^ADR-01[0-9]-.*\.md$/.test(f));
+      const misfiledAdrs = fs.readdirSync(archDir).filter((f) => /^ADR-01[0-9]-.*\.md$/.test(f));
       const actualCount = misfiledAdrs.length;
 
       // Knowledge file says "Five files" (or whichever number)
@@ -134,24 +129,39 @@ describe('knowledge SSoT invariant', () => {
     });
   });
 
-  describe('layer-1-ai.md Claude Agent SDK version matches package.json', () => {
+  describe('layer-1-ai.md Anthropic SDK version matches package.json', () => {
+    // Until 2026-07-27 this anchored on `@anthropic-ai/claude-agent-sdk`, which
+    // had ZERO importers repo-wide — the invariant was faithfully pinning the
+    // version of a package the platform never used, while the SDK that
+    // apps/ai-service actually imports went unchecked. The two are different
+    // packages and the knowledge shard conflated them. Anchored on the real
+    // one now; `@anthropic-ai/claude-agent-sdk` was removed from package.json
+    // in the same change.
+    const SDK_PACKAGE = '@anthropic-ai/sdk';
+    const SDK_IMPORT_SITE = 'apps/ai-service/src/agent/providers/anthropic.provider.ts';
+
+    it('is the SDK apps/ai-service actually imports', () => {
+      // Guards the defect class directly: an anchor is only worth enforcing if
+      // the package it names is really on the runtime path.
+      expect(readFile(SDK_IMPORT_SITE)).toContain(`from '${SDK_PACKAGE}'`);
+    });
+
     it('SDK version anchor matches root package.json dependency', () => {
       const knowledge = readFile('.claude/knowledge/layer-1-ai.md');
       const pkg = JSON.parse(readFile('package.json'));
       const pkgVersion: string | undefined =
-        pkg.dependencies?.['@anthropic-ai/claude-agent-sdk'] ??
-        pkg.devDependencies?.['@anthropic-ai/claude-agent-sdk'];
+        pkg.dependencies?.[SDK_PACKAGE] ?? pkg.devDependencies?.[SDK_PACKAGE];
       if (!pkgVersion) {
         throw new Error(
-          'package.json does not declare @anthropic-ai/claude-agent-sdk. ' +
+          `package.json does not declare ${SDK_PACKAGE}. ` +
             'Either remove the SDK anchor from layer-1-ai.md or add the dependency.',
         );
       }
-      // Strip caret/tilde range prefix; knowledge shard references the bare
-      // semver (e.g., "0.2.37") not the range form (e.g., "^0.2.37").
+      // Strip caret/tilde range prefix; the knowledge shard may reference the
+      // bare semver (e.g., "0.93.0") or the range form (e.g., "^0.93.0").
       const bare = pkgVersion.replace(/^[\^~]/, '');
       const escaped = bare.replace(/[.]/g, '\\.');
-      const pattern = new RegExp(`Claude Agent SDK\\s+${escaped}|claude-agent-sdk@\\^?${escaped}`);
+      const pattern = new RegExp(`Anthropic SDK\\s+${escaped}|@anthropic-ai/sdk@\\^?${escaped}`);
       if (!pattern.test(knowledge)) {
         throw new Error(
           `layer-1-ai.md does not cite the real SDK version ${bare} (from package.json). ` +
@@ -159,6 +169,14 @@ describe('knowledge SSoT invariant', () => {
         );
       }
       expect(knowledge).toMatch(pattern);
+    });
+
+    it('does not re-introduce the unused claude-agent-sdk dependency', () => {
+      const pkg = JSON.parse(readFile('package.json'));
+      const declared =
+        pkg.dependencies?.['@anthropic-ai/claude-agent-sdk'] ??
+        pkg.devDependencies?.['@anthropic-ai/claude-agent-sdk'];
+      expect(declared).toBeUndefined();
     });
   });
 
@@ -169,12 +187,9 @@ describe('knowledge SSoT invariant', () => {
       const appsDir = path.join(REPO_ROOT, 'apps');
       const realCount = fs
         .readdirSync(appsDir, { withFileTypes: true })
-        .filter((e) => e.isDirectory())
-        .length;
+        .filter((e) => e.isDirectory()).length;
 
-      const claimMatch = claudeMd.match(
-        /Backend Services \(`apps\/`\)\s*[—-]\s*(\d+)\s+services/,
-      );
+      const claimMatch = claudeMd.match(/Backend Services \(`apps\/`\)\s*[—-]\s*(\d+)\s+services/);
       if (claimMatch === null) {
         throw new Error(
           'CLAUDE.md should cite service count like "Backend Services (`apps/`) — 16 services"',

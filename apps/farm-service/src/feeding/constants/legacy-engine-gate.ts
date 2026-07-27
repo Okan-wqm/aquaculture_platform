@@ -5,11 +5,17 @@
  * legacy üretim ve bildirim işleri KAPALI-AMA-KODDA kalır (plan §11 Faz 6:
  * "anında re-gate rollback"). Kapıya tabi işler:
  *
- *   feeding-cron.service.ts   → 06:00 generateDailyPlans, 07:00 checkFeedTransitions
  *   feeding-scheduler.service → 05:00 generateDailyFeedingPlan, saatlik
  *                               sendFeedingReminders, 20:00 dailyFeedingSummary,
  *                               18:00 analyzeFCR, 10:00 checkFeedStock,
  *                               haftalık weeklyFeedForecast
+ *
+ * Bu liste eskiden bir ikinci dosyayı — v1 yemleme cron sınıfını — de sayıyordu.
+ * O dosya Faz 8'de silindi ve silinme gerekçesi rollback anlatısını DÜZELTİR:
+ * sınıf hiçbir modülde provider değildi, yani `@Cron`'ları hiç ateşlenmiyordu.
+ * `FEEDING_LEGACY_ENGINE_ENABLED=true` onun işlerini zaten geri getiremezdi —
+ * rollback yolu YALNIZ `feeding-scheduler.service.ts` üzerinden yaşar. Silinen
+ * simgeler `tests/invariants/feeding-v1-retired-symbols.spec.ts`'te pinlidir.
  *
  * `weeklyFeedForecast` W8'de (FARM-LOW-285) kapıya ALINDI: muafiyetin gerekçesi
  * "Faz 7 forecast'ı gelene dek tek kapsama sinyali" idi ve o gerekçe doldu —

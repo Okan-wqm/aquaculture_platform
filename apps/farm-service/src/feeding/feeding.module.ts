@@ -44,7 +44,6 @@ import { Equipment } from '../equipment/entities/equipment.entity';
 import { FeedSelectorService } from './services/feed-selector.service';
 import { BilinearInterpolationService } from './services/bilinear-interpolation.service';
 import { GrowthSimulatorService } from './services/growth-simulator.service';
-import { FeedConsumptionForecastService } from './services/feed-consumption-forecast.service';
 import { FeedingProgramService } from './services/feeding-program.service';
 import { DailyFeedingExecutionService } from './services/daily-feeding-execution.service';
 import { FeedingLedgerService } from './services/feeding-ledger.service';
@@ -113,7 +112,6 @@ import { FinanceModule } from '../finance/finance.module';
     WaterTemperatureService,
     BilinearInterpolationService,
     GrowthSimulatorService,
-    FeedConsumptionForecastService,
     FeedingProgramService,
     DailyFeedingExecutionService,
     // TEK yem yazma yolu (P-05) — manuel handler + v2 motoru + drain-window
@@ -137,7 +135,6 @@ import { FinanceModule } from '../finance/finance.module';
     FeedingLedgerService,
     BilinearInterpolationService,
     GrowthSimulatorService,
-    FeedConsumptionForecastService,
     FeedingProgramService,
     DailyFeedingExecutionService,
   ],

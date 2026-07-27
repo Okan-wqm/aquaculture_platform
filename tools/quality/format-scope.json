@@ -11715,19 +11715,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/farm-service/src/feeding/services/feed-consumption-forecast.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/farm-service/src/feeding/services/feed-selector.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/feeding/services/feeding-cron.service.ts",
       "prettier_managed": true
     },
     {
@@ -55182,10 +55170,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9046,
+  "file_count": 9044,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8865,
-  "managed_file_list_sha256": "cbd7db637b41d724792ba235062296babf69adaa2f2eddb96ae45aa3d1dd03c6",
+  "managed_count": 8863,
+  "managed_file_list_sha256": "594ff53f5fbd8e83c0ec61de9f98523f7213d99fd67dc13049b950eec1ce1313",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

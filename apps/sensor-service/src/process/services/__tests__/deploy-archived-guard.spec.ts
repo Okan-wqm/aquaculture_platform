@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { BadRequestException } from '@nestjs/common';
 
@@ -28,6 +29,7 @@ describe('deploy archived guard (SENSOR-HIGH-043)', () => {
       const module: TestingModule = await Test.createTestingModule({
         providers: [
           ScadaPackageService,
+          { provide: EventEmitter2, useValue: { emit: jest.fn() } },
           { provide: getRepositoryToken(ScadaPackage), useValue: repo },
           { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
         ],

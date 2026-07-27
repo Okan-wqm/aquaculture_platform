@@ -25,10 +25,14 @@ describe('Credit & Discount Service', () => {
     }).compile();
 
     eventEmitter = module.get(EventEmitter2);
+
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-06-01T12:00:00Z'));
   });
 
   afterEach(() => {
     jest.clearAllMocks();
+    jest.useRealTimers();
   });
 
   // ============================================================================

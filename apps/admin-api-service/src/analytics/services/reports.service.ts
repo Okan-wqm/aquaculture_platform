@@ -38,6 +38,7 @@ import {
   ReportSchedule,
   ReportExecutionStatus,
   SystemMetrics,
+  measuredEntries,
 } from '../entities/analytics-snapshot.entity';
 import { TenantReadOnly, TenantStatus, TenantPlan } from '../entities/external/tenant.entity';
 import { UserReadOnly } from '../entities/external/user.entity';
@@ -662,7 +663,10 @@ export class ReportsService {
     const userMetrics = await this.analyticsService.getUserMetrics();
     const totalActiveUsers = userMetrics.active || 1; // avoid division by zero
 
-    const data: ModuleUsageReportRow[] = Object.entries(usage.moduleUsage).map(([module, stats]) => ({
+    // `measuredEntries` skips unmeasured modules — the metric encodes "not
+    // instrumented" as an absent key, so an empty map is a legitimate result
+    // rather than a zero-filled one (APA-133).
+    const data: ModuleUsageReportRow[] = measuredEntries(usage.moduleUsage).map(([module, stats]) => ({
       module: this.formatModuleName(module),
       activeUsers: stats.activeUsers,
       totalSessions: stats.totalSessions,
@@ -671,12 +675,18 @@ export class ReportsService {
       trend: 'stable', // Trend calculation requires historical snapshot comparison
     }));
 
+    // Averaging over an empty measured set is NaN, and `mostUsedModule` would
+    // be undefined; both are reported as null so a reader sees "nothing was
+    // measured" instead of a corrupt number. `.sort()` mutates in place, so the
+    // ranking copies first rather than reordering the caller's rows.
+    const byActiveUsers = [...data].sort((a, b) => b.activeUsers - a.activeUsers);
+
     return {
       data,
       summary: {
         totalModules: data.length,
-        mostUsedModule: data.sort((a, b) => b.activeUsers - a.activeUsers)[0]?.module,
-        avgAdoptionRate: Math.round(data.reduce((sum, m) => sum + m.adoptionRate, 0) / data.length),
+        mostUsedModule: byActiveUsers[0]?.module ?? null,
+        avgAdoptionRate: roundOrNull(avgOrNull(data.map((m) => m.adoptionRate))),
         totalSessions: data.reduce((sum, m) => sum + m.totalSessions, 0),
       },
     };
@@ -704,7 +714,8 @@ export class ReportsService {
       data,
       summary: {
         totalFeatures: data.length,
-        avgAdoptionRate: Math.round(data.reduce((sum, f) => sum + f.adoptionRate, 0) / data.length),
+        // Empty measured set -> null, not NaN (APA-133).
+        avgAdoptionRate: roundOrNull(avgOrNull(data.map((f) => f.adoptionRate))),
         highAdoptionCount: data.filter(f => f.adoptionRate >= 60).length,
         lowAdoptionCount: data.filter(f => f.adoptionRate < 40).length,
       },

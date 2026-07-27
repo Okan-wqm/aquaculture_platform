@@ -26,6 +26,7 @@ import {
   DashboardSummary,
   TimeSeriesData,
   ChartData,
+  measuredEntries,
 } from '../entities/analytics-snapshot.entity';
 import { InvoiceReadOnly } from '../entities/external/invoice.entity';
 import { BillingCycle, SubscriptionReadOnly, SubscriptionStatus } from '../entities/external/subscription.entity';
@@ -105,6 +106,19 @@ function parseDbInt(value: DbNumeric): number {
 
 function parseDbNumber(value: DbNumeric): number {
   return Number(value ?? 0);
+}
+
+/** Series colours, cycled by index so the palette never bounds the series length. */
+const CHART_PALETTE = [
+  '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1',
+] as const;
+
+/** `farm_management` -> `Farm Management` for chart axis labels. */
+function humanizeMetricKey(key: string): string {
+  return key
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
 }
 
 // ============================================================================
@@ -684,42 +698,28 @@ export class AnalyticsService {
   async getUsageMetrics(): Promise<UsageMetrics> {
     this.logger.debug('Calculating usage metrics...');
 
-    // Single COUNT query — avoids loading all users just for this one field
-    let activeLastDay = 0;
-    try {
-      const rows = await this.dataSource.query<CountRow[]>(`
-        SELECT COUNT(*) AS cnt
-        FROM auth.users
-        WHERE "isActive" = true
-          AND "lastLoginAt" >= NOW() - INTERVAL '24 hours'
-      `);
-      activeLastDay = parseDbInt(rows[0]?.cnt);
-    } catch {
-      // Non-critical — leave as 0
-    }
+    // Single COUNT query — avoids loading all users just for this one field.
+    // Deliberately NOT wrapped in a swallowing try/catch: a real database
+    // failure must REJECT so `getDashboardSummary`'s Promise.allSettled pushes
+    // 'usage' onto `unavailable[]` and the panel shows degraded mode. Catching
+    // it here returned a fabricated success through the one channel built to
+    // report the failure (APA-133).
+    const rows = await this.dataSource.query<CountRow[]>(`
+      SELECT COUNT(*) AS cnt
+      FROM auth.users
+      WHERE "isActive" = true
+        AND "lastLoginAt" >= NOW() - INTERVAL '24 hours'
+    `);
+    const activeLastDay = parseDbInt(rows[0]?.cnt);
 
-    // Module usage — wiring requires audit-log analysis pipeline; returns
-    // zeros with an explicit warning until that pipeline lands.
-    this.logger.warn('Detailed module usage metrics require audit log analysis');
-
+    // Per-module usage and feature adoption have NO producer: they need the
+    // audit-log analysis pipeline, which is not wired. Presence means measured,
+    // so both maps stay empty rather than carrying invented zero entries — and
+    // `dashboard.activeUsers` no longer claims the platform-wide DAU belongs to
+    // one module. `avgDailyActiveUsers` is the single value actually queried.
     return {
-      moduleUsage: {
-        dashboard: { activeUsers: activeLastDay, totalSessions: 0, avgSessionDuration: 0 },
-        farm_management: { activeUsers: 0, totalSessions: 0, avgSessionDuration: 0 },
-        sensor_monitoring: { activeUsers: 0, totalSessions: 0, avgSessionDuration: 0 },
-        alerts: { activeUsers: 0, totalSessions: 0, avgSessionDuration: 0 },
-        reports: { activeUsers: 0, totalSessions: 0, avgSessionDuration: 0 },
-        hr_module: { activeUsers: 0, totalSessions: 0, avgSessionDuration: 0 },
-        billing: { activeUsers: 0, totalSessions: 0, avgSessionDuration: 0 },
-      },
-      featureAdoption: {
-        real_time_alerts: 0,
-        automated_reports: 0,
-        api_integration: 0,
-        mobile_app: 0,
-        custom_dashboards: 0,
-        bulk_operations: 0,
-      },
+      moduleUsage: {},
+      featureAdoption: {},
       topFeatures: [],
       peakHours: [],
       avgDailyActiveUsers: activeLastDay,
@@ -729,34 +729,38 @@ export class AnalyticsService {
   /**
    * Get module usage chart data
    */
-  getModuleUsageChart(): Promise<ChartData> {
-    this.logger.warn('Module usage chart requires audit log analysis');
-    return Promise.resolve({
-      labels: ['Dashboard', 'Farm Management', 'Sensor Monitoring', 'Alerts', 'Reports', 'HR', 'Billing'],
+  async getModuleUsageChart(): Promise<ChartData> {
+    // Derived from the metric, never hand-listed: a hardcoded label array with
+    // a matching zero series is indistinguishable from a measured all-zero
+    // chart. With no producer wired the series is empty and the chart renders
+    // as such (APA-133).
+    const { moduleUsage } = await this.getUsageMetrics();
+    const entries = measuredEntries(moduleUsage);
+    return {
+      labels: entries.map(([module]) => humanizeMetricKey(module)),
       datasets: [{
         label: 'Active Users',
-        data: [0, 0, 0, 0, 0, 0, 0],
-        backgroundColor: [
-          '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1'
-        ],
+        data: entries.map(([, stats]) => stats.activeUsers),
+        backgroundColor: entries.map((_, i) => CHART_PALETTE[i % CHART_PALETTE.length] ?? '#3B82F6'),
       }],
-    });
+    };
   }
 
   /**
    * Get feature adoption chart data
    */
-  getFeatureAdoptionChart(): Promise<ChartData> {
-    this.logger.warn('Feature adoption chart requires audit log analysis');
-    return Promise.resolve({
-      labels: ['Real-time Alerts', 'Mobile App', 'Automated Reports', 'Custom Dashboards', 'API Integration', 'Bulk Operations'],
+  async getFeatureAdoptionChart(): Promise<ChartData> {
+    const { featureAdoption } = await this.getUsageMetrics();
+    const entries = Object.entries(featureAdoption);
+    return {
+      labels: entries.map(([feature]) => humanizeMetricKey(feature)),
       datasets: [{
         label: 'Adoption Rate (%)',
-        data: [0, 0, 0, 0, 0, 0],
+        data: entries.map(([, rate]) => rate),
         backgroundColor: '#3B82F6',
         borderColor: '#2563EB',
       }],
-    });
+    };
   }
 
   // ============================================================================

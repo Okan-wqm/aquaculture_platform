@@ -93,16 +93,65 @@ export interface SystemMetrics {
   queuedJobs: number | null;
 }
 
+/** The platform modules usage may be reported for. */
+export type ModuleKey =
+  | 'dashboard'
+  | 'farm_management'
+  | 'sensor_monitoring'
+  | 'alerts'
+  | 'reports'
+  | 'hr_module'
+  | 'billing';
+
+export interface ModuleUsageStats {
+  activeUsers: number;
+  totalSessions: number;
+  avgSessionDuration: number;
+}
+
+/**
+ * Per-module / per-feature usage.
+ *
+ * INVARIANT — PRESENCE MEANS MEASURED: a `moduleUsage` or `featureAdoption`
+ * key appears ONLY when it was read from a real data source. "Not
+ * instrumented" is encoded as structural ABSENCE (an empty map), never as a
+ * fabricated zero entry.
+ *
+ * WHY (APA-133): the maps used to be emitted fully keyed with zeros because
+ * per-module usage has no producer yet — the audit-log analysis pipeline is
+ * not wired. Six "0 users" bars then rendered on a SUPER_ADMIN decision
+ * dashboard as if measured, and the daily cron persisted the invented map into
+ * `admin.analytics_snapshots`. `Partial<>` is load-bearing here: a REQUIRED
+ * full-key `Record<ModuleKey, …>` would make the honest empty map a type
+ * error, i.e. the contract itself would force the fabrication — the same
+ * mechanism behind APA-131 and APA-132.
+ *
+ * Wiring the pipeline later adds keys with no contract change.
+ */
 export interface UsageMetrics {
-  moduleUsage: Record<string, {
-    activeUsers: number;
-    totalSessions: number;
-    avgSessionDuration: number;
-  }>;
+  moduleUsage: Partial<Record<ModuleKey, ModuleUsageStats>>;
   featureAdoption: Record<string, number>;
   topFeatures: Array<{ feature: string; usage: number }>;
   peakHours: number[];
   avgDailyActiveUsers: number;
+}
+
+/**
+ * The entries of a sparse metric map that carry an actual measurement.
+ *
+ * A `Partial<Record<…>>` yields `V | undefined` from `Object.entries`, and the
+ * whole point of the sparse encoding is that a consumer must SKIP the holes
+ * rather than render them as zero. Centralising the skip keeps that rule next
+ * to the contract that declares it, so a new consumer gets it for free.
+ */
+export function measuredEntries<V>(map: Partial<Record<string, V>>): Array<[string, V]> {
+  const measured: Array<[string, V]> = [];
+  for (const [key, value] of Object.entries(map)) {
+    if (value !== undefined) {
+      measured.push([key, value]);
+    }
+  }
+  return measured;
 }
 
 // ============================================================================

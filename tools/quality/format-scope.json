@@ -1155,6 +1155,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/analytics/__tests__/analytics-usage-grounding.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/analytics/__tests__/performance-report-integrity.spec.ts",
       "prettier_managed": true
     },
@@ -1162,6 +1168,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/analytics/__tests__/performance/reports-caching.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/analytics/__tests__/usage-report-integrity.spec.ts",
       "prettier_managed": true
     },
     {
@@ -2340,6 +2352,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/migrations/1802000000000-PurgeFabricatedByRegionFromAnalyticsSnapshots.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1802100000000-PurgeFabricatedUsageMapsFromAnalyticsSnapshots.ts",
       "prettier_managed": true
     },
     {
@@ -55440,10 +55458,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9089,
+  "file_count": 9092,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8908,
-  "managed_file_list_sha256": "bee15a582ae01bdebc043313cfd64b4a4621bd0c3c2286a5bccb892cdfa579bf",
+  "managed_count": 8911,
+  "managed_file_list_sha256": "0554748ae6e4e2761e2de6c054979455cf219d31a20190f9f420355f375a231b",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

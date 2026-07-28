@@ -41850,6 +41850,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/gitleaks-allowlist-reachable.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/graphql-enum-valuesmap-metadata.spec.ts",
       "prettier_managed": true
     },
@@ -55260,10 +55266,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9059,
+  "file_count": 9060,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8878,
-  "managed_file_list_sha256": "d7c4e52349ab9cd8ebfacfc3ef72066751e59229304599a48cbf46d63d76a655",
+  "managed_count": 8879,
+  "managed_file_list_sha256": "863405493abf8029708a76dbd9abdcdbd4fc7051ac798d250ccfd0b7539fe901",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

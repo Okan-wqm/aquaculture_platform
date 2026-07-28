@@ -63,6 +63,33 @@ const LOC_DELETED = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 /** Yemleme anı — `receivedDate <= asOf` filtresi buna göre değerlendirilir. */
 const AS_OF = new Date('2026-06-15T08:00:00Z');
 
+/**
+ * TAHSİS SORGUSU İKİ FARKLI SAATİ KULLANIR — fixture'ların bunu yansıtması şart.
+ *
+ * `loadCandidates` içinde `receivedDate` **`asOf`**'a göre süzülür (geçmişe
+ * dönük bir kayıt gelecekteki stoğu tüketemez), ama `expiryDate` **`new Date()`**
+ * ile, yani GERÇEK duvar saatiyle karşılaştırılır (bugün süresi dolmuş yem
+ * bugün yedirilemez). İkisi aynı sorguda yaşıyor.
+ *
+ * Bu yüzden son kullanma tarihleri MUTLAK yazılamaz: ilk sürümde `AS_OF`'un
+ * (2026-06-15) yakınına sabitlenmişlerdi ve süit 2026-07-01'de kendiliğinden
+ * kırmızıya döndü — takvim ilerledikçe lotlar teker teker "süresi dolmuş"
+ * sayılıp havuzdan düştü. Daha kötüsü, DIŞLANMASI beklenen lotlar (silinmiş
+ * depo, başka tenant) da süresi dolduğu için dışlanıyordu: assertion'lar test
+ * ettikleri filtre yüzünden değil, YANLIŞ SEBEPLE geçerdi.
+ *
+ * Kural bu yüzden tek yerde: görünmesi gereken her lot gerçek "şimdi"ye göre
+ * İLERİ bir tarih alır; dışlanması gereken lot yalnızca test edilen filtreyle
+ * (silinmişlik, tenant, feed, receivedDate, pinlenmiş lot) dışlanır.
+ */
+function expiryInDays(days: number): string {
+  const date = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  return date.toISOString().slice(0, 10);
+}
+
+/** Lot-izlenebilirliği vakasının hem fixture'ı hem beklentisi — tek kaynak. */
+const EXPIRY_PROPAGATION_DATE = expiryInDays(120);
+
 interface LotSeed {
   id: string;
   locationId: string;
@@ -173,7 +200,7 @@ describe('FeedAllocationService.allocateForDeduction — real Postgres', () => {
         locationId: LOC_A1,
         lotNumber: 'LOT-ESKI',
         quantity: 0.3,
-        expiryDate: '2026-07-01',
+        expiryDate: expiryInDays(30),
         receivedDate: '2026-05-01T00:00:00Z',
       },
       {
@@ -181,7 +208,7 @@ describe('FeedAllocationService.allocateForDeduction — real Postgres', () => {
         locationId: LOC_A1,
         lotNumber: 'LOT-YENI',
         quantity: 3000,
-        expiryDate: '2026-12-01',
+        expiryDate: expiryInDays(180),
         receivedDate: '2026-06-01T00:00:00Z',
       },
     ]);
@@ -203,7 +230,7 @@ describe('FeedAllocationService.allocateForDeduction — real Postgres', () => {
         locationId: LOC_A1,
         lotNumber: 'L1',
         quantity: 40,
-        expiryDate: '2026-08-01',
+        expiryDate: expiryInDays(30),
         receivedDate: '2026-05-01T00:00:00Z',
       },
       {
@@ -211,7 +238,7 @@ describe('FeedAllocationService.allocateForDeduction — real Postgres', () => {
         locationId: LOC_A2,
         lotNumber: 'L2',
         quantity: 35,
-        expiryDate: '2026-09-01',
+        expiryDate: expiryInDays(60),
         receivedDate: '2026-05-02T00:00:00Z',
       },
     ]);
@@ -235,7 +262,7 @@ describe('FeedAllocationService.allocateForDeduction — real Postgres', () => {
         quantity: 10,
         // Site B lotu DAHA ÖNCE doluyor: saf FEFO onu önce seçerdi. Site
         // kapsamı FEFO'dan önce gelir (D-9), bu yüzden sıra A → B olmalı.
-        expiryDate: '2026-11-01',
+        expiryDate: expiryInDays(180),
         receivedDate: '2026-05-01T00:00:00Z',
       },
       {
@@ -243,7 +270,7 @@ describe('FeedAllocationService.allocateForDeduction — real Postgres', () => {
         locationId: LOC_B1,
         lotNumber: 'SITE-B',
         quantity: 100,
-        expiryDate: '2026-07-15',
+        expiryDate: expiryInDays(30),
         receivedDate: '2026-05-01T00:00:00Z',
       },
     ]);
@@ -262,7 +289,7 @@ describe('FeedAllocationService.allocateForDeduction — real Postgres', () => {
         locationId: LOC_DELETED,
         lotNumber: 'OLU-DEPO',
         quantity: 5000,
-        expiryDate: '2026-07-01',
+        expiryDate: expiryInDays(180),
         receivedDate: '2026-05-01T00:00:00Z',
       },
       {
@@ -270,7 +297,7 @@ describe('FeedAllocationService.allocateForDeduction — real Postgres', () => {
         locationId: LOC_A1,
         lotNumber: 'CANLI',
         quantity: 20,
-        expiryDate: '2026-12-01',
+        expiryDate: expiryInDays(200),
         receivedDate: '2026-05-01T00:00:00Z',
       },
     ]);
@@ -293,7 +320,10 @@ describe('FeedAllocationService.allocateForDeduction — real Postgres', () => {
         locationId: LOC_A1,
         lotNumber: 'EXP',
         quantity: 12,
-        expiryDate: '2026-10-20',
+        // Beklenen değer fixture ile AYNI ifadeden türer: elle yazılmış bir
+        // tarih, gerçek "şimdi" onu geçtiği gün lotu havuzdan düşürür ve bu
+        // vaka takvim yüzünden kırmızıya döner.
+        expiryDate: EXPIRY_PROPAGATION_DATE,
         receivedDate: '2026-05-01T00:00:00Z',
       },
     ]);
@@ -301,7 +331,7 @@ describe('FeedAllocationService.allocateForDeduction — real Postgres', () => {
     const result = await allocate({ quantityKg: 12 });
     // EU 178/2002 lot izlenebilirliği: iade ve geri çağırma bu alana dayanır.
     expect(result.slices[0]?.expiryDate).toBeTruthy();
-    expect(String(result.slices[0]?.expiryDate)).toContain('2026-10-20');
+    expect(String(result.slices[0]?.expiryDate)).toContain(EXPIRY_PROPAGATION_DATE);
   });
 
   it('honours a pinned lot number and refuses to silently spill into other lots', async () => {
@@ -311,7 +341,7 @@ describe('FeedAllocationService.allocateForDeduction — real Postgres', () => {
         locationId: LOC_A1,
         lotNumber: 'PIN',
         quantity: 5,
-        expiryDate: '2026-08-01',
+        expiryDate: expiryInDays(30),
         receivedDate: '2026-05-01T00:00:00Z',
       },
       {
@@ -319,7 +349,7 @@ describe('FeedAllocationService.allocateForDeduction — real Postgres', () => {
         locationId: LOC_A1,
         lotNumber: 'DIGER',
         quantity: 500,
-        expiryDate: '2026-09-01',
+        expiryDate: expiryInDays(60),
         receivedDate: '2026-05-01T00:00:00Z',
       },
     ]);
@@ -340,7 +370,7 @@ describe('FeedAllocationService.allocateForDeduction — real Postgres', () => {
         locationId: LOC_A1,
         lotNumber: 'GELECEK',
         quantity: 900,
-        expiryDate: '2026-12-01',
+        expiryDate: expiryInDays(180),
         // AS_OF = 2026-06-15; bu lot teslimattan SONRA gelmiş.
         receivedDate: '2026-07-01T00:00:00Z',
       },
@@ -349,7 +379,7 @@ describe('FeedAllocationService.allocateForDeduction — real Postgres', () => {
         locationId: LOC_A1,
         lotNumber: 'MEVCUT',
         quantity: 8,
-        expiryDate: '2026-12-05',
+        expiryDate: expiryInDays(200),
         receivedDate: '2026-06-01T00:00:00Z',
       },
     ]);
@@ -368,7 +398,7 @@ describe('FeedAllocationService.allocateForDeduction — real Postgres', () => {
         locationId: LOC_A1,
         lotNumber: 'BIZIM',
         quantity: 4,
-        expiryDate: '2026-12-01',
+        expiryDate: expiryInDays(180),
         receivedDate: '2026-05-01T00:00:00Z',
       },
       {
@@ -376,7 +406,7 @@ describe('FeedAllocationService.allocateForDeduction — real Postgres', () => {
         locationId: LOC_A1,
         lotNumber: 'BASKA-TENANT',
         quantity: 9999,
-        expiryDate: '2026-07-01',
+        expiryDate: expiryInDays(200),
         receivedDate: '2026-05-01T00:00:00Z',
         tenantId: OTHER_TENANT,
       },
@@ -394,7 +424,7 @@ describe('FeedAllocationService.allocateForDeduction — real Postgres', () => {
         locationId: LOC_A1,
         lotNumber: 'DOGRU-YEM',
         quantity: 3,
-        expiryDate: '2026-12-01',
+        expiryDate: expiryInDays(180),
         receivedDate: '2026-05-01T00:00:00Z',
       },
       {
@@ -402,7 +432,7 @@ describe('FeedAllocationService.allocateForDeduction — real Postgres', () => {
         locationId: LOC_A1,
         lotNumber: 'BASKA-YEM',
         quantity: 7000,
-        expiryDate: '2026-07-01',
+        expiryDate: expiryInDays(200),
         receivedDate: '2026-05-01T00:00:00Z',
         itemId: OTHER_FEED,
       },

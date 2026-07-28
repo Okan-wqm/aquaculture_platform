@@ -1185,6 +1185,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/analytics/__tests__/report-generate-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/analytics/__tests__/report-schedule-retired.spec.ts",
       "prettier_managed": true
     },
@@ -1192,6 +1198,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/analytics/__tests__/reports-pricing-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/analytics/__tests__/support/reports-service-harness.ts",
       "prettier_managed": true
     },
     {
@@ -55530,10 +55542,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9104,
+  "file_count": 9106,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8923,
-  "managed_file_list_sha256": "dcf4424fdf740385f0909193510cdbea8c2c1da729030a414514db3c46a6cc2b",
+  "managed_count": 8925,
+  "managed_file_list_sha256": "8a8bd8a9233c2e861823543512957f1eb773f3e9212aa09d127378909e7600af",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

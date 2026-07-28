@@ -279,14 +279,30 @@ export interface ChartData {
 // Report Types
 // ============================================================================
 
-export type ReportType =
-  | 'tenant_overview'
-  | 'tenant_churn'
-  | 'financial_revenue'
-  | 'financial_payments'
-  | 'usage_modules'
-  | 'usage_features'
-  | 'system_performance';
+/**
+ * Every report the platform can produce — the runtime SSoT, with the type
+ * derived from it rather than the other way round.
+ *
+ * The literal set used to be written out five times: the union here, three
+ * `@IsIn([...])` decorators, and the `download/:reportType` allow-list, which
+ * the route validates its path parameter against. A type-keyed route is exactly
+ * why `POST /reports/generate` could not hand back a resolvable
+ * `/api/reports/download/rpt_…` link (APA-146) — an ephemeral id was never a
+ * member of this set and never could be. Deriving `ReportType` from the array
+ * makes the vocabulary assertable at runtime and impossible to widen in one
+ * place only.
+ */
+export const REPORT_TYPES = [
+  'tenant_overview',
+  'tenant_churn',
+  'financial_revenue',
+  'financial_payments',
+  'usage_modules',
+  'usage_features',
+  'system_performance',
+] as const;
+
+export type ReportType = (typeof REPORT_TYPES)[number];
 
 export type ReportFormat = 'json' | 'csv' | 'pdf';
 
@@ -299,6 +315,22 @@ export interface ReportRequest {
   includeCharts?: boolean;
 }
 
+/**
+ * The result of a SYNCHRONOUS report generation (`POST /reports/generate` and
+ * the ad-hoc GET routes). It is an in-memory preview payload: `data` and
+ * `summary` come back inline and nothing is persisted, so `id` identifies
+ * nothing that outlives the response.
+ *
+ * There is deliberately NO `downloadUrl` here. It used to be set to
+ * `/api/reports/download/${id}` for csv/pdf, but the only route that matches
+ * takes a report TYPE, not an id, and 400s on an `rpt_…` segment — and because
+ * the result is never stored, a by-id route could not be built for it either.
+ * Repointing it at the type-based route would be a subtler lie: that route
+ * re-generates a DIFFERENT report over a default 30-day window rather than
+ * returning the one the caller just received. File downloads belong to the
+ * persisted executions flow (`ReportExecution.downloadUrl`, set in
+ * `executeReport`), which is what the admin panel already uses (APA-146).
+ */
 export interface ReportResult {
   id: string;
   type: ReportType;
@@ -307,7 +339,6 @@ export interface ReportResult {
   generatedAt: Date;
   data: unknown;
   summary?: Record<string, unknown>;
-  downloadUrl?: string;
 }
 
 // ============================================================================

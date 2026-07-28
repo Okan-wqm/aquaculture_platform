@@ -8,6 +8,11 @@
     "experimentalDecorators": true,
     "target": "ES2021"
   },
-  "exclude": ["jest.config.ts", "src/**/*.spec.ts", "src/**/*.test.ts"],
+  "exclude": [
+    "jest.config.ts",
+    "src/**/*.spec.ts",
+    "src/**/*.test.ts",
+    "src/**/__tests__/support/**"
+  ],
   "include": ["src/**/*.ts"]
 }

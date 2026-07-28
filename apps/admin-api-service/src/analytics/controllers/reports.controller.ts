@@ -24,6 +24,7 @@ import { IsIn, IsString, IsOptional, IsBoolean, IsObject } from 'class-validator
 import { Request, Response } from 'express';
 
 import {
+  REPORT_TYPES,
   ReportType,
   ReportFormat,
   ReportRequest,
@@ -41,7 +42,7 @@ import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination
 // ============================================================================
 
 class GenerateReportDto {
-  @IsIn(['tenant_overview', 'tenant_churn', 'financial_revenue', 'financial_payments', 'usage_modules', 'usage_features', 'system_performance'])
+  @IsIn(REPORT_TYPES)
   type!: ReportType;
 
   @IsIn(['json', 'csv', 'pdf'])
@@ -70,7 +71,7 @@ class CreateDefinitionDto {
   @IsString()
   description?: string;
 
-  @IsIn(['tenant_overview', 'tenant_churn', 'financial_revenue', 'financial_payments', 'usage_modules', 'usage_features', 'system_performance'])
+  @IsIn(REPORT_TYPES)
   type!: ReportType;
 
   @IsOptional()
@@ -122,7 +123,7 @@ class ExecuteReportDto {
   definitionId?: string;
 
   @IsOptional()
-  @IsIn(['tenant_overview', 'tenant_churn', 'financial_revenue', 'financial_payments', 'usage_modules', 'usage_features', 'system_performance'])
+  @IsIn(REPORT_TYPES)
   reportType?: ReportType;
 
   @IsOptional()
@@ -488,11 +489,12 @@ export class ReportsController {
     // MED-007 fix: validate reportType against the known enum at runtime
     // (TypeScript types are erased at runtime — an invalid value would reach generateReport()
     // and the Content-Disposition header if the switch default did not throw).
-    const allowedReportTypes: readonly ReportType[] = [
-      'tenant_overview', 'tenant_churn', 'financial_revenue',
-      'financial_payments', 'usage_modules', 'usage_features', 'system_performance',
-    ];
-    if (!allowedReportTypes.includes(reportType)) {
+    //
+    // This route is keyed by report TYPE, never by a generated result id, which
+    // is why the `/api/reports/download/rpt_…` link `generateReport` used to
+    // advertise could never resolve here (APA-146). The set is the entity's
+    // `REPORT_TYPES` SSoT rather than a fourth local copy of the literals.
+    if (!REPORT_TYPES.includes(reportType)) {
       throw new BadRequestException(`Invalid report type: "${reportType}"`);
     }
 

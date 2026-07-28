@@ -336,11 +336,6 @@ export class ReportsService {
       summary,
     };
 
-    // For file formats, generate download URL
-    if (['csv', 'pdf'].includes(request.format)) {
-      result.downloadUrl = `/api/reports/download/${result.id}`;
-    }
-
     return result;
   }
 

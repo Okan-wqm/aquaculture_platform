@@ -6649,6 +6649,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/database/migrations/1805500000000-RestoreConfigSchemaOwnerBoundary.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/database/rls-scoped-session.ts",
       "prettier_managed": true
     },
@@ -55290,10 +55296,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9064,
+  "file_count": 9065,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8883,
-  "managed_file_list_sha256": "969494f1cfd257e82ed0befd7850e33fa33c388223c7dbfc82fcb5fe33f15c54",
+  "managed_count": 8884,
+  "managed_file_list_sha256": "f9ecf7eac8f542a45951e1e37e7257341e6b18399c62592bd45ad58ae3f79da2",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

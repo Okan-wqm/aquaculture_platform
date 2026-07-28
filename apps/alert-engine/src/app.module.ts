@@ -19,6 +19,7 @@ import {
   isSchemaDdlOwnedByDbMigrate,
   TenantSchemaCacheModule,
 } from '@aquaculture/backend-common/database';
+import { DeadLetterModule } from '@aquaculture/backend-common/events';
 import { TenantExecutionContextModule } from '@aquaculture/backend-common/context';
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
@@ -158,6 +159,11 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
       inject: [ConfigService],
       useFactory: buildEventBusConfig,
     }),
+    // W7/FARM-MEDIUM-260 — inbound delivery shelf. alert-engine consumes
+    // one-shot feeding signals (MealMissed / MealUnderfed / FeedTypeTransitioned
+    // / LowStockDetected) whose handlers now rethrow; without this the bus would
+    // NAK until the broker dropped the message with nobody the wiser.
+    DeadLetterModule.forRoot({ schema: 'alert', source: 'alert-engine' }),
     AlertOutboxModule,
     TenantErasureTargetModule.forService('alert-engine'),
 

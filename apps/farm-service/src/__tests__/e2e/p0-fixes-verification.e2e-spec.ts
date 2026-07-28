@@ -56,20 +56,26 @@ describe('Fix 1: @Roles Authorization on Mutations', () => {
 
   it.each(resolversToCheck)('should have Roles import in %s', (resolverPath) => {
     const content = readFile(resolverPath);
-    expect(content).toMatch(/import\s+\{[^}]*Roles[^}]*\}\s+from\s+'@platform\/backend-common'/);
+    // backend-common ÇİFT alias'lı (`@aquaculture/…` birincil, `@platform/…`
+    // ikincil) ve dekoratörler `/decorators` alt yolundan geliyor. Bu assert
+    // eskiden TEK bir alias'ı, alt yolsuz, pinliyordu; kod kanonik yola
+    // taşınınca 12 resolver'da kırmızıya döndü ve kimse görmedi. Önemli olan
+    // `Roles`'un backend-common'dan gelmesi — hangi alias/alt yol olduğu değil.
+    expect(content).toMatch(
+      /import\s+\{[^}]*\bRoles\b[^}]*\}\s+from\s+'@(?:aquaculture|platform)\/backend-common(?:\/[\w-]+)?'/,
+    );
   });
 
   it.each(resolversToCheck)('should have @Roles before every @Mutation in %s', (resolverPath) => {
     const content = readFile(resolverPath);
     const lines = content.split('\n');
 
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes('@Mutation(')) {
-        // Check that @Roles appears in the 1-3 lines BEFORE this @Mutation
-        const precedingLines = lines.slice(Math.max(0, i - 3), i).join('\n');
-        expect(precedingLines).toMatch(/@Roles\(/);
-      }
-    }
+    lines.forEach((line, index) => {
+      if (!line.includes('@Mutation(')) return;
+      // Check that @Roles appears in the 1-3 lines BEFORE this @Mutation
+      const precedingLines = lines.slice(Math.max(0, index - 3), index).join('\n');
+      expect(precedingLines).toMatch(/@Roles\(/);
+    });
   });
 
   it('should use TENANT_ADMIN only for sentinel-hub credential mutations', () => {
@@ -130,14 +136,28 @@ describe('Fix 3: Transaction Safety', () => {
     'harvest/handlers/delete-harvest-record.handler.ts',
   ];
 
-  it.each(handlersNeedingTransactions)('should have DataSource and transaction pattern in %s', (handlerPath) => {
-    const content = readFile(handlerPath);
-    expect(content).toMatch(/DataSource/);
-    expect(content).toMatch(/createQueryRunner/);
-    expect(content).toMatch(/startTransaction/);
-    expect(content).toMatch(/commitTransaction/);
-    expect(content).toMatch(/rollbackTransaction/);
-  });
+  it.each(handlersNeedingTransactions)(
+    'should run inside a tenant transaction in %s',
+    (handlerPath) => {
+      const content = readFile(handlerPath);
+      expect(content).toMatch(/DataSource/);
+
+      // Bu assert eskiden ELLE yazılmış query-runner kalıbını
+      // (createQueryRunner + start/commit/rollback) zorunlu tutuyordu. Handler'lar
+      // o zamandan beri `runInTenantTransaction`'a taşındı: aynı transaction
+      // garantisini verir, ÜSTELİK search_path'i tenant şemasına sabitler ve
+      // hata yolunda rollback'i kendi üstlenir — yani elle kalıptan daha
+      // güçlüdür. Eski hâliyle assert, doğru mimariyi ihlal sayıyordu.
+      const usesTenantHelper = /runInTenantTransaction/.test(content);
+      const usesManualRunner =
+        /createQueryRunner/.test(content) &&
+        /startTransaction/.test(content) &&
+        /commitTransaction/.test(content) &&
+        /rollbackTransaction/.test(content);
+
+      expect(usesTenantHelper || usesManualRunner).toBe(true);
+    },
+  );
 });
 
 // ============================================================================
@@ -151,7 +171,10 @@ describe('Fix 5: Race Condition Protection', () => {
 
   it('should not have deprecated updateTankBatchAfterTransfer in transfer-batch.handler.ts', () => {
     const content = readFile('batch/handlers/transfer-batch.handler.ts');
-    expect(content).not.toMatch(/updateTankBatchAfterTransfer/);
+    // Çıplak ad araması dosyanın "…method removed." diyen DOĞRU tarihsel
+    // notuna takılıyordu. Denetlenen şey metodun VARLIĞI: tanım ya da çağrı,
+    // ikisi de açılış parantezi taşır; düzyazı not taşımaz.
+    expect(content).not.toMatch(/updateTankBatchAfterTransfer\s*\(/);
   });
 });
 
@@ -160,28 +183,21 @@ describe('Fix 5: Race Condition Protection', () => {
 // ============================================================================
 describe('Fix 6: CQRS Import Standardization', () => {
   it('should not have any direct @nestjs/cqrs imports in farm-service', () => {
-    const tsFiles = findTsFiles(SRC_ROOT);
-    const violations: string[] = [];
+    // Bu test İKİ kez bozuktu ve ikisi de görünmezdi, çünkü dosya hiçbir jest
+    // config'ine girmiyordu:
+    //   1. Adı `@nestjs/cqrs` diyordu ama gövdesi `@platform/cqrs`'i — yani
+    //      CLAUDE.md'nin KANONİK yolunu — ihlal sayıyordu. Tam tersi.
+    //   2. Sonra kendini `toBeGreaterThanOrEqual(0)` ile etkisizleştiriyordu:
+    //      her zaman doğru bir assert, yani sıfır koruma.
+    // Kural (CLAUDE.md, Architecture Map): komut/sorgu veri yolu
+    // `@platform/cqrs`'tir; `@nestjs/cqrs`'e doğrudan bağlanmak soyutlamayı
+    // baypas eder. Bugün ihlal sayısı sıfır, dolayısıyla kapı 0'a kilitlenir.
+    const violations = findTsFiles(SRC_ROOT)
+      .filter((file) => !file.includes('node_modules') && !file.includes('__tests__'))
+      .filter((file) => fs.readFileSync(file, 'utf-8').includes("from '@nestjs/cqrs'"))
+      .map((file) => file.replace(SRC_ROOT + '/', ''));
 
-    for (const file of tsFiles) {
-      if (file.includes('node_modules') || file.includes('__tests__')) continue;
-      const content = fs.readFileSync(file, 'utf-8');
-      if (content.includes("from '@platform/cqrs'")) {
-        violations.push(file.replace(SRC_ROOT + '/', ''));
-      }
-    }
-
-    // This test will fail until Fix 6 is implemented
-    // Uncomment when Fix 6 is complete:
-    // expect(violations).toEqual([]);
-
-    // For now, just report violations
-    if (violations.length > 0) {
-      // WHY: Test file — using expect + fail message instead of console.warn per CLAUDE.md rules.
-      // Uncomment the assertion below when Fix 6 is complete:
-      // expect(violations).toEqual([]);
-      expect(violations.length).toBeGreaterThanOrEqual(0); // tracked, not yet enforced
-    }
+    expect(violations).toEqual([]);
   });
 });
 
@@ -191,12 +207,15 @@ describe('Fix 6: CQRS Import Standardization', () => {
 describe('Fix 2: REST Controller Security', () => {
   it('should not use @Headers for tenant/user in batch controller', () => {
     const content = readFile('batch/controllers/batch.controller.ts');
-    // This test will fail until Fix 2 is implemented
-    // Uncomment when Fix 2 is complete:
-    // expect(content).not.toMatch(/@Headers\('x-tenant-id'\)/);
-    // expect(content).not.toMatch(/@Headers\('x-user-id'\)/);
-
-    // For now, just check the file exists
-    expect(content.length).toBeGreaterThan(0);
+    // Gerçek assert'ler "Fix 2 tamamlanınca aç" notuyla yorumda bırakılmış ve
+    // yerine `content.length > 0` konmuştu — dosyanın boş olmadığını doğrulayan,
+    // yani hiçbir şey korumayan bir assert. Fix 2 fiilen tamamlanmış
+    // (controller'da `@Headers` yok); kapı açılıyor.
+    //
+    // Neden önemli: tenant/user kimliğini istemcinin gönderdiği ham başlıktan
+    // okumak, kimliğin güven çıpası olan JWT talebini baypas eder — çapraz
+    // tenant erişimine açık kapı.
+    expect(content).not.toMatch(/@Headers\(\s*'x-tenant-id'\s*\)/);
+    expect(content).not.toMatch(/@Headers\(\s*'x-user-id'\s*\)/);
   });
 });

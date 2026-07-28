@@ -35,6 +35,10 @@ import { StockMovement } from '../../../storage/entities/stock-movement.entity';
 import { RecordMovementResult } from '../../../storage/services/stock-movement.service';
 import { BackdatePolicyService } from '../../../common/services/backdate-policy.service';
 import { FinanceSettingsService } from '../../../finance/services/finance-settings.service';
+import {
+  FeedAllocationService,
+  InsufficientFeedStockError,
+} from '../../../storage/services/feed-allocation.service';
 import { FeedingLedgerService } from '../../services/feeding-ledger.service';
 import {
   BiomassGrowthApplierService,
@@ -94,6 +98,7 @@ interface Harness {
   handler: CreateFeedingRecordHandler;
   feedHasStoragePresence: jest.Mock;
   resolveFeedDeductionLocation: jest.Mock;
+  allocateForDeduction: jest.Mock;
   recordMovement: jest.Mock;
   commit: jest.Mock;
   rollback: jest.Mock;
@@ -172,7 +177,9 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     createQueryRunner: jest.fn().mockReturnValue(queryRunner),
   });
 
-  const outboxPublisher = mock<OutboxPublisher>({ enqueue: jest.fn().mockResolvedValue(undefined) });
+  const outboxPublisher = mock<OutboxPublisher>({
+    enqueue: jest.fn().mockResolvedValue(undefined),
+  });
   const backdatePolicy = mock<BackdatePolicyService>({ validate: jest.fn() });
 
   // Real domain service — production assertFeedable behaviour.
@@ -181,9 +188,13 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   const feedHasStoragePresence = jest
     .fn()
     .mockResolvedValue(opts.hasStoragePresence === undefined ? true : opts.hasStoragePresence);
-  const resolveFeedDeductionLocation = jest.fn().mockResolvedValue(
-    opts.resolveLocation === undefined ? { storageLocationId: LOCATION, lotNumber: 'LOT-A' } : opts.resolveLocation,
-  );
+  const resolveFeedDeductionLocation = jest
+    .fn()
+    .mockResolvedValue(
+      opts.resolveLocation === undefined
+        ? { storageLocationId: LOCATION, lotNumber: 'LOT-A' }
+        : opts.resolveLocation,
+    );
   const recordMovement = jest.fn(async (): Promise<RecordMovementResult> => {
     if (opts.recordMovementThrows) throw opts.recordMovementThrows;
     return {
@@ -210,10 +221,35 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
 
   // GERÇEK ledger (P-05 tek yol) — pinlenen davranışlar (fail-closed no-lot,
   // rollback, storage-skip) artık ledger kodunda yaşar ve buradan uçtan uca koşar.
+  // FARM-CRITICAL-245: düşüm çok-lotlu FEFO tahsis motorundan geçer; harness
+  // tek dilimlik tahsis döner (eski tek-satır davranışıyla aynı gözlem).
+  const allocateForDeduction = jest.fn();
+  allocateForDeduction.mockImplementation(
+    async (_m: unknown, _t: unknown, args: { feedId: string; quantityKg: number }) => {
+      // Havuz toplamı yetersizse tahsis motoru fail-closed atar — karar artık
+      // TEK SATIRIN değil HAVUZUN işidir (FARM-CRITICAL-245).
+      if (opts.resolveLocation === null) {
+        throw new InsufficientFeedStockError(args.feedId, args.quantityKg, 0);
+      }
+      return {
+        slices: [
+          {
+            storageLocationId: opts.resolveLocation?.storageLocationId ?? LOCATION,
+            lotNumber: opts.resolveLocation?.lotNumber ?? 'LOT-A',
+            quantityKg: args.quantityKg,
+          },
+        ],
+        usedSiteFallback: false,
+        poolTotalKg: args.quantityKg,
+      };
+    },
+  );
+  const feedAllocation = mock<FeedAllocationService>({ allocateForDeduction });
   const feedingLedger = new FeedingLedgerService(
     stockMovementService,
     financeSettings,
     outboxPublisher,
+    feedAllocation,
   );
 
   // D-7 motor yardımcıları — kilit/growth/recalc çağrıları pinlenir.
@@ -228,7 +264,23 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   });
   const applyGrowth = jest.fn().mockResolvedValue(undefined);
   const recalcForUnit = jest.fn().mockResolvedValue(null);
-  const growthApplier = mock<BiomassGrowthApplierService>({ lockUnitForGrowth, applyGrowth });
+  // Gerçek servisin semantiği: önce token'a sor (ünite kilidi bu batch'i
+  // kapsıyor mu), kapsamıyorsa satırı kilitleyerek oku. Double bunu taklit
+  // etmezse spec, üretimde olmayan bir davranışı doğrulamış olur.
+  const lockBatchForWrite = jest
+    .fn()
+    .mockImplementation(async (manager, tenantId: string, batchId: string, locked) =>
+      locked?.batches.get(batchId) ??
+      manager.findOne(Batch, {
+        where: { id: batchId, tenantId },
+        lock: { mode: 'pessimistic_write' },
+      }),
+    );
+  const growthApplier = mock<BiomassGrowthApplierService>({
+    lockUnitForGrowth,
+    applyGrowth,
+    lockBatchForWrite,
+  });
   const recalcService = mock<DayPlanRecalcService>({ recalcForUnit });
 
   const handler = new CreateFeedingRecordHandler(
@@ -247,6 +299,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     handler,
     feedHasStoragePresence,
     resolveFeedDeductionLocation,
+    allocateForDeduction,
     recordMovement,
     commit,
     rollback,
@@ -313,8 +366,14 @@ describe('CreateFeedingRecordHandler — feed dual-SSoT write path', () => {
   });
 
   it('fail-OPEN: feed NOT tracked in storage → skip deduction, proceed, COMMIT (no cliff)', async () => {
-    const { handler, feedHasStoragePresence, resolveFeedDeductionLocation, recordMovement, commit, rollback } =
-      makeHarness({ hasStoragePresence: false });
+    const {
+      handler,
+      feedHasStoragePresence,
+      resolveFeedDeductionLocation,
+      recordMovement,
+      commit,
+      rollback,
+    } = makeHarness({ hasStoragePresence: false });
 
     const result = await handler.execute(makeCommand(50));
 
@@ -330,7 +389,9 @@ describe('CreateFeedingRecordHandler — feed dual-SSoT write path', () => {
 
   it('fail-closed: storage deduction throws (insufficient stock) → rollback', async () => {
     const { handler, rollback, commit } = makeHarness({
-      recordMovementThrows: new BadRequestException('Insufficient stock. Available: 5 kg, Requested: 50 kg'),
+      recordMovementThrows: new BadRequestException(
+        'Insufficient stock. Available: 5 kg, Requested: 50 kg',
+      ),
     });
 
     await expect(handler.execute(makeCommand())).rejects.toThrow('Insufficient stock');
@@ -340,11 +401,21 @@ describe('CreateFeedingRecordHandler — feed dual-SSoT write path', () => {
   });
 
   it('happy path: deducts storage IN-TX (OUT) and commits', async () => {
-    const { handler, recordMovement, resolveFeedDeductionLocation, commit, rollback } = makeHarness();
+    const {
+      handler,
+      recordMovement,
+      resolveFeedDeductionLocation,
+      allocateForDeduction,
+      commit,
+      rollback,
+    } = makeHarness();
 
     const result = await handler.execute(makeCommand(50));
 
-    expect(resolveFeedDeductionLocation).toHaveBeenCalledTimes(1);
+    // Lot çözümü artık çok-lotlu tahsis motorunun işi (FARM-CRITICAL-245):
+    // tek satır seçen eski yol tamamen kalktı.
+    expect(allocateForDeduction).toHaveBeenCalledTimes(1);
+    expect(resolveFeedDeductionLocation).not.toHaveBeenCalled();
     expect(recordMovement).toHaveBeenCalledTimes(1);
     // The deduction is issued on the SAME manager as the feeding write
     // (in-tx) with an OUT movement keyed by the feeding record id.
@@ -372,6 +443,8 @@ describe('CreateFeedingRecordHandler — D-7 plan-dışı yem bağlama', () => {
     id: 'dp-1',
     siteId: SITE,
     snapshot: mock<FeedingDayPlan['snapshot']>({ expectedFcr: 1.25 }),
+    // W3: büyüme CANLI çözümden okunur (donuk snapshot değil).
+    resolution: mock<FeedingDayPlan['resolution']>({ expectedFcr: 1.25 }),
   });
 
   it('aktif gün planına bağlar: kayıt dayPlanId taşır, unplannedActualKg artar, growth + recalc AYNI tx', async () => {
@@ -396,9 +469,12 @@ describe('CreateFeedingRecordHandler — D-7 plan-dışı yem bağlama', () => {
       String(call[0]).includes('unplannedActualKg'),
     );
     expect(updateCall).toBeDefined();
-    expect(updateCall![1]).toEqual([50, 'dp-1']);
+    // tenantId predikatı ZORUNLU (FARM-MEDIUM-292): plan id'si tenant
+    // sorgusundan gelse de yazım search_path'e güvenemez.
+    expect(String(updateCall![0])).toContain('"tenantId" = $2');
+    expect(updateCall![1]).toEqual([50, TENANT, 'dp-1']);
 
-    // (2) Büyüme snapshot FCR'ıyla uygulandı: 50kg / 1.25 = 40kg.
+    // (2) Büyüme CANLI çözümün FCR'ıyla uygulandı: 50kg / 1.25 = 40kg.
     expect(applyGrowth).toHaveBeenCalledTimes(1);
     expect(applyGrowth.mock.calls[0]![3]).toBe(40);
     expect(applyGrowth.mock.calls[0]![4]).toBe(1.25);

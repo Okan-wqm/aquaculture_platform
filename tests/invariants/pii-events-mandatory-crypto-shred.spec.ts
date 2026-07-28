@@ -95,9 +95,9 @@ describe('DATA-LOW-003 — PII-bearing events mandate cryptoShredKeyId', () => {
       );
     expect(arrayMatch).not.toBeNull();
     const arrayBody = arrayMatch![1] ?? '';
-    const eventTypes = [
-      ...arrayBody.matchAll(/['"`]([A-Za-z][A-Za-z0-9_]*)['"`]/g),
-    ].map((m) => m[1]);
+    const eventTypes = [...arrayBody.matchAll(/['"`]([A-Za-z][A-Za-z0-9_]*)['"`]/g)]
+      .map((m) => m[1])
+      .filter((eventType): eventType is string => eventType !== undefined);
     expect(eventTypes.length).toBeGreaterThan(0);
 
     // Cache the file corpus once.

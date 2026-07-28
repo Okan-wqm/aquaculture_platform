@@ -135,6 +135,11 @@ Allowed truth buckets:
 | `FARM-CRITICAL-241`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
 | `INFRA-CRITICAL-077`    | IN-PROGRESS    | 1.1          | infra-expert         | real-open                 |
 | `INFRA-CRITICAL-078`    | IN-PROGRESS    | 1.1          | security-reviewer    | real-open                 |
+| `FARM-CRITICAL-242`     | IN-PROGRESS    | 4.1          | claude               | real-open                 |
+| `FARM-CRITICAL-244`     | OPEN           | 4.1          | claude               | real-open                 |
+| `FARM-CRITICAL-245`     | OPEN           | 4.1          | claude               | real-open                 |
+| `FARM-CRITICAL-305`     | OPEN           | 4.1          | claude               | real-open                 |
+| `FARM-CRITICAL-306`     | OPEN           | 4.1          | claude               | real-open                 |
 
 ## Mutation Rules
 

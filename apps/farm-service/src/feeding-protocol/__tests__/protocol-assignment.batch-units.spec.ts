@@ -12,10 +12,7 @@ import { OutboxPublisher } from '@platform/outbox';
 
 import { AssignProtocolToBatchUnitsHandler } from '../handlers/protocol-assignment.handlers';
 import { AssignProtocolToBatchUnitsCommand } from '../commands/feeding-protocol-v2.commands';
-import {
-  FeedingProtocolStatus,
-  FeedingProtocolV2,
-} from '../entities/feeding-protocol-v2.entity';
+import { FeedingProtocolStatus, FeedingProtocolV2 } from '../entities/feeding-protocol-v2.entity';
 import { ProtocolAssignment } from '../entities/protocol-assignment.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Batch, BatchType } from '../../batch/entities/batch.entity';
@@ -72,7 +69,11 @@ function makeHarness(opts: HarnessOpts = {}) {
     findOne: jest.fn(async () => protocol),
   };
   const assignmentRepo = {
-    findOne: jest.fn(async () => null), // mevcut aktif atama yok
+    findOne: jest.fn(async () => null),
+    // Ünitedeki TÜM canlı atamalar (active + paused) sonlandırılır —
+    // yalnız ACTIVE'i sonlandırmak paused birikimine yol açıyordu
+    // (FARM-MEDIUM-255/261). Burada canlı atama yok.
+    find: jest.fn(async () => []),
     create: jest.fn((row: Partial<ProtocolAssignment>) => row),
     save: jest.fn(async (row: Partial<ProtocolAssignment>) => {
       const saved = { ...row, id: `as-${row.unitId}` } as ProtocolAssignment;
@@ -89,7 +90,9 @@ function makeHarness(opts: HarnessOpts = {}) {
     return null;
   });
   const query = jest.fn();
-  query.mockImplementation(async () => opts.unitRows ?? [{ unitId: 'unit-a' }, { unitId: 'unit-b' }]);
+  query.mockImplementation(
+    async () => opts.unitRows ?? [{ unitId: 'unit-a' }, { unitId: 'unit-b' }],
+  );
   const getRepository = jest.fn((entity: unknown) => {
     if (entity === FeedingProtocolV2) return protocolRepo;
     if (entity === ProtocolAssignment) return assignmentRepo;

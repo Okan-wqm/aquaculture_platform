@@ -22,6 +22,10 @@ jest.mock('@aquaculture/backend-common/database', () => ({
 }));
 
 import { ProtocolFeedForecastService } from '../services/protocol-feed-forecast.service';
+import { DayPlanRecalcService } from '../services/day-plan-recalc.service';
+import { FeedingClockService } from '../services/feeding-clock.service';
+import { FeedingJobRunService } from '../services/feeding-job-run.service';
+import { realFinalizationService } from './helpers/meal-finalization-double';
 import { FeedingCronV2Service } from '../services/feeding-cron-v2.service';
 import { MealPlanGeneratorService } from '../services/meal-plan-generator.service';
 import { BiomassGrowthApplierService } from '../services/biomass-growth-applier.service';
@@ -39,23 +43,38 @@ function mock<T>(impl: Partial<T>): T {
 
 describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
   const enqueue = jest.fn().mockResolvedValue(undefined);
-  const getTargetFCRForBatch = jest.fn();
-  const analyzeFCRTrend = jest.fn();
+  // W5 (FARM-LOW-291): süpürme artık batch başına değil TOPLU okur.
+  const getTargetFCRForBatches = jest.fn();
+  const analyzeFCRTrendMany = jest.fn();
+
+  const growthApplier = mock<BiomassGrowthApplierService>({});
+  const outboxPublisher = mock<OutboxPublisher>({ enqueue });
+  const recalcService = mock<DayPlanRecalcService>({ recalcForUnit: jest.fn() });
 
   const service = new FeedingCronV2Service(
     mock<DataSource>({}),
     mock<MealPlanGeneratorService>({}),
-    mock<BiomassGrowthApplierService>({}),
+    growthApplier,
     mock<WaterTemperatureService>({}),
-    mock<FCRCalculationService>({ getTargetFCRForBatch, analyzeFCRTrend }),
-    mock<OutboxPublisher>({ enqueue }),
+    mock<FCRCalculationService>({ getTargetFCRForBatches, analyzeFCRTrendMany }),
+    outboxPublisher,
     mock<ProtocolFeedForecastService>({}),
+    recalcService,
+    realFinalizationService({ growthApplier, recalcService, outboxPublisher }),
+    mock<FeedingClockService>({}),
+    mock<FeedingJobRunService>({}),
   );
 
   beforeEach(() => {
     jest.clearAllMocks();
-    getTargetFCRForBatch.mockResolvedValue(1.5);
-    analyzeFCRTrend.mockResolvedValue({ trend: 'declining' });
+    getTargetFCRForBatches.mockImplementation(
+      async (_tenantId: string, batchIds: string[]) =>
+        new Map(batchIds.map((batchId) => [batchId, 1.5])),
+    );
+    analyzeFCRTrendMany.mockImplementation(
+      async (_tenantId: string, batchIds: string[]) =>
+        new Map(batchIds.map((batchId) => [batchId, { trend: 'declining' }])),
+    );
   });
 
   it('emits warning (>%10) ve critical (>%20) — eşik altı batch event üretmez', async () => {
@@ -82,8 +101,11 @@ describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
     expect(warning!.variancePercent).toBeCloseTo(14.667, 3);
     expect(critical).toMatchObject({ alertLevel: 'critical', currentFCR: 2 });
 
-    // Trend yalnız eşiği aşan iki batch için sorgulandı.
-    expect(analyzeFCRTrend).toHaveBeenCalledTimes(2);
+    // Trend TEK toplu çağrıyla ve yalnız eşiği aşan iki batch için sorgulandı
+    // (FARM-LOW-291: batch başına round-trip yok).
+    expect(analyzeFCRTrendMany).toHaveBeenCalledTimes(1);
+    expect(analyzeFCRTrendMany).toHaveBeenCalledWith(TENANT, ['b-warning', 'b-critical']);
+    expect(getTargetFCRForBatches).toHaveBeenCalledTimes(1);
     // Outbox aynı tenant-tx manager'ıyla yazıldı.
     expect(enqueue.mock.calls[0]![1]).toMatchObject({ query: managerQuery });
   });
@@ -93,14 +115,14 @@ describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
       { id: 'b-1', actual: 2.0 },
       { id: 'b-no-target', actual: 2.0 },
     ]);
-    getTargetFCRForBatch.mockImplementation(async (batchId: string) =>
-      batchId === 'b-no-target' ? 0 : 1.5,
+    getTargetFCRForBatches.mockImplementation(
+      async (_tenantId: string, batchIds: string[]) =>
+        new Map(batchIds.map((batchId) => [batchId, batchId === 'b-no-target' ? 0 : 1.5])),
     );
 
     await service.sweepFcrForTenant(TENANT);
 
-    expect(getTargetFCRForBatch).toHaveBeenCalledWith('b-1');
-    expect(getTargetFCRForBatch).toHaveBeenCalledWith('b-no-target');
+    expect(getTargetFCRForBatches).toHaveBeenCalledWith(TENANT, ['b-1', 'b-no-target']);
     expect(enqueue).toHaveBeenCalledTimes(1);
     expect((enqueue.mock.calls[0]![0] as FCRAlertEvent).batchId).toBe('b-1');
   });
@@ -111,6 +133,6 @@ describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
     await service.sweepFcrForTenant(TENANT);
 
     expect(enqueue).not.toHaveBeenCalled();
-    expect(analyzeFCRTrend).not.toHaveBeenCalled();
+    expect(analyzeFCRTrendMany).not.toHaveBeenCalled();
   });
 });

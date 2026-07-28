@@ -144,10 +144,7 @@ function makeHarness(opts: HarnessOpts = {}) {
 describe('BiomassGrowthApplierService', () => {
   it('distributes growth across batchDetails proportional to biomass share and derives aggregates (D-2)', async () => {
     const harness = makeHarness({
-      shareSums: [
-        [{ biomass: 103, quantity: 1000 }],
-        [{ biomass: 51.5, quantity: 500 }],
-      ],
+      shareSums: [[{ biomass: 103, quantity: 1000 }], [{ biomass: 51.5, quantity: 500 }]],
     });
     const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
     await harness.service.applyGrowth(harness.manager, TENANT, locked!, 3, 1.2);

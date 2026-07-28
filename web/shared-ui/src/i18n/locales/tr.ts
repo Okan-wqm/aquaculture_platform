@@ -241,6 +241,8 @@ export const tr: Record<MessageKey, string> = {
   'feedingV2.forecast.timelineTitle': 'Ünite yem geçişleri (önümüzdeki {days} gün)',
   'feedingV2.forecast.computedAt': '{at} itibarıyla',
   'feedingV2.forecast.mortalityApplied': 'Ölüm projeksiyonu: tür hayatta kalma oranı',
+  'feedingV2.forecast.poolScopeSite': 'Bilgilendirici site görünümü — kapsama kararı tenant havuzundan',
+  'feedingV2.forecast.stale': 'Bayat: 26 saatten eski hesap',
   'feedingV2.forecast.mortalityNone': 'Ölüm projeksiyonu: yok (muhafazakâr)',
   'feedingV2.forecast.empty': 'Bu kapsamda öngörülen yem tüketimi yok.',
   'feedingV2.forecast.noUnits': 'Bu kapsamda aktif protokollü ünite yok.',
@@ -272,6 +274,15 @@ export const tr: Record<MessageKey, string> = {
   'feedingV2.mealBoard.highWeightCv': 'Yüksek ağırlık dağılımı',
   'feedingV2.mealBoard.highWeightCvTitle':
     "Batch'ler arası ağırlık farkı yüksek — ortak yem bandı her batch'e uymayabilir",
+  // W7/FARM-MEDIUM-271 — öğün öncesi oksijen verdikti (sensor-service).
+  // W8/FARM-MEDIUM-269 — kısmi öğünü döküm eklemeden kapat.
+  'feedingV2.mealBoard.finalizeMeal': 'Öğünü bitir',
+  'feedingV2.mealBoard.lowOxygen': 'Düşük O₂',
+  'feedingV2.mealBoard.lowOxygenTitle':
+    'Öğün öncesi çözünmüş oksijen {{observed}} mg/L — protokol tabanı {{min}} mg/L altında',
+  'feedingV2.mealBoard.noOxygenReading': 'O₂ ölçümü yok',
+  'feedingV2.mealBoard.noOxygenReadingTitle':
+    'Ünitenin DO sensörü var ama taze ölçümü yok — protokolün {{min}} mg/L oksijen koruması doğrulanamadı',
   'feedingV2.mealBoard.biomass': 'Biyokütle',
   'feedingV2.mealBoard.fishCount': 'Balık',
   'feedingV2.mealBoard.avgWeight': 'Ort. ağırlık',

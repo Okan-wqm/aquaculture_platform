@@ -28,6 +28,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -45,23 +46,26 @@ import {
   toEventIso,
   MealFedEvent,
   MealSkippedEvent,
-  MealUnderfedEvent,
 } from '@platform/event-contracts';
 
 import { FeedingMeal, FeedingMealStatus, MealPour } from '../entities/feeding-meal.entity';
-import { FeedingDayPlan, FeedingDayPlanStatus } from '../entities/feeding-day-plan.entity';
+import { FeedingDayPlan } from '../entities/feeding-day-plan.entity';
 import { FeedingProtocolV2 } from '../entities/feeding-protocol-v2.entity';
-import { BiomassGrowthApplierService } from './biomass-growth-applier.service';
+import { BiomassGrowthApplierService, type LockedUnit } from './biomass-growth-applier.service';
 import { DayPlanRecalcService } from './day-plan-recalc.service';
+import { MealFinalizationService } from './meal-finalization.service';
 import { FeedingLedgerService } from '../../feeding/services/feeding-ledger.service';
 import { FeedingMethod, FeedingRecord } from '../../feeding/entities/feeding-record.entity';
 import { Feed } from '../../feed/entities/feed.entity';
 import { BatchDomainService } from '../../batch/services/batch-domain.service';
 import { resolveTankSiteId } from '../../batch/utils/tank-lookup.util';
 import { StockMovementService } from '../../storage/services/stock-movement.service';
+import { FeedAllocationService } from '../../storage/services/feed-allocation.service';
 import { MovementType } from '../../storage/entities/stock-movement.entity';
 import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
 import type { FeedingRecordUpdatedEvent } from '@platform/event-contracts';
+import { round3 } from '../../common/utils/rounding.util';
+import { withUnitLockRetry } from './unit-lock-retry.util';
 
 // ============================================================================
 // TYPES
@@ -81,7 +85,7 @@ export interface RecordMealFeedingParams {
   pourKg: number;
   /** Operatör "öğün bitti" onayı — varyans + growth + recalc bu adımda. */
   finalize: boolean;
-  feedingMethod?: string;
+  feedingMethod?: FeedingMethod;
   notes?: string;
   envelope?: MobileCommandEnvelope | null;
 }
@@ -102,15 +106,22 @@ const RECEIPT_TABLE = 'farm_mobile_command_receipts' as const;
 
 @Injectable()
 export class MealExecutionService {
+  private readonly logger = new Logger(MealExecutionService.name);
+
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly receiptService: MobileCommandReceiptService,
     private readonly siteAuth: SiteAuthorizationService,
     private readonly growthApplier: BiomassGrowthApplierService,
     private readonly recalcService: DayPlanRecalcService,
+    // Öğün kapatma + plan durumu tek yerde (FARM-MEDIUM-276) — süpürme de
+    // aynı servise gelir, "simetri" bir yorum değil tek gövde.
+    private readonly finalization: MealFinalizationService,
     private readonly feedingLedger: FeedingLedgerService,
     private readonly batchDomainService: BatchDomainService,
     private readonly stockMovementService: StockMovementService,
+    // Çok-lotlu FEFO tahsisi — düşüm ve yukarı düzeltme aynı motordan geçer.
+    private readonly feedAllocation: FeedAllocationService,
     private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
@@ -118,7 +129,13 @@ export class MealExecutionService {
     if (!Number.isFinite(params.pourKg) || params.pourKg <= 0 || params.pourKg > 10000) {
       throw new BadRequestException('Döküm miktarı 0 < kg <= 10000 aralığında olmalıdır');
     }
+    // FARM-MEDIUM-288: ünite batch üyeliği kilit ediniminde değişirse
+    // (transfer/stoklama/tam hasat) TRANSACTION SINIRINDA sınırlı yeniden
+    // deneme — kendi kendine geçen bir yarış operatöre 409 olarak yansımaz.
+    return withUnitLockRetry(() => this.recordMealFeedingOnce(params));
+  }
 
+  private async recordMealFeedingOnce(params: RecordMealFeedingParams): Promise<MealFeedingResult> {
     return runInTenantTransaction(this.dataSource, 'farm', params.tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
 
@@ -231,7 +248,7 @@ export class MealExecutionService {
           actualAmountKg: params.pourKg,
           feedingDate: now,
           feedingTime: `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}`,
-          feedingMethod: (params.feedingMethod as FeedingMethod) ?? FeedingMethod.MANUAL,
+          feedingMethod: params.feedingMethod ?? FeedingMethod.MANUAL,
           fedBy: params.userId,
           mealId: meal.id,
           pourIndex,
@@ -259,64 +276,20 @@ export class MealExecutionService {
       await this.outboxPublisher.enqueue(fedEvent, manager);
 
       // 8) Finalize: varyans + growth (per_meal) + kalan öğünlerin recalc'ı.
+      let mealPersisted = false;
       if (params.finalize) {
-        meal.status = FeedingMealStatus.FED;
-        meal.fedAt = now;
-        meal.fedBy = params.userId;
-        meal.varianceKg = round3(meal.actualKg - Number(meal.plannedKg));
-        meal.variancePercent =
-          Number(meal.plannedKg) > 0
-            ? round3(((meal.actualKg - Number(meal.plannedKg)) / Number(meal.plannedKg)) * 100)
-            : 0;
-
-        const protocol = await manager.findOne(FeedingProtocolV2, {
-          where: { id: dayPlan.protocolId, tenantId: params.tenantId },
+        mealPersisted = await this.finalizeMealWithin(manager, {
+          tenantId: params.tenantId,
+          userId: params.userId,
+          finalizedAt: now,
+          locked,
+          dayPlan,
+          meal,
         });
-
-        if (protocol?.settings.growthApplicationMode !== 'daily') {
-          // per_meal: growthKg = actualKg / beklenen FCR (snapshot provenanslı).
-          const expectedFcr = dayPlan.snapshot.expectedFcr;
-          const growthKg = expectedFcr > 0 ? meal.actualKg / expectedFcr : 0;
-          await this.growthApplier.applyGrowth(
-            manager,
-            params.tenantId,
-            locked,
-            growthKg,
-            expectedFcr,
-          );
-          // Kalan öğünler yeni biomass'tan — band geçişi histerezisle burada.
-          await this.recalcService.recalcForUnit(
-            manager,
-            params.tenantId,
-            meal.unitId,
-            'meal_growth',
-          );
-        }
-
-        // P-21: az-atım eşiği (negatif varyans) — finalize'da, öğün kapsamında.
-        const threshold = protocol?.settings.underfeedAlertThresholdPercent ?? 15;
-        if (meal.variancePercent !== null && meal.variancePercent < -threshold) {
-          const underfed: MealUnderfedEvent = {
-            ...createBaseEvent<MealUnderfedEvent>('MealUnderfed', params.tenantId, {
-              aggregateId: meal.id,
-              aggregateType: 'FeedingMeal',
-            }),
-            scope: 'meal',
-            unitId: meal.unitId,
-            unitCode: dayPlan.unitCode,
-            dayPlanId: dayPlan.id,
-            mealId: meal.id,
-            plannedKg: Number(meal.plannedKg),
-            actualKg: meal.actualKg,
-            variancePercent: meal.variancePercent,
-            thresholdPercent: threshold,
-          };
-          await this.outboxPublisher.enqueue(underfed, manager);
-        }
       } else {
         meal.status = FeedingMealStatus.PARTIALLY_FED;
       }
-      await manager.save(meal);
+      if (!mealPersisted) await manager.save(meal);
 
       // 9) Day plan durumu: ilk döküm → in_progress; açık öğün kalmadıysa completed.
       await this.settleDayPlanStatus(manager, params.tenantId, dayPlan);
@@ -330,6 +303,168 @@ export class MealExecutionService {
       };
 
       // 10) Receipt complete — commit ile atomik.
+      await this.receiptService.complete(manager, {
+        tableName: RECEIPT_TABLE,
+        receipt,
+        responseType: 'FeedingMeal',
+        responseId: meal.id,
+        responsePayload: result,
+      });
+      return result;
+    });
+  }
+
+  /**
+   * Öğünü kapat — operatör yolunun `MealFinalizationService`'e girişi.
+   *
+   * Gövde bu sınıfta DEĞİL (FARM-MEDIUM-276): 05:30 süpürmesi de bayat
+   * `partially_fed` öğünleri kapatır ve iki yol aynı varyansı, aynı büyümeyi,
+   * aynı recalc'ı ve aynı az-atım eşiğini uygulamak zorundadır. Burada kalan
+   * tek iş, planın protokolünü yüklemek — eşik kuralı servisin içinde.
+   */
+  private async finalizeMealWithin(
+    manager: EntityManager,
+    ctx: {
+      tenantId: string;
+      userId: string;
+      finalizedAt: Date;
+      locked: LockedUnit;
+      dayPlan: FeedingDayPlan;
+      meal: FeedingMeal;
+    },
+  ): Promise<boolean> {
+    const protocol = await manager.findOne(FeedingProtocolV2, {
+      where: { id: ctx.dayPlan.protocolId, tenantId: ctx.tenantId },
+    });
+    return this.finalization.finalize(manager, {
+      tenantId: ctx.tenantId,
+      dayPlan: ctx.dayPlan,
+      meal: ctx.meal,
+      locked: ctx.locked,
+      finalizedAt: ctx.finalizedAt,
+      fedBy: ctx.userId,
+      protocol,
+    });
+  }
+
+  /**
+   * Kısmi beslenen öğünü DÖKÜM EKLEMEDEN kapat (W8 — FARM-MEDIUM-269).
+   *
+   * Balık doyduğunda operatörün yapması gereken şey "öğün bitti" demektir, kg
+   * eklemek değil. `recordMealFeeding` ise `pourKg >= MIN_FEED_KG` istiyor, bu
+   * yüzden PARTIALLY_FED bir öğünü kapatmanın TEK yolu uydurma bir 0.001 kg
+   * döküm kaydetmekti: sahte bir `feeding_records` satırı, sahte bir stok
+   * düşümü ve `Batch.totalFeedConsumed`'a giren sahte bir gram. Operatör
+   * dürüst davranmaya çalışırken kayıt bozuluyordu.
+   *
+   * Aynı kanonik kilit sırasını ve aynı site-yetki kapısını kullanır; farkı
+   * yalnızca döküm/ledger adımının OLMAMASI. Sadece PARTIALLY_FED kabul eder:
+   * hiç dökümü olmayan bir öğünü "beslendi" diye kapatmak 0 kg'lık bir yalan
+   * olurdu — o öğünün doğru fiili `skipMeal`'dir.
+   */
+  async finalizeMeal(params: {
+    tenantId: string;
+    userId: string;
+    caller: MealCaller;
+    mealId: string;
+    envelope: MobileCommandEnvelope;
+  }): Promise<MealFeedingResult> {
+    // FARM-MEDIUM-288 — bkz. recordMealFeeding.
+    return withUnitLockRetry(() => this.finalizeMealOnce(params));
+  }
+
+  private async finalizeMealOnce(params: {
+    tenantId: string;
+    userId: string;
+    caller: MealCaller;
+    mealId: string;
+    envelope: MobileCommandEnvelope;
+  }): Promise<MealFeedingResult> {
+    return runInTenantTransaction(this.dataSource, 'farm', params.tenantId, async (queryRunner) => {
+      const manager = queryRunner.manager;
+
+      const receipt = await this.receiptService.begin(manager, {
+        tableName: RECEIPT_TABLE,
+        tenantId: params.tenantId,
+        envelope: params.envelope,
+        operationType: 'finalizeMeal',
+        responseType: 'FeedingMeal',
+      });
+      if (receipt.mode === 'replay') {
+        return this.replayResult(receipt.responsePayload);
+      }
+      if (receipt.mode === 'legacy') {
+        throw new BadRequestException(
+          'finalizeMeal requires the mobile idempotency envelope (clientCommandId + payloadHash)',
+        );
+      }
+
+      const preview = await manager.findOne(FeedingMeal, {
+        where: { id: params.mealId, tenantId: params.tenantId },
+      });
+      if (!preview) throw new NotFoundException(`Öğün bulunamadı: ${params.mealId}`);
+
+      // Kanonik kilit sırası: Batch(asc) → TankBatch → DayPlan → Meal.
+      const locked = await this.growthApplier.lockUnitForGrowth(
+        manager,
+        params.tenantId,
+        preview.unitId,
+      );
+      if (!locked) {
+        throw new ConflictException(`Ünitede stok kaydı yok: ${preview.unitId}`);
+      }
+      for (const batch of locked.batches.values()) {
+        this.batchDomainService.assertFeedable(batch);
+      }
+
+      const dayPlan = await manager.findOne(FeedingDayPlan, {
+        where: { id: preview.dayPlanId, tenantId: params.tenantId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!dayPlan) throw new NotFoundException(`Gün planı bulunamadı: ${preview.dayPlanId}`);
+      const meal = await manager.findOne(FeedingMeal, {
+        where: { id: params.mealId, tenantId: params.tenantId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!meal) throw new NotFoundException(`Öğün bulunamadı: ${params.mealId}`);
+      if (meal.status !== FeedingMealStatus.PARTIALLY_FED) {
+        throw new ConflictException(
+          `Öğün '${meal.status}' durumunda — yalnız partially_fed öğün döküm eklemeden ` +
+            'kapatılabilir (hiç dökümü olmayan öğün için skipMeal kullanın)',
+        );
+      }
+
+      // SEC-HIGH-051: site yetkisi yazma tx'i İÇİNDE, fail-closed.
+      const siteId = await resolveTankSiteId(manager, meal.unitId, params.tenantId);
+      this.siteAuth.assertSiteAssignment({
+        caller: {
+          sub: params.caller.sub,
+          roles: params.caller.roles,
+          assignedSiteIds: params.caller.assignedSiteIds,
+        },
+        siteId,
+      });
+
+      const mealPersisted = await this.finalizeMealWithin(manager, {
+        tenantId: params.tenantId,
+        userId: params.userId,
+        finalizedAt: new Date(),
+        locked,
+        dayPlan,
+        meal,
+      });
+      if (!mealPersisted) await manager.save(meal);
+
+      await this.settleDayPlanStatus(manager, params.tenantId, dayPlan);
+
+      const result: MealFeedingResult = {
+        id: meal.id,
+        status: meal.status,
+        actualKg: meal.actualKg,
+        varianceKg: meal.varianceKg ?? null,
+        variancePercent: meal.variancePercent ?? null,
+      };
+
       await this.receiptService.complete(manager, {
         tableName: RECEIPT_TABLE,
         receipt,
@@ -363,7 +498,18 @@ export class MealExecutionService {
     ) {
       throw new BadRequestException('Düzeltilmiş miktar 0 < kg <= 10000 aralığında olmalıdır');
     }
+    // FARM-MEDIUM-288 — bkz. recordMealFeeding.
+    return withUnitLockRetry(() => this.correctMealPourOnce(params));
+  }
 
+  private async correctMealPourOnce(params: {
+    tenantId: string;
+    userId: string;
+    caller: MealCaller;
+    mealId: string;
+    pourIndex: number;
+    correctedKg: number;
+  }): Promise<MealFeedingResult> {
     return runInTenantTransaction(this.dataSource, 'farm', params.tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
 
@@ -448,7 +594,9 @@ export class MealExecutionService {
       const feed = await manager.findOne(Feed, {
         where: { id: record.feedId, tenantId: params.tenantId },
       });
-      const newCost = feed?.pricePerKg ? round3(Number(feed.pricePerKg) * params.correctedKg) : previousCost;
+      const newCost = feed?.pricePerKg
+        ? round3(Number(feed.pricePerKg) * params.correctedKg)
+        : previousCost;
       record.actualAmount = params.correctedKg;
       record.feedCost = newCost;
       record.calculateVariance();
@@ -468,13 +616,14 @@ export class MealExecutionService {
       // Storage düzeltmesi — fark kadar; Phase-A (storage izi olmayan feed) atlanır.
       await this.applyStorageCorrection(manager, params, meal, delta, siteId);
 
-      // Growth delta (finalize edilmiş + per_meal protokol) + kalan öğün recalc'ı.
+      // Growth delta (finalize edilmiş + per_meal plan) + kalan öğün recalc'ı.
+      // DAILY modda delta burada UYGULANMAZ; rollup kümülatif mutabakatla
+      // (`rollupAppliedKg <> Σ actualKg`) bir sonraki koşuda uygular —
+      // eski "tek atımlık damga" bu deltayı kalıcı olarak kaybediyordu
+      // (FARM-CRITICAL-244).
       if (meal.status === FeedingMealStatus.FED) {
-        const protocol = await manager.findOne(FeedingProtocolV2, {
-          where: { id: dayPlan.protocolId, tenantId: params.tenantId },
-        });
-        if (protocol?.settings.growthApplicationMode !== 'daily') {
-          const expectedFcr = dayPlan.snapshot.expectedFcr;
+        if (dayPlan.growthApplicationMode !== 'daily') {
+          const expectedFcr = dayPlan.resolution.expectedFcr;
           const growthDelta = expectedFcr > 0 ? delta / expectedFcr : 0;
           await this.growthApplier.applyGrowth(
             manager,
@@ -525,6 +674,11 @@ export class MealExecutionService {
    * delta orijinal düşümün lokasyonuna İADE (IN). Storage izi olmayan feed'de
    * (Phase-A) düşüm hiç yapılmamıştı — düzeltme de atlanır (gözlemlenebilir).
    */
+  /**
+   * Düzeltme stok hareketi — TEK uygulama `FeedingLedgerService`'te
+   * (FARM-HIGH-248 ile aynı motoru `updateFeedingRecord` de kullanır; iki
+   * kopya idempotency/lot/iade kurallarında sapardı).
+   */
   private async applyStorageCorrection(
     manager: EntityManager,
     params: { tenantId: string; userId: string; mealId: string; pourIndex: number },
@@ -532,79 +686,15 @@ export class MealExecutionService {
     delta: number,
     siteId: string | null,
   ): Promise<void> {
-    const hasPresence = await this.stockMovementService.feedHasStoragePresence(
-      manager,
-      params.tenantId,
-      meal.feedId,
-    );
-    if (!hasPresence) return;
-
     const pour = (meal.pours ?? []).find((entry) => entry.pourIndex === params.pourIndex);
-    const idempotencyKey = `meal-correct-${params.mealId}-${params.pourIndex}-${pour?.corrections ?? 1}`;
-
-    if (delta > 0) {
-      const location = await this.stockMovementService.resolveFeedDeductionLocation(
-        manager,
-        params.tenantId,
-        meal.feedId,
-        new Date(),
-        undefined,
-        siteId ?? undefined,
-      );
-      if (!location) {
-        throw new BadRequestException(
-          `Düzeltme için yeterli stok yok: feed ${meal.feedId}, ek ${delta}kg`,
-        );
-      }
-      await this.stockMovementService.recordMovement(
-        manager,
-        {
-          movementType: MovementType.OUT,
-          itemType: StorageItemType.FEED,
-          itemId: meal.feedId,
-          quantity: delta,
-          fromLocationId: location.storageLocationId,
-          lotNumber: location.lotNumber,
-          reference: `MEAL-CORRECTION: ${params.mealId}#${params.pourIndex}`,
-          reason: 'correctMealPour upward correction (in-transaction).',
-          idempotencyKey,
-          movementDate: new Date(),
-        },
-        { tenantId: params.tenantId, userId: params.userId, userName: 'Feeding' },
-      );
-      return;
-    }
-
-    // İade: orijinal düşümün lokasyonu/lotu stock_movements'tan çözülür.
-    const original: Array<{ fromLocationId: string | null; lotNumber: string | null }> =
-      await manager.query(
-        `SELECT "from_location_id" AS "fromLocationId", "lot_number" AS "lotNumber"
-         FROM "stock_movements"
-         WHERE "idempotency_key" = $1 AND "tenant_id" = $2 LIMIT 1`,
-        [`meal-deduct-${params.mealId}-${params.pourIndex}`, params.tenantId],
-      );
-    const target = original[0];
-    if (!target?.fromLocationId) {
-      throw new ConflictException(
-        `Orijinal düşüm hareketi bulunamadı (meal ${params.mealId}#${params.pourIndex}) — iade lokasyonu çözülemedi`,
-      );
-    }
-    await this.stockMovementService.recordMovement(
-      manager,
-      {
-        movementType: MovementType.IN,
-        itemType: StorageItemType.FEED,
-        itemId: meal.feedId,
-        quantity: Math.abs(delta),
-        toLocationId: target.fromLocationId,
-        lotNumber: target.lotNumber ?? undefined,
-        reference: `MEAL-CORRECTION: ${params.mealId}#${params.pourIndex}`,
-        reason: 'correctMealPour downward correction — return to original lot (in-transaction).',
-        idempotencyKey,
-        movementDate: new Date(),
-      },
-      { tenantId: params.tenantId, userId: params.userId, userName: 'Feeding' },
-    );
+    await this.feedingLedger.applyStockCorrection(manager, params.tenantId, params.userId, {
+      feedId: meal.feedId,
+      deltaKg: delta,
+      siteId: siteId ?? undefined,
+      deductionKeyBase: `meal-deduct-${params.mealId}-${params.pourIndex}`,
+      correctionKey: `meal-correct-${params.mealId}-${params.pourIndex}-${pour?.corrections ?? 1}`,
+      reference: `MEAL-CORRECTION: ${params.mealId}#${params.pourIndex}`,
+    });
   }
 
   /**
@@ -668,6 +758,16 @@ export class MealExecutionService {
       };
       await this.outboxPublisher.enqueue(event, manager);
 
+      // W5 (kullanıcı kararı 3): atlanan öğünün kg'ı kalan öğünlere OTOMATİK
+      // dağıtılmaz. Tenant açıkça telafi yüzdesi tanımladıysa yalnız o kadarı
+      // dağıtılır; tanımlamadıysa bu çağrı hiçbir şey yapmaz.
+      await this.recalcService.applyMissedCatchUp(
+        manager,
+        params.tenantId,
+        dayPlan,
+        Number(meal.plannedKg) - Number(meal.actualKg || 0),
+      );
+
       await this.settleDayPlanStatus(manager, params.tenantId, dayPlan);
 
       return {
@@ -702,27 +802,17 @@ export class MealExecutionService {
     throw new ConflictException('Stored recordMealFeeding replay payload is malformed');
   }
 
-  /** Açık (scheduled/partially_fed) öğün kalmadıysa planı kapat; ilk aktivitede in_progress. */
+  /**
+   * Açık öğün kalmadıysa planı kapat — kural `MealFinalizationService`'te
+   * (FARM-MEDIUM-276): süpürme de aynı kararı verir ve kopyası `dayPlan.status
+   * !== nextStatus` korumasını taşımadığı için her turda koşulsuz UPDATE
+   * atıyordu.
+   */
   private async settleDayPlanStatus(
     manager: EntityManager,
     tenantId: string,
     dayPlan: FeedingDayPlan,
   ): Promise<void> {
-    const openCount = await manager.count(FeedingMeal, {
-      where: [
-        { dayPlanId: dayPlan.id, tenantId, status: FeedingMealStatus.SCHEDULED },
-        { dayPlanId: dayPlan.id, tenantId, status: FeedingMealStatus.PARTIALLY_FED },
-      ],
-    });
-    const nextStatus =
-      openCount === 0 ? FeedingDayPlanStatus.COMPLETED : FeedingDayPlanStatus.IN_PROGRESS;
-    if (dayPlan.status !== nextStatus) {
-      dayPlan.status = nextStatus;
-      await manager.save(dayPlan);
-    }
+    await this.finalization.settleDayPlanStatus(manager, tenantId, dayPlan);
   }
-}
-
-function round3(value: number): number {
-  return Math.round((value + Number.EPSILON) * 1000) / 1000;
 }

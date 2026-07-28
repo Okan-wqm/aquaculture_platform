@@ -17,7 +17,9 @@ jest.mock('@aquaculture/backend-common/database', () => ({
     ds: unknown,
     schema: string,
     tenantId: string,
-    cb: (qr: { manager: { query: typeof managerQuery; find: typeof managerFind } }) => Promise<void>,
+    cb: (qr: {
+      manager: { query: typeof managerQuery; find: typeof managerFind };
+    }) => Promise<void>,
   ) => cb({ manager: { query: managerQuery, find: managerFind } }),
 }));
 
@@ -25,9 +27,14 @@ import { DataSource } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 
 import { ProtocolFeedForecastService } from '../services/protocol-feed-forecast.service';
+import { DayPlanRecalcService } from '../services/day-plan-recalc.service';
+import { FeedingClockService } from '../services/feeding-clock.service';
+import { FeedingJobRunService } from '../services/feeding-job-run.service';
+import { realFinalizationService } from './helpers/meal-finalization-double';
 import { FeedingCronV2Service } from '../services/feeding-cron-v2.service';
 import { MealPlanGeneratorService } from '../services/meal-plan-generator.service';
 import { ProtocolRateService } from '../services/protocol-rate.service';
+import { ProtocolResolutionService } from '../services/protocol-resolution.service';
 import { BiomassGrowthApplierService } from '../services/biomass-growth-applier.service';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
@@ -122,16 +129,22 @@ function makeService(fixture: DryRunFixture): {
     if (String(sql).includes('"sites"')) return [{ id: SITE, timezone: 'UTC' }];
     return [];
   });
-  managerFind.mockImplementation(async (entity: unknown, opts?: { skip?: number }): Promise<unknown[]> => {
-    if (entity === ProtocolAssignment) {
-      return (opts?.skip ?? 0) === 0 ? fixture.assignments : [];
-    }
-    if (entity === FeedingProtocolV2) return fixture.protocols;
-    if (entity === TankBatch) return fixture.tankBatches;
-    return [];
-  });
+  managerFind.mockImplementation(
+    async (entity: unknown, opts?: { skip?: number }): Promise<unknown[]> => {
+      if (entity === ProtocolAssignment) {
+        return (opts?.skip ?? 0) === 0 ? fixture.assignments : [];
+      }
+      if (entity === FeedingProtocolV2) return fixture.protocols;
+      if (entity === TankBatch) return fixture.tankBatches;
+      return [];
+    },
+  );
 
-  const generator = new MealPlanGeneratorService(new ProtocolRateService());
+  const dryRunRateService = new ProtocolRateService();
+  const generator = new MealPlanGeneratorService(
+    dryRunRateService,
+    new ProtocolResolutionService(dryRunRateService),
+  );
   const persistDayPlan = jest.spyOn(generator, 'persistDayPlan');
   const enqueue = jest.fn().mockResolvedValue(undefined);
   const getEffectiveTemperaturesForUnits = jest.fn();
@@ -139,14 +152,24 @@ function makeService(fixture: DryRunFixture): {
     new Map([[UNIT, { celsius: null, source: 'none' }]]),
   );
 
+  const growthApplier = mock<BiomassGrowthApplierService>({});
+  const outboxPublisher = mock<OutboxPublisher>({ enqueue });
+  const recalcService = mock<DayPlanRecalcService>({ recalcForUnit: jest.fn() });
+
   const service = new FeedingCronV2Service(
     mock<DataSource>({}),
     generator,
-    mock<BiomassGrowthApplierService>({}),
+    growthApplier,
     mock<WaterTemperatureService>({ getEffectiveTemperaturesForUnits }),
     mock<FCRCalculationService>({}),
-    mock<OutboxPublisher>({ enqueue }),
+    outboxPublisher,
     mock<ProtocolFeedForecastService>({}),
+    recalcService,
+    realFinalizationService({ growthApplier, recalcService, outboxPublisher }),
+    mock<FeedingClockService>({
+      siteZones: jest.fn().mockResolvedValue({ tenantZone: 'UTC', zoneOf: () => 'UTC' }),
+    }),
+    mock<FeedingJobRunService>({}),
   );
   return { service, persistDayPlan, enqueue };
 }

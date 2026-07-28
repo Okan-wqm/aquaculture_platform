@@ -67,6 +67,9 @@
       "@aquaculture/backend-common/database": [
         "libs/backend-common/src/database/index.ts"
       ],
+      "@aquaculture/backend-common/events": [
+        "libs/backend-common/src/events/index.ts"
+      ],
       "@aquaculture/backend-common/dataloader": [
         "libs/backend-common/src/dataloader/index.ts"
       ],

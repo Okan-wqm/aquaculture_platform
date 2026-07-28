@@ -55,6 +55,9 @@ services:
       - "events.*.PasswordResetCompleted"
       - "events.*.PasswordResetRequested"
       - "events.*.TenantStatusChanged"
+      # W5: tenant lokalizasyonu (saat dilimi/dil) değişimi — farm-service
+      # yemleme cron'larının gün sınırını bu event'ten projekte eder.
+      - "events.*.TenantUpdated"
       - "events.*.UserAccountLocked"
       - "events.*.UserDeleted"
       - "events.*.UserInvited"
@@ -200,6 +203,9 @@ services:
       - "events.*.EdgeDeviceHeartbeat"
       - "events.*.EdgeDeviceIoData"
       - "events.*.EdgeDeviceResponse"
+      # W7/FARM-MEDIUM-271 — pre-meal oxygen readiness verdict; the sensor-side
+      # answer to farm's MealWindowUpcoming (consumed by alert-engine + farm).
+      - "events.*.FeedingWindowReadiness"
       - "events.*.IoConfigPushResult"
       - "events.*.LoRaDeviceEvent"
       - "events.*.ParentReadingRouted"

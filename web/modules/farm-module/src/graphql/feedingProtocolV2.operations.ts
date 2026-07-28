@@ -202,6 +202,10 @@ const FEEDING_MEAL_FIELDS = `
   feedingMethod
   recalculatedAt
   notes
+  # W7/FARM-MEDIUM-271 — sensor-service'in öğün öncesi oksijen verdikti.
+  # NULL = "olumsuz sinyal gelmedi" (olumlu onay DEĞİL) — rozet yalnız
+  # dolu geldiğinde gösterilir.
+  readiness
 `;
 
 const FEEDING_DAY_PLAN_FIELDS = `
@@ -221,6 +225,7 @@ const FEEDING_DAY_PLAN_FIELDS = `
   status
   skipReason
   recalcLog
+  recalcCount
   createdAt
   updatedAt
 `;
@@ -239,6 +244,23 @@ export const FEEDING_DAY_PLANS_QUERY = `
 export const RECORD_MEAL_FEEDING_MUTATION = `
   mutation RecordMealFeeding($input: RecordMealFeedingInput!) {
     recordMealFeeding(input: $input) {
+      id
+      status
+      actualKg
+      varianceKg
+      variancePercent
+    }
+  }
+`;
+
+/**
+ * W8/FARM-MEDIUM-269 — kısmi öğünü döküm eklemeden kapatır. Zarf zorunlu
+ * (recordMealFeeding emsali): aynı komut iki kez gönderilse bile ikinci kez
+ * uygulanmaz.
+ */
+export const FINALIZE_MEAL_MUTATION = `
+  mutation FinalizeMeal($input: FinalizeMealInput!) {
+    finalizeMeal(input: $input) {
       id
       status
       actualKg
@@ -298,6 +320,8 @@ export const PROTOCOL_FEED_FORECAST_QUERY = `
   query ProtocolFeedForecast($siteId: ID, $horizonDays: Int, $refresh: Boolean) {
     protocolFeedForecast(siteId: $siteId, horizonDays: $horizonDays, refresh: $refresh) {
       siteScopeKey
+      poolScope
+      stale
       horizonDays
       computedAt
       perFeed {
@@ -321,6 +345,7 @@ export const PROTOCOL_FEED_FORECAST_QUERY = `
         unitName
         unitCode
         currentFeedId
+        terminalFeedId
         transitions {
           fromFeedId
           toFeedId
@@ -333,6 +358,7 @@ export const PROTOCOL_FEED_FORECAST_QUERY = `
         feedId
         unitId
         days
+        atDay
       }
       mortalityAssumption {
         applied

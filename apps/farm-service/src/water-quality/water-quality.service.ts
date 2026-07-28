@@ -18,8 +18,9 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager } from 'typeorm';
-import { Role } from '@aquaculture/backend-common/decorators';
+import { Role, roleHasPermission } from '@aquaculture/backend-common/decorators';
 import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { OutboxPublisher } from '@platform/outbox';
 import {
@@ -33,7 +34,7 @@ import {
   MeasurementSource,
   ParameterStatus,
 } from './entities/water-quality-measurement.entity';
-import { resolveTankSiteId } from '../batch/utils/tank-lookup.util';
+import { resolveTankSiteId, resolveUnitSiteIds } from '../batch/utils/tank-lookup.util';
 import { Tank } from '../tank/entities/tank.entity';
 import { WaterQualityEvaluationService } from './services/water-quality-evaluation.service';
 import { WaterQualityValidationService } from './services/water-quality-validation.service';
@@ -190,6 +191,44 @@ export class WaterQualityService {
    * and the fail-closed deny restricts pond WQ to MODULE_MANAGER+ — the correct
    * conservative posture (NEVER an implicit allow on an unresolved site).
    */
+  /**
+   * Site yetkisi kapısı — ÜNİTE LİSTESİ okuyan sorgular için (W8 —
+   * FARM-MEDIUM-274).
+   *
+   * `effectiveUnitTemperatures` rol kapısında MODULE_USER'a açıktı ama nesne
+   * düzeyinde HİÇ kontrol yoktu: operatör atanmadığı bir sitenin ünite
+   * kimliklerini geçirip o ünitelerin sıcaklık + sensör kimliklerini
+   * okuyabiliyordu. Aynı SEC-HIGH-051 disiplini burada da uygulanır:
+   * MODULE_MANAGER+ bypass eder, MODULE_USER için her ünite kendi sitesine
+   * karşı doğrulanır ve ÇÖZÜLEMEYEN site örtük izin DEĞİL reddir.
+   *
+   * Yazma yolundaki `assertSiteAssignment` per-item deseniyle simetrik olarak
+   * FIRLATIR — yetkisiz kimlikleri sessizce süzmek operatöre "bu ünitenin
+   * sıcaklığı yok" diye yanlış bir cevap verirdi.
+   */
+  async assertUnitsSiteAuthorized(
+    tenantId: string,
+    unitIds: string[],
+    caller: WaterQualityCaller,
+  ): Promise<void> {
+    if (unitIds.length === 0) return;
+
+    // MODULE_MANAGER+ cross-site sahibi — tek sorgu bile atmadan geçer.
+    if (caller.roles.some((role) => roleHasPermission(role, Role.MODULE_MANAGER))) {
+      return;
+    }
+
+    const siteByUnit = await runInTenantRead(
+      this.dataSource,
+      'farm',
+      tenantId,
+      (queryRunner) => resolveUnitSiteIds(queryRunner.manager, unitIds, tenantId),
+    );
+    for (const unitId of unitIds) {
+      this.siteAuth.assertSiteAssignment({ caller, siteId: siteByUnit.get(unitId) ?? null });
+    }
+  }
+
   private async resolveMeasurementSiteId(
     manager: EntityManager,
     input: Pick<CreateWaterQualityData, 'siteId' | 'tankId'>,
@@ -375,15 +414,7 @@ export class WaterQualityService {
 
       // P-31: ölçüm sıcaklık taşıyorsa ünitenin bugünkü beslenmemiş öğünleri
       // aynı transaction'da yeni çarpanla yeniden fiyatlanır.
-      if (saved.tankId && typeof saved.temperature === 'number') {
-        await this.dayPlanRecalc.recalcForUnit(
-          queryRunner.manager,
-          tenantId,
-          saved.tankId,
-          'temperature',
-          { newTemperatureC: Number(saved.temperature) },
-        );
-      }
+      await this.recalcFromTemperature(queryRunner.manager, tenantId, [saved]);
 
       await queryRunner.commitTransaction();
     } catch (error) {
@@ -554,6 +585,12 @@ export class WaterQualityService {
         }
       }
 
+      // ek-g / FARM-MEDIUM-273: TOPLU giriş de aynı yeniden-fiyatlama
+      // yazıcısına iner. Eskiden yalnız tekil `create` recalc tetikliyordu;
+      // operatörün 40 tankı tek formda girdiği sabah turu — yani sıcaklığın
+      // gerçekten toplu güncellendiği tek akış — planları hiç güncellemiyordu.
+      await this.recalcFromTemperature(queryRunner.manager, tenantId, saved);
+
       await queryRunner.commitTransaction();
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -564,6 +601,35 @@ export class WaterQualityService {
 
     this.logger.log(`Created batch of ${saved.length} WQ measurements for tenant ${tenantId}`);
     return saved;
+  }
+
+  /**
+   * Sıcaklık taşıyan ölçümler → gün-içi plan yeniden fiyatlaması (P-31).
+   *
+   * Ünite kimliği `tankId ?? equipmentId`: toplu giriş yalnız `equipmentId`
+   * yazar, tekil giriş `tankId` — ikisi de AYNI fiziksel üniteyi gösterir
+   * (Equipment.id kanonik ünite kimliği).
+   *
+   * Üniteler unitId'ye göre SIRALI işlenir: recalc kilit alır ve kanonik
+   * kilit sırası (K-1) aynı yönde ilerlemeyi şart koşar — iki eşzamanlı
+   * toplu giriş AB-BA kilitlenmesi üretemez.
+   */
+  private async recalcFromTemperature(
+    manager: EntityManager,
+    tenantId: string,
+    measurements: WaterQualityMeasurement[],
+  ): Promise<void> {
+    const byUnit = new Map<string, number>();
+    for (const measurement of measurements) {
+      const unitId = measurement.tankId ?? measurement.equipmentId;
+      if (!unitId || typeof measurement.temperature !== 'number') continue;
+      byUnit.set(unitId, Number(measurement.temperature));
+    }
+    for (const unitId of [...byUnit.keys()].sort()) {
+      await this.dayPlanRecalc.recalcForUnit(manager, tenantId, unitId, 'temperature', {
+        newTemperatureC: byUnit.get(unitId)!,
+      });
+    }
   }
 
   // -------------------------------------------------------------------------

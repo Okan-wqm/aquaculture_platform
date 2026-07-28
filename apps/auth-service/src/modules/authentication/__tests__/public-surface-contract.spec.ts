@@ -47,6 +47,7 @@ describe('Public surface contract (SEC-CRITICAL-001 / MT-LOW-001)', () => {
     const resolver = new TenantResolver(
       tenantServiceStub as never,
       auditStub as never,
+      { updateTenantLocalization: jest.fn() } as never,
     );
 
     const result = await resolver.tenantBySlug('acme');

@@ -57,6 +57,7 @@ import {
   LockedUnit,
 } from '../../feeding-protocol/services/biomass-growth-applier.service';
 import { DayPlanRecalcService } from '../../feeding-protocol/services/day-plan-recalc.service';
+import { withUnitLockRetry } from '../../feeding-protocol/services/unit-lock-retry.util';
 import {
   FeedingDayPlan,
   FeedingDayPlanStatus,
@@ -64,7 +65,9 @@ import {
 
 @Injectable()
 @CommandHandler(CreateFeedingRecordCommand)
-export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeedingRecordCommand, FeedingRecord> {
+export class CreateFeedingRecordHandler
+  implements ICommandHandler<CreateFeedingRecordCommand, FeedingRecord>
+{
   private readonly logger = new Logger(CreateFeedingRecordHandler.name);
 
   constructor(
@@ -83,7 +86,20 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
     private readonly recalcService: DayPlanRecalcService,
   ) {}
 
+  /**
+   * `withUnitLockRetry` sarmalar: `lockUnitForGrowth`, kilitsiz önizleme ile
+   * kilitli okuma arasında ünitenin batch üyeliği değişirse `ConflictException`
+   * fırlatır (transfer/stoklama/tam hasat ile eşzamanlılık). Sarmalayıcı
+   * olmadan bu, operatöre ham 409 olarak yansıyordu — `@platform/cqrs` command
+   * bus'ında retry katmanı yok, yani üst tarafta soğuran hiçbir şey de yok
+   * (FARM-MEDIUM-288). Retry transaction'ın DIŞINDA olmak zorundadır: yeniden
+   * denenen şey kilit değil, tüm iş birimidir.
+   */
   async execute(command: CreateFeedingRecordCommand): Promise<FeedingRecord> {
+    return withUnitLockRetry(() => this.executeOnce(command));
+  }
+
+  private async executeOnce(command: CreateFeedingRecordCommand): Promise<FeedingRecord> {
     const { tenantId, payload, userId } = command;
 
     // ── Backdate policy: reject future feedingDates unconditionally and
@@ -92,9 +108,7 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
     // docs/illustrator/ Girdi 8 — unbounded backdating corrupts
     // downstream FCR / SGR derivations that assume time-ordered events.
     const proposedDate: Date =
-      payload.feedingDate instanceof Date
-        ? payload.feedingDate
-        : new Date(payload.feedingDate);
+      payload.feedingDate instanceof Date ? payload.feedingDate : new Date(payload.feedingDate);
     this.backdatePolicy.validate({
       context: 'feeding',
       proposedDate,
@@ -116,14 +130,16 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
         locked = await this.growthApplier.lockUnitForGrowth(manager, tenantId, payload.tankId);
       }
 
-      // Batch'i doğrula — ünite kilidi batch'i zaten kilitlediyse yeniden alma.
-      let batch = locked?.batches.get(payload.batchId) ?? null;
-      if (!batch) {
-        batch = await manager.findOne(Batch, {
-          where: { id: payload.batchId, tenantId },
-          lock: { mode: 'pessimistic_write' },
-        });
-      }
+      // Batch'i doğrula — ünite kilidi bu batch'i gerçekten kapsıyorsa kilitli
+      // nesne kullanılır, kapsamıyorsa satır ayrıca kilitlenir. Karar TEK
+      // implementasyonda (FARM-HIGH-248): bu deyim iki handler'da kopyalanmış
+      // ve biri üyeliği doğrularken diğeri yalnız token varlığına bakıyordu.
+      const batch = await this.growthApplier.lockBatchForWrite(
+        manager,
+        tenantId,
+        payload.batchId,
+        locked,
+      );
 
       if (!batch) {
         throw new NotFoundException(`Batch ${payload.batchId} bulunamadı`);
@@ -173,15 +189,16 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
         // (1) Plan-dışı toplam atomik artar — gün-sonu varyansı
         // Σ(planlı + plansız actual) vs plannedTotalKg üzerinden okunur (D-16).
         await manager.query(
-          `UPDATE "feeding_day_plans" SET "unplannedActualKg" = "unplannedActualKg" + $1 WHERE id = $2`,
-          [payload.actualAmount, boundPlan.id],
+          `UPDATE "feeding_day_plans" SET "unplannedActualKg" = "unplannedActualKg" + $1
+            WHERE "tenantId" = $2 AND id = $3`,
+          [payload.actualAmount, tenantId, boundPlan.id],
         );
 
         // (2) Büyüme AYNI tx'te (D-7 kök neden: eski manuel yol büyüme
         // uygulamıyordu → FCR şişiyordu). Mod ayrımı YOK: DAILY rollup yalnız
         // öğün actual'larını topladığı için plan-dışı yem burada uygulanmazsa
         // hiçbir yerde uygulanmaz.
-        const expectedFcr = Number(boundPlan.snapshot?.expectedFcr) || 0;
+        const expectedFcr = Number(boundPlan.resolution?.expectedFcr) || 0;
         if (expectedFcr > 0) {
           await this.growthApplier.applyGrowth(
             manager,
@@ -200,44 +217,37 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
       // TEK yem yazma yolu (P-05): kayıt + batch aggregate + storage düşümü
       // (site kapsamlı, D-9) + FeedingRecordedEvent outbox — hepsi ledger'da.
       // Storage düşümü akışın SON yazımıdır (K-1) — plan bağlama yukarıda bitti.
-      const saved = await this.feedingLedger.recordFeed(
-        manager,
-        tenantId,
-        userId,
-        batch,
-        feed,
-        {
-          batchId: payload.batchId,
-          tankId: payload.tankId,
-          pondId: payload.pondId,
-          batchLocationId: payload.batchLocationId,
-          feedId: payload.feedId,
-          plannedAmountKg: payload.plannedAmount,
-          actualAmountKg: payload.actualAmount,
-          wasteAmountKg: payload.wasteAmount,
-          feedingDate: proposedDate,
-          feedingTime: payload.feedingTime,
-          feedingMethod: payload.feedingMethod || FeedingMethod.MANUAL,
-          equipmentId: payload.equipmentId,
-          feedBatchNumber: payload.feedBatchNumber,
-          fedBy: payload.fedBy || userId,
-          notes: payload.notes,
-          feedCost: payload.feedCost,
-          currency: payload.currency,
-          // D-7: plan-dışı kayıt plana bağlanır (mealId NULL kalır); site
-          // kapsamı plan denormundan gelir (D-9).
-          dayPlanId: boundPlan?.id,
-          siteId: boundPlan?.siteId,
-          extras: {
-            environment: payload.environment,
-            fishBehavior: payload.fishBehavior,
-            feedingDurationMinutes: payload.feedingDurationMinutes,
-            feedingSequence: payload.feedingSequence || 1,
-            totalMealsToday: payload.totalMealsToday || 1,
-            skipReason: payload.skipReason,
-          },
+      const saved = await this.feedingLedger.recordFeed(manager, tenantId, userId, batch, feed, {
+        batchId: payload.batchId,
+        tankId: payload.tankId,
+        pondId: payload.pondId,
+        batchLocationId: payload.batchLocationId,
+        feedId: payload.feedId,
+        plannedAmountKg: payload.plannedAmount,
+        actualAmountKg: payload.actualAmount,
+        wasteAmountKg: payload.wasteAmount,
+        feedingDate: proposedDate,
+        feedingTime: payload.feedingTime,
+        feedingMethod: payload.feedingMethod || FeedingMethod.MANUAL,
+        equipmentId: payload.equipmentId,
+        feedBatchNumber: payload.feedBatchNumber,
+        fedBy: payload.fedBy || userId,
+        notes: payload.notes,
+        feedCost: payload.feedCost,
+        currency: payload.currency,
+        // D-7: plan-dışı kayıt plana bağlanır (mealId NULL kalır); site
+        // kapsamı plan denormundan gelir (D-9).
+        dayPlanId: boundPlan?.id,
+        siteId: boundPlan?.siteId,
+        extras: {
+          environment: payload.environment,
+          fishBehavior: payload.fishBehavior,
+          feedingDurationMinutes: payload.feedingDurationMinutes,
+          feedingSequence: payload.feedingSequence || 1,
+          totalMealsToday: payload.totalMealsToday || 1,
+          skipReason: payload.skipReason,
         },
-      );
+      });
 
       return saved;
     });

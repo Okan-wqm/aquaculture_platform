@@ -119,7 +119,7 @@ describe('INVARIANT (DATA-CRITICAL-002 / LEGAL-HIGH-004): TenantSchemaSyncServic
     // triggers a fail.
     const queryCalls = executableSrc.matchAll(/this\.dataSource\.query\(\s*[`'"]([^`'"]*?)[`'"]/g);
     for (const match of queryCalls) {
-      const sql = match[1].trim().toUpperCase();
+      const sql = (match[1] ?? '').trim().toUpperCase();
       const firstWord = sql.split(/\s+/)[0];
       expect(['SELECT', 'SHOW', 'WITH']).toContain(firstWord);
     }

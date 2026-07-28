@@ -320,7 +320,12 @@ describe('repo hygiene invariants (A4 dead-weight)', () => {
         if (!existsSync(srcRoot)) continue;
         walk(srcRoot, (f) => {
           if (!/\.tsx?$/.test(f)) return;
-          if (f.endsWith('.spec.ts') || f.endsWith('.spec.tsx')) return;
+          // Test files are excluded because a spec that ASSERTS THE ABSENCE of
+          // this import necessarily contains the literal it forbids. The suffix
+          // set must stay wide: `*.e2e-spec.ts` does not end in `.spec.ts`, and
+          // that one-character gap is exactly how farm-service's P0 security
+          // spec started registering as a @nestjs/cqrs importer.
+          if (/[.-](spec|test)\.tsx?$/.test(f)) return;
           const text = readFileSync(f, 'utf8');
           if (/from\s+['"]@nestjs\/cqrs['"]/.test(text)) hits.add(svc.name);
         });

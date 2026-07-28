@@ -26,7 +26,22 @@ registerEnumType(StorageItemType, {
 });
 
 @Entity('storage_inventory')
-@Index(['tenantId', 'storageLocationId', 'itemType', 'itemId', 'lotNumber'], { unique: true })
+/**
+ * Lookup index only — the UNIQUENESS of a physical-stock row is owned by the
+ * migration, not by this decorator.
+ *
+ * The canonical key is `(tenant_id, storage_location_id, item_type, item_id,
+ * COALESCE(lot_number, ''))`, created by
+ * `1807800000000-RestoreStorageInventoryCanonicalKey`. TypeORM's `@Index` takes
+ * property names and cannot express the COALESCE, and declaring the plain column
+ * tuple `{ unique: true }` here was actively misleading: Postgres never treats
+ * two NULLs as equal, so that constraint permitted unlimited duplicate rows for
+ * un-lotted stock — the common case, since `lotNumber` is optional on receipt.
+ * It also meant a `synchronize: true` test database built a DIFFERENT constraint
+ * from production's. Stating only what this decorator can truthfully express
+ * keeps the two in agreement (FARM-CRITICAL-240).
+ */
+@Index(['tenantId', 'storageLocationId', 'itemType', 'itemId', 'lotNumber'])
 @Index(['itemType', 'itemId'])
 export class StorageInventory {
   @PrimaryGeneratedColumn('uuid')

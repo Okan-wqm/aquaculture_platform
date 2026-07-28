@@ -277,11 +277,29 @@ jobs:
           restore-keys: |
             nx-ci-${{ runner.os }}-
 
-      - name: Run type check (affected plus changed TypeScript guard)
+      # FARM-MEDIUM-302 — this step used to open with
+      # `nx affected -t type-check`, which matched ZERO projects: no project.json
+      # declares a `type-check` target and nx.json's targetDefaults has no entry,
+      # so nx exited 0 having run nothing. The line read like a gate and was
+      # pure theatre; it is removed rather than left to reassure readers.
+      #
+      # What remains is real, but it only compiles the files a PR TOUCHES:
+      # type-check-changed-files writes a temp tsconfig with
+      # `files: [changed…], include: []`. A stale file nobody edited is
+      # invisible to it — which is how a farm-service spec stayed uncompilable
+      # from one wave to the next without CI noticing.
+      #
+      # The gate that DOES see that class is gates:type-check-spec — it runs
+      # `tsc -p <project>/tsconfig.spec.json` over every project with a spec
+      # config against a per-project baseline. It existed already, but only in
+      # ci-full.yml, which fires weekly/on tags. Measured cost across 29
+      # projects: ~165s. That is affordable per-PR, and it is the difference
+      # between catching spec drift in one PR versus up to a week later.
+      - name: Run type check (changed-file guard plus strict spec baseline)
         run: |
           BASE_REF="origin/${{ github.base_ref || 'main' }}"
-          node tools/toolchain/run.mjs npx nx affected -t type-check --base="$BASE_REF" --head=HEAD --parallel=2
           node scripts/ci/type-check-changed-files.mjs --base "$BASE_REF" --head HEAD
+          npm run gates:type-check-spec
         timeout-minutes: 35
         env:
           NX_DAEMON: 'false'
@@ -295,7 +313,11 @@ jobs:
       (github.event_name == 'pull_request' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # Raised from 40 when the integration lane joined this job (FARM-MEDIUM-301).
+    # The ceiling exists so a runaway is caught, not to pace the steps: each step
+    # carries its own timeout, so the job ceiling should stay comfortably above
+    # their sum and let the STEP name the failure.
+    timeout-minutes: 70
     # continue-on-error removed: failing tests must block PR merge.
     # BEFORE: broken unit tests were invisible to reviewers — PRs merged with red tests.
     steps:
@@ -396,6 +418,34 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           NODE_OPTIONS: '--max-old-space-size=4096'
 
+      # FARM-MEDIUM-301: `test:integration` was declared by farm-service and
+      # invoked by NOTHING — no workflow, no script, no npm script. Thirteen
+      # suites (Testcontainers tenant-isolation, the schema-routing architecture
+      # invariant apps/farm-service/CLAUDE.md names as its owner, the P0 security
+      # gate) had therefore never run, and they rotted silently: a stale spec had
+      # not compiled since the multi-lot FEFO wave landed, and a raw-SQL tenant
+      # predicate carried the same 42703 class of defect as FARM-CRITICAL-242.
+      #
+      # It runs AFTER the prewarm step above, which now unions `test` and
+      # `test:integration` when deciding whether to pull the PostgreSQL image, so
+      # a cold runner does not pay a multi-GB download inside a Jest beforeAll.
+      #
+      # The step timeout is deliberately generous and NOT yet tuned: the honest
+      # number can only come from a measured run on a Docker-capable runner
+      # (13 suites, maxWorkers 1, one container boot per file, no reuse). Tighten
+      # it from the first green run rather than guessing it down now. It is a
+      # STEP timeout on purpose — a job-level trip would report as an opaque
+      # cancellation instead of naming the lane.
+      - name: Run integration tests (affected only)
+        run: |
+          BASE_REF="origin/${{ github.base_ref || 'main' }}"
+          bash scripts/ci/affected-target-policy.sh --target test:integration --base "$BASE_REF" --parallel 1
+        timeout-minutes: 25
+        env:
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
+          NODE_OPTIONS: '--max-old-space-size=4096'
+
       - name: Run admin route contract (affected, strict)
         run: |
           BASE_REF="origin/${{ github.base_ref || 'main' }}"
@@ -410,14 +460,24 @@ jobs:
       # (src/pwa/__tests__/sw-build-artifact.invariant.spec.ts) runs a REAL
       # `vite build` and asserts the deployed dist/messaging-sw.js still carries the
       # sync / notificationclick / LOGOUT handlers + a substituted precache manifest.
-      # It is the Tier-3 "make it detectable" guard for the finding, but it is
-      # deliberately EXCLUDED from the fast default `test` target (it is ~30-45s of
-      # build) and lives in a separate `test:invariant` nx target. The default
-      # affected-test step above therefore never runs it. This step closes that gap
-      # by driving the SAME affected-target policy machinery against `test:invariant`
-      # — it only fires when aquamobil (the sole project declaring that target) is
-      # affected, so it costs nothing on unrelated PRs and gates on every PR that
-      # touches the SW.
+      # It is the Tier-3 "make it detectable" guard for the finding. It runs
+      # through a separate `test:invariant` target so the fast default lane does
+      # not pay for a real build (~16s measured).
+      #
+      # UNTIL 2026-07-27 THIS STEP RAN NOTHING. No project declared
+      # `test:invariant` — the target this comment claimed aquamobil owned simply
+      # did not exist. affected-target-policy.sh received an empty project list,
+      # printed "No strict test:invariant projects remain" and exited 0, so the
+      # step was permanently, silently green while the invariant it names never
+      # executed. The target is real now (web/apps/aquamobil/package.json declares
+      # the script, which is where Nx infers this project's targets from), so the
+      # sentence above is finally true. Same class as FARM-MEDIUM-301.
+      #
+      # aquamobil's other 383 vitest tests are no longer stranded either: the
+      # project now declares a plain `test` script, so Nx infers a `test` target
+      # and the affected `test` step above selects it (FARM-MEDIUM-304). They ran
+      # nowhere before purely because a target Nx never saw cannot be selected —
+      # the suite itself was green all along (66 files, 383 tests, ~32s).
       - name: Run SW build-artifact invariant (affected only)
         run: |
           BASE_REF="origin/${{ github.base_ref || 'main' }}"

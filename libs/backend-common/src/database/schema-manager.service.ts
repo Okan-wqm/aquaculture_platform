@@ -155,9 +155,14 @@ function normalizeOptionalTimestamp(value: string | Date | undefined): string | 
   return value === undefined ? undefined : normalizeTimestamp(value);
 }
 
-function assertCleanupDropProof(proof: CleanupDropProof | undefined, tenantId: string): CleanupDropProof {
+function assertCleanupDropProof(
+  proof: CleanupDropProof | undefined,
+  tenantId: string,
+): CleanupDropProof {
   if (!proof || proof[cleanupDropProofBrand] !== true) {
-    throw new BadRequestException('CleanupDropProof is required before tenant schema removal can run');
+    throw new BadRequestException(
+      'CleanupDropProof is required before tenant schema removal can run',
+    );
   }
   if (proof.tenantId !== tenantId) {
     throw new BadRequestException('CleanupDropProof tenant does not match target tenant');
@@ -172,10 +177,10 @@ function assertCleanupDropProof(proof: CleanupDropProof | undefined, tenantId: s
   }
   if (proof.purpose === 'tenant_deprovision') {
     if (
-      !proof.backup
-      || !proof.backup.checksum
-      || Number(proof.backup.sizeBytes) <= 0
-      || proof.backup.isEncrypted !== true
+      !proof.backup ||
+      !proof.backup.checksum ||
+      Number(proof.backup.sizeBytes) <= 0 ||
+      proof.backup.isEncrypted !== true
     ) {
       throw new BadRequestException('CleanupDropProof requires encrypted backup evidence');
     }
@@ -227,7 +232,18 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     // (added by 1806000000000-ScadaTenantIsolation), exactly like
     // edge_device_directory. vfd_command_audit_logs is the append-only VFD
     // command audit ledger (cross-tenant, same class).
-    infrastructureTables: ['migrations', 'sensor_audit_logs', 'sensor_outbox', 'vfd_register_mappings', 'edge_device_directory', 'scada_alarms', 'scada_alarm_chronicle', 'scada_tag_history', 'vfd_command_audit_logs', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    infrastructureTables: [
+      'migrations',
+      'sensor_audit_logs',
+      'sensor_outbox',
+      'vfd_register_mappings',
+      'edge_device_directory',
+      'scada_alarms',
+      'scada_alarm_chronicle',
+      'scada_tag_history',
+      'vfd_command_audit_logs',
+      ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
+    ],
     referenceDataTables: ['sensor_protocols', 'sensor_type_definitions', 'industry_templates'],
     tables: [
       // Core sensor entities
@@ -349,6 +365,12 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'event_dlq',
       'tenant_erasure_audit',
       'farm_audit_logs',
+      // W5 saat/takvim altyapısı — ikisi de tenantId-ayrışımlı CROSS-TENANT
+      // ledger'dır, tenant şemalarına klonlanmaz:
+      //   tenant_localization — auth'tan projekte edilen saat dilimi/dil,
+      //   feeding_job_runs    — "tenant'ın yerel gününde tam bir kez" claim'i.
+      'tenant_localization',
+      'feeding_job_runs',
       ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
     ],
     // Reference tables are excluded from the source-schema write guard (the
@@ -430,6 +452,8 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'feeding_day_plans',
       'feeding_meals',
       'feeding_forecast_snapshots',
+      // Attribute edilemeyen tarihsel yem kayıtları (W0, FARM-HIGH-240)
+      'feeding_record_attribution_quarantine',
 
       // Chemical management
       'chemical_types',
@@ -528,7 +552,12 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     //                    never replicated per-tenant. Table is created
     //                    by infrastructure/docker/init-scripts/09-hr-outbox.sql
     //                    until the migration runner path replaces it.
-    infrastructureTables: ['migrations', 'hr_outbox', 'payroll_audit', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    infrastructureTables: [
+      'migrations',
+      'hr_outbox',
+      'payroll_audit',
+      ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
+    ],
     referenceDataTables: ['leave_types', 'certification_types', 'shifts'],
     tables: [
       // Core Employee & Payroll
@@ -598,14 +627,27 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     strictOwnership: true,
     // `hydroponics_outbox` is source-only delivery infrastructure and is
     // never copied into tenant schemas.
-    infrastructureTables: ['migrations', 'hydroponics_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    infrastructureTables: [
+      'migrations',
+      'hydroponics_outbox',
+      ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
+    ],
     referenceDataTables: [],
     tables: ['hydroponics_config'],
   },
   {
     moduleName: 'alert',
     sourceSchema: 'alert',
-    infrastructureTables: ['migrations', 'alert_audit_log', 'alert_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    infrastructureTables: [
+      'migrations',
+      'alert_audit_log',
+      'alert_outbox',
+      // W7/FARM-MEDIUM-260 — inbound delivery shelf. Cross-tenant by design:
+      // the operator replaying dropped messages needs every tenant's failures
+      // in one query, so this is never cloned into a tenant schema.
+      'event_dlq',
+      ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
+    ],
     referenceDataTables: [],
     tables: ['alert_rules', 'alert_incidents', 'escalation_policies', 'alert_history'],
   },
@@ -638,7 +680,12 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     //                                 for operator analytics. Lives in
     //                                 `ai.tool_execution_audit` only — NOT
     //                                 cloned into tenant_<uuid> schemas.
-    infrastructureTables: ['migrations', 'ai_outbox', 'tool_execution_audit', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    infrastructureTables: [
+      'migrations',
+      'ai_outbox',
+      'tool_execution_audit',
+      ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
+    ],
     referenceDataTables: [],
     tables: [
       // Per-tenant template tables. Each is created as an unqualified
@@ -660,7 +707,13 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'messaging',
     sourceSchema: 'messaging',
-    infrastructureTables: ['migrations', 'messaging_outbox', 'embeddings_metadata', 'message_send_idempotency', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    infrastructureTables: [
+      'migrations',
+      'messaging_outbox',
+      'embeddings_metadata',
+      'message_send_idempotency',
+      ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
+    ],
     referenceDataTables: [],
     tables: [
       // Core messaging tables (migration 1711800000000)
@@ -827,7 +880,13 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     // and table-presence checks have a declarative truth source.
     moduleName: 'notification',
     sourceSchema: 'notification',
-    infrastructureTables: ['migrations', 'notification_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    infrastructureTables: [
+      'migrations',
+      'notification_outbox',
+      // W7/FARM-MEDIUM-260 — see the alert module entry for the rationale.
+      'event_dlq',
+      ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
+    ],
     referenceDataTables: [],
     tables: ['device_tokens', 'notification_logs', 'command_receipts'],
   },
@@ -839,7 +898,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     // cross-tenant infrastructure tables.
     moduleName: 'config',
     sourceSchema: 'config',
-    infrastructureTables: ['migrations', 'config_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    infrastructureTables: [
+      'migrations',
+      'config_outbox',
+      ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
+    ],
     referenceDataTables: [],
     tables: ['configurations', 'configuration_history'],
   },
@@ -850,9 +913,20 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     // excluded in the erasure registry; awaits crypto-shred). NOT tenant-cloned.
     moduleName: 'event_store',
     sourceSchema: 'event_store',
-    infrastructureTables: ['migrations', 'event_store_outbox', 'tenant_payload_keys', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    infrastructureTables: [
+      'migrations',
+      'event_store_outbox',
+      'tenant_payload_keys',
+      ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
+    ],
     referenceDataTables: [],
-    tables: ['stored_events', 'event_streams', 'snapshots', 'projection_checkpoints', 'projection_rebuilds'],
+    tables: [
+      'stored_events',
+      'event_streams',
+      'snapshots',
+      'projection_checkpoints',
+      'projection_rebuilds',
+    ],
   },
   {
     // ORPHAN-HIGH-365: the `compliance` schema existed in the live DB with NO
@@ -1389,11 +1463,7 @@ export class SchemaManagerService {
     });
   }
 
-  private dropTenantSchema(
-    schemaName: string,
-    tenantId: string,
-    proof: CleanupDropProof,
-  ): void {
+  private dropTenantSchema(schemaName: string, tenantId: string, proof: CleanupDropProof): void {
     assertCleanupDropProof(proof, tenantId);
     validateSqlIdentifier(schemaName, 'schema');
     throw new Error(
@@ -1674,5 +1744,4 @@ export class SchemaManagerService {
     errors.push(msg);
     return { created, skipped, errors };
   }
-
 }

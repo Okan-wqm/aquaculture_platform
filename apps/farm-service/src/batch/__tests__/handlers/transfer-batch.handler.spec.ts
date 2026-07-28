@@ -63,7 +63,12 @@ describe('TransferBatchHandler', () => {
       createMockRepository() as any,
       mockOutboxPublisher as any,
       // P-31 recalc — mocked (day-plan-recalc.service.spec kapsıyor).
-      { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
+      // Çoklu ünite recalc'ı unitId-SIRALI olarak servis tarafından yürütülür
+      // (FARM-MEDIUM-275) — handler artık tek çağrı yapar.
+      {
+        recalcForUnit: jest.fn().mockResolvedValue(null),
+        recalcForUnits: jest.fn().mockResolvedValue([]),
+      } as never,
       // D-3 miktar çözümü — GERÇEK stateless politika (üretim davranışı).
       new RemovalQuantityPolicyService(),
       mockTankCapacityService as any,
@@ -71,8 +76,16 @@ describe('TransferBatchHandler', () => {
       // MODULE_MANAGER so site authz bypasses for these domain-logic tests.
       new SiteAuthorizationService(),
       // TankBatchService SSoT writer — mocked (covered by tank-batch.service.spec).
-      { applyBatchDelta: jest.fn().mockImplementation(() => Promise.resolve({ totalBiomassKg: 0, cleanerFishBiomassKg: 0 })) } as never,
-      ({ refreshContainers: jest.fn().mockResolvedValue(undefined) }) as Partial<FarmStockProjectionService> as FarmStockProjectionService,
+      {
+        applyBatchDelta: jest
+          .fn()
+          .mockImplementation(() =>
+            Promise.resolve({ totalBiomassKg: 0, cleanerFishBiomassKg: 0 }),
+          ),
+      } as never,
+      {
+        refreshContainers: jest.fn().mockResolvedValue(undefined),
+      } as Partial<FarmStockProjectionService> as FarmStockProjectionService,
       new MobileCommandReceiptService(),
     );
   });

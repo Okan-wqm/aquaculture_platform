@@ -38,7 +38,7 @@
  * @module Storage/Services
  */
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { EntityManager } from 'typeorm';
+import { EntityManager, IsNull } from 'typeorm';
 import { tenantManagerRepo, TenantScopedRepository } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
 import type { LowStockDetectedEvent } from '@platform/event-contracts';
@@ -72,6 +72,16 @@ export interface RecordMovementInput {
   toLocationId?: string;
   lotNumber?: string;
   expiryDate?: Date;
+  /**
+   * Arrival date to restore on an inbound movement that puts back stock this
+   * ledger previously drew (FARM-MEDIUM-254). Leave unset for a genuine
+   * receipt: the arrival is now, and the sink stamps it.
+   *
+   * Set it and the re-created `storage_inventory` row keeps the FEFO position
+   * the lot had before it drained, instead of sorting as the freshest stock in
+   * the location.
+   */
+  receivedDate?: Date;
   reference?: string;
   reason?: string;
   idempotencyKey?: string;
@@ -82,6 +92,24 @@ export interface RecordMovementInput {
    * inventory at that instant.
    */
   movementDate?: Date;
+}
+
+/**
+ * The lot a FEFO decrement actually drew from.
+ *
+ * For an un-pinned OUT the caller names no lot, so the decrement is the ONLY
+ * place that knows which one left — and once a lot drains to zero its
+ * `storage_inventory` row is deleted, taking its expiry with it.
+ * `stock_movements` is the durable home for that fact
+ * (`stock-movement.entity.ts` says so), but it can only carry what the sink
+ * hands it. Returning the drawn identity is what lets the sink stamp the audit
+ * row from what it TOUCHED rather than from what the caller happened to pass
+ * (FARM-MEDIUM-254).
+ */
+interface DrawnLot {
+  lotNumber: string | null;
+  expiryDate: Date | null;
+  receivedDate: Date | null;
 }
 
 /** Identity context for a movement (who, which tenant). */
@@ -177,7 +205,13 @@ export class StockMovementService {
       });
       if (existing) {
         this.logger.log(`Idempotent hit: movement ${existing.id} for key ${input.idempotencyKey}`);
-        return { saved: existing, currentTotal: 0, idempotentHit: true, warnings: [], lowStock: null };
+        return {
+          saved: existing,
+          currentTotal: 0,
+          idempotentHit: true,
+          warnings: [],
+          lowStock: null,
+        };
       }
     }
 
@@ -196,10 +230,16 @@ export class StockMovementService {
     // they authorize at their own sink on the feeding site.
     if (ctx.siteAuthorization) {
       if (fromLocation) {
-        this.siteAuth.assertSiteAssignment({ caller: ctx.siteAuthorization, siteId: fromLocation.siteId });
+        this.siteAuth.assertSiteAssignment({
+          caller: ctx.siteAuthorization,
+          siteId: fromLocation.siteId,
+        });
       }
       if (toLocation) {
-        this.siteAuth.assertSiteAssignment({ caller: ctx.siteAuthorization, siteId: toLocation.siteId });
+        this.siteAuth.assertSiteAssignment({
+          caller: ctx.siteAuthorization,
+          siteId: toLocation.siteId,
+        });
       }
     }
 
@@ -222,13 +262,22 @@ export class StockMovementService {
           ? new Date(input.movementDate)
           : undefined;
 
-    if (fromLocation) {
-      await this.decreaseInventory(
-        inventoryRepo, tenantId, fromLocation.id,
-        itemType, itemId, quantity, itemDetails.unit,
-        input.lotNumber, userId, asOfDate,
-      );
-    }
+    // What the FEFO decrement actually drew. For an un-pinned OUT the caller
+    // named no lot, so this is the only place that knows which one left.
+    const drawn: DrawnLot | null = fromLocation
+      ? await this.decreaseInventory(
+          inventoryRepo,
+          tenantId,
+          fromLocation.id,
+          itemType,
+          itemId,
+          quantity,
+          itemDetails.unit,
+          input.lotNumber,
+          userId,
+          asOfDate,
+        )
+      : null;
 
     // Lot-mix detection — must run BEFORE increaseInventory so the service
     // sees the resident lots as "other" and not yet summed with the
@@ -252,9 +301,20 @@ export class StockMovementService {
 
     if (toLocation) {
       await this.increaseInventory(
-        inventoryRepo, tenantId, toLocation.id,
-        itemType, itemId, quantity, itemDetails.unit,
-        input.lotNumber, input.expiryDate, userId,
+        inventoryRepo,
+        tenantId,
+        toLocation.id,
+        itemType,
+        itemId,
+        quantity,
+        itemDetails.unit,
+        input.lotNumber,
+        input.expiryDate,
+        // Restored provenance for a lot this ledger previously drained
+        // (FARM-MEDIUM-254). Absent on a genuine receipt, where the arrival IS
+        // now — `increaseInventory` stamps that itself.
+        input.receivedDate,
+        userId,
       );
     }
 
@@ -275,8 +335,17 @@ export class StockMovementService {
       toLocationId: input.toLocationId,
       reference: input.reference,
       reason: input.reason,
-      lotNumber: effectiveLotNumber ?? input.lotNumber,
-      expiryDate: input.expiryDate,
+      // Stamped from what the sink TOUCHED, not only from what the caller
+      // passed. No OUT caller supplies an expiry — the feeding ledger cannot,
+      // because FEFO chooses the lot — so every outbound audit row carried a
+      // NULL expiry and the entity's own promise to preserve it was false.
+      lotNumber: effectiveLotNumber ?? input.lotNumber ?? drawn?.lotNumber ?? undefined,
+      expiryDate: input.expiryDate ?? drawn?.expiryDate ?? undefined,
+      // The other half of the lot identity (FARM-MEDIUM-254). The decrement
+      // already knew it — `DrawnLot.receivedDate` — and it was being discarded
+      // for want of a column, so a later return could not restore the FEFO
+      // position it took.
+      receivedDate: input.receivedDate ?? drawn?.receivedDate ?? undefined,
       idempotencyKey: input.idempotencyKey,
       performedBy: userId,
       performedByName: userName,
@@ -289,7 +358,10 @@ export class StockMovementService {
     // low-stock detection on stock-reducing movements only.
     let currentTotal = 0;
     let lowStock: RecordMovementResult['lowStock'] = null;
-    if (fromLocation && (movementType === MovementType.OUT || movementType === MovementType.WASTE)) {
+    if (
+      fromLocation &&
+      (movementType === MovementType.OUT || movementType === MovementType.WASTE)
+    ) {
       const stockResult = await tenantManagerRepo(manager, StorageInventory, tenantId)
         .createQueryBuilder('inv')
         .select('COALESCE(SUM(inv.quantity), 0)', 'total')
@@ -306,7 +378,10 @@ export class StockMovementService {
       // FARM-HIGH-217 leg of the dead alert chain).
       const minStock = Number(itemDetails.minStock ?? 0);
       if (currentTotal <= 0) {
-        lowStock = { severity: 'out_of_stock', minimumThreshold: minStock > 0 ? minStock : undefined };
+        lowStock = {
+          severity: 'out_of_stock',
+          minimumThreshold: minStock > 0 ? minStock : undefined,
+        };
       } else if (minStock > 0 && currentTotal <= minStock) {
         lowStock = { severity: 'low_stock', minimumThreshold: minStock };
       }
@@ -360,10 +435,23 @@ export class StockMovementService {
     tenantId: string,
     feedId: string,
   ): Promise<boolean> {
-    const presence = await tenantManagerRepo(manager, StorageInventory, tenantId).count({
+    const projectionRows = await tenantManagerRepo(manager, StorageInventory, tenantId).count({
       where: { itemType: StorageItemType.FEED, itemId: feedId },
     });
-    return presence > 0;
+    if (projectionRows > 0) return true;
+
+    // FARM-CRITICAL-237: projeksiyon satırı MUTABİL bir durumdur —
+    // `decreaseInventory` bakiye sıfırlanınca satırı SİLER. Yalnız satır
+    // varlığına bakmak "tükenme" ile "hiç izlenmiyor" durumlarını
+    // birbirine karıştırıyordu: son lotu biten storage-yönetimli bir yem,
+    // bir sonraki yemlemede sessizce "izlenmiyor" sayılıp HAREKET YAZILMADAN
+    // commit ediliyordu (fail-open). Immutable hareket defteri ise silinmez:
+    // yem bir kez ledger'a girdiyse storage-yönetimlidir ve eksik stok
+    // GERÇEK bir eksikliktir → fail-closed.
+    const movementRows = await tenantManagerRepo(manager, StockMovement, tenantId).count({
+      where: { itemType: StorageItemType.FEED, itemId: feedId },
+    });
+    return movementRows > 0;
   }
 
   /**
@@ -427,10 +515,17 @@ export class StockMovementService {
         .andWhere('(inv.expiryDate IS NULL OR inv.expiryDate > :today)', { today: new Date() })
         .andWhere('(inv.receivedDate IS NULL OR inv.receivedDate <= :asOf)', { asOf });
       if (scopeSiteId) {
+        // Join şartı TypeORM PROPERTY sözdiziminde yazılır (`inv.storageLocationId`),
+        // tırnaklı kolon adıyla DEĞİL: `StorageInventory.storageLocationId` →
+        // `storage_location_id`, `StorageLocation.siteId` → `site_id` (entity'de
+        // açık `name:`). Tırnaklı `inv."storageLocationId"` ifadesini TypeORM
+        // property-eşlemesine sokmaz, SQL'e birebir geçirir ve her site-kapsamlı
+        // düşüm `42703 column inv.storageLocationId does not exist` ile patlardı
+        // (FARM-CRITICAL-237). Eşleme sorumluluğu ORM'de kalır.
         query.innerJoin(
           StorageLocation,
           'loc',
-          'loc.id = inv."storageLocationId" AND loc."siteId" = :scopeSiteId',
+          'loc.id = inv.storageLocationId AND loc.siteId = :scopeSiteId',
           { scopeSiteId },
         );
       }
@@ -501,15 +596,50 @@ export class StockMovementService {
       }
     }
 
+    // TRANSFER moves stock between two locations, so BOTH legs are mandatory.
+    //
+    // Without this branch the method returned {null, null} for a transfer: the
+    // decrement and the increment are both gated on a resolved location, so the
+    // sink silently moved nothing while still writing the audit row that claims
+    // it did, and still recomputing the roll-up. Fail-open, and invisible —
+    // there is no error to see and the ledger reads as if the move happened.
+    // No caller reaches it today (TransferStockHandler hand-writes its rows,
+    // which is FARM-HIGH-239's other half), so this closes the hole BEFORE the
+    // handler is routed through here rather than after.
+    if (movementType === MovementType.TRANSFER) {
+      if (!input.fromLocationId || !input.toLocationId) {
+        throw new BadRequestException(
+          'Both fromLocationId and toLocationId are required for transfer movements',
+        );
+      }
+      if (input.fromLocationId === input.toLocationId) {
+        throw new BadRequestException('A transfer must move stock between two different locations');
+      }
+      fromLocation = await locationRepo.findOne({
+        where: { id: input.fromLocationId, tenantId },
+      });
+      if (!fromLocation) {
+        throw new NotFoundException(`Storage location "${input.fromLocationId}" not found`);
+      }
+      toLocation = await locationRepo.findOne({ where: { id: input.toLocationId, tenantId } });
+      if (!toLocation) {
+        throw new NotFoundException(`Storage location "${input.toLocationId}" not found`);
+      }
+    }
+
     if (movementType === MovementType.ADJUSTMENT) {
       if (!input.toLocationId && !input.fromLocationId) {
-        throw new BadRequestException('Either fromLocationId or toLocationId is required for adjustments');
+        throw new BadRequestException(
+          'Either fromLocationId or toLocationId is required for adjustments',
+        );
       }
       if (input.toLocationId) {
         toLocation = await locationRepo.findOne({ where: { id: input.toLocationId, tenantId } });
       }
       if (input.fromLocationId) {
-        fromLocation = await locationRepo.findOne({ where: { id: input.fromLocationId, tenantId } });
+        fromLocation = await locationRepo.findOne({
+          where: { id: input.fromLocationId, tenantId },
+        });
       }
     }
 
@@ -518,17 +648,41 @@ export class StockMovementService {
 
   private async getItemDetails(
     manager: EntityManager,
-    itemType: StorageItemType, itemId: string, tenantId: string,
-  ): Promise<{ name: string; unit: string; minStock?: number; manufacturer?: string; storageTempMin?: number; storageTempMax?: number; storageHumidityMin?: number; storageHumidityMax?: number } | null> {
+    itemType: StorageItemType,
+    itemId: string,
+    tenantId: string,
+  ): Promise<{
+    name: string;
+    unit: string;
+    minStock?: number;
+    manufacturer?: string;
+    storageTempMin?: number;
+    storageTempMax?: number;
+    storageHumidityMin?: number;
+    storageHumidityMax?: number;
+  } | null> {
     switch (itemType) {
       case StorageItemType.FEED: {
-        const feed = await tenantManagerRepo(manager, Feed, tenantId).findOne({ where: { id: itemId, tenantId } });
+        const feed = await tenantManagerRepo(manager, Feed, tenantId).findOne({
+          where: { id: itemId, tenantId },
+        });
         return feed
-          ? { name: feed.name, unit: feed.unit, minStock: feed.minStock, manufacturer: feed.manufacturer, storageTempMin: feed.storageTempMin, storageTempMax: feed.storageTempMax, storageHumidityMin: feed.storageHumidityMin, storageHumidityMax: feed.storageHumidityMax }
+          ? {
+              name: feed.name,
+              unit: feed.unit,
+              minStock: feed.minStock,
+              manufacturer: feed.manufacturer,
+              storageTempMin: feed.storageTempMin,
+              storageTempMax: feed.storageTempMax,
+              storageHumidityMin: feed.storageHumidityMin,
+              storageHumidityMax: feed.storageHumidityMax,
+            }
           : null;
       }
       case StorageItemType.CHEMICAL: {
-        const chem = await tenantManagerRepo(manager, Chemical, tenantId).findOne({ where: { id: itemId, tenantId } });
+        const chem = await tenantManagerRepo(manager, Chemical, tenantId).findOne({
+          where: { id: itemId, tenantId },
+        });
         return chem
           ? {
               name: chem.name,
@@ -545,7 +699,9 @@ export class StockMovementService {
       case StorageItemType.HEALTHCARE: {
         // Healthcare products (medications, vaccines) share the consumable
         // table — a unified entity with healthcare-specific categories.
-        const cons = await tenantManagerRepo(manager, Consumable, tenantId).findOne({ where: { id: itemId, tenantId } });
+        const cons = await tenantManagerRepo(manager, Consumable, tenantId).findOne({
+          where: { id: itemId, tenantId },
+        });
         return cons
           ? {
               name: cons.name,
@@ -564,7 +720,12 @@ export class StockMovementService {
   }
 
   private checkConditionWarnings(
-    item: { storageTempMin?: number; storageTempMax?: number; storageHumidityMin?: number; storageHumidityMax?: number },
+    item: {
+      storageTempMin?: number;
+      storageTempMax?: number;
+      storageHumidityMin?: number;
+      storageHumidityMax?: number;
+    },
     location: StorageLocation,
     warnings: ConditionWarning[],
   ): void {
@@ -623,12 +784,16 @@ export class StockMovementService {
    */
   private async decreaseInventory(
     repo: TenantScopedRepository<StorageInventory>,
-    tenantId: string, locationId: string,
-    itemType: StorageItemType, itemId: string,
-    quantity: number, unit: string,
-    lotNumber: string | undefined, userId: string,
+    tenantId: string,
+    locationId: string,
+    itemType: StorageItemType,
+    itemId: string,
+    quantity: number,
+    unit: string,
+    lotNumber: string | undefined,
+    userId: string,
     asOfDate?: Date,
-  ): Promise<void> {
+  ): Promise<DrawnLot> {
     let inventory: StorageInventory | null;
 
     if (lotNumber) {
@@ -645,7 +810,9 @@ export class StockMovementService {
         .andWhere('inv.itemId = :itemId', { itemId })
         .andWhere('inv.quantity > 0')
         .andWhere('(inv.expiryDate IS NULL OR inv.expiryDate > :today)', { today: new Date() })
-        .andWhere('(inv.receivedDate IS NULL OR inv.receivedDate <= :asOf)', { asOf: effectiveAsOf })
+        .andWhere('(inv.receivedDate IS NULL OR inv.receivedDate <= :asOf)', {
+          asOf: effectiveAsOf,
+        })
         .orderBy('inv.expiryDate', 'ASC', 'NULLS LAST')
         .addOrderBy('inv.receivedDate', 'ASC', 'NULLS LAST')
         .addOrderBy('inv.lotNumber', 'ASC')
@@ -663,6 +830,16 @@ export class StockMovementService {
       );
     }
 
+    // Capture the lot's identity BEFORE the row is mutated or removed. Once a
+    // lot drains to zero the row is deleted (below), and with it the only record
+    // of that lot's expiry — `stock_movements` is the durable home for it, but
+    // it can only carry what the sink knows it touched.
+    const drawn: DrawnLot = {
+      lotNumber: inventory.lotNumber ?? null,
+      expiryDate: inventory.expiryDate ?? null,
+      receivedDate: inventory.receivedDate ?? null,
+    };
+
     inventory.quantity = Number(inventory.quantity) - quantity;
     inventory.updatedBy = userId;
 
@@ -671,24 +848,44 @@ export class StockMovementService {
     } else {
       await repo.save(inventory);
     }
+
+    return drawn;
   }
 
   private async increaseInventory(
     repo: TenantScopedRepository<StorageInventory>,
-    tenantId: string, locationId: string,
-    itemType: StorageItemType, itemId: string,
-    quantity: number, unit: string,
-    lotNumber: string | undefined, expiryDate: Date | undefined,
+    tenantId: string,
+    locationId: string,
+    itemType: StorageItemType,
+    itemId: string,
+    quantity: number,
+    unit: string,
+    lotNumber: string | undefined,
+    expiryDate: Date | undefined,
+    /** Restored arrival date; undefined = a genuine receipt arriving now. */
+    receivedDate: Date | undefined,
     userId: string,
   ): Promise<void> {
+    // `IsNull()`, not `undefined`: TypeORM DROPS an undefined condition from the
+    // where clause entirely, so an un-lotted receipt would match — and then top
+    // up — an arbitrary LOTTED row for the same item in the same location. That
+    // is wrong with no concurrency at all (FARM-CRITICAL-240).
+    //
+    // The lock mirrors the decrease path below (:728/:745). Without it this was
+    // an unlocked check-then-insert: two concurrent receipts for the same
+    // un-lotted feed both read "absent" and both inserted, splitting the
+    // physical-stock projection in two. The canonical unique index restored in
+    // 1807800000000 is the structural backstop — a genuine race now raises
+    // 23505 and rolls the transaction back rather than silently duplicating.
     let inventory = await repo.findOne({
       where: {
         tenantId,
         storageLocationId: locationId,
         itemType,
         itemId,
-        lotNumber: lotNumber ?? undefined,
+        lotNumber: lotNumber ?? IsNull(),
       },
+      lock: { mode: 'pessimistic_write' },
     });
 
     if (inventory) {
@@ -711,8 +908,10 @@ export class StockMovementService {
         expiryDate,
         // Stamp `receivedDate` on the initial insert so the FEFO ORDER BY
         // (expiryDate, receivedDate, lotNumber) has a real timestamp to
-        // compare against.
-        receivedDate: new Date(),
+        // compare against. A restored lot supplies its ORIGINAL arrival
+        // (FARM-MEDIUM-254): re-creating a drained row with `now()` would make
+        // the oldest feed in the location sort as the freshest.
+        receivedDate: receivedDate ?? new Date(),
         createdBy: userId,
         updatedBy: userId,
       });
@@ -728,22 +927,42 @@ export class StockMovementService {
    */
   private async updateItemTotalQuantity(
     manager: EntityManager,
-    itemType: StorageItemType, itemId: string, tenantId: string,
+    itemType: StorageItemType,
+    itemId: string,
+    tenantId: string,
   ): Promise<void> {
-    const result = await tenantManagerRepo(manager, StorageInventory, tenantId)
-      .createQueryBuilder('inv')
-      .select('COALESCE(SUM(inv.quantity), 0)', 'total')
-      .andWhere('inv.itemType = :itemType', { itemType })
-      .andWhere('inv.itemId = :itemId', { itemId })
-      .getRawOne();
-
-    const totalQuantity = parseFloat(result?.total ?? '0');
+    // The roll-up target is locked BEFORE the SUM is taken, not after.
+    //
+    // Order matters: this is a read-modify-write of a single aggregate row from
+    // a sum over many rows. Two movements against different lots of the same
+    // feed commit concurrently; under READ COMMITTED each would otherwise sum
+    // without seeing the peer's uncommitted row and the second write would
+    // overwrite the first with a total missing that movement (FARM-CRITICAL-240).
+    // Taking the row lock first makes the pair serialize, so the later SUM runs
+    // after the earlier transaction has committed and sees its row.
+    //
+    // Lock ORDER across the service stays inventory-row → aggregate-row, because
+    // this method is only ever called after the inventory mutation. Reversing it
+    // anywhere would open an AB-BA cycle.
+    const sumInventory = async (): Promise<number> => {
+      const result = await tenantManagerRepo(manager, StorageInventory, tenantId)
+        .createQueryBuilder('inv')
+        .select('COALESCE(SUM(inv.quantity), 0)', 'total')
+        .andWhere('inv.itemType = :itemType', { itemType })
+        .andWhere('inv.itemId = :itemId', { itemId })
+        .getRawOne();
+      return parseFloat(result?.total ?? '0');
+    };
 
     switch (itemType) {
       case StorageItemType.FEED: {
         const feedRepo = tenantManagerRepo(manager, Feed, tenantId);
-        const feed = await feedRepo.findOne({ where: { id: itemId, tenantId } });
+        const feed = await feedRepo.findOne({
+          where: { id: itemId, tenantId },
+          lock: { mode: 'pessimistic_write' },
+        });
         if (feed) {
+          const totalQuantity = await sumInventory();
           feed.quantity = totalQuantity;
           if (totalQuantity <= 0) feed.status = FeedStatus.OUT_OF_STOCK;
           else if (totalQuantity <= Number(feed.minStock)) feed.status = FeedStatus.LOW_STOCK;
@@ -754,8 +973,12 @@ export class StockMovementService {
       }
       case StorageItemType.CHEMICAL: {
         const chemRepo = tenantManagerRepo(manager, Chemical, tenantId);
-        const chem = await chemRepo.findOne({ where: { id: itemId, tenantId } });
+        const chem = await chemRepo.findOne({
+          where: { id: itemId, tenantId },
+          lock: { mode: 'pessimistic_write' },
+        });
         if (chem) {
+          const totalQuantity = await sumInventory();
           chem.quantity = totalQuantity;
           chem.updateStockStatus();
           await chemRepo.save(chem);
@@ -765,8 +988,12 @@ export class StockMovementService {
       case StorageItemType.CONSUMABLE:
       case StorageItemType.HEALTHCARE: {
         const consRepo = tenantManagerRepo(manager, Consumable, tenantId);
-        const cons = await consRepo.findOne({ where: { id: itemId, tenantId } });
+        const cons = await consRepo.findOne({
+          where: { id: itemId, tenantId },
+          lock: { mode: 'pessimistic_write' },
+        });
         if (cons) {
+          const totalQuantity = await sumInventory();
           cons.quantity = totalQuantity;
           cons.updateStockStatus();
           await consRepo.save(cons);

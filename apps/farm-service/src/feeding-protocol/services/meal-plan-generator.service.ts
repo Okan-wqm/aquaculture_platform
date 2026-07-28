@@ -20,9 +20,11 @@ import { EntityManager } from 'typeorm';
 import {
   FcrMatrix,
   FeedingProtocolV2,
+  GrowthApplicationMode,
 } from '../entities/feeding-protocol-v2.entity';
 import { ProtocolAssignment } from '../entities/protocol-assignment.entity';
 import {
+  DayPlanResolution,
   DayPlanSnapshot,
   FeedingDayPlan,
   FeedingDayPlanStatus,
@@ -30,12 +32,13 @@ import {
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
 import { ProtocolRateService } from './protocol-rate.service';
 import {
-  effectiveMealSchedule,
-  materializeMeals,
-  suspensionFor,
-} from './meal-schedule.util';
+  ProtocolResolutionService,
+  type ProtocolResolutionResult,
+} from './protocol-resolution.service';
+import { effectiveMealSchedule, materializeMeals, suspensionFor } from './meal-schedule.util';
 import type { EffectiveTemperature } from '../../water-quality/services/water-temperature.service';
 import type { BatchDetail } from '../../batch/entities/tank-batch.entity';
+import { round3 } from '../../common/utils/rounding.util';
 
 // ============================================================================
 // TYPES
@@ -47,7 +50,7 @@ export interface UnitStockState {
   /** Üretim biomass'ı kg (temizlikçi hariç — TankBatch.totalBiomassKg, D-13). */
   biomassKg: number;
   avgWeightG: number;
-  /** D-2: tankta >1 üretim batch'i var (band dominant-biomass'tan seçilir). */
+  /** D-2: tankta >1 üretim batch'i var (band TANK ORTALAMASINDAN seçilir). */
   mixedBatch?: boolean;
   /** D-2: batch'ler arası ağırlık dağılımının değişim katsayısı (%). */
   weightCvPercent?: number | null;
@@ -57,8 +60,10 @@ export interface UnitStockState {
  * D-2 (SAF, spec pinli): TankBatch.batchDetails SSoT'sinden karışık-tank
  * istatistiği — `mixedBatch` (balıklı üretim batch'i sayısı ≥ 2) + batch'ler
  * arası ortalama-ağırlık dağılımının adet-ağırlıklı değişim katsayısı (%).
- * Band politikası dominant-biomass batch'ten hesaplanır; bu istatistik o
- * varsayımı operatöre GÖRÜNÜR kılar (rozet + yüksek-CV uyarısı).
+ * Band TANK ORTALAMASINDAN seçilir (karar: rasyon zaten tüm tank
+ * biyokütlesine uygulanır); bu istatistik karışık tankta o ortalamanın ne
+ * kadar temsil ettiğini operatöre GÖRÜNÜR kılar — yüksek CV, tek ortalamanın
+ * iki popülasyonu da doğru beslemediğinin işaretidir (FARM-LOW-263).
  */
 export function mixedTankStats(
   batchDetails: ReadonlyArray<Pick<BatchDetail, 'quantity' | 'avgWeightG'>> | null | undefined,
@@ -108,6 +113,8 @@ export interface ComputedMeal {
 
 export interface ComputedDayPlan {
   snapshot: DayPlanSnapshot;
+  /** Canlı protokol çözümü — plana ayrı kolonda yazılır (W3). */
+  resolution: DayPlanResolution;
   plannedTotalKg: number;
   status: FeedingDayPlanStatus.PLANNED | FeedingDayPlanStatus.SKIPPED;
   skipReason?: string;
@@ -124,6 +131,12 @@ export interface PersistDayPlanContext {
   unitName: string;
   unitCode: string;
   planDate: string;
+  /**
+   * Üretim anındaki büyüme modu — plana DONDURULUR (FARM-CRITICAL-244).
+   * Protokol ayarı sonradan değişse bile bu plan üretildiği semantikle
+   * rollup'lanır.
+   */
+  growthApplicationMode: GrowthApplicationMode;
 }
 
 // ============================================================================
@@ -132,7 +145,10 @@ export interface PersistDayPlanContext {
 
 @Injectable()
 export class MealPlanGeneratorService {
-  constructor(private readonly rateService: ProtocolRateService) {}
+  constructor(
+    private readonly rateService: ProtocolRateService,
+    private readonly resolutionService: ProtocolResolutionService,
+  ) {}
 
   /**
    * Saf gün planı hesabı. `null` = plan üretilmez (boş ünite veya bandsız
@@ -142,30 +158,32 @@ export class MealPlanGeneratorService {
     const { stock, protocol, assignment, temperature } = input;
     if (stock.fishCount <= 0 || stock.biomassKg <= 0) return null;
 
-    const resolved = this.rateService.bandFor(protocol.bands, stock.avgWeightG);
-    if (!resolved) return null;
-    const { band, index: bandIndex } = resolved;
-
-    const tempMultiplier = this.rateService.temperatureMultiplier(
-      protocol.temperatureAdjustments,
-      temperature.celsius,
-    );
-    const effectiveRate = this.rateService.effectiveRatePercent({
-      baseRatePercent: band.feedingRatePercent,
-      temperatureMultiplier: tempMultiplier,
-      rateAdjustmentPercent: assignment.overrides?.rateAdjustmentPercent,
-      minRatePercent: protocol.settings.minFeedingRatePercent,
-      maxRatePercent: protocol.settings.maxFeedingRatePercent,
+    // Band/oran/FCR çözümü TEK yerden (W3): üretim, gün-içi recalc ve manuel
+    // geçiş aynı fonksiyonu paylaşır — `autoTransition=false` burada da
+    // onurlandırılır (eskiden üretim bu ayarı hiç okumuyordu, FARM-LOW-262).
+    const resolution = this.resolutionService.resolve({
+      protocol,
+      assignment,
+      bandBasisWeightG: this.resolutionService.resolveBandBasisWeight({
+        avgWeightG: stock.avgWeightG,
+      }),
+      temperature,
+      feedFcrMatrix: undefined,
     });
-    const expectedFcr = this.rateService.resolveExpectedFcr({
-      band,
-      fcrSource: protocol.settings.fcrSource,
-      avgWeightG: stock.avgWeightG,
-      temperatureC: temperature.celsius,
-      protocolFcrMatrix: protocol.fcrMatrix,
-      feedFcrMatrix: input.feedFcrMatrixByFeedId?.get(band.feedId),
-      fcrOverrides: assignment.overrides?.fcrOverrides,
-    });
+    if (!resolution) return null;
+    const band = resolution.band;
+    // fcrSource=feed matrisi bandın yemine bağlıdır; band çözüldükten sonra
+    // biliniyor, bu yüzden FCR ikinci geçişte kesinleşir.
+    const feedMatrix = input.feedFcrMatrixByFeedId?.get(band.feedId);
+    const finalResolution = feedMatrix
+      ? (this.resolutionService.resolve({
+          protocol,
+          assignment,
+          bandBasisWeightG: resolution.bandBasisWeightG,
+          temperature,
+          feedFcrMatrix: feedMatrix,
+        }) ?? resolution)
+      : resolution;
 
     const snapshot: DayPlanSnapshot = {
       avgWeightG: round3(stock.avgWeightG),
@@ -174,25 +192,26 @@ export class MealPlanGeneratorService {
       waterTempC: temperature.celsius,
       temperatureSource: temperature.source,
       usingDefaultTemperature: temperature.source === 'none',
-      bandIndex,
-      feed: { id: band.feedId, code: band.feedCode, name: band.feedName },
-      baseRatePercent: band.feedingRatePercent,
-      tempMultiplier,
-      effectiveRatePercent: round3(effectiveRate),
-      expectedFcr: expectedFcr.value,
-      fcrResolvedSource: expectedFcr.source,
+      bandIndex: finalResolution.bandIndex,
+      feed: finalResolution.feed,
+      baseRatePercent: finalResolution.baseRatePercent,
+      tempMultiplier: finalResolution.tempMultiplier,
+      effectiveRatePercent: finalResolution.effectiveRatePercent,
+      expectedFcr: finalResolution.expectedFcr,
+      fcrResolvedSource: finalResolution.fcrResolvedSource,
       mixedBatch: stock.mixedBatch ?? false,
       weightCvPercent: stock.weightCvPercent ?? null,
     };
 
-    const plannedTotalKg = round3((stock.biomassKg * effectiveRate) / 100);
+    const plannedTotalKg = round3((stock.biomassKg * finalResolution.effectiveRatePercent) / 100);
 
     // D-12: oruç penceresi günü atlar (otomatik devam); ilaç penceresi öğün
     // yemini medicatedFeedId ile değiştirir.
-    const suspension = suspensionFor(assignment.suspensions, input.planDate);
+    const suspension = suspensionFor(assignment.suspensions, input.planDate, input.timezone);
     if (suspension?.type === 'fasting') {
       return {
         snapshot,
+        resolution: toStoredResolution(finalResolution),
         plannedTotalKg: 0,
         status: FeedingDayPlanStatus.SKIPPED,
         skipReason: `fasting: ${suspension.reason}`,
@@ -220,7 +239,13 @@ export class MealPlanGeneratorService {
       feedId: mealFeedId,
     }));
 
-    return { snapshot, plannedTotalKg, status: FeedingDayPlanStatus.PLANNED, meals };
+    return {
+      snapshot,
+      resolution: toStoredResolution(finalResolution),
+      plannedTotalKg,
+      status: FeedingDayPlanStatus.PLANNED,
+      meals,
+    };
   }
 
   /**
@@ -233,13 +258,18 @@ export class MealPlanGeneratorService {
     computed: ComputedDayPlan,
   ): Promise<string | null> {
     const inserted: Array<{ id: string }> = await manager.query(
+      // `growthApplicationMode` ÜRETİM ANINDA dondurulur (FARM-CRITICAL-244):
+      // rollup planın kendi semantiğini okur, protokolün sonradan değişen
+      // ayarını değil — geçmiş büyüme ne çift sayılabilir ne kaybolabilir.
       `INSERT INTO "feeding_day_plans"
          (id, "tenantId", "assignmentId", "protocolId", "unitId", "siteId", "unitType",
           "unitName", "unitCode", "planDate", snapshot, "plannedTotalKg",
-          "unplannedActualKg", "mealsPlanned", status, "skipReason", "recalcLog", version)
+          "unplannedActualKg", "mealsPlanned", status, "skipReason", "recalcLog",
+          "growthApplicationMode", "rollupAppliedKg", "rollupGrowthKg", resolution, version)
        VALUES (uuid_generate_v4(), $1, $2, $3, $4, $5,
                $6::feeding_protocol_assignments_unittype_enum, $7, $8, $9, $10::jsonb,
-               $11, 0, $12, $13::feeding_day_plans_status_enum, $14, '[]'::jsonb, 1)
+               $11, 0, $12, $13::feeding_day_plans_status_enum, $14, '[]'::jsonb,
+               $15, 0, 0, $16::jsonb, 1)
        ON CONFLICT ("tenantId", "unitId", "planDate") DO NOTHING
        RETURNING id`,
       [
@@ -257,6 +287,8 @@ export class MealPlanGeneratorService {
         computed.meals.length,
         computed.status,
         computed.skipReason ?? null,
+        context.growthApplicationMode,
+        JSON.stringify(computed.resolution),
       ],
     );
     const dayPlanId = inserted[0]?.id;
@@ -292,6 +324,8 @@ export class MealPlanGeneratorService {
   }
 }
 
-function round3(value: number): number {
-  return Math.round((value + Number.EPSILON) * 1000) / 1000;
+/** Çözümün SAKLANAN alt kümesi (band nesnesi ve geçiş bayrakları telde/DB'de yok). */
+function toStoredResolution(result: ProtocolResolutionResult): DayPlanResolution {
+  const { band: _band, bandChanged: _changed, previousBandIndex: _prev, ...stored } = result;
+  return stored;
 }

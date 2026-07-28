@@ -80,6 +80,21 @@ import { CreateFeedingDayPlanAndMeals1806400000000 } from './1806400000000-Creat
 import { FeedingCutoverActivateAssignments1806500000000 } from './1806500000000-FeedingCutoverActivateAssignments';
 import { BackfillExecutionsToFeedingRecords1806600000000 } from './1806600000000-BackfillExecutionsToFeedingRecords';
 import { FeedingForecastFoundation1806700000000 } from './1806700000000-FeedingForecastFoundation';
+import { BackfillFeedingRecordBatchLocationAttribution1806800000000 } from './1806800000000-BackfillFeedingRecordBatchLocationAttribution';
+import { EnforceSingleLiveAssignmentPerUnit1806900000000 } from './1806900000000-EnforceSingleLiveAssignmentPerUnit';
+import { AddDayPlanGrowthReconciliation1807000000000 } from './1807000000000-AddDayPlanGrowthReconciliation';
+import { AddDayPlanLiveResolution1807100000000 } from './1807100000000-AddDayPlanLiveResolution';
+import { CreateFeedingClockInfrastructure1807200000000 } from './1807200000000-CreateFeedingClockInfrastructure';
+import { MakeSiteTimezoneInheritable1807300000000 } from './1807300000000-MakeSiteTimezoneInheritable';
+import { AddForecastPoolScope1807400000000 } from './1807400000000-AddForecastPoolScope';
+import { AddFeedingMealReadiness1807500000000 } from './1807500000000-AddFeedingMealReadiness';
+import { AlignFeedingMealMethodEnum1807600000000 } from './1807600000000-AlignFeedingMealMethodEnum';
+import { CapDayPlanRecalcLog1807700000000 } from './1807700000000-CapDayPlanRecalcLog';
+import { RestoreStorageInventoryCanonicalKey1807800000000 } from './1807800000000-RestoreStorageInventoryCanonicalKey';
+import { CompleteFeedInventoryLedgerBackfill1807900000000 } from './1807900000000-CompleteFeedInventoryLedgerBackfill';
+import { AddStockMovementLotReceivedDate1808000000000 } from './1808000000000-AddStockMovementLotReceivedDate';
+import { AddAssignmentManualBandPin1808100000000 } from './1808100000000-AddAssignmentManualBandPin';
+import { WidenMealWindowSweepIndex1808200000000 } from './1808200000000-WidenMealWindowSweepIndex';
 import { CreateIncidentMedia1806000000000 } from './1806000000000-CreateIncidentMedia';
 
 /**
@@ -159,4 +174,19 @@ export const FARM_MIGRATIONS = [
   FeedingCutoverActivateAssignments1806500000000,
   BackfillExecutionsToFeedingRecords1806600000000,
   FeedingForecastFoundation1806700000000,
+  BackfillFeedingRecordBatchLocationAttribution1806800000000,
+  EnforceSingleLiveAssignmentPerUnit1806900000000,
+  AddDayPlanGrowthReconciliation1807000000000,
+  AddDayPlanLiveResolution1807100000000,
+  CreateFeedingClockInfrastructure1807200000000,
+  MakeSiteTimezoneInheritable1807300000000,
+  AddForecastPoolScope1807400000000,
+  AddFeedingMealReadiness1807500000000,
+  AlignFeedingMealMethodEnum1807600000000,
+  CapDayPlanRecalcLog1807700000000,
+  RestoreStorageInventoryCanonicalKey1807800000000,
+  CompleteFeedInventoryLedgerBackfill1807900000000,
+  AddStockMovementLotReceivedDate1808000000000,
+  AddAssignmentManualBandPin1808100000000,
+  WidenMealWindowSweepIndex1808200000000,
 ] as const;

@@ -143,6 +143,17 @@ const BANNED_CONSTRUCTS: readonly BannedConstructRule[] = [
       /^libs\/backend-common\//,
       // Mock factories construct repository doubles around the raw shape.
       /^platform\/libs\/testing\//,
+      // Shared e2e fixture builders, same rationale as the mock factories above
+      // but for REAL repositories: a suite that drives a production service
+      // against a real database has to hand that service the `Repository<T>`
+      // instances its constructor declares, and there is no tenant-scoped
+      // equivalent of that shape. Scoped to `__tests__/e2e/helpers/` so the
+      // exemption covers shared fixture code only — the specs themselves stay
+      // subject to the rule, which is what keeps the raw call in ONE place per
+      // service instead of copied into every suite. Not a production path: the
+      // rule protects request-scoped data access from bypassing tenant
+      // isolation, and nothing here serves a request.
+      /^apps\/[^/]+\/src\/__tests__\/e2e\/helpers\//,
     ],
   },
 ];

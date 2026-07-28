@@ -106,7 +106,8 @@ function discoverCallSites(): CallSite[] {
     eventTypeRe.lastIndex = 0;
     let m: RegExpExecArray | null;
     while ((m = eventTypeRe.exec(stripped)) !== null) {
-      sites.push({ file: rel, eventType: m[1] });
+      const eventType = m[1];
+      if (eventType) sites.push({ file: rel, eventType });
     }
   }
   return sites;
@@ -131,7 +132,8 @@ function discoverDeclaredInterfaces(): Set<string> {
     declRe.lastIndex = 0;
     let m: RegExpExecArray | null;
     while ((m = declRe.exec(src)) !== null) {
-      names.add(m[1]);
+      const name = m[1];
+      if (name) names.add(name);
     }
   }
   return names;

@@ -62,6 +62,7 @@ function makeHandler(opts: {
   wq: SeederDouble;
   species: SeederDouble;
   protocol: SeederDouble;
+  feedingReadiness: { check: jest.Mock };
   regulatory: SeederDouble;
   equipment: SeederDouble;
   finance: SeederDouble;
@@ -112,6 +113,12 @@ function makeHandler(opts: {
       );
     }),
   };
+  const feedingReadiness = {
+    check: jest.fn().mockImplementation(async () => ({
+      seeded: [],
+      skipped: ['feeding-protocols-v2:2'],
+    })),
+  };
   const finance: SeederDouble = {
     seedDefaults: jest.fn().mockImplementation(async () => ({
       seeded: ['FEED', 'ELECTRICITY'],
@@ -131,13 +138,16 @@ function makeHandler(opts: {
     wq as unknown as WaterQualityParameterConfigSeederService,
     species as unknown as SpeciesSeederService,
     protocol as unknown as FeedingProtocolSeederService,
+    // W8/FARM-MEDIUM-284 — v2 hazırlık kontrolü (satır yazmaz, ölçer).
+    // Handler'ın tipi `Pick<…,'check'>` olduğu için double CAST'SIZ oturur.
+    feedingReadiness,
     regulatory as unknown as RegulatorySettingsSeederService,
     equipment as unknown as EquipmentTypeCatalogCheckerService,
     financeSeederDouble(finance),
     eventBus as never,
   );
   (handler as unknown as { eventBus?: BusDouble }).eventBus = eventBus;
-  return { handler, wq, species, protocol, regulatory, equipment, finance, bus: eventBus };
+  return { handler, wq, species, protocol, feedingReadiness, regulatory, equipment, finance, bus: eventBus };
 }
 
 const TENANT = '11111111-1111-4111-8111-111111111111';

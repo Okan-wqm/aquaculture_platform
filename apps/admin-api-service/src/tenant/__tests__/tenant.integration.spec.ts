@@ -1,4 +1,5 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { CqrsModule, CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -62,7 +63,9 @@ const mockProvisioningService = {
 
 const mockActivityService = {
   createActivity: jest.fn(),
-  getActivities: jest.fn().mockResolvedValue([]),
+  getActivities: jest
+    .fn()
+    .mockResolvedValue(createStandardPaginatedResult([], 0, 1, 20)),
   getNotes: jest.fn().mockResolvedValue([]),
   createNote: jest.fn(),
   updateNote: jest.fn(),
@@ -71,7 +74,9 @@ const mockActivityService = {
 
 const mockDetailService = {
   getTenantDetail: jest.fn(),
-  getActivitiesTimeline: jest.fn().mockResolvedValue({ data: [], total: 0, totalPages: 0 }),
+  getActivitiesTimeline: jest
+    .fn()
+    .mockResolvedValue(createStandardPaginatedResult([], 0, 1, 20)),
   bulkSuspend: jest.fn(),
   bulkActivate: jest.fn(),
 };

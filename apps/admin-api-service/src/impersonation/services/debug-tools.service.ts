@@ -286,7 +286,7 @@ export class DebugToolsService {
     isActive?: boolean;
     page?: number;
     limit?: number;
-  }): Promise<{ items: FeatureFlagOverride[]; total: number }> {
+  }): Promise<IStandardPaginatedResult<FeatureFlagOverride>> {
     return this.featureFlagDebug.queryOverrides(params);
   }
 

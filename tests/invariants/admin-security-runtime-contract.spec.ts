@@ -55,7 +55,12 @@ describe('INVARIANT: /security/audit reads immutable audit logs', () => {
     );
 
     expect(controller).toContain('AuditLogService');
-    expect(controller).toContain('PaginatedAuditLogs');
+    // The canonical envelope, not a service-local near-copy. APA-283 deleted
+    // `PaginatedAuditLogs` (and four siblings) — each was
+    // IStandardPaginatedResult minus hasNextPage/hasPreviousPage, understating
+    // what its own producer already returned.
+    expect(controller).toContain('IStandardPaginatedResult<AuditLog>');
+    expect(controller).not.toContain('PaginatedAuditLogs');
     expect(controller).toContain('this.auditLogService.query(');
     expect(controller).toContain('this.auditLogService.getStatistics(');
     expect(controller).toContain('this.auditLogService.getEntityHistory(');
@@ -85,5 +90,98 @@ describe('INVARIANT: security monitoring DTOs match entity enum contracts', () =
     expect(controller).not.toContain("'resolved'");
     expect(controller).not.toContain("'file_hash'");
     expect(controller).not.toContain("'authentication', 'authorization', 'data_access', 'system'");
+  });
+});
+
+/**
+ * APA-232 / APA-233 — the compliance surface must consume the shape the
+ * backend actually persists and sends.
+ *
+ * `GET /security/compliance/checks/:framework` returns `ComplianceCheckResult[]`,
+ * whose `requirement` is a nested `ComplianceRequirement` OBJECT. The panel's
+ * hand-written response type declared it a string and invented `id`, `category`,
+ * `description`, `lastChecked` and `nextReview` at the top level. `apiFetch<T>`'s
+ * generic is an unchecked assertion across the wire, so tsc validated none of it.
+ *
+ * `mapComplianceCheck` then SPREAD the raw row, carrying the object into
+ * `<p>{check.requirement}</p>` — React refuses to render an object as a child,
+ * and admin-panel has no error boundary of its own, so the throw escapes to the
+ * shell and blanks the page. The same drift, on the same shape, crashed the
+ * Reports tab: `generateComplianceReport` stores those rows verbatim into the
+ * `detailedFindings` jsonb column, and a monthly cron guarantees at least one
+ * such report exists.
+ *
+ * Both cures are the same: name the real shape on both sides, and PROJECT
+ * rather than spread, so an object cannot reach JSX by construction.
+ *
+ * @see docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/security.md#APA-232
+ */
+describe('INVARIANT: compliance checks consume the canonical ComplianceCheckResult', () => {
+  /** Source with comments stripped — explaining a removed field must not re-introduce it. */
+  const withoutComments = (source: string): string =>
+    source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  it('carries a real check timestamp instead of an invented review schedule', () => {
+    const service = readRepoFile(
+      'apps/admin-api-service/src/security/services/compliance.service.ts',
+    );
+
+    // `checkedAt` is the one field the UI legitimately needed that the contract
+    // lacked. `nextReview` is NOT added: checks execute live per request and no
+    // scheduled-review concept exists, so inventing one server-side to satisfy
+    // a column would be fiction.
+    expect(service).toContain('checkedAt: string');
+    expect(withoutComments(service)).not.toContain('nextReview');
+    expect(service).toContain('checkedAt: new Date().toISOString()');
+  });
+
+  it('declares the nested requirement object on the frontend', () => {
+    const types = readRepoFile('web/modules/admin-panel/src/services/types/security.ts');
+    const api = readRepoFile('web/modules/admin-panel/src/services/api/security.ts');
+
+    expect(types).toContain('export interface BackendComplianceRequirement');
+    expect(types).toContain('export interface BackendComplianceCheckResult');
+    expect(types).toContain('requirement: BackendComplianceRequirement');
+    expect(api).toContain('apiFetch<BackendComplianceCheckResult[]>');
+    // The invented flat fields, and the inline literal that hid them from tsc.
+    expect(withoutComments(types)).not.toContain('nextReview');
+    expect(api).not.toContain('lastChecked: string');
+  });
+
+  it('projects the check result instead of spreading it', () => {
+    const page = readRepoFile('web/modules/admin-panel/src/pages/security/CompliancePage.tsx');
+    const code = withoutComments(page);
+
+    expect(code).toContain('result.requirement.requirement');
+    expect(code).toContain('result.requirement.category');
+    expect(code).toContain('lastChecked: result.checkedAt');
+    // The spread is the defect itself.
+    expect(code).not.toMatch(/\.\.\.check\b/);
+    expect(code).not.toContain('nextReview');
+  });
+
+  it('reads report findings through the render-safety guard, like its sibling branch', () => {
+    const page = readRepoFile('web/modules/admin-panel/src/pages/security/CompliancePage.tsx');
+    const code = withoutComments(page);
+
+    // The violations branch always applied toPrimitiveString; the
+    // complianceResults branch did not, which is the whole of APA-233.
+    expect(code).toContain('toPrimitiveString(finding.requirement?.requirement');
+    expect(code).toContain('toPrimitiveString(finding.details');
+    expect(code).not.toContain('finding.category ??');
+  });
+
+  it('keeps no compat shim for a wrapper shape the route never returns', () => {
+    const page = readRepoFile('web/modules/admin-panel/src/pages/security/CompliancePage.tsx');
+    const code = withoutComments(page);
+
+    // `runComplianceChecks` returns the array untransformed; the
+    // `{ checks: [...] }` unwrap defended against a shape that has never
+    // existed, and needed a cast to compile.
+    expect(code).not.toContain("'checks' in result");
+    expect(code).not.toContain('{ checks?: unknown }');
+    // The is-array assertion stays: apiFetch's generic is an assertion, not a
+    // check, so this is the first line that can notice a real drift.
+    expect(code).toContain('Compliance checks: expected an array');
   });
 });

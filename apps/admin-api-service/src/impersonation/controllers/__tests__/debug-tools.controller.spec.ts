@@ -16,6 +16,7 @@
  */
 
 import { INestApplication, ValidationPipe, HttpStatus } from '@nestjs/common';
+import { createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Reflector } from '@nestjs/core';
 import request from 'supertest';
@@ -56,7 +57,9 @@ const mockDebugToolsService = {
   getActiveOverridesForTenant: jest.fn().mockResolvedValue([]),
   getFeatureOverride: jest.fn().mockResolvedValue({}),
   getFeatureFlagValue: jest.fn().mockResolvedValue('enabled'),
-  queryOverrides: jest.fn().mockResolvedValue({ data: [], total: 0 }),
+  queryOverrides: jest
+    .fn()
+    .mockResolvedValue(createStandardPaginatedResult([], 0, 1, 20)),
 };
 
 // ============================================================================

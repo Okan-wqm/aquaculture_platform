@@ -22,7 +22,10 @@ import {
 import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
 import { DataSource } from 'typeorm';
 
-import { createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import {
+  createStandardPaginatedResult,
+  IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 
 import { AuthTenantProvisioningClientService } from '../tenant/services/auth-tenant-provisioning-client.service';
 
@@ -47,14 +50,6 @@ export interface ModuleDto {
   tenantsCount: number;
   createdAt: Date;
   updatedAt: Date;
-}
-
-export interface PaginatedModules {
-  items: ModuleDto[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
 }
 
 export interface ModuleStats {
@@ -156,7 +151,7 @@ export class ModulesService {
     filter: ModuleFilter,
     page = 1,
     limit = 50,
-  ): Promise<PaginatedModules> {
+  ): Promise<IStandardPaginatedResult<ModuleDto>> {
     const offset = (page - 1) * limit;
 
     const whereConditions: string[] = [];

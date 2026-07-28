@@ -147,6 +147,8 @@ Allowed truth buckets:
 | `ADMIN-CRITICAL-019`    | IN-PROGRESS    | —            | admin-expert         | already-fixed-needs-close |
 | `ADMIN-CRITICAL-021`    | IN-PROGRESS    | —            | admin-expert         | already-fixed-needs-close |
 | `ADMIN-CRITICAL-022`    | IN-PROGRESS    | —            | admin-expert         | already-fixed-needs-close |
+| `ADMIN-CRITICAL-082`    | IN-PROGRESS    | —            | admin-expert         | already-fixed-needs-close |
+| `ADMIN-CRITICAL-083`    | IN-PROGRESS    | —            | admin-expert         | already-fixed-needs-close |
 
 ## Mutation Rules
 

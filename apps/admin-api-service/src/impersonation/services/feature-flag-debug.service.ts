@@ -2,6 +2,10 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { SYSTEM_ACTOR_ID } from '@aquaculture/backend-common/constants';
+import {
+  createStandardPaginatedResult,
+  IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import { Repository, LessThan } from 'typeorm';
 
 import { FeatureFlagOverride } from '../entities/debug-session.entity';
@@ -140,7 +144,7 @@ export class FeatureFlagDebugService {
     isActive?: boolean;
     page?: number;
     limit?: number;
-  }): Promise<{ items: FeatureFlagOverride[]; total: number }> {
+  }): Promise<IStandardPaginatedResult<FeatureFlagOverride>> {
     const query = this.overrideRepo.createQueryBuilder('o');
 
     if (params.tenantId) {
@@ -163,7 +167,7 @@ export class FeatureFlagDebugService {
     query.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await query.getManyAndCount();
-    return { items, total };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   /**

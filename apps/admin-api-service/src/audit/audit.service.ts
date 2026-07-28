@@ -8,7 +8,10 @@ import {
   LessThanOrEqual,
 } from 'typeorm';
 
-import { createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import {
+  createStandardPaginatedResult,
+  IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 
 import { AuditAction, AuditLog, AuditSeverity } from './audit.entity';
 
@@ -40,14 +43,6 @@ export interface AuditLogFilter {
   startDate?: Date;
   endDate?: Date;
   search?: string;
-}
-
-export interface PaginatedAuditLogs {
-  items: AuditLog[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
 }
 
 interface ActionCountRow {
@@ -116,7 +111,7 @@ export class AuditLogService {
     filter: AuditLogFilter,
     page = 1,
     limit = 50,
-  ): Promise<PaginatedAuditLogs> {
+  ): Promise<IStandardPaginatedResult<AuditLog>> {
     try {
       const skip = (page - 1) * limit;
       const take = Math.min(limit, 100);

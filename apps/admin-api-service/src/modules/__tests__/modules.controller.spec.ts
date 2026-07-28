@@ -5,7 +5,12 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { ModulesController } from '../modules.controller';
 import { CreateModuleDto, UpdateModuleDto, AssignModuleDto } from '../dto/module.dto';
-import { ModulesService, ModuleDto, PaginatedModules, ModuleStats, TenantModuleAssignment } from '../modules.service';
+import {
+  createStandardPaginatedResult,
+  IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
+
+import { ModulesService, ModuleDto, ModuleStats, TenantModuleAssignment } from '../modules.service';
 
 // Mock ModulesService
 const mockModulesService = {
@@ -41,13 +46,11 @@ const createMockModule = (overrides: Partial<ModuleDto> = {}): ModuleDto => ({
 });
 
 // Helper to create paginated response
-const createPaginatedModules = (modules: ModuleDto[], total: number = modules.length): PaginatedModules => ({
-  items: modules,
-  total,
-  page: 1,
-  limit: 50,
-  totalPages: Math.ceil(total / 50),
-});
+const createPaginatedModules = (
+  modules: ModuleDto[],
+  total: number = modules.length,
+): IStandardPaginatedResult<ModuleDto> =>
+  createStandardPaginatedResult(modules, total, 1, 50);
 
 // Helper to create mock assignment
 const createMockAssignment = (overrides: Partial<TenantModuleAssignment> = {}): TenantModuleAssignment => ({

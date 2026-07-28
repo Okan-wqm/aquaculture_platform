@@ -165,6 +165,43 @@ export interface BackendAuditAlertRule {
   lastTriggeredAt?: string;
 }
 
+/**
+ * One GDPR/framework requirement — mirrors the backend `ComplianceRequirement`
+ * (apps/admin-api-service/src/security/services/compliance.service.ts).
+ *
+ * The human-readable text lives HERE, nested, not flattened onto the check
+ * result. Declaring `requirement` as a string is what put an object into JSX.
+ */
+export interface BackendComplianceRequirement {
+  id: string;
+  framework: ComplianceType;
+  requirement: string;
+  description: string;
+  category: string;
+  isMandatory: boolean;
+  verificationMethod: string;
+}
+
+/**
+ * The result of running one requirement check — mirrors the backend
+ * `ComplianceCheckResult`. Parity is pinned by
+ * tests/invariants/admin-security-runtime-contract.spec.ts.
+ *
+ * There is no `nextReview`: checks execute live per request and the platform
+ * has no scheduled-review concept. The panel used to declare one (along with
+ * `id`, `category`, `description` and `lastChecked` at the top level), all of
+ * which arrived `undefined` and none of which the compiler could question,
+ * because `apiFetch<T>`'s generic is an unchecked assertion across the wire.
+ */
+export interface BackendComplianceCheckResult {
+  requirement: BackendComplianceRequirement;
+  status: 'compliant' | 'non_compliant' | 'partial' | 'not_applicable';
+  details: string;
+  evidence?: string;
+  remediation?: string;
+  checkedAt: string;
+}
+
 export interface BackendComplianceReport {
   id: string;
   complianceType: ComplianceType;
@@ -175,14 +212,15 @@ export interface BackendComplianceReport {
   complianceScore: number;
   violations?: Array<Record<string, unknown>> | null;
   recommendations?: string[] | null;
+  /**
+   * `generateComplianceReport` stores the check results verbatim into this
+   * jsonb column, so `complianceResults` is exactly `ComplianceCheckResult[]`.
+   * It was declared as flat optional strings, which made `finding.requirement`
+   * read as a string when it is an object — the same crash as the Checks tab,
+   * on a report the monthly cron guarantees exists.
+   */
   detailedFindings?: {
-    complianceResults?: Array<{
-      category?: string;
-      requirement?: string;
-      status?: string;
-      description?: string;
-      recommendation?: string;
-    }>;
+    complianceResults?: BackendComplianceCheckResult[];
     [key: string]: unknown;
   } | null;
   generatedBy?: string | null;

@@ -29,7 +29,10 @@ import {
 import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
 import { DataSource } from 'typeorm';
 
-import { createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import {
+  createStandardPaginatedResult,
+  IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 
 import { UserActivity } from './dto/user-activity.dto';
 
@@ -59,14 +62,6 @@ export interface UserDto {
   lastLoginAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
-}
-
-export interface PaginatedUsers {
-  items: UserDto[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
 }
 
 export interface UserStats {
@@ -116,7 +111,7 @@ export class UsersService {
     limit = 20,
     sortBy = 'createdAt',
     sortOrder: 'ASC' | 'DESC' = 'DESC',
-  ): Promise<PaginatedUsers> {
+  ): Promise<IStandardPaginatedResult<UserDto>> {
     const offset = (page - 1) * limit;
 
     const whereConditions: string[] = [];

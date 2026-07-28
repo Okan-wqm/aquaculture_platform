@@ -1,3 +1,4 @@
+import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import {
   Controller,
   Get,
@@ -19,7 +20,7 @@ import {
   CreateModuleDto,
   UpdateModuleDto,
 } from './dto/module.dto';
-import { ModulesService, PaginatedModules } from './modules.service';
+import { ModulesService, ModuleDto } from './modules.service';
 
 /**
  * WHY no price field: billing owns all subscription pricing (platform rule
@@ -45,7 +46,7 @@ export class ModulesController {
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-  ): Promise<PaginatedModules> {
+  ): Promise<IStandardPaginatedResult<ModuleDto>> {
     return this.modulesService.listModules(
       {
         isActive: isActive === 'true' ? true : isActive === 'false' ? false : undefined,

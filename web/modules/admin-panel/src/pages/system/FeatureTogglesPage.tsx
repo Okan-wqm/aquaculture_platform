@@ -73,7 +73,7 @@ export const FeatureTogglesPage: React.FC = () => {
       // RC-1: getFeatureToggles returns the canonical PaginatedResult envelope;
       // the rows are in .data. (Replaces the BUG-014 items|data|array
       // normalizer that existed only because the backend shape was ambiguous.)
-      setToggles(response.data ?? []);
+      setToggles(response.data);
     } catch (err) {
       console.error('Failed to load feature toggles:', err);
       setError('Failed to load feature toggles');

@@ -6,29 +6,7 @@
 import React, { useState, useCallback } from 'react';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { modulesApi } from '../services/adminApi';
-
-interface Module {
-  id: string;
-  code: string;
-  name: string;
-  description: string | null;
-  defaultRoute: string;
-  icon: string | null;
-  isCore: boolean;
-  isActive: boolean;
-  price: number;
-  tenantsCount: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface ModuleStats {
-  totalModules: number;
-  activeModules: number;
-  coreModules: number;
-  totalAssignments: number;
-  moduleUsage: { moduleId: string; moduleName: string; tenantsCount: number }[];
-}
+import type { ModuleStats, PaginatedResult, SystemModule } from '../services/types';
 
 const ModulesPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -45,7 +23,7 @@ const ModulesPage: React.FC = () => {
     refresh,
     canRetry,
     retry,
-  } = useAsyncData<{ data: Module[]; total: number; page: number; limit: number; totalPages: number }>(
+  } = useAsyncData<PaginatedResult<SystemModule>>(
     () => modulesApi.list({
       search: searchTerm || undefined,
       isActive: isActiveFilter,
@@ -75,7 +53,7 @@ const ModulesPage: React.FC = () => {
   }, [refresh]);
 
   // Toggle module active status
-  const handleToggleModule = useCallback(async (module: Module) => {
+  const handleToggleModule = useCallback(async (module: SystemModule) => {
     if (togglingModuleId) return; // Prevent multiple toggles
 
     setTogglingModuleId(module.id);

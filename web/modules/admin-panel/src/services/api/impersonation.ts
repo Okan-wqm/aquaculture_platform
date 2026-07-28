@@ -11,6 +11,7 @@ import { apiFetch, buildQueryString } from '../http-client';
 import type {
   PaginatedResult,
   PaginationParams,
+  ImpersonationAuditSummary,
   ImpersonationPermission,
   ImpersonationSession,
   ImpersonationSessionStatus,
@@ -50,8 +51,12 @@ export const impersonationApi = {
 
   // Sessions
   // Query params mirror backend QuerySessionsDto (superAdminId/targetTenantId,
-  // not adminId/tenantId); the list envelope is { items, total } — the backend
-  // does not wrap sessions in the page/limit/totalPages shape.
+  // not adminId/tenantId). The response is the canonical paginated envelope:
+  // querySessions builds it with createStandardPaginatedResult, so the rows
+  // arrive in `.data` with the page numerics alongside. It used to hand-roll
+  // `{ items, total }`, which the ResponseInterceptor could not recognise as
+  // paginated — so it shipped unlifted and this call had to declare a bespoke
+  // shape that carried no page/limit/totalPages at all.
   getSessions: (
     params?: {
       superAdminId?: string;
@@ -60,7 +65,7 @@ export const impersonationApi = {
       reason?: ImpersonationReasonCode;
     } & PaginationParams,
   ) =>
-    apiFetch<{ items: ImpersonationSession[]; total: number }>(`/impersonation/sessions?${buildQueryString(params || {})}`),
+    apiFetch<PaginatedResult<ImpersonationSession>>(`/impersonation/sessions?${buildQueryString(params || {})}`),
   getSession: (id: string) => apiFetch<ImpersonationSession>(`/impersonation/sessions/${id}`),
   startSession: (data: StartImpersonationRequest) =>
     apiFetch<StartImpersonationResponse>('/impersonation/sessions/start', { method: 'POST', body: JSON.stringify(data) }),
@@ -91,13 +96,18 @@ export const impersonationApi = {
   logAction: (sessionId: string, data: Omit<ImpersonationAction, 'timestamp'>) =>
     apiFetch<void>(`/impersonation/sessions/${sessionId}/log-action`, { method: 'POST', body: JSON.stringify(data) }),
 
-  // Dashboard
-  getImpersonationStats: () =>
-    apiFetch<{
-      activeSessions: number;
-      totalSessions: number;
-      activePermissions: number;
-      topAdmins: Array<{ adminId: string; email: string; sessionCount: number }>;
-      recentSessions: ImpersonationSession[];
-    }>('/impersonation/stats'),
+  /**
+   * The platform-wide impersonation aggregate.
+   *
+   * This replaces `getImpersonationStats()` / `GET /impersonation/stats`, which
+   * was deleted along with its handler. The two endpoints computed overlapping
+   * aggregates over different periods — one all-time and unparameterised, one
+   * windowed — and having both is what let the page render the all-time count
+   * under a "(30d)" heading. One endpoint owns the semantics now, and it
+   * reports the window it used.
+   */
+  getAuditSummary: (startDate?: string, endDate?: string) =>
+    apiFetch<ImpersonationAuditSummary>(
+      `/impersonation/audit/summary?${buildQueryString({ startDate, endDate })}`,
+    ),
 };

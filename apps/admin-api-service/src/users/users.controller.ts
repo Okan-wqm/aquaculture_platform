@@ -1,4 +1,5 @@
 import { Role } from '@aquaculture/backend-common/decorators';
+import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
   BadRequestException,
@@ -50,7 +51,7 @@ import {
   InviteUserDto as ProvisioningInviteUserDto,
   UserLimitCheckResult,
 } from './services/user-provisioning.service';
-import { UsersService, UserFilter, PaginatedUsers } from './users.service';
+import { UsersService, UserFilter, UserDto } from './users.service';
 
 // Allowed sort fields whitelist for security
 const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'email', 'firstName', 'lastName', 'role'] as const;
@@ -212,7 +213,7 @@ export class UsersController {
    * Get all users across all tenants (SUPER_ADMIN only)
    */
   @Get()
-  async listUsers(@Query() query: ListUsersQueryDto): Promise<PaginatedUsers> {
+  async listUsers(@Query() query: ListUsersQueryDto): Promise<IStandardPaginatedResult<UserDto>> {
     const filter: UserFilter = {
       tenantId: query.tenantId,
       role: query.role,
@@ -245,7 +246,7 @@ export class UsersController {
     @Param('tenantId', ParseUUIDPipe) tenantId: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-  ): Promise<PaginatedUsers> {
+  ): Promise<IStandardPaginatedResult<UserDto>> {
     return this.usersService.listUsers(
       { tenantId, status: 'all' },
       page ? parseInt(page, 10) : 1,

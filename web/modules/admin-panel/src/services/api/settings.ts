@@ -15,6 +15,7 @@ import type {
   DateRangeParams,
   IpAccessRule,
   FeatureToggle,
+  CreateMaintenanceWindowInput,
   MaintenanceWindow,
   PerformanceDashboard,
   PerformanceMetrics,
@@ -131,7 +132,7 @@ export const systemSettingsApi = {
   getMaintenanceWindow: (id: string) => apiFetch<MaintenanceWindow>(`/system/settings/maintenance/${id}`),
   // APA-266: `createdBy` is server-derived from the JWT, never a request field —
   // omit it from the create contract so the actor cannot be client-asserted.
-  createMaintenanceWindow: (data: Omit<MaintenanceWindow, 'id' | 'status' | 'actualStart' | 'actualEnd' | 'createdAt' | 'createdBy'>) =>
+  createMaintenanceWindow: (data: CreateMaintenanceWindowInput) =>
     apiFetch<MaintenanceWindow>('/system/settings/maintenance', { method: 'POST', body: JSON.stringify(data) }),
   updateMaintenanceWindow: (id: string, data: Partial<MaintenanceWindow>) =>
     apiFetch<MaintenanceWindow>(`/system/settings/maintenance/${id}`, { method: 'PUT', body: JSON.stringify(data) }),

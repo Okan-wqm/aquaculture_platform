@@ -87,17 +87,6 @@ export interface CustomPlanFilter {
 }
 
 /**
- * Paginated result
- */
-export interface PaginatedResult<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
-
-/**
  * Custom Plan Service
  *
  * Manages tenant-specific custom plans with:
@@ -186,7 +175,7 @@ export class CustomPlanService {
   /**
    * List custom plans with filters
    */
-  async listCustomPlans(filter: CustomPlanFilter): Promise<PaginatedResult<CustomPlan>> {
+  async listCustomPlans(filter: CustomPlanFilter): Promise<IStandardPaginatedResult<CustomPlan>> {
     const { tenantId, status, tier, search, page = 1, limit = 20 } = filter;
 
     const query = this.planRepo.createQueryBuilder('cp');

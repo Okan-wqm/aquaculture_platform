@@ -30,7 +30,6 @@ import {
 
 const mockImpersonationService = {
   queryPermissions: jest.fn().mockResolvedValue({ items: [], total: 0, page: 1, limit: 20, totalPages: 1, hasNextPage: false, hasPreviousPage: false }),
-  getImpersonationStats: jest.fn().mockResolvedValue({ totalSessions: 0 }),
   grantImpersonationPermission: jest.fn().mockResolvedValue({ id: 'perm-1' }),
   getImpersonationPermission: jest.fn().mockResolvedValue({ id: 'perm-1' }),
   revokeImpersonationPermission: jest.fn().mockResolvedValue(undefined),
@@ -128,7 +127,7 @@ describe('ImpersonationController', () => {
 
   describe('PlatformAdminGuard enforcement', () => {
     it('should invoke PlatformAdminGuard on every request', async () => {
-      await request(app.getHttpServer()).get('/impersonation/stats');
+      await request(app.getHttpServer()).get('/impersonation/audit/summary');
 
       expect(mockGuard.canActivate).toHaveBeenCalled();
     });
@@ -136,7 +135,7 @@ describe('ImpersonationController', () => {
     it('should reject request when guard returns false', async () => {
       mockGuard.canActivate.mockReturnValueOnce(false);
 
-      const res = await request(app.getHttpServer()).get('/impersonation/stats');
+      const res = await request(app.getHttpServer()).get('/impersonation/audit/summary');
 
       expect(res.status).toBe(HttpStatus.FORBIDDEN);
     });
@@ -147,7 +146,7 @@ describe('ImpersonationController', () => {
         throw new UnauthorizedException('No authorization header provided');
       });
 
-      const res = await request(app.getHttpServer()).get('/impersonation/stats');
+      const res = await request(app.getHttpServer()).get('/impersonation/audit/summary');
 
       expect(res.status).toBe(HttpStatus.UNAUTHORIZED);
     });
@@ -995,18 +994,6 @@ describe('ImpersonationController', () => {
   // ==========================================================================
 
   describe('Read-only endpoints', () => {
-    it('GET /impersonation/stats should return stats', async () => {
-      mockImpersonationService.getImpersonationStats.mockResolvedValueOnce({
-        totalSessions: 5,
-        activeSessions: 1,
-      });
-
-      const res = await request(app.getHttpServer()).get('/impersonation/stats');
-
-      expect(res.status).toBe(HttpStatus.OK);
-      expect(res.body.totalSessions).toBe(5);
-    });
-
     it('GET /impersonation/sessions/active should return active sessions', async () => {
       mockImpersonationService.getActiveSessions.mockResolvedValueOnce([
         { id: 'session-1', status: 'active' },

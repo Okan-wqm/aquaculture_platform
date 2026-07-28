@@ -250,6 +250,20 @@ class QuerySessionsDto {
   @IsEnum(ImpersonationReason)
   reason?: ImpersonationReason;
 
+  /**
+   * Free-text over the target tenant name and the acting admin's email.
+   *
+   * Server-side because the list is paginated. The admin panel's search box
+   * used to filter the rows already in the browser, which is indistinguishable
+   * from a real search while a single page holds everything and quietly wrong
+   * the moment it does not — the operator sees "no results" for a session that
+   * exists on page 2.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  search?: string;
+
   @IsOptional()
   @IsDateString()
   startDate?: string;
@@ -294,11 +308,6 @@ export class ImpersonationController {
       page: query.page,
       limit: query.limit,
     });
-  }
-
-  @Get('stats')
-  async getStats() {
-    return this.impersonationService.getImpersonationStats();
   }
 
   // APA-370: granting an impersonation permission is as sensitive as the
@@ -461,6 +470,7 @@ export class ImpersonationController {
       targetTenantId: query.targetTenantId,
       status: query.status,
       reason: query.reason,
+      search: query.search,
       startDate: query.startDate ? new Date(query.startDate) : undefined,
       endDate: query.endDate ? new Date(query.endDate) : undefined,
       page: query.page,

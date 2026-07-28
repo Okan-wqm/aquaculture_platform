@@ -63,7 +63,6 @@ import {
   GetExpiringTrialsQuery,
   SearchTenantsQuery,
 } from './queries/tenant.queries';
-import { PaginatedResult } from './query-handlers/tenant-query.handlers';
 import { TenantActivityService } from './services/tenant-activity.service';
 import { TenantDetailService } from './services/tenant-detail.service';
 import { TenantProvisioningWorkflowService } from './services/tenant-provisioning-workflow.service';
@@ -148,7 +147,7 @@ export class TenantAdminController {
   @ApiOperation({ summary: 'List all tenants with filtering and pagination' })
   async listTenants(
     @Query() query: ListTenantsQueryDto,
-  ): Promise<PaginatedResult<TenantListItemDto>> {
+  ): Promise<IStandardPaginatedResult<TenantListItemDto>> {
     return this.queryBus.execute(
       new ListTenantsQuery(
         {

@@ -1,3 +1,4 @@
+import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, SelectQueryBuilder } from 'typeorm';
@@ -5,7 +6,7 @@ import { DataSource, SelectQueryBuilder } from 'typeorm';
 import { TenantListItemDto } from '../../dto/tenant-detail.dto';
 import { Tenant, TenantStatus, TenantPlan } from '../../entities/tenant.entity';
 import { ListTenantsQuery } from '../../queries/tenant.queries';
-import { ListTenantsHandler, PaginatedResult } from '../../query-handlers/tenant-query.handlers';
+import { ListTenantsHandler } from '../../query-handlers/tenant-query.handlers';
 
 // =============================================================================
 // Mock Factories
@@ -314,7 +315,7 @@ describe('ListTenantsHandler - Pagination', () => {
       const tenants = createMockTenants(3);
       (mockQueryBuilder.getManyAndCount as jest.Mock).mockResolvedValue([tenants, 3]);
 
-      const result: PaginatedResult<TenantListItemDto> = await handler.execute(
+      const result: IStandardPaginatedResult<TenantListItemDto> = await handler.execute(
         new ListTenantsQuery(),
       );
 

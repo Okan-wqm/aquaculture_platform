@@ -1887,6 +1887,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/impersonation/services/__tests__/impersonation.audit-summary.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/impersonation/services/__tests__/impersonation.service.lifecycle-mutations.spec.ts",
       "prettier_managed": true
     },
@@ -41538,6 +41544,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-impersonation-summary-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-messaging-action-vocab.spec.ts",
       "prettier_managed": true
     },
@@ -41557,6 +41569,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/admin-panel-api-no-sync-throw.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/admin-panel-paginated-consumer.spec.ts",
       "prettier_managed": true
     },
     {
@@ -55626,10 +55644,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9120,
+  "file_count": 9123,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8939,
-  "managed_file_list_sha256": "b5fef93784069359a5f3e44dd77d4c10f71b58e5e09ff69f63cf06931d1c38aa",
+  "managed_count": 8942,
+  "managed_file_list_sha256": "4fb63a43816491d18044bb48332e2808b88e2476a2200f1721e2ac36514cf2d0",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

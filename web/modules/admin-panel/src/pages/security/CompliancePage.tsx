@@ -31,6 +31,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { securityApi } from '../../services/adminApi';
 import { DATA_REQUEST_STATUSES } from '../../services/types/security';
 import type {
+  BackendComplianceCheckResult,
   BackendComplianceReport,
   BackendDataSubjectRequest,
   DataRequestStatus,
@@ -107,8 +108,11 @@ interface ComplianceCheck {
   description: string;
   status: 'compliant' | 'non_compliant' | 'partial' | 'not_applicable';
   evidence?: string;
+  /** The check's own message — the backend has always sent it; the page discarded it. */
+  details: string;
+  /** How to fix it, present on the branches that found something. */
+  remediation?: string;
   lastChecked: string;
-  nextReview: string;
 }
 
 interface ComplianceStats {
@@ -149,15 +153,12 @@ async function fetchDataRequests(params: {
   if (params.searchQuery) apiParams.searchQuery = params.searchQuery;
 
   const result = await securityApi.getDataRequests(apiParams);
-  const data = Array.isArray(result?.data)
-    ? result.data.map(mapDataSubjectRequest)
-    : [];
-  const total = typeof result?.total === 'number' ? result.total : data.length;
+  const data = result.data.map(mapDataSubjectRequest);
   return {
     data,
-    total,
+    total: result.total,
     stats: {
-      totalRequests: total,
+      totalRequests: result.total,
       pendingRequests: 0,
       inProgressRequests: 0,
       completedRequests: 0,
@@ -174,19 +175,15 @@ async function fetchComplianceReports(): Promise<ComplianceReport[]> {
 
 async function fetchComplianceChecks(framework: string): Promise<ComplianceCheck[]> {
   const result = await securityApi.getComplianceChecks(framework);
-  // SECURITY: Enforce response contract — backend compliance/checks/:framework
-  // might return {checks: [...], requirements: [...]} wrapper or error object.
-  // Only accept arrays; if wrapped, extract the array.
-  if (Array.isArray(result)) {
-    return result.map(mapComplianceCheck);
+  // The `{ checks: [...] }` unwrap branch that used to sit here defended
+  // against a shape the route has never returned — `runComplianceChecks`
+  // returns `ComplianceCheckResult[]` untransformed. The trust-boundary
+  // assertion below is the part that earns its place: apiFetch's generic is an
+  // assertion, not a check, so this is the first line that can notice.
+  if (!Array.isArray(result)) {
+    throw new Error(`Compliance checks: expected an array, got ${typeof result}`);
   }
-  if (result && typeof result === 'object' && 'checks' in result) {
-    const checks = (result as { checks?: unknown }).checks;
-    if (Array.isArray(checks)) {
-      return checks.map(mapComplianceCheck);
-    }
-  }
-  throw new Error(`Compliance checks: expected array, got ${typeof result}`);
+  return result.map(mapComplianceCheck);
 }
 
 function mapDataSubjectRequest(request: BackendDataSubjectRequest): DataRequest {
@@ -231,16 +228,28 @@ function mapComplianceReport(report: BackendComplianceReport): ComplianceReport 
       ? violation.recommendation
       : undefined,
   }));
+  // Reads the nested paths the persisted shape actually has, and routes every
+  // rendered field through toPrimitiveString.
+  //
+  // These findings ARE ComplianceCheckResult rows — generateComplianceReport
+  // stores them verbatim into the jsonb column. The old mapper read
+  // `finding.category` (absent, so undefined) and fell back to
+  // `finding.requirement`, which is the requirement OBJECT, and assigned it to
+  // both `category` and `description`. The sibling `violations` branch already
+  // applied the toPrimitiveString guard; this branch did not, so the object
+  // reached JSX and crashed the Reports tab — on a report the monthly cron
+  // guarantees exists.
   const findings = resultFindings.length > 0
     ? resultFindings.map((finding) => ({
-        category: finding.category ?? finding.requirement ?? 'general',
-        status: finding.status === 'fail' || finding.status === 'non_compliant'
+        category: toPrimitiveString(finding.requirement?.requirement, 'Compliance check'),
+        status: finding.status === 'non_compliant'
           ? 'fail' as const
-          : finding.status === 'warning' || finding.status === 'partial'
+          : finding.status === 'partial'
             ? 'warning' as const
             : 'pass' as const,
-        description: finding.description ?? finding.requirement ?? 'Compliance check',
-        recommendation: finding.recommendation,
+        description: toPrimitiveString(finding.details, 'Compliance check'),
+        recommendation:
+          typeof finding.remediation === 'string' ? finding.remediation : undefined,
       }))
     : violationFindings;
 
@@ -261,29 +270,26 @@ function mapComplianceReport(report: BackendComplianceReport): ComplianceReport 
   };
 }
 
-function mapComplianceCheck(
-  check: {
-    id: string;
-    category: string;
-    requirement: string;
-    description: string;
-    status: string;
-    evidence?: string;
-    lastChecked: string;
-    nextReview: string;
-  },
-): ComplianceCheck {
-  const allowed: ComplianceCheck['status'][] = [
-    'compliant',
-    'non_compliant',
-    'partial',
-    'not_applicable',
-  ];
+/**
+ * Projection, not a spread.
+ *
+ * `{ ...check }` is what carried the nested `requirement` OBJECT straight into
+ * `<p>{check.requirement}</p>`, which React refuses to render — taking the
+ * whole page down, since admin-panel has no error boundary of its own. Naming
+ * every field means the object cannot reach JSX by accident, and the status
+ * union no longer needs a runtime allow-list because the source is typed.
+ */
+function mapComplianceCheck(result: BackendComplianceCheckResult): ComplianceCheck {
   return {
-    ...check,
-    status: allowed.includes(check.status as ComplianceCheck['status'])
-      ? (check.status as ComplianceCheck['status'])
-      : 'not_applicable',
+    id: result.requirement.id,
+    category: result.requirement.category,
+    requirement: result.requirement.requirement,
+    description: result.requirement.description,
+    status: result.status,
+    evidence: result.evidence,
+    details: result.details,
+    remediation: result.remediation,
+    lastChecked: result.checkedAt,
   };
 }
 
@@ -1134,6 +1140,16 @@ export const CompliancePage: React.FC = () => {
                       </div>
                       <p className="text-sm text-gray-700 mt-2">{check.requirement}</p>
                       <p className="text-sm text-gray-500 mt-1">{check.description}</p>
+                      {/* The check's own verdict. The backend has always sent
+                          `details`; the page discarded it and rendered only the
+                          static requirement text, so the table said what was
+                          being checked but never what the check found. */}
+                      <p className="text-sm text-gray-700 mt-2">{check.details}</p>
+                      {check.remediation && (
+                        <p className="text-sm text-amber-700 mt-1">
+                          Remediation: {check.remediation}
+                        </p>
+                      )}
                       {check.evidence && (
                         <p className="text-xs text-gray-500 mt-2 bg-gray-50 p-2 rounded">
                           Evidence: {check.evidence}
@@ -1141,8 +1157,10 @@ export const CompliancePage: React.FC = () => {
                       )}
                     </div>
                     <div className="text-right text-xs text-gray-500 ml-4">
-                      <p>Last checked: {formatDate(check.lastChecked)}</p>
-                      <p>Next review: {formatDate(check.nextReview)}</p>
+                      {/* No "next review": checks run live on every request and
+                          the platform has no scheduled-review concept, so the
+                          column rendered "Invalid Date" from an absent field. */}
+                      <p>Checked: {formatDateTime(check.lastChecked)}</p>
                     </div>
                   </div>
                 </div>

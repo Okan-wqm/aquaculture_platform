@@ -20,6 +20,19 @@ from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 MODEL_PRICING_USD_PER_MTOK: dict[str, tuple[float, float]] = {
     "claude-fable-5": (10.0, 50.0),
     "claude-mythos-5": (10.0, 50.0),
+    # ORPHAN-HIGH-473 — claude-opus-5 priced at the 4.8 tier, per operator.
+    # This row is what stops the `opus` CLI alias from recording $0.00. ARIA
+    # passes the ALIAS, and the alias means "latest opus"; the id written to the
+    # cost ledger is the full name the CLI resolved (scraped from stream-json at
+    # ci_executor.py:1154). So the moment the installed CLI's `opus` started
+    # resolving to claude-opus-5, every opus-tier dispatch fell through to the
+    # unknown-model 0.0 below — silently, because the caller's
+    # cost_pricing_unknown_model event is emitted inside a nested try/except.
+    #
+    # The key is the EXACT id. A truncated catch-all like "claude-opus" must
+    # never be added here: the matcher below returns the FIRST dict-order match,
+    # not the longest prefix, so a short key would shadow every dated entry.
+    "claude-opus-5": (5.0, 25.0),
     "claude-opus-4-8": (5.0, 25.0),
     "claude-opus-4-7": (5.0, 25.0),
     "claude-opus-4-6": (5.0, 25.0),

@@ -220,6 +220,14 @@ export type FeedingMealStatus =
   | 'SCHEDULED'
   | 'SKIPPED';
 
+/** Yemleme metodu */
+export type FeedingMethod =
+  | 'AUTOMATIC'
+  | 'BROADCAST'
+  | 'DEMAND'
+  | 'MANUAL'
+  | 'SPOT';
+
 export type HalfDayPeriod =
   | 'AM'
   | 'PM';
@@ -785,7 +793,7 @@ export type FeedingDayPlansQueryVariables = Exact<{
 }>;
 
 
-export type FeedingDayPlansQuery = { feedingDayPlans: Array<{ id: string, unitId: string, unitName: string, unitCode: string, planDate: string, status: FeedingDayPlanStatus, plannedTotalKg: number, unplannedActualKg: number, mealsPlanned: number, avgWeightG: number, fishCount: number, biomassKg: number, waterTempC: number | null, temperatureSource: string, usingDefaultTemperature: boolean, feedId: string, feedCode: string, feedName: string, effectiveRatePercent: number, expectedFcr: number, meals: Array<{ id: string, mealIndex: number, scheduledAt: string, percentOfDaily: number, plannedKg: number, status: FeedingMealStatus, actualKg: number, varianceKg: number | null, variancePercent: number | null, feedId: string, fedAt: string | null, feedingMethod: string | null, notes: string | null }> | null }> };
+export type FeedingDayPlansQuery = { feedingDayPlans: Array<{ id: string, unitId: string, unitName: string, unitCode: string, planDate: string, status: FeedingDayPlanStatus, plannedTotalKg: number, unplannedActualKg: number, mealsPlanned: number, avgWeightG: number, fishCount: number, biomassKg: number, waterTempC: number | null, temperatureSource: string, usingDefaultTemperature: boolean, feedId: string, feedCode: string, feedName: string, effectiveRatePercent: number, expectedFcr: number, meals: Array<{ id: string, mealIndex: number, scheduledAt: string, percentOfDaily: number, plannedKg: number, status: FeedingMealStatus, actualKg: number, varianceKg: number | null, variancePercent: number | null, feedId: string, fedAt: string | null, feedingMethod: FeedingMethod | null, notes: string | null }> | null }> };
 
 export type MyAttendanceRecordsQueryVariables = Exact<{
   startDate?: string | null | undefined;

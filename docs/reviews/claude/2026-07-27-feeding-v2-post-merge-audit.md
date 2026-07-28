@@ -119,6 +119,21 @@ yerelde çalıştırılarak doğrulandı (kolon `Object` constructor'ına çöz�
 açık `type: 'varchar'` ile düzeldi) ve `tests/invariants/entity-column-type-inference.spec.ts`
 ile pinlendi — repo genelinde tek ihlal buydu.
 
+**FARM-CRITICAL-306 — aynı kök sınıfın ikinci yüzü, bu kez GraphQL tarafında.**
+`FeedingDayPlan.growthApplicationMode` `@Field()` ile açık tip taşımıyordu ve
+tipi `GrowthApplicationMode` — kayıtlı bir GraphQL enum'ı değil, bir
+string-literal birleşim **takma adı**. NestJS GraphQL de `design:type`'a düşüyor,
+birleşim için o da `Object`; sonuç:
+`Undefined type error ... explicit type for the "growthApplicationMode"`.
+`build-supergraph.mjs` farm subgraph'ında duruyor, dolayısıyla supergraph
+compose ve GraphQL codegen komple çöküyordu — `codegen-up-to-date` kırmızısının
+gerçek sebebi buydu. W1'den geliyor.
+
+Not: bu kapı için ilk yazdığım tarayıcı bu vakayı **kaçırıyordu**, çünkü yalnız
+satır-içi birleşimleri arıyordu; gerçek kusur takma adın arkasındaydı. Tarayıcı
+`export type X = 'a' | 'b'` takma adlarını çözecek şekilde düzeltildi ve
+düzeltmeyi geri koyarak yakaladığı doğrulandı.
+
 Yapısal kapanış: `tests/invariants/test-target-ci-reachability.spec.ts` her iki
 yönü birden zorlar — tanımlı her `test*` hedefinin CI koşucusu olmalı, ve CI'ın
 sürdüğü her test hedefi bir projede var olmalı. İki yön de aksi hâlde sessizce

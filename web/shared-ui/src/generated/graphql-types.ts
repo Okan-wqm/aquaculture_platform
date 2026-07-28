@@ -6027,26 +6027,6 @@ export type FeedAssignmentInput = {
   priority?: Scalars['Int']['input'];
 };
 
-export type FeedConsumptionBatchInfo = {
-  batchCode: Scalars['String']['output'];
-  batchId: Scalars['ID']['output'];
-  consumption: Scalars['Float']['output'];
-};
-
-export type FeedConsumptionByTypeResponse = {
-  batches: Array<FeedConsumptionBatchInfo>;
-  currentStock: Scalars['Float']['output'];
-  dailyConsumption: Array<Scalars['Float']['output']>;
-  daysUntilStockout: Scalars['Int']['output'];
-  feedCode: Scalars['String']['output'];
-  feedId: Scalars['ID']['output'];
-  feedName: Scalars['String']['output'];
-  reorderDate?: Maybe<Scalars['DateTime']['output']>;
-  reorderQuantity: Scalars['Float']['output'];
-  stockoutDate?: Maybe<Scalars['DateTime']['output']>;
-  totalConsumption: Scalars['Float']['output'];
-};
-
 export type FeedDocumentInput = {
   name: Scalars['String']['input'];
   type: Scalars['String']['input'];
@@ -6077,35 +6057,6 @@ export type FeedFilterInput = {
   supplierId?: InputMaybe<Scalars['ID']['input']>;
   targetSpecies?: InputMaybe<Scalars['String']['input']>;
   type?: InputMaybe<FeedType>;
-};
-
-export type FeedForecastAlert = {
-  daysUntilStockout: Scalars['Int']['output'];
-  feedCode: Scalars['String']['output'];
-  feedId: Scalars['ID']['output'];
-  message: Scalars['String']['output'];
-  type: Scalars['String']['output'];
-};
-
-export type FeedForecastInput = {
-  /** Number of days to forecast */
-  forecastDays?: Scalars['Int']['input'];
-  /** Lead time before stockout to recommend reorder */
-  leadTimeDays?: InputMaybe<Scalars['Int']['input']>;
-  /** Safety stock days to maintain */
-  safetyStockDays?: InputMaybe<Scalars['Int']['input']>;
-  /** Filter by site */
-  siteId?: InputMaybe<Scalars['ID']['input']>;
-};
-
-export type FeedForecastResponse = {
-  alerts: Array<FeedForecastAlert>;
-  byFeedType: Array<FeedConsumptionByTypeResponse>;
-  endDate: Scalars['DateTime']['output'];
-  forecastDays: Scalars['Int']['output'];
-  startDate: Scalars['DateTime']['output'];
-  totalConsumption: Scalars['Float']['output'];
-  totalCurrentStock: Scalars['Float']['output'];
 };
 
 /** Yemleme için büyüme aşaması */
@@ -6353,6 +6304,58 @@ export type FeedingDayPlanStatus =
   | 'PLANNED'
   | 'SKIPPED';
 
+export type FeedingDayPlan = {
+  assignmentId: Scalars['ID']['output'];
+  avgWeightG: Scalars['Float']['output'];
+  biomassKg: Scalars['Float']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  effectiveRatePercent: Scalars['Float']['output'];
+  expectedFcr: Scalars['Float']['output'];
+  fcrResolvedSource: FcrResolvedSource;
+  feedCode: Scalars['String']['output'];
+  feedId: Scalars['ID']['output'];
+  feedName: Scalars['String']['output'];
+  fishCount: Scalars['Int']['output'];
+  growthApplicationMode: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  meals?: Maybe<Array<FeedingMeal>>;
+  mealsPlanned: Scalars['Int']['output'];
+  mixedBatch: Scalars['Boolean']['output'];
+  planDate: Scalars['String']['output'];
+  plannedTotalKg: Scalars['Float']['output'];
+  protocolId: Scalars['ID']['output'];
+  recalcCount: Scalars['Int']['output'];
+  recalcLog: Scalars['JSON']['output'];
+  resolution: Scalars['JSON']['output'];
+  rollupAppliedAt?: Maybe<Scalars['DateTime']['output']>;
+  rollupAppliedKg: Scalars['Float']['output'];
+  rollupGrowthKg: Scalars['Float']['output'];
+  rollupLastRunAt?: Maybe<Scalars['DateTime']['output']>;
+  siteId: Scalars['ID']['output'];
+  skipReason?: Maybe<Scalars['String']['output']>;
+  snapshot: Scalars['JSON']['output'];
+  status: FeedingDayPlanStatus;
+  temperatureSource: Scalars['String']['output'];
+  tenantId: Scalars['ID']['output'];
+  unitCode: Scalars['String']['output'];
+  unitId: Scalars['ID']['output'];
+  unitName: Scalars['String']['output'];
+  unitType: FeedingUnitType;
+  unplannedActualKg: Scalars['Float']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  usingDefaultTemperature: Scalars['Boolean']['output'];
+  waterTempC?: Maybe<Scalars['Float']['output']>;
+  weightCvPercent?: Maybe<Scalars['Float']['output']>;
+};
+
+/** Günlük yemleme planının yaşam döngüsü durumu (K-7 tam enum) */
+export type FeedingDayPlanStatus =
+  | 'CANCELLED'
+  | 'COMPLETED'
+  | 'IN_PROGRESS'
+  | 'PLANNED'
+  | 'SKIPPED';
+
 export type FeedingEnvironmentInput = {
   dissolvedOxygen?: InputMaybe<Scalars['Float']['input']>;
   visibility?: InputMaybe<Scalars['String']['input']>;
@@ -6409,6 +6412,41 @@ export type FeedingMeal = {
   percentOfDaily: Scalars['Float']['output'];
   plannedKg: Scalars['Float']['output'];
   pours: Scalars['JSON']['output'];
+  recalculatedAt?: Maybe<Scalars['DateTime']['output']>;
+  scheduledAt: Scalars['DateTime']['output'];
+  siteId: Scalars['ID']['output'];
+  status: FeedingMealStatus;
+  tenantId: Scalars['ID']['output'];
+  unitId: Scalars['ID']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  varianceKg?: Maybe<Scalars['Float']['output']>;
+  variancePercent?: Maybe<Scalars['Float']['output']>;
+};
+
+/** Öğün yaşam döngüsü durumu (K-7 + D-8 tam enum) */
+export type FeedingMealStatus =
+  | 'CANCELLED'
+  | 'FED'
+  | 'MISSED'
+  | 'PARTIALLY_FED'
+  | 'SCHEDULED'
+  | 'SKIPPED';
+
+export type FeedingMeal = {
+  actualKg: Scalars['Float']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  dayPlanId: Scalars['ID']['output'];
+  fedAt?: Maybe<Scalars['DateTime']['output']>;
+  fedBy?: Maybe<Scalars['ID']['output']>;
+  feedId: Scalars['ID']['output'];
+  feedingMethod?: Maybe<FeedingMethod>;
+  id: Scalars['ID']['output'];
+  mealIndex: Scalars['Int']['output'];
+  notes?: Maybe<Scalars['String']['output']>;
+  percentOfDaily: Scalars['Float']['output'];
+  plannedKg: Scalars['Float']['output'];
+  pours: Scalars['JSON']['output'];
+  readiness?: Maybe<Scalars['JSON']['output']>;
   recalculatedAt?: Maybe<Scalars['DateTime']['output']>;
   scheduledAt: Scalars['DateTime']['output'];
   siteId: Scalars['ID']['output'];
@@ -6810,6 +6848,28 @@ export type FeedingUnitType =
   | 'CAGE'
   | 'POND'
   | 'TANK';
+
+/** Yemleme ünitesi türü (fiziksel yapı) */
+export type FeedingUnitType =
+  | 'CAGE'
+  | 'POND'
+  | 'TANK';
+
+export type FinalizeMealInput = {
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
+  mealId: Scalars['ID']['input'];
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
+};
 
 export type FinalizeReviewInput = {
   calibrationNotes?: InputMaybe<Scalars['String']['input']>;
@@ -9647,6 +9707,7 @@ export type Mutation = {
   /** Export all tenant message history (async, returns job handle). */
   exportTenantMessages: ExportJobType;
   finalizeInvoice: Invoice;
+  finalizeMeal: MealFeedingResult;
   finalizeReview: PerformanceReview;
   forgotPassword: Scalars['Boolean']['output'];
   forwardMessage: Message;
@@ -10005,6 +10066,7 @@ export type Mutation = {
   updateTankStatus: Tank;
   updateTask: Task;
   updateTenant: Tenant;
+  updateTenantLocalization: TenantLocalizationSettings;
   updateTenantRole: TenantRole;
   updateTenantUser: User;
   updateTicketStatus: SupportTicket;
@@ -11605,6 +11667,11 @@ export type MutationFinalizeInvoiceArgs = {
 };
 
 
+export type MutationFinalizeMealArgs = {
+  input: FinalizeMealInput;
+};
+
+
 export type MutationFinalizeReviewArgs = {
   input: FinalizeReviewInput;
 };
@@ -13107,6 +13174,11 @@ export type MutationUpdateTaskArgs = {
 export type MutationUpdateTenantArgs = {
   id: Scalars['ID']['input'];
   input: UpdateTenantInput;
+};
+
+
+export type MutationUpdateTenantLocalizationArgs = {
+  input: UpdateTenantLocalizationInput;
 };
 
 
@@ -15040,6 +15112,70 @@ export type ProtocolFeedForecastTransition = {
   toFeedId: Scalars['ID']['output'];
 };
 
+/** Protokolün beklenen-FCR çözüm kaynağı ayarı */
+export type ProtocolFcrSource =
+  | 'BAND'
+  | 'FEED'
+  | 'MATRIX';
+
+export type ProtocolFeedForecast = {
+  alerts: Array<ProtocolFeedForecastAlert>;
+  computedAt: Scalars['DateTime']['output'];
+  horizonDays: Scalars['Int']['output'];
+  mortalityAssumption: ProtocolFeedForecastMortalityAssumption;
+  perFeed: Array<ProtocolFeedForecastPerFeed>;
+  perUnit: Array<ProtocolFeedForecastPerUnit>;
+  poolScope: Scalars['String']['output'];
+  siteScopeKey: Scalars['String']['output'];
+  stale: Scalars['Boolean']['output'];
+};
+
+export type ProtocolFeedForecastAlert = {
+  atDay: Scalars['Int']['output'];
+  days: Scalars['Int']['output'];
+  feedId: Scalars['ID']['output'];
+  type: Scalars['String']['output'];
+  unitId?: Maybe<Scalars['ID']['output']>;
+};
+
+export type ProtocolFeedForecastMortalityAssumption = {
+  applied: Scalars['Boolean']['output'];
+  source: Scalars['String']['output'];
+};
+
+export type ProtocolFeedForecastPerFeed = {
+  coverageFromAdoptionDays?: Maybe<Scalars['Int']['output']>;
+  currentStockKg: Scalars['Float']['output'];
+  dailyConsumptionSeries: Array<Scalars['Float']['output']>;
+  daysOfCover?: Maybe<Scalars['Int']['output']>;
+  feedCode: Scalars['String']['output'];
+  feedId: Scalars['ID']['output'];
+  feedName: Scalars['String']['output'];
+  firstConsumptionDate?: Maybe<Scalars['String']['output']>;
+  leadTimeSource: Scalars['String']['output'];
+  procurementLeadTimeDays: Scalars['Int']['output'];
+  remainingStockSeries: Array<Scalars['Float']['output']>;
+  reorderDate?: Maybe<Scalars['String']['output']>;
+  reorderQuantityKg?: Maybe<Scalars['Float']['output']>;
+  stockoutDate?: Maybe<Scalars['String']['output']>;
+};
+
+export type ProtocolFeedForecastPerUnit = {
+  currentFeedId?: Maybe<Scalars['ID']['output']>;
+  terminalFeedId?: Maybe<Scalars['ID']['output']>;
+  transitions: Array<ProtocolFeedForecastTransition>;
+  unitCode: Scalars['String']['output'];
+  unitId: Scalars['ID']['output'];
+  unitName: Scalars['String']['output'];
+};
+
+export type ProtocolFeedForecastTransition = {
+  daysFromNow: Scalars['Int']['output'];
+  estimatedDate: Scalars['String']['output'];
+  fromFeedId: Scalars['ID']['output'];
+  toFeedId: Scalars['ID']['output'];
+};
+
 export type ProtocolInfoType = {
   capabilities: ProtocolCapabilitiesType;
   category: ProtocolCategory;
@@ -15385,8 +15521,6 @@ export type Query = {
   farmStockInventory: FarmStockInventoryConnection;
   farms: Array<Farm>;
   feed?: Maybe<FeedResponse>;
-  /** Forecast feed consumption and stockout dates */
-  feedConsumptionForecast: FeedForecastResponse;
   feedSuppliers: Array<SupplierResponse>;
   feedTypes: Array<FeedTypeResponse>;
   feederCalibrations: Array<FeederCalibrationResponse>;
@@ -15547,6 +15681,7 @@ export type Query = {
   mySupportThreads: Array<SupportThreadListItem>;
   myTasks: Array<Task>;
   myTenant: Tenant;
+  myTenantLocalization: TenantLocalizationSettings;
   myTenantModules: Array<TenantModule>;
   myTickets: Array<TicketListItem>;
   myTodaysAttendance: Array<AttendanceRecord>;
@@ -16475,11 +16610,6 @@ export type QueryFarmsArgs = {
 
 export type QueryFeedArgs = {
   id: Scalars['ID']['input'];
-};
-
-
-export type QueryFeedConsumptionForecastArgs = {
-  input?: InputMaybe<FeedForecastInput>;
 };
 
 
@@ -18422,6 +18552,26 @@ export type RecordMealFeedingInput = {
   schemaVersion?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type RecordMealFeedingInput = {
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
+  feedingMethod?: InputMaybe<FeedingMethod>;
+  finalize?: Scalars['Boolean']['input'];
+  mealId: Scalars['ID']['input'];
+  notes?: InputMaybe<Scalars['String']['input']>;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
+  pourKg: Scalars['Float']['input'];
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
+};
+
 export type RecordMortalityInput = {
   avgWeightG?: InputMaybe<Scalars['Float']['input']>;
   batchId: Scalars['ID']['input'];
@@ -20135,7 +20285,7 @@ export type SiteResponse = {
   siteManager?: Maybe<Scalars['String']['output']>;
   status: SiteStatus;
   tenantId: Scalars['ID']['output'];
-  timezone: Scalars['String']['output'];
+  timezone?: Maybe<Scalars['String']['output']>;
   totalArea?: Maybe<Scalars['Float']['output']>;
   type: SiteType;
   updatedAt: Scalars['DateTime']['output'];
@@ -21952,6 +22102,11 @@ export type TenantKeyResponse = {
   installerUrl: Scalars['String']['output'];
   keyToken: Scalars['String']['output'];
   maxDevices?: Maybe<Scalars['Int']['output']>;
+};
+
+export type TenantLocalizationSettings = {
+  locale?: Maybe<Scalars['String']['output']>;
+  timezone: Scalars['String']['output'];
 };
 
 export type TenantModule = {
@@ -24002,6 +24157,11 @@ export type UpdateTenantInput = {
   taxId?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type UpdateTenantLocalizationInput = {
+  locale?: InputMaybe<Scalars['String']['input']>;
+  timezone: Scalars['String']['input'];
+};
+
 export type UpdateTenantRoleInput = {
   color?: InputMaybe<Scalars['String']['input']>;
   description?: InputMaybe<Scalars['String']['input']>;
@@ -25009,6 +25169,16 @@ export type WarehouseFeedCoverage = {
   feedCode: Scalars['String']['output'];
   feedId: Scalars['ID']['output'];
   feedName: Scalars['String']['output'];
+  stockoutDate?: Maybe<Scalars['String']['output']>;
+};
+
+export type WarehouseFeedCoverage = {
+  coverageStatus: Scalars['String']['output'];
+  daysOfCover?: Maybe<Scalars['Int']['output']>;
+  feedCode: Scalars['String']['output'];
+  feedId: Scalars['ID']['output'];
+  feedName: Scalars['String']['output'];
+  stale: Scalars['Boolean']['output'];
   stockoutDate?: Maybe<Scalars['String']['output']>;
 };
 

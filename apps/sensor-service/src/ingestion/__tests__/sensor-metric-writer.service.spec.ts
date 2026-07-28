@@ -4,11 +4,22 @@ import { SensorMetricInput } from '../../database/entities/sensor-metric.entity'
 import { SensorMetricWriterService } from '../sensor-metric-writer.service';
 
 /**
- * SENSOR-MEDIUM-068 (Phase 2B): the SINGLE writer for sensor.sensor_metrics.
+ * SENSOR-MEDIUM-068 (Phase 2B): the SINGLE writer for `sensor_metrics`.
  * These tests lock the one INSERT contract + the three delivery modes
  * (buffered enqueue/flush, immediate, managed) that the four ingestion paths
  * used to each hand-copy.
+ *
+ * They also lock the tenant-residency guarantee: `sensor_metrics` is per-tenant,
+ * and the destination schema is derived from each row's own tenantId — NOT from
+ * an ambient search_path (three of the four callers are process-wide singletons
+ * that have none) and NOT from a shared schema. A mixed-tenant batch must fan
+ * out to each tenant's schema rather than landing in one.
  */
+const TENANT_A = '33333333-3333-4333-8333-333333333333';
+const TENANT_B = '44444444-4444-4444-8444-444444444444';
+const SCHEMA_A = 'tenant_3333333333334333';
+const SCHEMA_B = 'tenant_4444444444444444';
+
 function createService(): { service: SensorMetricWriterService; query: jest.Mock } {
   const query = jest.fn().mockResolvedValue(undefined);
   const dataSource: Partial<DataSource> = { query };
@@ -21,7 +32,7 @@ function createMetric(overrides: Partial<SensorMetricInput> = {}): SensorMetricI
     time: new Date('2026-03-14T12:00:00.000Z'),
     sensorId: '11111111-1111-4111-8111-111111111111',
     channelId: '22222222-2222-4222-8222-222222222222',
-    tenantId: '33333333-3333-4333-8333-333333333333',
+    tenantId: TENANT_A,
     rawValue: 24.5,
     value: 24.5,
     qualityCode: 192,
@@ -36,16 +47,30 @@ describe('SensorMetricWriterService (SENSOR-MEDIUM-068)', () => {
   afterEach(() => jest.restoreAllMocks());
 
   describe('buildInsertSql', () => {
-    it('targets the single cross-tenant hypertable with the re-publish conflict semantic', () => {
+    it('targets the TENANT schema with the re-publish conflict semantic', () => {
       const { service } = createService();
-      const sql = service.buildInsertSql(2);
-      expect(sql).toContain('INSERT INTO sensor.sensor_metrics');
+      const sql = service.buildInsertSql(SCHEMA_A, 2);
+      expect(sql).toContain(`INSERT INTO "${SCHEMA_A}".sensor_metrics`);
       expect(sql).toContain('ON CONFLICT (time, sensor_id, channel_id) DO UPDATE');
       expect(sql).toContain('value        = EXCLUDED.value');
       // 2 rows × 19 params → $1 … $38.
       expect(sql).toContain('$19');
       expect(sql).toContain('$38');
       expect(sql).not.toContain('$39');
+    });
+
+    it('never emits a shared-schema metric INSERT', () => {
+      const { service } = createService();
+      const sql = service.buildInsertSql(SCHEMA_A, 1);
+      expect(sql).not.toContain('sensor.sensor_metrics');
+    });
+
+    it('rejects a schema identifier that is not a tenant schema (SEC-M13)', () => {
+      const { service } = createService();
+      expect(() => service.buildInsertSql('sensor', 1)).toThrow(/Invalid schema name/);
+      expect(() => service.buildInsertSql('tenant_x"; DROP TABLE users; --', 1)).toThrow(
+        /Invalid schema name/,
+      );
     });
   });
 
@@ -56,7 +81,7 @@ describe('SensorMetricWriterService (SENSOR-MEDIUM-068)', () => {
       expect(params).toHaveLength(19);
       expect(params[0]).toBe('2026-03-14T12:00:00.000Z'); // time
       expect(params[1]).toBe('11111111-1111-4111-8111-111111111111'); // sensor_id
-      expect(params[3]).toBe('33333333-3333-4333-8333-333333333333'); // tenant_id
+      expect(params[3]).toBe(TENANT_A); // tenant_id
       expect(params[11]).toBe(24.5); // raw_value
       expect(params[12]).toBe(24.5); // value
       expect(params[15]).toBe('mqtt'); // source_protocol
@@ -64,13 +89,53 @@ describe('SensorMetricWriterService (SENSOR-MEDIUM-068)', () => {
   });
 
   describe('writeImmediate', () => {
-    it('writes valid metrics via the service connection', async () => {
+    it("writes into the row's OWN tenant schema via the service connection", async () => {
       const { service, query } = createService();
       await service.writeImmediate([createMetric()]);
       expect(query).toHaveBeenCalledTimes(1);
       const [sql, params] = query.mock.calls[0]!;
-      expect(sql).toContain('INSERT INTO sensor.sensor_metrics');
+      expect(sql).toContain(`INSERT INTO "${SCHEMA_A}".sensor_metrics`);
       expect(params).toHaveLength(19);
+    });
+
+    it('fans a MIXED-tenant batch out to each tenant schema', async () => {
+      const { service, query } = createService();
+
+      await service.writeImmediate([
+        createMetric({ tenantId: TENANT_A }),
+        createMetric({ tenantId: TENANT_B }),
+      ]);
+
+      expect(query).toHaveBeenCalledTimes(2);
+      const targets = query.mock.calls.map(([sql]) => String(sql));
+      expect(targets.some((s) => s.includes(`"${SCHEMA_A}".sensor_metrics`))).toBe(true);
+      expect(targets.some((s) => s.includes(`"${SCHEMA_B}".sensor_metrics`))).toBe(true);
+      // Neither tenant's rows may be written into the other's schema.
+      for (const [sql, params] of query.mock.calls) {
+        const schema = String(sql).includes(SCHEMA_A) ? TENANT_A : TENANT_B;
+        expect(params[3]).toBe(schema);
+      }
+    });
+
+    it("does not discard other tenants' rows when one tenant fails, and surfaces the failure", async () => {
+      const { service, query } = createService();
+      query.mockImplementation((sql: string) =>
+        String(sql).includes(SCHEMA_A)
+          ? Promise.reject(new Error('disk full'))
+          : Promise.resolve(undefined),
+      );
+
+      await expect(
+        service.writeImmediate([
+          createMetric({ tenantId: TENANT_A }),
+          createMetric({ tenantId: TENANT_B }),
+        ]),
+      ).rejects.toThrow(/disk full/);
+
+      // Tenant B's insert was still attempted — one tenant's failure does not
+      // silently drop every other tenant's telemetry.
+      const targets = query.mock.calls.map(([sql]) => String(sql));
+      expect(targets.some((s) => s.includes(`"${SCHEMA_B}".sensor_metrics`))).toBe(true);
     });
 
     it('drops rows with an invalid UUID', async () => {
@@ -88,7 +153,7 @@ describe('SensorMetricWriterService (SENSOR-MEDIUM-068)', () => {
   });
 
   describe('writeManaged', () => {
-    it('writes on the caller transaction manager, not the service connection', async () => {
+    it('writes on the caller transaction manager, into the tenant schema', async () => {
       const { service, query } = createService();
       const managerQuery = jest.fn().mockResolvedValue(undefined);
       const manager: Partial<EntityManager> = { query: managerQuery };
@@ -96,7 +161,17 @@ describe('SensorMetricWriterService (SENSOR-MEDIUM-068)', () => {
       expect(managerQuery).toHaveBeenCalledTimes(1);
       expect(query).not.toHaveBeenCalled();
       const [sql] = managerQuery.mock.calls[0]!;
-      expect(sql).toContain('INSERT INTO sensor.sensor_metrics');
+      expect(sql).toContain(`INSERT INTO "${SCHEMA_A}".sensor_metrics`);
+    });
+
+    it('propagates a failure so the caller transaction rolls back (SENSOR-CRITICAL-001)', async () => {
+      const { service } = createService();
+      const managerQuery = jest.fn().mockRejectedValue(new Error('deadlock detected'));
+      const manager: Partial<EntityManager> = { query: managerQuery };
+
+      await expect(
+        service.writeManaged([createMetric()], manager as EntityManager),
+      ).rejects.toThrow('deadlock detected');
     });
   });
 
@@ -109,7 +184,7 @@ describe('SensorMetricWriterService (SENSOR-MEDIUM-068)', () => {
       await service.flush();
       expect(query).toHaveBeenCalledTimes(1);
       const [, params] = query.mock.calls[0]!;
-      expect(params).toHaveLength(38); // 2 rows × 19
+      expect(params).toHaveLength(38); // 2 rows × 19, same tenant → one INSERT
     });
 
     it('flush is a no-op on an empty buffer', async () => {

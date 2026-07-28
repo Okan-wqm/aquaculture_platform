@@ -1,3 +1,4 @@
+import { getTenantSchemaName, validateTenantSchemaName } from '@aquaculture/backend-common/database';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
@@ -8,22 +9,43 @@ import { SensorMetricInput } from '../database/entities/sensor-metric.entity';
  * Sensor Metric Writer Service
  *
  * SENSOR-MEDIUM-068 (reading-store convergence, Phase 2B): the SINGLE writer for
- * the cross-tenant `sensor.sensor_metrics` hypertable. It owns the one INSERT
- * statement and the one 19-column parameter marshalling; the four ingestion
- * paths that each used to carry a hand-copied INSERT now route through it:
+ * `sensor_metrics`. It owns the one INSERT statement and the one 19-column
+ * parameter marshalling; the four ingestion paths that each used to carry a
+ * hand-copied INSERT now route through it:
  *
  *   - enqueue() / buffered flush  — high-throughput background paths (the Rust
  *     sidecar NATS consumer, the MQTT edge io_data + adapter paths). Coalesces
  *     rows and flushes every 500 ms or at 500 rows.
  *   - writeImmediate(metrics)     — background paths that write now on the
  *     service's own connection (MQTT io_data).
- *   - writeManaged(metrics, mgr)  — the transactional MQTT saveReading path,
- *     which writes metrics + the legacy reading atomically in ONE tenant
- *     transaction; the caller's EntityManager is used so that atomicity is
- *     preserved (SENSOR-CRITICAL-001 discipline — do not change it).
+ *   - writeManaged(metrics, mgr)  — the transactional saveReading paths, which
+ *     write metrics + the outbox event atomically in ONE transaction; the
+ *     caller's EntityManager is used so atomicity is preserved
+ *     (SENSOR-CRITICAL-001 discipline — do not change it).
  *
- * All three delivery modes share buildInsertSql() + marshalParams(), so the
- * metric column contract + conflict semantics live in exactly one place.
+ * ## Tenant residency: the destination schema is DERIVED FROM THE DATA
+ *
+ * `sensor_metrics` is a PER-TENANT table: every tenant's telemetry lives in that
+ * tenant's own `tenant_<uuid>` schema, never in a shared one. The hard problem
+ * this writer solves is that three of its four callers are process-wide
+ * singletons (buffered flush, MQTT io_data, the NATS sidecar consumer) with NO
+ * request scope and therefore NO ambient `search_path` — historically their
+ * unqualified INSERTs landed wherever the pooled session happened to point,
+ * which is the real cause of the "split-brain clones" defect. Pinning the table
+ * to a shared schema would hide that bug at the cost of tenant isolation.
+ *
+ * The structural fix (tier-1): a metric row already carries its own `tenantId`,
+ * so the destination schema is a pure function of the data. Rows are grouped by
+ * tenant and each group is inserted into `"<tenant schema>".sensor_metrics`,
+ * resolved through the platform SSoT (`getTenantSchemaName` +
+ * `validateTenantSchemaName`) and never string-built. Consequences:
+ *
+ *   - a singleton with no tenant context still writes to exactly the right
+ *     schema, because the schema comes from the row, not from the session;
+ *   - a MIXED-tenant batch is impossible to mis-file — it fans out per tenant
+ *     instead of silently landing in whichever schema the session resolved;
+ *   - `buildInsertSql` cannot be called without a validated schema, so no code
+ *     path can emit a schema-less or hand-qualified metric INSERT.
  *
  * Invalid rows are dropped, never written: a row is invalid if any of
  * sensorId/channelId/tenantId is not a UUID, or if value/rawValue is non-finite
@@ -115,32 +137,103 @@ export class SensorMetricWriterService implements OnModuleInit, OnModuleDestroy 
   async writeImmediate(metrics: SensorMetricInput[]): Promise<void> {
     const valid = this.filterValid(metrics);
     if (valid.length === 0) return;
-    for (let i = 0; i < valid.length; i += SensorMetricWriterService.SAFE_CHUNK) {
-      const chunk = valid.slice(i, i + SensorMetricWriterService.SAFE_CHUNK);
-      await this.dataSource.query(this.buildInsertSql(chunk.length), this.marshalParams(chunk));
+
+    // Background path: attempt EVERY tenant even if one fails, so a single bad
+    // tenant cannot discard other tenants' telemetry — then surface every
+    // failure. Failures are never swallowed; the caller sees an aggregate error.
+    const failures: string[] = [];
+    let written = 0;
+    for (const [tenantId, rows] of this.groupByTenant(valid)) {
+      try {
+        await this.insertForTenant(tenantId, rows, (sql, params) =>
+          this.dataSource.query(sql, params),
+        );
+        written += rows.length;
+      } catch (error) {
+        failures.push(
+          `${this.tenantLabel(tenantId)}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
-    this.logger.debug(`Wrote ${valid.length} metrics`);
+
+    this.logger.debug(`Wrote ${written} metrics across ${this.groupByTenant(valid).size} tenant(s)`);
+
+    if (failures.length > 0) {
+      throw new Error(
+        `sensor_metrics write failed for ${failures.length} tenant(s): ${failures.join('; ')}`,
+      );
+    }
   }
 
   /**
-   * Write metrics on the caller's transaction manager. Used by the MQTT
-   * saveReading path so the metric rows commit atomically with the legacy
-   * reading in one tenant transaction — do NOT change this atomicity.
+   * Write metrics on the caller's transaction manager. Used by the transactional
+   * saveReading paths so the metric rows commit atomically with the outbox event
+   * in one transaction — do NOT change this atomicity: any failure propagates so
+   * the whole transaction rolls back.
    */
   async writeManaged(metrics: SensorMetricInput[], manager: EntityManager): Promise<void> {
     const valid = this.filterValid(metrics);
     if (valid.length === 0) return;
-    for (let i = 0; i < valid.length; i += SensorMetricWriterService.SAFE_CHUNK) {
-      const chunk = valid.slice(i, i + SensorMetricWriterService.SAFE_CHUNK);
-      await manager.query(this.buildInsertSql(chunk.length), this.marshalParams(chunk));
+    for (const [tenantId, rows] of this.groupByTenant(valid)) {
+      await this.insertForTenant(tenantId, rows, (sql, params) => manager.query(sql, params));
     }
   }
 
   /**
-   * The single INSERT statement for `sensor.sensor_metrics` (N value rows).
-   * Preserves the re-publish-updates-the-row contract via ON CONFLICT DO UPDATE.
+   * Insert one tenant's rows into that tenant's own schema, chunked to stay
+   * within PostgreSQL's 65 535 parameter limit. The schema is resolved once per
+   * tenant through the platform SSoT and validated before it reaches any SQL.
    */
-  buildInsertSql(rowCount: number): string {
+  private async insertForTenant(
+    tenantId: string,
+    rows: SensorMetricInput[],
+    exec: (sql: string, params: unknown[]) => Promise<unknown>,
+  ): Promise<void> {
+    const schema = this.resolveTenantSchema(tenantId);
+    for (let i = 0; i < rows.length; i += SensorMetricWriterService.SAFE_CHUNK) {
+      const chunk = rows.slice(i, i + SensorMetricWriterService.SAFE_CHUNK);
+      await exec(this.buildInsertSql(schema, chunk.length), this.marshalParams(chunk));
+    }
+  }
+
+  /** Group rows by owning tenant — the destination schema is a function of the data. */
+  private groupByTenant(metrics: SensorMetricInput[]): Map<string, SensorMetricInput[]> {
+    const byTenant = new Map<string, SensorMetricInput[]>();
+    for (const m of metrics) {
+      const rows = byTenant.get(m.tenantId);
+      if (rows) {
+        rows.push(m);
+      } else {
+        byTenant.set(m.tenantId, [m]);
+      }
+    }
+    return byTenant;
+  }
+
+  /**
+   * The tenant's schema, via the platform SSoT. `validateTenantSchemaName`
+   * enforces the `tenant_<16 hex>` shape, so the identifier interpolated into
+   * the INSERT can never be attacker-influenced (SEC-M13).
+   */
+  private resolveTenantSchema(tenantId: string): string {
+    return validateTenantSchemaName(getTenantSchemaName(tenantId));
+  }
+
+  /** Tenant schema is safe to log; the raw tenant UUID is not (maskPii discipline). */
+  private tenantLabel(tenantId: string): string {
+    return getTenantSchemaName(tenantId);
+  }
+
+  /**
+   * The single INSERT statement for a tenant's `sensor_metrics` (N value rows).
+   * Preserves the re-publish-updates-the-row contract via ON CONFLICT DO UPDATE.
+   *
+   * `schema` is REQUIRED and re-validated here: there is no overload that emits a
+   * schema-less or shared-schema metric INSERT, so no future caller can route a
+   * tenant's telemetry outside that tenant's schema.
+   */
+  buildInsertSql(schema: string, rowCount: number): string {
+    const safeSchema = validateTenantSchemaName(schema);
     const rows: string[] = [];
     let paramIdx = 1;
     for (let r = 0; r < rowCount; r++) {
@@ -150,7 +243,7 @@ export class SensorMetricWriterService implements OnModuleInit, OnModuleDestroy 
       }
       rows.push(`(${placeholders.join(', ')})`);
     }
-    return `INSERT INTO sensor.sensor_metrics (
+    return `INSERT INTO "${safeSchema}".sensor_metrics (
          time, sensor_id, channel_id, tenant_id,
          site_id, department_id, system_id, equipment_id, tank_id, pond_id, farm_id,
          raw_value, value, quality_code, quality_bits,

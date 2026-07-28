@@ -194,6 +194,7 @@ export default {
         '<rootDir>/farm-tank-count-ssot.spec.ts',
         '<rootDir>/farm-stock-mutation-central-only.spec.ts',
         '<rootDir>/unit-growth-lock-composition.spec.ts',
+        '<rootDir>/rounding-ssot.spec.ts',
         '<rootDir>/farm-wq-template-nondestructive-ssot.spec.ts',
         '<rootDir>/farm-event-handler-tenant-context-ssot.spec.ts',
         '<rootDir>/farm-no-mock-data-growth-ssot.spec.ts',

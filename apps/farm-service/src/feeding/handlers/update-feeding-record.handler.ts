@@ -44,6 +44,7 @@ import { BiomassGrowthApplierService } from '../../feeding-protocol/services/bio
 import { DayPlanRecalcService } from '../../feeding-protocol/services/day-plan-recalc.service';
 import { FeedingDayPlan } from '../../feeding-protocol/entities/feeding-day-plan.entity';
 import { withUnitLockRetry } from '../../feeding-protocol/services/unit-lock-retry.util';
+import { round3 } from '../../common/utils/rounding.util';
 
 @Injectable()
 @CommandHandler(UpdateFeedingRecordCommand)
@@ -216,9 +217,4 @@ export class UpdateFeedingRecordHandler
       return saved;
     });
   }
-}
-
-/** kg alanları numeric(…,3) — aritmetik aynı hassasiyette. */
-function round3(value: number): number {
-  return Math.round((value + Number.EPSILON) * 1000) / 1000;
 }

@@ -38,6 +38,7 @@ import {
 import { effectiveMealSchedule, materializeMeals, suspensionFor } from './meal-schedule.util';
 import type { EffectiveTemperature } from '../../water-quality/services/water-temperature.service';
 import type { BatchDetail } from '../../batch/entities/tank-batch.entity';
+import { round3 } from '../../common/utils/rounding.util';
 
 // ============================================================================
 // TYPES
@@ -323,10 +324,6 @@ export class MealPlanGeneratorService {
   ): Promise<FeedingDayPlan | null> {
     return manager.findOne(FeedingDayPlan, { where: { tenantId, unitId, planDate } });
   }
-}
-
-function round3(value: number): number {
-  return Math.round((value + Number.EPSILON) * 1000) / 1000;
 }
 
 /** Çözümün SAKLANAN alt kümesi (band nesnesi ve geçiş bayrakları telde/DB'de yok). */

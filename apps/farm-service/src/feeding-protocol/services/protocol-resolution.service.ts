@@ -40,7 +40,7 @@ import { ProtocolAssignment } from '../entities/protocol-assignment.entity';
 import { DayPlanResolution } from '../entities/feeding-day-plan.entity';
 import type { EffectiveTemperature } from '../../water-quality/services/water-temperature.service';
 import { ProtocolRateService, ResolvedBand } from './protocol-rate.service';
-import { round3 } from './rounding.util';
+import { round3 } from '../../common/utils/rounding.util';
 
 export interface ProtocolResolutionInput {
   protocol: Pick<FeedingProtocolV2, 'bands' | 'temperatureAdjustments' | 'fcrMatrix' | 'settings'>;

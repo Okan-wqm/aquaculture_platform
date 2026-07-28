@@ -64,7 +64,7 @@ import { FeedAllocationService } from '../../storage/services/feed-allocation.se
 import { MovementType } from '../../storage/entities/stock-movement.entity';
 import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
 import type { FeedingRecordUpdatedEvent } from '@platform/event-contracts';
-import { round3 } from './rounding.util';
+import { round3 } from '../../common/utils/rounding.util';
 import { withUnitLockRetry } from './unit-lock-retry.util';
 
 // ============================================================================

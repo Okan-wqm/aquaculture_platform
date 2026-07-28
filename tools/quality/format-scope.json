@@ -8650,6 +8650,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/common/utils/rounding.util.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/common/utils/schema-sanitizer.ts",
       "prettier_managed": true
     },
@@ -11386,12 +11392,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/services/protocol-validation.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/feeding-protocol/services/rounding.util.ts",
       "prettier_managed": true
     },
     {
@@ -42228,6 +42228,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/rounding-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/runtime-lifecycle-timer-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -55230,10 +55236,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9054,
+  "file_count": 9055,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8873,
-  "managed_file_list_sha256": "f3f6e5036a193fac89b67719c3e1832106d0f37357caa716951129c572148426",
+  "managed_count": 8874,
+  "managed_file_list_sha256": "9c0086621f03b6445b96f5ece2b8921774c7a86a16954fe5885743f24f8001ce",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

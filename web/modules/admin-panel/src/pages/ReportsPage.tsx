@@ -34,19 +34,27 @@ interface ReportDefinition {
   icon: React.ReactNode;
 }
 
-interface GeneratedReport {
-  id: string;
+/**
+ * The page's view model, DERIVED from the API contract rather than redeclared.
+ *
+ * It used to be an independent interface carrying `data?: unknown` — a field
+ * the backend has never returned and no mapper ever set. Because it was
+ * optional, TypeScript could not flag it, so the preview modal's
+ * `Array.isArray(report.data)` branch was dead from the day it shipped and the
+ * modal answered "No data available" beside a non-zero row count (APA-144).
+ * Picking the pass-through fields off `ApiReportExecution` makes declaring a
+ * field the API does not carry a COMPILE ERROR; only the three genuinely
+ * renamed fields and the narrowed status are declared by hand.
+ */
+type GeneratedReport = Pick<
+  ApiReportExecution,
+  'id' | 'format' | 'summary' | 'rowCount' | 'fileSizeBytes' | 'previewRows' | 'unavailableReason'
+> & {
   type: ReportType;
-  format: ReportFormat;
   title: string;
   generatedAt: string;
   status: 'pending' | 'ready' | 'failed' | 'unavailable';
-  data?: unknown;
-  summary?: Record<string, unknown>;
-  rowCount?: number;
-  fileSizeBytes?: number;
-  unavailableReason?: string;
-}
+};
 
 const mapExecutionStatus = (status: ApiReportExecution['status']): GeneratedReport['status'] => {
   if (status === 'completed') return 'ready';
@@ -67,6 +75,7 @@ const mapExecutionToReport = (execution: ApiReportExecution): GeneratedReport =>
   status: mapExecutionStatus(execution.status),
   summary: execution.summary,
   rowCount: execution.rowCount,
+  previewRows: execution.previewRows,
   fileSizeBytes: execution.fileSizeBytes,
   unavailableReason: execution.unavailableReason,
 });
@@ -770,11 +779,11 @@ const ReportsPage: React.FC = () => {
             <div>
               <h4 className="text-sm font-medium text-gray-700 mb-2">Data</h4>
               <div className="overflow-x-auto border rounded-lg">
-                {Array.isArray(selectedReport.data) && selectedReport.data.length > 0 ? (
+                {selectedReport.previewRows && selectedReport.previewRows.length > 0 ? (
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                       <tr>
-                        {Object.keys(selectedReport.data[0] as Record<string, unknown>).map((key) => (
+                        {Object.keys(selectedReport.previewRows[0] ?? {}).map((key) => (
                           <th
                             key={key}
                             className="px-4 py-3 text-left text-xs font-medium text-gray-500"
@@ -785,7 +794,7 @@ const ReportsPage: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                      {(selectedReport.data as Record<string, unknown>[]).slice(0, 10).map((row, idx) => (
+                      {selectedReport.previewRows.map((row, idx) => (
                         <tr key={idx}>
                           {Object.values(row).map((value, cellIdx) => (
                             <td key={cellIdx} className="px-4 py-3 text-sm text-gray-900">
@@ -797,14 +806,22 @@ const ReportsPage: React.FC = () => {
                     </tbody>
                   </table>
                 ) : (
-                  <p className="p-4 text-gray-500 text-center">No data available</p>
+                  <p className="p-4 text-gray-500 text-center">
+                    {selectedReport.rowCount !== undefined && selectedReport.rowCount > 0
+                      ? 'Preview unavailable for this execution - download the report to see its rows.'
+                      : 'This report produced no rows.'}
+                  </p>
                 )}
               </div>
-              {Array.isArray(selectedReport.data) && selectedReport.data.length > 10 && (
-                <p className="text-sm text-gray-500 mt-2">
-                  Showing first 10 records. Download the report for all data.
-                </p>
-              )}
+              {selectedReport.previewRows &&
+                selectedReport.rowCount !== undefined &&
+                selectedReport.rowCount > selectedReport.previewRows.length && (
+                  <p className="text-sm text-gray-500 mt-2">
+                    Showing first {selectedReport.previewRows.length} of{' '}
+                    {selectedReport.rowCount.toLocaleString()} records. Download the report for all
+                    data.
+                  </p>
+                )}
             </div>
 
             <div className="flex justify-end gap-3 pt-4 border-t">

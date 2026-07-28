@@ -37,6 +37,7 @@ import {
   ReportExecution,
   ReportDefinitionStatus,
   ReportExecutionStatus,
+  REPORT_PREVIEW_ROW_LIMIT,
   SystemMetrics,
   measuredEntries,
 } from '../entities/analytics-snapshot.entity';
@@ -1517,9 +1518,25 @@ export class ReportsService {
       });
 
       // Update execution with results
+      // The rows exist in memory at exactly this point — generateReport ran
+      // with format 'json' above — so a bounded slice costs nothing and works
+      // uniformly for json, csv and pdf executions, with no artifact
+      // re-parsing and no second endpoint. `rowCount` still carries the true
+      // total, so the UI can say "first N of M" (APA-144).
+      const generatedRows: readonly unknown[] = Array.isArray(reportResult.data)
+        ? reportResult.data
+        : [];
+
       execution.status = 'completed';
       execution.summary = reportResult.summary;
       execution.rowCount = Array.isArray(reportResult.data) ? reportResult.data.length : 1;
+      // A real runtime narrowing, not an assertion: a non-object row genuinely
+      // cannot be a preview row, and dropping it is honest.
+      // A real runtime narrowing, not an assertion: a non-object row genuinely
+      // cannot be a preview row, and dropping it is honest.
+      execution.previewRows = generatedRows
+        .slice(0, REPORT_PREVIEW_ROW_LIMIT)
+        .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null);
       execution.fileSizeBytes = artifact.size;
       execution.artifactObjectKey = artifact.objectKey;
       execution.artifactSha256 = artifact.sha256;

@@ -44,6 +44,9 @@ export interface ReportExecution {
   downloadExpiresAt?: string;
   fileSizeBytes?: number;
   rowCount?: number;
+  /** The first REPORT_PREVIEW_ROW_LIMIT generated rows, captured at execution
+   *  time; absent on executions written before the column existed (APA-144). */
+  previewRows?: Array<Record<string, unknown>>;
   summary?: Record<string, unknown>;
   errorMessage?: string;
   /** Why the report could not be produced; set only for status 'unavailable'. */

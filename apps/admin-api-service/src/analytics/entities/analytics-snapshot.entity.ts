@@ -411,6 +411,15 @@ export class ReportDefinition {
 // ============================================================================
 
 /**
+ * How many generated rows an execution persists for the UI preview.
+ *
+ * Bounded on purpose: the object-storage artifact is the full record, this is a
+ * cheap sample. Exported so the backend slice and the frontend's "showing first
+ * N of M" note cannot drift apart (APA-144).
+ */
+export const REPORT_PREVIEW_ROW_LIMIT = 10;
+
+/**
  * Terminal outcomes of a report execution.
  *
  * `'unavailable'` is NOT a failure: nothing broke, and retrying will never
@@ -469,6 +478,23 @@ export class ReportExecution {
 
   @Column({ type: 'int', nullable: true })
   rowCount?: number;
+
+  /**
+   * The first `REPORT_PREVIEW_ROW_LIMIT` generated rows, captured at execution
+   * time.
+   *
+   * The report body lives in object storage, and a csv or pdf artifact cannot
+   * be losslessly re-rowed — so without this column the UI has no preview
+   * source at all, which is why its table branch was dead code and the modal
+   * answered "No data available" beside a non-zero row count (APA-144).
+   *
+   * Undefined on executions written before this column existed; those render an
+   * honest "preview unavailable — download the report", never "no data
+   * available". Deliberately NOT backfilled: a reconstructed preview would be
+   * worse than none.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  previewRows?: Array<Record<string, unknown>>;
 
   @Column({ type: 'int', nullable: true })
   fileSizeBytes?: number;

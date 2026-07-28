@@ -1197,6 +1197,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/analytics/__tests__/reports-execution-preview.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/analytics/__tests__/reports-pricing-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -2424,6 +2430,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/migrations/1802400000000-AddReportExecutionUnavailableReason.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1802500000000-AddReportExecutionPreviewRows.ts",
       "prettier_managed": true
     },
     {
@@ -45748,6 +45760,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/ReportsPage.preview.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/__tests__/TenantManagementPage.spec.tsx",
       "prettier_managed": true
     },
@@ -55554,10 +55572,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9108,
+  "file_count": 9111,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8927,
-  "managed_file_list_sha256": "ef435cd4ca12fd709e5076975a77c0e051923f7d4d97d45ccd8f61d773391d8e",
+  "managed_count": 8930,
+  "managed_file_list_sha256": "df826e678d5299e8fc1c9e7a4f8dabb828530f31b2b275140705fd223aeb334e",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

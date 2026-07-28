@@ -7258,6 +7258,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/__tests__/e2e/day-plan-generation.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/feed-allocation.postgres.spec.ts",
       "prettier_managed": true
     },
@@ -55194,10 +55200,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9048,
+  "file_count": 9049,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8867,
-  "managed_file_list_sha256": "bfe9dfc53d7998d677cabfe649bde03fbbb06606addf11a7326abf5d68c14ff8",
+  "managed_count": 8868,
+  "managed_file_list_sha256": "c9031e8f547299eb1e4b795d0cfc3de6a9bb436d52507b0a999c82e2db845b4d",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

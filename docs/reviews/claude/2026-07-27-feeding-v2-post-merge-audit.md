@@ -182,3 +182,34 @@ onlarca başka noktada yanlış olan bir dosyaya sahte doğruluk katardı. Kalı
 iki seçenekten biri: dosyayı gerçek üretim yoluna bağlamak ya da silip
 `scripts/validate-pagination-schema.js`'i composed supergraph'a yöneltmek —
 sahibi + tarihi registry'de.
+
+---
+
+## Kapıyı koşturunca çıkan yeni bulgu (2026-07-28)
+
+### SEC-HIGH-055 — `config` şemasının sahibi runtime login rolü
+
+`schema-invariants.spec.ts` bu workflow'a bağlanınca (FARM-MEDIUM-303) ilk kez
+GERÇEKTEN koştu ve B.4 on dört şemada birden düştü. Önce assertion'ın kendisi
+yanlıştı: stage-008 ÖNCESİ modeli bekliyordu ve önerdiği düzeltme, DDL yetkisini
+runtime rolüne geri verecekti. Düzeltilmiş hâli koşunca geriye tek bir gerçek
+ihlal kaldı: **`config`**.
+
+İki migration adımı aynı deploy hattında zıt durum şart koşuyor:
+
+- bootstrap stage 008 her şemayı NOLOGIN `<svc>_schema_owner`'a taşır;
+- `1800100000000-OwnConfigTablesByConfigService` — servis migration'ları
+  bootstrap'tan SONRA koşar — `ALTER SCHEMA config OWNER TO config_service` ile
+  geri alır ve bunu kendi `postCondition()`'ında ŞART KOŞAR.
+
+Sonrakinin dediği olur; sınır her ortamda `config` için açıktı. RLS gerekçesi
+gerçek ama TABLO sahipliğiyle karşılanıyor; ŞEMA sahipliği ek olarak DROP SCHEMA
+ve içindekileri yeniden atama yetkisi verir ve RLS yolunun hiçbir adımı onu
+kullanmaz.
+
+Kapanış: `1805500000000-RestoreConfigSchemaOwnerBoundary` yalnız şemayı owner
+rolüne döndürür (tablolar/tipler/diziler `config_service`'te kalır, boot yolu
+değişmez), `postCondition()` iki yarıyı birden doğrular.
+
+**Ders:** bu bulgu, kapıyı yazmakla değil KOŞTURMAKLA çıktı. Spec dosyası vardı,
+workflow'un `paths:` filtresinde adı geçiyordu, ve hiçbir adım onu çalıştırmıyordu.

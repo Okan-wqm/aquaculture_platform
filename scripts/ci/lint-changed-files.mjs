@@ -209,18 +209,63 @@ function eslintChunkSize() {
   return parsed;
 }
 
+/**
+ * The workspace a file belongs to, as a grouping key.
+ *
+ * Nested workspace roots (`web/modules/<name>`, `platform/libs/<name>`) take
+ * three segments; everything else takes two (`apps/<name>`, `libs/<name>`,
+ * `web/<name>`, `mcp/<name>`, …). Files outside any workspace (`tools/…`,
+ * `tests/…`, `scripts/…`) fall back to their first segment, which is a single
+ * group and therefore a single program.
+ */
+function workspaceKey(filePath) {
+  const segments = filePath.split('/').filter(Boolean);
+  if (segments.length <= 1) return '.';
+  const nestedRoots = new Set(['web/modules', 'platform/libs']);
+  const twoSegment = `${segments[0]}/${segments[1]}`;
+  if (nestedRoots.has(twoSegment) && segments.length > 2) {
+    return `${twoSegment}/${segments[2]}`;
+  }
+  return twoSegment;
+}
+
 function runEslint(cwd, files, label) {
   if (files.length === 0) return [];
 
+  // Group by workspace BEFORE chunking by count.
+  //
+  // The chunk size bounds how many FILES one ESLint process sees, but the
+  // memory an ESLint process actually costs is driven by how many distinct
+  // TypeScript PROGRAMS it has to build — type-aware rules load the whole
+  // program behind each file's tsconfig. Thirty files inside one project is
+  // cheap; thirty files spread across twenty projects makes a single process
+  // hold twenty programs at once, which is how this job reached the 6 GB heap
+  // ceiling and died with "ESLint produced no JSON" (INFRA-HIGH-101). The
+  // count-based chunk never engaged because thirty is below the default of
+  // forty — the unit was simply the wrong one.
+  //
+  // Grouping first makes peak memory a function of the LARGEST SINGLE project,
+  // not of how many projects a pull request happens to touch. Worst case this
+  // spawns more ESLint processes; that costs wall-clock, not correctness.
+  const groups = new Map();
+  for (const file of files) {
+    const key = workspaceKey(toRelativeFilePath(file, cwd));
+    const group = groups.get(key);
+    if (group) group.push(file);
+    else groups.set(key, [file]);
+  }
+
   const chunkSize = eslintChunkSize();
   const results = [];
-  for (let index = 0; index < files.length; index += chunkSize) {
-    const chunk = files.slice(index, index + chunkSize);
-    const chunkLabel =
-      files.length > chunkSize
-        ? `${label} files ${index + 1}-${index + chunk.length}/${files.length}`
-        : label;
-    results.push(...runEslintChunk(cwd, chunk, chunkLabel));
+  for (const [key, groupFiles] of [...groups.entries()].sort(([a], [b]) => (a < b ? -1 : 1))) {
+    for (let index = 0; index < groupFiles.length; index += chunkSize) {
+      const chunk = groupFiles.slice(index, index + chunkSize);
+      const chunkLabel =
+        groupFiles.length > chunkSize
+          ? `${label} ${key} files ${index + 1}-${index + chunk.length}/${groupFiles.length}`
+          : `${label} ${key}`;
+      results.push(...runEslintChunk(cwd, chunk, chunkLabel));
+    }
   }
 
   return results;

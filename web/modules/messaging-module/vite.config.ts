@@ -1,10 +1,10 @@
 /// <reference types="vitest" />
 import { resolve } from 'path';
 
+import createVitestTestPolicy from '@aquaculture/testing/vitest';
 import { federation } from '@module-federation/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
-import createVitestTestPolicy from '@aquaculture/testing/vitest';
 
 // WHY: the federation shared-deps SSoT lives in shared-ui SOURCE. This vite
 // config is evaluated by Node before shared-ui's runtime barrel (dist) exists,

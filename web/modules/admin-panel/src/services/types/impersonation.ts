@@ -45,8 +45,13 @@ export interface ImpersonationPermission {
 /**
  * Read model for GET /impersonation/sessions* — the backend's
  * SafeImpersonationSession. Optionality follows the entity's nullable columns.
- * `actionsPerformed` (the action array) is intentionally omitted: the UI only
- * consumes the numeric `actionCount`.
+ *
+ * `actionsPerformed` is declared because the read response HAS carried it all
+ * along: `SafeImpersonationSession` is the session entity minus its two secret
+ * token columns, and the action log is a jsonb column on that row. Omitting it
+ * from this type is what sent the View Actions modal to a
+ * `GET /sessions/:id/actions` route that does not exist (APA-151). Absent on a
+ * session that has performed nothing yet.
  */
 export interface ImpersonationSession {
   id: string;
@@ -58,6 +63,7 @@ export interface ImpersonationSession {
   targetUserEmail?: string;
   status: ImpersonationSessionStatus;
   reason: ImpersonationReasonCode;
+  actionsPerformed?: ImpersonationAction[];
   reasonDetails?: string;
   ticketReference?: string;
   ipAddress?: string;

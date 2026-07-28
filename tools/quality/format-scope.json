@@ -41544,6 +41544,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-panel-api-no-sync-throw.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-report-range-semantics-parity.spec.ts",
       "prettier_managed": true
     },
@@ -55602,10 +55608,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9116,
+  "file_count": 9117,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8935,
-  "managed_file_list_sha256": "dce3373902040edd528092ffeddd9101b864d9dd8ff407dd80d4e2c759028bc2",
+  "managed_count": 8936,
+  "managed_file_list_sha256": "1b0bd1c8711863b461db1082ddb489e493f2ec291bb9af23a0a2c0f70793d6bc",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

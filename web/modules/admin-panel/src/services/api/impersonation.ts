@@ -41,10 +41,6 @@ export const impersonationApi = {
     notes?: string;
   }) =>
     apiFetch<ImpersonationPermission>('/impersonation/permissions', { method: 'POST', body: JSON.stringify(data) }),
-  // TODO: No backend PUT endpoint for updating permissions (only POST grant and POST revoke)
-  updatePermission: (_id: string, _data: Partial<ImpersonationPermission>) => {
-    throw new Error('Not implemented: no backend PUT endpoint for /impersonation/permissions/:id. Use grant/revoke instead.');
-  },
   // Fix: backend uses POST /permissions/:superAdminId/revoke (no body needed, auth from JWT)
   revokePermission: (superAdminId: string, _revokedBy?: string, _reason?: string) =>
     apiFetch<void>(`/impersonation/permissions/${superAdminId}/revoke`, { method: 'POST' }),
@@ -77,9 +73,19 @@ export const impersonationApi = {
   revokeSession: (id: string, reason: string) =>
     apiFetch<ImpersonationSession>(`/impersonation/sessions/${id}/terminate`, { method: 'POST', body: JSON.stringify({ reason }) }),
   getActiveSessions: () => apiFetch<ImpersonationSession[]>('/impersonation/sessions/active'),
-  // TODO: No backend GET endpoint for session actions
-  getSessionActions: (_sessionId: string): Promise<ImpersonationAction[]> => {
-    throw new Error('Not implemented: no backend GET endpoint for /impersonation/sessions/:id/actions');
+  /**
+   * A session's action log.
+   *
+   * There is no `/sessions/:id/actions` route and there never was one — this
+   * used to throw synchronously for it. The log needs no route of its own: it
+   * is a jsonb column on the session row, so `GET /sessions/:id` has been
+   * returning it all along and the modal was asking the wrong question
+   * (APA-151). A session that has performed nothing yields an empty list, which
+   * is a measurement rather than a failure.
+   */
+  getSessionActions: async (sessionId: string): Promise<ImpersonationAction[]> => {
+    const session = await impersonationApi.getSession(sessionId);
+    return session.actionsPerformed ?? [];
   },
   // Fix: backend uses POST /sessions/:id/log-action (not /sessions/:id/actions)
   logAction: (sessionId: string, data: Omit<ImpersonationAction, 'timestamp'>) =>

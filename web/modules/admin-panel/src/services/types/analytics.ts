@@ -140,12 +140,3 @@ export interface UsageAnalytics {
   peakConcurrentUsers: number;
   dataStorageUsedGb: number;
 }
-
-export interface EngagementMetrics {
-  dailyActiveUsers: number;
-  weeklyActiveUsers: number;
-  monthlyActiveUsers: number;
-  avgSessionDuration: number;
-  avgActionsPerSession: number;
-  featureUsage: Array<{ feature: string; usageCount: number; uniqueUsers: number }>;
-}

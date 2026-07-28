@@ -1,5 +1,17 @@
 /**
  * Analytics API
+ *
+ * Four functions used to live here for endpoints the backend does not have —
+ * `getApiUsageByEndpoint`, `getEngagementMetrics`, `getFeatureUsage` and
+ * `getGeographicDistribution` — each a NON-async arrow that
+ * `throw new Error('Not implemented…')`. That is worse than absent: the throw
+ * happens before a promise exists, so it escapes the `.then().catch()` chain
+ * any caller would write around a function whose siblings all return promises.
+ * A caller's error handling would silently fail to run. They are deleted rather
+ * than converted to rejections, because an absent method is a COMPILE error at
+ * the first would-be caller while a throwing one is a runtime trap (APA-151).
+ * Re-introduce such a capability only alongside its real route, as a normal
+ * `apiFetch`.
  */
 
 import { apiFetch, buildQueryString } from '../http-client';
@@ -41,25 +53,6 @@ export const analyticsApi = {
   // Usage Analytics
   getUsageAnalytics: (params?: DateRangeParams) =>
     apiFetch<UsageAnalytics>(`/analytics/usage?${buildQueryString(params || {})}`),
-  // TODO: No backend endpoint for /analytics/usage/api - removed
-  getApiUsageByEndpoint: (_params?: DateRangeParams & { limit?: number }) => {
-    throw new Error('Not implemented: no backend endpoint for /analytics/usage/api');
-  },
-
-  // TODO: No backend endpoint for /analytics/engagement - removed
-  getEngagementMetrics: (_params?: DateRangeParams) => {
-    throw new Error('Not implemented: no backend endpoint for /analytics/engagement');
-  },
-  // TODO: No backend endpoint for /analytics/engagement/features - removed
-  getFeatureUsage: (_params?: DateRangeParams) => {
-    throw new Error('Not implemented: no backend endpoint for /analytics/engagement/features');
-  },
-
-  // TODO: No backend endpoint for /analytics/geographic - removed
-  getGeographicDistribution: () => {
-    throw new Error('Not implemented: no backend endpoint for /analytics/geographic');
-  },
-
   // Churn Analytics
   getTenantChurn: (period = '30d') =>
     apiFetch<GrowthTrend[]>(`/analytics/tenants/churn?period=${period}`),

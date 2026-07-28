@@ -12,15 +12,21 @@ import type {
   ReportFormat,
   ReportStatus,
   ReportType,
+  CreateReportDefinitionInput,
+  UpdateReportDefinitionInput,
 } from '../types';
 
 export const reportsApi = {
   // Report Definitions
   getReportDefinitions: () => apiFetch<ReportDefinition[]>('/reports/definitions'),
   getReportDefinition: (id: string) => apiFetch<ReportDefinition>(`/reports/definitions/${id}`),
-  createReportDefinition: (data: Omit<ReportDefinition, 'id' | 'createdAt' | 'lastRunAt'>) =>
+  // The payload types are the DTO whitelists, not `Omit<ReportDefinition, …>`:
+  // under `forbidNonWhitelisted: true` a read model minus a few keys is a 400,
+  // because it still carries `status`, `runCount`, `createdByEmail` and
+  // `updatedAt` that the server owns (APA-150).
+  createReportDefinition: (data: CreateReportDefinitionInput) =>
     apiFetch<ReportDefinition>('/reports/definitions', { method: 'POST', body: JSON.stringify(data) }),
-  updateReportDefinition: (id: string, data: Partial<ReportDefinition>) =>
+  updateReportDefinition: (id: string, data: UpdateReportDefinitionInput) =>
     apiFetch<ReportDefinition>(`/reports/definitions/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteReportDefinition: async (id: string): Promise<void> => {
     await apiFetch<unknown>(`/reports/definitions/${id}`, { method: 'DELETE' });

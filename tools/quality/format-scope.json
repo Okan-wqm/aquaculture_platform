@@ -41556,6 +41556,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-panel-report-definition-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-report-range-semantics-parity.spec.ts",
       "prettier_managed": true
     },
@@ -55614,10 +55620,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9118,
+  "file_count": 9119,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8937,
-  "managed_file_list_sha256": "1978697a5acf54fb67cfa42976391d355cfee4586e164227b27359da9d9eb1ed",
+  "managed_count": 8938,
+  "managed_file_list_sha256": "7976b4114066d772855f3a43ca21aa52b1371282e6794ca550d69fc2c8fa4077",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

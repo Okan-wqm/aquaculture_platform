@@ -480,6 +480,14 @@ describe('Feeding record tenant isolation on real Postgres', () => {
           name: 'Feed Warehouse',
           code: 'FEED-WH',
           type: StorageLocationType.WAREHOUSE,
+          // `usedCapacity` AÇIKÇA verilir. Kolonun `default: 0` değeri VAR ama
+          // bir `DecimalTransformer`'ı da var: TypeORM transformer'ı insert'ten
+          // ÖNCE uygular, `undefined` NULL'a döner ve satıra açık NULL yazılır
+          // — DB default'u hiç devreye girmez, NOT NULL kısıtı patlar.
+          // Üretimdeki `CreateStorageLocationHandler` de alanı elle 0 veriyor
+          // (create-storage-location.handler.ts:54); atlamak fixture'ı
+          // üretimden farklı kılardı.
+          usedCapacity: 0,
           isActive: true,
           isDeleted: false,
           createdBy: USER_ID,

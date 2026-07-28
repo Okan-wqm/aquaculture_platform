@@ -237,3 +237,51 @@ class ExecutorWiringPins(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CreditExhaustionReleasesTheClaim(unittest.TestCase):
+    """ORPHAN-HIGH-489 — a raise added without a handler leaks the claim.
+
+    ClaudeCreditExhausted was introduced by ORPHAN-HIGH-475 so a usage-limit
+    notice could not be returned as the agent's answer. It was then left out of
+    every except tuple, so it escaped ci_executor.main() with the claim still
+    CLAIMED — blocking the request for the full lease window. That is the same
+    defect as ResourceLimitsUnavailable one release earlier, in the code that
+    fixed the previous one.
+
+    Found by the review panel while attacking a different fix, which is the
+    argument for reviewing with many hands: the writer was looking at
+    ResourceLimitsUnavailable and the sibling raise was invisible from there.
+    """
+
+    def test_the_executor_handler_covers_both_refusal_families(self) -> None:
+        src = (_POC / "ci_executor.py").read_text(encoding="utf-8")
+        self.assertIn("except (ClaudeCliUnavailable, ClaudeCreditExhausted)", src)
+        # The arm must RELEASE, not merely log — a caught exception that leaves
+        # the claim held is the same outage with a tidier traceback.
+        # Slice by INDENTATION, not by text. The first version cut the arm at
+        # the literal "return 1" — which appears inside the arm's own comment
+        # ("It used to `return 1` with the claim still CLAIMED"), truncating the
+        # body before the assertion target. Fourth time this session a test of
+        # mine matched prose instead of code; a structural slice cannot.
+        lines = src.splitlines()
+        start = next(
+            i for i, l in enumerate(lines)
+            if l.strip().startswith("except (ClaudeCliUnavailable, ClaudeCreditExhausted)")
+        )
+        indent = len(lines[start]) - len(lines[start].lstrip())
+        body = []
+        for line in lines[start + 1:]:
+            if line.strip() and (len(line) - len(line.lstrip())) <= indent:
+                break
+            body.append(line)
+        arm = "\n".join(body)
+        self.assertIn("_release_claim(", arm)
+        self.assertIn('reason="claude_spawn_refused"', arm)
+
+    def test_the_exception_is_imported_not_shadowed(self) -> None:
+        """A NameError here would make the except arm unreachable at runtime
+        while the source-level assertion above still passed."""
+        src = (_POC / "ci_executor.py").read_text(encoding="utf-8")
+        header = src[: src.index("except (ClaudeCliUnavailable, ClaudeCreditExhausted)")]
+        self.assertIn("ClaudeCreditExhausted,", header)

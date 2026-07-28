@@ -1397,3 +1397,6 @@ finding is one nobody can navigate back to from the review that produced it.
 
 * **ORPHAN-CRITICAL-488** — The ORPHAN-CRITICAL-484 ancestry gate made a first-ever ARIA run impossible: a newborn tree could never publish, permanently  
   Severity CRITICAL, layer 1, owner okan, deadline 2026-08-25.
+
+* **ORPHAN-HIGH-489** — ClaudeCreditExhausted escaped ci_executor.main() uncaught, leaking the claim for the full lease window  
+  Severity HIGH, layer 2, owner okan, deadline 2026-08-25.

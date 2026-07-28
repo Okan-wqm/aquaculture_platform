@@ -47,6 +47,7 @@ if str(_THIS_DIR) not in sys.path:
 
 from claude_runtime import (
     CLAUDE_MOCK_ENV_VAR,
+    ClaudeCreditExhausted,
     CREDIT_FALLBACK_EFFORT,
     MODEL_FALLBACK_TIER,
     ClaudeAuthUnavailable,
@@ -1869,8 +1870,16 @@ def main(argv: list[str] | None = None) -> int:
             request_envelope=request_envelope,
             tools_dir=tools_dir,
         )
-    except ClaudeCliUnavailable as exc:
+    except (ClaudeCliUnavailable, ClaudeCreditExhausted) as exc:
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
+        # ORPHAN-HIGH-489 — ClaudeCreditExhausted belongs here too. I added that
+        # raise in ORPHAN-HIGH-475 so a quota notice could not be returned as
+        # the agent's answer, and then left it in nobody's handler: exactly the
+        # ResourceLimitsUnavailable defect one release earlier, in my own code.
+        # A quota-exhausted run would escape main() with the claim CLAIMED, so
+        # a billing event — the most likely reason to run out mid-cycle — would
+        # also block the request for the full lease window. Found by the review
+        # panel while attacking the ResourceLimitsUnavailable fix.
         # ORPHAN-HIGH-470 follow-through — this arm is the landing site for
         # every refused spawn: `invoke_claude_cli` re-raises the whole
         # perimeter family (auth / CLI / policy / usage — policy now including
@@ -1878,8 +1887,11 @@ def main(argv: list[str] | None = None) -> int:
         # It used to `return 1` with the claim still CLAIMED, so a refusal
         # caused by a missing limiter or sandbox blocked the request for the
         # full lease window and the next cycle found nothing to do — strictly
-        # worse than the crash it replaced. Every other fail-fast branch in
-        # main() releases; this one is now no exception.
+        # worse than the crash it replaced. The CLI-exit and submit-failure arms
+        # below both release; this arm now matches them. (An earlier draft of
+        # this comment claimed EVERY fail-fast branch in main() releases — a
+        # reviewer flagged that as unverified, and it is narrowed here rather
+        # than left as a claim nobody checked.)
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,

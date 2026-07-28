@@ -98,16 +98,24 @@ describe('FeedAllocationService.allocateForDeduction — real Postgres', () => {
     // Seed EntityManager üzerinden yazılır: ham repository erişimi CLAUDE.md'de
     // yasaklıdır (tenant izolasyonunu baypas eder) ve kapı spec dosyalarını
     // muaf tutmaz — `manager.save(Entity, rows)` o yüzeye hiç dokunmaz.
+    // `usedCapacity` AÇIKÇA verilir. Kolon `default: 0` taşır ama aynı zamanda
+    // bir `DecimalTransformer`'ı vardır: TypeORM transformer'ı insert'ten ÖNCE
+    // uygular, `undefined` NULL'a döner ve satıra açık NULL yazılır — DB
+    // default'u hiç devreye girmez, NOT NULL kısıtı patlar. Üretimdeki
+    // `CreateStorageLocationHandler` de bu yüzden alanı elle 0 veriyor
+    // (create-storage-location.handler.ts:54), yani burada onu atlamak
+    // fixture'ı üretimden farklı kılardı.
     await dataSource.manager.save(StorageLocation, [
-      { id: LOC_A1, tenantId: TENANT, siteId: SITE_A, code: 'A1', name: 'Site A depo 1' },
-      { id: LOC_A2, tenantId: TENANT, siteId: SITE_A, code: 'A2', name: 'Site A depo 2' },
-      { id: LOC_B1, tenantId: TENANT, siteId: SITE_B, code: 'B1', name: 'Site B depo' },
+      { id: LOC_A1, tenantId: TENANT, siteId: SITE_A, code: 'A1', name: 'Site A depo 1', usedCapacity: 0 },
+      { id: LOC_A2, tenantId: TENANT, siteId: SITE_A, code: 'A2', name: 'Site A depo 2', usedCapacity: 0 },
+      { id: LOC_B1, tenantId: TENANT, siteId: SITE_B, code: 'B1', name: 'Site B depo', usedCapacity: 0 },
       {
         id: LOC_DELETED,
         tenantId: TENANT,
         siteId: SITE_A,
         code: 'DEL',
         name: 'Kapatılmış depo',
+        usedCapacity: 0,
         isDeleted: true,
       },
     ]);

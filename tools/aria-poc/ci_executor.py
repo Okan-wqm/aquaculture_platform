@@ -1871,6 +1871,20 @@ def main(argv: list[str] | None = None) -> int:
         )
     except ClaudeCliUnavailable as exc:
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
+        # ORPHAN-HIGH-470 follow-through — this arm is the landing site for
+        # every refused spawn: `invoke_claude_cli` re-raises the whole
+        # perimeter family (auth / CLI / policy / usage — policy now including
+        # the translated `ResourceLimitsUnavailable`) as ClaudeCliUnavailable.
+        # It used to `return 1` with the claim still CLAIMED, so a refusal
+        # caused by a missing limiter or sandbox blocked the request for the
+        # full lease window and the next cycle found nothing to do — strictly
+        # worse than the crash it replaced. Every other fail-fast branch in
+        # main() releases; this one is now no exception.
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            agent_id=agent_id, lease_token=lease_token,
+            reason="claude_spawn_refused",
+        )
         return 1
 
     if cli_exit != 0:

@@ -423,15 +423,44 @@ def _apply_resource_limits(argv: list[str], *, timeout_seconds: int) -> list[str
     way: a kernel that cannot be imported means the perimeter cannot be
     applied, and a write-capable agent must not be spawned unbounded on the
     strength of an ImportError.
+
+    ORPHAN-HIGH-470 follow-through — the kernel's `ResourceLimitsUnavailable`
+    is translated into this module's policy vocabulary HERE, at the boundary,
+    exactly as `_apply_write_containment` translates `SandboxUnavailable`.
+    Pre-fix only the ImportError arm was translated, so the no-limiter tail
+    added by ORPHAN-HIGH-470 raised a kernel exception type that no caller of
+    `run_claude_exec` names: `ci_executor.invoke_claude_cli` and
+    `worker_executor.main` each catch
+    (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation,
+    ClaudeUsageUnavailable) and nothing else, so a refused spawn escaped as an
+    unhandled exception past every claim-release branch both files own.
+
+    Translating rather than asking each executor to name a kernel type is the
+    tier-2 shape: the kernel exception cannot cross this module, so a future
+    executor gets the fail-closed handling by default instead of having to
+    remember a fourth exception name. Fail CLOSED — there is deliberately no
+    acknowledgement env var and no bare-argv return, because the operator's
+    escape hatch for an unusable limiter would be an unbounded write-capable
+    agent, which is the failure `apply_resource_limits` exists to prevent.
     """
     try:
-        from aria_kernel.implementation_safety import apply_resource_limits
+        from aria_kernel.implementation_safety import (
+            ResourceLimitsUnavailable,
+            apply_resource_limits,
+        )
     except ImportError as exc:  # pragma: no cover - kernel always importable here
         raise ClaudePolicyViolation(
             f"claude_resource_limits_unavailable: cannot import the limit "
             f"helper ({exc}); refusing to spawn an unbounded agent"
         ) from exc
-    return apply_resource_limits(argv, timeout_seconds=timeout_seconds)
+    try:
+        return apply_resource_limits(argv, timeout_seconds=timeout_seconds)
+    except ResourceLimitsUnavailable as exc:
+        raise ClaudePolicyViolation(
+            f"claude_resource_limits_required: {exc}. Install coreutils "
+            f"`timeout` on the runner, or give it a working systemd user "
+            f"session bus, so memory/CPU/task/wall-clock caps can be applied."
+        ) from exc
 
 
 def run_claude_exec(

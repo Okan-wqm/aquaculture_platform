@@ -34,6 +34,7 @@ from .workflow_contract_registry import (
     AUDITED_WORKFLOW_EXCLUSIONS,
     WORKFLOW_CONTRACTS,
     AuditedWorkflowExclusion,
+    WorkflowAbortGate,
     WorkflowContract,
     WorkflowJobContract,
     workflow_contract_hash,
@@ -305,6 +306,15 @@ def _verify_job_contract(
         reasons=reasons,
         failure_classes=failure_classes,
     )
+    # Same reasoning: step presence / ordering / abort-gate coverage are
+    # independent of the preflight step, so they run before the early return.
+    _verify_declared_steps(
+        job_contract=job_contract,
+        steps=steps,
+        named_steps=named_steps,
+        reasons=reasons,
+        failure_classes=failure_classes,
+    )
     preflight_matches = [
         (idx, step)
         for idx, step in named_steps
@@ -361,6 +371,119 @@ def _verify_job_contract(
         reasons=reasons,
         failure_classes=failure_classes,
     )
+
+
+def _collapse(text: str) -> str:
+    """Whitespace-insensitive form of a GHA expression.
+
+    ``if: always() && steps.x.outputs.y != 'true'`` and a re-wrapped or
+    differently spaced spelling of the same condition must compare equal, or
+    the gate would reject correctly-guarded steps and get deleted for being
+    noisy.
+    """
+    return "".join(text.split())
+
+
+def _step_label(step: Any, index: int) -> str:
+    if isinstance(step, dict):
+        for key in ("name", "uses", "id"):
+            value = step.get(key)
+            if isinstance(value, str) and value:
+                return value
+    return f"step[{index}]"
+
+
+def _verify_declared_steps(
+    *,
+    job_contract: WorkflowJobContract,
+    steps: list[Any],
+    named_steps: list[tuple[int, dict[str, Any]]],
+    reasons: list[str],
+    failure_classes: list[str],
+) -> None:
+    """Enforce declared step presence, ordering and abort-gate coverage.
+
+    ORPHAN-CRITICAL-469 was reintroducible with the whole suite green:
+    ``first_governed_mutation_step`` pins one step name and its position
+    relative to the preflight, so moving the restore step to AFTER "Find next
+    pending request" — which is the bug, the queue read before the queue
+    exists — passed, and deleting the publish and quarantine steps passed too.
+
+    The contract is expressed over step NAMES and their relative positions,
+    never indices: an index survives no unrelated insertion, and a check that
+    fails for unrelated reasons is edited until it stops failing.
+    """
+    job_id = job_contract.job_id
+    # First occurrence wins; a duplicated step name is a workflow-authoring
+    # problem the ordering contract must not silently pick a side on.
+    first_index: dict[str, int] = {}
+    for idx, step in named_steps:
+        first_index.setdefault(str(step.get("name")), idx)
+
+    for required in job_contract.required_steps:
+        if required not in first_index:
+            reasons.append(f"workflow_required_step_missing:{job_id}:{required}")
+            failure_classes.append("workflow_contract_steps")
+
+    for earlier, later in job_contract.step_order:
+        absent = [name for name in (earlier, later) if name not in first_index]
+        if absent:
+            reasons.append(f"workflow_ordered_step_missing:{job_id}:{absent}")
+            failure_classes.append("workflow_contract_ordering")
+            continue
+        if first_index[earlier] >= first_index[later]:
+            reasons.append(
+                f"workflow_step_out_of_order:{job_id}:{earlier!r}_must_precede_{later!r}"
+            )
+            failure_classes.append("workflow_contract_ordering")
+
+    _verify_abort_gate(
+        job_id=job_id,
+        gate=job_contract.abort_gate,
+        steps=steps,
+        first_index=first_index,
+        reasons=reasons,
+        failure_classes=failure_classes,
+    )
+
+
+def _verify_abort_gate(
+    *,
+    job_id: str,
+    gate: WorkflowAbortGate | None,
+    steps: list[Any],
+    first_index: dict[str, int],
+    reasons: list[str],
+    failure_classes: list[str],
+) -> None:
+    """Every step after the gate must carry the gate's guard.
+
+    ``exit 0`` in the announce step ends that STEP; GitHub Actions has no
+    job-level abort. An unguarded step after the gate therefore runs during a
+    blocked cycle — in aria-agent-executor that meant claiming a request and
+    invoking an agent while another host held the autonomous-loop lease.
+    """
+    if gate is None:
+        return
+    if gate.gate_step not in first_index:
+        reasons.append(f"workflow_abort_gate_step_missing:{job_id}:{gate.gate_step}")
+        failure_classes.append("workflow_contract_abort_gate")
+        return
+    gate_index = first_index[gate.gate_step]
+    guard = _collapse(gate.guard_expression)
+    announce = _collapse(gate.skip_expression)
+    # Every step, not only named ones: an unnamed `uses:` step after the gate
+    # does real work too, and would otherwise be an unguarded blind spot.
+    for index, step in enumerate(steps):
+        if index <= gate_index or not isinstance(step, dict):
+            continue
+        condition = _collapse(str(step.get("if") or ""))
+        if guard in condition or announce in condition:
+            continue
+        reasons.append(
+            f"workflow_abort_gate_unguarded_step:{job_id}:{_step_label(step, index)}"
+        )
+        failure_classes.append("workflow_contract_abort_gate")
 
 
 _BURN_IN_STEP_MARKER = "autonomy burn-in observe"

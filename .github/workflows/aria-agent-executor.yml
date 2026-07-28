@@ -258,6 +258,13 @@ jobs:
               f.write('blocked=false\n')
           PY
 
+      # This step ANNOUNCES the skip; it does not perform it. `exit 0` ends a
+      # STEP, never the JOB, so before the per-step guards below existed a
+      # lease-blocked run walked straight on: it claimed a request, invoked an
+      # agent against a tree another host was actively mutating, and then
+      # discarded the result at the publish gate (which does carry the guard).
+      # The abort is the `blocked != 'true'` condition on EVERY step from here
+      # down, mirroring the sibling producer aria-auto-cycle.yml.
       - name: Skip autonomous loop when local lease is fresh
         if: steps.lease_check.outputs.blocked == 'true'
         run: |
@@ -274,6 +281,7 @@ jobs:
       # records exactly which layer decided the mock state.
       - name: Pre-flight - Claude Code auth + mock-mode kill-switch resolution
         id: preflight
+        if: steps.lease_check.outputs.blocked != 'true'
         env:
           KILL_SWITCH: ${{ vars.ARIA_MOCK_KILL_SWITCH }}
           INPUT_MOCK: ${{ github.event.inputs.mock }}
@@ -307,6 +315,7 @@ jobs:
 
       - name: Find next pending request
         id: pending
+        if: steps.lease_check.outputs.blocked != 'true'
         env:
           # Plan 024 v3 §B-3 — env-only interpolation; raw shell access
           # to ${{ github.event.inputs.request_id }} is closed because
@@ -338,6 +347,7 @@ jobs:
       # without having to grep governance.jsonl by timestamp.
       - name: Handoff snapshot — session_start
         id: handoff_start
+        if: steps.lease_check.outputs.blocked != 'true'
         run: |
           set -euo pipefail
           SESSION_ID="gha-aria-agent-executor-${{ github.run_id }}-${{ github.run_attempt }}"
@@ -349,7 +359,7 @@ jobs:
             --repo-root .
 
       - name: Skip if no pending request
-        if: steps.pending.outputs.request_id == ''
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id == ''
         run: echo "no pending requests; exiting cleanly"
 
       # ORPHAN-CRITICAL-439 — the containment layer needs a backend to exist.
@@ -358,7 +368,7 @@ jobs:
       # does not run unconfined, it does not run at all — and the failure
       # looks like an agent problem rather than a missing package.
       - name: Install sandbox backend (bubblewrap)
-        if: steps.pending.outputs.request_id != ''
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
         run: |
           set -euo pipefail
           sudo apt-get update -qq
@@ -370,7 +380,7 @@ jobs:
       # use. Failing here is the point: a missing or non-functional backend must
       # stop the job rather than silently disable the implementer.
       - name: Verify the sandbox actually confines
-        if: steps.pending.outputs.request_id != ''
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
         run: |
           set -euo pipefail
           PYTHONPATH=aria-kernel python3 - <<'PY'
@@ -387,7 +397,7 @@ jobs:
           PY
 
       - name: Run CI executor
-        if: steps.pending.outputs.request_id != ''
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
         env:
           CLAUDE_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
           CLAUDE_CLI_MOCK_SOURCE: ${{ steps.preflight.outputs.mock_source }}
@@ -400,7 +410,7 @@ jobs:
             "${{ steps.pending.outputs.request_id }}"
 
       - name: Upload response envelope (artefact)
-        if: steps.pending.outputs.request_id != ''
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           # Limited scope — response envelope plus its transcript anchor. claims.jsonl +
@@ -421,7 +431,7 @@ jobs:
       # reviewer can diff session_start vs session_stop snapshots and
       # see exactly what the run touched (or did not touch).
       - name: Handoff snapshot — session_stop
-        if: always() && steps.handoff_start.outputs.session_id != ''
+        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.handoff_start.outputs.session_id != ''
         run: |
           set -euo pipefail
           PYTHONPATH=aria-kernel python3 -m aria_kernel handoff snapshot \
@@ -438,7 +448,7 @@ jobs:
       # is allowed to become the next run's starting state.
       - name: Verify aria-tools state integrity
         id: integrity
-        if: always()
+        if: always() && steps.lease_check.outputs.blocked != 'true'
         run: |
           set -uo pipefail
           # RUNNER_TEMP, not /tmp — the only external write root this job's
@@ -479,7 +489,12 @@ jobs:
       # `name=aria-tools-state`, so a quarantined tree cannot be picked up
       # as the next run's starting state.
       - name: Quarantine unverified aria-tools state
-        if: always() && (steps.integrity.outputs.state_valid != 'true' || steps.restore_state.outputs.restored != 'true')
+        # The blocked guard matches the sibling producer and the publish/fail
+        # steps either side of it: when the lease check refused the run the
+        # integrity step above is skipped, so state_valid is the empty string
+        # and an unguarded `!= 'true'` would quarantine a tree this run never
+        # touched — turning every blocked night into a forensics artifact.
+        if: always() && steps.lease_check.outputs.blocked != 'true' && (steps.integrity.outputs.state_valid != 'true' || steps.restore_state.outputs.restored != 'true')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: quarantine-evidence-${{ github.run_id }}

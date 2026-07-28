@@ -576,5 +576,225 @@ jobs:
         )
 
 
+class StepOrderingAndAbortGateContract(unittest.TestCase):
+    """ORPHAN-CRITICAL-469 was reintroducible with the suite green.
+
+    Mutation testing against the pre-fix registry: moving "Restore aria-tools
+    state from previous run" to AFTER "Find next pending request" passed both
+    ``verify_workflow_contract`` and ``verify_workflow_registry``, and so did
+    deleting the publish and quarantine steps outright. Only renaming or
+    deleting the restore step was caught, because
+    ``first_governed_mutation_step`` pins a name and its position relative to
+    the preflight — nothing else. The moved-restore mutation IS the original
+    bug: ``next_pending_request`` reads the queue before the queue has been
+    restored and always answers None.
+
+    Every test below runs the mutation against the LIVE YAML rather than a
+    synthetic fixture, so a contract that has quietly stopped applying to the
+    real workflow cannot pass here.
+    """
+
+    _EXECUTOR = "aria-agent-executor"
+    _CYCLE = "aria-auto-cycle"
+
+    def _mutated_verdict(self, workflow_id: str, mutate):
+        """Apply ``mutate`` to the live job's step list and re-verify."""
+        repo = Path(__file__).resolve().parents[2]
+        contract = WORKFLOW_CONTRACTS[workflow_id]
+        job_id = contract.job_contracts[0].job_id
+        import yaml  # local import: the verifier owns the dependency
+
+        workflow = yaml.safe_load(
+            (repo / contract.workflow_file).read_text(encoding="utf-8")
+        )
+        workflow["jobs"][job_id]["steps"] = mutate(
+            list(workflow["jobs"][job_id]["steps"])
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / contract.workflow_file
+            target.parent.mkdir(parents=True)
+            target.write_text(
+                yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8",
+            )
+            return verify_workflow_contract(
+                workflow_id=workflow_id, workspace_root=root,
+            )
+
+    @staticmethod
+    def _index_of(steps, name: str) -> int:
+        return next(
+            idx for idx, step in enumerate(steps)
+            if isinstance(step, dict) and step.get("name") == name
+        )
+
+    def test_live_workflows_satisfy_their_declared_step_contracts(self) -> None:
+        # The unmutated control. Without it, every rejection below could be
+        # explained by the round-trip rather than by the mutation.
+        repo = Path(__file__).resolve().parents[2]
+        for workflow_id in (self._EXECUTOR, self._CYCLE):
+            with self.subTest(workflow=workflow_id):
+                verdict = verify_workflow_contract(
+                    workflow_id=workflow_id, workspace_root=repo,
+                )
+                self.assertTrue(verdict.valid, verdict.reasons)
+        for workflow_id in (self._EXECUTOR, self._CYCLE):
+            with self.subTest(workflow=workflow_id, form="round-tripped"):
+                verdict = self._mutated_verdict(workflow_id, lambda steps: steps)
+                self.assertTrue(verdict.valid, verdict.reasons)
+
+    def test_restore_moved_after_the_queue_read_is_rejected(self) -> None:
+        """The verbatim ORPHAN-CRITICAL-469 reintroduction."""
+        def mutate(steps):
+            restore = steps.pop(self._index_of(steps, "Restore aria-tools state from previous run"))
+            steps.insert(
+                self._index_of(steps, "Find next pending request") + 1, restore,
+            )
+            return steps
+
+        verdict = self._mutated_verdict(self._EXECUTOR, mutate)
+        self.assertFalse(verdict.valid)
+        self.assertIn("workflow_contract_ordering", verdict.failure_classes)
+        self.assertTrue(
+            any(
+                r.startswith("workflow_step_out_of_order:executor:")
+                and "Find next pending request" in r
+                for r in verdict.reasons
+            ),
+            verdict.reasons,
+        )
+
+    def test_restore_moved_after_the_lease_preflight_is_rejected(self) -> None:
+        # The other half of 469: lease_state() reads the restored tree, so a
+        # bootstrap-empty one cannot observe a lease another host holds.
+        def mutate(steps):
+            restore = steps.pop(self._index_of(steps, "Restore aria-tools state from previous run"))
+            steps.insert(
+                self._index_of(steps, "Pre-flight — cross-host autonomous-loop lease check") + 1,
+                restore,
+            )
+            return steps
+
+        verdict = self._mutated_verdict(self._EXECUTOR, mutate)
+        self.assertFalse(verdict.valid)
+        self.assertIn("workflow_contract_ordering", verdict.failure_classes)
+
+    def test_deleting_publish_or_quarantine_is_rejected(self) -> None:
+        for step_name in (
+            "Persist aria-tools state (verified)",
+            "Quarantine unverified aria-tools state",
+            "Fail when aria-tools state was not published",
+        ):
+            with self.subTest(step=step_name):
+                verdict = self._mutated_verdict(
+                    self._EXECUTOR,
+                    lambda steps, name=step_name: [
+                        s for s in steps
+                        if not (isinstance(s, dict) and s.get("name") == name)
+                    ],
+                )
+                self.assertFalse(verdict.valid)
+                self.assertIn("workflow_contract_steps", verdict.failure_classes)
+                self.assertIn(
+                    f"workflow_required_step_missing:executor:{step_name}",
+                    verdict.reasons,
+                )
+
+    def test_publish_moved_before_the_work_is_rejected(self) -> None:
+        # Terminal accounting that runs before the work reports on a tree the
+        # run never wrote.
+        def mutate(steps):
+            publish = steps.pop(self._index_of(steps, "Persist aria-tools state (verified)"))
+            steps.insert(self._index_of(steps, "Run CI executor"), publish)
+            return steps
+
+        verdict = self._mutated_verdict(self._EXECUTOR, mutate)
+        self.assertFalse(verdict.valid)
+        self.assertIn("workflow_contract_ordering", verdict.failure_classes)
+
+    def test_a_step_after_the_lease_gate_without_the_guard_is_rejected(self) -> None:
+        """FIX 2's structural half: `exit 0` ends a step, not a job.
+
+        A step after the gate with no guard runs during a blocked cycle. In
+        aria-agent-executor that meant claiming a request and invoking an
+        agent against a tree another host held the lease on.
+        """
+        for workflow_id, victim in (
+            (self._EXECUTOR, "Run CI executor"),
+            (self._CYCLE, "Run nightly standard-profile cycle"),
+        ):
+            with self.subTest(workflow=workflow_id, step=victim):
+                def mutate(steps, name=victim):
+                    for step in steps:
+                        if isinstance(step, dict) and step.get("name") == name:
+                            step.pop("if", None)
+                    return steps
+
+                verdict = self._mutated_verdict(workflow_id, mutate)
+                self.assertFalse(verdict.valid)
+                self.assertIn("workflow_contract_abort_gate", verdict.failure_classes)
+                self.assertIn(
+                    f"workflow_abort_gate_unguarded_step:"
+                    f"{WORKFLOW_CONTRACTS[workflow_id].job_contracts[0].job_id}:{victim}",
+                    verdict.reasons,
+                )
+
+    def test_a_guard_naming_the_wrong_output_is_rejected(self) -> None:
+        # A plausible near-miss: the step carries an `if:`, just not the one
+        # the gate writes. Substring matching must not accept it.
+        def mutate(steps):
+            for step in steps:
+                if isinstance(step, dict) and step.get("name") == "Run CI executor":
+                    step["if"] = "steps.preflight.outputs.effective_mock != 'true'"
+            return steps
+
+        verdict = self._mutated_verdict(self._EXECUTOR, mutate)
+        self.assertFalse(verdict.valid)
+        self.assertIn("workflow_contract_abort_gate", verdict.failure_classes)
+
+    def test_reformatted_guard_is_still_accepted(self) -> None:
+        # The inverse of the test above: a gate that rejects a correctly
+        # guarded step for whitespace gets deleted for being noisy.
+        def mutate(steps):
+            for step in steps:
+                if isinstance(step, dict) and step.get("name") == "Run CI executor":
+                    step["if"] = (
+                        "steps.pending.outputs.request_id != ''\n&&  "
+                        "steps.lease_check.outputs.blocked   !=   'true'"
+                    )
+            return steps
+
+        verdict = self._mutated_verdict(self._EXECUTOR, mutate)
+        self.assertNotIn("workflow_contract_abort_gate", verdict.failure_classes)
+
+    def test_the_announce_step_may_carry_the_inverse_guard(self) -> None:
+        # "Skip autonomous loop when local lease is fresh" runs ONLY when
+        # blocked; the gate must permit exactly that one shape.
+        gate = WORKFLOW_CONTRACTS[self._EXECUTOR].job_contracts[0].abort_gate
+        self.assertIsNotNone(gate)
+        self.assertEqual(gate.skip_expression, "steps.lease_check.outputs.blocked == 'true'")
+        self.assertEqual(gate.guard_expression, "steps.lease_check.outputs.blocked != 'true'")
+
+    def test_every_lease_gated_workflow_declares_an_abort_gate(self) -> None:
+        """Discovery-driven, so a THIRD lease-gated workflow cannot ship
+        without declaring the gate that makes its `exit 0` real."""
+        repo = Path(__file__).resolve().parents[2]
+        for workflow_id, path in discover_aria_workflows(repo).items():
+            if "outputs.blocked" not in path.read_text(encoding="utf-8"):
+                continue
+            with self.subTest(workflow=workflow_id):
+                contract = WORKFLOW_CONTRACTS.get(workflow_id)
+                self.assertIsNotNone(
+                    contract,
+                    f"{workflow_id} gates on a blocked output but is not contracted",
+                )
+                self.assertTrue(
+                    any(job.abort_gate is not None for job in contract.job_contracts),
+                    f"{workflow_id} gates on a blocked output but declares no "
+                    "abort_gate, so nothing checks that its later steps carry "
+                    "the guard — `exit 0` does not abort a GitHub Actions job",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()

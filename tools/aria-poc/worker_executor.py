@@ -287,6 +287,35 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
     except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation, ClaudeUsageUnavailable) as exc:
+        # ORPHAN-HIGH-470 follow-through — this arm now also receives a
+        # refused spawn (`ResourceLimitsUnavailable` / `SandboxUnavailable`,
+        # translated to ClaudePolicyViolation at the
+        # `claude_runtime._apply_resource_limits` / `_apply_write_containment`
+        # boundary). Unlike ci_executor.main, this process owns NONE of the
+        # in-flight state, so `return 1` releases everything it holds:
+        #
+        #   * claim — minted by `worker_dispatch_hook.
+        #     dispatch_one_pending_worker_assignment` (step 3), never by this
+        #     process. That hook is the only production caller; on
+        #     `exit_code != 0` it calls `release_claim_assignment(reason=
+        #     "worker_executor_failed")`, which rolls the assignment back to
+        #     `pending` for the next daemon tick — pinned by
+        #     `aria-kernel/tests/test_worker_dispatch_hook.py::
+        #     test_executor_nonzero_exit_releases_claim`. A release from here
+        #     would race that one and lose (the second release raises
+        #     `claim ... already terminal`).
+        #   * lease — the same claim's lease, arriving read-only via
+        #     ARIA_LEASE_TOKEN and retired by that same release. There is no
+        #     separate lease object to hand back.
+        #   * worktree — created by `worker_dispatch.create_dispatch_request`
+        #     and recorded on the assignment row, deliberately NOT per-run:
+        #     the retry re-claims the same path, and `prune_worktrees` reaps
+        #     it once the assignment is terminal and past its TTL. Removing it
+        #     here would destroy the evidence of the failed attempt and the
+        #     branch the retry builds on.
+        #
+        # Non-zero exit is therefore the whole release protocol for this
+        # process; adding a release call here would be the leak.
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
         return 1
     if completed.returncode != 0:

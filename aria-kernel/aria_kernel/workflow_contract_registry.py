@@ -45,6 +45,37 @@ from pathlib import Path
 
 
 @dataclass(frozen=True)
+class WorkflowAbortGate:
+    """A step whose output must abort every later step in the job.
+
+    GitHub Actions has no job-level abort: ``exit 0`` inside a ``run:`` block
+    ends the STEP and the job continues to the next one. The ONLY mechanism
+    that stops the remainder of a job is a per-step ``if:``, so a gate is real
+    only when every later step carries it. ``aria-agent-executor`` shipped the
+    announce-and-``exit 0`` shape with no guard on any downstream step, so a
+    lease-blocked run claimed a request, invoked an agent against a tree
+    another host was mutating, and discarded the result at the publish gate.
+
+    ``guard_output`` is the step output the gate writes (e.g.
+    ``steps.lease_check.outputs.blocked``); both the continue-expression and
+    its inverse are DERIVED from it, so the two spellings cannot drift apart.
+    """
+
+    gate_step: str
+    guard_output: str
+
+    @property
+    def guard_expression(self) -> str:
+        """Every step after the gate must carry this to run when unblocked."""
+        return f"{self.guard_output} != 'true'"
+
+    @property
+    def skip_expression(self) -> str:
+        """...or this, for a step that exists only to announce the block."""
+        return f"{self.guard_output} == 'true'"
+
+
+@dataclass(frozen=True)
 class WorkflowJobContract:
     job_id: str
     preflight_step: str
@@ -68,6 +99,29 @@ class WorkflowJobContract:
     # ``None`` means the job runs no burn-in step (and the verifier rejects a
     # burn-in step appearing in such a job — both directions are enforced).
     burn_in_timeout_floor_minutes: int | None = None
+    # ORPHAN-CRITICAL-469 regression surface. ``first_governed_mutation_step``
+    # pins ONE step name and its position relative to the preflight, and
+    # nothing else: mutation testing showed the whole suite stayed green when
+    # the restore step was moved AFTER "Find next pending request" (the exact
+    # bug — the queue is read before it is restored, so next_pending_request
+    # always sees a bootstrap-empty tree) and when the publish and quarantine
+    # steps were deleted outright. Only renaming or deleting the restore step
+    # was caught, so 469 could be reintroduced verbatim with the suite green.
+    #
+    # These three fields close that as DECLARED contract, deliberately by step
+    # NAME rather than by index: an index contract breaks on the first
+    # unrelated step insertion, and a contract that breaks for unrelated
+    # reasons gets edited until it stops complaining — which is how the thing
+    # it was pinning ends up moved.
+    #
+    # ``required_steps`` — steps that must EXIST in the job.
+    required_steps: tuple[str, ...] = ()
+    # ``step_order`` — (earlier, later) pairs; both must exist and the first
+    # must appear strictly before the second.
+    step_order: tuple[tuple[str, str], ...] = ()
+    # ``abort_gate`` — the lease/kill gate whose guard every later step must
+    # carry (see WorkflowAbortGate). ``None`` = this job has no such gate.
+    abort_gate: WorkflowAbortGate | None = None
 
 
 @dataclass(frozen=True)
@@ -99,6 +153,20 @@ _RUN_ID_ATTEMPT = r"\$\{\{\s*github\.run_id\s*\}\}-\$\{\{\s*github\.run_attempt\
 _REQUEST_ID = r"\$\{\{\s*steps\.pending\.outputs\.request_id\s*\}\}"
 _REPORT_DATE = r"[0-9]{4}-[0-9]{2}-[0-9]{2}"
 _REPORT_DATE_EXPR = r"\$\{\{\s*steps\.target\.outputs\.date\s*\}\}"
+
+
+# Step names quoted from the live YAMLs. Named constants because each one is
+# referenced from several ordering pairs below, and a typo'd literal would
+# silently weaken the contract into a no-op rather than fail loudly. Note the
+# two lease steps differ by an em-dash vs hyphen — the verifier matches the
+# YAML text exactly, so the difference is preserved rather than normalized.
+_EXECUTOR_RESTORE_STEP = "Restore aria-tools state from previous run"
+_EXECUTOR_LEASE_STEP = "Pre-flight — cross-host autonomous-loop lease check"
+_EXECUTOR_PENDING_STEP = "Find next pending request"
+_EXECUTOR_WORK_STEP = "Run CI executor"
+_CYCLE_RESTORE_STEP = "Restore aria-tools state from previous run"
+_CYCLE_LEASE_STEP = "Pre-flight - cross-host autonomous-loop lease check"
+_CYCLE_WORK_STEP = "Run nightly standard-profile cycle"
 
 
 # All contract VALUES below are re-derived from main's LIVE workflow YAMLs
@@ -168,6 +236,34 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 dlp_artifact="aria-agent-executor-preflight.json",
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
+                required_steps=(
+                    _EXECUTOR_RESTORE_STEP,
+                    _EXECUTOR_LEASE_STEP,
+                    _EXECUTOR_PENDING_STEP,
+                    _EXECUTOR_WORK_STEP,
+                    "Persist aria-tools state (verified)",
+                    "Quarantine unverified aria-tools state",
+                    "Fail when aria-tools state was not published",
+                ),
+                step_order=(
+                    # ORPHAN-CRITICAL-469 itself: the restore must precede the
+                    # lease preflight (lease_state reads the restored tree, so
+                    # a bootstrap-empty one cannot observe a held lease) AND
+                    # the queue read (next_pending_request on an unrestored
+                    # tree always answers None — the stranded-queue bug).
+                    (_EXECUTOR_RESTORE_STEP, _EXECUTOR_LEASE_STEP),
+                    (_EXECUTOR_RESTORE_STEP, _EXECUTOR_PENDING_STEP),
+                    # The return half of the bridge: publish, quarantine and
+                    # the not-published failure are the run's terminal
+                    # accounting and must follow the work, never precede it.
+                    (_EXECUTOR_WORK_STEP, "Persist aria-tools state (verified)"),
+                    (_EXECUTOR_WORK_STEP, "Quarantine unverified aria-tools state"),
+                    (_EXECUTOR_WORK_STEP, "Fail when aria-tools state was not published"),
+                ),
+                abort_gate=WorkflowAbortGate(
+                    gate_step=_EXECUTOR_LEASE_STEP,
+                    guard_output="steps.lease_check.outputs.blocked",
+                ),
             ),
         ),
     ),
@@ -203,6 +299,28 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # Measured REAL burn-in wall time ≈ 80-90 min (30 cycles ×
                 # ~2.5 min); the live YAML sets 150 for burn-in mode.
                 burn_in_timeout_floor_minutes=120,
+                # The producer is the shape aria-agent-executor mirrors, so it
+                # carries the same declared constraints — a reference
+                # implementation that is itself unpinned is a reference that
+                # drifts, and the consumer would be corrected to match it.
+                required_steps=(
+                    _CYCLE_RESTORE_STEP,
+                    _CYCLE_LEASE_STEP,
+                    _CYCLE_WORK_STEP,
+                    "Persist aria-tools state (verified)",
+                    "Quarantine unverified aria-tools state",
+                    "Fail on unverified aria-tools state",
+                ),
+                step_order=(
+                    (_CYCLE_RESTORE_STEP, _CYCLE_LEASE_STEP),
+                    (_CYCLE_WORK_STEP, "Persist aria-tools state (verified)"),
+                    (_CYCLE_WORK_STEP, "Quarantine unverified aria-tools state"),
+                    (_CYCLE_WORK_STEP, "Fail on unverified aria-tools state"),
+                ),
+                abort_gate=WorkflowAbortGate(
+                    gate_step=_CYCLE_LEASE_STEP,
+                    guard_output="steps.lease_check.outputs.blocked",
+                ),
             ),
         ),
     ),
@@ -396,6 +514,7 @@ __all__ = [
     "AUDITED_WORKFLOW_EXCLUSIONS",
     "WORKFLOW_CONTRACTS",
     "AuditedWorkflowExclusion",
+    "WorkflowAbortGate",
     "WorkflowContract",
     "WorkflowJobContract",
     "workflow_contract_hash",

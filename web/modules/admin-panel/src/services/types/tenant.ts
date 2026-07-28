@@ -2,6 +2,19 @@
  * Tenant domain types
  */
 
+// GENERATED backend contracts — tools/codegen/admin-contracts/manifest.ts.
+// Imported so shapes below can reference them; re-exported so import sites
+// are unchanged.
+import type {
+  TenantActivity,
+  TenantNote,
+} from './generated/admin-contracts';
+
+export type {
+  TenantActivity,
+  TenantNote,
+};
+
 // ============================================================================
 // Tenant Enums (Backend uyumlu)
 // ============================================================================
@@ -108,31 +121,6 @@ export interface TenantStats {
   byPlan?: Record<string, number>;
   newTenantsLast30Days: number;
   churnedTenantsLast30Days: number;
-}
-
-export interface TenantActivity {
-  id: string;
-  tenantId: string;
-  activityType: string;
-  title: string;
-  description?: string;
-  metadata?: Record<string, unknown>;
-  previousValue?: Record<string, unknown>;
-  newValue?: Record<string, unknown>;
-  performedBy?: string;
-  performedByEmail?: string;
-  createdAt: string;
-}
-
-export interface TenantNote {
-  id: string;
-  tenantId: string;
-  content: string;
-  category: string;
-  isPinned: boolean;
-  createdBy: string;
-  createdByEmail?: string;
-  createdAt: string;
 }
 
 export interface TenantDetail extends Tenant {

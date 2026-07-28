@@ -7,18 +7,30 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
-import { systemSettingsApi } from '../../services/adminApi';
-import type { FeatureToggle } from '../../services/adminApi';
+import { systemSettingsApi, FEATURE_TOGGLE_SCOPE_VALUES } from '../../services/adminApi';
+import type { FeatureToggle, FeatureToggleScope } from '../../services/adminApi';
 
 // ============================================================================
 // Types
 // ============================================================================
 
+/** Operator-facing label per scope. Exhaustive, so a new scope cannot ship unlabelled. */
+const SCOPE_LABELS: Record<FeatureToggleScope, string> = {
+  global: 'Global',
+  tenant: 'Tenant',
+  user: 'User',
+  environment: 'Environment',
+};
+
 interface FeatureToggleForm {
   key: string;
   name: string;
   description: string;
-  scope: 'global' | 'tenant' | 'user';
+  // The generated vocabulary, not a hand-listed subset. This omitted
+  // `environment`, so an environment-scoped toggle could neither be created nor
+  // edited — opening one in the edit form assigned a scope the field could not
+  // hold.
+  scope: FeatureToggleScope;
   category: string;
   rolloutPercentage: number;
   isExperimental: boolean;
@@ -307,9 +319,10 @@ export const FeatureTogglesPage: React.FC = () => {
             onChange={(e) => setFilterScope(e.target.value)}
             options={[
               { value: 'all', label: 'All Scopes' },
-              { value: 'global', label: 'Global' },
-              { value: 'tenant', label: 'Tenant' },
-              { value: 'user', label: 'User' },
+              ...FEATURE_TOGGLE_SCOPE_VALUES.map((scope) => ({
+                value: scope,
+                label: SCOPE_LABELS[scope],
+              })),
             ]}
           />
           <Select
@@ -492,11 +505,10 @@ export const FeatureTogglesPage: React.FC = () => {
                     <Select
                       value={formData.scope}
                       onChange={(e) => setFormData({ ...formData, scope: e.target.value as FeatureToggleForm['scope'] })}
-                      options={[
-                        { value: 'global', label: 'Global' },
-                        { value: 'tenant', label: 'Tenant' },
-                        { value: 'user', label: 'User' },
-                      ]}
+                      options={FEATURE_TOGGLE_SCOPE_VALUES.map((scope) => ({
+                        value: scope,
+                        label: SCOPE_LABELS[scope],
+                      }))}
                     />
                   </div>
                   <div>

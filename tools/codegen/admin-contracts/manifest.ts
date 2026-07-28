@@ -116,4 +116,73 @@ export const ADMIN_CONTRACT_SOURCES: readonly ContractSource[] = [
     file: 'apps/admin-api-service/src/security/services/compliance.service.ts',
     exports: ['ComplianceRequirement', 'ComplianceCheckResult'],
   },
+  {
+    module: 'database',
+    file: 'apps/admin-api-service/src/database-management/entities/database-management.entity.ts',
+    exports: [
+      'BackupStatus',
+      'BackupType',
+      'MigrationStatus',
+      'SchemaStatus',
+      'SchemaMigration',
+      'TenantSchema',
+      'SchemaBackup',
+    ],
+    // The panel has always called this `DatabaseBackup`. Renaming at generation
+    // keeps that name at every call site while making the entity its single
+    // author.
+    rename: { SchemaBackup: 'DatabaseBackup' },
+  },
+  {
+    module: 'debug',
+    file: 'apps/admin-api-service/src/impersonation/entities/debug-session.entity.ts',
+    exports: [
+      'DebugSessionType',
+      'DebugSession',
+      'CapturedQuery',
+      'CapturedApiCall',
+      'FeatureFlagOverride',
+    ],
+  },
+  {
+    module: 'tenant',
+    file: 'apps/admin-api-service/src/tenant/entities/tenant-activity.entity.ts',
+    exports: ['TenantActivity', 'TenantNote'],
+  },
+  {
+    module: 'support',
+    file: 'apps/admin-api-service/src/support/entities/support.entity.ts',
+    exports: ['OnboardingStep'],
+  },
+  {
+    module: 'audit',
+    file: 'apps/admin-api-service/src/audit/audit.entity.ts',
+    exports: ['AuditLog', 'AuditSeverity'],
+  },
+  {
+    module: 'security',
+    file: 'apps/admin-api-service/src/security/entities/security.entity.ts',
+    exports: [
+      'ComplianceType',
+      'DataRequestStatus',
+      'DataRequestType',
+      'SecurityEventStatus',
+      'SecurityEventType',
+    ],
+  },
+  {
+    module: 'settings',
+    file: 'apps/admin-api-service/src/system-management/entities/job-queue.entity.ts',
+    exports: ['JobStatus', 'BackgroundJob'],
+  },
+  {
+    module: 'settings',
+    file: 'apps/admin-api-service/src/system-management/entities/error-tracking.entity.ts',
+    exports: ['ErrorGroup', 'ErrorOccurrence'],
+  },
+  {
+    module: 'settings',
+    file: 'apps/admin-api-service/src/system-management/entities/feature-toggle.entity.ts',
+    exports: ['FeatureToggleScope', 'FeatureToggleStatus', 'FeatureToggle'],
+  },
 ];

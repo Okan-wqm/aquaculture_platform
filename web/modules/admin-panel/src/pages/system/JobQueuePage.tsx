@@ -8,13 +8,25 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
 import { systemSettingsApi } from '../../services/adminApi';
-import type { BackgroundJob, JobDashboard, JobQueue } from '../../services/adminApi';
+import type { BackgroundJob, JobDashboard, JobQueue, JobStatus } from '../../services/adminApi';
+import { JOB_STATUS_VALUES } from '../../services/adminApi';
+
+/** Operator-facing label per job state. Exhaustive, so a new state cannot ship unlabelled. */
+const STATUS_LABELS: Record<JobStatus, string> = {
+  pending: 'Pending',
+  scheduled: 'Scheduled',
+  running: 'Running',
+  completed: 'Completed',
+  failed: 'Failed',
+  cancelled: 'Cancelled',
+  retrying: 'Retrying',
+  paused: 'Paused',
+};
 
 // ============================================================================
 // Types
 // ============================================================================
 
-type JobStatus = 'pending' | 'scheduled' | 'running' | 'completed' | 'failed' | 'cancelled' | 'retrying';
 
 // ============================================================================
 // Default Empty Data
@@ -201,8 +213,12 @@ export const JobQueuePage: React.FC = () => {
       failed: 'error',
       cancelled: 'default',
       retrying: 'warning',
+      // `paused` was missing, so a paused job fell through to the fallback.
+      // The Record is exhaustive over the generated vocabulary now, which makes
+      // a new backend state a compile error rather than a silent default.
+      paused: 'info',
     };
-    return variants[status] || 'default';
+    return variants[status];
   };
 
   const getPriorityLabel = (priority: number) => {
@@ -348,13 +364,15 @@ export const JobQueuePage: React.FC = () => {
               <Select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
+                // Derived from the vocabulary rather than hand-listed: this
+                // offered 6 of 8 states, so scheduled, retrying and paused jobs
+                // could not be filtered for at all.
                 options={[
                   { value: 'all', label: 'All Statuses' },
-                  { value: 'pending', label: 'Pending' },
-                  { value: 'running', label: 'Running' },
-                  { value: 'completed', label: 'Completed' },
-                  { value: 'failed', label: 'Failed' },
-                  { value: 'cancelled', label: 'Cancelled' },
+                  ...JOB_STATUS_VALUES.map((status) => ({
+                    value: status,
+                    label: STATUS_LABELS[status],
+                  })),
                 ]}
               />
               {safeJobs.some((j) => j.status === 'failed') && (

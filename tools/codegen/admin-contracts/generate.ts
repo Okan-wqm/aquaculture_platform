@@ -51,6 +51,15 @@ interface EmittedType {
 
 class ContractGenerationError extends Error {}
 
+/** `FeatureToggleScope` → `FEATURE_TOGGLE_SCOPE`. */
+function screamingSnake(name: string): string {
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+    .toUpperCase();
+}
+
+
 // ---------------------------------------------------------------------------
 // Program
 // ---------------------------------------------------------------------------
@@ -192,11 +201,25 @@ class WireEmitter {
         }
         return JSON.stringify(value);
       });
+      // Emit the vocabulary as a VALUE as well as a type.
+      //
+      // A type-only union vanishes at runtime, so every dropdown that offers
+      // these states has to re-list them by hand — and then it drifts. The job
+      // filter offered 6 of JobStatus's 8 members, so `scheduled`, `retrying`
+      // and `paused` jobs were unfilterable; the feature-toggle form omitted
+      // `environment`, so that scope could not be created or edited at all.
+      //
+      // Deriving the type FROM the array means the two cannot disagree: one
+      // declaration, usable in a `.map()` and in a `Record<T, …>` exhaustiveness
+      // check alike.
+      const constName = `${screamingSnake(name)}_VALUES`;
       this.emitted.set(name, {
         name,
         module,
         origin,
-        body: `export type ${name} = ${members.join(' | ')};`,
+        body:
+          `export const ${constName} = [${members.join(', ')}] as const;\n` +
+          `export type ${name} = (typeof ${constName})[number];`,
       });
       return true;
     }

@@ -534,7 +534,7 @@ export const OnboardingPage: React.FC = () => {
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
                               <span className={`font-medium ${isCompleted ? 'text-green-700' : isCurrent ? 'text-blue-700' : 'text-gray-700'}`}>
-                                {step.name}
+                                {step.title}
                               </span>
                               {step.isRequired && (
                                 <span className="text-xs text-red-500">Required</span>

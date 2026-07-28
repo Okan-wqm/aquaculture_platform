@@ -14,6 +14,7 @@ import type {
   PaginationParams,
   DateRangeParams,
   IpAccessRule,
+  CreateFeatureToggleInput,
   FeatureToggle,
   CreateMaintenanceWindowInput,
   MaintenanceWindow,
@@ -103,7 +104,7 @@ export const systemSettingsApi = {
   getFeatureToggles: (params?: { scope?: string; status?: string; category?: string; search?: string } & PaginationParams) =>
     apiFetch<PaginatedResult<FeatureToggle>>(`/system/settings/feature-toggles?${buildQueryString(params || {})}`),
   getFeatureToggle: (id: string) => apiFetch<FeatureToggle>(`/system/settings/feature-toggles/${id}`),
-  createFeatureToggle: (data: Omit<FeatureToggle, 'id' | 'createdAt' | 'updatedAt'>) =>
+  createFeatureToggle: (data: CreateFeatureToggleInput) =>
     apiFetch<FeatureToggle>('/system/settings/feature-toggles', { method: 'POST', body: JSON.stringify(data) }),
   updateFeatureToggle: (id: string, data: Partial<FeatureToggle>) =>
     apiFetch<FeatureToggle>(`/system/settings/feature-toggles/${id}`, { method: 'PUT', body: JSON.stringify(data) }),

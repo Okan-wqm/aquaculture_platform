@@ -2,6 +2,17 @@
  * Support domain types (Tickets, Messaging, Announcements, Onboarding)
  */
 
+// GENERATED backend contracts — tools/codegen/admin-contracts/manifest.ts.
+// Imported so shapes below can reference them; re-exported so import sites
+// are unchanged.
+import type {
+  OnboardingStep,
+} from './generated/admin-contracts';
+
+export type {
+  OnboardingStep,
+};
+
 // ============================================================================
 // Ticket Types — REMOVED (APA-213)
 // ============================================================================
@@ -49,18 +60,6 @@ export interface AnnouncementTarget {
 // ============================================================================
 // Onboarding Types
 // ============================================================================
-
-export interface OnboardingStep {
-  id: string;
-  code: string;
-  name: string;
-  description: string;
-  order: number;
-  isRequired: boolean;
-  estimatedMinutes: number;
-  helpUrl?: string;
-  videoUrl?: string;
-}
 
 export interface TenantOnboarding {
   tenantId: string;

@@ -74,26 +74,31 @@ const DEAD_DRIFT_FIELDS = [
   'failedSchemas',
 ];
 
-describe('admin database-management FE type ↔ backend entity parity (APA-326)', () => {
-  const entitySrc = read(ENTITY_FILE);
+describe('admin database-management FE types are derived from the entities (APA-326)', () => {
   const feSrc = read(FE_TYPES_FILE);
 
-  for (const { fe, entity } of PAIRS) {
-    it(`every field on FE ${fe} exists on backend entity ${entity}`, () => {
-      const feFields = interfaceFields(feSrc, fe);
-      const backend = entityFields(entitySrc, entity);
-      expect(feFields.size).toBeGreaterThan(0);
-      const phantom = [...feFields].filter((f) => !backend.has(f));
-      expect(phantom).toEqual([]);
-    });
-  }
-
-  it('the dead drifted field names do not reappear on any FE database type', () => {
-    for (const { fe } of PAIRS) {
-      const feFields = interfaceFields(feSrc, fe);
-      for (const dead of DEAD_DRIFT_FIELDS) {
-        expect(feFields.has(dead)).toBe(false);
-      }
+  it('derives the FE types instead of re-declaring them', () => {
+    // This gate used to compare FE interfaces against the entity field by
+    // field, and separately forbid a list of names that had drifted onto the FE
+    // copies (tenantName, rowCount, compressionType, encryptionKey, location,
+    // appliedToSchemas, failedSchemas).
+    //
+    // Both jobs are obsolete for the same reason: there is no FE copy any more.
+    // `TenantSchema`, `SchemaMigration` and `DatabaseBackup` (generated from
+    // `SchemaBackup`, renamed at generation so the panel keeps its own name)
+    // come out of tools/codegen/admin-contracts, so a field the entity does not
+    // have cannot be written down here, and `admin-contracts-generated` fails
+    // the build if the emitted file falls behind.
+    for (const name of ['TenantSchema', 'SchemaMigration', 'DatabaseBackup']) {
+      expect(feSrc).not.toMatch(new RegExp(`export interface ${name}\\s*\\{`));
     }
+    expect(feSrc).toContain("from './generated/admin-contracts'");
+  });
+
+  it('keeps the entity as the only author of these shapes', () => {
+    // The rename is the one thing a reader could mistake for a second copy, so
+    // it is pinned where it is declared rather than left to be rediscovered.
+    const manifest = read('tools/codegen/admin-contracts/manifest.ts');
+    expect(manifest).toContain("rename: { SchemaBackup: 'DatabaseBackup' }");
   });
 });

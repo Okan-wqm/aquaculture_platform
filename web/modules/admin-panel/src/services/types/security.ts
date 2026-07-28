@@ -2,28 +2,28 @@
  * Security domain types
  */
 
+// GENERATED backend contracts — tools/codegen/admin-contracts/manifest.ts.
+// Imported so shapes below can reference them; re-exported so import sites
+// are unchanged.
+import type {
+  AuditSeverity,
+  ComplianceType,
+  DataRequestStatus,
+  DataRequestType,
+  SecurityEventStatus,
+  SecurityEventType,
+} from './generated/admin-contracts';
+
+export type {
+  AuditSeverity,
+  ComplianceType,
+  DataRequestStatus,
+  DataRequestType,
+  SecurityEventStatus,
+  SecurityEventType,
+};
+
 export type SecurityEventSeverity = 'low' | 'medium' | 'high' | 'critical';
-export type SecurityEventType =
-  | 'failed_login'
-  | 'brute_force_attempt'
-  | 'suspicious_activity'
-  | 'unauthorized_access'
-  | 'privilege_escalation'
-  | 'data_exfiltration'
-  | 'malware_detected'
-  | 'api_abuse'
-  | 'rate_limit_exceeded'
-  | 'sql_injection_attempt'
-  | 'xss_attempt'
-  | 'csrf_attempt'
-  | 'account_lockout'
-  | 'password_spray'
-  | 'credential_stuffing'
-  | 'session_hijacking'
-  | 'ip_blacklisted'
-  | 'geo_anomaly'
-  | 'device_anomaly'
-  | 'time_anomaly';
 
 export type ActivityLogCategory =
   | 'user_action'
@@ -35,14 +35,6 @@ export type ActivityLogCategory =
   | 'authentication';
 
 export type ActivityLogSeverity = 'debug' | 'info' | 'warning' | 'error' | 'critical';
-export type AuditSeverity = 'info' | 'warning' | 'critical';
-export type SecurityEventStatus =
-  | 'detected'
-  | 'investigating'
-  | 'confirmed'
-  | 'mitigated'
-  | 'false_positive'
-  | 'escalated';
 export type SecurityIncidentStatus =
   | 'open'
   | 'investigating'
@@ -58,8 +50,6 @@ export type ThreatIndicatorType =
   | 'email'
   | 'user_agent'
   | 'cidr';
-export type ComplianceType = 'gdpr' | 'ccpa' | 'hipaa' | 'pci_dss' | 'sox' | 'iso27001';
-export type DataRequestType = 'access' | 'deletion' | 'portability' | 'rectification' | 'restriction';
 // Mirrors the backend DataRequestStatus vocabulary (security.entity.ts /
 // admin.data_requests CHECK); kept in lockstep by
 // tests/invariants/admin-data-request-status-vocab.spec.ts (APA-236). The
@@ -71,7 +61,6 @@ export const DATA_REQUEST_STATUSES = [
   'rejected',
   'expired',
 ] as const;
-export type DataRequestStatus = (typeof DATA_REQUEST_STATUSES)[number];
 
 export interface BackendActivityLog {
   id: string;

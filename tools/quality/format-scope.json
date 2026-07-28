@@ -17360,6 +17360,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/gateway-api/src/test-utils/mock-types.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/gateway-api/src/test-utils/mock-types.ts",
       "prettier_managed": true
     },
@@ -54942,10 +54948,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9006,
+  "file_count": 9007,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8825,
-  "managed_file_list_sha256": "e7a2a867b478abc01f9fa448aa4411a79a5948874168e57e4c302abc082f6394",
+  "managed_count": 8826,
+  "managed_file_list_sha256": "4aae5332100437f76bae95f2551a658ba790fdb6fb678838c5db52f838209655",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

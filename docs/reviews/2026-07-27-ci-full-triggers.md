@@ -196,3 +196,36 @@ the repository's `test-utils/` convention. It therefore assigned the gateway Jes
 The classifier now routes `test-utils/` through the owning project's test compiler. A CI
 invariant locks this convention, so the fix improves ownership without adding test globals to a
 production tsconfig.
+
+## INFRA-HIGH-098 — workspace package inference exposed unowned factory lint debt
+
+Publishing the shared Vitest policy through `@aquaculture/testing` made the existing testing
+library a first-class inferred Nx project. Its newly active lint target then exposed two factory
+helpers that bypassed structural typing, plus a CommonJS policy file whose runtime global was not
+declared to ESLint.
+
+The data-source factory now returns its repository stub without a redundant double assertion, and
+the event-bus filter narrows unknown events structurally before reading `eventType`. The policy
+file declares its actual CommonJS runtime rather than disabling `no-undef`. The complete
+`@aquaculture/testing` lint target passes with zero warnings.
+
+## INFRA-HIGH-099 — mock response accessors used a non-narrowing length guard
+
+The gateway helper checked a Jest mock-call array's length before indexing its last tuple. With
+`noUncheckedIndexedAccess`, the compiler correctly rejected that independent indexing operation:
+the array could have changed between the guard and access.
+
+Both accessors now use optional element access on the selected last tuple. Empty call histories
+return `undefined` by contract, while populated histories preserve their exact response value.
+The gateway test compiler passes without a non-null assertion or widened type.
+
+## PERF-HIGH-015 — alert cache test compared two single wall-clock samples
+
+The cache performance test compared one cold call with one warm call using `performance.now()`.
+On the shared runner, scheduler noise made the valid cache hit measure 6.84 ms after a 0.86 ms
+miss, so the test asserted scheduling order rather than cache behavior.
+
+The replacement contract calls the public rule-loading boundary twice and proves the second load
+returns the cached object while query-builder construction and repository I/O each occur exactly
+once. No timeout, threshold, retry, or production cache behavior changed; the focused alert
+coverage target passes deterministically.

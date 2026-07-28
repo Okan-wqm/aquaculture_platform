@@ -249,10 +249,7 @@ export function createMockArgumentsHost(
  */
 export function getResponseBody(mockResponse: MockResponse): unknown {
   const jsonCalls = mockResponse.json.mock.calls;
-  if (jsonCalls.length > 0) {
-    return jsonCalls[jsonCalls.length - 1][0];
-  }
-  return undefined;
+  return jsonCalls[jsonCalls.length - 1]?.[0];
 }
 
 /**
@@ -260,10 +257,7 @@ export function getResponseBody(mockResponse: MockResponse): unknown {
  */
 export function getResponseStatus(mockResponse: MockResponse): number | undefined {
   const statusCalls = mockResponse.status.mock.calls;
-  if (statusCalls.length > 0) {
-    return statusCalls[statusCalls.length - 1][0];
-  }
-  return undefined;
+  return statusCalls[statusCalls.length - 1]?.[0];
 }
 
 /**

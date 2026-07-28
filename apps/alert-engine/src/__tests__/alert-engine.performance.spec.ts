@@ -226,28 +226,25 @@ describe('Alert Engine Performance', () => {
       expect(totalTime).toBeLessThan(100);
     });
 
-    it('should benefit from rule caching', async () => {
+    it('should serve repeated rule loads without duplicate repository I/O', async () => {
       const rules = Array.from({ length: 50 }, (_, i) => createMockRule(`rule-${i}`));
       alertRuleRepository.find.mockResolvedValue(rules);
 
-      const context: EvaluationContext = {
+      const request = {
         tenantId: 'tenant-1',
-        values: { temperature: 35 },
-        timestamp: new Date(),
+        context: {
+          tenantId: 'tenant-1',
+          values: { temperature: 35 },
+          timestamp: new Date(),
+        },
       };
 
-      // First call (cache miss)
-      const startTime1 = performance.now();
-      await rulesEngine.evaluateRules({ tenantId: context.tenantId!, context: context });
-      const time1 = performance.now() - startTime1;
+      const firstLoad = await rulesEngine.getApplicableRules(request);
+      const cachedLoad = await rulesEngine.getApplicableRules(request);
 
-      // Second call (cache hit)
-      const startTime2 = performance.now();
-      await rulesEngine.evaluateRules({ tenantId: context.tenantId!, context: context });
-      const time2 = performance.now() - startTime2;
-
-      // Cached call should be faster
-      expect(time2).toBeLessThanOrEqual(time1);
+      expect(cachedLoad).toBe(firstLoad);
+      expect(alertRuleRepository.createQueryBuilder).toHaveBeenCalledTimes(1);
+      expect(alertRuleRepository.find).toHaveBeenCalledTimes(1);
     });
   });
 

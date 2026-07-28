@@ -1,3 +1,4 @@
+/* global module */
 // Vitest projects load config before repository TypeScript transformers exist.
 // CommonJS keeps this policy executable on the repository's Node 20 baseline.
 module.exports = Object.freeze({

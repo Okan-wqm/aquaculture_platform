@@ -51,6 +51,10 @@ import { CreateFeedingRecordHandler } from '../../feeding/handlers/create-feedin
 import { FeedingLedgerService } from '../../feeding/services/feeding-ledger.service';
 import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 import { FeedAllocationService } from '../../storage/services/feed-allocation.service';
+import { BiomassGrowthApplierService } from '../../feeding-protocol/services/biomass-growth-applier.service';
+import { DayPlanRecalcService } from '../../feeding-protocol/services/day-plan-recalc.service';
+import { ProtocolResolutionService } from '../../feeding-protocol/services/protocol-resolution.service';
+import { ProtocolRateService } from '../../feeding-protocol/services/protocol-rate.service';
 import { GetFeedingRecordsHandler } from '../../feeding/query-handlers/get-feeding-records.handler';
 import { GetFeedingSummaryHandler } from '../../feeding/query-handlers/get-feeding-summary.handler';
 import { GetFeedingRecordsQuery } from '../../feeding/queries/get-feeding-records.query';
@@ -74,7 +78,10 @@ import {
 } from '../../tank/entities/tank.entity';
 import { StockMovementService } from '../../storage/services/stock-movement.service';
 import { LotMixService } from '../../storage/services/lot-mix.service';
-import { StorageLocation, StorageLocationType } from '../../storage/entities/storage-location.entity';
+import {
+  StorageLocation,
+  StorageLocationType,
+} from '../../storage/entities/storage-location.entity';
 import { StorageInventory, StorageItemType } from '../../storage/entities/storage-inventory.entity';
 import { StockMovement } from '../../storage/entities/stock-movement.entity';
 import { StorageLotMix } from '../../storage/entities/storage-lot-mix.entity';
@@ -197,8 +204,9 @@ describe('Feeding record tenant isolation on real Postgres', () => {
     );
     // P-05 tek yem yazma yolu: handler artık GERÇEK FeedingLedgerService'e
     // delege eder (kayıt + batch aggregate + FEFO düşüm + outbox tek noktada).
-    // D-7 motor yardımcıları mock — bu fixture'ın payload'ları tankId
-    // taşımadığı için plan bağlama dalı hiç koşmaz.
+    // Motor yardımcıları da GERÇEK — aşağıdaki gerekçeye bakın. (Eski not
+    // "payload'lar tankId taşımıyor" diyordu; taşıyorlar, yani plan bağlama
+    // dalı bu fixture'da KOŞAR ve sahte yardımcılarla koşuyordu.)
     const feedingLedger = new FeedingLedgerService(
       stockMovementService,
       new FinanceSettingsService(dataSource),
@@ -216,8 +224,23 @@ describe('Feeding record tenant isolation on real Postgres', () => {
       backdatePolicy as never,
       batchDomainService,
       feedingLedger,
-      { lockUnitForGrowth: jest.fn().mockResolvedValue(null) } as never,
-      { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
+      // REAL engine collaborators, not hand-rolled partials.
+      //
+      // These were `{ lockUnitForGrowth: jest.fn() } as never` — a two-property
+      // stand-in for a growing service. When `lockBatchForWrite` was added to
+      // the applier and the handler started calling it, this spec died with
+      // `TypeError: this.growthApplier.lockBatchForWrite is not a function`,
+      // and it died only in CI: the Postgres lane cannot run where Docker is
+      // unavailable, so the drift was invisible until a runner picked it up.
+      // A partial double of a service that keeps growing has no way to stay
+      // correct; the real objects do, and both construct with no I/O of their
+      // own (the applier takes an optional metrics sink, the recalc service
+      // takes collaborators this fixture already has).
+      new BiomassGrowthApplierService(),
+      new DayPlanRecalcService(
+        outboxPublisher,
+        new ProtocolResolutionService(new ProtocolRateService()),
+      ),
     );
     getFeedingRecords = new GetFeedingRecordsHandler(dataSource);
     getFeedingSummary = new GetFeedingSummaryHandler(dataSource);

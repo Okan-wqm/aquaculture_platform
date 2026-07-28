@@ -53,7 +53,16 @@ VALID_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
 #
 # The value is the tier that owns a SEPARATE credit pool, which is the entire
 # reason a credit fallback can work at all.
-MODEL_FALLBACK_TIER: dict[str, str] = {"fable": "opus"}
+MODEL_FALLBACK_TIER: dict[str, str] = {
+    # Planning tier: fable is the most capable and most expensive pool.
+    "fable": "opus",
+    # Implementation tier (operator decision): opus, falling back to sonnet.
+    # Before this entry opus was a LEAF — an implementer that exhausted its
+    # quota had nowhere to go, and since ORPHAN-HIGH-475 that raises terminally
+    # rather than silently returning the usage-limit notice as an answer. The
+    # ladder is what makes running the write tier on opus safe.
+    "opus": "sonnet",
+}
 
 # The effort a credit retry escalates to ("ultra code" retry).
 CREDIT_FALLBACK_EFFORT: str = "max"

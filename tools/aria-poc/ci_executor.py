@@ -47,6 +47,8 @@ if str(_THIS_DIR) not in sys.path:
 
 from claude_runtime import (
     CLAUDE_MOCK_ENV_VAR,
+    CREDIT_FALLBACK_EFFORT,
+    MODEL_FALLBACK_TIER,
     ClaudeAuthUnavailable,
     ClaudeCliUnavailable,
     ClaudePolicyViolation,
@@ -730,16 +732,28 @@ def _estimate_envelope_cost_usd(*, request: dict[str, Any]) -> float:
         base = 0.18
     else:
         base = 0.10
-    # K4 (ORPHAN-MEDIUM-286) — model-aware reservation. Fable prices at 2x
-    # opus on both input and output; an opus-calibrated estimate under-
-    # reserves and trips the per-cycle cap mid-cycle. Resolution is
-    # fail-safe (unknown agent -> most expensive tier -> conservative 2x).
+    # K4 (ORPHAN-MEDIUM-286) — model-aware reservation, now DERIVED from the
+    # pricing table instead of comparing the resolved alias to the literal
+    # "fable". The base figure is opus-calibrated, so the multiplier is simply
+    # how much dearer the agent's own tier is. Keying on the alias silently
+    # produced a 1x reservation the moment the write tier moved off fable, and
+    # would need editing again on the next tier change; the ratio cannot drift
+    # because it is read from the same table the ledger charges against.
+    # Resolution stays fail-safe: an unknown agent or any lookup failure
+    # reserves at the most expensive tier.
     target_agent = str(request.get("target_agent") or "")
     if target_agent:
         try:
             from aria_kernel.agent_runtime_profile import resolve_claude_model
-            if resolve_claude_model(target_agent) == "fable":
-                return base * 2.0
+            from aria_kernel.budget import MODEL_FAMILY_PRICING_USD_PER_MTOK
+            alias = resolve_claude_model(target_agent)
+            rates = MODEL_FAMILY_PRICING_USD_PER_MTOK
+            baseline = rates.get("claude-opus")
+            tier = rates.get(f"claude-{alias}")
+            if baseline and tier:
+                # Compare on output rate: agent envelopes are output-dominated.
+                return base * max(1.0, tier[1] / baseline[1])
+            return base * 2.0
         except Exception:
             return base * 2.0
     return base
@@ -974,18 +988,27 @@ def invoke_claude_cli(
             except Exception:
                 pass
 
+        # ORPHAN-HIGH-478 — the audit rows named the fable->opus@xhigh hop as a
+        # literal. Once the ladder gained a second rung those strings would have
+        # written factually false entries into an append-only, hash-chained
+        # governance ledger, which is the one artifact here that cannot be
+        # corrected after the fact.
+        _credit_fallback_target = MODEL_FALLBACK_TIER.get(agent_profile.model, "(none)")
+        _refusal_fallback_target = _credit_fallback_target
+
         def _on_credit(marker: dict[str, Any]) -> None:
             _gov("model_credit_fallback_attempted", {
                 "request_id": request_id,
                 "subagent_type": subagent_type,
                 "from_model": agent_profile.model,
-                "to_model": "opus",
-                "to_effort": "xhigh",
+                "to_model": _credit_fallback_target,
+                "to_effort": CREDIT_FALLBACK_EFFORT,
                 "credit_exhaustion": marker,
             })
             _stage(
                 f"model_credit_fallback request_id={request_id} "
-                f"marker={marker.get('matched_marker')!r} fable->opus@xhigh"
+                f"marker={marker.get('matched_marker')!r} "
+                f"{agent_profile.model}->{_credit_fallback_target}@{CREDIT_FALLBACK_EFFORT}"
             )
 
         def _on_refusal(refusal: dict[str, Any]) -> None:
@@ -993,12 +1016,13 @@ def invoke_claude_cli(
                 "request_id": request_id,
                 "subagent_type": subagent_type,
                 "from_model": agent_profile.model,
-                "to_model": "opus",
+                "to_model": _refusal_fallback_target,
                 "refusal": refusal,
             })
             _stage(
                 f"model_refusal_fallback request_id={request_id} "
-                f"category={refusal.get('category')!r} fable->opus"
+                f"category={refusal.get('category')!r} "
+                f"{agent_profile.model}->{_refusal_fallback_target}"
             )
 
         completed = run_with_model_fallback(

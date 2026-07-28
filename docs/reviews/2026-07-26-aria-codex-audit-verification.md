@@ -1364,3 +1364,6 @@ finding is one nobody can navigate back to from the review that produced it.
 
 * **ORPHAN-MEDIUM-477** — ARIA agents ran below ultracode depth, and the tier documentation contradicted the executable assertions  
   Severity MEDIUM, layer 3, owner okan, deadline 2026-08-24.
+
+* **ORPHAN-HIGH-478** — The model fallback was a single hardcoded hop: audit rows named fable->opus@xhigh as a literal and the budget multiplier keyed on the alias string  
+  Severity HIGH, layer 2, owner okan, deadline 2026-08-24.

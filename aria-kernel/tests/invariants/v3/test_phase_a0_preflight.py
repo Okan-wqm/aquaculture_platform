@@ -31,7 +31,7 @@ class PhaseA0Preflight(unittest.TestCase):
         # name + tools + model fields present. Writer-grade ARIA agents
         # are pinned to opus/xhigh by the Codex runtime contract.
         self.assertIn("name: aria-drafter", text)
-        self.assertIn("model: fable", text)
+        self.assertIn("model: opus", text)
         self.assertIn("effort: max", text)
         # Scope-locking sections present
         for required in (

@@ -144,14 +144,17 @@ describe('agent frontmatter schema invariant (CLAUDE-CRITICAL-006)', () => {
   // docs/aria/plans/023-cost-tiering-and-consensus-escalation.md.
   const ARIA_VALID_MODELS = new Set<string>(['opus', 'fable']);
   const ARIA_VALID_EFFORTS = new Set<string>(['low', 'medium', 'high', 'xhigh', 'max']);
-  // Writers (Edit/Write/Bash) + governance-artifact authors must stay on fable
-  // at effort max — the expensive tier. Never opus: that is the fallback tier.
+  // Writers (Edit/Write/Bash) + governance-artifact authors run the
+  // IMPLEMENTATION tier: opus at effort max, with sonnet as its credit
+  // fallback (MODEL_FALLBACK_TIER = {fable: opus, opus: sonnet}). Planning
+  // agents stay on fable, the most capable pool. Mirrors python
+  // WRITE_TIER_AGENTS — the two sets must never diverge (ORPHAN-HIGH-285).
   const ARIA_WRITE_TIER = new Set<string>([
     'aria-implementer',
     'aria-drafter',
     'aria-prompt-writer',
     // Plan 030 — the acceptance lane's fixer holds Edit/Write/Bash and opens PRs;
-    // pin it to fable/max so a write-capable auditor can never be downgraded.
+    // pin it to opus/max so a write-capable auditor can never be downgraded.
     'aria-acceptance-gap-fixer',
     // K3 (ORPHAN-HIGH-285) — the promoted-plan assignment executor holds the
     // full write toolset; mirrored in python WRITE_TIER_AGENTS.
@@ -185,7 +188,7 @@ describe('agent frontmatter schema invariant (CLAUDE-CRITICAL-006)', () => {
       });
       if (ARIA_WRITE_TIER.has(file.filenameStem)) {
         // K5 tier flip — the write tier runs on the most capable model.
-        expect(model).toBe('fable');
+        expect(model).toBe('opus');
         expect(effort).toBe('max');
       }
     },

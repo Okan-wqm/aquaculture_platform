@@ -111,23 +111,39 @@ class RunWithModelFallbackBehavior(unittest.TestCase):
         exit, and neither executor inspects .credit_exhaustion, so "You've
         reached your limit" was persisted as the agent's answer.
         """
-        run = _ScriptedRun(_result(credit={"matched_marker": "credit balance"}, tag="opus"))
+        # sonnet is the LADDER TERMINUS (fable -> opus -> sonnet), so it is the
+        # tier with genuinely nowhere left to fall. Using opus here would now
+        # exercise the retry path instead of the refusal path.
+        run = _ScriptedRun(_result(credit={"matched_marker": "credit balance"}, tag="sonnet"))
         seen: list[dict] = []
         with self.assertRaises(ClaudeCreditExhausted) as ctx:
             run_with_model_fallback(
-                run=run, model="opus", effort="medium", on_credit=seen.append,
+                run=run, model="sonnet", effort="medium", on_credit=seen.append,
             )
-        self.assertEqual(run.calls, [("opus", "medium")])  # still exactly one call
+        self.assertEqual(run.calls, [("sonnet", "medium")])  # still exactly one call
         self.assertIn("no fallback tier", str(ctx.exception))
         # The audit hook fires BEFORE the refusal, so the exhaustion is recorded.
         self.assertEqual(len(seen), 1)
 
     def test_a_clean_run_on_a_tier_with_no_fallback_still_passes_through(self) -> None:
         """Only the exhausted case changed; a healthy opus run is untouched."""
-        run = _ScriptedRun(_result(tag="opus-clean"))
-        out = run_with_model_fallback(run=run, model="opus", effort="medium")
-        self.assertEqual(run.calls, [("opus", "medium")])
-        self.assertEqual(out.final_message, "opus-clean")
+        run = _ScriptedRun(_result(tag="sonnet-clean"))
+        out = run_with_model_fallback(run=run, model="sonnet", effort="medium")
+        self.assertEqual(run.calls, [("sonnet", "medium")])
+        self.assertEqual(out.final_message, "sonnet-clean")
+
+    def test_an_exhausted_implementer_falls_from_opus_to_sonnet(self) -> None:
+        """The rung the operator added. Before it, opus was a leaf and an
+        exhausted implementer raised with nowhere to go."""
+        credit = {"matched_marker": "credit balance", "returncode": 1}
+        run = _ScriptedRun(_result(credit=credit, tag="opus"), _result(tag="sonnet"))
+        seen: list[dict] = []
+        out = run_with_model_fallback(
+            run=run, model="opus", effort="max", on_credit=seen.append,
+        )
+        self.assertEqual(run.calls, [("opus", "max"), ("sonnet", "max")])
+        self.assertEqual(out.final_message, "sonnet")
+        self.assertEqual(seen, [credit])
 
     def test_an_exhausted_fallback_tier_also_raises(self) -> None:
         """The retry's own exhaustion is terminal too — the pre-fix docstring
@@ -146,11 +162,26 @@ class RunWithModelFallbackBehavior(unittest.TestCase):
         fable would have disabled the fallback with nothing failing."""
         from claude_runtime import MODEL_FALLBACK_TIER, has_fallback_tier
 
+        # The operator ladder: planning falls fable -> opus, implementation
+        # falls opus -> sonnet. opus having a fallback is what makes running
+        # the write tier on it safe — before sonnet was added, opus was a leaf
+        # and an exhausted implementer raised terminally (ORPHAN-HIGH-475).
+        self.assertEqual(MODEL_FALLBACK_TIER.get("fable"), "opus")
+        self.assertEqual(MODEL_FALLBACK_TIER.get("opus"), "sonnet")
         self.assertTrue(has_fallback_tier("fable"))
-        self.assertFalse(has_fallback_tier("opus"))
+        self.assertTrue(has_fallback_tier("opus"))
+        self.assertFalse(has_fallback_tier("sonnet"), "the ladder must terminate")
         for primary, target in MODEL_FALLBACK_TIER.items():
             with self.subTest(primary=primary):
                 self.assertNotEqual(primary, target, "a tier cannot fall back to itself")
+        # Acyclic: now that the ladder is a chain rather than one hop, a cycle
+        # would be a config that loops instead of terminating.
+        for start in MODEL_FALLBACK_TIER:
+            seen, cur = {start}, MODEL_FALLBACK_TIER[start]
+            while cur in MODEL_FALLBACK_TIER:
+                self.assertNotIn(cur, seen, f"fallback cycle reached via {start}")
+                seen.add(cur)
+                cur = MODEL_FALLBACK_TIER[cur]
 
     def test_clean_fable_run_passes_through(self) -> None:
         run = _ScriptedRun(_result(tag="fable-clean"))

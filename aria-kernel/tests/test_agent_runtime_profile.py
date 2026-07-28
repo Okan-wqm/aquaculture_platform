@@ -65,7 +65,7 @@ class AgentRuntimeProfileReaderTests(unittest.TestCase):
         # CLI --model alias), not the reasoning effort. Judge tier → opus;
         # write tier → fable (fail-safe most-capable).
         self.assertEqual(resolve_claude_model("aria-evidence-judge"), "opus")
-        self.assertEqual(resolve_claude_model("aria-implementer"), "fable")
+        self.assertEqual(resolve_claude_model("aria-implementer"), "opus")
 
 
 class ModelTierInvariantTests(unittest.TestCase):
@@ -81,15 +81,17 @@ class ModelTierInvariantTests(unittest.TestCase):
                 f"{name} frontmatter model/effort failed to parse — fix the frontmatter",
             )
 
-    def test_write_tier_agents_never_downgraded_below_fable(self) -> None:
-        # Writers (Edit/Write/Bash) and governance-artifact authors must stay on
-        # the expensive tier — the cheap scout tier is read-only judgment only.
-        # K5 tier flip: the expensive tier is fable.
+    def test_write_tier_agents_never_downgraded_below_opus(self) -> None:
+        # Writers (Edit/Write/Bash) and governance-artifact authors run the
+        # IMPLEMENTATION tier (operator decision): opus, with sonnet as its
+        # credit fallback. The invariant's purpose is unchanged — a frontmatter
+        # edit must never quietly drop a writer below its assigned tier — only
+        # the tier it names has moved. Planning agents keep fable.
         for name in WRITE_TIER_AGENTS:
             prof = read_agent_runtime_profile(name)
             self.assertEqual(
-                prof.model, "fable",
-                f"write-tier agent {name} must run on fable, got {prof.model}",
+                prof.model, "opus",
+                f"write-tier agent {name} must run on opus, got {prof.model}",
             )
             self.assertEqual(
                 prof.effort, "max",

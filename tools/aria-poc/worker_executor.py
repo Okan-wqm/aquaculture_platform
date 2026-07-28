@@ -38,6 +38,8 @@ from pathlib import Path
 from typing import Any
 
 from claude_runtime import (
+    CREDIT_FALLBACK_EFFORT,
+    MODEL_FALLBACK_TIER,
     CLAUDE_MOCK_ENV_VAR,
     ClaudeAuthUnavailable,
     ClaudeCliUnavailable,
@@ -247,16 +249,22 @@ def main(argv: list[str] | None = None) -> int:
                 cwd=worktree_path,
             )
 
+        # ORPHAN-HIGH-478 — derived from the ladder, not the literal
+        # fable->opus@xhigh hop, which stopped being true when the write tier
+        # moved to opus and the ladder gained its opus->sonnet rung.
+        _fallback_target = MODEL_FALLBACK_TIER.get(model, "(none)")
+
         def _on_credit(marker: dict[str, Any]) -> None:
             sys.stderr.write(
                 f"model_credit_fallback assignment={assignment_id} "
-                f"marker={marker.get('matched_marker')!r} fable->opus@xhigh\n"
+                f"marker={marker.get('matched_marker')!r} "
+                f"{model}->{_fallback_target}@{CREDIT_FALLBACK_EFFORT}\n"
             )
 
         def _on_refusal(refusal: dict[str, Any]) -> None:
             sys.stderr.write(
                 f"model_refusal_fallback assignment={assignment_id} "
-                f"category={refusal.get('category')!r} fable->opus\n"
+                f"category={refusal.get('category')!r} {model}->{_fallback_target}\n"
             )
 
         completed = run_with_model_fallback(

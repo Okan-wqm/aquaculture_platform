@@ -535,21 +535,6 @@ const AnalyticsDashboardPage: React.FC = () => {
           <p className="text-gray-500 mt-1">Platform metrikleri ve performans analizi</p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex bg-gray-100 rounded-lg p-1">
-            {(['7d', '30d', '90d', '1y'] as const).map((period) => (
-              <button
-                key={period}
-                onClick={() => setSelectedPeriod(period)}
-                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                  selectedPeriod === period
-                    ? 'bg-white text-gray-900 shadow'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                {period}
-              </button>
-            ))}
-          </div>
           <Button variant="secondary" onClick={() => {
             void loadData();
           }}>
@@ -567,7 +552,13 @@ const AnalyticsDashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* Main KPIs */}
+      {/* Main KPIs — point-in-time stocks plus month-to-date rates. These do
+          NOT vary with the trend range below; the summary endpoint takes no
+          range argument. */}
+      <div className="flex items-baseline gap-2">
+        <h2 className="text-lg font-semibold text-gray-900">Platform totals</h2>
+        <span className="text-sm text-gray-500">as of now; rates are month to date</span>
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
           title="Total Tenants"
@@ -671,6 +662,31 @@ const AnalyticsDashboardPage: React.FC = () => {
       </div>
 
       {/* Charts Row */}
+      {/* Trends — the ONLY surface the range control drives. It used to sit in
+          the page header, which claimed page-wide scope: the summary endpoint
+          takes no range and every windowed KPI is month-to-date SQL, so
+          changing the range refetched the summary and returned byte-identical
+          numbers, reading to an operator as "the range applied and nothing
+          moved" (APA-137). */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-gray-900">Trends</h2>
+        <div className="flex bg-gray-100 rounded-lg p-1" role="group" aria-label="Trend range">
+          {(['7d', '30d', '90d', '1y'] as const).map((period) => (
+            <button
+              key={period}
+              onClick={() => setSelectedPeriod(period)}
+              className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                selectedPeriod === period
+                  ? 'bg-white text-gray-900 shadow'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              {period}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Tenant Growth Chart */}
         <Card title="Tenant Growth">

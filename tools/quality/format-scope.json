@@ -45676,6 +45676,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/AnalyticsDashboardPage.range.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/__tests__/AnalyticsDashboardPage.spec.tsx",
       "prettier_managed": true
     },
@@ -55524,10 +55530,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9103,
+  "file_count": 9104,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8922,
-  "managed_file_list_sha256": "7f28fdb83ce4106cf4b0cd00be8aad9d7ff9b58183dd86436f5179076371f196",
+  "managed_count": 8923,
+  "managed_file_list_sha256": "dcf4424fdf740385f0909193510cdbea8c2c1da729030a414514db3c46a6cc2b",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

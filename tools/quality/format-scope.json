@@ -9873,6 +9873,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1808200000000-WidenMealWindowSweepIndex.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -11068,6 +11074,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/__tests__/feeding-cron-v2.sweep.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/feeding-cron-v2.window.spec.ts",
       "prettier_managed": true
     },
     {
@@ -55272,10 +55284,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9061,
+  "file_count": 9063,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8880,
-  "managed_file_list_sha256": "b0b308b2da4f4443db4a784c913e973556590d68b9f0fef3c4c85c4e7ce345c2",
+  "managed_count": 8882,
+  "managed_file_list_sha256": "5cb56a911b5fa0e513fdc86bd1fd3ab2a5e7c27b042ab049751f819462e3a9cb",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

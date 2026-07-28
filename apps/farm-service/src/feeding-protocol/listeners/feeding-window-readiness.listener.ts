@@ -30,9 +30,7 @@ import { DataSource } from 'typeorm';
 import type { MealReadiness } from '../entities/feeding-meal.entity';
 
 @Injectable()
-export class FeedingWindowReadinessListener
-  implements IEventHandler<BaseEvent>, OnModuleInit
-{
+export class FeedingWindowReadinessListener implements IEventHandler<BaseEvent>, OnModuleInit {
   private readonly logger = new Logger(FeedingWindowReadinessListener.name);
 
   constructor(
@@ -70,9 +68,7 @@ export class FeedingWindowReadinessListener
 
     const verdict = event as FeedingWindowReadinessEvent;
     if (!isValidUUID(verdict.mealId)) {
-      this.logger.error(
-        'FeedingWindowReadiness carries a non-UUID mealId — skipping.',
-      );
+      this.logger.error('FeedingWindowReadiness carries a non-UUID mealId — skipping.');
       return;
     }
 
@@ -85,13 +81,9 @@ export class FeedingWindowReadinessListener
       evaluatedAt: event.timestamp,
     };
 
-    await runInTenantTransaction(
-      this.dataSource,
-      'farm',
-      event.tenantId,
-      async (queryRunner) => {
-        await queryRunner.query(
-          `UPDATE "feeding_meals"
+    await runInTenantTransaction(this.dataSource, 'farm', event.tenantId, async (queryRunner) => {
+      await queryRunner.query(
+        `UPDATE "feeding_meals"
               SET "readiness" = $1::jsonb,
                   "updatedAt" = now()
             WHERE "id" = $2
@@ -101,9 +93,8 @@ export class FeedingWindowReadinessListener
                     "readiness" IS NULL
                  OR ("readiness"->>'evaluatedAt') < $4
                   )`,
-          [JSON.stringify(readiness), verdict.mealId, event.tenantId, readiness.evaluatedAt],
-        );
-      },
-    );
+        [JSON.stringify(readiness), verdict.mealId, event.tenantId, readiness.evaluatedAt],
+      );
+    });
   }
 }

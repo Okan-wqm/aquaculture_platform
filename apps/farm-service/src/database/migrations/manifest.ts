@@ -94,6 +94,7 @@ import { RestoreStorageInventoryCanonicalKey1807800000000 } from './180780000000
 import { CompleteFeedInventoryLedgerBackfill1807900000000 } from './1807900000000-CompleteFeedInventoryLedgerBackfill';
 import { AddStockMovementLotReceivedDate1808000000000 } from './1808000000000-AddStockMovementLotReceivedDate';
 import { AddAssignmentManualBandPin1808100000000 } from './1808100000000-AddAssignmentManualBandPin';
+import { WidenMealWindowSweepIndex1808200000000 } from './1808200000000-WidenMealWindowSweepIndex';
 import { CreateIncidentMedia1806000000000 } from './1806000000000-CreateIncidentMedia';
 
 /**
@@ -187,4 +188,5 @@ export const FARM_MIGRATIONS = [
   CompleteFeedInventoryLedgerBackfill1807900000000,
   AddStockMovementLotReceivedDate1808000000000,
   AddAssignmentManualBandPin1808100000000,
+  WidenMealWindowSweepIndex1808200000000,
 ] as const;

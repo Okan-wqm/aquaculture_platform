@@ -113,10 +113,7 @@ export interface ForecastUnitInput {
   temperatureC: number | null;
   rateAdjustmentPercent?: number;
   fcrOverrides?: { feedId: string; expectedFcr: number }[];
-  protocol: Pick<
-    FeedingProtocolV2,
-    'bands' | 'temperatureAdjustments' | 'settings' | 'fcrMatrix'
-  >;
+  protocol: Pick<FeedingProtocolV2, 'bands' | 'temperatureAdjustments' | 'settings' | 'fcrMatrix'>;
   /** Günlük hayatta-kalma çarpanı (1.0 = ölümsüz varsayım). */
   dailySurvivalRate: number;
   /** Gün → o gün üniteden çıkan biyokütle ORANI [0..1] (hasat planları, C-14). */
@@ -316,7 +313,9 @@ export class ProtocolFeedForecastService {
       // "taşıma" demez — satın alma sinyali zaten otorite kapsamda verildi.
       const pooledShortfall = new Set(
         tenantScope.perFeed
-          .filter((feed) => feed.daysOfCover !== null && feed.daysOfCover < feed.procurementLeadTimeDays)
+          .filter(
+            (feed) => feed.daysOfCover !== null && feed.daysOfCover < feed.procurementLeadTimeDays,
+          )
           .map((feed) => feed.feedId),
       );
       for (const scopeKey of consumption.keys()) {
@@ -495,8 +494,8 @@ export class ProtocolFeedForecastService {
 
       const protocolIds = [...new Set(assignments.map((a) => a.protocolId))];
       const unitIds = assignments.map((a) => a.unitId);
-      const [protocols, tankBatches, temperatures, sitesWithStorage, stockRows] =
-        await Promise.all([
+      const [protocols, tankBatches, temperatures, sitesWithStorage, stockRows] = await Promise.all(
+        [
           manager.find(FeedingProtocolV2, {
             where: { tenantId, id: In(protocolIds), status: FeedingProtocolStatus.ACTIVE },
           }),
@@ -504,7 +503,8 @@ export class ProtocolFeedForecastService {
           this.temperatureService.getEffectiveTemperaturesForUnits(tenantId, unitIds),
           this.loadSitesWithStorage(manager, tenantId),
           this.loadFeedStock(manager, tenantId),
-        ]);
+        ],
+      );
       const protocolById = new Map(protocols.map((p) => [p.id, p]));
       const tankBatchByUnit = new Map(tankBatches.map((tb) => [tb.tankId, tb]));
       const dailySurvivalBySpecies = await this.loadDailySurvivalRates(
@@ -532,9 +532,7 @@ export class ProtocolFeedForecastService {
           unitId: assignment.unitId,
           unitName: assignment.unitName,
           unitCode: assignment.unitCode,
-          scopeKey: sitesWithStorage.has(assignment.siteId)
-            ? assignment.siteId
-            : TENANT_SCOPE_KEY,
+          scopeKey: sitesWithStorage.has(assignment.siteId) ? assignment.siteId : TENANT_SCOPE_KEY,
           avgWeightG: Number(tankBatch.avgWeightG || 0),
           fishCount,
           biomassKg,

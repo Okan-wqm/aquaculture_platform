@@ -99,6 +99,24 @@ const ASSIGNMENT_PAGE_SIZE = 200;
 /** K-2 kanonik cap — schema validator ile aynı sabit. */
 export const MEAL_WINDOW_MAX_ENTRIES = 500;
 const MEAL_WINDOW_LEAD_MINUTES = 60;
+
+/**
+ * Aynı öğün için iki bildirim arasındaki en kısa süre (dk) — 15 dk'lık cron
+ * cadence'ıyla EŞİT, yani tick başına en fazla bir bildirim (FARM-MEDIUM-271).
+ *
+ * `windowNotifiedAt` kalıcı bir "bir daha asla" damgası DEĞİLDİR. Öğün 60 dk'lık
+ * kurşun penceresinde dört tick boyunca durur ve hem teslim-semantiği kaydı
+ * (`MealWindowUpcoming: 'reproducible'`) hem 1807500000000'in docblock'u pencere
+ * içinde yeniden üretildiğini SÖYLÜYORDU — sorgu ise `windowNotifiedAt IS NULL`
+ * filtresiyle ömür boyu tek bildirim veriyordu. Kaybolan tek bir batch,
+ * aeratör ön-takviyesini o öğün için TAMAMEN düşürüyordu.
+ *
+ * Mutlak `windowStart` yerine "şu kadar dakikadır bildirilmedi" biçiminde
+ * yazılır: aynı tick içinde tekrarlanan bir koşu (retry) ikinci kez yaymaz.
+ * Event SAYISI artmaz — öğünler zaten batch'leniyor; artan şey, aynı tick
+ * event'indeki girdi sayısıdır.
+ */
+const MEAL_WINDOW_RENOTIFY_MINUTES = 15;
 /** Legacy analyzeFCR eşikleri birebir: >%10 warning, >%20 critical. */
 const FCR_WARNING_VARIANCE_PERCENT = 10;
 const FCR_CRITICAL_VARIANCE_PERCENT = 20;
@@ -604,7 +622,8 @@ export class FeedingCronV2Service {
         try {
           await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
             const manager = queryRunner.manager;
-            // Partial indeks üzerinden okur (scheduled + windowNotifiedAt IS NULL).
+            // Partial indeks üzerinden okur (status='scheduled'); adaylar HEM
+            // hiç bildirilmemiş HEM de bu tick'ten önce bildirilmiş öğünlerdir.
             const meals: Array<{
               id: string;
               unitId: string;
@@ -626,10 +645,21 @@ export class FeedingCronV2Service {
                JOIN "feeding_day_plans" dp ON dp.id = m."dayPlanId"
                LEFT JOIN "feeding_protocols_v2" p ON p.id = dp."protocolId"
                WHERE m."tenantId" = $1 AND m.status = 'scheduled'
-                 AND m."windowNotifiedAt" IS NULL
+                 AND (
+                   m."windowNotifiedAt" IS NULL
+                   OR m."windowNotifiedAt" < $4::timestamptz
+                 )
                  AND m."scheduledAt" >= $2 AND m."scheduledAt" < $3
                ORDER BY m."scheduledAt" ASC`,
-              [tenantId, windowStart, windowEnd],
+              // $4: bu tick'ten önce bildirilmiş öğünler yeniden aday olur —
+              // pencere içinde yeniden üretim (FARM-MEDIUM-271). Damga artık
+              // "bir daha asla" değil, "son bildirim şu an".
+              [
+                tenantId,
+                windowStart,
+                windowEnd,
+                new Date(windowStart.getTime() - MEAL_WINDOW_RENOTIFY_MINUTES * 60_000),
+              ],
             );
             if (meals.length === 0) return;
 

@@ -80,11 +80,7 @@ export interface ForecastAlert {
    * verildiği için (kullanıcı kararı 1) bu ihtiyaç aksi hâlde görünmez
    * kalırdı.
    */
-  type:
-    | 'STOCKOUT_FORECAST'
-    | 'TRANSITION_COVERAGE_GAP'
-    | 'REORDER_NOW'
-    | 'SITE_TRANSFER_NEEDED';
+  type: 'STOCKOUT_FORECAST' | 'TRANSITION_COVERAGE_GAP' | 'REORDER_NOW' | 'SITE_TRANSFER_NEEDED';
   feedId: string;
   unitId?: string;
   /**

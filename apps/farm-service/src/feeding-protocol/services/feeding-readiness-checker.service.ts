@@ -36,10 +36,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import {
-  FeedingProtocolV2,
-  FeedingProtocolStatus,
-} from '../entities/feeding-protocol-v2.entity';
+import { FeedingProtocolV2, FeedingProtocolStatus } from '../entities/feeding-protocol-v2.entity';
 
 export interface FeedingReadinessCheckResult {
   /** Fan-out'un tek tip özet sözleşmesi — checker satır yazmaz, hep boş. */

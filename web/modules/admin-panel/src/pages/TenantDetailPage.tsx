@@ -19,12 +19,12 @@ import {
 import {
   tenantsApi,
   modulesApi,
-  TenantTier,
   TenantStatus,
   type TenantDetail,
   type SystemModule,
   type UpdateTenantDto,
 } from '../services/adminApi';
+import { TENANT_PLAN_BADGE_VARIANT, TENANT_PLAN_OPTIONS } from '../constants/plan-tier';
 
 // ============================================================================
 // Simple Tab Component
@@ -92,20 +92,6 @@ const getStatusVariant = (status: string): 'success' | 'warning' | 'error' | 'de
     DEACTIVATED: 'default',
   };
   return variants[status] || 'default';
-};
-
-const getTierVariant = (tier: string): 'success' | 'warning' | 'info' | 'default' => {
-  const variants: Record<string, 'success' | 'warning' | 'info' | 'default'> = {
-    enterprise: 'success',
-    ENTERPRISE: 'success',
-    professional: 'warning',
-    PROFESSIONAL: 'warning',
-    starter: 'info',
-    STARTER: 'info',
-    free: 'default',
-    FREE: 'default',
-  };
-  return variants[tier] || 'default';
 };
 
 const getAvailableActions = (tenant: TenantDetail): Set<string> => {
@@ -340,7 +326,7 @@ const TenantDetailPage: React.FC = () => {
             <div className="flex items-center space-x-3">
               <h1 className="text-2xl font-bold text-gray-900">{tenant.name}</h1>
               <Badge variant={getStatusVariant(tenant.status)}>{tenant.status}</Badge>
-              <Badge variant={getTierVariant(tenant.tier)}>{tenant.tier}</Badge>
+              <Badge variant={TENANT_PLAN_BADGE_VARIANT[tenant.tier]}>{tenant.tier}</Badge>
               {tenant.isTrialActive && (
                 <Badge variant="warning">Trial Active</Badge>
               )}
@@ -692,7 +678,7 @@ const TenantDetailPage: React.FC = () => {
               <div className="space-y-4">
                 <div className="flex justify-between">
                   <span>Plan</span>
-                  <Badge variant={getTierVariant(tenant.billing.currentPlan)}>
+                  <Badge variant={TENANT_PLAN_BADGE_VARIANT[tenant.billing.currentPlan]}>
                     {tenant.billing.currentPlan}
                   </Badge>
                 </div>
@@ -831,13 +817,14 @@ const TenantDetailPage: React.FC = () => {
           <Select
             label="Tier"
             value={editForm.tier || ''}
-            onChange={(e) => setEditForm({ ...editForm, tier: e.target.value as TenantTier })}
-            options={[
-              { value: TenantTier.FREE, label: 'Free' },
-              { value: TenantTier.STARTER, label: 'Starter' },
-              { value: TenantTier.PROFESSIONAL, label: 'Professional' },
-              { value: TenantTier.ENTERPRISE, label: 'Enterprise' },
-            ]}
+            onChange={(e) => {
+              // Narrow against the vocabulary instead of asserting it. TRIAL is
+              // in the list now: without it, opening a trial tenant showed a Tier
+              // select with no matching option.
+              const tier = TENANT_PLAN_OPTIONS.find((option) => option.value === e.target.value);
+              if (tier) setEditForm({ ...editForm, tier: tier.value });
+            }}
+            options={[...TENANT_PLAN_OPTIONS]}
           />
           <Input
             label="Billing Email"

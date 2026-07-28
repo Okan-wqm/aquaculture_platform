@@ -379,7 +379,7 @@ export class TenantDetailService {
     }
 
     return {
-      currentPlan: tenant.tier || 'free',
+      currentPlan: tenant.tier,
       monthlyAmount: Number(billing.monthlyAmount),
       currency: billing.currency,
       billingCycle: billing.billingCycle,

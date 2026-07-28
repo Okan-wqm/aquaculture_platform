@@ -3,6 +3,15 @@
  */
 
 // GENERATED backend contracts — tools/codegen/admin-contracts/manifest.ts.
+import type {
+  AuditSummary,
+} from './generated/admin-contracts';
+
+export type {
+  AuditSummary,
+};
+
+// GENERATED backend contracts — tools/codegen/admin-contracts/manifest.ts.
 // Imported so shapes below can reference them; re-exported so import sites
 // are unchanged.
 import type {
@@ -123,15 +132,6 @@ export interface ActivityStatsOverview {
   topUsers: Array<{ userId: string; userName?: string; count: number }>;
   topIPs: Array<{ ip: string; count: number }>;
   activityOverTime: Array<{ date: string; count: number }>;
-}
-
-export interface AuditSummary {
-  totalLogs: number;
-  last24Hours: number;
-  byAction: Array<{ action: string; count: number }>;
-  bySeverity: Array<{ severity: string; count: number }>;
-  byEntityType: Array<{ entityType: string; count: number }>;
-  topUsers: Array<{ userId: string; email: string; count: number }>;
 }
 
 export interface BackendAuditAlertRule {

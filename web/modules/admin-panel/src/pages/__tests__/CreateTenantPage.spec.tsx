@@ -11,10 +11,19 @@ import {
   BillingCycle,
   PricingMetricType,
   TenantProvisioningState,
-  TenantTier,
+  TenantPlan,
 } from '../../services/adminApi';
 
-vi.mock('../../services/adminApi', () => ({
+// Stub the API CALLS, keep every real export.
+//
+// This mock used to re-declare the vocabularies as well, and it got them wrong:
+// PricingMetricType's members were UPPERCASE ('BASE_PRICE') where the wire
+// carries 'base_price', and PlanTier was missing FREE and CUSTOM. That is how a
+// dead `metric.type === 'BASE_PRICE'` branch survived in the page — under the
+// mock the comparison looked reachable. Spreading the actual module means a
+// vocabulary can only ever be exercised at the values the panel really receives.
+vi.mock('../../services/adminApi', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/adminApi')>()),
   tenantsApi: {
     create: vi.fn(),
     getProvisioningOperation: vi.fn(),
@@ -27,43 +36,6 @@ vi.mock('../../services/adminApi', () => ({
   billingApi: {
     getModulePricingWithModules: vi.fn(),
     calculatePricing: vi.fn(),
-  },
-  TenantTier: {
-    FREE: 'free',
-    STARTER: 'starter',
-    PROFESSIONAL: 'professional',
-    ENTERPRISE: 'enterprise',
-  },
-  TenantProvisioningState: {
-    QUEUED: 'QUEUED',
-    RESERVING: 'RESERVING',
-    RUNNING: 'RUNNING',
-    SUCCEEDED: 'SUCCEEDED',
-    FAILED: 'FAILED',
-  },
-  PlanTier: {
-    STARTER: 'starter',
-    PROFESSIONAL: 'professional',
-    ENTERPRISE: 'enterprise',
-  },
-  BillingCycle: {
-    MONTHLY: 'monthly',
-    ANNUAL: 'annual',
-  },
-  PricingMetricType: {
-    BASE_PRICE: 'BASE_PRICE',
-    PER_USER: 'PER_USER',
-    PER_FARM: 'PER_FARM',
-    PER_POND: 'PER_POND',
-    PER_SENSOR: 'PER_SENSOR',
-    PER_DEVICE: 'PER_DEVICE',
-    PER_GB_STORAGE: 'PER_GB_STORAGE',
-    PER_API_CALL: 'PER_API_CALL',
-    PER_ALERT: 'PER_ALERT',
-    PER_REPORT: 'PER_REPORT',
-    PER_SMS: 'PER_SMS',
-    PER_EMAIL: 'PER_EMAIL',
-    PER_INTEGRATION: 'PER_INTEGRATION',
   },
 }));
 
@@ -201,7 +173,7 @@ describe('CreateTenantPage', () => {
         expect.objectContaining({
           name: 'Test Company',
           slug: 'test-company',
-          tier: TenantTier.STARTER,
+          tier: TenantPlan.STARTER,
           domain: 'tenant.example.com',
           country: 'TR',
           region: 'Ege',
@@ -337,7 +309,7 @@ describe('CreateTenantPage', () => {
 
     const createArg = vi.mocked(tenantsApi.create).mock.calls[0][0];
     // The real tier passes through (no free→STARTER coercion) ...
-    expect(createArg.tier).toBe(TenantTier.FREE);
+    expect(createArg.tier).toBe(TenantPlan.FREE);
     // ... and FREE is never a trial.
     expect(createArg.trialDays).toBeUndefined();
     expect(createArg.moduleIds).toEqual(['module-farm']);

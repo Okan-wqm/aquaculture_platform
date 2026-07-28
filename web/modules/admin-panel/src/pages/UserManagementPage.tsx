@@ -20,7 +20,6 @@ import type { TableColumn } from '@aquaculture/shared-ui';
 import {
   usersApi,
   tenantsApi,
-  TenantTier,
   TenantStatus,
   PLATFORM_ROLES,
   ROLE_LABELS,

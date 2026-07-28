@@ -1,7 +1,7 @@
 import { IsArray, IsUUID, ArrayMaxSize, IsString, IsOptional, IsBoolean, MaxLength, IsEnum } from 'class-validator';
 
 import { TenantActivity, TenantNote, TenantBillingInfo } from '../entities/tenant-activity.entity';
-import { Tenant } from '../entities/tenant.entity';
+import { Tenant, TenantPlan } from '../entities/tenant.entity';
 
 import { TenantLimitsDto } from './tenant.dto';
 
@@ -70,7 +70,7 @@ export interface ResourceUsage {
 
 // Billing Summary
 export interface BillingSummary {
-  currentPlan: string;
+  currentPlan: TenantPlan;
   monthlyAmount: number;
   currency: string;
   billingCycle: string;
@@ -91,7 +91,7 @@ export interface TenantDetailDto {
 
   // Status & Tier
   status: string;
-  tier: string;
+  tier: TenantPlan;
   plan?: string;
   trialEndsAt?: Date;
   // Suspension audit (DB-ADMIN-HIGH-003): real auth.tenants columns written
@@ -171,7 +171,7 @@ export interface TenantListItemDto {
   slug: string;
   domain?: string;
   status: string;
-  tier: string;
+  tier: TenantPlan;
   contactEmail?: string;
   userCount: number;
   farmCount: number;

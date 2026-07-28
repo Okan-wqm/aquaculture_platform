@@ -11,7 +11,7 @@ import type { TableColumn } from '@aquaculture/shared-ui';
 import { useAsyncData, usePagination, useFilters } from '../hooks';
 import { auditApi, tenantsApi } from '../services/adminApi';
 import type { AuditLog, AuditLogStats, Tenant } from '../services/adminApi';
-import { TenantTier, TenantStatus } from '../services/adminApi';
+import { TenantStatus } from '../services/adminApi';
 
 // ============================================================================
 // Types

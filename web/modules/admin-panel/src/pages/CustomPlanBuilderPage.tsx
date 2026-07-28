@@ -58,14 +58,19 @@ const METRIC_LABELS: Record<PricingMetricType, string> = {
   [PricingMetricType.PER_SENSOR]: 'Sensors',
   [PricingMetricType.PER_DEVICE]: 'Devices',
   [PricingMetricType.PER_GB_STORAGE]: 'Storage (GB)',
+  [PricingMetricType.PER_GB_TRANSFER]: 'Data Transfer (GB)',
   [PricingMetricType.PER_API_CALL]: 'API Calls',
   [PricingMetricType.PER_ALERT]: 'Alerts',
   [PricingMetricType.PER_REPORT]: 'Reports',
   [PricingMetricType.PER_SMS]: 'SMS',
   [PricingMetricType.PER_EMAIL]: 'Emails',
   [PricingMetricType.PER_INTEGRATION]: 'Integrations',
+  [PricingMetricType.PER_WORKFLOW]: 'Workflows',
 };
 
+// Partial by design: PER_GB_TRANSFER, PER_WORKFLOW, PER_SMS, PER_EMAIL and
+// BASE_PRICE are priced per measured usage rather than per configured
+// quantity, so there is no ModuleQuantities field for the form to collect.
 const QUANTITY_FIELD_MAP: Partial<Record<PricingMetricType, keyof ModuleQuantities>> = {
   [PricingMetricType.PER_USER]: 'users',
   [PricingMetricType.PER_FARM]: 'farms',

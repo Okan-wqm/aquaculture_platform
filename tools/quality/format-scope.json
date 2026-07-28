@@ -45676,6 +45676,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/constants/plan-tier.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/graphql/messaging-operations.ts",
       "prettier_managed": true
     },
@@ -46359,7 +46365,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "775987f4d640cf3a45fa88b026135d1b8bbfcdfa700b69732d332f52ecb5bdf5",
+      "content_sha256": "6a42b4460bd456f82509b2b9b9daa81ab005ff9faaf76f9102504f8144534604",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/types/generated/admin-contracts.ts",
@@ -55673,10 +55679,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9127,
+  "file_count": 9128,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8945,
-  "managed_file_list_sha256": "0f66eb4e616b33beec918324a42ff798a5390a6b7b2dd59399fb71f74e34dc0f",
+  "managed_count": 8946,
+  "managed_file_list_sha256": "51b1829c621ad622b23bc5d44399e66afdaf7129462d45d663a27cc7f31497bb",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

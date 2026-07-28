@@ -858,9 +858,13 @@ describe('Frontend-Backend Contract Validation', () => {
     // APA-213 (messaging): 569 -> 556 after removing the 13 MessagingController
     // routes (support messaging consolidated onto auth-service GraphQL —
     // auth.message_threads / auth.messages).
+    // APA-297: 556 -> 555 after removing GET /impersonation/stats, the all-time
+    // twin of the windowed /impersonation/audit/summary. Two endpoints computing
+    // overlapping aggregates over different periods is what let the panel render
+    // an all-time count under a "(30d)" heading.
     const count = backendEndpoints.length;
 
-    expect(count).toBe(556);
+    expect(count).toBe(555);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

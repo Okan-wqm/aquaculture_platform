@@ -150,6 +150,24 @@ export const ADMIN_CONTRACT_SOURCES: readonly ContractSource[] = [
     exports: ['TenantActivity', 'TenantNote'],
   },
   {
+    module: 'tenant',
+    // The ENTITLEMENT vocabulary — what `auth.tenants.plan` stores, what
+    // `Tenant.tier` reads back (it is a getter over `plan`), and what the
+    // create/update/query tenant DTOs validate with `@IsEnum(TenantPlan)`. It
+    // has `trial` and NO `custom`.
+    //
+    // Distinct from the SELLABLE `BillingPlanTier`, emitted above as `PlanTier`,
+    // which has `custom` and no `trial`. Both are canonical; they describe
+    // different things. The panel used to declare ONE hand-written `TenantTier`
+    // pinned to the SELLABLE set and hand it to the tenant endpoints, which
+    // validate the ENTITLEMENT one — so the panel believed it could send
+    // `custom` (a 400) and believed `trial` impossible (the endpoint takes it).
+    // Generating both under their real names makes the two sets impossible to
+    // confuse at a call site.
+    file: 'libs/event-contracts/src/enums/tenant-plan.enum.ts',
+    exports: ['TenantPlan'],
+  },
+  {
     module: 'support',
     file: 'apps/admin-api-service/src/support/entities/support.entity.ts',
     exports: ['OnboardingStep'],
@@ -184,5 +202,120 @@ export const ADMIN_CONTRACT_SOURCES: readonly ContractSource[] = [
     module: 'settings',
     file: 'apps/admin-api-service/src/system-management/entities/feature-toggle.entity.ts',
     exports: ['FeatureToggleScope', 'FeatureToggleStatus', 'FeatureToggle'],
+  },
+  {
+    module: 'billing',
+    file: 'apps/admin-api-service/src/billing/entities/plan-definition.entity.ts',
+    exports: ['PlanFeatures', 'PlanLimits', 'PlanDefinition'],
+  },
+  {
+    module: 'billing',
+    file: 'apps/admin-api-service/src/billing/entities/module-pricing.entity.ts',
+    exports: ['PricingMetric', 'TierMultipliers', 'ModulePricing'],
+  },
+  {
+    module: 'billing',
+    file: 'apps/admin-api-service/src/billing/entities/custom-plan.entity.ts',
+    exports: ['CustomPlanModule', 'CustomPlanLineItem', 'CustomPlan'],
+  },
+  {
+    module: 'billing',
+    file: 'apps/admin-api-service/src/billing/entities/discount-code.entity.ts',
+    exports: ['DiscountType', 'DiscountAppliesTo', 'DiscountDuration', 'DiscountCode'],
+  },
+  {
+    module: 'billing',
+    file: 'apps/admin-api-service/src/billing/entities/pricing-metric.enum.ts',
+    exports: ['PricingMetricType'],
+  },
+  {
+    module: 'billing',
+    file: 'libs/event-contracts/src/billing/billing-plan-tier.ts',
+    // The admin-billing surface has always called this `PlanTier`; the backend
+    // re-exports `BillingPlanTier` under that name for the same reason.
+    exports: ['BillingPlanTier'],
+    rename: { BillingPlanTier: 'PlanTier' },
+  },
+  {
+    module: 'billing',
+    file: 'apps/admin-api-service/src/billing/entities/usage-aggregation-readonly.entity.ts',
+    exports: ['MeterType'],
+  },
+  {
+    module: 'billing',
+    file: 'apps/admin-api-service/src/billing/services/subscription-types.ts',
+    exports: [
+      'SubscriptionStatus',
+      'ModuleQuantities',
+      'ModuleLineItem',
+      'SubscriptionModuleConfig',
+      'SubscriptionOverview',
+      'SubscriptionStats',
+    ],
+  },
+  {
+    module: 'billing',
+    file: 'apps/admin-api-service/src/billing/services/pricing-calculator.service.ts',
+    exports: [
+      'ModuleSelection',
+      'ModulePriceBreakdown',
+      'PricingLineItem',
+      'PricingCalculation',
+      'QuoteRequest',
+    ],
+  },
+  {
+    module: 'billing',
+    file: 'apps/admin-api-service/src/billing/services/invoice-management.service.ts',
+    exports: ['InvoiceOverview', 'InvoiceStats'],
+  },
+  {
+    module: 'billing',
+    file: 'apps/admin-api-service/src/billing/services/payment-management.service.ts',
+    exports: ['PaymentOverview'],
+  },
+  {
+    module: 'billing',
+    file: 'apps/admin-api-service/src/billing/services/usage-metering-management.service.ts',
+    exports: ['TenantUsageOverview', 'TopTenantUsage', 'UsageSummaryStats', 'UsageTrendPoint'],
+  },
+  {
+    module: 'billing',
+    file: 'apps/admin-api-service/src/billing/services/discount-code.service.ts',
+    exports: ['DiscountStats'],
+  },
+  {
+    module: 'modules',
+    file: 'apps/admin-api-service/src/modules/modules.service.ts',
+    exports: ['ModuleStats', 'TenantModuleAssignment'],
+  },
+  {
+    module: 'users',
+    file: 'apps/admin-api-service/src/users/users.service.ts',
+    exports: ['UserStats'],
+  },
+  {
+    module: 'users',
+    file: 'apps/admin-api-service/src/users/services/role-template.service.ts',
+    exports: ['Permission', 'RoleTemplate'],
+  },
+  {
+    module: 'security',
+    // NOT `security/services/audit-trail.service.ts`'s `AuditSummary` — that is
+    // a different shape that merely shares the name. The route returns what
+    // `AuditLogService.getStatistics` returns.
+    file: 'apps/admin-api-service/src/audit/audit.service.ts',
+    exports: ['AuditStatistics'],
+    rename: { AuditStatistics: 'AuditSummary' },
+  },
+  {
+    module: 'settings',
+    file: 'apps/admin-api-service/src/settings/entities/system-setting.entity.ts',
+    exports: ['EmailTemplateVariable', 'EmailTemplate', 'IpAccessRule'],
+  },
+  {
+    module: 'settings',
+    file: 'apps/admin-api-service/src/system-management/entities/maintenance-mode.entity.ts',
+    exports: ['MaintenanceStatus'],
   },
 ];

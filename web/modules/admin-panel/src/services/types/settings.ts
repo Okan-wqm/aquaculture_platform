@@ -3,6 +3,21 @@
  */
 
 // GENERATED backend contracts — tools/codegen/admin-contracts/manifest.ts.
+import type {
+  EmailTemplateVariable,
+  EmailTemplate,
+  IpAccessRule,
+  MaintenanceStatus,
+} from './generated/admin-contracts';
+
+export type {
+  EmailTemplateVariable,
+  EmailTemplate,
+  IpAccessRule,
+  MaintenanceStatus,
+};
+
+// GENERATED backend contracts — tools/codegen/admin-contracts/manifest.ts.
 // Imported so shapes below can reference them; re-exported so import sites
 // are unchanged.
 import type {
@@ -81,50 +96,6 @@ export interface TenantConfiguration {
   }>;
   updatedAt: string;
 }
-
-export interface EmailTemplateVariable {
-  name: string;
-  description: string;
-  required: boolean;
-  defaultValue?: string;
-}
-
-export interface EmailTemplate {
-  id: string;
-  code: string;
-  name: string;
-  description?: string;
-  category: string;
-  subject: string;
-  bodyHtml: string;
-  bodyText?: string;
-  variables: EmailTemplateVariable[];
-  isActive: boolean;
-  isSystem: boolean;
-  tenantId?: string;
-  createdAt: string;
-  updatedAt: string;
-  updatedBy?: string;
-}
-
-export interface IpAccessRule {
-  id: string;
-  tenantId?: string;
-  ruleType: 'whitelist' | 'blacklist';
-  ipAddress: string;
-  description?: string;
-  isActive: boolean;
-  expiresAt?: string;
-  hitCount: number;
-  lastHitAt?: string;
-  createdBy?: string;
-  createdAt: string;
-}
-
-// ============================================================================
-// Feature Toggle Types
-// ============================================================================
-export type MaintenanceStatus = 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'extended';
 
 /**
  * A maintenance window, as `GET /system/settings/maintenance` returns it.

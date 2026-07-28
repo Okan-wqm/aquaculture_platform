@@ -15,6 +15,20 @@ export type {
   TenantNote,
 };
 
+// A tenant's plan is the ENTITLEMENT vocabulary `TenantPlan` (free | trial |
+// starter | professional | enterprise): that is what `auth.tenants.plan` stores,
+// what `Tenant.tier` reads back (the field is a getter over `plan`), and what
+// `@IsEnum(TenantPlan)` on the create/update/query DTOs validates.
+//
+// A hand-copied `TenantTier` enum used to sit below, pinned member-for-member to
+// the SELLABLE `BillingPlanTier` set instead — so the panel's types claimed it
+// could send `custom` (the endpoint 400s it) and that `trial` was impossible
+// (the endpoint takes it). `billing.ts` owns the sellable tier; importing rather
+// than re-exporting keeps the `export *` barrel unambiguous.
+import { TenantPlan } from './generated/admin-contracts';
+
+export { TenantPlan };
+
 // ============================================================================
 // Tenant Enums (Backend uyumlu)
 // ============================================================================
@@ -29,19 +43,6 @@ export enum TenantStatus {
   ARCHIVED = 'ARCHIVED',
 }
 
-// A tenant's *sellable* tier as the admin-panel shows it — which CAN be
-// `custom`. This mirrors the canonical `BillingPlanTier` SSoT
-// (libs/event-contracts/src/billing/billing-plan-tier.ts), NOT the entitlement
-// `TenantPlan` (that one has `trial` and no `custom`). Web modules cannot import
-// a backend `@platform/*` library, so this literal is PINNED member-for-member
-// to the SSoT by `tests/invariants/tier-enum-ssot.spec.ts` (Faz D, D8).
-export enum TenantTier {
-  FREE = 'free',
-  STARTER = 'starter',
-  PROFESSIONAL = 'professional',
-  ENTERPRISE = 'enterprise',
-  CUSTOM = 'custom',
-}
 
 // ============================================================================
 // Tenant Interfaces
@@ -86,7 +87,7 @@ export interface Tenant {
   slug: string;
   description?: string;
   domain?: string;
-  tier: TenantTier;
+  tier: TenantPlan;
   status: TenantStatus;
   userCount: number;
   farmCount: number;
@@ -117,7 +118,6 @@ export interface TenantStats {
   activeTenants: number;
   suspendedTenants: number;
   pendingTenants: number;
-  byTier?: Record<TenantTier, number>;
   byPlan?: Record<string, number>;
   newTenantsLast30Days: number;
   churnedTenantsLast30Days: number;
@@ -149,7 +149,7 @@ export interface TenantDetail extends Tenant {
   recentActivities?: TenantActivity[];
   notes?: TenantNote[];
   billing?: {
-    currentPlan: string;
+    currentPlan: TenantPlan;
     monthlyAmount: number;
     currency: string;
     billingCycle: string;
@@ -181,7 +181,7 @@ export interface ModuleQuantityConfig {
 export interface CreateTenantDto {
   name: string;
   slug?: string;
-  tier?: TenantTier;
+  tier?: TenantPlan;
   description?: string;
   domain?: string;
   primaryContact?: TenantContact;
@@ -241,7 +241,7 @@ export interface UpdateTenantDto {
   name?: string;
   description?: string;
   domain?: string;
-  tier?: TenantTier;
+  tier?: TenantPlan;
   primaryContact?: TenantContact;
   billingContact?: TenantContact;
   billingEmail?: string;

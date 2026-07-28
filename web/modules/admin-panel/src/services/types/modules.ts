@@ -2,6 +2,17 @@
  * Module management domain types
  */
 
+// GENERATED backend contracts — tools/codegen/admin-contracts/manifest.ts.
+import type {
+  ModuleStats,
+  TenantModuleAssignment,
+} from './generated/admin-contracts';
+
+export type {
+  ModuleStats,
+  TenantModuleAssignment,
+};
+
 import type { ModuleQuantities } from './billing';
 
 export interface SystemModule {
@@ -17,23 +28,4 @@ export interface SystemModule {
   tenantsCount: number;
   createdAt: string;
   updatedAt: string;
-}
-
-export interface ModuleStats {
-  totalModules: number;
-  activeModules: number;
-  coreModules: number;
-  totalAssignments: number;
-  moduleUsage: Array<{ moduleId: string; moduleName: string; tenantsCount: number }>;
-}
-
-export interface TenantModuleAssignment {
-  id: string;
-  tenantId: string;
-  tenantName: string;
-  moduleId: string;
-  moduleCode: string;
-  moduleName: string;
-  assignedAt: string;
-  expiresAt: string | null;
 }

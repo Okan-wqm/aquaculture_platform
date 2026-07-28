@@ -2,6 +2,19 @@
  * User management domain types
  */
 
+// GENERATED backend contracts — tools/codegen/admin-contracts/manifest.ts.
+import type {
+  UserStats,
+  Permission,
+  RoleTemplate,
+} from './generated/admin-contracts';
+
+export type {
+  UserStats,
+  Permission,
+  RoleTemplate,
+};
+
 /**
  * Canonical platform role vocabulary — PINNED mirror of the backend SSoT
  * (`PLATFORM_ROLE_CODES` in `@platform/event-contracts/roles`, itself pinned to
@@ -58,16 +71,6 @@ export interface User {
   [key: string]: unknown;
 }
 
-export interface UserStats {
-  totalUsers: number;
-  activeUsers: number;
-  inactiveUsers: number;
-  usersByRole: Array<{ role: string; count: number }>;
-  usersByTenant: Array<{ tenantId: string; tenantName: string; count: number }>;
-  newUsersLast30Days: number;
-  loginsLast24Hours: number;
-}
-
 export interface CreateUserDto {
   email: string;
   firstName: string;
@@ -86,24 +89,6 @@ export interface InviteUserDto {
   moduleIds?: string[];
   primaryModuleId?: string;
   message?: string;
-}
-
-export interface Permission {
-  code: string;
-  name: string;
-  description: string;
-  category: string;
-}
-
-export interface RoleTemplate {
-  code: PlatformRole;
-  name: string;
-  description: string;
-  level: number;
-  permissions: string[];
-  isSystem: boolean;
-  color: string;
-  icon: string;
 }
 
 export interface RoleHierarchyItem {

@@ -201,25 +201,33 @@ class WireEmitter {
         }
         return JSON.stringify(value);
       });
-      // Emit the vocabulary as a VALUE as well as a type.
+      // Emit the vocabulary as a VALUE as well as a type, in the shape callers
+      // already use.
       //
-      // A type-only union vanishes at runtime, so every dropdown that offers
-      // these states has to re-list them by hand — and then it drifts. The job
-      // filter offered 6 of JobStatus's 8 members, so `scheduled`, `retrying`
-      // and `paused` jobs were unfilterable; the feature-toggle form omitted
-      // `environment`, so that scope could not be created or edited at all.
+      // A type-only union vanishes at runtime, so every dropdown offering these
+      // states has to re-list them by hand — and then it drifts. The job filter
+      // offered 6 of JobStatus's 8 members, so scheduled/retrying/paused jobs
+      // were unfilterable; the feature-toggle form omitted `environment`;
+      // billing's PricingMetricType omitted `per_gb_transfer` and
+      // `per_workflow`, so two real metrics could not be priced.
       //
-      // Deriving the type FROM the array means the two cannot disagree: one
-      // declaration, usable in a `.map()` and in a `Record<T, …>` exhaustiveness
-      // check alike.
-      const constName = `${screamingSnake(name)}_VALUES`;
+      // The const-object form is deliberate. A bare values array would have
+      // forced 119 call sites from `DiscountType.PERCENTAGE` to `'percentage'`
+      // — churn that buys nothing, since the member name is the readable thing.
+      // This keeps the accessor, the type and the ordered vocabulary as three
+      // views of ONE declaration.
+      const memberNames = declaration.members.map((member) => member.name.getText());
+      const entries = memberNames
+        .map((memberName, index) => `  ${memberName}: ${members[index]},`)
+        .join('\n');
       this.emitted.set(name, {
         name,
         module,
         origin,
         body:
-          `export const ${constName} = [${members.join(', ')}] as const;\n` +
-          `export type ${name} = (typeof ${constName})[number];`,
+          `export const ${name} = {\n${entries}\n} as const;\n` +
+          `export type ${name} = (typeof ${name})[keyof typeof ${name}];\n` +
+          `export const ${screamingSnake(name)}_VALUES = Object.values(${name});`,
       });
       return true;
     }
@@ -262,15 +270,46 @@ class WireEmitter {
       );
     }
 
-    const lines = properties.map((property) => {
+    // Members that do not survive JSON.stringify are not on the wire, so they
+    // are not in the contract. Both cases matter, and the second matters more:
+    //
+    //   - Methods are obviously absent, but a TypeORM entity is full of them
+    //     (`ModulePricing.getMetricPrice()`, `CustomPlan.canModify()`), and
+    //     refusing on sight would block generating from any entity-backed
+    //     response — leaving those contracts hand-written, i.e. duplicated,
+    //     which is the thing this tool exists to end.
+    //   - GETTERS are the trap. `Tenant.tier` is a getter aliasing `plan`; it
+    //     reads like a column and vanishes on serialize. This repo already paid
+    //     for that once — `TenantListItemDto` had to materialize `tier` as an
+    //     own property after the getter reached the client as undefined. A
+    //     generator that emitted getters would promise fields the wire has
+    //     never carried, which is worse than the hand-written type it replaces.
+    const dropped: string[] = [];
+    const serializable = properties.filter((property) => {
       const declaration = property.declarations?.[0];
-      if (declaration && (ts.isMethodDeclaration(declaration) || ts.isMethodSignature(declaration))) {
-        throw new ContractGenerationError(
-          `"${owner}.${property.getName()}" is a method. Methods do not survive ` +
-            `JSON, so a type carrying one is a persistence object about to be ` +
-            `serialized onto a response — fix the handler, not the manifest.`,
-        );
+      if (!declaration) {
+        return true;
       }
+      const isMethod =
+        ts.isMethodDeclaration(declaration) || ts.isMethodSignature(declaration);
+      const isAccessor =
+        ts.isGetAccessorDeclaration(declaration) || ts.isSetAccessorDeclaration(declaration);
+      if (isMethod || isAccessor) {
+        dropped.push(`${property.getName()}${isMethod ? '()' : ' (getter)'}`);
+        return false;
+      }
+      return true;
+    });
+
+    if (serializable.length === 0) {
+      throw new ContractGenerationError(
+        `"${owner}" has no serializable properties — every member is a method or ` +
+          `accessor, so nothing of it reaches the client.`,
+      );
+    }
+
+    const lines = serializable.map((property) => {
+      const declaration = property.declarations?.[0];
 
       // getTypeOfSymbol, not getTypeOfSymbolAtLocation: a property produced by a
       // mapped type (`Record<Enum, number>`) has no declaration node to pass,
@@ -292,7 +331,13 @@ class WireEmitter {
       return `${indent}  ${property.getName()}${optional ? '?' : ''}: ${rendered};`;
     });
 
-    return `{\n${lines.join('\n')}\n${indent}}`;
+    // Recorded in the output so a reader who expects `tier` finds out why it is
+    // absent here rather than concluding the generator missed it.
+    const note =
+      dropped.length > 0
+        ? `${indent}  // not on the wire (does not survive JSON): ${dropped.join(', ')}\n`
+        : '';
+    return `{\n${note}${lines.join('\n')}\n${indent}}`;
   }
 
   /** Render a type in wire form, queueing any named object shapes it references. */
@@ -306,6 +351,21 @@ class WireEmitter {
     // `true | false`, so the union branch would render it as such.
     if ((type.flags & ts.TypeFlags.Boolean) !== 0) {
       return 'boolean';
+    }
+
+    // A branded primitive — `IsoDateString` is `string & { __isoDate: unique
+    // symbol }` — carries only the primitive on the wire. The brand exists to
+    // stop an arbitrary string being passed where a calendar date is meant, and
+    // that guarantee lives on the server: it cannot be enforced across JSON, and
+    // emitting it would give the panel a type it can never satisfy without a
+    // cast, which is how casts get written.
+    if (type.isIntersection()) {
+      const primitive = type.types.find(
+        (member) => (member.flags & ts.TypeFlags.Primitive) !== 0,
+      );
+      if (primitive) {
+        return this.render(primitive, path, stripUndefined, indent);
+      }
     }
 
     if (type.isUnion()) {

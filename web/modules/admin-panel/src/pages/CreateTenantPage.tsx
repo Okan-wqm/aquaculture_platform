@@ -15,9 +15,8 @@ import {
   modulesApi,
   billingApi,
   PricingMetricType,
-  TenantTier,
   TenantProvisioningState,
-  PlanTier,
+  TenantPlan,
   BillingCycle,
   type SystemModule,
   type CreateTenantDto,
@@ -28,26 +27,50 @@ import {
   type PricingCalculation,
   type QuoteRequest,
 } from '../services/adminApi';
+import {
+  PROVISIONABLE_PLANS,
+  TENANT_PLAN_LABELS,
+  type ProvisionablePlan,
+} from '../constants/plan-tier';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-// Tier'ı burada tanımlıyoruz (fix plan yok, sadece indirim oranları için)
-type PricingTier = 'free' | 'starter' | 'professional' | 'enterprise' | 'custom';
+// What this wizard picks is the tenant's plan, and that one field has to satisfy
+// two contracts: `POST /admin/tenants` validates it with `@IsEnum(TenantPlan)`,
+// and the quote request types it `PlanTier`. `ProvisionablePlan` is the DERIVED
+// overlap of the two vocabularies, so the same value flows into both without a
+// conversion — and the two members that are not in the overlap are excluded by
+// construction rather than by four inline literals someone has to remember:
+//
+//   - `trial` is an entitlement but not sellable. This wizard expresses a trial
+//     through `trialDays`, which the backend turns into a trial SUBSCRIPTION
+//     over a real plan; offering it here would create a tenant on plan `trial`
+//     with no trial end date.
+//   - `custom` is sellable but not an entitlement. A custom tenant is issued by
+//     the custom-plan builder, which has bespoke limits to attach.
+//
+// A page-local `PricingTier` literal used to stand in for all of this, copied
+// from the sellable set — which is why every use of it was cast back onto the
+// contract it was supposed to describe.
+const PLAN_DESCRIPTIONS: Record<ProvisionablePlan, string> = {
+  free: 'Permanent $0 — no platform or module fees',
+  starter: 'Small farms getting started',
+  professional: 'Growing operations — reports + API access',
+  enterprise: 'Unlimited scale, every capability',
+};
 
-// Selectable pricing tiers surfaced in the wizard (Billing Revival Faz B). FREE
-// is a permanent $0 tier; the paid tiers keep their existing pricing behaviour.
-const TIER_OPTIONS: { value: PricingTier; label: string; description: string }[] = [
-  { value: 'free', label: 'Free', description: 'Permanent $0 — no platform or module fees' },
-  { value: 'starter', label: 'Starter', description: 'Small farms getting started' },
-  {
-    value: 'professional',
-    label: 'Professional',
-    description: 'Growing operations — reports + API access',
-  },
-  { value: 'enterprise', label: 'Enterprise', description: 'Unlimited scale, every capability' },
-];
+const TIER_OPTIONS: { value: ProvisionablePlan; label: string; description: string }[] =
+  PROVISIONABLE_PLANS.map((plan) => ({
+    value: plan,
+    label: TENANT_PLAN_LABELS[plan],
+    description: PLAN_DESCRIPTIONS[plan],
+  }));
+
+/** Runtime membership test for the radio group, so the widget's `string` narrows instead of being cast. */
+const isOfferedPlan = (value: string): value is ProvisionablePlan =>
+  TIER_OPTIONS.some((option) => option.value === value);
 
 // FREE-tier allowances surfaced when Free is selected. This is descriptive UI
 // copy only — the authoritative limits are enforced server-side by the canonical
@@ -88,7 +111,7 @@ interface TenantFormData {
 
   // Step 3: Modules & Pricing
   moduleConfigs: ModuleConfig[];
-  pricingTier: PricingTier;
+  pricingTier: ProvisionablePlan;
 
   // Step 4: Trial settings
   trialDays: number;
@@ -109,15 +132,18 @@ const initialFormData: TenantFormData = {
   },
   billingEmail: '',
   moduleConfigs: [],
-  pricingTier: 'starter',
+  pricingTier: TenantPlan.STARTER,
   trialDays: 14,
   maxStorage: -1,
 };
 
-// Helper to check if metric is BASE_PRICE (handles both string and enum)
-const isBasePrice = (metricType: string | PricingMetricType): boolean => {
-  return metricType === 'BASE_PRICE' || metricType === PricingMetricType.BASE_PRICE;
-};
+// The `| string` widening and the `'BASE_PRICE'` comparison were both there
+// because the metric type used to be a nominal enum that callers passed raw
+// strings into. The comparison could never be true — the wire carries
+// `base_price`, never the member name — so it was dead. With the vocabulary
+// derived from the backend the parameter can be the vocabulary itself.
+const isBasePrice = (metricType: PricingMetricType): boolean =>
+  metricType === PricingMetricType.BASE_PRICE;
 
 // Single source of truth for metric labels (BUG-018: removed duplicate getMetricLabel)
 const metricLabels: Record<PricingMetricType, string> = {
@@ -128,12 +154,14 @@ const metricLabels: Record<PricingMetricType, string> = {
   [PricingMetricType.PER_SENSOR]: 'Per Sensors',
   [PricingMetricType.PER_DEVICE]: 'Per Device',
   [PricingMetricType.PER_GB_STORAGE]: 'Per GB Storage',
+  [PricingMetricType.PER_GB_TRANSFER]: 'Per GB Transfer',
   [PricingMetricType.PER_API_CALL]: 'Per API Call',
   [PricingMetricType.PER_ALERT]: 'Per Alert',
   [PricingMetricType.PER_REPORT]: 'Per Report',
   [PricingMetricType.PER_SMS]: 'Per SMS',
   [PricingMetricType.PER_EMAIL]: 'Per Email',
   [PricingMetricType.PER_INTEGRATION]: 'Per Integration',
+  [PricingMetricType.PER_WORKFLOW]: 'Per Workflow',
 };
 
 // Single source of truth for metric → quantity field mapping (BUG-018: removed duplicate getQuantityField)
@@ -145,20 +173,62 @@ const metricToQuantityField: Record<PricingMetricType, keyof ModuleQuantities | 
   [PricingMetricType.PER_SENSOR]: 'sensors',
   [PricingMetricType.PER_DEVICE]: 'devices',
   [PricingMetricType.PER_GB_STORAGE]: 'storageGb',
+  // No ModuleQuantities field yet — priced per measured usage, not per
+  // configured quantity, so there is nothing for the form to collect.
+  [PricingMetricType.PER_GB_TRANSFER]: null,
   [PricingMetricType.PER_API_CALL]: 'apiCalls',
   [PricingMetricType.PER_ALERT]: 'alerts',
   [PricingMetricType.PER_REPORT]: 'reports',
   [PricingMetricType.PER_SMS]: null,
   [PricingMetricType.PER_EMAIL]: null,
   [PricingMetricType.PER_INTEGRATION]: 'integrations',
+  [PricingMetricType.PER_WORKFLOW]: null,
 };
 
 // Derived helpers that use the single source of truth
-const getMetricLabel = (metricType: string | PricingMetricType): string =>
-  metricLabels[metricType as PricingMetricType] || metricType;
+const getMetricLabel = (metricType: PricingMetricType): string => metricLabels[metricType];
 
-const getQuantityField = (metricType: string | PricingMetricType): keyof ModuleQuantities | null =>
-  metricToQuantityField[metricType as PricingMetricType] ?? null;
+const getQuantityField = (metricType: PricingMetricType): keyof ModuleQuantities | null =>
+  metricToQuantityField[metricType];
+
+/**
+ * The wizard's local monthly price — ONE author.
+ *
+ * This sum used to exist twice: once in the `calculatedTotal` memo that the
+ * summary and confirmation steps render, and once inline in `calculatePrice` as
+ * the optimistic figure shown while the server quote is in flight. The two had
+ * drifted. The inline copy ignored `minQuantity`, so any metric with a floor was
+ * under-billed, and it ignored the FREE tier entirely — a FREE tenant was quoted
+ * a paid amount for the half-second before the server answered, and for as long
+ * as the quote endpoint was unreachable, since the catch block keeps the local
+ * figure on the screen.
+ */
+const sumModuleCharges = (
+  configs: ModuleConfig[],
+  pricings: ModulePricingWithModule[],
+  tier: ProvisionablePlan,
+): number => {
+  // FREE is a permanent $0 tier (Billing Revival Faz B): the platform fee and
+  // every module charge are waived, so the wizard must never show a paid amount.
+  if (tier === TenantPlan.FREE) return 0;
+
+  return configs.reduce((total, config) => {
+    const pricing = pricings.find((p) => p.moduleId === config.moduleId);
+    if (!pricing) return total;
+
+    return pricing.pricingMetrics.reduce((runningTotal, metric) => {
+      if (isBasePrice(metric.type)) return runningTotal + metric.price;
+
+      const field = getQuantityField(metric.type);
+      if (!field) return runningTotal;
+
+      const includedQty = metric.includedQuantity ?? 0;
+      const minQty = Math.max(metric.minQuantity ?? 0, 0);
+      const qty = Math.max(config.quantities[field] ?? minQty, minQty);
+      return runningTotal + Math.max(0, qty - includedQty) * metric.price;
+    }, total);
+  }, 0);
+};
 
 const TENANT_CREATE_IDEMPOTENCY_PREFIX = 'admin-panel:tenant-create:idempotency:';
 
@@ -460,27 +530,17 @@ const CreateTenantPage: React.FC = () => {
             integrations: 0,
           };
 
-          // Parse pricingMetrics if it's a string (JSONB from API sometimes comes as string)
-          let metrics = p.pricingMetrics;
-          if (typeof metrics === 'string') {
-            try {
-              metrics = JSON.parse(metrics);
-            } catch {
-              // metrics remains as-is if parsing fails
+          // `pricingMetrics` is a jsonb column read back through `repo.find()`,
+          // so the driver hands the service a parsed array and the generated
+          // contract types it as `PricingMetric[]`. The hand-written
+          // `{ type: string }` shadow that used to sit here is what widened the
+          // metric vocabulary back to `string` at the call site.
+          p.pricingMetrics.forEach((metric) => {
+            const field = getQuantityField(metric.type);
+            if (field && metric.includedQuantity && metric.includedQuantity > 0) {
+              defaultQuantities[field] = metric.includedQuantity;
             }
-          }
-
-          // Set defaults from includedQuantity in pricing metrics (BUG-020: typed instead of any)
-          if (metrics && Array.isArray(metrics)) {
-            (metrics as Array<{ type: string; includedQuantity?: number; price?: number }>).forEach(
-              (metric) => {
-                const field = getQuantityField(metric.type);
-                if (field && metric.includedQuantity && metric.includedQuantity > 0) {
-                  defaultQuantities[field] = metric.includedQuantity;
-                }
-              },
-            );
-          }
+          });
 
           return {
             moduleId: p.moduleId,
@@ -534,28 +594,10 @@ const CreateTenantPage: React.FC = () => {
     quoteRequestSeq.current = requestId;
     setCalculatingPrice(true);
 
-    // Calculate locally first (most reliable) — use the same logic as calculatedTotal useMemo
-    let localTotal = 0;
-    enabledModules.forEach((config) => {
-      const pricing = modulePricings.find((p) => p.moduleId === config.moduleId);
-      if (pricing?.pricingMetrics && Array.isArray(pricing.pricingMetrics)) {
-        pricing.pricingMetrics.forEach(
-          (metric: { type: string; price?: number; includedQuantity?: number }) => {
-            if (isBasePrice(metric.type)) {
-              localTotal += metric.price || 0;
-            } else {
-              const field = getQuantityField(metric.type);
-              if (field) {
-                const qty = config.quantities[field] ?? 0;
-                const included = metric.includedQuantity ?? 0;
-                const billable = Math.max(0, qty - included);
-                localTotal += billable * (metric.price || 0);
-              }
-            }
-          },
-        );
-      }
-    });
+    // Optimistic figure shown while the server quote is in flight — the same
+    // sum the summary step renders, so the number cannot change meaning when
+    // the quote lands or when the quote endpoint is unreachable.
+    const localTotal = sumModuleCharges(enabledModules, modulePricings, formData.pricingTier);
 
     // Set local calculation immediately
     const localCalculation: PricingCalculation = {
@@ -570,7 +612,10 @@ const CreateTenantPage: React.FC = () => {
       billingCycle: BillingCycle.MONTHLY,
       billingCycleMultiplier: 1,
       currency: 'USD',
-      tier: PlanTier.STARTER,
+      // The selected tier, not a hardcoded STARTER: the placeholder card renders
+      // this field, so a FREE or ENTERPRISE wizard used to label its own quote
+      // with the wrong tier until the server answered.
+      tier: formData.pricingTier,
       calculatedAt: new Date().toISOString(),
       modules: [],
     };
@@ -586,7 +631,7 @@ const CreateTenantPage: React.FC = () => {
           moduleName: c.moduleName,
           quantities: c.quantities,
         })),
-        tier: formData.pricingTier as PlanTier,
+        tier: formData.pricingTier,
         billingCycle: BillingCycle.MONTHLY,
       };
 
@@ -763,7 +808,7 @@ const CreateTenantPage: React.FC = () => {
         // FREE is a first-class tier now (Billing Revival Faz B) — pass the real
         // selection through instead of the old free→STARTER coercion, so the
         // backend provisions a genuine plan_tier='free' subscription.
-        tier: formData.pricingTier as TenantTier,
+        tier: formData.pricingTier,
         domain: formData.domain.trim().toLowerCase() || undefined,
         country: formData.country.trim().toUpperCase() || undefined,
         region: formData.region.trim() || undefined,
@@ -777,7 +822,7 @@ const CreateTenantPage: React.FC = () => {
         // FREE is permanent, never a trial — omit trialDays so the subscription
         // is created `active`, not `trial`.
         trialDays:
-          formData.pricingTier === 'free'
+          formData.pricingTier === TenantPlan.FREE
             ? undefined
             : formData.trialDays > 0
               ? formData.trialDays
@@ -906,36 +951,10 @@ const CreateTenantPage: React.FC = () => {
   );
 
   // Calculate total price directly from enabled modules (reliable, no API dependency)
-  const calculatedTotal = useMemo(() => {
-    // FREE is a permanent $0 tier (Billing Revival Faz B): the platform fee and
-    // every module charge are waived, so the wizard must never show a paid amount.
-    // Short-circuit before summing module metrics.
-    if (formData.pricingTier === 'free') return 0;
-
-    let total = 0;
-
-    enabledModules.forEach((config) => {
-      const pricing = modulePricings.find((p) => p.moduleId === config.moduleId);
-
-      if (pricing?.pricingMetrics && Array.isArray(pricing.pricingMetrics)) {
-        pricing.pricingMetrics.forEach((metric) => {
-          if (isBasePrice(metric.type)) {
-            total += metric.price || 0;
-          } else {
-            const field = getQuantityField(metric.type);
-            if (field) {
-              const includedQty = metric.includedQuantity ?? 0;
-              const minQty = Math.max(metric.minQuantity ?? 0, 0);
-              const qty = Math.max(config.quantities[field] ?? minQty, minQty);
-              const billableQty = Math.max(0, qty - includedQty);
-              total += billableQty * (metric.price || 0);
-            }
-          }
-        });
-      }
-    });
-    return total;
-  }, [enabledModules, modulePricings, formData.pricingTier]);
+  const calculatedTotal = useMemo(
+    () => sumModuleCharges(enabledModules, modulePricings, formData.pricingTier),
+    [enabledModules, modulePricings, formData.pricingTier],
+  );
 
   if (provisioningOperation && !success) {
     const isFailed = provisioningOperation.status === TenantProvisioningState.FAILED;
@@ -1220,9 +1239,13 @@ const CreateTenantPage: React.FC = () => {
                   vertical={false}
                   options={TIER_OPTIONS}
                   value={formData.pricingTier}
-                  onChange={(value) => updateFormData('pricingTier', value as PricingTier)}
+                  onChange={(value) => {
+                    // The widget hands back a `string`; narrow against the
+                    // options it was given rather than asserting the vocabulary.
+                    if (isOfferedPlan(value)) updateFormData('pricingTier', value);
+                  }}
                 />
-                {formData.pricingTier === 'free' && (
+                {formData.pricingTier === TenantPlan.FREE && (
                   <Alert type="info" className="mt-4">
                     <span className="font-medium">Free plan — permanent $0.</span> No platform fee
                     and no module charges. Included allowances: up to {FREE_TIER_LIMITS.maxUsers}{' '}

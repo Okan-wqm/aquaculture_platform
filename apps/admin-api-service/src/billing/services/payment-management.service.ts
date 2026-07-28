@@ -6,6 +6,8 @@ import {
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
+import type { RefundEntry } from '../../analytics/entities/external/payment.entity';
+
 /**
  * Payment overview for admin panel
  */
@@ -24,6 +26,16 @@ export interface PaymentOverview {
   processedAt?: string;
   failureReason?: string;
   refundedAmount: number;
+  /**
+   * The individual refunds behind `refundedAmount`.
+   *
+   * `billing.payments.refunds` is a jsonb array and the admin panel has always
+   * rendered a "Refund History" block from it — but this overview never
+   * selected the column, so the block's guard was permanently false and an
+   * operator could see a non-zero refunded total with no way to learn what it
+   * was made of.
+   */
+  refunds: RefundEntry[];
   notes?: string;
   createdAt: string;
   updatedAt: string;
@@ -85,6 +97,7 @@ function mapPaymentOverview(row: PaymentOverviewRow): PaymentOverview {
     ...row,
     amount: dbNumber(row.amount),
     refundedAmount: dbNumber(row.refundedAmount),
+    refunds: row.refunds ?? [],
   };
 }
 
@@ -176,6 +189,7 @@ export class PaymentManagementService {
         p.processed_at as "processedAt",
         p.failure_reason as "failureReason",
         p.refunded_amount as "refundedAmount",
+        COALESCE(p.refunds, '[]'::jsonb) as "refunds",
         p.notes,
         p."createdAt",
         p."updatedAt",

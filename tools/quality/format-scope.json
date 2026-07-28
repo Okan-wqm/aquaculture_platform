@@ -7282,6 +7282,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/__tests__/e2e/helpers/farm-tenant-fixture.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/helpers/tenant-schema-harness.ts",
       "prettier_managed": true
     },
@@ -55200,10 +55206,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9049,
+  "file_count": 9050,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8868,
-  "managed_file_list_sha256": "c9031e8f547299eb1e4b795d0cfc3de6a9bb436d52507b0a999c82e2db845b4d",
+  "managed_count": 8869,
+  "managed_file_list_sha256": "0ef98da962bd9776496a13bbf4f0e17a995a85cf32c9860470daa868983f08bc",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

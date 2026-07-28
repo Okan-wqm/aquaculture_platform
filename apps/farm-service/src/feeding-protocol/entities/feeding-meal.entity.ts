@@ -104,8 +104,14 @@ export interface MealPour {
 @Entity('feeding_meals')
 @Index(['dayPlanId', 'mealIndex'], { unique: true })
 @Index(['tenantId', 'dayPlanId'])
-@Index(['tenantId', 'scheduledAt'], {
-  where: `"status" = 'scheduled' AND "windowNotifiedAt" IS NULL`,
+// 15 dk'lık pencere süpürmesinin indeksi. `windowNotifiedAt IS NULL` predikattan
+// ÇIKTI (FARM-MEDIUM-271): süpürme artık pencere içindeki öğünü yeniden
+// bildiriyor, yani yeniden-bildirim adayları — tam da sorgunun aradığı satırlar —
+// eski predikatın dışında kalıyordu. Kolon indekslenen alanlara taşındı ki
+// "şu kadar dakikadır bildirilmedi" karşılaştırması da indeksten karşılansın.
+// Migration: 1808200000000.
+@Index(['tenantId', 'scheduledAt', 'windowNotifiedAt'], {
+  where: `"status" = 'scheduled'`,
 })
 @Index(['tenantId', 'unitId', 'scheduledAt'])
 export class FeedingMeal {

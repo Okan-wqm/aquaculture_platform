@@ -212,7 +212,11 @@ export class FeedingDayPlan {
   // dahil) üretimde olmayan bir tip yaratır, üstelik generator'ın ham INSERT'ü
   // `$6::feeding_protocol_assignments_unittype_enum` diye cast ettiği için
   // orada 42804 ile patlar.
-  @Column({ type: 'enum', enum: FeedingUnitType, enumName: 'feeding_protocol_assignments_unittype_enum' })
+  @Column({
+    type: 'enum',
+    enum: FeedingUnitType,
+    enumName: 'feeding_protocol_assignments_unittype_enum',
+  })
   unitType!: FeedingUnitType;
 
   @Field()

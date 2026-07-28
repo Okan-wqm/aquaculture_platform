@@ -9,7 +9,17 @@
  * @module FeedingProtocol/DTO
  */
 import { Field, Float, ID, InputType, Int } from '@nestjs/graphql';
-import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
 
 import { FeedingMethod } from '../../feeding/entities/feeding-record.entity';

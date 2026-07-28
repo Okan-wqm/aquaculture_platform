@@ -20,7 +20,14 @@
  * @module FeedingProtocol/Listeners
  */
 import { isValidUUID } from '@aquaculture/backend-common/database';
-import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+  Optional,
+} from '@nestjs/common';
 import { IEventBus } from '@platform/event-bus';
 import type { BaseEvent, StockMovementRecordedEvent } from '@platform/event-contracts';
 
@@ -62,9 +69,7 @@ export class ForecastRefreshListener implements OnModuleInit, OnModuleDestroy {
         handle: async (event: BaseEvent): Promise<void> => this.onEvent(event),
       });
     }
-    this.logger.log(
-      `Forecast yenileme aboneliği kuruldu: ${SUBSCRIBED_EVENT_TYPES.join(', ')}`,
-    );
+    this.logger.log(`Forecast yenileme aboneliği kuruldu: ${SUBSCRIBED_EVENT_TYPES.join(', ')}`);
   }
 
   onModuleDestroy(): void {

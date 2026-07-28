@@ -1389,7 +1389,16 @@ export class FeedingCronV2Service {
    * tarihli gün planı (rollup/özet adayı), balıklı ünite (D-5 tespiti) ve
    * aktif batch (FCR alarmı).
    */
-  private async feedingTenants(): Promise<string[]> {
+  /**
+   * `private` DEĞİL: keşif, cron'un diğer tenant-başı işleri (`sweepTenant`,
+   * `generateForTenant`, `summarizeTenant`, `sweepFcrForTenant`) gibi kendi
+   * başına anlamlı ve doğrulanabilir bir davranıştır — "yemlemenin umursadığı
+   * tenant'lar kimler". Balıklı ama ataması olmayan yeni bir tenant'ın bu
+   * kümeye girmesi, o tenant'ın sessizce yemlemesiz açılmamasının ilk
+   * koşuludur (FARM-MEDIUM-284) ve testi bir cast'la özel üyeye uzanmak
+   * zorunda kalmamalıdır.
+   */
+  async feedingTenants(): Promise<string[]> {
     const tenantSchemas = await listTenantSchemas(this.dataSource);
     const tenantIds = new Set<string>();
     for (const schema of tenantSchemas) {

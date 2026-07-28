@@ -1887,6 +1887,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/impersonation/services/__tests__/impersonation.audit-summary.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/impersonation/services/__tests__/impersonation.service.lifecycle-mutations.spec.ts",
       "prettier_managed": true
     },
@@ -41538,6 +41544,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-impersonation-summary-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-messaging-action-vocab.spec.ts",
       "prettier_managed": true
     },
@@ -55632,10 +55644,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9121,
+  "file_count": 9123,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8940,
-  "managed_file_list_sha256": "ab82a5fdbe5945f256ae3535819fb6021f93573ce4e871498fc3a89ceb0f13d7",
+  "managed_count": 8942,
+  "managed_file_list_sha256": "4fb63a43816491d18044bb48332e2808b88e2476a2200f1721e2ac36514cf2d0",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

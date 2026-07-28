@@ -3,11 +3,14 @@ import { Card, Button, Badge, Input, Alert, useAuthContext } from '@aquaculture/
 import {
   impersonationApi,
   tenantsApi,
+  type ImpersonationAuditSummary,
   type ImpersonationSession,
+  type ImpersonationSessionStatus,
   type ImpersonationPermission,
   type ImpersonationAction,
   type ImpersonationReasonCode,
 } from '../../services/adminApi';
+import { useFilters, usePagination } from '../../hooks';
 
 // Backend ImpersonationReason enum values (StartImpersonationDto validates
 // against these) with operator-facing labels. Free text goes in reasonDetails.
@@ -30,16 +33,17 @@ interface SimpleTenant {
   tier: string;
 }
 
-// Stats type
-interface ImpersonationStats {
-  activeSessions: number;
-  totalSessions: number;
-  activePermissions: number;
-  topAdmins: Array<{ adminId: string; email: string; sessionCount: number }>;
-  recentSessions: ImpersonationSession[];
-}
-
 type TabType = 'active' | 'history' | 'permissions' | 'audit';
+
+/**
+ * The Active tab loads its rows in one call and filters them in the browser,
+ * which is honest only because the set is bounded: a super-admin's concurrent
+ * sessions are capped server-side well below this ceiling.
+ */
+const ACTIVE_SESSION_LIMIT = 100;
+
+/** The all-sessions tab is server-paginated — this table grows without bound. */
+const SESSION_HISTORY_PAGE_SIZE = 20;
 
 // Loading skeleton component
 const LoadingSkeleton: React.FC = () => (
@@ -69,19 +73,29 @@ export const ImpersonationPage: React.FC = () => {
   // State
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
-  const [sessions, setSessions] = useState<ImpersonationSession[]>([]);
+  const [activeSessions, setActiveSessions] = useState<ImpersonationSession[]>([]);
   const [permissions, setPermissions] = useState<ImpersonationPermission[]>([]);
   const [tenants, setTenants] = useState<SimpleTenant[]>([]);
-  const [stats, setStats] = useState<ImpersonationStats>({
-    activeSessions: 0,
-    totalSessions: 0,
-    activePermissions: 0,
-    topAdmins: [],
-    recentSessions: [],
-  });
+  const [summary, setSummary] = useState<ImpersonationAuditSummary | null>(null);
+
+  // The all-sessions table is its own data source: it is server-paginated, so
+  // it cannot be derived by filtering a list loaded for another tab.
+  const [historySessions, setHistorySessions] = useState<ImpersonationSession[]>([]);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const historyPagination = usePagination({ initialLimit: SESSION_HISTORY_PAGE_SIZE });
   const [activeTab, setActiveTab] = useState<TabType>('active');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  // `search` is debounced because the all-sessions tab sends it to the server;
+  // the in-memory tabs read the immediate value.
+  const {
+    filters,
+    debouncedFilters,
+    setFilter,
+  } = useFilters<{ search: string; status: string }>({
+    initialFilters: { search: '', status: 'all' },
+    debounceKeys: ['search'],
+  });
+  const searchQuery = filters.search;
+  const statusFilter = filters.status;
 
   // Modal states
   const [showStartModal, setShowStartModal] = useState(false);
@@ -147,40 +161,24 @@ export const ImpersonationPage: React.FC = () => {
           });
 
     try {
-      const [sessionsRes, permissionsRes, statsRes, tenantsRes] = await Promise.allSettled([
-        impersonationApi.getSessions(),
+      const [sessionsRes, permissionsRes, summaryRes, tenantsRes] = await Promise.allSettled([
+        // Only the live sessions — the full list is the all-sessions tab's own
+        // paginated query, not something to slice out of this one.
+        impersonationApi.getSessions({ status: 'active', limit: ACTIVE_SESSION_LIMIT }),
         impersonationApi.getPermissions(),
-        impersonationApi.getImpersonationStats(),
+        impersonationApi.getAuditSummary(),
         tenantsPromise,
       ]);
 
-      const defaultStats: ImpersonationStats = {
-        activeSessions: 0,
-        totalSessions: 0,
-        activePermissions: 0,
-        topAdmins: [],
-        recentSessions: [],
-      };
-
-      setSessions(sessionsRes.status === 'fulfilled' ? sessionsRes.value.data : []);
+      setActiveSessions(sessionsRes.status === 'fulfilled' ? sessionsRes.value.data : []);
       setPermissions(permissionsRes.status === 'fulfilled' ? permissionsRes.value.data : []);
-      setStats(statsRes.status === 'fulfilled' ? statsRes.value : defaultStats);
-      setTenants(
-        tenantsRes.status === 'fulfilled'
-          ? tenantsRes.value
-          : []
-      );
+      setSummary(summaryRes.status === 'fulfilled' ? summaryRes.value : null);
+      setTenants(tenantsRes.status === 'fulfilled' ? tenantsRes.value : []);
     } catch (error) {
       console.error('Failed to fetch impersonation data:', error);
-      setSessions([]);
+      setActiveSessions([]);
       setPermissions([]);
-      setStats({
-        activeSessions: 0,
-        totalSessions: 0,
-        activePermissions: 0,
-        topAdmins: [],
-        recentSessions: [],
-      });
+      setSummary(null);
       setTenants([]);
     } finally {
       setLoading(false);
@@ -191,22 +189,82 @@ export const ImpersonationPage: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
+  /**
+   * The all-sessions page.
+   *
+   * Search and status go to the SERVER. Filtering a paginated table in the
+   * browser answers "no results" for a session that exists on the next page,
+   * and does so with no way for the operator to tell the difference.
+   */
+  const fetchHistory = useCallback(async () => {
+    setHistoryError(null);
+    try {
+      const result = await impersonationApi.getSessions({
+        page: historyPagination.page,
+        limit: historyPagination.limit,
+        status:
+          debouncedFilters.status === 'all'
+            ? undefined
+            : (debouncedFilters.status as ImpersonationSessionStatus),
+        search: debouncedFilters.search || undefined,
+      });
+      setHistorySessions(result.data);
+      historyPagination.setTotal(result.total);
+    } catch (error) {
+      setHistorySessions([]);
+      historyPagination.setTotal(0);
+      setHistoryError(
+        error instanceof Error ? error.message : 'Failed to load session history',
+      );
+    }
+    // Depends on the page window and the debounced filters, not on the
+    // pagination object identity (it is rebuilt every render).
+  }, [historyPagination.page, historyPagination.limit, debouncedFilters.status, debouncedFilters.search]);
+
+  useEffect(() => {
+    if (activeTab === 'history') {
+      void fetchHistory();
+    }
+  }, [activeTab, fetchHistory]);
+
   // Computed values — wrapped in useMemo to avoid recomputing on every render (PERF-002)
-  const activeSessions = useMemo(() => sessions.filter((s) => s.status === 'active'), [sessions]);
-  const historySessions = useMemo(() => sessions.filter((s) => s.status !== 'active'), [sessions]);
   const activePermissions = useMemo(() => permissions.filter((p) => p.isActive), [permissions]);
   const revokedPermissions = useMemo(() => permissions.filter((p) => !p.isActive), [permissions]);
 
-  const filteredSessions = useMemo(() => sessions.filter((session) => {
+  /**
+   * The period label for the windowed cards, derived from the window the
+   * backend says it used.
+   *
+   * These cards read "(30d)" as a literal in the JSX while the number behind
+   * them was an all-time count. Computing the label from `windowStart`/
+   * `windowEnd` means the two cannot disagree: change the default window
+   * server-side and the heading follows.
+   */
+  const windowLabel = useMemo(() => {
+    if (summary === null) {
+      return '';
+    }
+    const days = Math.round(
+      (new Date(summary.windowEnd).getTime() - new Date(summary.windowStart).getTime()) /
+        (24 * 60 * 60 * 1000),
+    );
+    return `(${days}d)`;
+  }, [summary]);
+
+  /**
+   * Client-side filtering, and correct here: the live-session set is loaded
+   * whole and bounded by the server's concurrent-session cap, so there is no
+   * unseen page for a term to hide on.
+   */
+  const filteredActiveSessions = useMemo(() => activeSessions.filter((session) => {
     // targetTenantName/superAdminEmail are nullable backend columns — an
     // absent value simply cannot match a search term.
-    const matchesSearch =
+    return (
       !searchQuery ||
       (session.targetTenantName ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (session.superAdminEmail ?? '').toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || session.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  }), [sessions, searchQuery, statusFilter]);
+      (session.superAdminEmail ?? '').toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }), [activeSessions, searchQuery]);
 
   const filteredPermissions = useMemo(() => permissions.filter((permission) => {
     const matchesSearch =
@@ -451,7 +509,9 @@ export const ImpersonationPage: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500">Active Sessions</p>
-              <p className="text-2xl font-bold text-green-600">{stats.activeSessions}</p>
+              <p className="text-2xl font-bold text-green-600">
+                {summary === null ? '—' : summary.activeSessionsNow}
+              </p>
             </div>
             <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
               <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -465,8 +525,10 @@ export const ImpersonationPage: React.FC = () => {
         <Card className="p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Total Sessions (30d)</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.totalSessions}</p>
+              <p className="text-sm text-gray-500">Total Sessions {windowLabel}</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {summary === null ? '—' : summary.totalSessionsInWindow}
+              </p>
             </div>
             <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center">
               <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -480,7 +542,9 @@ export const ImpersonationPage: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500">Active Permissions</p>
-              <p className="text-2xl font-bold text-blue-600">{stats.activePermissions}</p>
+              <p className="text-2xl font-bold text-blue-600">
+                {summary === null ? '—' : summary.activePermissionsNow}
+              </p>
             </div>
             <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
               <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -493,9 +557,9 @@ export const ImpersonationPage: React.FC = () => {
         <Card className="p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Actions Logged</p>
+              <p className="text-sm text-gray-500">Actions Logged {windowLabel}</p>
               <p className="text-2xl font-bold text-purple-600">
-                {sessions.reduce((sum, s) => sum + s.actionCount, 0)}
+                {summary === null ? '—' : summary.actionsLoggedInWindow}
               </p>
             </div>
             <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
@@ -512,7 +576,12 @@ export const ImpersonationPage: React.FC = () => {
         <nav className="flex gap-8">
           {[
             { id: 'active' as TabType, label: 'Active Sessions', count: activeSessions.length },
-            { id: 'history' as TabType, label: 'Session History', count: historySessions.length },
+            // "All Sessions", not "History": this table is one server-paginated
+            // query over every session, and the Status column distinguishes the
+            // live ones. Calling it history while it is fed by a single
+            // unfiltered page is how the tab came to silently show only the 20
+            // most recent sessions of an unbounded table.
+            { id: 'history' as TabType, label: 'All Sessions', count: historyPagination.total },
             { id: 'permissions' as TabType, label: 'Permissions', count: activePermissions.length },
             { id: 'audit' as TabType, label: 'Audit Summary' },
           ].map((tab) => (
@@ -545,13 +614,13 @@ export const ImpersonationPage: React.FC = () => {
             <Input
               placeholder={activeTab === 'permissions' ? 'Search tenants...' : 'Search sessions...'}
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => setFilter('search', e.target.value)}
               className="w-full"
             />
           </div>
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => setFilter('status', e.target.value)}
             className="w-full md:w-48 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           >
             <option value="all">All Status</option>
@@ -576,7 +645,7 @@ export const ImpersonationPage: React.FC = () => {
       {/* Active Sessions Tab */}
       {activeTab === 'active' && (
         <div className="space-y-4">
-          {activeSessions.length === 0 ? (
+          {filteredActiveSessions.length === 0 ? (
             <Card className="p-8 text-center">
               <div className="text-gray-500 mb-4">
                 <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -590,7 +659,7 @@ export const ImpersonationPage: React.FC = () => {
               </Button>
             </Card>
           ) : (
-            activeSessions.map((session) => (
+            filteredActiveSessions.map((session) => (
               <Card key={session.id} className="p-6">
                 <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
                   <div className="flex-1">
@@ -724,9 +793,7 @@ export const ImpersonationPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredSessions
-                  .filter((s) => s.status !== 'active')
-                  .map((session) => (
+                {historySessions.map((session) => (
                     <tr key={session.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="font-medium text-gray-900">{session.targetTenantName ?? session.targetTenantId}</div>
@@ -760,10 +827,39 @@ export const ImpersonationPage: React.FC = () => {
                   ))}
               </tbody>
             </table>
-            {filteredSessions.filter((s) => s.status !== 'active').length === 0 && (
-              <div className="text-center py-8 text-gray-500">No session history found</div>
+            {historyError !== null && (
+              <div className="text-center py-8 text-red-600">{historyError}</div>
+            )}
+            {historyError === null && historySessions.length === 0 && (
+              <div className="text-center py-8 text-gray-500">No sessions found</div>
             )}
           </div>
+          {historyPagination.totalPages > 1 && (
+            <div className="flex items-center justify-between border-t border-gray-200 px-6 py-3">
+              <span className="text-sm text-gray-600">
+                Page {historyPagination.page} of {historyPagination.totalPages} (
+                {historyPagination.total.toLocaleString()} sessions)
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={!historyPagination.canPrev}
+                  onClick={historyPagination.prevPage}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={!historyPagination.canNext}
+                  onClick={historyPagination.nextPage}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
         </Card>
       )}
 
@@ -884,11 +980,11 @@ export const ImpersonationPage: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Impersonating Admins</h3>
-            {stats.topAdmins.length === 0 ? (
+            {(summary?.topImpersonatorsInWindow ?? []).length === 0 ? (
               <p className="text-sm text-gray-500">No admin activity data available.</p>
             ) : (
               <div className="space-y-4">
-                {stats.topAdmins.map((admin, index) => (
+                {(summary?.topImpersonatorsInWindow ?? []).map((admin, index) => (
                   <div key={admin.adminId} className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
@@ -912,8 +1008,8 @@ export const ImpersonationPage: React.FC = () => {
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Session Status Distribution</h3>
             <div className="grid grid-cols-2 gap-4">
               {[
-                { status: 'Active', count: stats.activeSessions, color: 'bg-blue-500' },
-                { status: 'Total (30d)', count: stats.totalSessions, color: 'bg-green-500' },
+                { status: 'Active now', count: summary?.activeSessionsNow ?? 0, color: 'bg-blue-500' },
+                { status: `Total ${windowLabel}`, count: summary?.totalSessionsInWindow ?? 0, color: 'bg-green-500' },
               ].map((item) => (
                 <div key={item.status} className="flex items-center gap-3">
                   <div className={`w-3 h-3 rounded-full ${item.color}`} />
@@ -929,11 +1025,11 @@ export const ImpersonationPage: React.FC = () => {
 
           <Card className="p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h3>
-            {stats.recentSessions.length === 0 ? (
+            {(summary?.recentSessionsInWindow ?? []).length === 0 ? (
               <p className="text-sm text-gray-500">No recent session activity.</p>
             ) : (
               <div className="space-y-3">
-                {stats.recentSessions.slice(0, 5).map((session) => (
+                {(summary?.recentSessionsInWindow ?? []).slice(0, 5).map((session) => (
                   <div key={session.id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
                     <div>
                       <div className="font-medium text-gray-900">{session.targetTenantName ?? session.targetTenantId}</div>

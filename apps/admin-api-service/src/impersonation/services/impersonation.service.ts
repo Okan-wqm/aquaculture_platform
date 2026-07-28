@@ -18,7 +18,7 @@ import { AuditLogService } from '../../audit/audit.service';
 import { AuditAction, AuditSeverity } from '../../audit/audit.entity';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan, In } from 'typeorm';
+import { Repository, LessThan, Between, In } from 'typeorm';
 
 import {
   ImpersonationSession,
@@ -73,13 +73,40 @@ export interface ImpersonationContext {
   isActive: boolean;
 }
 
+/** Default audit window when the caller does not name one: the trailing 30 days. */
+export const AUDIT_SUMMARY_DEFAULT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
 export interface ImpersonationAuditSummary {
-  totalSessions: number;
-  activeSessions: number;
-  sessionsByReason: Record<ImpersonationReason, number>;
-  topImpersonators: Array<{ adminId: string; email: string; sessionCount: number }>;
-  topTargetTenants: Array<{ tenantId: string; tenantName: string; sessionCount: number }>;
-  recentSessions: SafeImpersonationSession[];
+  /**
+   * The window every `…InWindow` field below was computed over, echoed back so
+   * a caller labels the numbers with the period that actually produced them.
+   *
+   * The admin panel used to hardcode "(30d)" over an all-time count. A default
+   * that lives only inside this method is invisible to the renderer, so the
+   * label and the query drift the moment either changes. Returning the window
+   * makes that impossible: the label is derived from the same values the
+   * aggregates were.
+   */
+  windowStart: string;
+  windowEnd: string;
+
+  /** Sessions CREATED within [windowStart, windowEnd]. */
+  totalSessionsInWindow: number;
+  /** Sum of actionCount over the sessions created within the window. */
+  actionsLoggedInWindow: number;
+  sessionsByReasonInWindow: Record<ImpersonationReason, number>;
+  topImpersonatorsInWindow: Array<{ adminId: string; email: string; sessionCount: number }>;
+  topTargetTenantsInWindow: Array<{ tenantId: string; tenantName: string; sessionCount: number }>;
+  /** The most recent sessions WITHIN the window, newest first. */
+  recentSessionsInWindow: SafeImpersonationSession[];
+
+  /**
+   * Point-in-time, NOT windowed — "how many are live right now". Named apart
+   * from the windowed fields because mixing the two vocabularies in one object
+   * is what let a 30-day label land on an all-time number.
+   */
+  activeSessionsNow: number;
+  activePermissionsNow: number;
 }
 
 // ============================================================================
@@ -121,7 +148,12 @@ export class ImpersonationService implements OnModuleInit {
     // session warm-up moved to onModuleInit so its promise is awaited rather
     // than floated out of the constructor (no-floating-promises).
     if (!this.useRedis) {
-      setInterval(() => this.cleanupRateLimitMap(), 60000);
+      // unref: this is housekeeping for an in-memory fallback map, so it must
+      // never be the reason the process stays alive. Without it the timer keeps
+      // the event loop open forever — Node will not exit, and a Jest run whose
+      // only suite instantiates this service hangs at 100% instead of
+      // reporting.
+      setInterval(() => this.cleanupRateLimitMap(), 60000).unref();
     }
   }
 
@@ -338,48 +370,6 @@ export class ImpersonationService implements OnModuleInit {
 
     const [data, total] = await query.getManyAndCount();
     return createStandardPaginatedResult(data, total, page, limit);
-  }
-
-  async getImpersonationStats(): Promise<{
-    activeSessions: number;
-    totalSessions: number;
-    activePermissions: number;
-    topAdmins: Array<{ adminId: string; email: string; sessionCount: number }>;
-    recentSessions: SafeImpersonationSession[];
-  }> {
-    const [activeSessions, totalSessions, activePermissions, topAdminsRaw, recentSessions] =
-      await Promise.all([
-        this.sessionRepo.count({ where: { status: ImpersonationStatus.ACTIVE } }),
-        this.sessionRepo.count(),
-        this.permissionRepo.count({ where: { isActive: true } }),
-        this.sessionRepo
-          .createQueryBuilder('s')
-          .select('s.superAdminId', 'adminId')
-          .addSelect('s.superAdminEmail', 'email')
-          .addSelect('COUNT(*)', 'sessionCount')
-          .groupBy('s.superAdminId')
-          .addGroupBy('s.superAdminEmail')
-          .orderBy('COUNT(*)', 'DESC')
-          .limit(5)
-          .getRawMany(),
-        this.sessionRepo.find({
-          order: { createdAt: 'DESC' },
-          take: 5,
-        }),
-      ]);
-
-    return {
-      activeSessions,
-      totalSessions,
-      activePermissions,
-      topAdmins: topAdminsRaw.map((r) => ({
-        adminId: r.adminId || '',
-        email: r.email || 'Unknown',
-        sessionCount: parseInt(r.sessionCount, 10) || 0,
-      })),
-      // DB-ADMIN-HIGH-002: the stats read path must not serialize token columns.
-      recentSessions: recentSessions.map(toSafeImpersonationSession),
-    };
   }
 
   async canImpersonate(superAdminId: string, targetTenantId: string): Promise<{
@@ -940,6 +930,7 @@ export class ImpersonationService implements OnModuleInit {
     targetTenantId?: string;
     status?: ImpersonationStatus;
     reason?: ImpersonationReason;
+    search?: string;
     startDate?: Date;
     endDate?: Date;
     page?: number;
@@ -958,6 +949,14 @@ export class ImpersonationService implements OnModuleInit {
     }
     if (params.reason) {
       query.andWhere('s.reason = :reason', { reason: params.reason });
+    }
+    if (params.search) {
+      // Both columns are nullable, so ILIKE alone would drop rows whose other
+      // column matches; the OR is over the two the admin panel searches on.
+      query.andWhere(
+        '(s.targetTenantName ILIKE :search OR s.superAdminEmail ILIKE :search)',
+        { search: `%${params.search}%` },
+      );
     }
     if (params.startDate) {
       query.andWhere('s.createdAt >= :startDate', { startDate: params.startDate });
@@ -995,17 +994,35 @@ export class ImpersonationService implements OnModuleInit {
     startDate?: Date,
     endDate?: Date,
   ): Promise<ImpersonationAuditSummary> {
-    const start = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const start = startDate || new Date(Date.now() - AUDIT_SUMMARY_DEFAULT_WINDOW_MS);
     const end = endDate || new Date();
 
-    const [totalSessions, activeSessions, sessionsByReasonRaw, topImpersonatorsRaw, topTenantsRaw, recentSessions] =
-      await Promise.all([
+    const [
+      totalSessionsInWindow,
+      activeSessionsNow,
+      activePermissionsNow,
+      actionsRaw,
+      sessionsByReasonRaw,
+      topImpersonatorsRaw,
+      topTenantsRaw,
+      recentSessions,
+    ] = await Promise.all([
+        // Windowed at BOTH ends. This counted `createdAt < end` alone, so it
+        // reported every session ever created while every sibling aggregate
+        // honoured `start` — the one number the admin panel put a "(30d)"
+        // label on was the one number that was not windowed.
         this.sessionRepo.count({
-          where: { createdAt: LessThan(end) },
+          where: { createdAt: Between(start, end) },
         }),
         this.sessionRepo.count({
           where: { status: ImpersonationStatus.ACTIVE },
         }),
+        this.permissionRepo.count({ where: { isActive: true } }),
+        this.sessionRepo
+          .createQueryBuilder('s')
+          .select('COALESCE(SUM(s.actionCount), 0)', 'actions')
+          .where('s.createdAt BETWEEN :start AND :end', { start, end })
+          .getRawOne<{ actions: string }>(),
         this.sessionRepo
           .createQueryBuilder('s')
           .select('s.reason', 'reason')
@@ -1036,12 +1053,15 @@ export class ImpersonationService implements OnModuleInit {
           .limit(10)
           .getRawMany(),
         this.sessionRepo.find({
+          // Windowed like every other aggregate here — a "recent" list that
+          // ignores the window silently mixes periods inside one response.
+          where: { createdAt: Between(start, end) },
           order: { createdAt: 'DESC' },
           take: 10,
         }),
       ]);
 
-    const sessionsByReason: Record<ImpersonationReason, number> = {
+    const sessionsByReasonInWindow: Record<ImpersonationReason, number> = {
       [ImpersonationReason.SUPPORT_REQUEST]: 0,
       [ImpersonationReason.DEBUGGING]: 0,
       [ImpersonationReason.CONFIGURATION]: 0,
@@ -1052,25 +1072,29 @@ export class ImpersonationService implements OnModuleInit {
     };
 
     for (const item of sessionsByReasonRaw) {
-      sessionsByReason[item.reason as ImpersonationReason] = parseInt(item.count, 10);
+      sessionsByReasonInWindow[item.reason as ImpersonationReason] = parseInt(item.count, 10);
     }
 
     return {
-      totalSessions,
-      activeSessions,
-      sessionsByReason,
-      topImpersonators: topImpersonatorsRaw.map((r) => ({
+      windowStart: start.toISOString(),
+      windowEnd: end.toISOString(),
+      totalSessionsInWindow,
+      actionsLoggedInWindow: parseInt(actionsRaw?.actions ?? '0', 10),
+      activeSessionsNow,
+      activePermissionsNow,
+      sessionsByReasonInWindow,
+      topImpersonatorsInWindow: topImpersonatorsRaw.map((r) => ({
         adminId: r.adminId,
         email: r.email || 'Unknown',
         sessionCount: parseInt(r.sessionCount, 10),
       })),
-      topTargetTenants: topTenantsRaw.map((r) => ({
+      topTargetTenantsInWindow: topTenantsRaw.map((r) => ({
         tenantId: r.tenantId,
         tenantName: r.tenantName || 'Unknown',
         sessionCount: parseInt(r.sessionCount, 10),
       })),
       // DB-ADMIN-HIGH-002: the recent-sessions block must not carry token columns.
-      recentSessions: recentSessions.map(toSafeImpersonationSession),
+      recentSessionsInWindow: recentSessions.map(toSafeImpersonationSession),
     };
   }
 

@@ -16,29 +16,35 @@
 
 import { apiFetch, buildQueryString } from '../http-client';
 import type {
-  PaginatedResult,
-  PaginationParams,
-  DateRangeParams,
-  DashboardSummary,
-  KpiComparison,
-  TenantMetrics,
-  GrowthTrend,
   AnalyticsGranularity,
   AnalyticsRange,
-  TimeSeriesResponse,
+  AnalyticsSnapshotDto,
+  AnalyticsSystemMetrics,
+  ChartData,
+  DashboardSummary,
+  DateRangeParams,
+  FinancialMetrics,
+  KpiComparisons,
   RevenueAnalytics,
-  UsageAnalytics,
+  RevenueByPlanAnalytics,
+  TenantMetrics,
+  TimeSeriesData,
+  TimeSeriesResponse,
+  UsageMetrics,
+  UserMetrics,
 } from '../types';
 
 export const analyticsApi = {
   // Dashboard
   getDashboardSummary: () => apiFetch<DashboardSummary>('/analytics/dashboard'),
   getKpiComparisons: (period?: string) =>
-    apiFetch<KpiComparison[]>(`/analytics/kpi-comparisons${period ? `?period=${period}` : ''}`),
+    apiFetch<KpiComparisons>(`/analytics/kpi-comparisons${period ? `?period=${period}` : ''}`),
 
   // Tenant Metrics
-  getTenantMetrics: (params?: PaginationParams & { sortBy?: string; order?: 'asc' | 'desc' }) =>
-    apiFetch<PaginatedResult<TenantMetrics>>(`/analytics/tenants?${buildQueryString(params || {})}`),
+  // An AGGREGATE, not a page of per-tenant rows: the route declares no @Query
+  // parameters, so the pagination and sort arguments this used to accept were
+  // built into a query string the controller discarded (APA-149).
+  getTenantMetrics: () => apiFetch<TenantMetrics>('/analytics/tenants'),
   getTenantGrowthTrend: (range: AnalyticsRange = '30d', granularity?: AnalyticsGranularity) =>
     apiFetch<TimeSeriesResponse>(`/analytics/tenants/growth?${buildQueryString({ range, granularity })}`),
 
@@ -46,49 +52,49 @@ export const analyticsApi = {
   getRevenueAnalytics: (params?: DateRangeParams) =>
     apiFetch<RevenueAnalytics>(`/analytics/revenue?${buildQueryString(params || {})}`),
   getRevenueByPlan: (params?: DateRangeParams) =>
-    apiFetch<Array<{ plan: string; revenue: number; tenantCount: number }>>(`/analytics/revenue/by-plan?${buildQueryString(params || {})}`),
+    apiFetch<RevenueByPlanAnalytics[]>(`/analytics/revenue/by-plan?${buildQueryString(params || {})}`),
   getRevenueTrend: (range: AnalyticsRange = '30d', granularity?: AnalyticsGranularity) =>
     apiFetch<TimeSeriesResponse>(`/analytics/revenue/trend?${buildQueryString({ range, granularity })}`),
 
   // Usage Analytics
   getUsageAnalytics: (params?: DateRangeParams) =>
-    apiFetch<UsageAnalytics>(`/analytics/usage?${buildQueryString(params || {})}`),
+    apiFetch<UsageMetrics>(`/analytics/usage?${buildQueryString(params || {})}`),
   // Churn Analytics
   getTenantChurn: (period = '30d') =>
-    apiFetch<GrowthTrend[]>(`/analytics/tenants/churn?period=${period}`),
+    apiFetch<TimeSeriesData>(`/analytics/tenants/churn?period=${period}`),
 
   // User Metrics
   getUserMetrics: (params?: DateRangeParams) =>
-    apiFetch<{ totalUsers: number; activeUsers: number; newUsers: number; churnedUsers: number }>(`/analytics/users?${buildQueryString(params || {})}`),
+    apiFetch<UserMetrics>(`/analytics/users?${buildQueryString(params || {})}`),
   getUserActivity: (range: AnalyticsRange = '30d', granularity?: AnalyticsGranularity) =>
     apiFetch<TimeSeriesResponse>(`/analytics/users/activity?${buildQueryString({ range, granularity })}`),
-  // Fix: backend GET /analytics/users/heatmap takes no query params
-  getUserHeatmap: (_params?: DateRangeParams) =>
-    apiFetch<Array<{ hour: number; day: number; count: number }>>('/analytics/users/heatmap'),
+  // Backend GET /analytics/users/heatmap takes no query params and returns a
+  // chart payload, not a flat hour/day grid.
+  getUserHeatmap: () => apiFetch<ChartData>('/analytics/users/heatmap'),
 
   // Module & Feature Usage
-  getModuleUsageAnalytics: () =>
-    apiFetch<Array<{ moduleCode: string; moduleName: string; activeCount: number; totalAssigned: number }>>('/analytics/usage/modules'),
-  getFeatureAdoption: () =>
-    apiFetch<Array<{ feature: string; adoptionRate: number; trend: number }>>('/analytics/usage/features'),
+  getModuleUsageAnalytics: () => apiFetch<ChartData>('/analytics/usage/modules'),
+  getFeatureAdoption: () => apiFetch<ChartData>('/analytics/usage/features'),
 
   // Financial Metrics
+  // No `cac` and no `churnRate`: neither has ever existed on FinancialMetrics.
   getFinancialMetrics: (params?: DateRangeParams) =>
-    apiFetch<{ mrr: number; arr: number; ltv: number; cac: number; churnRate: number }>(`/analytics/financial?${buildQueryString(params || {})}`),
+    apiFetch<FinancialMetrics>(`/analytics/financial?${buildQueryString(params || {})}`),
   getFinancialRevenue: (period = '12m') =>
-    apiFetch<Array<{ period: string; revenue: number }>>(`/analytics/financial/revenue?period=${period}`),
-  getFinancialByPlan: () =>
-    apiFetch<Array<{ plan: string; revenue: number; percentage: number }>>('/analytics/financial/by-plan'),
+    apiFetch<TimeSeriesData>(`/analytics/financial/revenue?period=${period}`),
+  getFinancialByPlan: () => apiFetch<ChartData>('/analytics/financial/by-plan'),
 
   // System Metrics (Analytics)
-  getSystemAnalytics: () =>
-    apiFetch<{ cpuUsage: number; memoryUsage: number; diskUsage: number; uptime: number }>('/analytics/system'),
+  // No cpuUsage/memoryUsage/diskUsage: admin-api has no host-metrics source and
+  // has never returned those fields. Every SystemMetrics field is `number|null`
+  // because none of them is measured today (APA-131).
+  getSystemAnalytics: () => apiFetch<AnalyticsSystemMetrics>('/analytics/system'),
   getSystemApiCallsTrend: (period = '24h') =>
-    apiFetch<Array<{ timestamp: string; count: number }>>(`/analytics/system/api-calls?period=${period}`),
+    apiFetch<TimeSeriesData>(`/analytics/system/api-calls?period=${period}`),
   getSystemErrorsTrend: (period = '24h') =>
-    apiFetch<Array<{ timestamp: string; count: number; rate: number }>>(`/analytics/system/errors?period=${period}`),
+    apiFetch<TimeSeriesData>(`/analytics/system/errors?period=${period}`),
 
   // Snapshots - backend requires mandatory 'category' param plus startDate/endDate
   getAnalyticsSnapshots: (params: { category: 'tenant' | 'user' | 'financial' | 'system' | 'usage'; startDate: string; endDate: string; snapshotType?: 'daily' | 'weekly' | 'monthly' | 'yearly' }) =>
-    apiFetch<Array<{ id: string; date: string; metrics: Record<string, number> }>>(`/analytics/snapshots?${buildQueryString(params)}`),
+    apiFetch<AnalyticsSnapshotDto[]>(`/analytics/snapshots?${buildQueryString(params)}`),
 };

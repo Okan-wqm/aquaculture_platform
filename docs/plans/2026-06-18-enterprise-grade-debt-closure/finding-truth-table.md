@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `6d1ccd1aea92f5817f577505b27f26f3f3b4fd08833d9ab45ca0e7ed9eb1eed7`
+Registry tip: `3cea79fcc79ace51ce7bc5385d8f4537a5b136b33a9236cd055c4cd63a1e0829`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -150,6 +150,7 @@ Allowed truth buckets:
 | `ORPHAN-CRITICAL-479`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-484`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-485`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-488`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 
 Updated 2026-07-26 (ARIA control-plane audit): seven ORPHAN CRITICALs joined the
 active set. Five come from the audit of ARIA's own control plane — a corrupted
@@ -195,6 +196,7 @@ close waits for merge, like the rows above it.
 - `ORPHAN-CRITICAL-451` — fixed in this branch; firejail removed as an accepted sandbox backend because its branch applied none of the READONLY_PATHS while satisfying the S0 exit criterion. `aria-kernel/tests/test_sandbox_and_perimeter_hardening.py` pins it.
 - `ORPHAN-CRITICAL-460` — fixed in this branch; a shell control operator after an allowed prefix bypassed the allowlist, the denylist and the force-push check at once. Same test file pins eleven bypass spellings and nine non-regressions.
 - `ORPHAN-CRITICAL-461` — fixed in this branch; broader-scope claims, globs, empty surface lists, an echo of the canonical suite, and every gh-api route that writes main all passed. Same test file pins them.
+- `ORPHAN-CRITICAL-488` — fixed in this branch; the 484 ancestry gate made a first-ever run impossible because it treated "no artifact exists yet" as indistinguishable from "restore failed". Three states now, distinguished at the restore step.
 - `ORPHAN-CRITICAL-484` — fixed in this branch; the executor could publish a queue-less bootstrapped tree under the canonical artifact name because the steps preceding the integrity gate index the tree. The publish now requires positive ancestry proof from the restore step, and a blocked publish is RED rather than green.
 - `ORPHAN-CRITICAL-485` — fixed in this branch; the breaker producer was unreachable on the scheduled lane at four levels and its test called a private function with a synthetic error. Moved to the planner dispatch timeout arm the nightly genuinely walks, tested through the public entry point, verified failing with the producer deleted.
 - `ORPHAN-CRITICAL-479` — fixed in this branch; a NameError on the only real worker-dispatch path shipped with 2905 passing tests because nothing covers that callsite. `aria-kernel/tests/test_executor_unbound_names.py` now statically resolves every loaded name in the three spawn-path modules; the first two versions of that detector passed with the bug reintroduced and are documented in the file.

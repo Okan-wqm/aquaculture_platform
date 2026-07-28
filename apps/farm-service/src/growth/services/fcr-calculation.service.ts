@@ -20,7 +20,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, In } from 'typeorm';
 import { TenantContextError } from '@aquaculture/backend-common/database';
 import { FeedingRecord } from '../../feeding/entities/feeding-record.entity';
-import { FeedingProgram, FeedingProgramStatus } from '../../feeding/entities/feeding-program.entity';
+import {
+  FeedingProgram,
+  FeedingProgramStatus,
+} from '../../feeding/entities/feeding-program.entity';
 import { FeedingProgramTank } from '../../feeding/entities/feeding-program-tank.entity';
 import { BatchLocation } from '../../batch/entities/batch-location.entity';
 import { GrowthMeasurement, FCRAnalysis } from '../entities/growth-measurement.entity';
@@ -49,11 +52,29 @@ interface ProtocolFcrRow {
  * FARM-LOW-291). Zincirin KENDİSİ değişmez; yalnız satırların nereden
  * geldiği değişir — bu yüzden tekil ve toplu yol sapamaz.
  */
+/** Legacy (v1) programın FCR tablosu — zincirin 3. adımı, Faz 8'de düşer. */
+interface LegacyProgramFcrRow {
+  batchId: string;
+  fcrTable: { temperatures: number[]; weights: number[]; fcrValues: number[][] } | null;
+}
+
 interface TargetFcrPrefetch {
   batchById: Map<string, Batch>;
   /** null = "bu batch için aktif v2 protokol YOK" (eksik anahtar ≠ null). */
   protocolRowByBatch: Map<string, ProtocolFcrRow | null>;
   feedMatrixByFeedId: Map<string, FcrMatrix | undefined>;
+  /**
+   * Zincirin LEGACY bacağı, toplu (FARM-LOW-291). null = "aktif legacy program
+   * yok"; eksik anahtar ≠ null.
+   *
+   * Bu bacak toplu değilken, dış iki çağrının toplulaştırılmış olması N+1'i
+   * kapatmıyordu: adım 2 (v2 protokol) `null` dönen HER batch adım 3'e
+   * düşüyor ve orada batch başına İKİ sorgu atıyordu — `batch_locations` ve
+   * `feeding_program_tanks`. Cutover'ı tamamlamamış ya da üniteleri kısmen
+   * atanmış bir tenant'ta bu, batch'lerin ÇOĞUNLUĞU demektir; yani "toplu"
+   * API, bulgunun tarif ettiği tam sorguyu atmaya devam ediyordu.
+   */
+  legacyProgramByBatch: Map<string, LegacyProgramFcrRow['fcrTable']>;
 }
 
 /** Regresyon için yetersiz veri — tekil ve toplu yolun ORTAK dönüşü. */
@@ -108,9 +129,9 @@ export interface FCRCalculationResult {
  */
 export interface FCRTrendAnalysis {
   trend: 'improving' | 'stable' | 'declining';
-  slope: number;                     // Günlük değişim oranı
-  correlation: number;               // R-squared
-  forecast7Days: number;             // 7 günlük tahmin
+  slope: number; // Günlük değişim oranı
+  correlation: number; // R-squared
+  forecast7Days: number; // 7 günlük tahmin
   recommendations: string[];
 }
 
@@ -121,8 +142,8 @@ export interface FCRComparison {
   currentFCR: number;
   targetFCR: number;
   industryAvgFCR: number;
-  varianceFromTarget: number;        // %
-  varianceFromIndustry: number;      // %
+  varianceFromTarget: number; // %
+  varianceFromIndustry: number; // %
   performance: 'excellent' | 'good' | 'average' | 'below_average' | 'poor';
 }
 
@@ -135,10 +156,10 @@ export interface BatchFCRSummary {
   speciesName: string;
 
   // Miktar bilgileri
-  totalFeedGiven: number;            // kg
-  totalGrowth: number;               // kg
-  startBiomass: number;              // kg
-  currentBiomass: number;            // kg
+  totalFeedGiven: number; // kg
+  totalGrowth: number; // kg
+  startBiomass: number; // kg
+  currentBiomass: number; // kg
 
   // FCR metrikleri
   currentFCR: number;
@@ -166,14 +187,14 @@ export class FCRCalculationService {
 
   // Endüstri ortalama FCR değerleri (tür bazlı)
   private readonly industryAverageFCR: Record<string, number> = {
-    'atlantic_salmon': 1.2,
-    'rainbow_trout': 1.1,
-    'sea_bass': 1.8,
-    'sea_bream': 2.0,
-    'tilapia': 1.6,
-    'catfish': 1.5,
-    'shrimp': 1.8,
-    'default': 1.5,
+    atlantic_salmon: 1.2,
+    rainbow_trout: 1.1,
+    sea_bass: 1.8,
+    sea_bream: 2.0,
+    tilapia: 1.6,
+    catfish: 1.5,
+    shrimp: 1.8,
+    default: 1.5,
   };
 
   constructor(
@@ -232,10 +253,7 @@ export class FCRCalculationService {
     }
 
     // Toplam verilen yem (kg)
-    const totalFeed = feedingRecords.reduce(
-      (sum, record) => sum + Number(record.actualAmount),
-      0
-    );
+    const totalFeed = feedingRecords.reduce((sum, record) => sum + Number(record.actualAmount), 0);
 
     // Büyüme hesabı (başlangıç vs son biomass)
     const startMeasurement = measurements[0];
@@ -265,13 +283,14 @@ export class FCRCalculationService {
     const trendAnalysis = await this.analyzeFCRTrend(batchId, tenantId);
 
     // Target FCR varsayılan
-    const effectiveTargetFCR = targetFCR || await this.getTargetFCR(batchId);
+    const effectiveTargetFCR = targetFCR || (await this.getTargetFCR(batchId));
 
     // Analiz oluştur
     // Edge case: when effectiveTargetFCR=0, fcrVariance calculation would divide by zero; return 0
-    const fcrVariance = effectiveTargetFCR === 0 || effectiveTargetFCR === null || effectiveTargetFCR === undefined
-      ? 0
-      : ((cumulativeResult.fcr - effectiveTargetFCR) / effectiveTargetFCR) * 100;
+    const fcrVariance =
+      effectiveTargetFCR === 0 || effectiveTargetFCR === null || effectiveTargetFCR === undefined
+        ? 0
+        : ((cumulativeResult.fcr - effectiveTargetFCR) / effectiveTargetFCR) * 100;
 
     const analysis: FCRAnalysis = {
       periodFeedGiven: totalFeed,
@@ -314,7 +333,7 @@ export class FCRCalculationService {
   async calculateCumulativeFCR(
     batchId: string,
     tenantId: string,
-    endDate?: Date
+    endDate?: Date,
   ): Promise<{ fcr: number; totalFeed: number; totalGrowth: number; removedBiomassKg: number }> {
     const batch = await this.batchRepository.findOne({
       where: { id: batchId, tenantId },
@@ -325,7 +344,8 @@ export class FCRCalculationService {
     }
 
     // Tüm yemleme kayıtlarını al
-    const feedQuery = this.feedingRecordRepository.createQueryBuilder('fr')
+    const feedQuery = this.feedingRecordRepository
+      .createQueryBuilder('fr')
       .where('fr.tenantId = :tenantId', { tenantId })
       .andWhere('fr.batchId = :batchId', { batchId });
 
@@ -333,9 +353,7 @@ export class FCRCalculationService {
       feedQuery.andWhere('fr.feedingDate <= :endDate', { endDate });
     }
 
-    const feedResult = await feedQuery
-      .select('SUM(fr.actualAmount)', 'totalFeed')
-      .getRawOne();
+    const feedResult = await feedQuery.select('SUM(fr.actualAmount)', 'totalFeed').getRawOne();
 
     const totalFeed = Number(feedResult?.totalFeed || 0);
 
@@ -348,7 +366,8 @@ export class FCRCalculationService {
     // TRANSFER_IN together makes within-batch tank moves (same batchId out +
     // in) net to zero naturally. Tenant-filtered (op.tenantId) as defence in
     // depth on top of the tenant search_path routing (ADR-011).
-    const ledgerQuery = this.tankOperationRepository.createQueryBuilder('op')
+    const ledgerQuery = this.tankOperationRepository
+      .createQueryBuilder('op')
       .where('op.tenantId = :tenantId', { tenantId })
       .andWhere('op.batchId = :batchId', { batchId })
       .andWhere('op.isDeleted = false')
@@ -386,9 +405,7 @@ export class FCRCalculationService {
     // displayed biomass diverge, because that snapshot goes stale on every
     // removal while the derived value tracks the live count. When no count is
     // available yet, fall back to the start biomass.
-    const currentBiomass = batch.currentQuantity > 0
-      ? batch.getCurrentBiomass()
-      : startBiomass;
+    const currentBiomass = batch.currentQuantity > 0 ? batch.getCurrentBiomass() : startBiomass;
     // Realized growth includes the growth of biomass that exited the system.
     const totalGrowth = currentBiomass + removedBiomassKg - startBiomass;
 
@@ -462,7 +479,7 @@ export class FCRCalculationService {
 
     // FCR değerlerini çıkar
     const fcrValues = measurements
-      .filter(m => m.fcrAnalysis?.periodFCR)
+      .filter((m) => m.fcrAnalysis?.periodFCR)
       .map((m, index) => ({
         x: index,
         y: m.fcrAnalysis!.periodFCR,
@@ -495,7 +512,7 @@ export class FCRCalculationService {
     // 7 günlük tahmin
     const lastFcrValue = fcrValues[fcrValues.length - 1];
     const lastFCR = lastFcrValue?.y ?? 0;
-    const forecast7Days = lastFCR + (slope * 7);
+    const forecast7Days = lastFCR + slope * 7;
 
     // Öneriler
     const recommendations = this.generateTrendRecommendations(trend, slope, lastFCR);
@@ -515,7 +532,7 @@ export class FCRCalculationService {
   async compareFCR(
     batchId: string,
     tenantId: string,
-    speciesType?: string
+    speciesType?: string,
   ): Promise<FCRComparison> {
     const batch = await this.batchRepository.findOne({
       where: { id: batchId, tenantId },
@@ -525,20 +542,22 @@ export class FCRCalculationService {
     const currentFCR = cumulativeResult.fcr;
 
     // Target FCR (batch'ten veya varsayılan)
-    const targetFCR = await this.getTargetFCR(batchId) || 1.5;
+    const targetFCR = (await this.getTargetFCR(batchId)) || 1.5;
 
     // Endüstri ortalaması
     const industryAvgFCR = this.industryAverageFCR[speciesType || 'default'] || 1.5;
 
     // Varyanslar
     // Edge case: when targetFCR=0, variance calculation would divide by zero; return 0
-    const varianceFromTarget = targetFCR === 0 || targetFCR === null || targetFCR === undefined
-      ? 0
-      : ((currentFCR - targetFCR) / targetFCR) * 100;
+    const varianceFromTarget =
+      targetFCR === 0 || targetFCR === null || targetFCR === undefined
+        ? 0
+        : ((currentFCR - targetFCR) / targetFCR) * 100;
     // Edge case: when industryAvgFCR=0, variance calculation would divide by zero; return 0
-    const varianceFromIndustry = industryAvgFCR === 0 || industryAvgFCR === null || industryAvgFCR === undefined
-      ? 0
-      : ((currentFCR - industryAvgFCR) / industryAvgFCR) * 100;
+    const varianceFromIndustry =
+      industryAvgFCR === 0 || industryAvgFCR === null || industryAvgFCR === undefined
+        ? 0
+        : ((currentFCR - industryAvgFCR) / industryAvgFCR) * 100;
 
     // Performans değerlendirmesi
     let performance: FCRComparison['performance'];
@@ -587,14 +606,13 @@ export class FCRCalculationService {
 
     // FCR değerlerini çıkar
     const fcrValues = measurements
-      .filter(m => m.fcrAnalysis?.periodFCR)
-      .map(m => m.fcrAnalysis!.periodFCR);
+      .filter((m) => m.fcrAnalysis?.periodFCR)
+      .map((m) => m.fcrAnalysis!.periodFCR);
 
     const bestFCR = fcrValues.length > 0 ? Math.min(...fcrValues) : 0;
     const worstFCR = fcrValues.length > 0 ? Math.max(...fcrValues) : 0;
-    const avgFCR = fcrValues.length > 0
-      ? fcrValues.reduce((a, b) => a + b, 0) / fcrValues.length
-      : 0;
+    const avgFCR =
+      fcrValues.length > 0 ? fcrValues.reduce((a, b) => a + b, 0) / fcrValues.length : 0;
 
     // Trend analizi
     const trendAnalysis = await this.analyzeFCRTrend(batchId, tenantId);
@@ -639,7 +657,7 @@ export class FCRCalculationService {
    */
   async detectFCRAnomalies(
     batchId: string,
-    tenantId: string
+    tenantId: string,
   ): Promise<{ hasAnomaly: boolean; anomalies: string[] }> {
     const anomalies: string[] = [];
 
@@ -649,22 +667,30 @@ export class FCRCalculationService {
 
     // Çok yüksek FCR
     if (cumulativeResult.fcr > 3) {
-      anomalies.push(`Kritik: FCR çok yüksek (${cumulativeResult.fcr.toFixed(2)}) - yemleme veya ölçüm hatası olabilir`);
+      anomalies.push(
+        `Kritik: FCR çok yüksek (${cumulativeResult.fcr.toFixed(2)}) - yemleme veya ölçüm hatası olabilir`,
+      );
     }
 
     // Çok düşük FCR (şüpheli)
     if (cumulativeResult.fcr < 0.7 && cumulativeResult.fcr > 0) {
-      anomalies.push(`Uyarı: FCR çok düşük (${cumulativeResult.fcr.toFixed(2)}) - veri doğruluğunu kontrol edin`);
+      anomalies.push(
+        `Uyarı: FCR çok düşük (${cumulativeResult.fcr.toFixed(2)}) - veri doğruluğunu kontrol edin`,
+      );
     }
 
     // Hedeften %30+ sapma
     if (Math.abs(comparison.varianceFromTarget) > 30) {
-      anomalies.push(`Önemli sapma: FCR hedeften %${comparison.varianceFromTarget.toFixed(1)} farklı`);
+      anomalies.push(
+        `Önemli sapma: FCR hedeften %${comparison.varianceFromTarget.toFixed(1)} farklı`,
+      );
     }
 
     // Hızlı kötüleşme
     if (trendAnalysis.trend === 'declining' && trendAnalysis.slope > 0.05) {
-      anomalies.push(`Uyarı: FCR hızla kötüleşiyor (günlük +${(trendAnalysis.slope * 100).toFixed(2)}%)`);
+      anomalies.push(
+        `Uyarı: FCR hızla kötüleşiyor (günlük +${(trendAnalysis.slope * 100).toFixed(2)}%)`,
+      );
     }
 
     return {
@@ -700,10 +726,7 @@ export class FCRCalculationService {
    * atılıyordu ve 400 batch'lik bir tenant süpürmesi 1200+ round-trip
    * demekti.
    */
-  async getTargetFCRForBatches(
-    tenantId: string,
-    batchIds: string[],
-  ): Promise<Map<string, number>> {
+  async getTargetFCRForBatches(tenantId: string, batchIds: string[]): Promise<Map<string, number>> {
     const targets = new Map<string, number>();
     if (batchIds.length === 0) return targets;
 
@@ -794,7 +817,40 @@ export class FCRCalculationService {
       }
     }
 
-    return { batchById, protocolRowByBatch, feedMatrixByFeedId };
+    // Legacy bacak, TEK sorguda (FARM-LOW-291). Tekil yolun iki `findOne`'ı ile
+    // aynı kuralı taşır: batch'in GÜNCEL lokasyonu → o ekipmanın AKTİF program
+    // bağlantısı → ACTIVE program. `fcrTable` yoksa satır null olarak yazılır,
+    // böylece zincir yine tekil sorguya düşmez.
+    const legacyRows: LegacyProgramFcrRow[] = await this.batchRepository.manager.query(
+      `SELECT b.id::text AS "batchId", x."fcrTable" AS "fcrTable"
+         FROM unnest($2::uuid[]) AS b(id)
+         JOIN LATERAL (
+           SELECT fp."fcrTable"
+             FROM "batch_locations" bl
+             JOIN "feeding_program_tanks" fpt
+               ON fpt."tenantId" = bl."tenantId"
+              AND fpt."equipmentId" = bl."tankId"
+              AND fpt."isActive" = true
+             JOIN "feeding_programs" fp
+               ON fp."id" = fpt."feedingProgramId"
+              AND fp."tenantId" = fpt."tenantId"
+              AND fp."status" = 'ACTIVE'
+            WHERE bl."tenantId" = $1
+              AND bl."batchId" = b.id
+              AND bl."isCurrentLocation" = true
+              AND bl."tankId" IS NOT NULL
+            LIMIT 1
+         ) x ON true`,
+      [tenantId, batchIds],
+    );
+    const legacyProgramByBatch = new Map<string, LegacyProgramFcrRow['fcrTable']>(
+      batchIds.map((batchId) => [batchId, null]),
+    );
+    for (const row of legacyRows) {
+      legacyProgramByBatch.set(row.batchId, row.fcrTable);
+    }
+
+    return { batchById, protocolRowByBatch, feedMatrixByFeedId, legacyProgramByBatch };
   }
 
   /**
@@ -836,7 +892,7 @@ export class FCRCalculationService {
 
       // 3. Batch'in aktif LEGACY yemleme programındaki FCR tablosundan
       // interpolasyon — v1 motoruyla birlikte Faz 8'de silinir (P-14).
-      const fcrFromProgram = await this.getTargetFCRFromFeedingProgram(batch);
+      const fcrFromProgram = await this.getTargetFCRFromFeedingProgram(batch, prefetch);
       if (fcrFromProgram !== null) {
         return fcrFromProgram;
       }
@@ -845,9 +901,10 @@ export class FCRCalculationService {
       // species ilişkisi lazy olabilir, yoksa ayrıca sorgula
       let species = batch.species;
       if (!species) {
-        species = await this.speciesRepository.findOne({
-          where: { id: batch.speciesId },
-        }) ?? undefined;
+        species =
+          (await this.speciesRepository.findOne({
+            where: { id: batch.speciesId },
+          })) ?? undefined;
       }
 
       if (species?.growthParameters?.targetFCR && species.growthParameters.targetFCR > 0) {
@@ -998,8 +1055,19 @@ export class FCRCalculationService {
    * Zincir: Batch -> BatchLocation (aktif tank) -> FeedingProgramTank -> FeedingProgram -> fcrTable
    * FCR tablosu varsa, batch'in mevcut ortalama ağırlığına göre interpolasyon yapar.
    */
-  private async getTargetFCRFromFeedingProgram(batch: Batch): Promise<number | null> {
+  private async getTargetFCRFromFeedingProgram(
+    batch: Batch,
+    prefetch?: TargetFcrPrefetch,
+  ): Promise<number | null> {
     try {
+      // Toplu yol: tablo ön-yüklenmişse hiç sorgu atılmaz (FARM-LOW-291).
+      // `has` kontrolü ŞART: eksik anahtar "ön-yüklenmedi" demektir ve tekil
+      // yola düşmelidir; `null` ise "aktif legacy program yok" demektir.
+      if (prefetch?.legacyProgramByBatch.has(batch.id)) {
+        const prefetched = prefetch.legacyProgramByBatch.get(batch.id) ?? null;
+        return this.fcrFromLegacyTable(prefetched, batch);
+      }
+
       // Batch'in aktif lokasyonunu bul (hangi tank'ta)
       const activeLocation = await this.batchLocationRepository.findOne({
         where: {
@@ -1029,29 +1097,12 @@ export class FCRCalculationService {
 
       const program = programTank.feedingProgram;
 
-      // Program aktif olmalı ve FCR tablosu olmalı
-      if (program.status !== FeedingProgramStatus.ACTIVE || !program.fcrTable) {
+      // Program aktif olmalı (toplu sorgu bu filtreyi SQL'de taşır).
+      if (program.status !== FeedingProgramStatus.ACTIVE) {
         return null;
       }
 
-      const fcrTable = program.fcrTable;
-      if (
-        !fcrTable.temperatures?.length ||
-        !fcrTable.weights?.length ||
-        !fcrTable.fcrValues?.length
-      ) {
-        return null;
-      }
-
-      // Batch'in mevcut ortalama ağırlığını al
-      const avgWeightG = batch.getCurrentAvgWeight();
-      if (avgWeightG <= 0) {
-        return null;
-      }
-
-      // FCR tablosundan ağırlık bazlı interpolasyon yap
-      // (Sıcaklık bilinmiyorsa tüm sıcaklıkların ortalamasını kullan)
-      return this.interpolateFCRFromTable(fcrTable, avgWeightG);
+      return this.fcrFromLegacyTable(program.fcrTable ?? null, batch);
     } catch (error) {
       if (error instanceof TenantContextError) {
         throw error;
@@ -1061,6 +1112,31 @@ export class FCRCalculationService {
       );
       return null;
     }
+  }
+
+  /**
+   * Legacy FCR tablosu + batch → hedef FCR, ya da `null`.
+   *
+   * Tekil ve TOPLU yolun ORTAK gövdesi (FARM-LOW-291): tabloyu iki yerde
+   * doğrulamak, iki yolun aynı tablo için farklı cevap vermesine kapı açardı.
+   */
+  private fcrFromLegacyTable(
+    fcrTable: { temperatures: number[]; weights: number[]; fcrValues: number[][] } | null,
+    batch: Batch,
+  ): number | null {
+    if (
+      !fcrTable?.temperatures?.length ||
+      !fcrTable.weights?.length ||
+      !fcrTable.fcrValues?.length
+    ) {
+      return null;
+    }
+    const avgWeightG = batch.getCurrentAvgWeight();
+    if (avgWeightG <= 0) {
+      return null;
+    }
+    // Sıcaklık bilinmiyorsa tüm sıcaklık satırlarının ortalaması kullanılır.
+    return this.interpolateFCRFromTable(fcrTable, avgWeightG);
   }
 
   /**
@@ -1102,7 +1178,12 @@ export class FCRCalculationService {
       for (let i = 0; i < weights.length - 1; i++) {
         const currentWeight = weights[i];
         const nextWeight = weights[i + 1];
-        if (currentWeight !== undefined && nextWeight !== undefined && avgWeightG >= currentWeight && avgWeightG < nextWeight) {
+        if (
+          currentWeight !== undefined &&
+          nextWeight !== undefined &&
+          avgWeightG >= currentWeight &&
+          avgWeightG < nextWeight
+        ) {
           lowerIdx = i;
           upperIdx = i + 1;
           break;
@@ -1176,7 +1257,10 @@ export class FCRCalculationService {
   /**
    * Lineer regresyon hesaplar
    */
-  private linearRegression(points: { x: number; y: number }[]): { slope: number; correlation: number } {
+  private linearRegression(points: { x: number; y: number }[]): {
+    slope: number;
+    correlation: number;
+  } {
     const n = points.length;
 
     // Edge case: when n=0, all divisions would fail; return safe defaults
@@ -1192,9 +1276,10 @@ export class FCRCalculationService {
 
     // Edge case: when denominator (n * sumX2 - sumX * sumX) = 0, slope would be undefined; return 0
     const slopeDenominator = n * sumX2 - sumX * sumX;
-    const slope = slopeDenominator === 0 || slopeDenominator === null || slopeDenominator === undefined
-      ? 0
-      : (n * sumXY - sumX * sumY) / slopeDenominator;
+    const slope =
+      slopeDenominator === 0 || slopeDenominator === null || slopeDenominator === undefined
+        ? 0
+        : (n * sumXY - sumX * sumY) / slopeDenominator;
 
     // R-squared hesaplama
     // Edge case: meanY division by n is safe here since n > 0 was checked above
@@ -1208,7 +1293,7 @@ export class FCRCalculationService {
     }, 0);
 
     // Edge case: ssTotal=0 check is already in place
-    const correlation = ssTotal > 0 ? 1 - (ssResidual / ssTotal) : 0;
+    const correlation = ssTotal > 0 ? 1 - ssResidual / ssTotal : 0;
 
     return { slope: isNaN(slope) ? 0 : slope, correlation };
   }
@@ -1219,7 +1304,7 @@ export class FCRCalculationService {
   private generateTrendRecommendations(
     trend: 'improving' | 'stable' | 'declining',
     slope: number,
-    currentFCR: number
+    currentFCR: number,
   ): string[] {
     const recommendations: string[] = [];
 

@@ -227,21 +227,25 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     // (added by 1806000000000-ScadaTenantIsolation), exactly like
     // edge_device_directory. vfd_command_audit_logs is the append-only VFD
     // command audit ledger (cross-tenant, same class).
-    // SENSOR-MEDIUM-068: sensor_metrics is the SINGLE cross-tenant TimescaleDB
-    // hypertable (one physical table in `sensor`, isolated by the tenant_id
-    // column) — written by process-wide ingestion singletons with no per-request
-    // search_path, exactly like scada_*. Per-tenant clones were plain
-    // non-hypertable tables that fragmented the store, so it lives here, not in
-    // `tables`.
-    infrastructureTables: ['migrations', 'sensor_audit_logs', 'sensor_outbox', 'sensor_metrics', 'vfd_register_mappings', 'edge_device_directory', 'scada_alarms', 'scada_alarm_chronicle', 'scada_tag_history', 'vfd_command_audit_logs', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    infrastructureTables: ['migrations', 'sensor_audit_logs', 'sensor_outbox', 'vfd_register_mappings', 'edge_device_directory', 'scada_alarms', 'scada_alarm_chronicle', 'scada_tag_history', 'vfd_command_audit_logs', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: ['sensor_protocols', 'sensor_type_definitions', 'industry_templates'],
     tables: [
       // Core sensor entities
       'sensors',
       // SENSOR-HIGH-085: sensor_readings is retired — a reading is now an as-of
-      // projection over the cross-tenant sensor_metrics hypertable, not a stored
+      // projection over each tenant's sensor_metrics hypertable, not a stored
       // per-tenant row. Removed from the fan-out list so new tenants get no such
       // table; existing tenants' orphan tables are dropped by F-085-DROP.
+      //
+      // sensor_metrics is a PER-TENANT TimescaleDB hypertable: a tenant's
+      // telemetry lives in that tenant's schema. Delivered by migration
+      // 1815000000000 (unqualified, so provisioning's migration replay creates
+      // one per tenant); its rollups are ensured per tenant by
+      // ContinuousAggregateService, and SensorMetricWriterService derives the
+      // destination schema from each row's tenantId so the process-wide
+      // ingestion singletons write to the right tenant without an ambient
+      // search_path.
+      'sensor_metrics',
       'sensor_data_channels',
       // SENSOR-HIGH-083: per-tenant calibration history (append-only). Written by
       // the calibration aggregate; its entity omits schema: so it must be cloned

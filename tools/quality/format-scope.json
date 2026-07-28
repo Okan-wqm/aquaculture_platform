@@ -23939,6 +23939,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1815000000000-CreateTenantSensorMetricsHypertable.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/deploy-artifact/__tests__/artifact-immutability.spec.ts",
       "prettier_managed": true
     },
@@ -55194,10 +55200,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9048,
+  "file_count": 9049,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8867,
-  "managed_file_list_sha256": "3ba0b5fde067aff13d353ea746b0b89c42560001607ca49ca292fd8148fb55ff",
+  "managed_count": 8868,
+  "managed_file_list_sha256": "87d67547f447e7b16fc47069a4cadc45975ec35986d54c702db97d3ec2cb1429",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

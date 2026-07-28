@@ -1,48 +1,48 @@
-import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationInterface } from 'typeorm';
 
 /**
- * SENSOR-HIGH-085 (as-of reading projection): add the composite index that
- * makes the per-channel "latest value where time <= T" lookup a single index
- * seek.
+ * INERT — superseded by 1815000000000 before release.
  *
- * A SensorReading is reconstructed as an as-of snapshot over the per-channel
- * sensor.sensor_metrics store: for each of the sensor's channels, the freshest
- * row at or before an anchor instant. The reconstruction runs one
- *   WHERE sensor_id = $s AND channel_id = $c AND time <= $t ORDER BY time DESC LIMIT 1
- * per channel (a LATERAL join), and the batch/latest reads use
- *   DISTINCT ON (sensor_id, channel_id) ... ORDER BY sensor_id, channel_id, time DESC.
- * Both collapse to an index-only descent on (sensor_id, channel_id, time DESC).
+ * # What it did
  *
- * The pre-existing indexes are (sensor_id, time) and (channel_id, time); neither
- * leads with the (sensor_id, channel_id) prefix these access patterns need, so
- * without this index each per-channel lookup degrades to a scan filtered by
- * channel_id. Adding the (sensor_id, channel_id, time DESC) index turns every
- * as-of reconstruction into bounded index seeks.
+ * It added `(sensor_id, channel_id, time DESC)` to `sensor.sensor_metrics` so
+ * the as-of reading projection's per-channel "latest value at or before T"
+ * lookups would be index seeks.
  *
- * time DESC matches the ORDER BY direction so the LIMIT 1 / DISTINCT ON first
- * row is the leading index entry (a forward read), not a backward scan.
+ * # Why it is inert now
  *
- * Plain (non-CONCURRENT) CREATE INDEX: the shared migration runner executes each
- * migration inside a transaction, and CREATE INDEX CONCURRENTLY cannot run in
- * one. On a hypertable this propagates to every chunk under the migration lock;
- * the sensor_metrics store is index-add-safe at migration time (cold start,
- * pre-traffic). IF NOT EXISTS keeps the migration idempotent.
+ * Telemetry moved back to where the model always declared it: each tenant's own
+ * schema (SENSOR-HIGH-085). The projections read the tenant's hypertable, and
+ * migration 1815000000000 creates that table WITH this index already on it. An
+ * index on the shared table would sit on a table nothing reads or writes.
+ *
+ * Two further reasons not to keep the statement, both raised by the pre-merge
+ * audit of this change:
+ *
+ *  1. Its own justification was wrong. The docblock claimed both the LATERAL
+ *     form and a `DISTINCT ON (sensor_id, channel_id)` form "collapse to an
+ *     index-only descent". Only the bounded LATERAL ... LIMIT 1 form is a
+ *     descent; DISTINCT ON is a full ordered scan plus a Unique node. The two
+ *     reads that used DISTINCT ON were rewritten rather than indexed around.
+ *  2. Non-CONCURRENT CREATE INDEX on a hypertable takes a lock that propagates
+ *     to every chunk, stalling ingestion for the build. Paying that on a table
+ *     nothing queries would be cost with no benefit.
+ *
+ * Emptied rather than deleted for the same reason as 1813000000000: development
+ * and CI databases have already run it, and removing the file would leave their
+ * ledgers naming a migration that no longer exists.
  */
 export class AddSensorMetricsSensorChannelTimeIndex1814000000000
   implements MigrationInterface
 {
   name = 'AddSensorMetricsSensorChannelTimeIndex1814000000000';
 
-  public async up(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(
-      `CREATE INDEX IF NOT EXISTS "idx_sensor_metrics_sensor_channel_time"
-         ON sensor.sensor_metrics (sensor_id, channel_id, "time" DESC)`,
-    );
+  public async up(): Promise<void> {
+    // Intentionally empty — 1815000000000 creates the per-tenant hypertable with
+    // this index in place. See the docblock.
   }
 
-  public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(
-      `DROP INDEX IF EXISTS sensor."idx_sensor_metrics_sensor_channel_time"`,
-    );
+  public async down(): Promise<void> {
+    // Nothing to undo: this migration no longer changes anything.
   }
 }

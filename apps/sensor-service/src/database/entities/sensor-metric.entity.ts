@@ -72,26 +72,31 @@ export const QualityCodes = {
  * - Continuous aggregates for fast historical queries
  * - OPC-UA aligned quality codes
  *
- * SENSOR-MEDIUM-068: this is a SINGLE cross-tenant hypertable pinned to the
- * `sensor` schema (NOT a per-tenant clone). Isolation is by the mandatory
- * tenant_id column — the same model as scada_* / edge_device_directory. It is
- * written by process-wide singleton ingestion services (batch processor,
- * MQTT/edge listeners, Rust sidecar) that run with no per-request search_path,
- * so a single schema-qualified hypertable is the only correct home; the former
- * per-tenant clones were plain non-hypertable tables that fragmented the store.
- * All access is schema-qualified `sensor.sensor_metrics`.
+ * SENSOR-HIGH-085: this is a PER-TENANT hypertable — every tenant's telemetry
+ * lives in that tenant's own `tenant_<uuid>` schema, so the entity OMITS
+ * `schema:` and the search_path routes it. It is delivered by migration
+ * 1815000000000, which creates it unqualified so provisioning's migration replay
+ * lands one in every tenant schema.
+ *
+ * The obstacle this design had to solve is that three of the four ingestion
+ * paths are process-wide singletons with no per-request search_path. Pinning the
+ * table to a shared schema "solved" that by giving up tenant isolation; the
+ * structural fix is that SensorMetricWriterService derives the destination
+ * schema from each row's own tenantId, so a singleton writes to the right tenant
+ * schema without needing an ambient one.
  */
 @ObjectType()
-@Entity({ schema: 'sensor', name: 'sensor_metrics' })
+@Entity('sensor_metrics')
 @Index(['sensorId', 'time'])
 @Index(['channelId', 'time'])
 @Index(['tenantId', 'time'])
 @Index(['tankId', 'time'])
 @Index(['equipmentId', 'time'])
 // SENSOR-HIGH-085: (sensor_id, channel_id, time DESC) — created in DB by
-// migration 1814000000000; leads with (sensor_id, channel_id) so the as-of
-// reading projection's per-channel "latest where time <= T" lookups are index
-// seeks. Declared here for entity↔table parity (the store's DDL is migration-owned).
+// migration 1815000000000 alongside the per-tenant hypertable itself; leads with
+// (sensor_id, channel_id) so the as-of reading projection's per-channel "latest
+// where time <= T" lookups are index seeks. Declared here for entity↔table
+// parity (the store's DDL is migration-owned).
 @Index(['sensorId', 'channelId', 'time'])
 export class SensorMetric {
   /**

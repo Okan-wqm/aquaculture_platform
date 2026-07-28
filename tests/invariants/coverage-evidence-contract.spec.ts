@@ -98,7 +98,38 @@ describe('repository-owned coverage evidence contract', () => {
     for (const configPath of VITEST_CONFIGS) {
       const config = fs.readFileSync(path.join(REPO_ROOT, configPath), 'utf8');
       expect(config).toContain('@aquaculture/testing/vitest');
-      expect(config).toContain('...createVitestTestPolicy()');
+
+      // The property this contract is really after is that the config SPREADS
+      // the shared policy — not that it spells the spread one exact way. Two
+      // spellings do that:
+      //
+      //   ...createVitestTestPolicy()        the factory call spread inline
+      //   const p = createVitestTestPolicy(); … ...p
+      //
+      // The bound form is not a loophole, it is a necessity: a config that also
+      // EXTENDS the policy (shared-ui adds its own coverage include/exclude)
+      // has to name the result to read `coverage` back off it while overriding
+      // that same key. Demanding the inline spelling forbade the only correct
+      // way to write shared-ui, which is how it ended up referencing an
+      // unbound `testPolicy` and taking the type-check and shared-ui:test jobs
+      // down with it.
+      // The binding must be spread WHOLE. `...testPolicy.coverage` is a spread
+      // of one property and proves nothing about maxWorkers, so the pattern
+      // refuses a trailing `.` or `[` — without that, a config could drop the
+      // policy spread entirely, keep only its coverage extension, and still
+      // satisfy this contract.
+      const bound = /const\s+([A-Za-z_$][\w$]*)\s*=\s*createVitestTestPolicy\(\)/.exec(config);
+      const spreadsPolicy =
+        config.includes('...createVitestTestPolicy()') ||
+        (bound !== null && new RegExp(`\\.\\.\\.${bound[1]}(?![\\w$.[])`).test(config));
+
+      if (!spreadsPolicy) {
+        throw new Error(
+          `${configPath} imports the shared Vitest policy but never spreads it. ` +
+            `Spread the factory call directly (\`...createVitestTestPolicy()\`), or bind it ` +
+            `once (\`const testPolicy = createVitestTestPolicy()\`) and spread that binding.`,
+        );
+      }
     }
   });
 

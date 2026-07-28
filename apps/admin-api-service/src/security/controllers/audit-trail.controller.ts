@@ -26,8 +26,10 @@ import { Request, Response } from 'express';
 
 import { AuditAction } from '../../audit/audit.entity';
 
+import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+
 import { AuditLog, AuditSeverity as ImmutableAuditSeverity } from '../../audit/audit.entity';
-import { AuditLogFilter, AuditLogService, PaginatedAuditLogs } from '../../audit/audit.service';
+import { AuditLogFilter, AuditLogService } from '../../audit/audit.service';
 import { getAuthUser } from '../../shared/authenticated-request';
 import {
   ActivityCategory,
@@ -362,7 +364,7 @@ export class AuditTrailController {
   async queryAuditTrail(
     @Req() req: Request,
     @Query() query: QueryAuditTrailDto,
-  ): Promise<PaginatedAuditLogs> {
+  ): Promise<IStandardPaginatedResult<AuditLog>> {
     const action = query.action ?? query.actions?.split(',')[0];
     const severity = query.severity?.split(',')[0] as ImmutableAuditSeverity | undefined;
     const filter: AuditLogFilter = {

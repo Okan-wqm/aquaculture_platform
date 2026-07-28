@@ -106,7 +106,7 @@ export const DebugToolsPage: React.FC = () => {
         debugApi.getCacheEntries({ limit: 100, keyPattern: cacheFilter || undefined }),
         debugApi.getCacheStats(),
       ]);
-      setCacheEntries(entriesResponse.status === 'fulfilled' ? (entriesResponse.value.data || []) : []);
+      setCacheEntries(entriesResponse.status === 'fulfilled' ? entriesResponse.value.data : []);
       setCacheStats(statsResponse.status === 'fulfilled' ? statsResponse.value : null);
       if (entriesResponse.status === 'rejected' && statsResponse.status === 'rejected') {
         setError('Cache service unavailable');

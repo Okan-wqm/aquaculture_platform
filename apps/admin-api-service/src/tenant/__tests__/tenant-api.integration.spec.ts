@@ -1,4 +1,5 @@
 import { INestApplication, HttpStatus, ValidationPipe } from '@nestjs/common';
+import { createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { CommandBus, QueryBus, CqrsModule } from '@nestjs/cqrs';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
@@ -485,11 +486,14 @@ describe('Tenant API Integration Tests', () => {
 
   describe('GET /admin/tenants/:id/activities', () => {
     it('should return tenant activities', async () => {
-      mockDetailService.getActivitiesTimeline.mockResolvedValueOnce({
-        data: [{ id: 'activity-1', type: 'STATUS_CHANGE' }],
-        total: 1,
-        totalPages: 1,
-      });
+      mockDetailService.getActivitiesTimeline.mockResolvedValueOnce(
+        createStandardPaginatedResult(
+          [{ id: 'activity-1', type: 'STATUS_CHANGE' }],
+          1,
+          1,
+          20,
+        ),
+      );
 
       const response = await request(app.getHttpServer())
         .get(`/admin/tenants/${TENANT_UUID}/activities`);
@@ -498,11 +502,9 @@ describe('Tenant API Integration Tests', () => {
     });
 
     it('should handle pagination for activities', async () => {
-      mockDetailService.getActivitiesTimeline.mockResolvedValueOnce({
-        data: [],
-        total: 50,
-        totalPages: 3,
-      });
+      mockDetailService.getActivitiesTimeline.mockResolvedValueOnce(
+        createStandardPaginatedResult([], 50, 2, 20),
+      );
 
       const response = await request(app.getHttpServer())
         .get(`/admin/tenants/${TENANT_UUID}/activities`)

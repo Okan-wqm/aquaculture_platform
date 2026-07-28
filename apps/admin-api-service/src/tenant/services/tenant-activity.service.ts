@@ -1,5 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import {
+  createStandardPaginatedResult,
+  IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import { Repository, Between } from 'typeorm';
 
 import {
@@ -8,6 +12,9 @@ import {
   TenantNote,
   TenantBillingInfo,
 } from '../entities/tenant-activity.entity';
+
+/** Page size used when a caller does not specify one. */
+const DEFAULT_ACTIVITY_PAGE_SIZE = 20;
 
 export interface CreateActivityDto {
   tenantId: string;
@@ -56,16 +63,24 @@ export class TenantActivityService {
     return saved;
   }
 
+  /**
+   * One page of a tenant's activity timeline.
+   *
+   * Page-based rather than offset-based so the result IS the canonical
+   * envelope: the page window is computed once, here, instead of the caller
+   * translating page→offset and then re-deriving page/limit/totalPages to
+   * rebuild the envelope on the way out.
+   */
   async getActivities(
     tenantId: string,
     options?: {
+      page?: number;
       limit?: number;
-      offset?: number;
       activityTypes?: ActivityType[];
       startDate?: Date;
       endDate?: Date;
     },
-  ): Promise<{ items: TenantActivity[]; total: number }> {
+  ): Promise<IStandardPaginatedResult<TenantActivity>> {
     const query = this.activityRepository
       .createQueryBuilder('activity')
       .where('activity.tenantId = :tenantId', { tenantId })
@@ -84,19 +99,18 @@ export class TenantActivityService {
       });
     }
 
+    // BUG-031 fix: floor limit at 1 so a caller-supplied 0 cannot make
+    // totalPages Infinity downstream.
+    const page = Math.max(1, options?.page ?? 1);
+    const limit = Math.max(1, options?.limit ?? DEFAULT_ACTIVITY_PAGE_SIZE);
+
     // MEDIUM-006 fix: getManyAndCount() issues a single SQL round-trip.
     // TypeORM's count sub-query ignores skip/take so `total` always reflects
     // all matching records, preserving the BUG-003 correctness requirement.
-    // Use !== undefined so offset=0 is applied correctly (truthy check would skip it).
-    if (options?.offset !== undefined) {
-      query.skip(options.offset);
-    }
-    if (options?.limit !== undefined) {
-      query.take(options.limit);
-    }
+    query.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await query.getManyAndCount();
-    return { items, total };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   async getRecentActivities(

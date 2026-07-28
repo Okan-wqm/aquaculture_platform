@@ -6,7 +6,10 @@ import {
   getTenantSchemaName,
   isValidUUID,
 } from '@aquaculture/backend-common/database';
-import { createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import {
+  createStandardPaginatedResult,
+  IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { Repository, ILike, MoreThan, Between, FindOptionsWhere, DataSource } from 'typeorm';
 
@@ -72,14 +75,6 @@ export class GetTenantBySlugHandler
   }
 }
 
-export interface PaginatedResult<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
-
 /** Per-tenant resource counts sourced from the tenant's own schema (the SSoT). */
 interface TenantResourceCounts {
   farmCount: number;
@@ -92,7 +87,7 @@ const COUNTED_TENANT_TABLES = ['farms', 'sensors'] as const;
 @Injectable()
 @QueryHandler(ListTenantsQuery)
 export class ListTenantsHandler
-  implements IQueryHandler<ListTenantsQuery, PaginatedResult<TenantListItemDto>>
+  implements IQueryHandler<ListTenantsQuery, IStandardPaginatedResult<TenantListItemDto>>
 {
   constructor(
     @InjectRepository(Tenant)
@@ -100,7 +95,7 @@ export class ListTenantsHandler
     private readonly dataSource: DataSource,
   ) {}
 
-  async execute(query: ListTenantsQuery): Promise<PaginatedResult<TenantListItemDto>> {
+  async execute(query: ListTenantsQuery): Promise<IStandardPaginatedResult<TenantListItemDto>> {
     const { filter, pagination, sort } = query;
 
     const page = pagination?.page || 1;

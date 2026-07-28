@@ -162,9 +162,8 @@ export const ImpersonationPage: React.FC = () => {
         recentSessions: [],
       };
 
-      // Backend session-list envelope is { items, total } (not the data/page shape).
-      setSessions(sessionsRes.status === 'fulfilled' ? sessionsRes.value.items : []);
-      setPermissions(permissionsRes.status === 'fulfilled' ? (permissionsRes.value.data || []) : []);
+      setSessions(sessionsRes.status === 'fulfilled' ? sessionsRes.value.data : []);
+      setPermissions(permissionsRes.status === 'fulfilled' ? permissionsRes.value.data : []);
       setStats(statsRes.status === 'fulfilled' ? statsRes.value : defaultStats);
       setTenants(
         tenantsRes.status === 'fulfilled'

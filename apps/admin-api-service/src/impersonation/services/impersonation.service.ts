@@ -9,6 +9,10 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
+import {
+  createStandardPaginatedResult,
+  IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { AuditLogService } from '../../audit/audit.service';
 import { AuditAction, AuditSeverity } from '../../audit/audit.entity';
@@ -27,7 +31,6 @@ import {
   toSafeImpersonationSession,
   IMPERSONATION_MAX_SESSION_MINUTES,
 } from '../entities/impersonation-session.entity';
-import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 /**
  * Start-impersonation response: the safe session view PLUS the raw
@@ -941,7 +944,7 @@ export class ImpersonationService implements OnModuleInit {
     endDate?: Date;
     page?: number;
     limit?: number;
-  }): Promise<{ items: SafeImpersonationSession[]; total: number }> {
+  }): Promise<IStandardPaginatedResult<SafeImpersonationSession>> {
     const query = this.sessionRepo.createQueryBuilder('s');
 
     if (params.superAdminId) {
@@ -971,7 +974,12 @@ export class ImpersonationService implements OnModuleInit {
 
     const [items, total] = await query.getManyAndCount();
     // DB-ADMIN-HIGH-002: never serialize the token columns onto a list response.
-    return { items: items.map(toSafeImpersonationSession), total };
+    return createStandardPaginatedResult(
+      items.map(toSafeImpersonationSession),
+      total,
+      page,
+      limit,
+    );
   }
 
   async getSession(id: string): Promise<SafeImpersonationSession> {

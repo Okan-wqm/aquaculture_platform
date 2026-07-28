@@ -131,6 +131,95 @@ describe('admin-api canonical pagination envelope (RC-1 / RC-1b)', () => {
     expect(hits).toEqual([]);
   });
 
+  /**
+   * The other half of the completeness gate (APA-283).
+   *
+   * The scan above forbids the LEGACY `{ data, total }` shape. That left a
+   * third shape unguarded, and it was the one still shipping: a bare
+   * `{ items, total }` with no page numerics. It keys on `items` like the
+   * canonical envelope, so it reads as correct — but `isStandardPaginatedResult`
+   * requires all four numerics, so the interceptor does NOT recognise it, does
+   * NOT lift it, and the rows arrive nested one level deeper than the consumer's
+   * `PaginatedResult<T>` says. `GET /impersonation/sessions` and
+   * `GET /debug/feature-overrides` both shipped it.
+   *
+   * Alongside it sat a quieter variant: five services each declaring their own
+   * `PaginatedModules` / `PaginatedUsers` / `PaginatedAuditLogs` /
+   * `PaginatedResult<T>` — structurally `IStandardPaginatedResult` minus
+   * `hasNextPage`/`hasPreviousPage`. Those DID get lifted, so nothing broke;
+   * they were worse in a different way. Each was a private copy of the wire
+   * contract that could drift on its own, and each UNDERSTATED what its own
+   * producer returned, because a function's declared return type does not get
+   * excess-property-checked: the factory's two extra fields travelled on the
+   * wire while the type said they did not exist.
+   *
+   * So the rule is not "don't hand-roll" but "there is exactly one paginated
+   * type in admin-api, and it is imported". Any local declaration pairing an
+   * `items` array with a `total: number` is a second definition of a contract
+   * that must have only one.
+   *
+   * Deliberately NOT matched: the keyset/cursor family (`items` + `hasMore` +
+   * `cursor` + `totalCount`), which is a different pagination contract with its
+   * own SSoT (`IKeysetPaginatedResult`) and no `total` field.
+   */
+  it('declares no admin-api-local paginated envelope — the canonical type is imported (APA-283)', () => {
+    const AD_HOC_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
+      {
+        name: 'ad-hoc envelope type (items: T[] … total: number)',
+        re: /\bitems\s*:\s*[A-Za-z_][\w.<>[\] ]*\[\]\s*;[\s\S]{0,200}?\btotal\s*:\s*number/,
+      },
+      {
+        name: 'ad-hoc envelope type (total: number … items: T[])',
+        re: /\btotal\s*:\s*number\s*;[\s\S]{0,120}?\bitems\s*:\s*[A-Za-z_][\w.<>[\] ]*\[\]/,
+      },
+      {
+        name: 'return-literal shorthand (return { items, total … })',
+        re: /return\s*\{\s*items\s*[,:][\s\S]{0,200}?\btotal\s*[,:}]/,
+      },
+    ];
+
+    const out = execSync("git ls-files -- 'apps/admin-api-service/src/**/*.ts'", {
+      cwd: REPO_ROOT,
+      encoding: 'utf-8',
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    const files = out
+      .split('\n')
+      .filter(Boolean)
+      .filter((p) => existsSync(resolve(REPO_ROOT, p)))
+      .filter((p) => !/\.spec\.ts$|\.test\.ts$|__tests__\/|__mocks__\//.test(p));
+
+    const hits: string[] = [];
+    for (const file of files) {
+      // Comments are stripped: an explanation of a removed shape necessarily
+      // spells that shape out.
+      const src = read(file)
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/^\s*\/\/.*$/gm, '');
+      for (const { name, re } of AD_HOC_PATTERNS) {
+        if (re.test(src)) {
+          hits.push(`  ${file}\n      -> ${name}`);
+        }
+      }
+    }
+
+    if (hits.length > 0) {
+      throw new Error(
+        `${hits.length} admin-api-local paginated envelope declaration(s):\n` +
+          `${hits.join('\n')}\n\n` +
+          `admin-api has exactly ONE paginated type: IStandardPaginatedResult<T> ` +
+          `from @aquaculture/backend-common/pagination, built by ` +
+          `createStandardPaginatedResult(items, total, page, limit). Import it ` +
+          `rather than re-declaring the shape. A copy missing the page numerics ` +
+          `is not recognised by isStandardPaginatedResult, so the interceptor ` +
+          `ships it unlifted and the consuming list reads the wrong level; a copy ` +
+          `missing only hasNextPage/hasPreviousPage still lifts, but understates ` +
+          `what the producer actually returns.`,
+      );
+    }
+    expect(hits).toEqual([]);
+  });
+
   it('a representative set of migrated producers routes through the canonical helper', () => {
     // Spot-check across every hazard partition touched by RC-1a + RC-1b: if any
     // of these silently reverts to a hand-rolled shape, the completeness scan

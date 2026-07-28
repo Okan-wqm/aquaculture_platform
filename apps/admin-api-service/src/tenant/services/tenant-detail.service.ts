@@ -400,15 +400,9 @@ export class TenantDetailService {
     page = 1,
     limit = 20,
   ): Promise<IStandardPaginatedResult<TenantActivity>> {
-    // BUG-031 fix: guard against limit=0 to prevent Math.ceil producing Infinity
-    const safeLimit = limit > 0 ? limit : 20;
-
-    const result = await this.activityService.getActivities(tenantId, {
-      limit: safeLimit,
-      offset: (page - 1) * safeLimit,
-    });
-
-    return createStandardPaginatedResult(result.items, result.total, page, safeLimit);
+    // The page window and the BUG-031 limit floor now live in getActivities,
+    // which returns the canonical envelope directly — nothing to re-derive here.
+    return this.activityService.getActivities(tenantId, { page, limit });
   }
 
   /**

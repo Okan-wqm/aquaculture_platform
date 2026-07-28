@@ -9,6 +9,7 @@
  * neither secret, while the start path still reveals the raw impersonation
  * token exactly once (and never the stored plaintext session token).
  */
+import { isStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
@@ -124,6 +125,35 @@ describe('ImpersonationService — read paths never serialize tokens', () => {
     expect(total).toBe(2);
     expect(items).toHaveLength(2);
     for (const s of items) expectNoSecrets(s);
+  });
+
+  /**
+   * APA-283. This list used to return a bare `{ items, total }` — the page
+   * numerics were never computed, so `isStandardPaginatedResult` rejected it,
+   * the ResponseInterceptor shipped it unlifted, and the FE had to declare a
+   * bespoke `{ items, total }` type for this one endpoint. With no page/limit/
+   * totalPages on the wire, the impersonation-audit surface could not paginate
+   * at all: it showed the 20 most recent sessions and gave the operator no way
+   * to know a 21st existed.
+   */
+  it('querySessions returns the canonical paginated envelope (APA-283)', async () => {
+    sessionRepo.createQueryBuilder.mockReturnValue({
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getManyAndCount: jest.fn().mockResolvedValue([[withSecrets()], 42]),
+    });
+
+    const result = await service.querySessions({ page: 2, limit: 20 });
+
+    expect(isStandardPaginatedResult(result)).toBe(true);
+    expect(result.total).toBe(42);
+    expect(result.page).toBe(2);
+    expect(result.limit).toBe(20);
+    expect(result.totalPages).toBe(3);
+    expect(result.hasNextPage).toBe(true);
+    expect(result.hasPreviousPage).toBe(true);
   });
 
   // The state-transition responses (end/terminate/extend) are session state,

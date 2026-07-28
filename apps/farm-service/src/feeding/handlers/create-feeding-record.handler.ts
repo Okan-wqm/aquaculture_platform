@@ -49,6 +49,7 @@ import {
   LockedUnit,
 } from '../../feeding-protocol/services/biomass-growth-applier.service';
 import { DayPlanRecalcService } from '../../feeding-protocol/services/day-plan-recalc.service';
+import { withUnitLockRetry } from '../../feeding-protocol/services/unit-lock-retry.util';
 import {
   FeedingDayPlan,
   FeedingDayPlanStatus,
@@ -77,7 +78,20 @@ export class CreateFeedingRecordHandler
     private readonly recalcService: DayPlanRecalcService,
   ) {}
 
+  /**
+   * `withUnitLockRetry` sarmalar: `lockUnitForGrowth`, kilitsiz önizleme ile
+   * kilitli okuma arasında ünitenin batch üyeliği değişirse `ConflictException`
+   * fırlatır (transfer/stoklama/tam hasat ile eşzamanlılık). Sarmalayıcı
+   * olmadan bu, operatöre ham 409 olarak yansıyordu — `@platform/cqrs` command
+   * bus'ında retry katmanı yok, yani üst tarafta soğuran hiçbir şey de yok
+   * (FARM-MEDIUM-288). Retry transaction'ın DIŞINDA olmak zorundadır: yeniden
+   * denenen şey kilit değil, tüm iş birimidir.
+   */
   async execute(command: CreateFeedingRecordCommand): Promise<FeedingRecord> {
+    return withUnitLockRetry(() => this.executeOnce(command));
+  }
+
+  private async executeOnce(command: CreateFeedingRecordCommand): Promise<FeedingRecord> {
     const { tenantId, payload, userId } = command;
 
     // ── Backdate policy: reject future feedingDates unconditionally and
@@ -108,14 +122,16 @@ export class CreateFeedingRecordHandler
         locked = await this.growthApplier.lockUnitForGrowth(manager, tenantId, payload.tankId);
       }
 
-      // Batch'i doğrula — ünite kilidi batch'i zaten kilitlediyse yeniden alma.
-      let batch = locked?.batches.get(payload.batchId) ?? null;
-      if (!batch) {
-        batch = await manager.findOne(Batch, {
-          where: { id: payload.batchId, tenantId },
-          lock: { mode: 'pessimistic_write' },
-        });
-      }
+      // Batch'i doğrula — ünite kilidi bu batch'i gerçekten kapsıyorsa kilitli
+      // nesne kullanılır, kapsamıyorsa satır ayrıca kilitlenir. Karar TEK
+      // implementasyonda (FARM-HIGH-248): bu deyim iki handler'da kopyalanmış
+      // ve biri üyeliği doğrularken diğeri yalnız token varlığına bakıyordu.
+      const batch = await this.growthApplier.lockBatchForWrite(
+        manager,
+        tenantId,
+        payload.batchId,
+        locked,
+      );
 
       if (!batch) {
         throw new NotFoundException(`Batch ${payload.batchId} bulunamadı`);

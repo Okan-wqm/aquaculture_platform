@@ -89,10 +89,15 @@ export class UpdateFeedingRecordHandler
       const locked = preview.tankId
         ? await this.growthApplier.lockUnitForGrowth(manager, tenantId, preview.tankId)
         : null;
-      const batch = await manager.findOne(Batch, {
-        where: { id: preview.batchId, tenantId },
-        lock: locked ? undefined : { mode: 'pessimistic_write' },
-      });
+      // Kilit kararı TOKEN'a sorulur, token'ın VARLIĞINA değil: ünite kilidi
+      // bu batch'i gerçekten kapsıyorsa kilitli nesne kullanılır, kapsamıyorsa
+      // satır ayrıca kilitlenir (FARM-HIGH-248).
+      const batch = await this.growthApplier.lockBatchForWrite(
+        manager,
+        tenantId,
+        preview.batchId,
+        locked,
+      );
       const dayPlan = preview.dayPlanId
         ? await manager.findOne(FeedingDayPlan, {
             where: { id: preview.dayPlanId, tenantId },

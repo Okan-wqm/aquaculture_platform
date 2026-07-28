@@ -91,6 +91,7 @@ import { AddFeedingMealReadiness1807500000000 } from './1807500000000-AddFeeding
 import { AlignFeedingMealMethodEnum1807600000000 } from './1807600000000-AlignFeedingMealMethodEnum';
 import { CapDayPlanRecalcLog1807700000000 } from './1807700000000-CapDayPlanRecalcLog';
 import { RestoreStorageInventoryCanonicalKey1807800000000 } from './1807800000000-RestoreStorageInventoryCanonicalKey';
+import { CompleteFeedInventoryLedgerBackfill1807900000000 } from './1807900000000-CompleteFeedInventoryLedgerBackfill';
 import { CreateIncidentMedia1806000000000 } from './1806000000000-CreateIncidentMedia';
 import { WidenRelatedSensorReadingIdToFederationId1806800000000 } from './1806800000000-WidenRelatedSensorReadingIdToFederationId';
 import { AddSiteMonitoringContract1806900000000 } from './1806900000000-AddSiteMonitoringContract';
@@ -199,4 +200,5 @@ export const FARM_MIGRATIONS = [
   AlignFeedingMealMethodEnum1807600000000,
   CapDayPlanRecalcLog1807700000000,
   RestoreStorageInventoryCanonicalKey1807800000000,
+  CompleteFeedInventoryLedgerBackfill1807900000000,
 ] as const;

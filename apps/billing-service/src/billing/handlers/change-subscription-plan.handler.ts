@@ -10,6 +10,7 @@ import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
 import { toEventIso,
+  classifyPlanChange,
   createBaseEvent,
   SubscriptionUpdatedEvent,
   TenantSubscriptionChangedEvent,
@@ -31,17 +32,6 @@ export interface PlanChangeResult {
   effectiveDate: Date;
   isImmediate: boolean;
 }
-
-/**
- * Tier ordering for upgrade/downgrade detection.
- * Higher number = higher tier.
- */
-const TIER_ORDER: Record<string, number> = {
-  starter: 1,
-  professional: 2,
-  enterprise: 3,
-  custom: 4,
-};
 
 @AuditedOperation({ resource: 'Subscription', action: 'CHANGE_PLAN' })
 @Injectable()
@@ -121,12 +111,21 @@ export class ChangeSubscriptionPlanHandler
       // Capture BEFORE mutation — all three branches overwrite subscription.planTier,
       // so reading it after mutation always gives the new tier (wrong in the event).
       const previousPlanTier = subscription.planTier;
-      const currentTierOrder = TIER_ORDER[subscription.planTier] || 0;
-      const newTierOrder = TIER_ORDER[newPlan.tier] || 0;
-      const isUpgrade = newTierOrder > currentTierOrder;
-      const isDowngrade = newTierOrder < currentTierOrder;
+      // The ordering is the shared `BILLING_PLAN_TIER_ORDER` SSoT rather than a
+      // module-local `Record<string, number>` looked up with `|| 0`. That map
+      // had no `free` entry, so `free` silently ranked 0 and every change to or
+      // from it was classified by accident; and because it was private to this
+      // writer, no reader could classify a stored row the way the write did.
+      const direction = classifyPlanChange(subscription.planTier, newPlan.tier);
+      const isUpgrade = direction === 'upgrade';
+      const isDowngrade = direction === 'downgrade';
 
       const now = new Date();
+
+      // Captured BEFORE mutation, for the ledger row written below: the
+      // immediate branches overwrite planId/planTier/planName in place.
+      const previousPlanId = subscription.planId ?? '';
+      const previousPlanName = subscription.planName;
 
       // 5. Calculate pro-rata credit for the remaining period using Money
       const pricingCurrency = subscription.pricing.currency || 'USD';
@@ -224,6 +223,44 @@ export class ChangeSubscriptionPlanHandler
             idempotencyKey: `sub-update:${subscription.stripeSubscriptionId}:${newPlan.id}`,
           });
         }
+      }
+
+      // `billing.scheduled_plan_changes` is the plan-change LEDGER, and until now
+      // it recorded only scheduled downgrades: an immediate upgrade or a lateral
+      // move mutated the subscription in place and left no dated row behind. So
+      // the table could answer "what downgrades are pending" but never "how many
+      // upgrades happened in March" — which is why the analytics revenue report
+      // hardcoded `upgrades: 0` and `downgrades: 0` (APA-139). Fixing the reader
+      // could not have worked: the fact had never been written.
+      //
+      // The row is APPLIED on creation because the change has already taken
+      // effect, and it is written on the same `manager` as the subscription
+      // mutation, so the ledger and the state it describes commit together or
+      // not at all. Inserts only — no schema change, blue-green safe.
+      if (appliedImmediately) {
+        const appliedChangeRepo = tenantManagerRepo(manager, ScheduledPlanChange, tenantId);
+        const appliedChange = appliedChangeRepo.create({
+          tenantId,
+          subscriptionId: subscription.id,
+          currentPlanId: previousPlanId,
+          currentPlanTier: previousPlanTier,
+          newPlanId: newPlan.id,
+          newPlanTier: newPlan.tier,
+          newPlanName: newPlan.name,
+          newLimits: { ...newPlan.limits },
+          newPricing: { ...newPlan.pricing },
+          status: ScheduledChangeStatus.APPLIED,
+          effectiveDate: now,
+          appliedAt: now,
+          reason: input.reason,
+          scheduledBy: userId,
+        });
+        await appliedChangeRepo.save(appliedChange);
+
+        this.logger.log(
+          `Plan-change ledger row recorded for tenant ${tenantId}: ` +
+          `${previousPlanName} → ${newPlan.name} (${direction}, changeId: ${appliedChange.id})`,
+        );
       }
 
       const savedSubscription = await subscriptionRepo.save(subscription);

@@ -17,6 +17,7 @@ describe('ChangeSubscriptionPlanHandler', () => {
   let mockManager: Partial<EntityManager>;
   let mockOutbox: { enqueue: jest.Mock };
   let mockStripe: { updateSubscription: jest.Mock };
+  let mockScheduledChangeRepo: { update: jest.Mock; create: jest.Mock; save: jest.Mock };
 
   const tenantId = '550e8400-e29b-41d4-a716-446655440000';
   const userId = 'user-123';
@@ -108,8 +109,9 @@ describe('ChangeSubscriptionPlanHandler', () => {
     };
 
     // ScheduledPlanChange repo — the downgrade path supersedes any pending change
-    // (update) then creates + saves a new one.
-    const mockScheduledChangeRepo = {
+    // (update) then creates + saves a new one; every immediately-applied change
+    // writes an APPLIED ledger row through the same repo (APA-139).
+    mockScheduledChangeRepo = {
       update: jest.fn().mockResolvedValue({ affected: 0 }),
       create: jest.fn().mockImplementation((entity) => entity),
       save: jest.fn().mockImplementation((c) => Promise.resolve({ ...c, id: 'spc-001' })),
@@ -313,6 +315,91 @@ describe('ChangeSubscriptionPlanHandler', () => {
     // IP-2 note). A pending ScheduledPlanChange to Professional is created.
     expect(result.planTier).toBe(PlanTier.ENTERPRISE);
     expect(result.planName).toBe('Enterprise');
+  });
+
+  describe('plan-change ledger (APA-139)', () => {
+    // `billing.scheduled_plan_changes` recorded only SCHEDULED downgrades: an
+    // immediate upgrade or a lateral move mutated the subscription in place and
+    // left no dated row behind. The table could therefore answer "what
+    // downgrades are pending" but never "how many upgrades happened in March",
+    // which is why the analytics revenue report hardcoded `upgrades: 0` — the
+    // fact had never been written, so no reader-side fix could have worked.
+
+    it('records an APPLIED row for an immediate upgrade, in the same transaction', async () => {
+      const subscription = createMockSubscription();
+      const plan = createMockPlan();
+
+      (mockSubscriptionRepo.findOne as jest.Mock).mockResolvedValue(subscription);
+      (mockPlanRepo.findOne as jest.Mock).mockResolvedValue(plan);
+
+      await handler.execute(
+        new ChangeSubscriptionPlanCommand(tenantId, { newPlanId: plan.id }, userId),
+      );
+
+      expect(mockScheduledChangeRepo.save).toHaveBeenCalledTimes(1);
+      const [row] = mockScheduledChangeRepo.create.mock.calls[0] as [Record<string, unknown>];
+
+      // The FROM side must be the pre-mutation tier: all three branches
+      // overwrite `subscription.planTier` in place, so reading it afterwards
+      // would record the change as starter → starter.
+      expect(row['currentPlanTier']).toBe(PlanTier.STARTER);
+      expect(row['newPlanTier']).toBe(PlanTier.PROFESSIONAL);
+      expect(row['status']).toBe('APPLIED');
+      // Already in effect, so effectiveDate is now rather than period end.
+      expect(row['appliedAt']).toEqual(now);
+      expect(row['effectiveDate']).toEqual(now);
+      expect(row['subscriptionId']).toBe(subscription.id);
+
+      // Written through the transactional manager, so the ledger and the state
+      // it describes commit together or not at all.
+      expect(mockManager.getRepository).toHaveBeenCalledWith(ScheduledPlanChange);
+    });
+
+    it('records an APPLIED row for a lateral move', async () => {
+      // Same tier, different plan — no state change to notice, so without a
+      // ledger row this transition was invisible to every reader.
+      const subscription = createMockSubscription({
+        planTier: PlanTier.PROFESSIONAL,
+        planName: 'Professional Legacy',
+      });
+      const plan = createMockPlan();
+
+      (mockSubscriptionRepo.findOne as jest.Mock).mockResolvedValue(subscription);
+      (mockPlanRepo.findOne as jest.Mock).mockResolvedValue(plan);
+
+      await handler.execute(
+        new ChangeSubscriptionPlanCommand(tenantId, { newPlanId: plan.id }, userId),
+      );
+
+      const [row] = mockScheduledChangeRepo.create.mock.calls[0] as [Record<string, unknown>];
+      expect(row['currentPlanTier']).toBe(PlanTier.PROFESSIONAL);
+      expect(row['newPlanTier']).toBe(PlanTier.PROFESSIONAL);
+      expect(row['status']).toBe('APPLIED');
+    });
+
+    it('leaves a scheduled downgrade PENDING, not APPLIED', async () => {
+      // The pre-existing behaviour must not be swept up: a downgrade has not
+      // taken effect yet, and stamping it APPLIED would report a plan change
+      // that has not happened.
+      const subscription = createMockSubscription({
+        planTier: PlanTier.ENTERPRISE,
+        planName: 'Enterprise',
+      });
+      const plan = createMockPlan(); // Professional
+
+      (mockSubscriptionRepo.findOne as jest.Mock).mockResolvedValue(subscription);
+      (mockPlanRepo.findOne as jest.Mock).mockResolvedValue(plan);
+
+      await handler.execute(
+        new ChangeSubscriptionPlanCommand(tenantId, { newPlanId: plan.id }, userId),
+      );
+
+      expect(mockScheduledChangeRepo.save).toHaveBeenCalledTimes(1);
+      const [row] = mockScheduledChangeRepo.create.mock.calls[0] as [Record<string, unknown>];
+      expect(row['status']).toBe('PENDING');
+      expect(row['appliedAt']).toBeUndefined();
+      expect(row['effectiveDate']).toEqual(subscription.currentPeriodEnd);
+    });
   });
 
   it('should allow trial subscriptions to change plans', async () => {

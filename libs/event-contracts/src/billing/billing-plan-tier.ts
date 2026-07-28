@@ -86,3 +86,54 @@ export type SharedBillingTiersMatchCanonical = AssertTrue<
 export type CanonicalPaidTiersAreSellable = AssertTrue<
   Exclude<`${TenantPlan}`, 'trial'> extends `${BillingPlanTier}` ? true : false
 >;
+
+/**
+ * Sellable tiers ranked low → high, for classifying a plan change as an
+ * upgrade, a downgrade or a lateral move.
+ *
+ * # Why it lives here rather than beside the handler that classifies
+ *
+ * `ChangeSubscriptionPlanHandler` carried a module-local
+ * `Record<string, number>` and looked tiers up with `TIER_ORDER[tier] || 0`.
+ * Two problems followed from the loose key type. A tier absent from the map —
+ * `free` was — silently ranked 0, so any change TO it read as a downgrade and
+ * any change FROM it as an upgrade, by accident rather than by decision. And
+ * because the ordering was private to the writer, no reader could classify a
+ * stored plan-change row the same way the writer did; the admin analytics
+ * revenue report needs exactly that (APA-139).
+ *
+ * `Record<BillingPlanTier, number>` is exhaustive, so adding a tier is a
+ * compile error here until it is ranked, and a lookup cannot miss.
+ *
+ * `CUSTOM` ranks above `ENTERPRISE` because a negotiated plan is sold as a
+ * step beyond the top catalogue tier; `FREE` ranks below `STARTER` as the $0
+ * floor.
+ */
+export const BILLING_PLAN_TIER_ORDER: Record<BillingPlanTier, number> = {
+  [BillingPlanTier.FREE]: 0,
+  [BillingPlanTier.STARTER]: 1,
+  [BillingPlanTier.PROFESSIONAL]: 2,
+  [BillingPlanTier.ENTERPRISE]: 3,
+  [BillingPlanTier.CUSTOM]: 4,
+};
+
+/** How a plan change moved between tiers. */
+export type PlanChangeDirection = 'upgrade' | 'downgrade' | 'lateral';
+
+/**
+ * Classifies a plan change from the two tiers it moved between.
+ *
+ * Shared so the billing writer and every analytics reader reach the SAME
+ * verdict for the same stored row — a reader with its own copy of the ordering
+ * would eventually disagree with the write that produced the row (APA-139).
+ */
+export function classifyPlanChange(
+  fromTier: BillingPlanTier,
+  toTier: BillingPlanTier,
+): PlanChangeDirection {
+  const from = BILLING_PLAN_TIER_ORDER[fromTier];
+  const to = BILLING_PLAN_TIER_ORDER[toTier];
+  if (to > from) return 'upgrade';
+  if (to < from) return 'downgrade';
+  return 'lateral';
+}

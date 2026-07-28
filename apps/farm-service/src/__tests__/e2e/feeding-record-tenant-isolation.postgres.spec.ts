@@ -55,6 +55,7 @@ import { GetFeedingRecordsHandler } from '../../feeding/query-handlers/get-feedi
 import { GetFeedingSummaryHandler } from '../../feeding/query-handlers/get-feeding-summary.handler';
 import { GetFeedingRecordsQuery } from '../../feeding/queries/get-feeding-records.query';
 import { GetFeedingSummaryQuery } from '../../feeding/queries/get-feeding-summary.query';
+import { FinanceSettings } from '../../finance/entities/finance-settings.entity';
 import { FarmOutbox } from '../../outbox/farm-outbox.entity';
 import {
   Species,
@@ -138,6 +139,13 @@ describe('Feeding record tenant isolation on real Postgres', () => {
         StockMovement,
         StorageLotMix,
         FeedingRecord,
+        // FeedingLedgerService owns feed cost for every caller (C-16) and reads
+        // the tenant's default currency through FinanceSettingsService. Its
+        // in-transaction variant does NOT swallow a missing row the way the
+        // read-path variant does, so leaving the entity unregistered surfaced as
+        // `EntityMetadataNotFoundError` from inside recordFeed rather than as a
+        // currency fallback. Production registers it; the harness must too.
+        FinanceSettings,
         FarmOutbox,
       ],
       synchronize: true,
@@ -600,6 +608,9 @@ async function createTenantSchema(dataSource: DataSource, schema: string): Promi
   );
   await dataSource.query(
     `CREATE TABLE "${schema}"."suppliers" (LIKE "farm"."suppliers" INCLUDING ALL)`,
+  );
+  await dataSource.query(
+    `CREATE TABLE "${schema}"."finance_settings" (LIKE "farm"."finance_settings" INCLUDING ALL)`,
   );
   await dataSource.query(`CREATE TABLE "${schema}"."feeds" (LIKE "farm"."feeds" INCLUDING ALL)`);
   await dataSource.query(

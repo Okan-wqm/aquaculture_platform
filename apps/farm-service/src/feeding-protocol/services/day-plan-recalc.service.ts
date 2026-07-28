@@ -236,6 +236,10 @@ export class DayPlanRecalcService {
         overrides: assignment.overrides,
         currentBandIndex: currentIndex,
         currentFeedId: assignment.currentFeedId,
+        // Operatörün pin'i (FARM-MEDIUM-251). Bu alanı elle kurulan girdiden
+        // düşürmek, pin'i çözücüye HİÇ ulaştırmamak demekti — atama nesnesini
+        // olduğu gibi geçmek yerine alan alan kopyalamanın bedeli budur.
+        manualBandIndex: assignment.manualBandIndex,
       },
       bandBasisWeightG: this.resolutionService.resolveBandBasisWeight({ avgWeightG }),
       temperature: {
@@ -245,7 +249,6 @@ export class DayPlanRecalcService {
             : dayPlan.resolution.waterTempC,
         source: dayPlan.resolution.temperatureSource,
       },
-      applyHysteresis: true,
     });
     if (!resolution) {
       return {
@@ -266,6 +269,10 @@ export class DayPlanRecalcService {
       const fromFeedId = assignment.currentFeedId ?? dayPlan.resolution.feed.id;
       assignment.currentFeedId = effective.band.feedId;
       assignment.currentBandIndex = effective.index;
+      // Balık operatörün sabitlediği bandın üstüne çıktı — çözücü pin'i artık
+      // onurlandırmıyor, otomatik geçiş onu geçersiz kıldı. Pin temizlenir ki
+      // kayıt "hâlâ elle sabitli" demesin (FARM-MEDIUM-251).
+      assignment.manualBandIndex = undefined;
       assignment.lastTransitionAt = new Date();
       assignment.totalTransitions = (assignment.totalTransitions ?? 0) + 1;
       await manager.save(assignment);

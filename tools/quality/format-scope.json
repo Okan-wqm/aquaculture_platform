@@ -9867,6 +9867,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1808100000000-AddAssignmentManualBandPin.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -55266,10 +55272,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9060,
+  "file_count": 9061,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8879,
-  "managed_file_list_sha256": "863405493abf8029708a76dbd9abdcdbd4fc7051ac798d250ccfd0b7539fe901",
+  "managed_count": 8880,
+  "managed_file_list_sha256": "b0b308b2da4f4443db4a784c913e973556590d68b9f0fef3c4c85c4e7ce345c2",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -169,7 +169,6 @@ export class MealPlanGeneratorService {
       }),
       temperature,
       feedFcrMatrix: undefined,
-      applyHysteresis: true,
     });
     if (!resolution) return null;
     const band = resolution.band;
@@ -183,7 +182,6 @@ export class MealPlanGeneratorService {
           bandBasisWeightG: resolution.bandBasisWeightG,
           temperature,
           feedFcrMatrix: feedMatrix,
-          applyHysteresis: true,
         }) ?? resolution)
       : resolution;
 

@@ -93,6 +93,7 @@ import { CapDayPlanRecalcLog1807700000000 } from './1807700000000-CapDayPlanReca
 import { RestoreStorageInventoryCanonicalKey1807800000000 } from './1807800000000-RestoreStorageInventoryCanonicalKey';
 import { CompleteFeedInventoryLedgerBackfill1807900000000 } from './1807900000000-CompleteFeedInventoryLedgerBackfill';
 import { AddStockMovementLotReceivedDate1808000000000 } from './1808000000000-AddStockMovementLotReceivedDate';
+import { AddAssignmentManualBandPin1808100000000 } from './1808100000000-AddAssignmentManualBandPin';
 import { CreateIncidentMedia1806000000000 } from './1806000000000-CreateIncidentMedia';
 
 /**
@@ -185,4 +186,5 @@ export const FARM_MIGRATIONS = [
   RestoreStorageInventoryCanonicalKey1807800000000,
   CompleteFeedInventoryLedgerBackfill1807900000000,
   AddStockMovementLotReceivedDate1808000000000,
+  AddAssignmentManualBandPin1808100000000,
 ] as const;

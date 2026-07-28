@@ -116,6 +116,15 @@ interface Fixture {
   meals?: Array<Partial<FeedingMeal>>;
   protocol?: FeedingProtocolV2 | null;
   tankBatch?: Partial<TankBatch> | null;
+  /**
+   * GERÇEK `DayPlanRecalcService` ile koş (FARM-MEDIUM-251).
+   *
+   * Manuel geçiş, kalan öğünleri yeniden fiyatlamak için AYNI transaction'da
+   * recalc çağırır — ve kusur tam oradaydı: recalc geçişi geri alıyordu.
+   * Recalc mock'lanınca bu görünmez; kopyanın yerine gerçeğini koymak, iki
+   * yazarın aynı atama üzerinde ne yaptığını teste taşır.
+   */
+  realRecalc?: boolean;
 }
 
 function buildHarness(fixture: Fixture): {
@@ -157,6 +166,10 @@ function buildHarness(fixture: Fixture): {
   managerFindOne.mockImplementation(async (entity: unknown): Promise<unknown> => {
     if (entity === FeedingProtocolV2) return protocol;
     if (entity === TankBatch) return tankBatch;
+    // GERÇEK recalc atamayı `findOne` ile yükler (query builder ile DEĞİL).
+    // Bunu vermemek recalc'ı 'no_active_plan' ile erken döndürüyordu — yani
+    // "gerçek recalc" ile koşan testler aslında hiç recalc koşturmuyordu.
+    if (entity === ProtocolAssignment) return assignment;
     return null;
   });
   const managerFind = jest.fn().mockResolvedValue([]);
@@ -191,10 +204,15 @@ function buildHarness(fixture: Fixture): {
   const getEffectiveTemperature = jest.fn();
   getEffectiveTemperature.mockResolvedValue({ celsius: null, source: 'none' });
 
+  const resolutionService = new ProtocolResolutionService(new ProtocolRateService());
+  const recalcService = fixture.realRecalc
+    ? new DayPlanRecalcService(mock<OutboxPublisher>({ enqueue }), resolutionService)
+    : mock<DayPlanRecalcService>({ recalcForUnit });
+
   const service = new DayPlanAdminService(
     mock<DataSource>({}),
     mock<MealPlanGeneratorService>({ computeDayPlan, persistDayPlan }),
-    mock<DayPlanRecalcService>({ recalcForUnit }),
+    recalcService,
     mock<WaterTemperatureService>({ getEffectiveTemperature }),
     mock<OutboxPublisher>({ enqueue }),
     // Band çözümü ağırlıktan — manuel geçiş de tek SSoT'yi kullanır (W3).
@@ -299,6 +317,98 @@ describe('DayPlanAdminService.transitionUnitFeed (K-9)', () => {
     expect(event['toFeedId']).toBe('feed-g4');
     expect(event['toFeedCode']).toBe('G4');
     expect(event['bandIndex']).toBe(1);
+  });
+
+  it('komşu banda manuel geçiş KENDİ recalc’ında geri alınmaz (FARM-MEDIUM-251)', async () => {
+    // 100 g balık ağırlıktan band 0'a düşer; operatör KOMŞU banda (1) geçirir —
+    // `resolveManualTransitionBand` bunu açıkça meşru sayar (balığı bir sonraki
+    // pellete birkaç gün erken almak normal bir yetiştirme kararıdır).
+    //
+    // Kusur: geçiş `currentBandIndex=1` yazıp aynı transaction'da recalc
+    // çağırıyordu; çözücü o alanı yalnız HİSTEREZİS ÇAPASI sayıyor, ağırlık
+    // bandı (0) farklı olduğu için histerezisi uyguluyor ve "balık zaten band
+    // 0'ın içinde" diyerek band 0'a dönüyordu. Sonuç: atamanın yemi, kalan
+    // öğünlerin yemi ve fiyatlama band 0'a geri alınıyor, üstüne ÇELİŞKİLİ
+    // ikinci bir FeedTypeTransitioned(automatic:true) yayılıyordu — mutation
+    // ise `TRANSITIONED` dönüp operatörün yemini logluyordu.
+    const meal = mock<FeedingMeal>({
+      id: 'meal-1',
+      feedId: 'feed-s1',
+      plannedKg: 1,
+      percentOfDaily: 100,
+      status: FeedingMealStatus.SCHEDULED,
+    });
+    const assignment = makeAssignment();
+    const { service, enqueue } = buildHarness({
+      assignment,
+      dayPlan: {
+        id: 'dp-1',
+        unitId: UNIT,
+        unitCode: 'T-1',
+        siteId: SITE,
+        protocolId: 'proto-1',
+        plannedTotalKg: 1,
+        resolution: { bandIndex: 0, feed: { id: 'feed-s1' }, waterTempC: null } as never,
+        recalcLog: [],
+      },
+      meals: [meal],
+      // GERÇEK recalc — mock'lu hâli kusuru göremezdi.
+      realRecalc: true,
+    });
+
+    await service.transitionUnitFeed(TENANT, USER, UNIT, 'feed-g4');
+
+    // Operatörün seçimi ayakta: atama, öğün ve pin aynı yemi gösterir.
+    expect(assignment.currentFeedId).toBe('feed-g4');
+    expect(assignment.currentBandIndex).toBe(1);
+    expect(assignment.manualBandIndex).toBe(1);
+    expect(meal.feedId).toBe('feed-g4');
+
+    // TEK geçiş event'i, ve o da manuel olan. İkinci bir otomatik event,
+    // aşağı akışta "yem değişti" diye iki kez alarm/rozet demekti.
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(enqueue.mock.calls[0]![0]['automatic']).toBe(false);
+  });
+
+  it('balık pinlenen bandın ÜSTÜNE çıkınca otomatik geçiş pini geçersiz kılar', async () => {
+    // Pin sonsuza kadar yaşamaz: operatör band 0'ı sabitlemişken balık 300 g'a
+    // çıkarsa ağırlık bandı 1'dir ve otomatik geçiş devralır — aksi hâlde bir
+    // kerelik manuel karar üniteyi kalıcı olarak yanlış pellette kilitlerdi.
+    const meal = mock<FeedingMeal>({
+      id: 'meal-1',
+      feedId: 'feed-s1',
+      plannedKg: 1,
+      percentOfDaily: 100,
+      status: FeedingMealStatus.SCHEDULED,
+    });
+    const assignment = makeAssignment();
+    assignment.manualBandIndex = 0;
+    const { service, enqueue } = buildHarness({
+      assignment,
+      dayPlan: {
+        id: 'dp-1',
+        unitId: UNIT,
+        unitCode: 'T-1',
+        siteId: SITE,
+        protocolId: 'proto-1',
+        plannedTotalKg: 1,
+        resolution: { bandIndex: 0, feed: { id: 'feed-s1' }, waterTempC: null } as never,
+        recalcLog: [],
+      },
+      meals: [meal],
+      tankBatch: { tankId: UNIT, totalQuantity: 1000, totalBiomassKg: 300, avgWeightG: 300 },
+      realRecalc: true,
+    });
+
+    await service.regenerateDayPlan(TENANT, USER, UNIT);
+
+    expect(assignment.currentBandIndex).toBe(1);
+    expect(assignment.currentFeedId).toBe('feed-g4');
+    // Pin temizlenir — kayıt "hâlâ elle sabitli" demez.
+    expect(assignment.manualBandIndex).toBeUndefined();
+    expect(meal.feedId).toBe('feed-g4');
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(enqueue.mock.calls[0]![0]['automatic']).toBe(true);
   });
 
   it('band dışı yeme geçişi fail-closed reddedilir — atama ve event dokunulmaz', async () => {

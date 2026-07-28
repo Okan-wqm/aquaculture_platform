@@ -244,6 +244,12 @@ export class DayPlanAdminService {
       const fromFeedId = assignment.currentFeedId;
       assignment.currentFeedId = toFeedId;
       assignment.currentBandIndex = bandIndex;
+      // Operatörün seçimi PIN'lenir (FARM-MEDIUM-251). `currentBandIndex` tek
+      // başına yetmiyordu: manuel geçiş komşu banda yapılabildiği için çözücü
+      // ağırlık bandına dönüyor ve aşağıdaki recalc, geçişi kendi
+      // transaction'ında geri alıp çelişkili bir ikinci FeedTypeTransitioned
+      // yayıyordu. Pin, balık bandın üstüne çıkana kadar yaşar.
+      assignment.manualBandIndex = bandIndex;
       assignment.lastTransitionAt = new Date();
       assignment.totalTransitions = (assignment.totalTransitions ?? 0) + 1;
       await manager.save(assignment);

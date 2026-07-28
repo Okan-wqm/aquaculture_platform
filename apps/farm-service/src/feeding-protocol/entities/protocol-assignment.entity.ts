@@ -128,7 +128,11 @@ export class ProtocolAssignment {
   // Bu tablo tipin SAHİBİ; TypeORM aynı adı zaten türetirdi, ama adı açık
   // yazmak paylaşımı görünür kılar — `feeding_day_plans.unitType` de bu tipi
   // kullanıyor ve orada türetme YANLIŞ ada gidiyordu.
-  @Column({ type: 'enum', enum: FeedingUnitType, enumName: 'feeding_protocol_assignments_unittype_enum' })
+  @Column({
+    type: 'enum',
+    enum: FeedingUnitType,
+    enumName: 'feeding_protocol_assignments_unittype_enum',
+  })
   unitType!: FeedingUnitType;
 
   /** Denormalize görünüm alanları (liste/timeline UI'ları — repo deseni). */
@@ -183,6 +187,26 @@ export class ProtocolAssignment {
   @Field(() => Int, { nullable: true })
   @Column({ type: 'int', nullable: true })
   currentBandIndex?: number;
+
+  /**
+   * Operatörün ELLE sabitlediği band (FARM-MEDIUM-251) — `currentBandIndex`'ten
+   * AYRI bir olgudur.
+   *
+   * `currentBandIndex` "şu an hangi banddayız" demektir ve histerezisin
+   * çapasıdır; bu alan "bir insan açıkça şu bandı seçti" demektir. İkisi tek
+   * alanda tutulduğunda manuel geçiş kendi transaction'ında geri alınıyordu:
+   * çözücü çapayı yalnız histerezis çapası sayıp ağırlık bandına dönüyor,
+   * operatörün seçtiği yemi hem atamadan hem kalan öğünlerden siliyordu.
+   *
+   * Yaşam süresi: balık sabitlenen bandın ÜSTÜNE çıkana kadar geçerli
+   * (`weightResolved.index > manualBandIndex`); o noktada otomatik geçiş
+   * operatörün seçimini geçersiz kılar ve pin temizlenir. Balık küçülürse pin
+   * KORUNUR — açık bir insan kararını, ağırlık düştü diye iptal etmek için bir
+   * gerekçe yoktur.
+   */
+  @Field(() => Int, { nullable: true })
+  @Column({ type: 'int', nullable: true })
+  manualBandIndex?: number;
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })

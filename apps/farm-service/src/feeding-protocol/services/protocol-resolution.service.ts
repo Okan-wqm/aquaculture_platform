@@ -44,17 +44,14 @@ import { round3 } from '../../common/utils/rounding.util';
 
 export interface ProtocolResolutionInput {
   protocol: Pick<FeedingProtocolV2, 'bands' | 'temperatureAdjustments' | 'fcrMatrix' | 'settings'>;
-  assignment: Pick<ProtocolAssignment, 'overrides' | 'currentBandIndex' | 'currentFeedId'>;
+  assignment: Pick<
+    ProtocolAssignment,
+    'overrides' | 'currentBandIndex' | 'currentFeedId' | 'manualBandIndex'
+  >;
   /** Band tabanı — TANK ORTALAMASI (bkz. dosya başlığı). */
   bandBasisWeightG: number;
   temperature: EffectiveTemperature;
   feedFcrMatrix?: FcrMatrix;
-  /**
-   * Histerezis uygulansın mı. Gün-içi recalc'ta EVET (band sınırında
-   * ileri-geri salınım olmasın); 06:00 üretiminde de EVET — plan dünkü
-   * bandla süreklilik taşır.
-   */
-  applyHysteresis?: boolean;
 }
 
 export interface ProtocolResolutionResult extends DayPlanResolution {
@@ -134,9 +131,12 @@ export class ProtocolResolutionService {
   }
 
   /**
-   * Band seçimi: `autoTransition=false` ise ünitenin MEVCUT bandı korunur
-   * (operatörün manuel seçimi ezilemez); açıksa histerezis penceresi
-   * uygulanır.
+   * Band seçimi, öncelik sırasıyla:
+   *
+   *  1. operatörün ELLE sabitlediği band (`manualBandIndex`), balık onun
+   *     üstüne çıkana kadar — FARM-MEDIUM-251;
+   *  2. `autoTransition=false` ise ünitenin MEVCUT bandı;
+   *  3. histerezis penceresiyle ağırlıktan çözülen band.
    */
   private selectBand(
     input: ProtocolResolutionInput,
@@ -145,6 +145,17 @@ export class ProtocolResolutionService {
   ): ResolvedBand {
     const { protocol, bandBasisWeightG } = input;
     const currentBand = previousBandIndex !== null ? protocol.bands[previousBandIndex] : undefined;
+
+    // (1) Manuel pin — histerezisten ÖNCE. `currentBandIndex`'e bakmak yetmez:
+    // manuel geçiş komşu banda yapılabilir, o durumda ağırlık bandı pin'den
+    // FARKLIDIR ve histerezis "balık zaten bu bandın içinde" diyerek pin'i
+    // aynı transaction içinde geri alıyordu. Pin, balık ÜSTÜNE çıkana kadar
+    // yaşar; çıktığında otomatik geçiş devralır (çağıran pin'i temizler).
+    const pinnedIndex = input.assignment.manualBandIndex ?? null;
+    if (pinnedIndex !== null && weightResolved.index <= pinnedIndex) {
+      const pinnedBand = protocol.bands[pinnedIndex];
+      if (pinnedBand) return { band: pinnedBand, index: pinnedIndex };
+    }
 
     if (protocol.settings.autoTransition === false) {
       // Manuel mod: mevcut band varsa aynen korunur. Eskiden 06:00 üretimi

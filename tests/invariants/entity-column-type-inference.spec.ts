@@ -46,10 +46,67 @@ const REPO_ROOT = resolve(__dirname, '..', '..');
 const COLUMN_WITH_OPTIONS =
   /@Column\(\{([^}]*)\}\)\s*(?:@[\w.]+\([^)]*\)\s*)*\n?\s*(\w+)!?\??:\s*([^;]+);/g;
 
+/**
+ * `@Field()` / `@Field({...})` — the forms with NO type thunk — followed by its
+ * property. `@Field(() => X)` states the type and is matched out by the shape.
+ *
+ * Same root cause, different framework: NestJS GraphQL also falls back to
+ * `design:type`, so a union property makes SDL emission fail with
+ * "Undefined type error. Make sure you are providing an explicit type for …".
+ * That aborts the subgraph, which aborts supergraph composition, which aborts
+ * codegen — `FeedingDayPlan.growthApplicationMode` (`'per_meal' | 'daily'`) took
+ * the entire farm schema build down that way.
+ */
+const FIELD_WITHOUT_TYPE =
+  /@Field\((?:\{[^}]*\})?\)\s*(?:@[\w.]+\((?:[^()]|\([^()]*\))*\)\s*)*\n?\s*(\w+)!?\??:\s*([^;]+);/g;
+
 interface Offender {
   file: string;
   property: string;
   tsType: string;
+}
+
+/**
+ * `export type X = 'a' | 'b'` aliases across the scanned corpus.
+ *
+ * Resolving these is not optional. The defect that motivated this gate,
+ * `FeedingDayPlan.growthApplicationMode`, is declared as the ALIAS
+ * `GrowthApplicationMode`, not as an inline union — a scanner that only looks
+ * for a literal `|` in the property type sees nothing and passes, which is
+ * exactly the theatre this file exists to prevent. Verified by restoring the
+ * broken decorator and confirming the alias-aware scan flags it.
+ */
+function stringLiteralUnionAliases(files: readonly string[]): Set<string> {
+  const aliases = new Set<string>();
+  for (const file of files) {
+    const source = readFileSync(join(REPO_ROOT, file), 'utf8');
+    for (const match of source.matchAll(
+      /export\s+type\s+(\w+)\s*=\s*([^;]+);/g,
+    )) {
+      const name = match[1];
+      const body = match[2] ?? '';
+      if (!name || !body.includes('|')) continue;
+      if (!/['"]/.test(body)) continue; // union of TYPES, not of literal values
+      aliases.add(name);
+    }
+  }
+  return aliases;
+}
+
+/** Base type with nullability stripped: `A | null` → `A`. */
+function baseTypeOf(tsType: string): string {
+  const members = tsType
+    .split('|')
+    .map((part) => part.trim())
+    .filter((part) => part !== 'null' && part !== 'undefined');
+  return members.length === 1 ? (members[0] ?? '') : '';
+}
+
+/** Does this property type carry no single inferable runtime class? */
+function isUninferable(tsType: string, aliases: ReadonlySet<string>): boolean {
+  const base = baseTypeOf(tsType);
+  if (base === '') return true; // a genuine value union, inline
+  return aliases.has(base);
 }
 
 function entityFiles(): string[] {
@@ -64,7 +121,7 @@ function entityFiles(): string[] {
 }
 
 /** Columns whose declared TS type is a union but whose options omit `type:`. */
-function scan(files: readonly string[]): Offender[] {
+function scanColumns(files: readonly string[], aliases: ReadonlySet<string>): Offender[] {
   const offenders: Offender[] = [];
   for (const file of files) {
     const source = readFileSync(join(REPO_ROOT, file), 'utf8');
@@ -74,8 +131,28 @@ function scan(files: readonly string[]): Offender[] {
       const options = match[1] ?? '';
       const property = match[2] ?? '';
       const tsType = (match[3] ?? '').trim();
-      if (!tsType.includes('|')) continue;
       if (/\btype\s*:/.test(options)) continue;
+      if (!isUninferable(tsType, aliases)) continue;
+      offenders.push({ file, property, tsType });
+    }
+  }
+  return offenders;
+}
+
+/** GraphQL fields whose declared TS type is a union but which state no type. */
+function scanFields(files: readonly string[], aliases: ReadonlySet<string>): Offender[] {
+  const offenders: Offender[] = [];
+  for (const file of files) {
+    const source = readFileSync(join(REPO_ROOT, file), 'utf8');
+    FIELD_WITHOUT_TYPE.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = FIELD_WITHOUT_TYPE.exec(source)) !== null) {
+      const property = match[1] ?? '';
+      const tsType = (match[2] ?? '').trim();
+      // `T | null` / `T | undefined` are fine for @Field: nullability is
+      // expressed separately and the base type still reflects. What breaks is a
+      // union of VALUES — written inline OR hidden behind a type alias.
+      if (!isUninferable(tsType, aliases)) continue;
       offenders.push({ file, property, tsType });
     }
   }
@@ -84,6 +161,7 @@ function scan(files: readonly string[]): Offender[] {
 
 describe('INVARIANT: entity column type inference', () => {
   const files = entityFiles();
+  const aliases = stringLiteralUnionAliases(files);
 
   it('scans a real corpus (a broken glob must not fake a pass)', () => {
     expect(files.length).toBeGreaterThan(100);
@@ -91,8 +169,16 @@ describe('INVARIANT: entity column type inference', () => {
   });
 
   it('declares an explicit column type wherever the property type is a union', () => {
-    const offenders = scan(files).map(
+    const offenders = scanColumns(files, aliases).map(
       (o) => `${o.file} → ${o.property}: ${o.tsType} (add an explicit \`type:\`)`,
+    );
+
+    expect(offenders).toEqual([]);
+  });
+
+  it('declares an explicit GraphQL field type wherever the property type is a value union', () => {
+    const offenders = scanFields(files, aliases).map(
+      (o) => `${o.file} → ${o.property}: ${o.tsType} (use \`@Field(() => …)\`)`,
     );
 
     expect(offenders).toEqual([]);

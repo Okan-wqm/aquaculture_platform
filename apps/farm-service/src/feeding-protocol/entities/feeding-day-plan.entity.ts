@@ -269,7 +269,14 @@ export class FeedingDayPlan {
    * büyümesini çift saydırıyor veya kalıcı kaybettiriyordu; plan üretildiği
    * semantikle işlenir.
    */
-  @Field()
+  // `GrowthApplicationMode` bir TS BİRLEŞİMİ (`'per_meal' | 'daily'`), kayıtlı
+  // bir GraphQL enum'ı değil. Birleşimler için `design:type` `Object`'tir, yani
+  // `@Field()` tipi çıkaramaz ve SDL üretimi
+  //   Undefined type error ... explicit type for the "growthApplicationMode"
+  // ile durur — farm subgraph'ı HİÇ yayılamaz, dolayısıyla supergraph compose
+  // ve codegen de çöker. Tel tipi kolonun kendisiyle (varchar) aynı hizada
+  // açıkça bildirilir. `Site.timezone`'daki `@Column` vakasıyla aynı kök sınıf.
+  @Field(() => String)
   @Column({ type: 'varchar', length: 16, default: 'per_meal' })
   growthApplicationMode!: GrowthApplicationMode;
 

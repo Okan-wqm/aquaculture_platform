@@ -139,6 +139,7 @@ Allowed truth buckets:
 | `FARM-CRITICAL-244`     | OPEN           | 4.1          | claude               | real-open                 |
 | `FARM-CRITICAL-245`     | OPEN           | 4.1          | claude               | real-open                 |
 | `FARM-CRITICAL-305`     | OPEN           | 4.1          | claude               | real-open                 |
+| `FARM-CRITICAL-306`     | OPEN           | 4.1          | claude               | real-open                 |
 
 ## Mutation Rules
 

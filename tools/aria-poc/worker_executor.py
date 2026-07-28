@@ -252,19 +252,24 @@ def main(argv: list[str] | None = None) -> int:
         # ORPHAN-HIGH-478 — derived from the ladder, not the literal
         # fable->opus@xhigh hop, which stopped being true when the write tier
         # moved to opus and the ladder gained its opus->sonnet rung.
-        _fallback_target = MODEL_FALLBACK_TIER.get(model, "(none)")
+        # profile.model, NOT `model`: `model` exists only as a parameter of the
+        # nested _dispatch_attempt above, so referencing it here raised
+        # NameError at runtime. 2905 passing tests did not catch it because
+        # nothing covers this callsite — the defect class this branch is about.
+        _fallback_target = MODEL_FALLBACK_TIER.get(profile.model, "(none)")
 
         def _on_credit(marker: dict[str, Any]) -> None:
             sys.stderr.write(
                 f"model_credit_fallback assignment={assignment_id} "
                 f"marker={marker.get('matched_marker')!r} "
-                f"{model}->{_fallback_target}@{CREDIT_FALLBACK_EFFORT}\n"
+                f"{profile.model}->{_fallback_target}@{CREDIT_FALLBACK_EFFORT}\n"
             )
 
         def _on_refusal(refusal: dict[str, Any]) -> None:
             sys.stderr.write(
                 f"model_refusal_fallback assignment={assignment_id} "
-                f"category={refusal.get('category')!r} {model}->{_fallback_target}\n"
+                f"category={refusal.get('category')!r} "
+                f"{profile.model}->{_fallback_target}\n"
             )
 
         completed = run_with_model_fallback(

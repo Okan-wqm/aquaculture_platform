@@ -1367,3 +1367,6 @@ finding is one nobody can navigate back to from the review that produced it.
 
 * **ORPHAN-HIGH-478** — The model fallback was a single hardcoded hop: audit rows named fable->opus@xhigh as a literal and the budget multiplier keyed on the alias string  
   Severity HIGH, layer 2, owner okan, deadline 2026-08-24.
+
+* **ORPHAN-CRITICAL-479** — A NameError on the only real worker-dispatch path shipped with 2905 passing tests, and the first two detectors written for it were themselves theatre  
+  Severity CRITICAL, layer 3, owner okan, deadline 2026-08-25.

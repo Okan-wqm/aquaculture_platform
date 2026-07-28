@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `49e6ac2491acb3860af97df7b9b2f862c63fc20b83bf0770d0c7bd4a4a8aaf24`
+Registry tip: `b66b5e8daac9fe30564937388291cdc6eba3c002b4f86c1eeccc01bb612a09c3`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -147,6 +147,7 @@ Allowed truth buckets:
 | `ORPHAN-CRITICAL-460`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-461`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-469`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-479`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 
 Updated 2026-07-26 (ARIA control-plane audit): seven ORPHAN CRITICALs joined the
 active set. Five come from the audit of ARIA's own control plane — a corrupted
@@ -192,6 +193,7 @@ close waits for merge, like the rows above it.
 - `ORPHAN-CRITICAL-451` — fixed in this branch; firejail removed as an accepted sandbox backend because its branch applied none of the READONLY_PATHS while satisfying the S0 exit criterion. `aria-kernel/tests/test_sandbox_and_perimeter_hardening.py` pins it.
 - `ORPHAN-CRITICAL-460` — fixed in this branch; a shell control operator after an allowed prefix bypassed the allowlist, the denylist and the force-push check at once. Same test file pins eleven bypass spellings and nine non-regressions.
 - `ORPHAN-CRITICAL-461` — fixed in this branch; broader-scope claims, globs, empty surface lists, an echo of the canonical suite, and every gh-api route that writes main all passed. Same test file pins them.
+- `ORPHAN-CRITICAL-479` — fixed in this branch; a NameError on the only real worker-dispatch path shipped with 2905 passing tests because nothing covers that callsite. `aria-kernel/tests/test_executor_unbound_names.py` now statically resolves every loaded name in the three spawn-path modules; the first two versions of that detector passed with the bug reintroduced and are documented in the file.
 - `ORPHAN-CRITICAL-469` — fixed in this branch; the agent-invocation queue was stranded between the 01:00 producer and the 02:00 consumer because the executor workflow had no state-restore step, so `next_pending_request` always read a bootstrap-empty tree. The same missing restore left the cross-host lease preflight unable to observe a held lease. `.github/workflows/aria-agent-executor.yml` now restores and republishes the tree, gated on the integrity verdict, and `test_workflow_enterprise_preflight` pins the YAML against the registered contract.
 
 - `AISAFETY-CRITICAL-003` (single process-global `ANTHROPIC_API_KEY`, no per-tenant

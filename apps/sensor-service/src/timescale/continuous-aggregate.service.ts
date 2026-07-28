@@ -1,3 +1,4 @@
+import { listTenantSchemas, validateTenantSchemaName } from '@aquaculture/backend-common/database';
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -6,22 +7,34 @@ import { DataSource, QueryRunner } from 'typeorm';
 /**
  * Continuous Aggregate Service
  *
- * Owns the full lifecycle of the sensor.metrics_1min/1hour/1day continuous
- * aggregates over sensor.sensor_metrics:
+ * Owns the full lifecycle of the metrics_1min/1hour/1day continuous aggregates
+ * over each tenant's `sensor_metrics` hypertable:
  *   - creation (idempotent, at application bootstrap — see `ensureAggregates`),
  *   - runtime visibility into refresh state (`getRefreshStatus`),
  *   - on-demand manual refresh of lagging aggregates (`refresh`).
+ *
+ * ## Per tenant, because the data is per tenant
+ *
+ * A tenant's telemetry lives in that tenant's own schema, so its rollups must
+ * live there too: a continuous aggregate is defined over one hypertable, and
+ * there is one hypertable per tenant. The bootstrap therefore SWEEPS the tenant
+ * schemas and ensures the three views inside each, rather than creating one
+ * shared set over a shared table.
  *
  * Why bootstrap-time creation rather than a migration (SENSOR-MEDIUM-066/068,
  * OPEN-ADR-030-CAGG): the shared migration runner wraps EVERY migration in an
  * explicit transaction (migration-runner.service.ts), but
  * `CREATE MATERIALIZED VIEW … WITH (timescaledb.continuous)` cannot run inside a
- * transaction block. The Baseline migration created the sensor_metrics
- * hypertable but left the rollup views to "a separate runbook step" for exactly
- * this reason (tracked as OPEN-ADR-030-CAGG). This guarded, advisory-locked, idempotent
- * bootstrap IS that step: it runs the proven aggregate DDL outside any
- * transaction (a QueryRunner in autocommit), so the views MetricQueryService
- * and getRefreshStatus/refresh below depend on actually exist.
+ * transaction block — and tenant provisioning is itself migration replay, so it
+ * cannot create them either. This guarded, advisory-locked, idempotent bootstrap
+ * IS that step: it runs the proven aggregate DDL outside any transaction (a
+ * QueryRunner in autocommit).
+ *
+ * A tenant provisioned BETWEEN boots therefore has no rollups until the next
+ * boot ensures them. That is not a silent failure: the aggregated read probes
+ * for the tenant's rollup and falls back to the raw hypertable when it is
+ * absent, so until the rollups exist that tenant still gets correct — merely
+ * unoptimized — charts rather than an error or an empty series.
  *
  * CRITICAL-005: refresh/status were previously a 1-line stub.
  */
@@ -36,8 +49,8 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
     'metrics_1day',
   ] as const;
 
-  /** Schema that owns the sensor_metrics hypertable + its rollup views. */
-  private static readonly SCHEMA = 'sensor';
+  /** Advisory-lock key prefix; one lock per tenant so replicas do not race. */
+  private static readonly LOCK_PREFIX = 'sensor-continuous-aggregate-bootstrap:';
 
   constructor(
     @InjectDataSource()
@@ -58,14 +71,18 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
   }
 
   /**
-   * Idempotently create the metrics_1min/1hour/1day continuous aggregates,
-   * their real-time flag, refresh + retention policies, and lookup indexes.
+   * Idempotently ensure the metrics_1min/1hour/1day continuous aggregates —
+   * their real-time flag, refresh + retention policies and lookup indexes — in
+   * EVERY tenant schema, over that tenant's own sensor_metrics hypertable.
    *
-   * Runs on a single QueryRunner in autocommit (no wrapping transaction), so
-   * the continuous-aggregate DDL is legal; pins search_path to the sensor
-   * schema so the unqualified proven DDL lands there and the cascading views
-   * resolve their parents. Guarded by TimescaleDB presence + a config switch,
-   * and serialized by an advisory lock so replicas do not race.
+   * Runs on a single QueryRunner in autocommit (no wrapping transaction), so the
+   * continuous-aggregate DDL is legal. Guarded by TimescaleDB presence + a config
+   * switch. Each tenant is serialized by its own advisory lock, so replicas
+   * sweeping concurrently divide the work instead of colliding on one lock.
+   *
+   * One tenant's failure does not abort the sweep — the others still get their
+   * rollups — but every failure is collected and raised at the end, so a broken
+   * tenant is loud rather than quietly skipped.
    */
   async ensureAggregates(): Promise<void> {
     const enabled =
@@ -86,47 +103,87 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
         return;
       }
 
-      // Serialize creation across replicas. try-lock (not blocking): if another
-      // instance already holds it, that instance is creating the same views —
-      // skip cleanly (creation is idempotent, so the loser need not re-run).
-      const lockRows: Array<{ locked: boolean }> = await queryRunner.query(
-        `SELECT pg_try_advisory_lock(hashtext('sensor-continuous-aggregate-bootstrap')) AS locked`,
-      );
-      if (lockRows[0]?.locked !== true) {
-        this.logger.log(
-          'Another instance holds the continuous-aggregate bootstrap lock — skipping',
-        );
+      const tenantSchemas = await listTenantSchemas(this.dataSource);
+      if (tenantSchemas.length === 0) {
+        this.logger.log('No tenant schemas present — no continuous aggregates to ensure');
         return;
       }
 
-      try {
-        // Pin search_path so the unqualified DDL creates/resolves views in the
-        // sensor schema (where sensor_metrics lives), then verify the pin.
-        await queryRunner.query(
-          `SET search_path TO "${ContinuousAggregateService.SCHEMA}", public`,
-        );
-        const schemaRows: Array<{ current_schema: string }> = await queryRunner.query(
-          `SELECT current_schema()`,
-        );
-        if (schemaRows[0]?.current_schema !== ContinuousAggregateService.SCHEMA) {
-          throw new Error(
-            `Failed to pin search_path to "${ContinuousAggregateService.SCHEMA}" for ` +
-              `continuous-aggregate creation (observed "${schemaRows[0]?.current_schema}")`,
+      const failures: string[] = [];
+      let ensured = 0;
+      for (const schema of tenantSchemas) {
+        try {
+          if (await this.ensureAggregatesForTenant(queryRunner, schema)) {
+            ensured++;
+          }
+        } catch (error) {
+          failures.push(
+            `${schema}: ${error instanceof Error ? error.message : String(error)}`,
           );
         }
+      }
 
-        for (const { label, sql } of ContinuousAggregateService.aggregateStatements()) {
-          await queryRunner.query(sql);
-          this.logger.log(`Continuous-aggregate bootstrap: ${label}`);
-        }
-        this.logger.log('Continuous aggregates ensured (metrics_1min/1hour/1day)');
-      } finally {
-        await queryRunner.query(
-          `SELECT pg_advisory_unlock(hashtext('sensor-continuous-aggregate-bootstrap'))`,
+      this.logger.log(
+        `Continuous aggregates ensured for ${ensured}/${tenantSchemas.length} tenant schema(s)`,
+      );
+
+      if (failures.length > 0) {
+        throw new Error(
+          `Continuous-aggregate bootstrap failed for ${failures.length} tenant(s): ` +
+            failures.join('; '),
         );
       }
     } finally {
       await queryRunner.release();
+    }
+  }
+
+  /**
+   * Ensure one tenant's rollups. Returns false when another replica holds this
+   * tenant's lock (that replica is creating the same views; creation is
+   * idempotent so the loser need not re-run).
+   *
+   * The schema name is validated before it reaches any SQL, and the pinned
+   * search_path is read back and verified, so the unqualified aggregate DDL
+   * cannot land in the wrong schema.
+   */
+  private async ensureAggregatesForTenant(
+    queryRunner: QueryRunner,
+    tenantSchema: string,
+  ): Promise<boolean> {
+    const schema = validateTenantSchemaName(tenantSchema);
+    const lockKey = `${ContinuousAggregateService.LOCK_PREFIX}${schema}`;
+
+    const lockRows: Array<{ locked: boolean }> = await queryRunner.query(
+      `SELECT pg_try_advisory_lock(hashtext($1)) AS locked`,
+      [lockKey],
+    );
+    if (lockRows[0]?.locked !== true) {
+      this.logger.debug(`Another instance holds the aggregate lock for ${schema} — skipping`);
+      return false;
+    }
+
+    try {
+      await queryRunner.query(`SET search_path TO "${schema}", public`);
+      const schemaRows: Array<{ current_schema: string }> = await queryRunner.query(
+        `SELECT current_schema()`,
+      );
+      if (schemaRows[0]?.current_schema !== schema) {
+        throw new Error(
+          `Failed to pin search_path to "${schema}" for continuous-aggregate creation ` +
+            `(observed "${schemaRows[0]?.current_schema}")`,
+        );
+      }
+
+      for (const { label, sql } of ContinuousAggregateService.aggregateStatements()) {
+        await queryRunner.query(sql);
+        this.logger.debug(`Continuous-aggregate bootstrap [${schema}]: ${label}`);
+      }
+      return true;
+    } finally {
+      await queryRunner.query(`SELECT pg_advisory_unlock(hashtext($1))`, [lockKey]);
+      // Leave no tenant pin on a pooled connection the next caller may reuse.
+      await queryRunner.query(`SET search_path TO "$user", public`);
     }
   }
 

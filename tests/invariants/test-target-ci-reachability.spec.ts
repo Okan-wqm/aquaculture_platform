@@ -67,6 +67,13 @@ const UNREACHABLE_ALLOWLIST: Readonly<Record<string, string>> = {
     'Coverage-reporting variant of `test`, which IS gated. Same suite, extra reporter.',
 };
 
+/**
+ * Root-`package.json` `test:*` scripts with no CI runner that are nonetheless
+ * accepted. Same contract as UNREACHABLE_ALLOWLIST: absent from this map, a
+ * script must be invoked by some workflow.
+ */
+const UNREACHABLE_ROOT_SCRIPTS: Readonly<Record<string, string>> = {};
+
 interface ProjectTarget {
   readonly project: string;
   readonly target: string;
@@ -172,6 +179,78 @@ function isDelegatedFromReachableSibling(
   );
 }
 
+/**
+ * Root-`package.json` scripts named `test` / `test:*`.
+ *
+ * The Nx-graph scan above deliberately ignores package.json `scripts` blocks,
+ * because a workspace-package script is not automatically an Nx target and
+ * scanning them over-collects phantoms. The ROOT package.json is the one
+ * exception: its `test:*` entries ARE the documented developer + CI
+ * entrypoints (CLAUDE.md's Commands section calls them by name), and CI invokes
+ * several of them literally as `npm run <name>`. So they are a real entrypoint
+ * class the graph cannot see — and one that had a live hole:
+ * `test:schema-invariants` ran the physical schema-layout gate that
+ * `apps/farm-service/CLAUDE.md` names as an enforcement mechanism, while
+ * `db-migration-check.yml` listed the spec only under `paths:` and never in a
+ * `run:` step (FARM-MEDIUM-303). Triggering a workflow is not running a test.
+ */
+function rootTestScripts(): Array<{ name: string; body: string }> {
+  const pkg: unknown = JSON.parse(
+    readFileSync(join(REPO_ROOT, 'package.json'), 'utf8'),
+  );
+  const scripts = Reflect.get(pkg as object, 'scripts');
+  if (typeof scripts !== 'object' || scripts === null) return [];
+  return Object.entries(scripts)
+    .filter(([name]) => name === 'test' || name.startsWith('test:'))
+    .map(([name, body]) => ({ name, body: String(body) }));
+}
+
+/** Text of every workflow file, concatenated once. */
+function workflowCorpus(): string {
+  return readdirSync(WORKFLOW_DIR)
+    .filter((entry) => entry.endsWith('.yml') || entry.endsWith('.yaml'))
+    .map((entry) => readFileSync(join(WORKFLOW_DIR, entry), 'utf8'))
+    .join('\n');
+}
+
+/**
+ * A root script counts as run when a workflow invokes it by name, when its body
+ * delegates to something a workflow invokes (`test:e2e:mobile` →
+ * `npm --prefix e2e run test:mobile`, which e2e-tests.yml runs), or when it is
+ * a thin wrapper over an Nx target CI already drives by name.
+ *
+ * The delegation legs are mechanical rather than allowlisted so a script that
+ * stops delegating loses its exemption automatically.
+ */
+function isRootScriptRun(
+  script: { name: string; body: string },
+  corpus: string,
+  driven: Map<string, string[]>,
+): boolean {
+  // `npm run <name>` — not matching a longer sibling (`test:e2e` vs `test:e2e:mobile`).
+  const invoked = new RegExp(
+    `npm run ${script.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w:.-])`,
+  );
+  if (invoked.test(corpus)) return true;
+
+  // Delegation: `npm --prefix <dir> run <inner>` where CI runs `<inner>`.
+  for (const match of script.body.matchAll(/run\s+([\w:.-]+)/g)) {
+    const inner = match[1];
+    if (!inner || inner === script.name) continue;
+    const innerInvoked = new RegExp(
+      `npm run ${inner.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w:.-])`,
+    );
+    if (innerInvoked.test(corpus)) return true;
+  }
+
+  // Wrapper over an Nx target CI drives through the affected-target policy.
+  for (const match of script.body.matchAll(/--target[= ]([\w:.-]+)/g)) {
+    const target = match[1];
+    if (target && driven.has(target)) return true;
+  }
+  return false;
+}
+
 describe('INVARIANT: test-target CI reachability', () => {
   const declared = declaredTestTargets();
   const driven = ciDrivenTargets();
@@ -215,6 +294,34 @@ describe('INVARIANT: test-target CI reachability', () => {
       const target = rest.join(':');
       const entry = declared.find((d) => d.project === project && d.target === target);
       return entry ? isReachableFromCi(entry, driven) : true; // now wired — drop it
+    });
+
+    expect(stale).toEqual([]);
+  });
+
+  it('runs every root-package.json test script somewhere in CI', () => {
+    const corpus = workflowCorpus();
+    const scripts = rootTestScripts();
+
+    // A broken read must not fake a pass.
+    expect(scripts.length).toBeGreaterThan(3);
+    expect(scripts.some((s) => s.name === 'test:schema-invariants')).toBe(true);
+
+    const unrun = scripts
+      .filter((script) => !(script.name in UNREACHABLE_ROOT_SCRIPTS))
+      .filter((script) => !isRootScriptRun(script, corpus, driven))
+      .map((script) => `${script.name} → ${script.body}`);
+
+    expect(unrun).toEqual([]);
+  });
+
+  it('keeps the root-script allowlist honest — no entry that has since been wired or deleted', () => {
+    const corpus = workflowCorpus();
+    const scripts = rootTestScripts();
+    const stale = Object.keys(UNREACHABLE_ROOT_SCRIPTS).filter((name) => {
+      const script = scripts.find((s) => s.name === name);
+      if (!script) return true; // deleted script — exemption is dead weight
+      return isRootScriptRun(script, corpus, driven); // now wired — drop it
     });
 
     expect(stale).toEqual([]);

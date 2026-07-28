@@ -60,3 +60,25 @@ reported as quarantined debt instead of forcing an unrelated bulk rewrite. The c
 is the pull request base SHA or push `before` SHA; scheduled and manual runs fall back to the
 parent of `HEAD`. The committed format-scope manifest remains authoritative, and an invariant
 prevents the full-tree legacy command from returning to the required workflow.
+
+## INFRA-HIGH-088 — full coverage omitted the shared Vitest provider
+
+CI Full reached the complete test matrix with coverage enabled and exposed three workspaces that
+invoke Vitest but cannot start coverage collection: `messaging-module`, `tenant-admin`, and
+`@platform/mcp-farm-management`. All three stopped before test discovery because the reproducible
+root installation did not contain `@vitest/coverage-v8`.
+
+The root development contract now installs the V8 coverage provider at the exact version of the
+root Vitest runner. This keeps one lockfile-governed provider for every npm workspace and makes
+the same `test:all -- --coverage` command usable across the full matrix.
+
+## PERF-HIGH-011 — MCP coverage repeated invariant chemistry calculations
+
+After the missing provider was installed, the MCP risk report scenario reached test execution
+and exceeded Vitest's five-second budget under coverage. Its TAN threshold search recalculated
+the same pH-only H₂S, CO₂, and ammonia-fraction inputs for every TAN candidate—roughly 700,000
+instrumented chemistry calls for one report.
+
+The scenario now precomputes the fixed pH risk grid once, then varies only TAN in the inner
+search. Search resolution, threshold selection, and report output remain unchanged; the fix
+removes repeated work instead of weakening the test timeout.

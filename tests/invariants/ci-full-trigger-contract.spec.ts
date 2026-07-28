@@ -36,6 +36,8 @@ interface Workflow {
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const WORKFLOW_PATH = path.join(REPO_ROOT, '.github', 'workflows', 'ci-full.yml');
+const ROOT_PACKAGE_PATH = path.join(REPO_ROOT, 'package.json');
+const ROOT_LOCK_PATH = path.join(REPO_ROOT, 'package-lock.json');
 
 function readWorkflow(): Workflow {
   return YAML.parse(fs.readFileSync(WORKFLOW_PATH, 'utf8')) as Workflow;
@@ -114,5 +116,31 @@ describe('CI Full protected-main and PR contract', () => {
       FORMAT_BASE_SHA: '${{ github.event.pull_request.base.sha || github.event.before }}',
     });
     expect(steps.some((step) => step.run === 'npm run format:check')).toBe(false);
+  });
+
+  it('installs the Vitest coverage provider at the exact root runner version', () => {
+    const packageJson = JSON.parse(fs.readFileSync(ROOT_PACKAGE_PATH, 'utf8')) as {
+      devDependencies?: Record<string, string>;
+    };
+    const packageLock = JSON.parse(fs.readFileSync(ROOT_LOCK_PATH, 'utf8')) as {
+      packages?: Record<
+        string,
+        {
+          version?: string;
+          devDependencies?: Record<string, string>;
+          peerDependencies?: Record<string, string>;
+        }
+      >;
+    };
+    const rootVitest = packageJson.devDependencies?.vitest;
+    const rootCoverage = packageJson.devDependencies?.['@vitest/coverage-v8'];
+
+    expect(rootVitest).toBe('3.2.4');
+    expect(rootCoverage).toBe(rootVitest);
+    expect(packageLock.packages?.['']?.devDependencies?.['@vitest/coverage-v8']).toBe(rootVitest);
+    expect(packageLock.packages?.['node_modules/@vitest/coverage-v8']?.version).toBe(rootVitest);
+    expect(
+      packageLock.packages?.['node_modules/@vitest/coverage-v8']?.peerDependencies?.vitest,
+    ).toBe(rootVitest);
   });
 });

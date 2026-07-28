@@ -23951,6 +23951,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1816000000000-BackfillSensorReadingsIntoTenantMetrics.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/deploy-artifact/__tests__/artifact-immutability.spec.ts",
       "prettier_managed": true
     },
@@ -55206,10 +55212,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9050,
+  "file_count": 9051,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8869,
-  "managed_file_list_sha256": "a6c42cd09798f10593f70fbcfdcb9946e979a26b8a16c31af84f0e75b4144a7d",
+  "managed_count": 8870,
+  "managed_file_list_sha256": "aaf745ecee512b56f716a3a3f46b1bf2d1ad9106096eb7698858f4e57f74c588",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

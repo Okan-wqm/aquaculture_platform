@@ -564,7 +564,7 @@ Kalibrasyon workflow'u, firmware/OTA gerçek yüzeyi, health/offline alerting, t
 
 ### SENSOR-HIGH-085 takibi
 
-- **Takip — F-085-DROP (owner: sensor-expert / by-okan@live.com · son tarih: 2026-08-15):** fiziksel `sensor_readings` hypertable'ının DROP'u ayrı bir migration'da yapılır. Blue-green kontrat adımı: rolling deploy sırasında eski pod'lar tabloyu hâlâ yazabildiği için tam rollout tamamlanana kadar düşürülemez. Yeni kod tabloyu ne okur ne yazar; kalması zararsız ölü ağırlıktır ve bu takip kalemiyle kapatılır.
+- **Takip — F-085-DROP (owner: sensor-expert / by-okan@live.com · son tarih: 2026-08-15):** fiziksel `sensor_readings` hypertable'ının DROP'u ayrı bir migration'da yapılır. **Ön koşul:** `1816000000000-BackfillSensorReadingsIntoTenantMetrics` uygulanmış olmalı — GraphQL ile alınmış tarihsel okumalar yalnızca bu tabloda duruyordu; backfill koşmadan DROP, o geçmişi yok eder. Blue-green kontrat adımı: rolling deploy sırasında eski pod'lar tabloyu hâlâ yazabildiği için tam rollout tamamlanana kadar düşürülemez. Yeni kod tabloyu ne okur ne yazar; kalması zararsız ölü ağırlıktır ve bu takip kalemiyle kapatılır.
 
 ### SENSOR-MEDIUM-024 — InstallerCommandModal 'Token Yenile' rotates the token server-side but keeps displaying the stale installer command
 - **Alan / kategori:** FE·Ekleme sihirbazları · `ux-truth`

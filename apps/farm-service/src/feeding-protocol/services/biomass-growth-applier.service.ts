@@ -168,6 +168,15 @@ export class BiomassGrowthApplierService {
    * D-1 invariant girdisi: batch'in TÜM tank_batches satırlarındaki payları.
    * batchDetails taşıyan satırlarda ilgili girdi; taşımayanlarda primary
    * aggregate okunur. Aynı transaction'da koşar.
+   *
+   * `$2` İKİ bağlamda kullanılıyor: jsonb'den çıkan `->>'batchId'` (text) ve
+   * `primaryBatchId` (uuid). Postgres bir parametreye TEK tip çıkarır; ilk
+   * kullanım text olduğu için `$2`'yi text'e bağlar ve `uuid = text` operatörü
+   * bulunmadığından sorgu PARSE anında patlar — veriden bağımsız, HER çağrıda.
+   * `applyGrowth` bunu her kilitli batch için çağırdığından büyüme uygulayan
+   * her öğün kaydı ve her DAILY rollup bu hatayı alıyordu; mock'lu süitler
+   * göremiyordu çünkü sorgu hiç Postgres'e gitmiyordu. Bu yüzden uuid kolonu
+   * text'e cast edilir: parametre her iki karşılaştırmada da text kalır.
    */
   private async sumBatchSharesAcrossUnits(
     manager: EntityManager,
@@ -185,7 +194,7 @@ export class BiomassGrowthApplierService {
          WHERE tb."tenantId" = $1
            AND (
              detail.value IS NOT NULL
-             OR (tb."primaryBatchId" = $2 AND (tb."batchDetails" IS NULL OR jsonb_array_length(tb."batchDetails") = 0))
+             OR (tb."primaryBatchId"::text = $2 AND (tb."batchDetails" IS NULL OR jsonb_array_length(tb."batchDetails") = 0))
            )`,
         [tenantId, batchId],
       );

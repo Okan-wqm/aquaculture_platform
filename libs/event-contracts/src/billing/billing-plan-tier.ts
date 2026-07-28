@@ -137,3 +137,21 @@ export function classifyPlanChange(
   if (to < from) return 'downgrade';
   return 'lateral';
 }
+
+/**
+ * Narrows a persisted tier string to the enum, or `null` if it is not one.
+ *
+ * Read-models project `plan_tier` columns as `varchar`, so a reader receives a
+ * bare `string`. Asserting it into the enum would be a lie the moment a row
+ * carries a tier this build does not know — a rename, a rollback, or a row
+ * written by a newer release mid-deploy. Returning `null` lets the caller say
+ * "I cannot classify this" instead of silently misclassifying it (APA-139).
+ */
+export function parseBillingPlanTier(value: string): BillingPlanTier | null {
+  for (const tier of Object.values(BillingPlanTier)) {
+    if (String(tier) === value) {
+      return tier;
+    }
+  }
+  return null;
+}

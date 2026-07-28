@@ -10,3 +10,5 @@ export * from './tenant.entity';
 export * from './user.entity';
 export * from './subscription.entity';
 export * from './invoice.entity';
+export * from './payment.entity';
+export * from './scheduled-plan-change.entity';

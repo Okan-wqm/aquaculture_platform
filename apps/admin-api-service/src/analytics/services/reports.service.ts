@@ -10,6 +10,7 @@
 import * as crypto from 'crypto';
 
 import { IsoDateString, toIsoDateString } from '@aquaculture/backend-common/database';
+import { classifyPlanChange, parseBillingPlanTier } from '@platform/event-contracts';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import {
   BadRequestException,
@@ -581,92 +582,211 @@ export class ReportsService {
   // Financial Reports
   // ============================================================================
 
+  /**
+   * Revenue report, built from DATED billing facts.
+   *
+   * It used to SYNTHESISE the series: for every day in the range it walked the
+   * live tenant list, took each tenant's CURRENT subscription price, divided by
+   * 30 and added it up — so the history was a projection of today's state
+   * backwards. A tenant that churned or upgraded this morning silently rewrote
+   * every day of last year, and `renewals`/`upgrades`/`downgrades`/`refunds`
+   * were hardcoded `0` (APA-139). It also contradicted the dashboard, which had
+   * already been migrated to `billing.invoices`.
+   *
+   * Every column now derives from a fact with its own immutable date, so no
+   * later change can move it:
+   *
+   *   * `revenue`  — paid invoices bucketed by `paid_at::date` (cash basis, the
+   *     same semantics `getFinancialMetrics` uses for `revenueThisMonth`, so
+   *     the dashboard and this report agree by construction rather than by
+   *     coincidence);
+   *   * `newSubscriptions` — subscriptions bucketed by `start_date::date`;
+   *   * `renewals` — paid invoices that are NOT the subscription's first;
+   *   * `upgrades` / `downgrades` — APPLIED plan-change ledger rows bucketed by
+   *     `applied_at::date` and classified with the shared `classifyPlanChange`,
+   *     so this reader cannot disagree with the billing write that produced the
+   *     row;
+   *   * `refunds` — each `payments.refunds[]` entry bucketed by its OWN
+   *     `refundedAt`, because an invoice paid in March and refunded in May
+   *     reduces May, not March.
+   */
   private async generateRevenueReport(
     request: ReportRequest,
   ): Promise<ReportBody<RevenueReportRow>> {
-    const startDate = request.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const endDate = request.endDate || new Date();
+    const startDate = request.startDate ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const endDate = request.endDate ?? new Date();
+    const from = toIsoDateString(startDate);
+    const to = toIsoDateString(endDate);
 
-    // Fetch all tenants with their creation dates and plans
-    const tenants = await this.tenantRepository.find();
+    // Cash-basis revenue and renewals in one pass. A renewal is a paid invoice
+    // that is not the FIRST for its subscription — `MIN(issue_date)` per
+    // subscription identifies the first, so the classification survives
+    // out-of-order payment.
+    const revenueRows = await this.dataSource.query<
+      Array<{ day: IsoDateString; revenue: string; renewals: string }>
+    >(
+      `WITH paid AS (
+         SELECT i."paid_at"::date        AS day,
+                i."total"                AS total,
+                i."subscription_id"      AS subscription_id,
+                i."issue_date"           AS issue_date
+         FROM   billing.invoices i
+         WHERE  i."status" = 'paid'
+           AND  i."paid_at" IS NOT NULL
+           AND  i."paid_at"::date BETWEEN $1::date AND $2::date
+       ),
+       first_issue AS (
+         SELECT "subscription_id", MIN("issue_date") AS first_issue_date
+         FROM   billing.invoices
+         WHERE  "subscription_id" IS NOT NULL
+         GROUP  BY "subscription_id"
+       )
+       SELECT p.day::text                                        AS day,
+              COALESCE(SUM(p.total), 0)::text                    AS revenue,
+              COUNT(*) FILTER (
+                WHERE p.subscription_id IS NOT NULL
+                  AND p.issue_date > f.first_issue_date
+              )::text                                            AS renewals
+       FROM   paid p
+       LEFT   JOIN first_issue f ON f."subscription_id" = p.subscription_id
+       GROUP  BY p.day
+       ORDER  BY p.day`,
+      [from, to],
+    );
 
-    // MRR from the billing SSoT, never an in-code tier table (APA-147).
-    // NOTE: this report still projects TODAY's subscription price backwards onto
-    // every historical day, so it rewrites history on a repricing or a plan
-    // change. That is the separate, larger APA-139 — this change only removes
-    // the second pricing source, it does not yet make the series temporal.
-    const monthlyPriceByTenant = await this.resolveMonthlyPrices(tenants.map((t) => t.id));
+    const newSubscriptionRows = await this.dataSource.query<
+      Array<{ day: IsoDateString; count: string }>
+    >(
+      `SELECT "start_date"::date::text AS day, COUNT(*)::text AS count
+       FROM   billing.subscriptions
+       WHERE  "start_date"::date BETWEEN $1::date AND $2::date
+       GROUP  BY "start_date"::date
+       ORDER  BY "start_date"::date`,
+      [from, to],
+    );
 
-    // Build daily revenue data for the requested date range
-    const data: RevenueReportRow[] = [];
-    const current = new Date(startDate);
-    current.setHours(0, 0, 0, 0);
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59, 999);
+    // Only APPLIED rows: PENDING is a scheduled downgrade that has not taken
+    // effect and CANCELLED was superseded, so counting either would report a
+    // plan change that never happened.
+    const planChangeRows = await this.dataSource.query<
+      Array<{ day: IsoDateString; currentPlanTier: string; newPlanTier: string; count: string }>
+    >(
+      `SELECT "appliedAt"::date::text AS day,
+              "currentPlanTier",
+              "newPlanTier",
+              COUNT(*)::text          AS count
+       FROM   billing.scheduled_plan_changes
+       WHERE  "status" = 'APPLIED'
+         AND  "appliedAt" IS NOT NULL
+         AND  "appliedAt"::date BETWEEN $1::date AND $2::date
+       GROUP  BY 1, 2, 3`,
+      [from, to],
+    );
 
-    while (current <= end) {
-      const dateStr = current.toISOString().substring(0, 10);
-      const currentTime = current.getTime();
+    // Each refund is dated by its OWN refundedAt, lifted out of the jsonb array.
+    const refundRows = await this.dataSource.query<Array<{ day: IsoDateString; amount: string }>>(
+      `SELECT (r->>'refundedAt')::timestamptz::date::text AS day,
+              COALESCE(SUM((r->>'amount')::numeric), 0)::text AS amount
+       FROM   billing.payments p
+       CROSS  JOIN LATERAL jsonb_array_elements(COALESCE(p."refunds", '[]'::jsonb)) AS r
+       WHERE  (r->>'refundedAt') IS NOT NULL
+         AND  (r->>'refundedAt')::timestamptz::date BETWEEN $1::date AND $2::date
+       GROUP  BY 1
+       ORDER  BY 1`,
+      [from, to],
+    );
 
-      // Count active tenants at this date and calculate daily revenue
-      let dailyRevenue = 0;
-      let newSubscriptions = 0;
+    const revenueByDay = new Map(revenueRows.map((r) => [r.day, Number(r.revenue)]));
+    const renewalsByDay = new Map(revenueRows.map((r) => [r.day, Number(r.renewals)]));
+    const newSubsByDay = new Map(newSubscriptionRows.map((r) => [r.day, Number(r.count)]));
+    const refundsByDay = new Map(refundRows.map((r) => [r.day, Number(r.amount)]));
 
-      for (const tenant of tenants) {
-        const createdAt = tenant.createdAt ? new Date(tenant.createdAt) : null;
-        if (!createdAt || createdAt.getTime() > currentTime) continue;
-
-        // Only count active or pending tenants that existed by this date
-        if (tenant.status === TenantStatus.ACTIVE || tenant.status === TenantStatus.PENDING) {
-          const monthlyPrice = monthlyPriceByTenant.get(tenant.id) ?? 0;
-          // Prorate monthly price to a daily amount
-          dailyRevenue += monthlyPrice / 30;
-
-          // Check if tenant was created on this exact day
-          const createdDateStr = createdAt.toISOString().substring(0, 10);
-          if (createdDateStr === dateStr) {
-            newSubscriptions++;
-          }
-        }
+    const upgradesByDay = new Map<string, number>();
+    const downgradesByDay = new Map<string, number>();
+    for (const row of planChangeRows) {
+      // The ledger stores tiers as varchar, so they are PARSED rather than
+      // asserted: a row carrying a tier this build does not know (a rename, a
+      // rollback, a row written by a newer release mid-deploy) is counted in
+      // neither column, because "I cannot classify this" is the honest answer.
+      const from = parseBillingPlanTier(row.currentPlanTier);
+      const to = parseBillingPlanTier(row.newPlanTier);
+      if (!from || !to) {
+        this.logger.warn(
+          `Plan-change row skipped: unrecognised tier ${row.currentPlanTier} -> ${row.newPlanTier}`,
+        );
+        continue;
       }
 
-      dailyRevenue = Math.round(dailyRevenue * 100) / 100;
-
-      data.push({
-        date: dateStr,
-        revenue: dailyRevenue,
-        newSubscriptions,
-        renewals: 0, // Requires subscription renewal tracking
-        upgrades: 0, // Requires plan change history table
-        downgrades: 0, // Requires plan change history table
-        refunds: 0, // Requires refund tracking
-        netRevenue: dailyRevenue,
-      });
-
-      current.setDate(current.getDate() + 1);
+      // A lateral move is neither an upgrade nor a downgrade, and folding it
+      // into either would report tier movement that did not happen.
+      const direction = classifyPlanChange(from, to);
+      const bucket =
+        direction === 'upgrade'
+          ? upgradesByDay
+          : direction === 'downgrade'
+            ? downgradesByDay
+            : null;
+      if (bucket) {
+        bucket.set(row.day, (bucket.get(row.day) ?? 0) + Number(row.count));
+      }
     }
 
-    // Calculate summary totals
-    const totalRevenue = data.reduce((sum, d) => sum + d.revenue, 0);
-    const totalNewSubscriptions = data.reduce((sum, d) => sum + d.newSubscriptions, 0);
-    const totalNetRevenue = data.reduce((sum, d) => sum + d.netRevenue, 0);
-    const activePaidTenants = tenants.filter(
-      t => t.status === TenantStatus.ACTIVE && t.plan !== TenantPlan.TRIAL,
-    ).length;
+    // One row per day in the range, including days with no activity: a gap in
+    // the series would read as missing data rather than as a quiet day.
+    const data: RevenueReportRow[] = [];
+    const cursor = new Date(startDate);
+    cursor.setUTCHours(0, 0, 0, 0);
+    const last = new Date(endDate);
+    last.setUTCHours(0, 0, 0, 0);
+
+    while (cursor <= last) {
+      const day = toIsoDateString(cursor);
+      const revenue = round2(revenueByDay.get(day) ?? 0);
+      const refunds = round2(refundsByDay.get(day) ?? 0);
+
+      data.push({
+        date: day,
+        revenue,
+        newSubscriptions: newSubsByDay.get(day) ?? 0,
+        renewals: renewalsByDay.get(day) ?? 0,
+        upgrades: upgradesByDay.get(day) ?? 0,
+        downgrades: downgradesByDay.get(day) ?? 0,
+        refunds,
+        netRevenue: round2(revenue - refunds),
+      });
+
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+
+    const sum = (pick: (row: RevenueReportRow) => number): number =>
+      data.reduce((total, row) => total + pick(row), 0);
+
+    const totalRevenue = sum((d) => d.revenue);
+
+    // Counted from ACTIVE paid SUBSCRIPTIONS, not from tenants: a tenant row
+    // says nothing about whether anyone is paying for it.
+    const activeSubscriptions = await this.subscriptionRepository.find({
+      where: { status: SubscriptionStatus.ACTIVE },
+    });
+    const activePaidTenants = new Set(
+      activeSubscriptions
+        .filter((subscription) => monthlyPriceOf(subscription) > 0)
+        .map((subscription) => subscription.tenantId),
+    ).size;
 
     return {
       measured: true,
       data,
       summary: {
-        totalRevenue: Math.round(totalRevenue * 100) / 100,
-        totalNewSubscriptions,
-        totalRenewals: 0,
-        totalUpgrades: 0,
-        totalDowngrades: 0,
-        totalRefunds: 0,
-        totalNetRevenue: Math.round(totalNetRevenue * 100) / 100,
+        totalRevenue: round2(totalRevenue),
+        totalNewSubscriptions: sum((d) => d.newSubscriptions),
+        totalRenewals: sum((d) => d.renewals),
+        totalUpgrades: sum((d) => d.upgrades),
+        totalDowngrades: sum((d) => d.downgrades),
+        totalRefunds: round2(sum((d) => d.refunds)),
+        totalNetRevenue: round2(sum((d) => d.netRevenue)),
         activePaidTenants,
-        avgDailyRevenue: data.length > 0 ? Math.round((totalRevenue / data.length) * 100) / 100 : 0,
+        avgDailyRevenue: data.length > 0 ? round2(totalRevenue / data.length) : 0,
       },
     };
   }

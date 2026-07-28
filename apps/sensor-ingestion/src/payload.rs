@@ -410,8 +410,7 @@ pub fn validate(bytes: &[u8], topic_tenant: TenantId) -> Result<SensorReading, P
 mod tests {
     use super::{
         PRODUCER_TS_MAX_MS, PRODUCER_TS_MIN_MS, PayloadError, PayloadSource, QUALITY_GOOD_MIN,
-        QUALITY_UNCERTAIN_MAX, QUALITY_UNCERTAIN_MIN, QualityCode,
-        SensorReading, validate,
+        QUALITY_UNCERTAIN_MAX, QUALITY_UNCERTAIN_MIN, QualityCode, SensorReading, validate,
     };
     use tenant_context::TenantId;
     use uuid::Uuid;
@@ -751,7 +750,14 @@ mod tests {
         // 64 (uncertain), 0 (bad) and 24 (comm failure). Every one of them
         // was rejected by the previous `> 3` narrowing, which dropped the
         // reading at the trust boundary.
-        for code in [QUALITY_GOOD_MIN, 255, QUALITY_UNCERTAIN_MIN, QUALITY_UNCERTAIN_MAX, 0, 24] {
+        for code in [
+            QUALITY_GOOD_MIN,
+            255,
+            QUALITY_UNCERTAIN_MIN,
+            QUALITY_UNCERTAIN_MAX,
+            0,
+            24,
+        ] {
             let bytes = format!(
                 r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","value":1.0,"quality":{code},"producerTs":1735689600000}}"#
             )
@@ -767,7 +773,11 @@ mod tests {
         // agree, or a Rust-side decision and a SQL-side decision drift.
         assert!(QualityCode::try_new(QUALITY_GOOD_MIN).unwrap().is_good());
         assert!(QualityCode::try_new(255).unwrap().is_good());
-        assert!(!QualityCode::try_new(QUALITY_UNCERTAIN_MAX).unwrap().is_good());
+        assert!(
+            !QualityCode::try_new(QUALITY_UNCERTAIN_MAX)
+                .unwrap()
+                .is_good()
+        );
         assert!(!QualityCode::try_new(0).unwrap().is_good());
     }
 

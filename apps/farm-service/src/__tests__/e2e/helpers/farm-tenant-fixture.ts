@@ -38,8 +38,11 @@ import { withTenantContext } from '@aquaculture/backend-common';
 import { DataSource } from 'typeorm';
 
 import { Batch, BatchInputType } from '../../../batch/entities/batch.entity';
-import { AllocationType } from '../../../batch/entities/tank-allocation.entity';
+import { TankAllocation, AllocationType } from '../../../batch/entities/tank-allocation.entity';
+import { TankBatch } from '../../../batch/entities/tank-batch.entity';
+import { TankOperation } from '../../../batch/entities/tank-operation.entity';
 import { BatchService } from '../../../batch/services/batch.service';
+import { MortalityCullPolicyService } from '../../../batch/services/mortality-cull-policy.service';
 import {
   Department,
   DepartmentStatus,
@@ -77,6 +80,27 @@ export interface FarmTenantFixtureParams {
   initialQuantity?: number;
   /** Average weight at stocking, grams. Default 10 (→ 1 kg per 100 fish). */
   initialAvgWeightG?: number;
+}
+
+/**
+ * Builds the `BatchService` the fixture drives.
+ *
+ * Lives here rather than in each suite so the raw `Repository<T>` wiring exists
+ * ONCE per service's test tree. A production service constructor declares plain
+ * repositories and there is no tenant-scoped equivalent of that shape, so some
+ * test-support file has to produce them; concentrating it here is what lets the
+ * banned-construct gate keep the rule on every spec.
+ */
+export function createFixtureBatchService(dataSource: DataSource): BatchService {
+  return new BatchService(
+    dataSource.getRepository(Batch),
+    dataSource.getRepository(TankAllocation),
+    dataSource.getRepository(TankBatch),
+    dataSource.getRepository(TankOperation),
+    dataSource.getRepository(Tank),
+    dataSource,
+    new MortalityCullPolicyService(),
+  );
 }
 
 /**

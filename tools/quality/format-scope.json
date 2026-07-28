@@ -7318,6 +7318,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/__tests__/e2e/rollup-reconciliation.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/site-tenant-isolation.postgres.spec.ts",
       "prettier_managed": true
     },
@@ -55206,10 +55212,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9050,
+  "file_count": 9051,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8869,
-  "managed_file_list_sha256": "0ef98da962bd9776496a13bbf4f0e17a995a85cf32c9860470daa868983f08bc",
+  "managed_count": 8870,
+  "managed_file_list_sha256": "fca935f8360ed133e83fcc0ee0cf7ca7d00ac41e66d1bdfaf566740ad1927a5d",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }
